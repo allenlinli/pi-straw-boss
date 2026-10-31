@@ -1045,11 +1045,12 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.base .card > .quit-btn:not([hidden]) { flex: 1 1 100%; margin: 0; } .base .card > .quit-btn:not([hidden]) ~ .ticks { bottom: 3px; }
 	/* A question to answer (Robot Hand, ask_user): the card is the one scroller, so no option is cut inside a list of its own, and the Send answer row is sticky under it with a fade over what scrolls beneath. */
 	.comms-in .ask-opts { max-height: none; overflow: visible; } .comms-in .ask-ctx, .comms-in .ask-why { max-height: 5em; }
-	.comms-in .ask-acts { z-index: 1; } .comms-in .ask[data-more] .ask-acts::before { content: attr(data-cue); position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); padding: 2px 12px; border-radius: 999px; background: var(--surface-1); color: var(--gold); font-size: 12px; white-space: nowrap; pointer-events: none; } .comms-in .ask[data-more] .ask-acts::after { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 24px; background: linear-gradient(transparent, color-mix(in srgb, var(--amber) 6%, var(--bg))); pointer-events: none; z-index: -1; }
+	.comms-in .ask-acts { z-index: 1; } .comms-in .ask[data-more] .ask-acts::before { content: attr(data-cue); flex: 1 1 100%; order: -1; text-align: center; padding: 0; line-height: 18px; color: var(--gold); font-size: 12px; white-space: nowrap; pointer-events: none; } /* in the row, above Send: no option text ever sits under the cue */ .comms-in .ask[data-more] .ask-acts::after { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 24px; background: linear-gradient(transparent, color-mix(in srgb, var(--amber) 6%, var(--bg))); pointer-events: none; z-index: -1; }
 	.composer textarea::placeholder { font-size: 13px; } /* a placeholder does not make the phone zoom in, and the longest ones then fit one line */
 }
 /* A 360 px phone: the boss conversation's line may take two lines (the time it ends is the part that must show), and the header gives back what it can. */
 @media (max-width: 380px) {
+	.composer textarea::placeholder { font-size: 12px; } /* a monospace Geek hint then stays one line in the one-row composer */
 	.tower-conv .conv-line { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; padding-block: 6px; }
 	/* At rest the composer is one row, + and Send beside the box; a tap into the box (or text in it) opens the two-row form again, the box on top. */
 	.composer:has(textarea:placeholder-shown:not(:focus)) .cmp-row { flex-wrap: nowrap; align-items: center; }

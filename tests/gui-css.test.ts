@@ -48,6 +48,15 @@ test("a finished card's Dismiss takes its own row on a phone, and a question's c
 	assert.match(rule(".comms-in .ask-opts"), /max-height:\s*none/);
 });
 
+test("the 'More below' cue sits in the Send row, never absolutely over option text; the 360 placeholder is small and its hint short", () => {
+	const cue = /ask-acts::before \{[^}]*\}/.exec(rule(".comms-in .ask[data-more] .ask-acts::before"))![0];
+	assert.doesNotMatch(cue, /position:\s*absolute/);
+	assert.match(cue, /flex:\s*1 1 100%/);
+	assert.match(css, /@media \(max-width: 380px\) \{\s*\n\s*\.composer textarea::placeholder \{ font-size: 12px/);
+	const en = JSON.parse(readFileSync(new URL("../gui/messages/en.json", import.meta.url), "utf8"));
+	assert.ok(en.blocked_answer_above.length <= 22, "fits one 12px monospace line in the 360 px one-row box");
+});
+
 test("forced colors: disabled controls and placeholders take GrayText, and the map's connectors are left out", () => {
 	const block = css.slice(css.indexOf("@media (forced-colors: active)"));
 	assert.match(block, /:is\(\.composer, \.ask\) button:disabled\s*\{[^}]*GrayText/);

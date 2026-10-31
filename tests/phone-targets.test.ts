@@ -7,24 +7,28 @@ import { test } from "node:test";
 // visible control under 44 px at 390 × 844 and 360 × 740 on the demo page) are in the change's report.
 const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8");
 const MEDIA = "@media (max-width: 640px) {";
-const open = css.indexOf(MEDIA, css.indexOf("/* A phone's tap targets"));
-assert.ok(open > 0, "the phone tap-target block exists");
-
-/** The media query's rules as [selector, declarations]; the block ends at the brace that closes the query. */
-const rules: [string, string][] = [];
-let depth = 0, from = open + MEDIA.length, selector = "";
-for (let at = from; at < css.length && depth >= 0; at++) {
-	if (css[at] === "{") {
-		if (depth === 0) selector = css.slice(from, at).replace(/\/\*[\s\S]*?\*\//g, "").trim();
-		depth++;
-		from = at + 1;
-	} else if (css[at] === "}") {
-		depth--;
-		if (depth === 0) rules.push([selector, css.slice(from, at)]);
-		from = at + 1;
+/** The rules of the `@media (max-width: 640px)` block that follows `marker` (a comment in style.css) as [selector, declarations]; the block ends at the brace that closes the query. */
+function rulesAfter(marker: string): [string, string][] {
+	const open = css.indexOf(MEDIA, css.indexOf(marker));
+	assert.ok(open > 0, `${marker} has its phone block`);
+	const found: [string, string][] = [];
+	let depth = 0, from = open + MEDIA.length, selector = "";
+	for (let at = from; at < css.length && depth >= 0; at++) {
+		if (css[at] === "{") {
+			if (depth === 0) selector = css.slice(from, at).replace(/\/\*[\s\S]*?\*\//g, "").trim();
+			depth++;
+			from = at + 1;
+		} else if (css[at] === "}") {
+			depth--;
+			if (depth === 0) found.push([selector, css.slice(from, at)]);
+			from = at + 1;
+		}
 	}
+	return found;
 }
-const body = (selector: string) => rules.filter(([s]) => s === selector).map(([, b]) => b).join(";");
+const rules = rulesAfter("/* A phone's tap targets");
+const bodyIn = (list: [string, string][], selector: string) => list.filter(([s]) => s === selector).map(([, b]) => b).join(";");
+const body = (selector: string) => bodyIn(rules, selector);
 const size = (selector: string, property: string) => Number(body(selector).match(new RegExp(`${property}:\\s*(\\d+)px`))?.[1]);
 
 test("the phone block gives the controls the audit found small a 44 px box", () => {
@@ -78,4 +82,49 @@ test("the home list's base name is a 23 px link, but its ::after stretches over 
 	assert.match(rule(".enter-base::after"), /content:\s*""/);
 	assert.doesNotMatch(rule(".title h2"), /position/, "the clipping h2 does not become the containing block");
 	assert.match(body(".tl-mark"), /pointer-events:\s*none/, "and the 10 px activity marks take no taps at all");
+});
+
+// The phone's layout block ("A phone's menus and layout"): the `⋯` menus (gui/menu.ts), the one-line conversation bar, the queue fold, and what leaves the screen so the log gets 55 % of it.
+const layout = rulesAfter("/* A phone's menus and layout");
+const inLayout = (selector: string) => bodyIn(layout, selector);
+const topRule = (selector: string) => css.match(new RegExp(`(?:^|\\n|\\}\\s)${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+
+test("the `⋯` button is a 44 px box on a phone and not there above 640 px; its wrapper and panel are display: contents there, so the controls keep their row", () => {
+	assert.ok(layout.length > 15, `the layout block's rules were read (${layout.length})`);
+	assert.deepEqual([".width", ".min-width", ".height"].map((p) => Number(inLayout(".menu-btn").match(new RegExp(`(?:^|[;\\s])${p.slice(1)}:\\s*(\\d+)px`))?.[1])), [44, 44, 44]);
+	assert.match(inLayout(".menu-btn"), /display:\s*grid/);
+	assert.match(topRule(".menu, .menu-pop"), /display:\s*contents/, "above 640 px the wrapper and the panel add no box");
+	assert.match(topRule(".menu-btn"), /display:\s*none/, "and no button");
+	assert.match(inLayout(".menu-pop:not(:popover-open)"), /display:\s*none/, "a closed panel on a phone shows nothing");
+	assert.match(inLayout(".menu-pop:popover-open"), /display:\s*grid/);
+	// What the panel holds is a 44 px control already: the shared rule names .pair-btn and .quit-btn, and the head's + Main and Quit tower.
+	assert.match(inLayout(".menu-pop :is(.pair-btn, .quit-btn)"), /width:\s*100%/);
+});
+
+test("a unit's Quit is only in its comms header on a phone map; a base's and a squad's are behind their `⋯`; the head's `⋯` is a tower's alone", () => {
+	assert.match(inLayout(".base :is(.card > .quit-btn[data-close=\"unit\"], .tower-quit)"), /display:\s*none/, "no Quit on a unit's card or the base's Quit tower line");
+	assert.match(inLayout(".comms-head:not([data-tower]) .menu-btn"), /display:\s*none/, "another unit's header keeps its own Quit in the row, with no `⋯`");
+	assert.match(inLayout(".comms-head:not([data-tower]) .menu-pop"), /display:\s*contents/);
+});
+
+test("the log gets the screen: no crumbs on the map, no avatar gutter on an assistant's message, the conversation bar one line with its `⋯`", () => {
+	assert.match(inLayout("body[data-route=\"map\"] .crumbs"), /display:\s*none/);
+	assert.match(inLayout(".tx.in"), /grid-template-columns:\s*minmax\(0, 1fr\)/);
+	assert.match(inLayout(".tx.in > .ava"), /display:\s*none/);
+	assert.match(inLayout(".tower-conv .conv-line"), /white-space:\s*nowrap/);
+	assert.match(inLayout(".tower-conv .conv-line"), /text-overflow:\s*ellipsis/);
+	assert.match(inLayout(".tower-conv .conv-line > :is(.conv-began, .conv-cap, .conv-sep)"), /display:\s*none/, "the line keeps its title and the state; the rest is in the menu");
+	assert.match(topRule(".tower-conv :is(.conv-facts, .conv-runs-bar)"), /display:\s*none/, "and what only the phone says is hidden above 640 px");
+});
+
+test("the queue's fold row is a 44 px button; the list and Edit wait behind it until it is opened, and show as they did above 640 px", () => {
+	assert.match(inLayout(".queue-fold"), /min-height:\s*44px/);
+	assert.match(inLayout(".queue-fold"), /width:\s*100%/);
+	assert.match(inLayout(".queue-bar:not([hidden]):not([data-open]) ~ :is(.queue-list, .queue-act)"), /display:\s*none/);
+	assert.match(topRule(".queue-bar"), /display:\s*none/, "the row is a phone's: no row above 640 px");
+});
+
+test("a squad's units are rows on a phone (the plate beside the name), and the workspace's totals one row of four", () => {
+	assert.match(inLayout(".tally"), /grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/);
+	assert.match(inLayout(".col > .token"), /grid-template-columns:\s*auto minmax\(0, 1fr\)/);
 });

@@ -22,7 +22,8 @@ const link = Math.max(...[".hit", ".enter-base::after"].map((s) => Number(declar
 
 test("every quit button on a card or a base header stacks above the stretched link", () => {
 	assert.ok(link >= 0, "the stretched links declare a z-index");
-	for (const selector of [".card > .quit-btn", ".base > header > .quit-btn", ".tower-quit"]) {
+	// A base's Quit sits in a `⋯` menu's wrapper (gui/menu.ts: `display: contents` above 640 px, so it is still the header's child to the eye), and the `⋯` button itself is above the link too.
+	for (const selector of [".card > .quit-btn", ".base > header .menu-pop > .quit-btn", ".base > header .menu-btn", ".tower-quit"]) {
 		assert.ok(["relative", "absolute", "fixed", "sticky"].includes(declared(selector, "position") ?? "static"), `${selector} is positioned`);
 		assert.ok(Number(declared(selector, "z-index")) > link, `${selector} is above the link (z-index ${link})`);
 	}

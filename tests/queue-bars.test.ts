@@ -39,7 +39,7 @@ class El {
 	}
 }
 Object.assign(globalThis, { document: { createElement: (tag: string) => new El(tag), createTextNode: (s: string) => s } });
-const { drawQueued, mountQueueEdit } = await import("../gui/bars.ts");
+const { drawQueued, foldQueue, mountQueueEdit, mountQueueFold } = await import("../gui/bars.ts");
 
 const draw = (list: Queued[] | undefined) => {
 	const box = new El("div");
@@ -180,4 +180,49 @@ test("an open row is keyed by its session and, among identical rows, by its plac
 	assert.deepEqual(run(b, same, "beta").map((r) => r.getAttribute("aria-expanded")), ["false", "false", "false"], "another session's identical queue is not opened with it");
 	run(a, same.slice(0, 1), "alpha");
 	assert.deepEqual(run(a, same, "alpha").map((r) => r.getAttribute("aria-expanded")), ["false", "false", "false"], "a row that left the queue does not come back open");
+});
+
+// A phone folds a queue of more than one to a row, "3 queued" (gui/bars.ts foldQueue, style.css "A phone's menus"); one message stays the bubble it will become. Above 640 px the row is `display: none`.
+const fold = () => {
+	const label = { textContent: "" }, attrs: Record<string, string> = {}, press = { onclick: undefined as (() => void) | undefined };
+	const bar = { hidden: true, dataset: {} as Record<string, string>, querySelector: (s: string) => (s === "b" ? label : { setAttribute: (k: string, v: string) => void (attrs[k] = v), get onclick() { return press.onclick; }, set onclick(f: (() => void) | undefined) { press.onclick = f; } }) };
+	const view = { querySelector: (s: string) => (s === ".queue-bar" ? bar : null) } as unknown as HTMLElement;
+	return { bar, label, attrs, view, press };
+};
+
+test("the fold row shows with two or more queued messages, says how many, and is gone with one or none", () => {
+	const f = fold();
+	foldQueue(f.view, 3);
+	assert.equal(f.bar.hidden, false);
+	assert.equal(f.label.textContent, "3 queued");
+	foldQueue(f.view, 1);
+	assert.equal(f.bar.hidden, true, "one message is the bubble it will become");
+	foldQueue(f.view, 0);
+	assert.equal(f.bar.hidden, true);
+	foldQueue({ querySelector: () => null } as unknown as HTMLElement, 2); // a view with no bar (a terminal tile) is left alone
+});
+
+test("the fold row's button opens and shuts the list, says so in aria-expanded, and the fold stays as the user left it while the count changes; a queue that empties closes it", () => {
+	const f = fold();
+	mountQueueFold(f.view);
+	foldQueue(f.view, 3);
+	assert.equal(f.attrs["aria-expanded"], "false");
+	f.press.onclick!();
+	assert.equal(f.bar.dataset.open, "1");
+	assert.equal(f.attrs["aria-expanded"], "true");
+	foldQueue(f.view, 4);
+	assert.equal(f.bar.dataset.open, "1", "a fourth arriving does not shut what the user opened");
+	assert.equal(f.label.textContent, "4 queued");
+	f.press.onclick!();
+	assert.equal(f.bar.dataset.open, undefined);
+	assert.equal(f.attrs["aria-expanded"], "false");
+	f.press.onclick!();
+	foldQueue(f.view, 1);
+	assert.equal(f.bar.dataset.open, undefined, "back to one: the next queue starts folded");
+});
+
+test("the fold row is in both languages, with its count", async () => {
+	const { m } = await import("../gui/paraglide/messages.js");
+	assert.equal(m.queue_fold({ count: 3 }), "3 queued");
+	assert.equal(m.queue_fold({ count: 3 }, { locale: "zh-TW" }), "排隊中 3 則");
 });

@@ -45,6 +45,20 @@ export function drawQueued(view: HTMLElement, list: Queued[] | undefined, sessio
 	for (const key of mine) if (!live.has(key)) mine.delete(key);
 	if (!list?.length) opened.delete(session); // a session with no queue keeps nothing
 }
+/** A queue of more than one folds to one row on a phone ("3 queued", style.css): the row shows with two or more, and its button opens or shuts the list and Edit under it. A single message stays as the bubble it will become. */
+export function foldQueue(view: HTMLElement, count: number) {
+	const bar = view.querySelector<HTMLElement>(".queue-bar");
+	if (!bar) return;
+	bar.hidden = count < 2;
+	if (count < 2) delete bar.dataset.open;
+	else bar.querySelector("b")!.textContent = m.queue_fold({ count });
+	bar.querySelector("button")?.setAttribute("aria-expanded", String(Boolean(bar.dataset.open)));
+}
+/** The fold row's button: it opens and shuts the queue under it. */
+export function mountQueueFold(view: HTMLElement) {
+	const bar = view.querySelector<HTMLElement>(".queue-bar"), button = bar?.querySelector("button");
+	if (bar && button) button.onclick = () => ((bar.dataset.open ? delete bar.dataset.open : (bar.dataset.open = "1")), button.setAttribute("aria-expanded", String(Boolean(bar.dataset.open))));
+}
 /** The queue's Edit: pressing it runs `take` (the composer's take-back, composer.ts) once at a time; the button is disabled while it runs. The button lives in the session view's markup (`.queue-act`), shown with the queue. */
 export function mountQueueEdit(view: HTMLElement, take: () => Promise<unknown>) {
 	const button = view.querySelector<HTMLButtonElement>(".queue-act button");

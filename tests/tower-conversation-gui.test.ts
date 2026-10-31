@@ -71,7 +71,8 @@ const box = (service: TowerService | undefined) => {
 	fillConversation(el as unknown as HTMLElement, "wA", service);
 	return el;
 };
-const buttons = (el: El) => el.find((x) => x.tag === "button").map((b) => b.textContent);
+/** The conversation's own buttons: the `⋯` that opens the phone's menu is not one of them. */
+const buttons = (el: El) => el.find((x) => x.tag === "button" && !x.classes.has("menu-btn")).map((b) => b.textContent);
 
 test("the conversation box: hidden with no conversation and no event runs; Leave and New while it lasts; New alone when it is closing; chips for event runs that link when their session is known", () => {
 	assert.equal(box(undefined).hidden, true);
@@ -95,6 +96,28 @@ test("the conversation box: hidden with no conversation and no event runs; Leave
 	assert.equal(chips[0]!.attrs.get("title"), "done: routed it");
 	assert.match(chips[0]!.attrs.get("data-route") ?? "", /run-e1/);
 	assert.equal(chips[1]!.tag, "span", "a run whose session is not known yet is not a link");
+});
+
+test("the phone's bar: the line alone in the box, and a `⋯` menu holding Leave, New, the facts the line cuts, and the event runs' chips (above 640 px the menu is display: contents, so the rows are as they were)", () => {
+	const menuOf = (el: El) => el.find((x) => x.classes.has("menu"))[0];
+	const live = box(svc({ localRuns: [{ id: "e1", kind: "event" as const, startedAt: "2026-10-28T09:00:00Z", outcome: "done", key: "run-e1" }, { id: "e2", kind: "event" as const, startedAt: "2026-10-28T09:10:00Z" }] }));
+	const menu = menuOf(live)!, panel = menu.find((x) => x.classes.has("menu-pop"))[0]!, opener = menu.find((x) => x.classes.has("menu-btn"))[0]!;
+	assert.equal(opener.textContent, "⋯");
+	assert.equal(opener.attrs.get("popovertarget"), (panel as unknown as { id: string }).id, "the button opens its own panel");
+	assert.equal(opener.attrs.get("aria-label"), m.menu_more());
+	assert.equal(panel.attrs.get("popover"), "auto", "Escape and a tap outside close it, and the browser returns the focus");
+	assert.deepEqual(panel.find((x) => x.tag === "button").map((b) => b.textContent), [m.conv_leave(), m.conv_new_button()]);
+	assert.ok(panel.find((x) => x.classes.has("ally-chip")).length === 2, "the chips are in the menu");
+	assert.match(panel.find((x) => x.classes.has("conv-facts"))[0]!.textContent, /^resumed session · boss turns: 14 · hard cap \d\d:\d\d$/, "what the one-line bar cuts is in the menu");
+	assert.equal(live.find((x) => x.classes.has("conv-line")).length, 1, "the box itself holds the one line");
+	assert.ok(live.find((x) => x.tag === "button" && x.attrs.has("data-menu-keep")).length === 2, "Leave and New keep the menu open for their result");
+	// Standing by with event runs only: the bar says how many, the chips are in the menu.
+	const standing = box(svc({ conversation: undefined, state: "standing", run: undefined, localRuns: [{ id: "e1", kind: "event" as const, startedAt: "2026-10-28T09:00:00Z", key: "run-e1" }] }));
+	assert.equal(standing.find((x) => x.classes.has("conv-runs-bar"))[0]!.textContent, m.conv_runs_bar({ count: 1 }));
+	assert.equal(menuOf(standing)!.find((x) => x.classes.has("ally-chip")).length, 1);
+	// An event run the boss is in: one line, no menu to open.
+	assert.equal(menuOf(box(svc({ conversation: undefined, bossIn: { id: "e3", since: "2026-10-28T10:05:00Z" }, run: { id: "e3", kind: "local", startedAt: "2026-10-28T10:00:00Z" } }))), undefined);
+	assert.equal(m.conv_runs_bar({ count: 2 }, { locale: "zh-TW" }), "事件執行・2", "in both languages");
 });
 
 test("the log: a divider opens each conversation run before the first entry written since, a live run's divider waits at the end, and one that began before the mounted part of the log is left out", () => {

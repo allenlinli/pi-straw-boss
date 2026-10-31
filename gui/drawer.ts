@@ -42,8 +42,8 @@ export const quitable = (r: Pick<Row, "role" | "mark">) => r.role === "main" && 
 /** A group's rows with each subagent under the unit before it, as the map hangs them. */
 const nest = (list: Row[]) => list.reduce<(Row & { subs: Row[] })[]>((out, r) => (r.sub ? out.at(-1)?.subs.push(r) : out.push({ ...r, subs: [] }), out), []);
 const unitEl = () => html(`<div class="unit"><div class="card"><a class="hit"></a>${PLATE}<div class="meta"><span class="name"></span><span class="line"><em class="role"></em><b class="dstate"></b><span class="note"></span></span></div><button type="button" class="quit-btn" data-close="unit" hidden></button></div><div class="subs"></div></div>`);
-/** The tower is two buttons in a row, not a card: its icon (its comms) and + (a new main in its base, the map's own + Main), its subagents under it. */
-const towerEl = () => html(`<div class="unit tower-row"><div class="trow"><a class="tower-go">${PLATE}</a><button type="button" class="pair-btn tower-add"></button></div><div class="subs"></div></div>`);
+/** The tower is two buttons in a row, not a card: its comms (its icon, its name, and its state in a word) and + Main (a new main in its base, the map's own button), its subagents under it. */
+const towerEl = () => html(`<div class="unit tower-row"><div class="trow"><a class="tower-go">${PLATE}<span class="meta"><span class="name"></span><span class="line"><em class="role"></em><b class="dstate"></b></span></span></a><button type="button" class="pair-btn tower-add"></button></div><div class="subs"></div></div>`);
 const sectionEl = () => html(`<section class="dbase"><h3><a></a><small></small></h3><div class="dgroups"></div></section>`);
 const groupEl = () => html(`<div class="dgroup"><h4></h4><div class="drows"></div></div>`);
 const phone = () => matchMedia("(max-width: 640px)").matches;
@@ -85,8 +85,11 @@ export function mountDrawer() {
 			el.dataset.key = r.key;
 			mark(el, r.mark);
 			fillPlate(go.querySelector(".plate")!, "tower", r.mark);
+			text(go, ".name", r.name);
+			text(go, ".role", roleName("tower"));
+			text(go, ".dstate", shortState(r.mark, r.ended));
 			add.hidden = !base;
-			if (base) (aimOpening(add, base), (add.textContent = "+"), add.setAttribute("aria-label", m.open_main_title({ base: base.label }))); // the map's button aimed at the base, its words cut to a +
+			if (base) (aimOpening(add, base), add.setAttribute("aria-label", m.open_main_title({ base: base.label }))); // the map's button aimed at the base, with its words
 			sync(el.querySelector(".subs")!, r.subs, unitEl, fillRow);
 		};
 		sync(body, groupUnits(latest ?? { bases: [] }), sectionEl, (el, s) => {

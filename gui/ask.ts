@@ -48,6 +48,19 @@ interface Panel { first?: () => HTMLButtonElement | HTMLInputElement | undefined
 const keyOf = (p: Pending) => (p.answer ? `d\n${p.answer.dialog}\n${p.answer.digest}` : `c\n${p.callId}\n${p.why ?? ""}`);
 
 /** `terminal` opens the session's terminal tile: a read-only panel offers it (Show terminal), except for a secret_drop, whose mirror stays hidden. */
+/** A long question scrolls inside its card on a phone (style.css, the card's `max-height`): `data-more` is set while more of it lies below, with the words the cue says, so a list that ends under the Send row is never taken for the whole list. */
+function cue(el: HTMLElement) {
+	if (el.dataset.cued) return;
+	el.dataset.cued = "1";
+	const check = () => {
+		el.toggleAttribute("data-more", el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+		for (const acts of el.querySelectorAll<HTMLElement>(".ask-acts")) acts.dataset.cue = m.ask_more(); // attr() reads the element the pseudo-element belongs to
+	};
+	el.addEventListener("scroll", check, { passive: true });
+	if (typeof ResizeObserver !== "undefined") new ResizeObserver(check).observe(el);
+	if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(check);
+}
+
 export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: () => void, accepted?: () => void) {
 	// `cur` is the panel on show, drawn for `shown`; `kept` is the newest one that answers, which comes back as it was when its dialog does.
 	let shown: Pending | undefined, cur: Panel | undefined, kept: Panel | undefined, ready = false, busy = false, leave: ReturnType<typeof setTimeout> | undefined;
@@ -133,6 +146,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		if (cur && cur !== x) cur.focus = cur.el.contains(had) ? had! : undefined;
 		[shown, cur, kept] = [p, x, x?.send ? x : kept];
 		root.replaceChildren(...(x ? [x.el] : []));
+		if (x) cue(x.el);
 		draw();
 		if (x?.focus && (!document.activeElement || document.activeElement === document.body)) x.focus.focus();
 	};

@@ -148,7 +148,7 @@ export function createGuiHost(o: GuiHostOptions) {
 	};
 	const guiJsonStopped = (on: boolean) => {
 		const seen = readGuiJson(dir);
-		if (seen) writeRecordFile(dir, { ...seen, pid, ...(o.started() ? { started: o.started() } : {}), owner, ownerSession: id, version: o.version, ...(on ? { stopped: true } : { stopped: undefined }) });
+		if (seen) writeRecordFile(dir, (({ view: _was, ...rest }) => ({ ...rest, ...(view !== "auto" ? { view } : {}) }))({ ...seen, pid, ...(o.started() ? { started: o.started() } : {}), owner, ownerSession: id, version: o.version, ...(on ? { stopped: true } : { stopped: undefined }) }));
 	};
 
 	/** gui.json says the default view too, while this server owns the record (a record of another process is not ours to change). */

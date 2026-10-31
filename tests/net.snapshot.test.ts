@@ -345,3 +345,21 @@ test("an event run whose session file is its own is a unit with the role run, no
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("a subagent that recorded done is not drawn working while its pi pane still says so: its mark follows `ended`, so the map, the drawer's tag, and the badge agree", async () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "psb-net-ended-mark-")));
+	try {
+		const dir = join(root, "sessions"), file = join(dir, "2026_s1.jsonl"), activity = join(dir, "artifacts", "s1", "subagent-activity");
+		mkdirSync(activity, { recursive: true });
+		writeFileSync(file, "");
+		for (const [name, phase] of [["kid-wrap", "done"], ["kid-run", "active"]]) writeFileSync(join(activity, `${name}.json`), JSON.stringify({ phase }));
+		const pane = (id: string, label: string) => ({ pane_id: id, workspace_id: "wA", tab_id: "wA:t1", agent: "pi", agent_status: "working", label, agent_session: { value: join(dir, `2026_${label}.jsonl`) } }) as Pane;
+		const ps = [...panes.map((p) => (p.pane_id === "wA:p1" ? { ...p, agent: "pi", agent_session: { value: file } } : p)), pane("wA:p8", "kid-wrap"), pane("wA:p9", "kid-run")];
+		const herdr = async (args: string[]) => JSON.stringify({ result: args[0] === "pane" ? { panes: ps } : { workspaces } });
+		const source = netSource({ run: herdr, sessions: async () => [session("s1", "one", { ws: "wA", tab: "wA:t1", pane: "wA:p1" })], sessionDir: dir });
+		const kids = (await source.read()).bases[0]!.tabs[0]!.units[0]!.subs.map((c) => [c.key, c.mark, Boolean(c.ended), c.control, c.note]);
+		assert.deepEqual(kids.toSorted(), [["kid-run", "working", false, true, "active"], ["kid-wrap", "done", true, true, "finished"]]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});

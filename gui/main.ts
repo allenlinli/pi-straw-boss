@@ -15,7 +15,7 @@ import { mountMenus } from "./menu.ts";
 import { mountNotify } from "./notify.ts";
 import { mountQuit, showDismissAll, showStashed } from "./quit.ts";
 import { hang, mountPage } from "./render.ts";
-import { phoneHidden } from "./desk.ts";
+import { settingsAllowed } from "./desk.ts";
 import { createRouter, depthOf, netOf, parseRoute, type Route, type Section, upOf, watchOf } from "./router.ts";
 import { createStream, type Source, type Status } from "./stream.ts";
 import { mountTimeline } from "./timeline.ts";
@@ -65,9 +65,9 @@ const openTile = (tile: Tile, take?: boolean) => withPanels((p) => p.tiles.open(
 
 // The settings page's sections (Phone, Teams, Server) are a chunk of their own, fetched the first time the page opens; they are built when a section opens and dropped when it closes (settings.ts).
 // Phone and the server's panel are this computer's: a paired device has neither, and a desk window has no Phone (desk.ts).
-const phoneOk = !phoneHidden(location.hostname), serverOk = location.hostname === "127.0.0.1"; // restarting the server and reading its log are this computer's too (the server answers 403 local_only to a paired device)
+const allowed = settingsAllowed(location.hostname), phoneOk = allowed.phone; // restarting the server and reading its log are this computer's too (the server answers 403 local_only to a paired device)
 let settings: Promise<ReturnType<typeof mountSettings>> | undefined;
-const withSettings = (call: (s: ReturnType<typeof mountSettings>) => unknown) => void (settings ??= import("./settings.ts").then(({ mountSettings }) => mountSettings(el("settings-view"), { phone: phoneOk, server: serverOk }))).then(call);
+const withSettings = (call: (s: ReturnType<typeof mountSettings>) => unknown) => void (settings ??= import("./settings.ts").then(({ mountSettings }) => mountSettings(el("settings-view"), allowed))).then(call);
 /** Opens a section of the settings page: in place when the page is open, else by its route (which a link can also carry). */
 const openSection = (section: Section) => (current.view === "settings" ? withSettings((s) => s.show(section)) : router.go({ view: "settings", section }));
 

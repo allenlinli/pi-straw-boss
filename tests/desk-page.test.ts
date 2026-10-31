@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deskMode, phoneHidden } from "../gui/desk.ts";
+import { deskMode, phoneHidden, settingsAllowed } from "../gui/desk.ts";
 import { aimStash, showStashed } from "../gui/quit.ts";
 import type { Base, Net } from "../src/net.ts";
 
@@ -49,4 +49,12 @@ test("the HUD's Stashed button and list stay empty and hidden in desk mode, and 
 	showStashed(b, l, stashed, false);
 	assert.equal(b.hidden, false);
 	assert.equal(l.kids.length, 1);
+});
+
+test("the settings page's sections follow the page: own page both, desk window Server only, a paired device (tailnet or LAN name) neither", () => {
+	assert.deepEqual(settingsAllowed("127.0.0.1", false), { phone: true, server: true });
+	assert.deepEqual(settingsAllowed("127.0.0.1", true), { phone: false, server: true });
+	assert.deepEqual(settingsAllowed("box.tail1.ts.net", false), { phone: false, server: false });
+	assert.deepEqual(settingsAllowed("192.168.1.20", false), { phone: false, server: false });
+	assert.deepEqual(settingsAllowed("box.tail1.ts.net", true), { phone: false, server: false });
 });

@@ -15,9 +15,12 @@ export function fillConversation(box: HTMLElement, ws: string, service: TowerSer
 	const c = service?.conversation, inRun = !c ? service?.bossIn : undefined, events = (service?.localRuns ?? []).filter((r) => r.kind === "event"), sig = JSON.stringify([ws, c, inRun, events.map((r) => [r.id, r.key, r.outcome, r.note])]);
 	if (box.dataset.sig === sig) return;
 	box.dataset.sig = sig;
+	// A redraw (Leave or New changed the conversation) replaces the `⋯` panel; one the boss has open stays open, with the result it shows, and the focus lands in it again.
+	const open = box.querySelector(".menu-pop")?.matches(":popover-open") === true, kept = open ? [box.querySelector(".tnote-fail")?.textContent, box.querySelector(".conv-done")?.textContent] : [];
 	box.hidden = !c && !inRun && !events.length;
 	if (box.hidden) return box.replaceChildren();
 	const fail = h("small", { class: "tnote-fail", role: "alert" }), done = h("small", { class: "conv-done", role: "status" }), say = (text?: string) => ((fail.textContent = text ?? ""), (done.textContent = ""));
+	[fail.textContent, done.textContent] = [kept[0] ?? "", kept[1] ?? ""];
 	const button = (label: string, title: string, path: "leave" | "new", ok: () => string) => {
 		const b = h("button", { type: "button", class: "pair-btn", title, "data-menu-keep": "" }, label);
 		b.onclick = () => void guarded(b, say, async () => { const r = await post(`tower/${encodeURIComponent(ws)}/${path}`, {}); if (r.ok) done.textContent = ok(); return r; }, 0);
@@ -44,9 +47,11 @@ export function fillConversation(box: HTMLElement, ws: string, service: TowerSer
 			return h("a", { class: "ally-chip", href: route || "./", "data-route": route, title: tip || m.conv_event_run_open() }, label);
 		})));
 	}
+	let panel: HTMLElement | undefined;
 	if (inMenu.length) {
-		const panel = h("div", { class: "menu-pop hud-pop", popover: "auto", role: "group", "aria-label": m.menu_more() }, ...inMenu);
+		panel = h("div", { class: "menu-pop hud-pop", popover: "auto", role: "group", "aria-label": m.menu_more() }, ...inMenu);
 		rows.push(h("span", { class: "menu" }, moreButton(panel), panel));
 	}
 	box.replaceChildren(...rows);
+	if (open && panel?.isConnected) panel.showPopover();
 }

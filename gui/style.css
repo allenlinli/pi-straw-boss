@@ -817,7 +817,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .drawer .trow { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .drawer .tower-go { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 0 8px; border: 1px solid var(--line); border-radius: 12px; color: var(--c); text-decoration: none; } .drawer .tower-go .meta { display: grid; min-width: 0; color: var(--text); } .drawer .tower-go .line { display: flex; gap: 6px; min-width: 0; } .drawer .tower-row.current > .trow > .tower-go { border-color: var(--c4); background: var(--c1); } .drawer .tower-go .plate { --s: 28px; flex: none; }
 .drawer .tower-add { display: grid; place-items: center; flex: none; min-width: 56px; min-height: 44px; padding: 0 12px; white-space: nowrap; } .drawer .tower-add[hidden] { display: none; }
 .drawer .quit-btn { min-height: 44px; } .drawer .quit-btn[hidden] { display: none; }
-.drawer .line { gap: 6px; } .drawer .dstate { flex: none; color: var(--c); font-size: 11px; font-weight: 600; } .drawer .unit.current > .card { border-color: var(--c4); box-shadow: inset 3px 0 var(--c), inset -3px 0 var(--c); }
+.drawer .line { gap: 6px; } .drawer .dstate { flex: none; color: var(--c); font-size: 11px; font-weight: 600; } .drawer .unit.current > .card { background: var(--c1); border-color: var(--c4); } .drawer .unit.current > .card > .hit::after { content: "›"; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--c); font: 700 20px/1 var(--sans); } /* the current unit: a tint and a chevron, the border as all the others' */
 .drawer .unit[data-dismiss] > .card { transform: translateX(var(--sx, 0px)); opacity: var(--so, 1); transition: transform 0.2s ease-out, opacity 0.2s; } .drawer .unit > .card.swiping { transition: none; } .drawer .unit > .card.gone { --sx: 110%; --so: 0; }
 @media (max-width: 640px) { .drawer { display: flex; } .drawer-veil { display: block; } }
 @media (max-width: 900px) { .work { flex-direction: column; align-items: stretch; } .view, .tiles { flex: none; } .tile { position: static; } .keep { flex-wrap: wrap; } }
@@ -904,7 +904,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.tile:has(.spawn, .pair) { max-height: calc(var(--vvh, 100dvh) - 16px); } /* a short form's cap was the desktop's (under the HUD); on a phone the tile is the screen, and the 44 px rows need all of it */
 	.teams-tile { grid-template-columns: minmax(0, 1fr); } .teams-tile b { white-space: normal; overflow-wrap: anywhere; } /* a request's headline wraps (.tile b is one line, which widened the whole tile past a 360 px screen) */
 	/* Links that stand alone, apart from running text. */
-	.specs a, .d-squad a { display: inline-block; padding-block: 12px; line-height: 20px; }
+	.specs a, .d-squad a { display: inline-block; padding-block: 12px; line-height: 20px; } .specs a { margin-block: -7px; } /* the 44 px tap box reaches into the row's own padding: the Base row is as tall as the others */
 	.dbase h3 { align-items: center; } .dbase h3 a { padding-block: 12px; line-height: 20px; }
 	.cmp-link { display: inline-flex; align-items: center; padding-inline: 8px; } :is(.ask, .term-bar, .doc-acts, .composer) :is(button, .cmp-link) { min-height: 44px; } /* above the touch rule's .ask button and the like */
 	.slash li { align-items: center; min-height: 44px; }
@@ -1040,6 +1040,22 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.col > .token .plate { --s: 44px; grid-row: span 2; margin: 0; } .col > .token :is(.name, .line) { grid-column: 2; }
 	.col > .token .line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
 	.col .say { margin-top: 0; } .col .drones { justify-content: flex-start; padding-top: 8px; }
+	/* A finished subagent's Dismiss takes its own row under the plate and the words, so its state word and note keep the card's width (it was a 120 px column that left them a letter). Still a 44 px button. */
+	.base .card:has(> .quit-btn:not([hidden])) { flex-wrap: wrap; row-gap: 2px; } .base .card > .meta { flex: 1 1 0; min-width: 0; }
+	.base .card > .quit-btn:not([hidden]) { flex: 1 1 100%; margin: 0; } .base .card > .quit-btn:not([hidden]) ~ .ticks { bottom: 3px; }
+	/* A question to answer (Robot Hand, ask_user): the card is the one scroller, so no option is cut inside a list of its own, and the Send answer row is sticky under it with a fade over what scrolls beneath. */
+	.comms-in .ask-opts { max-height: none; overflow: visible; } .comms-in .ask-ctx, .comms-in .ask-why { max-height: 5em; }
+	.comms-in .ask-acts { z-index: 1; } .comms-in .ask[data-more] .ask-acts::before { content: attr(data-cue); position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); padding: 2px 12px; border-radius: 999px; background: var(--surface-1); color: var(--gold); font-size: 12px; white-space: nowrap; pointer-events: none; } .comms-in .ask[data-more] .ask-acts::after { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 24px; background: linear-gradient(transparent, color-mix(in srgb, var(--amber) 6%, var(--bg))); pointer-events: none; z-index: -1; }
+	.composer textarea::placeholder { font-size: 13px; } /* a placeholder does not make the phone zoom in, and the longest ones then fit one line */
+}
+/* A 360 px phone: the boss conversation's line may take two lines (the time it ends is the part that must show), and the header gives back what it can. */
+@media (max-width: 380px) {
+	.tower-conv .conv-line { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; padding-block: 6px; }
+	/* At rest the composer is one row, + and Send beside the box; a tap into the box (or text in it) opens the two-row form again, the box on top. */
+	.composer:has(textarea:placeholder-shown:not(:focus)) .cmp-row { flex-wrap: nowrap; align-items: center; }
+	.composer:has(textarea:placeholder-shown:not(:focus)) textarea { order: 0; flex: 1 1 0; min-width: 0; }
+	.composer:has(textarea:placeholder-shown:not(:focus)) .cmp-row > .cmp-alt { order: -1; } .composer:has(textarea:placeholder-shown:not(:focus)) .cmp-acts { margin-left: 0; order: 1; }
+	.brand { flex: 1 1 0; } [data-view="geek"] .brand h1 { font-size: 15px; letter-spacing: 0.06em; } [data-view="geek"] .brand { gap: 8px; } /* Geek's LIVE word and its wider face fit the first row */
 }
 
 /* The settings page (route `settings`, settings.ts): groups of rows, each row a label and its control; Phone & devices, Teams, and Server are disclosures that fill when opened. */
@@ -1050,7 +1066,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .set-group h3 { margin: 0; font: 600 15px var(--sans); }
 details.set-group > summary { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; list-style: none; } details.set-group > summary::-webkit-details-marker { display: none; }
 details.set-group > summary::after { content: "▸"; margin-left: auto; color: var(--dim); } details.set-group[open] > summary::after { content: "▾"; }
-details.set-group[open] > summary { margin-bottom: 8px; } details.set-group[hidden] { display: none; }
+details.set-group:not([open]) { padding-block: 6px; } details.set-group[open] > summary { margin-bottom: 8px; } details.set-group[hidden] { display: none; }
 .set-note { margin: 0; color: var(--dim); font-size: 12px; } .set-note:empty { display: none; }
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; } .set-row > :first-child { color: var(--text); font-size: 14px; }
 .set-row .tog { min-width: 7em; justify-content: flex-start; text-transform: none; letter-spacing: 0; font-size: 13px; }
@@ -1058,8 +1074,11 @@ details.set-group[open] > summary { margin-bottom: 8px; } details.set-group[hidd
 .set-ctl { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex: 1 1 auto; min-width: 0; } .set-ctl input[type="range"] { flex: 1; min-width: 0; max-width: 220px; accent-color: var(--accent); }
 .set-ctl output { width: 3ch; text-align: right; font: 12px var(--mono); color: var(--dim); } .set-ctl .pair-btn { text-transform: none; letter-spacing: 0; }
 .set-row .lang { max-width: 60%; }
+.set-body .pair-btn { text-transform: none; letter-spacing: 0; } /* Restart server beside Show log: one case */
 .set-body { min-width: 0; } .set-body .pair, .set-body .teams-tile { padding: 0; } .set-body .chat-empty { padding: 6px 0; } .set-body .chat-empty:empty { display: none; } /* a note that says nothing takes no room (the tile's 60 px padding was for an empty log) */
 .set-row + .set-note { margin-top: -2px; }
+
+body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the page has its own heading and back arrow: no floating Dismiss-finished chip or empty crumbs above it */
 
 /* The Geek view (view.ts sets data-view="geek" on <html>): a terminal. Black surfaces, one monospace face, every text token at least 7 : 1 on every surface and every border at least 3 : 1
    (tests/geek-contrast.test.ts reads this block), nothing moves, glows, or fades, and each state also reads as a text tag before the unit's name, so colour is never the only sign.
@@ -1154,9 +1173,16 @@ details.set-group[open] > summary { margin-bottom: 8px; } details.set-group[hidd
 [data-view="geek"] ::selection { background: var(--text); color: var(--ink); }
 [data-view="geek"] a.ally-chip:hover { background: var(--surface-1); }
 [data-view="geek"] .banner { background: var(--surface-1); }
+/* A disabled control is an outline with dim words, not a faded fill: it keeps 7 : 1 and says so with a dashed edge. */
+[data-view="geek"] :is(.composer, .ask) button:disabled { opacity: 1; background: none; color: var(--dim); border: 1px dashed var(--line); cursor: not-allowed; }
+[data-view="geek"] .tl-mark:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
 
 /* Forced colors (Windows High Contrast and the like): the system's colours replace ours, so shapes that were a colour's fill get an outline, and the QR and the terminal keep their own colours. */
 @media (forced-colors: active) {
 	.badge, .link i, .tog::before, .flag, .tl-mark::before { border: 1px solid CanvasText; }
 	.qr, .term-scroll { forced-color-adjust: none; }
+	/* A disabled control and a placeholder take the system's own grey; the map's dashed connectors (the wires between towers, an svg the system leaves in colour, and the tree's gradient lines) would run over the cards, and the indent says the same. */
+	:is(.composer, .ask) button:disabled { opacity: 1; color: GrayText; border-color: GrayText; }
+	:is(textarea, input)::placeholder { color: GrayText; opacity: 1; }
+	.subs::before, .subs > .unit > .card::before, .subs > .unit > .card::after, .drones::before, .links, .packets { display: none; }
 }

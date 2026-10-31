@@ -57,7 +57,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Unreleased to 286: `commanding`, the mark of a session that is idle while a subagent of it works or waits (or a monitor runs), and the rows built with it.
 	// Unreleased (dashboard split) to 162 and 137: the pi-tui rendering and the widget stay in dashboard.ts (162), the marks, rows, and subagent reading the server loads came out into netdata.ts (137).
 	assert.ok(count("src/dashboard.ts") <= 175, `src/dashboard.ts has ${count("src/dashboard.ts")} lines`);
-	assert.ok(count("src/netdata.ts") <= 137, `src/netdata.ts has ${count("src/netdata.ts")} lines`);
+	// Unreleased to 138: a subagent that recorded done is `done` even while its pi pane still says working (one line more).
+	assert.ok(count("src/netdata.ts") <= 138, `src/netdata.ts has ${count("src/netdata.ts")} lines`);
 	// 0.5.0 raised the server's figure from 300 to 320 for the CSRF meta, the POST routing into control.ts, and the remote access check (pairing, remote streams);
 	// 0.6.0 to 325 for the hub's start and stop with the server, the answer route's fresh reading, gui.json's ownerSession, and the sessions a reading binds dialogs with;
 	// 0.7.0 to 330 for the terminal mirror (Phase 3 task 1): each stream's `hello` with its id, and the mirrors it holds created, closed with it, and stopped with the server.
@@ -587,7 +588,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// The server's default view (Geek step 3) to 2251: view.ts takes the server's default (the meta, `setServer`, `onServer`, the Auto button's label and its own row) and main.ts feeds it from the hello and the `view` event.
 	// Phone layout (step 4) to 2370: gui/menu.ts (84: the `⋯` button, its panel's place, focus, and keys) is new, render.ts wraps a base's and a squad's Quit in it (13), main.ts shows the header's `⋯` while Dismiss finished or Stashed exists and names the route on <body> (13), and i18n.ts names one more page message.
 	// Settings page (step 5) to 2442: gui/settings.ts (69: the Phone, Teams, and Server sections filled when opened and dropped when closed) is new, router.ts takes the settings route (+14 with NetRoute and netOf), main.ts opens and leaves the page and moves the panels' opening out of the header (+9 net), notify.ts loses its sound popover (-8), and the rest is the narrower route type.
-	assert.ok(page <= 2442, `the page's TypeScript has ${page} lines`);
+	// GUI acceptance fixes to 2447: ask.ts marks a card that scrolls (the cue, +12), desk.ts exports the settings page's allowed sections (+2), towerconv.ts keeps an open `⋯` menu across a redraw (+5), menu.ts and main.ts give a few back.
+	assert.ok(page <= 2447, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -826,5 +828,6 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The Geek view, per device (step 2) to 93,200 bytes / 20.1 KB gzipped: its token block (the whole palette again), the rules that turn off motion, gradients, and glow, the state tags, the switches' words, the inverse-video choices, the forced-colors block, and the settings' three-way control.
 	// Phone layout (step 4) to 96,800 bytes / 20.9 KB gzipped: the `⋯` menus, the one-line conversation bar, the queue's fold row, the map without crumbs, no avatar gutter, the squads' unit rows, and the drawer's named tower row, all in one phone block ("A phone's menus and layout").
 	// Settings page (step 5) to 98,600 bytes / 21.2 KB gzipped: the page's groups, rows, and disclosures, the devices' grid rows, and the Wi-Fi tab's and the Phone block's rules for a 360 px screen (less the popover's and the sound panel's).
-	assert.ok(total(css, (n) => size(n).length) <= 98_600 && total(css, gz) <= 21_200, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// GUI acceptance fixes to 100,900 bytes / 21.65 KB gzipped: Dismiss on its own row, the question card's scroll cue, the 360 px block (two-line conversation bar, one-row composer, Geek brand), the drawer's tint and chevron, Geek's disabled controls and tick ring, and the forced-colors rules.
+	assert.ok(total(css, (n) => size(n).length) <= 100_900 && total(css, gz) <= 21_650, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

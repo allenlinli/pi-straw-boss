@@ -156,7 +156,7 @@ test("the answer panel's pure rules: the body it sends, what it says for each ou
 	assert.deepEqual(said(r(409, { error: "changed", reason: "The question changed or is no longer open here; read it again." })), ["error", "The question changed or is no longer open here; read it again."]);
 	const { blocked } = await import("../gui/composer.ts");
 	const unit = { name: "u", control: true, live: true, mark: "waiting" as const, online: true };
-	assert.equal(blocked({ ...unit, answerable: true }), "Answer above or in pi");
+	assert.equal(blocked({ ...unit, answerable: true }), "Answer above or in its terminal");
 	assert.equal(blocked(unit), "It waits on a dialog; answer it in its terminal.");
 });
 

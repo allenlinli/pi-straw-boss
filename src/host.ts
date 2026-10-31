@@ -69,9 +69,10 @@ export function createHost({ pi, cfg, s, guiDir, tell }: Kit, { connected, ask }
 		async command(mode: string) {
 			const send = (request: Record<string, unknown>, start: "boss" | "never"): Promise<LanReply> => asking()(request, { start }).catch((error: Error) => ({ ok: false as const, error: error.message }));
 			if (/^view\b/.test(mode)) {
-				// The server's default view: a device that follows the server shows it, a device with a choice of its own keeps that. Only this command writes it (the page has no way to). Starts the sb server, not a GUI that was stopped.
-				const wanted = mode.slice(4).trim() || undefined, r = await send({ cmd: "gui-view", ...(wanted ? { view: wanted } : {}) }, "boss");
-				if (!r.ok) return tell(`Straw net GUI: ${r.error ?? "the sb server did not answer"}`, "error");
+				// The server's default view: a device that follows the server shows it, a device with a choice of its own keeps that. Only this command writes it (the page has no way to). Setting it starts the sb server, not a GUI that was stopped; showing it starts nothing.
+				const wanted = mode.slice(4).trim() || undefined, r = await send({ cmd: "gui-view", ...(wanted ? { view: wanted } : {}) }, wanted ? "boss" : "never");
+				// Showing the default is a read: it never starts a server, so a server the boss stopped on purpose stays down.
+				if (!r.ok) return tell(`Straw net GUI: ${!wanted && r.error === "no server" ? "the sb server is not running (/boss server starts it)" : (r.error ?? "the sb server did not answer")}`, "error");
 				const name = String(r.view).replace(/^./, (c) => c.toUpperCase());
 				return tell(!wanted ? `The straw net GUI's default view is ${name}${r.view === "auto" ? " (each device follows its own screen's contrast setting)" : ""}` : r.changed === false ? `The straw net GUI's default view is already ${name}` : `The straw net GUI's default view is now ${name}; devices that follow the server switch at once, and a device with a view of its own keeps it`);
 			}

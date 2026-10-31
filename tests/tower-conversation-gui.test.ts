@@ -157,3 +157,27 @@ test("a tower's composer asks nothing before /quit or /new (they leave and start
 	assert.equal(endsSession("/new", {}), "/new");
 	assert.equal(endsSession("hello", { wakes: false }), undefined);
 });
+
+test("a redraw after Leave or New keeps an open `⋯` menu open, with its result and the focus in it; a closed one stays closed", () => {
+	const proto = El.prototype as unknown as Record<string, unknown>;
+	let open = true;
+	proto.matches = () => open;
+	proto.showPopover = function (this: { shown?: number }) { this.shown = (this.shown ?? 0) + 1; };
+	try {
+		const parent = new El("div"), el = new El("div");
+		parent.append(el);
+		fillConversation(el as unknown as HTMLElement, "wA", svc());
+		el.querySelector(".conv-done")!.textContent = "Left the conversation";
+		fillConversation(el as unknown as HTMLElement, "wA", svc({ conversation: conv({ closing: true }) }));
+		const panel = el.querySelector(".menu-pop") as unknown as { shown?: number };
+		assert.equal(panel.shown, 1, "the new panel is opened again");
+		assert.equal(el.querySelector(".conv-done")!.textContent, "Left the conversation", "and still shows the result");
+		open = false;
+		fillConversation(el as unknown as HTMLElement, "wA", svc({ conversation: conv({ closing: false, turns: 15 }) }));
+		assert.equal((el.querySelector(".menu-pop") as unknown as { shown?: number }).shown, undefined, "a menu that was closed is not opened by a redraw");
+		assert.equal(el.querySelector(".conv-done")!.textContent, "");
+	} finally {
+		delete proto.matches;
+		delete proto.showPopover;
+	}
+});

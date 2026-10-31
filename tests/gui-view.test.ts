@@ -222,3 +222,23 @@ test("the docs name the command, the store, the meta, the event, and gui.json's 
 	assert.match(contract, /`view` \(optional, `standard` or `geek`, absent when the boss has set no default\)/);
 	for (const f of ["README.md", "README.zh-TW.md"]) assert.ok(read(f).includes("`/boss gui view`"), f);
 });
+
+test("a bare /boss gui view only reads: with the sb server down it says so and starts nothing, so a server stopped on purpose stays down", async () => {
+	const viewer = world.agent({ id: "viewer", pane: "wA:p1", tab: "wA:t1", deps });
+	await viewer.start();
+	await viewer.command("gui view");
+	assert.deepEqual([viewer.notices.at(-1)!.level, viewer.notices.at(-1)!.text], ["error", "Straw net GUI: the sb server is not running (/boss server starts it)"]);
+});
+
+test("a stopped GUI's gui.json carries this server's view, not the one an older record held (and none for Auto)", async () => {
+	const h = await startHosted(world);
+	writeRecordFile(h.slot.dir, { ...h.gui(), view: "standard" }); // a build that did not know the field, or an earlier default, left this
+	await h.ask("gui-stop");
+	assert.equal(h.gui().stopped, true);
+	assert.equal(h.gui().view, undefined, "the server's default is Auto");
+	await h.ask("gui-view", { view: "geek" });
+	writeRecordFile(h.slot.dir, (({ view: _v, ...rest }) => rest)(h.gui()));
+	await h.ask("gui", { boss: true });
+	await h.ask("gui-stop");
+	assert.equal(h.gui().view, "geek", "a record without the field gets the server's");
+});

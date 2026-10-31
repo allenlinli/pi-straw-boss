@@ -163,3 +163,14 @@ test("a control that opens another popover (Stashed) or keeps the menu for its r
 	fire("click", controls[1]!);
 	assert.equal(panel.open, true);
 });
+
+test("a control inside a closed panel (above 640 px the panel is display: contents and never opens) keeps its arrow keys for the page", () => {
+	const { panel, controls } = menuOf(["pair-btn", "quit-btn"]);
+	panel.open = false;
+	document.activeElement = controls[0]!;
+	for (const key of ["ArrowDown", "ArrowUp", "Home", "End", "Escape"]) {
+		const e = fire("keydown", controls[0]!, { key });
+		assert.equal(e.defaultPrevented, false, `${key} is left to the page`);
+		assert.equal(document.activeElement, controls[0], `${key} moves no focus`);
+	}
+});

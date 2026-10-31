@@ -67,11 +67,8 @@ export function mountMenus() {
 	}, true);
 	document.addEventListener("keydown", (event) => {
 		const pop = pops(event.target);
-		if (!pop) return;
-		if (event.key === "Escape") {
-			if (pop.matches(":popover-open")) (event.preventDefault(), pop.hidePopover(), invoker(pop)?.focus());
-			return;
-		}
+		if (!pop || !pop.matches(":popover-open")) return; // above 640 px the panel is `display: contents` and never open: the arrows keep scrolling the page
+		if (event.key === "Escape") return void (event.preventDefault(), pop.hidePopover(), invoker(pop)?.focus());
 		const list = [...pop.querySelectorAll<HTMLElement>(ITEMS)], next = step(list, list.indexOf(document.activeElement as HTMLElement), event.key);
 		if (next) (event.preventDefault(), next.focus());
 	});

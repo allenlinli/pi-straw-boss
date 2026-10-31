@@ -92,6 +92,9 @@ svg { display: block; }
 .prefs-btn:has(+ .prefs-pop #remind[data-state="blocked"]) { color: var(--err-soft); } /* a reminder the browser blocks shows on the closed button too */
 .prefs-pop { width: 240px; } .prefs-pop:popover-open { display: grid; gap: 6px; } .prefs-pop > .pair-btn { width: 100%; justify-content: flex-start; text-align: left; }
 /* The header's popovers (the sound panel, the finished list) hang under their button; hang() in render.ts places them. */
+/* A phone's `⋯` menus (menu.ts): above 640 px the wrapper and its panel are `display: contents` and the button is gone, so the controls stay in the row they always had; the phone block
+   ("A phone's menus") turns them into a 44 px button and a popover. */
+.menu, .menu-pop { display: contents; } .menu-btn { display: none; }
 .hud-pop { position: fixed; inset: auto; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--raised); color: var(--text); font: 13px/1.4 var(--sans); box-shadow: 0 12px 32px color-mix(in srgb, var(--shadow) 60%, transparent); }
 .sound-pop { width: 240px; gap: 12px; } .sound-pop:popover-open { display: grid; } /* a display of its own would show it closed */ .sound-pop label { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .sound-pop input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); } .sound-pop input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
@@ -132,20 +135,20 @@ svg { display: block; }
 .spawn-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
 .base > .spawn-btns { margin: -4px 0 12px; }
 /* A squad's name stays on one line beside its buttons, cut short with an ellipsis. */
-.tab h3 > span, .squad h3 > b { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .tab h3 > button { flex: none; }
-.tab h3 > span { flex-grow: 1; } /* the tab's name takes the row, so its buttons sit at the right end */
+.tab h3 > span:not(.menu), .squad h3 > b { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .tab h3 > button { flex: none; }
+.tab h3 > span:not(.menu) { flex-grow: 1; } /* the tab's name takes the row, so its buttons sit at the right end */
 .tab-add { margin-left: auto; flex: none; white-space: nowrap; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); background: none; color: var(--dim); font: 600 11px var(--sans); letter-spacing: 0.08em; cursor: pointer; }
 .squad .tab-add { margin-left: 0; }
 .tab-add:hover, .new-base:hover { color: var(--accent); border-color: var(--accent); }
 .quit-btn { flex: none; margin-left: 6px; padding: 2px 9px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--dim); font: 600 12px var(--sans); cursor: pointer; } .quit-btn:hover { color: var(--err-soft); border-color: color-mix(in srgb, var(--err-soft) 40%, transparent); }
-.base > header > .quit-btn { margin-left: auto; align-self: flex-start; }
+.base > header .menu-pop > .quit-btn { margin-left: auto; align-self: flex-start; }
 /* With a mouse, a row's Quit or Dismiss shows while the pointer or the focus is on its row, so the map is not a column of buttons; a touch screen shows them all. */
 @media (hover: hover) and (pointer: fine) {
-	:is(.card > .quit-btn, .tab h3 > .quit-btn, .base > header > .quit-btn, .tower-quit) { opacity: 0; transition: opacity 0.15s; }
-	:is(.card:hover, .card:focus-within) > .quit-btn, :is(.tab h3:hover, .tab h3:focus-within) > .quit-btn, :is(.base > header:hover, .base > header:focus-within) :is(.quit-btn, .tower-quit) { opacity: 1; }
+	:is(.card > .quit-btn, .tab h3 .menu-pop > .quit-btn, .base > header .menu-pop > .quit-btn, .tower-quit) { opacity: 0; transition: opacity 0.15s; }
+	:is(.card:hover, .card:focus-within) > .quit-btn, :is(.tab h3:hover, .tab h3:focus-within) .menu-pop > .quit-btn, :is(.base > header:hover, .base > header:focus-within) :is(.quit-btn, .tower-quit) { opacity: 1; }
 }
 #stashed-list li { display: flex; align-items: center; gap: 8px; } #stashed-list span { flex: 1; overflow-wrap: anywhere; } .card > .quit-btn { margin-left: auto; }
-.card > .quit-btn, .base > header > .quit-btn, .tower-quit { position: relative; z-index: 2; } /* above the card's link: the header's stretched .enter-base::after paints over a plain button once hovering lifts its opacity to 1 and it stops being a stacking context */
+.card > .quit-btn, .base > header .menu-pop > .quit-btn, .base > header .menu-btn, .tower-quit { position: relative; z-index: 2; } /* above the card's link: the header's stretched .enter-base::after paints over a plain button once hovering lifts its opacity to 1 and it stops being a stacking context */
 .tower-quit { margin: 6px 0 0; }
 .sheet { margin: auto; max-width: min(420px, calc(100vw - 32px)); padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--raised); color: var(--text); font: 14px/1.5 var(--sans); }
 .sheet::backdrop { background: color-mix(in srgb, var(--shadow) 60%, transparent); } .sheet p { margin: 0 0 14px; } .sheet-row { display: flex; justify-content: flex-end; gap: 10px; } .sheet .later { padding: 6px 14px; border-radius: 10px; cursor: pointer; }
@@ -175,7 +178,8 @@ svg { display: block; }
 .queue-list b { margin-right: 8px; color: var(--accent); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
 .queue-act { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 10px; margin: 0 16px 6px; color: var(--dim); font-size: 12px; line-height: 1.4; }
 .queue-act[hidden] { display: none; }
-.in-term .queue-list, .in-term .queue-act { display: none; }
+.queue-bar { display: none; } /* a phone folds a longer queue to one row (A phone's menus) */
+.in-term .queue-list, .in-term .queue-act, .in-term .queue-bar { display: none; }
 /* The todo list above the composer, as pi's widget shows it in the terminal: ○ waiting, ◐ in progress, ✓ done. */
 .todos { margin: 0 16px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); font-size: 13px; }
 .todos summary { display: flex; gap: 10px; align-items: baseline; min-width: 0; list-style: none; cursor: pointer; } .todos summary::-webkit-details-marker { display: none; }
@@ -811,8 +815,8 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .dbase h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 6px; font-size: 14px; } .dbase h3 a { color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .dbase h3 small, .dgroup h4 { color: var(--dim); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
 .dbase[data-mark="waiting"] h3 a { color: var(--c); } .dgroups, .drows { display: grid; gap: 6px; } .dgroup h4 { margin: 4px 0 0; font-weight: 600; }
 .drawer .card { padding: 6px 8px; gap: 8px; min-height: 44px; } .drawer .plate { --s: 28px; } .drawer .subs { margin-left: 16px; padding-left: 12px; }
-.drawer .trow { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .drawer .tower-go { display: grid; place-items: center; width: 56px; height: 44px; border: 1px solid var(--line); border-radius: 12px; color: var(--c); text-decoration: none; } .drawer .tower-row.current > .trow > .tower-go { border-color: var(--c4); background: var(--c1); } .drawer .tower-go .plate { --s: 34px; }
-.drawer .tower-add { display: grid; place-items: center; min-width: 56px; min-height: 44px; padding: 0; font-size: 22px; font-weight: 400; line-height: 1; letter-spacing: 0; } .drawer .tower-add[hidden] { display: none; }
+.drawer .trow { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .drawer .tower-go { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 0 8px; border: 1px solid var(--line); border-radius: 12px; color: var(--c); text-decoration: none; } .drawer .tower-go .meta { display: grid; min-width: 0; color: var(--text); } .drawer .tower-go .line { display: flex; gap: 6px; min-width: 0; } .drawer .tower-row.current > .trow > .tower-go { border-color: var(--c4); background: var(--c1); } .drawer .tower-go .plate { --s: 28px; flex: none; }
+.drawer .tower-add { display: grid; place-items: center; flex: none; min-width: 56px; min-height: 44px; padding: 0 12px; white-space: nowrap; } .drawer .tower-add[hidden] { display: none; }
 .drawer .quit-btn { min-height: 44px; } .drawer .quit-btn[hidden] { display: none; }
 .drawer .line { gap: 6px; } .drawer .dstate { flex: none; color: var(--c); font-size: 11px; font-weight: 600; } .drawer .unit.current > .card { border-color: var(--c4); box-shadow: inset 3px 0 var(--c), inset -3px 0 var(--c); }
 .drawer .unit[data-dismiss] > .card { transform: translateX(var(--sx, 0px)); opacity: var(--so, 1); transition: transform 0.2s ease-out, opacity 0.2s; } .drawer .unit > .card.swiping { transition: none; } .drawer .unit > .card.gone { --sx: 110%; --so: 0; }
@@ -852,12 +856,10 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.tile { height: calc(var(--vvh, 100dvh) - 16px); min-height: 300px; border-radius: 16px; }
 	.dossier.full { z-index: 17; overflow-y: auto; overscroll-behavior: contain; border: 0; border-radius: 0; padding: max(16px, env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); }
 	.dossier.full .d-x { display: grid; place-items: center; position: absolute; top: 0; right: 0; }
-	/* The comms header in two rows: back, the name, the channel's dot, and Info; then Comms | Terminal as two halves, big enough for a thumb. */
-	.comms-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto auto; gap: 8px 10px; padding: max(10px, env(safe-area-inset-top)) 12px 10px; }
+	/* The comms header in two rows: back, the name, the channel's dot, Info, and Quit (a tower's + Main and Quit tower wait behind `⋯`); then Comms | Terminal as two halves, big enough for a thumb. */
+	.comms-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: 8px 10px; padding: max(10px, env(safe-area-inset-top)) 12px 10px; }
 	.comms-head .logo { display: none; } .head-back { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 12px; color: var(--text); font-size: 24px; text-decoration: none; } .head-info, .head-main:not([hidden]), .head-quit:not([hidden]) { display: block; margin: 0; padding: 0 12px; }
 	.comms-head h2 small { display: none; } .chan b { display: none; } .modes + .chan { margin-left: 0; }
-	/* A tower's comms header also carries + Main and Quit tower: they take a row of their own so the name keeps its width. */
-	.comms-head:has(.head-main:not([hidden])) .head-main { grid-row: 2; grid-column: 1 / 3; justify-self: start; } .comms-head:has(.head-main:not([hidden])) .head-quit { grid-row: 2; grid-column: 3 / -1; justify-self: end; } .comms-head:has(.head-main:not([hidden])) .modes { grid-row: 3; }
 	.modes { grid-row: 2; grid-column: 1 / -1; padding: 3px; border: 1px solid var(--line); border-radius: 12px; }
 	.modes button { flex: 1; min-height: 40px; padding: 0; border: 0; border-radius: 9px; font-size: 14px; } .modes button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 	/* The log, and the composer under it. */
@@ -984,11 +986,60 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .tower-conv .conv-acts button:disabled { opacity: 0.6; cursor: progress; }
 .tower-conv .conv-done { color: var(--dim); } .tower-conv .conv-done:empty, .tower-conv .tnote-fail:empty { display: none; } .tower-conv .tnote-fail { color: var(--err-soft); }
 .tower-conv .conv-runs { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.tower-conv :is(.conv-facts, .conv-runs-bar) { display: none; } /* a phone's bar and menu say these (A phone's menus) */
 .tx.conv-rule { display: flex; justify-content: center; padding: 6px 0; } .tx.conv-rule > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 10px; padding: 2px 12px; border-top: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); font-size: 0.8em; text-align: center; } .tx.conv-rule small { color: var(--dim); }
 /* The terminal's Keyboard button: a key cap, lit while the keyboard goes to the pane (on a narrow screen it replaces the note that says so). */
 .term-bar .term-kb { padding: 4px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-0); font-weight: 600; }
 .term-bar .term-kb[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface-0)); }
 @media (max-width: 640px) { .term-typing { display: none; } }
+
+/* A phone's menus and layout: the log gets the screen. The header, the map, the tower's boss-conversation bar, and the queue each give up a row or two (a phone's 390 × 844 shows the log at 55 % or more);
+   Quit of a unit is in its comms header alone, and a base's, a squad's, and a tower's are behind a `⋯` (menu.ts). Above 640 px none of this applies: the `⋯` buttons are not there and the controls sit where they always did. */
+@media (max-width: 640px) {
+	/* The `⋯` button and its panel (a popover under the button). */
+	.menu-btn { display: grid; place-items: center; width: 44px; min-width: 44px; height: 44px; padding: 0; font-size: 22px; line-height: 1; letter-spacing: 0; }
+	.menu-pop:not(:popover-open) { display: none; }
+	.menu-pop:popover-open { display: grid; gap: 6px; min-width: 200px; max-width: calc(100vw - 16px); }
+	.menu-pop :is(.pair-btn, .quit-btn) { justify-content: flex-start; width: 100%; margin: 0; padding-inline: 14px; text-align: left; }
+	.menu-pop .quit-btn { opacity: 1; font-size: 14px; } .menu-pop:popover-open .quit-btn { color: var(--err-soft); }
+	/* The header: the brand, the `⋯` for Dismiss finished and Stashed (only while one exists), the settings, and the link's dot on one row; the alerts on the next. The map has no location bar. */
+	.hud { gap: 6px 8px; padding: 6px 8px 6px 10px; }
+	.bar-acts { display: grid; gap: 6px; } .bar-acts .pair-btn { width: 100%; justify-content: flex-start; }
+	body[data-route="map"] .crumbs { display: none; } body[data-route="map"] .bar { margin: 0; }
+	.map { padding: 8px; min-height: 0; }
+	/* The map's Quit: a unit's only in its comms header, a base's and a squad's behind their `⋯`. */
+	.base :is(.card > .quit-btn[data-close="unit"], .tower-quit) { display: none; }
+	/* The comms header: back, the name, the channel's dot, Info, and Quit (a tower's + Main and Quit tower behind `⋯`) in one row; then Comms | Terminal. */
+	.comms-head { gap: 6px 8px; padding-block: max(6px, env(safe-area-inset-top)) 6px; }
+	.comms-head:not([data-tower]) .menu-btn { display: none; } .comms-head:not([data-tower]) .menu-pop { display: contents; }
+	.modes { padding: 1px; }
+	/* The log is the screen: no avatar gutter on an assistant's message, and the bars above the composer sit closer. */
+	.tx.in { grid-template-columns: minmax(0, 1fr); } .tx.in > .ava { display: none; } .tx.sys, .chat-live { padding-left: 0; }
+	.tower-notes, .queue-bar, .queue-list, .queue-act, .todos, .monitors { margin-inline: 10px; }
+	.todos, .monitors { margin-top: 2px; }
+	.composer { padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); } .composer textarea { min-height: 44px; } .cmp-row { gap: 6px 10px; } /* one line to start with: the box grows as it is typed in */
+	/* A queue of more than one is a row, "3 queued", that opens the list and Edit all steers. */
+	.queue-bar:not([hidden]) { display: block; margin-bottom: 0; }
+	.queue-fold { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; padding: 0 14px; border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 12px; background: none; color: var(--accent); font: 600 13px var(--sans); text-align: left; cursor: pointer; }
+	.queue-fold::after { content: "▸"; color: var(--dim); } .queue-bar[data-open] .queue-fold::after { content: "▾"; }
+	.queue-bar:not([hidden]):not([data-open]) ~ :is(.queue-list, .queue-act) { display: none; }
+	/* The tower's boss conversation: one line and a `⋯` (Leave, New, the facts the line cuts, the event runs). */
+	.tower-conv { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 4px; margin-bottom: 0; padding: 0 0 0 12px; }
+	.tower-conv .conv-line { grid-column: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .tower-conv .conv-line > span { display: inline; max-width: none; }
+	.tower-conv .conv-line > :is(.conv-began, .conv-cap, .conv-sep) { display: none; } .tower-conv .conv-line:has(.conv-now) b::after { content: " ·"; color: var(--dim); }
+	.tower-conv .conv-runs-bar { display: block; } .tower-conv .conv-facts { display: block; color: var(--dim); font-size: 12px; }
+	.menu-pop .conv-acts { display: grid; gap: 6px; } .menu-pop .conv-runs { gap: 6px; padding-top: 2px; } .menu-pop .ally-chip { display: inline-flex; align-items: center; box-sizing: border-box; min-height: 44px; padding-inline: 12px; }
+	.tower-conv .menu-btn { grid-column: 2; grid-row: 1; border: 0; background: none; }
+	/* The workspace: the squads' units are rows (the plate, the name and its state beside it), and the totals one row of four. */
+	.zoom-in { padding: 8px; min-height: 0; }
+	.tally { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; width: 100%; } .tally div { padding: 4px 6px; }
+	.squads, .camps { gap: 10px; margin-top: 10px; } .squad { padding: 10px; } .squad h3 { margin-bottom: 8px; }
+	.formation { display: grid; gap: 8px; } .col { width: 100%; justify-items: stretch; gap: 4px; }
+	.col > .token { grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: start; column-gap: 12px; padding: 6px 10px; text-align: left; }
+	.col > .token .plate { --s: 44px; grid-row: span 2; margin: 0; } .col > .token :is(.name, .line) { grid-column: 2; }
+	.col > .token .line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+	.col .say { margin-top: 0; } .col .drones { justify-content: flex-start; padding-top: 8px; }
+}
 
 /* The Geek view (view.ts sets data-view="geek" on <html>): a terminal. Black surfaces, one monospace face, every text token at least 7 : 1 on every surface and every border at least 3 : 1
    (tests/geek-contrast.test.ts reads this block), nothing moves, glows, or fades, and each state also reads as a text tag before the unit's name, so colour is never the only sign.

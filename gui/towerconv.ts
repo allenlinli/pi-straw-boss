@@ -1,5 +1,6 @@
 import type { TowerService } from "../src/net.ts";
 import { h } from "./dom.ts";
+import { moreButton } from "./menu.ts";
 import { m } from "./paraglide/messages.js";
 import { post } from "./post.ts";
 import { formatRoute } from "./router.ts";
@@ -18,26 +19,34 @@ export function fillConversation(box: HTMLElement, ws: string, service: TowerSer
 	if (box.hidden) return box.replaceChildren();
 	const fail = h("small", { class: "tnote-fail", role: "alert" }), done = h("small", { class: "conv-done", role: "status" }), say = (text?: string) => ((fail.textContent = text ?? ""), (done.textContent = ""));
 	const button = (label: string, title: string, path: "leave" | "new", ok: () => string) => {
-		const b = h("button", { type: "button", class: "pair-btn", title }, label);
+		const b = h("button", { type: "button", class: "pair-btn", title, "data-menu-keep": "" }, label);
 		b.onclick = () => void guarded(b, say, async () => { const r = await post(`tower/${encodeURIComponent(ws)}/${path}`, {}); if (r.ok) done.textContent = ok(); return r; }, 0);
 		return b;
 	};
-	const rows: Node[] = [];
+	// A phone shows the line alone, in one row, with a `⋯` for what acts: Leave, New and their notes, the event runs' chips, and the facts the line cuts (style.css, "A phone's menus"). Above 640 px the menu is `display: contents` and the rows are as they were.
+	const rows: Node[] = [], inMenu: Node[] = [];
+	const sep = () => h("span", { class: "conv-sep" }, " · ");
 	if (c) {
 		const facts = conversationFacts(c);
-		rows.push(
-			h("p", { class: "conv-line" }, h("b", null, m.conv_title()), " ", h("span", { class: "conv-began", ...(facts.why ? { title: facts.why } : {}) }, facts.began), " · ", h("span", { class: "conv-now" }, facts.now), " · ", h("span", { class: "conv-cap" }, facts.cap)),
+		rows.push(h("p", { class: "conv-line" }, h("b", null, m.conv_title()), " ", h("span", { class: "conv-began", ...(facts.why ? { title: facts.why } : {}) }, facts.began), sep(), h("span", { class: "conv-now" }, facts.now), sep(), h("span", { class: "conv-cap" }, facts.cap)));
+		inMenu.push(
+			h("p", { class: "conv-facts" }, `${facts.began} · ${facts.cap}`),
 			h("p", { class: "conv-acts" }, ...(c.closing ? [] : [button(m.conv_leave(), m.conv_leave_title(), "leave", m.conv_left)]), button(m.conv_new_button(), m.conv_new_title(), "new", m.conv_fresh), fail, done),
 		);
 	}
 	if (inRun) rows.push(h("p", { class: "conv-line conv-in-run" }, h("b", null, m.conv_in_run({ id: inRun.id, time: clock(service?.run?.startedAt ?? inRun.since) }))));
 	if (events.length) {
-		rows.push(h("p", { class: "conv-runs" }, ...events.map((r) => {
+		if (!c && !inRun) rows.push(h("p", { class: "conv-line conv-runs-bar" }, h("b", null, m.conv_runs_bar({ count: events.length }))));
+		inMenu.push(h("p", { class: "conv-runs" }, ...events.map((r) => {
 			const label = m.conv_event_run({ time: clock(r.startedAt) }), tip = r.note ? m.conv_event_run_note({ outcome: r.outcome ?? "…", note: r.note }) : (r.outcome ?? "");
 			if (!r.key) return h("span", { class: "ally-chip", title: tip || m.conv_event_run_unseen() }, label);
 			const route = formatRoute({ view: "session", ws, key: r.key });
 			return h("a", { class: "ally-chip", href: route || "./", "data-route": route, title: tip || m.conv_event_run_open() }, label);
 		})));
+	}
+	if (inMenu.length) {
+		const panel = h("div", { class: "menu-pop hud-pop", popover: "auto", role: "group", "aria-label": m.menu_more() }, ...inMenu);
+		rows.push(h("span", { class: "menu" }, moreButton(panel), panel));
 	}
 	box.replaceChildren(...rows);
 }

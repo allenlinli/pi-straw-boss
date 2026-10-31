@@ -2,6 +2,7 @@ import type { Mark } from "../src/netdata.ts";
 import type { AllyBase } from "../src/link/holder.ts";
 import type { Base, Net, Unit } from "../src/net.ts";
 import { mountCalm } from "./calm.ts";
+import { menuAround, nameMenu } from "./menu.ts";
 import { replay } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { closed } from "./scene.ts";
@@ -164,7 +165,13 @@ export function aimOpening(button: HTMLElement, b: Base, tab?: string) {
 	if (button.textContent !== (kind === "main" ? m.open_main() : m.open_member())) button.textContent = kind === "main" ? m.open_main() : m.open_member();
 }
 
-const baseEl = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><span class="crown"><svg><use href="#i-crown"/></svg>${m.head_tower()}</span><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${m.outposts()}"></div></section>`);
+const baseMarkup = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><span class="crown"><svg><use href="#i-crown"/></svg>${m.head_tower()}</span><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${m.outposts()}"></div></section>`);
+/** A phone keeps a base's Quit behind a `⋯` in its header (style.css, "A phone's menus"); above 640 px the menu is `display: contents`, so the button stays where it was. */
+const baseEl = () => {
+	const el = baseMarkup();
+	menuAround(el.querySelector<HTMLElement>("header > .quit-btn")!);
+	return el;
+};
 /** The tower's state as the map says it: the service's own word (standing by, waking, held…) and how its last run ended, or the mark's word for a tower with no service. */
 const towerLine = (t: NonNullable<Base["tower"]>) => statusLine(t.service, t.mark, (mk) => LABEL[mk]());
 function fillBase(el: HTMLElement, b: Base) {
@@ -179,15 +186,21 @@ function fillBase(el: HTMLElement, b: Base) {
 	text(el, ".title .tqueue", queueChip(b.tower?.service) ?? "");
 	age(el.querySelector(".title .age")!, b.tower?.since);
 	aimOpening(el.querySelector(".spawn-btns button")!, b);
-	aimBase(el.querySelector("header > .quit-btn")!, b);
+	aimBase(el.querySelector("header .menu-pop > .quit-btn")!, b);
+	nameMenu(el.querySelector("header > .menu")!, b.label);
 	aimStash(el.querySelector(".spawn-btns [data-close=stash]")!, b);
 	aimTower(el.querySelector(".tower-quit")!, b.tower);
 	sync(el.querySelector(".tower-subs")!, b.tower?.subs ?? [], unitEl, fillUnit);
 	fillAllies(el.querySelector(".title .allies")!, b.id, b.tower?.service);
 	fillNotices(el.querySelector(".tower-notices")!, b.id, b.tower?.service, b.tower?.key);
-	sync(el.querySelector(".tabs")!, b.tabs, () => html(`<div class="tab"><h3><span></span><button type="button" class="tab-add"></button><button type="button" class="quit-btn" data-close="tab"></button></h3><div class="units"></div></div>`), (tab, t) => {
+	sync(el.querySelector(".tabs")!, b.tabs, () => {
+		const tab = html(`<div class="tab"><h3><span></span><button type="button" class="tab-add"></button><button type="button" class="quit-btn" data-close="tab"></button></h3><div class="units"></div></div>`);
+		menuAround(tab.querySelector<HTMLElement>("h3 > .quit-btn")!); // a squad's Quit is behind a `⋯` on a phone, as a base's is
+		return tab;
+	}, (tab, t) => {
 		text(tab, "h3 span", m.tab_label({ label: t.label }));
-		aimSquad(tab.querySelector(".quit-btn")!, b, t);
+		aimSquad(tab.querySelector(".menu-pop > .quit-btn")!, b, t);
+		nameMenu(tab.querySelector("h3 > .menu")!, m.tab_label({ label: t.label }));
 		aimOpening(tab.querySelector(".tab-add")!, b, t.id);
 		sync(tab.querySelector(".units")!, t.units, unitEl, fillUnit);
 	});

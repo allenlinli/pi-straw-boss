@@ -10,6 +10,7 @@ import type { Drawer } from "./drawer.ts";
 import type { mountPanels, Tile } from "./layer.ts";
 import { MODAL, mountHotkeys } from "./hotkeys.ts";
 import { mountLinkBar } from "./linkbar.ts";
+import { mountMenus } from "./menu.ts";
 import { mountNotify } from "./notify.ts";
 import { mountQuit, showDismissAll, showStashed } from "./quit.ts";
 import { hang, mountPage } from "./render.ts";
@@ -22,6 +23,7 @@ import type { mountFocus } from "./views.ts";
 // The view goes first, before anything is drawn: `data-view` on <html> picks the palette, so no frame is painted in the other one (view.ts).
 const view = mountView();
 startI18n();
+mountMenus();
 mountPick(document.getElementById("view-pick")!, view, (server) => (server === "auto" ? m.view_auto() : m.view_follow({ view: server === "geek" ? m.view_geek() : m.view_standard() })));
 const page = mountPage(), timeline = mountTimeline(document.getElementById("timeline") as HTMLDetailsElement);
 const el = (id: string) => document.getElementById(id)!;
@@ -75,6 +77,12 @@ function badge(net: Net) {
 // Reminders and sounds follow every snapshot, a hidden page's above all: `heard` is apart from `known`, which the alert queue
 // advances only while the page is shown, so a page that comes back still queues what arrived while it was hidden.
 let heard: Map<string, Alert> | undefined;
+/** A phone's `⋯` in the header shows only while something is behind it (Dismiss finished, Stashed); when both go, its panel closes. */
+function moreActs() {
+	const none = el("dismiss-all").hidden && el("stashed").hidden;
+	el("bar-more").hidden = none;
+	if (none && el("bar-pop").matches(":popover-open")) el("bar-pop").hidePopover();
+}
 function show(net: Net) {
 	latest = pending = net;
 	badge(net);
@@ -86,6 +94,7 @@ function show(net: Net) {
 	page.stats(net);
 	showDismissAll(el("dismiss-all"), net);
 	showStashed(el("stashed"), el("stashed-list"), net);
+	moreActs();
 	drawer?.net(net);
 	const fresh = arrivals(known, now);
 	if (fresh.length || panels) withPanels((p) => p.alerts(fresh, now));
@@ -102,6 +111,7 @@ function show(net: Net) {
 function navigate(next: Route) {
 	const before = current, from = next.view === "workspace" && before.view === "map" ? document.querySelector(`#bases [data-key="${CSS.escape(next.ws)}"]`)?.getBoundingClientRect() : undefined;
 	current = next;
+	document.body.dataset.route = next.view; // a phone's map has no location bar (style.css): the page is the net itself
 	drawer?.route(next);
 	if (next.view !== "map") loadFocus();
 	el("map").hidden = next.view !== "map";

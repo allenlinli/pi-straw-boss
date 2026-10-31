@@ -2,7 +2,7 @@ import { h, nodes } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { post } from "./post.ts";
 
-// The paired devices on the pairing tile (this computer's page only): each with its name, when it was paired and last used, and Unpair; Unpair all;
+// The paired devices under the pairing panel (this computer's page only): each with its name, when it was paired and last used, and Unpair; Unpair all beside the heading; a row is the name and its Unpair, then the network and the times across the row (style.css), so a narrow screen wraps them under the name;
 // and Turn off remote access while it is on. Turning it off keeps the devices paired (the list says so); only Unpair ends a pairing.
 
 interface Device { id: string; label: string; paired: number; seen: number; net?: string; host?: string }
@@ -22,9 +22,9 @@ export function deviceList(off: () => void, remoteTab: () => boolean = () => tru
 	async function refresh() {
 		const r = await post("remote/devices", {}).catch(() => undefined), list = r?.ok ? (r.body.devices as Device[]) : [];
 		if (!r?.ok) return void box.replaceChildren(h("p", { class: "chat-empty" }, r?.body.reason ?? m.no_answer()));
-		const rows = list.map((d) => h("li", null, h("span", null, h("b", null, d.label || m.device_unknown()), h("small", null, d.net === "lan" ? m.device_net_lan({ host: d.host ?? "" }) : m.device_net_tailscale()), h("small", null, m.device_when({ paired: when(d.paired), seen: when(d.seen) }))), button(m.unpair(), m.unpair_device({ name: d.label || m.device_unknown() }), () => act("remote/unpair", { id: d.id }))));
+		const rows = list.map((d) => h("li", null, h("b", null, d.label || m.device_unknown()), button(m.unpair(), m.unpair_device({ name: d.label || m.device_unknown() }), () => act("remote/unpair", { id: d.id })), h("small", null, d.net === "lan" ? m.device_net_lan({ host: d.host ?? "" }) : m.device_net_tailscale()), h("small", null, m.device_when({ paired: when(d.paired), seen: when(d.seen) }))));
 		const turnOff = r.body.on === true && remoteTab() && button(m.remote_turn_off(), m.remote_turn_off(), () => act("remote/off").then(off));
-		box.replaceChildren(...nodes(h("h4", null, m.devices_title()), list.length ? h("ul", null, ...rows) : h("p", { class: "chat-empty" }, m.devices_none()), note, h("div", { class: "devices-acts" }, list.length > 1 && button(m.unpair_all(), m.unpair_all(), () => act("remote/unpair-all")), turnOff), turnOff && h("small", null, m.remote_stays())));
+		box.replaceChildren(...nodes(h("div", { class: "devices-head" }, h("h4", null, m.devices_title()), list.length > 1 && button(m.unpair_all(), m.unpair_all(), () => act("remote/unpair-all"))), list.length ? h("ul", null, ...rows) : h("p", { class: "chat-empty" }, m.devices_none()), note, turnOff && h("div", { class: "devices-acts" }, turnOff), turnOff && h("small", null, m.remote_stays())));
 	}
 	void refresh();
 	return { box, refresh };

@@ -3,7 +3,7 @@ import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
 import { square } from "./qr.ts";
 
-// The pairing tile's Same Wi-Fi tab (this computer's page only; docs/specs/2026-10-30-sb-gui-lan.md, "In the GUI"). While Wi-Fi access is off it shows the risk and asks; while it is on it
+// The pairing panel's Same Wi-Fi tab (this computer's page only; docs/specs/2026-10-30-sb-gui-lan.md, "In the GUI"). While Wi-Fi access is off it shows the risk and asks; while it is on it
 // shows, top to bottom: the pair requests waiting (a label, an address, an age, and never a number; the number lives on the phone, the boss types it), the certificate step with Share the
 // certificate and the fingerprint procedure, and the pairing QR with Show a code and the address toggle. It polls `lan/pending` once a second while the tab is open, which is also how the server knows
 // the tile is open. A QR or a code is minted only by a press (or by the tab opening on a running Wi-Fi access), under the tab's surface id, so each one voids the one before it.
@@ -149,7 +149,8 @@ export function lanTab(deps: LanDeps) {
 		});
 	}
 
-	// The off state: what Wi-Fi access is, its risk, and the button. The warning is the one `/boss gui lan` shows before the first certificate. Only a press of the button turns it on: the page asks nothing that could (the computer's name
+	// The off state: what Wi-Fi access is, one line of its risk, and the button as a filled one; the warning in full (the one `/boss gui lan` shows before the first certificate) is one press away in Details, as it is
+// once Wi-Fi access is on. Only a press of the button turns it on: the page asks nothing that could (the computer's name
 	// comes with the "no certificate" answer), and a certificate read that fails shows why and is read again at the next poll.
 	const riskOf = (name: string | null | undefined) => (name ? m.lan_risk({ name }) : m.lan_risk_noname());
 	async function drawOff(id: number) {
@@ -158,11 +159,11 @@ export function lanTab(deps: LanDeps) {
 		const none = have?.status === 409 && have.body.error === "no_ca";
 		if (!have?.ok && !none) return void (main.replaceChildren(h("p", null, have ? why(have) : m.no_answer())), shown = undefined);
 		const name = have.ok ? certOf(have.body).name : typeof have.body.name === "string" ? have.body.name : null;
-		const on = h("button", { type: "button", class: "pair-btn" }, have.ok ? m.lan_turn_on_existing() : m.lan_turn_on());
+		const on = h("button", { type: "button", class: "go lan-on" }, have.ok ? m.lan_turn_on_existing() : m.lan_turn_on());
 		const out = h("p", { class: "lan-no", role: "status" });
 		if (have.ok && certOf(have.body).ended) out.append(m.lan_ca_ended());
 		on.onclick = () => ((on.disabled = true), out.replaceChildren(m.lan_turning_on()), void deps.post("lan/on", { accept_risk: true }).then((r) => (r.ok ? poll() : (out.replaceChildren(r.body.error === "lan_ca_ended" ? m.lan_ca_ended() : why(r)), void (on.disabled = false))), () => (out.replaceChildren(m.no_answer()), void (on.disabled = false))));
-		main.replaceChildren(h("p", null, m.lan_off_ask()), h("p", null, riskOf(name)), h("p", { class: "lan-risk" }, m.lan_unverified()), h("p", null, m.lan_hotspot()), on, out);
+		main.replaceChildren(h("p", null, m.lan_off_ask()), h("p", { class: "lan-risk" }, m.lan_risk_off_short()), on, out, h("details", null, h("summary", null, m.lan_risk_details()), h("p", null, riskOf(name)), h("p", { class: "lan-risk" }, m.lan_unverified()), h("p", null, m.lan_hotspot())));
 	}
 
 	// The on state: the certificate step, then the pairing.

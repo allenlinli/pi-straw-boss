@@ -52,26 +52,7 @@
     <div class="hud-pop done-pop link-pop" id="link-alerts-pop" popover><ul id="link-alerts-list"></ul></div>
     <!-- A phone: Dismiss finished and Stashed, which sit under the header above 640 px, wait behind this button (style.css, "A phone's menus"). -->
     <button class="pair-btn menu-btn bar-more" id="bar-more" type="button" popovertarget="bar-pop" aria-haspopup="true" aria-label="More" title="More" data-m-label="menu_more" data-m-title="menu_more" hidden>⋯</button>
-    <button class="pair-btn prefs-btn" id="prefs" type="button" popovertarget="prefs-pop" aria-haspopup="dialog" aria-label="Settings" data-m-label="settings" data-m-title="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button>
-    <!-- Settings a person sets once: the reminder and sound switches, pairing a phone, the language. The sound panel hangs under the last row. -->
-    <div class="hud-pop prefs-pop" id="prefs-pop" popover>
-      <div class="view-pick" id="view-pick" role="group" aria-labelledby="view-label" data-m-title="view_title"><span id="view-label" data-m="view_label">View</span><div>
-        <button class="pair-btn" type="button" data-choice="auto" aria-pressed="true" data-m="view_auto">Auto</button>
-        <button class="pair-btn" type="button" data-choice="standard" aria-pressed="false" data-m="view_standard">Standard</button>
-        <button class="pair-btn" type="button" data-choice="geek" aria-pressed="false" data-m="view_geek">Geek</button>
-      </div></div>
-      <button class="pair-btn tog" id="remind" type="button" aria-pressed="true"></button>
-      <button class="pair-btn" id="teams" type="button" title="Straw Link: teams across computers" data-m="link_button" data-m-title="link_button_title">Teams</button>
-      <button class="pair-btn" id="pair" type="button" title="Pair a phone" data-m="pair_button" data-m-title="pair_title">Phone</button>
-      <button class="pair-btn" id="server" type="button" title="The sb server: state, restart, and log" data-m="server_button" data-m-title="server_title">Server</button>
-      <select class="pair-btn lang" id="lang" aria-label="Language" data-m-label="language"></select>
-      <button class="pair-btn tog" id="sound" type="button" popovertarget="sound-pop" aria-haspopup="dialog"></button>
-      <div class="hud-pop sound-pop" id="sound-pop" popover>
-        <label><span id="sound-on-label"></span><input type="checkbox" role="switch" id="sound-on"></label>
-        <label><span id="sound-vol-label"></span><input type="range" id="sound-vol" min="0" max="100" step="5"><output id="sound-vol-out" for="sound-vol"></output></label>
-        <button class="pair-btn" id="sound-try" type="button"></button>
-      </div>
-    </div>
+    <a class="pair-btn prefs-btn" id="prefs" href="settings" data-route="settings" aria-label="Settings" data-m-label="settings" data-m-title="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></a>
     <div class="link" id="link" data-state="connecting"><i></i><span id="link-text">connecting</span></div>
   </header>
   <div class="banner" id="banner" role="status" hidden></div>
@@ -103,6 +84,27 @@
       </main>
       <section class="zoom view" id="ws-view" hidden></section>
       <section class="comms view" id="session-view" hidden></section>
+      <!-- The settings page (route `settings`): what a person sets once. This device's choices are here as markup (notify.ts, view.ts, and i18n.ts mount on them); Phone, Teams, and Server are filled by settings.ts when a section opens. -->
+      <section class="settings view" id="settings-view" hidden aria-labelledby="settings-title">
+        <header class="set-head"><a class="head-back" href="./" data-route="" data-back aria-label="Back" data-m-label="back">‹</a><h2 id="settings-title" data-m="settings">Settings</h2></header>
+        <section class="set-group" id="set-device" aria-labelledby="set-device-h">
+          <h3 id="set-device-h" data-m="set_device">This device</h3>
+          <p class="set-note" data-m="set_device_note">These stay on this device and this browser.</p>
+          <div class="view-pick" id="view-pick" role="group" aria-labelledby="view-label" data-m-title="view_title"><span id="view-label" data-m="view_label">View</span><div>
+            <button class="pair-btn" type="button" data-choice="auto" aria-pressed="true" data-m="view_auto">Auto</button>
+            <button class="pair-btn" type="button" data-choice="standard" aria-pressed="false" data-m="view_standard">Standard</button>
+            <button class="pair-btn" type="button" data-choice="geek" aria-pressed="false" data-m="view_geek">Geek</button>
+          </div></div>
+          <div class="set-row"><span id="remind-label" data-m="remind">Remind</span><button class="pair-btn tog" id="remind" type="button" aria-pressed="true" aria-labelledby="remind-label"></button></div>
+          <p class="set-note" id="remind-note" role="status"></p>
+          <div class="set-row"><span id="sound-label" data-m="sound">Sound</span><button class="pair-btn tog" id="sound" type="button" aria-pressed="false" aria-labelledby="sound-label" data-m-title="sound_title"></button></div>
+          <div class="set-row set-sub"><label for="sound-vol" id="sound-vol-label" data-m="sound_volume">Volume</label><span class="set-ctl"><input type="range" id="sound-vol" min="0" max="100" step="5"><output id="sound-vol-out" for="sound-vol"></output><button class="pair-btn" id="sound-try" type="button" data-m="sound_try">▶ Try</button></span></div>
+          <div class="set-row"><label for="lang" data-m="language">Language</label><select class="pair-btn lang" id="lang"></select></div>
+        </section>
+        <details class="set-group" id="set-phone" hidden><summary><h3 data-m="set_phone">Phone &amp; devices</h3></summary><div class="set-body"></div></details>
+        <details class="set-group" id="set-teams"><summary><h3 data-m="set_teams">Teams</h3></summary><div class="set-body"></div></details>
+        <details class="set-group" id="set-server" hidden><summary><h3 data-m="set_server">Server</h3></summary><div class="set-body"></div></details>
+      </section>
       <div class="tiles" id="tiles" hidden><nav class="tile-tabs" id="tile-tabs" aria-label="Documents" data-m-label="documents"></nav></div>
     </div>
     <aside class="side">

@@ -1,7 +1,7 @@
 import type { Base, Net, Unit } from "../src/net.ts";
 import { m } from "./paraglide/messages.js";
 import { desk } from "./desk.ts";
-import type { Route } from "./router.ts";
+import type { NetRoute } from "./router.ts";
 
 // Quit: the buttons on the map that close a unit, a tower, a squad, or a base, and what a click on one does; a finished subagent's Dismiss, and the HUD's Dismiss finished (every one at once). A button's data-close names what it closes and its data
 // the rest (key, name, role, ws, tab); the click asks first in the page's own dialog (a browser confirm can be dismissed by an attached tool before it is seen), then
@@ -75,7 +75,7 @@ export function showStashed(button: HTMLElement, list: HTMLElement, net: Net, of
 /** Dismisses finished subagents, one by key or all; a refusal or no answer says why in the page's dialog. Resolves whether it went. */
 export const dismiss = (body: { key: string } | { all: true }) => import("./post.ts").then(({ post }) => post("dismiss", body)).then((r) => r.ok || (sheet(r.body.reason ?? m.refused({ status: r.status })), false), () => (sheet(m.no_answer()), false));
 
-export interface QuitDeps { route(): Route; net(): Net | undefined; go(route: Route): void }
+export interface QuitDeps { route(): NetRoute; net(): Net | undefined; go(route: NetRoute): void }
 
 /** A view of what was just closed goes up to what is left: a closed base to the map, a closed squad or unit to its base. */
 export function leave(d: DOMStringMap, { route, net, go }: QuitDeps) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { depthOf, formatRoute, parseRoute, type Route, upOf, watchOf } from "../gui/router.ts";
+import { depthOf, formatRoute, netOf, parseRoute, type Route, SECTIONS, upOf, watchOf } from "../gui/router.ts";
 
 test("routes parse below the base and format back, for the map, a workspace, and a session", () => {
 	assert.deepEqual(parseRoute(""), { view: "map" });
@@ -47,4 +47,26 @@ test("one level up goes from a session to its workspace to the map, and each rou
 test("a history entry counts the page's own entries behind it, and an entry the page did not push counts none", () => {
 	assert.equal(depthOf({ depth: 2 }), 2);
 	for (const state of [null, undefined, {}, { depth: 0 }, { depth: -1 }, "x"]) assert.equal(depthOf(state), 0, JSON.stringify(state));
+});
+
+test("the settings page is a route of its own, with a section to open at, and anything else under it is the page", () => {
+	assert.deepEqual(parseRoute("settings"), { view: "settings" });
+	assert.deepEqual(parseRoute("/settings/"), { view: "settings" }, "slashes at either end do not matter");
+	assert.deepEqual(parseRoute("settings?x=1#top"), { view: "settings" });
+	for (const section of SECTIONS) assert.deepEqual(parseRoute(`settings/${section}`), { view: "settings", section });
+	assert.deepEqual(parseRoute("settings/nonsense"), { view: "settings" }, "a section the page lacks opens the page");
+	assert.deepEqual(parseRoute("settings/wifi/more"), { view: "settings", section: "wifi" });
+	for (const route of [{ view: "settings" }, { view: "settings", section: "teams" }, { view: "settings", section: "wifi" }] as Route[]) assert.deepEqual(parseRoute(formatRoute(route)), route);
+	assert.equal(formatRoute({ view: "settings" }), "settings");
+	assert.equal(formatRoute({ view: "settings", section: "phone" }), "settings/phone");
+	assert.deepEqual(parseRoute("w/settings"), { view: "workspace", ws: "settings" }, "a workspace named settings is still a workspace");
+});
+
+test("the settings page watches the net only, goes up to the map, and shows the focus views the map", () => {
+	const page: Route = { view: "settings", section: "phone" };
+	assert.equal(watchOf(page), null);
+	assert.deepEqual(upOf(page), { view: "map" });
+	assert.deepEqual(netOf(page), { view: "map" });
+	const session: Route = { view: "session", ws: "wA", key: "k" };
+	assert.equal(netOf(session), session, "a route of the net is passed on as it is");
 });

@@ -508,7 +508,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// figure is 74; the Same Wi-Fi tab (the risk and the turn-on, the waiting requests with the number field, the certificate step, the pairing QR with its codes and the address toggle) is lan.ts, 163, and the QR drawing moved out of pair.ts into qr.ts, 16.
 	// Review RVL7 (fixes F001 to F011) raised the pair figure to 85 (the tabs' ids, panels, and arrow keys; the tile opening on the Wi-Fi tab) and lan.ts to 232 (rows and live regions drawn by their id and not again, the codes worded in the page's
 	// language, one decision at a time, a link for each certificate file, the name offered only while the server answers to it); qr.ts takes the label; lanwait.ts, 23, is the header's notice for a request that waits while the tab is closed.
-	assert.ok(pairing <= 85, `the pairing tile has ${pairing} lines`);
+	// Settings page (step 5) to 86: `select`, the way the page moves an open Phone section to its Same Wi-Fi tab (the header's waiting-request notice).
+	assert.ok(pairing <= 86, `the pairing tile has ${pairing} lines`);
 	assert.ok(count("gui/lan.ts") <= 253 && count("gui/qr.ts") <= 17 && count("gui/lanwait.ts") <= 23, "the Same Wi-Fi tab, the QR drawing, and the waiting notice stay small");
 	// Unreleased: the answer form's keys (gui/askkeys.ts: arrows, Tab, Enter, and Space between options, questions, own words, and Send, one tab stop per group) have a figure of their own,
 	// and layer.ts went to 249 for the dialog that takes the focus on its first option instead of Open comms (4 lines).
@@ -585,7 +586,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// The Geek view, per device (step 2) to 2216: gui/view.ts (84: the choice and its resolving, the mount that sets data-view and theme-color, the settings' three-way control) is new, and calm.ts, main.ts, notify.ts (the switches' words), and i18n.ts grew by 14.
 	// The server's default view (Geek step 3) to 2251: view.ts takes the server's default (the meta, `setServer`, `onServer`, the Auto button's label and its own row) and main.ts feeds it from the hello and the `view` event.
 	// Phone layout (step 4) to 2370: gui/menu.ts (84: the `⋯` button, its panel's place, focus, and keys) is new, render.ts wraps a base's and a squad's Quit in it (13), main.ts shows the header's `⋯` while Dismiss finished or Stashed exists and names the route on <body> (13), and i18n.ts names one more page message.
-	assert.ok(page <= 2370, `the page's TypeScript has ${page} lines`);
+	// Settings page (step 5) to 2442: gui/settings.ts (69: the Phone, Teams, and Server sections filled when opened and dropped when closed) is new, router.ts takes the settings route (+14 with NetRoute and netOf), main.ts opens and leaves the page and moves the panels' opening out of the header (+9 net), notify.ts loses its sound popover (-8), and the rest is the narrower route type.
+	assert.ok(page <= 2442, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -754,7 +756,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Final review RVLF-F006 to 203,500 bytes / 80.3 KB gzipped: the two notes that showed in English on the zh-TW page (stays_off_error, fw_other) are worded in both languages (lan.ts to 253).
 	// Not-verified wording (0.50.0) to 204,000 bytes / 80.4 KB gzipped: `lan_unverified` and the longer `lan_risk_short`, in both languages (lanface.ts to 367).
 	// Phone layout (step 4) to 206,000 bytes / 81.0 KB gzipped: the tower conversation's one-line bar with its `⋯` menu (towerconv.ts), the queue's fold row (bars.ts), the head's menu markup and the workspace's tower row in the drawer, and four messages in both languages.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 206_000 && total(chunks, gz) <= 81_000, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Settings page (step 5) to 208,000 bytes / 82 KB gzipped: gui/settings.ts (the sections that fill when opened, 1.4 KB, its own chunk) and the messages of the page in both languages (the map chunk carries every message; the lazy chunks import it by its hashed name).
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 208_000 && total(chunks, gz) <= 82_000, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -822,5 +825,6 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// GUI quick fixes (step 1) to 88,100 bytes / 18.85 KB gzipped: the themed text boxes and menus, the server facts grid, the filled selected pair tab, and the padded conversation bar.
 	// The Geek view, per device (step 2) to 93,200 bytes / 20.1 KB gzipped: its token block (the whole palette again), the rules that turn off motion, gradients, and glow, the state tags, the switches' words, the inverse-video choices, the forced-colors block, and the settings' three-way control.
 	// Phone layout (step 4) to 96,800 bytes / 20.9 KB gzipped: the `⋯` menus, the one-line conversation bar, the queue's fold row, the map without crumbs, no avatar gutter, the squads' unit rows, and the drawer's named tower row, all in one phone block ("A phone's menus and layout").
-	assert.ok(total(css, (n) => size(n).length) <= 96_800 && total(css, gz) <= 20_900, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Settings page (step 5) to 98,600 bytes / 21.2 KB gzipped: the page's groups, rows, and disclosures, the devices' grid rows, and the Wi-Fi tab's and the Phone block's rules for a 360 px screen (less the popover's and the sound panel's).
+	assert.ok(total(css, (n) => size(n).length) <= 98_600 && total(css, gz) <= 21_200, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

@@ -1,12 +1,12 @@
 import { replay } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { aim } from "./render.ts";
-import type { Route } from "./router.ts";
+import type { NetRoute } from "./router.ts";
 import { locate, type Scene } from "./scene.ts";
 
 /** The location bar under the HUD: the net, the base, the unit, each a link one level up. */
 export function crumbs(scene: Readonly<Scene>) {
-	const part = (tag: "a" | "b" | "span", label: string, to?: Route) => {
+	const part = (tag: "a" | "b" | "span", label: string, to?: NetRoute) => {
 		const node = document.createElement(tag);
 		node.textContent = label;
 		if (to) aim(node, to);
@@ -27,8 +27,8 @@ export function crumbs(scene: Readonly<Scene>) {
 }
 
 /** Into a base the view zooms out of the base's spot on the map; into a session it slides in; going up it settles back. */
-export function entrance(next: Route, before: Route, from?: DOMRect) {
-	const depth = (r: Route) => ["map", "workspace", "session"].indexOf(r.view);
+export function entrance(next: NetRoute, before: NetRoute, from?: DOMRect) {
+	const depth = (r: NetRoute) => ["map", "workspace", "session"].indexOf(r.view);
 	const kind = depth(next) < depth(before) ? "enter-back" : next.view === "workspace" && from ? "enter-zoom" : next.view === "session" && before.view !== "session" ? "enter-slide" : "";
 	const view = document.getElementById({ map: "map", workspace: "ws-view", session: "session-view" }[next.view])!;
 	if (!kind) return;

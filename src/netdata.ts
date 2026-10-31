@@ -123,7 +123,9 @@ export function subagents(parent: Pane | undefined, all: Pane[], now: number, li
 		.map(({ id, path, pane }) => {
 			const activity = readJson(path);
 			// A child whose pane is gone, or back at a shell prompt, has finished.
-			const mark: Mark = pane?.agent === "pi" ? markOf(pane.agent_status) : "done";
+			// A pi pane that still says working after the child recorded done is winding down: the child is over, so the mark is done (the map, the drawer's tag and the badge follow `ended`).
+			const wound = activity.phase === "done", live: Mark = pane?.agent === "pi" ? markOf(pane.agent_status) : "done";
+			const mark: Mark = wound && (live === "working" || live === "commanding") ? "done" : live;
 			// Only a pi pane's session file is the child's transcript; a reused pane running another agent is not read.
 			const script = launched.find((f) => f.endsWith(`-${id}.sh`));
 			const file = (pane?.agent === "pi" ? pane.agent_session?.value : undefined) ?? (script && scriptSession(join(dir, "subagent-scripts", script)));

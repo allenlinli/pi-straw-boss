@@ -173,7 +173,7 @@ test("a redraw after Leave or New keeps an open `⋯` menu open, with its result
 		assert.equal(panel.shown, 1, "the new panel is opened again");
 		assert.equal(el.querySelector(".conv-done")!.textContent, "Left the conversation", "and still shows the result");
 		open = false;
-		fillConversation(el as unknown as HTMLElement, "wA", svc({ conversation: conv({ closing: false, turns: 15 }) }));
+		fillConversation(el as unknown as HTMLElement, "wA", svc({ conversation: conv({ turns: 15 }) }));
 		assert.equal((el.querySelector(".menu-pop") as unknown as { shown?: number }).shown, undefined, "a menu that was closed is not opened by a redraw");
 		assert.equal(el.querySelector(".conv-done")!.textContent, "");
 	} finally {

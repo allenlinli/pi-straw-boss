@@ -123,8 +123,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	const advance = () => {
 		const all = units(net);
 		const pick = all[step % all.length]!;
-		if (pick.pending?.answer) return void step++; // a dialog the page can answer stays until it is answered
-		if (pick.ended) return void step++; // a unit whose run is over stays done, as the server's rows say (src/netdata.ts)
+		if (pick.pending?.answer || pick.ended) return void step++; // a dialog the page can answer stays until it is answered; a unit whose run is over stays done (src/netdata.ts)
 		const options = NEXT[pick.mark];
 		pick.mark = step % 17 === 16 ? "error" : options[step % options.length]!;
 		pick.note = pick.mark === "working" ? TOOLS[step % TOOLS.length] : pick.mark === "waiting" ? "waiting on a question" : undefined;

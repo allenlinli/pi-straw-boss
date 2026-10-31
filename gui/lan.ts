@@ -149,8 +149,8 @@ export function lanTab(deps: LanDeps) {
 		});
 	}
 
-	// The off state: what Wi-Fi access is, one line of its risk, and the button as a filled one; the warning in full (the one `/boss gui lan` shows before the first certificate) is one press away in Details, as it is
-// once Wi-Fi access is on. Only a press of the button turns it on: the page asks nothing that could (the computer's name
+	// The off state: what Wi-Fi access is, its risk in full, and the button (filled) under it. The warning is the one `/boss gui lan` shows before the first certificate, and it is never folded before
+	// the first certificate: no platform's name-constraint enforcement is measured yet. Only a press of the button turns it on: the page asks nothing that could (the computer's name
 	// comes with the "no certificate" answer), and a certificate read that fails shows why and is read again at the next poll.
 	const riskOf = (name: string | null | undefined) => (name ? m.lan_risk({ name }) : m.lan_risk_noname());
 	async function drawOff(id: number) {
@@ -163,7 +163,7 @@ export function lanTab(deps: LanDeps) {
 		const out = h("p", { class: "lan-no", role: "status" });
 		if (have.ok && certOf(have.body).ended) out.append(m.lan_ca_ended());
 		on.onclick = () => ((on.disabled = true), out.replaceChildren(m.lan_turning_on()), void deps.post("lan/on", { accept_risk: true }).then((r) => (r.ok ? poll() : (out.replaceChildren(r.body.error === "lan_ca_ended" ? m.lan_ca_ended() : why(r)), void (on.disabled = false))), () => (out.replaceChildren(m.no_answer()), void (on.disabled = false))));
-		main.replaceChildren(h("p", null, m.lan_off_ask()), h("p", { class: "lan-risk" }, m.lan_risk_off_short()), on, out, h("details", null, h("summary", null, m.lan_risk_details()), h("p", null, riskOf(name)), h("p", { class: "lan-risk" }, m.lan_unverified()), h("p", null, m.lan_hotspot())));
+		main.replaceChildren(h("p", null, m.lan_off_ask()), h("p", null, riskOf(name)), h("p", { class: "lan-risk" }, m.lan_unverified()), h("p", null, m.lan_hotspot()), on, out);
 	}
 
 	// The on state: the certificate step, then the pairing.

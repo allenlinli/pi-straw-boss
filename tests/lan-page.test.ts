@@ -137,6 +137,7 @@ test("Wi-Fi access off with no certificate: the risk and the hotspot advice abov
 	assert.ok(w.root.shows(m.lan_hotspot()));
 	assert.ok(w.root.shows(m.lan_unverified()), "the strong warning: whether a phone limits the certificate is not verified yet");
 	assert.match(m.lan_risk({ name: "weis-mbp" }), /weis-mbp\.local/);
+	assert.equal(w.root.byTag("details").length, 0, "before the first certificate nothing of the warning is folded: no platform's enforcement is measured");
 	assert.deepEqual(w.post("lan/on"), [], "the computer's name comes with the no_ca answer: the page posts nothing that could turn Wi-Fi access on");
 	const turn = w.root.button(m.lan_turn_on());
 	turn.click();

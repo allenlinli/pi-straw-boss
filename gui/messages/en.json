@@ -836,7 +836,6 @@
 	"lan_unverified": "Not verified yet: whether your phone limits this certificate to this computer's name and private addresses has not been checked. Until it has, assume that a copy of the key could pose as any website to your phone. Use Tailscale instead if you can.",
 	"lan_hotspot": "We recommend using Wi-Fi access on your phone's hotspot, or on a Wi-Fi that connects the phone directly to this computer, so no one else is on the network.",
 	"lan_risk_short": "This computer's certificate is trusted by your phones. Whether they limit it has not been verified, so a copy of its key could pose as any website to them.",
-	"lan_risk_off_short": "Turning this on makes your phones trust a certificate whose key stays on this computer. Whether they limit it has not been verified, so a copy of the key could pose as any website to them.",
 	"lan_risk_details": "Details",
 	"lan_turn_on": "Make the certificate and turn on Wi-Fi access",
 	"lan_turn_on_existing": "Turn on Wi-Fi access",

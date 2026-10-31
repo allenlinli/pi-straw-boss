@@ -128,3 +128,18 @@ test("a squad's units are rows on a phone (the plate beside the name), and the w
 	assert.match(inLayout(".tally"), /grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/);
 	assert.match(inLayout(".col > .token"), /grid-template-columns:\s*auto minmax\(0, 1fr\)/);
 });
+
+test("the settings page's controls are 44 px on a phone: the rows, the sections' headings, the back arrow, the volume, and the Details folds; its text never widens the page", () => {
+	const whole = (selector: string) => topRule(selector);
+	assert.match(whole(".set-row"), /min-height:\s*44px/);
+	assert.match(whole("details.set-group > summary"), /min-height:\s*44px/);
+	assert.deepEqual([size(".set-head .head-back", "width"), size(".set-head .head-back", "min-height")], [44, 44]);
+	assert.equal(size(".set-ctl input[type=\"range\"]", "min-height"), 44);
+	assert.match(body(".lan summary"), /padding-block:\s*13px/, "the Wi-Fi tab's Details fold: 18 px of text and 13 px above and below");
+	assert.match(body(".link-form summary"), /padding-block:\s*13px/, "and the Teams forms' folds");
+	// The sections are grids whose one track takes the width and never the longest unbroken line (a fingerprint, an address), so a phone does not scroll sideways.
+	assert.match(css, /\n\.settings\.view \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/);
+	assert.match(css, /\n\.set-group \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/);
+	assert.match(css, /\.lan, \.lan-main, \.lan-board, \.lan-pair, \.pair, \.devices \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+	assert.match(topRule(".lan"), /overflow-wrap:\s*anywhere/);
+});

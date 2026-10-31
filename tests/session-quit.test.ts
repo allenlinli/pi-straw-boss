@@ -4,7 +4,7 @@ import { speaker } from "../gui/chat.ts";
 import { locales } from "../gui/paraglide/runtime.js";
 import { m } from "../gui/paraglide/messages.js";
 import { aimSession, leave } from "../gui/quit.ts";
-import type { Route } from "../gui/router.ts";
+import type { NetRoute as Route } from "../gui/router.ts";
 import type { Base, Net, Unit } from "../src/net.ts";
 
 // A unit's own session view: its chat names who speaks by role (the page header names the session), and its header carries the map's Quit for that unit.

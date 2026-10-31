@@ -87,34 +87,31 @@ svg { display: block; }
 .tog[data-state="ask"]::before { background: var(--gold); } .tog[data-state="blocked"]::before { background: var(--err); }
 .tog[data-state="done"] { color: var(--text); } .tog[data-state="done"]::before { background: var(--ok); box-shadow: 0 0 6px var(--ok); } .tog[data-state="error"] { color: color-mix(in srgb, var(--err-soft) 45%, var(--hi)); } .tog[data-state="error"]::before { background: var(--err); box-shadow: 0 0 6px var(--err); }
 .alert-row { display: flex; align-items: center; gap: 10px; min-width: 0; } .done-btn { flex: none; white-space: nowrap; }
-.prefs-btn { margin-left: auto; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; } .prefs-btn svg { width: 18px; height: 18px; fill: currentColor; }
-.prefs-btn:hover, .prefs-btn[aria-expanded="true"] { color: var(--text); }
-.prefs-btn:has(+ .prefs-pop #remind[data-state="blocked"]) { color: var(--err-soft); } /* a reminder the browser blocks shows on the closed button too */
-.prefs-pop { width: 240px; } .prefs-pop:popover-open { display: grid; gap: 6px; } .prefs-pop > .pair-btn { width: 100%; justify-content: flex-start; text-align: left; }
+.prefs-btn { margin-left: auto; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; text-decoration: none; } .prefs-btn svg { width: 18px; height: 18px; fill: currentColor; }
+.prefs-btn:hover, .prefs-btn[aria-current] { color: var(--text); }
+body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /* a reminder the browser blocks shows on the gear too */
 /* The header's popovers (the sound panel, the finished list) hang under their button; hang() in render.ts places them. */
 /* A phone's `⋯` menus (menu.ts): above 640 px the wrapper and its panel are `display: contents` and the button is gone, so the controls stay in the row they always had; the phone block
    ("A phone's menus") turns them into a 44 px button and a popover. */
 .menu, .menu-pop { display: contents; } .menu-btn { display: none; }
 .hud-pop { position: fixed; inset: auto; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--raised); color: var(--text); font: 13px/1.4 var(--sans); box-shadow: 0 12px 32px color-mix(in srgb, var(--shadow) 60%, transparent); }
-.sound-pop { width: 240px; gap: 12px; } .sound-pop:popover-open { display: grid; } /* a display of its own would show it closed */ .sound-pop label { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.sound-pop input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); } .sound-pop input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
-.sound-pop output { width: 3ch; text-align: right; font: 12px var(--mono); color: var(--dim); }
 .done-pop { width: min(340px, calc(100vw - 16px)); } .done-pop ul { list-style: none; margin: 0 0 10px; padding: 0; max-height: 50vh; overflow: auto; display: grid; gap: 2px; }
 .done-go { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; color: inherit; text-decoration: none; } .done-go:hover, .done-go:focus-visible { background: color-mix(in srgb, var(--hi) 6%, transparent); }
 .done-go .plate { --s: 30px; flex: none; } .done-go .badge { display: none; } .done-go span { display: grid; min-width: 0; } .done-go .name { font-weight: 600; }
 .done-go .name, .done-go small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .done-go small { color: var(--dim); }
-#done-clear, #sound-try { width: 100%; }
+#done-clear { width: 100%; }
 /* The view (view.ts): Auto, Standard, or Geek, three words in a row; the chosen one is filled and bold (not colour alone). */
-.view-pick { display: grid; gap: 4px; } .view-pick > span { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.view-pick { display: grid; gap: 6px; } .view-pick > span { color: var(--text); font-size: 14px; }
 .view-pick > div { display: flex; gap: 4px; } .view-pick button { flex: 1 1 0; justify-content: center; padding-inline: 4px; text-align: center; text-transform: none; letter-spacing: 0; }
-.view-pick > div { flex-wrap: wrap; } .view-pick[data-following] button[data-choice="auto"] { flex-basis: 100%; } /* "Follow server (geek)" does not fit beside the other two in 240 px: it takes the first row */
+.view-pick > div { flex-wrap: wrap; } .view-pick[data-following] button[data-choice="auto"] { flex-basis: 100%; } /* "Follow server (geek)" does not fit beside the other two on a phone: it takes the first row */
 .view-pick button[aria-pressed="true"] { color: var(--text); font-weight: 700; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .lang { text-transform: none; } .lang option { background: var(--bg); color: var(--text); }
 .pair { display: grid; justify-items: center; gap: 12px; text-align: center; color: var(--dim); font-size: 13px; }
 .pair-code { color: var(--text); font: 600 22px var(--mono); letter-spacing: 0.12em; user-select: all; }
 .qr { width: min(100%, 300px); border-radius: 12px; shape-rendering: crispEdges; }
 .devices { display: grid; gap: 8px; width: 100%; text-align: left; border-top: 1px solid var(--line); padding-top: 12px; } .devices h4 { margin: 0; font: 600 12px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; }
-.devices ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; } .devices li { display: flex; align-items: center; justify-content: space-between; gap: 10px; } .devices li span { display: grid; min-width: 0; } .devices li b { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.devices ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; } .devices li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; } .devices li small { grid-column: 1 / -1; overflow-wrap: anywhere; } .devices li b { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.devices-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .server-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0 0 12px; } .server-facts dt { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; } .server-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 /* Text boxes and menus follow the page's palette (zero specificity: any rule of a box's own wins). */
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"], [type="color"]), select) { box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-0); color: var(--text); font: 14px var(--sans); }
@@ -132,6 +129,8 @@ svg { display: block; }
 .lan-number { width: 7ch; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: 600 20px var(--mono); letter-spacing: 0.2em; text-align: center; }
 .lan-no { color: var(--err-soft); } .lan-no:empty { display: none; } .lan-note { display: grid; gap: 4px; } .lan-note:empty { display: none; } .lan-info { color: var(--gold); } .lan-news li { color: var(--dim); } .lan-news { list-style: none; padding: 0; display: grid; gap: 4px; } .lan-news:empty { display: none; }
 .lan-fp { font-size: 15px; letter-spacing: 0.04em; user-select: all; } .lan-fps { padding-left: 18px; display: grid; gap: 6px; } .lan-hint { color: var(--dim); font-size: 12px; } .lan hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 2px 0; }
+.lan { overflow-wrap: anywhere; } .lan-fps { grid-template-columns: minmax(0, 1fr); }
+.lan, .lan-main, .lan-board, .lan-pair, .pair, .devices { grid-template-columns: minmax(0, 1fr); } /* a track never grows to the longest unbroken line (a fingerprint, an address): the text wraps inside the section on a 360 px screen */
 .spawn-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
 .base > .spawn-btns { margin: -4px 0 12px; }
 /* A squad's name stays on one line beside its buttons, cut short with an ellipsis. */
@@ -831,7 +830,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.brand p, .link span { display: none; }
 	.alert-row { order: 3; flex: 1 1 100%; min-width: 0; } .alert-row .alerts { flex: 1 1 auto; width: auto; min-width: 0; } .done-btn { min-height: 40px; }
 	/* The brand, the settings, and the link's dot, then the alerts across the width. */
-	.brand { flex: 1 1 auto; min-width: 0; } .prefs-btn { width: 40px; height: 40px; } .prefs-pop > * { min-height: 40px; }
+	.brand { flex: 1 1 auto; min-width: 0; } .prefs-btn { width: 40px; height: 40px; }
 	.tl-span { display: none; }
 	/* The location bar, and the map and the workspace. */
 	.crumbs { gap: 6px; } .crumbs > * + *::before { margin-right: 6px; } .crumbs > * { max-width: 16ch; }
@@ -881,10 +880,12 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
    timeline's marks (10 px, placed by time, many within a few px of each other) cannot be made 44 px, so they stop taking taps: the units they point to are the cards. */
 @media (max-width: 640px) {
 	/* The HUD, the settings, and the location bar. */
-	.brand { min-height: 44px; } .prefs-btn { width: 44px; height: 44px; } .prefs-pop > * { min-height: 44px; }
+	.brand { min-height: 44px; } .prefs-btn { width: 44px; height: 44px; }
 	.crumbs { align-items: center; } .crumbs > * { padding-block: 14px; line-height: 16px; }
 	:is(.pair-btn, .alerts, .done-btn, .quit-btn, .later, .go, .x, .d-doc, .ask-send, .ask-opt, .sheet-yes, .cmp-yes, .chat-pill) { min-height: 44px; }
 	:is(.pair-btn, .quit-btn, .later, .go, .x, .tab-add, .ask-send, .sheet-yes, .cmp-yes) { min-width: 44px; }
+	.set-head .head-back { width: 44px; min-height: 44px; } .lan summary { padding-block: 13px; min-width: 44px; } .set-ctl input[type="range"] { min-height: 44px; } .set-group { padding: 12px; }
+	.set-row .lang { max-width: 55%; } .set-ctl { flex-wrap: wrap; }
 	/* The map: a quit button, then its row. */
 	.tab h3 { min-height: 44px; }
 	/* Chips and the small pills: the pill is a 22 px drawing in a 44 px box. */
@@ -894,7 +895,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	/* Disclosure rows: the log's tool calls and notices, the todos and monitors above the composer, the timeline, and a dialog's folds. */
 	:is(.act > summary, .notice > summary, .rule summary, .todos summary, .monitors summary, .timeline summary) { align-items: center; min-height: 44px; padding-block: 0; box-sizing: border-box; }
 	.todos, .monitors { padding-block: 0; } :is(.todos ol, .monitors ul) { margin: 0 0 10px; }
-	.link-form summary { padding-block: 12px; }
+	.link-form summary { padding-block: 13px; }
 	/* The queue's hint and Edit share one row instead of the button on a row of its own (two lines saved above the composer). */
 	.queue-act { flex-wrap: nowrap; justify-content: flex-end; gap: 10px; } .queue-act button { flex: none; min-width: 56px; min-height: 44px; }
 	.trust .ask-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .trust .ask-send { grid-column: 1 / -1; } /* Trust across the width, the other two side by side, instead of 2 + 1 wrapping at a width of their own */
@@ -1041,6 +1042,25 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.col .say { margin-top: 0; } .col .drones { justify-content: flex-start; padding-top: 8px; }
 }
 
+/* The settings page (route `settings`, settings.ts): groups of rows, each row a label and its control; Phone & devices, Teams, and Server are disclosures that fill when opened. */
+.settings.view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-content: start; max-width: 760px; margin-inline: auto; }
+.set-head { display: flex; align-items: center; gap: 12px; } .set-head h2 { margin: 0; font: 600 20px var(--sans); }
+.set-head .head-back { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 12px; color: var(--text); font-size: 24px; text-decoration: none; }
+.set-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); font-size: 13px; }
+.set-group h3 { margin: 0; font: 600 15px var(--sans); }
+details.set-group > summary { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; list-style: none; } details.set-group > summary::-webkit-details-marker { display: none; }
+details.set-group > summary::after { content: "▸"; margin-left: auto; color: var(--dim); } details.set-group[open] > summary::after { content: "▾"; }
+details.set-group[open] > summary { margin-bottom: 8px; } details.set-group[hidden] { display: none; }
+.set-note { margin: 0; color: var(--dim); font-size: 12px; } .set-note:empty { display: none; }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; } .set-row > :first-child { color: var(--text); font-size: 14px; }
+.set-row .tog { min-width: 7em; justify-content: flex-start; text-transform: none; letter-spacing: 0; font-size: 13px; }
+.set-sub { padding-left: 14px; } .set-sub > :first-child { color: var(--dim); font-size: 13px; }
+.set-ctl { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex: 1 1 auto; min-width: 0; } .set-ctl input[type="range"] { flex: 1; min-width: 0; max-width: 220px; accent-color: var(--accent); }
+.set-ctl output { width: 3ch; text-align: right; font: 12px var(--mono); color: var(--dim); } .set-ctl .pair-btn { text-transform: none; letter-spacing: 0; }
+.set-row .lang { max-width: 60%; }
+.set-body { min-width: 0; } .set-body .pair, .set-body .teams-tile { padding: 0; } .set-body .chat-empty { padding: 6px 0; } .set-body .chat-empty:empty { display: none; } /* a note that says nothing takes no room (the tile's 60 px padding was for an empty log) */
+.set-row + .set-note { margin-top: -2px; }
+
 /* The Geek view (view.ts sets data-view="geek" on <html>): a terminal. Black surfaces, one monospace face, every text token at least 7 : 1 on every surface and every border at least 3 : 1
    (tests/geek-contrast.test.ts reads this block), nothing moves, glows, or fades, and each state also reads as a text tag before the unit's name, so colour is never the only sign.
    A theme is one block: the tokens below; the rules after it only turn off what a token cannot (motion, gradients, glow, the colour-only dots) and mark the chosen and the state in words. */
@@ -1121,9 +1141,10 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 [data-view="geek"] [data-mark="unknown"] { --tag: "[UNKN]"; }
 [data-view="geek"] :is(.card, .token) .name::before { content: var(--tag); margin-right: 1ch; color: var(--c); font-weight: 400; }
 [data-view="geek"] .token .name::before { display: block; margin-right: 0; } /* a token is a column: the tag over the name keeps the name's width */
-/* The switches as words: [On] and [Off] (set by notify.ts as data-word), where they were a dot lit by colour. */
-[data-view="geek"] .tog::before { content: "[" attr(data-word) "]"; width: auto; height: auto; border-radius: 0; background: none; color: inherit; font: inherit; }
-[data-view="geek"] .tog:not([data-word])::before { display: none; }
+/* The switches as words in brackets: [On] and [Off] (the button's own text, bracketed here), where Standard has a dot lit by colour beside the word. */
+[data-view="geek"] .tog::before { display: none; }
+[data-view="geek"] .set-row .tog::before { content: "["; display: inline; width: auto; height: auto; border-radius: 0; background: none; color: inherit; font: inherit; }
+[data-view="geek"] .set-row .tog::after { content: "]"; }
 /* What is chosen is inverse video and bold, as well as aria-pressed: the segmented control, the pair tabs, the mode switch, a picked folder. */
 [data-view="geek"] :is(.modes button[aria-pressed="true"], .term-bar .term-kb[aria-pressed="true"], .pair-tabs .later.on, .pair-tabs .later[aria-selected="true"], .tab-btn.active, .view-pick button[aria-pressed="true"], .pcol[data-focus="true"] .pitem[aria-selected="true"]) { background: var(--text); color: var(--ink); font-weight: 700; }
 [data-view="geek"] .pitem[aria-selected="true"] { background: var(--surface-1); color: var(--text); font-weight: 700; }

@@ -1,12 +1,12 @@
 import type { Mark } from "../src/netdata.ts";
 import type { Base, Net, Unit } from "../src/net.ts";
 import type { HistoryEvent, Who } from "./chat.ts";
-import type { Route } from "./router.ts";
+import type { NetRoute } from "./router.ts";
 
 // What the focus views draw from. views.ts owns the one Scene and is its only writer; the views (workspace, session, dossier, location bar) are
 // handed it read-only and draw whatever it holds when views.ts calls them.
 
-export interface Scene { route: Route; net?: Net; cards: Record<string, string>; info?: HistoryEvent; model?: string; ctx?: number }
+export interface Scene { route: NetRoute; net?: Net; cards: Record<string, string>; info?: HistoryEvent; model?: string; ctx?: number }
 export const wsOf = (scene: Readonly<Scene>) => (scene.route.view === "map" ? "" : scene.route.ws);
 
 export type Found = { u: Who & { subs: Unit[] }; base: Base; squad?: string; launcher?: Unit };

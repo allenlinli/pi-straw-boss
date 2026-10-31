@@ -8,6 +8,7 @@ import type { Post } from "./composer.ts";
 import { type Alert, alertsOf, arrivals, unitOf } from "./alerts.ts";
 import type { Drawer } from "./drawer.ts";
 import type { mountPanels, Tile } from "./layer.ts";
+import type { mountSettings } from "./settings.ts";
 import { MODAL, mountHotkeys } from "./hotkeys.ts";
 import { mountLinkBar } from "./linkbar.ts";
 import { mountMenus } from "./menu.ts";
@@ -15,7 +16,7 @@ import { mountNotify } from "./notify.ts";
 import { mountQuit, showDismissAll, showStashed } from "./quit.ts";
 import { hang, mountPage } from "./render.ts";
 import { phoneHidden } from "./desk.ts";
-import { createRouter, parseRoute, type Route, upOf, watchOf } from "./router.ts";
+import { createRouter, depthOf, netOf, parseRoute, type Route, type Section, upOf, watchOf } from "./router.ts";
 import { createStream, type Source, type Status } from "./stream.ts";
 import { mountTimeline } from "./timeline.ts";
 import type { mountFocus } from "./views.ts";
@@ -40,7 +41,7 @@ const withFocus = (call: (f: Focus) => void) => (focus ? call(focus) : void load
 function loadFocus() {
 	loading ??= import("./views.ts").then(({ mountFocus }) => {
 		focus = mountFocus({ data, restart: () => stream.restart(), openTile, embedTerminal: (key, name, host) => new Promise((done) => withPanels((p) => done(p.terminal.embed(key, name, host)))), online: () => status.state === "live" });
-		focus.show(current, current);
+		focus.show(netOf(current), netOf(current));
 		if (latest) focus.net(latest);
 		return focus;
 	});
@@ -61,6 +62,14 @@ const withPanels = (call: (p: Panels) => void) => {
 	void panelsLoading.then(call);
 };
 const openTile = (tile: Tile, take?: boolean) => withPanels((p) => p.tiles.open(tile, take));
+
+// The settings page's sections (Phone, Teams, Server) are a chunk of their own, fetched the first time the page opens; they are built when a section opens and dropped when it closes (settings.ts).
+// Phone and the server's panel are this computer's: a paired device has neither, and a desk window has no Phone (desk.ts).
+const phoneOk = !phoneHidden(location.hostname), serverOk = location.hostname === "127.0.0.1"; // restarting the server and reading its log are this computer's too (the server answers 403 local_only to a paired device)
+let settings: Promise<ReturnType<typeof mountSettings>> | undefined;
+const withSettings = (call: (s: ReturnType<typeof mountSettings>) => unknown) => void (settings ??= import("./settings.ts").then(({ mountSettings }) => mountSettings(el("settings-view"), { phone: phoneOk, server: serverOk }))).then(call);
+/** Opens a section of the settings page: in place when the page is open, else by its route (which a link can also carry). */
+const openSection = (section: Section) => (current.view === "settings" ? withSettings((s) => s.show(section)) : router.go({ view: "settings", section }));
 
 // The header, the alert queue, and the focus views follow every snapshot. A hidden page keeps only the newest snapshot and draws it
 // when it comes back, so a background tab does no DOM work; the timeline follows on every route, the map is drawn only while in view.
@@ -113,11 +122,16 @@ function navigate(next: Route) {
 	current = next;
 	document.body.dataset.route = next.view; // a phone's map has no location bar (style.css): the page is the net itself
 	drawer?.route(next);
-	if (next.view !== "map") loadFocus();
+	if (next.view === "workspace" || next.view === "session") loadFocus();
 	el("map").hidden = next.view !== "map";
-	el("legend").hidden = next.view === "session";
+	el("settings-view").hidden = next.view !== "settings"; // the settings page has a header of its own
+	el("crumbs").hidden = next.view === "settings";
+	el("legend").hidden = next.view === "session" || next.view === "settings";
+	el("prefs").toggleAttribute("aria-current", next.view === "settings");
 	el("stage").dataset.view = next.view; // the side column (the dossier) is the session view's alone
-	withFocus((f) => f.show(next, before, from));
+	withFocus((f) => f.show(netOf(next), netOf(before), from));
+	if (next.view === "settings") withSettings((s) => current === next && s.show(next.section));
+	else if (before.view === "settings") withSettings((s) => s.hide());
 	if (next.view === "map" && latest && latest !== shown) {
 		show(latest);
 		requestAnimationFrame(page.layout);
@@ -202,7 +216,7 @@ document.addEventListener("click", (event) => {
 	withPanels((p) => p.stack.show(alert));
 }, true);
 const router = createRouter((route) => navigate(route));
-const openTeams = () => void import("./link.ts").then(({ linkTile }) => openTile(linkTile(), true));
+const openTeams = () => openSection("teams");
 const linkBar = mountLinkBar(openTeams, (count) => count && notify.chime());
 const notify = mountNotify((a) => (a.trust ? withPanels((p) => p.stack.show(a)) : router.go({ view: "session", ws: a.ws, key: unitOf(a) })));
 const stream = createStream({
@@ -224,29 +238,29 @@ document.addEventListener("visibilitychange", () => {
 	withFocus((f) => f.wake());
 	resume();
 });
+const leaveSettings = () => (depthOf(window.history.state) > 0 ? window.history.back() : router.go({ view: "map" })); // `history` is the module's own reader of a session's log
 // Escape closes the top dialog; with none open it goes up one route. A modal (a close confirmation, the lightbox) takes it for itself.
 addEventListener("keydown", (event) => {
 	if (event.key !== "Escape" || event.defaultPrevented || document.querySelector(MODAL)) return; // an open popover closes itself
 	event.preventDefault();
-	if (!panels?.stack.close() && current.view !== "map") router.go(upOf(current));
+	if (panels?.stack.close() || current.view === "map") return;
+	// Settings returns to where it was opened from; a page that opened on it goes to the map. A session goes up a level.
+	if (current.view === "settings") leaveSettings();
+	else router.go(upOf(current));
 });
 mountHotkeys((hotkey) => panels?.hotkey(hotkey) ?? false); // Space opens the next alert, F enlarges the top dialog; nothing before the overlay layer has loaded
-el("teams").addEventListener("click", openTeams);
-el("pair").hidden = phoneHidden(location.hostname); // pairing is this computer's, and a desk window has none (desk.ts)
-el("pair").addEventListener("click", () => void import("./pair.ts").then(({ pairTile }) => openTile(pairTile(), true)));
-// A pair request waits while the Same Wi-Fi tab is not open: a header notice that opens the tile on that tab (this computer's page only).
-if (!el("pair").hidden) void import("./lanwait.ts").then(({ mountLanWait }) => mountLanWait(el("lan-wait") as HTMLButtonElement, () => void import("./pair.ts").then(({ pairTile }) => openTile(pairTile("lan"), true))));
-el("server").hidden = location.hostname !== "127.0.0.1"; // restarting the server and reading its log are this computer's too (the server answers 403 local_only to a paired device)
-el("server").addEventListener("click", () => void import("./server.ts").then(({ serverTile }) => openTile(serverTile(), true)));
+// The gear is a link to the settings page; on the page it leaves it, as Escape does.
+el("prefs").addEventListener("click", (event) => current.view === "settings" && (event.preventDefault(), leaveSettings()));
+// A pair request waits while the Same Wi-Fi tab is not open: a header notice that opens the settings page on that tab (this computer's page only).
+if (phoneOk) void import("./lanwait.ts").then(({ mountLanWait }) => mountLanWait(el("lan-wait") as HTMLButtonElement, () => openSection("wifi")));
 // The phone's quick-switch drawer (drawer.ts, swipe.ts): its own chunk, fetched where there is a touch screen or a narrow window, now or once the window narrows.
 let drawer: Drawer | undefined;
 const touchy = matchMedia("(pointer: coarse), (max-width: 640px)");
 const loadDrawer = () => void import("./drawer.ts").then(({ mountDrawer }) => ((drawer ??= mountDrawer()), latest && drawer.net(latest), drawer.route(current)));
 if (touchy.matches) loadDrawer();
 else touchy.addEventListener("change", () => touchy.matches && !drawer && loadDrawer(), { once: true });
-mountQuit({ route: () => current, net: () => latest, go: (route) => router.go(route) });
+mountQuit({ route: () => netOf(current), net: () => latest, go: (route) => router.go(route) });
 el("stashed-pop").addEventListener("toggle", (e) => (e as ToggleEvent).newState === "open" && hang(el("stashed-pop"), el("stashed")));
-el("prefs-pop").addEventListener("toggle", (e) => (e as ToggleEvent).newState === "open" && hang(el("prefs-pop"), el("prefs")));
 // The opening buttons on the map and in a base (data-open with data-ws and data-tab) open their tile, read against the newest net.
 document.addEventListener("click", (event) => {
 	const button = (event.target as Element | null)?.closest?.<HTMLElement>("button[data-open]");

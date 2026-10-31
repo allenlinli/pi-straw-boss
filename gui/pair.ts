@@ -6,7 +6,7 @@ import { m } from "./paraglide/messages.js";
 import { get, post } from "./post.ts";
 import { square } from "./qr.ts";
 
-// The phone pairing tile, its own small chunk, with two tabs. Tailscale: a fresh one-time pairing URL from the server as a QR code (qr.ts, dark modules on white, drawn
+// The phone pairing panel (the settings page's Phone & devices section, settings.ts), its own small chunk, with two tabs. Tailscale: a fresh one-time pairing URL from the server as a QR code (qr.ts, dark modules on white, drawn
 // as one SVG path, never markup). While remote access is off the tab asks first; Turn on opens it to the tailnet from the server's session and
 // shows the code it answers with. The code works once, within ten minutes; New code asks for another. Same Wi-Fi: lan.ts. Under either, the paired devices of both networks (devices.ts).
 
@@ -15,10 +15,10 @@ export { square };
 /** The id this tile's Same Wi-Fi tab mints its codes under (the server keeps one live code per id). */
 const surface = () => `tile-${[...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 
-/** `first` is the tab the tile opens on (the page's waiting-request notice opens the Wi-Fi one). */
-export function pairTile(first: "tailscale" | "lan" = "tailscale"): Tile {
-	let lan: ReturnType<typeof lanTab> | undefined;
-	return { id: "pair", title: m.pair_tile(), closed: () => lan?.end(), body: () => {
+/** `first` is the tab the panel opens on (the page's waiting-request notice opens the Wi-Fi one); `select` moves a panel that is open to a tab. */
+export function pairTile(first: "tailscale" | "lan" = "tailscale"): Tile & { select(tab: "tailscale" | "lan"): void } {
+	let lan: ReturnType<typeof lanTab> | undefined, choose: ((tab: "tailscale" | "lan") => void) | undefined;
+	return { id: "pair", title: m.pair_tile(), closed: () => lan?.end(), select: (tab) => choose?.(tab), body: () => {
 		const code = h("div", { class: "pair" }), again = h("button", { type: "button", class: "later" }, m.new_code());
 		const on = h("button", { type: "button", class: "pair-btn" }, m.remote_turn_on());
 		const ask = (path = "remote/pair", waiting = m.asking_code()) => {
@@ -61,6 +61,7 @@ export function pairTile(first: "tailscale" | "lan" = "tailscale"): Tile {
 			else (lan!.end(), first || ask());
 			void devices.refresh();
 		};
+		choose = (id) => id !== tab && select(id);
 		select(first, true);
 		if (first === "tailscale") ask();
 		return h("div", { class: "pair" }, h("div", { class: "pair-tabs", role: "tablist", "aria-label": m.pair_tabs() }, ...tabs.map(([, b]) => b)), code, lan.root, devices.box);

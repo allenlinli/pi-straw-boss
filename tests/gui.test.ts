@@ -313,7 +313,7 @@ test("a route that is not a file answers the page with <base href>, so assets an
 	assert.ok(page.body.includes(`<head>\n<base href="/${gui.token}/">\n<meta name="sb-csrf" content="${gui.csrf}">`), page.body);
 	assert.match(gui.csrf, /^[0-9a-f]{32}$/);
 	assert.notEqual(gui.csrf, gui.token, "the CSRF secret is a second secret");
-	for (const path of [`/${gui.token}/w/wA`, `/${gui.token}/w/wA/s/abc`, `/${gui.token}/w/a%20b/s/x%2Fy`, `/${gui.token}/w/wA/s/abc/`]) {
+	for (const path of [`/${gui.token}/w/wA`, `/${gui.token}/w/wA/s/abc`, `/${gui.token}/w/a%20b/s/x%2Fy`, `/${gui.token}/w/wA/s/abc/`, `/${gui.token}/settings`, `/${gui.token}/settings/`, `/${gui.token}/settings/wifi`]) {
 		const deep = await raw(gui, path);
 		assert.deepEqual([deep.status, deep.body], [200, page.body], path);
 		assert.match(String(deep.headers["content-type"]), /text\/html/);
@@ -321,6 +321,7 @@ test("a route that is not a file answers the page with <base href>, so assets an
 	assert.match(String(page.headers["content-security-policy"]), /base-uri 'self'/);
 	assert.match(String(page.headers["content-security-policy"]), /frame-ancestors 'none'/);
 	assert.equal((await raw(gui, `/w/wA`)).status, 403, "a route still needs the token");
+	assert.equal((await raw(gui, `/settings`)).status, 403, "the settings page too");
 	assert.equal((await raw(gui, `/${gui.token}/w/wA`, { method: "POST" })).status, 403, "and is read only");
 });
 

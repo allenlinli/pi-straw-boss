@@ -5,7 +5,7 @@ import { mountDossier } from "./dossier.ts";
 import type { Tile } from "./layer.ts";
 import { crumbs, entrance } from "./nav.ts";
 import { html } from "./render.ts";
-import type { Route } from "./router.ts";
+import type { NetRoute } from "./router.ts";
 import { locate, type Scene, subject } from "./scene.ts";
 import { mountSession } from "./session.ts";
 import { m } from "./paraglide/messages.js";
@@ -46,7 +46,7 @@ export function mountFocus({ data, restart, openTile, embedTerminal, online }: F
 	return {
 		terminal: session.terminal,
 		locate: (key: string) => locate(scene.net, key),
-		show(next: Route, before: Route, from?: DOMRect) {
+		show(next: NetRoute, before: NetRoute, from?: DOMRect) {
 			const [key, at] = scene.route.view === "session" ? [scene.route.key, scene.route.at] : [];
 			if (next.view !== "workspace" || scene.route.view !== "workspace" || next.ws !== scene.route.ws) scene.cards = {};
 			scene.route = next;

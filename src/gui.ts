@@ -33,7 +33,7 @@ import { api, type Hub as Files, image, watchSession, type Watch, watchWorkspace
 // remote listener, and what lets it in is lan/access.ts: the Host allow-list, the token, and the cookie of a device the boss allowed on this computer. `lan/*` routes and the `server/*` and `remote/*` ones stay this computer's page only.
 // While remote access is on (remote.ts), paired devices of this machine's Tailscale user reach the same server through `tailscale serve`. The stream sends the full snapshot on connect and on every
 // change, plus a `ping` event every 15 s so a client can tell a silent drop from a quiet net. It polls only while someone listens.
-// The page has routes (/<token>/w/<workspace>[/s/<session>]): any such URL answers the same index.html, which carries a <base href>
+// The page has routes (/<token>/w/<workspace>[/s/<session>] and /<token>/settings[/<section>]): any such URL answers the same index.html, which carries a <base href>
 // so its assets and the stream resolve from any depth. `events?watch=<session key>` adds that session's chat history to the stream,
 // `events?watch=w:<workspace id>` the last line of each session there; /api/history and /api/entry page through a session's file.
 
@@ -244,7 +244,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		// The page loads its assets and the stream relative to its own URL, so that URL must end with a slash.
 		if (path.length === 0) return void res.writeHead(308, { ...HEADERS, location: `${pathname}/` }).end();
 		if (path.join("/") === "events") return events(req, res, url.searchParams.get("watch"), who.remote ? { device: who.device ?? "", net: wifi ? "lan" : "tailnet" } : undefined);
-		if (path[0] === "w") return void res.writeHead(200, { ...HEADERS, "content-type": TYPES[".html"] }).end(pageOf());
+		if (path[0] === "w" || path[0] === "settings") return void res.writeHead(200, { ...HEADERS, "content-type": TYPES[".html"] }).end(pageOf());
 		let file: string;
 		try {
 			file = decodeURIComponent(path.join("/")) || "index.html";

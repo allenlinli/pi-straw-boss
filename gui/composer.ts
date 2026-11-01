@@ -194,7 +194,7 @@ export function mountComposer(root: HTMLElement, key: string, post: Post, upload
 		try {
 			const r = await flight.answer;
 			if (!form.isConnected) return;
-			if (!r.ok) return (r.status === 504 || stash(), say(towerWhy(r) ?? r.body.reason ?? m.refused({ status: r.status }), "error")); // shown here, so only an unconfirmed send keeps its note
+			if (!r.ok) return (r.status === 504 || stash(), say(towerWhy(r) ?? (r.status === 403 && r.body.error === "local_only" ? m.composer_local_only() : undefined) ?? r.body.reason ?? m.refused({ status: r.status }), "error")); // shown here, so only an unconfirmed send keeps its note
 			if (sent === undefined) return say("");
 			stash();
 			const said = confirmed(box.value, sent);

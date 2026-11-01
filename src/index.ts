@@ -27,6 +27,7 @@ import { herdrEvents, herdrWatch } from "./server-watch.ts";
 import { createServerLook } from "./server-look.ts";
 import { registerSession } from "./session.ts";
 import { createStashing } from "./stashing.ts";
+import { createBossPaths } from "./bosspaths.ts";
 import { type Config, createKit, type Deps } from "./state.ts";
 import { createTools } from "./tools.ts";
 import { createTower } from "./tower.ts";
@@ -69,7 +70,7 @@ export function createStrawBoss({ run: given, world: reading, api = herdrApi(), 
 		closeSelf = createClosing(kit);
 		const control = createCloseMain(kit, { closeSelf, check: bridge.stashCheck });
 		registerSession(kit, { integration: createIntegrationWatch(kit), runMode, briefing, roles, presence, membership, guard, host, reach, digest, control, startTower: createTower(kit, { membership, presence, tools, control, digest, roles, reach }) });
-		registerBoss(kit, { runMode, host, membership, reach, closeSelf, stashing: createStashing(kit, { host }), server: look });
+		registerBoss(kit, { runMode, host, membership, reach, closeSelf, stashing: createStashing(kit, { host }), server: look, paths: createBossPaths(kit, { host, server: look, closeSelf }) });
 	};
 }
 

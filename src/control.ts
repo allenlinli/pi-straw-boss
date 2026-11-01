@@ -137,6 +137,9 @@ export function checkText(text: unknown): string | Reply {
 }
 
 const OVERLAY_OPEN = "A /boss gui lan screen is open in this session; only Escape can be sent to it from a paired device.";
+/** Boss commands that manage pairing, remote access, Wi-Fi, or the server: a paired device's composer and a new session's first message never run them, nor `gui view <mode>` (the local page and the terminal do). A slip guard, not a boundary: the key pad's terminal keys are not filtered. */
+const BOSS_LOCAL = /^\s*\/boss\s+(gui\s+(stop|rotate|remote|lan|devices|unpair|view\s+\S+)|server|lan)(?=\s|$)/;
+const LOCAL_ONLY = "Pairing, remote access, Wi-Fi, the server, and the default view are managed on this computer's own page or terminal, not from a paired device.";
 const LINK_LOCAL = "While it waits on a link request, a paired device can only send Escape; approve it on this computer's own page or terminal.";
 export function createControl({ lan, overlay, link, server: panel, lookup, call, csrf, canonical, pair, remoteOn, remoteOff, paired, saveFailed, spawn, close, dismiss, dismissAll, stop, mirrors, secret = async () => true, linkRequest = async () => false, answers, trust, tower }: ControlDeps) {
 	const busy = new Set<string>();
@@ -236,6 +239,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 		if (scope === "dismiss" && !key && read.json.all === true) return dismissAll ? { status: 200, body: { dismissed: await dismissAll() } } : no(503, "unavailable", "This server dismisses nothing.");
 		if (scope === "dismiss" && !key) return (await dismiss?.(read.json.key)) ? { status: 200, body: {} } : no(404, "not_found", "Only a finished subagent on the net can be dismissed.");
 		if (scope === "close") return close && !action ? close(key, read.json) : no(close ? 404 : 503, close ? "not_found" : "unavailable", close ? "No such action." : "This server closes nothing.");
+		if (remote && scope === "open" && typeof read.json.prompt === "string" && BOSS_LOCAL.test(read.json.prompt)) return no(403, "local_only", LOCAL_ONLY);
 		if (scope === "dirs" || scope === "open") return spawn && !action ? spawn([scope, key], read.json) : no(spawn ? 404 : 503, spawn ? "not_found" : "unavailable", spawn ? "No such action." : "This server opens nothing.");
 		if (scope === "remote" && key === "on" && !action) {
 			if (!remoteOn) return no(503, "unavailable", "This server cannot turn remote access on.");
@@ -274,6 +278,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			const text = checkText(json.text);
 			if (typeof text !== "string") return text;
 			if (json.as !== "send" && json.as !== "followUp") return no(400, "bad_request", "`as` must be send or followUp.");
+			if (remote && BOSS_LOCAL.test(text)) return no(403, "local_only", LOCAL_ONLY);
 			if (ENDING.test(text) && json.confirmed !== true) return no(409, "confirm", "This command ends or replaces the session; confirm to send it.");
 			job = async () => {
 				const pane = await live(found);

@@ -459,10 +459,11 @@ test("Windows: readFirewall resolves the node path (injected) and a path that ca
 	assert.deepEqual(broken.notes, []);
 });
 
-test("a read killed by its timeout says it timed out, with a real slow child", { skip: process.platform === "win32" ? "needs /bin/sleep" : false }, async () => {
-	const slow: FirewallExec = (file, args, options) =>
+test("a read killed by its timeout says it timed out, with a real slow child", async () => {
+	// A node child that only waits: there is no /bin/sleep on Windows, and node is the one program every platform of this suite has.
+	const slow: FirewallExec = () =>
 		new Promise((resolve, reject) => {
-			execFileExe("/bin/sleep", ["30"], { timeout: 200, env: options.env }, (error, stdout, stderr) => (error ? reject(Object.assign(error, { stdout, stderr })) : resolve(stdout)));
+			execFileExe(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { timeout: 200, env: process.env }, (error, stdout, stderr) => (error ? reject(Object.assign(error, { stdout, stderr })) : resolve(stdout)));
 		});
 	const mac = await readFirewall(PORT, { platform: "darwin", execPath: "/x/node", exec: slow, env: process.env });
 	assert.match(mac.summary, /could not be read \(timed out after 10 s\)/);

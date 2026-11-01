@@ -66,7 +66,7 @@ export function refusedForRun(full: boolean, tool: string, input: Record<string,
 
 /** Why a local run's call of `tool` may not go ahead (it is not on the list, or its path is refused), or undefined. A check that fails refuses: a throw out of a tool_call hook blocks the call in pi too, but without a reason. */
 function refusedInRun(tool: string, input: Record<string, unknown>, s: RunScope): string | undefined {
-	if (!toolAllowed(tool)) return `${tool} is not available in a tower run: a run has the tower tools and read-only file access (read, grep, find, ls). Route work to the main that owns it, or open one with boss_open_main.`;
+	if (!toolAllowed(tool)) return `${tool} is not available in a tower run: a run has the tower tools and read-only file access (read, grep, find, ls). Route work to the main that owns it, or open one with boss_open_main (the boss's own turn in a hand run has every tool).`;
 	try {
 		return refusedPath(tool, input, s);
 	} catch (error) {

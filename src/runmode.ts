@@ -389,8 +389,8 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		if (mode !== "run" || claim?.kind !== "local" || event.source !== "interactive") return;
 		// Their words protect the turn from the abort whether or not the server heard them (it may be the very thing that is away): the flag is not undone by a failed request, the rate-limit mark is.
 		bossTyped = true;
-		// The turn their words start is theirs: a hand run holds no path guard in it (below).
-		bossTurn = true;
+		// The turn their words start is theirs: a hand run holds no guard in it (below). A steer typed in the middle of a turn an event started (pi runs this handler before it queues the words) does not make that turn theirs.
+		if (idle()) bossTurn = true;
 		if (bossSign !== undefined && cfg.now() - bossSign < BOSS_SIGN_MS) return;
 		bossSign = cfg.now();
 		// Not waited for: pi takes the boss's words only after this handler, and a round trip here would let the run's own event start a turn first and the words be refused as "already processing". The request goes out now;
@@ -405,12 +405,12 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		// A subagent would outlive the run (a pane and a process left behind after tower_done): a run routes work through the mains it opens.
 		if (event.toolName === "subagent" || event.toolName === "subagent_resume") return { block: true, reason: NO_SUBAGENTS };
 		// A local run is started with `--tools` naming what it may call (runallow.ts), so a tool off the list is not registered at all; this refuses it again for the case an extension turned it back on, and refuses a path of the state folder or a secret folder.
-		// The path denial alone (not the list) also holds an ally run at every trust level, and a hand run (the boss's own pi in the standing pane, with the tools the boss chose) in a turn the boss did not start: an event of a peer or the board
-		// reaches it while the boss is silent. The boss's own turns are not held. bash can still name a guarded path in a command (docs/how-it-works.md, Not covered).
+		// An ally run is held to the path denial alone (not the list) at every trust level. A hand run (the boss's own pi in the standing pane, with the tools the boss chose) is held to the local run's list and the path denial in a turn
+		// the boss did not start: an event of a peer or the board reaches it while the boss is silent. The boss's own turns are not held. An ally run's bash can still name a guarded path in a command (docs/how-it-works.md, Not covered).
 		if (claim?.kind !== "local" && claim?.kind !== "ally") return;
 		if (claim.hand && bossTurn) return;
 		const home = cfg.link?.home ?? homedir();
-		const why = refusedForRun(claim.kind === "local" && !claim.hand, event.toolName, event.input as Record<string, unknown>, { cwd: context.cwd, home, agentDir: env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), stateDir: guiDir });
+		const why = refusedForRun(claim.kind === "local", event.toolName, event.input as Record<string, unknown>, { cwd: context.cwd, home, agentDir: env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), stateDir: guiDir });
 		if (why) return { block: true, reason: why };
 	});
 	// An ally run has no business with pi-intercom: its own id is fresh and no header names it, so a message from it is dropped from the context as a backstop.

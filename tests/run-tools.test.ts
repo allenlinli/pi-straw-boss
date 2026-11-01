@@ -23,6 +23,8 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
+const DEV = "a".repeat(26), TEAM = "1".repeat(32);
+const PEER = { device: DEV, label: "Carol Mac", short: DEV.slice(0, 6), team: TEAM, teamName: "Team One" };
 const BRIEF = "You are a run of the tower of workspace Alpha (wA); head tower: Alpha. BRIEF-MARK";
 /** The server a run talks to: a claim of the given kind, and every other request answered ok. */
 const server = (claim: Record<string, unknown> = {}) => {
@@ -181,7 +183,7 @@ test("a run still has every tower tool, with the allowlist given to pi and witho
 	}
 });
 
-test("a hand run (the boss's own pi in the standing pane, started with the tools the boss chose) and an ally run are not held to the list: the ally keeps the gate of its sender, the hand run has what the boss gave it", async () => {
+test("a hand run's boss turn has every tool the boss chose; an ally run is not held to the list: it keeps the gate of its sender", async () => {
 	const hand = await run([["bash", {}]], { tools: WIDE }, server({ hand: true }));
 	assert.match(hand.out[0]!, /RAN/);
 	sessions.splice(0).forEach((s) => s.dispose());
@@ -237,6 +239,7 @@ test("a grep regex that looks like a path is a regex, not a path: only grep's pa
 	assert.match(out[2]!, /PROJECT-LINE/);
 });
 
+// Run-tools parity: after bumping @earendil-works/pi-coding-agent, this test must pass (AGENTS.md, Bumping pi): the guard's resolver mirrors pi's, and it is compared with the installed devDependency only.
 test("the guard's resolver agrees with pi's own on a table of inputs (file://, @, ~, odd spaces, percent escapes, relative, dot-dot)", async () => {
 	const pi = (await import(pathToFileURL(resolve("node_modules/@earendil-works/pi-coding-agent/dist/core/tools/path-utils.js")).href)) as { resolveToCwd(p: string, cwd: string): string };
 	const cwd = join(root, "project"), home = process.env.HOME ?? "";
@@ -262,16 +265,59 @@ test("the Windows forms of a path resolve as pi resolves them on win32: /c/..., 
 	assert.equal(w("//srv/share"), "\\\\srv\\share\\");
 });
 
-test("a hand run is held to the path denial in a turn the boss did not start, and not in a turn their words start; an ally run is held at every level and keeps its shell", async () => {
+test("a hand run's event turn is held to the local run's list and the path denial, the boss's own turn is not, and a steer typed in an event turn does not make it theirs", async () => {
 	const state = plant();
-	const hand = await run([["read", { path: join(state, "server.json") }], ["bash", {}]], { tools: WIDE }, server({ hand: true }), "extension");
+	const hand = await run([["read", { path: join(state, "server.json") }], ["bash", {}], ["read", { path: join(root, "project", "notes.txt") }]], { tools: WIDE }, server({ hand: true }), "extension");
 	assert.match(hand.out[0]!, /sb server's state or a secret/, "an event's turn: the path is refused");
-	assert.match(hand.out[1]!, /RAN/, "the shell stays");
+	assert.match(hand.out[1]!, NOT_IN_RUN, "an event's turn: no shell");
+	assert.match(hand.out[1]!, /boss's own turn/);
+	assert.match(hand.out[2]!, /PROJECT-LINE/, "a project file is still read");
 	sessions.splice(0).forEach((s) => s.dispose());
-	const boss = await run([["read", { path: join(state, "server.json") }]], { tools: WIDE }, server({ hand: true }));
+	const boss = await run([["read", { path: join(state, "server.json") }], ["bash", {}]], { tools: WIDE }, server({ hand: true }));
 	assert.match(boss.out[0]!, new RegExp(SECRET), "the boss's own turn is not held");
+	assert.match(boss.out[1]!, /RAN/, "the boss's own turn keeps the shell");
 	sessions.splice(0).forEach((s) => s.dispose());
-	const ally = await run([["read", { path: join(state, "server.json") }], ["ls", { path: pathToFileURL(state).href }]], { tools: WIDE }, server({ kind: "ally", level: "dispatch", peer: { device: "dev1", label: "Dev", short: "d1", team: "t1", teamName: "T" } }));
-	for (const o of ally.out) assert.match(o, /sb server's state or a secret|descend|declined a remote request/, o);
-	sessions.splice(0).forEach((s) => s.dispose());
+	// The boss types while the model is in a turn an event started: pi runs the input handler first, and the turn stays the event's.
+	const r = await rig(server({ hand: true }));
+	let steered = false;
+	r.faux.setResponses([(() => {
+		if (!steered) { steered = true; void r.session.prompt("steer", { source: "interactive", streamingBehavior: "steer" }); }
+		return call("bash", {});
+	}) as never, fauxAssistantMessage("finished"), fauxAssistantMessage("finished")]);
+	await r.session.prompt("go", { source: "extension" });
+	await until(() => results(r.session).length >= 1, "a result");
+	assert.match(results(r.session)[0]!, NOT_IN_RUN, "the steer did not lift the hold");
+});
+
+test("an ally run is held to the path denial at dispatch and at reply, its sender's gate besides, and at dispatch it keeps its shell", async () => {
+	const state = plant();
+	mkdirSync(join(root, "straw-boss"), { recursive: true });
+	for (const level of ["dispatch", "reply"]) {
+		writeFileSync(join(state, "config.json"), JSON.stringify({ link: { teams: { [TEAM]: { project: join(root, "project") } }, trust: { [DEV]: level } } }));
+		const queue = [{ id: "m1", kind: "link", text: `[straw net from=Carol Mac id=link:${DEV} role=tower remote=Carol Mac device=${DEV.slice(0, 6)} team="Team One" verified=yes kind=tower_send scope=tower to=x reply=none] look` }];
+		const taken: string[] = [];
+		const srv = server({ kind: "ally", level, peer: PEER });
+		const base = srv.ask;
+		srv.ask = async (request: Request): Promise<Answer> => {
+			if (request.cmd === "run-poll") {
+				if (request.idle !== true) return { ok: true };
+				const next = queue.find((e) => !taken.includes(e.id));
+				return next ? { ok: true, event: next } : { ok: true };
+			}
+			if (request.cmd === "run-taken") return (taken.push(String(request.id)), { ok: true });
+			return base(request);
+		};
+		const r = await rig(srv, { tools: WIDE });
+		r.faux.setResponses([call("read", { path: join(state, "server.json") }), call("ls", { path: pathToFileURL(state).href }), call("bash", {}), fauxAssistantMessage("finished")]);
+		await until(() => results(r.session).length === 3, `${level}: three results`);
+		const out = results(r.session);
+		// At dispatch the sender's gate is off, so the run mode's path denial is the only layer. At reply the gate asks the boss first and refuses before the path denial is reached: either layer's refusal stands, the secret is never read.
+		for (const o of out.slice(0, 2)) {
+			assert.doesNotMatch(o, new RegExp(SECRET), `${level}: the secret was read`);
+			assert.match(o, level === "dispatch" ? /sb server's state or a secret|descend/ : /sb server's state or a secret|descend|declined a remote request/, `${level}: ${o}`);
+		}
+		if (level === "dispatch") assert.match(out[2]!, /RAN/, "the shell stays at dispatch");
+		else assert.match(out[2]!, /declined a remote request/, "the sender's gate holds at reply");
+		sessions.splice(0).forEach((s) => s.dispose());
+	}
 });

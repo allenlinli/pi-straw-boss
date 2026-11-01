@@ -38,10 +38,9 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
 	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0;
 	const to = (key: string) => deps.post?.(key) ?? postTo(key), trustTo: TrustPost = deps.trust ?? ((body) => post("trust/answer", body));
-	// A draft holds the screen while the boss is at it: the box has text and has the focus, or he touched the companion (a tap or a drag on the log, a wheel, a key) in the last DRAFT_MS. A tap on the log
-	// takes the focus off the box, and must not hand the screen to a waiting item with his draft still in it.
+	// A draft holds the screen while the boss is at it: the box has text and he touched the companion (a tap or a drag on the log, a wheel, a key) in the last DRAFT_MS, focused or not. Typing keeps renewing it; walking away from a focused box does not hold the screen.
 	let touched = -Infinity;
-	const typing = () => Boolean(company?.composer && company.composer.box.value !== "" && (document.activeElement === company.composer.box || now() - touched < DRAFT_MS));
+	const typing = () => Boolean(company?.composer && company.composer.box.value !== "" && now() - touched < DRAFT_MS);
 	const model = createZen({ now, typing });
 	const stage = h("div", { class: "zen-stage" }), live = h("p", { class: "zen-live", role: "status", "aria-live": "polite" });
 	const fs = mountFullscreen(deps.fs ?? domFs(later)), menu = mountMenu(deps.menu ?? {}, () => leave(), later);

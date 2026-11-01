@@ -480,6 +480,7 @@ test("the companion: the tower by fallback, its log and composer, the stream wat
 	const box = r.calls.composers.at(-1)!.box;
 	box.focus();
 	box.value = "half a sentence";
+	box.bubble("keydown");
 	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
 	await r.advance(600);
 	assert.equal(r.button("Maybe later"), undefined, "the item waits");
@@ -505,6 +506,7 @@ test("scrolling and tapping the log change nothing: a draft in the box keeps hol
 	const box = r.calls.composers.at(-1)!.box, log = r.by((el) => el.getAttribute("class") === "zen-log")[0]!;
 	box.focus();
 	box.type("half a sentence");
+	box.bubble("keydown"); // typing is keys
 	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
 	await wait(r, 600);
 	assert.equal(r.button("Maybe later"), undefined, "the item waits while he types");
@@ -522,6 +524,39 @@ test("scrolling and tapping the log change nothing: a draft in the box keeps hol
 	assert.deepEqual(r.calls.leave, [], "nothing is left or opened");
 	await wait(r, DRAFT_MS + 1000);
 	assert.ok(r.button("Maybe later"), "left alone for the hold, the draft lets the waiting item take the screen");
+});
+
+test("a focused box with text and no input for 20 s: the waiting item takes the screen", async () => {
+	const r = rig();
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	const box = r.calls.composers.at(-1)!.box;
+	box.focus();
+	box.type("walked away");
+	box.bubble("keydown");
+	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
+	await wait(r, 600);
+	assert.equal(r.button("Maybe later"), undefined, "held while he has just typed");
+	await wait(r, DRAFT_MS + 1000);
+	assert.ok(r.button("Maybe later"), "no input for DRAFT_MS: the item takes the screen though the box has the focus");
+});
+
+test("keydown every 5 s for 60 s keeps holding a focused draft", async () => {
+	const r = rig();
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	const box = r.calls.composers.at(-1)!.box;
+	box.focus();
+	box.type("still typing");
+	box.bubble("keydown");
+	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
+	for (let i = 0; i < 12; i++) {
+		box.bubble("keydown");
+		await wait(r, 5000);
+	}
+	assert.equal(r.button("Maybe later"), undefined, "typing keeps renewing the hold");
 });
 
 test("with no draft in the box a tap on the log is nothing: no item is waiting to take the screen, and the screen does not change", async () => {
@@ -646,6 +681,7 @@ test("a streaming companion keeps scrolling its own log: scroll events alone nev
 	const box = r.calls.composers.at(-1)!.box, log = r.by((el) => el.getAttribute("class") === "zen-log")[0]!;
 	box.focus();
 	box.type("half a sentence");
+	box.bubble("keydown"); // typing is keys
 	log.bubble("pointerdown");
 	box.blur();
 	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));

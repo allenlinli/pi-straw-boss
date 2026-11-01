@@ -213,21 +213,22 @@ test("zh-TW locale words the confirm and the answers in Traditional Chinese", as
 // The /boss command itself: which line reaches which path, and a run reaches none.
 function boss(active: boolean) {
 	const called: string[] = [];
-	let handler: ((args: string, ctx: { ui: object; hasUI: boolean }) => Promise<void>) | undefined;
+	let handler: ((args: string, ctx: { ui: object; hasUI: boolean; cwd: string }) => Promise<void>) | undefined;
 	const told: string[] = [];
 	const spy = (name: string) => async (...a: unknown[]) => void called.push(`${name} ${JSON.stringify(a)}`);
-	const paths = { needWorkspace: spy("needWorkspace"), close: spy("close"), stashOther: spy("stashOther"), dismiss: spy("dismiss"), devices: spy("devices"), unpair: spy("unpair"), logs: spy("logs") };
+	const paths = { needWorkspace: spy("needWorkspace"), close: spy("close"), stashOther: spy("stashOther"), dismiss: spy("dismiss"), open: spy("open"), link: spy("link"), devices: spy("devices"), unpair: spy("unpair"), logs: spy("logs") };
 	const kit = { pi: { registerCommand: (_n: string, c: { handler: typeof handler }) => (handler = c.handler) }, cfg: { env: {} }, s: {}, guiDir: "/nowhere", tell: (t: string) => void told.push(t) } as unknown as Kit;
 	const never = new Proxy({}, { get: (_t, k) => async () => void called.push(`other ${String(k)}`) });
 	registerBoss(kit, { runMode: { active: () => active }, host: never as never, membership: never as never, reach: never as never, closeSelf: () => { called.push("closeSelf"); return undefined; }, stashing: never as never, paths: paths as never });
-	return { run: (line: string) => handler!(line, { ui: {}, hasUI: true }), called, told };
+	return { run: (line: string) => handler!(line, { ui: {}, hasUI: true, cwd: "/work" }), called, told };
 }
 
 test("each typed line reaches its path", async () => {
 	const b = boss(false);
-	for (const line of ["close api-member", "close all Beta", "close unit:dup", "stash mine --workspace Beta", "dismiss", "dismiss builder", "gui devices", "gui unpair all", "gui unpair abc", "server logs", "server logs 20"]) await b.run(line);
+	for (const line of ["close api-member", "close all Beta", "close unit:dup", "stash mine --workspace Beta", "dismiss", "dismiss builder", "gui devices", "gui unpair all", "gui unpair abc", "server logs", "server logs 20", "open base ~/x My base", "open member", "open main ../y do it\nthen this", "link", "link status", "link decide ab12 approve"]) await b.run(line);
 	assert.deepEqual(b.called, [
 		'close ["api-member"]', 'close ["Beta",true]', 'close ["unit:dup"]', 'stashOther ["mine","Beta"]', 'dismiss [null]', 'dismiss ["builder"]', "devices []", 'unpair ["all"]', 'unpair ["abc"]', "logs [null]", 'logs ["20"]',
+		'open ["base ~/x My base","/work"]', 'open ["member","/work"]', 'open ["main ../y do it\\nthen this","/work"]', "link [null]", 'link ["status"]', 'link ["decide ab12 approve"]',
 	]);
 });
 
@@ -250,8 +251,8 @@ test("bare close and close all keep their meanings", async () => {
 
 test("a tower run or an ally run reaches none of them", async () => {
 	const b = boss(true);
-	for (const line of ["close api-member", "close all Beta", "stash --workspace Beta", "dismiss", "gui devices", "gui unpair all", "server logs"]) await b.run(line);
+	for (const line of ["close api-member", "close all Beta", "stash --workspace Beta", "dismiss", "gui devices", "gui unpair all", "server logs", "open base x", "open member", "open main x", "link", "link decide a approve"]) await b.run(line);
 	assert.deepEqual(b.called, []);
-	assert.equal(b.told.length, 7);
+	assert.equal(b.told.length, 12);
 	assert.ok(b.told.every((t) => /takes no \/boss command/.test(t)));
 });

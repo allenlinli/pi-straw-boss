@@ -138,8 +138,8 @@ export function checkText(text: unknown): string | Reply {
 
 const OVERLAY_OPEN = "A /boss gui lan screen is open in this session; only Escape can be sent to it from a paired device.";
 /** Boss commands that manage pairing, remote access, Wi-Fi, or the server: a paired device's composer and a new session's first message never run them, nor `gui view <mode>` (the local page and the terminal do). A slip guard, not a boundary: the key pad's terminal keys are not filtered. */
-const BOSS_LOCAL = /^\s*\/boss\s+(gui\s+(stop|rotate|remote|lan|devices|unpair|view\s+\S+)|server|lan)(?=\s|$)/;
-const LOCAL_ONLY = "Pairing, remote access, Wi-Fi, the server, and the default view are managed on this computer's own page or terminal, not from a paired device.";
+const BOSS_LOCAL = /^\s*\/boss\s+(gui\s+(stop|rotate|remote|lan|devices|unpair|view\s+\S+)|server|lan|link\s+decide)(?=\s|$)/;
+const LOCAL_ONLY = "Pairing, remote access, Wi-Fi, the server, the default view, and deciding a join request are managed on this computer's own page or terminal, not from a paired device.";
 const LINK_LOCAL = "While it waits on a link request, a paired device can only send Escape; approve it on this computer's own page or terminal.";
 export function createControl({ lan, overlay, link, server: panel, lookup, call, csrf, canonical, pair, remoteOn, remoteOff, paired, saveFailed, spawn, close, dismiss, dismissAll, stop, mirrors, secret = async () => true, linkRequest = async () => false, answers, trust, tower }: ControlDeps) {
 	const busy = new Set<string>();

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { type GuiRecord, postServer } from "./handover.ts";
 import { workspaces } from "./herdr.ts";
+import { createBossOpen } from "./bossopen.ts";
 import type { createHost } from "./host.ts";
 import { type Lang, memoryLang } from "./memorycmd.ts";
 import { collectNet, type Net, type Unit } from "./net.ts";
@@ -109,8 +110,8 @@ export function parseStash(rest: string | undefined): { name?: string; workspace
 
 const flat = (units: Unit[]): Unit[] => units.flatMap((u) => [u, ...flat(u.subs)]);
 
-export function createBossPaths({ cfg, s, guiDir, tell, me }: Kit, { host, server, closeSelf, post = postServer, read }: { host: Pick<ReturnType<typeof createHost>, "ensure" | "sessions">; server?: Pick<ServerLook, "logs">; closeSelf(keepPane: boolean): string | undefined; post?: Post; /** The net as the boss sees it; tests hand one over. */ read?: () => Promise<Net> }) {
-	const lang = (): Lang => memoryLang(cfg.env), t = () => WORDS[lang()];
+export function createBossPaths(kit: Kit, { host, server, closeSelf, post = postServer, read, pollMs }: { host: Pick<ReturnType<typeof createHost>, "ensure" | "sessions">; server?: Pick<ServerLook, "logs">; closeSelf(keepPane: boolean): string | undefined; post?: Post; /** The net as the boss sees it; tests hand one over. */ read?: () => Promise<Net>; /** How often an opening is asked for a trust question (bossopen.ts). */ pollMs?: number }) {
+	const { cfg, s, guiDir, tell, me } = kit, lang = (): Lang => memoryLang(cfg.env), t = () => WORDS[lang()];
 	const net = (): Promise<Net> => read ? read() : collectNet({ run: cfg.run, world: cfg.world, sessions: () => host.sessions() });
 	/** The server's recorded GUI; a refusal says why in the boss's words. */
 	async function record(): Promise<GuiRecord> {
@@ -145,6 +146,7 @@ export function createBossPaths({ cfg, s, guiDir, tell, me }: Kit, { host, serve
 	}
 
 	return {
+		...createBossOpen(kit, { record, post, why, confirm, noScreen: () => t().noScreen, lang, pollMs }),
 		/** The refusal for `/boss stash --workspace` with no value. */
 		needWorkspace: () => tell(t().needWorkspace, "error"),
 		/** `/boss close <name|key>` (or `close all <workspace>` with `onlyBase`): quits another unit, squad, or base after the boss confirms in pi. */

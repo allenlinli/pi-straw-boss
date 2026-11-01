@@ -831,6 +831,18 @@ test("answer: a pane grant stops taking keys the moment its pane runs pi, and ne
 	o.close();
 });
 
+test("answer: when the bare mirror of a grant ends (its pane runs pi), the route drops the grant (ATP3-F002, mutant M6)", async () => {
+	const o = await opening();
+	const grant = ((await o.answer(1, ID(1))).body as { then: { pane: string } }).then.pane;
+	assert.equal((await send(o.gui, `panes/${grant}/mirror`, { stream: o.stream, on: true })).status, 200);
+	await o.wait(() => o.events.join("").includes(`"key":"grant:${grant}"`));
+	o.w.agent = "pi";
+	await o.wait(() => o.events.join("").includes("The pane closed.") || o.events.join("").includes("ended"));
+	assert.equal((await send(o.gui, `panes/${grant}/mirror`, { stream: o.stream, on: true })).status, 404, "the grant went with its reader");
+	assert.equal(o.calls.filter(([m]) => m.startsWith("pane.send")).length, 0, "and nothing was typed");
+	o.close();
+});
+
 test("answer: a forged then on a choice that does open a pane is not used; the grant is the one the server minted", async () => {
 	const o = await opening();
 	const r = await send(o.gui, "sessions/sess-1/answer", { dialog: "d1", digest: "a".repeat(64), answerId: ID(11), choice: 1, then: { pane: "forged" } });

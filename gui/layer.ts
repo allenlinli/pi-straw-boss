@@ -1,4 +1,5 @@
 import type { Item } from "../src/items.ts";
+import { type Intel, intel } from "./intel.ts";
 import { mountAsk } from "./ask.ts";
 import type { Hotkey } from "./hotkeys.ts";
 import { keypad } from "./keypad.ts";
@@ -18,6 +19,7 @@ import { trustPanel, whereOf } from "./trust.ts";
 /** `icon` names the header's symbol (a document by default); `closed` runs when the tile closes, by its × or pushed out by a fifth, or is refused. */
 export interface Tile { id: string; title: string; body(): HTMLElement; icon?: string; closed?(): void }
 export interface TilesIO { render(tiles: Tile[], active: string | undefined): void; enter(tile: Tile): void }
+export { type Intel, intel };
 export const MAX_TILES = 4;
 const CLICKABLE = "a, button, input, textarea, select, summary, label, [role=button]";
 
@@ -50,16 +52,6 @@ export function createTiles(io: TilesIO) {
 		},
 	};
 }
-
-/** From a session's newest items when the alert arrives: its last line, the open tool call it waits on, and `at`, the entry Open comms lands on. */
-export function intel(items: Item[]): Intel {
-	const answered = new Set(items.flatMap((i) => (i.kind === "result" && i.callId ? [i.callId] : [])));
-	const replies = items.filter((i) => i.kind === "assistant"), last = replies.at(-1);
-	const open = last?.tools?.find((t) => !answered.has(t.id));
-	const said = replies.findLast((i) => i.text?.trim())?.text?.trim().split("\n").filter(Boolean).at(-1);
-	return { said: said?.slice(0, 280), pending: open && `${open.name} · ${open.summary}`.slice(0, 200), at: (last ?? items.findLast((i) => i.kind !== "result"))?.id };
-}
-export interface Intel { said?: string; pending?: string; at?: string; failed?: boolean }
 
 /** `post` is the demo fixture's stand-in for the server's session endpoints; `stream` the newest `hello` of the page's stream, as it came. */
 export type SessionPost = (action: string, body: Record<string, unknown>) => Promise<Answer>;

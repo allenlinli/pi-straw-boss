@@ -5,6 +5,7 @@ import type { Data, Page } from "./chat.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
 import { docHooks } from "./doc.ts";
+import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
 
 // The demo net for `npm run gui:dev`: invented names, state changes on a timer, and a stream that can be dropped to see the
@@ -71,9 +72,22 @@ function towerService(state: TowerState): { service?: TowerService; mark: Mark }
 const HEAL_MS = 8000;
 export interface Control { drop(): void; silence(): void; restore(): void; doc(): void; tower(state?: string): void }
 
-export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control } {
+// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion). The idle states make no new waits for a minute and a half.
+const zenState = (net: Net, state: string | null) => {
+	const main = units(net).find((u) => u.key === "a3")!;
+	if (state === "trust") net.trust = [{ id: "tr1", digest: "t".repeat(64), folder: "/work/harbor-api", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy", "release", "triage"], more: 0 }, { kind: "extensions", path: ".pi/extensions", items: ["harbor-hooks.ts"], more: 0 }], agents: [{ pane: "1", base: "Harbor API", role: "member", at: Date.now() - 50 * 60_000 }] }];
+	// Only ops-main waits at first (the idle states: nothing does), so the first item is the one the state names.
+	for (const u of units(net)) if (u.key !== "a3" || state === "idle" || state === "alone") if (u.mark === "waiting" || u.pending) [u.mark, u.note, u.pending] = ["working", "thinking", undefined];
+	if (state === "questions" || state === "secret") main.pending = ask(state === "secret" ? 1 : 2);
+	if (state === "words") main.pending = undefined;
+	if (state === "alone") net.bases[0]!.tower = null;
+	return net;
+};
+
+export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer> } {
 	demoOpen(); // the opening tiles' folder picker and deploy, with no server
 	let towerNow: TowerState = "off";
+	const zen = new URLSearchParams(location.search).get("zen");
 	let net = demo(), step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
 	// The demo documents stand in for the server's: the HTML one as a data: page, the text ones from here.
 	[docHooks.src, docHooks.load] = [() => `data:text/html;charset=utf-8,${encodeURIComponent(DEMO_PAGE)}`, async (cap) => ({ text: cap === "plan" ? DEMO_DOC : `# Notes ${cap.slice(5)}\n\nA demo document that arrived on its own.` })];
@@ -119,14 +133,15 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 		}
 	}
 	// Every tick one agent changes state, so the page always has something moving; the server's activity tracker runs over each snapshot.
-	let clock = Date.now();
+	let clock = Date.now(), quietUntil = 0;
 	const track = trackActivity(() => clock), TOOLS = ["tool:edit", "tool:bash", "tool:read", "thinking"];
 	const advance = () => {
 		const all = units(net);
 		const pick = all[step % all.length]!;
-		if (pick.pending?.answer || pick.ended) return void step++; // a dialog the page can answer stays until it is answered; a unit whose run is over stays done (src/netdata.ts)
+		if (pick.pending?.answer || pick.ended || (pick.key === "a3" && zen === "words")) return void step++; // a dialog the page can answer stays until it is answered; a unit whose run is over stays done (src/netdata.ts)
 		const options = NEXT[pick.mark];
 		pick.mark = step % 17 === 16 ? "error" : options[step % options.length]!;
+		if (pick.mark === "waiting" && Date.now() < quietUntil) pick.mark = "working"; // ?zen=idle|alone
 		pick.note = pick.mark === "working" ? TOOLS[step % TOOLS.length] : pick.mark === "waiting" ? "waiting on a question" : undefined;
 		pick.pending = pick.mark === "waiting" ? ask(++waits) : undefined;
 		net = track(structuredClone(net));
@@ -135,6 +150,8 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	};
 	// The demo starts with most of half an hour behind it, so the timeline and the cards' clocks have something to show.
 	for (let i = 41; i > 0; i--) ((clock = Date.now() - i * 40_000), i === 41 ? (net = track(net)) : advance());
+	net = track(zenState(net, zen));
+	if (zen === "idle" || zen === "alone") quietUntil = Date.now() + 90_000;
 	setInterval(() => ((clock = Date.now()), advance() && current?.send("message", net)), tick);
 	const control: Control = {
 		// The overlay a drop or silence brings up is modal over this toolbar too, so the demo restores itself: a drop a few seconds on, a silence a few seconds after the watchdog has noticed it.
@@ -180,7 +197,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 		setTimeout((u = units(net).find((x) => x.key === key)) => u && ((u.mark = "working"), (u.note = "thinking"), (u.pending = undefined), (net = structuredClone(net)), current?.send("message", net)), 1500);
 		return { ok: true, status: 200, body: { outcome: "accepted" } };
 	};
-	return { open: (watch) => new FixtureSource(watch), data, control };
+	/** A trust answer settles the question: it leaves the net a moment later. */
+	const trust = async (body: { id: string }): Promise<Answer> => (setTimeout(() => ((net = structuredClone({ ...net, trust: (net.trust ?? []).filter((t) => t.id !== body.id) })), current?.send("message", net)), 900), { ok: true, status: 200, body: { outcome: "accepted" } });
+	return { open: (watch) => new FixtureSource(watch), data, control, trust };
 }
 
 function mountToolbar(control: Control) {

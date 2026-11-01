@@ -292,3 +292,31 @@ test("the Zen back button is hidden unless the view is Zen and data-zen-away is 
 		else g.addEventListener = saved;
 	}
 });
+
+test("a page that left Zen (data-zen-away on the root) shows Standard with the page's own theme color, keeps the device's choice, stores nothing, and shows Zen again when the mark goes", () => {
+	const w = world("zen", false);
+	const view = mountView(w.env);
+	assert.deepEqual([w.env.root.dataset.view, w.env.meta?.content], ["zen", THEME.zen]);
+	w.env.root.dataset.zenAway = "";
+	view.reread();
+	assert.deepEqual([w.env.root.dataset.view, w.env.meta?.content, view.choice(), view.view(), w.written], ["standard", "#1a1b26", "zen", "zen", []], "Standard on show; the resolved view is still Zen for the page's own rules");
+	w.flip(true); // an OS change re-applies the view: it must not bring Zen back over the away page
+	assert.equal(w.env.root.dataset.view, "standard");
+	delete w.env.root.dataset.zenAway;
+	view.reread();
+	assert.deepEqual([w.env.root.dataset.view, w.env.meta?.content], ["zen", THEME.zen]);
+	const geek = world("geek", false);
+	geek.env.root.dataset.zenAway = "";
+	mountView(geek.env);
+	assert.equal(geek.env.root.dataset.view, "geek", "the mark changes nothing for another view");
+});
+
+test("a listener that draws the view again meets no second change: the new view is noted before the listeners run", () => {
+	const w = world("standard", false);
+	const view = mountView(w.env);
+	let calls = 0;
+	view.onChange(() => (calls++, view.refresh()));
+	view.set("zen");
+	assert.equal(calls, 1);
+	assert.equal(w.env.root.dataset.view, "zen");
+});

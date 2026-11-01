@@ -40,7 +40,10 @@ export function createZen({ now, typing }: ZenDeps) {
 		if (screen.kind === "item" && !screen.outcome) {
 			const cur = alerts.get(screen.item.key), live = cur && rankOf(cur) === 0 && cur.mark !== "error";
 			if (live) screen = { kind: "item", item: cur };
-			else leave(cur?.mark === "error" ? "error" : cur && !cur.closed ? "elsewhere" : undefined, cur?.mark === "error" ? "low" : cur && !cur.closed ? "knock" : undefined);
+			else {
+				const elsewhere = cur ? !cur.closed : Boolean(screen.item.trust); // a trust question has no unit to leave: when it is gone it was settled
+				leave(cur?.mark === "error" ? "error" : elsewhere ? "elsewhere" : undefined, cur?.mark === "error" ? "low" : elsewhere ? "knock" : undefined);
+			}
 		}
 		if (screen.kind === "item" && screen.outcome && until <= now()) pause();
 		if (screen.kind === "pause" && until <= now() && !hidden) screen = { kind: "companion" };
@@ -62,7 +65,7 @@ export function createZen({ now, typing }: ZenDeps) {
 		tap() { if (screen.kind === "pause") until = 0; return out(); },
 		/** The page was hidden or shown: a pause that would have ended ends at once when shown. */
 		visible(on: boolean) { hidden = !on; return out(); },
-		/** The soonest moment something may change, for the layer's one timer. */
-		due: () => [until, ...[...rests.values()].map((r) => r.until)].filter((t) => t > 0).sort((a, b) => a - b)[0],
+		/** The soonest moment ahead at which something may change, for the layer's one timer (a time already past is settled by the call that saw it). */
+		due: () => [until, ...[...rests.values()].map((r) => r.until)].filter((t) => t > now()).sort((a, b) => a - b)[0],
 	};
 }

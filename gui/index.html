@@ -123,6 +123,8 @@
     <p class="credit" data-m="credit">Icons from game-icons.net by Lorc and Delapouite, CC BY 3.0.</p>
   </footer>
 </div>
+<!-- The Zen layer (zen.ts, a chunk loaded only on a page whose view is Zen): one waiting item, or the companion session. Outside .shell, which the Zen view hides. -->
+<section id="zen" hidden aria-label="Zen" data-m-label="view_zen"></section>
 <div class="dock" id="dock" aria-label="Alerts" data-m-label="alerts" role="region" inert></div>
 <!-- The page has no live state yet (connect.ts): open from the first byte, with the app root above inert, until the stream's first snapshot; it comes back whenever the stream is lost. -->
 <dialog class="connect" id="connect" open aria-labelledby="connect-text" data-state="connecting"><div class="connect-card"><i class="connect-ring" aria-hidden="true"></i><p id="connect-text" role="status" data-m="connect_connecting">Connecting…</p><button class="pair-btn connect-retry" id="connect-retry" type="button" data-m="connect_retry" hidden>Try again</button></div></dialog>

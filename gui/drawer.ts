@@ -48,7 +48,7 @@ const sectionEl = () => html(`<section class="dbase"><h3><a></a><small></small><
 const groupEl = () => html(`<div class="dgroup"><h4></h4><div class="drows"></div></div>`);
 const phone = () => matchMedia("(max-width: 640px)").matches;
 
-export function mountDrawer() {
+export function mountDrawer(off: () => boolean = () => false) {
 	const body = h("div", { class: "drawer-body" }), close = h("button", { type: "button", class: "x", "aria-label": m.drawer_close() }, "×");
 	// Below the list, stuck to the bottom within a thumb's reach: the HUD's own Dismiss finished (quit.ts: the same click, the same request), there while a finished subagent is, and under it the way back to the map.
 	const home = h("a", { class: "drawer-map" }, m.drawer_map()), sweep = h("button", { type: "button", class: "pair-btn", "data-close": "dismiss-all", hidden: "" }), top = h("div", { class: "drawer-sweep", hidden: "" }, sweep);
@@ -129,7 +129,7 @@ export function mountDrawer() {
 	document.addEventListener("touchstart", (e) => {
 		const el = e.target as Element, inside = panel.contains(el) || el === veil;
 		t = undefined;
-		if (!phone() || e.touches.length !== 1 || document.querySelector(MODAL) || (open ? !inside : ignored(chainOf(el), Boolean(getSelection()?.toString())))) return;
+		if (!phone() || off() || e.touches.length !== 1 || document.querySelector(MODAL) || (open ? !inside : ignored(chainOf(el), Boolean(getSelection()?.toString())))) return;
 		const p = e.touches[0]!;
 		const card = open ? el.closest<HTMLElement>(".unit[data-dismiss] > .card") ?? undefined : undefined;
 		t = { x0: p.clientX, y0: p.clientY, mode: "wait", was: open, base: x, last: p.clientX, at: performance.now(), v: 0, card };

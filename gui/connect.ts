@@ -30,7 +30,7 @@ export interface Parts {
 	guarded: HTMLElement[];
 }
 const byId = (id: string) => document.getElementById(id)!;
-const pageParts = (): Parts => ({ win: window, dialog: byId("connect") as HTMLDialogElement, text: byId("connect-text"), retry: byId("connect-retry") as HTMLButtonElement, guarded: [document.querySelector<HTMLElement>(".shell")!, byId("dock")] });
+const pageParts = (): Parts => ({ win: window, dialog: byId("connect") as HTMLDialogElement, text: byId("connect-text"), retry: byId("connect-retry") as HTMLButtonElement, guarded: [document.querySelector<HTMLElement>(".shell")!, byId("dock"), byId("zen")] });
 
 /** Mounts the overlay on the page's markup and returns what each stream status is told to. `retry` asks the stream for another attempt. */
 export function mountConnect(retry: () => void, parts: Parts = pageParts()) {

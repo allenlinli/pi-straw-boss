@@ -52,6 +52,8 @@ async function serverFor(ctx: Ctx, boss: boolean) {
 				await ctx.sleep(250);
 				continue;
 			}
+			// A server that runs and was left alone (R13d) cannot be asked: its words name what the boss does.
+			if (done.unreachable) throw new Error(done.unreachable);
 			return done.record;
 		} catch (error) {
 			if (error instanceof ServerError && error.code === "busy" && ctx.now() < end) continue;

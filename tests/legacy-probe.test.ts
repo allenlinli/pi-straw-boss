@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { ensure, probe } from "../src/server/client.ts";
+import { describe, ensure, heldText, probe, restart } from "../src/server/client.ts";
 import { readRecord, secretDir, type ServerRecord, writeRecord } from "../src/server/record.ts";
 import { ServerWorld } from "./server-world.ts";
 
@@ -100,6 +100,45 @@ test("R13b-F004: on Windows the cached start time is forgotten and read again be
 		await ensure(reused).catch(() => undefined);
 		assert.ok(reads >= 1);
 		assert.deepEqual(o.killed, [], "a pid with another start time is left alone");
+	} finally {
+		o.srv.close();
+	}
+});
+
+test("R13c-F003: a server left alone is told with what the boss does next: it is read again by itself, and if that stays, end the process and start the server", async () => {
+	const o = await older(closing);
+	try {
+		for (const [platform, end] of [["win32", "taskkill /PID 7"], ["linux", "kill 7"]] as const) {
+			const ctx = world.ctx({ platform, startOf: () => undefined, startedLater: () => new Promise<string | undefined>(() => {}), sleep: async () => {}, kill: o.kill as never });
+			const said = await describe(ctx);
+			assert.equal(said.reachable, false);
+			assert.equal(said.state, "live", "a process that may be the server is not 'gone'");
+			assert.match(String(said.warning), /could not be read/);
+			assert.match(String(said.warning), /reads it again by itself/);
+			assert.ok(String(said.warning).includes(`(${end})`), String(said.warning));
+			assert.match(String(said.warning), /\/boss server or `cli\.mjs up`/);
+			await assert.rejects(restart(ctx, { reason: "x", boss: true }), (e: unknown) => String((e as Error).message).includes(`(${end})`));
+		}
+		assert.deepEqual(o.killed, []);
+		assert.match(heldText({ platform: "win32" }, { record: record({ pid: 9 }), unread: false }), /runs but did not answer hello.*\(taskkill \/PID 9\)/, "a server that runs and answers nothing is told as that");
+	} finally {
+		o.srv.close();
+	}
+});
+
+test("R13c-F001: the start time the probe read in this call is trusted for the signal; one cached from before is read again, for as long as a read takes (not 3 s)", async () => {
+	const o = await older(closing);
+	try {
+		// Cached from before: forgotten, read again; the read lands after the old 3 s wait would have ended and before the deadline.
+		let forgot = 0, reads = 0;
+		const slow = world.ctx({
+			platform: "win32", startOf: (pid: number) => (pid === 7 ? "T-7" : undefined), kill: o.kill as never,
+			forgetStart: () => void forgot++, startedLater: () => (reads++, new Promise<string>((resolve) => setTimeout(() => resolve("T-7"), 30))),
+			sleep: (ms: number, signal?: AbortSignal) => (ms === 3000 ? Promise.resolve() : new Promise<void>((resolve) => { const timer = setTimeout(resolve, ms); signal?.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true }); })),
+		});
+		const got = await ensure(slow);
+		assert.ok("server" in got && got.server === "started", JSON.stringify(got));
+		assert.deepEqual([forgot, reads, o.killed], [1, 1, [[7, "SIGTERM"]]]);
 	} finally {
 		o.srv.close();
 	}

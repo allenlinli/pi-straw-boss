@@ -6,7 +6,7 @@ import { herdrRun, type HerdrRun, workspaces } from "../herdr.ts";
 import { answers as pageAnswers } from "../handover.ts";
 import { newer } from "../semver.ts";
 import {
-	type Ctx, unreachableText, describe, ensure, guiUrl, herdrListens, isIdentity, detachWarning, lockFor, lockWaitFor, makeCtx, passGate, probe, restart, ServerError, serverEnv, stop, takeOver, trusted, type Wait, waitReady, within,
+	type Ctx, unreachableText, describe, ensure, guiUrl, heldText, herdrListens, isIdentity, detachWarning, lockFor, lockWaitFor, makeCtx, passGate, probe, restart, ServerError, serverEnv, settleLegacy, stop, takeOver, trusted, type Wait, waitReady, within,
 } from "./client.ts";
 import { ACL_TOKEN } from "./acl.ts";
 import { baseFolder, type DeskRecord, deskLockFor, ensureIntegration, makeBase, readDesk, stillBase } from "./desk.ts";
@@ -308,6 +308,8 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
 					return { value: { server: done.server, record: done.record }, detail: `${done.server}: ${plan === "upgrade" ? "upgrade" : "desk switch"}` };
 				}
 				const done = await ensure(ctx, { boss: true, deadline });
+				// A server that runs and was left alone (R13d) has no GUI to ask for: its words name what to do.
+				if ("record" in done && done.unreachable) throw new StepError("server", done.unreachable);
 				if ("record" in done) return { value: { server: done.server, record: done.record } };
 				if (done.skipped.do === "nothing") {
 					// A start or restart is under way (its requester held the lock): wait for it.
@@ -374,7 +376,9 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
 		let released = false;
 		const release = () => { if (!released) { released = true; lock.release(); } };
 		try {
-			const seen = await probe(ctx);
+			// A legacy server is ended by signal as every start does it (R13d); one that runs and cannot be asked is not raced by a foreground server either.
+			const seen = await settleLegacy(ctx, await probe(ctx));
+			if (!seen.live && seen.runs && seen.record) throw new ServerError("unreachable", seen.denied ? unreachableText(seen.record) : heldText(ctx, seen));
 			if (seen.live && seen.record) {
 				if (seen.record.mode === "serve") {
 					release();

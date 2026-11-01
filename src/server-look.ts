@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import {
-	type Ctx, decide, describe, ensure, lockWaitFor, makeCtx, probe, restart, RESTART_EVERY_MS, passGate, ServerError, stop, trusted, unreachableText,
+	type Ctx, decide, describe, ensure, heldText, lockWaitFor, makeCtx, probe, restart, RESTART_EVERY_MS, passGate, ServerError, stop, trusted, unreachableText,
 } from "./server/client.ts";
 import { callControl } from "./server/socket.ts";
 import { tailLog } from "./server/log.ts";
@@ -200,6 +200,8 @@ export function createServerLook({ pi, cfg, s, guiDir, me, tell }: Kit, deps: Se
 			seen = await probe(ctx);
 		}
 		if (seen.denied && seen.record) return { ok: false, error: unreachableText(seen.record) };
+		// Running and left alone (R13d): not "no server", and the words say what to do.
+		if (!seen.live && seen.runs && seen.record) return { ok: false, error: heldText(ctx, seen) };
 		if (!seen.live || !seen.record) return { ok: false, error: "no server" };
 		try {
 			return (await callControl(seen.record.socket, seen.record.secret, { ...request, cmd: String(request.cmd) }, 30_000)).reply ?? { ok: false, error: "the sb server gave no answer" };

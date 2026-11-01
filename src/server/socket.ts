@@ -221,9 +221,13 @@ export function callControl(endpoint: string, secret: string, request: Request |
 				buffer = buffer.slice(at + 1);
 				let frame: Reply;
 				try {
-					frame = JSON.parse(line) as Reply;
+					const parsed: unknown = JSON.parse(line);
+					// `null` and the other JSON that is no object are no frame either (and `null.ok` would throw in this handler).
+					if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
+					frame = parsed as Reply;
 				} catch {
-					return finish(new ControlError(proven ? "error" : "refused", `the server answered ${line.slice(0, 80)}`, sent));
+					// Before the proof not a byte of the peer is shown (R13c-F002): whatever sits at the name can write what it likes into this side's errors. After it, the peer is the server.
+					return finish(new ControlError(proven ? "error" : "refused", proven ? `the server answered ${line.slice(0, 80)}` : "the answer to the hello is not JSON", sent));
 				}
 				if (!proven) {
 					lines++;

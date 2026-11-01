@@ -5,7 +5,9 @@ import { powershellPath, system32 } from "./winpath.ts";
 
 // A process's start time, which tells a PID another process now holds from the process that wrote a record (remote.ts `runs`, the GUI and link records).
 
-const READ_MS = 15_000, OTHERS_MS = 10 * 60_000, FIRST_FAIL_MS = 5000, MAX_FAIL_MS = 60_000, OWN_RETRY_MS = [1000, 2000, 4000, 8000, 15_000];
+/** How long one read of a start time may take before its PowerShell is ended (a caller that waits for a read waits no longer than this). */
+export const READ_MS = 15_000;
+const OTHERS_MS = 10 * 60_000, FIRST_FAIL_MS = 5000, MAX_FAIL_MS = 60_000, OWN_RETRY_MS = [1000, 2000, 4000, 8000, 15_000];
 /**
  * The command that tells a Windows process's start time as stable text (UTC, ISO 8601, milliseconds); `windowsHide` keeps its console off the desktop.
  * `Win32_Process.CreationDate` answers for a service or an elevated process, whose `Get-Process` StartTime needs elevation.

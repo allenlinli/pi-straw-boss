@@ -724,3 +724,103 @@ test("a dialog the owner relays and no net reading bound yet is matched by the p
 	assert.deepEqual((await p.key("enter")).body, { accepted: true }, "this computer's page");
 	p.close();
 });
+
+/** A server whose dialog (robot_hand's) has a choice for each next step: the prompt (terminal), a new pane (pane), the clipboard, and No. The pane `opens` appears 100 ms after the ack, as robot_hand's split does. */
+async function opening({ opens = ["wB:p9"] as string[], agent = "zsh" } = {}) {
+	const calls: [string, Record<string, unknown>][] = [], sent: unknown[] = [], stored = new Map<string, { status: number; body: unknown }>(), tab = ["wA:p1"], w = { terminal: "t9", gone: false };
+	const call = async (method: string, params: Record<string, unknown>) => {
+		calls.push([method, params]);
+		const id = String(params.pane_id);
+		if (method === "pane.layout") return { layout: { panes: tab.map((pane_id) => ({ pane_id, rect: { width: 40 } })) } };
+		if (method === "pane.get") {
+			if (id === "wA:p1") return { pane: { pane_id: id, agent: "pi", agent_status: "blocked", agent_session: { value: FILE } } };
+			if (!tab.includes(id) || w.gone) throw new HerdrError("pane_not_found", "no such pane");
+			return { pane: { pane_id: id, agent, terminal_id: w.terminal } };
+		}
+		return method === "pane.read" ? { read: { text: "$ npm run deploy\r\n" } } : {};
+	};
+	const answer = { dialog: "d1", digest: "a".repeat(64), select: { title: "T", choices: [{ label: "Put it in my prompt", next: "terminal" as const }, { label: "Type it into a new Herdr pane", next: "pane" as const }, { label: "Copy", localOnly: true as const }, { label: "No" }] } };
+	const hub = {
+		target: { from: "S", bridgeId: "B", answer } as Target | undefined,
+		running: true, me: "G", start() {}, stop() {}, receive() {}, relayed: () => ({ dialogsOf: () => undefined, merge: () => ({ callId: "", tool: "" }) }), has: () => false,
+		replay: (id: string, key: string) => (key === "sess-1" ? stored.get(id) : undefined), ended: () => undefined, probe: async () => ({ editor: "empty" }),
+		send: async (_key: string, t: Target, a: { answerId: string; choice?: number }) => {
+			sent.push({ to: t.bridgeId, ...a });
+			const reply = { status: 200, body: { outcome: "accepted" } };
+			stored.set(a.answerId, reply);
+			if (a.choice === 1) setTimeout(() => tab.push(...opens), 100);
+			return reply;
+		},
+	};
+	const lookup = (key: string): Found | undefined => (key === "sess-1" ? { key, base: "wA", name: "billing", role: "main", file: FILE, pane: "wA:p1", live: true } : undefined);
+	const gui = await startGui({ read: async () => ({ bases: [] }), net: { lookup, workspace: () => [] }, call, hub: { ...hub, target: () => hub.target } as unknown as Hub, dir: join(scratch, "bundle"), pollMs: 50 });
+	running.push(gui);
+	const events: string[] = [];
+	const req = get(`${gui.url}events`, { headers: { host: `127.0.0.1:${gui.port}` } }, (res) => res.setEncoding("utf8").on("data", (c: string) => events.push(c)));
+	const wait = async (what: () => boolean) => { for (let i = 0; i < 100 && !what(); i++) await new Promise((r) => setTimeout(r, 20)); assert.ok(what()); };
+	await wait(() => events.join("").includes("event: hello"));
+	const stream = /"stream":"([0-9a-f]+)"/.exec(events.join(""))![1]!;
+	return { gui, calls, sent, tab, w, stream, events, wait, hub, close: () => req.destroy(), answer: (choice: number, answerId: string, via: { post(path: string, payload?: unknown): Promise<{ status: number; body: Record<string, unknown> }> } = { post: (p, b) => send(gui, p, b) as never }) => via.post("sessions/sess-1/answer", { dialog: "d1", digest: "a".repeat(64), answerId, choice }) };
+}
+const ID = (n: number) => String(n).padStart(16, "0");
+
+test("answer: a choice that leaves a step in the terminal says so (then.terminal); one that opens a pane grants it (then.pane) once the pane shows, and the grant replays with the answer", async () => {
+	const o = await opening();
+	assert.deepEqual((await o.answer(0, ID(1))).body, { outcome: "accepted", then: { terminal: true } });
+	assert.deepEqual((await o.answer(2, ID(2))).body, { outcome: "accepted" }, "the clipboard: no terminal step");
+	assert.deepEqual((await o.answer(3, ID(3))).body, { outcome: "accepted" }, "No");
+	const r = await o.answer(1, ID(4));
+	const pane = (r.body as { then?: { pane?: string } }).then?.pane;
+	assert.match(String(pane), /^[0-9a-f]{32}$/, "an opaque id, not Herdr's pane id");
+	assert.equal(r.status, 200);
+	assert.deepEqual((await o.answer(1, ID(4))).body, r.body, "Check again gets the same grant");
+	assert.equal(o.sent.length, 4, "and nothing reaches the bridge twice");
+	assert.deepEqual(o.calls.filter(([m]) => ["pane.send_input", "pane.send_text"].includes(m)), [], "no key was typed by answering");
+	o.close();
+});
+
+test("answer: two new panes, or none within the window, grant nothing (then.pane is null) and the answer still stands", async () => {
+	const two = await opening({ opens: ["wB:p8", "wB:p9"] });
+	assert.deepEqual((await two.answer(1, ID(1))).body, { outcome: "accepted", then: { pane: null } });
+	two.close();
+	const pi = await opening({ agent: "pi" });
+	assert.deepEqual((await pi.answer(1, ID(1))).body, { outcome: "accepted", then: { pane: null } }, "a pi session is not what the answer opened");
+	pi.close();
+});
+
+test("a granted pane: mirror and keys by the grant alone, to that pane only, for this page and a paired device; a closed pane or another terminal ends it", async () => {
+	const o = await opening();
+	const grant = ((await o.answer(1, ID(1))).body as { then: { pane: string } }).then.pane;
+	assert.equal((await send(o.gui, "panes/nope/mirror", { stream: o.stream, on: true })).status, 404);
+	assert.equal((await send(o.gui, `panes/${grant}/keys`, { key: "enter", stream: o.stream })).body.error, "no_mirror", "keys need the live mirror first");
+	assert.equal((await send(o.gui, `panes/${grant}/mirror`, { stream: o.stream, on: true })).status, 200);
+	await o.wait(() => o.events.join("").includes(`"key":"grant:${grant}"`));
+	assert.ok(o.calls.some(([m, p]) => m === "pane.read" && p.pane_id === "wB:p9"), "the new pane is read");
+	assert.deepEqual((await send(o.gui, `panes/${grant}/keys`, { key: "enter", stream: o.stream })).body, { accepted: true });
+	assert.deepEqual((await send(o.gui, `panes/${grant}/keys`, { text: "pw", stream: o.stream })).body, { accepted: true });
+	const typed = o.calls.filter(([m]) => m.startsWith("pane.send"));
+	assert.deepEqual(typed, [["pane.send_input", { pane_id: "wB:p9", keys: ["enter"] }], ["pane.send_text", { pane_id: "wB:p9", text: "pw" }]], "only the granted pane");
+	assert.equal((await send(o.gui, `panes/${grant}/keys`, { key: "q", stream: o.stream })).status, 400, "the same key rules");
+	assert.equal((await send(o.gui, `panes/${grant}/input`, { text: "x", as: "send" })).status, 404, "no other action");
+	assert.equal((await send(o.gui, `panes/${grant}/keys`, { key: "up", stream: o.stream }, { origin: "http://evil.test" })).status, 403, "the write guards apply");
+	assert.equal((await send(o.gui, `panes/${grant}/keys`, { key: "up", stream: o.stream }, { "x-sb-csrf": "no" })).status, 403);
+	const phone = await paired(o.gui);
+	assert.deepEqual((await phone.post(`panes/${grant}/keys`, { key: "enter", stream: o.stream })).body, { accepted: true }, "a paired device is trusted like the boss's keyboard");
+	// The terminal under the pane id is another one now: refused, and the grant is gone.
+	o.w.terminal = "t-other";
+	const gone = await send(o.gui, `panes/${grant}/keys`, { key: "up", stream: o.stream });
+	assert.deepEqual([gone.status, gone.body.error], [409, "pane_closed"]);
+	assert.equal((await send(o.gui, `panes/${grant}/keys`, { key: "up", stream: o.stream })).status, 404, "the grant is dropped");
+	o.close();
+});
+
+test("a paired device's hereOnly choice is still refused, and a refused or failed answer grants nothing", async () => {
+	const o = await opening();
+	(o.hub.target as Target).answer.select!.choices[1] = { label: "Type it into a new Herdr pane", next: "pane", hereOnly: true };
+	const phone = await paired(o.gui);
+	const r = await o.answer(1, ID(7), phone);
+	assert.deepEqual([r.status, r.body.error], [403, "local_only"]);
+	assert.equal(o.calls.filter(([m]) => m === "pane.layout").length, 0, "no pane was looked for");
+	assert.equal(o.sent.length, 0);
+	o.close();
+});

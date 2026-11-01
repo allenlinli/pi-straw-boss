@@ -88,6 +88,17 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 			if (pasted) return { key: "paste", text: `\x1b[200~${json.paste as string}\x1b[201~`, stream: json.stream as string, remote };
 			return stop ? { key: "esc", remote } : typed ? { key: "text", text: json.text as string, stream: json.stream as string, remote } : { key: json.key as string, stream: json.stream as string, confirmed: json.confirmed, remote };
 		},
+		/**
+		 * The calls that send a checked key to a pane an answer opened (answerpane.ts), which is no pi session: only the mirror precondition (this page's stream holds that pane's mirror, live) and the keys `check` let through.
+		 * Nothing of a session's guards applies (a secret, a dialog, a link_request, the LAN overlay, the editor probe, the confirms for Enter, Ctrl+D, Ctrl+C and a second Escape): they guard what pi does with a key, and this pane runs a shell
+		 * wrapper that shows a command and waits for Enter. Whoever may answer the dialog that opened it may key into it, as the boss's keyboard would.
+		 */
+		bare(grant: string, pane: string, a: Asked): Plan {
+			if (a.stream !== undefined && !fresh(a.stream, grant, pane)) throw no(409, "no_mirror", "Keys are sent only while this page shows the pane's terminal live; open it again.");
+			if (a.text !== undefined) return { keys: [], double: false, calls: [["pane.send_text", { pane_id: pane, text: a.text }]] };
+			const text = SEQUENCES[a.key];
+			return { keys: [a.key], double: false, calls: [text ? ["pane.send_text", { pane_id: pane, text }] : ["pane.send_input", { pane_id: pane, keys: [a.key] }]] };
+		},
 		/** The guards that need the pane as Herdr has it now, then the Herdr calls that send the key, in order, 60 ms apart. */
 		async send(session: string, found: Found, pane: Pane, a: Asked): Promise<Plan> {
 			if (a.text !== undefined) return await guard(session, found, pane, a), { keys: [], double: false, calls: [["pane.send_text", { pane_id: pane.pane_id, text: a.text }]] };

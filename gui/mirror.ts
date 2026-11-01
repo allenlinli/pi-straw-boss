@@ -162,11 +162,13 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 		return (t.tile = { id: `term:${key}`, title: m.terminal_title({ name }), icon: "i-comms", body: () => h("div", { class: "term-tile" }, h("div", { class: "term-bar" }, t.state, t.typing, t.kb, t.fit), t.scroll, t.sink, t.pad?.el), closed: () => (clearTimeout(t.away), t.sink.blur(), attach(t, false), open.delete(key), watch()) });
 	};
 	return {
-		/** Opens (or brings forward) the tile of a session's terminal, the user's own act, so it takes focus; a mirror that ended tries again. */
-		open(key: string, name: string) {
+		/** Opens (or brings forward) the tile of a terminal, a session's or a pane an answer opened (key `grant:<id>`), the user's own act, so it takes focus; a mirror that ended tries again. `keys`: the keyboard goes to it (a desktop's; a phone has the pad under it, and its Keyboard button). */
+		open(key: string, name: string, keys = false) {
 			const t = open.get(key);
 			if (t?.ended) void ((t.ended = false), say(t, m.connecting()), attach(t, true));
 			tiles.open(t?.tile ?? make(key, name), true);
+			const at = open.get(key);
+			if (keys && at && globalThis.matchMedia?.("(pointer: fine)").matches) requestAnimationFrame(() => at.sink.focus({ preventScroll: true }));
 		},
 		/** Shows a session's terminal inside `host` (the session view's terminal mode) until the returned function takes it away. */
 		embed(key: string, name: string, host: HTMLElement): () => void {

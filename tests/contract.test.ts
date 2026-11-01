@@ -264,3 +264,20 @@ test("cancel: only the owners with a cancel path take one (rpiv, the ctx.ui wrap
 	assert.deepEqual(checkAnswer({ dialog: "d1", digest: "0".repeat(64), cancel: true, questions: [{ question: "Q", multiple: false, options: [{ title: "a" }] }] }, { cancel: true }), { cancel: true });
 	assert.match(String(checkAnswer(t, { cancel: true, value: "s3cr3t" })), /secret/, "a value is a secret's first");
 });
+
+test("a choice's `next` hint (terminal, pane) is kept and not hashed; robot_hand 0.3.2 sends none, so its adapter reads it from the labels it knows, and an owner's own hint wins", () => {
+	const raw = (choices: unknown[]) => ({ version: 1, id: "d1", toolCallId: "c1", digest: "a".repeat(64), select: { title: "T", choices } });
+	assert.deepEqual(selectOf("x", raw([{ label: "A", next: "terminal" }, { label: "B", next: "pane" }, { label: "C", next: "elsewhere" }, { label: "D", next: 3 }]))?.select?.choices, [{ label: "A", next: "terminal" }, { label: "B", next: "pane" }, { label: "C" }, { label: "D" }]);
+	assert.equal(selectDigest({ title: "T", choices: [{ label: "A", next: "pane" }] }), selectDigest({ title: "T", choices: [{ label: "A" }] }), "a hint, not hashed");
+	const b = bus(), opened: Dialog[] = [];
+	robotHand.listen(b, { open: (_, d) => opened.push(d), closed() {} });
+	const labels = ["Put it in my prompt (replaces my draft)", "Copy it to the clipboard", "Type it into a new Herdr pane (I press Enter)", "Run it in a new Herdr pane", "No, thanks"];
+	b.emit("robot-hand:pending", { ...raw(labels.map((label) => ({ label }))), id: "d1" });
+	b.emit("robot-hand:pending", { ...raw([{ label: "Put it in my prompt", next: "pane" }, { label: "Anything", next: "terminal" }]), id: "d2" });
+	assert.deepEqual(opened[0]!.select!.choices.map((c) => c.next), ["terminal", undefined, "pane", "pane", undefined]);
+	assert.deepEqual(opened[1]!.select!.choices.map((c) => c.next), ["pane", "terminal"], "the owner's own word stands");
+	const other: Dialog[] = [];
+	piCode.listen(b, { open: (_, d) => other.push(d), closed() {} });
+	b.emit("pi-code:dialog:pending", raw([{ label: "Put it in my prompt" }]));
+	assert.equal(other[0]?.select?.choices[0]?.next, undefined, "another owner's label means nothing");
+});

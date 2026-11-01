@@ -7,7 +7,12 @@ import { createHash, randomUUID } from "node:crypto";
 
 export interface Bus { emit(channel: string, data: unknown): void; on(channel: string, handler: (data: unknown) => void): () => void }
 /** `localOnly`: the choice acts on this computer (a paired device may still pick it). `hereOnly`: only this computer's own page or terminal may pick it; a paired device sees it and cannot (the link_request approvals of docs/specs/2026-10-25-straw-link.md). */
-export interface Choice { label: string; note?: string; localOnly?: true; hereOnly?: true }
+export interface Choice { label: string; note?: string; localOnly?: true; hereOnly?: true; next?: Next }
+/** Where the choice leaves the user once it is taken: `terminal`, a step in this session's terminal (its prompt waits for Enter); `pane`, a new Herdr pane the choice opened. A hint like `note`, not hashed; the page opens that terminal for an accepted answer (control.ts `then`, gui/ask.ts). */
+export type Next = "terminal" | "pane";
+const NEXT: readonly unknown[] = ["terminal", "pane"];
+/** What an accepted answer leaves the user to do in a terminal, for the page to open: this session's terminal, or the new Herdr pane the answer opened (a grant id, answerpane.ts; null when the pane could not be told from others). Filled by control.ts from the stored dialog's choice, never from the request. */
+export type Then = { terminal: true } | { pane: string | null };
 /** `confirm`: a ctx.ui.confirm relayed as Yes and No, told apart from a select by its digest. A paired device answers it as this computer's page does (docs/how-it-works.md, Remote; R-F027). */
 export interface Select { title: string; choices: Choice[]; copy?: string; confirm?: true }
 export interface Option { title: string; description?: string; preview?: true }
@@ -56,7 +61,7 @@ export function selectOf(owner: string, raw: unknown): Dialog | undefined {
 	const choices = Array.isArray(p?.select?.choices) ? (p.select.choices as Choice[]) : undefined;
 	if (p?.version !== 1 || !str(p.id) || p.id.length > 64 || !str(p.digest) || !str(p.select?.title) || !choices?.length || (p.toolCallId !== undefined && !str(p.toolCallId))) return;
 	if (!choices.every((c) => str(c?.label) && (c.note === undefined || str(c.note)))) return;
-	const select = { title: p.select.title, choices: choices.map((c) => ({ label: c.label, ...(c.note ? { note: c.note } : {}), ...(c.localOnly === true ? { localOnly: true as const } : {}), ...(c.hereOnly === true ? { hereOnly: true as const } : {}) })), ...(str(p.select.copy) ? { copy: p.select.copy } : {}), ...((p.select as { confirm?: unknown }).confirm === true ? { confirm: true as const } : {}) };
+	const select = { title: p.select.title, choices: choices.map((c) => ({ label: c.label, ...(c.note ? { note: c.note } : {}), ...(c.localOnly === true ? { localOnly: true as const } : {}), ...(c.hereOnly === true ? { hereOnly: true as const } : {}), ...(NEXT.includes(c.next) ? { next: c.next as Next } : {}) })), ...(str(p.select.copy) ? { copy: p.select.copy } : {}), ...((p.select as { confirm?: unknown }).confirm === true ? { confirm: true as const } : {}) };
 	return { owner, id: p.id, ...(p.toolCallId ? { toolCallId: p.toolCallId as string } : {}), digest: p.digest, select };
 }
 
@@ -136,7 +141,10 @@ export const rpiv: OwnerAdapter = {
 	cancel: (bus, d) => bus.emit(`${RPIV}:answer`, { toolCallId: d.toolCallId, requestId: `cancel-${d.id}`, cancel: true }),
 };
 
-export const robotHand = contract("robot-hand", "robot-hand", "robot_hand");
+/** pi-robot-hand 0.3.2 sends no `next`: its three terminal-bound choices are told by the labels it shows (hand.ts `options`); an owner that sends its own word keeps it. */
+const HAND_NEXT: [RegExp, Next][] = [[/^Put it in my prompt\b/, "terminal"], [/^Type it into a new Herdr pane\b/, "pane"], [/^Run it in a new Herdr pane\b/, "pane"]];
+const HAND_SHAPE: Shape = { ...SELECT_SHAPE, parse: (owner, raw) => { const d = selectOf(owner, raw); if (d?.select) d.select.choices = d.select.choices.map((c) => (c.next ? c : ((next) => (next ? { ...c, next } : c))(HAND_NEXT.find(([re]) => re.test(c.label))?.[1]))); return d; } };
+export const robotHand = contract("robot-hand", "robot-hand", "robot_hand", undefined, HAND_SHAPE);
 /** pi-robot-hand's secret_drop masked dialog (prefix `robot-hand:secret`): the one owner whose answer carries a secret, which this adapter hands to the owner and nothing else. */
 export const secretDrop = contract("robot-hand-secret", "robot-hand:secret", "secret_drop", undefined, SECRET_SHAPE);
 /** pi-mcp-adapter's tool approval and project trust (its fork, spec task 4): inert until that package emits. */

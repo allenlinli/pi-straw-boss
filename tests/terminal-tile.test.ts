@@ -138,3 +138,28 @@ test("a refused attach or an ended mirror says so, turns the pad off, and openin
 		p.opened[0]?.closed?.(); // and its once-a-second check stops with it
 	}
 });
+
+test("a pane an answer opened (key grant:<id>) opens as a tile like any terminal; with `keys` a desktop's keyboard goes into it at once, a phone's does not (its Keyboard button does)", async () => {
+	const focused: string[] = [];
+	const focus = El.prototype.focus;
+	El.prototype.focus = function (this: El) { focused.push(this.attrs.get("class") ?? "?"); };
+	const fine = { on: true };
+	Object.assign(globalThis, { matchMedia: () => ({ matches: fine.on }) });
+	try {
+		const p = page();
+		p.m.open("grant:abc", "Herdr pane", true);
+		await settle();
+		assert.deepEqual(p.posts, [["mirror:grant:abc", { stream: "s1", on: true }]]);
+		assert.deepEqual([p.opened.at(-1)!.id], ["term:grant:abc"]);
+		assert.deepEqual(focused, ["term-sink"], "the keyboard sink has the focus");
+		focused.length = 0;
+		p.m.open("S", "billing");
+		assert.deepEqual(focused, [], "a plain open leaves the focus to the tile");
+		fine.on = false;
+		p.m.open("grant:abc", "Herdr pane", true);
+		assert.deepEqual(focused, [], "a phone's soft keyboard opens with its own button");
+		p.opened.forEach((tile) => tile.closed?.()); // the 1 s staleness watch ends with the tiles
+	} finally {
+		El.prototype.focus = focus;
+	}
+});

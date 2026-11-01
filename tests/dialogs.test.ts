@@ -167,7 +167,7 @@ test("a dialog of no tool call (an MCP approval) answers on a unit with no open 
 	const x = hub(), path = file([]), mcp = { ...dialog({ owner: "pi-mcp-adapter", id: "m1" }), toolCallId: undefined };
 	x.h.receive("S", x.list([mcp], { file: path }));
 	assert.deepEqual((await read(x, path)).unit.pending, { callId: "m1", tool: "dialog", answer: { dialog: "m1", digest: mcp.digest, select: SELECT } });
-	for (const bad of [{ ...mcp, select: { title: "T", choices: "x" } }, { ...mcp, digest: "nothex" }, { ...mcp, questions: [{ question: "Q", multiple: "no", options: [] }] }, null])
+	for (const bad of [{ ...mcp, select: { title: "T", choices: "x" } }, { ...mcp, digest: "nothex" }, { ...mcp, select: { title: "T", choices: [{ label: "A", next: "everywhere" }] } }, { ...mcp, questions: [{ question: "Q", multiple: "no", options: [] }] }, null])
 		x.h.receive("S", x.list([bad as Dialog], { file: path }));
 	x.h.receive("S", { ...x.list([mcp], { file: path }), version: 2 } as never);
 	assert.equal(x.changes.length, 1, "nothing malformed or of another version was taken");

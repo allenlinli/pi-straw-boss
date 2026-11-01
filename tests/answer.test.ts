@@ -29,6 +29,8 @@ afterEach(async () => {
 
 const SELECT = { title: "Robot Hand — List it\n\n  ! ls", choices: [{ label: "Run it in a new Herdr pane", note: "Runs it at once in a new pane" }, { label: "Copy it", localOnly: true as const }, { label: "No, thanks" }], copy: "ls" };
 const DIGEST = selectDigest(SELECT);
+/** What the page is shown: robot_hand 0.3.2 sends no `next`, so the adapter reads it from the label of the choice that opens a pane. */
+const SHOWN = { ...SELECT, choices: SELECT.choices.map((c, i) => (i === 0 ? { ...c, next: "pane" as const } : c)) };
 const snapshot = (url: string) =>
 	new Promise<Net>((resolve, reject) => {
 		const req = get(`${url}events`, (res) => {
@@ -100,11 +102,12 @@ test("a robot_hand selector in another session is answered from the page, once, 
 	let seen: Unit | undefined;
 	await until(async () => (seen = unitB(await snapshot(url)))?.pending?.answer, "B's dialog in the snapshot");
 	assert.equal(seen!.mark, "waiting");
-	assert.deepEqual(seen!.pending!.answer, { dialog: "d1", digest: DIGEST, select: SELECT });
+	assert.deepEqual(seen!.pending!.answer, { dialog: "d1", digest: DIGEST, select: SHOWN });
 	const body = { dialog: "d1", digest: DIGEST, answerId: "a".repeat(20), choice: 0 };
-	assert.deepEqual(await post(url, csrf, "sessions/B/answer", body), { status: 200, body: { outcome: "accepted" } });
+	// The choice opens a pane; this world's Herdr lists none, so the page is told a pane opened that could not be told apart (then.pane null).
+	assert.deepEqual(await post(url, csrf, "sessions/B/answer", body), { status: 200, body: { outcome: "accepted", then: { pane: null } } });
 	assert.deepEqual(hand.got, [[0]]);
-	assert.deepEqual(await post(url, csrf, "sessions/B/answer", body), { status: 200, body: { outcome: "accepted" } }, "the same answer again replays");
+	assert.deepEqual(await post(url, csrf, "sessions/B/answer", body), { status: 200, body: { outcome: "accepted", then: { pane: null } } }, "the same answer again replays");
 	assert.deepEqual(hand.got, [[0]], "applied once");
 	assert.deepEqual(await post(url, csrf, "sessions/B/answer", { ...body, answerId: "b".repeat(20) }), { status: 200, body: { outcome: "stale", by: "remote" } }, "another answer later hears it is closed");
 	hand.off();
@@ -320,7 +323,7 @@ test("a robot_hand selector is relayed by its owner only: the select the extensi
 	const asked = selectIn(b, SELECT.title, SELECT.choices.map((c) => c.label));
 	await until(async () => answerOf(await snapshot(url)), "B's dialog in the snapshot");
 	const a = answerOf(await snapshot(url))!;
-	assert.deepEqual(a, { dialog: "d1", digest: DIGEST, select: SELECT }, "the owner's dialog, with its notes and copy command: one dialog, not two");
+	assert.deepEqual(a, { dialog: "d1", digest: DIGEST, select: SHOWN }, "the owner's dialog, with its notes and copy command: one dialog, not two");
 	assert.deepEqual(await post(url, csrf, "sessions/B/answer", { dialog: "d1", digest: DIGEST, answerId: "c".repeat(20), choice: 2 }), { status: 200, body: { outcome: "accepted" } });
 	assert.deepEqual(hand.got, [[2]], "the owner took the answer");
 	b.dialogs[0]!.settle(undefined);

@@ -243,6 +243,8 @@
 	"keyboard": "鍵盤",
 	"fit_width": "符合寬度",
 	"terminal_title": "終端機 · {name}",
+	"pane_elsewhere": "Herdr 開了新窗格，請到 Herdr 裡接著做。",
+	"pane_name": "Herdr 窗格",
 	"mirror_ended": "鏡像已結束：{why}",
 	"mirror_hidden": "等待輸入密碼時隱藏；請在終端機中輸入。",
 	"mirror_live": "即時 · {cols}×{rows}",

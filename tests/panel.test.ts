@@ -648,3 +648,29 @@ test("the dismiss-all button counts the finished subagents the server would dism
 	assert.deepEqual(endedSubs(net), ["t-done", "a", "c", "o-done"], "finished subagents only, a running one stays");
 	for (const locale of locales) assert.match(m.dismiss_all({ count: 3 }, { locale }), /3/, locale);
 });
+
+test("an accepted answer that leaves a step in a terminal opens it (the one rule): the session's terminal for then.terminal, the new pane for then.pane; a pane that could not be told apart says so; a refused, stale, or unconfirmed answer opens nothing", async () => {
+	const opened: unknown[] = [];
+	const ask = mountAsk(root as unknown as HTMLElement, (action, body) => (sent.push({ action, body }), new Promise((resolve) => replies.push(resolve))), false, undefined, undefined, (then) => void opened.push(then));
+	const answerWith = async (dialog: string, body: Record<string, unknown>, status = 200) => {
+		ask.update(approval(dialog), true);
+		choices()[0]!.click();
+		button("Send answer")!.click();
+		await reply(body, status);
+	};
+	await answerWith("t1", { outcome: "accepted" });
+	assert.deepEqual(opened, [], "an answer with nothing left to do opens nothing");
+	await answerWith("t2", { outcome: "accepted", then: { terminal: true } });
+	assert.deepEqual(opened, [{ terminal: true }]);
+	assert.equal(status(), "Answered.");
+	await answerWith("t3", { outcome: "accepted", then: { pane: "a".repeat(32) } });
+	assert.deepEqual(opened.at(-1), { pane: "a".repeat(32) });
+	await answerWith("t4", { outcome: "accepted", then: { pane: null } });
+	assert.equal(opened.length, 2, "no pane to open");
+	assert.match(String(status()), /^Answered\. .*pane/i, "and the panel says a pane opened, to find in Herdr");
+	await answerWith("t5", { outcome: "stale", by: "local", then: { terminal: true } });
+	await answerWith("t6", { outcome: "rejected", reason: "digest", then: { terminal: true } });
+	await answerWith("t7", { outcome: "unknown" }, 504);
+	await answerWith("t8", { error: "x", reason: "no" }, 409);
+	assert.equal(opened.length, 2, "only an accepted answer opens a terminal");
+});

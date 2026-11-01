@@ -11,6 +11,7 @@ import type { HerdrCall } from "./herdr.ts";
 import type { Hub } from "./dialogs.ts";
 import { createDocs } from "./docs.ts";
 import { canonical, readers } from "./history.ts";
+import { createGrants } from "./answerpane.ts";
 import { createMirrors } from "./mirror.ts";
 import type { Found, Net, Ref } from "./net.ts";
 import { qr } from "./qr.ts";
@@ -132,14 +133,14 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		if (net !== "tailnet") docs?.revoke(device); // a LAN device's document tickets and answer nonces end with it (Unpair, Unpair all, Wi-Fi access off, a new token)
 	}, paired, { ...(lan ? { file: lan.file } : {}), ...(lan?.notify ? { notify: lan.notify } : {}), ...(lan?.log ? { log: lan.log } : {}) });
 	const pair = (code = access.pair(), host = access.remote?.host, url = `https://${host}/${token}/pair/${code}`) => (code && host ? { url, rows: qr(url).map((row) => row.map(Number).join("")), code: access.pairCode() } : undefined);
-	const entry = createEntry(access, token, HEADERS), mirrors = createMirrors({ call, lookup: (key) => net?.lookup(key), secret: waitsForSecret, canonical }), docs = hub && createDocs(hub, (key) => net?.lookup(key)?.name ?? key);
+	const entry = createEntry(access, token, HEADERS), grants = call && createGrants({ call }), mirrors = createMirrors({ call, lookup: (key) => net?.lookup(key), secret: waitsForSecret, canonical }), docs = hub && createDocs(hub, (key) => net?.lookup(key)?.name ?? key);
 	const stop = (asked: Asked) => (refuseTake && asked.take ? false : (setTimeout(() => (onStop ? onStop(asked) : void halt()), 10), true)); // after the reply has gone out
 	const dismissAll = async () => {
 		const n = net?.dismissAll?.() ?? 0;
 		if (n) await tick();
 		return n;
 	};
-	const control = createControl({ ...(lan ? { lan: lan.panel, overlay: lan.overlay } : {}), link, server: panel, tower: tower?.memory ? { ...tower, memory: async (ws, json) => { const done = await tower.memory!(ws, json); await tick(); return done; } } : tower, lookup: (key) => net?.lookup(key), call, csrf, canonical, pair, remoteOn: onRemote, remoteOff: onRemoteOff, paired: { on: () => Boolean(access.remote), ...access.devices, unsaved: access.unsaved }, saveFailed: onSaveFailed, spawn, close: close && (async (kind, json) => (await tick(), close(kind, json, tick))), dismiss: async (key) => typeof key === "string" && Boolean(net?.dismiss?.(key)) && (await tick(), true), dismissAll, mirrors, stop, secret: waitsForSecret, linkRequest: waitsForLinkRequest, trust: trust?.answer, answers: hub && { has: hub.has, replay: hub.replay, ended: hub.ended, send: hub.send, probe: hub.probe, commands: hub.commands, pull: hub.pull, target: async (key) => (await tick(), hub.target(key)) } });
+	const control = createControl({ grants, ...(lan ? { lan: lan.panel, overlay: lan.overlay } : {}), link, server: panel, tower: tower?.memory ? { ...tower, memory: async (ws, json) => { const done = await tower.memory!(ws, json); await tick(); return done; } } : tower, lookup: (key) => net?.lookup(key), call, csrf, canonical, pair, remoteOn: onRemote, remoteOff: onRemoteOff, paired: { on: () => Boolean(access.remote), ...access.devices, unsaved: access.unsaved }, saveFailed: onSaveFailed, spawn, close: close && (async (kind, json) => (await tick(), close(kind, json, tick))), dismiss: async (key) => typeof key === "string" && Boolean(net?.dismiss?.(key)) && (await tick(), true), dismissAll, mirrors, stop, secret: waitsForSecret, linkRequest: waitsForLinkRequest, trust: trust?.answer, answers: hub && { has: hub.has, replay: hub.replay, ended: hub.ended, send: hub.send, probe: hub.probe, commands: hub.commands, pull: hub.pull, target: async (key) => (await tick(), hub.target(key)) } });
 	let last: string | undefined, problem: string | undefined, inflight: Promise<void> | undefined;
 	let poll: ReturnType<typeof setInterval> | undefined, beat: ReturnType<typeof setInterval> | undefined;
 	const send = (to: ServerResponse, data: string, event?: string) => to.writableEnded || to.write(`${event ? `event: ${event}\n` : ""}data: ${data}\n\n`); // a reading in flight at stop ends after the streams
@@ -235,7 +236,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 				const file = parts.length === 3 && parts[1] === "ca" ? lan.panel.file(parts[2]!) : undefined;
 				return void (file ? res.writeHead(200, { ...HEADERS, "content-type": file.type, "content-disposition": `attachment; filename="${parts[2]}"` }).end(file.bytes) : fail(404));
 			}
-			if (["sessions", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "lan"].includes(parts[0]!)) return void control(req, who.origin, parts, who.remote).then(answer, () => answer({ status: 500, body: { error: "internal", reason: "The request could not be handled." } }));
+			if (["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "lan"].includes(parts[0]!)) return void control(req, who.origin, parts, who.remote).then(answer, () => answer({ status: 500, body: { error: "internal", reason: "The request could not be handled." } }));
 			// An entry never changes once written, so its image is cached for a day; the token in the URL keeps it to this page.
 			if (req.method === "GET" && parts[0] === "image") return void image(files, parts.slice(1)).then((p) => (p ? res.writeHead(200, { ...HEADERS, "content-type": p.type, "cache-control": "private, max-age=86400" }).end(p.bytes) : fail(404)), () => fail(404));
 			if (req.method === "GET") return void (parts[0] === "doc" && docs ? answer(docs.text(parts[1] ?? "", wifiDoc && { cookie: wifiDoc.cookie })) : api(files, parts, url.searchParams).then(answer, () => fail(404)));

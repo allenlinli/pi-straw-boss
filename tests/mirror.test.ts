@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as mirror from "../src/mirror.ts";
-import { CALM_MS, createMirrors, FAILS, FAST_MS, FRESH_MS, MAX_ROW, MAX_ROWS, PANES, PER_STREAM, sanitize, SLOW_MS, type Timer, WHOLE_MS } from "../src/mirror.ts";
+import { CALM_MS, createMirrors, FAILS, FAST_MS, FRESH_MS, MAX_ROW, MAX_ROWS, PANES, PER_STREAM, sanitize, SIZE_MS, SLOW_MS, type Timer, WHOLE_MS } from "../src/mirror.ts";
 import type { Found } from "../src/net.ts";
 import { settle } from "./fakes.ts";
 
@@ -32,12 +32,13 @@ function clock() {
 
 /** Mirrors over a fake Herdr pane whose screen the test sets; every socket call is recorded. */
 function setup({ secret = false } = {}) {
-	const c = clock(), calls: string[] = [], state = { screen: ["one", "two"], width: 80, secret, fail: false, agent: "pi", file: FILE, live: true, pane: "", hold: {} as Partial<Record<"secret" | "pane.get" | "pane.read", Promise<void>>> };
+	const c = clock(), calls: string[] = [], state = { screen: ["one", "two"], width: 80, secret, fail: false, agent: "pi", file: FILE, live: true, pane: "", terminal: "t-1", gone: false, hold: {} as Partial<Record<"secret" | "pane.get" | "pane.read", Promise<void>>> };
 	const call = async (method: string, params: Record<string, unknown>) => {
 		calls.push(`${method} ${params.pane_id}`);
 		await state.hold[method as "pane.get"];
 		if (state.fail) throw new Error("socket");
-		if (method === "pane.get") return { pane: { pane_id: params.pane_id, agent: state.agent, agent_session: { value: state.file } } };
+		if (state.gone) throw Object.assign(new Error("no such pane"), { code: "pane_not_found" });
+		if (method === "pane.get") return { pane: { pane_id: params.pane_id, agent: state.agent, terminal_id: state.terminal, agent_session: { value: state.file } } };
 		if (method === "pane.layout") return { layout: { panes: [{ pane_id: "other", rect: { width: 3 } }, { pane_id: params.pane_id, rect: { width: state.width } }] } };
 		return { read: { text: state.screen.join("\r\n") } };
 	};
@@ -279,4 +280,46 @@ test("a read on its way when the mirror ends delivers nothing after the end", as
 	release();
 	await c.advance(0);
 	assert.ok("ended" in frames(a).at(-1)!, "the old pane's rows never follow the end");
+});
+
+test("a bare pane (a pane an answer opened): mirrored with no registry entry, no secret check, and no pi check, ending when the pane closes or its terminal is another", async () => {
+	const t = setup();
+	t.state.agent = "zsh"; // not pi: a session's reader would end here
+	t.state.file = "/elsewhere";
+	const a = t.stream("a");
+	assert.equal(t.m.toggle("grant:g1", { stream: a, on: true }, { pane: "px", terminal: "t-1" }).status, 200);
+	await t.c.advance(1);
+	assert.equal(t.frames("a")[0]!.key, "grant:g1");
+	assert.deepEqual(t.frames("a")[0]!.set, [[0, "one"], [1, "two"]]);
+	assert.ok(t.calls.every((x) => !x.includes("undefined")), "reads the granted pane");
+	assert.ok(t.calls.includes("pane.read px"));
+	assert.equal(t.m.fresh(a, "grant:g1", "px"), true, "the key pad's precondition holds for it");
+	assert.equal(t.m.fresh(a, "grant:g1", "py"), false);
+	t.state.screen = ["one", "changed"];
+	await t.c.advance(FAST_MS + 5);
+	assert.deepEqual(t.frames("a").at(-1)!.set, [[1, "changed"]]);
+	// Its terminal is another one under the same pane id: the reader ends.
+	t.state.terminal = "t-2";
+	await t.c.advance(SIZE_MS + FAST_MS);
+	assert.equal(t.frames("a").at(-1)!.ended, "The pane closed.");
+	assert.deepEqual(t.m.active(), []);
+	// A pane that is gone ends it too, without waiting for ten failed reads.
+	const g = setup();
+	const b = g.stream("b");
+	g.m.toggle("grant:g2", { stream: b, on: true }, { pane: "px" });
+	await g.c.advance(1);
+	g.state.gone = true;
+	await g.c.advance(FAST_MS + 5);
+	assert.equal(g.frames("b").at(-1)!.ended, "The pane closed.");
+	assert.equal(g.calls.filter((x) => x.startsWith("pane.read")).length <= 2, true);
+});
+
+test("a bare pane does not count toward a page's two terminals, and a stream that is not open is refused", async () => {
+	const t = setup();
+	const a = t.stream("a");
+	for (const key of ["s1", "s2"]) assert.equal(t.on(a, key).status, 200);
+	assert.equal(t.on(a, "s3").status, 429, "a third session terminal is too many");
+	assert.equal(t.m.toggle("grant:g1", { stream: a, on: true }, { pane: "px" }).status, 200, "the pane an answer opened still opens");
+	assert.equal(t.m.toggle("grant:g1", { stream: "nobody", on: true }, { pane: "px" }).status, 400);
+	assert.equal(t.m.toggle("grant:g1", { stream: a, on: false }, { pane: "px" }).status, 200);
 });

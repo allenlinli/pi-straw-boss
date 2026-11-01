@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { MAX_PREFIX } from "./commands.ts";
+import type { Grants } from "./answerpane.ts";
 import { ANSWER_ID, checkAnswer, CONTROL, type Hub, type Sent, type Target } from "./dialogs.ts";
 import { HerdrError, type HerdrCall, type Pane } from "./herdr.ts";
 import { defaultDequeue, keyLabel } from "./dequeuekey.ts";
@@ -24,6 +25,7 @@ import { parseOpen } from "./bossopen.ts";
 //   POST /<token>/api/sessions/<key>/answer {dialog, digest, answerId, choice | answers}  answers its dialog through its bridge (dialogs.ts); no keys; a `value` (a secret) is refused from every page (SB-F001)
 //   POST /<token>/api/sessions/<key>/upload (the file's bytes)                            stores a pasted, dropped, or picked file, answers its path (upload.ts)
 //   POST /<token>/api/sessions/<key>/mirror {stream, on}                                  shows the pane's screen on that page's stream (mirror.ts), or stops
+//   POST /<token>/api/panes/<grant>/mirror {stream, on}, /keys {key, stream}               the same for a Herdr pane an accepted answer opened (answerpane.ts; robot_hand's new pane): by the grant the answer returned in `then.pane`, never a pane id; the keys are the pad's, a chord's, typed text, and a paste (keys.ts `bare`), for the boss's page and a paired device alike
 //   POST /<token>/api/remote/pair                                                        a new one-time pairing URL and its QR, while remote access is on (this computer only, never a paired device)
 //   POST /<token>/api/remote/on, remote/off                                              turns remote access on in the server's session, then a pairing URL and its QR, or off (never remote)
 //   POST /<token>/api/remote/devices, remote/unpair {id}, remote/unpair-all             the paired devices, and unpairing one or all (never remote)
@@ -83,7 +85,7 @@ const REMOTE_LINK = ["state", "confirm-answer"];
 const LINK_NAMES = ["enable", "state", "create", "invite", "invite-text", "invite-cancel", "decide", "join-start", "join-project", "join-cancel", "prefill-clear", "remove", "role", "rotate", "trust", "leave", "confirm-answer"];
 /** `tower`: the sb server's tower service, when it runs one (TowerPanel). */
 /** `answers.target` reads the net afresh, so the binding and the dialog are checked again for every answer. */
-export interface ControlDeps { lan?: LanPanel; /** The marks of the `/boss gui lan` overlay: a paired device's write into a marked pane is Escape only (lan/faces.ts). */ overlay?: Overlay; lookup(key: string): Found | undefined; call?: HerdrCall; csrf: string; canonical(file?: string): string | undefined; pair?(): { url: string; rows: string[] } | undefined; remoteOn?(): Promise<void>; remoteOff?(): Promise<void>; tower?: TowerPanel; paired?: { on(): boolean; list(): unknown; unpair(id: string): boolean; unpairAll(): number; unsaved(): string | undefined }; saveFailed?(reason: string): void; spawn?(parts: string[], json: Record<string, unknown>): Promise<Reply>; close?(kind: string, json: Record<string, unknown>, refresh?: () => Promise<unknown>): Promise<Reply>; dismiss?(key: unknown): Promise<boolean>; dismissAll?(): Promise<number>; stop?(asked: Asked): boolean | void; link?: LinkPort; server?: ServerPanel; mirrors?: Pick<ReturnType<typeof createMirrors>, "toggle" | "fresh">; secret?(file: string): Promise<boolean>; linkRequest?(file: string): Promise<boolean>; answers?: Pick<Hub, "has" | "replay" | "ended" | "send" | "probe" | "commands" | "pull"> & { target(key: string): Promise<Target | undefined> }; trust?(json: Record<string, unknown>): Promise<Reply> }
+export interface ControlDeps { lan?: LanPanel; /** The marks of the `/boss gui lan` overlay: a paired device's write into a marked pane is Escape only (lan/faces.ts). */ overlay?: Overlay; lookup(key: string): Found | undefined; call?: HerdrCall; csrf: string; canonical(file?: string): string | undefined; pair?(): { url: string; rows: string[] } | undefined; remoteOn?(): Promise<void>; remoteOff?(): Promise<void>; tower?: TowerPanel; paired?: { on(): boolean; list(): unknown; unpair(id: string): boolean; unpairAll(): number; unsaved(): string | undefined }; saveFailed?(reason: string): void; spawn?(parts: string[], json: Record<string, unknown>): Promise<Reply>; close?(kind: string, json: Record<string, unknown>, refresh?: () => Promise<unknown>): Promise<Reply>; dismiss?(key: unknown): Promise<boolean>; dismissAll?(): Promise<number>; stop?(asked: Asked): boolean | void; link?: LinkPort; /** The panes accepted answers opened (answerpane.ts). */ grants?: Pick<Grants, "before" | "claim" | "get" | "live">; server?: ServerPanel; mirrors?: Pick<ReturnType<typeof createMirrors>, "toggle" | "fresh">; secret?(file: string): Promise<boolean>; linkRequest?(file: string): Promise<boolean>; answers?: Pick<Hub, "has" | "replay" | "ended" | "send" | "probe" | "commands" | "pull"> & { target(key: string): Promise<Target | undefined> }; trust?(json: Record<string, unknown>): Promise<Reply> }
 
 const no = (status: number, error: string, reason: string, extra = {}): Reply => ({ status, body: { error, reason, ...extra } });
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -149,7 +151,7 @@ const localOnlyText = (text: string): boolean => {
 };
 const LOCAL_ONLY = "Pairing, remote access, Wi-Fi, the server, the default view, and deciding a join request are managed on this computer's own page or terminal, not from a paired device.";
 const LINK_LOCAL = "While it waits on a link request, a paired device can only send Escape; approve it on this computer's own page or terminal.";
-export function createControl({ lan, overlay, link, server: panel, lookup, call, csrf, canonical, pair, remoteOn, remoteOff, paired, saveFailed, spawn, close, dismiss, dismissAll, stop, mirrors, secret = async () => true, linkRequest = async () => false, answers, trust, tower }: ControlDeps) {
+export function createControl({ lan, overlay, link, server: panel, lookup, call, csrf, canonical, pair, remoteOn, remoteOff, paired, saveFailed, spawn, close, dismiss, dismissAll, stop, mirrors, grants, secret = async () => true, linkRequest = async () => false, answers, trust, tower }: ControlDeps) {
 	const busy = new Set<string>();
 	// A change to the paired devices or the remote wish that could not be written to paired.json took effect in memory only: say so (500), to the page and the session.
 	const lost = (): Reply | undefined => {
@@ -199,6 +201,28 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			const view = body.view as { prefill?: { text?: string } } | undefined;
 			if (remote && view?.prefill) delete view.prefill.text;
 			return { status: 200, body };
+		}
+		if (scope === "panes") {
+			// A pane an answer opened: reached by its grant alone. Detaching a mirror needs no live grant (the pane may be gone).
+			const g = grants?.get(key), id = `grant:${key}`;
+			if (!grants || (action !== "mirror" && action !== "keys")) return no(404, "not_found", "No such action.");
+			if (action === "mirror" && read.json.on === false) return mirrors ? mirrors.toggle(id, read.json) : no(503, "unavailable", "This server shows no terminals.");
+			if (!g) return no(404, "not_found", "That pane is not open here any more.");
+			if (action === "mirror") return mirrors ? mirrors.toggle(id, read.json, { pane: g.pane, ...(g.terminal ? { terminal: g.terminal } : {}) }) : no(503, "unavailable", "This server shows no terminals.");
+			if (!call) return no(503, "unavailable", "This server cannot reach Herdr.");
+			if (busy.has(id)) return no(429, "busy", "Another key to this pane is still on its way.");
+			const asked = pad.check(id, read.json, remote);
+			if ("status" in asked) return asked;
+			busy.add(id);
+			try {
+				const plan = pad.bare(id, (await grants.live(g)).pane_id, asked);
+				for (const [i, [method, params]] of plan.calls.entries()) (i && (await new Promise((r) => setTimeout(r, 60))), await call(method, params, 15_000));
+				return { status: 200, body: { accepted: true } };
+			} catch (error) {
+				return (error as Reply).status ? (error as Reply) : refused(error);
+			} finally {
+				busy.delete(id);
+			}
 		}
 		if (scope === "tower") {
 			if (action === "memory") return tower?.memory && tower.has(key) ? tower.memory(key, read.json) : no(404, "not_found", "No such tower.");
@@ -347,14 +371,19 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			const known = answers.replay(answerId, key); // the same answer sent again (Check again) gets the outcome it had
 			if (known) return known;
 			job = async () => {
-				await live(found);
+				const at = await live(found);
 				const target = await answers.target(key), ended = answers.ended(key, dialog, answerId); // answered in the terminal a moment ago, or by this very answer
 				if (target?.answer.dialog !== dialog || target.answer.digest !== digest) throw ended ?? no(409, "changed", "The question changed or is no longer open here; read it again.");
 				const checked = checkAnswer(target.answer, json);
 				if (typeof checked === "string") throw no(400, "bad_answer", checked);
 				if (remote && "choice" in checked && target.answer.select?.choices[checked.choice]?.hereOnly) throw no(403, "local_only", "This choice is approved on this computer's own page or terminal; a paired device can only deny."); // decided by the listener and the stored dialog, never the body
 				if (remote && "cancel" in checked && target.answer.select?.choices.every((c) => c.hereOnly)) throw no(403, "local_only", "This dialog is answered on this computer's own page or terminal; a paired device cannot cancel it."); // cancelling is a refusal: a paired device may where it may pick some choice (a link approval's Deny), not where every choice is this computer's
-				return answers.send(key, target, { id: dialog, answerId, digest, ...checked });
+				// A choice that leaves a step in a terminal (its `next`, from the stored dialog): the panes of the tab are noted before the answer goes out, so the one it opens can be told after.
+				const next = "choice" in checked ? target.answer.select?.choices[checked.choice]?.next : undefined, noted = next === "pane" ? await grants?.before(at.pane_id) : undefined;
+				const sent = await answers.send(key, target, { id: dialog, answerId, digest, ...checked });
+				// On the stored object, so Check again replays it with the same `then`.
+				if (sent.body.outcome === "accepted" && next) sent.body.then = next === "terminal" ? { terminal: true } : { pane: (noted && (await grants!.claim(key, at.pane_id, noted))?.id) || null };
+				return sent;
 			};
 		} else job = async () => call("agent.focus", { target: (await live(found)).pane_id });
 		if (busy.has(key)) return no(429, "busy", "Another input to this session is still on its way.");

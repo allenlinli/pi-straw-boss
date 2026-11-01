@@ -6,6 +6,8 @@ import type { Found } from "./net.ts";
 // 250 ms while the screen changed in the last 2 s, else every second, with every row again on attach, after a size change, and every 10 s.
 // A stream asks for a session's mirror with POST …/mirror {stream, on}; the reads are shared by every stream on that session and stop when
 // the last one leaves, when the unit leaves the registry or its pane runs something else, or after 10 failed reads in a row (`ended`).
+// A pane an answer opened (answerpane.ts; keys `grant:<id>`) is mirrored the same way as a "bare" reader: no registry entry, no pi on it, no secret to hide; it ends with "The pane closed."
+// when Herdr no longer has it or its terminal is another, and it does not count toward a page's two terminals.
 // While the session file's open call is secret_drop no row is read, and the streams hear `hidden` instead. Rows are display data only:
 // nothing here reads them for meaning, and the sanitizer keeps SGR (colours and attributes) and drops every other escape and control.
 
@@ -15,7 +17,9 @@ export type TimerId = ReturnType<typeof setTimeout> | number;
 export interface Timer { now(): number; set(run: () => void, ms: number): TimerId; clear(id: TimerId | undefined): void }
 export interface MirrorDeps { call?: HerdrCall; lookup(key: string): Found | undefined; secret(file: string): Promise<boolean>; canonical(file?: string): string | undefined; timer?: Timer }
 interface Viewer { send: Send; at: number; whole: boolean }
-interface Reader { key: string; pane: string; file: string; viewers: Map<string, Viewer>; rows: string[]; cols: number; seq: number; changed: number; whole: number; sized: number; fails: number; hidden: boolean; timer?: TimerId; gone: boolean }
+/** A pane the mirror reads without a session: `terminal` is the one it had when granted. */
+export interface Bare { pane: string; terminal?: string }
+interface Reader { key: string; pane: string; file: string; bare?: Bare; viewers: Map<string, Viewer>; rows: string[]; cols: number; seq: number; changed: number; whole: number; sized: number; fails: number; hidden: boolean; timer?: TimerId; gone: boolean }
 
 // CSI (kept only as SGR: final m, no intermediates, digits and separators), OSC/DCS/SOS/PM/APC up to BEL or ST, any other escape, C0 and C1.
 const ESCAPES = /\x1b(?:\[([0-?]*)([ -/]*)([@-~]|(?=\x1b)|$)|[\]PX^_][^]*?(?:\x07|\x1b\\|$)|[ -/]*[0-~]?)|[\u0000-\u001f\u007f-\u009f]/g;
@@ -63,14 +67,16 @@ export function createMirrors({ call, lookup, secret, canonical, timer = timers 
 		}
 	};
 	async function read(r: Reader) {
-		const found = lookup(r.key);
-		if (!found?.live || found.pane !== r.pane || found.file !== r.file) return end(r, "The session is no longer live in this pane.");
-		const hidden = await secret(r.file);
-		if (r.gone) return; // detached meanwhile: no Herdr call for nobody
-		if ((r.hidden = hidden)) return (r.rows = []), deliver(r, []); // a secret is typed into that screen: nothing is read
+		if (!r.bare) {
+			const found = lookup(r.key);
+			if (!found?.live || found.pane !== r.pane || found.file !== r.file) return end(r, "The session is no longer live in this pane.");
+			const hidden = await secret(r.file);
+			if (r.gone) return; // detached meanwhile: no Herdr call for nobody
+			if ((r.hidden = hidden)) return (r.rows = []), deliver(r, []); // a secret is typed into that screen: nothing is read
+		}
 		if (timer.now() - r.sized >= SIZE_MS) {
 			const [{ pane }, { layout }] = (await Promise.all([call!("pane.get", { pane_id: r.pane }), call!("pane.layout", { pane_id: r.pane })])) as [{ pane: Pane }, { layout: { panes: { pane_id: string; rect: { width: number } }[] } }];
-			if (pane.agent !== "pi" || canonical(pane.agent_session?.value) !== r.file) return end(r, "The pane runs something else now.");
+			if (r.bare ? Boolean(r.bare.terminal) && pane.terminal_id !== r.bare.terminal : pane.agent !== "pi" || canonical(pane.agent_session?.value) !== r.file) return end(r, r.bare ? "The pane closed." : "The pane runs something else now.");
 			const cols = layout.panes.find((p) => p.pane_id === r.pane)?.rect.width ?? r.cols;
 			if (cols !== r.cols) [r.cols, r.whole] = [cols, 0];
 			r.sized = timer.now();
@@ -88,8 +94,9 @@ export function createMirrors({ call, lookup, secret, canonical, timer = timers 
 		try {
 			await read(r);
 			r.fails = 0;
-		} catch {
-			if (++r.fails >= FAILS) end(r, "The pane could not be read.");
+		} catch (error) {
+			if (r.bare && (error as { code?: unknown }).code === "pane_not_found") end(r, "The pane closed.");
+			else if (++r.fails >= FAILS) end(r, "The pane could not be read.");
 		}
 		if (!r.gone) r.timer = timer.set(() => void loop(r), timer.now() - r.changed < CALM_MS ? FAST_MS : SLOW_MS);
 	};
@@ -101,18 +108,19 @@ export function createMirrors({ call, lookup, secret, canonical, timer = timers 
 			for (const key of streams.get(id)?.keys ?? []) detach(id, key);
 			streams.delete(id);
 		},
-		/** POST …/sessions/<key>/mirror {stream, on}: attach this stream to the session's mirror, or detach it. */
-		toggle(key: string, { stream, on }: Record<string, unknown>) {
+		/** POST …/sessions/<key>/mirror {stream, on}: attach this stream to the session's mirror, or detach it. `bare`: the key is a granted pane (POST …/panes/<grant>/mirror), read with no session behind it. */
+		toggle(key: string, { stream, on }: Record<string, unknown>, bare?: Bare) {
 			const s = typeof stream === "string" ? streams.get(stream) : undefined;
 			if (!s || typeof on !== "boolean") return no(400, "bad_request", "Name this page's stream and whether to show the terminal; reload the page if it reconnected.");
 			if (!on) return detach(stream as string, key), { status: 200, body: { attached: false } };
-			const found = lookup(key);
-			if (!found?.live || !found.pane || !found.file) return no(409, "not_live", "This session is no longer live in a pane.");
+			const found = bare ? undefined : lookup(key);
+			if (!bare && (!found?.live || !found.pane || !found.file)) return no(409, "not_live", "This session is no longer live in a pane.");
+			const [pane, file] = bare ? [bare.pane, ""] : [found!.pane!, found!.file!];
 			if (!call) return no(503, "unavailable", "This server cannot reach Herdr.");
-			if (!s.keys.has(key) && s.keys.size >= PER_STREAM) return no(429, "too_many", `A page shows at most ${PER_STREAM} terminals; close one first.`);
-			const kept = readers.get(key), had = kept?.pane === found.pane && kept.file === found.file ? kept : (kept && end(kept, "The session moved to another pane."), undefined);
+			if (!bare && !s.keys.has(key) && [...s.keys].filter((k) => !readers.get(k)?.bare).length >= PER_STREAM) return no(429, "too_many", `A page shows at most ${PER_STREAM} terminals; close one first.`);
+			const kept = readers.get(key), had = kept?.pane === pane && kept.file === file ? kept : (kept && end(kept, "The session moved to another pane."), undefined);
 			if (!had && readers.size >= PANES) return no(429, "too_many", `This server mirrors at most ${PANES} terminals at once; close one first.`);
-			const r: Reader = had ?? { key, pane: found.pane, file: found.file, viewers: new Map(), rows: [], cols: 0, seq: 0, changed: timer.now(), whole: 0, sized: 0, fails: 0, hidden: false, gone: false };
+			const r: Reader = had ?? { key, pane, file, ...(bare ? { bare } : {}), viewers: new Map(), rows: [], cols: 0, seq: 0, changed: timer.now(), whole: 0, sized: 0, fails: 0, hidden: false, gone: false };
 			readers.set(key, r).get(key)!.viewers.set(stream as string, { send: s.send, at: 0, whole: true });
 			s.keys.add(key);
 			if (!had) r.timer = timer.set(() => void loop(r), Math.max(0, (started.get(key) ?? -FAST_MS) + FAST_MS - timer.now())); // one loop per reader; on and off again keeps 4 reads a second

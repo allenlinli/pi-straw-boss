@@ -299,6 +299,8 @@
 	"keyboard": "Keyboard",
 	"fit_width": "Fit width",
 	"terminal_title": "Terminal · {name}",
+	"pane_elsewhere": "A pane opened in Herdr; carry on there.",
+	"pane_name": "Herdr pane",
 	"mirror_ended": "The mirror ended: {why}",
 	"mirror_hidden": "Hidden while it waits for a secret; type it in the terminal.",
 	"mirror_live": "Live · {cols}×{rows}",

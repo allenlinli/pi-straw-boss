@@ -26,13 +26,15 @@ const COMMS = () => `<div class="comms-in"><header class="comms-head"><a class="
 
 export interface SessionDeps {
 	view: HTMLElement; data(key: string): Data; openTile(tile: Tile, focus?: boolean): void; embedTerminal(key: string, name: string, host: HTMLElement): Promise<() => void>; online(): boolean;
+	/** Opens the terminal of a pane an answer opened (its grant), with the keyboard in it. */
+	openPane(grant: string): void;
 	/** Shows or hides the dossier over the comms (a phone's Info). */
 	fullScreen(on: boolean): void;
 	/** The comms are mounted: the history that waited goes into the log and the views draw. */
 	opened(): void;
 }
 
-export function mountSession(scene: Readonly<Scene>, { view, data, openTile, embedTerminal, online, fullScreen, opened }: SessionDeps) {
+export function mountSession(scene: Readonly<Scene>, { view, data, openTile, embedTerminal, online, openPane, fullScreen, opened }: SessionDeps) {
 	let chat: Chat | undefined, composer: ReturnType<typeof mountComposer> | undefined, asker: ReturnType<typeof mountAsk> | undefined, entering = 0;
 	let unembed: (() => void) | undefined, pendingMode: "term" | undefined, modeTurn = 0, shown: "chat" | "term" = "chat", held: string | undefined;
 	/** What stands where a tower's terminal would be while the sb server's service has no run live (the server answers its keys and mirror with 409): a sentence, and no pad over an empty box. */
@@ -53,7 +55,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 		const opener = (path: string, card = docFor(locate(scene.net, key)?.u.docs, scene.info?.header?.cwd, path)) => card && (() => openTile(docTile(who().name, card)));
 		chat = mountChat(view.querySelector(".chat-root")!, data(key), { who, link, docFor: opener });
 		const send = recording(data(key).post ?? postTo(key), () => sendTarget(scene.net, key, wsOf(scene)));
-		[composer, asker] = [mountComposer(view.querySelector(".composer-root")!, key, send), mountAsk(view.querySelector(".ask-root")!, send, undefined, () => setMode("term"))];
+		[composer, asker] = [mountComposer(view.querySelector(".composer-root")!, key, send), mountAsk(view.querySelector(".ask-root")!, send, undefined, () => setMode("term"), undefined, (then) => ("pane" in then ? openPane(then.pane!) : setMode("term")))];
 		mountQueueEdit(view, () => composer?.takeQueue() ?? Promise.resolve());
 		mountQueueFold(view);
 		view.querySelectorAll<HTMLButtonElement>(".modes button").forEach((b) => (b.onclick = () => setMode(b.dataset.mode as "chat" | "term")));

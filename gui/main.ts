@@ -44,7 +44,7 @@ let focus: Focus | undefined, loading: Promise<Focus> | undefined;
 const withFocus = (call: (f: Focus) => void) => (focus ? call(focus) : void loading?.then(call));
 function loadFocus() {
 	loading ??= import("./views.ts").then(({ mountFocus }) => {
-		focus = mountFocus({ data, restart: () => stream.restart(), openTile, embedTerminal: (key, name, host) => new Promise((done) => withPanels((p) => done(p.terminal.embed(key, name, host)))), online: () => status.state === "live" });
+		focus = mountFocus({ data, restart: () => stream.restart(), openTile, embedTerminal: (key, name, host) => new Promise((done) => withPanels((p) => done(p.terminal.embed(key, name, host)))), openPane: (grant) => withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true)), online: () => status.state === "live" });
 		focus.show(netOf(current), netOf(current));
 		if (latest) focus.net(latest);
 		return focus;
@@ -61,7 +61,7 @@ const withPanels = (call: (p: Panels) => void) => {
 		recent: async (key) => (await (fixture ? fixture.data(key).latest() : history(key, "?limit=12"))).items,
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action as Parameters<Post>[0], body)),
 		stream: () => hello,
-		showTerminal: (ws, key) => (panels?.stack.close(), focus?.terminal(key), router.go({ view: "session", ws, key })),
+		showTerminal: (ws, key, closed) => (closed || panels?.stack.close(), router.go({ view: "session", ws, key }), withFocus((f) => f.terminal(key))), // the route first: it starts the focus views' chunk, which `withFocus` then waits for (before it, a first visit lost the request)
 	})));
 	void panelsLoading.then(call);
 };

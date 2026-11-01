@@ -1,5 +1,5 @@
 import type { Ask, Pending } from "../src/ask.ts";
-import type { Answerable, Reply } from "../src/owners.ts";
+import type { Answerable, Reply, Then } from "../src/owners.ts";
 import { type Group, wire } from "./askkeys.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
@@ -66,7 +66,8 @@ function cue(el: HTMLElement) {
 	if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(check);
 }
 
-export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: () => void, accepted?: () => void) {
+/** `opens`: an accepted answer left a step in a terminal (`then`, from the server): the caller shows that terminal, the session's or the new pane's. */
+export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: () => void, accepted?: () => void, opens?: (then: Then) => void) {
 	// `cur` is the panel on show, drawn for `shown`; `kept` is the newest one that answers, which comes back as it was when its dialog does.
 	let shown: Pending | undefined, cur: Panel | undefined, kept: Panel | undefined, ready = false, busy = false, leave: ReturnType<typeof setTimeout> | undefined;
 	for (const type of ["focusin", "pointerdown"]) document.addEventListener(type, (e) => cur && !cur.el.contains(e.target as Node) && (cur.lost = undefined)); // the user went elsewhere
@@ -91,6 +92,9 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		const [tone, text, retry] = r ? said(r, body.cancel === true) : (["error", m.not_confirmed(), true] as const);
 		[x.done, x.sending, busy, x.busy] = [!r || final(r), false, false, r?.body.outcome === "busy"];
 		say(x.note, tone, text, ...(retry ? [again] : []));
+		const then = r?.body.outcome === "accepted" ? (r.body.then as Then | undefined) : undefined;
+		if (then && "pane" in then && then.pane === null) say(x.note, tone, `${text} ${m.pane_elsewhere()}`); // a pane opened that the server could not tell from others: nothing to open
+		else if (then) opens?.(then);
 		draw();
 		x.note.scrollIntoView?.({ block: "nearest" }); // a long panel scrolls: its outcome must be read
 		if (accepted && r?.body.outcome === "accepted") setTimeout(accepted, 1200); // an alert's dialog closes once its answer landed, after its outcome shows

@@ -13,7 +13,7 @@ import { type Source, WATCHDOG_MS } from "./stream.ts";
 const unit = (id: string, name: string, role: Unit["role"], mark: Mark, note?: string, subs: Unit[] = []): Unit => ({ id, key: id, control: true, name, role, mark, note, subs });
 // What the nth wait is on: a secret_drop that only waits in the terminal (odd n), two questions as ask_user_question asks them (n % 4 == 2; rpiv takes a cancel, so the card has Cancel), or robot_hand's selector (no cancel path).
 const two = [{ header: "Window", question: "When should the ops deploy go out?", options: [{ title: "Tonight 22:00", description: "Low traffic; on-call is awake." }, { title: "Tomorrow 08:00" }], multiple: false, freeform: true }, { header: "Notify", question: "Who should be told?", options: [{ title: "ops" }, { title: "billing" }, { title: "support" }], multiple: true, freeform: true }];
-const hand = { title: "Robot Hand — Deploy needs your sudo password\n\n  ! npm run deploy", copy: "npm run deploy", choices: [{ label: "Type it into a new Herdr pane (I press Enter)", note: "Opens a pane with the command typed; press Enter there" }, { label: "Put it in my prompt", note: "Lands in the terminal's prompt; press Enter there" }, { label: "Copy it to my clipboard", note: "Copies on this computer", localOnly: true as const }, { label: "No, thanks" }] };
+const hand = { title: "Robot Hand — Deploy needs your sudo password\n\n  ! npm run deploy", copy: "npm run deploy", choices: [{ label: "Type it into a new Herdr pane (I press Enter)", note: "Opens a pane with the command typed; press Enter there", next: "pane" as const }, { label: "Put it in my prompt", note: "Lands in the terminal's prompt; press Enter there", next: "terminal" as const }, { label: "Copy it to my clipboard", note: "Copies on this computer", localOnly: true as const }, { label: "No, thanks" }] };
 const ask = (n: number): Unit["pending"] => (n % 2 ? { callId: `demo-${n}`, tool: "secret_drop", why: "It waits for a secret." } : { callId: `demo-${n}`, ...(n % 4 ? { tool: "ask_user_question", asks: two, answer: { dialog: `d${n}`, digest: "0".repeat(64), cancel: true as const, questions: two } } : { tool: "robot_hand", answer: { dialog: `d${n}`, digest: "0".repeat(64), select: hand } }) });
 const doc = (cap: string, display: string, reason: string, revision = 1) => ({ cap, display, kind: display.endsWith(".html") ? ("html" as const) : ("text" as const), reason, revision, onScreen: true });
 const demo = (): Net => ({
@@ -69,7 +69,7 @@ function towerService(state: TowerState): { service?: TowerService; mark: Mark }
 }
 
 const HEAL_MS = 8000;
-export interface Control { drop(): void; silence(): void; restore(): void; doc(): void; tower(state?: string): void }
+export interface Control { drop(): void; silence(): void; restore(): void; doc(): void; hand(): void; tower(state?: string): void }
 
 export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control } {
 	demoOpen(); // the opening tiles' folder picker and deploy, with no server
@@ -149,6 +149,13 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 			net = structuredClone(net);
 			current?.send("message", net);
 		},
+		// A robot_hand selector on billing-main (the demo of an answer that needs the terminal): "Type it into a new Herdr pane" opens a pane tile, "Put it in my prompt" the session's terminal.
+		hand: () => {
+			const u = units(net).find((x) => x.key === "a1")!;
+			[u.mark, u.note, u.pending] = ["waiting", "waiting on a question", { callId: `demo-hand-${++waits}`, tool: "robot_hand", answer: { dialog: `dh${waits}`, digest: "0".repeat(64), select: hand } }];
+			net = structuredClone(net);
+			current?.send("message", net);
+		},
 		doc: () => ((units(net).find((u) => u.key === "a1")!.docs = [...(units(net).find((u) => u.key === "a1")!.docs ?? []), doc(`note-${++notes}`, `docs/notes-${notes}.md`, "Notes for review")]), (net = structuredClone(net)), current?.send("message", net)),
 	};
 	const start = new URLSearchParams(location.search).get("tower");
@@ -158,7 +165,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 		older: async (before) => page(before),
 		latest: async () => page(),
 		// Input is accepted, and shows in the log a moment later as pi would write it.
-		post: async (action, body) => (action === "commands" ? { ok: true, status: 200, body: { commands: [{ name: "review", source: "prompt", description: "Review the current diff" }, { name: "boss", source: "extension", description: "Straw Boss: gui, status, join" }, { name: "skill:release", source: "skill", description: "Cut a release" }].filter((c) => c.name.includes(String(body.prefix))) } } : action === "dequeue" ? { ok: true, status: 200, body: { text: "Also check the refund path while you are in there.\n\nWhen done, write a short summary for the changelog." } } : action === "answer" ? answered(key) : action === "mirror" ? mirror(key, body.on === true) : action === "keys" && body.key === "enter" && !body.confirmed ? { ok: false, status: 409, body: { error: "confirm", confirm: "reload", reason: "Enter would run /reload (or the command picked in pi's menu, if it is open), which ends or replaces this session. Enter goes to whatever has focus in the terminal; confirm to send it." } } : (action === "input" && setTimeout(() => current?.send("history", { key, reset: false, items: [{ id: `you-${++live}`, kind: "user", at: new Date().toISOString(), text: String(body.text) }] }), 700), { ok: true, status: 200, body: {} })),
+		post: async (action, body) => (action === "commands" ? { ok: true, status: 200, body: { commands: [{ name: "review", source: "prompt", description: "Review the current diff" }, { name: "boss", source: "extension", description: "Straw Boss: gui, status, join" }, { name: "skill:release", source: "skill", description: "Cut a release" }].filter((c) => c.name.includes(String(body.prefix))) } } : action === "dequeue" ? { ok: true, status: 200, body: { text: "Also check the refund path while you are in there.\n\nWhen done, write a short summary for the changelog." } } : action === "answer" ? answered(key, body) : action === "mirror" ? mirror(key, body.on === true) : action === "keys" && body.key === "enter" && !body.confirmed ? { ok: false, status: 409, body: { error: "confirm", confirm: "reload", reason: "Enter would run /reload (or the command picked in pi's menu, if it is open), which ends or replaces this session. Enter goes to whatever has focus in the terminal; confirm to send it." } } : (action === "input" && setTimeout(() => current?.send("history", { key, reset: false, items: [{ id: `you-${++live}`, kind: "user", at: new Date().toISOString(), text: String(body.text) }] }), 700), { ok: true, status: 200, body: {} })),
 		// Demo images, drawn as SVG: the user's two on the last round, the read result's one, and a broken third index.
 		pic: (id, n) => (n > 1 ? "data:," : `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${n ? 900 : 640}" height="${n ? 1400 : 360}"><rect width="100%" height="100%" fill="${id.startsWith("r") ? "#1f3a5f" : n ? "#3d2a5c" : "#14532d"}"/><text x="50%" y="50%" fill="#fff" font-size="48" text-anchor="middle" font-family="sans-serif">${id} · ${n + 1}</text></svg>`)}`),
 		entry: async (id) => {
@@ -175,10 +182,12 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 		return { ok: true, status: 200, body: { attached: on } };
 	};
 	/** An answer lands at once, and the unit goes back to work a moment later. */
-	const answered = (key: string) => {
+	const answered = (key: string, body: Record<string, unknown> = {}) => {
 		// The unit is found when the answer lands: the tick clones the net meanwhile.
 		setTimeout((u = units(net).find((x) => x.key === key)) => u && ((u.mark = "working"), (u.note = "thinking"), (u.pending = undefined), (net = structuredClone(net)), current?.send("message", net)), 1500);
-		return { ok: true, status: 200, body: { outcome: "accepted" } };
+		// robot_hand's two choices that leave a step in a terminal (the server's `then`, src/control.ts): a new pane (a grant), or the session's own prompt.
+		const then = String(body.dialog).startsWith("dh") ? (body.choice === 0 ? { pane: "demo-pane" } : body.choice === 1 ? { terminal: true as const } : undefined) : undefined;
+		return { ok: true, status: 200, body: { outcome: "accepted", ...(then ? { then } : {}) } };
 	};
 	return { open: (watch) => new FixtureSource(watch), data, control };
 }
@@ -189,7 +198,7 @@ function mountToolbar(control: Control) {
 	// On a phone it folds to a "demo" tab in the right margin, which no panel reaches; a tap shows the rest.
 	const phone = innerWidth < 640;
 	if (phone) bar.style.cssText += ";max-width:none;bottom:auto;right:0;top:40%;writing-mode:vertical-rl;flex-direction:column;padding:6px 1px;gap:4px";
-	const buttons = [["demo", () => buttons.slice(1).forEach((b) => (b.style.display = b.style.display ? "" : "none"))], ["drop stream", control.drop], ["go silent", control.silence], ["restore", control.restore], ["doc arrives", control.doc], ["tower", () => control.tower()], ["drawer", () => document.dispatchEvent(new Event("sb-drawer"))]].map(([label, run]) => {
+	const buttons = [["demo", () => buttons.slice(1).forEach((b) => (b.style.display = b.style.display ? "" : "none"))], ["drop stream", control.drop], ["go silent", control.silence], ["restore", control.restore], ["doc arrives", control.doc], ["robot_hand", control.hand], ["tower", () => control.tower()], ["drawer", () => document.dispatchEvent(new Event("sb-drawer"))]].map(([label, run]) => {
 		const button = document.createElement("button");
 		[button.textContent, button.onclick] = [label as string, run as () => void];
 		button.style.cssText = `all:unset;cursor:pointer;padding:3px 9px;border-radius:8px;background:#1a2748;color:#dbe6ff;${phone ? "padding:8px 1px;" : ""}${label !== "demo" && phone ? "display:none" : ""}`;

@@ -28,7 +28,7 @@ async function mounted() {
 	sink.setAttribute("class", "term-sink");
 	sink.focus = () => void sinkFocus.push("focus");
 	const data = { older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined, post: async () => ({ ok: true }) };
-	const session = mountSession(scene, { view: view as never, data: () => data as never, openTile() {}, embedTerminal: async (_k, _n, host) => (host.append(sink as never), () => host.replaceChildren()), online: () => true, fullScreen() {}, opened() {} });
+	const session = mountSession(scene, { view: view as never, data: () => data as never, openTile() {}, embedTerminal: async (_k, _n, host) => (host.append(sink as never), () => host.replaceChildren()), online: () => true, openPane() {}, fullScreen() {}, opened() {} });
 	session.open("k");
 	await new Promise((r) => setImmediate(r));
 	await new Promise((r) => setImmediate(r));

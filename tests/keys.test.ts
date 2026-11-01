@@ -273,3 +273,32 @@ test("dequeue: the key is the one pi binds (Windows' Alt+Q, a remap), written as
 	for (let i = 0; i < 8; i++) await t.dequeue("U", FOUND, pane, "alt+q");
 	assert.equal((await t.dequeue("U", FOUND, pane, "alt+q").catch((e: Reply) => e) as unknown as Reply).status, 429, "it counts toward the rate");
 });
+
+test("a granted pane's keys (bare): the same keys and the same rate as a session's, the mirror precondition, and none of the pi session's guards or probes", async () => {
+	const { k, w } = keys({ secret: true, answerable: true, editor: undefined });
+	const plan = (body: Record<string, unknown>, remote = false) => {
+		const a = k.check("grant:g1", body, remote);
+		if ("status" in a) return a;
+		try { return k.bare("grant:g1", "wB:p9", a as Asked); } catch (e) { return e as Reply; }
+	};
+	const calls = (p: ReturnType<typeof plan>) => ("calls" in p ? p.calls : p.status);
+	// Enter goes at once, with no probe of any editor and no confirm, while a secret and a dialog are open on the session (they belong to it, not to this pane).
+	assert.deepEqual(calls(plan({ key: "enter", stream: "st" })), [["pane.send_input", { pane_id: "wB:p9", keys: ["enter"] }]]);
+	assert.equal(w.probes, 0);
+	assert.deepEqual(calls(plan({ key: "ctrl+d", stream: "st" })), [["pane.send_input", { pane_id: "wB:p9", keys: ["ctrl+d"] }]], "no session to leave: no confirm");
+	assert.deepEqual(calls(plan({ key: "home", stream: "st" })), [["pane.send_text", { pane_id: "wB:p9", text: SEQUENCES.home }]]);
+	assert.deepEqual(calls(plan({ text: "hunter2", stream: "st" })), [["pane.send_text", { pane_id: "wB:p9", text: "hunter2" }]]);
+	assert.deepEqual(calls(plan({ paste: "a\nb", stream: "st" })), [["pane.send_text", { pane_id: "wB:p9", text: "\x1b[200~a\nb\x1b[201~" }]]);
+	assert.deepEqual(calls(plan({ keys: ["esc"] })), [["pane.send_input", { pane_id: "wB:p9", keys: ["esc"] }]], "Stop's Escape needs no mirror");
+	assert.deepEqual(w.asked.at(-1), ["st", "grant:g1", "wB:p9"], "asked of the grant's own mirror and pane");
+	// The same refusals as a session's: never a letter alone or Ctrl+Z, and the mirror must be live on that pane.
+	assert.equal(calls(plan({ key: "q", stream: "st" })), 400);
+	assert.equal(calls(plan({ key: "ctrl+z", stream: "st" })), 400);
+	w.fresh = false;
+	assert.equal(calls(plan({ key: "enter", stream: "st" })), 409);
+	// 8 a second, counted under the grant.
+	w.fresh = true;
+	w.t += 5000;
+	const codes = Array.from({ length: 10 }, () => calls(plan({ key: "tab", stream: "st" })));
+	assert.equal(codes.filter((c) => c === 429).length, 2, "8 a second, as for a session");
+});

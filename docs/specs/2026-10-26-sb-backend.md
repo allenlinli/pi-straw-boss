@@ -213,10 +213,16 @@ relay ── SSE ─► link holder ── ally message ── tower service W �
 - Windows: a named pipe `\\.\pipe\sb-<16 random hex>`. Node's `net` creates it with the default DACL, which lets other local accounts
   connect, and pipe names can be listed, so neither the name nor a file mode protects it. The Unix socket's mode-600 argument does not
   carry over.
-- So every connection, on every platform, starts with `hello { secret }`. `secret` is 32 random bytes in hex, made new at each server
-  start and written to `server.json`. The server compares it in constant time and closes a connection whose first frame is not a
-  matching `hello`, with no answer (logged at most once a minute). A run reconnecting after a restart reads the new secret from
-  `server.json`.
+- So every connection, on every platform, proves the secret, and the secret itself is never sent (control protocol 2, todo #13 R13-F001).
+  `secret` is 32 random bytes in hex, made new at each server start and written to `server.json`. The client opens with
+  `hello { v: 2, nonce }`; the server answers `{ nonce, proof }` with `proof` = HMAC-SHA256(secret, `sb-control server|<client nonce>|<server nonce>`);
+  the client checks it, and only then writes `auth { proof }` (HMAC under `sb-control client|…`, same nonces) and its request. The server acts
+  on nothing, and answers no facts, until the client's proof checks. Both proofs are compared in constant time; a connection that does
+  not follow this is closed with no answer (logged at most once a minute). A run reconnecting after a restart reads the new secret from
+  `server.json`. A peer whose hello has no `v` (the earlier protocol, whose hello held the secret) is answered
+  `{ ok: false, protocol: 2, error }` naming the mismatch and is not looked at; a client never falls back to the earlier hello. What
+  this does not do: it does not protect a connection from a process that sits between a client and a live server and relays both ways
+  (that needs the channel itself protected); it closes the case of something that holds the name of a server that is gone.
 - Known gap (B3R-F003): the hello secret alone gives full `link` admin, since `link` does not check a run token's kind. B5 and B6 must add
   that check before runs reach the socket.
 - The secret is only as private as `server.json`. On Windows the server sets the ACL of the state directory, `straw-boss/` and never the
@@ -445,13 +451,22 @@ relay ── SSE ─► link holder ── ally message ── tower service W �
     and exits 3. `up` and the session looks read that file (**Starting**).
   - macOS and Linux keep the 700 directory and 600 files they have today.
 - Run tokens (**The wake protocol**) are checked on top of the secret, for requests a run makes.
-- The net sidecar's Windows pipe (how-it-works, **From Claude Code or Codex**) has the same gap today. It is out of scope here and is
-  recorded as a finding for the sidecar, to be fixed with the same `hello` secret.
-  **Closed (todo #13, option A).** The sidecar listens through `listenControl` with a secret of its own (`Held.secret` in its mode-600 state file),
-  answers `hello` with the proof, and `ask` in `src/agent/paths.ts` writes the request only after `callControl` has verified the proof. A
-  squatter on a dead sidecar's name gets the hello and no request, and the command reports no sidecar; a state file with no secret is no
-  sidecar. The same change fixed `callControl`, which used to write the request in the same write as the hello, before the proof was
-  checked (a squatter on a freed server pipe or a stale socket path received the first request body).
+- The net sidecar's Windows pipe (how-it-works, **From Claude Code or Codex**) had the same gap. Todo #13 closed it with the handshake above,
+  and the review of its first fix (R13-F001) showed that a hello which carried the secret in clear only stopped a passive squatter: one that
+  reads the hello can forge the proof. The sidecar now listens through `listenControl` with a secret of its own (`Held.secret` in its
+  mode-600 state file, with `Held.proto` naming the protocol), and `ask` in `src/agent/paths.ts` writes the request only after
+  `callControl` has verified the sidecar's proof. A squatter on a dead sidecar's name, active or silent, gets the hello (a nonce) and no
+  request, and the command reports no sidecar (exit 2); a state file with no secret is no sidecar. A failure after the request was written (a
+  close, a timeout) is exit 1, "the request may still be carried out", and the caller does not send it again. The same handshake covers
+  `callControl`, which used to write the request in the same write as the hello (a squatter on a freed server pipe or a stale socket path
+  received the first request body).
+  **Upgrade.** A running process keeps the protocol it started with, so a package update meets processes that cannot talk to it. Both sides
+  fail closed and say so: the earlier protocol's peer is answered a mismatch (the server side) or closes the new hello (a client sees "an older
+  pi-straw-boss"). A session that runs the newer package ends a legacy sb server by SIGTERM under `server.lock`, only when its pid has the
+  start time of the record and the record's version is older (`probe`'s `legacy`, `endLegacy` in `src/server/client.ts`), then starts a new one;
+  `join` ends a legacy sidecar (a state file with no `proto`) the same way, only when the pid's start time is not later than the file's `startedAt`
+  (`src/agent/legacy.ts`), so the new sidecar can listen at the pane's fixed socket path on macOS and Linux and no pane has two on Windows. A
+  session of the older package against a newer server or sidecar is refused with the mismatch text; it reloads (`/reload`).
 
 ### What the server runs from
 
@@ -581,8 +596,8 @@ relay ── SSE ─► link holder ── ally message ── tower service W �
       to the owner and protect refusals (exit 5, 1307, 1314), other acl failures keep their own words.
     - **The hello answer proves the secret** (R8-F004). The client sends a fresh nonce with `hello`; the server answers with `proof` =
       HMAC-SHA256(secret, `<nonce>:<pid>`) and the client refuses an answer with no proof or a wrong one (`refused`): a pipe's name is free
-      when its server is gone, and something else could answer or refuse there. A server of the format before this (no proof) is not live
-      to this client; the format is the branch's first, so none runs in the wild.
+      when its server is gone, and something else could answer or refuse there. (Superseded by control protocol 2 above: the secret no
+      longer travels in the hello, the proof is keyed by both nonces and a label for its direction, and the client proves itself in return.)
     - **A server that runs and refused this process is alive, never gone** (VM pass 5, F11). An elevated server's pipe has a default DACL
       that a filtered token of the same user cannot open: the control connection fails with `EACCES` or `EPERM` (`ControlError` `denied`,
       told apart from `ENOENT` and `ECONNREFUSED`, which are "no server"), while the process itself is alive (a refused process query,
@@ -1930,7 +1945,7 @@ straw-boss-desk's owner also agreed to D11.
 
 **Review by straw-boss-desk's owner, 2026-10-26, round 1**, all applied:
 
-1. **Windows named pipe.** A random name is no ACL. Every connection now opens with a `hello` secret kept in `server.json`, and the
+1. **Windows named pipe.** A random name is no ACL. Every connection now proves a secret kept in `server.json` (control protocol 2, **The control socket**), and the
    state directory gets an owner-only ACL on Windows. A Windows test checks that a second account is refused. The claim that the
    mode-600 argument carries over is gone (**The control socket**).
 2. **Locating the CLI.** The stable path is `<agent dir>/npm/node_modules/pi-straw-boss/dist/server/cli.mjs`, under plain Node 22

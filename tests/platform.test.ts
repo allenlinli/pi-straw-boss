@@ -8,7 +8,8 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { listenControl, newSecret } from "../src/server/socket.ts";
+import { listenControl, newSecret, PROTOCOL } from "../src/server/socket.ts";
+import { run } from "../src/agent/cli.ts";
 import { instanceOf, localEndpoint as pluginEndpoint, socketCall } from "../herdr-plugin/net-view.mjs";
 import { agentFiles, ask, newPipe, NoSidecar, socketIsFile, socketOf } from "../src/agent/paths.ts";
 import { herdrSocket, localEndpoint } from "../src/endpoint.ts";
@@ -307,5 +308,33 @@ test("trust: a request with no start time is judged by its PID alone, so a live 
 		assert.deepEqual(listRequests(dir).map((r) => r.id), [TRUST_ID]);
 	} finally {
 		rmSync(join(dir, ".."), { recursive: true, force: true });
+	}
+});
+
+test("R13-F002: join ends a sidecar of an older control protocol (a state file with no secret, a live process on its pane socket) and the new sidecar listens where it listened", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "psb-platform-legacy-")), pane = "wA:p2", files = agentFiles(dir, pane), oldSocket = socketIsFile() ? files.socket : newPipe();
+	mkdirSync(files.dir, { recursive: true });
+	// The older sidecar: another process that listens on the pane's socket (Unix) or a pipe (Windows) and speaks nothing this package can talk to.
+	const code = "const s=require('net').createServer(c=>c.on('error',()=>{}));s.listen(process.argv[1],()=>console.log('ready'));";
+	const child = spawn(process.execPath, ["-e", code, oldSocket], { stdio: ["ignore", "pipe", "inherit"] });
+	let control;
+	try {
+		await new Promise((resolve, reject) => { child.stdout.once("data", resolve); child.once("exit", () => reject(new Error("the older sidecar did not start"))); });
+		writeFileSync(files.state, JSON.stringify({ pid: child.pid, session: "old-session", kind: "claude", pane, id: "claude-old", name: "n", startedAt: Date.now(), ...(socketIsFile() ? {} : { pipe: oldSocket }) }));
+		const secret = newSecret(), socket = socketIsFile() ? files.socket : newPipe();
+		const spawnNew = async (spec) => {
+			control = await listenControl({ endpoint: socket, secret, hello: () => ({ pid: process.pid, session: "new-session", leaving: false }), handle: () => ({ ok: true }) });
+			writeFileSync(files.state, JSON.stringify({ pid: process.pid, session: "new-session", kind: "claude", pane, id: "claude-new", name: "n", startedAt: Date.now(), secret, proto: PROTOCOL, ...(socketIsFile() ? {} : { pipe: socket }) }));
+			return { exited: new Promise(() => {}) };
+		};
+		const out = [], err = [];
+		const code0 = await run(["join", "--pane", pane, "--kind", "claude", "--session", "new-session"], { stateDir: dir, loader: "/l.mjs", stopMs: 20_000, joinMs: 20_000, spawn: (spec) => { const started = spawnNew(spec); return { exited: started.then((r) => r.exited) }; }, out: (t) => out.push(t), err: (t) => err.push(t) });
+		assert.equal(code0, 0, err.join(""));
+		assert.equal(child.exitCode !== null || child.signalCode !== null, true, "the older sidecar was ended");
+		assert.match(out.join(""), /joining as claude-new/);
+	} finally {
+		child.kill("SIGKILL");
+		await control?.close();
+		rmSync(dir, { recursive: true, force: true });
 	}
 });

@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { fileOf, type Slot } from "./record.ts";
 
 // The server's control socket (docs/specs/2026-10-26-sb-backend.md, The control socket): a Unix socket in the slot's folder, or on Windows a named pipe. Both are
-// lines of JSON. Every connection starts with `hello { secret }`: a pipe's default ACL lets other local accounts connect and its name can be listed, so neither the
-// name nor a file mode protects it. The secret is 32 random bytes in hex, made new at each server start and written to server.json; it is compared in constant time,
-// and a connection whose first frame is not a matching hello is closed with no answer.
+// lines of JSON. A pipe's default ACL lets other local accounts connect and its name can be listed, and a freed name or a stale socket path can be taken by something else,
+// so neither the name nor a file mode protects it. The secret is 32 random bytes in hex, made new at each server start and written to a file only its owner reads. It never
+// crosses the wire: the two sides prove they know it to each other (protocol 2). The client sends `hello { v, nonce }`; the server answers a nonce of its own and an HMAC of both
+// nonces under a label for the server; the client checks that, and only then sends `auth { proof }` (an HMAC under a label for the client) and its request; the server acts only
+// once that proof checks, and then answers the hello's facts. Both proofs are compared in constant time, and a connection that does not follow this is closed with no answer.
 
 /** Set on a reply, `[AFTER]` runs once the reply has been written: a server that answers a stop or a restart leaves after it, not before. It is not part of what is sent. */
 export const AFTER = Symbol("after");
@@ -22,13 +24,18 @@ const PROBE_MS = 1000;
 /** `sun_path` is 104 bytes on macOS and 108 on Linux: a longer socket path is moved to a short folder of the user's own. */
 const SOCKET_MAX = 100;
 
+/** The version of this handshake. A peer that speaks another one is told so (an older client sends no `v`) and nothing else; there is no fallback to an older handshake, which sent the secret in clear. */
+export const PROTOCOL = 2;
 export const newSecret = () => randomBytes(32).toString("hex");
 const digest = (text: string) => createHash("sha256").update(text).digest();
 /**
- * What a server answers a hello's nonce with: HMAC-SHA256 keyed by the secret over the nonce and its pid. A pipe on Windows has a name that is free when its server is gone, so something else
- * could answer or refuse there; only a process that knows the secret can make this (R8-F004). The client sends a fresh nonce, so an answer cannot be replayed.
+ * What one side sends to prove it knows the secret: HMAC-SHA256 keyed by the secret over a label for the direction and purpose and the two fresh nonces (the client's, then the server's). The
+ * label keeps one side's proof from being replayed as the other's; the nonces keep a proof from one connection from serving another (R8-F004, R13-F001). A pipe on Windows has a name that is free
+ * when its server is gone, and a socket path can be left stale, so something else can answer there: it learns nothing here that it can use again.
  */
-export const proofOf = (secret: string, nonce: string, pid: unknown) => createHmac("sha256", secret).update(`${nonce}:${String(pid)}`).digest("hex");
+export const proofOf = (secret: string, side: "server" | "client", clientNonce: string, serverNonce: string) => createHmac("sha256", secret).update(`sb-control ${side}|${clientNonce}|${serverNonce}`).digest("hex");
+const nonceOf = (value: unknown) => (typeof value === "string" && value.length > 0 && value.length <= 128 ? value : undefined);
+const mismatch = (theirs: unknown) => `control protocol mismatch: this side speaks protocol ${PROTOCOL}, the other speaks ${typeof theirs === "number" ? theirs : 1}; they come from different pi-straw-boss versions. Reload pi (/reload) in the session that runs the older package; a session of the newer package restarts an older sb server on its own`;
 /** Whether `given` is the secret, compared in constant time (both are hashed first, so the length leaks nothing either). */
 export const secretMatches = (given: unknown, secret: string) => typeof given === "string" && secret.length > 0 && timingSafeEqual(digest(given), digest(secret));
 
@@ -66,8 +73,8 @@ export interface ListenOptions {
 export function listenControl({ endpoint, secret, hello, handle, refused, idleMs = IDLE_MS, platform = process.platform, now = Date.now }: ListenOptions): Promise<Control> {
 	const sockets = new Set<Socket>();
 	let lastTold = -Infinity;
-	const refuse = (conn: Socket, why: string) => {
-		conn.destroy();
+	const refuse = (conn: Socket, why: string, destroy = true) => {
+		if (destroy) conn.destroy();
 		if (now() - lastTold >= REFUSED_LOG_MS) {
 			lastTold = now();
 			refused?.(why);
@@ -78,15 +85,16 @@ export function listenControl({ endpoint, secret, hello, handle, refused, idleMs
 		conn.on("close", () => sockets.delete(conn));
 		conn.on("error", () => {});
 		conn.setEncoding("utf8").setTimeout(idleMs, () => conn.destroy());
-		let buffer = "", authed = false, work: Promise<void> = Promise.resolve();
-		const wait = setTimeout(() => !authed && refuse(conn, "no hello"), HELLO_MS);
+		let buffer = "", state: "new" | "challenged" | "authed" | "closed" = "new", clientNonce = "", work: Promise<void> = Promise.resolve();
+		const serverNonce = randomBytes(16).toString("hex");
+		const wait = setTimeout(() => state !== "authed" && refuse(conn, "no proof"), HELLO_MS);
 		wait.unref();
 		conn.on("close", () => clearTimeout(wait));
 		conn.on("data", (chunk: string) => {
 			buffer += chunk;
 			if (buffer.length > MAX_FRAME) return refuse(conn, "frame too long");
-			if (!authed && buffer.length > PRE_HELLO_MAX && !buffer.includes("\n")) return refuse(conn, "no hello within a few KB");
-			for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) {
+			if (state !== "authed" && buffer.length > PRE_HELLO_MAX && !buffer.includes("\n")) return refuse(conn, "no hello within a few KB");
+			for (let at = buffer.indexOf("\n"); at >= 0 && state !== "closed"; at = buffer.indexOf("\n")) {
 				const line = buffer.slice(0, at);
 				buffer = buffer.slice(at + 1);
 				let frame: Record<string, unknown>;
@@ -97,12 +105,25 @@ export function listenControl({ endpoint, secret, hello, handle, refused, idleMs
 				} catch {
 					return refuse(conn, "frame is not JSON");
 				}
-				if (!authed) {
-					if (frame.cmd !== "hello" || !secretMatches(frame.secret, secret)) return refuse(conn, frame.cmd === "hello" ? "wrong secret" : "first frame is not hello");
-					authed = true;
+				if (state === "new") {
+					if (frame.cmd !== "hello") return refuse(conn, "first frame is not hello");
+					if (frame.v !== PROTOCOL) {
+						// An older client (no `v`) is told why and gets nothing else: its hello held the secret, and it is not looked at.
+						state = "closed";
+						conn.end(`${JSON.stringify({ ok: false, protocol: PROTOCOL, error: mismatch(frame.v) })}\n`);
+						return refuse(conn, "protocol mismatch", false);
+					}
+					clientNonce = nonceOf(frame.nonce) ?? "";
+					if (!clientNonce) return refuse(conn, "hello without a nonce");
+					state = "challenged";
+					conn.write(`${JSON.stringify({ ok: true, v: PROTOCOL, nonce: serverNonce, proof: proofOf(secret, "server", clientNonce, serverNonce) })}\n`);
+					continue;
+				}
+				if (state === "challenged") {
+					if (frame.cmd !== "auth" || !secretMatches(frame.proof, proofOf(secret, "client", clientNonce, serverNonce))) return refuse(conn, frame.cmd === "auth" ? "wrong proof" : "second frame is not auth");
+					state = "authed";
 					clearTimeout(wait);
-					const facts = hello(), nonce = typeof frame.nonce === "string" && frame.nonce.length > 0 && frame.nonce.length <= 128 ? frame.nonce : undefined;
-					conn.write(`${JSON.stringify({ ok: true, ...facts, ...(nonce ? { proof: proofOf(secret, nonce, facts.pid) } : {}) })}\n`);
+					conn.write(`${JSON.stringify({ ok: true, ...hello() })}\n`);
 					continue;
 				}
 				// Requests on one connection are answered in order, each with one line.
@@ -153,71 +174,87 @@ function acceptsConnections(endpoint: string, platform: NodeJS.Platform): Promis
 	});
 }
 
-const proves = (reply: Reply, secret: string, nonce: string) => typeof reply.proof === "string" && secretMatches(reply.proof, proofOf(secret, nonce, reply.pid));
-/** `denied`: the endpoint is there and this process may not open it (access denied on the pipe or socket: a server started from an elevated shell, reached from a filtered token of the same user). */
-export type ControlFailure = "no-server" | "refused" | "timeout" | "error" | "denied";
+/** `denied`: the endpoint is there and this process may not open it (access denied on the pipe or socket: a server started from an elevated shell, reached from a filtered token of the same user). `protocol`: the peer says it speaks another handshake. */
+export type ControlFailure = "no-server" | "refused" | "timeout" | "error" | "denied" | "protocol";
 export class ControlError extends Error {
 	failure: ControlFailure;
-	constructor(failure: ControlFailure, message: string) {
+	/** Whether the request was written before this failed: if so, it may still have been carried out, and the caller must not send it again. */
+	sent: boolean;
+	constructor(failure: ControlFailure, message: string, sent = false) {
 		super(message);
 		this.failure = failure;
+		this.sent = sent;
 	}
 }
 
 /**
- * One exchange with a server: `hello` with the secret, then the request when there is one, written only after the hello's answer has proved itself. Resolves with the hello's answer and the request's. Rejects with a
- * ControlError: `no-server` when nothing listens, `refused` when the server closed the connection without answering (a wrong secret), `timeout`.
+ * One exchange with a server (protocol 2, the top of this file): `hello` with a nonce, then, once the answer has proved that its sender knows the secret, `auth` with this side's proof and the
+ * request when there is one. The secret is never sent. Resolves with the hello's facts and the request's answer. Rejects with a ControlError: `no-server` when nothing listens, `refused` when the
+ * peer closed the connection without an answer or did not prove itself (nothing was written but the hello), `protocol` when it says it speaks another handshake, `timeout`. A failure with `sent`
+ * set came after the request was written.
  */
 export function callControl(endpoint: string, secret: string, request: Request | undefined, timeoutMs = 10_000): Promise<{ hello: Reply; reply?: Reply }> {
 	return new Promise((resolve, reject) => {
 		const want = request ? 2 : 1, got: Reply[] = [];
-		let buffer = "", done = false;
-		const nonce = randomBytes(16).toString("hex");
+		let buffer = "", done = false, sent = false, proven = false, lines = 0;
+		const clientNonce = randomBytes(16).toString("hex");
 		const conn = createConnection(endpoint).setEncoding("utf8").setTimeout(timeoutMs);
 		const finish = (error?: ControlError) => {
 			if (done) return;
 			done = true;
+			clearTimeout(early);
 			conn.destroy();
 			if (error) reject(error);
 			else resolve({ hello: got[0]!, ...(got[1] ? { reply: got[1] } : {}) });
 		};
-		// The request goes out only once the answer has proved its sender knows the secret: whatever sits at a freed name or a stale path gets the hello and nothing else.
-		conn.on("connect", () => conn.write(`${JSON.stringify({ cmd: "hello", secret, nonce })}\n`));
+		// Until the answer has proved itself, a peer that says nothing is given the hello's few seconds and not the command's whole wait (a squatter that never answers is no reason to wait a minute).
+		const early = setTimeout(() => finish(new ControlError("timeout", `nothing answered the hello within ${Math.min(timeoutMs, HELLO_MS) / 1000} s`)), Math.min(timeoutMs, HELLO_MS));
+		early.unref();
+		conn.on("connect", () => conn.write(`${JSON.stringify({ cmd: "hello", v: PROTOCOL, nonce: clientNonce })}\n`));
 		conn.on("data", (chunk: string) => {
 			buffer += chunk;
 			for (let at = buffer.indexOf("\n"); at >= 0 && !done; at = buffer.indexOf("\n")) {
 				const line = buffer.slice(0, at);
 				buffer = buffer.slice(at + 1);
+				let frame: Reply;
 				try {
-					got.push(JSON.parse(line) as Reply);
+					frame = JSON.parse(line) as Reply;
 				} catch {
-					return finish(new ControlError("error", `the server answered ${line.slice(0, 80)}`));
+					return finish(new ControlError(proven ? "error" : "refused", `the server answered ${line.slice(0, 80)}`, sent));
 				}
-				if (got.length === 1 && !got[0]!.ok) return finish(new ControlError("refused", String(got[0]!.error ?? "the server refused")));
-				// The answer must prove that its sender knows the secret (a reply with no proof, or a wrong one, is what something else at a free pipe name would give).
-				if (got.length === 1 && !proves(got[0]!, secret, nonce)) return finish(new ControlError("refused", "the answer does not prove that its sender knows the secret"));
-				if (got.length === 1 && request) {
-					conn.write(`${JSON.stringify(request)}\n`);
+				if (!proven) {
+					lines++;
+					if (!frame.ok) return finish(typeof frame.protocol === "number" ? new ControlError("protocol", String(frame.error ?? mismatch(frame.protocol))) : new ControlError("refused", String(frame.error ?? "the server refused")));
+					// The challenge must prove that its sender knows the secret (nothing, or a wrong proof, is what something else at a free pipe name or a stale path gives). Only then does anything but the hello go out.
+					const serverNonce = nonceOf(frame.nonce);
+					if (!serverNonce || frame.v !== PROTOCOL || !secretMatches(frame.proof, proofOf(secret, "server", clientNonce, serverNonce))) return finish(new ControlError("refused", "the answer does not prove that its sender knows the secret"));
+					proven = true;
+					clearTimeout(early);
+					sent = Boolean(request);
+					conn.write(`${JSON.stringify({ cmd: "auth", proof: proofOf(secret, "client", clientNonce, serverNonce) })}\n${request ? `${JSON.stringify(request)}\n` : ""}`);
 					continue;
 				}
+				got.push(frame);
+				if (got.length === 1 && !frame.ok) return finish(new ControlError("refused", String(frame.error ?? "the server refused"), sent));
 				if (got.length >= want) return finish();
 			}
 		});
-		conn.on("timeout", () => finish(new ControlError("timeout", `no answer within ${timeoutMs} ms`)));
+		conn.on("timeout", () => finish(new ControlError("timeout", `no answer within ${timeoutMs} ms`, sent)));
 		conn.on("error", (error) => {
 			const code = (error as NodeJS.ErrnoException).code ?? "";
-			finish(new ControlError(["ENOENT", "ECONNREFUSED"].includes(code) ? "no-server" : ["EACCES", "EPERM"].includes(code) ? "denied" : "error", error.message));
+			finish(new ControlError(["ENOENT", "ECONNREFUSED"].includes(code) ? "no-server" : ["EACCES", "EPERM"].includes(code) ? "denied" : "error", error.message, sent));
 		});
-		conn.on("close", () => finish(new ControlError("refused", "the server closed the connection without an answer")));
+		conn.on("close", () => finish(sent ? new ControlError("error", "the connection closed after the request was written, with no answer", true) : new ControlError("refused", lines === 0 ? "the server closed the connection without an answer (a server of an older pi-straw-boss, which speaks an older control protocol, closes the hello it does not know like this; so does one that holds another secret)" : "the server closed the connection before it had answered the hello")));
 	});
 }
 
 /** Like `helloOf`, and says when the endpoint refused this process for lack of permission (`denied`: not "no server"). */
-export async function helloWhy(endpoint: string, secret: string, ms = 2000): Promise<{ hello?: Reply; denied: boolean }> {
+export async function helloWhy(endpoint: string, secret: string, ms = 2000): Promise<{ hello?: Reply; denied: boolean; failure?: ControlFailure }> {
 	try {
 		return { hello: (await callControl(endpoint, secret, undefined, ms)).hello, denied: false };
 	} catch (error) {
-		return { denied: error instanceof ControlError && error.failure === "denied" };
+		const failure = error instanceof ControlError ? error.failure : undefined;
+		return { denied: failure === "denied", ...(failure ? { failure } : {}) };
 	}
 }
 /** Whether a server answers hello at `endpoint` within `ms`; its facts when it does. */

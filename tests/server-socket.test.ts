@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { slotOf } from "../src/server/record.ts";
-import { callControl, type Control, ControlError, endpointFor, helloOf, listenControl, newSecret, proofOf, secretMatches } from "../src/server/socket.ts";
+import { callControl, type Control, ControlError, endpointFor, helloOf, listenControl, newSecret, PROTOCOL, proofOf, secretMatches } from "../src/server/socket.ts";
+import { rawControl } from "./control-raw.ts";
 
-// docs/specs/2026-10-26-sb-backend.md, The control socket: every connection opens with hello { secret }, compared in constant time; a connection whose first frame is not a
-// matching hello is closed with no answer, and told at most once a minute.
+// docs/specs/2026-10-26-sb-backend.md, The control socket: the secret never crosses the wire; hello { v, nonce }, a challenge with the server's proof, and auth with the client's proof, both
+// compared in constant time; a connection that does not follow is closed with no answer, and told at most once a minute.
 
 let root = "";
 const open: Control[] = [];
@@ -38,16 +39,16 @@ function raw(endpoint: string, lines: string[], waitMs = 150) {
 	});
 }
 
-test("a connection with the secret gets the server's facts, then an answer per request, in order", async () => {
+test("a connection that proves the secret gets the server's facts, then an answer per request, in order", async () => {
 	const { control } = await serve({ handle: async (r) => ({ ok: true, echo: r.cmd, n: r.n }) });
-	const { proof, ...facts } = (await callControl(control.endpoint, SECRET, undefined)).hello;
+	const { hello: facts } = await callControl(control.endpoint, SECRET, undefined);
 	assert.deepEqual(facts, { ok: true, pid: 7, ready: true });
-	assert.match(String(proof), /^[0-9a-f]{64}$/, "the answer proves the secret (R8-F004)");
 	const { hello, reply } = await callControl(control.endpoint, SECRET, { cmd: "status", n: 1 });
 	assert.equal(hello.pid, 7);
 	assert.deepEqual(reply, { ok: true, echo: "status", n: 1 });
-	const two = await raw(control.endpoint, [JSON.stringify({ cmd: "hello", secret: SECRET }), JSON.stringify({ cmd: "a", n: 1 }), JSON.stringify({ cmd: "b", n: 2 })]);
-	assert.deepEqual(two.got.map((l) => JSON.parse(l).echo), [undefined, "a", "b"]);
+	const two = await rawControl(control.endpoint, SECRET, [{ cmd: "a", n: 1 }, { cmd: "b", n: 2 }]);
+	assert.deepEqual(two.lines.map((l) => l.echo), [undefined, undefined, "a", "b"], "the challenge, the facts, then each answer");
+	assert.equal(two.lines[0]!.proof, proofOf(SECRET, "server", "c".repeat(32), String(two.lines[0]!.nonce)), "the challenge proves the server (R8-F004)");
 });
 
 test("sbr-F010: a connection that sends a few KB without a newline before hello is closed; a request after hello may be longer", async () => {
@@ -61,8 +62,8 @@ test("sbr-F010: a connection that sends a few KB without a newline before hello 
 	});
 	assert.equal(big.closed, true);
 	assert.ok(refused.length >= 1);
-	const ok = await raw(control.endpoint, [JSON.stringify({ cmd: "hello", secret: SECRET }), JSON.stringify({ cmd: "a", pad: "y".repeat(10_000) })]);
-	assert.deepEqual(ok.got.map((l) => JSON.parse(l).echo), [undefined, "a"]);
+	const ok = await rawControl(control.endpoint, SECRET, [{ cmd: "a", pad: "y".repeat(10_000) }]);
+	assert.deepEqual(ok.lines.map((l) => l.echo), [undefined, undefined, "a"]);
 });
 
 test("sbr-F002: listening at a socket that accepts a connection fails and leaves it be; a socket file nobody listens at is replaced", async () => {
@@ -78,25 +79,52 @@ test("sbr-F002: listening at a socket that accepts a connection fails and leaves
 
 test("a wrong secret, or a first frame that is not hello, is closed with no answer", async () => {
 	const { control, refused } = await serve();
-	await assert.rejects(callControl(control.endpoint, "00".repeat(32), { cmd: "status" }), (e: unknown) => e instanceof ControlError && e.failure === "refused");
+	await assert.rejects(callControl(control.endpoint, "00".repeat(32), { cmd: "status" }), (e: unknown) => e instanceof ControlError && e.failure === "refused" && !e.sent);
 	assert.equal(await helloOf(control.endpoint, "wrong"), undefined);
 	const noHello = await raw(control.endpoint, [JSON.stringify({ cmd: "status" })]);
 	assert.deepEqual(noHello, { got: [], closed: true });
 	const notJson = await raw(control.endpoint, ["not json"]);
 	assert.deepEqual(notJson, { got: [], closed: true });
-	const wrong = await raw(control.endpoint, [JSON.stringify({ cmd: "hello", secret: "nope" }), JSON.stringify({ cmd: "status" })]);
-	assert.deepEqual(wrong, { got: [], closed: true }, "no answer to the request that came behind it either");
+	// A client that follows the handshake with a proof that is not the secret's: the challenge, and nothing for the request behind it.
+	const wrong = await rawControl(control.endpoint, SECRET, [{ cmd: "status" }], { proof: () => "00".repeat(32) });
+	assert.equal(wrong.lines.length, 1, "no answer to the request that came behind it either");
+	assert.equal(wrong.closed, true);
 	assert.ok(refused.length >= 1);
+});
+
+test("R13-F001: the server's own proof, sent back as the client's, is refused (the labels name the direction), and a proof from another connection is refused (the nonces)", async () => {
+	const { control, refused } = await serve({ handle: () => { throw new Error("must not be asked"); } });
+	const reflected = await rawControl(control.endpoint, SECRET, [{ cmd: "status" }], { proof: (challenge) => challenge.proof });
+	assert.deepEqual(reflected.lines.map((l) => l.echo), [undefined]);
+	assert.equal(reflected.closed, true);
+	const replayed = await rawControl(control.endpoint, SECRET, [{ cmd: "status" }], { proof: (challenge, nonce) => proofOf(SECRET, "client", nonce, `${challenge.nonce}0`) });
+	assert.equal(replayed.lines.length, 1);
+	assert.ok(refused.length >= 1);
+});
+
+test("an older client (its hello carries the secret and no version) is told the protocol differs, is not looked at, and the secret is not logged", async () => {
+	const { control, refused } = await serve({ handle: () => { throw new Error("must not be asked"); } });
+	const old = await raw(control.endpoint, [JSON.stringify({ cmd: "hello", secret: SECRET, nonce: "n" }), JSON.stringify({ cmd: "status" })]);
+	assert.equal(old.got.length, 1);
+	const told = JSON.parse(old.got[0]!) as { ok: boolean; protocol: number; error: string };
+	assert.equal(told.ok, false);
+	assert.equal(told.protocol, PROTOCOL);
+	assert.match(told.error, /protocol mismatch.*protocol 2.*speaks 1.*Reload pi/);
+	assert.equal(old.closed, true);
+	assert.ok(refused.every((why) => !why.includes(SECRET)));
+	// A client of a newer protocol is told the same, with its own number.
+	const newer = await rawControl(control.endpoint, SECRET, [], { v: PROTOCOL + 1 });
+	assert.match(String(newer.lines[0]!.error), /speaks 3/);
 });
 
 test("refused connections are told at most once a minute, without the secret", async () => {
 	let now = 1_000_000;
 	const { control, refused } = await serve({ now: () => now });
-	for (let i = 0; i < 4; i++) await helloOf(control.endpoint, `bad${i}`);
+	for (let i = 0; i < 4; i++) await rawControl(control.endpoint, SECRET, [], { proof: () => `bad${i}`, waitMs: 60 });
 	assert.equal(refused.length, 1);
 	assert.ok(refused.every((why) => !why.includes("bad") && !why.includes(SECRET)));
 	now += 61_000;
-	await helloOf(control.endpoint, "later");
+	await rawControl(control.endpoint, SECRET, [], { proof: () => "later", waitMs: 60 });
 	assert.equal(refused.length, 2);
 });
 
@@ -119,7 +147,7 @@ test("the socket is mode 600, a leftover file is replaced, and closing removes i
 test("nothing listening is no-server, and a silent server times out", async () => {
 	await assert.rejects(callControl(join(root, "none.sock"), SECRET, undefined, 500), (e: unknown) => e instanceof ControlError && e.failure === "no-server");
 	const { control } = await serve({ handle: () => new Promise(() => {}) });
-	await assert.rejects(callControl(control.endpoint, SECRET, { cmd: "hang" }, 300), (e: unknown) => e instanceof ControlError && e.failure === "timeout");
+	await assert.rejects(callControl(control.endpoint, SECRET, { cmd: "hang" }, 300), (e: unknown) => e instanceof ControlError && e.failure === "timeout" && e.sent, "a request that was written and not answered: it may have been carried out");
 });
 
 test("the secret is 32 random bytes in hex, made anew each time, and compared whole", () => {
@@ -147,58 +175,151 @@ test("the endpoint: server.sock in the slot's folder; a pipe with a random name 
 	rmSync(short, { force: true });
 });
 
-// --- R8-F004: the hello answer proves the secret ---
+// --- R8-F004, R13-F001: both sides prove the secret, and it never crosses the wire ---
 
-test("R8-F004: the proof is an HMAC of the client's nonce and the pid under the secret: it differs by secret, nonce and pid; a client with no nonce gets none", async () => {
-	assert.equal(proofOf("s", "n", 7), proofOf("s", "n", 7));
-	for (const other of [proofOf("t", "n", 7), proofOf("s", "m", 7), proofOf("s", "n", 8)]) assert.notEqual(other, proofOf("s", "n", 7));
-	const { control } = await serve({ handle: async () => ({ ok: true }) });
-	const bare = await raw(control.endpoint, [JSON.stringify({ cmd: "hello", secret: SECRET })]);
-	assert.ok(!JSON.stringify(bare).includes("proof"));
+test("the proof is an HMAC of a label for its direction and both nonces under the secret: it differs by secret, side and each nonce", () => {
+	assert.equal(proofOf("s", "server", "c", "n"), proofOf("s", "server", "c", "n"));
+	for (const other of [proofOf("t", "server", "c", "n"), proofOf("s", "client", "c", "n"), proofOf("s", "server", "d", "n"), proofOf("s", "server", "c", "m")]) assert.notEqual(other, proofOf("s", "server", "c", "n"));
 });
 
-test("R8-F004: a responder at the endpoint that does not know the secret (no proof, or a proof under another secret) is refused by the client, not taken for the server", async () => {
-	for (const make of [() => ({ ok: true, pid: 7, ready: true }), (nonce: string) => ({ ok: true, pid: 7, ready: true, proof: proofOf("not the secret", nonce, 7) }), (nonce: string) => ({ ok: true, pid: 7, ready: true, proof: proofOf(SECRET, nonce, 8) })]) {
-		const dir = mkdtempSync(join(tmpdir(), "psb-fake-"));
-		const endpoint = join(dir, "fake.sock");
-		const fake = listen((conn) => conn.on("data", (chunk) => conn.write(`${JSON.stringify(make(String(JSON.parse(String(chunk).split("\n")[0]!).nonce)))}\n`)));
-		await new Promise<void>((resolve) => fake.listen(endpoint, resolve));
+/** A responder at an endpoint that records every byte it is sent and answers the first line with `answer(hello)`. */
+async function responder(answer: (hello: Record<string, unknown>) => unknown) {
+	const dir = mkdtempSync(join(tmpdir(), "psb-fake-")), endpoint = join(dir, "fake.sock"), received: string[] = [];
+	const fake = listen((conn) => {
+		let first = true;
+		conn.setEncoding("utf8").on("data", (chunk: string) => {
+			received.push(chunk);
+			if (first) {
+				first = false;
+				const reply = answer(JSON.parse(chunk.split("\n")[0]!) as Record<string, unknown>);
+				if (reply !== undefined) conn.write(`${JSON.stringify(reply)}\n`);
+			}
+		}).on("error", () => {});
+	});
+	await new Promise<void>((resolve) => fake.listen(endpoint, resolve));
+	return { endpoint, received, close: async () => { await new Promise<void>((resolve) => fake.close(() => resolve())); rmSync(dir, { recursive: true, force: true }); } };
+}
+
+test("R8-F004: a responder at the endpoint that does not know the secret (no proof, a proof under another secret, a client-labelled proof, the wrong nonce) is refused by the client, and gets the hello and nothing else", async () => {
+	const answers: ((hello: Record<string, unknown>) => unknown)[] = [
+		() => ({ ok: true, v: PROTOCOL, nonce: "s", pid: 7 }),
+		(h) => ({ ok: true, v: PROTOCOL, nonce: "s", proof: proofOf("not the secret", "server", String(h.nonce), "s") }),
+		(h) => ({ ok: true, v: PROTOCOL, nonce: "s", proof: proofOf(SECRET, "client", String(h.nonce), "s") }),
+		() => ({ ok: true, v: PROTOCOL, nonce: "s", proof: proofOf(SECRET, "server", "someone else's nonce", "s") }),
+		(h) => ({ ok: true, nonce: "s", proof: proofOf(SECRET, "server", String(h.nonce), "s") }),
+	];
+	for (const answer of answers) {
+		const fake = await responder(answer);
 		try {
-			await assert.rejects(callControl(endpoint, SECRET, undefined, 1000), (e: unknown) => (e as { failure?: string }).failure === "refused" && /does not prove/.test((e as Error).message));
-			assert.equal(await helloOf(endpoint, SECRET, 1000), undefined);
+			await assert.rejects(callControl(fake.endpoint, SECRET, { cmd: "send", message: "top secret" }, 1000), (e: unknown) => (e as ControlError).failure === "refused" && !(e as ControlError).sent && /does not prove/.test((e as Error).message));
+			assert.equal(await helloOf(fake.endpoint, SECRET, 1000), undefined);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			assert.ok(fake.received.length >= 1 && fake.received.every((chunk) => chunk.split("\n").filter(Boolean).length === 1 && !chunk.includes("top secret") && !chunk.includes("auth")), fake.received.join("|"));
 		} finally {
-			await new Promise<void>((resolve) => fake.close(() => resolve()));
-			rmSync(dir, { recursive: true, force: true });
+			await fake.close();
 		}
 	}
 });
 
-for (const proof of ["none", "wrong"] as const) {
-	test(`callControl writes the request only after the hello's answer proves itself: a squatter with ${proof === "none" ? "no proof" : "a wrong proof"} receives the hello and nothing else`, async () => {
-		const received: string[] = [];
-		const squatter = listen((conn) => {
-			conn.setEncoding("utf8").on("data", (chunk: string) => {
-				received.push(chunk);
-				if (received.length === 1) conn.write(`${JSON.stringify({ ok: true, pid: 7, ...(proof === "wrong" ? { proof: "00".repeat(32) } : {}) })}\n`);
-			});
-			conn.on("error", () => {});
-		});
-		const endpoint = join(root, "q.sock");
-		await new Promise<void>((resolve) => squatter.listen(endpoint, resolve));
-		try {
-			await assert.rejects(callControl(endpoint, SECRET, { cmd: "send", message: "top secret" }, 1000), (error: ControlError) => error.failure === "refused");
-			await new Promise((resolve) => setTimeout(resolve, 50));
-			assert.equal(received.join("").includes("top secret"), false, received.join(""));
-			assert.equal(received.join("").split("\n").filter(Boolean).length, 1, "only the hello arrived");
-		} finally {
-			squatter.close();
-		}
+test("R13-F001: a squatter that reads everything the client's hello carries cannot forge a proof, and the secret is not in it", async () => {
+	// It knows no secret in advance. Whatever the hello holds (a nonce, a version; a field named `secret` if the client sent one), it keys a proof with and answers as the server.
+	const fake = await responder((h) => {
+		const key = typeof h.secret === "string" ? h.secret : String(h.nonce), nonce = "s";
+		return { ok: true, v: PROTOCOL, nonce, pid: 1234, proof: proofOf(key, "server", String(h.nonce), nonce) };
 	});
-}
+	try {
+		await assert.rejects(callControl(fake.endpoint, SECRET, { cmd: "send", message: "top secret" }, 1000), (e: unknown) => (e as ControlError).failure === "refused");
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.equal(fake.received.length, 1, "only the hello arrived");
+		assert.ok(!fake.received.join("").includes(SECRET), "the secret is not on the wire");
+		assert.doesNotMatch(fake.received.join(""), /top secret|"send"/);
+	} finally {
+		await fake.close();
+	}
+});
 
-test("callControl with a request still gets both answers from a real server", async () => {
+test("a server that knows the secret is proved by the client's check, and the secret is never on the wire to it", async () => {
+	const seen: string[] = [];
 	const { control } = await serve();
-	const got = await callControl(control.endpoint, SECRET, { cmd: "ping" });
-	assert.equal(got.hello.pid, 7);
-	assert.deepEqual(got.reply, { ok: true, echo: "ping" });
+	const tap = listen((conn) => {
+		const up = createConnection(control.endpoint);
+		conn.on("data", (c) => (seen.push(String(c)), up.write(c))).on("error", () => up.destroy());
+		up.on("data", (c) => conn.write(c)).on("error", () => conn.destroy());
+		conn.on("close", () => up.destroy());
+	});
+	const endpoint = join(root, "tap.sock");
+	await new Promise<void>((resolve) => tap.listen(endpoint, resolve));
+	try {
+		assert.equal((await callControl(endpoint, SECRET, { cmd: "ping" })).reply?.echo, "ping");
+		assert.ok(!seen.join("").includes(SECRET), "a tap on the connection never sees the secret");
+	} finally {
+		tap.close();
+	}
+});
+
+test("R13-F003/F004: a close after the request was written is a failure that was sent; a silent peer is a timeout that sent nothing, after the hello's few seconds and not the command's whole wait", async () => {
+	// A peer that proves itself, receives the request, and drops the connection.
+	const dropper = listen((conn) => {
+		let step = 0;
+		conn.setEncoding("utf8").on("data", (chunk: string) => {
+			if (step++ === 0) {
+				const h = JSON.parse(chunk.split("\n")[0]!) as { nonce: string };
+				conn.write(`${JSON.stringify({ ok: true, v: PROTOCOL, nonce: "s", proof: proofOf(SECRET, "server", h.nonce, "s") })}\n`);
+			} else conn.destroy();
+		}).on("error", () => {});
+	});
+	const gone = join(root, "drop.sock");
+	await new Promise<void>((resolve) => dropper.listen(gone, resolve));
+	try {
+		await assert.rejects(callControl(gone, SECRET, { cmd: "send", message: "m" }, 2000), (e: unknown) => e instanceof ControlError && e.failure === "error" && e.sent && /after the request was written/.test(e.message));
+		await assert.rejects(callControl(gone, SECRET, undefined, 2000), (e: unknown) => e instanceof ControlError && e.failure === "refused" && !e.sent, "with no request written, a close is a refusal");
+	} finally {
+		dropper.close();
+	}
+	const silent = await responder(() => undefined);
+	try {
+		const began = Date.now();
+		await assert.rejects(callControl(silent.endpoint, SECRET, { cmd: "send", message: "m" }, 60_000), (e: unknown) => e instanceof ControlError && e.failure === "timeout" && !e.sent && /nothing answered the hello within 5 s/.test(e.message));
+		assert.ok(Date.now() - began < 30_000, "ended at the hello's wait, not the command's 60 s");
+		assert.equal(silent.received.length, 1);
+	} finally {
+		await silent.close();
+	}
+});
+
+test("mixed versions fail closed with a message that names the mismatch, in both directions, and never fall back to the older hello", async () => {
+	// New client, older server: it closes the hello it does not know (no secret in it) without an answer.
+	const old = await responder(() => undefined);
+	const closing = listen((conn) => conn.on("data", () => conn.destroy()).on("error", () => {}));
+	const closed = join(root, "old.sock");
+	await new Promise<void>((resolve) => closing.listen(closed, resolve));
+	try {
+		await assert.rejects(callControl(closed, SECRET, { cmd: "send", message: "m" }), (e: unknown) => e instanceof ControlError && e.failure === "refused" && !e.sent && /older pi-straw-boss.*older control protocol/.test(e.message));
+		assert.ok(old.received.length === 0);
+	} finally {
+		closing.close();
+		await old.close();
+	}
+	// New client, server that says it speaks another protocol.
+	const says = await responder(() => ({ ok: false, protocol: PROTOCOL + 1, error: "control protocol mismatch: x" }));
+	try {
+		await assert.rejects(callControl(says.endpoint, SECRET, { cmd: "send", message: "m" }), (e: unknown) => e instanceof ControlError && e.failure === "protocol" && /mismatch/.test(e.message));
+		assert.ok(!says.received.join("").includes(SECRET));
+	} finally {
+		await says.close();
+	}
+	// Older client (the previous callControl: the secret in its hello), new server: refused with the server's words, and the old client never gets a proof or an answer to its request.
+	const { control } = await serve({ handle: () => { throw new Error("must not be asked"); } });
+	const oldClient = await new Promise<string>((resolve) => {
+		let got = "";
+		const conn = createConnection(control.endpoint).setEncoding("utf8");
+		conn.on("connect", () => conn.write(`${JSON.stringify({ cmd: "hello", secret: SECRET, nonce: "n" })}\n`));
+		conn.on("data", (c: string) => {
+			got += c;
+			const first = JSON.parse(got.split("\n")[0]!) as { ok: boolean; error?: string };
+			if (!first.ok) resolve(`refused: ${first.error}`);
+		});
+		conn.on("error", () => {});
+	});
+	assert.match(oldClient, /^refused: control protocol mismatch.*Reload pi/);
 });

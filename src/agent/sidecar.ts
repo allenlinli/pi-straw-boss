@@ -14,7 +14,7 @@ import { createReach } from "../reach.ts";
 import { createRoles } from "../roles.ts";
 import type { Scope } from "../state.ts";
 import { type Incoming, type IntercomLike, createHeadlessKit } from "./kit.ts";
-import { newSecret, listenControl, type Control } from "../server/socket.ts";
+import { listenControl, type Control, newSecret, PROTOCOL } from "../server/socket.ts";
 import { claim } from "./claim.ts";
 import { type HeadlessDeps, headlessConfig } from "./config.ts";
 import { agentFiles, findIntercom, type Held, newPipe, readHeld, type Reply, socketIsFile, stateDirOf } from "./paths.ts";
@@ -81,7 +81,7 @@ export async function startSidecar({ pane, kind, session, record, cli = "straw-n
 	mkdirSync(files.dir, { recursive: true, mode: 0o700 });
 	chmodSync(files.dir, 0o700);
 	const socket = socketIsFile() ? files.socket : newPipe();
-	const mine: Held = { pid: process.pid, session, kind, pane, id, name, startedAt: now(), secret: newSecret(), ...(socketIsFile() ? {} : { pipe: socket }) };
+	const mine: Held = { pid: process.pid, session, kind, pane, id, name, startedAt: now(), secret: newSecret(), proto: PROTOCOL, ...(socketIsFile() ? {} : { pipe: socket }) };
 	await claim(files, mine, pane, now);
 
 	const kit = createHeadlessKit({ client: undefined as unknown as IntercomLike, env, cfg, log: (text, level) => log(level && level !== "info" ? `${level}: ${text}` : text) });

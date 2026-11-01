@@ -178,6 +178,8 @@ export interface Probe {
 	runs?: boolean;
 	/** The record's process runs but its control endpoint refused this process for lack of permission (a server started from an elevated shell, a filtered token now): alive, not reachable, never gone. */
 	denied?: boolean;
+	/** The record's process runs (its start time is the one the record names), is of an older package than this one, serves this Herdr in this broker scope, and does not take this package's control handshake: it is ended by signal and replaced (`endLegacy`). One of another scope is refused as any such server is. */
+	legacy?: boolean;
 	hello: Reply | undefined;
 }
 /** Whether the process that wrote the record still runs: its pid is alive and started when the record says (a pid reused after a crash started later). */
@@ -197,14 +199,15 @@ export async function probe(ctx: Ctx, deadline?: number, startKnownElsewhere = f
 	if (!record || !record.socket || !ctx.alive(record.pid)) return { record, live: false, runs: false, hello: undefined };
 	// The hello comes first: a server that answers it with the secret and its pid is that server, and no start time has to be asked for (on Windows that is a PowerShell start for a process that
 	// is not this one: `stop` and `status` made one each; VM pass 5, F13). The start time is looked at only when it did not answer.
-	const { hello, denied } = await helloWhy(record.socket, record.secret, within(ctx, deadline, HELLO_MS));
+	const { hello, denied, failure } = await helloWhy(record.socket, record.secret, within(ctx, deadline, HELLO_MS));
 	const live = Boolean(hello && hello.pid === record.pid);
 	if (live) return { record, live, runs: true, hello };
 	if (!runsAs(ctx, record, startKnownElsewhere)) return { record, live: false, runs: false, hello: undefined };
 	// `runs` pins the broker scope for a server that is slow to answer: only on positive evidence that this is that server (the start time the record names is the one the pid has now), so a pid
 	// reused after a crash, or a record with no start time, pins nothing. A refusal for lack of permission is a running server that cannot be reached: it is told as that, never as gone.
 	const confirmed = Boolean(record.started) && ctx.startOf(record.pid) === record.started;
-	if (!denied) return { record, live: false, runs: confirmed, hello: undefined };
+	// A running server of an older package closes the hello it does not know, or says it speaks another protocol: it is not gone, and nothing can be asked of it. This package never falls back to the older handshake, which sent the secret in clear.
+	if (!denied) return { record, live: false, runs: confirmed, hello: undefined, ...(confirmed && (failure === "refused" || failure === "protocol") && newer(ctx.version, record.version) && record.herdr === ctx.slot.herdr && sameBroker(record.intercom, intercomOf(ctx.env, ctx.platform)) ? { legacy: true } : {}) };
 	// Refused for lack of permission: a running server that cannot be reached, told as that and never as gone (F11). Only POSITIVE evidence that the process under the pid is not the one the record names
 	// makes it gone (R8-F004: a pipe name is free when its server is gone, and something else can refuse there): a start time that is known and different. The time is waited for, a few seconds at most;
 	// one that is unknown (the read is slower than the wait, which on Windows it is: the CIM read takes 3.5 s and more; it failed; the record has none) stays denied (R9-F001).
@@ -446,6 +449,7 @@ export async function ensure(ctx: Ctx, { boss = false, lockWaitMs = 0, deadline 
 	const lock = await (deadline === undefined ? lockFor(ctx, lockWaitMs, undefined, gate) : lockUntil(ctx, deadline, gate));
 	try {
 		let seen = await probe(ctx, deadline);
+		if (seen.legacy) seen = (await endLegacy(ctx, seen.record!, deadline), await probe(ctx, deadline));
 		if (boss && seen.record?.stopped && !seen.live && !seen.denied && clearStopped(ctx.slot, true)) seen = { ...seen, record: readRecord(ctx.slot) };
 		const verdict = decide(ctx, seen);
 		if (verdict.do === "nothing" && verdict.why === "live") return { server: "found", record: seen.record! };
@@ -453,6 +457,20 @@ export async function ensure(ctx: Ctx, { boss = false, lockWaitMs = 0, deadline 
 		return { server: "started", record: await launch(ctx, { deadline }) };
 	} finally {
 		lock.release();
+	}
+}
+
+/**
+ * Ends a server of an older package that runs (its pid and start time are the record's) and cannot be asked to leave, because this package does not speak its handshake: a signal, as a restart sends
+ * one to a server that does not exit. A signal is not a stop, so the server leaves no `stopped` mark and the record reads as a server that went down. The caller holds `server.lock`.
+ */
+async function endLegacy(ctx: Ctx, old: ServerRecord, deadline?: number): Promise<void> {
+	ctx.log.line("legacy-term", { pid: old.pid, version: old.version, by: ctx.by });
+	try { ctx.kill(old.pid, "SIGTERM"); } catch { /* gone meanwhile */ }
+	const end = Math.min(ctx.now() + ctx.timers.exit, deadline ?? Infinity);
+	while (ctx.alive(old.pid)) {
+		if (ctx.now() >= end) throw new ServerError("exit-timeout", `the sb server of pi-straw-boss ${old.version} (pid ${old.pid}) speaks an older control protocol than this package's ${ctx.version} and did not exit when it was signalled; end that process`);
+		await ctx.sleep(50);
 	}
 }
 
@@ -524,7 +542,9 @@ export async function restart(ctx: Ctx, { reason, downgrade = false, upgrade = f
 }
 /** The restart itself; the caller holds `server.lock`. */
 async function restartLocked(ctx: Ctx, { reason, downgrade, upgrade, boss, limit, counts, deadline }: Required<Omit<RestartOptions, "lockWaitMs" | "deadline">> & { deadline?: number }, hold: Hold): Promise<Restarted> {
-	const seen = await probe(ctx, deadline), record = seen.record;
+	let seen = await probe(ctx, deadline);
+	if (seen.legacy) seen = (await endLegacy(ctx, seen.record!, deadline), await probe(ctx, deadline));
+	const record = seen.record;
 	if (record && record.herdr !== ctx.slot.herdr) throw new ServerError("herdr", `the sb server record names another Herdr socket (${record.herdr}), not ${ctx.slot.herdr}`);
 	// The server runs in the broker scope it was started in, and a requester in another one would move it there: it uses none, and restarts none.
 	if (record && (seen.live || seen.runs === true) && !sameBroker(record.intercom, intercomOf(ctx.env, ctx.platform))) throw new ServerError("scope", "the sb server runs in another pi-intercom scope or transport than this process, so this process does not restart it");
@@ -601,7 +621,8 @@ export async function stop(ctx: Ctx): Promise<Stopped> {
 	});
 	const locked = ctx.now();
 	try {
-		const seen = await probe(ctx);
+		let seen = await probe(ctx);
+		if (seen.legacy) seen = (await endLegacy(ctx, seen.record!), await probe(ctx));
 		const probed = ctx.now();
 		// As for a restart: the server runs in the broker scope it was started in, and a stop from another one is not its requester's to give.
 		if (seen.record && (seen.live || seen.runs === true) && !sameBroker(seen.record.intercom, intercomOf(ctx.env, ctx.platform))) throw new ServerError("scope", "the sb server runs in another pi-intercom scope or transport than this process, so this process does not stop it");
@@ -685,6 +706,7 @@ export async function describe(ctx: Ctx): Promise<Record<string, unknown>> {
 			...(record.lastRestart ? { lastRestart: record.lastRestart } : {}), ...(record.gui ? { gui: record.gui, url: guiUrl(record) } : {}),
 			...(record.detach ? { detach: record.detach, ...(record.detachFailure ? { detachFailure: record.detachFailure } : {}) } : {}), ...(detachWarning(record) ? { warning: detachWarning(record) } : {}),
 			...(seen.denied ? { reachable: false, warning: unreachableText(record) } : {}),
+			...(seen.legacy ? { reachable: false, warning: `the sb server (pid ${record.pid}) runs pi-straw-boss ${record.version}, whose control protocol this package (${ctx.version}) does not speak; the next session start or restart replaces it` } : {}),
 		} : {}),
 		...(state === "gone" && startError ? { startError } : {}), ...more,
 	};

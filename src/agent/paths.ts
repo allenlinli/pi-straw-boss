@@ -28,8 +28,10 @@ export type AgentFiles = ReturnType<typeof agentFiles>;
 
 /** What a running sidecar writes first: who holds the pane. */
 export interface Held { pid: number; session: string; kind: string; pane: string; id: string; name: string; startedAt: number; pipe?: string;
-	/** The sidecar's hello secret (new at each start; the file is mode 600): a connection without it gets no answer, and an answer without the proof made from it gets no request. */
-	secret?: string }
+	/** The sidecar's hello secret (new at each start; the file is mode 600). It never crosses the socket: each side proves it knows it (src/server/socket.ts). */
+	secret?: string;
+	/** The control protocol the sidecar speaks (`PROTOCOL`); a state file without it is from a sidecar of an older package, which `join` retires (legacy.ts). */
+	proto?: number }
 
 /** Whether `pid` is a live process of this user: a sidecar is, so EPERM (another user's process) is not one of ours. */
 export const alive = (pid: unknown) => {
@@ -78,11 +80,13 @@ export const liveHeld = async (files: AgentFiles) => ((h) => (h && h.state !== "
 
 /** One request to a sidecar's control socket: one JSON line out, one JSON line back. */
 export interface Reply { ok: boolean; error?: string; text?: string; [key: string]: unknown }
-/** Nothing listens on the socket (it was never made, or the sidecar behind it has ended); any other failure means a sidecar was reached. */
+/** Nothing listens on the socket (it was never made, or the sidecar behind it has ended), or what does is not the pane's sidecar; the request was not sent. Any other failure means a sidecar was reached. */
 export class NoSidecar extends Error {}
+/** A sidecar (or this package) of another control protocol: the request was not sent, and `message` says which side to reload. */
+export class SidecarProtocol extends NoSidecar {}
 /**
- * `secret` is the one in the pane's state file. The request is written only after the sidecar has answered the hello with a proof made from it, so whatever sits on the name of a dead
- * sidecar (a pipe on Windows is free once the last instance closes) gets no request and counts as no sidecar.
+ * `secret` is the one in the pane's state file; it is never sent. The request is written only after the sidecar has proved that it knows it, so whatever sits on the name of a dead
+ * sidecar (a pipe on Windows is free once the last instance closes) gets no request and counts as no sidecar. A failure after the request was written is not "no sidecar": it may have been carried out.
  */
 export async function ask(socket: string, secret: string | undefined, request: Record<string, unknown>, timeoutMs = 60_000): Promise<Reply> {
 	if (!secret) throw new NoSidecar("the pane's state file holds no secret for its sidecar");
@@ -92,9 +96,12 @@ export async function ask(socket: string, secret: string | undefined, request: R
 		return (await callControl(socket, secret, { ...request, cmd: String(request.cmd) }, timeoutMs)).reply!;
 	} catch (error) {
 		if (!(error instanceof ControlError)) throw error;
+		if (error.failure === "protocol") throw new SidecarProtocol(error.message);
+		if (error.failure === "timeout" && error.sent) throw new Error(`the sidecar did not answer within ${timeoutMs / 1000} s`);
+		if (error.sent) throw new Error(error.message);
 		if (error.failure === "no-server") throw new NoSidecar(error.message);
 		if (error.failure === "refused") throw new NoSidecar(`whatever answers there did not prove itself the pane's sidecar (${error.message}); run join again`);
-		if (error.failure === "timeout") throw new Error(`the sidecar did not answer within ${timeoutMs / 1000} s`);
+		if (error.failure === "timeout") throw new NoSidecar(`${error.message}; nothing was sent but the hello`);
 		throw new Error(error.message);
 	}
 }

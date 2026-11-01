@@ -8,7 +8,7 @@ import { afterEach, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { ASK_MS, parseArgs, run, type SpawnSpec, UsageError } from "../src/agent/cli.ts";
 import { agentFiles, alive, ask, type Held, NoSidecar, readHeld } from "../src/agent/paths.ts";
-import { listenControl } from "../src/server/socket.ts";
+import { listenControl, PROTOCOL, proofOf } from "../src/server/socket.ts";
 
 const dirs: string[] = [], servers: Server[] = [], closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -25,7 +25,7 @@ const scratch = () => {
 	return { stateDir, files };
 };
 const SECRET = "ab".repeat(32);
-const held = (over: Partial<Held> = {}): Held => ({ secret: SECRET, pid: process.pid, session: SESSION, kind: "claude", pane: PANE, id: `claude-${SESSION}`, name: "claude-085ff3b1", startedAt: 1, ...over });
+const held = (over: Partial<Held> = {}): Held => ({ secret: SECRET, proto: PROTOCOL, pid: process.pid, session: SESSION, kind: "claude", pane: PANE, id: `claude-${SESSION}`, name: "claude-085ff3b1", startedAt: 1, ...over });
 const output = () => {
 	const out: string[] = [], err: string[] = [];
 	return { out, err, deps: { out: (text: string) => void out.push(text), err: (text: string) => void err.push(text) } };
@@ -55,7 +55,7 @@ async function squatterAt(files: ReturnType<typeof agentFiles>, proof: "none" | 
 		let first = true;
 		conn.setEncoding("utf8").on("data", (chunk: string) => {
 			received.push(chunk);
-			if (first) conn.write(`${JSON.stringify({ ok: true, pid: process.pid, session: SESSION, ...(proof === "wrong" ? { proof: "00".repeat(32) } : {}) })}\n`);
+			if (first) conn.write(`${JSON.stringify({ ok: true, v: PROTOCOL, nonce: "s", pid: process.pid, session: SESSION, ...(proof === "wrong" ? { proof: "00".repeat(32) } : {}) })}\n`);
 			first = false;
 		});
 		conn.on("error", () => {});
@@ -123,9 +123,9 @@ test("a state file of a process that has ended, or a socket nobody listens on, i
 test("R-F005: a sidecar that is connected to and does not answer in time is exit 1 (it may still act), not 2 (no sidecar); call-tower is given longer than the rest", { timeout: 4000 }, async () => {
 	const { stateDir, files } = scratch();
 	writeFileSync(files.state, JSON.stringify(held()));
-	const server = createServer(() => {});
-	servers.push(server);
-	await new Promise<void>((resolve) => server.listen(files.socket, resolve));
+	// It proves itself, takes the request, and does not answer (a peer that never answers the hello is another case: R13-F004 below).
+	mkdirSync(files.dir, { recursive: true });
+	closers.push((await listenControl({ endpoint: files.socket, secret: SECRET, hello: () => ({ pid: process.pid, session: SESSION }), handle: () => new Promise(() => {}) })).close);
 	const o = output();
 	assert.equal(await run(["call-tower", "--message", "m", "--pane", PANE], { stateDir, askMs: 150, ...o.deps }), 1);
 	assert.match(o.err.join(""), /did not answer within 0\.15 s/);
@@ -315,4 +315,106 @@ test("the normal path: a sidecar that proves itself gets the request and answers
 	assert.equal(o.out.join(""), "did rename\n");
 	assert.deepEqual(asked.map((r) => r.cmd), ["rename"]);
 	await assert.rejects(ask(files.socket, "cd".repeat(32), { cmd: "status" }, 1000), NoSidecar, "a wrong secret is refused with no answer");
+});
+
+// --- R13-F001: an active squatter, one that reads the hello and answers as the server ---
+
+test("R13-F003: a sidecar that proves itself, receives the request, and drops the connection is exit 1 \"may still be carried out\", never \"no sidecar\"", async () => {
+	const { stateDir, files } = scratch();
+	writeFileSync(files.state, JSON.stringify(held()));
+	mkdirSync(files.dir, { recursive: true });
+	const asked: string[] = [];
+	const control = await listenControl({ endpoint: files.socket, secret: SECRET, hello: () => ({ pid: process.pid, session: SESSION }), handle: (request) => (asked.push(String(request.cmd)), new Promise(() => {})) });
+	closers.push(() => control.close());
+	// The sidecar's end of the connection is destroyed after the request has reached it.
+	const o = output(), pending = run(["send", "--to", "t", "--message", "m", "--pane", PANE], { stateDir, askMs: 5000, ...o.deps });
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	await control.close(); // the sidecar dies with the request in hand
+	assert.equal(await pending, 1);
+	assert.deepEqual(asked, ["send"], "the request reached it");
+	assert.match(o.err.join(""), /may still be carried out, so check before sending it again/);
+	assert.doesNotMatch(o.err.join(""), /no net sidecar/);
+});
+
+test("R13-F004: a silent squatter is no sidecar and nothing but the hello was sent; the wait is the hello's, and the words say so", async () => {
+	const { stateDir, files } = scratch();
+	writeFileSync(files.state, JSON.stringify(held()));
+	mkdirSync(files.dir, { recursive: true });
+	const received: string[] = [];
+	const server = createServer((conn) => conn.setEncoding("utf8").on("data", (chunk: string) => received.push(chunk)).on("error", () => {}));
+	servers.push(server);
+	await new Promise<void>((resolve) => server.listen(files.socket, resolve));
+	const o = output();
+	assert.equal(await run(["send", "--to", "t", "--message", "top secret", "--pane", PANE], { stateDir, askMs: 300, ...o.deps }), 2);
+	assert.match(o.err.join(""), /no net sidecar/);
+	assert.doesNotMatch(o.err.join(""), /may still be carried out/);
+	assert.doesNotMatch(received.join(""), /top secret/);
+	await assert.rejects(ask(files.socket, SECRET, { cmd: "send", message: "m" }, 300), (error) => error instanceof NoSidecar && /nothing was sent but the hello/.test(error.message));
+});
+
+test("mixed versions: a sidecar of another protocol is exit 2 with words that name the mismatch and nothing sent; the secret never goes in clear", async () => {
+	const { stateDir, files } = scratch();
+	writeFileSync(files.state, JSON.stringify(held()));
+	mkdirSync(files.dir, { recursive: true });
+	const received: string[] = [];
+	// An older sidecar (the previous handshake): hello held the secret; anything else is closed with no answer.
+	const older = createServer((conn) => conn.setEncoding("utf8").on("data", (chunk: string) => (received.push(chunk), conn.destroy())).on("error", () => {}));
+	servers.push(older);
+	await new Promise<void>((resolve) => older.listen(files.socket, resolve));
+	const o = output();
+	assert.equal(await run(["send", "--to", "t", "--message", "top secret", "--pane", PANE], { stateDir, askMs: 2000, ...o.deps }), 2);
+	assert.match(o.err.join(""), /no net sidecar/);
+	assert.ok(!received.join("").includes(SECRET) && !received.join("").includes("top secret"));
+	// This package against a sidecar of a newer protocol, which says so.
+	older.close();
+	rmSync(files.socket, { force: true });
+	const newer = createServer((conn) => conn.on("data", () => conn.end(`${JSON.stringify({ ok: false, protocol: PROTOCOL + 1, error: "control protocol mismatch: this side speaks protocol 3, the other speaks 2" })}\n`)).on("error", () => {}));
+	servers.push(newer);
+	await new Promise<void>((resolve) => newer.listen(files.socket, resolve));
+	const n = output();
+	assert.equal(await run(["send", "--to", "t", "--message", "top secret", "--pane", PANE], { stateDir, askMs: 2000, ...n.deps }), 2);
+	assert.match(n.err.join(""), /control protocol mismatch.*nothing was sent/);
+});
+
+// --- R13-F002: join retires a sidecar of an older control protocol ---
+
+test("R13-F002: join ends a sidecar of an older protocol (no secret, or a secret and no proto) once its start time is the state file's, then starts the new one", async () => {
+	for (const legacy of [{ secret: undefined, proto: undefined }, { proto: undefined }]) {
+		const { stateDir, files } = scratch();
+		const old = spawnChild("sleep", ["60"], { stdio: "ignore" });
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 150)); // the process exists before the file says it started
+			writeFileSync(files.state, JSON.stringify(held({ pid: old.pid!, session: "old-session", startedAt: Date.now(), ...legacy })));
+			old.once("exit", () => rmSync(files.state, { force: true }));
+			const { spawned, spawn } = spawner(files, true);
+			const o = output();
+			assert.equal(await run(joinArgs, { stateDir, spawn, loader: "/l.mjs", stopMs: 3000, ...o.deps }), 0, o.err.join(""));
+			assert.equal(old.signalCode, "SIGTERM", "it was sent SIGTERM");
+			assert.equal(spawned.length, 1);
+		} finally {
+			old.kill("SIGKILL");
+		}
+	}
+});
+
+test("R13-F002: a pid that started after the state file's startedAt is not the sidecar and is not signalled; a sidecar of this protocol is not retired; a stuck one is reported", async () => {
+	const { stateDir, files } = scratch();
+	const other = spawnChild("sleep", ["60"], { stdio: "ignore" });
+	try {
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		writeFileSync(files.state, JSON.stringify(held({ pid: other.pid!, session: "old-session", proto: undefined, secret: undefined, startedAt: Date.now() - 3_600_000 })));
+		const { spawn } = spawner(files, true);
+		assert.equal(await run(joinArgs, { stateDir, spawn, loader: "/l.mjs", stopMs: 100, ...output().deps }), 0);
+		assert.equal(other.exitCode, null);
+		assert.equal(other.signalCode, null, "not signalled");
+		// The process is the file's, but ignores the signal: join says so with exit 1 and starts nothing.
+		writeFileSync(files.state, JSON.stringify(held({ pid: other.pid!, session: "old-session", proto: undefined, secret: undefined, startedAt: Date.now() })));
+		const stuck = output(), again = spawner(files, true);
+		assert.equal(await run(joinArgs, { stateDir, spawn: again.spawn, loader: "/l.mjs", stopMs: 200, kill: () => {}, ...stuck.deps }), 1);
+		assert.match(stuck.err.join(""), /older pi-straw-boss \(pid \d+\) did not leave/);
+		assert.deepEqual(again.spawned, []);
+		assert.equal(other.signalCode, null);
+	} finally {
+		other.kill("SIGKILL");
+	}
 });

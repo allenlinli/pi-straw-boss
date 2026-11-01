@@ -1,7 +1,8 @@
 import { spawn as spawnProcess } from "node:child_process";
 import { closeSync, mkdirSync, openSync, realpathSync, statSync, truncateSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { agentFiles, ask, findIntercom, holder, NoSidecar, readHeld, type Reply, socketOf, stateDirOf, tsxLoader } from "./paths.ts";
+import { isLegacy, retireLegacy } from "./legacy.ts";
+import { agentFiles, ask, findIntercom, holder, NoSidecar, readHeld, type Reply, SidecarProtocol, socketOf, stateDirOf, tsxLoader } from "./paths.ts";
 import { startSidecar } from "./sidecar.ts";
 
 // `cli.ts` is what straw-boss runs: `join` at a session's start (it starts the sidecar of the pane, detached), and the commands of straw-net.py, each of which
@@ -72,6 +73,9 @@ export interface CliDeps {
 	/** How long join waits for the state file, and how long it waits for a sidecar it asked to stop. */
 	joinMs?: number;
 	stopMs?: number;
+	/** Replace the signal to, and the start time of, a sidecar of an older control protocol (tests). */
+	kill?: (pid: number, signal: NodeJS.Signals) => void;
+	startOf?: (pid: number) => Promise<string | undefined>;
 	/** How long a command waits for an answer, whatever it is (replaces ASK_MS). */
 	askMs?: number;
 }
@@ -109,7 +113,8 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
 		const held = readHeld(files);
 		reply = await ask(socketOf(files, held), held?.secret, { cmd: command, ...Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined)) }, deps.askMs ?? ASK_MS[command] ?? ASK_MS.default);
 	} catch (error) {
-		// Nothing listening is no sidecar. A sidecar that was reached and did not answer in time may still carry the request out: it is not "no sidecar", so a caller does not send it twice.
+		// A failure before the request was written is no sidecar, or one of another protocol (exit 2: nothing was sent). One after it (a close, a timeout) is exit 1: the request may have been carried out, and is not sent again.
+		if (error instanceof SidecarProtocol) return (err(`${error.message} (pane ${args.pane}); nothing was sent\n`), 2);
 		if (error instanceof NoSidecar) return (err(`no net sidecar for pane ${args.pane}: it joins when the session starts, if pi-straw-boss and pi-intercom are installed\n`), 2);
 		return (err(`${(error as Error).message} (pane ${args.pane}); the request may still be carried out, so check before sending it again\n`), 1);
 	}
@@ -120,6 +125,9 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
 
 	async function join(a: Args) {
 		const started = async (session: string) => ((h) => h?.held.session === session && h.state !== "leaving")(await holder(files));
+		// A sidecar of an older control protocol cannot be talked to or replaced over its socket: it is ended by signal, once its start time says it is the process the state file names.
+		const legacy = readHeld(files);
+		if (isLegacy(legacy) && !(await retireLegacy(legacy, deps.stopMs ?? 10_000, { kill: deps.kill, startOf: deps.startOf, pause }))) return (err(`the net sidecar of an older pi-straw-boss (pid ${legacy.pid}) did not leave\n`), 1);
 		const old = await holder(files);
 		if (old && old.held.session === a.session && old.state !== "leaving") return (out(`already joined as ${old.held.id}\n`), 0);
 		if (old) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { decide, describe, ensure, intercomOf, launch, lockFor, lockWaitFor, probe, restart, sameBroker, serverEnv, ServerError, SPAWN_OPTIONS, stateOf, stop, takeOver, timersFor } from "../src/server/client.ts";
@@ -865,4 +865,105 @@ test("R8-F004, R9-F001: a refusal for lack of permission is a running server tha
 	} finally {
 		await s.close();
 	}
+});
+
+// --- R13-F001: a server of an older package does not take the new handshake ---
+
+/** A running server of an older package: its pid runs and has the record's start time, and its socket closes the hello it does not know (the older handshake's refusal of a hello with no secret). */
+async function olderServer(over: Partial<ServerRecord> = {}) {
+	secretDir(world.slot.dir);
+	const socket = join(world.slot.dir, "older.sock"), seen: string[] = [];
+	const older = createServer((conn) => conn.setEncoding("utf8").on("data", (chunk: string) => (seen.push(chunk), conn.destroy())).on("error", () => {}));
+	await new Promise<void>((resolve) => older.listen(socket, resolve));
+	world.live.add(7);
+	plant({ pid: 7, version: "0.43.0", started: "T-7", socket, ...over });
+	const killed: [number, string][] = [];
+	const ctx = (over: Partial<Parameters<typeof world.ctx>[0]> = {}) => world.ctx({ startOf: (pid) => (pid === 7 ? "T-7" : undefined), kill: (pid, signal) => { killed.push([pid, signal]); world.live.delete(pid); older.close(); }, ...over });
+	return { ctx, killed, seen, close: () => older.close() };
+}
+
+test("R13-F001: a running server of an older package that closes the new hello is legacy, not gone and not live; an equal or newer record is not", async () => {
+	const o = await olderServer();
+	try {
+		const seen = await probe(o.ctx());
+		assert.equal(seen.live, false);
+		assert.equal(seen.legacy, true);
+		assert.equal(seen.runs, true);
+		assert.ok(o.seen.length >= 1 && o.seen.every((chunk) => !chunk.includes("s".repeat(64))), "the secret was not sent to it");
+		assert.equal((await probe(o.ctx({ startOf: () => "T-reused" }))).legacy, undefined, "a pid with another start time is not the record's server");
+		plant({ pid: 7, version: "0.44.0", started: "T-7", socket: join(world.slot.dir, "older.sock") });
+		assert.equal((await probe(o.ctx())).legacy, undefined, "the same package's server that refuses is not legacy");
+		plant({ pid: 7, version: "0.45.0", started: "T-7", socket: join(world.slot.dir, "older.sock") });
+		assert.equal((await probe(o.ctx())).legacy, undefined, "a server of a newer package is never signalled by an older one");
+		plant({ pid: 7, version: "0.43.0", started: "T-7", socket: join(world.slot.dir, "older.sock"), intercom: { scope: "a", transport: "default" } });
+		const other = o.ctx({ env: { ...world.env, PI_INTERCOM_SCOPE_ID: "b" } });
+		assert.equal((await probe(other)).legacy, undefined, "a server of another broker scope is not ended from here");
+		await assert.rejects(stop(other), (e: unknown) => e instanceof ServerError && e.code === "scope");
+		assert.deepEqual(o.killed, []);
+	} finally {
+		o.close();
+	}
+});
+
+test("R13-F001: status tells a legacy server as not reachable, with the words; ensure signals it once and starts the new one; the signal is not a stop", async () => {
+	const o = await olderServer();
+	try {
+		const said = await describe(o.ctx());
+		assert.equal(said.reachable, false);
+		assert.match(String(said.warning), /pi-straw-boss 0\.43\.0.*control protocol.*0\.44\.0/);
+		const got = await ensure(o.ctx());
+		assert.ok("server" in got && got.server === "started", JSON.stringify(got));
+		assert.deepEqual(o.killed, [[7, "SIGTERM"]]);
+		assert.notEqual(world.record()?.pid, 7);
+		assert.equal(world.record()?.stopped, undefined);
+		assert.equal((await probe(world.ctx())).live, true);
+	} finally {
+		o.close();
+	}
+});
+
+test("R13-F001: restart and stop end a legacy server by signal too; a legacy server that does not exit fails with exit-timeout and the words", async () => {
+	const r = await olderServer();
+	try {
+		const done = await restart(r.ctx(), { reason: "r" });
+		assert.equal(done.server, "started");
+		assert.deepEqual(r.killed, [[7, "SIGTERM"]]);
+	} finally {
+		r.close();
+	}
+	await world.close();
+	world = new ServerWorld();
+	const s = await olderServer();
+	try {
+		const out = await stop(s.ctx());
+		assert.equal(out.outcome, "already-down");
+		assert.deepEqual(s.killed, [[7, "SIGTERM"]]);
+		assert.equal(readRecord(world.slot)?.stopped, true);
+	} finally {
+		s.close();
+	}
+	await world.close();
+	world = new ServerWorld();
+	const stuck = await olderServer();
+	try {
+		const timers = { start: 1000, exit: 200, supervisor: 50, touch: 30 };
+		await assert.rejects(ensure(stuck.ctx({ timers, alive: () => true, kill: () => {} })), (e: unknown) => e instanceof ServerError && e.code === "exit-timeout" && /pi-straw-boss 0\.43\.0.*older control protocol/.test((e as Error).message));
+	} finally {
+		stuck.close();
+	}
+});
+
+test("R13-F001: a session of an older package (the old hello, the secret in it) is told the mismatch by a new server, whose words reach it, and the secret is not looked at", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	const rec = world.record()!;
+	// An older package's session sends the old hello (the secret in it): the server answers a protocol mismatch, whose words reach the session, and does not look at the secret.
+	const text = await new Promise<string>((resolve) => {
+		const conn = createConnection(rec.socket).setEncoding("utf8");
+		conn.on("connect", () => conn.write(`${JSON.stringify({ cmd: "hello", secret: rec.secret, nonce: "n" })}\n`));
+		conn.on("data", (c: string) => resolve(JSON.parse(c.split("\n")[0]!).error));
+		conn.on("error", () => {});
+	});
+	assert.match(text, /protocol mismatch.*Reload pi/);
+	assert.equal((await probe(world.ctx())).live, true, "the new client still reaches it");
 });

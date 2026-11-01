@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createConnection } from "node:net";
 import { afterEach, beforeEach, test } from "node:test";
 import { StubClient } from "./agent-fakes.ts";
+import { rawControl } from "./control-raw.ts";
 import { AclError } from "../src/server/acl.ts";
 import { LoaderError } from "../src/server/intercom.ts";
 import { fileOf, readRecord, readStartError, type ServerRecord, writeRecord, writeStartError } from "../src/server/record.ts";
@@ -187,16 +187,11 @@ test("while a restart is under way every request but status is answered restarti
 	await s.handle.ready;
 	const record = world.record()!;
 	// Two requests on one connection: the first is the restart, the second arrives while the server leaves.
-	const both = await new Promise<string[]>((resolve) => {
-		const lines: string[] = [], conn = createConnection(record.socket).setEncoding("utf8");
-		conn.on("connect", () => conn.write([{ cmd: "hello", secret: record.secret }, { cmd: "restart", reason: "r", by: "b" }, { cmd: "stop", by: "x" }, { cmd: "status" }].map((f) => `${JSON.stringify(f)}\n`).join("")));
-		conn.on("data", (c: string) => lines.push(...c.split("\n").filter(Boolean)));
-		setTimeout(() => (conn.destroy(), resolve(lines)), 300);
-	});
+	const both = (await rawControl(record.socket, record.secret, [{ cmd: "restart", reason: "r", by: "b" }, { cmd: "stop", by: "x" }, { cmd: "status" }])).lines.map((l) => JSON.stringify(l));
 	const replies = both.map((l) => JSON.parse(l));
-	assert.deepEqual(replies.slice(1, 3).map((r) => [r.ok, r.error]), [[true, undefined], [false, "restarting"]]);
-	assert.equal(replies[3]?.ok, true, "status is still answered");
-	assert.equal(replies[3]?.ready, false);
+	assert.deepEqual(replies.slice(2, 4).map((r) => [r.ok, r.error]), [[true, undefined], [false, "restarting"]]);
+	assert.equal(replies[4]?.ok, true, "status is still answered");
+	assert.equal(replies[4]?.ready, false);
 	await s.handle.done;
 });
 

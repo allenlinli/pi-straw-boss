@@ -77,8 +77,11 @@ test("a computer with no team set up gets no channel, no election, and no link f
 	await new Promise((r) => setTimeout(r, 150));
 	assert.equal(existsSync(join(sw.stateDir, "link")), false);
 	assert.deepEqual(s.client.capabilities.flat().filter((c) => c.namespace === "straw-boss/link"), [], "no link channel registered (the GUI's own channels are not the link's)");
-	const answer = (await ask(record.socket, record.secret, "x", { op: "list" })).answer as { ok: boolean; code?: string };
+	const answer = (await ask(record.socket, record.secret, "x", { op: "list" })).answer as { ok: boolean; code?: string; error?: string };
 	assert.deepEqual([answer.ok, answer.code], [false, "no_holder"]);
+	// With nothing set up no holder is coming, so the answer must not tell the asker to ask again (VM item 9 of 0.46.0).
+	assert.doesNotMatch(String(answer.error), /ask again/);
+	assert.match(String(answer.error), /not set up.*Teams.*Set up/);
 	const status = (await callControl(record.socket, record.secret, { cmd: "status" })).reply as unknown as { link: { inUse: boolean; holding: boolean } };
 	assert.deepEqual([status.link.inUse, status.link.holding], [false, false]);
 });

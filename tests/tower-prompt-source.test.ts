@@ -115,11 +115,14 @@ test("prompt draws itself by the environment: on a terminal with the glyphs, col
 	] as const) {
 		const abort = new AbortController();
 		const r = await cliPrompt(argv, { env: { ...world.env, ...env }, abort, tty });
-		await until(() => r.text().includes(want), `the prompt of ${JSON.stringify(env)} tty=${tty}`);
-		assert.equal(r.text().includes("\x1b[2J"), tty, "the screen is cleared on a terminal only");
-		assert.equal(/\x1b\[[0-9;]*m/.test(r.text()), tty && !env.NO_COLOR, "styled on a terminal unless NO_COLOR");
-		if (!tty) assert.ok(!r.text().includes("\x1b"), "no escape on a pipe");
-		abort.abort();
+		try {
+			await until(() => r.text().includes(want), `the prompt of ${JSON.stringify(env)} tty=${tty}`);
+			assert.equal(r.text().includes("\x1b[2J"), tty, "the screen is cleared on a terminal only");
+			assert.equal(/\x1b\[[0-9;]*m/.test(r.text()), tty && !env.NO_COLOR, "styled on a terminal unless NO_COLOR");
+			if (!tty) assert.ok(!r.text().includes("\x1b"), "no escape on a pipe");
+		} finally {
+			abort.abort();
+		}
 		assert.equal(await r.done, 0);
 	}
 });

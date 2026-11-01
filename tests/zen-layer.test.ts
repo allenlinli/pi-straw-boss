@@ -24,7 +24,7 @@ const secret = (): Pending => ({ callId: "c3", tool: "secret_drop", why: "It wai
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy"], more: 0 }], agents: [{ pane: "1", base: "Harbor", role: "member", at: 5 }] };
 
-function rig(o: { remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }> } = {}) {
+function rig(o: { ripple?: Record<string, unknown>; remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }> } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
 	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[] };
@@ -50,7 +50,7 @@ function rig(o: { remote?: boolean | null; stored?: With; latest?: () => Promise
 		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), watch: (k: string | null) => void calls.watch.push(k),
 		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => o.stored,
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
-		still: () => false, random: () => 0,
+		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
 		later: (fn: () => void, ms: number) => {
 			const e = { at: t + ms, fn };
 			timers.push(e);
@@ -513,7 +513,7 @@ test("scrolling and tapping the log change nothing: a draft in the box keeps hol
 	await wait(r, 1000);
 	assert.equal(r.button("Maybe later"), undefined, "a tap on the log does not hand the screen over");
 	for (let i = 0; i < 8; i++) {
-		for (const type of ["wheel", "scroll", "touchstart", "pointerdown"]) log.bubble(type);
+		for (const type of ["wheel", "touchstart", "pointerdown"]) log.bubble(type);
 		await wait(r, DRAFT_MS / 4);
 	}
 	assert.equal(r.button("Maybe later"), undefined, "scrolling it, for longer than the hold, keeps the hold");
@@ -532,7 +532,7 @@ test("with no draft in the box a tap on the log is nothing: no item is waiting t
 	const box = r.calls.composers.at(-1)!.box, log = r.by((el) => el.getAttribute("class") === "zen-log")[0]!;
 	box.focus();
 	box.blur();
-	for (const type of ["pointerdown", "wheel", "scroll", "touchstart"]) log.bubble(type);
+	for (const type of ["pointerdown", "wheel", "scroll", "touchstart"]) log.bubble(type); // a scroll alone is nothing
 	await wait(r, 2000);
 	assert.equal(r.by((el) => el.getAttribute("class") === "zen-company").length, 1, "still the companion");
 	assert.deepEqual([r.calls.sound, r.calls.leave], [[], []]);
@@ -636,4 +636,75 @@ test("without an injected remote the dialog decides by the host: a paired device
 		await r.settle();
 		assert.equal(r.by((el) => el.getAttribute("role") === "radio").every((o) => o.disabled), disabled, host);
 	}
+});
+
+test("a streaming companion keeps scrolling its own log: scroll events alone never renew the hold, so a waiting item takes the screen after DRAFT_MS (UR-F001)", async () => {
+	const r = rig();
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	const box = r.calls.composers.at(-1)!.box, log = r.by((el) => el.getAttribute("class") === "zen-log")[0]!;
+	box.focus();
+	box.type("half a sentence");
+	log.bubble("pointerdown");
+	box.blur();
+	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
+	await wait(r, 1000);
+	assert.equal(r.button("Maybe later"), undefined, "held right after the tap");
+	for (let i = 0; i < 6; i++) {
+		log.bubble("scroll");
+		await wait(r, 5000);
+	}
+	assert.ok(r.button("Maybe later"), "30 s of nothing but auto-scroll: the item is in");
+});
+
+test("Esc while an answer is on its way does nothing to the card: no cancel, no rest, and the outcome shows (UR-F002)", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
+	r.z.show();
+	await r.settle();
+	r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
+	r.button("Send answer")!.click();
+	assert.equal(r.calls.posts.length, 1, "the answer is on its way");
+	esc(r);
+	assert.equal(r.calls.posts.length, 1, "no cancel is posted");
+	assert.deepEqual(r.calls.leave, [], "one Esc is only the hint toward leaving, not a rest");
+	assert.equal(r.by((el) => el.dataset.on !== undefined && el.getAttribute("class") === "zen-esc").length, 1, "the quiet line shows");
+	assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, "no pause screen");
+	await r.reply({ outcome: "rejected", reason: "digest" });
+	assert.ok(r.button("Maybe later"), "the card is still there with its outcome");
+});
+
+test("Esc on a secret_drop whose snapshot carries answer.cancel posts nothing: read-only stays read-only, Esc is Not now (UR-F003)", async () => {
+	const r = rig();
+	const p = { callId: "c3", tool: "secret_drop", why: "x", answer: { dialog: "s1", digest: "2".repeat(64), cancel: true, questions: [{ question: "Token?", header: "T", multiple: false, options: [{ title: "a" }] }] } } as unknown as Pending;
+	r.feed(net([unit("a", "waiting", { since: 5, pending: p })]));
+	r.z.show();
+	await r.settle();
+	assert.equal(r.button("Cancel"), undefined);
+	esc(r);
+	assert.deepEqual(r.calls.posts, [], "nothing is posted");
+	assert.ok(r.by((el) => el.getAttribute("role") === "img").length, "Not now");
+});
+
+test("hiding the layer stops the ripples and disarms a first Esc (M29, M30)", async () => {
+	let cancelled = 0, frames = 0;
+	const r = rig({ ripple: { now: () => r.now(), frame: () => (frames++, () => void cancelled++), still: () => false, idle: () => false, size: () => ({ w: 100, h: 100, dpr: 1 }) } });
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	r.root.bubble("pointerdown", { clientX: 5, clientY: 5, pointerType: "mouse" });
+	assert.ok(frames > 0, "a ripple was started");
+	r.z.hide();
+	assert.ok(cancelled > 0, "hide stops the ripples");
+	r.z.show();
+	await r.settle();
+	await r.advance(100);
+	esc(r);
+	await r.advance(100);
+	r.z.hide();
+	r.z.show();
+	await r.settle();
+	esc(r);
+	assert.deepEqual(r.calls.leave, [], "an Esc armed before hide does not pair with one after");
 });

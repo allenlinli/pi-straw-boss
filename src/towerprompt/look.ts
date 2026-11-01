@@ -77,7 +77,7 @@ export function draw(look: Look) {
 		title: (text: string) => `${paint(["accent"], mark(TOWER, "#"))} ${paint(["bold"], look.ascii ? text.replace(" · ", " - ") : text)}`,
 		/** `● standing by`: the dot in the colour of the state, the words dim for a tower that stands by and plain otherwise. */
 		state: (state: string, words: string) => {
-			const s = STATES[state] ?? UNKNOWN_STATE;
+			const s = (Object.hasOwn(STATES, state) ? STATES[state] : undefined) ?? UNKNOWN_STATE;
 			return `${paint([s.style], mark(s.glyph, s.ascii))} ${state === "standing" ? paint(["dim"], words) : words}`;
 		},
 		/** A line between the states. */

@@ -141,8 +141,8 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		const asks = p.asks ?? (p.ask ? [p.ask] : []), list = asks.length > 1, a = p.answer;
 		const x: Panel = { key: keyOf(p), el: h("section", { class: "ask" }), note: h("p", { class: "ask-note", role: "status", "aria-live": "polite" }), controls: [], pick: () => undefined, done: false, sending: false };
 		if (a) (x.send = h("button", { type: "button", class: "ask-send" }, m.send_answer())).onclick = () => void (x.pick() && answer(x, bodyOf(a, x.pick()!, crypto.randomUUID())));
-		if (a && cancellable(a, remote)) (x.cancel = h("button", { type: "button", class: "ask-cancel" }, m.cancel())).onclick = () => void answer(x, cancelOf(a, crypto.randomUUID())); // no pick needed: it ends the dialog the way Escape does in the terminal, the owner's own cancelled result
-		const noSecret = p.tool === "secret_drop"; // never an answerable secret, on any page, whatever it was sent (SB-F001)
+		const noSecret = p.tool === "secret_drop"; // never an answerable secret, on any page, whatever it was sent (SB-F001): it gets no Cancel to press either, not even a detached one
+		if (a && !noSecret && cancellable(a, remote)) (x.cancel = h("button", { type: "button", class: "ask-cancel" }, m.cancel())).onclick = () => void answer(x, cancelOf(a, crypto.randomUUID())); // no pick needed: it ends the dialog the way Escape does in the terminal, the owner's own cancelled result
 		const term = h("p", { class: "ask-term" }, p.why && asks.length ? p.why : `${list ? m.answer_them() : m.answer_it()} ${list || !asks[0] ? "" : how(asks[0])}`.trim());
 		const show = terminal && p.tool !== "secret_drop" && h("button", { type: "button", class: "cmp-link" }, terminalLabel());
 		if (show) show.onclick = terminal;
@@ -172,6 +172,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 			const b = cur && !cur.done ? cur.cancel : undefined;
 			return Boolean(b && !b.disabled && (b.click(), true));
 		},
+		sending: () => Boolean(cur?.sending),
 		/** The unit's pending dialog now, and whether it can be answered or its pane brought forward (it waits and the stream is up). */
 		update(next: Pending | undefined, can: boolean) {
 			ready = can;

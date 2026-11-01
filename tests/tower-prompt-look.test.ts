@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import { afterEach, test } from "node:test";
-import { type Look, lookOf, PLAIN } from "../src/towerprompt/look.ts";
+import { draw, type Look, lookOf, PLAIN } from "../src/towerprompt/look.ts";
 import { runPrompt } from "../src/towerprompt/prompt.ts";
 import type { PollAnswer, Polled, PromptSource } from "../src/towerprompt/source.ts";
 import { until } from "./server-world.ts";
@@ -188,4 +188,12 @@ test("Traditional Chinese keeps the layout: title, state line, key rows, with th
 	assert.match(plain, /\/quit ⌃D +把這個窗格還給你的 shell/);
 	p.input.end();
 	await p.done;
+});
+
+test("a state named like an Object member is an unknown state, not a prototype lookup (UR-F006)", () => {
+	for (const state of ["constructor", "toString", "__proto__"]) {
+		const line = draw(PLAIN).state(state, "words");
+		assert.ok(!line.includes("undefined"), state);
+		assert.ok(line.endsWith(" words"), state);
+	}
 });

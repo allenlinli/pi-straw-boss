@@ -31,7 +31,7 @@ export type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
 export const DRAFT_MS = 20_000;
 export const real: Mounts = { ask: mountAsk, trust: trustPanel, composer: mountComposer, chat: () => import("./chat.ts").then((c) => c.mountChat) };
 type Composer = ReturnType<typeof mountComposer>;
-interface Card { key: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean }
+interface Card { key: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean }
 interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; /** Appends that came while the newest page was in flight: applied again after it, which they may not be in. */ late?: HistoryEvent[]; state?: string }
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
@@ -83,7 +83,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (trust) {
 			const panel = mounts.trust((body) => tell(trustTo(body)));
 			slot.replaceChildren(panel);
-			return { key: a.key, el, said, out, skip, enter: () => false, cancel: () => false, update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
+			return { key: a.key, el, said, out, skip, enter: () => false, cancel: () => false, sending: () => false, update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
 		}
 		let ask: ReturnType<typeof mountAsk> | undefined, noted = false;
 		const words = () => {
@@ -99,7 +99,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			return mounts.ask(hold, answer, deps.remote, () => deps.leave({ route: { view: "session", ws: a.ws, key }, terminal: key }), undefined, m.zen_open_standard);
 		};
 		return {
-			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()),
+			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
 			update(x, outcome) {
 				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()));
 				else if (!noted) (ask = undefined, words());
@@ -182,7 +182,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			drawCompany();
 		});
 	}
-	for (const type of ["pointerdown", "wheel", "touchstart", "keydown", "scroll"]) root.addEventListener(type, () => (touched = now()), { capture: true, passive: true });
+	for (const type of ["pointerdown", "wheel", "touchstart", "keydown"]) root.addEventListener(type, () => (touched = now()), { capture: true, passive: true });
 	const tap = () => shown.kind === "pause" && apply(model.tap());
 	root.addEventListener("pointerdown", tap);
 	root.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && shown.kind === "pause" && !/^button$/i.test((e.target as HTMLElement | null)?.tagName ?? "") && (e.preventDefault(), tap()));
@@ -240,7 +240,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			const at = document.activeElement as HTMLInputElement | null, inside = Boolean(at && at !== document.body && root.contains(at));
 			const type = inside ? (at!.getAttribute?.("type") ?? at!.type ?? "text") : "", editable = inside && (/^textarea$/i.test(at!.tagName) || (/^input$/i.test(at!.tagName) && !/^(checkbox|radio|range|button|submit|reset|file|color|image)$/i.test(type)));
 			const armed = escAt !== undefined && now() - escAt < ESC_MS;
-			const step = escStep({ menu: menu.isOpen(), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card), armed, repeat: e.repeat });
+			const step = escStep({ menu: menu.isOpen(), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), armed, repeat: e.repeat });
 			if (step === "none") return true;
 			if (step !== "hint") clearEsc();
 			if (step === "menu") menu.close();

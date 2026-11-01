@@ -5,6 +5,7 @@ import { pairingKeys, showLines } from "./pairing.ts";
 import { OPEN_LINE } from "./remote.ts";
 import { slotOf } from "./server/record.ts";
 import { type Channel, type Kit, REGISTER } from "./state.ts";
+import { hereOnlyOpts } from "./intercept.ts";
 
 /** How a session reaches the sb server: one JSON request over its control socket. `start` says whether an absent server is started for it (the boss's own command), only when the rules allow (an automatic ask), or not at all. */
 export type Ask = (request: Record<string, unknown>, options: { start: "boss" | "auto" | "never" }) => Promise<{ ok: boolean; error?: string; [key: string]: unknown }>;
@@ -132,7 +133,7 @@ export function createHost({ pi, cfg, s, guiDir, tell }: Kit, { connected, ask }
 				const desk = cfg.env.STRAW_BOSS_DESK === "1";
 				return void (Array.isArray(r.lines) && s.ui && (await showLines(s.ui, (r.lines as string[]).filter((line) => !desk || line !== OPEN_LINE), { block, keys: pairingKeys(link, copy, desk ? undefined : openUrl) })));
 			}
-			if (mode === "rotate" && (await s.ui?.confirm("Rotate the GUI's address?", ROTATE_WARNING)) !== true) return tell("The GUI's address was not rotated.");
+			if (mode === "rotate" && (await s.ui?.confirm("Rotate the GUI's address?", ROTATE_WARNING, hereOnlyOpts())) !== true) return tell("The GUI's address was not rotated.");
 			const r = await send(mode === "rotate" ? { cmd: "gui-rotate" } : { cmd: "gui", boss: true }, "boss");
 			if (!r.ok) return fail(r);
 			const url = urlOf({ port: Number(r.port), token: String(r.token) } as GuiRecord);

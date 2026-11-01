@@ -11,6 +11,7 @@ import { fileOf, slotOf } from "./server/record.ts";
 import { newer } from "./semver.ts";
 import { packageRoot } from "./server/version.ts";
 import type { Kit } from "./state.ts";
+import { hereOnlyOpts } from "./intercept.ts";
 
 // A pi session's part in the sb server (docs/specs/2026-10-26-sb-backend.md, Starting, Stopping, Seeing and restarting the server): at session start, and then every 2 s, it
 // looks whether a live server runs for its Herdr and starts one when none does and the rules allow; it asks the live server to upgrade when this session's package is newer;
@@ -214,7 +215,7 @@ export function createServerLook({ pi, cfg, s, guiDir, me, tell }: Kit, deps: Se
 		holdWhile: (when: () => boolean) => void (quiet = when),
 		/** The `/boss server [stop|restart [--downgrade] [reason]]` command: the boss's own, so it asks to confirm what costs something and clears a stop on purpose. */
 		async command(sub: "" | "stop" | "restart", rest: string) {
-			const ask = async (title: string, message: string) => (await s.ui?.confirm(title, message)) === true;
+			const ask = async (title: string, message: string) => (await s.ui?.confirm(title, message, hereOnlyOpts())) === true;
 			if (sub === "stop") {
 				if (!(await ask("Stop the sb server?", STOP_WARNING))) return tell("The sb server was not stopped.");
 				const done = await api.stop();

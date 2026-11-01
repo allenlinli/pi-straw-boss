@@ -17,6 +17,10 @@ import { type Bus, type Select, selectDigest, UI_PREFIX } from "./owners.ts";
 const MARK = Symbol.for("pi-straw-boss.ui-intercept");
 /** A key in a dialog's options that says the dialog is already relayed by its owner (the Straw Link gate), so the wrap only counts it. */
 const NO_RELAY = Symbol.for("pi-straw-boss.no-relay");
+/** A key in a dialog's options that marks every choice `hereOnly`: the wrap still relays the dialog, but a paired device sees it and cannot answer it (control.ts), the way link approvals are. */
+const HERE_ONLY = Symbol.for("pi-straw-boss.here-only");
+/** The options of a ctx.ui.select or confirm that only this computer's own page or terminal may answer. */
+export const hereOnlyOpts = (): { signal?: AbortSignal } => ({ [HERE_ONLY]: true } as { signal?: AbortSignal });
 const MAX_CHOICES = 100, MAX_TEXT = 12_000, ANSWER_ID = /^[A-Za-z0-9_-]{16,64}$/;
 type Kind = "select" | "confirm";
 type Opts = { signal?: AbortSignal; timeout?: number } | undefined;
@@ -60,12 +64,12 @@ export function interceptUi(pi: ExtensionAPI): void {
 	};
 
 	/** Starts a relay for a call, or returns undefined when it cannot or should not be relayed. */
-	function start(kind: Kind, title: unknown, second: unknown): { r: Relay; taken(): Result } | undefined {
+	function start(kind: Kind, title: unknown, second: unknown, here: boolean): { r: Relay; taken(): Result } | undefined {
 		const options = kind === "select" && Array.isArray(second) ? (second as unknown[]) : undefined;
 		const text = kind === "confirm" ? (typeof second === "string" && second ? `${title}\n\n${second}` : String(title)) : String(title);
 		if (typeof title !== "string" || (kind === "select" && (!options || !options.length || options.length > MAX_CHOICES || !options.every((o) => typeof o === "string")))) return;
 		if (flying.size !== 1 || [...flying.values()][0] === "secret_drop" || text.length > MAX_TEXT || (options && options.reduce((n: number, o) => n + (o as string).length, 0) > MAX_TEXT)) return;
-		const select: Select = { title: text, choices: (options ?? ["Yes", "No"]).map((label) => ({ label: label as string })), ...(kind === "confirm" ? { confirm: true as const } : {}) };
+		const select: Select = { title: text, choices: (options ?? ["Yes", "No"]).map((label) => ({ label: label as string, ...(here ? { hereOnly: true as const } : {}) })), ...(kind === "confirm" ? { confirm: true as const } : {}) };
 		const id = randomUUID(), digest = selectDigest(select), callId = [...flying.keys()][0]!;
 		const r: Relay = { id, digest, count: select.choices.length, ac: new AbortController(), close(by) {
 			if (r.by) return;
@@ -89,7 +93,7 @@ export function interceptUi(pi: ExtensionAPI): void {
 		if (open++ > 0) [...relays.values()].forEach((r) => r.close("error")); // a dialog over a relayed one: the page could not tell which an answer would dismiss
 		let relay: ReturnType<typeof start>;
 		try {
-			relay = open === 1 ? start(kind, title, second) : undefined;
+			relay = open === 1 ? start(kind, title, second, (opts as Record<symbol, unknown> | undefined)?.[HERE_ONLY] === true) : undefined;
 		} catch {
 			relay = undefined; // never break the extension's dialog: this call is the original one
 		}

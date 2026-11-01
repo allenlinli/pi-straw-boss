@@ -5,6 +5,7 @@ import { isAbsolute, resolve } from "node:path";
 import type { TrustPrompt } from "./deploy.ts";
 import type { GuiRecord } from "./handover.ts";
 import type { LinkView } from "./link/holder.ts";
+import { hereOnlyOpts } from "./intercept.ts";
 import type { Lang } from "./memorycmd.ts";
 import type { Kit } from "./state.ts";
 
@@ -28,7 +29,7 @@ const WORDS = {
 		opened: (kind: string, name: string, session: unknown) => `Opened ${kind} ${name}${typeof session === "string" ? ` (session ${session})` : ""}`,
 		openFailed: (step: string, why: string) => `Failed at "${step}": ${why}`,
 		openTimeout: "The server did not answer in time. The unit may still open: look at the map",
-		steps: { create: "create", start: "start the agent", join: "join the straw net", deliver: "deliver the first message", trust: "waiting for you to trust the folder" } as Record<string, string>,
+		steps: { createBase: "Create the base", createTab: "Open a tab", createPane: "Split a pane", start: "Start the agent", join: "Join the Straw Net", deliver: "Deliver the task", trust: "Waiting for your OK to trust this folder" } as Record<string, string>,
 		trustTitle: "Trust this folder?",
 		trustBody: "Trusting lets the agent load this folder's settings, extensions, skills, prompts, themes, and MCP servers, and install the packages its settings list. Extensions and MCP servers run as programs on this computer. Do not trust a folder you do not know.",
 		trustFound: "It would load:",
@@ -73,7 +74,7 @@ const WORDS = {
 		opened: (kind: string, name: string, session: unknown) => `已開啟${kind} ${name}${typeof session === "string" ? `（工作階段 ${session}）` : ""}`,
 		openFailed: (step: string, why: string) => `在「${step}」失敗：${why}`,
 		openTimeout: "伺服器沒有及時回應。單位可能仍會開好，請看地圖確認",
-		steps: { create: "建立", start: "啟動智慧體", join: "加入稻草網", deliver: "交付任務", trust: "等你確認是否信任這個資料夾" } as Record<string, string>,
+		steps: { createBase: "建立基地", createTab: "開啟分頁", createPane: "分割窗格", start: "啟動智慧體", join: "加入稻草網", deliver: "交付任務", trust: "等你確認是否信任這個資料夾" } as Record<string, string>,
 		trustTitle: "要信任這個資料夾嗎？",
 		trustBody: "信任後，智慧體會載入這個資料夾的設定、擴充、技能、提示、佈景主題與 MCP 伺服器，並安裝設定裡列出的套件。擴充與 MCP 伺服器會在這台電腦上當成程式執行。不認得來源的資料夾，請不要信任。",
 		trustFound: "會載入的內容：",
@@ -144,14 +145,17 @@ export interface OpenDeps {
 	record(): Promise<GuiRecord>;
 	post: Post;
 	why(reply: Reply): string;
-	confirm(title: string, body: string): Promise<boolean>;
+	/** Asked on this computer only: a paired device cannot answer it (`hereOnly`). */
+	confirm(title: string, body: string, here?: boolean): Promise<boolean>;
 	noScreen(): string;
 	lang(): Lang;
+	/** The label of a base, for naming a unit opened in it; undefined when it cannot be read. */
+	baseName?(workspace: string): Promise<string | undefined>;
 	/** How often an opening is asked for a trust question. */
 	pollMs?: number;
 }
 
-export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, noScreen, lang, pollMs = POLL_MS }: OpenDeps) {
+export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, noScreen, lang, baseName, pollMs = POLL_MS }: OpenDeps) {
 	const t = () => WORDS[lang()];
 
 	/** The trust question an opening waits on, asked in pi; the answer goes to the route the page's dialog posts to. A dismissed question stays open for the GUI or the terminal. */
@@ -184,7 +188,7 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 				: kind === "main" ? { workspace: at.workspaceId, dir, prompt: text }
 				: { workspace: at.workspaceId, ...(dir ? { dir } : { tab: at.tabId }) };
 			const r = await record(), deploy = `pi-${randomUUID()}`, asked = new Set<string>(), stop = new AbortController();
-			const kindWord = kind === "base" ? t().kindBase : kind === "main" ? t().kindMain : t().kindMember, name = dir ?? at?.tabId ?? "";
+			const kindWord = kind === "base" ? t().kindBase : kind === "main" ? t().kindMain : t().kindMember, name = dir ?? (at?.workspaceId ? ((await baseName?.(at.workspaceId)) ?? at.workspaceId) : "");
 			tell(t().opening(kindWord, name));
 			const watching = (async () => {
 				while (!stop.signal.aborted) {
@@ -199,8 +203,9 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 			void watching;
 			if (reply.status === 200) return tell(t().opened(kindWord, name, reply.body.session));
 			if (reply.status === 0) return tell(t().openTimeout, "warning");
-			const step = typeof reply.body.step === "string" ? (t().steps[reply.body.step] ?? reply.body.step) : t().steps.create!;
-			tell(t().openFailed(step!, why(reply)), "error");
+			// The page words the create step by kind: the base, a tab, or a split pane.
+			const create = kind === "base" ? "createBase" : kind === "member" && !dir ? "createPane" : "createTab", failed = typeof reply.body.step === "string" ? reply.body.step : "create";
+			tell(t().openFailed(t().steps[failed === "create" ? create : failed] ?? failed, why(reply)), "error");
 		},
 
 		/** `/boss link [status]`: this device's teams and the join requests waiting; `link decide <id> approve|refuse`: the page's Approve / Refuse. */
@@ -225,10 +230,10 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 			if (parsed.verdict === "approve") {
 				if (!s.ui) return tell(noScreen(), "error");
 				if (q.unattended) {
-					if (!(await confirm(t().linkApproveTitle, t().linkApproveUnattended(q.label, q.short, q.teamName)))) return tell(t().linkDeclined);
+					if (!(await confirm(t().linkApproveTitle, t().linkApproveUnattended(q.label, q.short, q.teamName), true))) return tell(t().linkDeclined);
 					sent = { id: q.id, approve: true };
 				} else {
-					const words = q.sets.map((w) => w.join(" ")), none = t().linkNone, picked = await s.ui.select(t().linkWords(q.label, q.short, q.teamName), [...words, none]);
+					const words = q.sets.map((w) => w.join(" ")), none = t().linkNone, picked = await s.ui.select(t().linkWords(q.label, q.short, q.teamName), [...words, none], hereOnlyOpts());
 					if (picked === undefined) return tell(t().linkDeclined);
 					if (picked !== none) sent = { id: q.id, pick: words.indexOf(picked) };
 				}

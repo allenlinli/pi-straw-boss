@@ -12,6 +12,14 @@ import type { Kit } from "../src/state.ts";
 // /boss open base|member|main and /boss link [status] | link decide: each posts the route the page posts to (open/*, open/progress, trust/answer, link/state, link/decide), answers the trust
 // question in pi, and asks before approving a join request. The last tests run the real control handler in-process.
 
+/** A wait the test owns: it polls a condition a bounded number of times and fails with what it waited for, so a broken change fails the test and does not hang the file. */
+async function until(condition: () => boolean, what: string) {
+	for (let tries = 0; !condition(); tries++) {
+		if (tries >= 2000) assert.fail(`never happened: ${what}`);
+		await new Promise((r) => setTimeout(r, 5));
+	}
+}
+
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), "sb-open-link-")));
 const running: Gui[] = [];
 after(async () => {
@@ -33,8 +41,8 @@ const VIEW = {
 	teams: [{ team: "t1", name: "Shop floor", status: "running", self: { role: "admin", attended: true }, members: [{ id: "d-self", short: "SELF", label: "Boss Mac", role: "admin", attended: true, self: true, online: true }, { id: "d2", short: "D2", label: "Lab", role: "member", attended: false, self: false, online: false }] }],
 };
 
-function world({ ui = true, selects = [] as (string | undefined)[], confirm = true, lang = "en", at = true, pollMs = 5 }: { ui?: boolean; selects?: (string | undefined)[] | ((title: string, options: string[]) => string | undefined); confirm?: boolean; lang?: string; at?: boolean; pollMs?: number } = {}) {
-	const told: { text: string; level?: string }[] = [], posted: { path: string; json: Record<string, unknown> }[] = [], selected: { title: string; options: string[] }[] = [], asked: string[][] = [];
+function world({ ui = true, selects = [] as (string | undefined)[], confirm = true, lang = "en", at = true, pollMs = 5 }: { ui?: boolean; selects?: (string | undefined)[] | ((title: string, options: string[], signal?: AbortSignal) => string | undefined | Promise<string | undefined>); confirm?: boolean; lang?: string; at?: boolean; pollMs?: number } = {}) {
+	const told: { text: string; level?: string }[] = [], posted: { path: string; json: Record<string, unknown> }[] = [], selected: { title: string; options: string[]; signal?: AbortSignal }[] = [], asked: string[][] = [];
 	const replies = new Map<string, Reply[] | Reply | ((json: Record<string, unknown>) => Reply | Promise<Reply>)>();
 	const post: Post = async (_r, path, json) => {
 		posted.push({ path, json });
@@ -45,8 +53,8 @@ function world({ ui = true, selects = [] as (string | undefined)[], confirm = tr
 	};
 	const queue = Array.isArray(selects) ? [...selects] : [];
 	const kit = {
-		cfg: { env: { LANG: lang }, run: async () => "{}" },
-		s: { at: at ? { workspaceId: "wA", tabId: "wA:t1", paneId: "wA:p1" } : undefined, ui: ui ? { confirm: async (title: string, body: string) => (asked.push([title, body]), confirm), select: async (title: string, options: string[]) => (selected.push({ title, options }), typeof selects === "function" ? selects(title, options) : queue.shift()), notify: () => {} } : undefined },
+		cfg: { env: { LANG: lang }, run: async () => JSON.stringify({ result: { workspaces: [{ workspace_id: "wA", label: "Shop base" }] } }) },
+		s: { at: at ? { workspaceId: "wA", tabId: "wA:t1", paneId: "wA:p1" } : undefined, ui: ui ? { confirm: async (title: string, body: string) => (asked.push([title, body]), confirm), select: async (title: string, options: string[], opts?: { signal?: AbortSignal }) => (selected.push({ title, options, ...(opts?.signal ? { signal: opts.signal } : {}) }), typeof selects === "function" ? selects(title, options, opts?.signal) : queue.shift()), notify: () => {} } : undefined },
 		guiDir: scratch, me: () => "m1", tell: (text: string, level?: string) => void told.push({ text, level }),
 	} as unknown as Kit;
 	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, post, pollMs });
@@ -124,17 +132,17 @@ test("open words in zh-TW use the page's terms", async () => {
 	assert.match(w.told.at(-1)!.text, /^已開啟基地 .*（工作階段 s1）$/);
 	w.reply("open/base", { status: 409, body: { reason: "資料夾不安全", step: "create" } });
 	await w.paths.open("base bundle", scratch);
-	assert.equal(w.told.at(-1)!.text, "在「建立」失敗：資料夾不安全");
+	assert.equal(w.told.at(-1)!.text, "在「建立基地」失敗：資料夾不安全");
 });
 
 test("a refused open names the failed step and the server's reason; a silent server says it may still open", async () => {
 	const w = world();
 	w.reply("open/main", { status: 409, body: { error: "open_failed", reason: "the tower is gone", step: "join" } });
 	await w.paths.open("main bundle", scratch);
-	assert.deepEqual(w.told.at(-1), { text: 'Failed at "join the straw net": the tower is gone', level: "error" });
+	assert.deepEqual(w.told.at(-1), { text: 'Failed at "Join the Straw Net": the tower is gone', level: "error" });
 	w.reply("open/main", { status: 400, body: { error: "not_allowed", reason: "Only folders in your home folder can be picked." } });
 	await w.paths.open("main bundle", scratch);
-	assert.match(w.told.at(-1)!.text, /^Failed at "create": Only folders in your home/);
+	assert.match(w.told.at(-1)!.text, /^Failed at "Open a tab": Only folders in your home/);
 	w.reply("open/main", { status: 0, body: {} });
 	await w.paths.open("main bundle", scratch);
 	assert.deepEqual([w.told.at(-1)!.level, w.told.at(-1)!.text.startsWith("The server did not answer in time")], ["warning", true]);
@@ -148,10 +156,14 @@ test("a trust question the opening waits on is asked in pi once, and the choice 
 	w.reply("open/progress", { status: 200, body: { steps: [], finished: false, trust: ask } });
 	w.reply("trust/answer", { status: 200, body: { outcome: "accepted" } });
 	const running = w.paths.open("member bundle", scratch);
-	while (!w.at("trust/answer").length) await new Promise((r) => setTimeout(r, 5));
-	await new Promise((r) => setTimeout(r, 40)); // the question keeps showing in the progress: it is not asked again
-	release({ status: 200, body: { session: "s2" } });
-	await running;
+	try {
+		await until(() => w.at("trust/answer").length > 0, "the trust answer");
+		const polled = w.at("open/progress").length;
+		await until(() => w.at("open/progress").length >= polled + 4, "four more progress polls, each still showing the question"); // it keeps showing in the progress: it is not asked again
+	} finally {
+		release({ status: 200, body: { session: "s2" } }); // a failed wait must not leave the opening polling for ever
+		await running;
+	}
 	assert.equal(w.selected.length, 1);
 	assert.deepEqual(w.selected[0]!.options, ["Trust this folder", "Trust it this once", "Do not trust"]);
 	assert.match(w.selected[0]!.title, /Trust this folder\?\n\/home\/x\/proj\n.*\n.*\n {2}extensions \.pi\/extensions: a, b, c, d, e \(4 more\)\n {2}settings \.pi\/settings\.json \(unreadable\)$/);
@@ -176,10 +188,14 @@ test("a dismissed trust question sends nothing; an answer that went stale or was
 		w.reply("open/progress", { status: 200, body: { steps: [], finished: false, trust: ask } });
 		w.reply("trust/answer", reply);
 		const running = w.paths.open("main bundle", scratch);
-		while (!w.selected.length) await new Promise((r) => setTimeout(r, 5));
-		await new Promise((r) => setTimeout(r, 20));
-		release({ status: 200, body: {} });
-		await running;
+		try {
+			await until(() => w.selected.length > 0, "the trust question");
+			const polled = w.at("open/progress").length;
+			await until(() => w.at("open/progress").length >= polled + 3, "three more progress polls");
+		} finally {
+			release({ status: 200, body: {} });
+			await running;
+		}
 		assert.equal(w.at("trust/answer").length, expect ? 1 : 0);
 		if (expect) assert.match(w.told.find((t) => expect.test(t.text))?.text ?? "none", expect);
 	}
@@ -191,10 +207,47 @@ test("a trust question with no pi screen is left to the GUI or the terminal", as
 	w.reply("open/main", () => new Promise<Reply>((done) => (release = done)));
 	w.reply("open/progress", { status: 200, body: { steps: [], finished: false, trust: { id: "q1", digest: "d", folder: "/p", found: [] } } });
 	const running = w.paths.open("main bundle", scratch);
-	while (!w.told.some((t) => /trust question/.test(t.text))) await new Promise((r) => setTimeout(r, 5));
-	release({ status: 200, body: {} });
-	await running;
+	try {
+		await until(() => w.told.some((t) => /trust question/.test(t.text)), "the no-screen note");
+		const polled = w.at("open/progress").length;
+		await until(() => w.at("open/progress").length >= polled + 3, "three more progress polls");
+	} finally {
+		release({ status: 200, body: {} });
+		await running;
+	}
 	assert.deepEqual(w.at("trust/answer"), []);
+	assert.equal(w.told.filter((t) => /trust question/.test(t.text)).length, 1, "said once");
+});
+
+test("the trust select closes when the open ends: its signal aborts, and no trust/answer is posted", async () => {
+	const w = world({ selects: (_t, _o, signal) => new Promise<string | undefined>((done) => signal?.addEventListener("abort", () => done(undefined), { once: true })) });
+	let release!: (r: Reply) => void;
+	w.reply("open/main", () => new Promise<Reply>((done) => (release = done)));
+	w.reply("open/progress", { status: 200, body: { steps: [], finished: false, trust: { id: "q1", digest: "d", folder: "/p", found: [] } } });
+	const running = w.paths.open("main bundle", scratch);
+	try {
+		await until(() => w.selected.length > 0, "the trust question");
+		assert.equal(w.selected[0]!.signal?.aborted, false, "open while the opening waits");
+	} finally {
+		release({ status: 200, body: {} });
+		await running;
+	}
+	assert.equal(w.selected[0]!.signal?.aborted, true, "the opening ended: the question goes with it");
+	for (let turn = 0; turn < 10; turn++) await new Promise((done) => setImmediate(done)); // the aborted select settles
+	assert.deepEqual(w.at("trust/answer"), []);
+	assert.equal(w.selected.length, 1);
+});
+
+test("a failure names the create step as the page does (base, tab, split pane), and a member with no folder is named by its base", async () => {
+	const w = world();
+	for (const [line, path, step] of [["base bundle", "open/base", "Create the base"], ["main bundle", "open/main", "Open a tab"], ["member bundle", "open/member", "Open a tab"], ["member", "open/member", "Split a pane"]] as const) {
+		w.reply(path, { status: 409, body: { reason: "no", step: "create" } });
+		await w.paths.open(line, scratch);
+		assert.equal(w.told.at(-1)!.text, `Failed at "${step}": no`, line);
+	}
+	w.reply("open/member", { status: 200, body: { session: "s3" } });
+	await w.paths.open("member", scratch);
+	assert.deepEqual([w.told.at(-2)!.text, w.told.at(-1)!.text], ["Opening member Shop base…", "Opened member Shop base (session s3)"]);
 });
 
 test("link status lists the device, its teams and members, and the join requests waiting with a short id; it posts link/state only", async () => {
@@ -327,7 +380,7 @@ test("live: open base, member, and main reach the spawn route with the body the 
 		{ workspace: "wA", tab: "wA:t1", deploy: undefined },
 	]);
 	assert.ok(opens.every((o) => /^pi-[\w-]{8,64}$/.test(String(o.json.deploy))));
-	assert.deepEqual(w.told.filter((t) => t.text.startsWith("Opened")).map((t) => t.text.replace(/ \S*live-dir/, " DIR")), ["Opened base DIR (session sess-live)", "Opened main DIR (session sess-live)", `Opened member wA:t1 (session sess-live)`]);
+	assert.deepEqual(w.told.filter((t) => t.text.startsWith("Opened")).map((t) => t.text.replace(/ \S*live-dir/, " DIR")), ["Opened base DIR (session sess-live)", "Opened main DIR (session sess-live)", `Opened member wA (session sess-live)`]);
 });
 
 test("live: link status and decide go through link/state and link/decide of the real handler", async () => {

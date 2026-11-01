@@ -6,8 +6,12 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createEventBus, discoverAndLoadExtensions, ExtensionRunner } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { interceptUi } from "../src/intercept.ts";
-import { selectDigest, UI_PREFIX } from "../src/owners.ts";
+import { createBossPaths, type Post } from "../src/bosspaths.ts";
+import { hereOnlyOpts, interceptUi } from "../src/intercept.ts";
+import { selectDigest, selectOf, UI_PREFIX } from "../src/owners.ts";
+import { createHost } from "../src/host.ts";
+import { createServerLook } from "../src/server-look.ts";
+import type { Kit } from "../src/state.ts";
 import { settle } from "./fakes.ts";
 
 // The wrap of ctx.ui.select and ctx.ui.confirm (src/intercept.ts) over a fake pi: a bus that records, a ctx.ui whose dialogs the test settles
@@ -339,4 +343,77 @@ test("a confirm marked as already relayed by its owner (the Straw Link gate) ope
 	assert.equal(r.sent("pending").length, 0, "no second dialog on the page");
 	r.dialogs[0]!.settle(true);
 	assert.equal(await asked, true);
+});
+
+test("hereOnlyOpts marks every choice of a relayed select and confirm hereOnly, which the owner's adapter keeps and the digest ignores; a plain dialog is unmarked", async () => {
+	const r = rig();
+	await r.start();
+	void select(r, "Pick", ["a", "b"], hereOnlyOpts());
+	void confirm(r, "Sure?", "now", hereOnlyOpts());
+	const [pick] = r.sent("pending") as ReturnType<typeof pending>[];
+	assert.deepEqual(pick!.select.choices, [{ label: "a", hereOnly: true }, { label: "b", hereOnly: true }]);
+	assert.equal(pick!.digest, selectDigest({ title: "Pick", choices: [{ label: "a" }, { label: "b" }] }), "a hint, not hashed");
+	assert.deepEqual(selectOf(UI_PREFIX, pick)!.select!.choices.map((c) => c.hereOnly), [true, true], "the adapter the bridge reads keeps the flag");
+	assert.equal(r.sent("pending").length, 1, "the confirm opened over the select and withdrew it, as any second dialog does");
+	r.dialogs.forEach((d) => d.settle(undefined));
+	await r.end();
+	await r.start("c2");
+	void select(r, "Pick", ["a", "b"]);
+	assert.deepEqual((r.sent("pending").at(-1) as ReturnType<typeof pending>).select.choices, [{ label: "a" }, { label: "b" }]);
+});
+
+function pathsOver(r: Rig) {
+	const sets = [["alpha", "bravo", "charlie", "delta"], ["echo", "foxtrot", "golf", "hotel"]];
+	const view = { deviceId: "d", short: "S", label: "Boss", joinRequests: [{ id: "aabbccdd11223344", team: "t", teamName: "Shop", label: "Lab Mac", short: "LM01", unattended: false, sets }, { id: "eeff00112233", team: "t", teamName: "Shop", label: "Kiosk", short: "KI02", unattended: true, sets: [] }], teams: [] };
+	const posted: { path: string; json: Record<string, unknown> }[] = [], told: string[] = [];
+	const post: Post = async (_r, path, json) => (posted.push({ path, json }), path === "link/state" ? { status: 200, body: { view } } : { status: 200, body: { joined: true, unpaired: 1 } });
+	const kit = { cfg: { env: { LANG: "en" }, run: async () => "{}" }, s: { at: { workspaceId: "wA", tabId: "t", paneId: "p" }, ui: r.ui }, guiDir: "/nowhere", me: () => "m", tell: (text: string) => void told.push(text) } as unknown as Kit;
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, post });
+	return { paths, posted, told };
+}
+const flush = async (n = 20) => { for (let i = 0; i < n; i++) await new Promise((done) => setImmediate(done)); };
+
+test("while a tool call runs, the join approval select, the unattended confirm, and the unpair-all confirm are relayed hereOnly, so a paired device cannot answer them", async () => {
+	const r = rig(), w = pathsOver(r);
+	await r.start("c1", "bash");
+	const attended = w.paths.link("decide aabbccdd approve");
+	for (let i = 0; i < 50 && !r.dialogs.length; i++) await flush(1);
+	assert.equal(r.dialogs.length, 1, "pi's own dialog opened");
+	let p = pending(r);
+	assert.deepEqual([p.toolCallId, p.select.choices.map((c) => c as unknown)], ["c1", [...["alpha bravo charlie delta", "echo foxtrot golf hotel", "None of these: refuse"].map((label) => ({ label, hereOnly: true }))]]);
+	r.dialogs[0]!.settle("echo foxtrot golf hotel");
+	await attended;
+	assert.deepEqual(w.posted.at(-1), { path: "link/decide", json: { id: "aabbccdd11223344", pick: 1 } });
+	const unattended = w.paths.link("decide eeff approve");
+	for (let i = 0; i < 50 && r.dialogs.length < 2; i++) await flush(1);
+	p = r.sent("pending").at(-1) as ReturnType<typeof pending>;
+	assert.deepEqual([p.select.confirm, p.select.choices], [true, [{ label: "Yes", hereOnly: true }, { label: "No", hereOnly: true }]]);
+	r.dialogs[1]!.settle(false);
+	await unattended;
+	const unpair = w.paths.unpair("all");
+	for (let i = 0; i < 50 && r.dialogs.length < 3; i++) await flush(1);
+	p = r.sent("pending").at(-1) as ReturnType<typeof pending>;
+	assert.deepEqual(p.select.choices, [{ label: "Yes", hereOnly: true }, { label: "No", hereOnly: true }]);
+	r.dialogs[2]!.settle(false);
+	await unpair;
+});
+
+test("while a tool call runs, the rotate and server stop confirms are relayed hereOnly: the commands a paired device's composer may not run are not answerable from it either", async () => {
+	const r = rig(), told: string[] = [];
+	const kit = { pi: { on() {}, events: r.events }, cfg: { env: { HERDR_PANE_ID: "p" }, version: "1.0.0" }, s: { ui: r.ui }, guiDir: "/nowhere", me: () => "m", tell: (text: string) => void told.push(text) } as unknown as Kit;
+	const host = createHost(kit, { connected: async () => {}, ask: async () => ({ ok: false, error: "not asked" }) });
+	await r.start("c1", "bash");
+	const rotate = host.command("rotate");
+	for (let i = 0; i < 50 && !r.dialogs.length; i++) await flush(1);
+	assert.deepEqual((r.sent("pending").at(-1) as ReturnType<typeof pending>).select.choices, [{ label: "Yes", hereOnly: true }, { label: "No", hereOnly: true }]);
+	r.dialogs[0]!.settle(false);
+	await rotate;
+	assert.equal(told.at(-1), "The GUI's address was not rotated.");
+	const look = createServerLook(kit, {});
+	const stop = look.command("stop", "");
+	for (let i = 0; i < 50 && r.dialogs.length < 2; i++) await flush(1);
+	assert.deepEqual((r.sent("pending").at(-1) as ReturnType<typeof pending>).select.choices, [{ label: "Yes", hereOnly: true }, { label: "No", hereOnly: true }]);
+	r.dialogs[1]!.settle(false);
+	await stop;
+	assert.equal(told.at(-1), "The sb server was not stopped.");
 });

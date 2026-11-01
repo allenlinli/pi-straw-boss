@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { type GuiRecord, postServer } from "./handover.ts";
 import { workspaces } from "./herdr.ts";
 import { createBossOpen } from "./bossopen.ts";
+import { hereOnlyOpts } from "./intercept.ts";
 import type { createHost } from "./host.ts";
 import { type Lang, memoryLang } from "./memorycmd.ts";
 import { collectNet, type Net, type Unit } from "./net.ts";
@@ -121,7 +122,7 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 		return shared.record;
 	}
 	const why = (r: Reply) => (typeof r.body.reason === "string" ? r.body.reason : r.status ? t().answered(r.status) : t().noAnswer);
-	const confirm = async (title: string, body: string) => (await s.ui?.confirm(title, body)) === true;
+	const confirm = async (title: string, body: string, here = false) => (await s.ui?.confirm(title, body, here ? hereOnlyOpts() : undefined)) === true;
 
 	/** Every unit (tower, mains, members), squad, and base of the net, as something `/boss close` can name. */
 	function targets(n: Net): Target[] {
@@ -146,7 +147,7 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 	}
 
 	return {
-		...createBossOpen(kit, { record, post, why, confirm, noScreen: () => t().noScreen, lang, pollMs }),
+		...createBossOpen(kit, { record, post, why, confirm, noScreen: () => t().noScreen, lang, baseName: async (id) => (await workspaces(cfg.run).catch(() => [])).find((w) => w.workspace_id === id)?.label, pollMs }),
 		/** The refusal for `/boss stash --workspace` with no value. */
 		needWorkspace: () => tell(t().needWorkspace, "error"),
 		/** `/boss close <name|key>` (or `close all <workspace>` with `onlyBase`): quits another unit, squad, or base after the boss confirms in pi. */
@@ -212,7 +213,7 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 		async unpair(which: string) {
 			if (which === "all") {
 				if (!s.ui) return tell(t().noScreen, "error");
-				if (!(await confirm(t().unpairAsk, t().unpairAskBody))) return tell(t().declined);
+				if (!(await confirm(t().unpairAsk, t().unpairAskBody, true))) return tell(t().declined);
 				const reply = await post(await record(), "remote/unpair-all", {}, 10_000);
 				return reply.status === 200 ? tell(t().unpairedAll(reply.body.unpaired)) : tell(why(reply), "error");
 			}

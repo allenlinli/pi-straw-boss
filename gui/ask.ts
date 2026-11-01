@@ -67,7 +67,7 @@ function cue(el: HTMLElement) {
 	if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(check);
 }
 
-export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: () => void, accepted?: () => void, terminalLabel: () => string = m.show_terminal) {
+export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: () => void, accepted?: (opened: boolean) => void, terminalLabel: () => string = m.show_terminal) {
 	// `cur` is the panel on show, drawn for `shown`; `kept` is the newest one that answers, which comes back as it was when its dialog does.
 	let shown: Pending | undefined, cur: Panel | undefined, kept: Panel | undefined, ready = false, busy = false, leave: ReturnType<typeof setTimeout> | undefined;
 	for (const type of ["focusin", "pointerdown"]) document.addEventListener(type, (e) => cur && !cur.el.contains(e.target as Node) && (cur.lost = undefined)); // the user went elsewhere
@@ -97,7 +97,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		if (instead) say(x.note, tone, `${text} ${instead}`);
 		draw();
 		x.note.scrollIntoView?.({ block: "nearest" }); // a long panel scrolls: its outcome must be read
-		if (accepted && r?.body.outcome === "accepted") setTimeout(accepted, 1200); // an alert's dialog closes once its answer landed, after its outcome shows
+		if (accepted && r?.body.outcome === "accepted") setTimeout(() => accepted(Boolean(then)), then ? 0 : 1200); // an alert's dialog closes once its answer landed, after its outcome shows; at once when it sent the user to a terminal
 	}
 	const option = (role: string, title: string, small: (string | undefined)[], on: () => void, n?: number) => {
 		const b = h("button", { type: "button", class: "ask-opt", role, "aria-checked": "false" }, h("b", n ? { "data-n": String(n) } : null, title), ...small.filter(Boolean).map((s) => h("small", null, s!)));

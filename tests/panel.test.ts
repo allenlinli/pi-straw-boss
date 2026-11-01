@@ -680,3 +680,27 @@ test("an accepted answer that leaves a step in a terminal opens it (the one rule
 	assert.equal(opened.at(-1) as unknown, "zen");
 	onPane(undefined);
 });
+
+test("an alert's dialog closes 1.2 s after its answer landed, and at once, told so, when the answer sent the user to a terminal (nothing queued then opens over it)", async () => {
+	mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		const closed: boolean[] = [];
+		const ask = mountAsk(root as unknown as HTMLElement, (action, body) => (sent.push({ action, body }), new Promise((resolve) => replies.push(resolve))), false, undefined, (opened) => void closed.push(opened));
+		const go = async (dialog: string, body: Record<string, unknown>) => {
+			ask.update(approval(dialog), true);
+			choices()[0]!.click();
+			button("Send answer")!.click();
+			await reply(body);
+		};
+		await go("c1", { outcome: "accepted" });
+		mock.timers.tick(1199);
+		assert.deepEqual(closed, [], "not before 1.2 s");
+		mock.timers.tick(1);
+		assert.deepEqual(closed, [false]);
+		await go("c2", { outcome: "accepted", then: { terminal: true } });
+		mock.timers.tick(0);
+		assert.deepEqual(closed, [false, true], "at once");
+	} finally {
+		mock.timers.reset();
+	}
+});

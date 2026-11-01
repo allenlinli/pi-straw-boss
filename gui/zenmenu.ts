@@ -1,6 +1,6 @@
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
-import type { Choice, View } from "./view.ts";
+import type { Choice } from "./view.ts";
 
 // Zen's corner menu: one quiet button that opens a small panel of the settings a page in Zen would otherwise have to leave for (language, view, sound, the way back to Standard). Every row
 // calls what the settings page calls, so the two never disagree. It opens on hover (desktop: after a short delay, and it closes after a grace period so the pointer can cross the gap), and on a
@@ -8,7 +8,8 @@ import type { Choice, View } from "./view.ts";
 
 export interface MenuDeps {
 	language?: { get(): string; names(): { id: string; name: string }[]; set(id: string): void };
-	view?: { current(): View; set(c: Choice): void };
+	/** `choice` is the device's (Auto, Standard, Geek, Zen); `auto` words the Auto row (Auto, or Follow server with the default's name). */
+	view?: { choice(): Choice; set(c: Choice): void; auto(): string };
 	sound?: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void };
 }
 export const OPEN_MS = 250, GRACE_MS = 500;
@@ -27,7 +28,13 @@ export function mountMenu(deps: MenuDeps, leave: () => void, later: Later) {
 	};
 	const { language, view, sound } = deps;
 	if (language) panel.append(row(m.language(), ...language.names().map((l) => pick(l.name, () => language.get() === l.id, () => language.set(l.id)))));
-	if (view) panel.append(row(m.view_label(), ...(["zen", "standard", "geek"] as const).map((c) => pick({ zen: m.view_zen, standard: m.view_standard, geek: m.view_geek }[c](), () => view.current() === c, () => (view.set(c), redraw.forEach((r) => r())))))); // a view change redraws the pressed marks; a switch away from Zen hides this panel with the layer
+	if (view) {
+		// A pick shows at once (viewface.ts): Standard and Geek leave Zen, Auto follows the server's default or the screen, and the pressed marks redraw (the panel goes with the layer when the view leaves Zen).
+		const choose = (c: Choice) => (view.set(c), redraw.forEach((r) => r()));
+		const auto = pick(view.auto(), () => view.choice() === "auto", () => choose("auto"));
+		redraw.push(() => (auto.textContent = view.auto()));
+		panel.append(row(m.view_label(), auto, ...(["standard", "geek", "zen"] as const).map((c) => pick({ zen: m.view_zen, standard: m.view_standard, geek: m.view_geek }[c](), () => view.choice() === c, () => choose(c)))));
+	}
 	if (sound) {
 		const on = h("button", { type: "button", class: "zen-opt" }), vol = h("input", { type: "range", min: "0", max: "100", step: "5", "aria-label": m.sound_volume() }) as HTMLInputElement;
 		const draw = () => ((on.textContent = sound.on() ? m.state_on() : m.state_off()), on.setAttribute("aria-pressed", String(sound.on())), (vol.value = String(sound.volume())));

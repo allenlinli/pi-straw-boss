@@ -6,6 +6,7 @@ import type { mountComposer, Post } from "./composer.ts";
 import type { Route } from "./router.ts";
 import type { TrustPost, trustPanel } from "./trust.ts";
 import type { FsEnv } from "./zenfs.ts";
+import type { RippleEnv } from "./zenripple.ts";
 import type { MenuDeps } from "./zenmenu.ts";
 import type { Sound } from "./zenmodel.ts";
 import type { With } from "./zenwith.ts";
@@ -36,6 +37,8 @@ export interface ZenDeps {
 	menu?: MenuDeps;
 	/** The full-screen control's page facts (a test gives its own). */
 	fs?: FsEnv;
+	/** The ripples' page facts (a test gives its own). */
+	ripple?: RippleEnv;
 	/** Whether the page holds still (reduced motion, calm): the idle line then stays as it is. */
 	still?(): boolean;
 	random?: () => number;

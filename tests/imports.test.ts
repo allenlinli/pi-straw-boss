@@ -469,7 +469,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Phone layout (step 4): bars.ts 85 to 99 for the queue's fold row (foldQueue, mountQueueFold); session.ts 147 to 150 for the head's `⋯` menu (a tower's + Main and Quit tower, flagged data-tower) and the queue's fold row (mounted and drawn with the other bars).
 	// An answer that needs the terminal opens it (feat/answer-opens-terminal): gui/ask.ts 185 to 188 (the accepted outcome's `then` goes to openThen), gui/mirror.ts 198 to 200 (`open` takes the keyboard for a pane tile), and gui/terminalthen.ts (21, new: the one shared call).
 	// Zen Z4 (ink and motion): i18n.ts 50 to 55 (`setLocale` and `localeNames`, shared by the settings menu and the Zen menu), zen.ts 220 to 230 (the corner, the dissolving card, the empty state's line), zentypes.ts 37 to 46 (the menu, full-screen, and line deps); zenlines.ts (the 14 sourced lines and their deck), zenmenu.ts (the corner menu), zenfs.ts (full screen and the Home Screen hint), and soundprefs.ts (the Sound switch's and Volume's keys, shared with notify.ts) are new.
-	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 151], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 75], ["composer.ts", 327], ["ask.ts", 188], ["terminalthen.ts", 21], ["mirror.ts", 200], ["keypad.ts", 131], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 230], ["zentypes.ts", 46], ["zenlines.ts", 90], ["zenmenu.ts", 90], ["zenfs.ts", 56], ["soundprefs.ts", 14], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
+	// Zen Z4 feedback: zen.ts 230 to 265 and zentypes.ts 46 to 49 (the ripples dep; Esc's facts and the quiet line, the card's two boxes and their glide, the draft's hold, the ripples' mount), ask.ts 185 to 189 (`cancel()`, the card's Cancel pressed by Esc), zenmenu.ts 90 to 96 (the Auto row and the choice-based marks); zenkeys.ts (Esc's table), zensize.ts (the card's glide), zenripple.ts (the ripples), and viewface.ts (what a view move does to the page's face) are new.
+	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 151], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 75], ["composer.ts", 327], ["ask.ts", 193], ["terminalthen.ts", 21], ["mirror.ts", 200], ["keypad.ts", 131], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 265], ["zentypes.ts", 49], ["zenlines.ts", 90], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["soundprefs.ts", 14], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
 	// 0.28.0 to 185 with the answer keys' hooks into gui/ask.ts (the focus on the first option, the textarea). 0.28.0 raised gui/ask.ts from 156 to 175 for the secret panel: the masked field with Show and Hide, Submit, the way back to the terminal, the unsupported-remote notice, and a value that leaves with its one request.
 	// 0.10.0: the page's text comes from Paraglide's messages (gui/messages), which raised chat.ts, views.ts, layer.ts, ask.ts, mirror.ts, and doc.ts by one
 	// line each for the messages import; the strings replaced in place. gui/i18n.ts picks the locale (the menu's choice, the browser's languages with
@@ -518,7 +519,9 @@ test("the TypeScript source stays within its size budgets", () => {
 	// fix/tower-close to 243: the demo restores itself after a drop or silence (the overlay covers its toolbar).
 	// Zen layer (Z3) to 262: the `?zen=` states (zenState) and the trust answer the demo settles.
 	// An answer that needs the terminal opens it (feat/answer-opens-terminal) to 270: the demo's robot_hand button (billing-main waits on the selector) and the `then` its answer returns, read from the chosen choice's `next`.
-	assert.ok(demo <= 270, `the demo fixture has ${demo} lines`);
+	// Zen feedback round to 265: the toolbar's server-view button and the stream's `view` event (the demo's stand-in for `/boss gui view`).
+	// Both increments summed (answer-opens-terminal +8, Z4 feedback +3, and the merged toolbar row +1): 274.
+	assert.ok(demo <= 274, `the demo fixture has ${demo} lines`);
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
 	// 0.15.0 to 254 for the squads' + Member buttons, and gui/spawn.ts to 68 for the new base, member, and squad member tiles and the button reader.
@@ -629,7 +632,9 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Z3 review fixes to 3000: gui/zentypes.ts (37, the layer's deps and mounts types, out of zen.ts so it stays under the spec's 220) and gui/tabicon.ts (10, the tab icon's plain SVG and dotted href, testable); the companion's history fetch, the pause's focus and keys, and the unlocked reply take the rest.
 	// An answer that needs the terminal opens it (feat/answer-opens-terminal) to 3030: gui/terminalthen.ts (21, new), the demo's button, ask.ts, main.ts (the page's pane tile), and the pane's key in layer.ts and mirror.ts.
 	// Zen Z4 to 3280: zenlines.ts (88, with its 14 sourced lines), zenmenu.ts (87), zenfs.ts (55), soundprefs.ts (14), and the hooks in zen.ts, zentypes.ts, i18n.ts, notify.ts, and main.ts.
-	assert.ok(page <= 3310, `the page's TypeScript has ${page} lines`);
+	// Zen Z4 feedback to 3575: zenripple.ts (the ripples), viewface.ts (the page's face for every view move), zenkeys.ts (Esc's table), zensize.ts (the card's glide), and the hooks in zen.ts, ask.ts, zenmenu.ts, view.ts, main.ts, and fixture.ts.
+	// Both increments summed (answer-opens-terminal +30, Z4 feedback +295): 3605.
+	assert.ok(page <= 3605, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -727,7 +732,9 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Z3 review fixes to 83,950 bytes / 29,250 gzipped: the icon helper (gui/tabicon.ts) and the history fetch add about 0.1 KB raw. The overshoot of the spec's 1.6 KB / 0.7 KB entry budget (now about 0.7 KB raw, gzip within) is the boss's to accept: it is the price of the Zen hooks in main.ts that the spec could not see before Z3, recorded here and in the spec's status line.
 	// An answer that needs the terminal opens it (feat/answer-opens-terminal) to 84,450 bytes / 29,450 gzipped: main.ts registers the page's pane tile (`onPane`, terminalthen.ts), and the one message (the map chunk carries every message).
 	// Both increments summed (answer-opens-terminal +500 / +200 gzipped, Z4 +650 / +250): 85,100 bytes / 29,700 gzipped.
-	assert.ok(size(entry).length <= 85_100 && gz(entry) <= 29_700, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
+	// Zen feedback round to 85,600 bytes / 29,800 gzipped: viewface.ts (what a view move does to the page's face: one table, the page's coordinator calls it), the pick that tells its listeners every time (view.ts), the capture-phase Escape, and two messages in both languages.
+	// All three increments summed (answer-opens-terminal +500 / +200, Z4 +650 / +250, Z4 feedback +1,000 / +350): 86,100 bytes / 30,050 gzipped.
+	assert.ok(size(entry).length <= 86_100 && gz(entry) <= 30_050, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -814,8 +821,9 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Z3 review fixes to 218,700 bytes / 88.2 KB gzipped: the companion's history fetch, the pause's focus and keys, and the unlocked reply (about 0.35 KB raw).
 	// An answer that needs the terminal opens it (feat/answer-opens-terminal) to 219,400 bytes / 88.5 KB gzipped: the question card's `opens` hook (ask.ts), the one shared call (terminalthen.ts), and its one message in both languages.
 	// Zen Z4 to 225,200 bytes / 91.1 KB gzipped: the Zen chunk grows by the corner menu, full screen and its hint, the idle line with its 14 sourced lines in both languages, and the dissolving card (JavaScript about 15.6 KB raw / 6.9 KB gzipped, over the spec's 14 KB / 5.5 KB for the chunk; the stylesheet is counted below).
-	// Both increments summed (answer-opens-terminal +700 / +300 gzipped, Z4 +6,500 / +2,900): 225,900 bytes / 91,400 gzipped.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 225_900 && total(chunks, gz) <= 91_400, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Zen feedback round to 229,000 bytes / 92.7 KB gzipped: the Zen chunk grows by the ripples (zenripple.ts), Esc's table and the quiet line, the card's glide, and the draft's hold (about 3.7 KB raw / 1.5 KB gzipped).
+	// All increments summed (answer-opens-terminal +700 / +300, Z4 +6,500 / +2,900, Z4 feedback +3,800 / +1,600): 229,700 bytes / 93,000 gzipped.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 229_700 && total(chunks, gz) <= 93_000, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -891,5 +899,6 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The Zen layer (Z3) to 105,800 bytes / 23.2 KB gzipped: the first-frame block in style.css (about 0.3 KB) and gui/zen.css (2.9 KB, loaded with the Zen chunk; Z4 restyles it).
 	// The Reload link in the overlay (fix/connect-stuck) to 102,900 bytes / 22.0 KB gzipped (with Z1's .zen-back): `.connect-reload` (revealed after 10 s by a step), its keyframes, the reduced-motion exception, and forced colors.
 	// Zen Z4 to 116,400 bytes / 25.65 KB gzipped: gui/zen.css grows from 2.9 KB to 12.7 KB raw (3.4 KB gzipped): the ink tokens, the drift and the breathing circle's washes, the card's slow entrance and its dissolve, the lofi answer card and composer, the corner menu, and the forced-colors and reduced-motion rules; style.css grows by the first-frame ring (about 0.9 KB).
-	assert.ok(total(css, (n) => size(n).length) <= 116_400 && total(css, gz) <= 25_650, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Zen feedback round to 117,500 bytes / 25.8 KB gzipped: the card's two boxes and their eased height, the log's overscroll rules, the pill, the ripples' canvas, and the Esc line.
+	assert.ok(total(css, (n) => size(n).length) <= 117_500 && total(css, gz) <= 25_800, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

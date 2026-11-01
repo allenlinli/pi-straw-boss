@@ -1,5 +1,6 @@
 import "./style.css";
 import { domEnv, KEY, mountPick, mountView, mountZenBack } from "./view.ts";
+import { mountFace } from "./viewface.ts";
 import { localeNames, setLocale, startI18n } from "./i18n.ts";
 import { followLabel } from "./viewlabel.ts";
 import { m } from "./paraglide/messages.js";
@@ -76,7 +77,7 @@ const withPanels = (call: (p: Panels) => void) => {
 };
 const openTile = (tile: Tile, take?: boolean) => withPanels((p) => p.tiles.open(tile, take));
 // A pane an answer opened (terminalthen.ts) shows as a terminal tile with the keyboard in it, whichever view the user is in: Zen leaves for Standard first, as it does for a session's terminal.
-onPane((grant) => (zenOn() && face(true), withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true))));
+onPane((grant) => (zenOn() && face.leave(), withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true))));
 
 // The Zen layer (zen.ts, with the pure model in zenmodel.ts) is a chunk of its own, fetched the first time the page shows Zen. `zenOn()`: the device's view is Zen, this page has not left it
 // (Esc or the corner control: `data-zen-away` on <html>, this page only), and the route is not the settings page, which Zen never covers.
@@ -88,7 +89,7 @@ const withZen = (call: (z: Zen) => void) => {
 		data, recent, label, online: () => status.state === "live",
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
 		remind: (a) => notify.remind(a), sound: () => {}, // the effects are the next step's (Z5)
-		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { current: () => view.view(), set: (c) => view.set(c) }, sound: notify.sound }, // the corner menu's rows act through the settings page's own switches
+		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: notify.sound }, // the corner menu's rows act through the settings page's own switches
 		leave: leaveZen, watch: (key) => ((zenKey = key), rewatch()),
 	})));
 	void zenLoading.then(call);
@@ -110,23 +111,16 @@ function syncZen() {
 	latest && badge(latest); // the tab icon shows no count while Zen is shown, and the count again on leaving
 	rewatch();
 }
-/** Leaves Zen (`away`) or comes back for this page only: the device's choice stays Zen, Standard shows, and the header's Zen button returns. */
-function face(away: boolean) {
-	away ? (root.dataset.zenAway = "") : delete root.dataset.zenAway;
-	view.refresh();
-	syncBack();
-	syncZen();
-}
 /** The way out of Zen (zen.ts): Standard first, then the item's dialog, the session (its terminal), and the newest snapshot. */
 function leaveZen({ item, route, terminal }: Exit) {
-	face(true);
+	face.leave();
 	item && withPanels((p) => p.stack.show(item));
 	terminal && (loadFocus(), withFocus((f) => f.terminal(terminal)));
 	route && router.go(route);
 	pending && show(pending);
 }
-el("zen-back").addEventListener("click", () => syncZen());
-view.onChange((now) => (now === "zen" && current.view === "settings" ? face(true) : now !== "zen" ? face(false) : syncZen()));
+// Where the page's face moves when the view does (viewface.ts): a pick shows at once, a followed default waits on the settings page, Esc and the corner control leave this page for Standard.
+const face = mountFace({ view, root, settings: () => current.view === "settings", leaveSettings: () => leaveSettings(), draw: () => (syncBack(), syncZen()) });
 
 // The settings page's sections (Phone, Teams, Server) are a chunk of their own, fetched the first time the page opens; they are built when a section opens and dropped when it closes (settings.ts).
 // Phone and the server's panel are this computer's: a paired device has neither, and a desk window has no Phone (desk.ts).
@@ -185,7 +179,7 @@ function show(net: Net) {
 function navigate(next: Route) {
 	const before = current, from = next.view === "workspace" && before.view === "map" ? document.querySelector(`#bases [data-key="${CSS.escape(next.ws)}"]`)?.getBoundingClientRect() : undefined;
 	current = next;
-	if (view.view() === "zen" && (next.view === "settings") !== (before.view === "settings")) face(next.view === "settings"); // the settings page is never covered; leaving it enters Zen
+	if ((next.view === "settings") !== (before.view === "settings")) face.route(next.view === "settings"); // the settings page is never covered by a drift into Zen; leaving it shows Zen again
 	document.body.dataset.route = next.view; // a phone's map has no location bar (style.css): the page is the net itself
 	drawer?.route(next);
 	if (next.view === "workspace" || next.view === "session") loadFocus();
@@ -314,9 +308,13 @@ document.addEventListener("visibilitychange", () => {
 });
 const leaveSettings = () => (depthOf(window.history.state) > 0 ? window.history.back() : router.go({ view: "map" })); // `history` is the module's own reader of a session's log
 // Escape closes the top dialog; with none open it goes up one route. A modal (a close confirmation, the lightbox) takes it for itself.
+// In Zen the layer takes Escape first, in the capture phase (so a field's own handler cannot keep it from the rule): one press closes the menu, lets go of a field, or cancels or skips the card, and two
+// that nothing took, within 600 ms, leave (zenkeys.ts). The page never goes up a route from Zen.
+addEventListener("keydown", (event) => {
+	if (event.key === "Escape" && !event.defaultPrevented && !event.isComposing && zenOn() && !document.querySelector(MODAL) && zen?.escape(event)) event.stopPropagation();
+}, true);
 addEventListener("keydown", (event) => {
 	if (event.key !== "Escape" || event.defaultPrevented || document.querySelector(MODAL)) return; // an open popover closes itself
-	if (zenOn() && zen?.escape(event)) return;
 	event.preventDefault();
 	if (panels?.stack.close() || current.view === "map") return;
 	// Settings returns to where it was opened from; a page that opened on it goes to the map. A session goes up a level.

@@ -15,7 +15,7 @@ import { startOf } from "../src/startof.ts";
 const GO_DIRS = ["APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"] as const;
 
 /** What a test must not inherit from the shell or the pi session that started it. */
-export const INHERITED = /^(PI_(INTERCOM|SUBAGENT|HERDR_AGENTS)_.*|PI_SESSION_(FILE|ID)|STRAW_BOSS_.*|HERDR_.*|SB_TEST_REAL_SERVER)$/;
+export const INHERITED = /^(TERM|NO_COLOR|FORCE_COLOR|PI_(INTERCOM|SUBAGENT|HERDR_AGENTS)_.*|PI_SESSION_(FILE|ID)|STRAW_BOSS_.*|HERDR_.*|SB_TEST_REAL_SERVER)$/;
 
 export interface Isolation { root: string; owner: boolean }
 

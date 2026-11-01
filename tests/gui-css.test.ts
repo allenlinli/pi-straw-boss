@@ -106,7 +106,14 @@ test("zen.css: every rule is under the Zen view, the answer card has no Standard
 	assert.match(zen, /@media \(prefers-reduced-motion: reduce\)/);
 	assert.match(zen, /@media \(forced-colors: active\)[\s\S]*\.zen-drift[\s\S]*CanvasText/);
 	assert.match(zen, /:focus-visible \{ outline: 2px solid var\(--zen-seal\)/, "a visible focus ring");
-	assert.match(zen, /\.zen-card > \* \{ animation: zen-in 1\.8s/, "the card's parts arrive slowly, one after another");
+	assert.match(zen, /\.zen-card-in > \* \{ animation: zen-in 1\.8s/, "the card's parts arrive slowly, one after another");
+	assert.match(zen, /\.zen-card \{[^}]*transition: height 0\.52s var\(--zen-ease\)/, "the card's box eases to the size its content needs (zensize.ts), 400 to 600 ms");
+	assert.match(zen, /prefers-reduced-motion: reduce\) \{[^\n]*\.zen-card\) \{ transition: none; \}/, "and follows at once under reduced motion");
 	assert.match(zen, /animation-delay: calc\(var\(--n, 0\) \* 0\.22s\)/);
+	assert.match(zen, /\.zen-log \.chat-scroll \{ overscroll-behavior: contain; touch-action: pan-y; \}/, "the log scrolls itself only: nothing chains to the page, a finger moves it up and down");
+	assert.match(zen, /\.zen-card \{ overscroll-behavior: contain; \}/);
+	assert.match(zen, /\.chat-pill \{ border: 1px solid var\(--zen-line\); background: var\(--zen-warm\); color: var\(--zen-paper\);/, "the log's pill is paper on warm (7 : 1, tests/zen-contrast.test.ts), not paper on paper");
+	assert.match(zen, /#zen \{ overscroll-behavior: none; \}/, "no pull-to-refresh or history swipe from the layer");
+	assert.match(readFileSync(new URL("../gui/style.css", import.meta.url), "utf8"), /html\[data-view="zen"\], html\[data-view="zen"\] body \{[^}]*overscroll-behavior: none;/, "nor from the page under it, from the first frame");
 	assert.ok(!/\.zen-(header|bar|nav)\b/.test(zen) && !/zen-nothing/.test(zen));
 });

@@ -12,7 +12,7 @@ import type { With } from "../gui/zenwith.ts";
 
 // The Zen layer (gui/zen.ts) as the page drives it: the net's snapshots go in, the card, the pause, or the companion comes out, and every answer goes through the same panels
 // and routes as Standard (ask.ts, trust.ts, the composer), which are the real ones here on a fake document. The composer and the log are stand-ins that record what they are given.
-const { mountZen, real } = await import("../gui/zen.ts");
+const { DRAFT_MS, mountZen, real } = await import("../gui/zen.ts");
 type Exit = import("../gui/zen.ts").Exit;
 
 const unit = (key: string, mark: Mark, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
@@ -275,7 +275,48 @@ test("the page never says how many items wait or that more do: what it draws is 
 	assert.equal(shots.get(5)!.pause, shots.get(1)!.pause);
 });
 
-test("Esc: a field with text takes the first as a blur and the next leaves; the corner control leaves; each leaves for its screen", async () => {
+/** An Esc as the page gives it to the layer; `held` makes it a repeat of a key held down. */
+const esc = (r: { z: { escape(e: { preventDefault(): void; repeat?: boolean }): boolean } }, held = false) => {
+	let prevented = 0;
+	const took = r.z.escape({ preventDefault: () => void prevented++, repeat: held });
+	return { took, prevented };
+};
+
+test("Esc on an item cancels its question when it can be cancelled (the card's own Cancel), else it is Not now: the next card; it never leaves", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() }), unit("b", "waiting", { since: 9, name: "bravo", pending: select() })]));
+	r.z.show();
+	await r.settle();
+	const out = esc(r);
+	assert.deepEqual([out.took, out.prevented], [true, 1], "Zen takes it and the page goes nowhere");
+	assert.deepEqual(r.calls.posts.map((p) => [p.key, p.action, p.body.cancel, p.body.dialog]), [["a", "answer", true, "q1"]], "the same body as the Cancel button");
+	await r.reply(ok);
+	assert.deepEqual(r.calls.leave, []);
+	await r.advance(1300);
+	await r.advance(3100);
+	assert.ok(r.text().includes("bravo"), "the next card");
+	assert.equal(r.button("Cancel"), undefined, "this one has no Cancel");
+	esc(r);
+	assert.equal(r.calls.posts.length, 1, "so Esc is Not now: nothing is sent");
+	assert.ok(r.by((el) => el.getAttribute("role") === "img").length, "the item rests and the pause starts");
+	assert.deepEqual(r.calls.leave, [], "Esc on an item never leaves");
+});
+
+test("Esc on a card whose answer is on its way, or with its outcome showing, is not a second cancel: it counts toward leaving instead", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
+	r.z.show();
+	await r.settle();
+	esc(r);
+	await r.reply(ok);
+	assert.equal(r.calls.posts.length, 1);
+	esc(r);
+	assert.equal(r.calls.posts.length, 1, "the outcome is showing: no second cancel");
+	assert.deepEqual(r.calls.leave, [], "one Esc is only the hint");
+	assert.equal(r.by((el) => el.dataset.on !== undefined && el.getAttribute("class") === "zen-esc").length, 1, "the quiet line shows");
+});
+
+test("a field with text takes the first Esc as a blur (the text stays); an empty one is let go of on the companion's screen, and on a card Esc goes on to the card", async () => {
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
 	r.z.show();
@@ -283,30 +324,105 @@ test("Esc: a field with text takes the first as a blur and the next leaves; the 
 	const own = r.by((el) => el.tagName === "textarea")[0]!;
 	own.focus();
 	own.type("and the on-call");
-	let prevented = 0;
-	assert.equal(r.z.escape({ preventDefault: () => void prevented++ }), true);
-	assert.deepEqual(r.calls.leave, [], "the first Esc is a blur");
-	assert.notEqual(page.focused, own);
+	esc(r);
+	assert.notEqual(page.focused, own, "blurred");
 	assert.equal(own.value, "and the on-call", "the text stays");
-	r.z.escape({ preventDefault() {} });
-	assert.equal((r.calls.leave as Exit[]).length, 1);
-	assert.equal((r.calls.leave as Exit[])[0]!.item?.key, "a", "the item's dialog opens in Standard");
-	const corner = r.by((el) => el.getAttribute("class") === "zen-leave")[0]!;
-	corner.click();
-	assert.equal((r.calls.leave as Exit[]).length, 2, "the corner control leaves on any screen");
+	assert.deepEqual([r.calls.leave, r.calls.posts], [[], []], "nothing else happened");
+	own.focus(); // an empty field on a card does not stand in the way
+	own.value = "";
+	esc(r);
+	assert.equal(r.calls.posts.length, 1, "the card's question is cancelled");
 	const idle = rig();
 	idle.feed(net([unit("m", "working")]));
 	idle.z.show();
 	await idle.settle();
-	idle.z.escape({ preventDefault() {} });
-	assert.deepEqual(idle.calls.leave, [{ route: { view: "session", ws: "w", key: "t" } }], "the companion's session");
+	const box = idle.calls.composers[0]!.box;
+	box.focus();
+	esc(idle);
+	assert.notEqual(page.focused, box, "an empty box is let go of");
+	assert.equal(idle.by((el) => el.getAttribute("class") === "zen-esc" && el.dataset.on !== undefined).length, 0, "and no hint: the key was taken");
+	box.focus();
+	box.type("half a thought");
+	esc(idle);
+	assert.notEqual(page.focused, box);
+	assert.equal(box.value, "half a thought");
+	assert.deepEqual(idle.calls.leave, []);
+});
+
+test("on the companion, the empty state, and the pause one Esc does nothing but show the line; a second within 600 ms leaves, a later one starts again", async () => {
+	const idle = rig();
+	idle.feed(net([unit("m", "working")]));
+	idle.z.show();
+	await idle.settle();
+	const hint = () => idle.by((el) => el.getAttribute("class") === "zen-esc")[0]!;
+	assert.equal(hint().textContent, "");
+	esc(idle);
+	assert.deepEqual(idle.calls.leave, [], "one Esc does not leave");
+	assert.equal(hint().textContent, "Press Esc again for Standard");
+	assert.notEqual(hint().dataset.on, undefined);
+	await idle.advance(599);
+	esc(idle);
+	assert.deepEqual(idle.calls.leave, [{ route: { view: "session", ws: "w", key: "t" } }], "the second within 600 ms leaves for the companion's session");
+	assert.equal(hint().textContent, "", "the line goes");
+	const slow = rig();
+	slow.feed(net([unit("m", "working")]));
+	slow.z.show();
+	await slow.settle();
+	esc(slow);
+	await slow.advance(601);
+	assert.equal(slow.by((el) => el.getAttribute("class") === "zen-esc")[0]!.dataset.on, undefined, "the line fades with the window");
+	await slow.advance(400);
+	assert.equal(slow.by((el) => el.getAttribute("class") === "zen-esc")[0]!.textContent, "", "and its words go after the fade");
+	esc(slow);
+	assert.deepEqual(slow.calls.leave, [], "a second after the window is a first again");
+	const empty = rig();
+	empty.feed(net([unit("m", "working")], [], false));
+	empty.z.show();
+	await empty.settle();
+	esc(empty);
+	esc(empty);
+	assert.deepEqual(empty.calls.leave, [{}], "the empty state leaves for the page");
 	const pause = rig();
 	pause.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	pause.z.show();
 	await pause.settle();
 	pause.button("Maybe later")!.click();
-	pause.z.escape({ preventDefault() {} });
+	esc(pause);
+	assert.deepEqual(pause.calls.leave, []);
+	esc(pause);
 	assert.deepEqual(pause.calls.leave, [{}], "a pause just returns to the page");
+});
+
+test("a held Esc repeats into nothing; another key taken between two Esc breaks the pair; Esc in the menu closes the menu only", async () => {
+	const r = rig();
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	esc(r);
+	assert.deepEqual([esc(r, true).took, r.calls.leave], [true, []], "a repeat is no second press");
+	const box = r.calls.composers[0]!.box;
+	box.focus();
+	esc(r);
+	esc(r);
+	assert.deepEqual(r.calls.leave, [], "a blur between the two took one of them: the pair starts over");
+	const menu = r.by((el) => el.getAttribute("class") === "zen-menubtn")[0]!;
+	menu.click();
+	esc(r);
+	assert.equal(r.by((el) => el.getAttribute("class") === "zen-menu")[0]!.hidden, true, "the menu closed");
+	assert.deepEqual(r.calls.leave, [], "and nothing else");
+	esc(r);
+	esc(r);
+	assert.equal(r.calls.leave.length, 1, "the next two leave");
+});
+
+test("Esc is Zen's only while it shows: a hidden layer lets the page have it", async () => {
+	const r = rig();
+	r.feed(net([unit("m", "working")]));
+	assert.equal(esc(r).took, false, "not yet shown");
+	r.z.show();
+	await r.settle();
+	r.z.hide();
+	assert.equal(esc(r).took, false, "hidden again");
 });
 
 test("a hidden page's pause ends when the page is shown; a tap ends the pause", async () => {
@@ -374,6 +490,52 @@ test("the companion: the tower by fallback, its log and composer, the stream wat
 	assert.ok(r.button("Maybe later"), "it takes the screen when the box empties");
 	assert.deepEqual(r.calls.sound, ["bowl"]);
 	assert.equal(r.calls.watch.at(-1), null, "and the stream stops watching the companion");
+});
+
+/** Time passes in the half seconds the layer polls a held screen at. */
+const wait = async (r: { advance(ms: number): Promise<void> }, ms: number) => {
+	for (let left = ms; left > 0; left -= 500) await r.advance(Math.min(500, left));
+};
+
+test("scrolling and tapping the log change nothing: a draft in the box keeps holding the screen through a tap (the box loses the focus), a wheel, a drag, and a touch", async () => {
+	const r = rig();
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	const box = r.calls.composers.at(-1)!.box, log = r.by((el) => el.getAttribute("class") === "zen-log")[0]!;
+	box.focus();
+	box.type("half a sentence");
+	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
+	await wait(r, 600);
+	assert.equal(r.button("Maybe later"), undefined, "the item waits while he types");
+	box.blur(); // a tap, or a click on the scroll bar, takes the focus off the box
+	log.bubble("pointerdown");
+	await wait(r, 1000);
+	assert.equal(r.button("Maybe later"), undefined, "a tap on the log does not hand the screen over");
+	for (let i = 0; i < 8; i++) {
+		for (const type of ["wheel", "scroll", "touchstart", "pointerdown"]) log.bubble(type);
+		await wait(r, DRAFT_MS / 4);
+	}
+	assert.equal(r.button("Maybe later"), undefined, "scrolling it, for longer than the hold, keeps the hold");
+	assert.deepEqual(r.calls.sound, [], "and makes no sound");
+	assert.equal(box.value, "half a sentence", "the draft is where he left it");
+	assert.deepEqual(r.calls.leave, [], "nothing is left or opened");
+	await wait(r, DRAFT_MS + 1000);
+	assert.ok(r.button("Maybe later"), "left alone for the hold, the draft lets the waiting item take the screen");
+});
+
+test("with no draft in the box a tap on the log is nothing: no item is waiting to take the screen, and the screen does not change", async () => {
+	const r = rig();
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	const box = r.calls.composers.at(-1)!.box, log = r.by((el) => el.getAttribute("class") === "zen-log")[0]!;
+	box.focus();
+	box.blur();
+	for (const type of ["pointerdown", "wheel", "scroll", "touchstart"]) log.bubble(type);
+	await wait(r, 2000);
+	assert.equal(r.by((el) => el.getAttribute("class") === "zen-company").length, 1, "still the companion");
+	assert.deepEqual([r.calls.sound, r.calls.leave], [[], []]);
 });
 
 test("the stored companion wins while the net lists it live; without one, nothing waits shows the circle and the line", async () => {

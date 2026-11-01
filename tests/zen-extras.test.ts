@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import type { Choice } from "../gui/view.ts";
 import { El, page } from "./zen-dom.ts";
 
 // Z4's small parts, each on the fake document: the corner menu (gui/zenmenu.ts), the full-screen control (gui/zenfs.ts), the line under the idle circle (gui/zenlines.ts), the shared sound and
@@ -41,11 +42,11 @@ const text = (e: El) => e.textContent;
 
 function menuRig(o: { sound?: boolean } = {}) {
 	const c = clock(), st = store(), calls: string[] = [];
-	let lang = "en", view = "zen";
+	let lang = "en", view: Choice = "zen";
 	let sound = o.sound ?? false, volume = 60;
 	const m = mountMenu({
 		language: { get: () => lang, names: () => [{ id: "en", name: "English" }, { id: "zh-TW", name: "正體中文" }], set: (id) => ((lang = id), calls.push(`lang:${id}`)) },
-		view: { current: () => view as "zen", set: (v) => ((view = v), calls.push(`view:${v}`)) },
+		view: { choice: () => view, auto: () => "Auto", set: (v) => ((view = v), calls.push(`view:${v}`)) },
 		sound: { on: () => sound, volume: () => volume, set: (on) => ((sound = on), writeSound(on, st), calls.push(`sound:${on}`)), setVolume: (v) => ((volume = v), writeVolume(v, st)), try: () => calls.push("try") },
 	}, () => calls.push("leave"), c.later);
 	page.body.replaceChildren(m.el as unknown as El);
@@ -115,6 +116,7 @@ test("each row acts through the settings page's own function or store: language,
 	const r = menuRig();
 	r.btn.click();
 	r.by("正體中文").click();
+	r.by("Auto").click();
 	r.by("Standard").click();
 	r.by("Geek").click();
 	r.by("Off").click();
@@ -122,8 +124,8 @@ test("each row acts through the settings page's own function or store: language,
 	vol.value = "35";
 	vol.oninput?.();
 	vol.bubble("change");
-	r.by("Back to the Standard view (Esc)").click();
-	assert.deepEqual(r.calls.filter((c) => c !== "try"), ["lang:zh-TW", "view:standard", "view:geek", "sound:true", "leave"]);
+	r.by("Back to the Standard view (Esc Esc)").click();
+	assert.deepEqual(r.calls.filter((c) => c !== "try"), ["lang:zh-TW", "view:auto", "view:standard", "view:geek", "sound:true", "leave"]);
 	assert.equal(r.st.get(SOUND_KEY), "1", "the Sound switch's own key");
 	assert.equal(r.st.get(VOLUME_KEY), "35", "the Volume's own key");
 	assert.equal(readSound(r.st), true);
@@ -242,7 +244,7 @@ test("the line fades to the next every 45 s, stays still under calm or reduced m
 test("the words: the new keys exist in both languages with the boss's copy, and zen_nothing is gone", () => {
 	const read = (f: string) => JSON.parse(readFileSync(new URL(`../gui/messages/${f}.json`, import.meta.url), "utf8")) as Record<string, string>;
 	const zh = read("zh-TW"), en = read("en");
-	const want: Record<string, string> = { zen_back_title: "回到禪", zen_leave_title: "回到標準畫面（Esc）", zen_asks: "{name} 想問你", zen_not_now: "晚點再說", zen_open_standard: "到標準畫面處理", zen_elsewhere: "已經在別處回好了", zen_pause: "吸一口氣", zen_fullscreen: "全螢幕", zen_fullscreen_exit: "離開全螢幕", zen_add_home: "想全螢幕，可以把這頁加入主畫面。" };
+	const want: Record<string, string> = { zen_back_title: "回到禪", zen_leave_title: "回到標準畫面（Esc Esc）", zen_esc_hint: "再按一次 Esc 回到標準", zen_asks: "{name} 想問你", zen_not_now: "晚點再說", zen_open_standard: "到標準畫面處理", zen_elsewhere: "已經在別處回好了", zen_pause: "吸一口氣", zen_fullscreen: "全螢幕", zen_fullscreen_exit: "離開全螢幕", zen_add_home: "想全螢幕，可以把這頁加入主畫面。" };
 	for (const [k, v] of Object.entries(want)) {
 		assert.equal(zh[k], v, k);
 		assert.ok(en[k] && en[k] !== v, `${k} has its English`);
@@ -251,4 +253,19 @@ test("the words: the new keys exist in both languages with the boss's copy, and 
 	assert.equal(zh.zen_nothing, undefined);
 	assert.equal(en.zen_nothing, undefined);
 	assert.ok(!/[\u4e00-\u9fff]/.test(Object.entries(en).filter(([k]) => k.startsWith("zen_")).map(([, v]) => v).join("")), "the English words are English");
+});
+
+test("Zen's Esc table: the menu first, then a field with text, an item, an empty field, and last the pair that leaves", async () => {
+	const { escStep, ESC_MS } = await import("../gui/zenkeys.ts");
+	assert.equal(ESC_MS, 600);
+	const none = { menu: false, field: "none", item: false, armed: false } as const;
+	assert.equal(escStep({ ...none, menu: true, field: "text", item: true, armed: true }), "menu", "an open menu takes it before anything");
+	assert.equal(escStep({ ...none, field: "text", item: true }), "blur", "text in a field comes before the card");
+	assert.equal(escStep({ ...none, field: "empty", item: true }), "item", "an empty field does not stand in a card's way");
+	assert.equal(escStep({ ...none, item: true, armed: true }), "item", "on a card the pair never forms");
+	assert.equal(escStep({ ...none, field: "empty" }), "blur", "on the companion an empty field is let go of");
+	assert.equal(escStep(none), "hint");
+	assert.equal(escStep({ ...none, armed: true }), "leave");
+	assert.equal(escStep({ ...none, armed: true, repeat: true }), "none", "a held key is nothing");
+	assert.equal(escStep({ ...none, menu: true, repeat: true }), "none");
 });

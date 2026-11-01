@@ -7,6 +7,8 @@
 
 export type Choice = "auto" | "standard" | "geek" | "zen";
 export type View = "standard" | "geek" | "zen";
+/** What moved the view: the person chose one (`pick`: here or on another page of this device), or the page's own Auto followed the server's default or the screen (`follow`). */
+export type Cause = "pick" | "follow";
 export const KEY = "sb.view";
 /** The theme-color of the Geek and Zen views (Zen: the ink ground); Standard keeps the color the page came with (index.html). */
 export const THEME = { geek: "#000000", zen: "#14110e" } as const;
@@ -40,7 +42,7 @@ export function domEnv(): ViewEnv {
 }
 
 export function mountView(env: ViewEnv = domEnv()) {
-	const listeners: ((view: View) => void)[] = [], serverListeners: ((server: Choice) => void)[] = [], standard = env.meta?.content ?? "";
+	const listeners: ((view: View, cause: Cause) => void)[] = [], serverListeners: ((server: Choice) => void)[] = [], standard = env.meta?.content ?? "";
 	const read = () => {
 		try {
 			return choiceOf(env.storage.getItem(KEY));
@@ -49,16 +51,17 @@ export function mountView(env: ViewEnv = domEnv()) {
 		}
 	};
 	let choice = read(), server = choiceOf(env.server?.content), shown: View | undefined;
-	function apply() {
+	/** A `pick` tells the listeners every time, even when the view it resolves to is the one shown (a Zen page that was left comes back); a `follow` only when the view changed. */
+	function apply(cause?: Cause) {
 		const view = resolve(choice, env.media.matches, server), face = view === "zen" && env.root.dataset.zenAway !== undefined ? "standard" : view; // a page that left Zen (main.ts) shows Standard
 		env.root.dataset.view = face;
 		if (env.meta) env.meta.content = face === "standard" ? standard : THEME[face];
-		const changed = shown !== undefined && shown !== view;
-		shown = view; // before the listeners, which may draw the view again (main.ts leaves Zen on the settings page)
-		if (changed) for (const fn of listeners) fn(view);
+		const told = cause === "pick" || (cause === "follow" && shown !== undefined && shown !== view);
+		shown = view; // before the listeners, which may draw the view again (viewface.ts)
+		if (told) for (const fn of listeners) fn(view, cause!);
 	}
 	apply();
-	env.media.addEventListener("change", apply);
+	env.media.addEventListener("change", () => apply("follow"));
 	return {
 		choice: () => choice,
 		view: () => resolve(choice, env.media.matches, server),
@@ -70,7 +73,7 @@ export function mountView(env: ViewEnv = domEnv()) {
 			if (value === server) return;
 			server = value;
 			for (const fn of serverListeners) fn(server);
-			apply();
+			apply("follow");
 		},
 		/** Switches at once and keeps the choice for this device; a refused storage still switches this page. */
 		set(next: Choice) {
@@ -78,16 +81,16 @@ export function mountView(env: ViewEnv = domEnv()) {
 			try {
 				env.storage.setItem(KEY, next);
 			} catch {} // the choice holds until the page closes
-			apply();
+			apply("pick");
 		},
-		/** Draws the view again (the page left Zen or came back, main.ts) without reading the storage. */
-		refresh: apply,
+		/** Draws the view again (the page left Zen or came back, viewface.ts) without reading the storage, and tells no one. */
+		refresh: () => apply(),
 		/** Another tab of this device chose: read the stored value again. */
 		reread() {
 			choice = read();
-			apply();
+			apply("pick");
 		},
-		onChange: (fn: (view: View) => void) => void listeners.push(fn),
+		onChange: (fn: (view: View, cause: Cause) => void) => void listeners.push(fn),
 		/** Told when the server's default changed (the settings' Auto button names it). */
 		onServer: (fn: (server: Choice) => void) => void serverListeners.push(fn),
 	};

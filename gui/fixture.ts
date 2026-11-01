@@ -69,8 +69,8 @@ function towerService(state: TowerState): { service?: TowerService; mark: Mark }
 	return { service, mark: !live ? "idle" : idle ? "idle" : "working" };
 }
 
-const HEAL_MS = 8000;
-export interface Control { drop(): void; silence(): void; restore(): void; doc(): void; tower(state?: string): void }
+const HEAL_MS = 8000, SERVER_VIEWS = ["auto", "standard", "geek", "zen"];
+export interface Control { drop(): void; silence(): void; restore(): void; doc(): void; tower(state?: string): void; /** The server's default view changes, as `/boss gui view` does: the stream's `view` event (no value: the next of Auto, Standard, Geek, Zen). */ serverView(view?: string): void }
 
 // `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion). The idle states make no new waits for a minute and a half.
 const zenState = (net: Net, state: string | null) => {
@@ -86,7 +86,7 @@ const zenState = (net: Net, state: string | null) => {
 
 export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer> } {
 	demoOpen(); // the opening tiles' folder picker and deploy, with no server
-	let towerNow: TowerState = "off";
+	let towerNow: TowerState = "off", serverNow = "auto";
 	const zen = new URLSearchParams(location.search).get("zen");
 	let net = demo(), step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
 	// The demo documents stand in for the server's: the HTML one as a data: page, the text ones from here.
@@ -167,6 +167,10 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 			current?.send("message", net);
 		},
 		doc: () => ((units(net).find((u) => u.key === "a1")!.docs = [...(units(net).find((u) => u.key === "a1")!.docs ?? []), doc(`note-${++notes}`, `docs/notes-${notes}.md`, "Notes for review")]), (net = structuredClone(net)), current?.send("message", net)),
+		serverView: (next) => {
+			serverNow = next ?? SERVER_VIEWS[(SERVER_VIEWS.indexOf(serverNow) + 1) % SERVER_VIEWS.length]!;
+			current?.send("view", serverNow);
+		},
 	};
 	const start = new URLSearchParams(location.search).get("tower");
 	if (start) control.tower(start);
@@ -208,7 +212,7 @@ function mountToolbar(control: Control) {
 	// On a phone it folds to a "demo" tab in the right margin, which no panel reaches; a tap shows the rest.
 	const phone = innerWidth < 640;
 	if (phone) bar.style.cssText += ";max-width:none;bottom:auto;right:0;top:40%;writing-mode:vertical-rl;flex-direction:column;padding:6px 1px;gap:4px";
-	const buttons = [["demo", () => buttons.slice(1).forEach((b) => (b.style.display = b.style.display ? "" : "none"))], ["drop stream", control.drop], ["go silent", control.silence], ["restore", control.restore], ["doc arrives", control.doc], ["tower", () => control.tower()], ["drawer", () => document.dispatchEvent(new Event("sb-drawer"))]].map(([label, run]) => {
+	const buttons = [["demo", () => buttons.slice(1).forEach((b) => (b.style.display = b.style.display ? "" : "none"))], ["drop stream", control.drop], ["go silent", control.silence], ["restore", control.restore], ["doc arrives", control.doc], ["tower", () => control.tower()], ["server view", () => control.serverView()], ["drawer", () => document.dispatchEvent(new Event("sb-drawer"))]].map(([label, run]) => {
 		const button = document.createElement("button");
 		[button.textContent, button.onclick] = [label as string, run as () => void];
 		button.style.cssText = `all:unset;cursor:pointer;padding:3px 9px;border-radius:8px;background:#1a2748;color:#dbe6ff;${phone ? "padding:8px 1px;" : ""}${label !== "demo" && phone ? "display:none" : ""}`;

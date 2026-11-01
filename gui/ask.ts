@@ -163,6 +163,11 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 			const to = cur && !cur.done ? cur.first?.() : undefined;
 			return Boolean(to && !to.disabled && (to.focus(), true));
 		},
+		/** Presses the panel's Cancel as the button does, when it offers one that may be pressed now; false when it does not (Zen's Esc then skips the card instead). */
+		cancel() {
+			const b = cur && !cur.done ? cur.cancel : undefined;
+			return Boolean(b && !b.disabled && (b.click(), true));
+		},
 		/** The unit's pending dialog now, and whether it can be answered or its pane brought forward (it waits and the stream is up). */
 		update(next: Pending | undefined, can: boolean) {
 			ready = can;

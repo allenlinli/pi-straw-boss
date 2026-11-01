@@ -56,8 +56,9 @@ function cue(el: HTMLElement) {
 		el.toggleAttribute("data-more", el.scrollHeight - el.scrollTop - el.clientHeight > 4);
 		for (const acts of el.querySelectorAll<HTMLElement>(".ask-acts")) acts.dataset.cue = m.ask_more(); // attr() reads the element the pseudo-element belongs to
 	};
-	el.addEventListener("scroll", check, { passive: true });
+	for (const type of ["scroll", "input"]) el.addEventListener(type, check, { passive: true }); // typing grows a textarea
 	if (typeof ResizeObserver !== "undefined") new ResizeObserver(check).observe(el);
+	if (typeof MutationObserver !== "undefined") new MutationObserver(check).observe(el, { childList: true, subtree: true, characterData: true }); // at max-height the scroller's own box does not resize when its content grows
 	if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(check);
 }
 

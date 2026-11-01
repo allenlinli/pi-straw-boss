@@ -19,11 +19,11 @@ export function fillConversation(box: HTMLElement, ws: string, service: TowerSer
 	const open = box.querySelector(".menu-pop")?.matches(":popover-open") === true, kept = open ? [box.querySelector(".tnote-fail")?.textContent, box.querySelector(".conv-done")?.textContent] : [];
 	box.hidden = !c && !inRun && !events.length;
 	if (box.hidden) return box.replaceChildren();
-	const fail = h("small", { class: "tnote-fail", role: "alert" }), done = h("small", { class: "conv-done", role: "status" }), say = (text?: string) => ((fail.textContent = text ?? ""), (done.textContent = ""));
+	const fail = h("small", { class: "tnote-fail", role: "alert" }), done = h("small", { class: "conv-done", role: "status" }), live = (cls: string, own: HTMLElement) => box.querySelector<HTMLElement>(`.${cls}`) ?? own, say = (text?: string) => ((live("tnote-fail", fail).textContent = text ?? ""), (live("conv-done", done).textContent = ""));
 	[fail.textContent, done.textContent] = [kept[0] ?? "", kept[1] ?? ""];
 	const button = (label: string, title: string, path: "leave" | "new", ok: () => string) => {
 		const b = h("button", { type: "button", class: "pair-btn", title, "data-menu-keep": "" }, label);
-		b.onclick = () => void guarded(b, say, async () => { const r = await post(`tower/${encodeURIComponent(ws)}/${path}`, {}); if (r.ok) done.textContent = ok(); return r; }, 0);
+		b.onclick = () => void guarded(b, say, async () => { const r = await post(`tower/${encodeURIComponent(ws)}/${path}`, {}); if (r.ok) live("conv-done", done).textContent = ok(); return r; }, 0);
 		return b;
 	};
 	// A phone shows the line alone, in one row, with a `⋯` for what acts: Leave, New and their notes, the event runs' chips, and the facts the line cuts (style.css, "A phone's menus"). Above 640 px the menu is `display: contents` and the rows are as they were.

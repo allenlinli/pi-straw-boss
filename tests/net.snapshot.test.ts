@@ -295,6 +295,27 @@ test("a subagent whose run is recorded done but whose pi still watches a running
 	}
 });
 
+test("a persistent specialist that recorded done and works its next task shows working; a one-shot child in the same state keeps showing done", async () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "psb-net-persistent-")));
+	try {
+		const dir = join(root, "sessions"), file = join(dir, "2026_s1.jsonl"), art = join(dir, "artifacts", "s1"), activity = join(art, "subagent-activity"), scripts = join(art, "subagent-scripts");
+		mkdirSync(activity, { recursive: true });
+		mkdirSync(scripts, { recursive: true });
+		writeFileSync(file, "");
+		for (const name of ["kid-keep", "kid-once"]) writeFileSync(join(activity, `${name}.json`), JSON.stringify({ phase: "done" }));
+		writeFileSync(join(scripts, "kid-keep-kid-keep.sh"), "#!/bin/sh\nexport PI_SUBAGENT_PERSISTENT=1\n");
+		writeFileSync(join(scripts, "kid-once-kid-once.sh"), "#!/bin/sh\nexport PI_SUBAGENT_SESSION='/x'\n");
+		const pane = (id: string, label: string) => ({ pane_id: id, workspace_id: "wA", tab_id: "wA:t1", agent: "pi", agent_status: "working", label, agent_session: { value: join(dir, `2026_${label}.jsonl`) } }) as Pane;
+		const ps = [...panes.map((p) => (p.pane_id === "wA:p1" ? { ...p, agent: "pi", agent_session: { value: file } } : p)), pane("wA:p8", "kid-keep"), pane("wA:p9", "kid-once")];
+		const herdr = async (args: string[]) => JSON.stringify({ result: args[0] === "pane" ? { panes: ps } : { workspaces } });
+		const source = netSource({ run: herdr, sessions: async () => [session("s1", "one", { ws: "wA", tab: "wA:t1", pane: "wA:p1" })], sessionDir: dir });
+		const kids = (await source.read()).bases[0]!.tabs[0]!.units[0]!.subs.map((c) => [c.key, c.mark, Boolean(c.ended)]);
+		assert.deepEqual(kids.toSorted(), [["kid-keep", "working", false], ["kid-once", "done", true]]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("a live ally run whose session file is its own is a read-only unit of the net: its key is on the tower's chip, the path stays off the page, a file outside the sessions folder or of an unlisted run is no unit, and the key lapses with the registry", async () => {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "psb-net-ally-")));
 	try {

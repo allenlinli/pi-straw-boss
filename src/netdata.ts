@@ -50,7 +50,7 @@ export function readJson(path: string): Record<string, unknown> {
 const RACY_MS = 2000;
 const childPanes = new WeakMap<Pane[], { size: number; index: Map<string, Pane> }>();
 const listings = new Map<string, { mtime: bigint; readAt: number; names: string[] }>();
-const scripts = new Map<string, { mtimeMs: number; session?: string }>();
+const scripts = new Map<string, { mtimeMs: number; session?: string; persistent: boolean }>();
 const SUFFIX = /^(.*)-[0-9a-f]{1,8}-[0-9a-f]{1,8}-[0-9a-f]{1,4}$/;
 
 /** The child ids a pane's session file can belong to: `ownFile` read from the file's side, so one pass over the panes replaces a match per child and pane. */
@@ -91,15 +91,15 @@ function listed(dir: string): string[] {
 	}
 }
 
-/** The session file a launch script names, read again only when the script changed. */
-function scriptSession(path: string): string | undefined {
+/** The session file a launch script names and whether it launched a persistent specialist, read again only when the script changed. */
+function scriptRead(path: string): { session?: string; persistent: boolean } | undefined {
 	try {
 		const { mtimeMs } = statSync(path), cached = scripts.get(path);
-		if (cached?.mtimeMs === mtimeMs) return cached.session;
-		const session = readFileSync(path, "utf8").match(/PI_SUBAGENT_SESSION='([^']+)'/)?.[1];
+		if (cached?.mtimeMs === mtimeMs) return cached;
+		const text = readFileSync(path, "utf8"), read = { mtimeMs, session: text.match(/PI_SUBAGENT_SESSION='([^']+)'/)?.[1], persistent: /\bPI_SUBAGENT_PERSISTENT=1\b/.test(text) };
 		if (scripts.size > 500) scripts.clear();
-		scripts.set(path, { mtimeMs, session });
-		return session;
+		scripts.set(path, read);
+		return read;
 	} catch {
 		return undefined; // the launch script is only a fallback source for the name and the session file
 	}
@@ -123,15 +123,15 @@ export function subagents(parent: Pane | undefined, all: Pane[], now: number, li
 		.map(({ id, path, pane }) => {
 			const activity = readJson(path);
 			// A child whose pane is gone, or back at a shell prompt, has finished.
-			const live: Mark = pane?.agent === "pi" ? markOf(pane.agent_status) : "done";
-			const mark: Mark = activity.phase === "done" && (live === "working" || live === "commanding") ? "done" : live; // a pi pane still working after the child recorded done is winding down: the map, the drawer's tag and the badge follow `ended`
+			const live: Mark = pane?.agent === "pi" ? markOf(pane.agent_status) : "done", script = launched.find((f) => f.endsWith(`-${id}.sh`)), launch = script ? scriptRead(join(dir, "subagent-scripts", script)) : undefined;
+			const recordedDone = activity.phase === "done" && !(launch?.persistent && (live === "working" || live === "commanding")); // a persistent specialist stays available after done and its recorder stops writing: its phase stays done while a later subagent_send task runs
+			const mark: Mark = recordedDone && (live === "working" || live === "commanding") ? "done" : live; // a pi pane still working after the child recorded done is winding down: the map, the drawer's tag and the badge follow `ended`
 			// Only a pi pane's session file is the child's transcript; a reused pane running another agent is not read.
-			const script = launched.find((f) => f.endsWith(`-${id}.sh`));
-			const file = (pane?.agent === "pi" ? pane.agent_session?.value : undefined) ?? (script && scriptSession(join(dir, "subagent-scripts", script)));
+			const file = (pane?.agent === "pi" ? pane.agent_session?.value : undefined) ?? launch?.session;
 			const name = pane?.label || (script?.slice(0, -`-${id}.sh`.length) ?? id.slice(0, 8));
 			const doing = activity.toolActive ? String(activity.toolName) : String(activity.phase ?? "");
-			const ended = pane?.agent !== "pi" || activity.phase === "done";
-			return { group: "net" as const, depth: 2, mark, text: name, kind: "subagent", workspace: pane?.workspace_id, id, file, pane: pane?.agent === "pi" ? pane.pane_id : undefined, ...(ended && { ended }), ...(activity.phase === "done" && { finished: true }), note: { working: doing, waiting: "waiting on a question", done: "finished" }[mark as "working"] };
+			const ended = pane?.agent !== "pi" || recordedDone;
+			return { group: "net" as const, depth: 2, mark, text: name, kind: "subagent", workspace: pane?.workspace_id, id, file, pane: pane?.agent === "pi" ? pane.pane_id : undefined, ...(ended && { ended }), ...(recordedDone && { finished: true }), note: { working: doing, waiting: "waiting on a question", done: "finished" }[mark as "working"] };
 		})
 		.sort((a, b) => Number(a.mark === "done") - Number(b.mark === "done") || a.text.localeCompare(b.text))
 		.slice(0, limit);

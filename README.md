@@ -53,7 +53,7 @@ pi install npm:pi-straw-boss
 - pi running inside [Herdr](https://herdr.dev) 0.9.4 or newer.
 - Herdr's pi integration (`herdr integration install pi`): without it Herdr does not name a pane's pi session, and the session cannot join the net; each session warns once, 20 s after its start, when it is missing.
 - [pi-intercom](https://www.npmjs.com/package/pi-intercom) 0.18.1 or newer: the net's channels, messages, and the GUI's dialog relay run over it, and so does the sb server's connection (it checks the version at start and says so in `start-error.json` and `boss_server status` when pi-intercom is older or missing).
-- Windows support is experimental: the extension reaches Herdr over its named pipe there, the sidebar plugin runs with the `node` on `PATH`, and the worktree reaper is macOS and Linux only ([what differs](docs/how-it-works.md#windows)).
+- Windows support is experimental: the extension reaches Herdr over its named pipe there, the sidebar plugin runs with the `node` on `PATH`, the worktree reaper is macOS and Linux only, and the project-trust relay works only while pi's agent folder lies inside your user profile (elsewhere pi asks in its terminal as before) ([what differs](docs/how-it-works.md#windows)).
 
 ### Works with
 

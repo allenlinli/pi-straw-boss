@@ -251,8 +251,11 @@ test("zen is stored, served in the meta, told in hello and as a view event, and 
 	await until(() => s.heard.some(([e]) => e === "view"), "a view event");
 	assert.deepEqual(JSON.parse(readFileSync(prefs(h), "utf8")), { v: 1, view: "zen" });
 	assert.equal(metaOf(await pageOf(h)), "zen");
-	assert.equal(h.gui().view, "zen");
 	assert.equal(h.gui().view, "zen", "gui.json carries it for a shell");
+	const late = stream(h);
+	await until(() => helloOf(late.heard).length > 0, "a later stream's hello");
+	assert.equal(helloOf(late.heard)[0]!.view, "zen", "a stream opened after the set hears zen in its hello");
+	late.close();
 	assert.deepEqual(s.heard.filter(([e]) => e === "view").map(([, d]) => JSON.parse(d)), ["zen"]);
 	const reply = await h.ask("gui-view", { view: "zen2" });
 	assert.equal(reply.ok, false);
@@ -268,4 +271,21 @@ test("/boss gui view zen in a pi session sets the default and says Zen", async (
 	assert.match(viewer.notices.at(-1)!.text, /default view is now Zen/);
 	assert.notEqual(viewer.notices.at(-1)!.level, "error");
 	assert.equal(metaOf(await pageOf(h)), "zen");
+});
+
+test("a stored value this build reads as auto (a newer or older build's) is rewritten by an explicit set, and zen returns after a restart if nothing rewrote it", async () => {
+	const h = await startHosted(world);
+	await h.ask("gui-view", { view: "zen" });
+	await h.ask("restart", { reason: "test", by: "test" });
+	await h.handle.done;
+	const next = await startHosted(world);
+	assert.deepEqual(JSON.parse(readFileSync(prefs(next), "utf8")), { v: 1, view: "zen" }, "starting rewrites nothing");
+	assert.equal(metaOf(await pageOf(next)), "zen");
+	writeFileSync(prefs(next), JSON.stringify({ v: 1, view: "zen2" }));
+	await next.ask("restart", { reason: "test", by: "test" });
+	await next.handle.done;
+	const later = await startHosted(world);
+	assert.equal(metaOf(await pageOf(later)), "auto", "an unknown value reads as auto");
+	assert.deepEqual(await later.ask("gui-view", { view: "auto" }), { ok: true, view: "auto", changed: false });
+	assert.deepEqual(JSON.parse(readFileSync(prefs(later), "utf8")), { v: 1, view: "auto" }, "an explicit auto replaces the value it could not read");
 });

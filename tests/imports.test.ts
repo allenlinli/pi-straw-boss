@@ -615,8 +615,9 @@ test("the TypeScript source stays within its size budgets", () => {
 	// The value zen (Zen step Z1) to 2539: view.ts takes the third view (the type, THEME.zen, the choice), main.ts the header's Zen button and its away sync, and i18n.ts names three messages.
 	// A sheet over the overlay (fix/tower-close) to 2532: connect.ts lets a click inside a modal dialog through.
 	// Zen model (Z2) to 2631 (with the sheet fix): gui/zenwith.ts (the device's last talk and the companion's target) and gui/zenmodel.ts (the pure model of what Zen shows) are new, alerts.ts and session.ts take `since` and the recording Post.
+	// Zen review fixes: gui/viewlabel.ts (the Auto label, out of main.ts) is new, and view.ts takes the Zen back button's mount (out of main.ts): both are testable now, 2639 to 2649.
 	// Z1 and Z2 together (the merge) to 2639: the two increments over the common 2531.
-	assert.ok(page <= 2639, `the page's TypeScript has ${page} lines`);
+	assert.ok(page <= 2649, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {

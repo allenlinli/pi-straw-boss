@@ -107,3 +107,12 @@ export function mountPick(group: HTMLElement, view: PageView, label?: (server: C
 	addEventListener("storage", (e) => e.key === KEY && (view.reread(), sync()));
 	sync();
 }
+
+/** The header's Zen button: shown only when the device's view is Zen and the Zen layer was left (`data-zen-away` on <html>); a click returns to it. Returns the sync. */
+export function mountZenBack(button: HTMLElement, view: PageView, root: { dataset: DOMStringMap }) {
+	const sync = () => (button.hidden = view.view() !== "zen" || root.dataset.zenAway === undefined);
+	view.onChange(sync);
+	button.addEventListener("click", () => (delete root.dataset.zenAway, view.reread(), sync()));
+	sync();
+	return sync;
+}

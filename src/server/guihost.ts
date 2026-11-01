@@ -24,7 +24,7 @@ import { createTrustServe } from "../trust/serve.ts";
 import type { Kit } from "../state.ts";
 import { type Log, tailLog } from "./log.ts";
 import { createLanHost, type LanHost, type LanSeams } from "./lanhost.ts";
-import { isView, readView, type ServerView, writeView } from "./guiprefs.ts";
+import { isView, readView, type ServerView, storedIs, writeView } from "./guiprefs.ts";
 import { dropSecrets, keepSecrets, type Lost, readSecrets } from "./guisecrets.ts";
 import { fileOf, readRecord, type ServerRecord, type Slot, updateRecord, writeJson } from "./record.ts";
 import type { Reply, Request } from "./socket.ts";
@@ -410,13 +410,15 @@ export function createGuiHost(o: GuiHostOptions) {
 			if (request.cmd === "gui-view") {
 				if (request.view === undefined) return { ok: true, view };
 				if (!isView(request.view)) return { ok: false, error: "The default view is auto, standard, geek, or zen" };
-				if (request.view === view) return { ok: true, view, changed: false };
+				if (request.view === view && storedIs(dir, view)) return { ok: true, view, changed: false };
 				// The file first: a default that could not be stored changes nothing, in the page or in the record.
 				try {
 					writeView(dir, request.view);
 				} catch (error) {
 					return gone(new Error(`gui-prefs.json could not be written (${phrase((error as Error).message, 200)}); the default view stays ${view}`));
 				}
+				// Same value, different file (a value this build reads as auto): rewritten, nothing to tell the pages.
+				if (request.view === view) return { ok: true, view, changed: false };
 				view = request.view;
 				gui?.setView(view);
 				try {

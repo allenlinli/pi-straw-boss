@@ -21,5 +21,17 @@ export function readView(dir: string): ServerView {
 	return "auto";
 }
 
+/** Whether the file already says exactly this default (a missing file says `auto`). An older or newer build's value this code reads as `auto` does not match, so an explicit set rewrites it. */
+export function storedIs(dir: string, view: ServerView): boolean {
+	const text = readOwnedText(join(dir, PREFS_FILE));
+	if (text === undefined) return view === "auto";
+	try {
+		const v = JSON.parse(text) as Record<string, unknown> | null;
+		return !!v && typeof v === "object" && v.v === 1 && v.view === view;
+	} catch {
+		return false;
+	}
+}
+
 /** Stores the default; throws when the folder cannot be written (the caller tells the boss, and nothing changes). */
 export const writeView = (dir: string, view: ServerView) => writeJson(join(dir, PREFS_FILE), { v: 1, view });

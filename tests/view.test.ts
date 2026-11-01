@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { autoView, choiceOf, KEY, mountPick, mountView, resolve, THEME, type ViewEnv } from "../gui/view.ts";
+import { followLabel } from "../gui/viewlabel.ts";
+import { autoView, mountZenBack, choiceOf, KEY, mountPick, mountView, resolve, THEME, type ViewEnv } from "../gui/view.ts";
 
 // The page's view (gui/view.ts): Auto, Standard, or Geek from the device's storage and the OS's contrast preference, set on <html> before the first render.
 
@@ -255,6 +256,37 @@ test("the Auto button reads Follow server (Zen) when the server's default is zen
 		mountPick({ querySelectorAll: () => buttons, toggleAttribute: () => {}, dataset: {} } as unknown as HTMLElement, view, (server) => (server === "auto" ? "Auto" : `Follow server (${names[server]})`));
 		assert.equal(buttons[0]!.textContent, "Follow server (Zen)");
 		assert.deepEqual(buttons.map((b) => b.attrs["aria-pressed"]), ["true", "false", "false", "false"]);
+	} finally {
+		if (saved === undefined) delete g.addEventListener;
+		else g.addEventListener = saved;
+	}
+});
+
+test("the page's Auto label names the server's default, Zen included", () => {
+	assert.equal(followLabel("auto"), "Auto");
+	assert.equal(followLabel("zen"), "Follow server (Zen)");
+	assert.equal(followLabel("geek"), "Follow server (Geek)");
+	assert.equal(followLabel("standard"), "Follow server (Standard)");
+});
+
+test("the Zen back button is hidden unless the view is Zen and data-zen-away is set; its click clears the mark", () => {
+	const g = globalThis as Record<string, unknown>, saved = g.addEventListener;
+	g.addEventListener = () => {};
+	try {
+		for (const [stored, away, hidden] of [["zen", false, true], ["zen", true, false], ["standard", true, true], ["geek", false, true]] as const) {
+			const w = world(stored, false);
+			const view = mountView(w.env);
+			let click: () => void = () => {};
+			const button = { hidden: false, addEventListener: (_: string, fn: () => void) => (click = fn) } as unknown as HTMLElement;
+			const root = { dataset: (away ? { zenAway: "" } : {}) as DOMStringMap };
+			mountZenBack(button, view, root);
+			assert.equal(button.hidden, hidden, `${stored} away=${away}`);
+			if (!hidden) {
+				click();
+				assert.equal(root.dataset.zenAway, undefined, "the click leaves away");
+				assert.equal(button.hidden, true);
+			}
+		}
 	} finally {
 		if (saved === undefined) delete g.addEventListener;
 		else g.addEventListener = saved;

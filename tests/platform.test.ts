@@ -8,6 +8,7 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { listenControl, newSecret } from "../src/server/socket.ts";
 import { instanceOf, localEndpoint as pluginEndpoint, socketCall } from "../herdr-plugin/net-view.mjs";
 import { agentFiles, ask, newPipe, NoSidecar, socketIsFile, socketOf } from "../src/agent/paths.ts";
 import { herdrSocket, localEndpoint } from "../src/endpoint.ts";
@@ -90,18 +91,28 @@ test("the extension, its watch, and the plugin reach Herdr over this platform's 
 	}
 });
 
-test("a sidecar's control socket answers on this platform, and a closed one reads as no sidecar", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "psb-platform-agent-")), files = agentFiles(dir, "wA:p1"), socket = socketIsFile() ? files.socket : newPipe();
-	const server: Server = createServer((c) => c.on("data", () => c.end(`${JSON.stringify({ ok: true, pid: process.pid })}\n`)).on("error", () => {}));
+test("a sidecar's control socket answers through the secret and proof on this platform, a squatter gets no request, and a closed one reads as no sidecar", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "psb-platform-agent-")), files = agentFiles(dir, "wA:p1"), socket = socketIsFile() ? files.socket : newPipe(), secret = newSecret();
 	mkdirSync(files.dir, { recursive: true });
+	const control = await listenControl({ endpoint: socket, secret, hello: () => ({ pid: process.pid }), handle: (r) => ({ ok: true, echo: r.cmd }) });
 	try {
-		await new Promise<void>((resolve) => server.listen(socket, resolve));
-		assert.deepEqual(await ask(socket, { cmd: "hello" }, 3000), { ok: true, pid: process.pid });
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		if (socketIsFile()) rmSync(socket, { force: true });
-		await assert.rejects(ask(socket, { cmd: "hello" }, 3000), (error) => error instanceof NoSidecar);
+		assert.deepEqual(await ask(socket, secret, { cmd: "status" }, 3000), { ok: true, echo: "status" });
+		assert.equal((await ask(socket, secret, { cmd: "hello" }, 3000)).pid, process.pid);
+		await assert.rejects(ask(socket, newSecret(), { cmd: "status" }, 3000), (error) => error instanceof NoSidecar, "a wrong secret gets no answer");
+		await control.close();
+		await assert.rejects(ask(socket, secret, { cmd: "hello" }, 3000), (error) => error instanceof NoSidecar);
+		// A squatter on the freed name: it answers hello with no proof and records what else it is sent.
+		const received: string[] = [];
+		const squatter: Server = createServer((c) => c.setEncoding("utf8").on("data", (chunk: string) => (received.push(chunk), received.length === 1 && c.write(`${JSON.stringify({ ok: true, pid: process.pid })}\n`))).on("error", () => {}));
+		await new Promise<void>((resolve) => squatter.listen(socket, resolve));
+		try {
+			await assert.rejects(ask(socket, secret, { cmd: "send", message: "top secret" }, 3000), (error) => error instanceof NoSidecar);
+			assert.equal(received.join("").includes("top secret"), false);
+		} finally {
+			squatter.close();
+		}
 	} finally {
-		server.close();
+		await control.close();
 		rmSync(dir, { recursive: true, force: true });
 	}
 });

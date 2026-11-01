@@ -1,5 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, rmSync, statSync, unlinkSync } from "node:fs";
-import { createServer } from "node:net";
+import { chmodSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { removeEntry } from "../board.ts";
@@ -15,6 +14,7 @@ import { createReach } from "../reach.ts";
 import { createRoles } from "../roles.ts";
 import type { Scope } from "../state.ts";
 import { type Incoming, type IntercomLike, createHeadlessKit } from "./kit.ts";
+import { newSecret, listenControl, type Control } from "../server/socket.ts";
 import { claim } from "./claim.ts";
 import { type HeadlessDeps, headlessConfig } from "./config.ts";
 import { agentFiles, findIntercom, type Held, newPipe, readHeld, type Reply, socketIsFile, stateDirOf } from "./paths.ts";
@@ -81,7 +81,7 @@ export async function startSidecar({ pane, kind, session, record, cli = "straw-n
 	mkdirSync(files.dir, { recursive: true, mode: 0o700 });
 	chmodSync(files.dir, 0o700);
 	const socket = socketIsFile() ? files.socket : newPipe();
-	const mine: Held = { pid: process.pid, session, kind, pane, id, name, startedAt: now(), ...(socketIsFile() ? {} : { pipe: socket }) };
+	const mine: Held = { pid: process.pid, session, kind, pane, id, name, startedAt: now(), secret: newSecret(), ...(socketIsFile() ? {} : { pipe: socket }) };
 	await claim(files, mine, pane, now);
 
 	const kit = createHeadlessKit({ client: undefined as unknown as IntercomLike, env, cfg, log: (text, level) => log(level && level !== "info" ? `${level}: ${text}` : text) });
@@ -95,7 +95,7 @@ export async function startSidecar({ pane, kind, session, record, cli = "straw-n
 	let client: IntercomLike | undefined, leaving: Promise<void> | undefined, finish!: () => void;
 	const done = new Promise<void>((resolve) => (finish = resolve));
 	const timers: ReturnType<typeof setInterval>[] = [], stops: (() => void)[] = [];
-	const server = createServer();
+	let control: Control | undefined;
 	// The pane runs another agent now (a quit Claude Code, then pi in the same pane): its role tokens are that agent's, not ours to write or to clear.
 	const foreign = async () => {
 		try {
@@ -117,7 +117,7 @@ export async function startSidecar({ pane, kind, session, record, cli = "straw-n
 		// The tokens on the pane are its new agent's once another agent runs there.
 		if (s.joined && !(await foreign())) await presence.clear().catch(() => {});
 		await client?.disconnect().catch(() => {});
-		server.close();
+		void control?.close(true);
 		if (socketIsFile()) rmSync(socket, { force: true });
 		// Last, and only this sidecar's own file: a sidecar for the pane can claim it the moment it is gone.
 		const left = readHeld(files);
@@ -313,25 +313,9 @@ export async function startSidecar({ pane, kind, session, record, cli = "straw-n
 			return { ok: false, error: (error as Error).message };
 		}
 	};
-	server.on("connection", (conn) => {
-		let line = "";
-		conn.setEncoding("utf8").setTimeout(150_000, () => conn.destroy()); // longer than the slowest command's wait (cli.ts ASK_MS)
-		conn.on("error", () => {});
-		conn.on("data", (chunk) => {
-			line += chunk;
-			if (!line.includes("\n")) return;
-			conn.removeAllListeners("data");
-			let parsed: Record<string, unknown> = {};
-			try { parsed = JSON.parse(line.split("\n")[0]!); } catch { /* answered as an unknown command */ }
-			void request(parsed).then((reply) => conn.end(`${JSON.stringify(reply)}\n`));
-		});
-	});
-	await new Promise<void>((resolve, reject) => {
-		if (socketIsFile() && existsSync(socket)) unlinkSync(socket);
-		server.once("error", reject);
-		// A named pipe's default access lets only its creator, administrators, and SYSTEM write to it or make another instance of it.
-		server.listen(socket, () => (server.off("error", reject), socketIsFile() && chmodSync(socket, 0o600), resolve()));
-	}).catch(async (error) => (await leave("the control socket could not listen"), Promise.reject(error)));
+	// Every connection opens with the hello secret from the state file and gets the proof back before it may send a request (src/server/socket.ts; docs/specs/2026-10-26-sb-backend.md, the net sidecar's socket).
+	await listenControl({ endpoint: socket, secret: mine.secret!, hello: () => ({ pid: process.pid, session, leaving: Boolean(leaving) }), handle: request, idleMs: 150_000, refused: (why) => log(`refused a connection: ${why}`) }) // idle longer than the slowest command's wait (cli.ts ASK_MS)
+		.then((listening) => void (control = listening), async (error) => (await leave("the control socket could not listen"), Promise.reject(error)));
 
 	// The join: Herdr must say the pane is not in a sub workspace, then the broker, then the tab.
 	const ready = (async () => {

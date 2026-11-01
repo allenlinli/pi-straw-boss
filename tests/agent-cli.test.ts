@@ -7,10 +7,12 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { ASK_MS, parseArgs, run, type SpawnSpec, UsageError } from "../src/agent/cli.ts";
-import { agentFiles, alive, type Held, readHeld } from "../src/agent/paths.ts";
+import { agentFiles, alive, ask, type Held, NoSidecar, readHeld } from "../src/agent/paths.ts";
+import { listenControl } from "../src/server/socket.ts";
 
-const dirs: string[] = [], servers: Server[] = [];
-afterEach(() => {
+const dirs: string[] = [], servers: Server[] = [], closers: (() => Promise<void>)[] = [];
+afterEach(async () => {
+	await Promise.all(closers.splice(0).map((close) => close()));
 	servers.splice(0).forEach((server) => server.close());
 	dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }));
 });
@@ -22,33 +24,45 @@ const scratch = () => {
 	mkdirSync(files.dir, { recursive: true });
 	return { stateDir, files };
 };
-const held = (over: Partial<Held> = {}): Held => ({ pid: process.pid, session: SESSION, kind: "claude", pane: PANE, id: `claude-${SESSION}`, name: "claude-085ff3b1", startedAt: 1, ...over });
+const SECRET = "ab".repeat(32);
+const held = (over: Partial<Held> = {}): Held => ({ secret: SECRET, pid: process.pid, session: SESSION, kind: "claude", pane: PANE, id: `claude-${SESSION}`, name: "claude-085ff3b1", startedAt: 1, ...over });
 const output = () => {
 	const out: string[] = [], err: string[] = [];
 	return { out, err, deps: { out: (text: string) => void out.push(text), err: (text: string) => void err.push(text) } };
 };
-/** A sidecar's control socket that answers each request with `answer` and records what it was asked. */
+/** A sidecar's control socket (the real handshake: hello secret in, proof out) that answers each request with `answer` and records what it was asked. */
 async function sidecarAt(files: ReturnType<typeof agentFiles>, answer: (request: Record<string, unknown>) => Record<string, unknown>, hello: (held: Held) => Record<string, unknown> = () => ({})) {
 	mkdirSync(files.dir, { recursive: true });
 	const asked: Record<string, unknown>[] = [];
+	const control = await listenControl({
+		endpoint: files.socket,
+		secret: SECRET,
+		// Who it is: what a sidecar answers before anything else, from the state file it would have written.
+		hello: () => {
+			const held = readHeld(files);
+			return held && alive(held.pid) ? { pid: held.pid, session: held.session, ...hello(held) } : { pid: -1 };
+		},
+		handle: (request) => (asked.push(request), answer(request) as { ok: boolean }),
+	});
+	closers.push(() => control.close());
+	return asked;
+}
+/** A squatter at a dead sidecar's name: it accepts, answers hello with a wrong or absent proof, and records every byte it is sent. */
+async function squatterAt(files: ReturnType<typeof agentFiles>, proof: "none" | "wrong") {
+	mkdirSync(files.dir, { recursive: true });
+	const received: string[] = [];
 	const server = createServer((conn) => {
-		let line = "";
-		conn.setEncoding("utf8").on("data", (chunk) => {
-			line += chunk;
-			if (!line.includes("\n")) return;
-			const request = JSON.parse(line);
-			// Who it is: what a sidecar answers before anything else, from the state file it would have written.
-			if (request.cmd === "hello") {
-				const held = readHeld(files);
-				return void conn.end(`${JSON.stringify(held && alive(held.pid) ? { ok: true, pid: held.pid, session: held.session, ...hello(held) } : { ok: false, error: "no state" })}\n`);
-			}
-			asked.push(request);
-			conn.end(`${JSON.stringify(answer(request))}\n`);
+		let first = true;
+		conn.setEncoding("utf8").on("data", (chunk: string) => {
+			received.push(chunk);
+			if (first) conn.write(`${JSON.stringify({ ok: true, pid: process.pid, session: SESSION, ...(proof === "wrong" ? { proof: "00".repeat(32) } : {}) })}\n`);
+			first = false;
 		});
+		conn.on("error", () => {});
 	});
 	servers.push(server);
 	await new Promise<void>((resolve) => server.listen(files.socket, resolve));
-	return asked;
+	return received;
 }
 
 test("arguments: each command takes its own flags, the pane defaults to the one the process runs in, and anything else is a usage error", () => {
@@ -264,4 +278,41 @@ test("D19: call-tower takes --why (milestone, shared, blocked) and --reply (true
 	assert.throws(() => parseArgs(["call-tower", "--message", "m", "--why", "progress"], { HERDR_PANE_ID: PANE }), /--why must be milestone, shared, or blocked/);
 	assert.throws(() => parseArgs(["call-tower", "--message", "m", "--reply", "maybe"], { HERDR_PANE_ID: PANE }), /--reply must be true or false/);
 	assert.throws(() => parseArgs(["broadcast", "--message", "m", "--why", "blocked"], { HERDR_PANE_ID: PANE }), /unknown option|--why belongs/);
+});
+
+for (const proof of ["none", "wrong"] as const) {
+	test(`T13a: a squatter at a dead sidecar's name that answers hello with ${proof === "none" ? "no proof" : "a wrong proof"} gets no request, and the command reports no sidecar`, async () => {
+		const { stateDir, files } = scratch();
+		writeFileSync(files.state, JSON.stringify(held()));
+		const received = await squatterAt(files, proof);
+		const o = output();
+		assert.equal(await run(["send", "--to", "t", "--message", "top secret", "--pane", PANE], { stateDir, ...o.deps }), 2);
+		assert.match(o.err.join(""), /no net sidecar for pane wA:p3/);
+		assert.deepEqual(o.out, []);
+		assert.equal(received.length, 1, "only the hello arrived");
+		assert.doesNotMatch(received.join(""), /top secret|"send"/);
+		await assert.rejects(ask(files.socket, SECRET, { cmd: "status" }, 1000), NoSidecar);
+		assert.equal(received.join("").includes("status"), false);
+	});
+}
+
+test("T13a: a state file with no secret is no sidecar, and nothing is sent to its socket", async () => {
+	const { stateDir, files } = scratch();
+	const { secret: _s, ...bare } = held();
+	writeFileSync(files.state, JSON.stringify(bare));
+	const received = await squatterAt(files, "none");
+	const o = output();
+	assert.equal(await run(["status", "--pane", PANE], { stateDir, ...o.deps }), 2);
+	assert.deepEqual(received, []);
+});
+
+test("the normal path: a sidecar that proves itself gets the request and answers it", async () => {
+	const { stateDir, files } = scratch();
+	writeFileSync(files.state, JSON.stringify(held()));
+	const asked = await sidecarAt(files, (r) => ({ ok: true, text: `did ${String(r.cmd)}` }));
+	const o = output();
+	assert.equal(await run(["rename", "--name", "n", "--pane", PANE], { stateDir, ...o.deps }), 0);
+	assert.equal(o.out.join(""), "did rename\n");
+	assert.deepEqual(asked.map((r) => r.cmd), ["rename"]);
+	await assert.rejects(ask(files.socket, "cd".repeat(32), { cmd: "status" }, 1000), NoSidecar, "a wrong secret is refused with no answer");
 });

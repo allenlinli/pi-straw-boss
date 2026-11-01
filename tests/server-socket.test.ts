@@ -172,3 +172,33 @@ test("R8-F004: a responder at the endpoint that does not know the secret (no pro
 		}
 	}
 });
+
+for (const proof of ["none", "wrong"] as const) {
+	test(`callControl writes the request only after the hello's answer proves itself: a squatter with ${proof === "none" ? "no proof" : "a wrong proof"} receives the hello and nothing else`, async () => {
+		const received: string[] = [];
+		const squatter = listen((conn) => {
+			conn.setEncoding("utf8").on("data", (chunk: string) => {
+				received.push(chunk);
+				if (received.length === 1) conn.write(`${JSON.stringify({ ok: true, pid: 7, ...(proof === "wrong" ? { proof: "00".repeat(32) } : {}) })}\n`);
+			});
+			conn.on("error", () => {});
+		});
+		const endpoint = join(root, "q.sock");
+		await new Promise<void>((resolve) => squatter.listen(endpoint, resolve));
+		try {
+			await assert.rejects(callControl(endpoint, SECRET, { cmd: "send", message: "top secret" }, 1000), (error: ControlError) => error.failure === "refused");
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			assert.equal(received.join("").includes("top secret"), false, received.join(""));
+			assert.equal(received.join("").split("\n").filter(Boolean).length, 1, "only the hello arrived");
+		} finally {
+			squatter.close();
+		}
+	});
+}
+
+test("callControl with a request still gets both answers from a real server", async () => {
+	const { control } = await serve();
+	const got = await callControl(control.endpoint, SECRET, { cmd: "ping" });
+	assert.equal(got.hello.pid, 7);
+	assert.deepEqual(got.reply, { ok: true, echo: "ping" });
+});

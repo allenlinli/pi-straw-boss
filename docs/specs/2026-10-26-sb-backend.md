@@ -447,6 +447,11 @@ relay ── SSE ─► link holder ── ally message ── tower service W �
 - Run tokens (**The wake protocol**) are checked on top of the secret, for requests a run makes.
 - The net sidecar's Windows pipe (how-it-works, **From Claude Code or Codex**) has the same gap today. It is out of scope here and is
   recorded as a finding for the sidecar, to be fixed with the same `hello` secret.
+  **Closed (todo #13, option A).** The sidecar listens through `listenControl` with a secret of its own (`Held.secret` in its mode-600 state file),
+  answers `hello` with the proof, and `ask` in `src/agent/paths.ts` writes the request only after `callControl` has verified the proof. A
+  squatter on a dead sidecar's name gets the hello and no request, and the command reports no sidecar; a state file with no secret is no
+  sidecar. The same change fixed `callControl`, which used to write the request in the same write as the hello, before the proof was
+  checked (a squatter on a freed server pipe or a stale socket path received the first request body).
 
 ### What the server runs from
 

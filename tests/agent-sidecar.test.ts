@@ -296,7 +296,7 @@ test("a main sidecar opens the tower itself for call-tower", async () => {
 
 test("the control socket answers a request line with one JSON line", async () => {
 	const { sidecar } = await claude();
-	const reply = await ask(agentFiles(world.stateDir, "wA:p3").socket, { cmd: "status" });
+	const reply = await ask(agentFiles(world.stateDir, "wA:p3").socket, readHeld(agentFiles(world.stateDir, "wA:p3"))?.secret, { cmd: "status" });
 	assert.equal(reply.ok, true);
 	assert.equal(((reply as unknown) as { me: { id: string } }).me.id, sidecar.id);
 	assert.equal(statSync(agentFiles(world.stateDir, "wA:p3").socket).mode & 0o077, 0, "only its owner may connect");

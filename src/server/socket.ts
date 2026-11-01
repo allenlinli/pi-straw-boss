@@ -46,8 +46,8 @@ export function endpointFor(slot: Slot, platform: NodeJS.Platform = process.plat
 
 export interface Control {
 	endpoint: string;
-	/** Stops accepting connections, ends the open ones, and removes the socket file. */
-	close(): Promise<void>;
+	/** Stops accepting connections, ends the open ones, and removes the socket file. With `graceful`, the open ones are ended after what is already written is flushed (a reply to the request that is stopping the server still arrives), and destroyed a second later. */
+	close(graceful?: boolean): Promise<void>;
 }
 export interface ListenOptions {
 	endpoint: string;
@@ -57,11 +57,13 @@ export interface ListenOptions {
 	handle(request: Request): Promise<Reply> | Reply;
 	/** A connection was closed with no answer; told at most once a minute. */
 	refused?(why: string): void;
+	/** How long a connection may sit without traffic before it is closed (default one minute). */
+	idleMs?: number;
 	platform?: NodeJS.Platform;
 	now?: () => number;
 }
 
-export function listenControl({ endpoint, secret, hello, handle, refused, platform = process.platform, now = Date.now }: ListenOptions): Promise<Control> {
+export function listenControl({ endpoint, secret, hello, handle, refused, idleMs = IDLE_MS, platform = process.platform, now = Date.now }: ListenOptions): Promise<Control> {
 	const sockets = new Set<Socket>();
 	let lastTold = -Infinity;
 	const refuse = (conn: Socket, why: string) => {
@@ -75,7 +77,7 @@ export function listenControl({ endpoint, secret, hello, handle, refused, platfo
 		sockets.add(conn);
 		conn.on("close", () => sockets.delete(conn));
 		conn.on("error", () => {});
-		conn.setEncoding("utf8").setTimeout(IDLE_MS, () => conn.destroy());
+		conn.setEncoding("utf8").setTimeout(idleMs, () => conn.destroy());
 		let buffer = "", authed = false, work: Promise<void> = Promise.resolve();
 		const wait = setTimeout(() => !authed && refuse(conn, "no hello"), HELLO_MS);
 		wait.unref();
@@ -127,8 +129,11 @@ export function listenControl({ endpoint, secret, hello, handle, refused, platfo
 			if (platform !== "win32") chmodSync(endpoint, 0o600);
 			resolve({
 				endpoint,
-				close: () => new Promise<void>((done) => {
-					for (const conn of sockets) conn.destroy();
+				close: (graceful = false) => new Promise<void>((done) => {
+					for (const conn of sockets) {
+						if (!graceful) conn.destroy();
+						else (conn.end(), setTimeout(() => conn.destroy(), 1000).unref());
+					}
 					server.close(() => done());
 					if (platform !== "win32") rmSync(endpoint, { force: true });
 				}),
@@ -160,7 +165,7 @@ export class ControlError extends Error {
 }
 
 /**
- * One exchange with a server: `hello` with the secret, then the request when there is one. Resolves with the hello's answer and the request's. Rejects with a
+ * One exchange with a server: `hello` with the secret, then the request when there is one, written only after the hello's answer has proved itself. Resolves with the hello's answer and the request's. Rejects with a
  * ControlError: `no-server` when nothing listens, `refused` when the server closed the connection without answering (a wrong secret), `timeout`.
  */
 export function callControl(endpoint: string, secret: string, request: Request | undefined, timeoutMs = 10_000): Promise<{ hello: Reply; reply?: Reply }> {
@@ -176,7 +181,8 @@ export function callControl(endpoint: string, secret: string, request: Request |
 			if (error) reject(error);
 			else resolve({ hello: got[0]!, ...(got[1] ? { reply: got[1] } : {}) });
 		};
-		conn.on("connect", () => conn.write(`${JSON.stringify({ cmd: "hello", secret, nonce })}\n${request ? `${JSON.stringify(request)}\n` : ""}`));
+		// The request goes out only once the answer has proved its sender knows the secret: whatever sits at a freed name or a stale path gets the hello and nothing else.
+		conn.on("connect", () => conn.write(`${JSON.stringify({ cmd: "hello", secret, nonce })}\n`));
 		conn.on("data", (chunk: string) => {
 			buffer += chunk;
 			for (let at = buffer.indexOf("\n"); at >= 0 && !done; at = buffer.indexOf("\n")) {
@@ -190,6 +196,10 @@ export function callControl(endpoint: string, secret: string, request: Request |
 				if (got.length === 1 && !got[0]!.ok) return finish(new ControlError("refused", String(got[0]!.error ?? "the server refused")));
 				// The answer must prove that its sender knows the secret (a reply with no proof, or a wrong one, is what something else at a free pipe name would give).
 				if (got.length === 1 && !proves(got[0]!, secret, nonce)) return finish(new ControlError("refused", "the answer does not prove that its sender knows the secret"));
+				if (got.length === 1 && request) {
+					conn.write(`${JSON.stringify(request)}\n`);
+					continue;
+				}
 				if (got.length >= want) return finish();
 			}
 		});

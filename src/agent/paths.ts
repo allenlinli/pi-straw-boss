@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { createConnection } from "node:net";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { callControl, ControlError } from "../server/socket.ts";
 
 // Where a net sidecar keeps what it leaves for the commands (one pane's state file, control socket, and log), and where pi-intercom and its tsx loader are.
 
@@ -27,7 +27,9 @@ export const socketOf = (files: AgentFiles, held: Held | undefined) => (typeof h
 export type AgentFiles = ReturnType<typeof agentFiles>;
 
 /** What a running sidecar writes first: who holds the pane. */
-export interface Held { pid: number; session: string; kind: string; pane: string; id: string; name: string; startedAt: number; pipe?: string }
+export interface Held { pid: number; session: string; kind: string; pane: string; id: string; name: string; startedAt: number; pipe?: string;
+	/** The sidecar's hello secret (new at each start; the file is mode 600): a connection without it gets no answer, and an answer without the proof made from it gets no request. */
+	secret?: string }
 
 /** Whether `pid` is a live process of this user: a sidecar is, so EPERM (another user's process) is not one of ours. */
 export const alive = (pid: unknown) => {
@@ -66,7 +68,7 @@ export interface Holder { held: Held; state: "up" | "starting" | "leaving" }
  */
 export async function judge(files: AgentFiles, held: Held | undefined, now: () => number = Date.now): Promise<Holder | undefined> {
 	if (!held) return undefined;
-	const reply = await ask(socketOf(files, held), { cmd: "hello" }, 3000).catch(() => undefined);
+	const reply = await ask(socketOf(files, held), held.secret, { cmd: "hello" }, 3000).catch(() => undefined);
 	if (reply?.ok && reply.pid === held.pid && reply.session === held.session) return { held, state: reply.leaving ? "leaving" : "up" };
 	return alive(held.pid) && now() - held.startedAt < STARTING_MS ? { held, state: "starting" } : undefined;
 }
@@ -78,22 +80,24 @@ export const liveHeld = async (files: AgentFiles) => ((h) => (h && h.state !== "
 export interface Reply { ok: boolean; error?: string; text?: string; [key: string]: unknown }
 /** Nothing listens on the socket (it was never made, or the sidecar behind it has ended); any other failure means a sidecar was reached. */
 export class NoSidecar extends Error {}
-export const ask = (socket: string, request: Record<string, unknown>, timeoutMs = 60_000) =>
-	new Promise<Reply>((resolve, reject) => {
-		let reply = "";
-		const conn = createConnection(socket).setTimeout(timeoutMs);
-		conn.setEncoding("utf8");
-		conn.on("connect", () => conn.write(`${JSON.stringify(request)}\n`));
-		conn.on("data", (chunk) => {
-			reply += chunk;
-			if (!reply.includes("\n")) return;
-			conn.destroy();
-			try { resolve(JSON.parse(reply.split("\n")[0]!) as Reply); } catch { reject(new Error(`the sidecar answered ${reply.slice(0, 100)}`)); }
-		});
-		conn.on("timeout", () => (conn.destroy(), reject(new Error(`the sidecar did not answer within ${timeoutMs / 1000} s`))));
-		conn.on("error", (error) => reject(["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code ?? "") ? new NoSidecar(error.message) : error));
-		conn.on("close", () => reply.includes("\n") || reject(new Error("the sidecar closed the connection without an answer")));
-	});
+/**
+ * `secret` is the one in the pane's state file. The request is written only after the sidecar has answered the hello with a proof made from it, so whatever sits on the name of a dead
+ * sidecar (a pipe on Windows is free once the last instance closes) gets no request and counts as no sidecar.
+ */
+export async function ask(socket: string, secret: string | undefined, request: Record<string, unknown>, timeoutMs = 60_000): Promise<Reply> {
+	if (!secret) throw new NoSidecar("the pane's state file holds no secret for its sidecar");
+	try {
+		// The hello of the handshake already says who answers (pid, session, leaving): asking it again as a request would be a second round trip.
+		if (request.cmd === "hello") return (await callControl(socket, secret, undefined, timeoutMs)).hello;
+		return (await callControl(socket, secret, { ...request, cmd: String(request.cmd) }, timeoutMs)).reply!;
+	} catch (error) {
+		if (!(error instanceof ControlError)) throw error;
+		if (error.failure === "no-server") throw new NoSidecar(error.message);
+		if (error.failure === "refused") throw new NoSidecar(`whatever answers there did not prove itself the pane's sidecar (${error.message}); run join again`);
+		if (error.failure === "timeout") throw new Error(`the sidecar did not answer within ${timeoutMs / 1000} s`);
+		throw new Error(error.message);
+	}
+}
 
 /** pi-intercom's directory: named by STRAW_BOSS_INTERCOM, else beside this package (both live in pi's npm node_modules), else in the agent directory's npm node_modules. */
 export function findIntercom(env: NodeJS.ProcessEnv = process.env, here = dirname(fileURLToPath(import.meta.url))): string {

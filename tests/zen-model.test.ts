@@ -204,3 +204,28 @@ test("the render input carries no count of what waits: the same with one other i
 	assert.deepEqual(typing.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2))).screen, { kind: "companion" }, "the companion carries nothing about what waits");
 	assert.deepEqual(Object.keys(one[0]).sort(), ["item", "kind"]);
 });
+
+test("a trust question that is gone from the net was settled elsewhere: the knock and the line, not a silent exit; a unit that left stays silent", () => {
+	const a = { ...al("trust\u001f/x\u001fg", "waiting", 5), name: "x", trust: { id: "t", digest: "g", folder: "/x", found: [], agents: [] } as Alert["trust"] };
+	const { z, at } = rig();
+	z.update(map(a));
+	const r = z.update(map());
+	assert.deepEqual([r.sound, (r.screen as { outcome?: string }).outcome], ["knock", "elsewhere"]);
+	const unitGone = rig();
+	unitGone.z.update(map(al("u", "waiting", 5)));
+	assert.equal(unitGone.z.update(map()).sound, undefined, "a unit that left the net plays nothing");
+	at(0);
+});
+
+test("due is the soonest moment ahead: a time that has passed is not due again, so the layer's one timer does not spin", () => {
+	const { z, at } = rig();
+	z.update(map(al("a", "waiting", 5, { pending: dlg("x") as never })));
+	z.skip();
+	assert.equal(z.due(), 1_000_000 + PAUSE_MS, "the pause ends first");
+	at(PAUSE_MS + 1);
+	z.tick();
+	assert.equal(z.due(), 1_000_000 + REST_MS, "the pause is over: only the rest is ahead");
+	at(REST_MS);
+	z.tick();
+	assert.equal(z.due(), undefined, "nothing ahead");
+});

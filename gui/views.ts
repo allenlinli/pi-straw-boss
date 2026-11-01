@@ -16,10 +16,10 @@ import { drawWorkspace } from "./workspace.ts";
 // place with the map's keyed `sync` and unit plates, so state changes animate the same way on every route. This file is their coordinator: it owns the
 // Scene they draw from (route, net, cards, the open session's header, model, and context), applies what the page tells it, and calls them to draw.
 
-export interface FocusDeps { data(key: string): Data; restart(): void; openTile(tile: Tile, focus?: boolean): void; embedTerminal(key: string, name: string, host: HTMLElement): Promise<() => void>; openPane(grant: string): void; online(): boolean }
+export interface FocusDeps { data(key: string): Data; restart(): void; openTile(tile: Tile, focus?: boolean): void; embedTerminal(key: string, name: string, host: HTMLElement): Promise<() => void>; online(): boolean }
 const MAX_QUEUE = 200;
 
-export function mountFocus({ data, restart, openTile, embedTerminal, openPane, online }: FocusDeps) {
+export function mountFocus({ data, restart, openTile, embedTerminal, online }: FocusDeps) {
 	const $ = (id: string) => document.getElementById(id)!;
 	const [wsView, sessionView, dossierView] = ["ws-view", "session-view", "dossier"].map($) as HTMLElement[];
 	const scene: Scene = { route: { view: "map" }, cards: {} };
@@ -29,7 +29,7 @@ export function mountFocus({ data, restart, openTile, embedTerminal, openPane, o
 	const fullScreen = (on: boolean) => dossierView.classList.toggle("full", on);
 	const dossier = mountDossier(dossierView, scene, { openTile, fullScreen });
 	const session = mountSession(scene, {
-		view: sessionView, data, openTile, embedTerminal, openPane, online, fullScreen,
+		view: sessionView, data, openTile, embedTerminal, online, fullScreen,
 		opened: () => (queue.splice(0).forEach(apply), drawSession()),
 	});
 	function apply(e: HistoryEvent) {

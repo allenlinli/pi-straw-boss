@@ -50,11 +50,12 @@ export function mountView(env: ViewEnv = domEnv()) {
 	};
 	let choice = read(), server = choiceOf(env.server?.content), shown: View | undefined;
 	function apply() {
-		const view = resolve(choice, env.media.matches, server);
-		env.root.dataset.view = view;
-		if (env.meta) env.meta.content = view === "standard" ? standard : THEME[view];
-		if (shown !== undefined && shown !== view) for (const fn of listeners) fn(view);
-		shown = view;
+		const view = resolve(choice, env.media.matches, server), face = view === "zen" && env.root.dataset.zenAway !== undefined ? "standard" : view; // a page that left Zen (main.ts) shows Standard
+		env.root.dataset.view = face;
+		if (env.meta) env.meta.content = face === "standard" ? standard : THEME[face];
+		const changed = shown !== undefined && shown !== view;
+		shown = view; // before the listeners, which may draw the view again (main.ts leaves Zen on the settings page)
+		if (changed) for (const fn of listeners) fn(view);
 	}
 	apply();
 	env.media.addEventListener("change", apply);
@@ -79,6 +80,8 @@ export function mountView(env: ViewEnv = domEnv()) {
 			} catch {} // the choice holds until the page closes
 			apply();
 		},
+		/** Draws the view again (the page left Zen or came back, main.ts) without reading the storage. */
+		refresh: apply,
 		/** Another tab of this device chose: read the stored value again. */
 		reread() {
 			choice = read();

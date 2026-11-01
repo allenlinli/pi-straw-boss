@@ -4,6 +4,7 @@ import { type Group, wire } from "./askkeys.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
+import { openThen } from "./terminalthen.ts";
 
 // The dialog a waiting unit has open, in the alert dialog and above the composer in the session view. A dialog its session's bridge relays
 // (robot_hand's selector, an ask_user_question questionnaire) is answered here: the page sends which choice or words,
@@ -51,7 +52,7 @@ interface Panel { first?: () => HTMLButtonElement | HTMLInputElement | undefined
 /** A dialog the page may answer is known by its id and digest, under whichever call the server reads it; anything else by its call and why. */
 const keyOf = (p: Pending) => (p.answer ? `d\n${p.answer.dialog}\n${p.answer.digest}` : `c\n${p.callId}\n${p.why ?? ""}`);
 
-/** `terminal` opens the session's terminal tile: a read-only panel offers it (Show terminal), except for a secret_drop, whose mirror stays hidden. */
+/** `terminal` opens the session's terminal tile: a read-only panel offers it (Show terminal; Zen words it `terminalLabel`), except for a secret_drop, whose mirror stays hidden. */
 /** A long question scrolls inside its card on a phone (style.css, the card's `max-height`): `data-more` is set while more of it lies below, with the words the cue says, so a list that ends under the Send row is never taken for the whole list. */
 function cue(el: HTMLElement) {
 	if (el.dataset.cued) return;
@@ -66,8 +67,7 @@ function cue(el: HTMLElement) {
 	if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(check);
 }
 
-/** `opens`: an accepted answer left a step in a terminal (`then`, from the server): the caller shows that terminal, the session's or the new pane's. */
-export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: () => void, accepted?: () => void, opens?: (then: Then) => void) {
+export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: () => void, accepted?: () => void, terminalLabel: () => string = m.show_terminal) {
 	// `cur` is the panel on show, drawn for `shown`; `kept` is the newest one that answers, which comes back as it was when its dialog does.
 	let shown: Pending | undefined, cur: Panel | undefined, kept: Panel | undefined, ready = false, busy = false, leave: ReturnType<typeof setTimeout> | undefined;
 	for (const type of ["focusin", "pointerdown"]) document.addEventListener(type, (e) => cur && !cur.el.contains(e.target as Node) && (cur.lost = undefined)); // the user went elsewhere
@@ -92,9 +92,9 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		const [tone, text, retry] = r ? said(r, body.cancel === true) : (["error", m.not_confirmed(), true] as const);
 		[x.done, x.sending, busy, x.busy] = [!r || final(r), false, false, r?.body.outcome === "busy"];
 		say(x.note, tone, text, ...(retry ? [again] : []));
-		const then = r?.body.outcome === "accepted" ? (r.body.then as Then | undefined) : undefined;
-		if (then && "pane" in then && then.pane === null) say(x.note, tone, `${text} ${m.pane_elsewhere()}`); // a pane opened that the server could not tell from others: nothing to open
-		else if (then) opens?.(then);
+		// An accepted answer that leaves a step in a terminal opens it, whichever view this is (terminalthen.ts): `terminal` is how this view shows the session's.
+		const then = r?.body.outcome === "accepted" ? (r.body.then as Then | undefined) : undefined, instead = then && openThen(then, terminal);
+		if (instead) say(x.note, tone, `${text} ${instead}`);
 		draw();
 		x.note.scrollIntoView?.({ block: "nearest" }); // a long panel scrolls: its outcome must be read
 		if (accepted && r?.body.outcome === "accepted") setTimeout(accepted, 1200); // an alert's dialog closes once its answer landed, after its outcome shows
@@ -144,7 +144,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		if (a && cancellable(a, remote)) (x.cancel = h("button", { type: "button", class: "ask-cancel" }, m.cancel())).onclick = () => void answer(x, cancelOf(a, crypto.randomUUID())); // no pick needed: it ends the dialog the way Escape does in the terminal, the owner's own cancelled result
 		const noSecret = p.tool === "secret_drop"; // never an answerable secret, on any page, whatever it was sent (SB-F001)
 		const term = h("p", { class: "ask-term" }, p.why && asks.length ? p.why : `${list ? m.answer_them() : m.answer_it()} ${list || !asks[0] ? "" : how(asks[0])}`.trim());
-		const show = terminal && p.tool !== "secret_drop" && h("button", { type: "button", class: "cmp-link" }, m.show_terminal());
+		const show = terminal && p.tool !== "secret_drop" && h("button", { type: "button", class: "cmp-link" }, terminalLabel());
 		if (show) show.onclick = terminal;
 		const during = p.answer?.twin && p.tool && p.tool !== "dialog" ? [h("p", { class: "ask-why" }, m.opened_during({ tool: p.tool }))] : []; // a dialog bound to the one call in flight may be unrelated to it
 		x.el.append(...during, ...(a && !noSecret ? (a.select ? select(x, a) : questions(x, a)) : [...(asks.length ? asks.map((y) => block(y, list)) : [h("p", { class: "ask-why" }, noSecret ? (remote ? m.secret_remote() : m.secret_terminal()) : (p.why ?? m.waits_dialog()))]), h("div", { class: "ask-acts" }, noSecret ? h("p", { class: "ask-term" }, m.answer_it()) : term, show)]), x.note);

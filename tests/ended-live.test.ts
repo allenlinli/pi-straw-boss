@@ -17,7 +17,7 @@ test("the comms' live line is empty under an ended session and shows the tool un
 	for (const [u, state] of [[unit({ ended: true }), "recent"], [unit({ control: true }), "live"]] as const) {
 		const sc = scene(u, state), view = new El("div");
 		const data = { older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined, post: async () => ({ ok: true }) };
-		const session = mountSession(sc, { view: view as never, data: () => data as never, openTile() {}, embedTerminal: async () => () => {}, online: () => true, openPane() {}, fullScreen() {}, opened() {} });
+		const session = mountSession(sc, { view: view as never, data: () => data as never, openTile() {}, embedTerminal: async () => () => {}, online: () => true, fullScreen() {}, opened() {} });
 		session.open("k");
 		await new Promise((r) => setImmediate(r));
 		await new Promise((r) => setImmediate(r));

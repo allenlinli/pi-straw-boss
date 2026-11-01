@@ -90,6 +90,7 @@ class El {
 const page = { addEventListener: (type: string, on: (e: { target: unknown }) => void) => (page.on[type] = on), on: {} as Record<string, (e: { target: unknown }) => void>, body: new El("body"), focused: undefined as El | undefined, createElement: (tag: string) => new El(tag), get activeElement() { return page.focused && page.body.contains(page.focused) ? page.focused : page.body; } };
 Object.assign(globalThis, { document: page });
 const { mountAsk } = await import("../gui/ask.ts");
+const { onPane, openThen } = await import("../gui/terminalthen.ts");
 
 const SELECT = { title: "MCP: scratch wants to run echo", choices: [{ label: "Allow once" }, { label: "Allow for session", note: "This exact call" }, { label: "Deny" }] };
 const QUESTIONS = [{ question: "Ship it tonight?", header: "Ship", multiple: false, options: [{ title: "Yes" }, { title: "No" }] }, { question: "Who hears about it?", header: "Notify", multiple: true, options: [{ title: "ops" }, { title: "billing" }, { title: "support" }] }];
@@ -649,9 +650,10 @@ test("the dismiss-all button counts the finished subagents the server would dism
 	for (const locale of locales) assert.match(m.dismiss_all({ count: 3 }, { locale }), /3/, locale);
 });
 
-test("an accepted answer that leaves a step in a terminal opens it (the one rule): the session's terminal for then.terminal, the new pane for then.pane; a pane that could not be told apart says so; a refused, stale, or unconfirmed answer opens nothing", async () => {
-	const opened: unknown[] = [];
-	const ask = mountAsk(root as unknown as HTMLElement, (action, body) => (sent.push({ action, body }), new Promise((resolve) => replies.push(resolve))), false, undefined, undefined, (then) => void opened.push(then));
+test("an accepted answer that leaves a step in a terminal opens it (the one rule, terminalthen.ts): the view's own way for then.terminal, the page's pane tile for then.pane; a pane that could not be told apart says so; a refused, stale, or unconfirmed answer opens nothing", async () => {
+	const opened: (object | string)[] = [], note = (x: object | string) => void opened.push(x);
+	onPane((grant) => note({ pane: grant }));
+	const ask = mountAsk(root as unknown as HTMLElement, (action, body) => (sent.push({ action, body }), new Promise((resolve) => replies.push(resolve))), false, () => note({ terminal: true }));
 	const answerWith = async (dialog: string, body: Record<string, unknown>, status = 200) => {
 		ask.update(approval(dialog), true);
 		choices()[0]!.click();
@@ -673,4 +675,8 @@ test("an accepted answer that leaves a step in a terminal opens it (the one rule
 	await answerWith("t7", { outcome: "unknown" }, 504);
 	await answerWith("t8", { error: "x", reason: "no" }, 409);
 	assert.equal(opened.length, 2, "only an accepted answer opens a terminal");
+	// Zen's blocked pane reaches the same call.
+	assert.equal(openThen({ terminal: true }, () => note("zen")), undefined);
+	assert.equal(opened.at(-1) as unknown, "zen");
+	onPane(undefined);
 });

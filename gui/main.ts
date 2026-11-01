@@ -1,5 +1,5 @@
 import "./style.css";
-import { mountPick, mountView, mountZenBack } from "./view.ts";
+import { domEnv, KEY, mountPick, mountView, mountZenBack } from "./view.ts";
 import { startI18n } from "./i18n.ts";
 import { followLabel } from "./viewlabel.ts";
 import { m } from "./paraglide/messages.js";
@@ -12,7 +12,7 @@ import type { mountPanels, Tile } from "./layer.ts";
 import type { mountSettings } from "./settings.ts";
 import { mountConnect } from "./connect.ts";
 import { MODAL, mountHotkeys } from "./hotkeys.ts";
-import { mountLinkBar } from "./linkbar.ts";
+import { linkChime, mountLinkBar } from "./linkbar.ts";
 import { mountMenus } from "./menu.ts";
 import { mountNotify } from "./notify.ts";
 import { mountQuit, showDismissAll, showStashed } from "./quit.ts";
@@ -20,18 +20,24 @@ import { hang, mountPage } from "./render.ts";
 import { settingsAllowed } from "./desk.ts";
 import { createRouter, depthOf, netOf, parseRoute, type Route, type Section, upOf, watchOf } from "./router.ts";
 import { createStream, type Source, type Status } from "./stream.ts";
+import { onPane } from "./terminalthen.ts";
 import { mountTimeline } from "./timeline.ts";
 import type { mountFocus } from "./views.ts";
+import { iconHref, plainOf } from "./tabicon.ts";
+import type { Exit, mountZen } from "./zen.ts";
 
 // The view goes first, before anything is drawn: `data-view` on <html> picks the palette, so no frame is painted in the other one (view.ts).
-const view = mountView();
+// The demo's `?zen=<state>` opens it in Zen for this page only (fixture.ts): the stored choice is not written.
+const zenDemo = __LIVE__ ? null : new URLSearchParams(location.search).get("zen");
+const demoStore = new Map([[KEY, "zen"]]);
+const view = mountView(zenDemo ? { ...domEnv(), storage: { getItem: (key) => demoStore.get(key) ?? localStorage.getItem(key), setItem: (key, value) => void demoStore.set(key, value) } } : undefined);
 startI18n();
 mountMenus();
 mountPick(document.getElementById("view-pick")!, view, followLabel);
 const page = mountPage(), timeline = mountTimeline(document.getElementById("timeline") as HTMLDetailsElement);
 const el = (id: string) => document.getElementById(id)!;
 // Away from Zen (data-zen-away on <html>, set by the Zen layer): the header's Zen button returns to it. It stays hidden unless the device's resolved view is Zen.
-mountZenBack(el("zen-back"), view, document.documentElement);
+const root = document.documentElement, syncBack = mountZenBack(el("zen-back"), view, root);
 const time = (at?: number) => (at ? new Date(at).toLocaleTimeString([], { hour12: false }) : m.never());
 
 let shown: Net | undefined, latest: Net | undefined, pending: Net | undefined, status: Status = { state: "connecting", attempt: 0 };
@@ -44,28 +50,81 @@ let focus: Focus | undefined, loading: Promise<Focus> | undefined;
 const withFocus = (call: (f: Focus) => void) => (focus ? call(focus) : void loading?.then(call));
 function loadFocus() {
 	loading ??= import("./views.ts").then(({ mountFocus }) => {
-		focus = mountFocus({ data, restart: () => stream.restart(), openTile, embedTerminal: (key, name, host) => new Promise((done) => withPanels((p) => done(p.terminal.embed(key, name, host)))), openPane: (grant) => withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true)), online: () => status.state === "live" });
+		focus = mountFocus({ data, restart: () => stream.restart(), openTile, embedTerminal: (key, name, host) => new Promise((done) => withPanels((p) => done(p.terminal.embed(key, name, host)))), online: () => status.state === "live" });
 		focus.show(netOf(current), netOf(current));
 		if (latest) focus.net(latest);
 		return focus;
 	});
 }
 
+/** A base's name, for the dialogs and Zen's cards. */
+const label = (ws: string) => latest?.bases.find((b) => b.id === ws)?.label ?? ws;
 // The overlay layer (the alert queue, dialogs, and tiles) is a chunk of its own too, fetched on the first alert or tile.
 type Panels = ReturnType<typeof mountPanels>;
 let panels: Panels | undefined, panelsLoading: Promise<Panels> | undefined;
 const withPanels = (call: (p: Panels) => void) => {
 	if (panels) return call(panels);
 	panelsLoading ??= import("./layer.ts").then(({ mountPanels }) => (panels = mountPanels({
-		label: (ws) => latest?.bases.find((b) => b.id === ws)?.label ?? ws,
-		recent: async (key) => (await (fixture ? fixture.data(key).latest() : history(key, "?limit=12"))).items,
+		label,
+		recent,
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action as Parameters<Post>[0], body)),
 		stream: () => hello,
-		showTerminal: (ws, key, closed) => (closed || panels?.stack.close(), router.go({ view: "session", ws, key }), withFocus((f) => f.terminal(key))), // the route first: it starts the focus views' chunk, which `withFocus` then waits for (before it, a first visit lost the request)
+		showTerminal: (ws, key) => (panels?.stack.close("go"), router.go({ view: "session", ws, key }), withFocus((f) => f.terminal(key))), // the user is going to that terminal, so nothing queued opens over it; the route goes first: it starts the focus views' chunk, which `withFocus` then waits for (before it, a first visit lost the request)
 	})));
 	void panelsLoading.then(call);
 };
 const openTile = (tile: Tile, take?: boolean) => withPanels((p) => p.tiles.open(tile, take));
+// A pane an answer opened (terminalthen.ts) shows as a terminal tile with the keyboard in it, whichever view the user is in: Zen leaves for Standard first, as it does for a session's terminal.
+onPane((grant) => (zenOn() && face(true), withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true))));
+
+// The Zen layer (zen.ts, with the pure model in zenmodel.ts) is a chunk of its own, fetched the first time the page shows Zen. `zenOn()`: the device's view is Zen, this page has not left it
+// (Esc or the corner control: `data-zen-away` on <html>, this page only), and the route is not the settings page, which Zen never covers.
+const zenOn = () => view.view() === "zen" && root.dataset.zenAway === undefined && current.view !== "settings";
+type Zen = ReturnType<typeof mountZen>;
+let zen: Zen | undefined, zenLoading: Promise<Zen> | undefined, zenKey: string | null = null, watching: string | null = null;
+const withZen = (call: (z: Zen) => void) => {
+	zenLoading ??= import("./zenchunk.ts").then(({ mountZen }) => (zen = mountZen(el("zen"), {
+		data, recent, label, online: () => status.state === "live",
+		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
+		remind: (a) => notify.remind(a), sound: () => {}, // the effects are the next step's (Z5)
+		leave: leaveZen, watch: (key) => ((zenKey = key), rewatch()),
+	})));
+	void zenLoading.then(call);
+};
+/** What the stream is asked to watch: the companion's session while Zen shows one, else the route's. */
+const watchNow = () => (zenOn() && zenKey) || watchOf(current);
+function rewatch() {
+	const next = watchNow();
+	if (next === watching) return;
+	watching = next;
+	if (started) stream.restart();
+}
+/** Shows Zen or Standard to match `zenOn()`: Zen draws the newest snapshot when it comes on, and Standard draws it again on leaving. */
+function syncZen() {
+	const on = zenOn();
+	el("zen").hidden = !on;
+	if (on) withZen((z) => zenOn() && (latest && z.net(alertsOf(latest, Date.now()), latest), z.show()));
+	else zen?.hide();
+	latest && badge(latest); // the tab icon shows no count while Zen is shown, and the count again on leaving
+	rewatch();
+}
+/** Leaves Zen (`away`) or comes back for this page only: the device's choice stays Zen, Standard shows, and the header's Zen button returns. */
+function face(away: boolean) {
+	away ? (root.dataset.zenAway = "") : delete root.dataset.zenAway;
+	view.refresh();
+	syncBack();
+	syncZen();
+}
+/** The way out of Zen (zen.ts): Standard first, then the item's dialog, the session (its terminal), and the newest snapshot. */
+function leaveZen({ item, route, terminal }: Exit) {
+	face(true);
+	item && withPanels((p) => p.stack.show(item));
+	terminal && (loadFocus(), withFocus((f) => f.terminal(terminal)));
+	route && router.go(route);
+	pending && show(pending);
+}
+el("zen-back").addEventListener("click", () => syncZen());
+view.onChange((now) => (now === "zen" && current.view === "settings" ? face(true) : now !== "zen" ? face(false) : syncZen()));
 
 // The settings page's sections (Phone, Teams, Server) are a chunk of their own, fetched the first time the page opens; they are built when a section opens and dropped when it closes (settings.ts).
 // Phone and the server's panel are this computer's: a paired device has neither, and a desk window has no Phone (desk.ts).
@@ -78,14 +137,13 @@ const openSection = (section: Section) => (current.view === "settings" ? withSet
 // The header, the alert queue, and the focus views follow every snapshot. A hidden page keeps only the newest snapshot and draws it
 // when it comes back, so a background tab does no DOM work; the timeline follows on every route, the map is drawn only while in view.
 // The tab's icon carries the count of units waiting on an answer, a hidden tab's above all; a browser that keeps the first icon shows it plain.
-const tabIcon = document.querySelector<HTMLLinkElement>('link[rel="icon"]'), plainIcon = tabIcon && decodeURIComponent(tabIcon.href.slice(tabIcon.href.indexOf(",") + 1));
+const tabIcon = document.querySelector<HTMLLinkElement>('link[rel="icon"]'), plain = tabIcon ? plainOf(tabIcon.href) : undefined;
 let badged = 0;
 function badge(net: Net) {
-	const n = net.bases.flatMap((b) => [...(b.tower ? [b.tower, ...b.tower.subs] : []), ...[...b.tabs.flatMap((t) => t.units), ...b.outside].flatMap((u) => [u, ...u.subs])]).filter((u) => u.mark === "waiting" || u.pending).length + (net.trust?.length ?? 0);
-	if (!tabIcon || !plainIcon || n === badged) return;
+	const n = zenOn() ? 0 : net.bases.flatMap((b) => [...(b.tower ? [b.tower, ...b.tower.subs] : []), ...[...b.tabs.flatMap((t) => t.units), ...b.outside].flatMap((u) => [u, ...u.subs])]).filter((u) => u.mark === "waiting" || u.pending).length + (net.trust?.length ?? 0);
+	if (!tabIcon || !plain || n === badged) return;
 	badged = n;
-	const dot = `<circle cx='23' cy='9' r='9' fill='#e0af68' stroke='#1a1b26' stroke-width='2'/><text x='23' y='13' text-anchor='middle' font-family='sans-serif' font-size='${n > 9 ? 9 : 12}' font-weight='700' fill='#16161e'>${n > 9 ? "9+" : n}</text>`;
-	tabIcon.href = `data:image/svg+xml,${encodeURIComponent(n ? plainIcon.replace("</svg>", `${dot}</svg>`) : plainIcon)}`;
+	void plain.then((svg) => svg && n === badged && (tabIcon.href = iconHref(svg, n)));
 }
 // Reminders and sounds follow every snapshot, a hidden page's above all: `heard` is apart from `known`, which the alert queue
 // advances only while the page is shown, so a page that comes back still queues what arrived while it was hidden.
@@ -101,6 +159,7 @@ function show(net: Net) {
 	badge(net);
 	linkBar.net(net.link);
 	const now = alertsOf(net, Date.now());
+	if (zenOn()) return void ((heard = now), withZen((z) => z.net(now, net))); // Zen makes no clip and counts nothing: it takes the alerts, and Standard draws this snapshot on leaving
 	if (heard) notify.signal(arrivals(heard, now)); // what was already waiting when the page opened is no news
 	heard = now;
 	if (document.hidden) return;
@@ -124,6 +183,7 @@ function show(net: Net) {
 function navigate(next: Route) {
 	const before = current, from = next.view === "workspace" && before.view === "map" ? document.querySelector(`#bases [data-key="${CSS.escape(next.ws)}"]`)?.getBoundingClientRect() : undefined;
 	current = next;
+	if (view.view() === "zen" && (next.view === "settings") !== (before.view === "settings")) face(next.view === "settings"); // the settings page is never covered; leaving it enters Zen
 	document.body.dataset.route = next.view; // a phone's map has no location bar (style.css): the page is the net itself
 	drawer?.route(next);
 	if (next.view === "workspace" || next.view === "session") loadFocus();
@@ -140,12 +200,13 @@ function navigate(next: Route) {
 		show(latest);
 		requestAnimationFrame(page.layout);
 	}
-	if (started && watchOf(next) !== watchOf(before)) stream.restart();
+	rewatch();
 }
 
 function report(next: Status) {
 	status = next;
 	connect(next);
+	zen?.refresh(); // a card answers only while the stream is live
 	const stale = next.state === "reconnecting" || next.state === "offline" || next.state === "replaced";
 	document.body.dataset.stale = el("stage").dataset.stale = String(stale);
 	el("link").dataset.state = next.state;
@@ -170,6 +231,7 @@ function report(next: Status) {
 function forward(kind: "history" | "cards", raw: string) {
 	try {
 		const value = JSON.parse(raw);
+		if (kind === "history") zen?.history(value as HistoryEvent);
 		withFocus((f) => (kind === "history" ? f.history(value as HistoryEvent) : f.cards(value)));
 	} catch {} // the next event replaces it
 }
@@ -200,8 +262,11 @@ const api = (path: string) => fetch(`api/${path}`, { cache: "no-store" }).then((
 const history = (key: string, query = "") => api(`history/${encodeURIComponent(key)}${query}`);
 const fixture = __LIVE__ ? undefined : (await import("./fixture.ts")).createFixture({ resume: () => stream.resume() });
 const data = (key: string): Data => fixture?.data(key) ?? { older: (before) => history(key, `?before=${encodeURIComponent(before)}`), latest: () => history(key), entry: (id) => api(`entry/${encodeURIComponent(key)}/${encodeURIComponent(id)}`).catch(() => undefined), pic: (id, n) => `api/image/${encodeURIComponent(key)}/${encodeURIComponent(id)}/${n}` };
+/** A session's newest entries, for what an alert's unit last said. */
+const recent = async (key: string) => (await (fixture ? fixture.data(key).latest() : history(key, "?limit=12"))).items;
 const open = () => {
-	const source = fixture ? fixture.open(watchOf(current)) : live(watchOf(current));
+	watching = watchNow();
+	const source = fixture ? fixture.open(watching) : live(watching);
 	source.listen("history", (d) => forward("history", d));
 	source.listen("cards", (d) => forward("cards", d));
 	// The stream's name (terminal tiles attach to it) and their frames go to the overlay layer, which parses them.
@@ -222,8 +287,8 @@ document.addEventListener("click", (event) => {
 }, true);
 const router = createRouter((route) => navigate(route));
 const openTeams = () => openSection("teams");
-const linkBar = mountLinkBar(openTeams, (count) => count && notify.chime());
-const notify = mountNotify((a) => (a.trust ? withPanels((p) => p.stack.show(a)) : router.go({ view: "session", ws: a.ws, key: unitOf(a) })));
+const linkBar = mountLinkBar(openTeams, linkChime(zenOn, () => notify.chime()));
+const notify = mountNotify((a) => zenOn() || (a.trust ? withPanels((p) => p.stack.show(a)) : router.go({ view: "session", ws: a.ws, key: unitOf(a) })));
 const stream = createStream({
 	open,
 	now: Date.now,
@@ -239,6 +304,7 @@ const resume = () => stream.resume();
 const connect = mountConnect(resume); // the overlay while the page has no live state (before the first snapshot, and while the stream reconnects)
 document.addEventListener("visibilitychange", () => {
 	page.pause(document.hidden);
+	zen?.visible(!document.hidden);
 	if (document.hidden) return stream.hide();
 	if (pending) show(pending);
 	withFocus((f) => f.wake());
@@ -248,13 +314,14 @@ const leaveSettings = () => (depthOf(window.history.state) > 0 ? window.history.
 // Escape closes the top dialog; with none open it goes up one route. A modal (a close confirmation, the lightbox) takes it for itself.
 addEventListener("keydown", (event) => {
 	if (event.key !== "Escape" || event.defaultPrevented || document.querySelector(MODAL)) return; // an open popover closes itself
+	if (zenOn() && zen?.escape(event)) return;
 	event.preventDefault();
 	if (panels?.stack.close() || current.view === "map") return;
 	// Settings returns to where it was opened from; a page that opened on it goes to the map. A session goes up a level.
 	if (current.view === "settings") leaveSettings();
 	else router.go(upOf(current));
 });
-mountHotkeys((hotkey) => panels?.hotkey(hotkey) ?? false); // Space opens the next alert, F enlarges the top dialog; nothing before the overlay layer has loaded
+mountHotkeys((hotkey) => panels?.hotkey(hotkey) ?? false, () => zenOn() || document.querySelector(MODAL) !== null); // Space opens the next alert, F enlarges the top dialog; nothing before the overlay layer has loaded
 // The gear is a link to the settings page; on the page it leaves it, as Escape does.
 el("prefs").addEventListener("click", (event) => current.view === "settings" && (event.preventDefault(), leaveSettings()));
 // A pair request waits while the Same Wi-Fi tab is not open: a header notice that opens the settings page on that tab (this computer's page only).
@@ -262,7 +329,7 @@ if (phoneOk) void import("./lanwait.ts").then(({ mountLanWait }) => mountLanWait
 // The phone's quick-switch drawer (drawer.ts, swipe.ts): its own chunk, fetched where there is a touch screen or a narrow window, now or once the window narrows.
 let drawer: Drawer | undefined;
 const touchy = matchMedia("(pointer: coarse), (max-width: 640px)");
-const loadDrawer = () => void import("./drawer.ts").then(({ mountDrawer }) => ((drawer ??= mountDrawer()), latest && drawer.net(latest), drawer.route(current)));
+const loadDrawer = () => void import("./drawer.ts").then(({ mountDrawer }) => ((drawer ??= mountDrawer(zenOn)), latest && drawer.net(latest), drawer.route(current)));
 if (touchy.matches) loadDrawer();
 else touchy.addEventListener("change", () => touchy.matches && !drawer && loadDrawer(), { once: true });
 mountQuit({ route: () => netOf(current), net: () => latest, go: (route) => router.go(route) });
@@ -278,5 +345,6 @@ document.addEventListener("click", (event) => {
 for (const event of ["focus", "pageshow", "online"]) window.addEventListener(event, () => !document.hidden && resume());
 report(status);
 navigate(router.route());
+syncZen(); // a page that opens in Zen
 stream.start();
 started = true;

@@ -28,7 +28,7 @@ const write = (key: string, value: string) => {
 	} catch {}
 };
 
-export interface Notifier { signal(fresh: Alert[]): void; /** The finished-unit clip, when Sound is on: a new unit that is ready (deploy.ts). */ chime(): void }
+export interface Notifier { signal(fresh: Alert[]): void; /** Zen: the system notification for the one item that took the screen while the page is hidden or unfocused (no clip, nothing for the items behind it). */ remind(a: Alert): void; /** The finished-unit clip, when Sound is on: a new unit that is ready (deploy.ts). */ chime(): void }
 
 /** Mounts the settings page's reminder switch (`#remind`) and sound switch with its volume (`#sound`, `#sound-vol`) and returns what plays a snapshot's new alerts. */
 export function mountNotify(open: (a: Alert) => void): Notifier {
@@ -81,18 +81,21 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 			source.start();
 		}).catch(() => clips.delete(kind));
 	}
+	/** The system notification of an alert, while the page is hidden or unfocused and Remind is on and allowed. */
+	function notice(a: Alert, k: Kind) {
+		if (!remind || !can || Notification.permission !== "granted" || (!document.hidden && document.hasFocus())) return;
+		const n = new Notification(a.name, { body: a.trust ? m.trust_reminder() : { waiting: m.notify_waiting, error: m.notify_error, done: m.notify_done }[k]({ note: a.note ?? "" }).trim(), tag: a.key, icon: document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href, silent: k !== "waiting" }); // only a question may make the system beep: a failure or a finish is a quiet notice
+		n.onclick = () => (window.focus(), n.close(), open(a));
+	}
 	draw();
 	return {
+		remind: (a) => notice(a, "waiting"),
 		chime: () => sound && play("done"),
 		signal(fresh) {
 			const due = fresh.flatMap((a) => ((k) => (k ? [{ a, k }] : []))(kindOf(a)));
 			if (!due.length) return;
 			if (sound) play((["waiting", "error", "done"] as const).find((k) => due.some((d) => d.k === k))!);
-			if (!remind || !can || Notification.permission !== "granted" || (!document.hidden && document.hasFocus())) return;
-			for (const { a, k } of due) {
-				const n = new Notification(a.name, { body: a.trust ? m.trust_reminder() : { waiting: m.notify_waiting, error: m.notify_error, done: m.notify_done }[k]({ note: a.note ?? "" }).trim(), tag: a.key, icon: document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href, silent: k !== "waiting" }); // only a question may make the system beep: a failure or a finish is a quiet notice
-				n.onclick = () => (window.focus(), n.close(), open(a));
-			}
+			for (const { a, k } of due) notice(a, k);
 		},
 	};
 }

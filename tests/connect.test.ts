@@ -215,3 +215,22 @@ test("a sheet that opens above the overlay stays usable: its own buttons are rea
 	hit("click", close);
 	assert.equal(closed, 2);
 });
+
+test("a page whose script never boots has a way out: the built overlay carries a Reload link that a CSS delay reveals, also without motion", () => {
+	const html = readFileSync(new URL("../gui/index.html", import.meta.url), "utf8");
+	const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8");
+	assert.match(html, /<a\b[^>]*\bclass="[^"]*\bconnect-reload\b[^"]*"[^>]*\bhref=""[^>]*>[^<]*Reload[^<]*重新載入[^<]*<\/a>/, "a plain link to the same URL: no script, the token path and query stay");
+	assert.ok(html.indexOf("connect-reload") > html.indexOf('id="connect"') && html.indexOf("connect-reload") < html.indexOf("</dialog>"), "inside the overlay dialog");
+	assert.match(css, /\.connect-reload \{[^}]*visibility: hidden[^}]*animation: connect-reveal 0s linear 10s forwards/);
+	assert.match(css, /@keyframes connect-reveal \{[^}]*visibility: visible/);
+	assert.match(css, /\.connect-reload \{[^}]*min-height: 44px/);
+	assert.match(css, /prefers-reduced-motion: reduce\) \{[^}]*\}\s*\.connect-reload \{ animation: connect-reveal 0s linear 10s forwards !important/, "the blanket still-motion rule must not keep the way out hidden");
+	assert.match(css, /forced-colors: active\) \{[^}]*\.connect-reload/s);
+});
+
+test("the booted page takes the Reload link away: mountConnect removes it", () => {
+	let removed = 0;
+	const win = new Target(), dialog = new Dialog(), text = new Part(), retry = new Part(), shell = new Part(), dock = new Part();
+	mountConnect(() => {}, { win, dialog, text, retry, guarded: [shell, dock], reload: { remove: () => removed++ } } as never);
+	assert.equal(removed, 1);
+});

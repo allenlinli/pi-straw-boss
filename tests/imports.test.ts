@@ -613,7 +613,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// GUI acceptance fixes to 2447: ask.ts marks a card that scrolls (the cue, +12), desk.ts exports the settings page's allowed sections (+2), towerconv.ts keeps an open `⋯` menu across a redraw (+5), menu.ts and main.ts give a few back.
 	// The connection overlay to 2531: gui/connect.ts (81: the modal overlay over an inert page while the stream has no live state, with its keys and clicks stopped) is new, and main.ts, stream.ts, and i18n.ts name it.
 	// A sheet over the overlay (fix/tower-close) to 2532: connect.ts lets a click inside a modal dialog through.
-	assert.ok(page <= 2532, `the page's TypeScript has ${page} lines`);
+	// The stuck-overlay way out (fix/connect-stuck) to 2535: connect.ts takes the static Reload link away once the page has booted (+3).
+	assert.ok(page <= 2535, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -858,5 +859,6 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// GUI acceptance fixes to 100,900 bytes / 21.65 KB gzipped: Dismiss on its own row, the question card's scroll cue, the 360 px block (two-line conversation bar, one-row composer, Geek brand), the drawer's tint and chevron, Geek's disabled controls and tick ring, and the forced-colors rules.
 	// Cancel (fix/ask-cancel) to 101,200 bytes: `.ask-cancel` and its place in the touch and press rules.
 	// The connection overlay to 102,200 bytes / 21.9 KB gzipped: `.connect` (the modal overlay over the page, its card, ring, and Try again) and the ring's rest in calm and Geek.
-	assert.ok(total(css, (n) => size(n).length) <= 102_200 && total(css, gz) <= 21_900, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// The Reload link in the overlay (fix/connect-stuck) to 102,700 bytes / 22.0 KB gzipped: `.connect-reload` (revealed after 10 s by a step), its keyframes, the reduced-motion exception, and forced colors.
+	assert.ok(total(css, (n) => size(n).length) <= 102_700 && total(css, gz) <= 22_000, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

@@ -464,7 +464,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Ended bar (sb server B6): composer.ts 315 to 327 (barOf, and draw swaps the composer for the one-line bar).
 	// Phone terminal keyboard (sb server B6): mirror.ts 175 to 198 (the sink, the Keyboard button, beforeinput keys, the sentinel) and session.ts 142 to 147 (the composer lets go of the focus on the Terminal tab).
 	// Phone layout (step 4): bars.ts 85 to 99 for the queue's fold row (foldQueue, mountQueueFold); session.ts 147 to 150 for the head's `⋯` menu (a tower's + Main and Quit tower, flagged data-tower) and the queue's fold row (mounted and drawn with the other bars).
-	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 150], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 75], ["composer.ts", 327], ["ask.ts", 185], ["mirror.ts", 198], ["keypad.ts", 131], ["doc.ts", 108], ["i18n.ts", 50], ["slash.ts", 63]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
+	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 151], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 75], ["composer.ts", 327], ["ask.ts", 185], ["mirror.ts", 198], ["keypad.ts", 131], ["doc.ts", 108], ["i18n.ts", 50], ["slash.ts", 63]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
 	// 0.28.0 to 185 with the answer keys' hooks into gui/ask.ts (the focus on the first option, the textarea). 0.28.0 raised gui/ask.ts from 156 to 175 for the secret panel: the masked field with Show and Hide, Submit, the way back to the terminal, the unsupported-remote notice, and a value that leaves with its one request.
 	// 0.10.0: the page's text comes from Paraglide's messages (gui/messages), which raised chat.ts, views.ts, layer.ts, ask.ts, mirror.ts, and doc.ts by one
 	// line each for the messages import; the strings replaced in place. gui/i18n.ts picks the locale (the menu's choice, the browser's languages with
@@ -613,7 +613,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// GUI acceptance fixes to 2447: ask.ts marks a card that scrolls (the cue, +12), desk.ts exports the settings page's allowed sections (+2), towerconv.ts keeps an open `⋯` menu across a redraw (+5), menu.ts and main.ts give a few back.
 	// The connection overlay to 2531: gui/connect.ts (81: the modal overlay over an inert page while the stream has no live state, with its keys and clicks stopped) is new, and main.ts, stream.ts, and i18n.ts name it.
 	// A sheet over the overlay (fix/tower-close) to 2532: connect.ts lets a click inside a modal dialog through.
-	assert.ok(page <= 2532, `the page's TypeScript has ${page} lines`);
+	// Zen model (Z2) to 2631 (with the sheet fix): gui/zenwith.ts (the device's last talk and the companion's target) and gui/zenmodel.ts (the pure model of what Zen shows) are new, alerts.ts and session.ts take `since` and the recording Post.
+	assert.ok(page <= 2631, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -704,7 +705,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Phone layout (step 4) to 80,200 bytes / 27.9 KB gzipped: gui/menu.ts (the `⋯` button, its panel's placement, focus, and keys; the fold of the base's and squad's Quit into it), the HUD's `⋯` for Dismiss finished and Stashed (main.ts), and four more messages in both languages (the map chunk carries every message).
 	// The connection overlay to 81,500 bytes / 28.4 KB gzipped: connect.ts (the modal overlay, its stopped clicks and keys) and its three messages in both languages (the map chunk carries every message).
 	// A sheet opened over the overlay stays usable (fix/tower-close) to 81,700 bytes / 28.5 KB gzipped: connect.ts lets a click inside a modal dialog through.
-	assert.ok(size(entry).length <= 81_700 && gz(entry) <= 28_500, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
+	// Zen model (Z2) to 81,900 bytes / 28.55 KB gzipped (with the sheet fix): the composer's Post recording the device's last talk (zenwith.ts, session.ts 150 to 151 lines).
+	assert.ok(size(entry).length <= 81_900 && gz(entry) <= 28_550, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -786,7 +788,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Phone layout (step 4) to 206,000 bytes / 81.0 KB gzipped: the tower conversation's one-line bar with its `⋯` menu (towerconv.ts), the queue's fold row (bars.ts), the head's menu markup and the workspace's tower row in the drawer, and four messages in both languages.
 	// Settings page (step 5) to 208,000 bytes / 82 KB gzipped: gui/settings.ts (the sections that fill when opened, 1.4 KB, its own chunk) and the messages of the page in both languages (the map chunk carries every message; the lazy chunks import it by its hashed name).
 	// Cancel (fix/ask-cancel) to 208,700 bytes / 82.4 KB gzipped: the question card's Cancel button (gui/ask.ts), its cancel body and outcome, and its two messages in both languages.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 208_700 && total(chunks, gz) <= 82_400, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Zen model (Z2) to 209,000 bytes / 82.45 KB gzipped: session.ts records the device's last talk through zenwith.ts.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 209_000 && total(chunks, gz) <= 82_450, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

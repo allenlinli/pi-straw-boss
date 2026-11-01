@@ -14,7 +14,7 @@ import type { TrustAsk } from "../src/trust/types.ts";
  * `unit`: the unit an alert of one of its monitors belongs to (its key is the monitor's own); its comms, terminal, and chat are the unit's.
  * `trust`: a project trust question (src/trust/): the folder's agents wait on it, and its key is the folder and the digest of what was asked.
  */
-export interface Alert { key: string; unit?: string; ws: string; name: string; role: string; mark: Mark; note?: string; at: number; pending?: Pending; gone?: boolean; closed?: boolean; trust?: TrustAsk }
+export interface Alert { key: string; unit?: string; ws: string; name: string; role: string; mark: Mark; note?: string; at: number; /** When the unit took its present state (the server's activity reader; a trust question: its earliest agent). */ since?: number; pending?: Pending; gone?: boolean; closed?: boolean; trust?: TrustAsk }
 /** The openings this page runs (deploy.ts): their trust question shows inline in the deploy panel, and is no alert here. */
 export const ownOpenings = new Set<string>();
 /** The unit an alert is about. */
@@ -31,12 +31,12 @@ export function alertsOf(net: Net, at: number): Map<string, Alert> {
 	for (const b of net.bases) {
 		// `pending` is always set, so a refreshed alert drops a question that is gone.
 		for (const x of [...(b.tower ? [{ ...b.tower, role: "tower" }, ...b.tower.subs] : []), ...[...b.tabs.flatMap((t) => t.units), ...b.outside].flatMap((u) => [u, ...u.subs])] as Partial<Unit>[]) {
-			out.set(x.key!, { key: x.key!, ws: b.id, name: x.name!, role: x.role!, mark: x.mark!, note: x.note, at, pending: x.pending, closed: !x.control || Boolean(x.ended) });
+			out.set(x.key!, { key: x.key!, ws: b.id, name: x.name!, role: x.role!, mark: x.mark!, note: x.note, at, since: x.since, pending: x.pending, closed: !x.control || Boolean(x.ended) });
 			// One alert per failed monitor, while its session lists it; a monitor that ran again under the same id is a new one (`at`).
 			for (const mo of x.monitors ?? []) if (mo.status === "error" || mo.status === "stale") ((key) => out.set(key, { key, unit: x.key!, ws: b.id, name: x.name!, role: x.role!, mark: "error", note: `monitor:${mo.status}:${mo.what}`, at }))(`${x.key}\u001fmonitor:${mo.id}:${mo.at}`);
 		}
 	}
-	for (const t of net.trust ?? []) if (!(t.opening && ownOpenings.has(t.opening))) ((key) => out.set(key, { key, ws: "", name: t.folder.split(/[\\/]/).filter(Boolean).at(-1) ?? t.folder, role: t.agents[0]?.role ?? "none", mark: "waiting", at, trust: t }))(`trust\u001f${t.folder}\u001f${t.digest}`);
+	for (const t of net.trust ?? []) if (!(t.opening && ownOpenings.has(t.opening))) ((key) => out.set(key, { key, ws: "", name: t.folder.split(/[\\/]/).filter(Boolean).at(-1) ?? t.folder, role: t.agents[0]?.role ?? "none", mark: "waiting", at, since: t.agents.length ? Math.min(...t.agents.map((g) => g.at)) : undefined, trust: t }))(`trust\u001f${t.folder}\u001f${t.digest}`);
 	return out;
 }
 /**

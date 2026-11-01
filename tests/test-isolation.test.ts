@@ -9,7 +9,7 @@ import { spawnDetached } from "../src/server/client.ts";
 import { consumeRefusals, guarded, guardHome, guardSpawn, inside, inTestRun, noteStarted, PIDS_DIR, stateDirFor, TEST_ROOT } from "../src/server/testguard.ts";
 import { startOf } from "../src/startof.ts";
 import { until, World } from "./fakes.ts";
-import { goEnv, INHERITED, installIsolation, leftover, reap, unjudged } from "./isolation.ts";
+import { goEnv, INHERITED, installIsolation, leftover, reap, strays, topLevel, unjudged } from "./isolation.ts";
 import { ServerWorld } from "./server-world.ts";
 
 // A run of the tests never touches the developer's machine (tests/isolation.ts, src/server/testguard.ts): the home, the agent folder, and the Herdr socket are the run's own, no sb server starts
@@ -310,4 +310,45 @@ test("a guard refusal a test did not take fails its process when it ends; one it
 	const taken = run(true);
 	assert.equal(taken.status, 0, taken.stderr);
 	assert.equal(taken.stdout.trim(), "1");
+});
+
+// A test that writes into the checkout (T38: a literal `~` folder from a child whose home folder was empty or a path that was not expanded) fails the run, wherever it started the child.
+test("strays: an entry that is new at the top of a watched folder is reported, unless .gitignore names it or a tool owns it; what was there before is not", () => {
+	const dir = isolate(mkdtempSync(join(tmpdir(), "psb-strays-")));
+	writeFileSync(join(dir, ".gitignore"), "# comment\nnode_modules/\ndist/\n/scratch/\n*.log\nsub/deep/\n");
+	writeFileSync(join(dir, "package.json"), "{}");
+	const before = topLevel([dir]);
+	assert.deepEqual(strays(before), []);
+	for (const name of ["dist", "scratch", ".metadata_cache", "node_modules"]) mkdirSync(join(dir, name));
+	writeFileSync(join(dir, "debug.log"), "");
+	assert.deepEqual(strays(before), [join(dir, "debug.log")], "a pattern is not a name: only a plain top-level name is allowed");
+	rmSync(join(dir, "debug.log"));
+	mkdirSync(join(dir, "~", ".npm"), { recursive: true });
+	mkdirSync(join(dir, "sub"));
+	assert.deepEqual(strays(before).sort(), [join(dir, "sub"), join(dir, "~")].sort());
+	// npm run with an empty HOME made the `~` before the run began (`npm test`, `pretest`), so it is in the snapshot: it is reported all the same.
+	assert.deepEqual(strays(topLevel([dir])), [join(dir, "~")]);
+});
+
+test("installIsolation takes an empty HOME for no home: the real one is what the process says, not an empty string that joins to a relative path", () => {
+	const env: NodeJS.ProcessEnv = { HOME: "" };
+	const made = installIsolation(env);
+	cleanup.push(() => rmSync(made.root, { recursive: true, force: true }));
+	assert.equal(env.SB_TEST_REAL_HOME, homedir());
+	assert.notEqual(env.SB_TEST_REAL_HOME, "");
+});
+
+test("a run that leaves a `~` at the top of the folder it ran in fails its process and names the entry; one that leaves nothing does not", () => {
+	const dir = isolate(mkdtempSync(join(tmpdir(), "psb-strays-run-")));
+	const script = (body: string) => `
+		import { mkdirSync } from "node:fs";
+		import { setup } from ${JSON.stringify(fileURLToPath(new URL("./isolation.ts", import.meta.url)))};
+		setup();
+		${body}`;
+	const run = (body: string) => spawnSync(process.execPath, ["--input-type=module", "-e", script(body)], { encoding: "utf8", cwd: dir, env: { ...process.env, SB_TEST_ROOT: "" } });
+	const clean = run("");
+	assert.equal(clean.status, 0, clean.stderr);
+	const dirty = run(`mkdirSync("~/.npm", { recursive: true });`);
+	assert.equal(dirty.status, 1, dirty.stderr);
+	assert.ok(dirty.stderr.includes(`${join(dir, "~")}`), dirty.stderr);
 });

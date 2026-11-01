@@ -126,7 +126,7 @@ export function blocked(u: Unit): string | undefined {
 	if (!u.online) return m.blocked_offline();
 	if (!u.live) return m.blocked_ended();
 	if (!u.control) return u.run ? m.blocked_run() : u.ally ? m.blocked_ally() : u.agent ? m.blocked_agent({ agent: AGENT[u.agent] }) : m.blocked_no_pane();
-	if (u.mark === "waiting" && !u.unlocked) return u.answerable ? m.blocked_answer_above() : m.blocked_answer_terminal();
+	if (u.mark === "waiting") return u.answerable ? m.blocked_answer_above() : m.blocked_answer_terminal();
 }
 
 /** The one line that replaces the whole composer when nothing can ever be typed here: the session has ended, or the unit is an event or ally run, read and never written to. Undefined keeps the composer. */

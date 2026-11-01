@@ -163,7 +163,6 @@ test("the answer panel's pure rules: the body it sends, what it says for each ou
 	const unit = { name: "u", control: true, live: true, mark: "waiting" as const, online: true };
 	assert.equal(blocked({ ...unit, answerable: true }), "Answer above or in pi");
 	assert.equal(blocked(unit), "It waits on a dialog; answer it in its terminal.");
-	assert.equal(blocked({ ...unit, unlocked: true }), undefined, "Zen's words-only item: no dialog is open, so the reply may be typed");
 });
 
 test("waitsForSecret: any open call of secret_drop, and a file that cannot be read through; a missing file (a new session) is not", async () => {

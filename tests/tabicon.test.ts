@@ -19,3 +19,14 @@ test("the icon is plain for none waiting and carries the dot with the count, 9+ 
 	assert.ok(decodeURIComponent(iconHref(SVG, 12).split(",")[1]!).includes(">9+</text>"));
 	assert.ok(iconHref(SVG, 1).startsWith("data:image/svg+xml,"), "never the URL string glued behind the prefix");
 });
+
+test("the link bar's chime stays quiet while Zen is on, and for a count of none (Z3RR-F003)", async () => {
+	const { linkChime } = await import("../gui/linkbar.ts");
+	let zen = false, rang = 0;
+	const hear = linkChime(() => zen, () => void rang++);
+	hear(0);
+	hear(2);
+	zen = true;
+	hear(2);
+	assert.equal(rang, 1);
+});

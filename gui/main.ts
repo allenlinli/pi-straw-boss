@@ -12,7 +12,7 @@ import type { mountPanels, Tile } from "./layer.ts";
 import type { mountSettings } from "./settings.ts";
 import { mountConnect } from "./connect.ts";
 import { MODAL, mountHotkeys } from "./hotkeys.ts";
-import { mountLinkBar } from "./linkbar.ts";
+import { linkChime, mountLinkBar } from "./linkbar.ts";
 import { mountMenus } from "./menu.ts";
 import { mountNotify } from "./notify.ts";
 import { mountQuit, showDismissAll, showStashed } from "./quit.ts";
@@ -284,7 +284,7 @@ document.addEventListener("click", (event) => {
 }, true);
 const router = createRouter((route) => navigate(route));
 const openTeams = () => openSection("teams");
-const linkBar = mountLinkBar(openTeams, (count) => count && !zenOn() && notify.chime());
+const linkBar = mountLinkBar(openTeams, linkChime(zenOn, () => notify.chime()));
 const notify = mountNotify((a) => zenOn() || (a.trust ? withPanels((p) => p.stack.show(a)) : router.go({ view: "session", ws: a.ws, key: unitOf(a) })));
 const stream = createStream({
 	open,

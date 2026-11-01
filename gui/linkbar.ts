@@ -10,6 +10,9 @@ import { byId, hang } from "./render.ts";
 // something to say, tinted by the worst of it, and opens a list; a forwarded confirm is answered right there (Allow or Deny, with the tool's full
 // arguments), and a join request is reviewed in the team settings tile, where its words are.
 
+/** The chime for new link notices: not while Zen is the page's face, which makes no sound of its own accord. */
+export const linkChime = (zen: () => boolean, chime: () => void) => (count: number) => count && !zen() && chime();
+
 /** `open` shows the team settings tile; `news` hears how many notices that need the boss (a confirm or a join request) are new since the last snapshot. */
 export function mountLinkBar(open: () => void, news: (count: number) => void) {
 	const btn = byId("link-alerts", HTMLButtonElement), pop = byId("link-alerts-pop", HTMLElement), list = byId("link-alerts-list", HTMLElement);

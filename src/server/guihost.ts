@@ -14,6 +14,7 @@ import type { Session } from "../herdr.ts";
 import { type GuiLink } from "../link/guiport.ts";
 import { type Net, netSource, type TowerView } from "../net.ts";
 import type { TowerPanel } from "../control.ts";
+import type { TowerEnd } from "./towerpanel.ts";
 import { identity, type Run, switchRemote, tailscale } from "../remote.ts";
 import { createLanDevices } from "../devices.ts";
 import { createSpawn } from "../spawn.ts";
@@ -84,7 +85,7 @@ export interface GuiHostOptions {
 	/** The GUI's way to the link holder. */
 	link: GuiLink;
 	/** The tower service of a workspace for the net, and the composer's and notices' way to it (towers.ts). */
-	tower?: { view(workspace: string): TowerView | undefined } & TowerPanel;
+	tower?: { view(workspace: string): TowerView | undefined } & TowerPanel & Partial<TowerEnd>;
 	/** What the page's server panel shows. */
 	status(): Record<string, unknown>;
 	/** Asks the server to restart as the GUI's button does; the reply goes to the page. */
@@ -237,6 +238,8 @@ export function createGuiHost(o: GuiHostOptions) {
 			spawn: createSpawn({ run: cfg.run, sleep: cfg.sleep, call: cfg.call, deploys, trustDir: trustDir(slot.stateDir), live, sessionAt: async (pane) => (await sessions()).find((x) => x.herdrLocation?.paneId === pane)?.id }),
 			close: createCloser({
 				run: cfg.run, sleep: cfg.sleep, me: () => id, sessions, ask: async (key, keepPane, ifStashable) => hub?.close(key, keepPane, ifStashable), check: async (key) => hub?.stashCheck(key), stateDir: slot.stateDir,
+				// The tower the server runs has no pi to ask: the unit the net shows for it (a service, not a waiting one) is closed by ending the service.
+				...(o.tower?.close ? { tower: { of: (key: string) => { const unit = net.lookup(key); return unit?.role === "tower" && o.tower!.has(unit.base) ? unit.base : undefined; }, owns: (sessionId: string) => o.tower!.owns?.(sessionId) ?? false, end: o.tower.close } } : {}),
 				pop: (name) => popBase({ run: cfg.run, sleep: cfg.sleep, stateDir: slot.stateDir, live, agentDir: cfg.env.PI_CODING_AGENT_DIR, trustDir: trustDir(slot.stateDir) }, name),
 			}),
 		});

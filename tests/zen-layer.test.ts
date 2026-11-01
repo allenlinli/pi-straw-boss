@@ -24,7 +24,7 @@ const secret = (): Pending => ({ callId: "c3", tool: "secret_drop", why: "It wai
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy"], more: 0 }], agents: [{ pane: "1", base: "Harbor", role: "member", at: 5 }] };
 
-function rig(o: { remote?: boolean | null; stored?: With } = {}) {
+function rig(o: { remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }> } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
 	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[] };
@@ -42,7 +42,7 @@ function rig(o: { remote?: boolean | null; stored?: With } = {}) {
 		chat: async () => (root: El, _data: unknown, _deps: unknown) => (calls.logs.push("mounted"), { apply: (e: HistoryEvent) => calls.applied.push(e), setLive() {}, reveal() {} } as unknown as Chat),
 	};
 	const deps = {
-		data: () => ({ older: async () => ({ items: [] }), latest: async () => ({ items }), entry: async () => undefined }),
+		data: () => ({ older: async () => ({ items: [] }), latest: o.latest ?? (async () => ({ items })), entry: async () => undefined }),
 		recent: async () => items,
 		post: (key: string) => (action: string, body: Record<string, unknown>) => (calls.posts.push({ key, action, body }), new Promise<Answer>((resolve) => replies.push(resolve))),
 		trust: (body: Record<string, unknown>) => (calls.trust.push(body), new Promise<Answer>((resolve) => replies.push(resolve))),
@@ -172,23 +172,16 @@ test("a trust question draws the trust panel with its three choices, answers thr
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 });
 
-test("a unit that waits with no dialog has its last line, a reply composer (which keeps its own rule for a pane that waits on a dialog), and Open in Standard; a reply the server took is the answer", async () => {
+test("a unit that waits with no dialog has its last line, Not now, and Open in Standard, with no composer", async () => {
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { name: "docs-main", since: 5 })]));
 	r.z.show();
 	await r.settle();
 	assert.ok(r.text().includes("I need a decision."));
-	assert.equal(r.calls.composers.length, 1);
-	assert.equal(r.calls.composers[0]!.key, "a");
+	assert.equal(r.calls.composers.length, 0);
 	assert.ok(r.button("Maybe later"));
-	assert.deepEqual((r.calls.composers[0]!.updates.at(-1) as { mark: string }).mark, "waiting", "the composer is told the unit's real state, so its own blocked rule applies");
 	r.button("Handle it in Standard")!.click();
 	assert.deepEqual(r.calls.leave, [{ route: { view: "session", ws: "w", key: "a" }, terminal: "a" }]);
-	const sent = r.calls.composers[0]!.post("input" as never, { text: "go ahead" });
-	await r.reply(ok);
-	await sent;
-	assert.deepEqual(r.calls.sound, ["bowl", "knock"], "the accepted reply ends the item");
-	assert.equal(JSON.parse(stored.get("sb.zen.with")!).key, "a", "and is where the companion will be");
 });
 
 test("an accepted answer plays the knock, shows its outcome for 1.2 s, then the pause, then the companion; the item does not come back at once", async () => {
@@ -423,6 +416,7 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 		r.button("Maybe later")!.click();
 		const circle = r.by((el) => el.getAttribute("role") === "img")[0]!;
 		assert.equal(page.focused, circle, "the focus lands on the layer for the pause");
+		assert.equal((circle as unknown as { tabIndex: number }).tabIndex, -1, "focusable by script, out of the tab order");
 		page.focused!.bubble("keydown", { key });
 		assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, `${JSON.stringify(key)} ends it`);
 	}
@@ -439,17 +433,36 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 	assert.ok(r.by((el) => el.getAttribute("role") === "img").length, "the pause stands");
 });
 
-test("a words-only item gets an unlocked reply composer; the composer of a companion does not (Z3R words)", async () => {
+test("a words-only item is a pane blocked on a terminal prompt: it says to answer in its terminal, opens it, and has no composer (Z3RR-F001)", async () => {
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { name: "docs-main", since: 5 })]));
 	r.z.show();
 	await r.settle();
-	assert.equal((r.calls.composers[0]!.updates.at(-1) as { unlocked?: boolean }).unlocked, true, "no dialog open: the reply may be typed");
-	const c = rig();
-	c.feed(net([unit("m", "working")]));
-	c.z.show();
-	await c.settle();
-	assert.notEqual((c.calls.composers.at(-1)!.updates.at(-1) as { unlocked?: boolean }).unlocked, true);
+	assert.equal(r.calls.composers.length, 0, "no box to type into: the server refuses input to a blocked pane");
+	assert.ok(r.text().includes("answer it in its terminal"));
+	r.button("Handle it in Standard")!.click();
+	assert.deepEqual(r.calls.leave.at(-1), { route: { view: "session", ws: "w", key: "a" }, terminal: "a" });
+});
+
+test("a live append that arrives while the newest page is in flight is not lost; a page for a companion that was left is dropped (Z3RR-F002, M3)", async () => {
+	let release!: (p: { items: Item[] }) => void;
+	const r = rig({ latest: () => new Promise((done) => (release = done)) });
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	const added = { key: "t", items: [{ id: "n1", kind: "assistant", text: "new" }] } as unknown as HistoryEvent;
+	r.z.history(added);
+	release({ items: [] });
+	await r.settle();
+	assert.deepEqual(r.calls.applied.map((e) => [e.reset ?? false, e.items?.length]), [[false, 1], [true, 0], [false, 1]], "the append is applied again after the page replaced the log");
+	const gone = rig({ latest: () => new Promise((done) => (release = done)) });
+	gone.feed(net([unit("m", "working")]));
+	gone.z.show();
+	await gone.settle();
+	gone.z.hide();
+	release({ items: [] });
+	await gone.settle();
+	assert.equal(gone.calls.applied.length, 0, "the turn moved on: the page is stale");
 });
 
 test("without an injected remote the dialog decides by the host: a paired device's hereOnly choices are disabled, this computer's are not (Z3R-F006)", async () => {

@@ -3,7 +3,7 @@ import type { Net } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
 import { type AnswerPost, mountAsk } from "./ask.ts";
 import type { Chat, Data, HistoryEvent, Who } from "./chat.ts";
-import { mountComposer, type Post, postTo, wakeOf } from "./composer.ts";
+import { mountComposer, postTo, wakeOf } from "./composer.ts";
 import { h } from "./dom.ts";
 import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
@@ -27,7 +27,7 @@ export type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
 export const real: Mounts = { ask: mountAsk, trust: trustPanel, composer: mountComposer, chat: () => import("./chat.ts").then((c) => c.mountChat) };
 type Composer = ReturnType<typeof mountComposer>;
 interface Card { key: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean }
-interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; state?: string }
+interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; /** Appends that came while the newest page was in flight: applied again after it, which they may not be in. */ late?: HistoryEvent[]; state?: string }
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
@@ -59,12 +59,6 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	}
 	/** An answer's reply: accepted ends the item with the knock; anything else the server refused, or no reply, plays the low bowl and leaves the card. */
 	const tell = (reply: Promise<Answer>) => reply.then((r) => (apply(r.body.outcome === "accepted" ? model.accepted() : model.refused()), r), (e: unknown) => (apply(model.refused()), Promise.reject(e)));
-	/** A reply in words is the boss's answer when the server took it; a failed one is the composer's to say. */
-	const replying = (send: Post): Post => async (action, body) => {
-		const r = await send(action, body);
-		if (action === "input" && r.ok) apply(model.accepted());
-		return r;
-	};
 	function makeCard(a: Alert): Card {
 		const trust = a.trust, key = unitOf(a), said = h("p", { class: "zen-said" }), out = h("p", { class: "zen-out", role: "status" });
 		const slot = h("div", { class: "zen-answer" }), skip = h("button", { type: "button", class: "cmp-alt zen-skip" }, m.zen_not_now());
@@ -78,13 +72,13 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			slot.replaceChildren(panel);
 			return { key: a.key, el, said, out, skip, enter: () => false, update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
 		}
-		let ask: ReturnType<typeof mountAsk> | undefined, composer: Composer | undefined;
+		let ask: ReturnType<typeof mountAsk> | undefined, noted = false;
 		const words = () => {
-			const hold = h("div", { class: "zen-reply" }), open = h("button", { type: "button", class: "cmp-link" }, m.zen_open_standard()); // the composer's own rule stands: a pane that waits on a dialog takes no typing from here, and says to answer in its terminal
+			// A waiting unit with no dialog is a pane blocked on a terminal prompt, which takes no typing from here (the server refuses it): the card says to answer in its terminal and opens it.
+			const open = h("button", { type: "button", class: "cmp-link" }, m.zen_open_standard());
 			open.onclick = () => deps.leave({ route: { view: "session", ws: a.ws, key }, terminal: key });
-			slot.replaceChildren(hold, open);
-			composer = mounts.composer(hold, key, recording(replying(to(key)), () => sendTarget(net, key, a.ws)));
-			return composer;
+			slot.replaceChildren(h("p", { class: "zen-terminal" }, m.blocked_answer_terminal()), open);
+			noted = true;
 		};
 		const dialog = () => {
 			const hold = h("div", { class: "zen-ask" });
@@ -92,12 +86,10 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			return mounts.ask(hold, answer, deps.remote, () => deps.leave({ route: { view: "session", ws: a.ws, key }, terminal: key }), undefined, m.zen_open_standard);
 		};
 		return {
-			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter() || (composer?.box.focus(), composer)),
+			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()),
 			update(x, outcome) {
-				if (x.pending) (composer = undefined, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()));
-				else if (!composer) (ask = undefined, words());
-				const u = locate(net, key)?.u;
-				composer?.update({ name: x.name, control: Boolean(u?.control), agent: u?.agent, live: !closed(u), mark: x.mark, online: online(), answerable: false, unlocked: true, ...wakeOf(u?.service) }); // no dialog is open here (the branch above): a reply in words is the answer
+				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()));
+				else if (!noted) (ask = undefined, words());
 				say(out, outcome, x);
 			},
 		};
@@ -167,7 +159,13 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			co.chat = mountChat(logRoot, deps.data(c.key), { who: () => locate(net, c.key)?.u ?? { key: c.key, name: c.key, role: "member", mark: "unknown" }, link: () => undefined });
 			co.chat.reveal();
 			co.queue.splice(0).forEach((e) => co.chat?.apply(e));
-			if (!co.seen) void deps.data(c.key).latest().then((page) => !co.seen && mine === turn && co.chat?.apply({ key: c.key, reset: true, items: page.items, before: page.before }), () => {}); // the stream may already watch this key and send no reset
+			if (!co.seen) {
+				const late = (co.late = []); // the stream may already watch this key and send no reset
+				void deps.data(c.key).latest().then((page) => {
+					co.late = undefined;
+					if (!co.seen && mine === turn) (co.chat?.apply({ key: c.key, reset: true, items: page.items, before: page.before }), late.forEach((e) => co.chat?.apply(e)));
+				}, () => void (co.late = undefined));
+			}
 			drawCompany();
 		});
 	}
@@ -207,6 +205,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			if (company?.key !== e.key) return;
 			company.state = e.state ?? company.state;
 			company.seen ||= Boolean(e.reset);
+			if (!e.reset) company.late?.push(e);
 			if (company.chat) company.chat.apply(e);
 			else company.queue.push(e);
 			if (active) drawCompany();

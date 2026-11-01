@@ -12,6 +12,7 @@ import { liveNote, roleName } from "./render.ts";
 import type { Route } from "./router.ts";
 import { closed, locate } from "./scene.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
+import type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
 import { companionOf, createZen, type Outcome, type Screen, type Sound } from "./zenmodel.ts";
 import { recall, recording, sendTarget, type With } from "./zenwith.ts";
 
@@ -19,36 +20,11 @@ import { recall, recording, sendTarget, type With } from "./zenwith.ts";
 // decides what is on the screen and which sound goes with a change; this file draws it and answers through the same cards and routes as Standard (ask.ts, trust.ts,
 // the composer). Nothing here counts or lists the items that wait: the model hands out the current one alone.
 
-/** Where leaving Zen goes (the page shows Standard first): an item's dialog opens over it (`item`), a session opens (`route`, in terminal mode with `terminal` its key), or nothing more. */
-export interface Exit { item?: Alert; route?: Route; terminal?: string }
-export interface ZenDeps {
-	data(key: string): Data;
-	recent(key: string): Promise<Item[]>;
-	/** The demo fixture's stand-in for the server's session endpoints; unset: the server's. */
-	post?(key: string): Post | undefined;
-	trust?: TrustPost;
-	label(ws: string): string;
-	online(): boolean;
-	/** The system notification for the item that took the screen while the page is hidden or unfocused. */
-	remind(a: Alert): void;
-	/** Z5 fills this with the effects; Zen makes no sound of its own here. */
-	sound(s: Sound): void;
-	leave(to: Exit): void;
-	/** The session whose log the stream should send (the companion), or none. */
-	watch(key: string | null): void;
-	/** A paired device (`mountAsk`'s `remote`); unset: by the host name. */
-	remote?: boolean;
-	/** The session this device last talked to (zenwith.ts); unset: the stored one. */
-	stored?(): With | undefined;
-	now?: () => number;
-	/** The page's timer (a test moves its own): runs `fn` after `ms` and returns what cancels it. */
-	later?(fn: () => void, ms: number): () => void;
-}
-export type Mounts = { ask: typeof mountAsk; trust: typeof trustPanel; composer: typeof mountComposer; chat(): Promise<(root: HTMLElement, data: Data, deps: { who(): Who; link(): undefined }) => Chat> };
+export type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
 export const real: Mounts = { ask: mountAsk, trust: trustPanel, composer: mountComposer, chat: () => import("./chat.ts").then((c) => c.mountChat) };
 type Composer = ReturnType<typeof mountComposer>;
 interface Card { key: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean }
-interface Company { key: string; ws: string; name: HTMLElement; where: HTMLElement; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; state?: string }
+interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; state?: string }
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
@@ -67,6 +43,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (o.sound) deps.sound(o.sound);
 		if (shown.kind === "item") drawItem(shown);
 		else (card = undefined, shown.kind === "pause" ? drawPause() : drawCompany());
+		if (shown.kind !== "item") live.textContent = "";
 		if (shown.kind !== "companion") (disposeCompany(), deps.watch(null));
 		cancel();
 		const due = model.due(), wait = shown.kind === "companion" && typing() ? 500 : due === undefined ? undefined : due - now();
@@ -112,7 +89,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 				if (x.pending) (composer = undefined, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()));
 				else if (!composer) (ask = undefined, words());
 				const u = locate(net, key)?.u;
-				composer?.update({ name: x.name, control: Boolean(u?.control), agent: u?.agent, live: !closed(u), mark: x.mark, online: online(), answerable: false, ...wakeOf(u?.service) });
+				composer?.update({ name: x.name, control: Boolean(u?.control), agent: u?.agent, live: !closed(u), mark: x.mark, online: online(), answerable: false, unlocked: true, ...wakeOf(u?.service) }); // no dialog is open here (the branch above): a reply in words is the answer
 				say(out, outcome, x);
 			},
 		};
@@ -136,7 +113,12 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		view = "item";
 	}
 	function drawPause() {
-		if (view !== "pause") stage.replaceChildren(circle(m.zen_pause()));
+		if (view !== "pause") {
+			const c = circle(m.zen_pause());
+			c.tabIndex = -1;
+			stage.replaceChildren(c);
+			if (document.hasFocus() && (idle() || !document.activeElement?.isConnected)) c.focus(); // the card that held the focus is gone: Enter and Space must find the layer
+		}
 		view = "pause";
 	}
 	function disposeCompany() {
@@ -170,12 +152,13 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			co.chat = mountChat(logRoot, deps.data(c.key), { who: () => locate(net, c.key)?.u ?? { key: c.key, name: c.key, role: "member", mark: "unknown" }, link: () => undefined });
 			co.chat.reveal();
 			co.queue.splice(0).forEach((e) => co.chat?.apply(e));
+			if (!co.seen) void deps.data(c.key).latest().then((page) => !co.seen && mine === turn && co.chat?.apply({ key: c.key, reset: true, items: page.items, before: page.before }), () => {}); // the stream may already watch this key and send no reset
 			drawCompany();
 		});
 	}
 	const tap = () => shown.kind === "pause" && apply(model.tap());
 	root.addEventListener("pointerdown", tap);
-	root.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && shown.kind === "pause" && (e.preventDefault(), tap()));
+	root.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && shown.kind === "pause" && !/^button$/i.test((e.target as HTMLElement | null)?.tagName ?? "") && (e.preventDefault(), tap()));
 	/** Leaving: the item's dialog opens over Standard, the companion's session opens, a pause just returns to the page. */
 	const leave = () => deps.leave(shown.kind === "item" ? { item: alerts.get(shown.item.key) ?? shown.item } : shown.kind === "companion" && company ? { route: { view: "session", ws: company.ws, key: company.key } } : {});
 	leaveBtn.onclick = leave;
@@ -205,6 +188,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		history(e: HistoryEvent) {
 			if (company?.key !== e.key) return;
 			company.state = e.state ?? company.state;
+			company.seen ||= Boolean(e.reset);
 			if (company.chat) company.chat.apply(e);
 			else company.queue.push(e);
 			if (active) drawCompany();

@@ -24,7 +24,7 @@ const secret = (): Pending => ({ callId: "c3", tool: "secret_drop", why: "It wai
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy"], more: 0 }], agents: [{ pane: "1", base: "Harbor", role: "member", at: 5 }] };
 
-function rig(o: { remote?: boolean; stored?: With } = {}) {
+function rig(o: { remote?: boolean | null; stored?: With } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
 	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[] };
@@ -48,7 +48,7 @@ function rig(o: { remote?: boolean; stored?: With } = {}) {
 		trust: (body: Record<string, unknown>) => (calls.trust.push(body), new Promise<Answer>((resolve) => replies.push(resolve))),
 		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => true,
 		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), watch: (k: string | null) => void calls.watch.push(k),
-		remote: o.remote ?? false, now: () => t, stored: () => o.stored,
+		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => o.stored,
 		later: (fn: () => void, ms: number) => {
 			const e = { at: t + ms, fn };
 			timers.push(e);
@@ -359,7 +359,7 @@ test("the companion: the tower by fallback, its log and composer, the stream wat
 	assert.equal(r.calls.logs.length, 1);
 	r.z.history({ key: "t", reset: true, items: [] } as HistoryEvent);
 	r.z.history({ key: "other", items: [] } as HistoryEvent);
-	assert.deepEqual(r.calls.applied.map((e) => e.key), ["t"]);
+	assert.deepEqual(r.calls.applied.map((e) => e.key), ["t", "t"], "the fetched newest page, then the stream's event; none for the other key");
 	// The boss types in the companion's box: an item that becomes eligible waits.
 	const box = r.calls.composers.at(-1)!.box;
 	box.focus();
@@ -389,4 +389,68 @@ test("the stored companion wins while the net lists it live; without one, nothin
 	assert.ok(alone.text().includes("Nothing waits for you."));
 	assert.equal(alone.calls.composers.length, 0);
 	assert.equal(alone.calls.watch.at(-1), null);
+});
+
+test("the companion always has its log: the newest page is fetched and applied as a reset when no history event came, and not when one did (Z3R-F001)", async () => {
+	const r = rig();
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	assert.deepEqual(r.calls.applied.map((e) => [e.key, e.reset, e.items?.length]), [["t", true, 1]], "the stream already watched this key: no reset came, so the log loads itself");
+	const fed = rig();
+	fed.feed(net([unit("m", "working")]));
+	fed.z.history({ key: "t", reset: true, items: [] } as HistoryEvent);
+	fed.z.show();
+	fed.z.history({ key: "t", reset: true, items: [] } as HistoryEvent);
+	await fed.settle();
+	assert.deepEqual(fed.calls.applied.map((e) => e.reset), [true], "a reset from the stream is the log; nothing is fetched on top of it");
+});
+
+test("Enter and Space end the pause wherever the focus is, the circle takes it, and Enter on the corner control leaves instead (Z3R-F002)", async () => {
+	for (const key of ["Enter", " "]) {
+		const r = rig();
+		r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
+		r.z.show();
+		await r.settle();
+		r.button("Not now")!.click();
+		const circle = r.by((el) => el.getAttribute("role") === "img")[0]!;
+		assert.equal(page.focused, circle, "the focus lands on the layer for the pause");
+		page.focused!.bubble("keydown", { key });
+		assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, `${JSON.stringify(key)} ends it`);
+	}
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
+	r.z.show();
+	await r.settle();
+	r.button("Not now")!.click();
+	const corner = r.by((el) => el.getAttribute("class") === "zen-leave")[0]!;
+	corner.focus();
+	let prevented = 0;
+	corner.bubble("keydown", { key: "Enter", preventDefault: () => void prevented++ });
+	assert.equal(prevented, 0, "the button keeps its Enter");
+	assert.ok(r.by((el) => el.getAttribute("role") === "img").length, "the pause stands");
+});
+
+test("a words-only item gets an unlocked reply composer; the composer of a companion does not (Z3R words)", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { name: "docs-main", since: 5 })]));
+	r.z.show();
+	await r.settle();
+	assert.equal((r.calls.composers[0]!.updates.at(-1) as { unlocked?: boolean }).unlocked, true, "no dialog open: the reply may be typed");
+	const c = rig();
+	c.feed(net([unit("m", "working")]));
+	c.z.show();
+	await c.settle();
+	assert.notEqual((c.calls.composers.at(-1)!.updates.at(-1) as { unlocked?: boolean }).unlocked, true);
+});
+
+test("without an injected remote the dialog decides by the host: a paired device's hereOnly choices are disabled, this computer's are not (Z3R-F006)", async () => {
+	for (const [host, disabled] of [["192.168.1.7", true], ["127.0.0.1", false]] as const) {
+		Object.assign(globalThis, { location: { hostname: host } });
+		const r = rig({ remote: null });
+		r.feed(net([unit("a", "waiting", { since: 5, pending: select({ hereOnly: true }) })]));
+		r.z.show();
+		await r.settle();
+		assert.equal(r.by((el) => el.getAttribute("role") === "radio").every((o) => o.disabled), disabled, host);
+	}
 });

@@ -22,6 +22,7 @@ import { createRouter, depthOf, netOf, parseRoute, type Route, type Section, upO
 import { createStream, type Source, type Status } from "./stream.ts";
 import { mountTimeline } from "./timeline.ts";
 import type { mountFocus } from "./views.ts";
+import { iconHref, plainOf } from "./tabicon.ts";
 import type { Exit, mountZen } from "./zen.ts";
 
 // The view goes first, before anything is drawn: `data-view` on <html> picks the palette, so no frame is painted in the other one (view.ts).
@@ -101,6 +102,7 @@ function syncZen() {
 	el("zen").hidden = !on;
 	if (on) withZen((z) => zenOn() && (latest && z.net(alertsOf(latest, Date.now()), latest), z.show()));
 	else zen?.hide();
+	latest && badge(latest); // the tab icon shows no count while Zen is shown, and the count again on leaving
 	rewatch();
 }
 /** Leaves Zen (`away`) or comes back for this page only: the device's choice stays Zen, Standard shows, and the header's Zen button returns. */
@@ -132,14 +134,13 @@ const openSection = (section: Section) => (current.view === "settings" ? withSet
 // The header, the alert queue, and the focus views follow every snapshot. A hidden page keeps only the newest snapshot and draws it
 // when it comes back, so a background tab does no DOM work; the timeline follows on every route, the map is drawn only while in view.
 // The tab's icon carries the count of units waiting on an answer, a hidden tab's above all; a browser that keeps the first icon shows it plain.
-const tabIcon = document.querySelector<HTMLLinkElement>('link[rel="icon"]'), plainIcon = tabIcon && decodeURIComponent(tabIcon.href.slice(tabIcon.href.indexOf(",") + 1));
+const tabIcon = document.querySelector<HTMLLinkElement>('link[rel="icon"]'), plain = tabIcon ? plainOf(tabIcon.href) : undefined;
 let badged = 0;
 function badge(net: Net) {
 	const n = zenOn() ? 0 : net.bases.flatMap((b) => [...(b.tower ? [b.tower, ...b.tower.subs] : []), ...[...b.tabs.flatMap((t) => t.units), ...b.outside].flatMap((u) => [u, ...u.subs])]).filter((u) => u.mark === "waiting" || u.pending).length + (net.trust?.length ?? 0);
-	if (!tabIcon || !plainIcon || n === badged) return;
+	if (!tabIcon || !plain || n === badged) return;
 	badged = n;
-	const dot = `<circle cx='23' cy='9' r='9' fill='#e0af68' stroke='#1a1b26' stroke-width='2'/><text x='23' y='13' text-anchor='middle' font-family='sans-serif' font-size='${n > 9 ? 9 : 12}' font-weight='700' fill='#16161e'>${n > 9 ? "9+" : n}</text>`;
-	tabIcon.href = `data:image/svg+xml,${encodeURIComponent(n ? plainIcon.replace("</svg>", `${dot}</svg>`) : plainIcon)}`;
+	void plain.then((svg) => svg && n === badged && (tabIcon.href = iconHref(svg, n)));
 }
 // Reminders and sounds follow every snapshot, a hidden page's above all: `heard` is apart from `known`, which the alert queue
 // advances only while the page is shown, so a page that comes back still queues what arrived while it was hidden.
@@ -283,7 +284,7 @@ document.addEventListener("click", (event) => {
 }, true);
 const router = createRouter((route) => navigate(route));
 const openTeams = () => openSection("teams");
-const linkBar = mountLinkBar(openTeams, (count) => count && notify.chime());
+const linkBar = mountLinkBar(openTeams, (count) => count && !zenOn() && notify.chime());
 const notify = mountNotify((a) => zenOn() || (a.trust ? withPanels((p) => p.stack.show(a)) : router.go({ view: "session", ws: a.ws, key: unitOf(a) })));
 const stream = createStream({
 	open,

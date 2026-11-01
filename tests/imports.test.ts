@@ -464,7 +464,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Ended bar (sb server B6): composer.ts 315 to 327 (barOf, and draw swaps the composer for the one-line bar).
 	// Phone terminal keyboard (sb server B6): mirror.ts 175 to 198 (the sink, the Keyboard button, beforeinput keys, the sentinel) and session.ts 142 to 147 (the composer lets go of the focus on the Terminal tab).
 	// Phone layout (step 4): bars.ts 85 to 99 for the queue's fold row (foldQueue, mountQueueFold); session.ts 147 to 150 for the head's `⋯` menu (a tower's + Main and Quit tower, flagged data-tower) and the queue's fold row (mounted and drawn with the other bars).
-	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 151], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 75], ["composer.ts", 327], ["ask.ts", 185], ["mirror.ts", 198], ["keypad.ts", 131], ["doc.ts", 108], ["i18n.ts", 50], ["slash.ts", 63], ["zen.ts", 230], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
+	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 151], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 75], ["composer.ts", 327], ["ask.ts", 185], ["mirror.ts", 198], ["keypad.ts", 131], ["doc.ts", 108], ["i18n.ts", 50], ["slash.ts", 63], ["zen.ts", 220], ["zentypes.ts", 37], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
 	// 0.28.0 to 185 with the answer keys' hooks into gui/ask.ts (the focus on the first option, the textarea). 0.28.0 raised gui/ask.ts from 156 to 175 for the secret panel: the masked field with Show and Hide, Submit, the way back to the terminal, the unsupported-remote notice, and a value that leaves with its one request.
 	// 0.10.0: the page's text comes from Paraglide's messages (gui/messages), which raised chat.ts, views.ts, layer.ts, ask.ts, mirror.ts, and doc.ts by one
 	// line each for the messages import; the strings replaced in place. gui/i18n.ts picks the locale (the menu's choice, the browser's languages with
@@ -620,7 +620,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Z1 and Z2 together (the merge) to 2639: the two increments over the common 2531.
 	// The Zen layer (Z3) to 2965: gui/zenchunk.ts (3, the chunk's entry with its stylesheet) is new, and gui/zen.ts (the item card, the pause, the companion, and the way out; 227) and gui/intel.ts (11, out of layer.ts) are new; main.ts, fixture.ts, notify.ts, drawer.ts, view.ts, ask.ts, and zenmodel.ts take their few lines.
 	// The stuck-overlay way out (fix/connect-stuck) to 2652 (with Z1 and its fixes): connect.ts takes the static Reload link away once the page has booted (+3).
-	assert.ok(page <= 2968, `the page's TypeScript has ${page} lines`);
+	// Z3 review fixes to 3000: gui/zentypes.ts (37, the layer's deps and mounts types, out of zen.ts so it stays under the spec's 220) and gui/tabicon.ts (10, the tab icon's plain SVG and dotted href, testable); the companion's history fetch, the pause's focus and keys, and the unlocked reply take the rest.
+	assert.ok(page <= 3000, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -715,7 +716,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen model (Z2) to 81,900 bytes / 28.55 KB gzipped (with the sheet fix): the composer's Post recording the device's last talk (zenwith.ts, session.ts 150 to 151 lines).
 	// Z1 and Z2 together (the merge) to 82,600 bytes / 28.85 KB gzipped: the two increments over the common 81,500 / 28.4.
 	// The Zen layer (Z3) to 83,800 bytes / 29,250 gzipped (this test's gzip): main.ts loads the Zen chunk and its deps, tells it the snapshots, the stream's watch, and the way out, and `face` leaves and enters (about 1.55 KB raw / 0.56 KB gzipped over Z1 and Z2); the spec's 1.6 KB / 0.7 KB entry budget for the whole view is passed by about 0.6 KB raw.
-	assert.ok(size(entry).length <= 83_800 && gz(entry) <= 29_250, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
+	// Z3 review fixes to 83,950 bytes / 29,250 gzipped: the icon helper (gui/tabicon.ts) and the history fetch add about 0.1 KB raw. The overshoot of the spec's 1.6 KB / 0.7 KB entry budget (now about 0.7 KB raw, gzip within) is the boss's to accept: it is the price of the Zen hooks in main.ts that the spec could not see before Z3, recorded here and in the spec's status line.
+	assert.ok(size(entry).length <= 83_950 && gz(entry) <= 29_250, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -799,7 +801,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Cancel (fix/ask-cancel) to 208,700 bytes / 82.4 KB gzipped: the question card's Cancel button (gui/ask.ts), its cancel body and outcome, and its two messages in both languages.
 	// Zen model (Z2) to 209,000 bytes / 82.45 KB gzipped: session.ts records the device's last talk through zenwith.ts.
 	// The Zen layer (Z3) to 218,300 bytes / 88.1 KB gzipped: gui/zen.ts (8.6 KB raw, 3.8 KB gzipped, inside the spec's 14 KB / 5.5 KB for the chunk), its stylesheet, intel.ts, and the `zen_*` words in both languages (they sit in the Zen chunk, not the map's).
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 218_300 && total(chunks, gz) <= 88_100, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Z3 review fixes to 218,700 bytes / 88.2 KB gzipped: the companion's history fetch, the pause's focus and keys, and the unlocked reply (about 0.35 KB raw).
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 218_700 && total(chunks, gz) <= 88_200, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

@@ -1,3 +1,4 @@
+import type { Hint } from "./look.ts";
 import type { PollAnswer } from "./source.ts";
 
 // The words of the tower prompt. English, and Traditional Chinese for a boss whose shell says so; every other language, Simplified Chinese included, gets English.
@@ -18,10 +19,12 @@ function systemLanguage(): string {
 }
 
 export interface Texts {
-	/** The line of the tower's state: `tower · Alpha: standing by`. */
-	header(label: string, answer: Pick<PollAnswer, "state" | "queued">): string;
-	/** The lines under the first state line. */
-	hint: string[];
+	/** The title: `tower · Alpha`. */
+	title(label: string): string;
+	/** The tower's state in words: `standing by`, `3 queued`, `running, 2 queued`. */
+	state(answer: Pick<PollAnswer, "state" | "queued">): string;
+	/** The key rows under the first state line. */
+	hints: Hint[];
 	waking: string;
 	/** `/new` was taken. */
 	fresh: string;
@@ -35,10 +38,13 @@ export interface Texts {
 }
 
 const EN: Texts = {
-	header: (label, a) => `tower · ${label}: ${stateWord(a, { standing: "standing by", waking: "waking up", running: "running", closing: "closing", held: "held" }, (n) => `${n} queued`)}`,
-	hint: [
-		"Type a message and press Enter to wake the tower with it; Enter alone wakes it without one. /new makes the next conversation a new session; /quit leaves this pane to your shell.",
-		"Ctrl+D leaves this pane to your shell. From any pi session: /boss tower <message>.",
+	title: (label) => `tower · ${label}`,
+	state: (a) => stateWord(a, { standing: "standing by", waking: "waking up", running: "running", closing: "closing", held: "held" }, (n) => `${n} queued`),
+	hints: [
+		{ keys: "⏎", plain: "Enter", text: "wake the tower with your message; alone, without one" },
+		{ keys: "/new", plain: "/new", text: "the next conversation is a new session" },
+		{ keys: "/quit ⌃D", plain: "/quit, Ctrl+D", text: "leave this pane to your shell" },
+		{ keys: "/boss tower <message>", plain: "/boss tower <message>", text: "wake the tower from any pi session" },
 	],
 	waking: "waking the tower…",
 	fresh: "the next conversation with the tower is a new session.",
@@ -47,13 +53,16 @@ const EN: Texts = {
 	silent: (why) => `the sb server does not answer (${why}); waiting for it.`,
 	back: "the sb server answers again.",
 	refused: (error) => `the tower did not take it: ${error}`,
-	unknownCommand: (word) => `${word} is not a command here; tower> takes /new (the next conversation is a new session), /quit (leave this pane to your shell) and messages; start a message that begins with / with a space.`,
+	unknownCommand: (word) => `${word} is not a command here; this prompt takes /new (the next conversation is a new session), /quit (leave this pane to your shell) and messages; start a message that begins with / with a space.`,
 };
 const ZH: Texts = {
-	header: (label, a) => `塔台 · ${label}：${stateWord(a, { standing: "待命中", waking: "喚醒中", running: "執行中", closing: "收尾中", held: "已擱置" }, (n) => `${n} 則待處理`)}`,
-	hint: [
-		"輸入訊息後按 Enter，連同訊息喚醒塔台；直接按 Enter 則不帶訊息。輸入 /new 讓下一次對話成為新的工作階段，輸入 /quit 把這個窗格還給你的 shell。",
-		"Ctrl+D 把這個窗格還給你的 shell。在任何 pi 工作階段都可用：/boss tower <訊息>。",
+	title: (label) => `塔台 · ${label}`,
+	state: (a) => stateWord(a, { standing: "待命中", waking: "喚醒中", running: "執行中", closing: "收尾中", held: "已擱置" }, (n) => `${n} 則待處理`),
+	hints: [
+		{ keys: "⏎", plain: "Enter", text: "連同你輸入的訊息喚醒塔台；單按則不帶訊息" },
+		{ keys: "/new", plain: "/new", text: "下一次對話成為新的工作階段" },
+		{ keys: "/quit ⌃D", plain: "/quit, Ctrl+D", text: "把這個窗格還給你的 shell" },
+		{ keys: "/boss tower <訊息>", plain: "/boss tower <訊息>", text: "在任何 pi 工作階段喚醒塔台" },
 	],
 	waking: "正在喚醒塔台…",
 	fresh: "下一次和塔台的對話會是新的工作階段。",
@@ -62,7 +71,7 @@ const ZH: Texts = {
 	silent: (why) => `sb 伺服器沒有回應（${why}），等它回來。`,
 	back: "sb 伺服器又回應了。",
 	refused: (error) => `塔台沒有收下：${error}`,
-	unknownCommand: (word) => `${word} 不是這裡的指令；tower> 只接受 /new（下一次對話成為新的工作階段）、/quit（把這個窗格還給你的 shell）和訊息；以 / 開頭的訊息請先打一個空格。`,
+	unknownCommand: (word) => `${word} 不是這裡的指令；這個提示只接受 /new（下一次對話成為新的工作階段）、/quit（把這個窗格還給你的 shell）和訊息；以 / 開頭的訊息請先打一個空格。`,
 };
 
 /** The state in words: what stands alone says it; a tower that waits with events says how many, and a running one adds them. A word this build does not know is shown as the server sent it. */

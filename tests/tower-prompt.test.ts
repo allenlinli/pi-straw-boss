@@ -163,7 +163,7 @@ test("the prompt shows the tower's state and a hint, and waits at `tower>`", asy
 	const source = new FakeSource();
 	const p = screen(source);
 	await until(() => p.text().includes("tower> "), "the prompt");
-	assert.match(p.text(), /tower · Alpha: standing by/);
+	assert.match(p.text(), /# tower - Alpha\no standing by/);
 	assert.match(p.text(), /Enter/);
 	assert.match(p.text(), /Ctrl\+D/);
 	assert.match(p.text(), /\/boss tower <message>/);
@@ -416,7 +416,7 @@ test("the words follow the boss's language: Traditional Chinese for zh-TW, Engli
 	const source = new FakeSource();
 	const p = screen(source, { locale: "zh-TW" });
 	await until(() => p.text().includes("tower> "), "the prompt");
-	assert.match(p.text(), /塔台 · Alpha：待命中/);
+	assert.match(p.text(), /# 塔台 - Alpha\no 待命中/);
 	assert.match(p.text(), /Ctrl\+D/);
 	p.input.write("好\n");
 	await until(() => /正在喚醒塔台…/.test(p.text()), "the waking line");

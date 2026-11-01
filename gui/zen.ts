@@ -13,6 +13,9 @@ import type { Route } from "./router.ts";
 import { closed, locate } from "./scene.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 import type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
+import { domFs, mountFullscreen } from "./zenfs.ts";
+import { mountLine, stillNow } from "./zenlines.ts";
+import { mountMenu } from "./zenmenu.ts";
 import { companionOf, createZen, type Outcome, type Screen, type Sound } from "./zenmodel.ts";
 import { recall, recording, sendTarget, type With } from "./zenwith.ts";
 
@@ -28,23 +31,28 @@ interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; 
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
-	let net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0;
+	let line: ReturnType<typeof mountLine> | undefined, net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0;
 	const to = (key: string) => deps.post?.(key) ?? postTo(key), trustTo: TrustPost = deps.trust ?? ((body) => post("trust/answer", body));
 	const typing = () => Boolean(company?.composer && document.activeElement === company.composer.box && company.composer.box.value !== "");
 	const model = createZen({ now, typing });
 	const stage = h("div", { class: "zen-stage" }), live = h("p", { class: "zen-live", role: "status", "aria-live": "polite" });
-	const leaveBtn = h("button", { type: "button", class: "zen-leave", title: m.zen_leave_title() }, m.zen_leave());
-	root.replaceChildren(leaveBtn, live, stage);
-	const circle = (words?: string) => h("div", { class: "zen-circle", ...(words ? { role: "img", "aria-label": words } : { "aria-hidden": "true" }) });
+	const fs = mountFullscreen(deps.fs ?? domFs(later)), menu = mountMenu(deps.menu ?? {}, () => leave(), later);
+	root.replaceChildren(h("div", { class: "zen-drift", "aria-hidden": "true" }, h("i", null), h("i", null)), h("div", { class: "zen-corner" }, fs.button, menu.el), ...(fs.hint ? [fs.hint] : []), live, stage);
+	const circle = (words?: string) => h("div", { class: "zen-circle", ...(words ? { role: "img", "aria-label": words } : { "aria-hidden": "true" }) }, h("i", null), h("i", null), h("i", null)); // the ink washes inside the ring
+	const stopLine = () => (line?.stop(), (line = undefined));
+	/** Ink dissolving: the card that was on the page stays a moment longer, fading and blurring out, while the next thing begins. */
+	const dissolve = (el: HTMLElement) => (el.dataset.gone = "", el.setAttribute("inert", ""), stage.append(el), later(() => el.remove(), 1400));
 	/** What the stage draws changed: the sound goes out, the screen follows, and the one timer is set for the next moment the model may change. */
 	function apply(o: { screen: Screen; sound?: Sound }) {
 		if (!active) return;
+		const gone = view === "item" && o.screen.kind !== "item" ? card?.el : undefined;
 		shown = o.screen;
 		if (o.sound) deps.sound(o.sound);
 		if (shown.kind === "item") drawItem(shown);
 		else (card = undefined, shown.kind === "pause" ? drawPause() : drawCompany());
+		if (gone) dissolve(gone);
 		if (shown.kind !== "item") live.textContent = "";
-		if (shown.kind !== "companion") (disposeCompany(), deps.watch(null));
+		if (shown.kind !== "companion") (disposeCompany(), deps.watch(null), stopLine());
 		cancel();
 		const due = model.due(), wait = shown.kind === "companion" && typing() ? 500 : due === undefined ? undefined : due - now();
 		cancel = wait === undefined ? () => {} : later(() => apply(model.tick()), Math.max(0, wait) + 10);
@@ -119,7 +127,14 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	}
 	function drawCompany() {
 		const c = companionOf(net, company ? { key: company.key, ws: company.ws, at: 0 } : (deps.stored ?? recall)());
-		if (!c) return (company = undefined), (view = "companion"), stage.replaceChildren(circle(), h("p", { class: "zen-nothing", role: "status" }, m.zen_nothing())), deps.watch(null);
+		if (!c) {
+			[company, view] = [undefined, "companion"];
+			deps.watch(null);
+			if (line) return; // the empty state is already drawn
+			line = mountLine(later, deps.still ?? stillNow, deps.random);
+			return stage.replaceChildren(circle(), line.el);
+		}
+		stopLine();
 		if (view !== "companion" || company?.key !== c.key) openCompany(c);
 		view = "companion";
 		const u = locate(net, c.key);
@@ -158,8 +173,9 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	root.addEventListener("pointerdown", tap);
 	root.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && shown.kind === "pause" && !/^button$/i.test((e.target as HTMLElement | null)?.tagName ?? "") && (e.preventDefault(), tap()));
 	/** Leaving: the item's dialog opens over Standard, the companion's session opens, a pause just returns to the page. */
-	const leave = () => deps.leave(shown.kind === "item" ? { item: alerts.get(shown.item.key) ?? shown.item } : shown.kind === "companion" && company ? { route: { view: "session", ws: company.ws, key: company.key } } : {});
-	leaveBtn.onclick = leave;
+	function leave() {
+		deps.leave(shown.kind === "item" ? { item: alerts.get(shown.item.key) ?? shown.item } : shown.kind === "companion" && company ? { route: { view: "session", ws: company.ws, key: company.key } } : {});
+	}
 	return {
 		/** Whether Zen is the page's face now; the first time, and on coming back, it draws what the model holds. */
 		show() {
@@ -174,6 +190,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			root.hidden = true;
 			cancel();
 			card = undefined;
+			stopLine();
+			menu.close();
 			disposeCompany();
 			view = undefined;
 			deps.watch(null);
@@ -198,6 +216,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		/** Escape: a field with text in it takes the first one as a blur, the next leaves. True when the key was Zen's. */
 		escape(e: Pick<Event, "preventDefault">) {
 			if (!active) return false;
+			if (menu.close()) return e.preventDefault(), true;
 			const at = document.activeElement as HTMLInputElement | null;
 			e.preventDefault();
 			if (at && at !== document.body && root.contains(at) && typeof at.value === "string" && at.value !== "") at.blur();

@@ -48,6 +48,10 @@ export class El {
 		this.kids = [];
 		this.append(...kids);
 	}
+	remove() {
+		this.parent?.kids.splice(this.parent.kids.indexOf(this), 1);
+		this.parent = undefined;
+	}
 	contains(other: unknown) {
 		for (let at = other as El | undefined; at; at = at.parent) if (at === this) return true;
 		return false;

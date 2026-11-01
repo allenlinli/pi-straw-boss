@@ -25,6 +25,18 @@ const PAGE: Record<string, () => string> = {
 };
 export const pageKeys = Object.keys(PAGE);
 
+/** Keeps `next` as the device's language and reloads the page in it; false when the storage refused. The settings page's menu and the Zen menu both choose through this. */
+export function setLocale(next: string, store: Pick<Storage, "setItem"> = localStorage, reload: () => void = () => location.reload()) {
+	try {
+		store.setItem(KEY, next);
+	} catch {
+		return false;
+	}
+	reload();
+	return true;
+}
+export const localeNames = () => locales.map((l) => ({ id: l as string, name: m.locale_name({}, { locale: l }) }));
+
 /** Pins the locale, translates the page's static text, and fills the language menu. */
 export function startI18n() {
 	let stored: string | null = null;
@@ -39,12 +51,5 @@ export function startI18n() {
 		for (const [attr, set] of Object.entries(put)) if (el.dataset[attr]) set(el, PAGE[el.dataset[attr]]?.() ?? el.dataset[attr]);
 	const menu = document.getElementById("lang") as HTMLSelectElement;
 	menu.replaceChildren(...locales.map((l) => new Option(m.locale_name({}, { locale: l }), l, false, l === locale)));
-	menu.onchange = () => {
-		try {
-			localStorage.setItem(KEY, menu.value);
-			location.reload();
-		} catch {
-			menu.value = locale; // storage refused: a reload could not keep the choice
-		}
-	};
+	menu.onchange = () => setLocale(menu.value) || (menu.value = locale); // storage refused: a reload could not keep the choice
 }

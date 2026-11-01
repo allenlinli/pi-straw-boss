@@ -1,32 +1,111 @@
-/* The Zen layer's layout (gui/zen.ts), loaded with its chunk. Z3 gives it just enough to be usable on the Standard tokens (the card centred, the companion's log and composer);
-   the ink palette, type, and motion are the next step's (docs/specs/2026-11-01-zen-view.md, Z4). Nothing here applies outside the Zen view. */
-[data-view="zen"] #zen { position: fixed; inset: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; overflow: hidden; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); }
+/* The Zen layer (gui/zen.ts): lofi ink. Dark only, low in colour, slow. Text is paper and ash on the ink grounds at 7 : 1 or more; borders, the circle's ring, and the focus ring at 3 : 1 or more
+   (tests/zen-contrast.test.ts computes both from the values below). Only transform, opacity, and filter move. Nothing here applies outside the Zen view (docs/specs/2026-11-01-zen-view.md). */
+[data-view="zen"] :is(#zen, .connect) {
+	--zen-ground: #14110e; --zen-ground-2: #1b1612; --zen-soft: #26201a; --zen-sunken: #1f1a15; --zen-warm: #4c3a2b; --zen-warm-hi: #574232;
+	--zen-paper: #ebe3d3; --zen-ash: #bdb3a2; --zen-line: #857a6b; --zen-seal: #c4553a; --zen-moss: #8fa58a; --zen-clay: #e8a58f;
+	/* The page's own tokens, in ink: the answer panels, the composer, and the log are Standard's, and follow. */
+	--bg: var(--zen-ground); --bg-2: var(--zen-ground-2); --surface-0: var(--zen-soft); --surface-1: var(--zen-soft); --raised: var(--zen-soft); --sunken: var(--zen-sunken); --well: var(--zen-sunken); --panel: var(--zen-soft); --plate: var(--zen-soft); --plate-hi: var(--zen-soft); --term-bg: var(--zen-sunken); --term-fg: var(--zen-paper);
+	--line: var(--zen-line); --line-c: var(--zen-line); --hi: var(--zen-paper); --shadow: transparent; --text: var(--zen-paper); --dim: var(--zen-ash); --ink: var(--zen-paper);
+	--accent: var(--zen-paper); --accent-hi: var(--zen-paper); --working: var(--zen-ash); --gold: var(--zen-paper); --amber: var(--zen-paper); --ok: var(--zen-moss); --err: var(--zen-clay); --err-soft: var(--zen-clay); --violet: var(--zen-ash); --idle: var(--zen-ash); --unknown: var(--zen-ash);
+	--sans: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; --serif: ui-serif, "Iowan Old Style", "Songti TC", "Noto Serif TC", PMingLiU, serif; --soft: var(--zen-ash);
+	--zen-ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+[data-view="zen"] #zen { position: fixed; inset: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; overflow: hidden; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--zen-ground); color: var(--zen-paper); font: 16px/1.6 var(--sans); }
 [data-view="zen"] #zen[hidden] { display: none; }
-[data-view="zen"] .zen-leave { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); z-index: 2; min-width: 44px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: transparent; color: var(--text); font: inherit; opacity: 0.6; cursor: pointer; }
-[data-view="zen"] .zen-leave:is(:hover, :focus-visible) { opacity: 1; }
+[data-view="zen"] #zen :focus-visible { outline: 2px solid var(--zen-seal); outline-offset: 3px; border-radius: 8px; }
+[data-view="zen"] #zen :is(button, input, textarea) { font-family: inherit; }
+/* The ground: two layers cross-fade over 90 s, and the washes inside the circle drift. */
+[data-view="zen"] .zen-drift { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+[data-view="zen"] .zen-drift i { position: absolute; inset: 0; }
+[data-view="zen"] .zen-drift i:first-child { background: radial-gradient(120% 90% at 50% 40%, #17130f 0, var(--zen-ground) 70%); }
+[data-view="zen"] .zen-drift i:last-child { background: radial-gradient(120% 90% at 42% 58%, var(--zen-ground-2) 0, transparent 75%); opacity: 0; animation: zen-tide 90s ease-in-out infinite alternate; }
+@keyframes zen-tide { to { opacity: 1; } }
+[data-view="zen"] .zen-circle { position: relative; width: min(48vmin, 320px); aspect-ratio: 1; box-sizing: border-box; border: 1px solid var(--zen-line); border-radius: 50%; transform: scale(0.72); opacity: 0.55; animation: zen-breath 10s infinite; }
+[data-view="zen"] .zen-circle i { position: absolute; inset: -40%; border-radius: 50%; pointer-events: none; animation: zen-wash 70s ease-in-out infinite alternate; background: radial-gradient(circle, rgba(150, 136, 116, 0.14) 0, rgba(118, 106, 90, 0.09) 36%, rgba(80, 70, 58, 0.04) 58%, transparent 70%); }
+[data-view="zen"] .zen-circle i:nth-child(2) { inset: -25% -55% -50% -10%; animation-duration: 95s; animation-direction: alternate-reverse; background: radial-gradient(circle, rgba(160, 142, 118, 0.1) 0, rgba(110, 98, 82, 0.05) 50%, transparent 70%); }
+[data-view="zen"] .zen-circle i:nth-child(3) { inset: -50% -30% -25% -45%; animation-duration: 120s; background: radial-gradient(circle, rgba(170, 150, 124, 0.08) 0, rgba(120, 106, 88, 0.04) 55%, transparent 72%); }
+@keyframes zen-wash { from { transform: translate3d(-3%, -2%, 0) rotate(-5deg); } to { transform: translate3d(3%, 2.5%, 0) rotate(7deg); } }
 [data-view="zen"] .zen-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); margin: 0; }
-[data-view="zen"] .zen-stage { width: 100%; height: 100%; display: grid; place-items: center; align-content: center; min-height: 0; }
+[data-view="zen"] .zen-stage { position: relative; z-index: 1; width: 100%; height: 100%; display: grid; place-items: center; align-content: center; gap: 28px; min-height: 0; }
 [data-view="zen"] .zen-stage:has(.zen-company) { place-items: stretch center; align-content: stretch; }
-[data-view="zen"] .zen-card { width: min(40rem, 100%); max-height: 100%; overflow-y: auto; display: grid; gap: 12px; padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: var(--raised); outline: none; }
-[data-view="zen"] .zen-who { margin: 0; font: 600 1.4rem/1.3 ui-serif, "Iowan Old Style", "Songti TC", "Noto Serif TC", PMingLiU, serif; }
-[data-view="zen"] .zen-meta { margin: 0; opacity: 0.7; font-size: 0.9rem; }
-[data-view="zen"] .zen-said { margin: 0; font-size: 1.05rem; }
+[data-view="zen"] .zen-line { margin: 0; max-width: 30rem; text-align: center; font: 1.35rem/1.6 var(--serif); letter-spacing: 0.08em; transition: opacity 1.6s var(--zen-ease); }
+[data-view="zen"] .zen-line[data-fading] { opacity: 0; }
+[data-view="zen"] .zen-line-by { display: block; margin-top: 8px; font: 0.8rem/1.4 var(--sans); letter-spacing: 0.12em; color: var(--zen-ash); }
+/* The corner: one quiet menu button, and full screen beside it. */
+[data-view="zen"] .zen-corner { position: fixed; z-index: 3; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); display: flex; gap: 2px; }
+[data-view="zen"] :is(.zen-fs, .zen-menubtn) { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--zen-ash); opacity: 0.6; cursor: pointer; transition: opacity 0.6s var(--zen-ease); font-size: 1.5rem; line-height: 1; }
+[data-view="zen"] :is(.zen-fs, .zen-menubtn):is(:hover, :focus-visible, [aria-expanded="true"]) { opacity: 1; }
+[data-view="zen"] .zen-fs[hidden] { display: none; }
+[data-view="zen"] .zen-fs::before { content: ""; display: block; width: 20px; height: 20px; margin: auto; background: currentColor; -webkit-mask: var(--zen-fs-icon) center / contain no-repeat; mask: var(--zen-fs-icon) center / contain no-repeat; --zen-fs-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'/%3E%3C/svg%3E"); }
+[data-view="zen"] .zen-fs[aria-pressed="true"]::before { --zen-fs-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5'/%3E%3C/svg%3E"); }
+[data-view="zen"] .zen-menuhost { position: relative; }
+[data-view="zen"] .zen-menu { position: absolute; right: 0; top: calc(100% + 4px); width: min(21rem, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--zen-line); border-radius: 18px; background: var(--zen-soft); animation: zen-fade 0.5s var(--zen-ease) both; }
+[data-view="zen"] .zen-menu[hidden] { display: none; }
+[data-view="zen"] .zen-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; min-height: 44px; padding: 2px 8px; }
+[data-view="zen"] .zen-rowlab { color: var(--zen-ash); font-size: 0.9rem; }
+[data-view="zen"] .zen-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+[data-view="zen"] .zen-opt, [data-view="zen"] .zen-leave { min-width: 44px; min-height: 44px; padding: 0 14px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-paper); font: inherit; cursor: pointer; transition: background-color 0.6s var(--zen-ease); }
+[data-view="zen"] .zen-opt:hover, [data-view="zen"] .zen-leave:hover { background: var(--zen-sunken); }
+[data-view="zen"] .zen-opt[aria-pressed="true"] { background: var(--zen-warm); border-color: var(--zen-line); }
+[data-view="zen"] .zen-menu input[type="range"] { width: 9rem; min-height: 44px; accent-color: var(--zen-paper); }
+[data-view="zen"] .zen-hint { position: fixed; z-index: 3; left: 50%; bottom: max(28px, calc(env(safe-area-inset-bottom) + 16px)); translate: -50% 0; width: max-content; max-width: min(24rem, 90vw); margin: 0; text-align: center; font-size: 0.9rem; color: var(--zen-ash); animation: zen-hint 9s both; pointer-events: none; }
+@keyframes zen-hint { 0%, 100% { opacity: 0; } 15%, 85% { opacity: 1; } }
+@keyframes zen-fade { from { opacity: 0; } }
+/* An item: the card is only the words and the choices, laid out in the middle and appearing one part after another, slowly. */
+[data-view="zen"] .zen-card { width: min(36rem, 100%); max-height: 100%; overflow-y: auto; display: grid; gap: 14px; padding: 8px 4px; text-align: center; outline: none; scrollbar-width: none; }
+[data-view="zen"] .zen-card > * { animation: zen-in 1.8s var(--zen-ease) both; animation-delay: calc(var(--n, 0) * 0.22s); }
+[data-view="zen"] .zen-card > :nth-child(2) { --n: 1; } [data-view="zen"] .zen-card > :nth-child(3) { --n: 2; } [data-view="zen"] .zen-card > :nth-child(4) { --n: 3; } [data-view="zen"] .zen-card > :nth-child(5) { --n: 4; } [data-view="zen"] .zen-card > :nth-child(6) { --n: 5; }
+@keyframes zen-in { from { opacity: 0; filter: blur(10px); transform: scale(1.02); } }
+[data-view="zen"] .zen-card[data-gone] { position: absolute; top: 50%; left: 50%; translate: -50% -50%; pointer-events: none; animation: zen-ink-out 1.3s ease-in both; }
+[data-view="zen"] .zen-card[data-gone] > * { animation: none; }
+@keyframes zen-ink-out { to { opacity: 0; filter: blur(14px); transform: scale(1.04); } }
+[data-view="zen"] .zen-who { margin: 0; font: 600 1.6rem/1.4 var(--serif); letter-spacing: 0.12em; }
+[data-view="zen"] .zen-meta { margin: 0; color: var(--zen-ash); font-size: 0.9rem; letter-spacing: 0.08em; }
+[data-view="zen"] .zen-said { margin: 0; font-size: 1.05rem; letter-spacing: 0.04em; }
 [data-view="zen"] .zen-said:empty { display: none; }
-[data-view="zen"] .zen-acts { display: flex; justify-content: flex-end; }
-[data-view="zen"] .zen-skip, [data-view="zen"] .zen-card button, [data-view="zen"] .zen-company button { min-height: 44px; min-width: 44px; }
+[data-view="zen"] .zen-acts { display: flex; justify-content: center; }
 [data-view="zen"] .zen-out { margin: 0; min-height: 1.2em; }
-[data-view="zen"] .zen-out[data-tone="error"] { color: var(--err-soft); }
-[data-view="zen"] .zen-circle { width: min(48vmin, 320px); aspect-ratio: 1; border: 1px solid var(--line); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--text) 8%, transparent), transparent 70%); animation: zen-breath 10s ease-in-out infinite; }
-[data-view="zen"] .zen-company { position: relative; z-index: 1; width: min(48rem, 100%); min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; }
-[data-view="zen"] .zen-company > header { min-height: 44px; }
-@media (max-width: 1000px) { [data-view="zen"] .zen-company > header { padding-top: 52px; } } /* under the corner control, which is as wide as a word and a half of the title */
-[data-view="zen"] .zen-company .zen-who { font-size: 1.1rem; }
+[data-view="zen"] .zen-out[data-tone="error"] { color: var(--zen-clay); }
+[data-view="zen"] .zen-card :is(.ask-q, .ask-title) { font: 400 clamp(1.3rem, 3.4vw, 1.9rem)/1.6 var(--serif); letter-spacing: 0.06em; text-wrap: balance; }
+[data-view="zen"] .zen-card :is(.ask-head, .ask-term, .ask-why, .ask-note, .ask-opt small) { color: var(--zen-ash); }
+[data-view="zen"] .zen-card .ask { border: 0; background: none; padding: 0; box-shadow: none; }
+[data-view="zen"] .zen-card .ask-opts { gap: 8px; }
+[data-view="zen"] .zen-card :is(.ask-opt b, .ask-head, .ask-title) { font-weight: 400; }
+[data-view="zen"] .zen-card .ask-head { background: none; text-transform: none; letter-spacing: 0.12em; }
+[data-view="zen"] .zen-card button.ask-opt { padding: 10px 20px; min-height: 44px; border: 1px solid transparent; border-radius: 24px; background: var(--zen-soft); color: var(--zen-paper); font: 400 1.1rem/1.5 var(--serif); letter-spacing: 0.08em; text-align: center; transition: background-color 0.8s var(--zen-ease), border-color 0.8s var(--zen-ease); }
+[data-view="zen"] .zen-card button.ask-opt:hover { background: var(--zen-sunken); border-color: var(--zen-line); }
+[data-view="zen"] .zen-card .ask-opt[aria-checked="true"] { background: var(--zen-warm); border-color: var(--zen-line); }
+[data-view="zen"] .zen-card .ask-opt b::before { content: none; }
+[data-view="zen"] .zen-card .ask-own, [data-view="zen"] .composer textarea { border: 1px solid var(--zen-line); border-radius: 18px; background: var(--zen-sunken); color: var(--zen-paper); }
+[data-view="zen"] #zen ::placeholder { color: var(--zen-ash); opacity: 1; }
+[data-view="zen"] :is(.ask-send, .cmp-send, .cmp-yes) { min-height: 48px; padding: 0 30px; border: 1px solid var(--zen-line); border-radius: 999px; background: var(--zen-warm); color: var(--zen-paper); font: 400 1.05rem var(--serif); letter-spacing: 0.3em; text-indent: 0.3em; transition: background-color 0.8s var(--zen-ease); }
+[data-view="zen"] :is(.ask-send, .cmp-send, .cmp-yes):hover:not(:disabled) { background: var(--zen-warm-hi); }
+[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: var(--zen-line); text-underline-offset: 6px; }
+[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip):hover:not(:disabled) { background: var(--zen-sunken); }
+[data-view="zen"] .cmp-link { color: var(--zen-paper); text-decoration-color: var(--zen-line); }
+[data-view="zen"] .zen-card :is(.ask-acts, .cmp-acts) { justify-content: center; flex-wrap: wrap; gap: 10px; }
+[data-view="zen"] .zen-card button:disabled, [data-view="zen"] .composer button:disabled { opacity: 0.55; }
+/* The companion: the log and the composer on the same ink. */
+[data-view="zen"] .zen-company { position: relative; z-index: 1; width: min(46rem, 100%); min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; }
+[data-view="zen"] .zen-company > header { min-height: 44px; padding-right: 100px; }
+[data-view="zen"] .zen-company .zen-who { font-size: 1.3rem; text-align: left; }
+[data-view="zen"] .zen-company .zen-meta { text-align: left; }
 [data-view="zen"] .zen-log { min-height: 0; display: grid; overflow: hidden; }
-[data-view="zen"] .zen-log .chat-scroll { min-height: 0; }
-[data-view="zen"] .zen-log .chat-root { min-height: 0; }
+[data-view="zen"] .zen-log .chat-scroll, [data-view="zen"] .zen-log .chat-root { min-height: 0; }
+[data-view="zen"] .zen-card .composer { border: 0; background: transparent; padding: 0; }
+[data-view="zen"] .zen-company .composer { padding: 8px 0 0; border-top: 0; background: transparent; }
+[data-view="zen"] .zen-company button { min-height: 44px; min-width: 44px; }
 [data-view="zen"] .zen-stage:has(.zen-company) { position: relative; }
-[data-view="zen"] .zen-stage:has(.zen-company) > .zen-circle { position: absolute; top: 50%; left: 50%; translate: -50% -50%; opacity: 0.25; pointer-events: none; }
-[data-view="zen"] .zen-nothing { margin: 16px 0 0; text-align: center; }
-@keyframes zen-breath { 0%, 100% { transform: scale(0.72); opacity: 0.55; } 40% { transform: scale(1); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-circle { animation: none; } }
-[data-view="zen"][data-calm] .zen-circle { animation: none; }
+[data-view="zen"] .zen-stage:has(.zen-company) > .zen-circle { position: absolute; top: 50%; left: 50%; translate: -50% -50%; opacity: 0.25; pointer-events: none; animation: none; }
+/* The page holds still (calm.ts: 30 s without input): the circle rests at its exhaled size, the ground on one layer. */
+[data-view="zen"][data-calm] :is(.zen-circle, .zen-circle i, .zen-drift i) { animation: none; }
+[data-view="zen"][data-calm] .zen-drift i:last-child { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt) { transition: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
+@media (forced-colors: active) {
+	[data-view="zen"] .zen-drift, [data-view="zen"] .zen-circle i { display: none; }
+	[data-view="zen"] .zen-circle { border: 1px solid CanvasText; background: none; }
+	[data-view="zen"] .zen-fs::before { forced-color-adjust: none; background: CanvasText; }
+	[data-view="zen"] :is(.zen-card, .zen-menu) { border: 1px solid CanvasText; }
+	[data-view="zen"] :is(.zen-opt, .zen-leave, .ask-opt, .ask-send, .cmp-send, .ask-cancel, .cmp-alt, .zen-skip)[aria-pressed="true"], [data-view="zen"] .ask-opt[aria-checked="true"] { border: 1px solid Highlight; }
+	[data-view="zen"] :is(.ask-send, .cmp-send) { border: 1px solid ButtonText; }
+}

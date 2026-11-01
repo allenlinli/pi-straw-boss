@@ -1,8 +1,9 @@
 import "./style.css";
 import { domEnv, KEY, mountPick, mountView, mountZenBack } from "./view.ts";
-import { startI18n } from "./i18n.ts";
+import { localeNames, setLocale, startI18n } from "./i18n.ts";
 import { followLabel } from "./viewlabel.ts";
 import { m } from "./paraglide/messages.js";
+import { getLocale } from "./paraglide/runtime.js";
 import type { Net } from "../src/net.ts";
 import type { Data, HistoryEvent } from "./chat.ts";
 import type { Post } from "./composer.ts";
@@ -87,6 +88,7 @@ const withZen = (call: (z: Zen) => void) => {
 		data, recent, label, online: () => status.state === "live",
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
 		remind: (a) => notify.remind(a), sound: () => {}, // the effects are the next step's (Z5)
+		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { current: () => view.view(), set: (c) => view.set(c) }, sound: notify.sound }, // the corner menu's rows act through the settings page's own switches
 		leave: leaveZen, watch: (key) => ((zenKey = key), rewatch()),
 	})));
 	void zenLoading.then(call);

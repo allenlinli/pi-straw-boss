@@ -60,3 +60,7 @@ The GUI's sounds come from [Kenney](https://kenney.nl) (www.kenney.nl), released
 ## BIP-39 English word list (`src/link/bip39-english.ts`)
 
 Straw Link's safety words are drawn from the BIP-39 English word list (2048 words), copied unchanged from [`bip-0039/english.txt`](https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt) in the bitcoin/bips repository (sha256 `2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`). BIP-39, "Mnemonic code for generating deterministic keys", is by Marek Palatinus, Pavol Rusnak, Aaron Voisine, and Sean Bowe, and its header names the MIT license. The word list is part of Straw Link's protocol, so another implementation has to use the same list.
+
+## Zen view lines
+
+The short lines under the Zen view's idle circle (`gui/zenlines.ts`) are one sentence or less each, shown with their source. Their sources, with the book, page, or chapter of each, are named in the comment above every entry: Thich Nhat Hanh, *Peace Is Every Step* (Bantam, 1991; 橡實文化 for the Chinese); Tara Brach and Mindful.org (mindful.org); Sharon Salzberg (sharonsalzberg.com); 華人正念減壓中心 (mindfulness.com.tw); 陳德中 and 台灣正念工坊 (Firstory). A Chinese line marked `zh: our translation`, and an English line marked `en: our translation`, are ours.

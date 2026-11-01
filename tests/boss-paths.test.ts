@@ -42,7 +42,17 @@ test("close <name> confirms in pi, names what quits, and posts close/unit with t
 	assert.equal(w.asked.length, 1);
 	assert.match(w.asked[0]![1]!, /api-member \(in Alpha\) quits/);
 	assert.deepEqual(w.posted, [{ path: "close/unit", json: { key: "b1" } }]);
-	assert.equal(w.told.at(-1)!.text, "Closed api-member");
+	assert.deepEqual(w.told.map((t) => t.text), ["Closing api-member…"], "a 200 only says the quit was accepted");
+	w.done();
+});
+
+test("a key prefix of under six characters picks nothing; six characters pick the key", async () => {
+	const w = world();
+	await w.paths.close("tower");
+	assert.deepEqual(w.posted, []);
+	assert.match(w.told.at(-1)!.text, /Nothing on the net is named "tower"/);
+	await w.paths.close("tower-");
+	assert.deepEqual(w.posted, [{ path: "close/unit", json: { key: "tower-A" } }]);
 	w.done();
 });
 
@@ -109,7 +119,7 @@ test("the server's refusal comes back as it words it, as an error", async () => 
 });
 
 test("stash --workspace parses, confirms, and posts close/stash for that workspace with the label as the name", async () => {
-	assert.deepEqual([parseStash(undefined), parseStash("mine"), parseStash("--workspace Beta"), parseStash("mine --workspace Beta two"), parseStash("--workspace=Beta")], [{}, { name: "mine" }, { workspace: "Beta" }, { name: "mine", workspace: "Beta two" }, { workspace: "Beta" }]);
+	assert.deepEqual([parseStash(undefined), parseStash("mine"), parseStash("--workspace Beta"), parseStash("mine --workspace Beta two"), parseStash("--workspace=Beta"), parseStash("--workspace"), parseStash("mine --workspace"), parseStash("--workspace=")], [{}, { name: "mine" }, { workspace: "Beta" }, { name: "mine", workspace: "Beta two" }, { workspace: "Beta" }, { flag: true }, { name: "mine", flag: true }, { flag: true }]);
 	const w = world();
 	w.reply({ status: 200, body: { sessions: 3 } });
 	await w.paths.stashOther(undefined, "beta");
@@ -196,7 +206,7 @@ test("zh-TW locale words the confirm and the answers in Traditional Chinese", as
 	const w = world({ lang: "zh-TW.UTF-8" });
 	await w.paths.close("api-member");
 	assert.match(w.asked[0]![1]!, /會結束/);
-	assert.equal(w.told.at(-1)!.text, "已關閉 api-member");
+	assert.equal(w.told.at(-1)!.text, "正在關閉 api-member…");
 	w.done();
 });
 
@@ -206,7 +216,7 @@ function boss(active: boolean) {
 	let handler: ((args: string, ctx: { ui: object; hasUI: boolean }) => Promise<void>) | undefined;
 	const told: string[] = [];
 	const spy = (name: string) => async (...a: unknown[]) => void called.push(`${name} ${JSON.stringify(a)}`);
-	const paths = { close: spy("close"), stashOther: spy("stashOther"), dismiss: spy("dismiss"), devices: spy("devices"), unpair: spy("unpair"), logs: spy("logs") };
+	const paths = { needWorkspace: spy("needWorkspace"), close: spy("close"), stashOther: spy("stashOther"), dismiss: spy("dismiss"), devices: spy("devices"), unpair: spy("unpair"), logs: spy("logs") };
 	const kit = { pi: { registerCommand: (_n: string, c: { handler: typeof handler }) => (handler = c.handler) }, cfg: { env: {} }, s: {}, guiDir: "/nowhere", tell: (t: string) => void told.push(t) } as unknown as Kit;
 	const never = new Proxy({}, { get: (_t, k) => async () => void called.push(`other ${String(k)}`) });
 	registerBoss(kit, { runMode: { active: () => active }, host: never as never, membership: never as never, reach: never as never, closeSelf: () => { called.push("closeSelf"); return undefined; }, stashing: never as never, paths: paths as never });
@@ -219,6 +229,14 @@ test("each typed line reaches its path", async () => {
 	assert.deepEqual(b.called, [
 		'close ["api-member"]', 'close ["Beta",true]', 'close ["unit:dup"]', 'stashOther ["mine","Beta"]', 'dismiss [null]', 'dismiss ["builder"]', "devices []", 'unpair ["all"]', 'unpair ["abc"]', "logs [null]", 'logs ["20"]',
 	]);
+});
+
+test("stash --workspace with no value refuses and never stashes this base", async () => {
+	for (const line of ["stash --workspace", "stash --workspace ", "stash mine --workspace", "stash --workspace="]) {
+		const b = boss(false);
+		await b.run(line);
+		assert.deepEqual(b.called, ["needWorkspace []"], line);
+	}
 });
 
 test("bare close and close all keep their meanings", async () => {

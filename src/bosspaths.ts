@@ -26,7 +26,6 @@ const WORDS = {
 		base: (n: string, names: string[]) => `The whole base ${n} quits${names.length ? `: ${names.join(", ")}` : ""}, then the workspace closes (the server checks first that nothing would be lost).`,
 		stashOther: (n: string) => `The base ${n} is put away: its tower, mains, and members quit and the workspace closes.`,
 		closing: (n: string) => `Closing ${n}…`,
-		closed: (n: string) => `Closed ${n}`,
 		stashed: (n: string, name: string, k: unknown) => `Stashed ${n} as "${name}" (${String(k)} sessions); /boss pop ${name} brings it back`,
 		stashing: (n: string, name: string) => `Stashing ${n} as "${name}"…`,
 		noBase: (q: string) => `No workspace is labeled or has the id "${q}"`,
@@ -46,6 +45,7 @@ const WORDS = {
 		unpairAskBody: "Every paired phone, on Tailscale and on Wi-Fi, is unpaired and pairs again with a QR code or the pairing code. The address does not change.",
 		unpairedAll: (n: unknown) => `Unpaired ${String(n)} device${n === 1 ? "" : "s"}`,
 		unpaired: (n: string) => `Unpaired ${n}`,
+		needWorkspace: "stash --workspace needs a label or id: stash [name] --workspace <label|id>",
 		noLines: "Ask for 1 to 200 lines",
 		emptyLog: "(the log is empty)",
 		noAnswer: "the GUI server did not answer",
@@ -65,26 +65,26 @@ const WORDS = {
 		base: (n: string, names: string[]) => `整個基地 ${n} 會結束${names.length ? `：${names.join("、")}` : ""}，然後工作區關閉（伺服器會先檢查沒有東西會遺失）。`,
 		stashOther: (n: string) => `基地 ${n} 會收起來：它的塔台、主代理與成員結束，工作區關閉。`,
 		closing: (n: string) => `正在關閉 ${n}…`,
-		closed: (n: string) => `已關閉 ${n}`,
 		stashed: (n: string, name: string, k: unknown) => `已把 ${n} 收起來，名稱「${name}」（${String(k)} 個工作階段）；/boss pop ${name} 可以還原`,
 		stashing: (n: string, name: string) => `正在把 ${n} 收起來，名稱「${name}」…`,
 		noBase: (q: string) => `沒有標籤或 id 是「${q}」的工作區`,
 		manyBases: (q: string, list: string[]) => `「${q}」對到不只一個工作區，什麼都沒做：\n${list.join("\n")}`,
 		badName: (n: string) => `「${n}」不能當收納名稱：最多 64 字，不含斜線、反斜線或控制字元，也不能以點開頭`,
 		taken: (n: string) => `已經有收納叫「${n}」；先還原它，或換個名稱`,
-		noSub: (q: string) => `沒有名為「${q}」的已結束子代理`,
-		manySubs: (q: string, list: string[]) => `「${q}」對到不只一個已結束的子代理，什麼都沒做：\n${list.join("\n")}`,
-		dismissed: (n: unknown) => `已清除 ${String(n)} 個已結束的子代理`,
-		dismissedOne: (n: string) => `已清除 ${n}`,
+		noSub: (q: string) => `沒有名為「${q}」的已結束子智慧體`,
+		manySubs: (q: string, list: string[]) => `「${q}」對到不只一個已結束的子智慧體，什麼都沒做：\n${list.join("\n")}`,
+		dismissed: (n: unknown) => `已移除 ${String(n)} 個已結束的子智慧體`,
+		dismissedOne: (n: string) => `已移除 ${n}`,
 		noDevices: "沒有已配對的裝置",
 		devices: (on: boolean) => `已配對的裝置（Tailscale 存取${on ? "開啟" : "關閉"}）：`,
 		never: "從未",
 		noDevice: (q: string) => `沒有 id 是「${q}」的已配對裝置：/boss gui devices 會列出`,
 		manyDevices: (q: string) => `不只一個已配對裝置的 id 以「${q}」開頭；請多給幾碼`,
-		unpairAsk: "要取消所有裝置的配對嗎？",
-		unpairAskBody: "Tailscale 與 Wi-Fi 上每一支已配對的手機都會取消配對，之後要用 QR code 或配對碼重新配對。位址不會改變。",
-		unpairedAll: (n: unknown) => `已取消 ${String(n)} 個裝置的配對`,
-		unpaired: (n: string) => `已取消 ${n} 的配對`,
+		unpairAsk: "要解除所有裝置的配對嗎？",
+		unpairAskBody: "Tailscale 與 Wi-Fi 上每一支已配對的手機都會解除配對，之後要用 QR code 或配對碼重新配對。位址不會改變。",
+		unpairedAll: (n: unknown) => `已解除 ${String(n)} 個裝置的配對`,
+		unpaired: (n: string) => `已解除 ${n} 的配對`,
+		needWorkspace: "stash --workspace 需要工作區的標籤或 id：stash [名稱] --workspace <標籤|id>",
 		noLines: "請給 1 到 200 行",
 		emptyLog: "（記錄是空的）",
 		noAnswer: "GUI 伺服器沒有回應",
@@ -100,11 +100,11 @@ type Reply = { status: number; body: Record<string, unknown> };
 export type Post = (record: GuiRecord, path: string, json: Record<string, unknown>, timeoutMs: number) => Promise<Reply>;
 
 /** `/boss stash [name] [--workspace <label|id>]`: the name before the flag and the workspace after it, both as typed. */
-export function parseStash(rest: string | undefined): { name?: string; workspace?: string } {
-	const text = (rest ?? "").trim(), at = /(^|\s)--workspace(?:\s+|=)(.*)$/.exec(text);
+export function parseStash(rest: string | undefined): { name?: string; workspace?: string; flag?: true } {
+	const text = (rest ?? "").trim(), at = /(^|\s)--workspace(?:\s+|=|$)(.*)$/.exec(text);
 	if (!at) return text ? { name: text } : {};
 	const name = text.slice(0, at.index).trim(), workspace = at[2]!.trim();
-	return { ...(name ? { name } : {}), ...(workspace ? { workspace } : {}) };
+	return { ...(name ? { name } : {}), ...(workspace ? { workspace } : { flag: true as const }) };
 }
 
 const flat = (units: Unit[]): Unit[] => units.flatMap((u) => [u, ...flat(u.subs)]);
@@ -145,6 +145,8 @@ export function createBossPaths({ cfg, s, guiDir, tell, me }: Kit, { host, serve
 	}
 
 	return {
+		/** The refusal for `/boss stash --workspace` with no value. */
+		needWorkspace: () => tell(t().needWorkspace, "error"),
 		/** `/boss close <name|key>` (or `close all <workspace>` with `onlyBase`): quits another unit, squad, or base after the boss confirms in pi. */
 		async close(query: string, onlyBase = false) {
 			const found = pick((targets(await net())).filter((x) => !onlyBase || x.kind === "base"), onlyBase ? `base:${query}` : query);
@@ -156,7 +158,7 @@ export function createBossPaths({ cfg, s, guiDir, tell, me }: Kit, { host, serve
 			const r = await record();
 			tell(t().closing(found.name));
 			const reply = found.kind === "unit" ? await post(r, "close/unit", { key: found.key }, CLOSE_MS) : found.kind === "squad" ? await post(r, "close/tab", { workspace: found.workspace, tab: found.tab }, CLOSE_MS) : await post(r, "close/all", { workspace: found.workspace }, CLOSE_MS * 4);
-			if (reply.status === 200) return tell(t().closed(found.name));
+			if (reply.status === 200) return; // "Closing" was said; the server answers once the quit is accepted, not when the pane is gone
 			// A unit that is closing leaves the net at once; a base's server may have closed with its own base.
 			if (reply.status === 0 && found.kind === "base") return tell(t().noAnswer, "warning");
 			tell(why(reply), "error");

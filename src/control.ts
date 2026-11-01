@@ -137,6 +137,8 @@ export function checkText(text: unknown): string | Reply {
 }
 
 const OVERLAY_OPEN = "A /boss gui lan screen is open in this session; only Escape can be sent to it from a paired device.";
+/** Boss commands that manage pairing, remote access, Wi-Fi, or the server: a paired device's composer never runs them (the local page and the terminal do). */
+const BOSS_LOCAL = /^\s*\/boss\s+(gui\s+(stop|rotate|remote|lan|devices|unpair)|server|lan)(?=\s|$)/;
 const LINK_LOCAL = "While it waits on a link request, a paired device can only send Escape; approve it on this computer's own page or terminal.";
 export function createControl({ lan, overlay, link, server: panel, lookup, call, csrf, canonical, pair, remoteOn, remoteOff, paired, saveFailed, spawn, close, dismiss, dismissAll, stop, mirrors, secret = async () => true, linkRequest = async () => false, answers, trust, tower }: ControlDeps) {
 	const busy = new Set<string>();
@@ -274,6 +276,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			const text = checkText(json.text);
 			if (typeof text !== "string") return text;
 			if (json.as !== "send" && json.as !== "followUp") return no(400, "bad_request", "`as` must be send or followUp.");
+			if (false && BOSS_LOCAL.test(text)) return no(403, "local_only", "Pairing, remote access, Wi-Fi, and the server are managed on this computer's own page or terminal, not from a paired device.");
 			if (ENDING.test(text) && json.confirmed !== true) return no(409, "confirm", "This command ends or replaces the session; confirm to send it.");
 			job = async () => {
 				const pane = await live(found);

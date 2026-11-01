@@ -51,6 +51,19 @@ test("with a mark on the pane, a paired device's composer text, Enter, and follo
 	assert.deepEqual(w.written(), [], "no Herdr write of any kind");
 });
 
+test("a paired device's composer cannot run the boss's pairing, remote, Wi-Fi, or server commands; this computer's page can", async () => {
+	for (const text of ["/boss gui devices", "/boss gui unpair abc123", "/boss gui unpair all", "/boss gui rotate", "/boss gui stop", "/boss gui remote", "/boss gui remote off", "/boss gui lan reset", "/boss server stop", "/boss server logs 20", "  /boss  server"]) {
+		const w = world();
+		assert.deepEqual(refused(await w.post("input", { text, as: "send" })), [403, "local_only"], text);
+		assert.deepEqual(w.written(), [], `${text}: nothing reached Herdr`);
+	}
+	const local = world();
+	assert.deepEqual((await local.post("input", { text: "/boss gui devices", as: "send" }, false)).body, { accepted: true }, "this computer's own page keeps it");
+	assert.equal(local.written().length, 1);
+	const phone = world();
+	assert.deepEqual((await phone.post("input", { text: "/boss status", as: "send" })).body, { accepted: true }, "other boss commands are not the device class");
+});
+
 test("with a mark, a paired device's pad keys, digits, Enter, typed text, and paste are refused; Escape (a key or Stop's) goes through", async () => {
 	// The key pad takes 8 keys a second per session, so the bodies are shared out over two servers.
 	for (const bodies of [[{ key: "1" }, { key: "9" }, { key: "enter" }, { key: "tab" }, { text: "y" }], [{ text: "n" }, { text: "r" }, { text: "u" }, { paste: "4821\n" }]]) {

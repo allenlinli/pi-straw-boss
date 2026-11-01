@@ -69,6 +69,7 @@ export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host,
 				const mem = /^memory(?:\s+([\s\S]*))?$/.exec(args.trim());
 				if (mem) return await memory(mem[1] ?? "", ctx.hasUI);
 				const flagged = /^stash(?:\s+(.*))?$/.exec(line), flag = flagged && parseStash(flagged[1]);
+				if (flag?.flag) return paths.needWorkspace();
 				if (flag?.workspace) return await paths.stashOther(flag.name, flag.workspace);
 				const stash = /^(stash|pop)(?:\s+(.+))?$/.exec(args.trim());
 				if (stash) return await (stash[1] === "stash" ? stashing.stash(stash[2]) : stashing.pop(stash[2]));

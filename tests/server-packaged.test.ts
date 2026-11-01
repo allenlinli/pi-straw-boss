@@ -29,13 +29,15 @@ test("packaged: the packed package installs with pi's npm flags (no pi packages 
 	mkdirSync(npmRoot, { recursive: true });
 	writeFileSync(join(npmRoot, "package.json"), JSON.stringify({ name: "pi-npm", private: true }));
 	const started: number[] = [];
+	// npm run with an empty HOME writes its cache and logs to a literal `~/.npm` below its working folder, and `npm pack` runs in the checkout: the cache is named, so no npm here depends on HOME.
+	const npmEnv: NodeJS.ProcessEnv = { ...process.env, npm_config_cache: join(scratch, "npm-cache") };
 	try {
 		// The package, as `npm publish` would pack it (prepack builds the same dist/server).
 		run(process.execPath, [join(root, "scripts", "build-server.mjs")], { cwd: root, timeout: 120_000 });
-		const packed = JSON.parse(run("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch], { cwd: root, timeout: 120_000 })) as { filename: string }[];
+		const packed = JSON.parse(run("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch], { cwd: root, env: npmEnv, timeout: 120_000 })) as { filename: string }[];
 		const tarball = join(scratch, packed[0]!.filename);
 		// What pi's package manager runs for a managed install: --prefix <agent>/npm and --legacy-peer-deps (package-manager.js).
-		run("npm", ["install", tarball, "pi-intercom@0.18.1", "--prefix", npmRoot, "--legacy-peer-deps", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: npmRoot, timeout: 200_000 });
+		run("npm", ["install", tarball, "pi-intercom@0.18.1", "--prefix", npmRoot, "--legacy-peer-deps", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: npmRoot, env: npmEnv, timeout: 200_000 });
 		const modules = join(npmRoot, "node_modules");
 		assert.ok(existsSync(join(modules, "pi-straw-boss", "dist", "server", "cli.mjs")) && existsSync(join(modules, "tsx")) && existsSync(join(modules, "pi-intercom")));
 		assert.equal(existsSync(join(modules, "@earendil-works")), false, "no pi package is on disk");

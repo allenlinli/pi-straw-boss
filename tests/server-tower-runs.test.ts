@@ -5,6 +5,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { fakeClock } from "./fake-clock.ts";
 import { TowerWorld } from "./tower-world.ts";
 import { type Running, sleep, until } from "./server-world.ts";
+import { LOCAL_RUN_TOOLS } from "../src/runallow.ts";
 import { callControl } from "../src/server/socket.ts";
 import { fileOf } from "../src/server/record.ts";
 import { readTowerRuns } from "../src/server/towerruns.ts";
@@ -81,6 +82,10 @@ test("an event wakes a run in the standing pane after a short wait that coalesce
 	assert.deepEqual(pi.slice(0, 1), ["--name"]);
 	assert.match(pi[1]!, new RegExp(`^tower run · Alpha · ${id.slice(0, 8)}$`));
 	assert.deepEqual(pi.slice(2, 4), ["--sb-run", id]);
+	// A local run is started with the tools it may call and no others: no shell, no edit or write tool (src/runallow.ts, todo #31).
+	assert.equal(pi[pi.indexOf("--tools") + 1], LOCAL_RUN_TOOLS.join(","));
+	assert.equal(pi.filter((a) => a === "--tools").length, 1);
+	for (const t of ["bash", "write", "edit", "subagent", "codemode"]) assert.ok(!pi[pi.indexOf("--tools") + 1]!.split(",").includes(t), `${t} is not named`);
 	assert.ok(!start!.includes("--env"));
 	assert.equal(readRun(world.slot, "wA", id)?.kind, "local");
 	assert.equal(((await ask(s, { cmd: "status" })).towers as { service: { state: string; run: { id: string } } }[])[0]!.service.run.id, id);

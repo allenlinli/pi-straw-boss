@@ -1,6 +1,7 @@
 import { execFileSyncExe } from "../exe.mjs";
 import { readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // What a remote turn at `reply` or `forward` may do without asking (docs/specs/2026-10-25-straw-link.md, Remote turns, Trust levels): the allowlist
 // by exact tool name, the deny list that is refused outright, and the filter that keeps the output of grep, find, and ls to tracked files.
@@ -25,7 +26,7 @@ export interface Scope {
 }
 export interface Tracked { files: Set<string>; dirs: Set<string> }
 
-const SPACES = /[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g;
+const SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 const NAMES = [/^\.env/i, /\.pem$/i, /\.key$/i, /^id_/i, /\.p12$/i];
 const HOME_DIRS = [".pi", ".ssh", ".aws", ".config", ".gnupg"];
 /** The tools that look at paths and are allowed inside the project, and the ones allowed whatever their arguments (`tower_done` ends an ally run of the sb server and does nothing else). */
@@ -34,13 +35,27 @@ const FREE = new Set(["tower_list", "board_read", "boss_status", "todo", "tower_
 /** Argument names that hold a path in pi's tools and in the tools of the extensions around it. */
 const PATH_KEYS = ["path", "file_path", "filePath", "file", "directory", "dir", "cwd", "paths", "files"];
 
-/** The path a tool would open for `arg`. */
-export function resolveArg(arg: string, cwd: string, home: string): string {
+/** Pi's `normalizeWindowsShellPath` (utils/paths.js): Git Bash, MSYS, Cygwin, and WSL drive paths (`/c/x`, `/mnt/c/x`, `/cygdrive/c/x`) become `C:\\x`. */
+function windowsShellPath(p: string): string {
+	if (!p.startsWith("/") || p.startsWith("//") || p.includes("\\")) return p;
+	const m = p.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+	return m ? `${m[1].toUpperCase()}:\\${(m[2] ?? "").replaceAll("/", "\\")}` : p;
+}
+
+/**
+ * The path a tool would open for `arg`: a mirror of pi's `resolveToCwd` (`normalizePath` with unicode spaces and the `@` prefix, then `resolve`; pi 1.4 does not export it). The order is pi's: spaces, `@`, the
+ * Windows shell drive forms (win32 only), `~` (and `~\\` on win32), then `file://` through `fileURLToPath`. `platform` is injectable so the Windows forms are tested on any machine. A `file:` URL that does not parse
+ * throws, as it does in pi (the callers refuse a call whose path cannot be checked).
+ */
+export function resolveArg(arg: string, cwd: string, home: string, platform: NodeJS.Platform = process.platform): string {
+	const win = platform === "win32", ops = win ? win32 : { isAbsolute, resolve, join };
 	let p = arg.replace(SPACES, " ");
 	if (p.startsWith("@")) p = p.slice(1);
-	if (p === "~") p = home;
-	else if (p.startsWith("~/")) p = join(home, p.slice(2));
-	return resolve(cwd, p);
+	if (win) p = windowsShellPath(p);
+	if (p === "~") return home;
+	if (p.startsWith("~/") || (win && p.startsWith("~\\"))) p = ops.join(home, p.slice(2));
+	else if (/^file:\/\//.test(p)) p = fileURLToPath(p, { windows: win });
+	return ops.isAbsolute(p) ? ops.resolve(p) : ops.resolve(cwd, p);
 }
 
 /** `p` with every symlink resolved as far as it exists, and the rest of the path as written. */

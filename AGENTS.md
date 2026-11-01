@@ -9,6 +9,10 @@
 - A test world that starts sessions with looks (`server-world.ts`) passes `sw.server(...)` as the session's `server` deps, so `close()` waits for the looks in flight before it removes the folder.
 - A test does not bound a wait by the bare wall clock (`Date.now() - began < 1500`) or sleep to let a timer pass: at a load average of 100 the process stands still for seconds. It moves a clock it owns (`tests/fake-clock.ts`, `TowerWorld.runClock`), ends the wait itself (`held()` in `handover-live.test.ts`), or, for real I/O, allows the stall it measured (`stallWatch`). A child process that must exit on its own arms an unref'd `process.exit(3)` timer where its loop should drain, after anything it awaits.
 
+## Bumping pi
+
+- `@earendil-works/pi-coding-agent` is pinned in `devDependencies`. After a bump, the run-tools parity test (`tests/run-tools.test.ts`, "the guard's resolver agrees with pi's own") must pass: `resolveArg` in `src/link/allow.ts` mirrors pi's `resolveToCwd`, and the test compares it with the installed copy only, so a pi that changes its path rules is caught here and nowhere else. A user's global pi may be newer than the pin; check its `utils/paths.js` and `core/tools/path-utils.js` against the pinned copy too.
+
 ## Live checks
 
 - Run a live demo in scratch workspaces of the default Herdr, not in a headless named session (`herdr --session X server`): pi-intercom's broker resolves `herdrLocation` only against the default Herdr, so sessions joined there never appear. Move the scratch workspaces first with `workspace.move` over the socket API so the head tower is theirs.

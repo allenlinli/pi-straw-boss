@@ -20,6 +20,8 @@ export const MAX_FRAME = 1024 * 1024;
 const HELLO_MS = 5000, IDLE_MS = 60_000, REFUSED_LOG_MS = 60_000;
 /** The most a connection may send before its hello is complete: on Windows any local account can open the pipe, and the hello is a line of about 100 bytes. */
 const PRE_HELLO_MAX = 4096;
+/** The most a client reads from a peer that has not proved the secret yet. */
+const PRE_PROOF_MAX = 4096;
 const PROBE_MS = 1000;
 /** `sun_path` is 104 bytes on macOS and 108 on Linux: a longer socket path is moved to a short folder of the user's own. */
 const SOCKET_MAX = 100;
@@ -34,7 +36,7 @@ const digest = (text: string) => createHash("sha256").update(text).digest();
  * when its server is gone, and a socket path can be left stale, so something else can answer there: it learns nothing here that it can use again.
  */
 export const proofOf = (secret: string, side: "server" | "client", clientNonce: string, serverNonce: string) => createHmac("sha256", secret).update(`sb-control ${side}|${clientNonce}|${serverNonce}`).digest("hex");
-const nonceOf = (value: unknown) => (typeof value === "string" && value.length > 0 && value.length <= 128 ? value : undefined);
+const nonceOf = (value: unknown) => (typeof value === "string" && /^[0-9a-f]{1,128}$/.test(value) ? value : undefined);
 const mismatch = (theirs: unknown) => `control protocol mismatch: this side speaks protocol ${PROTOCOL}, the other speaks ${typeof theirs === "number" ? theirs : 1}; they come from different pi-straw-boss versions. Reload pi (/reload) in the session that runs the older package; a session of the newer package restarts an older sb server on its own`;
 /** Whether `given` is the secret, compared in constant time (both are hashed first, so the length leaks nothing either). */
 export const secretMatches = (given: unknown, secret: string) => typeof given === "string" && secret.length > 0 && timingSafeEqual(digest(given), digest(secret));
@@ -213,6 +215,7 @@ export function callControl(endpoint: string, secret: string, request: Request |
 		conn.on("connect", () => conn.write(`${JSON.stringify({ cmd: "hello", v: PROTOCOL, nonce: clientNonce })}\n`));
 		conn.on("data", (chunk: string) => {
 			buffer += chunk;
+			if (!proven && buffer.length > PRE_PROOF_MAX && !buffer.includes("\n")) return finish(new ControlError("refused", "the answer to the hello is too long to be a challenge"));
 			for (let at = buffer.indexOf("\n"); at >= 0 && !done; at = buffer.indexOf("\n")) {
 				const line = buffer.slice(0, at);
 				buffer = buffer.slice(at + 1);
@@ -224,7 +227,8 @@ export function callControl(endpoint: string, secret: string, request: Request |
 				}
 				if (!proven) {
 					lines++;
-					if (!frame.ok) return finish(typeof frame.protocol === "number" ? new ControlError("protocol", String(frame.error ?? mismatch(frame.protocol))) : new ControlError("refused", String(frame.error ?? "the server refused")));
+					// Nothing a peer says before it has proved the secret is echoed (an unproven peer can write what it likes into the caller's context): the protocol number, at most, and words of this side's own.
+					if (!frame.ok) return finish(typeof frame.protocol === "number" ? new ControlError("protocol", mismatch(frame.protocol)) : new ControlError("refused", "the server refused the hello"));
 					// The challenge must prove that its sender knows the secret (nothing, or a wrong proof, is what something else at a free pipe name or a stale path gives). Only then does anything but the hello go out.
 					const serverNonce = nonceOf(frame.nonce);
 					if (!serverNonce || frame.v !== PROTOCOL || !secretMatches(frame.proof, proofOf(secret, "server", clientNonce, serverNonce))) return finish(new ControlError("refused", "the answer does not prove that its sender knows the secret"));

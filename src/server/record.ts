@@ -76,6 +76,8 @@ export interface ServerRecord {
 	socket: string;
 	secret: string;
 	intercomId: string;
+	/** The control protocol the server speaks (`PROTOCOL`); a record without it is from a server of protocol 1. */
+	proto?: number;
 }
 export interface StartError { at: string; code: "acl" | "loader" | "intercom" | "start"; text: string; sddl?: string }
 

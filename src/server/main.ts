@@ -22,7 +22,7 @@ import type { ServerTools } from "./runtools.ts";
 import {
 	clearStartError, type Detach, fileOf, prepareSlot, readRecord, restartingNow, type ServerRecord, serverId, type Slot, TOUCH_MS, towerId, updateRecord, writeRecord, writeStartError,
 } from "./record.ts";
-import { AFTER, endpointFor, helloOf, listenControl, newSecret, type Reply, type Request } from "./socket.ts";
+import { AFTER, endpointFor, helloOf, listenControl, newSecret, PROTOCOL, type Reply, type Request } from "./socket.ts";
 import { promptCommand } from "./standing.ts";
 import { createTowers, type Towers, type TowersOptions } from "./towers.ts";
 import { towerPanel } from "./towerpanel.ts";
@@ -190,7 +190,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		if (rival()) return;
 		const current = readRecord(slot);
 		writeRecord(slot, {
-			pid, version, herdr: slot.herdr, mode, desk, intercom: intercomOf(env, platform), log: fileOf(slot, "log"), socket: "", secret: "", intercomId: serverId(slot),
+			pid, version, proto: PROTOCOL, herdr: slot.herdr, mode, desk, intercom: intercomOf(env, platform), log: fileOf(slot, "log"), socket: "", secret: "", intercomId: serverId(slot),
 			...(prior?.gui ? { gui: prior.gui } : {}), ...(prior?.lastError ? { lastError: prior.lastError } : {}), ...(prior?.lastRestart ? { lastRestart: prior.lastRestart } : {}), ...detachOf,
 			restarting: restartingNow(current?.restarting, now(), { reason: "starting", by }),
 		});
@@ -240,7 +240,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	endpoint = endpointFor(slot, platform);
 	log.hide(secret);
 	const own: ServerRecord = {
-		pid, version, herdr: slot.herdr, mode, desk, intercom: intercomOf(env, platform),
+		pid, version, proto: PROTOCOL, herdr: slot.herdr, mode, desk, intercom: intercomOf(env, platform),
 		// What the new server keeps from the one before it: the GUI's port and whether it was stopped on purpose, and the last error. The GUI's token comes from gui-secrets.json, not from this record: the new listener keeps it when it binds the stored ports and draws a new one when it does not (guihost.ts writes the token to both records before `restarting` is cleared).
 		...(prior?.gui ? { gui: prior.gui } : {}), ...(prior?.lastError ? { lastError: prior.lastError } : {}), ...(prior?.lastRestart ? { lastRestart: prior.lastRestart } : {}),
 		...(aclStarted ? { started: aclStarted } : {}), ...detachOf, log: fileOf(slot, "log"), socket: endpoint, secret, intercomId: serverId(slot),

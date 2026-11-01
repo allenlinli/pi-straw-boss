@@ -462,8 +462,8 @@ relay ── SSE ─► link holder ── ally message ── tower service W �
   received the first request body).
   **Upgrade.** A running process keeps the protocol it started with, so a package update meets processes that cannot talk to it. Both sides
   fail closed and say so: the earlier protocol's peer is answered a mismatch (the server side) or closes the new hello (a client sees "an older
-  pi-straw-boss"). A session that runs the newer package ends a legacy sb server by SIGTERM under `server.lock`, only when its pid has the
-  start time of the record and the record's version is older (`probe`'s `legacy`, `endLegacy` in `src/server/client.ts`), then starts a new one;
+  pi-straw-boss"). A sidecar released before protocol 2 answers the new hello with facts and no proof, so its user sees the generic "no net sidecar" (exit 2); only a sidecar of protocol 2 or later sends the mismatch text. A session that runs the newer package ends a legacy sb server (`server.json` without `proto`, i.e. protocol 1; a server of protocol 2 gets the graceful upgrade) by SIGTERM under `server.lock`, only when its pid has the
+  start time of the record (on Windows the time is waited for, and forgotten and read again before the signal; unread in time, the server is left alone, nothing is started beside it, and `status` warns) and the record's version is older (`probe`'s `legacy`, `endLegacy` in `src/server/client.ts`), then starts a new one;
   `join` ends a legacy sidecar (a state file with no `proto`) the same way, only when the pid's start time is not later than the file's `startedAt`
   (`src/agent/legacy.ts`), so the new sidecar can listen at the pane's fixed socket path on macOS and Linux and no pane has two on Windows. A
   session of the older package against a newer server or sidecar is refused with the mismatch text; it reloads (`/reload`).

@@ -76,3 +76,11 @@ test("a question card's Cancel is a 44 px target on a phone, quieter than Send, 
 	assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?\.ask-send, \.ask-cancel, \.sheet-yes, \.cmp-yes\) \{ min-width: 44px; \}/);
 	assert.match(css, /:is\(\.ask, \.term-bar, \.doc-acts, \.composer\) :is\(button, \.cmp-link\) \{ min-height: 44px; \}/, "and the narrow rule covers every button in the card");
 });
+
+test("the settings column keeps one width: auto side margins never shrink it to its content in the stacked (column) layout, and its Go buttons drop the UA border", () => {
+	const column = rule(".settings.view {");
+	assert.match(column, /margin-inline:\s*auto/);
+	assert.match(column, /(^|[\s;{])width:\s*100%/, "auto margins turn off a column flex item's stretch; the explicit width keeps it full");
+	assert.match(column, /max-width:\s*760px/);
+	assert.match(rule(".teams-tile .go {"), /border:\s*0/);
+});

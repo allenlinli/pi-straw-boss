@@ -939,7 +939,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .link-args { margin: 0; max-height: 180px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-word; }
 .link-note { color: var(--dim); }
 .teams-tile { display: grid; gap: 14px; padding: 4px 2px 12px; font-size: 13px; }
-.teams-tile .go { --c: var(--accent); } /* Create team and Join: a Go button fills with --c, which only a state or a tile that sets it has */
+.teams-tile .go { --c: var(--accent); border: 0; } /* Create team and Join: a Go button fills with --c, which only a state or a tile that sets it has */
 .teams-tile h3 { font-size: 15px; } .teams-tile h4 { font-size: 13px; margin: 0 0 4px; }
 .link-status { min-height: 1.2em; color: var(--amber); margin: 0; }
 .link-short { color: var(--dim); font-family: ui-monospace, monospace; }
@@ -1061,7 +1061,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 }
 
 /* The settings page (route `settings`, settings.ts): groups of rows, each row a label and its control; Phone & devices, Teams, and Server are disclosures that fill when opened. */
-.settings.view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-content: start; max-width: 760px; margin-inline: auto; }
+.settings.view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-content: start; width: 100%; max-width: 760px; margin-inline: auto; } /* width: auto side margins turn off the stretch of a column flex item (the stacked layout under 900 px), which would shrink the page to its widest content and change width as a section opens */
 .set-head { display: flex; align-items: center; gap: 12px; } .set-head h2 { margin: 0; font: 600 20px var(--sans); }
 .set-head .head-back { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 12px; color: var(--text); font-size: 24px; text-decoration: none; }
 .set-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); font-size: 13px; }

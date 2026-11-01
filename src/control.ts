@@ -276,7 +276,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			const text = checkText(json.text);
 			if (typeof text !== "string") return text;
 			if (json.as !== "send" && json.as !== "followUp") return no(400, "bad_request", "`as` must be send or followUp.");
-			if (false && BOSS_LOCAL.test(text)) return no(403, "local_only", "Pairing, remote access, Wi-Fi, and the server are managed on this computer's own page or terminal, not from a paired device.");
+			if (remote && BOSS_LOCAL.test(text)) return no(403, "local_only", "Pairing, remote access, Wi-Fi, and the server are managed on this computer's own page or terminal, not from a paired device.");
 			if (ENDING.test(text) && json.confirmed !== true) return no(409, "confirm", "This command ends or replaces the session; confirm to send it.");
 			job = async () => {
 				const pane = await live(found);

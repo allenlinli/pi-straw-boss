@@ -158,7 +158,7 @@ test("a tower's composer asks nothing before /quit or /new (they leave and start
 	assert.equal(endsSession("hello", { wakes: false }), undefined);
 });
 
-test("a redraw after Leave or New keeps an open `⋯` menu open, with its result and the focus in it; a closed one stays closed", () => {
+test("a redraw after Leave or New keeps an open `⋯` menu open, with its result; a closed one stays closed", () => {
 	const proto = El.prototype as unknown as Record<string, unknown>;
 	let open = true;
 	proto.matches = () => open;

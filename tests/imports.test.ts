@@ -609,7 +609,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Phone layout (step 4) to 2370: gui/menu.ts (84: the `⋯` button, its panel's place, focus, and keys) is new, render.ts wraps a base's and a squad's Quit in it (13), main.ts shows the header's `⋯` while Dismiss finished or Stashed exists and names the route on <body> (13), and i18n.ts names one more page message.
 	// Settings page (step 5) to 2442: gui/settings.ts (69: the Phone, Teams, and Server sections filled when opened and dropped when closed) is new, router.ts takes the settings route (+14 with NetRoute and netOf), main.ts opens and leaves the page and moves the panels' opening out of the header (+9 net), notify.ts loses its sound popover (-8), and the rest is the narrower route type.
 	// GUI acceptance fixes to 2447: ask.ts marks a card that scrolls (the cue, +12), desk.ts exports the settings page's allowed sections (+2), towerconv.ts keeps an open `⋯` menu across a redraw (+5), menu.ts and main.ts give a few back.
-	assert.ok(page <= 2447, `the page's TypeScript has ${page} lines`);
+	// The connection overlay to 2531: gui/connect.ts (81: the modal overlay over an inert page while the stream has no live state, with its keys and clicks stopped) is new, and main.ts, stream.ts, and i18n.ts name it.
+	assert.ok(page <= 2531, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -698,7 +699,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The Geek view, per device (step 2) to 76,500 bytes / 26.6 KB gzipped: gui/view.ts (the choice, its resolving, the three-way control) and its words in both languages (the map chunk carries every message), and the switches' state words (notify.ts).
 	// The server's default view (Geek step 3) to 77,400 bytes / 26.9 KB gzipped: view.ts's server default (the meta, `setServer`, the Auto button's label) and main.ts's hello and `view` event handling, with the Follow server message in both languages.
 	// Phone layout (step 4) to 80,200 bytes / 27.9 KB gzipped: gui/menu.ts (the `⋯` button, its panel's placement, focus, and keys; the fold of the base's and squad's Quit into it), the HUD's `⋯` for Dismiss finished and Stashed (main.ts), and four more messages in both languages (the map chunk carries every message).
-	assert.ok(size(entry).length <= 80_200 && gz(entry) <= 27_900, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
+	// The connection overlay to 81,500 bytes / 28.4 KB gzipped: connect.ts (the modal overlay, its stopped clicks and keys) and its three messages in both languages (the map chunk carries every message).
+	assert.ok(size(entry).length <= 81_500 && gz(entry) <= 28_400, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -851,5 +853,6 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Settings page (step 5) to 98,600 bytes / 21.2 KB gzipped: the page's groups, rows, and disclosures, the devices' grid rows, and the Wi-Fi tab's and the Phone block's rules for a 360 px screen (less the popover's and the sound panel's).
 	// GUI acceptance fixes to 100,900 bytes / 21.65 KB gzipped: Dismiss on its own row, the question card's scroll cue, the 360 px block (two-line conversation bar, one-row composer, Geek brand), the drawer's tint and chevron, Geek's disabled controls and tick ring, and the forced-colors rules.
 	// Cancel (fix/ask-cancel) to 101,200 bytes: `.ask-cancel` and its place in the touch and press rules.
-	assert.ok(total(css, (n) => size(n).length) <= 101_200 && total(css, gz) <= 21_650, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// The connection overlay to 102,200 bytes / 21.9 KB gzipped: `.connect` (the modal overlay over the page, its card, ring, and Try again) and the ring's rest in calm and Geek.
+	assert.ok(total(css, (n) => size(n).length) <= 102_200 && total(css, gz) <= 21_900, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

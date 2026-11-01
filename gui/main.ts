@@ -9,6 +9,7 @@ import { type Alert, alertsOf, arrivals, unitOf } from "./alerts.ts";
 import type { Drawer } from "./drawer.ts";
 import type { mountPanels, Tile } from "./layer.ts";
 import type { mountSettings } from "./settings.ts";
+import { mountConnect } from "./connect.ts";
 import { MODAL, mountHotkeys } from "./hotkeys.ts";
 import { mountLinkBar } from "./linkbar.ts";
 import { mountMenus } from "./menu.ts";
@@ -141,6 +142,7 @@ function navigate(next: Route) {
 
 function report(next: Status) {
 	status = next;
+	connect(next);
 	const stale = next.state === "reconnecting" || next.state === "offline" || next.state === "replaced";
 	document.body.dataset.stale = el("stage").dataset.stale = String(stale);
 	el("link").dataset.state = next.state;
@@ -231,6 +233,7 @@ const stream = createStream({
 	replaced: () => fetch("./", { cache: "no-store" }).then((r) => r.status === 403),
 });
 const resume = () => stream.resume();
+const connect = mountConnect(resume); // the overlay while the page has no live state (before the first snapshot, and while the stream reconnects)
 document.addEventListener("visibilitychange", () => {
 	page.pause(document.hidden);
 	if (document.hidden) return stream.hide();

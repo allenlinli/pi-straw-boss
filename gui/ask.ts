@@ -97,7 +97,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		if (instead) say(x.note, tone, `${text} ${instead}`);
 		draw();
 		x.note.scrollIntoView?.({ block: "nearest" }); // a long panel scrolls: its outcome must be read
-		if (accepted && r?.body.outcome === "accepted") setTimeout(() => accepted(Boolean(then)), then ? 0 : 1200); // an alert's dialog closes once its answer landed, after its outcome shows; at once when it sent the user to a terminal
+		if (accepted && r?.body.outcome === "accepted") setTimeout(() => accepted(Boolean(then) && !instead), then && !instead ? 0 : 1200); // an alert's dialog closes once its answer landed, after its outcome shows; at once when it sent the user to a terminal
 	}
 	const option = (role: string, title: string, small: (string | undefined)[], on: () => void, n?: number) => {
 		const b = h("button", { type: "button", class: "ask-opt", role, "aria-checked": "false" }, h("b", n ? { "data-n": String(n) } : null, title), ...small.filter(Boolean).map((s) => h("small", null, s!)));

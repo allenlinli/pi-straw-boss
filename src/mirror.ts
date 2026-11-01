@@ -1,3 +1,4 @@
+import { isPiPane } from "./answerpane.ts";
 import type { HerdrCall, Pane } from "./herdr.ts";
 import type { Found } from "./net.ts";
 
@@ -76,7 +77,7 @@ export function createMirrors({ call, lookup, secret, canonical, timer = timers 
 		}
 		if (timer.now() - r.sized >= SIZE_MS) {
 			const [{ pane }, { layout }] = (await Promise.all([call!("pane.get", { pane_id: r.pane }), call!("pane.layout", { pane_id: r.pane })])) as [{ pane: Pane }, { layout: { panes: { pane_id: string; rect: { width: number } }[] } }];
-			if (r.bare ? Boolean(r.bare.terminal) && pane.terminal_id !== r.bare.terminal : pane.agent !== "pi" || canonical(pane.agent_session?.value) !== r.file) return end(r, r.bare ? "The pane closed." : "The pane runs something else now.");
+			if (r.bare ? (Boolean(r.bare.terminal) && pane.terminal_id !== r.bare.terminal) || isPiPane(pane) : pane.agent !== "pi" || canonical(pane.agent_session?.value) !== r.file) return end(r, r.bare ? "The pane closed." : "The pane runs something else now.");
 			const cols = layout.panes.find((p) => p.pane_id === r.pane)?.rect.width ?? r.cols;
 			if (cols !== r.cols) [r.cols, r.whole] = [cols, 0];
 			r.sized = timer.now();

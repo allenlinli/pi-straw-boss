@@ -5,11 +5,13 @@ import type { createMirrors } from "./mirror.ts";
 import type { Next, Then } from "./owners.ts";
 
 // A pane an accepted answer opened (robot_hand's "Type it into a new Herdr pane" and "Run it in a new Herdr pane"): the server notes the panes of the session's tab before the
-// answer goes out, and after it is accepted looks for the one that is new. Exactly one new pane that does not run pi is granted: the page may then mirror it and key into it
+// answer goes out, and after it is accepted looks for the one that is new. Exactly one new pane that runs no agent and has no `sb_role` is granted; it ends if either shows later: the page may then mirror it and key into it
 // (`/api/panes/<grant>/mirror|keys`, control.ts) like a session's terminal, for as long as that pane lives with the same terminal. Two new panes, none within the window, or a layout
 // that cannot be read grant nothing: the page says a pane opened and leaves it to Herdr. A grant is an unguessable id, never a pane id from the browser; a reused pane id under
 // another terminal is refused.
 
+/** A pane that is, or is becoming, a pi session or a tower: Herdr reports an agent on it, or it carries an `sb_role` token. A grant never reaches one, and ends the moment its pane turns into one. */
+export const isPiPane = (pane: Pick<Pane, "agent" | "tokens">): boolean => Boolean(pane.agent) || Boolean(pane.tokens?.sb_role);
 export const MAX_GRANTS = 8, GRANT_MS = 6 * 3_600_000, CLAIM_MS = 3000, CLAIM_STEP_MS = 250;
 export interface Grant { id: string; session: string; pane: string; terminal?: string; at: number }
 export interface GrantDeps { call: HerdrCall; now?(): number; sleep?(ms: number): Promise<void>; id?(): string }
@@ -38,7 +40,7 @@ export function createGrants({ call, now = Date.now, sleep = (ms) => new Promise
 				if (fresh.length > 1) return undefined;
 				if (fresh.length === 1) {
 					const got = await call("pane.get", { pane_id: fresh[0]! }).then((r) => (r as { pane: Pane }).pane, () => undefined);
-					if (got && got.agent !== "pi") {
+					if (got && !isPiPane(got)) {
 						const made = { id: id(), session, pane: got.pane_id, ...(got.terminal_id ? { terminal: got.terminal_id } : {}), at: now() };
 						grants.set(made.id, made);
 						while (grants.size > MAX_GRANTS) grants.delete(grants.keys().next().value!);
@@ -66,6 +68,7 @@ export function createGrants({ call, now = Date.now, sleep = (ms) => new Promise
 				throw error instanceof HerdrError && error.code === "pane_not_found" ? gone() : error;
 			}
 			if (g.terminal && pane.terminal_id !== g.terminal) throw gone();
+			if (isPiPane(pane)) throw gone(); // the pane turned into a pi session or a tower: its guards, not a bare key, stand in front of it
 			return pane;
 		},
 	};

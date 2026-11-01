@@ -700,6 +700,11 @@ test("an alert's dialog closes 1.2 s after its answer landed, and at once, told 
 		await go("c2", { outcome: "accepted", then: { terminal: true } });
 		mock.timers.tick(0);
 		assert.deepEqual(closed, [false, true], "at once");
+		await go("c3", { outcome: "accepted", then: { pane: null } });
+		mock.timers.tick(1199);
+		assert.deepEqual(closed, [false, true], "nothing opened: the dialog stays until the note about the pane in Herdr was read");
+		mock.timers.tick(1);
+		assert.deepEqual(closed, [false, true, false], "and closes after 1.2 s, told nothing opened");
 	} finally {
 		mock.timers.reset();
 	}

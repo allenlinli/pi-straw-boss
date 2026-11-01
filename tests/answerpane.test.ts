@@ -5,7 +5,7 @@ import { HerdrError } from "../src/herdr.ts";
 
 /** A fake Herdr with a tab of panes the test grows and shrinks; `sleep` moves a clock the test owns. */
 function world() {
-	const w = { tab: ["p1"] as string[], terminals: new Map<string, string>([["p1", "t1"]]), t: 0, fails: false, agent: new Map<string, string>([["p1", "pi"]]), calls: [] as string[], onSleep: [] as (() => void)[] };
+	const w = { tab: ["p1"] as string[], terminals: new Map<string, string>([["p1", "t1"]]), t: 0, fails: false, agent: new Map<string, string>([["p1", "pi"]]), roles: new Map<string, string>(), calls: [] as string[], onSleep: [] as (() => void)[] };
 	const call = async (method: string, params: Record<string, unknown>) => {
 		w.calls.push(`${method} ${params.pane_id}`);
 		if (w.fails) throw new HerdrError("socket_error", "down");
@@ -13,7 +13,7 @@ function world() {
 		if (method === "pane.layout") return { layout: { panes: w.tab.map((pane_id) => ({ pane_id, rect: { width: 40 } })) } };
 		if (method === "pane.get") {
 			if (!w.tab.includes(id)) throw new HerdrError("pane_not_found", "no such pane");
-			return { pane: { pane_id: id, agent: w.agent.get(id), terminal_id: w.terminals.get(id) } };
+			return { pane: { pane_id: id, agent: w.agent.get(id), ...(w.roles.has(id) ? { tokens: { sb_role: w.roles.get(id)! } } : {}), terminal_id: w.terminals.get(id) } };
 		}
 		throw new Error(`unexpected ${method}`);
 	};
@@ -82,4 +82,33 @@ test("grants are capped and expire", async () => {
 	assert.equal(g.get(`g${MAX_GRANTS + 2}`)?.pane, `q${MAX_GRANTS + 1}`);
 	w.t += 7 * 3600_000;
 	assert.equal(g.get(`g${MAX_GRANTS + 2}`), undefined, "after 6 h");
+});
+
+test("F001: a grant never reaches a pi pane, a tower, or a pane that starts running pi later", async () => {
+	const rejected = (e: { status?: number; body?: { error?: string } }) => e.status === 409 && e.body?.error === "pane_closed";
+	// A subagent pane whose pi Herdr has not detected yet is granted (nothing tells it apart), and the grant ends the moment the agent shows.
+	const sub = world();
+	const b1 = (await sub.g.before("p1"))!;
+	sub.w.tab.push("p2");
+	const granted = (await sub.g.claim("s", "p1", b1))!;
+	assert.equal((await sub.g.live(granted)).pane_id, "p2");
+	sub.w.agent.set("p2", "pi");
+	await assert.rejects(sub.g.live(granted), rejected);
+	assert.equal(sub.g.get(granted.id), undefined, "the grant is gone, not just refused once");
+	// A tower pane (sb_role token, no agent yet) is not claimed.
+	const tower = world();
+	const b2 = (await tower.g.before("p1"))!;
+	tower.w.tab.push("p2");
+	tower.w.roles.set("p2", "tower");
+	assert.equal(await tower.g.claim("s", "p1", b2), undefined, "a pane with sb_role is never what an answer opened");
+	// A granted shell pane that later runs pi, or later carries sb_role, ends the grant.
+	for (const turn of [(w: ReturnType<typeof world>["w"]) => w.agent.set("p2", "claude"), (w: ReturnType<typeof world>["w"]) => w.roles.set("p2", "member")]) {
+		const later = world();
+		const b3 = (await later.g.before("p1"))!;
+		later.w.tab.push("p2");
+		const grant = (await later.g.claim("s", "p1", b3))!;
+		turn(later.w);
+		await assert.rejects(later.g.live(grant), rejected);
+		assert.equal(later.g.get(grant.id), undefined);
+	}
 });

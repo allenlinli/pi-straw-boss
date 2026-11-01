@@ -32,13 +32,13 @@ function clock() {
 
 /** Mirrors over a fake Herdr pane whose screen the test sets; every socket call is recorded. */
 function setup({ secret = false } = {}) {
-	const c = clock(), calls: string[] = [], state = { screen: ["one", "two"], width: 80, secret, fail: false, agent: "pi", file: FILE, live: true, pane: "", terminal: "t-1", gone: false, hold: {} as Partial<Record<"secret" | "pane.get" | "pane.read", Promise<void>>> };
+	const c = clock(), calls: string[] = [], state = { screen: ["one", "two"], width: 80, secret, fail: false, agent: "pi", file: FILE, live: true, pane: "", terminal: "t-1", tokens: undefined as Record<string, string> | undefined, gone: false, hold: {} as Partial<Record<"secret" | "pane.get" | "pane.read", Promise<void>>> };
 	const call = async (method: string, params: Record<string, unknown>) => {
 		calls.push(`${method} ${params.pane_id}`);
 		await state.hold[method as "pane.get"];
 		if (state.fail) throw new Error("socket");
 		if (state.gone) throw Object.assign(new Error("no such pane"), { code: "pane_not_found" });
-		if (method === "pane.get") return { pane: { pane_id: params.pane_id, agent: state.agent, terminal_id: state.terminal, agent_session: { value: state.file } } };
+		if (method === "pane.get") return { pane: { pane_id: params.pane_id, agent: state.agent, terminal_id: state.terminal, tokens: state.tokens, agent_session: { value: state.file } } };
 		if (method === "pane.layout") return { layout: { panes: [{ pane_id: "other", rect: { width: 3 } }, { pane_id: params.pane_id, rect: { width: state.width } }] } };
 		return { read: { text: state.screen.join("\r\n") } };
 	};
@@ -284,7 +284,7 @@ test("a read on its way when the mirror ends delivers nothing after the end", as
 
 test("a bare pane (a pane an answer opened): mirrored with no registry entry, no secret check, and no pi check, ending when the pane closes or its terminal is another", async () => {
 	const t = setup();
-	t.state.agent = "zsh"; // not pi: a session's reader would end here
+	t.state.agent = ""; // not pi (no agent reported): a session's reader would end here
 	t.state.file = "/elsewhere";
 	const a = t.stream("a");
 	assert.equal(t.m.toggle("grant:g1", { stream: a, on: true }, { pane: "px", terminal: "t-1" }).status, 200);
@@ -312,6 +312,20 @@ test("a bare pane (a pane an answer opened): mirrored with no registry entry, no
 	await g.c.advance(FAST_MS + 5);
 	assert.equal(g.frames("b").at(-1)!.ended, "The pane closed.");
 	assert.equal(g.calls.filter((x) => x.startsWith("pane.read")).length <= 2, true);
+});
+
+test("a bare pane ends the moment its pane runs an agent or carries an sb_role token (it became a pi session or a tower)", async () => {
+	for (const [name, change, reason] of [["agent", (s: { agent: string }) => (s.agent = "pi"), "an agent appears"], ["token", (s: { tokens?: Record<string, string> }) => (s.tokens = { sb_role: "tower" }), "sb_role appears"]] as const) {
+		const t = setup();
+		t.state.agent = "";
+		const a = t.stream("a");
+		assert.equal(t.m.toggle("grant:g1", { stream: a, on: true }, { pane: "px", terminal: "t-1" }).status, 200);
+		await t.c.advance(1);
+		assert.ok(!("ended" in t.frames("a").at(-1)!), name);
+		change(t.state as never);
+		await t.c.advance(SIZE_MS + FAST_MS);
+		assert.equal(t.frames("a").at(-1)!.ended, "The pane closed.", reason);
+	}
 });
 
 test("a bare pane does not count toward a page's two terminals, and a stream that is not open is refused", async () => {

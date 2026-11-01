@@ -23,8 +23,8 @@ export interface RunScope {
 const within = (child: string, dir: string) => child === dir || child.startsWith(dir.endsWith(sep) ? dir : dir + sep);
 /** Folders a search must not descend into: the state folder, the agent folder, and the secret folders of the home folder. */
 const guarded = (s: RunScope) => [join(s.home, ".pi"), join(s.home, ".ssh"), join(s.home, ".aws"), join(s.home, ".config"), join(s.home, ".gnupg"), s.agentDir, s.stateDir].flatMap((d) => [d, realish(d)]);
-/** Argument names that hold a path or a glob in the file tools (`path` in all four, `pattern` in find, `glob` in grep). */
-const PATH_ARGS = ["path", "pattern", "glob"] as const;
+/** Argument names that hold a path or a glob, by tool: `path` in all four, `pattern` in find only (in grep it is a regex), `glob` in grep only. */
+const pathArgs = (tool: string) => (tool === "find" ? ["path", "pattern"] : tool === "grep" ? ["path", "glob"] : ["path"]);
 
 /**
  * Why a call of `tool` with `input` may not go ahead, or undefined. A path argument is refused when it is on the deny list as written or once its symlinks are resolved (`pathDenied`, the deny list of ally runs with
@@ -36,7 +36,7 @@ export function refusedPath(tool: string, input: Record<string, unknown>, s: Run
 	const deny = { home: s.home, agentDir: s.agentDir, linkDir: s.stateDir };
 	const search = tool !== "read";
 	const roots: string[] = [];
-	for (const key of PATH_ARGS) {
+	for (const key of pathArgs(tool)) {
 		const v = input[key];
 		if (typeof v !== "string" || !v) continue;
 		// A glob is relative to the search root; only one that is absolute or starts at the home folder names a place of its own.
@@ -46,14 +46,26 @@ export function refusedPath(tool: string, input: Record<string, unknown>, s: Run
 	if (search && input.path === undefined) roots.push(s.cwd);
 	const dirs = guarded(s);
 	for (const p of roots) {
+		// A UNC path (the admin share `\\\\localhost\\C$`) cannot be matched against the folders by name: refused.
+		if (process.platform === "win32" && /^[\\/]{2}/.test(p)) return "a network path cannot be checked against the sb server's state; a tower run does not read it";
 		if (pathDenied(p, deny)) return "that path holds the sb server's state or a secret; a tower run does not read it";
 		if (search && [p, realish(p)].some((r) => dirs.some((d) => within(d, r)))) return "that search would descend into the sb server's state or a secret folder; a tower run searches below a project only";
 	}
 	return undefined;
 }
 
+/** The check of a run's call: `full` (a local run that is not a hand run) holds it to the list as well, any other run (ally, hand) to the path denial only. A check that fails refuses. */
+export function refusedForRun(full: boolean, tool: string, input: Record<string, unknown>, s: RunScope): string | undefined {
+	if (full) return refusedInRun(tool, input, s);
+	try {
+		return refusedPath(tool, input, s);
+	} catch (error) {
+		return `the path could not be checked (${(error as Error).message}); a run does not read it`;
+	}
+}
+
 /** Why a local run's call of `tool` may not go ahead (it is not on the list, or its path is refused), or undefined. A check that fails refuses: a throw out of a tool_call hook blocks the call in pi too, but without a reason. */
-export function refusedInRun(tool: string, input: Record<string, unknown>, s: RunScope): string | undefined {
+function refusedInRun(tool: string, input: Record<string, unknown>, s: RunScope): string | undefined {
 	if (!toolAllowed(tool)) return `${tool} is not available in a tower run: a run has the tower tools and read-only file access (read, grep, find, ls). Route work to the main that owns it, or open one with boss_open_main.`;
 	try {
 		return refusedPath(tool, input, s);

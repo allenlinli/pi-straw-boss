@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, win32 } from "node:path";
+import { pathToFileURL } from "node:url";
+import { resolveArg } from "../src/link/allow.ts";
 import { afterEach, beforeEach, test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { LOCAL_RUN_TOOLS, RUN_FILE_TOOLS, RUN_TOWER_TOOLS, toolAllowed } from "../src/runallow.ts";
+import { LOCAL_RUN_TOOLS, RUN_FILE_TOOLS, RUN_TOWER_TOOLS, refusedPath, toolAllowed } from "../src/runallow.ts";
 import { LOCAL_TOOLS } from "../src/server/towerbrief.ts";
 import { type Answer, call, type Request, results, rig as makeRig, scratchRoot } from "./run-rig.ts";
 import { until } from "./server-world.ts";
@@ -52,11 +54,11 @@ const plant = () => {
 	return state;
 };
 /** Runs a scripted list of calls in a local run and returns what each answered, in order. */
-const run = async (calls: [string, Record<string, unknown>][], over: Parameters<typeof makeRig>[3] = {}, srv: Srv = server()) => {
+const run = async (calls: [string, Record<string, unknown>][], over: Parameters<typeof makeRig>[3] = {}, srv: Srv = server(), source: "interactive" | "extension" = "interactive") => {
 	const r = await rig(srv, over);
 	r.faux.setResponses([...calls.map(([name, args]) => call(name, args as never)), fauxAssistantMessage("finished")]);
 	// Nothing queued wakes the model: the boss's own words do.
-	await r.session.prompt("go");
+	await r.session.prompt("go", { source });
 	await until(() => results(r.session).length === calls.length, `${calls.length} results`);
 	return { r, out: results(r.session), srv };
 };
@@ -196,4 +198,80 @@ test("the boss's own !cmd in a run's pane still works: it is pi's own shell for 
 	const done = await r.session.executeBash("echo BOSS-CMD-OK");
 	assert.match(done.output, /BOSS-CMD-OK/);
 	assert.equal(done.exitCode, 0);
+});
+
+test("a run cannot read the state folder by a file:// URL: read, grep, find, and ls refuse the URL of server.json, memory.json, the link key, the GUI secrets, auth.json, and the folder itself", async () => {
+	const state = plant();
+	const home = join(root, "home");
+	mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+	writeFileSync(join(home, ".pi", "agent", "auth.json"), SECRET);
+	const url = (p: string) => pathToFileURL(p).href;
+	const { out } = await run([
+		["read", { path: url(join(state, "server.json")) }],
+		["read", { path: `@${url(join(state, "tower", "wA", "memory.json"))}` }],
+		["read", { path: url(join(state, "link", "device.key")) }],
+		["read", { path: url(join(state, "gui-secrets.json")) }],
+		["read", { path: url(join(home, ".pi", "agent", "auth.json")) }],
+		["read", { path: url(join(state, "gui.json")).replace("gui", "%67ui") }],
+		["grep", { pattern: "SECRET", path: url(state) }],
+		["grep", { pattern: "SECRET", path: url(home) }],
+		["find", { pattern: "*.json", path: url(state) }],
+		["ls", { path: url(state) }],
+		["read", { path: "file://bad host/x" }],
+	], { tools: WIDE });
+	assert.equal(out.length, 11);
+	for (const [i, o] of out.entries()) {
+		assert.doesNotMatch(o, new RegExp(SECRET), `call ${i} did not show the secret`);
+		assert.match(o, /sb server's state|secret|could not be checked/, `call ${i} was refused: ${o}`);
+	}
+});
+
+test("a grep regex that looks like a path is a regex, not a path: only grep's path and glob and find's path and pattern are read as places", async () => {
+	plant();
+	const { out } = await run([
+		["grep", { pattern: "/Users", path: "." }],
+		["grep", { pattern: "~", path: "." }],
+		["grep", { pattern: "PROJECT-LINE", path: "." }],
+	], { tools: WIDE });
+	for (const [i, o] of out.entries()) assert.doesNotMatch(o, /sb server's state|secret/, `call ${i} was not refused: ${o}`);
+	assert.match(out[2]!, /PROJECT-LINE/);
+});
+
+test("the guard's resolver agrees with pi's own on a table of inputs (file://, @, ~, odd spaces, percent escapes, relative, dot-dot)", async () => {
+	const pi = (await import(pathToFileURL(resolve("node_modules/@earendil-works/pi-coding-agent/dist/core/tools/path-utils.js")).href)) as { resolveToCwd(p: string, cwd: string): string };
+	const cwd = join(root, "project"), home = process.env.HOME ?? "";
+	assert.ok(home, "the test process has an isolated HOME");
+	const inputs = ["a/b", "./a", "../x/y", "/abs/p", `file://${cwd}/f`, "file:///etc/hosts", "file:///a%2Fb/c%20d", "@file:///x/y", "@a/b", "~", "~/x/y", "a\u00A0b", "~/a\u2003b", "x/../y", "/c/Users/x", "/mnt/c/Users/x", "~\\x", "file://localhost/etc/hosts", "."];
+	for (const input of inputs) {
+		let want: string | undefined, got: string | undefined;
+		try { want = pi.resolveToCwd(input, cwd); } catch { want = undefined; }
+		try { got = resolveArg(input, cwd, home); } catch { got = undefined; }
+		assert.equal(got, want, `${JSON.stringify(input)}`);
+	}
+});
+
+test("the Windows forms of a path resolve as pi resolves them on win32: /c/..., /mnt/c/..., /cygdrive/c/..., ~\\ , file:///C:/..., and are then refused by the guard's deny list", () => {
+	const w = (a: string) => resolveArg(a, "C:\\proj", "C:\\Users\\u", "win32");
+	assert.equal(w("/c/Users/u/.pi/agent/straw-boss/server.json"), "C:\\Users\\u\\.pi\\agent\\straw-boss\\server.json");
+	assert.equal(w("/mnt/c/Users/u/x"), "C:\\Users\\u\\x");
+	assert.equal(w("/cygdrive/d/x"), "D:\\x");
+	assert.equal(w("~\\.pi\\agent\\auth.json"), "C:\\Users\\u\\.pi\\agent\\auth.json");
+	assert.equal(w("~/.pi/agent"), "C:\\Users\\u\\.pi\\agent");
+	assert.equal(w("file:///C:/Users/u/.pi/x"), "C:\\Users\\u\\.pi\\x");
+	assert.equal(w("rel\\x"), win32.resolve("C:\\proj", "rel\\x"));
+	assert.equal(w("//srv/share"), "\\\\srv\\share\\");
+});
+
+test("a hand run is held to the path denial in a turn the boss did not start, and not in a turn their words start; an ally run is held at every level and keeps its shell", async () => {
+	const state = plant();
+	const hand = await run([["read", { path: join(state, "server.json") }], ["bash", {}]], { tools: WIDE }, server({ hand: true }), "extension");
+	assert.match(hand.out[0]!, /sb server's state or a secret/, "an event's turn: the path is refused");
+	assert.match(hand.out[1]!, /RAN/, "the shell stays");
+	sessions.splice(0).forEach((s) => s.dispose());
+	const boss = await run([["read", { path: join(state, "server.json") }]], { tools: WIDE }, server({ hand: true }));
+	assert.match(boss.out[0]!, new RegExp(SECRET), "the boss's own turn is not held");
+	sessions.splice(0).forEach((s) => s.dispose());
+	const ally = await run([["read", { path: join(state, "server.json") }], ["ls", { path: pathToFileURL(state).href }]], { tools: WIDE }, server({ kind: "ally", level: "dispatch", peer: { device: "dev1", label: "Dev", short: "d1", team: "t1", teamName: "T" } }));
+	for (const o of ally.out) assert.match(o, /sb server's state or a secret|descend|declined a remote request/, o);
+	sessions.splice(0).forEach((s) => s.dispose());
 });

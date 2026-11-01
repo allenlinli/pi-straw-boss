@@ -12,7 +12,7 @@ import { HERE_ONLY } from "./link/request.ts";
 import type { ServerLook } from "./server-look.ts";
 import { towerRunsEnabled } from "./server/towerruns.ts";
 import { markRun } from "./runmark.ts";
-import { refusedInRun } from "./runallow.ts";
+import { refusedForRun } from "./runallow.ts";
 import { startOf as processStart } from "./startof.ts";
 import { ALLY_ENTRY, ENTRY, type Kit } from "./state.ts";
 import { MEMORY_DESCRIPTION, memoryParameters } from "./memorytool.ts";
@@ -95,7 +95,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 	let inTurn = false, triggered: number | undefined, outOfReach: number | undefined;
 	// A quit the server ordered while the turn runs. pi would keep `ctx.shutdown()` itself and honour it at its next idle moment with no way to take it back, so the run holds the order instead: a server that restarted meanwhile (the run claims again) never ordered it, and the run goes on.
 	let quitOrdered = false;
-	let registered = false, bossSign: number | undefined, bossTyped = false, signing: Promise<unknown> | undefined;
+	let registered = false, bossSign: number | undefined, bossTyped = false, bossTurn = false, signing: Promise<unknown> | undefined;
 	// The pane-role ask of a pi with STRAW_BOSS_ROLE=tower that did not come back within `towerAskMs` is still in flight: the session is undecided, neither a run nor a normal session (so it joins nothing, hands nothing
 	// over and quits nothing) until the answer comes. `epoch` counts session starts and shutdowns, so an answer for a session that is gone is released instead of acted on; `afterNormal` holds the session start that waits for a `none`.
 	let epoch = 0, deciding: (() => void)[] | undefined;
@@ -389,6 +389,8 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		if (mode !== "run" || claim?.kind !== "local" || event.source !== "interactive") return;
 		// Their words protect the turn from the abort whether or not the server heard them (it may be the very thing that is away): the flag is not undone by a failed request, the rate-limit mark is.
 		bossTyped = true;
+		// The turn their words start is theirs: a hand run holds no path guard in it (below).
+		bossTurn = true;
 		if (bossSign !== undefined && cfg.now() - bossSign < BOSS_SIGN_MS) return;
 		bossSign = cfg.now();
 		// Not waited for: pi takes the boss's words only after this handler, and a round trip here would let the run's own event start a turn first and the words be refused as "already processing". The request goes out now;
@@ -396,16 +398,19 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		signing = call({ cmd: "run-boss" }).catch(() => void (bossSign = undefined));
 	});
 	pi.on("agent_start", () => void ((inTurn = true), (triggered = undefined)));
-	pi.on("agent_settled", () => void ((inTurn = false), flushQuit()));
+	pi.on("agent_settled", () => void ((inTurn = false), (bossTurn = false), flushQuit()));
 	pi.on("tool_call", (event, context) => {
 		if (mode !== "run") return;
 		if (event.toolName === "intercom") return { block: true, reason: BLOCKED };
 		// A subagent would outlive the run (a pane and a process left behind after tower_done): a run routes work through the mains it opens.
 		if (event.toolName === "subagent" || event.toolName === "subagent_resume") return { block: true, reason: NO_SUBAGENTS };
 		// A local run is started with `--tools` naming what it may call (runallow.ts), so a tool off the list is not registered at all; this refuses it again for the case an extension turned it back on, and refuses a path of the state folder or a secret folder.
-		// An ally run keeps the gate of its sender's level (link/hooks.ts), and a hand run is the boss's own pi in the standing pane, started with the tools the boss chose: neither is held to the list.
-		if (claim?.kind !== "local" || claim.hand) return;
-		const home = cfg.link?.home ?? homedir(), why = refusedInRun(event.toolName, event.input as Record<string, unknown>, { cwd: context.cwd, home, agentDir: env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), stateDir: guiDir });
+		// The path denial alone (not the list) also holds an ally run at every trust level, and a hand run (the boss's own pi in the standing pane, with the tools the boss chose) in a turn the boss did not start: an event of a peer or the board
+		// reaches it while the boss is silent. The boss's own turns are not held. bash can still name a guarded path in a command (docs/how-it-works.md, Not covered).
+		if (claim?.kind !== "local" && claim?.kind !== "ally") return;
+		if (claim.hand && bossTurn) return;
+		const home = cfg.link?.home ?? homedir();
+		const why = refusedForRun(claim.kind === "local" && !claim.hand, event.toolName, event.input as Record<string, unknown>, { cwd: context.cwd, home, agentDir: env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), stateDir: guiDir });
 		if (why) return { block: true, reason: why };
 	});
 	// An ally run has no business with pi-intercom: its own id is fresh and no header names it, so a message from it is dropped from the context as a backstop.

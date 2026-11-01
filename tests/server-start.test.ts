@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { launch, stateOf, timersFor } from "../src/server/client.ts";
 import { fileOf, readLock, readRecord, takeLock, writeRecord } from "../src/server/record.ts";
@@ -198,4 +199,14 @@ test("the requester's wait for hello covers a measured Windows cold start with m
 	assert.equal(timersFor("linux").start, 20_000);
 	assert.equal(timersFor("darwin").start, 20_000);
 	assert.equal(timersFor("win32").touch, 2000);
+});
+
+// Todo 50: a server that models Windows on another platform listened at a random `\\.\pipe\sb-*` name, a socket file at the top of the folder the test runs in, which the isolation guard saw as a stray.
+test("a server that models Windows listens inside the world's folder: no pipe-named file is made where the test runs", async () => {
+	const s = await world.start({ platform: "win32", acl: async () => ({}) });
+	assert.equal(await s.handle.ready, true);
+	if (process.platform !== "win32") {
+		assert.equal(readRecord(world.slot)?.socket, join(world.slot.dir, "pipe.sock"));
+		assert.deepEqual(readdirSync(process.cwd()).filter((name) => name.includes("pipe")), [], "nothing named like a pipe at the top of the checkout");
+	}
 });

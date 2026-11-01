@@ -6,7 +6,7 @@ import { herdrRun, type HerdrRun, workspaces } from "../herdr.ts";
 import { answers as pageAnswers } from "../handover.ts";
 import { newer } from "../semver.ts";
 import {
-	type Ctx, unreachableText, describe, ensure, guiUrl, heldText, herdrListens, isIdentity, detachWarning, lockFor, lockWaitFor, makeCtx, passGate, probe, restart, ServerError, serverEnv, settleLegacy, stop, takeOver, trusted, type Wait, waitReady, within,
+	type Ctx, unreachableText, describe, ensure, guiUrl, heldError, herdrListens, isIdentity, detachWarning, lockFor, lockWaitFor, makeCtx, passGate, probe, restart, ServerError, serverEnv, settleLegacy, stop, takeOver, trusted, type Wait, waitReady, within,
 } from "./client.ts";
 import { ACL_TOKEN } from "./acl.ts";
 import { baseFolder, type DeskRecord, deskLockFor, ensureIntegration, makeBase, readDesk, stillBase } from "./desk.ts";
@@ -378,7 +378,8 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
 		try {
 			// A legacy server is ended by signal as every start does it (R13d); one that runs and cannot be asked is not raced by a foreground server either.
 			const seen = await settleLegacy(ctx, await probe(ctx));
-			if (!seen.live && seen.runs && seen.record) throw new ServerError("unreachable", seen.denied ? unreachableText(seen.record) : heldText(ctx, seen));
+			const held = heldError(ctx, seen);
+			if (held) throw held;
 			if (seen.live && seen.record) {
 				if (seen.record.mode === "serve") {
 					release();

@@ -79,6 +79,8 @@ export class ServerWorld {
 			acl: async (dir) => { this.acls.push(dir); if (this.aclError) throw this.aclError; },
 			// The folder's own ACL step is not run here (it needs Windows); its order is pinned in server-winprep.test.ts.
 			prepare: (slot) => secretDir(slot.dir),
+			// A server that models Windows on another platform listens inside this world's folder: its pipe name would be a socket file at the top of the folder the test runs in (the isolation guard's stray).
+			...(over.platform === "win32" && process.platform !== "win32" ? { endpoint: join(this.slot.dir, "pipe.sock") } : {}),
 			herdrUp: async () => true, watch: () => () => {}, touchMs: 30, brokerMs: 1500, herdrPollMs: 30, herdrGoneMs: 200, sleep,
 			// The GUI the server serves binds ports of its own; the machine's Tailscale and link holder are not asked.
 			gui: { bundle, tailscale: noTailscale, link: noLink, bindWaitMs: 200 },

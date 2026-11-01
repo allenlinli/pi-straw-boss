@@ -208,7 +208,11 @@ const startWithin = (ctx: Ctx, pid: number, ms: number, deadline: number | undef
 export async function probe(ctx: Ctx, deadline?: number, startKnownElsewhere = false): Promise<Probe> {
 	const record = await trusted(ctx, deadline);
 	// A record with no socket is a start that has not got far enough to listen (`markStarting`): there is nothing to ask.
-	if (!record || !record.socket || !ctx.alive(record.pid)) return { record, live: false, runs: false, hello: undefined };
+	if (!record || !record.socket || !ctx.alive(record.pid)) {
+		// R13e-F005: a pid seen dead has no start time worth keeping: a pid reused later is a new process.
+		if (record) ctx.forgetStart(record.pid);
+		return { record, live: false, runs: false, hello: undefined };
+	}
 	// The hello comes first: a server that answers it with the secret and its pid is that server, and no start time has to be asked for (on Windows that is a PowerShell start for a process that
 	// is not this one: `stop` and `status` made one each; VM pass 5, F13). The start time is looked at only when it did not answer.
 	const { hello, denied, failure } = await helloWhy(record.socket, record.secret, within(ctx, deadline, HELLO_MS));
@@ -224,13 +228,21 @@ export async function probe(ctx: Ctx, deadline?: number, startKnownElsewhere = f
 		const older = failure === "refused" || failure === "protocol";
 		// R13b-F001: a start time that is not read yet (Windows, a cold cache: the CIM read takes seconds) is waited for, as the denied branch does. Still unknown: the process is taken as running (it pins the broker scope, nothing is started beside it, `status` warns), never as gone.
 		let unknown = false;
-		if (!confirmed && older && record.started && ctx.startOf(record.pid) === undefined) {
+		// R13e-F001: a hello that timed out (a stuck loop, a server slower than HELLO_MS) is waited for in the same way: a time still unknown holds it, a second server is never started beside it.
+		if (!confirmed && (older || failure === "timeout") && record.started && ctx.startOf(record.pid) === undefined) {
 			const when = await waitStart();
 			if (when === undefined) unknown = true;
 			else (confirmed = when === record.started, read = true);
 		}
 		// R13b-F003: legacy is a server of protocol 1 (a record without `proto`); an older package that speaks protocol 2 and closed after its challenge (a stalled loop) gets the graceful upgrade, not a signal.
 		const legacy = confirmed && older && (record.proto ?? 1) < PROTOCOL && newer(ctx.version, record.version) && record.herdr === ctx.slot.herdr && sameBroker(record.intercom, intercomOf(ctx.env, ctx.platform));
+		// R13e-F005: a held verdict (and the pid its words name) that rests on a start time cached for minutes is read again first on Windows, where a pid is reused: a legacy server is the exception, `endLegacy` reads again before it signals.
+		if (confirmed && !read && !legacy && !startKnownElsewhere && ctx.platform === "win32") {
+			ctx.forgetStart(record.pid);
+			const when = await waitStart();
+			if (when === undefined) (unknown = true, confirmed = false);
+			else (confirmed = when === record.started, read = true);
+		}
 		return { record, live: false, runs: confirmed || unknown, hello: undefined, ...(legacy ? { legacy: true } : {}), ...(unknown ? { unread: true } : {}), ...(read && confirmed ? { startRead: true } : {}) };
 	}
 	// Refused for lack of permission: a running server that cannot be reached, told as that and never as gone (F11). Only POSITIVE evidence that the process under the pid is not the one the record names
@@ -542,8 +554,12 @@ async function assertNoOwner(ctx: Ctx, deadline?: number): Promise<void> {
 	const seen = await probe(ctx, deadline);
 	// A server that answers hello is the one case a started child sees for itself (its `taken` check says hello to it, and leaves): `launch` returns that server. Anything that runs and does not
 	// answer is what a child cannot see (a handshake it does not speak, a stuck loop), so it is not left to the child.
-	if (seen.runs && !seen.live && seen.record) throw new ServerError("unreachable", seen.denied ? unreachableText(seen.record) : heldText(ctx, seen));
+	const held = heldError(ctx, seen);
+	if (held) throw held;
 }
+/** The one predicate of the rule: the record's process runs and does not answer hello. The error that says so, or undefined (`assertNoOwner`, and `serve` in cli.ts, use this and no copy of it). */
+export const heldError = (ctx: Pick<Ctx, "platform">, seen: Pick<Probe, "record" | "live" | "runs" | "denied" | "unread">): ServerError | undefined =>
+	seen.runs && !seen.live && seen.record ? new ServerError("unreachable", seen.denied ? unreachableText(seen.record) : heldText(ctx, seen)) : undefined;
 /** Marks the record stopped (the server did not, or there is none to ask); under the rule above. */
 async function markStopped(ctx: Ctx, deadline?: number): Promise<void> {
 	await assertNoOwner(ctx, deadline);
@@ -745,7 +761,7 @@ export const unreachableText = (record: Pick<ServerRecord, "pid" | "detach">) =>
 	`the sb server (pid ${record.pid}) runs but this process may not reach it: it was probably started from an elevated pi or shell, and this one is not elevated; stop or restart it from an elevated shell`;
 
 /** The program that ends a process, as the boss types it. */
-const endCommand = (platform: NodeJS.Platform, pid: number) => (platform === "win32" ? `taskkill /PID ${pid}` : `kill ${pid}`);
+const endCommand = (platform: NodeJS.Platform, pid: number) => (platform === "win32" ? `taskkill /F /PID ${pid}` : `kill ${pid}, and kill -9 ${pid} if it is still there after a few seconds`);
 /**
  * What is said of a server that runs and was left alone: it did not answer this package's handshake (R13b-F001, R13c-F001), or answered nothing at all (R13d). Nothing is started beside it and
  * nothing is signalled. `unread`: its start time could not be read (or not in time), so it is not known whether the process is the record's; a look reads it again by itself. The words name what the
@@ -798,7 +814,7 @@ export async function describe(ctx: Ctx): Promise<Record<string, unknown>> {
 			...(record.detach ? { detach: record.detach, ...(record.detachFailure ? { detachFailure: record.detachFailure } : {}) } : {}), ...(detachWarning(record) ? { warning: detachWarning(record) } : {}),
 			...(seen.denied ? { reachable: false, warning: unreachableText(record) } : {}),
 			...(seen.runs && !seen.live && !seen.denied && !seen.legacy ? { reachable: false, warning: heldText(ctx, seen) } : {}),
-			...(seen.legacy ? { reachable: false, warning: `the sb server (pid ${record.pid}) runs pi-straw-boss ${record.version}, whose control protocol this package (${ctx.version}) does not speak; the next session start or restart replaces it` } : {}),
+			...(seen.legacy ? { reachable: false, warning: `the sb server (pid ${record.pid}) runs pi-straw-boss ${record.version}, whose control protocol this package (${ctx.version}) does not speak; a session start or restart signals it to end and replaces it, unless that cannot be done (its start time is not read in time): then it is left alone and nothing is started beside it, and the process is ended by hand (${endCommand(ctx.platform, record.pid)})` } : {}),
 		} : {}),
 		...(state === "gone" && startError ? { startError } : {}), ...more,
 	};

@@ -37,7 +37,7 @@ export function createServerLook({ pi, cfg, s, guiDir, me, tell }: Kit, deps: Se
 	// Only a session with a screen looks: a print run is short-lived, and a subagent never gets here (index.ts).
 	// A tower run (runmode.ts) looks at nothing: it could start or upgrade a server that was stopped, and a run of a server that is gone has nothing to run for.
 	let quiet: () => boolean = () => false;
-	let timer: ReturnType<typeof setInterval> | undefined, looking = false, failedAt: number | undefined, failedUpgrade: string | undefined, stopped = false, interactive = false;
+	let timer: ReturnType<typeof setInterval> | undefined, looking = false, failedAt: number | undefined, failedUpgrade: string | undefined, stopped = false, interactive = false, heldLooks = 0;
 
 	const slot = () => slotOf(cfg.stateDir ?? guiDir, cfg.env);
 	/** Where the server is started from: the built `dist/server/cli.mjs` of this package, or `src/server/cli.ts` in a checkout (Node runs it as it is). */
@@ -77,6 +77,11 @@ export function createServerLook({ pi, cfg, s, guiDir, me, tell }: Kit, deps: Se
 			// A look still in flight when the session shuts down does nothing more: it would make the folder again after the session closed.
 			if (stopped) return;
 			verdictWas = verdict.do;
+			// R13e-F002: a server that runs and does not answer holds the slot and nothing starts beside it: a look that finds it so twice in a row tells the boss once (a server that is only slow under load answers by the next look). The notice is forgotten when the hold clears.
+			const held = seen.runs && !seen.live && !seen.denied ? seen.record : undefined;
+			heldLooks = held ? heldLooks + 1 : 0;
+			if (held && heldLooks >= 2) tellOnce(`held:${held.pid}:${held.started}`, `Straw Boss: ${heldText(ctx, seen)}`);
+			if (!held) for (const key of told) if (key.startsWith("held:")) told.delete(key);
 			// A pair request over Wi-Fi access waits and the boss has neither this computer's overlay nor its tile open: each session says so once per request (the server's record names them).
 			for (const waiting of seen.record?.lanNotice ?? []) tellOnce(`lan-pending:${waiting.id}`, `Straw Boss: Pair request waiting from ${waiting.peer}: run /boss gui lan`);
 			if (verdict.do === "refuse") return tellOnce(verdict.why, `Straw Boss: ${verdict.text}`);

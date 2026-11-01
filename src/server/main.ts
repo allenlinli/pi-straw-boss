@@ -77,6 +77,8 @@ export interface ServerOptions {
 	detach?: { via: Detach; failure?: string };
 	/** The GUI the server serves (guihost.ts); `false` serves none (the tests of the process itself). `link`, `bundle`, `tailscale`, and `bindWaitMs` replace the machine's. */
 	gui?: false | { link?: GuiLink; bundle?: string; tailscale?: Run; bindWaitMs?: number; /** Wi-Fi access's seams (tests): see lanhost.ts. */ lan?: import("./lanhost.ts").LanSeams; /** Another process's start time as the hand-over of the GUI asks for it, and how long it waits (tests; the process's own `startedLater` and 6 s by default). */ startedLater?: (pid: number) => Promise<string | undefined>; startWaitMs?: number; /** Called when a GUI request waits for a rotation in flight (tests). */ waiting?: () => void; /** Asks for a restart as the page's button does; the real one starts `cli.mjs restart`. */ restart?: (reason: string) => { status: number; body: unknown } | Promise<{ status: number; body: unknown }> };
+	/** Listens here instead of at `endpointFor` (tests: a server that models Windows on another platform has no pipe namespace, and its random pipe name would be a socket file in the folder the test runs in). */
+	endpoint?: string;
 	herdrUp?: () => Promise<boolean>;
 	watch?: HerdrWatch;
 	herdr?: HeadlessDeps;
@@ -237,7 +239,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	}
 
 	const secret = newSecret();
-	endpoint = endpointFor(slot, platform);
+	endpoint = o.endpoint ?? endpointFor(slot, platform);
 	log.hide(secret);
 	const own: ServerRecord = {
 		pid, version, proto: PROTOCOL, herdr: slot.herdr, mode, desk, intercom: intercomOf(env, platform),

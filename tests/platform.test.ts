@@ -17,7 +17,7 @@ import { writeRecordFile } from "../src/handover.ts";
 import { herdrCall } from "../src/herdr.ts";
 import { cmdHidden } from "../src/hidden.ts";
 import { listDirs, pickable } from "../src/spawn.ts";
-import { startedLater, startOf } from "../src/startof.ts";
+import { createStartOf, READ_MS, startedLater, startOf } from "../src/startof.ts";
 import { herdrEvents } from "../src/server-watch.ts";
 import { answerFile, ensureDir, listRequests, readJson, requestFile, writeAtomic } from "../src/trust/files.ts";
 import { digestOf } from "../src/trust/found.ts";
@@ -186,6 +186,34 @@ test("S7: another process's start time is told, not earlier than this process's,
 		if (process.platform === "win32") assert.match(theirs!, ISO);
 		assert.ok(Date.parse(/Z$/.test(theirs!) ? theirs! : `${theirs} UTC`) >= Date.parse(/Z$/.test(mine!) ? mine! : `${mine} UTC`) - 1000, "the child started after this process");
 		assert.equal(startOf(child.pid!), theirs, "answered from the cache");
+	} finally {
+		child.kill();
+	}
+});
+
+// R13e-F003: what the sb server's rule (client.ts probe, endLegacy) rests on, on a real Windows: a cold read of a fresh process's start time lands within READ_MS (the figure is logged: the rule's 3 s wait and its READ_MS
+// are judged against it), a forgotten time is read again to the same value, a dead process has none, and the command the held words give ends a process with no window.
+test("R13e-F003: a cold start-time read of a fresh child lands within READ_MS, is read again after forget, and `taskkill /F /PID` ends the child", { skip: process.platform !== "win32" }, async () => {
+	const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore", windowsHide: true });
+	const exited = new Promise((resolve) => child.once("exit", resolve));
+	const times = createStartOf();
+	try {
+		const t0 = Date.now(), first = await times.startedLater(child.pid!), cold = Date.now() - t0;
+		console.log(`cold start-time read: ${cold} ms (READ_MS ${READ_MS})`);
+		assert.ok(first, "a fresh child has a start time");
+		assert.match(first!, ISO);
+		assert.ok(cold < READ_MS, `the cold read took ${cold} ms, not under READ_MS (${READ_MS})`);
+		assert.equal(times.startOf(child.pid!), first, "answered from the cache");
+		times.forget(child.pid!);
+		const t1 = Date.now(), again = await times.startedLater(child.pid!);
+		console.log(`re-read after forget: ${Date.now() - t1} ms`);
+		assert.equal(again, first, "the same time when it is read again");
+		// The words of a held server name this command: it must end a process that has no window.
+		const killed = spawnSync("taskkill", ["/F", "/PID", String(child.pid)], { encoding: "utf8" });
+		assert.equal(killed.status, 0, `${killed.stdout}${killed.stderr}`);
+		await exited;
+		times.forget(child.pid!);
+		assert.equal(await times.startedLater(child.pid!), undefined, "a process that ended has no start time");
 	} finally {
 		child.kill();
 	}

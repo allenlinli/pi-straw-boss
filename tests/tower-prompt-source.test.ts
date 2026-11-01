@@ -67,8 +67,8 @@ test("leave takes the stand-in away, and gone and leave never reject when the se
 
 // --- `cli.mjs prompt`, the command the server types into the standing pane ---
 
-async function cliPrompt(argv: string[], over: { env?: NodeJS.ProcessEnv; abort?: AbortController } = {}) {
-	const stdin = new PassThrough(), stdout = new PassThrough();
+async function cliPrompt(argv: string[], over: { env?: NodeJS.ProcessEnv; abort?: AbortController; tty?: boolean } = {}) {
+	const stdin = new PassThrough(), stdout = over.tty ? Object.assign(new PassThrough(), { isTTY: true, columns: 80, rows: 24 }) : new PassThrough();
 	let err = "", text = "";
 	stdout.on("data", (chunk) => void (text += String(chunk)));
 	const { by: _by, ...requester } = world.ctx();
@@ -96,7 +96,7 @@ test("prompt shows the tower's state and the hint, waits at `tower>`, and a line
 	await setup();
 	const r = await cliPrompt(["prompt", "--workspace", "wA", "--state-dir", world.stateDir]);
 	await until(() => r.text().includes("tower> "), "the prompt");
-	assert.match(r.text(), /tower · .*: standing by/);
+	assert.match(r.text(), /# tower - .*\no standing by/);
 	assert.match(r.text(), /Ctrl\+D/);
 	r.stdin.write("look at the board\n");
 	assert.equal(await r.done, 0);
@@ -104,11 +104,31 @@ test("prompt shows the tower's state and the hint, waits at `tower>`, and a line
 	await until(() => world.pis.size === 1, "the run to start");
 });
 
+test("prompt draws itself by the environment: on a terminal with the glyphs, colour, and clear; NO_COLOR takes the colour and STRAW_BOSS_ASCII the glyphs; a pipe gets neither", async () => {
+	await setup();
+	const argv = ["prompt", "--workspace", "wA", "--state-dir", world.stateDir];
+	for (const [env, tty, want] of [
+		[{}, true, "\u{F043B} ❯ "],
+		[{ NO_COLOR: "1" }, true, "\u{F043B} ❯ "],
+		[{ STRAW_BOSS_ASCII: "1" }, true, "tower> "],
+		[{}, false, "tower> "],
+	] as const) {
+		const abort = new AbortController();
+		const r = await cliPrompt(argv, { env: { ...world.env, ...env }, abort, tty });
+		await until(() => r.text().includes(want), `the prompt of ${JSON.stringify(env)} tty=${tty}`);
+		assert.equal(r.text().includes("\x1b[2J"), tty, "the screen is cleared on a terminal only");
+		assert.equal(/\x1b\[[0-9;]*m/.test(r.text()), tty && !env.NO_COLOR, "styled on a terminal unless NO_COLOR");
+		if (!tty) assert.ok(!r.text().includes("\x1b"), "no escape on a pipe");
+		abort.abort();
+		assert.equal(await r.done, 0);
+	}
+});
+
 test("prompt speaks Traditional Chinese when the boss's shell says so, and Ctrl+D leaves the pane to the shell with exit 0 and no run", async () => {
 	const { pane } = await setup();
 	const r = await cliPrompt(["prompt", "--workspace", "wA", "--state-dir", world.stateDir], { env: { ...world.env, LANG: "zh_TW.UTF-8" } });
 	await until(() => r.text().includes("tower> "), "the prompt");
-	assert.match(r.text(), /塔台 · .*：待命中/);
+	assert.match(r.text(), /# 塔台 - .*\no 待命中/);
 	await until(() => world.herdr.pane(pane).agent === "tower", "the stand-in while the prompt polls");
 	r.stdin.end();
 	assert.equal(await r.done, 0);

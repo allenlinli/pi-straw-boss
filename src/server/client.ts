@@ -130,7 +130,7 @@ export interface Ctx {
 	by: string;
 	platform: NodeJS.Platform;
 	now(): number;
-	sleep(ms: number): Promise<void>;
+	/** Waits `ms`; a `signal` that fires ends the wait at once and clears the real timer, so a lost race leaves no ref'd timer holding the process. */ sleep(ms: number, signal?: AbortSignal): Promise<void>;
 	alive(pid: number): boolean;
 	startOf(pid: number): string | undefined;
 	/** The start time of a process once it is known (a bounded wait on Windows, where it takes a PowerShell start); `startOf` by default when a test replaces that. */
@@ -151,7 +151,7 @@ export interface Ctx {
 }
 export function makeCtx(over: Partial<Ctx> & Pick<Ctx, "slot" | "version" | "cli" | "by">): Ctx {
 	const now = over.now ?? Date.now, alive = over.alive ?? pidAlive, start = over.startOf ?? startOf;
-	const sleep = over.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	const sleep = over.sleep ?? ((ms: number, signal?: AbortSignal) => new Promise<void>((resolve) => { const timer = setTimeout(resolve, ms); signal?.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true }); }));
 	const log = over.log ?? createLog(fileOf(over.slot, "log"), { now });
 	// A test run is refused here, before a lock or a placeholder record is written, when its real spawn would start a server outside the run's temp root.
 	if (!over.spawn) guardHome({ cwd: over.slot.dir, env: over.env ?? process.env });
@@ -207,8 +207,8 @@ export async function probe(ctx: Ctx, deadline?: number, startKnownElsewhere = f
 	if (!denied) return { record, live: false, runs: confirmed, hello: undefined };
 	// Refused for lack of permission: a running server that cannot be reached, told as that and never as gone (F11). Only POSITIVE evidence that the process under the pid is not the one the record names
 	// makes it gone (R8-F004: a pipe name is free when its server is gone, and something else can refuse there): a start time that is known and different. The time is waited for, a few seconds at most;
-	// one that is unknown (the read is slower than the wait, which on Windows it is: the CIM read takes 3.5 s and more; it failed; the record has none) stays denied (R9-F001).
-	const when = confirmed || !record.started ? record.started : await Promise.race([ctx.startedLater(record.pid).catch(() => undefined), ctx.sleep(within(ctx, deadline, DENIED_START_MS)).then(() => undefined)]);
+	// one that is unknown (the read is slower than the wait, which on Windows it is: the CIM read takes 3.5 s and more; it failed; the record has none) stays denied (R9-F001). The wait's timer is ref'd, so it is aborted when the read answers first.
+	const stop = new AbortController(), when = confirmed || !record.started ? record.started : await Promise.race([ctx.startedLater(record.pid).catch(() => undefined), ctx.sleep(within(ctx, deadline, DENIED_START_MS), stop.signal).then(() => undefined)]).finally(() => stop.abort());
 	const other = Boolean(record.started) && when !== undefined && when !== record.started;
 	return other ? { record, live: false, runs: false, hello: undefined } : { record, live: false, runs: true, denied: true, hello: undefined };
 }

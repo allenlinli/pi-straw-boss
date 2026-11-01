@@ -124,8 +124,9 @@
   </footer>
 </div>
 <div class="dock" id="dock" aria-label="Alerts" data-m-label="alerts" role="region" inert></div>
+<!-- The Reload link is the way out of a page whose scripts never ran (a chunk that failed to load): CSS reveals it after 10 s, connect.ts removes it once the page has booted, and being a plain link to the same URL it needs no script and keeps the token path and query. Both languages, since no script has chosen one. -->
 <!-- The page has no live state yet (connect.ts): open from the first byte, with the app root above inert, until the stream's first snapshot; it comes back whenever the stream is lost. -->
-<dialog class="connect" id="connect" open aria-labelledby="connect-text" data-state="connecting"><div class="connect-card"><i class="connect-ring" aria-hidden="true"></i><p id="connect-text" role="status" data-m="connect_connecting">Connecting…</p><button class="pair-btn connect-retry" id="connect-retry" type="button" data-m="connect_retry" hidden>Try again</button></div></dialog>
+<dialog class="connect" id="connect" open aria-labelledby="connect-text" data-state="connecting"><div class="connect-card"><i class="connect-ring" aria-hidden="true"></i><p id="connect-text" role="status" data-m="connect_connecting">Connecting…</p><button class="pair-btn connect-retry" id="connect-retry" type="button" data-m="connect_retry" hidden>Try again</button><a class="pair-btn connect-reload" id="connect-reload" href="">Reload · 重新載入</a></div></dialog>
 <script type="module" src="./main.ts"></script>
 </body>
 </html>

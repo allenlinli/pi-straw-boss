@@ -10,4 +10,5 @@
 ## Page
 
 - A sheet or dialog that opens while the connect overlay is up (a Quit or Pop that failed after the stream dropped) is usable again; it no longer has dead buttons.
+- A connect overlay that cannot be left: the page shows an overlay ("Connecting…", then Try again or the reason) over an inert page until the stream is live, and a page whose scripts failed to load (a chunk that was cut off) stayed behind it for good. The overlay now carries a Reload link, in English and 繁體中文, that appears after 10 seconds (also with reduced motion, in forced colors, at 44 px) and reloads the same address, token path and query kept; a page that booted removes it.
 - The public demo restores itself a few seconds after "drop stream" or "go silent", since the overlay covers the demo's toolbar.

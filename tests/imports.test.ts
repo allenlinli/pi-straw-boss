@@ -617,7 +617,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen model (Z2) to 2631 (with the sheet fix): gui/zenwith.ts (the device's last talk and the companion's target) and gui/zenmodel.ts (the pure model of what Zen shows) are new, alerts.ts and session.ts take `since` and the recording Post.
 	// Zen review fixes: gui/viewlabel.ts (the Auto label, out of main.ts) is new, and view.ts takes the Zen back button's mount (out of main.ts): both are testable now, 2639 to 2649.
 	// Z1 and Z2 together (the merge) to 2639: the two increments over the common 2531.
-	assert.ok(page <= 2649, `the page's TypeScript has ${page} lines`);
+	// The stuck-overlay way out (fix/connect-stuck) to 2652 (with Z1 and its fixes): connect.ts takes the static Reload link away once the page has booted (+3).
+	assert.ok(page <= 2652, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -867,5 +868,6 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Cancel (fix/ask-cancel) to 101,200 bytes: `.ask-cancel` and its place in the touch and press rules.
 	// The connection overlay to 102,200 bytes / 21.9 KB gzipped: `.connect` (the modal overlay over the page, its card, ring, and Try again) and the ring's rest in calm and Geek.
 	// The value zen (Zen step Z1) to 102,400 bytes: `.zen-back`, the header button hidden outside Standard-while-away.
-	assert.ok(total(css, (n) => size(n).length) <= 102_400 && total(css, gz) <= 21_900, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// The Reload link in the overlay (fix/connect-stuck) to 102,900 bytes / 22.0 KB gzipped (with Z1's .zen-back): `.connect-reload` (revealed after 10 s by a step), its keyframes, the reduced-motion exception, and forced colors.
+	assert.ok(total(css, (n) => size(n).length) <= 102_900 && total(css, gz) <= 22_000, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

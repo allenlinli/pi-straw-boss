@@ -26,11 +26,13 @@ export interface Parts {
 	dialog: HTMLDialogElement;
 	text: HTMLElement;
 	retry: HTMLButtonElement;
+	/** The static Reload link, the way out of a page whose scripts never ran; a booted page has no use for it. */
+	reload?: Pick<HTMLElement, "remove">;
 	/** The app root: what the overlay covers. */
 	guarded: HTMLElement[];
 }
 const byId = (id: string) => document.getElementById(id)!;
-const pageParts = (): Parts => ({ win: window, dialog: byId("connect") as HTMLDialogElement, text: byId("connect-text"), retry: byId("connect-retry") as HTMLButtonElement, guarded: [document.querySelector<HTMLElement>(".shell")!, byId("dock")] });
+const pageParts = (): Parts => ({ win: window, dialog: byId("connect") as HTMLDialogElement, text: byId("connect-text"), retry: byId("connect-retry") as HTMLButtonElement, reload: byId("connect-reload"), guarded: [document.querySelector<HTMLElement>(".shell")!, byId("dock")] });
 
 /** Mounts the overlay on the page's markup and returns what each stream status is told to. `retry` asks the stream for another attempt. */
 export function mountConnect(retry: () => void, parts: Parts = pageParts()) {
@@ -70,6 +72,7 @@ export function mountConnect(retry: () => void, parts: Parts = pageParts()) {
 		}, true);
 		dialog.addEventListener(type, (event) => event.stopPropagation()); // what happens in the overlay stays there; its button has already run
 	}
+	parts.reload?.remove();
 	parts.retry.addEventListener("click", retry);
 	return (status: Status) => {
 		kind = connectOf(status);

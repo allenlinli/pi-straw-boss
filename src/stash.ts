@@ -82,7 +82,7 @@ async function foreground(run: HerdrRun, paneId: string): Promise<string[] | und
 
 /** Herdr's side of the check, and the manifest's tabs: tower tab first, then Herdr's tab order, each tab's panes in Herdr's order. `resume`: false for
  * a close, which needs nothing a pop would read (session files, folders), only that nothing running is lost. */
-export async function survey(run: HerdrRun, workspaceId: string, live: Session[], resume = true) {
+export async function survey(run: HerdrRun, workspaceId: string, live: Session[], resume = true, serviced = false) {
 	const all = await workspaces(run), ws = all.find((w) => w.workspace_id === workspaceId);
 	if (!ws) return undefined;
 	const reasons: string[] = [], agents: Session[] = [], out: StashTab[] = [];
@@ -98,6 +98,13 @@ export async function survey(run: HerdrRun, workspaceId: string, live: Session[]
 		const tab: StashTab = { ...(t.label ? { label: t.label } : {}), panes: [] };
 		for (const p of here.filter((x) => x.tab_id === t.tab_id)) {
 			const cwd = p.cwd ?? ws.worktree?.checkout_path ?? "", session = sessionAt(p), who = session?.name ?? `pane ${p.pane_id}`;
+			// The sb server's service in its standing pane has no bridge to ask, and a run's pi beside it is the service's: they end with the base. A pop makes no service again, and its queue and conversation stay under the old workspace id, so a stash refuses.
+			if (serviced && p.tokens?.sb_role === "tower") {
+				if (resume) reasons.push(`its tower is the sb server's service, whose queue and conversation a pop cannot bring back; end the tower first`);
+				if (p.agent === "pi" && !SETTLED.has(p.agent_status ?? "")) reasons.push(`${who} is ${p.agent_status ?? "in an unknown state"}`);
+				tab.panes.push({ kind: "shell", cwd });
+				continue;
+			}
 			// A tower the sb server runs stands in its pane with the stand-in agent while the tower prompt, a process of the server's own, runs there: the pane is its shell, which a pop makes again.
 			if (!p.agent || isStandin(p)) {
 				const fg = isStandin(p) ? [] : await foreground(run, p.pane_id);
@@ -112,7 +119,6 @@ export async function survey(run: HerdrRun, workspaceId: string, live: Session[]
 			else if (!ROLES.has(role)) reasons.push(`${who} is a subagent or outside the net`);
 			if (p.agent !== "pi" || !ROLES.has(role)) continue;
 			if (!SETTLED.has(p.agent_status ?? "")) reasons.push(`${who} is ${p.agent_status ?? "in an unknown state"}`);
-			// A path Herdr names whose file does not exist yet is a session that never replied: nothing to resume, it starts fresh at pop.
 			const named = p.agent_session?.value, file = named && existsSync(named) ? named : undefined;
 			if (!named && resume) reasons.push(`${who} has no session file Herdr knows of`);
 			if (!cwd && resume) reasons.push(`${who} has no folder Herdr knows of`);
@@ -149,7 +155,7 @@ async function askSessions(d: Pick<StashDeps, "sleep" | "check">, agents: Sessio
  * quitting only while it can still be stashed. The base is looked at again just before it closes, and the server's own session, when it sits
  * there, is asked again too (its batch does not ask it).
  */
-export async function closeAll(d: Pick<StashDeps, "run" | "sleep" | "sessions" | "check">, me: string, closeBase: (workspace: string) => Promise<Reply>, refresh?: () => Promise<unknown>, by?: string, workspace?: string): Promise<Reply> {
+export async function closeAll(d: Pick<StashDeps, "run" | "sleep" | "sessions" | "check" | "service">, me: string, closeBase: (workspace: string) => Promise<Reply>, refresh?: () => Promise<unknown>, by?: string, workspace?: string): Promise<Reply> {
 	const live = await d.sessions(), alive = new Set(live.map((s) => s.id)), ps = await panes(d.run), lives = (p: Pane) => live.some((s) => s.herdrLocation?.paneId === p.pane_id);
 	// Only the invoker's own base: the other bases of the net are not its to close.
 	const baseOf = (id?: string) => (id ? live.find((s) => s.id === id)?.herdrLocation?.workspace?.id : undefined), mine = baseOf(me), theirs = workspace ?? baseOf(by);
@@ -157,7 +163,7 @@ export async function closeAll(d: Pick<StashDeps, "run" | "sleep" | "sessions" |
 	// A role token outlives its pi up to its TTL: only a live tower, main, or member puts a workspace on the net.
 	const bases = (await workspaces(d.run)).filter((w) => w.workspace_id === theirs && !isSub(w) && ((w.tokens?.tower && alive.has(w.tokens.tower)) || ps.some((p) => p.workspace_id === w.workspace_id && (p.tokens?.sb_role === "main" || p.tokens?.sb_role === "member") && lives(p))));
 	if (!bases.length) return no(404, "not_found", "That workspace is not a base on the net.");
-	const surveyAll = async (sessions: Session[]) => Promise.all(bases.map(async (w) => ({ w, sv: await survey(d.run, w.workspace_id, sessions, false) })));
+	const surveyAll = async (sessions: Session[]) => Promise.all(bases.map(async (w) => ({ w, sv: await survey(d.run, w.workspace_id, sessions, false, d.service?.(w.workspace_id)) })));
 	const first = await surveyAll(live), reasons = first.flatMap(({ w, sv }) => (sv ? sv.reasons.map((r) => `${w.label}: ${r}`) : []));
 	reasons.push(...(await askSessions(d, first.flatMap(({ sv }) => sv?.agents ?? []), refresh)));
 	if (!reasons.length) reasons.push(...(await surveyAll(await d.sessions())).flatMap(({ w, sv }) => (sv?.reasons ?? []).map((r) => `${w.label}: ${r}`)));
@@ -167,7 +173,7 @@ export async function closeAll(d: Pick<StashDeps, "run" | "sleep" | "sessions" |
 	for (const w of order) {
 		// The run takes minutes: each base is looked at again just before it closes (a shell job, a subagent left running), and the server's own
 		// session, which its batch does not ask, is checked again before its base closes with it.
-		const sv = await survey(d.run, w.workspace_id, await d.sessions(), false);
+		const sv = await survey(d.run, w.workspace_id, await d.sessions(), false, d.service?.(w.workspace_id));
 		if (!sv) continue; // closed by someone else meanwhile
 		const late = [...sv.reasons, ...(w.workspace_id === mine ? ((r) => (r?.reason ? [r.reason] : r ? [] : ["this server's session did not answer"]))(await d.check(me)) : [])];
 		if (late.length) return stop(`${w.label} cannot close now: ${late.join("; ")}.`);
@@ -180,7 +186,7 @@ export async function closeAll(d: Pick<StashDeps, "run" | "sleep" | "sessions" |
 }
 
 /** `me`: the server's own session, which its batch does not ask: it is checked again when it sits in the base. */
-export interface StashDeps { run: HerdrRun; sleep: Sleep; sessions(): Promise<Session[]>; check(key: string): Promise<{ reason?: string } | undefined>; stateDir: string; now?: () => Date; me?: string }
+export interface StashDeps { run: HerdrRun; sleep: Sleep; sessions(): Promise<Session[]>; check(key: string): Promise<{ reason?: string } | undefined>; stateDir: string; now?: () => Date; me?: string; /** Whether the sb server's tower service stands in the workspace. */ service?(workspace: string): boolean }
 
 /** The server's stash: every check first (nothing closes on a refusal), then the manifest, then `closeBase` (the close-base batch). */
 export async function stashBase(d: StashDeps, json: Record<string, unknown>, closeBase: (workspace: string) => Promise<Reply>, refresh?: () => Promise<unknown>): Promise<Reply> {
@@ -188,12 +194,12 @@ export async function stashBase(d: StashDeps, json: Record<string, unknown>, clo
 	// Without a name (the page's Stash) the base's label names it, made a free, valid name.
 	if (json.name !== undefined && !nameOk(json.name)) return no(400, "bad_request", `A stash name has at most ${MAX_NAME} characters, no slash, backslash, or control character, and does not start with a dot.`);
 	if (typeof json.name === "string" && existsSync(stashFile(d.stateDir, json.name))) return no(409, "exists", `Something is stashed as "${json.name}" already; pop it or pick another name.`);
-	const sv = await survey(d.run, json.workspace, await d.sessions());
+	const sv = await survey(d.run, json.workspace, await d.sessions(), true, d.service?.(json.workspace));
 	if (!sv) return no(404, "not_found", "That base is not open any more.");
 	const reasons = [...sv.reasons, ...(await askSessions(d, sv.agents, refresh))];
 	// Herdr's side once more, since the rounds took seconds: a shell job or a subagent started meanwhile refuses too. The sessions' own side is
 	// asked again by the close itself (`ifStashable`), so a turn started now refuses that session's quit and stops the batch.
-	if (!reasons.length) reasons.push(...((await survey(d.run, json.workspace, await d.sessions()))?.reasons ?? ["the base is not open any more"]));
+	if (!reasons.length) reasons.push(...((await survey(d.run, json.workspace, await d.sessions(), true, d.service?.(json.workspace)))?.reasons ?? ["the base is not open any more"]));
 	// The server's own session quits only with its workspace, unasked: when it sits in the base, it is asked once more now.
 	if (!reasons.length && d.me && (await d.sessions()).find((s) => s.id === d.me)?.herdrLocation?.workspace?.id === json.workspace) {
 		const r = await d.check(d.me);

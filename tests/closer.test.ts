@@ -73,3 +73,45 @@ test("one unit closes its own pane; a bad request is refused", async () => {
 	assert.equal((await s.close("tab", { workspace: "wA" })).status, 400);
 	assert.equal((await s.close("nope", {})).status, 404);
 });
+
+// The sb server's own tower (docs/specs/2026-10-26-sb-backend.md, The tower service) is an intercom identity standing in the base's tower pane, with no pi and no bridge: nothing can be asked to quit, and its close is the service's end.
+function service({ refuse = false } = {}) {
+	const ran: string[][] = [], asked: string[] = [], ended: string[] = [];
+	let live = [at("a", "wA:p1"), at("sb-tower-wa", "wA:p7"), at("gui", "wB:p1")];
+	const close = createCloser({
+		run: async (args) => (ran.push(args), args[0] === "pane" ? JSON.stringify({ result: { panes: PANES } }) : "{}"),
+		sleep: async () => {},
+		me: () => "gui",
+		sessions: async () => live,
+		ask: async (key) => (asked.push(key), key === "sb-tower-wa" ? undefined : ((live = live.filter((s) => s.id !== key)), { accepted: true })),
+		tower: { of: (key) => (key === "sb-tower-wa" ? "wA" : undefined), owns: (id) => id === "sb-tower-wa", has: () => false, end: async (workspace) => (ended.push(workspace), refuse ? { ok: false, error: "no such tower" } : { ok: true }) },
+	});
+	return { close, ran, asked, ended };
+}
+
+test("Quit tower on the server's tower ends its service and asks no bridge; a refusal is the server's words", async () => {
+	const s = service();
+	const r = await s.close("unit", { key: "sb-tower-wa" });
+	assert.deepEqual([r.status, r.body], [200, { closing: true }]);
+	assert.deepEqual([s.ended, s.asked], [["wA"], []]);
+	const refused = service({ refuse: true });
+	const no = await refused.close("unit", { key: "sb-tower-wa" });
+	assert.equal(no.status, 409);
+	assert.equal((no.body as { reason: string }).reason, "no such tower");
+	// Any other unit still quits through its own bridge.
+	const other = service();
+	assert.equal((await other.close("unit", { key: "a" })).status, 200);
+	assert.deepEqual([other.ended, other.asked], [[], ["a"]]);
+});
+
+test("closing a base or a squad whose tower is the server's asks only the agents with a bridge: the service identity stays out of the batch, and the workspace closes", async () => {
+	const base = service();
+	const r = await base.close("base", { workspace: "wA" });
+	assert.equal(r.status, 200, JSON.stringify(r.body));
+	assert.deepEqual(base.asked, ["a"]);
+	assert.deepEqual(base.ran.filter((a) => a[1] === "close"), [["workspace", "close", "wA"]]);
+	const squad = service();
+	assert.equal((await squad.close("tab", { workspace: "wA", tab: "wA:t7" })).status, 200);
+	assert.deepEqual(squad.asked, []);
+	assert.deepEqual(squad.ran.filter((a) => a[1] === "close"), [["tab", "close", "wA:t7"]]);
+});

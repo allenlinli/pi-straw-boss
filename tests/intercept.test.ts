@@ -127,6 +127,18 @@ test("an answer is checked: wrong digest, out of range, malformed, or without a 
 	assert.equal(await asked, "b");
 });
 
+test("a cancel that also carries selections is malformed: refused, and the dialog stays open", async () => {
+	const r = rig();
+	await r.start();
+	const asked = confirm(r), p = r.sent("pending").at(-1) as ReturnType<typeof pending>, dialog = r.dialogs.at(-1)!;
+	const before = r.sent("answer-result").length;
+	(r.events as { emit: (c: string, d: unknown) => void }).emit(`${UI_PREFIX}:answer`, { version: 1, id: p.id, answerId: ANSWER, digest: p.digest, cancel: true, selections: [0] });
+	assert.deepEqual(r.sent("answer-result").slice(before).map((x) => [(x as { accepted: boolean }).accepted, (x as { reason?: string }).reason]), [[false, "malformed"]]);
+	assert.equal(dialog.opts?.signal?.aborted, false, "the terminal dialog is still open");
+	dialog.settle(false);
+	assert.equal(await asked, false);
+});
+
 test("the caller's own signal still dismisses the dialog, and is told apart from the terminal's answer", async () => {
 	const r = rig(), caller = new AbortController();
 	await r.start();

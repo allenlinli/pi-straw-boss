@@ -91,7 +91,7 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 	};
 	const push = (final = false) => {
 		if (!target()) return;
-		const dialogs = final ? [] : open().filter((r) => !r.d.secret).map((r) => ({ ...r.d, ...(r.state !== "open" ? { busy: true as const } : {}) }));
+		const dialogs = final ? [] : open().filter((r) => !r.d.secret).map((r) => ({ ...r.d, ...(r.adapter.cancellable ? { cancellable: true as const } : {}), ...(r.state !== "open" ? { busy: true as const } : {}) }));
 		const closed = final ? [] : [...recs.values()].filter((r) => r.state === "closed").map((r) => ({ id: r.d.id, by: r.by!, ...(r.by === "remote" && r.answerId ? { answerId: r.answerId } : {}), ...(r.allow ? { allow: true as const } : {}) }));
 		const queue = final ? [] : queued.slice(0, MAX_QUEUED).map((q) => ({ ...q, text: clipQueued(q.text) }));
 		const mons = final ? [] : (monitors?.list() ?? []);

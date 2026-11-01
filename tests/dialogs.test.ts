@@ -597,3 +597,14 @@ test("RV6-F004: a hub that only tracks (no page listening) still notes a gate cl
 	yes(plain.h, "g1", "tc-1");
 	assert.equal(plain.notes.length, 0, "a hub that only served a page listens to nothing once it stopped");
 });
+
+test("F004: Cancel is offered only when the bridge says its owner takes one: a dialog from an older bridge (no cancellable flag) shows none", async () => {
+	const x = hub(), path = file([["c2", "edit"]]), ui = (extra: Partial<Dialog> = {}): Dialog => ({ owner: "pi-ui", id: "u1", toolCallId: "c2", digest: selectDigest(GATE), select: GATE, ...extra });
+	x.h.receive("S", x.list([ui()], { file: path }));
+	assert.equal((await read(x, path)).unit.pending?.answer?.cancel, undefined, "an older bridge sends no flag");
+	x.h.receive("S", x.list([ui({ cancellable: true })], { file: path }));
+	assert.equal((await read(x, path)).unit.pending?.answer?.cancel, true, "a bridge that advertises it");
+	const hand = file([["c1", "robot_hand"]]);
+	x.h.receive("S", x.list([dialog({ cancellable: true })], { file: hand }));
+	assert.equal((await read(x, hand)).unit.pending?.answer?.cancel, undefined, "a flag on an owner with no cancel path changes nothing");
+});

@@ -15,7 +15,7 @@ export interface Question { question: string; header?: string; multiple: boolean
 /** secret_drop's masked dialog: what it asks for and where the value goes. Never the value itself. */
 export interface Secret { label: string; instructions: string[]; url?: string; destination: string }
 /** An open dialog as the bridge relays it: a `select` (labelled choices), `questions` (a questionnaire), or a `secret`; `big` when too long to relay, `busy` while an answer is on its way. */
-export interface Dialog { owner: string; id: string; toolCallId?: string; digest: string; select?: Select; questions?: Question[]; secret?: Secret; big?: true; busy?: true }
+export interface Dialog { owner: string; id: string; toolCallId?: string; digest: string; select?: Select; questions?: Question[]; secret?: Secret; big?: true; busy?: true; cancellable?: true /* the bridge's own word that it takes a cancel; an older bridge sends none */ }
 /** What the page may answer, carried on a waiting unit's `pending`. */
 export interface Answerable { dialog: string; digest: string; select?: Select; questions?: Question[]; twin?: true; cancel?: true }
 /** One question's answer: chosen option indexes, own words, a note. */

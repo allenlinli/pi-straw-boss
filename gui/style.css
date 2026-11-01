@@ -277,6 +277,9 @@ body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /
 .connect-ring { width: 34px; height: 34px; box-sizing: border-box; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin 1.1s linear infinite; }
 .connect:is([data-state="offline"], [data-state="replaced"]) .connect-ring { animation: none; border-color: var(--err); }
 .connect-retry { min-height: 44px; padding-inline: 18px; }
+/* The way out of a page whose scripts never ran: a plain link, revealed after 10 s by a step (not motion), and removed by connect.ts once the page has booted. */
+.connect-reload { visibility: hidden; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-height: 44px; min-width: 44px; padding-inline: 18px; text-decoration: none; text-transform: none; letter-spacing: 0; white-space: normal; animation: connect-reveal 0s linear 10s forwards; }
+@keyframes connect-reveal { to { visibility: visible; } }
 [data-view="geek"] .connect-ring { border-style: dashed; } /* Geek draws one plain line all round, so its still sign for "working" is a dashed ring, and a solid one when it has stopped trying */
 [data-view="geek"] .connect:is([data-state="offline"], [data-state="replaced"]) .connect-ring { border-style: solid; }
 
@@ -932,7 +935,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.comms-in .ask-acts { position: sticky; bottom: -12px; margin: 0 -14px -12px; padding: 8px 14px 12px; background: color-mix(in srgb, var(--amber) 6%, var(--bg)); } /* Send answer stays in view while a long question scrolls */
 	.composer :is(.cmp-alt, .cmp-send) { min-height: 48px; } .composer .cmp-alt { min-width: 48px; } .composer .cmp-send { min-width: 64px; }
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .connect-reload { animation: connect-reveal 0s linear 10s forwards !important; } } /* the Reload link's delay is no motion, and without it the way out would stay hidden */
 
 /* Straw Link (src/link, gui/link.ts, gui/linkbar.ts): a teammate's bases beside ours, the Link notices under the header, and the team settings tile. Cards keep one border all round. */
 .base.ally { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 42%), linear-gradient(180deg, var(--surface-1), var(--surface-0)); }
@@ -1193,6 +1196,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 
 /* Forced colors (Windows High Contrast and the like): the system's colours replace ours, so shapes that were a colour's fill get an outline, and the QR and the terminal keep their own colours. */
 @media (forced-colors: active) {
+	.connect-reload { border: 1px solid LinkText; color: LinkText; }
 	.badge, .link i, .tog::before, .flag, .tl-mark::before { border: 1px solid CanvasText; }
 	.qr, .term-scroll { forced-color-adjust: none; }
 	/* A disabled control and a placeholder take the system's own grey; the map's dashed connectors (the wires between towers, an svg the system leaves in colour, and the tree's gradient lines) would run over the cards, and the indent says the same. */

@@ -8,7 +8,7 @@ import { SettingsRefused } from "./trust/settings.ts";
 // of the net in it (mains, members, and the base's tower) quits first, then the tab or the workspace closes with what is left in it (shells,
 // subagents). A session that refuses or does not answer stops the batch before anything closes, and so does one still running after EXIT_MS.
 // The session that runs the server is asked last of all, through nothing: closing its tab or base ends it with the rest.
-// The tower the sb server runs (a service) has no pi and no bridge: its Quit tower ends the service (towers.ts close: the tab goes, the base's mains become members), and a squad or base closes without asking its identity.
+// The tower the sb server runs (a service) has no pi and no bridge: its Quit tower ends the service (towers.ts close: the tab goes, the base's mains become members), and a squad or base closes without asking its identity or the pi of a run in its pane, and ends the service when its tab closes with them.
 //   POST /<token>/api/close/unit {key}                 that session quits and closes its pane
 //   POST /<token>/api/close/tab {workspace, tab}       every agent in the tab quits, then the tab closes
 //   POST /<token>/api/close/base {workspace}           every agent in the workspace quits, then the workspace closes
@@ -18,7 +18,7 @@ import { SettingsRefused } from "./trust/settings.ts";
 
 const EXIT_MS = 30_000, JOINED = new Set(["main", "member", "tower"]);
 /** `check` and `stateDir` are a stash's: without them this closer stashes nothing. */
-export interface CloserDeps { /** The sb server's own towers: `of` names the workspace whose service a unit key is the tower of, `owns` says an intercom id is a service's identity, `end` closes the tower as the boss (a service has no pi to ask). */ tower?: { of(key: string): string | undefined; owns(id: string): boolean; end(workspace: string): Promise<{ ok: boolean; error?: string }> }; run: HerdrRun; sleep: Sleep; me(): string; sessions(): Promise<Session[]>; ask(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; check?(key: string): Promise<{ reason?: string } | undefined>; stateDir?: string; pop?(name: string): Promise<{ workspace: string; label: string; sessions: number }> }
+export interface CloserDeps { /** The sb server's own towers: `of` names the workspace whose service a unit key is the tower of, `owns` says an intercom id is a service's identity, `has` that the service stands in the workspace (every session in its standing pane is then its own: the identity and the pi of a live, event, or hand run), `end` closes the tower as the boss (a service has no pi to ask). */ tower?: { of(key: string): string | undefined; owns(id: string): boolean; has(workspace: string): boolean; end(workspace: string): Promise<{ ok: boolean; error?: string }> }; run: HerdrRun; sleep: Sleep; me(): string; sessions(): Promise<Session[]>; ask(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; check?(key: string): Promise<{ reason?: string } | undefined>; stateDir?: string; pop?(name: string): Promise<{ workspace: string; label: string; sessions: number }> }
 const no = (status: number, error: string, reason: string): Reply => ({ status, body: { error, reason } });
 
 export function createCloser({ run, sleep, me, sessions, ask, check, stateDir, pop, tower }: CloserDeps) {
@@ -29,7 +29,9 @@ export function createCloser({ run, sleep, me, sessions, ask, check, stateDir, p
 	async function batch(workspace: string, tab?: string, ifStashable = false): Promise<Reply> {
 		const here = (await panes(run, workspace)).filter((p) => (!tab || p.tab_id === tab) && JOINED.has(p.tokens?.sb_role ?? ""));
 		if (!here.length && !(await panes(run, workspace)).some((p) => !tab || p.tab_id === tab)) return no(404, "not_found", tab ? "That squad is not open any more." : "That base is not open any more.");
-		const targets = (await sessions()).filter((s) => s.id !== me() && !tower?.owns(s.id) && here.some((p) => p.pane_id === s.herdrLocation?.paneId));
+		// A service stands in its pane with no bridge to ask, and the pi of one of its runs sits there too, under an id of its own: they end with the service, not by a quit.
+		const standing = new Set(tower?.has(workspace) ? here.filter((p) => p.tokens?.sb_role === "tower").map((p) => p.pane_id) : []);
+		const targets = (await sessions()).filter((s) => s.id !== me() && !tower?.owns(s.id) && !standing.has(s.herdrLocation?.paneId ?? "") && here.some((p) => p.pane_id === s.herdrLocation?.paneId));
 		const answers = await Promise.all(targets.map(async (s) => ({ s, r: await ask(s.id, true, ifStashable) })));
 		const stuck = answers.filter(({ r }) => !r?.accepted).map(({ s, r }) => `${name(s)}${r?.reason ? ` (${r.reason})` : " (no answer)"}`);
 		if (stuck.length) return no(409, "refused", `Nothing was closed: ${stuck.join(", ")} cannot be closed from here. Close them in their terminals first.`);
@@ -37,6 +39,10 @@ export function createCloser({ run, sleep, me, sessions, ask, check, stateDir, p
 		for (let waited = 0; waited < EXIT_MS && (await sessions()).some((s) => ids.has(s.id)); waited += 500) await sleep(500);
 		const left = (await sessions()).filter((s) => ids.has(s.id));
 		if (left.length) return no(504, "still_running", `${left.map(name).join(", ")} did not quit within ${EXIT_MS / 1000} s; the ${tab ? "squad" : "base"} stays open.`);
+		if (standing.size) {
+			const ended = await tower!.end(workspace).catch((e: Error) => ({ ok: false, error: e.message }));
+			if (!ended.ok) return no(409, "refused", ended.error ?? "The tower did not close.");
+		}
 		await run(tab ? ["tab", "close", tab] : ["workspace", "close", workspace]).catch(() => {}); // it may have closed itself with its last pane
 		return { status: 200, body: { closed: targets.length } };
 	}
@@ -71,7 +77,7 @@ export function createCloser({ run, sleep, me, sessions, ask, check, stateDir, p
 			busy = true;
 			try {
 				const quit = (workspace: string) => batch(workspace, undefined, true);
-				return await (kind === "all" ? closeAll({ run, sleep, sessions, check }, me(), quit, refresh, typeof json.by === "string" ? json.by : undefined, typeof json.workspace === "string" && json.workspace.length <= 200 ? json.workspace : undefined) : stashBase({ run, sleep, sessions, check, stateDir: stateDir!, me: me() }, json, quit, refresh));
+				return await (kind === "all" ? closeAll({ run, sleep, sessions, check, ...(tower ? { service: tower.has } : {}) }, me(), quit, refresh, typeof json.by === "string" ? json.by : undefined, typeof json.workspace === "string" && json.workspace.length <= 200 ? json.workspace : undefined) : stashBase({ run, sleep, sessions, check, ...(tower ? { service: tower.has } : {}), stateDir: stateDir!, me: me() }, json, quit, refresh));
 			} catch (error) {
 				return no(502, "stash_failed", (error as Error).message);
 			} finally {

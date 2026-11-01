@@ -5,7 +5,7 @@ import type { Data, Page } from "./chat.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
 import { docHooks } from "./doc.ts";
-import type { Source } from "./stream.ts";
+import { type Source, WATCHDOG_MS } from "./stream.ts";
 
 // The demo net for `npm run gui:dev`: invented names, state changes on a timer, and a stream that can be dropped to see the
 // disconnected page. It stands in for the server's EventSource, so the real reconnect logic runs against it.
@@ -68,6 +68,7 @@ function towerService(state: TowerState): { service?: TowerService; mark: Mark }
 	return { service, mark: !live ? "idle" : idle ? "idle" : "working" };
 }
 
+const HEAL_MS = 8000;
 export interface Control { drop(): void; silence(): void; restore(): void; doc(): void; tower(state?: string): void }
 
 export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control } {
@@ -136,8 +137,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	for (let i = 41; i > 0; i--) ((clock = Date.now() - i * 40_000), i === 41 ? (net = track(net)) : advance());
 	setInterval(() => ((clock = Date.now()), advance() && current?.send("message", net)), tick);
 	const control: Control = {
-		drop: () => ((dropped = true), current?.fail()),
-		silence: () => (silent = true),
+		// The overlay a drop or silence brings up is modal over this toolbar too, so the demo restores itself: a drop a few seconds on, a silence a few seconds after the watchdog has noticed it.
+		drop: () => ((dropped = true), current?.fail(), setTimeout(control.restore, HEAL_MS)),
+		silence: () => ((silent = true), setTimeout(control.restore, WATCHDOG_MS + HEAL_MS)),
 		restore: () => ((dropped = false), (silent = false), resume()),
 		// billing-main shows a new document: on its comms it opens as a tile without focus; elsewhere its token gets the scroll badge.
 		tower: (state) => {

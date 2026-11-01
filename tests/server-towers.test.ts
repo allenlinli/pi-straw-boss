@@ -354,6 +354,77 @@ test("Quit tower on the page (close/unit with the tower unit's key) ends the ser
 	await until(() => !readService(world.slot, "wA") && tokens().tower === undefined, "the service to end");
 });
 
+/** A base whose tower is the standing service; `run` puts the pi of one of its runs in the standing pane, idle, under an id of its own. */
+const standingService = async (run = false) => {
+	const s = await started();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	const at = located(String(reply.pane), String(reply.tab));
+	if (run) [world.herdr.pane(String(reply.pane)).agent, world.herdr.pane(String(reply.pane)).agent_status] = ["pi", "idle"];
+	world.sessions = [{ id: "sb-tower-wa", name: "tower · Alpha", herdrLocation: at }, ...(run ? [{ id: "run-pi-1", name: "tower · boss · Alpha", herdrLocation: at }] : [])];
+	return reply;
+};
+
+test("the page's base Quit (close/all) closes a base whose only agent is the standing service: the base closes and the service ends", async () => {
+	await standingService();
+	const done = await pagePost("close/all", { workspace: "wA" });
+	assert.equal(done.status, 200, JSON.stringify(done.body));
+	assert.deepEqual(world.herdr.commands("workspace", "close"), [["workspace", "close", "wA"]]);
+	await until(() => !readService(world.slot, "wA"), "the service to end");
+});
+
+test("a base Quit closes the base while a run's pi (a boss conversation, an event run, a hand run) sits in the standing pane: the service and its run end with it, nothing is asked of the unbound run id", async () => {
+	await standingService(true);
+	const done = await pagePost("close/all", { workspace: "wA" });
+	assert.equal(done.status, 200, JSON.stringify(done.body));
+	assert.deepEqual(world.herdr.commands("workspace", "close"), [["workspace", "close", "wA"]]);
+	await until(() => !readService(world.slot, "wA"), "the service to end");
+});
+
+test("a squad Quit (close/tab) of the tower's tab closes it, with a run's pi in the standing pane, and ends the service", async () => {
+	const reply = await standingService(true);
+	const done = await pagePost("close/tab", { workspace: "wA", tab: String(reply.tab) });
+	assert.equal(done.status, 200, JSON.stringify(done.body));
+	assert.ok(world.herdr.commands("tab", "close").some((c) => c[2] === String(reply.tab)));
+	await until(() => !readService(world.slot, "wA"), "the service to end");
+});
+
+test("a base Quit still refuses while the run's pi in the standing pane is working", async () => {
+	const reply = await standingService(true);
+	world.herdr.pane(String(reply.pane)).agent_status = "working";
+	const done = await pagePost("close/all", { workspace: "wA" });
+	assert.equal(done.status, 409);
+	assert.match(String(done.body.reason), /is working/);
+	assert.deepEqual(world.herdr.commands("workspace", "close"), []);
+	assert.ok(readService(world.slot, "wA"));
+});
+
+test("a stash of a base whose tower is the service refuses with the reason (its queue and conversation stay under the old workspace id, which a pop cannot bring back), and nothing closes", async () => {
+	await standingService();
+	const done = await pagePost("close/stash", { workspace: "wA" });
+	assert.equal(done.status, 409, JSON.stringify(done.body));
+	assert.match(String(done.body.reason), /sb server's service/);
+	assert.deepEqual(world.herdr.commands("workspace", "close"), []);
+	assert.ok(readService(world.slot, "wA"));
+	assert.equal(existsSync(join(world.slot.stateDir, "stash")) ? readdirSync(join(world.slot.stateDir, "stash")).length : 0, 0);
+});
+
+test("Quit tower on a resident tower while the service waits for it asks the resident's bridge and leaves the service and its tab alone", async () => {
+	world.herdr.addTab("wA:t7", TOWER_LABEL, "wA:p7", "pi");
+	world.herdr.workspace("wA").tokens.tower = "old-tower";
+	world.sessions = [{ id: "old-tower", name: "tower · Alpha", herdrLocation: located("wA:p7", "wA:t7") }];
+	writeService(world.slot, { workspace: "wA", label: "Alpha", id: "sb-tower-wa", name: "tower · Alpha", pane: "wA:p7", tab: "wA:t7", created: "x", seq: 0 });
+	await started();
+	await until(() => world.expose?.stateOf("wA") === "waiting", "the service to wait");
+	// The page has read the net once, so the key is known.
+	assert.equal((await pagePost("close/unit", { key: "nobody" })).status, 409);
+	const done = await pagePost("close/unit", { key: "old-tower" });
+	assert.equal(done.status, 409, "no bridge in the fake world: the resident's bridge was asked");
+	assert.match(String(done.body.reason), /did not answer/);
+	assert.deepEqual(world.herdr.commands("tab", "close"), [], "the resident's tab is not closed");
+	assert.equal(world.expose?.stateOf("wA"), "waiting");
+	assert.ok(readService(world.slot, "wA"));
+});
+
 test("the net the page reads shows a resident tower as itself while the service waits for it: its own session file (what the hub binds its bridge by), a control, and no service; the service shows once it is the tower", async () => {
 	const sessionDir = join(world.root, "pi-sessions");
 	mkdirSync(sessionDir, { recursive: true });

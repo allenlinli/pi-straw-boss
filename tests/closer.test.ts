@@ -84,7 +84,7 @@ function service({ refuse = false } = {}) {
 		me: () => "gui",
 		sessions: async () => live,
 		ask: async (key) => (asked.push(key), key === "sb-tower-wa" ? undefined : ((live = live.filter((s) => s.id !== key)), { accepted: true })),
-		tower: { of: (key) => (key === "sb-tower-wa" ? "wA" : undefined), owns: (id) => id === "sb-tower-wa", end: async (workspace) => (ended.push(workspace), refuse ? { ok: false, error: "no such tower" } : { ok: true }) },
+		tower: { of: (key) => (key === "sb-tower-wa" ? "wA" : undefined), owns: (id) => id === "sb-tower-wa", has: () => false, end: async (workspace) => (ended.push(workspace), refuse ? { ok: false, error: "no such tower" } : { ok: true }) },
 	});
 	return { close, ran, asked, ended };
 }

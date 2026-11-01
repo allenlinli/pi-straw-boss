@@ -63,7 +63,8 @@ export function mountConnect(retry: () => void, parts: Parts = pageParts()) {
 	});
 	for (const type of BLOCKED) {
 		win.addEventListener(type, (event) => {
-			if (!kind || dialog.contains(event.target as Node | null)) return;
+			// A sheet or dialog opened while the overlay is up sits above it as the top modal (only it takes hits), so it stays usable.
+			if (!kind || dialog.contains(event.target as Node | null) || (event.target as Element | null)?.closest?.("dialog:modal")) return;
 			event.stopPropagation();
 			if (ACTIVATING.has(type)) event.preventDefault(); // a clicked link would still navigate; keys keep their default, so Tab moves inside the overlay, and touches are passive
 		}, true);

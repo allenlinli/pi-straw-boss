@@ -113,6 +113,8 @@ export interface Towers {
 	/** A new Herdr server took over: finds the tower tabs again and writes the tokens. */
 	takeover(): Promise<void>;
 	status(): TowerRow[];
+	stateOf(workspace: string): TowerRow["state"] | undefined; // `waiting` while a resident tower holds the workspace (the page shows that tower, not the service); none when the server stands in for no tower there
+	owns(id: string): boolean; // the session id is the identity of one of the services: it has no pi and no bridge, so it is ended, not asked to quit
 	/** The runs of the services (runs.ts): claims, the run's requests, the boss's events. */
 	runs: Runs;
 	/** The tower prompt in a standing pane (standing.ts): its poll, Ctrl+D, and exit. */
@@ -991,6 +993,8 @@ export function createTowers(o: TowersOptions): Towers {
 				await runs.takeoverEnd();
 			}
 		},
+		stateOf: (workspace) => services.get(workspace)?.state,
+		owns: (id) => [...services.values()].some((l) => l.record.id === id),
 		status: () => [...services.values()].map((l) => ({ workspace: l.record.workspace, label: l.record.label, id: l.record.id, state: l.state, queue: queueLength(slot, l.record.workspace), ...(runs.status(l.record.workspace) ? { service: runs.status(l.record.workspace)! } : {}) })),
 		runs,
 		async prompt(cmd, workspace, pid) {

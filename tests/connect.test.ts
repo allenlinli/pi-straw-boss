@@ -27,6 +27,8 @@ class Part extends Target {
 	dataset: Record<string, string> = {};
 	parent: Part | undefined;
 	contains = (other: unknown): boolean => other === this || (other instanceof Part && other.parent !== undefined && this.contains(other.parent));
+	topModal = false; // a modal <dialog> of the page (a sheet), which `closest("dialog:modal")` finds from itself and from what is inside it
+	closest = (selector: string): Part | undefined => (selector === "dialog:modal" && this.topModal ? this : this.parent?.closest(selector));
 }
 class Dialog extends Part {
 	open = false;
@@ -190,4 +192,26 @@ test("the overlay's ring rests with calm and in Geek, the page has a still sign 
 	assert.match(css, /\.connect-ring \{[^}]*animation: spin [\d.]+s linear infinite/);
 	assert.match(css, /\.connect-ring \{[^}]*border-top-color: var\(--accent\)/, "a ring with a bright arc is a sign that reads without motion");
 	assert.match(css, /\.connect\[open\] \{[^}]*position: fixed[^}]*inset: 0|\.connect \{[^}]*position: fixed[^}]*inset: 0/);
+});
+
+test("a sheet that opens above the overlay stays usable: its own buttons are reached, the page below still is not", () => {
+	const p = page();
+	const sheet = new Part(), close = new Part();
+	[sheet.topModal, close.parent] = [true, sheet];
+	p.status(of("reconnecting", 1));
+	// The sheet's own handlers run at its button, below the window's capture phase.
+	let closed = 0;
+	close.addEventListener("click", () => closed++);
+	const hit = (type: string, target: Part) => {
+		const event: FakeEvent = { type, target, stopped: false, defaultPrevented: false, stopPropagation() { this.stopped = true; }, preventDefault() { this.defaultPrevented = true; } };
+		p.win.run(event, true);
+		if (!event.stopped) target.run(event, false);
+		return event;
+	};
+	hit("click", close);
+	assert.equal(closed, 1, "Close on a sheet opened over the overlay runs");
+	assert.equal(hit("click", p.app).stopped, true, "the page behind both is still out of reach");
+	p.status(of("live"));
+	hit("click", close);
+	assert.equal(closed, 2);
 });

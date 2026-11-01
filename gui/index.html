@@ -53,6 +53,8 @@
     <!-- A phone: Dismiss finished and Stashed, which sit under the header above 640 px, wait behind this button (style.css, "A phone's menus"). -->
     <button class="pair-btn menu-btn bar-more" id="bar-more" type="button" popovertarget="bar-pop" aria-haspopup="true" aria-label="More" title="More" data-m-label="menu_more" data-m-title="menu_more" hidden>⋯</button>
     <a class="pair-btn prefs-btn" id="prefs" href="settings" data-route="settings" aria-label="Settings" data-m-label="settings" data-m-title="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></a>
+    <!-- Back into Zen after Esc or the corner control left it (main.ts; Z3): shown only while `data-zen-away` is on <html>. -->
+    <button class="pair-btn zen-back" id="zen-back" type="button" hidden data-m="zen_back" data-m-title="zen_back_title">Zen</button>
     <div class="link" id="link" data-state="connecting"><i></i><span id="link-text">connecting</span></div>
   </header>
   <div class="banner" id="banner" role="status" hidden></div>
@@ -94,6 +96,7 @@
             <button class="pair-btn" type="button" data-choice="auto" aria-pressed="true" data-m="view_auto">Auto</button>
             <button class="pair-btn" type="button" data-choice="standard" aria-pressed="false" data-m="view_standard">Standard</button>
             <button class="pair-btn" type="button" data-choice="geek" aria-pressed="false" data-m="view_geek">Geek</button>
+            <button class="pair-btn" type="button" data-choice="zen" aria-pressed="false" data-m="view_zen">Zen</button>
           </div></div>
           <div class="set-row"><span id="remind-label" data-m="remind">Remind</span><button class="pair-btn tog" id="remind" type="button" aria-pressed="true" aria-labelledby="remind-label"></button></div>
           <p class="set-note" id="remind-note" role="status"></p>

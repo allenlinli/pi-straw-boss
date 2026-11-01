@@ -26,9 +26,15 @@ import type { mountFocus } from "./views.ts";
 const view = mountView();
 startI18n();
 mountMenus();
-mountPick(document.getElementById("view-pick")!, view, (server) => (server === "auto" ? m.view_auto() : m.view_follow({ view: server === "geek" ? m.view_geek() : m.view_standard() })));
+mountPick(document.getElementById("view-pick")!, view, (server) => (server === "auto" ? m.view_auto() : m.view_follow({ view: server === "geek" ? m.view_geek() : server === "zen" ? m.view_zen() : m.view_standard() })));
 const page = mountPage(), timeline = mountTimeline(document.getElementById("timeline") as HTMLDetailsElement);
 const el = (id: string) => document.getElementById(id)!;
+// Away from Zen (data-zen-away on <html>, set by the Zen layer): the header's Zen button returns to it. It stays hidden unless the device's resolved view is Zen.
+const zenBack = el("zen-back");
+const syncZenBack = () => (zenBack.hidden = view.view() !== "zen" || document.documentElement.dataset.zenAway === undefined);
+view.onChange(syncZenBack);
+zenBack.addEventListener("click", () => (delete document.documentElement.dataset.zenAway, view.reread(), syncZenBack()));
+syncZenBack();
 const time = (at?: number) => (at ? new Date(at).toLocaleTimeString([], { hour12: false }) : m.never());
 
 let shown: Net | undefined, latest: Net | undefined, pending: Net | undefined, status: Status = { state: "connecting", attempt: 0 };

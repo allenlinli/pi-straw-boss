@@ -88,6 +88,7 @@ svg { display: block; }
 .tog[data-state="done"] { color: var(--text); } .tog[data-state="done"]::before { background: var(--ok); box-shadow: 0 0 6px var(--ok); } .tog[data-state="error"] { color: color-mix(in srgb, var(--err-soft) 45%, var(--hi)); } .tog[data-state="error"]::before { background: var(--err); box-shadow: 0 0 6px var(--err); }
 .alert-row { display: flex; align-items: center; gap: 10px; min-width: 0; } .done-btn { flex: none; white-space: nowrap; }
 .prefs-btn { margin-left: auto; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; text-decoration: none; } .prefs-btn svg { width: 18px; height: 18px; fill: currentColor; }
+.zen-back { display: none; } html[data-zen-away][data-view="standard"] .zen-back:not([hidden]) { display: inline-block; } /* the header's way back into Zen: only while this page is away from it (main.ts) */
 .prefs-btn:hover, .prefs-btn[aria-current] { color: var(--text); }
 body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /* a reminder the browser blocks shows on the gear too */
 /* The header's popovers (the sound panel, the finished list) hang under their button; hang() in render.ts places them. */

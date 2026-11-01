@@ -66,7 +66,7 @@ export function createHost({ pi, cfg, s, guiDir, tell }: Kit, { connected, ask }
 			const found = r.ok ? record() : undefined;
 			return found ? { record: found } : { error: r.error ?? "the server wrote no gui.json" };
 		},
-		/** `mode` is "", "stop", "rotate", "remote", "remote off", "lan", "lan off", "lan reset", "view", or "view <auto|standard|geek>", and works from any session: the GUI and the access over a network are the server's. */
+		/** `mode` is "", "stop", "rotate", "remote", "remote off", "lan", "lan off", "lan reset", "view", or "view <auto|standard|geek|zen>", and works from any session: the GUI and the access over a network are the server's. */
 		async command(mode: string) {
 			const send = (request: Record<string, unknown>, start: "boss" | "never"): Promise<LanReply> => asking()(request, { start }).catch((error: Error) => ({ ok: false as const, error: error.message }));
 			if (/^view\b/.test(mode)) {

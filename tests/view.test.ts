@@ -6,12 +6,13 @@ import { autoView, choiceOf, KEY, mountPick, mountView, resolve, THEME, type Vie
 // The page's view (gui/view.ts): Auto, Standard, or Geek from the device's storage and the OS's contrast preference, set on <html> before the first render.
 
 test("the stored choice and prefers-contrast resolve to a view: an explicit choice wins, anything else is Auto", () => {
-	const table: [string | null, boolean, "standard" | "geek"][] = [
+	const table: [string | null, boolean, "standard" | "geek" | "zen"][] = [
 		[null, false, "standard"], [null, true, "geek"],
 		["auto", false, "standard"], ["auto", true, "geek"],
 		["standard", false, "standard"], ["standard", true, "standard"],
 		["geek", false, "geek"], ["geek", true, "geek"],
 		["", false, "standard"], ["", true, "geek"],
+		["zen", false, "zen"], ["zen", true, "zen"], ["ZEN", false, "standard"],
 		["GEEK", false, "standard"], ["dark", true, "geek"], ["1", false, "standard"], ["{}", true, "geek"], ["undefined", false, "standard"],
 	];
 	for (const [stored, contrast, expected] of table) assert.equal(resolve(choiceOf(stored), contrast), expected, `${JSON.stringify(stored)} with prefers-contrast ${contrast ? "more" : "no-preference"}`);
@@ -96,11 +97,11 @@ test("an invalid stored value is Auto and is left as it is until the person choo
 	assert.deepEqual(w.written, []);
 });
 
-test("the settings' control is three words (Auto, Standard, Geek) in a group, one of them pressed, each a pair-btn so a phone gives it 44 px", () => {
+test("the settings' control is four words (Auto, Standard, Geek, Zen) in a group, one of them pressed, each a pair-btn so a phone gives it 44 px", () => {
 	const html = readFileSync(new URL("../gui/index.html", import.meta.url), "utf8");
 	const group = /<div class="view-pick" id="view-pick"[^>]*>([\s\S]*?)<\/div><\/div>/.exec(html)?.[1] ?? "";
 	const buttons = [...group.matchAll(/<button class="pair-btn" type="button" data-choice="(\w+)" aria-pressed="(\w+)" data-m="(\w+)">/g)].map((x) => x.slice(1));
-	assert.deepEqual(buttons, [["auto", "true", "view_auto"], ["standard", "false", "view_standard"], ["geek", "false", "view_geek"]]);
+	assert.deepEqual(buttons, [["auto", "true", "view_auto"], ["standard", "false", "view_standard"], ["geek", "false", "view_geek"], ["zen", "false", "view_zen"]]);
 	assert.match(html, /role="group" aria-labelledby="view-label"/);
 });
 
@@ -217,4 +218,45 @@ test("main.ts feeds the server's default from the page's meta, each hello, and t
 	assert.match(main, /\.setServer\(/);
 	const html = readFileSync(new URL("../gui/index.html", import.meta.url), "utf8");
 	assert.ok(!html.includes('name="sb-view"'));
+});
+
+test("zen is a view: a device's choice, a server default that wins over prefers-contrast, never picked by Auto alone; the theme color is the ink ground, and Standard's comes back", () => {
+	assert.equal(THEME.zen, "#14110e");
+	for (const contrast of [false, true]) {
+		assert.equal(resolve("auto", contrast, "zen"), "zen", `a server default of zen wins (contrast ${contrast})`);
+		assert.equal(resolve("zen", contrast, "standard"), "zen");
+		assert.equal(resolve("geek", contrast, "zen"), "geek", "a device's own choice wins over the server");
+		assert.notEqual(resolve("auto", contrast), "zen", "Auto with no default never resolves to Zen");
+	}
+	const w = world(null, true, { server: "zen" });
+	const view = mountView(w.env);
+	assert.deepEqual([view.choice(), view.view(), w.env.root.dataset.view, w.env.meta?.content], ["auto", "zen", "zen", THEME.zen]);
+	view.set("standard");
+	assert.equal(w.env.meta?.content, "#1a1b26", "the page's own color is back in Standard");
+	view.set("zen");
+	assert.deepEqual([w.env.root.dataset.view, w.env.meta?.content, w.written.at(-1)], ["zen", THEME.zen, `${KEY}=zen`]);
+	const older = world("zen", false);
+	older.env.server = { content: "zen" };
+	assert.equal(mountView(older.env).server(), "zen");
+});
+
+test("the Auto button reads Follow server (Zen) when the server's default is zen, and the Zen button is a choice of its own", () => {
+	const g = globalThis as Record<string, unknown>, saved = g.addEventListener;
+	g.addEventListener = () => {};
+	try {
+		const w = world(null, false, { server: "zen" });
+		const view = mountView(w.env);
+		const make = (choice: string) => {
+			const attrs: Record<string, string> = {};
+			return { dataset: { choice }, attrs, textContent: "", setAttribute: (k: string, v: string) => (attrs[k] = v), addEventListener: () => {} };
+		};
+		const buttons = ["auto", "standard", "geek", "zen"].map(make);
+		const names: Record<string, string> = { zen: "Zen", geek: "Geek", standard: "Standard" };
+		mountPick({ querySelectorAll: () => buttons, toggleAttribute: () => {}, dataset: {} } as unknown as HTMLElement, view, (server) => (server === "auto" ? "Auto" : `Follow server (${names[server]})`));
+		assert.equal(buttons[0]!.textContent, "Follow server (Zen)");
+		assert.deepEqual(buttons.map((b) => b.attrs["aria-pressed"]), ["true", "false", "false", "false"]);
+	} finally {
+		if (saved === undefined) delete g.addEventListener;
+		else g.addEventListener = saved;
+	}
 });

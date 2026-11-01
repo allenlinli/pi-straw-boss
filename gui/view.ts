@@ -1,18 +1,18 @@
-// The page's view: Standard (the Tokyo Night palette with its motion) or Geek (black, monospace, AAA contrast, nothing moves; style.css `[data-view="geek"]`).
-// The choice is the device's: Auto, Standard, or Geek in localStorage `sb.view`. An explicit Standard or Geek wins; Auto (also a missing or invalid value)
-// follows the server's default when the boss set one (`/boss gui view`: Standard or Geek), else the OS, Geek when it asks for more contrast (prefers-contrast: more).
+// The page's view: Standard (the Tokyo Night palette with its motion), Geek (black, monospace, AAA contrast, nothing moves; style.css `[data-view="geek"]`), or Zen (ink; one waiting item at a time, docs/specs/2026-11-01-zen-view.md; until its layer lands a Zen page shows Standard's page).
+// The choice is the device's: Auto, Standard, Geek, or Zen in localStorage `sb.view`. An explicit Standard or Geek wins; Auto (also a missing or invalid value)
+// follows the server's default when the boss set one (`/boss gui view`: Standard, Geek, or Zen), else the OS, Geek when it asks for more contrast (prefers-contrast: more).
 // The server's default is not the device's to write: it comes in the page's `<meta name="sb-view">` (read here before the first paint, so a following page shows it with
 // no flash), in each stream's `hello`, and in a `view` event (main.ts hands them to `setServer`), and is never stored on the device. `data-view` goes on <html> as the first
 // thing main.ts does, before any render, and the browser's theme-color follows it, so an installed app's bar matches.
 
-export type Choice = "auto" | "standard" | "geek";
-export type View = "standard" | "geek";
+export type Choice = "auto" | "standard" | "geek" | "zen";
+export type View = "standard" | "geek" | "zen";
 export const KEY = "sb.view";
-/** The theme-color of the Geek view; Standard keeps the color the page came with (index.html). */
-export const THEME = { geek: "#000000" } as const;
+/** The theme-color of the Geek and Zen views (Zen: the ink ground); Standard keeps the color the page came with (index.html). */
+export const THEME = { geek: "#000000", zen: "#14110e" } as const;
 
-/** The stored value as a choice: only the two views are choices of their own, anything else (missing, invalid) is Auto. */
-export const choiceOf = (stored: string | null | undefined): Choice => (stored === "standard" || stored === "geek" ? stored : "auto");
+/** The stored value as a choice: only the three views are choices of their own, anything else (missing, invalid) is Auto. */
+export const choiceOf = (stored: string | null | undefined): Choice => (stored === "standard" || stored === "geek" || stored === "zen" ? stored : "auto");
 /** What Auto means now: the server's default when it names a view, else what the screen asks for. */
 export const autoView = (contrast: boolean, server: Choice = "auto"): View => (server === "auto" ? (contrast ? "geek" : "standard") : server);
 export const resolve = (choice: Choice, contrast: boolean, server: Choice = "auto"): View => (choice === "auto" ? autoView(contrast, server) : choice);
@@ -52,7 +52,7 @@ export function mountView(env: ViewEnv = domEnv()) {
 	function apply() {
 		const view = resolve(choice, env.media.matches, server);
 		env.root.dataset.view = view;
-		if (env.meta) env.meta.content = view === "geek" ? THEME.geek : standard;
+		if (env.meta) env.meta.content = view === "standard" ? standard : THEME[view];
 		if (shown !== undefined && shown !== view) for (const fn of listeners) fn(view);
 		shown = view;
 	}
@@ -91,7 +91,7 @@ export function mountView(env: ViewEnv = domEnv()) {
 }
 export type PageView = ReturnType<typeof mountView>;
 
-/** The settings' three-way control: buttons `[data-choice]` in `group`, the chosen one `aria-pressed`. `label` words the Auto button for the server's default (Follow server (geek)); without one it keeps its text. */
+/** The settings' four-way control: buttons `[data-choice]` in `group`, the chosen one `aria-pressed`. `label` words the Auto button for the server's default (Follow server (geek)); without one it keeps its text. */
 export function mountPick(group: HTMLElement, view: PageView, label?: (server: Choice) => string) {
 	const buttons = [...group.querySelectorAll<HTMLButtonElement>("button[data-choice]")];
 	const auto = buttons.find((b) => b.dataset.choice === "auto");

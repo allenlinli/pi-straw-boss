@@ -6,7 +6,7 @@ import { readOwnedText, writeJson } from "./record.ts";
 
 export const PREFS_FILE = "gui-prefs.json";
 /** What the default can be: `auto` leaves each device to its own screen's contrast preference. */
-export const VIEWS = ["auto", "standard", "geek"] as const;
+export const VIEWS = ["auto", "standard", "geek", "zen"] as const;
 export type ServerView = (typeof VIEWS)[number];
 export const isView = (value: unknown): value is ServerView => typeof value === "string" && (VIEWS as readonly string[]).includes(value);
 

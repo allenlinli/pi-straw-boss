@@ -118,7 +118,7 @@ test("an unknown value is refused and changes nothing", async () => {
 	for (const view of ["sparkly", "GEEK", "", 1, null, ["geek"], { view: "geek" }]) {
 		const reply = await h.ask("gui-view", { view });
 		assert.equal(reply.ok, false, JSON.stringify(view));
-		assert.match(String(reply.error), /auto, standard, or geek/);
+		assert.match(String(reply.error), /auto, standard, geek, or zen/);
 	}
 	assert.deepEqual(JSON.parse(readFileSync(prefs(h), "utf8")), { v: 1, view: "geek" });
 	assert.equal(metaOf(await pageOf(h)), "geek");
@@ -200,7 +200,7 @@ test("/boss gui view <auto|standard|geek> in a pi session sets the server's defa
 	assert.match(viewer.notices.at(-1)!.text, /now Standard/);
 	await viewer.command("gui view sparkly");
 	assert.equal(viewer.notices.at(-1)!.level, "error");
-	assert.match(viewer.notices.at(-1)!.text, /auto, standard, or geek/);
+	assert.match(viewer.notices.at(-1)!.text, /auto, standard, geek, or zen/);
 	assert.equal(metaOf(await pageOf(h)), "standard", "a wrong value changed nothing");
 	await viewer.command("gui view auto");
 	assert.equal(metaOf(await pageOf(h)), "auto");
@@ -219,7 +219,7 @@ test("the docs name the command, the store, the meta, the event, and gui.json's 
 	for (const word of ["/boss gui view", "gui-prefs.json", '<meta name="sb-view"', "`view` event", "`gui-view`", "Follow server"]) assert.ok(doc.includes(word), word);
 	const contract = doc.split("\n").find((l) => l.startsWith("- **`gui.json` is a contract.**")) ?? "";
 	assert.match(contract, /`owner`, and `view`/);
-	assert.match(contract, /`view` \(optional, `standard` or `geek`, absent when the boss has set no default\)/);
+	assert.match(contract, /`view` \(optional, `standard`, `geek`, or `zen`, absent when the boss has set no default\)/);
 	for (const f of ["README.md", "README.zh-TW.md"]) assert.ok(read(f).includes("`/boss gui view`"), f);
 });
 
@@ -241,4 +241,31 @@ test("a stopped GUI's gui.json carries this server's view, not the one an older 
 	await h.ask("gui", { boss: true });
 	await h.ask("gui-stop");
 	assert.equal(h.gui().view, "geek", "a record without the field gets the server's");
+});
+
+test("zen is stored, served in the meta, told in hello and as a view event, and written into gui.json; zen2 is refused with the new text", async () => {
+	const h = await startHosted(world);
+	const s = stream(h);
+	await until(() => helloOf(s.heard).length > 0, "the stream's hello");
+	assert.deepEqual(await h.ask("gui-view", { view: "zen" }), { ok: true, view: "zen", changed: true });
+	await until(() => s.heard.some(([e]) => e === "view"), "a view event");
+	assert.deepEqual(JSON.parse(readFileSync(prefs(h), "utf8")), { v: 1, view: "zen" });
+	assert.equal(metaOf(await pageOf(h)), "zen");
+	assert.equal(h.gui().view, "zen");
+	assert.equal(h.gui().view, "zen", "gui.json carries it for a shell");
+	assert.deepEqual(s.heard.filter(([e]) => e === "view").map(([, d]) => JSON.parse(d)), ["zen"]);
+	const reply = await h.ask("gui-view", { view: "zen2" });
+	assert.equal(reply.ok, false);
+	assert.equal(reply.error, "The default view is auto, standard, geek, or zen");
+	assert.equal(metaOf(await pageOf(h)), "zen", "the refusal changed nothing");
+});
+
+test("/boss gui view zen in a pi session sets the default and says Zen", async () => {
+	const h = await startHosted(world);
+	const viewer = world.agent({ id: "viewer", pane: "wA:p1", tab: "wA:t1", deps });
+	await viewer.start();
+	await viewer.command("gui view zen");
+	assert.match(viewer.notices.at(-1)!.text, /default view is now Zen/);
+	assert.notEqual(viewer.notices.at(-1)!.level, "error");
+	assert.equal(metaOf(await pageOf(h)), "zen");
 });

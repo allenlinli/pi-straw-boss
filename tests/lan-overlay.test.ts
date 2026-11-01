@@ -56,7 +56,7 @@ test("with a mark on the pane, a paired device's composer text, Enter, and follo
 });
 
 test("a paired device's composer cannot run the boss's pairing, remote, Wi-Fi, or server commands; this computer's page can", async () => {
-	for (const text of ["/boss gui devices", "/boss gui unpair abc123", "/boss gui unpair all", "/boss gui rotate", "/boss gui stop", "/boss gui remote", "/boss gui remote off", "/boss gui lan reset", "/boss server stop", "/boss server logs 20", "  /boss  server", "/boss gui view geek", "/boss gui view auto", "/boss link decide ab12 approve", "/boss  link  decide ab12 refuse"]) {
+	for (const text of ["/boss gui devices", "/boss gui unpair abc123", "/boss gui unpair all", "/boss gui rotate", "/boss gui stop", "/boss gui remote", "/boss gui remote off", "/boss gui lan reset", "/boss server stop", "/boss server logs 20", "  /boss  server", "/boss gui view geek", "/boss gui view zen", "/boss gui view auto", "/boss link decide ab12 approve", "/boss  link  decide ab12 refuse"]) {
 		const w = world();
 		assert.deepEqual(refused(await w.post("input", { text, as: "send" })), [403, "local_only"], text);
 		assert.deepEqual(w.written(), [], `${text}: nothing reached Herdr`);
@@ -85,7 +85,7 @@ test("a paired device's composer cannot hide a gated /boss command in the first 
 test("a new session's first message from a paired device cannot be a gated /boss command; this computer's page and ordinary prompts pass", async () => {
 	const opened: Record<string, unknown>[] = [];
 	const spawn: ControlDeps["spawn"] = async (_p, json) => (opened.push(json), { status: 200, body: { ok: true } });
-	for (const kind of ["main", "member", "base"]) for (const prompt of ["/boss gui devices", "/boss server stop", "\n /boss gui view geek", "/boss link decide ab12 approve", "/boss open main ~/y /boss server stop"]) {
+	for (const kind of ["main", "member", "base"]) for (const prompt of ["/boss gui devices", "/boss server stop", "\n /boss gui view geek", "\n /boss gui view zen", "/boss link decide ab12 approve", "/boss open main ~/y /boss server stop"]) {
 		assert.deepEqual(refused(await world({ spawn }).open(kind, { prompt, dir: "/x" })), [403, "local_only"], `${kind} ${prompt}`);
 	}
 	assert.deepEqual(opened, [], "nothing was opened");

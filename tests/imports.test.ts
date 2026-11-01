@@ -608,7 +608,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Settings page (step 5) to 2442: gui/settings.ts (69: the Phone, Teams, and Server sections filled when opened and dropped when closed) is new, router.ts takes the settings route (+14 with NetRoute and netOf), main.ts opens and leaves the page and moves the panels' opening out of the header (+9 net), notify.ts loses its sound popover (-8), and the rest is the narrower route type.
 	// GUI acceptance fixes to 2447: ask.ts marks a card that scrolls (the cue, +12), desk.ts exports the settings page's allowed sections (+2), towerconv.ts keeps an open `⋯` menu across a redraw (+5), menu.ts and main.ts give a few back.
 	// The connection overlay to 2531: gui/connect.ts (81: the modal overlay over an inert page while the stream has no live state, with its keys and clicks stopped) is new, and main.ts, stream.ts, and i18n.ts name it.
-	assert.ok(page <= 2531, `the page's TypeScript has ${page} lines`);
+	// The value zen (Zen step Z1) to 2539: view.ts takes the third view (the type, THEME.zen, the choice), main.ts the header's Zen button and its away sync, and i18n.ts names three messages.
+	assert.ok(page <= 2539, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -698,7 +699,7 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The server's default view (Geek step 3) to 77,400 bytes / 26.9 KB gzipped: view.ts's server default (the meta, `setServer`, the Auto button's label) and main.ts's hello and `view` event handling, with the Follow server message in both languages.
 	// Phone layout (step 4) to 80,200 bytes / 27.9 KB gzipped: gui/menu.ts (the `⋯` button, its panel's placement, focus, and keys; the fold of the base's and squad's Quit into it), the HUD's `⋯` for Dismiss finished and Stashed (main.ts), and four more messages in both languages (the map chunk carries every message).
 	// The connection overlay to 81,500 bytes / 28.4 KB gzipped: connect.ts (the modal overlay, its stopped clicks and keys) and its three messages in both languages (the map chunk carries every message).
-	assert.ok(size(entry).length <= 81_500 && gz(entry) <= 28_400, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
+	assert.ok(size(entry).length <= 82_200 && gz(entry) <= 28_700, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -852,5 +853,5 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// GUI acceptance fixes to 100,900 bytes / 21.65 KB gzipped: Dismiss on its own row, the question card's scroll cue, the 360 px block (two-line conversation bar, one-row composer, Geek brand), the drawer's tint and chevron, Geek's disabled controls and tick ring, and the forced-colors rules.
 	// Cancel (fix/ask-cancel) to 101,200 bytes: `.ask-cancel` and its place in the touch and press rules.
 	// The connection overlay to 102,200 bytes / 21.9 KB gzipped: `.connect` (the modal overlay over the page, its card, ring, and Try again) and the ring's rest in calm and Geek.
-	assert.ok(total(css, (n) => size(n).length) <= 102_200 && total(css, gz) <= 21_900, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	assert.ok(total(css, (n) => size(n).length) <= 102_400 && total(css, gz) <= 21_900, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

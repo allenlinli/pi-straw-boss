@@ -6,15 +6,17 @@
 
 **[直接在瀏覽器試用](https://wayne930242.github.io/pi-straw-boss/)**：這是用假資料跑的展示頁，不用安裝任何東西。
 
-![瀏覽器裡的稻草網：各座基地的塔台、智慧體、子智慧體和前哨，狀態即時更新，頂端有警示和通知](docs/straw-net-gui.png)
+![標準檢視下瀏覽器裡的稻草網：各座基地的塔台、智慧體和子智慧體，狀態即時更新，頂端有各項計數和等待中的單位](docs/straw-net-gui.png)
 
 <p align="center"><sub><code>/boss gui</code>：在瀏覽器即時看整張網的每個工作區。<a href="docs/straw-net-gui.gif">看它動起來</a>。</sub></p>
 
-<p align="center"><img src="docs/gui-comms.png" width="49%" alt="單位的通訊畫面：即時的對話紀錄、排隊等下一輪的訊息、待辦清單、背景 Monitor，以及附有文件和已派出子智慧體的單位檔案"> <img src="docs/gui-alert.png" width="49%" alt="警示對話框裡是單位正在等的問題，可以直接在瀏覽器回答；旁邊是頂端「完成」按鈕打開的已完成清單"></p>
+<p align="center"><img src="docs/gui-comms.png" width="49%" alt="單位的通訊畫面：即時的對話紀錄、排隊等下一輪的訊息、待辦清單、背景 Monitor，以及附有文件和已派出子智慧體的單位檔案"> <img src="docs/gui-alert.png" width="49%" alt="警示對話框裡是單位正在等的問題，可以直接在瀏覽器回答，有選項可選、可以加註"></p>
 
-<p align="center"><img src="docs/gui-phone-map.png" width="220" alt="手機上的地圖"> <img src="docs/gui-phone-comms.png" width="220" alt="手機上的單位通訊畫面"></p>
+<p align="center"><img src="docs/gui-geek.png" width="49%" alt="極客檢視的地圖：黑底、等寬字、高對比，每個單位的狀態以 [WORK]、[WAIT?]、[ERR!] 這類標籤標示"> <img src="docs/gui-settings.png" width="49%" alt="設定頁：這個裝置的檢視（自動、標準或極客）、提醒、音效與音量、語言，下方是手機與裝置、團隊、伺服器各區"></p>
 
-<p align="center"><sub>單位的通訊畫面、可以直接在瀏覽器回答的問題，以及同一個頁面在手機上的樣子。</sub></p>
+<p align="center"><img src="docs/gui-phone-map.png" width="220" alt="手機上的地圖：頂端、每座基地和每個分頁各有一個 ⋯ 選單，已完成的子智慧體有「Dismiss」按鈕"> <img src="docs/gui-phone-comms.png" width="220" alt="手機上的單位通訊畫面：對話紀錄佔滿畫面，排隊訊息、待辦和 Monitor 收合在輸入框上方，單位檔案在「Info」後面"></p>
+
+<p align="center"><sub>單位的通訊畫面、可以直接在瀏覽器回答的問題、極客檢視、每個裝置自選檢視的設定頁，以及同一個頁面在手機上的樣子。</sub></p>
 
 ![裝了 pi-straw-boss 的 Herdr：側邊欄的網路檢視列出每個工作區、塔台、主智慧體和子智慧體，旁邊是一個正在工作的主智慧體](docs/herdr-window.png)
 
@@ -109,7 +111,7 @@ pi install npm:pi-straw-boss
 | `/boss gui`、`/boss gui stop`、`/boss gui rotate` | 在瀏覽器開啟網（任何 session 都能開，不會加入任何東西）；停止它的伺服器，在哪個 session 都可以。整台機器只跑一個伺服器，網址會保留（見下）：開它的 session `/reload` 之後會重開（網址不變）；跑它的 session 結束時（關掉 pane、離開 pi、當機），另一個還開著的 session 會在幾秒內重開它（網址不變）（塔台優先；pi-straw-boss 版本比伺服器舊的 session 要等約六秒才接手，直到下一個較新的 session 再接回去）；之後才啟動的 session 也會把停著的伺服器重開，即使所有 session 都離開過或機器重開機；版本較新的 session 會接手，但開著的頁面不會自動換成新版：它會顯示「這個網址已失效」，要用 `/boss gui` 重開。網址裡的 token 會跨過重啟保留：伺服器重啟、升級、當機、重開機，或 `/boss gui stop` 之後再 `/boss gui`，都沿用同一個 token（存在 `gui-secrets.json`，連同埠號），開著的分頁會自行重新連線，手機仍維持配對。只有 `/boss gui rotate`（會先確認；換新 token 與 CSRF 密鑰、解除所有手機的配對並開啟新網址）、`gui-secrets.json` 遺失或損毀，或下次啟動時埠號被占用，才會換新 token：舊網址回 403，手機要重新掃 QR code。保留 token 的代價是你選擇接受的：當機或重啟的空檔裡，這台機器上其他帳號若搶先佔用該埠，會看到開著的頁面送出的內容；對空檔不放心時請 rotate。設了 `STRAW_BOSS_DESK=1`（桌面殼自己顯示頁面）時，它不會開瀏覽器，頁面也不顯示設定頁的「手機與裝置」與 Stash。只有 `/boss gui stop` 會讓它維持停止，直到下一次 `/boss gui`；`/boss stash` 和 `/boss close all` 不會把停著的伺服器重開。可以在通訊畫面直接打字給某個 session，或用終端機畫面下方的按鍵面板操作它的終端機，在桌面上也可以點進終端機直接打字；在等回覆的 `robot_hand` 選單、`ask_user_question` 問卷或 pi-code 的 hook 確認，可以在那裡或它的警示裡作答（任何 extension 的 `select` 和 `confirm` 也可以，`confirm` 也可以從配對的裝置作答；其他對話框只能看，要回到終端機回答；`secret_drop` 的機密一律在終端機輸入，任何頁面（本機或 tailnet）都不接受，因為 pi-intercom 的身分是自己申報的，無法驗證）。session 用 [pi-herdr-doc-review](https://www.npmjs.com/package/pi-herdr-doc-review) 0.4.0 以上顯示的文件，會開在它的通訊畫面旁邊：HTML 放在沙箱框架裡，表單送出的答案會傳給智慧體；純文字只能讀。 |
 | `/boss gui devices`、`/boss gui unpair <id\|all>` | 列出已配對的手機（id、標籤、Tailscale 或 Wi-Fi、配對與最後使用時間），並解除配對一支（給 id 或 id 的開頭）或全部（先確認）。網址不會變；要換網址是 `/boss gui rotate`。 |
 | `/boss server logs [n]` | 顯示 sb 伺服器記錄的最後 `n` 行（預設與上限都是 200），和 `boss_server` 工具的 `logs` 相同。 |
-| `/boss gui view`、`/boss gui view auto\|standard\|geek` | 顯示或設定 GUI 的預設檢視。設定頁維持「自動」的裝置會顯示這個預設；自己選了標準或極客的裝置保留自己的選擇；預設為 `auto` 時，裝置依自己螢幕的對比設定。已開啟的頁面立即切換，新開的頁面第一個畫面就是預設檢視。只有這個指令能設定：任何頁面（包括已配對的手機）都不行。 |
+| `/boss gui view`、`/boss gui view auto\|standard\|geek` | 顯示或設定 GUI 的預設檢視。設定頁維持「自動」的裝置會顯示這個預設；自己選了標準或極客的裝置保留自己的選擇；預設為 `auto` 時，裝置依自己螢幕的對比設定。已開啟的頁面立即切換，新開的頁面第一個畫面就是預設檢視（頂端有極客檢視和設定頁的截圖）。只有這個指令能設定：任何頁面（包括已配對的手機）都不行。 |
 | `/boss gui remote`、`/boss gui remote off` | 透過你的 tailnet 用手機連 GUI（`tailscale serve`，絕不用 Funnel）：掃 QR code 配對（已安裝的 app 則輸入 QR 旁邊顯示的短配對碼），手機配對後的紀錄會保留（從最後一次使用起算 90 天，重啟與 `remote off` 都不影響），直到你在設定頁的「手機與裝置」區解除配對；遠端存取在 stop、`/reload`、換新伺服器之後仍會保持開啟，直到 `remote off`；伺服器重啟後 token 不變，已配對的手機照常使用；GUI 換新 token（`/boss gui rotate`、`gui-secrets.json` 遺失，或埠號被占用）時，舊的配對全部清除（cookie 綁在舊 token 的路徑上），手機要重新配對：瀏覽器掃 QR code，已安裝的 app 輸入配對碼（見下）；關閉時只移除它自己的 serve 設定。serve 指向 GUI 伺服器的第二個 loopback 監聽埠，請求算不算遠端取決於它進來的監聽埠，不看它帶什麼標頭。頁面可以安裝成 app（加入主畫面，或 Chrome 的「安裝」）：app 的起始網址是固定入口 `https://<這台機器>.<tailnet>.ts.net:8443/sb-app/`（沒有 token，只在 tailnet 監聽埠上）：已配對時它會帶你到目前的頁面；沒有配對時（換新 token 後，或 iOS 上 app 有自己的 cookie、在 Safari 掃 QR code 永遠到不了 app），它會顯示 8 個輸入格，輸入 `/boss gui remote` 在 QR code 下方印出的**配對碼**（設定頁的「手機與裝置」區也顯示在 QR code 旁），每格一個字元（貼上整組會自動填滿）。配對碼 8 個字元，顯示成兩組各四個（`ABCD EFGH`，不需要輸入連字號），十分鐘內只能用一次，輸錯五次後作廢，要在這台電腦上重新取得新的才能再試。在這個入口出現之前安裝的 app，舊網址現在也會導向入口。 |
 | `node dist/server/cli.mjs up --dir <資料夾> --label <名稱>`（給外殼程式用，不是 pi 指令） | `up` 的桌面步驟，給自己顯示頁面的外殼程式（straw-boss-desk）使用：在啟動 `herdr server` 與執行這個指令的環境都設了 `STRAW_BOSS_DESK=1` 時，它會在 Herdr 的 pi 整合不是最新時安裝，建立外殼的家基地（在該資料夾開一個工作區，記在 `desk.json`，之後以工作區 id 找回），讓 sb server 代替這個工作區的塔台，等 GUI 起來，最後印出一行 JSON，內有 `url`、`workspace`、`pane`、`tower`、`created`、`integration`。重複執行不會多開東西；沒設這個開關時以代碼 2 結束。詳見[桌面模式](docs/how-it-works.md#desk-mode-up---dir)。 |
 

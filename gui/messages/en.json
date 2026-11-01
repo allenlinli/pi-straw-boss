@@ -409,6 +409,7 @@
 	"take_too_large": "The queued messages are too long to bring here. They are in the terminal’s editor.",
 	"take_not_cleared": "The messages could not be cleared from the terminal’s editor. They are there, not here.",
 	"take_blocked": "It is waiting on a dialog: answer it in the terminal.",
+	"composer_local_only": "Pairing, remote access, Wi-Fi, the server, and the default view are managed on this computer’s own page or terminal, not from a paired device.",
 	"take_local_only": "While it waits on a link request, a paired device can only send Escape. Approve it on this computer’s own page or terminal.",
 	"take_rate": "Too many keys at once. Try again in a second.",
 	"take_busy": "Another input to this session is still on its way.",

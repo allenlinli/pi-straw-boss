@@ -33,13 +33,17 @@ function world(over: Partial<ControlDeps> = {}) {
 		pull: async (_key, phase) => (phase === "begin" ? { pending: true, ticket: "t1", key: "alt+up" } : { text: "queued" }),
 	};
 	const handle = createControl({ lookup: (k) => (k === "sess-1" ? found() : undefined), call, csrf: CSRF, canonical: (f) => f, secret: async () => false, mirrors: { fresh: () => true, toggle: async () => ({ status: 200, body: {} }) } as never, answers, overlay: faces, ...over });
+	const open = (kind: string, body: unknown, remote = true): Promise<Reply> => {
+		const req = Object.assign(Readable.from([Buffer.from(JSON.stringify(body))]), { method: "POST", headers: { origin: ORIGIN, "sec-fetch-site": "same-origin", "content-type": "application/json", "x-sb-csrf": CSRF } }) as unknown as IncomingMessage;
+		return handle(req, ORIGIN, ["open", kind], remote);
+	};
 	const post = (action: string, body: unknown, remote = true): Promise<Reply> => {
 		const req = Object.assign(Readable.from([Buffer.from(JSON.stringify(body))]), { method: "POST", headers: { origin: ORIGIN, "sec-fetch-site": "same-origin", "content-type": "application/json", "x-sb-csrf": CSRF } }) as unknown as IncomingMessage;
 		return handle(req, ORIGIN, ["sessions", "sess-1", action], remote);
 	};
 	/** What was written into a pane: every call but the pane look. */
 	const written = () => calls.filter(([m]) => m !== "pane.get").map(([m, p]) => [m, p.keys ?? p.text ?? p.target]);
-	return { clock, faces, calls, hooks, post, written };
+	return { clock, faces, calls, hooks, post, open, written };
 }
 const STREAM = "stream-1";
 const refused = (r: Reply) => [r.status, (r.body as { error?: string }).error];
@@ -52,7 +56,7 @@ test("with a mark on the pane, a paired device's composer text, Enter, and follo
 });
 
 test("a paired device's composer cannot run the boss's pairing, remote, Wi-Fi, or server commands; this computer's page can", async () => {
-	for (const text of ["/boss gui devices", "/boss gui unpair abc123", "/boss gui unpair all", "/boss gui rotate", "/boss gui stop", "/boss gui remote", "/boss gui remote off", "/boss gui lan reset", "/boss server stop", "/boss server logs 20", "  /boss  server"]) {
+	for (const text of ["/boss gui devices", "/boss gui unpair abc123", "/boss gui unpair all", "/boss gui rotate", "/boss gui stop", "/boss gui remote", "/boss gui remote off", "/boss gui lan reset", "/boss server stop", "/boss server logs 20", "  /boss  server", "/boss gui view geek", "/boss gui view auto"]) {
 		const w = world();
 		assert.deepEqual(refused(await w.post("input", { text, as: "send" })), [403, "local_only"], text);
 		assert.deepEqual(w.written(), [], `${text}: nothing reached Herdr`);
@@ -62,6 +66,18 @@ test("a paired device's composer cannot run the boss's pairing, remote, Wi-Fi, o
 	assert.equal(local.written().length, 1);
 	const phone = world();
 	assert.deepEqual((await phone.post("input", { text: "/boss status", as: "send" })).body, { accepted: true }, "other boss commands are not the device class");
+	assert.deepEqual((await phone.post("input", { text: "/boss gui view", as: "send" })).body, { accepted: true }, "showing the view is read-only");
+});
+
+test("a new session's first message from a paired device cannot be a gated /boss command; this computer's page and ordinary prompts pass", async () => {
+	const opened: Record<string, unknown>[] = [];
+	const spawn: ControlDeps["spawn"] = async (_p, json) => (opened.push(json), { status: 200, body: { ok: true } });
+	for (const kind of ["main", "member", "base"]) for (const prompt of ["/boss gui devices", "/boss server stop", "\n /boss gui view geek"]) {
+		assert.deepEqual(refused(await world({ spawn }).open(kind, { prompt, dir: "/x" })), [403, "local_only"], `${kind} ${prompt}`);
+	}
+	assert.deepEqual(opened, [], "nothing was opened");
+	assert.equal((await world({ spawn }).open("main", { prompt: "/boss gui devices", dir: "/x" }, false)).status, 200, "this computer's page keeps it");
+	assert.equal((await world({ spawn }).open("main", { prompt: "/boss status", dir: "/x" })).status, 200, "other prompts pass");
 });
 
 test("with a mark, a paired device's pad keys, digits, Enter, typed text, and paste are refused; Escape (a key or Stop's) goes through", async () => {

@@ -118,7 +118,7 @@ export function createStream(deps: Deps): Stream {
 			if (status.state === "replaced") return; // no retry can work: the address is dead until the user opens a new one
 			const fresh = deps.now() - startedAt < 2000 || (status.lastContact !== undefined && deps.now() - status.lastContact <= STALE_MS);
 			if (source && fresh) return;
-			set({ attempt: 0, state: status.state === "live" ? "reconnecting" : status.state });
+			set({ attempt: 0, state: status.state === "live" || status.state === "offline" ? "reconnecting" : status.state }); // a retry after giving up is an attempt like any other
 			connect();
 		},
 		// A route that watches something else, or a history that has to be fetched again, opens a new connection at once.

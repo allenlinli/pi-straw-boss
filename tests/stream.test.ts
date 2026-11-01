@@ -140,6 +140,7 @@ test("after the retry limit it goes offline, holds no timers, and a focus brings
 	assert.equal(t.sources.length, before, "it stays quiet until the page is used again");
 	t.stream.resume();
 	assert.equal(t.sources.length, before + 1);
+	assert.deepEqual([t.state().state, t.state().attempt], ["reconnecting", 0], "the retry is an attempt like any other, so the page stops showing the give-up");
 	t.sources.at(-1)!.send("message", net("again"));
 	assert.deepEqual([t.state().state, t.state().attempt, t.nets.at(-1)], ["live", 0, "again"]);
 });

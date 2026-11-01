@@ -29,7 +29,7 @@
 <symbol id="i-comms" viewBox="0 0 512 512" fill="currentColor"><path d="M71 32v135h18V32H71zm256 0v135h18V32h-18zm-208 95.604V167h18v-39.396h-18zm256 0V167h18v-39.396h-18zM57 185v99.27l16 16V487h110V300.27l16-16V185H57zm256 0v99.27l16 16V487h110V300.27l16-16V185H313zm-96 7v80h16.432v-80H217zm256 0v80h16.432v-80H473zm-393 7h96v18H80v-18zm256 0h96v18h-96v-18zM80 231h96v18H80v-18zm256 0h96v18h-96v-18zM80 263h96v18H80v-18zm256 0h96v18h-96v-18zm-224 41a24 24 0 0 1 24 24 24 24 0 0 1-24 24 24 24 0 0 1-24-24 24 24 0 0 1 24-24zm256 0a24 24 0 0 1 24 24 24 24 0 0 1-24 24 24 24 0 0 1-24-24 24 24 0 0 1 24-24z"/></symbol>
 <symbol id="i-outside" viewBox="0 0 512 512" fill="currentColor"><path d="M257.375 32.03C139.957 87.197 42.343 247.886 17.5 367.75c71.742 0 124.22 22.845 162.094 63.03l10.47-11.436c-28.06-28.873-64.935-52.446-113.564-75.906 26.142-65.033 66.028-163.458 116.72-169.188 19.835-2.243 41.05 9.735 64.155 43.438 72.33-120.27 141.014 38.54 180.875 125.75-47.687 25.854-84.5 49.463-112.97 78.718l9.25 10.406c37.335-39.758 89.657-64.812 162.72-64.812C467.784 249.384 377.24 90.37 257.375 32.03zm-79.72 243.314c-15.3-.083-26.405 6.436-26.405 16.656 0 12.58 16.834 26.038 37.594 30.063 20.76 4.024 37.594-2.92 37.594-15.5s-16.835-26.038-37.594-30.063c-3.893-.755-7.657-1.137-11.188-1.156zm156.345 0c-3.53.02-7.295.4-11.188 1.156-20.76 4.025-37.593 17.483-37.593 30.063 0 12.58 16.833 19.524 37.592 15.5 20.76-4.025 37.594-17.484 37.594-30.063 0-10.22-11.105-16.74-26.406-16.656z"/></symbol>
 </defs></svg>
-<div class="shell">
+<div class="shell" inert>
   <header class="hud">
     <a class="brand" href="./" data-route="" aria-label="Straw Net: all bases" data-m-label="brand_label">
       <span class="logo"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12 8.2A5 5 0 0 1 20 8.2M8.5 8.2A9 9 0 0 1 23.5 8.2" fill="none" stroke="#7dcfff" stroke-width="1.9" stroke-linecap="round"/><path d="M9.5 11h13l-1.8 4.4h-9.4zM13.7 16.6h4.6l.9 4.4h-6.4z" fill="#7dcfff"/><path d="M16 21L6.5 27M16 21V27M16 21l9.5 6" fill="none" stroke="#7dcfff" stroke-width="1.5" stroke-linecap="round"/><circle cx="6.5" cy="27" r="2.5" fill="#7dcfff"/><circle cx="16" cy="27" r="2.5" fill="#bb9af7"/><circle cx="25.5" cy="27" r="2.5" fill="#7dcfff"/></svg></span>
@@ -120,7 +120,9 @@
     <p class="credit" data-m="credit">Icons from game-icons.net by Lorc and Delapouite, CC BY 3.0.</p>
   </footer>
 </div>
-<div class="dock" id="dock" aria-label="Alerts" data-m-label="alerts" role="region"></div>
+<div class="dock" id="dock" aria-label="Alerts" data-m-label="alerts" role="region" inert></div>
+<!-- The page has no live state yet (connect.ts): open from the first byte, with the app root above inert, until the stream's first snapshot; it comes back whenever the stream is lost. -->
+<dialog class="connect" id="connect" open aria-labelledby="connect-text" data-state="connecting"><div class="connect-card"><i class="connect-ring" aria-hidden="true"></i><p id="connect-text" role="status" data-m="connect_connecting">Connecting…</p><button class="pair-btn connect-retry" id="connect-retry" type="button" data-m="connect_retry" hidden>Try again</button></div></dialog>
 <script type="module" src="./main.ts"></script>
 </body>
 </html>

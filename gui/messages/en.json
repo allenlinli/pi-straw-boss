@@ -258,6 +258,7 @@
 	"refused_not_allowed": "That answer does not fit the question.",
 	"refused_malformed": "The session could not read that answer.",
 	"answered": "Answered.",
+	"cancelled": "Cancelled.",
 	"stale_local": "It was already answered in the terminal.",
 	"stale_cancel": "It was dismissed in the terminal.",
 	"stale_closed": "It is no longer open.",

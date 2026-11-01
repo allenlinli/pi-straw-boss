@@ -69,3 +69,10 @@ test("Geek: a disabled Send is dim words in a dashed outline, a focused timeline
 	assert.match(rule('[data-view="geek"] .tl-mark:focus-visible'), /outline:\s*2px solid var\(--text\)/);
 	assert.match(rule('body[data-route="settings"]'), /display:\s*none/);
 });
+
+test("a question card's Cancel is a 44 px target on a phone, quieter than Send, and shares Send's press feedback", () => {
+	assert.match(rule(".ask-cancel {"), /border:\s*1px solid var\(--line\)[^}]*background:\s*none/);
+	assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?\.ask-send, \.ask-cancel, \.ask-opt[^{]*\{ min-height: 44px; \}/);
+	assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?\.ask-send, \.ask-cancel, \.sheet-yes, \.cmp-yes\) \{ min-width: 44px; \}/);
+	assert.match(css, /:is\(\.ask, \.term-bar, \.doc-acts, \.composer\) :is\(button, \.cmp-link\) \{ min-height: 44px; \}/, "and the narrow rule covers every button in the card");
+});

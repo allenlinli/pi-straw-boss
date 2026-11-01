@@ -224,6 +224,7 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		if (r.state === "closed") return reply(ack(r, a, r.by === "remote" && r.answerId === a.answerId ? "accepted" : "stale", { by: r.by }));
 		if (r.state !== "open") return r.answerId !== a.answerId ? reply(ack(r, a, "busy")) : r.last ? reply(r.last) : void r.waiting.push(reply);
 		if (r.d.secret) return reply(ack(r, a, "rejected", { reason: "terminal_only" })); // whatever it carries, a secret is never taken from a relayed answer
+		if (a.cancel !== undefined && (a.cancel !== true || !r.adapter.cancellable || a.choice !== undefined || a.answers !== undefined)) return reply(ack(r, a, "rejected", { reason: r.adapter.cancellable ? "malformed" : "not-allowed" })); // a cancel only for an owner that takes one, and carrying nothing else; the dialog stays open
 		[r.state, r.answerId] = ["settling", a.answerId];
 		let off: (() => void) | undefined, timer: ReturnType<typeof setTimeout> | undefined, done = false;
 		const finish = (v?: Verdict) => {
@@ -241,7 +242,7 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 			push();
 		};
 		try {
-			off = r.adapter.answer(bus, r.d, { id: r.d.id, answerId: a.answerId, digest: a.digest, choice: a.choice, answers: Array.isArray(a.answers) ? a.answers : undefined }, finish);
+			off = r.adapter.answer(bus, r.d, { id: r.d.id, answerId: a.answerId, digest: a.digest, choice: a.choice, answers: Array.isArray(a.answers) ? a.answers : undefined, ...(a.cancel === true ? { cancel: true as const } : {}) }, finish);
 		} catch {
 			finish({ accepted: false, reason: "malformed" }); // an answer an adapter could not even map; the owner never saw it
 		}

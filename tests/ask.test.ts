@@ -136,7 +136,7 @@ test("an ask_user_question call shows its questions: one reads like an ask_user 
 
 
 test("the answer panel's pure rules: the body it sends, what it says for each outcome, every choice offered on every page, controls drawn as U+FFFD", async () => {
-	const { bodyOf, offered, replyOf, said, visible } = await import("../gui/ask.ts");
+	const { bodyOf, cancellable, cancelOf, offered, replyOf, said, visible } = await import("../gui/ask.ts");
 	const a = { dialog: "d1", digest: "f".repeat(64), select: { title: "T", choices: [{ label: "Run" }, { label: "Copy", localOnly: true as const }, { label: "No" }] } };
 	assert.deepEqual(bodyOf(a, { choice: 2 }, "id-1234567890abcdef"), { dialog: "d1", digest: "f".repeat(64), answerId: "id-1234567890abcdef", choice: 2 });
 	assert.deepEqual(offered(a).map((c) => [c.label, c.i]), [["Run", 0], ["Copy", 1], ["No", 2]], "a choice that acts on the computer is offered on a paired device's page too");
@@ -146,6 +146,11 @@ test("the answer panel's pure rules: the body it sends, what it says for each ou
 	assert.equal(visible("rm\u202e -rf\u2066\u200b\u061c x"), "rm\ufffd -rf\ufffd\ufffd\ufffd x", "bidi overrides and zero-width marks are drawn, not obeyed");
 	const r = (status: number, body: Record<string, unknown>) => ({ ok: status < 300, status, body });
 	assert.deepEqual(said(r(200, { outcome: "accepted" })), ["ok", "Answered."]);
+	assert.deepEqual(said(r(200, { outcome: "accepted" }), true), ["ok", "Cancelled."], "the same outcome for a cancel");
+	assert.deepEqual(said(r(200, { outcome: "stale", by: "cancel" }), true), ["error", "It was dismissed in the terminal."], "the closed-by-cancel wording is the same");
+	assert.deepEqual(cancelOf(a, "id-1234567890abcdef"), { dialog: "d1", digest: "f".repeat(64), answerId: "id-1234567890abcdef", cancel: true });
+	const here = { ...a, cancel: true as const, select: { title: "T", choices: [{ label: "Yes", hereOnly: true as const }, { label: "No", hereOnly: true as const }] } };
+	assert.deepEqual([cancellable(a, false), cancellable({ ...a, cancel: true }, false), cancellable({ ...a, cancel: true }, true), cancellable(here, false), cancellable(here, true), cancellable({ ...here, select: { ...here.select, choices: [{ label: "Yes", hereOnly: true as const }, { label: "No" }] } }, true)], [false, true, true, true, false, true]);
 	assert.deepEqual(said(r(200, { outcome: "stale", by: "local" })), ["error", "It was already answered in the terminal."]);
 	assert.deepEqual(said(r(200, { outcome: "stale", by: "cancel" })), ["error", "It was dismissed in the terminal."]);
 	assert.deepEqual(said(r(200, { outcome: "stale", by: "gone" })), ["error", "It is no longer open."]);

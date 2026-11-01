@@ -19,7 +19,7 @@ export const TERMINAL_DELAY_MS = 1_500;
 export interface Verdict { approved: boolean; by: string; reason: string }
 
 export function createApproval({ bus, timeoutMs = REQUEST_MS, terminalDelayMs = TERMINAL_DELAY_MS, onError = () => {} }: { bus: Bus; timeoutMs?: number; terminalDelayMs?: number; onError?: (what: string, error: Error) => void }) {
-	const open = new Map<string, { digest: string; take(choice: number, answerId: string): void }>(), served: string[] = [];
+	const open = new Map<string, { digest: string; take(choice: number, answerId: string): void; cancel(answerId: string): void }>(), served: string[] = [];
 	let listening: (() => void) | undefined;
 	const tell = (channel: string, data: unknown) => {
 		try {
@@ -29,7 +29,7 @@ export function createApproval({ bus, timeoutMs = REQUEST_MS, terminalDelayMs = 
 		}
 	};
 	const answered = (raw: unknown) => {
-		const a = (raw ?? {}) as { id?: unknown; answerId?: unknown; digest?: unknown; selections?: unknown };
+		const a = (raw ?? {}) as { id?: unknown; answerId?: unknown; digest?: unknown; selections?: unknown; cancel?: unknown };
 		if (typeof a.id !== "string") return;
 		const dialog = open.get(a.id);
 		if (!dialog && !served.includes(a.id)) return;
@@ -38,6 +38,11 @@ export function createApproval({ bus, timeoutMs = REQUEST_MS, terminalDelayMs = 
 		if (!dialog) return result(false, "closed");
 		const pick = Array.isArray(a.selections) && a.selections.length === 1 ? (a.selections[0] as unknown) : undefined;
 		if (a.digest !== dialog.digest) return result(false, "digest");
+		if (a.cancel !== undefined) { // Escape on the terminal's confirm is a No: a cancel is Deny
+			if (!answerId || a.cancel !== true || a.selections !== undefined) return result(false, "malformed");
+			result(true);
+			return dialog.cancel(answerId);
+		}
 		if (!answerId || typeof pick !== "number" || !Number.isInteger(pick) || pick < 0 || pick > 1) return result(false, "malformed");
 		result(true);
 		dialog.take(pick, answerId);
@@ -66,7 +71,7 @@ export function createApproval({ bus, timeoutMs = REQUEST_MS, terminalDelayMs = 
 				resolve({ approved, by, reason });
 			};
 			const declined = (why: string) => `the boss declined the link request${why ? `: ${why}` : ""}`;
-			open.set(id, { digest, take: (choice, answerId) => finish(choice === 0, "remote", choice === 0 ? "approved from a page" : declined(""), answerId) });
+			open.set(id, { digest, take: (choice, answerId) => finish(choice === 0, "remote", choice === 0 ? "approved from a page" : declined(""), answerId), cancel: (answerId) => finish(false, "remote", declined(""), answerId) });
 			tell("pending", { version: 1, id, toolCallId: req.toolCallId, digest, select });
 			timer = setTimeout(() => finish(false, "timeout", declined(`no answer within ${Math.round(timeoutMs / 60_000) || 1} minutes`)), timeoutMs);
 			timer.unref();

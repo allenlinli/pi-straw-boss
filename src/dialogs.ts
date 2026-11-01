@@ -58,10 +58,14 @@ const valid = (d: Dialog) => str(d?.owner) && str(d.id) && d.id.length <= 64 && 
 /** Own words or a note as they would be typed: CRLF to LF, never blank, within `max` bytes, no control characters but tab and newline. */
 const words = (v: unknown, max: number) => (str(v) && v.trim() && Buffer.byteLength(v) <= max && !CONTROL.test(v.replace(/\r\n?/g, "\n")) ? v.replace(/\r\n?/g, "\n") : null);
 
-/** The page's answer checked against what it may answer: one choice of a select (a local-only one too, from any page), or one entry per question. A secret's value is never taken from any page (SB-F001; see the header). */
-export function checkAnswer(t: Answerable, json: Record<string, unknown>): { choice: number } | { answers: Reply[] } | string {
-	const { choice, answers, value } = json;
+/** The page's answer checked against what it may answer: one choice of a select (a local-only one too, from any page), one entry per question, or a cancel (only for a dialog whose owner takes one, and with nothing else). A secret's value is never taken from any page (SB-F001; see the header). */
+export function checkAnswer(t: Answerable, json: Record<string, unknown>): { choice: number } | { answers: Reply[] } | { cancel: true } | string {
+	const { choice, answers, value, cancel } = json;
 	if (value !== undefined) return "A secret cannot be entered here; answer it in the terminal.";
+	if (cancel !== undefined) {
+		if (cancel !== true || choice !== undefined || answers !== undefined) return "A cancel carries nothing else.";
+		return t.cancel ? { cancel: true } : "This dialog cannot be cancelled from here; cancel it in the terminal.";
+	}
 	if (t.select) {
 		if (answers !== undefined || !Number.isInteger(choice) || (choice as number) < 0 || (choice as number) >= t.select.choices.length) return "Pick one of its choices.";
 		return { choice: choice as number };
@@ -172,7 +176,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 		const call = d.toolCallId ? calls.find((c) => c.id === d.toolCallId) : undefined;
 		if (!adapter || !readable || (d.toolCallId ? !call || !(adapter.gate || call.name === adapter.tool) : adapter.gate)) return terminal(base.why ?? "Answer it in the terminal.");
 		if ((d.select ? selectDigest(d.select) : d.questions ? questionsDigest(d.questions) : undefined) !== d.digest) return terminal("The question here differs from the one in the terminal; answer it there.");
-		const answer: Answerable = { dialog: d.id, digest: d.digest, ...(adapter.twin ? { twin: true as const } : {}), ...(d.select ? { select: d.select } : { questions: d.questions }) }, { why: _, ...kept } = base;
+		const answer: Answerable = { dialog: d.id, digest: d.digest, ...(adapter.twin ? { twin: true as const } : {}), ...(adapter.cancellable ? { cancel: true as const } : {}), ...(d.select ? { select: d.select } : { questions: d.questions }) }, { why: _, ...kept } = base;
 		const rest = call && call.id !== base.callId ? { callId: call.id, tool: call.name } : kept; // the file's question belongs to its first call, not to another one the dialog is bound to
 		// While an answer is on its way the page shows it read-only, but the bridge still hears that answer resent (Check again: it replays) and any other (busy).
 		targets.set(key, { from: at.from, bridgeId: at.b.bridgeId, answer });

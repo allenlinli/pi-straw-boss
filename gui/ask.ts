@@ -27,11 +27,15 @@ export const offered = (a: Answerable) => (a.select?.choices ?? []).map((c, i) =
 /** One question's answer from what is picked, typed, and noted. */
 export const replyOf = (picks: Set<number>, text: string, note: string): Reply => ({ ...(picks.size ? { choices: [...picks].sort((a, b) => a - b) } : {}), ...(text.trim() ? { text } : {}), ...(note.trim() ? { note } : {}) });
 export const bodyOf = (a: Answerable, pick: Pick, answerId: string) => ({ dialog: a.dialog, digest: a.digest, answerId, ...pick });
+/** The body of a cancel: the dialog and its digest under an answerId of its own, and nothing else. */
+export const cancelOf = (a: Answerable, answerId: string) => ({ dialog: a.dialog, digest: a.digest, answerId, cancel: true });
+/** Whether the Cancel button is offered: the owner takes a cancel, and a paired device may refuse where it may pick some choice (control.ts refuses a dialog whose choices are all `hereOnly`). */
+export const cancellable = (a: Answerable, remote: boolean) => a.cancel === true && !(remote && a.select?.choices.every((c) => c.hereOnly));
 const REFUSED: Record<string, () => string> = { digest: m.refused_digest, "not-allowed": m.refused_not_allowed, malformed: m.refused_malformed };
 /** What the page says for a reply, and whether it may Check again (only when the outcome is not known). */
-export function said(r: Answer): [tone: string, text: string, again?: true] {
+export function said(r: Answer, cancelled = false): [tone: string, text: string, again?: true] {
 	const { outcome, reason, by } = r.body as { outcome?: string; reason?: string; by?: string };
-	if (outcome === "accepted") return ["ok", m.answered()];
+	if (outcome === "accepted") return ["ok", cancelled ? m.cancelled() : m.answered()];
 	if (outcome === "stale") return ["error", by === "local" ? m.stale_local() : by === "cancel" ? m.stale_cancel() : m.stale_closed()];
 	if (outcome === "rejected") return ["error", (Object.hasOwn(REFUSED, String(reason)) ? REFUSED[String(reason)]! : m.rejected)()];
 	if (outcome === "busy") return ["error", m.answer_busy()];
@@ -43,7 +47,7 @@ const final = (r: Answer) => ["accepted", "stale", "busy", "unknown"].includes(S
 /** A panel drawn for a pending. `done`: it takes no further answer from here; `sending`: its answer is on its way; `focus`: what had the focus in it
  * when it left the page (it takes it back on coming back); `lost`: the control that lost the focus by being disabled here (it takes it back when enabled); `busy`: refused while another answer was on its way, and `spell` once the server showed
  * that answer (read-only): the dialog answerable after it means that answer was refused, so this panel answers again. */
-interface Panel { first?: () => HTMLButtonElement | HTMLInputElement | undefined; key: string; el: HTMLElement; note: HTMLElement; send?: HTMLButtonElement; controls: (HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement)[]; pick: () => Pick | undefined; done: boolean; sending: boolean; focus?: HTMLElement; lost?: HTMLButtonElement | HTMLInputElement; busy?: boolean; spell?: boolean }
+interface Panel { first?: () => HTMLButtonElement | HTMLInputElement | undefined; key: string; el: HTMLElement; note: HTMLElement; send?: HTMLButtonElement; cancel?: HTMLButtonElement; controls: (HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement)[]; pick: () => Pick | undefined; done: boolean; sending: boolean; focus?: HTMLElement; lost?: HTMLButtonElement | HTMLInputElement; busy?: boolean; spell?: boolean }
 /** A dialog the page may answer is known by its id and digest, under whichever call the server reads it; anything else by its call and why. */
 const keyOf = (p: Pending) => (p.answer ? `d\n${p.answer.dialog}\n${p.answer.digest}` : `c\n${p.callId}\n${p.why ?? ""}`);
 
@@ -84,7 +88,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		const sent = post("answer", body).catch(() => undefined);
 		const r = await sent, again = h("button", { type: "button", class: "cmp-link" }, m.check_again());
 		again.onclick = () => void answer(x, body); // the same answer, by the same id: never a second one
-		const [tone, text, retry] = r ? said(r) : (["error", m.not_confirmed(), true] as const);
+		const [tone, text, retry] = r ? said(r, body.cancel === true) : (["error", m.not_confirmed(), true] as const);
 		[x.done, x.sending, busy, x.busy] = [!r || final(r), false, false, r?.body.outcome === "busy"];
 		say(x.note, tone, text, ...(retry ? [again] : []));
 		draw();
@@ -107,7 +111,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		x.pick = () => (chosen === undefined ? undefined : { choice: chosen });
 		x.first = wire(x.el, [{ opts, multiple: false, answered: () => chosen !== undefined }], () => x.send);
 		x.controls = usable;
-		return [h("pre", { class: "ask-title" }, visible(a.select!.title)), h("div", { class: "ask-opts", role: "radiogroup", "aria-label": m.choices() }, ...opts), h("div", { class: "ask-acts" }, x.send!, copy)];
+		return [h("pre", { class: "ask-title" }, visible(a.select!.title)), h("div", { class: "ask-opts", role: "radiogroup", "aria-label": m.choices() }, ...opts), h("div", { class: "ask-acts" }, x.send!, x.cancel, copy)];
 	}
 	/** A questionnaire: per question its options (one, or several), its own words, and a note; it goes when every question has an answer. */
 	function questions(x: Panel, a: Answerable) {
@@ -127,18 +131,20 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		});
 		x.pick = () => (state.every((s) => s.picks.size || s.text.value.trim()) ? { answers: state.map((s) => replyOf(s.picks, s.text.value, s.note.value)) } : undefined);
 		x.first = wire(x.el, groups, () => x.send);
-		return [...blocks, h("div", { class: "ask-acts" }, x.send!)];
+		return [...blocks, h("div", { class: "ask-acts" }, x.send!, x.cancel)];
 	}
 	function build(p: Pending): Panel {
 		const asks = p.asks ?? (p.ask ? [p.ask] : []), list = asks.length > 1, a = p.answer;
 		const x: Panel = { key: keyOf(p), el: h("section", { class: "ask" }), note: h("p", { class: "ask-note", role: "status", "aria-live": "polite" }), controls: [], pick: () => undefined, done: false, sending: false };
 		if (a) (x.send = h("button", { type: "button", class: "ask-send" }, m.send_answer())).onclick = () => void (x.pick() && answer(x, bodyOf(a, x.pick()!, crypto.randomUUID())));
+		if (a && cancellable(a, remote)) (x.cancel = h("button", { type: "button", class: "ask-cancel" }, m.cancel())).onclick = () => void answer(x, cancelOf(a, crypto.randomUUID())); // no pick needed: it ends the dialog the way Escape does in the terminal, the owner's own cancelled result
 		const noSecret = p.tool === "secret_drop"; // never an answerable secret, on any page, whatever it was sent (SB-F001)
 		const term = h("p", { class: "ask-term" }, p.why && asks.length ? p.why : `${list ? m.answer_them() : m.answer_it()} ${list || !asks[0] ? "" : how(asks[0])}`.trim());
 		const show = terminal && p.tool !== "secret_drop" && h("button", { type: "button", class: "cmp-link" }, m.show_terminal());
 		if (show) show.onclick = terminal;
 		const during = p.answer?.twin && p.tool && p.tool !== "dialog" ? [h("p", { class: "ask-why" }, m.opened_during({ tool: p.tool }))] : []; // a dialog bound to the one call in flight may be unrelated to it
 		x.el.append(...during, ...(a && !noSecret ? (a.select ? select(x, a) : questions(x, a)) : [...(asks.length ? asks.map((y) => block(y, list)) : [h("p", { class: "ask-why" }, noSecret ? (remote ? m.secret_remote() : m.secret_terminal()) : (p.why ?? m.waits_dialog()))]), h("div", { class: "ask-acts" }, noSecret ? h("p", { class: "ask-term" }, m.answer_it()) : term, show)]), x.note);
+		if (x.cancel) x.controls.push(x.cancel); // draw() enables it with the rest
 		return x;
 	}
 	/** Puts a panel on the page, or none. The one leaving notes what had the focus in it, and on coming back takes it again (scrolled into view) if nothing else has it. */

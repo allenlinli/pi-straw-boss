@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { checkAnswer } from "../src/dialogs.ts";
 import { checkProbe, probeEditor } from "../src/probe.ts";
-import { type Bus, type Dialog, digestOf, mcpAdapter, OWNERS, piCode, questionsDigest, robotHand, rpiv, secretDigest, secretDrop, secretOf, selectDigest, selectOf, UI_PREFIX, uiPrompt } from "../src/owners.ts";
+import { type Bus, type Dialog, digestOf, linkGate, linkRequest, mcpAdapter, OWNERS, piCode, questionsDigest, robotHand, rpiv, secretDigest, secretDrop, secretOf, selectDigest, selectOf, UI_PREFIX, uiPrompt } from "../src/owners.ts";
 
 /** pi's event bus as far as owners use it: listeners run synchronously inside emit. */
 function bus() {
@@ -233,4 +233,34 @@ test("the wrap of ctx.ui is a contract v1 gate under straw-boss:ui that yields t
 	assert.deepEqual(b.seen.find(([c]) => c === `${UI_PREFIX}:answer`)?.[1], { version: 1, id: "u1", answerId: "a".repeat(16), digest: opened[0]!.digest, selections: [1] });
 	assert.deepEqual(verdicts, [{ accepted: true }]);
 	off();
+});
+
+test("cancel: only the owners with a cancel path take one (rpiv, the ctx.ui wrap, the link gate and request); it goes out as {cancel: true} under the page's answerId, and checkAnswer takes it for those alone and with nothing else", () => {
+	assert.deepEqual(OWNERS.map((o) => [o.name, o.cancellable]), [["robot-hand", undefined], ["robot-hand-secret", undefined], ["rpiv", true], ["pi-mcp-adapter", undefined], ["pi-code", undefined], ["pi-ui", true], ["straw-link-gate", true], ["straw-link-request", true]]);
+	assert.deepEqual([rpiv.cancellable, uiPrompt.cancellable, linkGate.cancellable, linkRequest.cancellable], [true, true, true, true]);
+	// rpiv: the cancel is the page's, under its answerId (the abort's own cancel keeps its `cancel-` id), and the owner's verdict comes back as for an answer.
+	const b = bus(), opened: Dialog[] = [], verdicts: unknown[] = [];
+	rpiv.listen(b, { open: (_a, d) => opened.push(d), closed: () => {} });
+	b.emit("rpiv:ask-user:prompt", { toolCallId: "q1", questions: [{ question: "Go?", header: "Go", multiSelect: false, options: [{ label: "Yes", description: "" }, { label: "No", description: "" }] }] });
+	const d = opened[0]!;
+	b.on("rpiv:ask-user:answer", (raw) => { const p = raw as { toolCallId: string; requestId: string }; b.emit("rpiv:ask-user:answer-result", { ok: true, requestId: p.requestId, toolCallId: p.toolCallId }); });
+	rpiv.answer(b, d, { id: d.id, answerId: "k".repeat(16), digest: "0".repeat(64), cancel: true }, (v) => verdicts.push(v));
+	assert.deepEqual([verdicts, b.seen.filter(([c]) => c === "rpiv:ask-user:answer").length], [[{ accepted: false, reason: "digest" }], 0], "another digest never reaches the owner, a cancel included");
+	rpiv.answer(b, d, { id: d.id, answerId: "k".repeat(16), digest: d.digest, cancel: true }, (v) => verdicts.push(v))();
+	assert.deepEqual(b.seen.filter(([c]) => c === "rpiv:ask-user:answer").at(-1)![1], { toolCallId: "q1", requestId: "k".repeat(16), cancel: true });
+	assert.deepEqual(verdicts.at(-1), { accepted: true });
+	// A contract owner's cancel carries no selection.
+	const u = bus(), ui: Dialog[] = [];
+	uiPrompt.listen(u, { open: (_a, x) => ui.push(x), closed: () => {} });
+	const select = { title: "T", choices: [{ label: "Yes" }, { label: "No" }] };
+	u.emit(`${UI_PREFIX}:pending`, { version: 1, id: "u1", toolCallId: "c1", digest: selectDigest(select), select });
+	uiPrompt.answer(u, ui[0]!, { id: "u1", answerId: "a".repeat(16), digest: ui[0]!.digest, cancel: true }, () => {})();
+	assert.deepEqual(u.seen.find(([c]) => c === `${UI_PREFIX}:answer`)?.[1], { version: 1, id: "u1", answerId: "a".repeat(16), digest: ui[0]!.digest, cancel: true });
+	// The server's check.
+	const t = { dialog: "d1", digest: "0".repeat(64), cancel: true as const, select: { title: "t", choices: [{ label: "a" }] } };
+	assert.deepEqual(checkAnswer(t, { cancel: true }), { cancel: true });
+	for (const json of [{ cancel: true, choice: 0 }, { cancel: true, answers: [] }, { cancel: false }, { cancel: "true" }, { cancel: 1 }, { cancel: null }]) assert.match(String(checkAnswer(t, json)), /carries nothing else/, JSON.stringify(json));
+	assert.match(String(checkAnswer({ ...t, cancel: undefined }, { cancel: true })), /cannot be cancelled/);
+	assert.deepEqual(checkAnswer({ dialog: "d1", digest: "0".repeat(64), cancel: true, questions: [{ question: "Q", multiple: false, options: [{ title: "a" }] }] }, { cancel: true }), { cancel: true });
+	assert.match(String(checkAnswer(t, { cancel: true, value: "s3cr3t" })), /secret/, "a value is a secret's first");
 });

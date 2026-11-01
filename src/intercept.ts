@@ -30,7 +30,7 @@ type Call = (title: string, second: unknown, opts?: Opts) => Promise<Result>;
 const PASS = ["input", "editor", "custom"] as const;
 type Wrapped = Record<Kind, Call> & Record<(typeof PASS)[number], (...a: never[]) => unknown> & { [MARK]?: { restore(): void } };
 /** A dialog on the bus: `answer` is the choice the GUI took, set once, before its terminal twin is aborted. */
-interface Relay { id: string; digest: string; count: number; ac: AbortController; by?: string; answer?: number; close(by: string): void }
+interface Relay { id: string; digest: string; count: number; ac: AbortController; by?: string; answer?: number; cancelled?: true; close(by: string): void }
 
 export function interceptUi(pi: ExtensionAPI): void {
 	const bus = pi.events as Bus, flying = new Map<string, string>(), relays = new Map<string, Relay>(), closed: string[] = [];
@@ -43,14 +43,17 @@ export function interceptUi(pi: ExtensionAPI): void {
 	};
 	/** The GUI's answers, for every relayed dialog; one that closed a moment ago still hears so (the last 16), as an owner's answer listener lives on after its dialog. */
 	const answered = (raw: unknown) => {
-		const a = (raw ?? {}) as { id?: unknown; answerId?: unknown; digest?: unknown; selections?: unknown }, r = typeof a.id === "string" ? relays.get(a.id) : undefined;
+		const a = (raw ?? {}) as { id?: unknown; answerId?: unknown; digest?: unknown; selections?: unknown; cancel?: unknown }, r = typeof a.id === "string" ? relays.get(a.id) : undefined;
 		if (!r && !(typeof a.id === "string" && closed.includes(a.id))) return;
 		const id = String(a.id), answerId = typeof a.answerId === "string" && ANSWER_ID.test(a.answerId) ? a.answerId : "", pick = Array.isArray(a.selections) && a.selections.length === 1 ? (a.selections[0] as unknown) : undefined;
 		const result = (accepted: boolean, reason?: string) => tell("answer-result", { version: 1, id, answerId, accepted, ...(reason ? { reason } : {}) });
 		if (!r) return result(false, "closed");
 		if (a.digest !== r.digest) return result(false, "digest");
-		if (!answerId || !Number.isInteger(pick) || (pick as number) < 0 || (pick as number) >= r.count) return result(false, "malformed");
-		r.answer = pick as number;
+		// A cancel is Escape: the terminal dialog goes and the call resolves with what Escape gives (a select undefined, a confirm false).
+		const cancel = a.cancel === true && a.selections === undefined;
+		if (!answerId || (a.cancel !== undefined && !cancel) || (!cancel && (!Number.isInteger(pick) || (pick as number) < 0 || (pick as number) >= r.count))) return result(false, "malformed");
+		if (cancel) r.cancelled = true;
+		else r.answer = pick as number;
 		retire(r, "remote");
 		r.ac.abort(); // the terminal dialog goes; the call resolves with this answer
 		result(true);
@@ -84,7 +87,7 @@ export function interceptUi(pi: ExtensionAPI): void {
 			r.close("error"); // the relay is withdrawn again before the call falls back to the original
 			throw error;
 		}
-		return { r, taken: () => (kind === "confirm" ? r.answer === 0 : options![r.answer!] as string) };
+		return { r, taken: () => (r.cancelled ? (kind === "confirm" ? false : undefined) : kind === "confirm" ? r.answer === 0 : options![r.answer!] as string) };
 	}
 
 	/** One of ctx.ui's `select` or `confirm`, wrapped: what `orig` answers, or the GUI's answer when it came first. */
@@ -109,7 +112,7 @@ export function interceptUi(pi: ExtensionAPI): void {
 		const { r, taken } = relay, caller = opts?.signal;
 		const finish = (v: Result) => {
 			done();
-			if (r.answer !== undefined) return taken();
+			if (r.answer !== undefined || r.cancelled) return taken();
 			r.close(caller?.aborted ? "abort" : kind === "select" && v === undefined ? "cancel" : "local");
 			return v;
 		};

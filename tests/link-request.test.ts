@@ -272,3 +272,18 @@ test("RR-F001: the terminal confirm is shown only after a delay (1.5 s by defaul
 	await new Promise((r) => setTimeout(r, TERMINAL_DELAY_MS + 200));
 	assert.equal(shown, 1, "answered before the delay: the terminal never showed it");
 });
+
+test("a cancel from a page refuses the request, as Escape on the terminal's confirm does; a hereOnly Approve changes nothing about it", async () => {
+	const handlers = new Map<string, (d: unknown) => void>(), published: { id: string; digest: string }[] = [], told: Record<string, unknown>[] = [];
+	const bus = { emit: (channel: string, data: unknown) => (channel.endsWith(":pending") ? published.push(data as (typeof published)[number]) : told.push({ channel, ...(data as object) }), undefined), on: (channel: string, h: (d: unknown) => void) => (handlers.set(channel, h), () => handlers.delete(channel)) };
+	const approval = createApproval({ bus });
+	for (const hereOnly of [false, true]) {
+		const verdict = approval.approve({ toolCallId: "c1", lines: ["Action: trust"], asker: "s", hereOnly, signal: AbortSignal.timeout(3000) }), p = published.at(-1)!, answerId = (hereOnly ? "h" : "p").repeat(16);
+		handlers.get("straw-link:request:answer")!({ version: 1, id: p.id, answerId, digest: p.digest, cancel: true, selections: [0] });
+		assert.deepEqual(told.at(-1), { channel: "straw-link:request:answer-result", version: 1, id: p.id, answerId, accepted: false, reason: "malformed" });
+		handlers.get("straw-link:request:answer")!({ version: 1, id: p.id, answerId, digest: p.digest, cancel: true });
+		const v = await verdict;
+		assert.deepEqual([v.approved, v.by], [false, "remote"]);
+		assert.deepEqual(told.at(-1), { channel: "straw-link:request:closed", version: 1, id: p.id, by: "remote", allow: false, answerId });
+	}
+});

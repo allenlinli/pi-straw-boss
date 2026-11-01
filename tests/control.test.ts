@@ -398,6 +398,43 @@ test("answer: a paired device answers a confirmation and a local-only choice as 
 	assert.equal(sent.length, 3);
 });
 
+test("answer: a cancel is a refusal: a paired device may cancel a dialog where it may pick some choice, never one whose choices are all hereOnly; a dialog with no cancel path takes none, and a cancel carries nothing else", async () => {
+	const { gui, sent, hub } = await answering();
+	const phone = await paired(gui);
+	const cancel = (extra: Record<string, unknown> = {}) => { const { choice: _, ...rest } = body({ cancel: true, ...extra }); return rest; };
+	const target = (answer: Record<string, unknown>) => (hub.target = { from: "S", bridgeId: "B", answer: { dialog: "d1", digest: "a".repeat(64), ...answer } } as Target);
+	let n = 0;
+	const id = () => String(++n).padStart(16, "0");
+	// A dialog that can be cancelled and has choices to pick from: both pages cancel it, and the bridge gets the cancel and nothing else.
+	target({ cancel: true, select: { title: "T", choices: [{ label: "Run it" }, { label: "No" }] } });
+	assert.deepEqual(await send(gui, "sessions/sess-1/answer", cancel({ answerId: id() })), { status: 200, body: { outcome: "accepted" } });
+	assert.deepEqual(sent, [{ to: "B", id: "d1", answerId: "0000000000000001", digest: "a".repeat(64), cancel: true }]);
+	assert.deepEqual(await send(gui, "sessions/sess-1/answer", cancel({ answerId: "0000000000000001" })), { status: 200, body: { outcome: "accepted" } }, "the same cancel again replays");
+	assert.equal(sent.length, 1);
+	const remote = await phone.post("sessions/sess-1/answer", cancel({ answerId: id() }));
+	assert.deepEqual([remote.status, remote.body.outcome, sent.length], [200, "accepted", 2], "a paired device cancels where it may pick");
+	// A link_request whose Approve is hereOnly keeps Deny: cancelling it is a refusal, so a paired device may.
+	target({ cancel: true, select: { title: "T", choices: [{ label: "Approve", hereOnly: true }, { label: "Deny" }] } });
+	assert.equal((await phone.post("sessions/sess-1/answer", cancel({ answerId: id() }))).body.outcome, "accepted");
+	assert.equal(sent.length, 3);
+	// Every choice hereOnly (rotate, unpair all, server stop): this computer's page cancels, a paired device is refused and nothing is sent.
+	target({ cancel: true, select: { title: "Rotate?", choices: [{ label: "Yes", hereOnly: true }, { label: "No", hereOnly: true }], confirm: true } });
+	const refused = await phone.post("sessions/sess-1/answer", cancel({ answerId: id() }));
+	assert.deepEqual([refused.status, refused.body.error, sent.length], [403, "local_only", 3]);
+	assert.deepEqual((await send(gui, "sessions/sess-1/answer", cancel({ answerId: id() }))).body, { outcome: "accepted" }, "this computer's page cancels it");
+	assert.equal(sent.length, 4);
+	// A questionnaire has no hereOnly choice.
+	target({ cancel: true, questions: [{ question: "Q", multiple: false, options: [{ title: "a" }, { title: "b" }] }] });
+	assert.equal((await phone.post("sessions/sess-1/answer", cancel({ answerId: id() }))).body.outcome, "accepted");
+	assert.equal(sent.length, 5);
+	// No cancel path (robot_hand): refused as a bad answer, from both pages; and a cancel with a choice, answers, or a value that is not `true` is never read as a cancel.
+	target({ select: { title: "T", choices: [{ label: "Run it" }, { label: "No" }] } });
+	for (const who of [phone.post, (path: string, b: Record<string, unknown>) => send(gui, path, b)]) assert.equal((await who("sessions/sess-1/answer", cancel({ answerId: id() }))).body.error, "bad_answer");
+	target({ cancel: true, select: { title: "T", choices: [{ label: "Run it" }, { label: "No" }] } });
+	for (const extra of [{ choice: 0 }, { answers: [] }, { cancel: "yes" }, { cancel: 1 }, { cancel: false }]) assert.equal((await send(gui, "sessions/sess-1/answer", { ...cancel({ answerId: id() }), ...extra })).body.error, "bad_answer", JSON.stringify(extra));
+	assert.equal(sent.length, 5, "none of these reached the bridge");
+});
+
 test("answer: a link_request approval of trust, remove, role, rotate, or leave is refused from a paired device and given from this computer's page; Deny and every other action's Approve are taken from both", async () => {
 	const { gui, sent, hub } = await answering();
 	const phone = await paired(gui);

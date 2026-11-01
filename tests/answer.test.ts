@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { after, afterEach, mock, test } from "node:test";
 import type { Net, Unit } from "../src/net.ts";
 import { guiNamespace } from "../src/bridge.ts";
-import { secretDigest, selectDigest } from "../src/owners.ts";
+import { type Answerable, secretDigest, selectDigest } from "../src/owners.ts";
 import { newKeys, seal } from "../src/seal.ts";
 import { type Agent, until, World } from "./fakes.ts";
 import { startHosted, stopHosted } from "./gui-world.ts";
@@ -337,4 +337,64 @@ test("two tool calls in flight leave an intercepted dialog in the terminal", asy
 	assert.equal(answerOf(await snapshot(url)), undefined);
 	b.dialogs[0]!.settle(false);
 	assert.equal(await asked, false);
+});
+
+// Cancel: the page's Cancel button reaches the owner the way Escape does in the terminal (docs/specs/2026-10-18-dialog-answers.md, Cancel).
+const QUESTIONS = [{ question: "Which target?", header: "Target", multiSelect: false, options: [{ label: "staging", description: "" }, { label: "production", description: "" }] }];
+
+test("an rpiv questionnaire is cancelled from the page: rpiv hears {cancel: true} under the page's answerId, the tool call ends cancelled, and the same cancel again replays", async () => {
+	const { b, url, csrf } = await setup(false, [["c1", "ask_user_question"]]);
+	void b.fire("tool_execution_start", { toolCallId: "c1", toolName: "ask_user_question", args: {} });
+	// rpiv as 2.15.0 behaves: the first answer settles the questionnaire, every attempt gets a verdict, and `blocked {active: false}` follows the end.
+	let settled: unknown;
+	const heard: unknown[] = [];
+	const off = b.on("rpiv:ask-user:answer", (raw) => {
+		const x = raw as { toolCallId: string; requestId: string; cancel?: boolean };
+		heard.push(x);
+		const ok = !settled && x.cancel === true;
+		if (ok) settled = { answers: [], cancelled: true };
+		b.emit("rpiv:ask-user:answer-result", ok ? { ok: true, requestId: x.requestId, toolCallId: x.toolCallId } : { ok: false, code: "not_found", requestId: x.requestId, toolCallId: x.toolCallId });
+		if (ok) b.emit("rpiv:ask-user:blocked", { active: false, toolCallId: x.toolCallId });
+	});
+	b.emit("rpiv:ask-user:prompt", { toolCallId: "c1", questions: QUESTIONS });
+	let a: Answerable | undefined;
+	await until(async () => (a = answerOf(await snapshot(url))), "the questionnaire in the snapshot");
+	assert.equal(a!.cancel, true, "rpiv has a cancel path: the page may offer a button");
+	const body = { dialog: a!.dialog, digest: a!.digest, answerId: "k".repeat(20), cancel: true };
+	assert.deepEqual(await post(url, csrf, "sessions/B/answer", body), { status: 200, body: { outcome: "accepted" } });
+	assert.deepEqual(heard, [{ toolCallId: "c1", requestId: "k".repeat(20), cancel: true }]);
+	assert.deepEqual(settled, { answers: [], cancelled: true }, "the tool call ends with the owner's own cancelled result");
+	assert.deepEqual(await post(url, csrf, "sessions/B/answer", body), { status: 200, body: { outcome: "accepted" } }, "the same cancel again replays");
+	assert.equal(heard.length, 1, "the owner heard it once");
+	assert.deepEqual(await post(url, csrf, "sessions/B/answer", { ...body, answerId: "m".repeat(20) }), { status: 200, body: { outcome: "stale", by: "remote" } }, "another answer later hears it is closed");
+	off();
+});
+
+test("a ctx.ui confirm and a select are cancelled from the page as Escape gives them: false, and undefined; the terminal dialog goes", async () => {
+	const { b, url, csrf } = await setup(false, [["c1", "bash"]], true);
+	await b.fire("tool_execution_start", { toolCallId: "c1", toolName: "bash", args: {} });
+	const cancel = (a: { dialog: string; digest: string }, id: string) => post(url, csrf, "sessions/B/answer", { dialog: a.dialog, digest: a.digest, answerId: id.repeat(20), cancel: true });
+	const asked = confirmIn(b), confirmDialog = b.dialogs.at(-1)!;
+	await until(async () => answerOf(await snapshot(url))?.select?.confirm, "the confirm in the snapshot");
+	let a = answerOf(await snapshot(url))!;
+	assert.equal(a.cancel, true);
+	assert.deepEqual(await cancel(a, "c"), { status: 200, body: { outcome: "accepted" } });
+	assert.equal(await asked, false, "a confirm cancelled is No, as Escape gives it");
+	assert.equal(confirmDialog.opts?.signal?.aborted, true, "pi's own dialog was dismissed");
+	await until(async () => !answerOf(await snapshot(url)), "closed");
+	const picked = selectIn(b, "Which target?", ["staging", "production"]);
+	await until(async () => answerOf(await snapshot(url))?.select?.title === "Which target?", "the select in the snapshot");
+	a = answerOf(await snapshot(url))!;
+	assert.deepEqual(await cancel(a, "d"), { status: 200, body: { outcome: "accepted" } });
+	assert.equal(await picked, undefined, "a select cancelled resolves undefined, as Escape gives it");
+});
+
+test("a robot_hand selector has no cancel path: no cancel flag on its dialog, and a cancel sent for it is refused before the owner hears anything", async () => {
+	const { b, url, csrf } = await setup();
+	const hand = selector(b);
+	await until(async () => answerOf(await snapshot(url)), "B's dialog in the snapshot");
+	assert.equal(answerOf(await snapshot(url))!.cancel, undefined);
+	assert.deepEqual(await post(url, csrf, "sessions/B/answer", { dialog: "d1", digest: DIGEST, answerId: "n".repeat(20), cancel: true }), { status: 400, body: { error: "bad_answer", reason: "This dialog cannot be cancelled from here; cancel it in the terminal." } });
+	assert.deepEqual(hand.got, []);
+	hand.off();
 });

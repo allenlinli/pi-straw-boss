@@ -321,7 +321,7 @@ body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /
 	.pair-btn:hover:not(:disabled) { color: var(--text); border-color: color-mix(in srgb, var(--line-c) 50%, transparent); background: color-mix(in srgb, var(--hi) 4%, transparent); }
 }
 /* A press gives way a little under the finger or the pointer. */
-:is(.pair-btn, .tab-add, .quit-btn, .go, .later, .cmp-send, .cmp-alt, .ask-send, .sheet-yes, .new-base, .modes button, .pitem, .d-doc, .thought, .more, .tab-btn):active:not(:disabled) { transform: scale(0.97); }
+:is(.pair-btn, .tab-add, .quit-btn, .go, .later, .cmp-send, .cmp-alt, .ask-send, .ask-cancel, .sheet-yes, .new-base, .modes button, .pitem, .d-doc, .thought, .more, .tab-btn):active:not(:disabled) { transform: scale(0.97); }
 .unit[data-mark="waiting"] > .card { background: color-mix(in srgb, var(--amber) 11%, transparent); }
 .unit[data-mark="error"] > .card { background: color-mix(in srgb, var(--err) 11%, transparent); }
 .unit[data-mark="working"] > .card { background: color-mix(in srgb, var(--c) 7%, transparent); }
@@ -730,6 +730,7 @@ div.ask-opts { max-height: none; overflow: visible; } button.ask-opt { text-alig
 .ask-own { min-width: 0; resize: vertical; field-sizing: content; max-height: 10em; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: 13px var(--sans); }
 .ask-memo { font-size: 12px; } .ask input:disabled, .ask textarea:disabled { opacity: 0.45; }
 .ask-send { padding: 7px 13px; border: 0; border-radius: 10px; background: var(--amber); color: var(--ink); font: 600 13px var(--sans); cursor: pointer; }
+.ask-cancel { padding: 7px 13px; border: 1px solid var(--line); border-radius: 10px; background: none; color: var(--text); font: 600 13px var(--sans); cursor: pointer; } /* ends the dialog the way Escape does in the terminal: quieter than Send */
 .trust h4 { margin: 4px 0 0; color: var(--dim); font-size: 11px; font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; } .trust-found { display: grid; gap: 8px; max-height: 14em; overflow: auto; }
 .trust-group b { font: 12.5px var(--mono); overflow-wrap: anywhere; } .trust-group small { display: block; color: var(--err-soft); }
 .trust-group ul { margin: 2px 0 0; padding: 0 0 0 1.2em; font: 12px/1.5 var(--mono); color: var(--dim); overflow-wrap: anywhere; } .trust-more { list-style: none; margin-left: -1.2em; font-family: var(--sans); font-style: italic; }
@@ -882,8 +883,8 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	/* The HUD, the settings, and the location bar. */
 	.brand { min-height: 44px; } .prefs-btn { width: 44px; height: 44px; }
 	.crumbs { align-items: center; } .crumbs > * { padding-block: 14px; line-height: 16px; }
-	:is(.pair-btn, .alerts, .done-btn, .quit-btn, .later, .go, .x, .d-doc, .ask-send, .ask-opt, .sheet-yes, .cmp-yes, .chat-pill) { min-height: 44px; }
-	:is(.pair-btn, .quit-btn, .later, .go, .x, .tab-add, .ask-send, .sheet-yes, .cmp-yes) { min-width: 44px; }
+	:is(.pair-btn, .alerts, .done-btn, .quit-btn, .later, .go, .x, .d-doc, .ask-send, .ask-cancel, .ask-opt, .sheet-yes, .cmp-yes, .chat-pill) { min-height: 44px; }
+	:is(.pair-btn, .quit-btn, .later, .go, .x, .tab-add, .ask-send, .ask-cancel, .sheet-yes, .cmp-yes) { min-width: 44px; }
 	.set-head .head-back { width: 44px; min-height: 44px; } .lan summary { padding-block: 13px; min-width: 44px; } .set-ctl input[type="range"] { min-height: 44px; } .set-group { padding: 12px; }
 	.set-row .lang { max-width: 55%; } .set-ctl { flex-wrap: wrap; }
 	/* The map: a quit button, then its row. */
@@ -1133,7 +1134,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 [data-view="geek"] :is(.logo svg, .deploy-title svg, .tower svg) { filter: none; }
 [data-view="geek"] .hud { backdrop-filter: none; }
 [data-view="geek"] .card:hover { transform: none !important; }
-[data-view="geek"] :is(.pair-btn, .tab-add, .quit-btn, .go, .later, .cmp-send, .cmp-alt, .ask-send, .sheet-yes, .new-base, .modes button, .pitem, .d-doc, .thought, .more, .tab-btn, .pad-key):active:not(:disabled) { transform: none !important; }
+[data-view="geek"] :is(.pair-btn, .tab-add, .quit-btn, .go, .later, .cmp-send, .cmp-alt, .ask-send, .ask-cancel, .sheet-yes, .new-base, .modes button, .pitem, .d-doc, .thought, .more, .tab-btn, .pad-key):active:not(:disabled) { transform: none !important; }
 [data-view="geek"] .pad-key { border-bottom-width: 1px; }
 /* One plain border on all four sides everywhere (the tokens' own stay clear): state is told by the tag and the words, not by a coloured edge. The rings that are the state's own sign (a plate's, a tower's pulse) keep it. */
 [data-view="geek"] :where(*:not(.token, .stats > div, .pulse)) { border-color: var(--line) !important; }

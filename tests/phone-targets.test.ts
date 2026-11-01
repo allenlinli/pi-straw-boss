@@ -35,9 +35,9 @@ test("the phone block gives the controls the audit found small a 44 px box", () 
 	assert.ok(rules.length > 20, `the block's rules were read (${rules.length})`);
 	const set = rules.find(([s]) => s.startsWith(":is(.pair-btn, .alerts")) as [string, string];
 	assert.ok(set, "the shared min-height rule");
-	for (const name of [".pair-btn", ".quit-btn", ".later", ".x", ".ask-send", ".ask-opt", ".sheet-yes"]) assert.ok(set[0].includes(name), `${name} is in it`);
+	for (const name of [".pair-btn", ".quit-btn", ".later", ".x", ".ask-send", ".ask-cancel", ".ask-opt", ".sheet-yes"]) assert.ok(set[0].includes(name), `${name} is in it`);
 	assert.match(set[1], /min-height:\s*44px/);
-	assert.match(body(":is(.pair-btn, .quit-btn, .later, .go, .x, .tab-add, .ask-send, .sheet-yes, .cmp-yes)"), /min-width:\s*44px/);
+	assert.match(body(":is(.pair-btn, .quit-btn, .later, .go, .x, .tab-add, .ask-send, .ask-cancel, .sheet-yes, .cmp-yes)"), /min-width:\s*44px/);
 	for (const selector of [".head-back", ".prefs-btn"]) assert.deepEqual([size(selector, "width"), size(selector, "height")], [44, 44], selector);
 	assert.equal(size(".modes button", "min-height"), 44);
 	assert.equal(size(".brand", "min-height"), 44);

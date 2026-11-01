@@ -352,6 +352,37 @@ test("rpiv-ask-user-question: a questionnaire relays; the bridge's digest check 
 	assert.equal(sent.length, 1, "the abort listener left with its call");
 });
 
+test("cancel: an owner with a cancel path (rpiv) hears it under the page's answerId and the dialog closes by remote; one without (robot_hand) and a cancel carrying a choice are refused, and the dialog stays open", () => {
+	const s = session();
+	s.own();
+	s.fire("tool_execution_start", { toolCallId: "q1", toolName: "ask_user_question", args: {} });
+	s.events.emit("rpiv:ask-user:prompt", { toolCallId: "q1", questions: [{ question: "Go?", header: "Go", multiSelect: false, options: [{ label: "Yes", description: "" }, { label: "No", description: "" }] }] });
+	s.own();
+	const d = s.lists().at(-1)![0]!, sent: Record<string, unknown>[] = [], to = bridgeIdOf(s);
+	s.events.on("rpiv:ask-user:answer", (p) => {
+		sent.push(p as Record<string, unknown>);
+		s.events.emit("rpiv:ask-user:answer-result", { ok: true, requestId: (p as { requestId: string }).requestId, toolCallId: "q1" });
+	});
+	s.message({ version: 1, type: "answer", to, id: d.id, answerId: "b".repeat(16), digest: d.digest, cancel: true, choice: 0 });
+	s.message({ version: 1, type: "answer", to, id: d.id, answerId: "c".repeat(16), digest: d.digest, cancel: "yes" });
+	assert.deepEqual([s.acks().map((a) => [a.outcome, a.reason]), sent], [[["rejected", "malformed"], ["rejected", "malformed"]], []], "nothing reached the owner");
+	s.message({ version: 1, type: "answer", to, id: d.id, answerId: "k".repeat(16), digest: d.digest, cancel: true });
+	assert.deepEqual(sent, [{ toolCallId: "q1", requestId: "k".repeat(16), cancel: true }]);
+	assert.equal(s.acks().at(-1)!.outcome, "accepted");
+	s.events.emit("rpiv:ask-user:blocked", { active: false, toolCallId: "q1" });
+	s.message({ version: 1, type: "answer", to, id: d.id, answerId: "k".repeat(16), digest: d.digest, cancel: true });
+	assert.deepEqual([s.acks().at(-1)!.outcome, sent.length], ["accepted", 1], "the same cancel again replays, once");
+	// robot_hand has no cancel in contract v1.
+	const t = session();
+	t.own();
+	t.open();
+	t.own();
+	const hand = t.lists().at(-1)![0]!, heard: unknown[] = [];
+	t.events.on("robot-hand:answer", (p) => heard.push(p));
+	t.message({ version: 1, type: "answer", to: bridgeIdOf(t), id: hand.id, answerId: "n".repeat(16), digest: hand.digest, cancel: true });
+	assert.deepEqual([t.acks().at(-1)!.outcome, t.acks().at(-1)!.reason, heard], ["rejected", "not-allowed", []]);
+});
+
 test("without pi-intercom, or with a broker that drops, nothing breaks and the dialog stays terminal-only", () => {
 	const s = session({ intercom: false });
 	s.open();

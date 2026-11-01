@@ -353,6 +353,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 				const checked = checkAnswer(target.answer, json);
 				if (typeof checked === "string") throw no(400, "bad_answer", checked);
 				if (remote && "choice" in checked && target.answer.select?.choices[checked.choice]?.hereOnly) throw no(403, "local_only", "This choice is approved on this computer's own page or terminal; a paired device can only deny."); // decided by the listener and the stored dialog, never the body
+				if (remote && "cancel" in checked && target.answer.select?.choices.every((c) => c.hereOnly)) throw no(403, "local_only", "This dialog is answered on this computer's own page or terminal; a paired device cannot cancel it."); // cancelling is a refusal: a paired device may where it may pick some choice (a link approval's Deny), not where every choice is this computer's
 				return answers.send(key, target, { id: dialog, answerId, digest, ...checked });
 			};
 		} else job = async () => call("agent.focus", { target: (await live(found)).pane_id });

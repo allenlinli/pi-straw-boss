@@ -567,6 +567,67 @@ test("a confirmation is answerable with Yes and No on this computer's page and o
 	}
 });
 
+// Cancel: a button for a dialog whose owner takes a cancel, no pick needed; it ends the dialog the way Escape does in the terminal.
+const cancelling = (extra: Partial<NonNullable<Pending["answer"]>> = {}, base = approval()): Pending => ({ ...base, answer: { ...base.answer!, cancel: true, ...extra } });
+const cancelButton = () => button("Cancel");
+
+test("a dialog whose owner takes a cancel has a Cancel button beside Send, usable with nothing picked; it posts only the dialog, digest, a fresh answerId, and cancel: true, and the card says Cancelled", async () => {
+	const panel = mountOn(false);
+	panel.update(approval(), true);
+	assert.equal(cancelButton(), undefined, "an owner with no cancel path (robot_hand, pi-code) gets none");
+	panel.update(cancelling({ dialog: "m2" }), true);
+	assert.ok(cancelButton(), "Cancel");
+	assert.equal(button("Send answer")!.disabled, true, "Send waits for a pick");
+	assert.equal(cancelButton()!.disabled, false, "Cancel needs none");
+	cancelButton()!.click();
+	assert.equal(sent.length, 1);
+	assert.deepEqual({ ...sent[0]!.body, answerId: typeof sent[0]!.body.answerId }, { dialog: "m2", digest: selectDigest(SELECT), answerId: "string", cancel: true });
+	assert.equal(cancelButton()!.disabled, true, "and nothing else is sent while it is on its way");
+	await reply({ outcome: "accepted" });
+	assert.equal(status(), "Cancelled.");
+	assert.equal(cancelButton()!.disabled, true, "a dialog that ended takes no further answer");
+	assert.equal(button("Send answer")!.disabled, true);
+});
+
+test("Cancel on a questionnaire, a confirm, and a dialog the terminal closed first: the questionnaire needs no answers; a stale cancel reads the existing closed wording", async () => {
+	const panel = mountOn(false);
+	panel.update(cancelling({}, questionnaire()), true);
+	cancelButton()!.click();
+	assert.deepEqual(Object.keys(sent[0]!.body).sort(), ["answerId", "cancel", "dialog", "digest"]);
+	await reply({ outcome: "stale", by: "cancel" });
+	assert.equal(status(), "It was dismissed in the terminal.");
+	panel.update(undefined, true);
+	panel.update(cancelling({ dialog: "u1", digest: selectDigest(CONFIRM), select: CONFIRM }, confirming()), true);
+	assert.deepEqual(choices().map((el) => el.textContent), ["Yes", "No"]);
+	cancelButton()!.click();
+	await reply({ outcome: "accepted" });
+	assert.equal(status(), "Cancelled.");
+});
+
+test("a paired device's page hides Cancel where every choice is hereOnly and shows it where it may pick some choice; a disabled page disables it", () => {
+	const here = { title: "Rotate?", choices: [{ label: "Yes", hereOnly: true as const }, { label: "No", hereOnly: true as const }], confirm: true as const };
+	const link = { title: "Link request", choices: [{ label: "Approve", hereOnly: true as const }, { label: "Deny" }] };
+	const dialog = (select: typeof here | typeof link): Pending => ({ callId: "c1", tool: "link_request", answer: { dialog: "h1", digest: selectDigest(select), select, cancel: true } });
+	const remote = mountOn(true);
+	remote.update(dialog(here), true);
+	assert.equal(cancelButton(), undefined, "refused by the server there (403 local_only): not drawn");
+	remote.update(dialog(link), true);
+	assert.ok(cancelButton(), "Deny stays pickable, so cancelling it is a refusal a paired device may give");
+	remote.update(undefined, true);
+	page.body.replaceChildren((root = new El("div")));
+	const local = mountOn(false);
+	local.update(dialog(here), true);
+	assert.ok(cancelButton(), "this computer's page cancels it");
+	local.update(dialog(here), false);
+	assert.equal(cancelButton()!.disabled, true, "disabled while the stream is down");
+});
+
+test("Cancel is said in every locale the page ships; Traditional Chinese says 取消 and 已取消", async () => {
+	const { locales } = await import("../gui/paraglide/runtime.js");
+	for (const locale of locales) for (const say of [m.cancel, m.cancelled]) assert.ok(say({}, { locale }).length > 1, locale);
+	assert.deepEqual([m.cancel({}, { locale: "zh-TW" }), m.cancelled({}, { locale: "zh-TW" })], ["取消", "已取消。"]);
+});
+
 test("a dialog relayed from ctx.ui says it was opened while the call ran, not that it belongs to it", () => {
 	const local = mountAsk(root as unknown as HTMLElement, () => new Promise(() => {}), false);
 	local.update({ ...confirming(), answer: { ...confirming().answer!, twin: true } }, true);

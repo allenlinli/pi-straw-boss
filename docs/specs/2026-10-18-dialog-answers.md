@@ -38,6 +38,8 @@ from the prompt's questions; it closes the dialog on `blocked {active: false}` o
 abort signal, so when that call is aborted the bridge sends it `{cancel: true}`. rpiv's codes map to outcomes: `not_found` → `stale`,
 `invalid_payload` → `malformed`, `invalid_answer` and `unsupported_host` → `not-allowed` (all `rejected`, dialog stays open).
 
+**Cancel.** An adapter with `cancellable: true` takes `Answer.cancel` and ends its dialog the way Escape does in the terminal; one without it never hears a cancel (the bridge refuses it `rejected`, `not-allowed`, and the hub never offers one). rpiv, the `ctx.ui` wrap (`pi-ui`), the Straw Link gate, and the link approval are cancellable. rpiv gets `answer {toolCallId, requestId: <the page's answerId>, cancel: true}` and its verdict comes back as for an answer (the tool call ends with its own cancelled result, `{answers: [], cancelled: true}`); the contract owners above get `answer {version: 1, id, answerId, digest, cancel: true}` with no `selections` (a cancel that carries one is `malformed`). The `ctx.ui` wrap resolves a select with `undefined` and a confirm with `false`, as Escape does; the gate and the approval take a cancel as Deny. The dialog then closes `by: "remote"` with the `answerId`, as an answer does. `robot_hand`, `secret_drop`, and pi-code's gate speak contract v1 without a cancel answer, so they have no cancel path and the page draws no button for them.
+
 Digest: `sha256(JSON.stringify(["pi-dialog/1", ...parts]))` in hex, with `["select", title, labels]` for a select and
 `["questions", [[question, header|null, multiple, [[title, description|null]…]]…]]` for a questionnaire. Notes, `localOnly`, `copy`,
 and previews are hints and not hashed.
@@ -92,12 +94,13 @@ Started by `createStrawBoss` before the `PI_SUBAGENT_ID` return and only when `H
 3. The net is read afresh; the unit's dialog must still be this dialog with this digest, answerable or with an answer on its way (so
    Check again reaches the bridge, which replays that answer's outcome, and another answer hears `busy`). If not, a dialog that closed
    a moment ago answers with how it ended (`stale` with `by`, or `accepted` for the answer that won), else 409 `changed`.
-4. The body must fit what may be answered (`checkAnswer`): one choice in range for a select, never a `localOnly` one from a remote
+4. The body must fit what may be answered (`checkAnswer`): a cancel is `{cancel: true}` and nothing else, and only for a dialog whose `Answerable` carries `cancel: true` (400 `bad_answer` otherwise: a `cancel` that is not `true`, one beside a `choice` or `answers`, or one for an owner with no cancel path); one choice in range for a select, never a `localOnly` one from a remote
    page; for questions, one entry per question with distinct option indexes in range (one at most unless it takes several), own words
    (≤ 8 KB) or a note (≤ 2 KB) without control characters but tab and newline, an option or own words for each, both only when it
    takes several; at most 12 KB together. 400 `bad_answer` with the reason otherwise. One write per session in flight (429).
    A request that carries a `value` at all (a secret) is refused before anything is looked up: 403 `local_only` from a remote request, 400 `terminal_only` from this
    computer's page, and no refusal quotes it. `checkAnswer` and the hub's `send` refuse one too, so nothing of it is read, kept, sealed, or relayed.
+   **Cancelling is a refusal.** A paired device (the remote listener) may cancel a dialog only where it may pick some choice: a select whose choices are all `hereOnly` (link approvals of trust, remove, role, rotate, and leave, the confirms of `gui rotate`, `gui unpair all`, `server stop`, and `server restart`) is refused with 403 `local_only` before anything is sent, decided by the listener and the stored dialog and never by the body. A link approval whose Approve is `hereOnly` but whose Deny is not may be cancelled from a paired device, as Deny may be given. A questionnaire has no `hereOnly` choice. This computer's page cancels any cancellable dialog. A secret dialog is not relayed and stays unanswerable from every page.
 5. The hub sends the answer to the bridge (or calls this session's) and waits ≤ 5 s for its ack. A value is never sent (409 `unsent`). The ack: 200 `{outcome, reason?, by?}`, 503
    `unsent` when the session cannot be reached (nothing was sent), 504 `unknown` without an ack. Answers are never logged.
 
@@ -107,7 +110,7 @@ The panel sits in the alert dialog and above the composer in the session view (t
 its screen reading or keys). A select shows its title as written (pre-wrapped), one row per choice with its note and the terminal's
 number (also when a `localOnly` choice is hidden on a remote page), **Copy command** (the browser's clipboard; it answers nothing), and
 **Send answer**. A questionnaire shows each question with its header tag, its options (radio or checkbox), "Or type your own answer", and
-"Note (optional)". Send is enabled once every question has an answer. Outcomes: `accepted` "Answered."; `stale` "It was already answered
+"Note (optional)". Send is enabled once every question has an answer. **Cancel** sits beside Send when the dialog is cancellable (`Answerable.cancel`) and, on a paired device, when some choice is not `hereOnly`; it needs no pick, is a 44 px target on a phone, and is drawn in Standard, Geek, and the phone layout alike. It posts `{dialog, digest, answerId, cancel: true}` under its own `answerId`; an accepted cancel reads "Cancelled." (zh-TW 已取消。), a dialog the terminal had closed by Escape first reads "It was dismissed in the terminal." (`stale`, `by: "cancel"`). Escape on the page still only closes the dialog view: the question is cancelled by the button alone. Outcomes: `accepted` "Answered."; `stale` "It was already answered
 in the terminal." (or that it closed); `rejected` the reason, still answerable; `busy` "Another answer is on its way; check the terminal";
 `unknown` or a network error "Not confirmed. Check the terminal" with **Check again**, which resends the same body and `answerId`. A long
 panel scrolls within the comms view and brings its outcome into view. Read-only panels keep 0.5.x's text and **Focus terminal**; the
@@ -140,7 +143,7 @@ never touched: a secret may be typed there (SB-F001), and `custom` dialogs are w
 4. An answer (`straw-boss:ui:answer`) is checked against the relay (the id, the digest, one index in range, an `answerId`): a refusal is an
    `answer-result {accepted: false, reason: "digest" | "malformed" | "closed"}` and the dialog stays; an accepted one sets the answer, aborts the terminal
    dialog, and emits `answer-result {accepted: true}` and `closed {by: "remote", answerId}`. The call then resolves with the chosen option, or `true` for Yes
-   and `false` for No, whatever the aborted dialog returned. The wrap keeps a listener for the last 16 closed ids so a late answer hears `closed`.
+   and `false` for No, whatever the aborted dialog returned. A cancel (`cancel: true`, no `selections`) takes the same path with no choice: the terminal dialog is aborted and the call resolves with what Escape gives, `undefined` for a select and `false` for a confirm; `closed {by: "remote", answerId}` follows as for an answer. The wrap keeps a listener for the last 16 closed ids so a late answer hears `closed`.
 5. If the terminal answers first, it emits `closed` with `by` `local` (Escape in a select: `cancel`; the caller's signal: `abort`; an error: `error`), so the
    page's answer is `stale`.
 
@@ -202,6 +205,8 @@ paired device is 403 `local_only` and nothing is sent; this computer's page and 
 | A scratch server with another state directory | Only bridges reading that directory follow it. |
 | A wrapped `select`/`confirm` that cannot be relayed (no call or two in flight, `secret_drop`, nested, oversize), or whose relay fails to start | The original call, untouched: terminal-only. |
 | A confirm answered from a paired device | 403 `local_only`; the page shows it read-only. |
+| A cancel for an owner with no cancel path, or one that carries a choice | 400 `bad_answer` from the server; the bridge refuses one that reaches it (`rejected`, `not-allowed` or `malformed`) and the dialog stays open. |
+| A cancel from a paired device for a dialog whose choices are all `hereOnly` | 403 `local_only`, nothing sent; the page draws no Cancel there. |
 | `secret_drop` | Read-only on every page: the dialog is not relayed, a crafted answer finds nothing to answer (409), a request with a `value` is refused (400 on this computer's page, 403 remote), and a forged answer sent to the bridge is `rejected` (`terminal_only`). |
 
 ## Why a secret is terminal only
@@ -251,7 +256,7 @@ wrong sender, epoch, or `to`, a server `gui.json` no longer names, every outcome
 closed them, 503 when not the channel's owner, 5 s unknown), `tests/control.test.ts` (the route's guards and body checks, 409, 400,
 429, 504, replay, nothing reaches Herdr input), `tests/answer.test.ts` (end to end over the fake broker: answered once through the
 owner, terminal first, a silent owner with Check again, busy, and the late close, a subagent under its launcher, nothing outside Herdr), `tests/net.test.ts` (a pi-herdr-agents worker runs only
-the bridge), `tests/seal.test.ts` (the envelope: a round trip, another key, a changed ciphertext, IV, or server key, another dialog's binding, malformed input), `tests/secret.test.ts` (the secret_drop wait on both streams, requests with a value refused from a paired device and from this computer's page), `tests/ask.test.ts` (the panel's body builder and outcome texts, `localOnly` hidden remotely), `tests/imports.test.ts`
+the bridge), `tests/seal.test.ts` (the envelope: a round trip, another key, a changed ciphertext, IV, or server key, another dialog's binding, malformed input), `tests/secret.test.ts` (the secret_drop wait on both streams, requests with a value refused from a paired device and from this computer's page), `tests/ask.test.ts` (the panel's body builder and outcome texts, `localOnly` hidden remotely), and for cancel: `tests/answer.test.ts` (end to end: rpiv hears `{cancel: true}` and the tool call ends cancelled, a `ctx.ui` confirm cancels to false and a select to undefined, `robot_hand` has no path), `tests/control.test.ts` (the remote `hereOnly` refusal and every body check), `tests/contract.test.ts`, `tests/bridge.test.ts`, `tests/link-gate.test.ts`, `tests/link-request.test.ts`, `tests/panel.test.ts` (the button, its absence, the remote rule, both locales), `tests/gui-css.test.ts` (the 44 px target), `tests/imports.test.ts`
 (budgets).
 
 A secret must not leave a trace, and now must not even be asked for: `tests/answer.test.ts` runs a secret_drop end to end with a third session on the channel, which the fake broker hands every

@@ -42,7 +42,7 @@ export const argsText = (input: Record<string, unknown>) => JSON.stringify(input
 const nameOf = (senders: RemoteSender[]) => senders.map((s) => `${s.label} (${s.short})`).join(", ") || "an unknown device";
 
 export function createGate({ bus, forward, timeoutMs = GATE_MS, onError = () => {} }: { bus: Bus; forward?: ForwardPort; timeoutMs?: number; onError?: (what: string, error: Error) => void }) {
-	const open = new Map<string, { digest: string; count: number; take(choice: number, answerId: string): void }>(), served: string[] = [];
+	const open = new Map<string, { digest: string; count: number; take(choice: number, answerId: string): void; cancel(answerId: string): void }>(), served: string[] = [];
 	let listening: (() => void) | undefined;
 	const tell = (channel: string, data: unknown) => {
 		try {
@@ -52,7 +52,7 @@ export function createGate({ bus, forward, timeoutMs = GATE_MS, onError = () => 
 		}
 	};
 	const answered = (raw: unknown) => {
-		const a = (raw ?? {}) as { id?: unknown; answerId?: unknown; digest?: unknown; selections?: unknown };
+		const a = (raw ?? {}) as { id?: unknown; answerId?: unknown; digest?: unknown; selections?: unknown; cancel?: unknown };
 		if (typeof a.id !== "string") return;
 		const dialog = open.get(a.id);
 		if (!dialog && !served.includes(a.id)) return;
@@ -61,6 +61,11 @@ export function createGate({ bus, forward, timeoutMs = GATE_MS, onError = () => 
 		if (!dialog) return result(false, "closed");
 		const pick = Array.isArray(a.selections) && a.selections.length === 1 ? (a.selections[0] as unknown) : undefined;
 		if (a.digest !== dialog.digest) return result(false, "digest");
+		if (a.cancel !== undefined) { // Escape on the terminal's confirm is a No: a cancel is Deny
+			if (!answerId || a.cancel !== true || a.selections !== undefined) return result(false, "malformed");
+			result(true);
+			return dialog.cancel(answerId);
+		}
 		if (!answerId || typeof pick !== "number" || !Number.isInteger(pick) || pick < 0 || pick >= dialog.count) return result(false, "malformed");
 		result(true);
 		dialog.take(pick, answerId);
@@ -89,7 +94,7 @@ export function createGate({ bus, forward, timeoutMs = GATE_MS, onError = () => 
 				tell("closed", { version: 1, id, by, allow, ...(answerId ? { answerId } : {}) });
 				resolve({ allow, by, reason });
 			};
-			open.set(id, { digest, count: 2, take: (choice, answerId) => finish(choice === 0, "remote", choice === 0 ? "allowed from a page" : DECLINED, answerId) });
+			open.set(id, { digest, count: 2, take: (choice, answerId) => finish(choice === 0, "remote", choice === 0 ? "allowed from a page" : DECLINED, answerId), cancel: (answerId) => finish(false, "remote", DECLINED, answerId) });
 			tell("pending", { version: 1, id, toolCallId: req.toolCallId, digest, select });
 			timer = setTimeout(() => finish(false, "timeout", `${DECLINED}: no answer within ${timeoutMs >= 60_000 ? `${Math.round(timeoutMs / 60_000)} minutes` : `${Math.max(1, Math.round(timeoutMs / 1000))} seconds`}`), timeoutMs);
 			timer.unref();

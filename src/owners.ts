@@ -17,11 +17,11 @@ export interface Secret { label: string; instructions: string[]; url?: string; d
 /** An open dialog as the bridge relays it: a `select` (labelled choices), `questions` (a questionnaire), or a `secret`; `big` when too long to relay, `busy` while an answer is on its way. */
 export interface Dialog { owner: string; id: string; toolCallId?: string; digest: string; select?: Select; questions?: Question[]; secret?: Secret; big?: true; busy?: true }
 /** What the page may answer, carried on a waiting unit's `pending`. */
-export interface Answerable { dialog: string; digest: string; select?: Select; questions?: Question[]; twin?: true }
+export interface Answerable { dialog: string; digest: string; select?: Select; questions?: Question[]; twin?: true; cancel?: true }
 /** One question's answer: chosen option indexes, own words, a note. */
 export interface Reply { choices?: number[]; text?: string; note?: string }
 /** An answer for one dialog: `choice` for a select, one `answers` entry per question, `value` for a secret (the owner's contract takes one, but nothing in this extension sends it: SB-F001). `answerId` is the page's idempotency key. */
-export interface Answer { id: string; answerId: string; digest: string; choice?: number; answers?: Reply[]; value?: string }
+export interface Answer { id: string; answerId: string; digest: string; choice?: number; answers?: Reply[]; value?: string; cancel?: true }
 export interface Verdict { accepted: boolean; reason?: string }
 /** `closed` without `by` leaves it to the bridge (remote when its answer was taken, else local). */
 /** `closed`'s `allow` is the verdict of a gate or an approval that ended with an explicit yes (src/link/gate.ts, approval.ts): the sb server takes an ally run's gated tool call only against one (src/server/allows.ts). */
@@ -34,6 +34,8 @@ export interface OwnerAdapter {
 	gate?: true;
 	/** A twin: the same dialog as another owner's, relayed from the wrap of ctx.ui (intercept.ts). It yields to a contract owner's dialog on the same tool call. */
 	twin?: true;
+	/** The owner takes a cancel for its dialog (`Answer.cancel`) and ends it the way Escape does in the terminal. An owner without one gets no cancel button: nothing is sent, no key, no screen read. */
+	cancellable?: true;
 	listen(bus: Bus, report: Report): () => void;
 	/** Hands one answer to the owner; `done` gets the verdict (synchronously when the owner answers inside its listener). Returns the cleanup. */
 	answer(bus: Bus, d: Dialog, a: Answer, done: (v: Verdict) => void): () => void;
@@ -69,12 +71,12 @@ export function secretOf(owner: string, raw: unknown): Dialog | undefined {
 
 /** How a contract-v1 owner's dialog is read from its `pending` payload, and what an answer for it carries. */
 interface Shape { parse(owner: string, raw: unknown): Dialog | undefined; body(a: Answer): Record<string, unknown> }
-const SELECT_SHAPE: Shape = { parse: selectOf, body: (a) => ({ selections: [a.choice] }) };
+const SELECT_SHAPE: Shape = { parse: selectOf, body: (a) => (a.cancel ? { cancel: true } : { selections: [a.choice] }) };
 const SECRET_SHAPE: Shape = { parse: secretOf, body: (a) => ({ value: a.value }) };
 
 /** An owner that speaks contract v1 under `prefix` (pi-robot-hand; pi-mcp-adapter's fork once it emits). */
-const contract = (name: string, prefix: string, tool?: string, gate?: true, shape = SELECT_SHAPE, twin?: true): OwnerAdapter => ({
-	name, tool, ...(gate ? { gate } : {}), ...(twin ? { twin } : {}),
+const contract = (name: string, prefix: string, tool?: string, gate?: true, shape = SELECT_SHAPE, twin?: true, cancellable?: true): OwnerAdapter => ({
+	name, tool, ...(gate ? { gate } : {}), ...(twin ? { twin } : {}), ...(cancellable ? { cancellable } : {}),
 	listen(bus, report) {
 		const self = this, offs = [
 			bus.on(`${prefix}:pending`, (raw) => { const d = shape.parse(name, raw); if (d) report.open(self, d); }),
@@ -105,7 +107,7 @@ function questionsOf(raw: unknown): Question[] | undefined {
 	return qs.every(Boolean) ? (qs as Question[]) : undefined;
 }
 export const rpiv: OwnerAdapter = {
-	name: "rpiv", tool: "ask_user_question",
+	name: "rpiv", tool: "ask_user_question", cancellable: true,
 	listen: (bus, report) => {
 		const ids = new Map<string, string>(), offs = [
 			bus.on(`${RPIV}:prompt`, (raw) => {
@@ -123,12 +125,12 @@ export const rpiv: OwnerAdapter = {
 		return () => offs.forEach((off) => off());
 	},
 	answer: (bus, d, a, done) => {
-		if (a.digest !== d.digest || !a.answers) return done({ accepted: false, reason: a.answers ? "digest" : "malformed" }), () => {};
+		if (a.digest !== d.digest || !(a.answers || a.cancel)) return done({ accepted: false, reason: a.answers || a.cancel ? "digest" : "malformed" }), () => {};
 		const off = bus.on(`${RPIV}:answer-result`, (raw) => {
 			const r = raw as { ok?: unknown; code?: unknown; requestId?: unknown; toolCallId?: unknown };
 			if (r?.requestId === a.answerId && r.toolCallId === d.toolCallId) done(r.ok === true ? { accepted: true } : { accepted: false, reason: CODES[String(r.code)] ?? "malformed" });
 		});
-		bus.emit(`${RPIV}:answer`, { toolCallId: d.toolCallId, requestId: a.answerId, answers: a.answers.map((r, questionIndex) => ({ questionIndex, ...(r.choices?.length ? { optionIndexes: r.choices } : {}), ...(r.text !== undefined ? { text: r.text } : {}), ...(r.note ? { notes: r.note } : {}) })) });
+		bus.emit(`${RPIV}:answer`, a.cancel ? { toolCallId: d.toolCallId, requestId: a.answerId, cancel: true } : { toolCallId: d.toolCallId, requestId: a.answerId, answers: a.answers!.map((r, questionIndex) => ({ questionIndex, ...(r.choices?.length ? { optionIndexes: r.choices } : {}), ...(r.text !== undefined ? { text: r.text } : {}), ...(r.note ? { notes: r.note } : {}) })) });
 		return off;
 	},
 	cancel: (bus, d) => bus.emit(`${RPIV}:answer`, { toolCallId: d.toolCallId, requestId: `cancel-${d.id}`, cancel: true }),
@@ -143,11 +145,11 @@ export const mcpAdapter = contract("pi-mcp-adapter", "pi-mcp-adapter:dialog");
 export const piCode = contract("pi-code", "pi-code:dialog", undefined, true);
 /** Any extension's ctx.ui.select or ctx.ui.confirm, relayed by the wrap of ctx.ui (intercept.ts) as a gate on the one tool call in flight. */
 export const UI_PREFIX = "straw-boss:ui";
-export const uiPrompt = contract("pi-ui", UI_PREFIX, undefined, true, SELECT_SHAPE, true);
+export const uiPrompt = contract("pi-ui", UI_PREFIX, undefined, true, SELECT_SHAPE, true, true);
 /** The gate of a Straw Link remote turn (src/link/gate.ts): its confirmation before a tool call the allowlist does not cover. A gate and not a twin: it names the call it asks about by toolCallId, and it is the only dialog of that call. */
 export const GATE_PREFIX = "straw-link:gate";
-export const linkGate = contract("straw-link-gate", GATE_PREFIX, undefined, true);
+export const linkGate = contract("straw-link-gate", GATE_PREFIX, undefined, true, SELECT_SHAPE, undefined, true);
 /** The approval dialog of a `link_request` (src/link/approval.ts): owned by the tool whose call it asks about, so only that call in flight can open it. */
 export const REQUEST_PREFIX = "straw-link:request";
-export const linkRequest = contract("straw-link-request", REQUEST_PREFIX, "link_request");
+export const linkRequest = contract("straw-link-request", REQUEST_PREFIX, "link_request", undefined, SELECT_SHAPE, undefined, true);
 export const OWNERS: OwnerAdapter[] = [robotHand, secretDrop, rpiv, mcpAdapter, piCode, uiPrompt, linkGate, linkRequest];

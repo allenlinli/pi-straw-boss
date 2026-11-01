@@ -213,3 +213,19 @@ test("the gate's close after a timeout says no", async () => {
 	await call("bash", { command: "ls" }, "tc-4");
 	assert.deepEqual(closed.map((x) => [x.by, x.allow]), [["timeout", false]]);
 });
+
+test("a cancel from a page is Deny, as Escape on the terminal's confirm is a No: the call is blocked, the dialog closes by remote with its answerId, and the terminal's confirm goes", async () => {
+	const { c, pending, closed, results, call } = await turn();
+	const held = call("bash", { command: "ls" }, "tc-1");
+	await until(() => c.tower.dialogs.length === 1 && pending.length === 1, "both dialogs");
+	const p = pending[0]!;
+	c.tower.emit("straw-link:gate:answer", { version: 1, id: p.id, answerId: "k".repeat(16), digest: p.digest, cancel: true, selections: [0] });
+	assert.deepEqual(results.map((r) => [r.accepted, r.reason]), [[false, "malformed"]], "a cancel carries nothing else; the dialog stays open");
+	c.tower.emit("straw-link:gate:answer", { version: 1, id: p.id, answerId: "k".repeat(16), digest: "0".repeat(64), cancel: true });
+	assert.equal(results.at(-1)!.reason, "digest");
+	c.tower.emit("straw-link:gate:answer", { version: 1, id: p.id, answerId: "k".repeat(16), digest: p.digest, cancel: true });
+	assert.deepEqual(results.at(-1), { version: 1, id: p.id, answerId: "k".repeat(16), accepted: true });
+	assert.equal(((await held) as { block?: boolean }).block, true, "Deny blocks the call");
+	assert.deepEqual(closed.map((x) => [x.id, x.by, x.answerId, x.allow]), [[p.id, "remote", "k".repeat(16), false]]);
+	assert.equal(c.tower.dialogs[0]!.opts?.signal?.aborted, true, "the terminal's confirm was dismissed");
+});

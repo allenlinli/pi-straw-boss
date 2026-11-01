@@ -608,3 +608,16 @@ test("F004: Cancel is offered only when the bridge says its owner takes one: a d
 	x.h.receive("S", x.list([dialog({ cancellable: true })], { file: hand }));
 	assert.equal((await read(x, hand)).unit.pending?.answer?.cancel, undefined, "a flag on an owner with no cancel path changes nothing");
 });
+
+test("a dialog whose choice is tagged (robot_hand 0.4.0) stays valid and visible, and the stored answer keeps tagged (ATP3-F001, mutant T10)", async () => {
+	const x = hub(), path = file([["c1", "robot_hand"]]);
+	const select = { title: SELECT.title, choices: [{ label: "Run it", next: "pane" as const, tagged: true as const }, { label: "No, thanks" }] };
+	x.h.receive("S", x.list([dialog({ select, digest: selectDigest(select) })], { file: path }));
+	const { unit } = await read(x, path);
+	assert.equal(unit.pending?.answer?.dialog, "d1", "the dialog is visible");
+	assert.equal(x.h.target("S")?.answer.select?.choices[0]?.tagged, true);
+	const bad = { title: SELECT.title, choices: [{ label: "Run it", next: "terminal" as const, tagged: true as const }] };
+	const y = hub();
+	y.h.receive("S", y.list([dialog({ select: bad as never, digest: selectDigest(bad) })], { file: path }));
+	assert.equal(y.h.target("S"), undefined, "tagged without next: pane is not a dialog");
+});

@@ -5,7 +5,7 @@ import { HerdrError } from "../src/herdr.ts";
 
 /** A fake Herdr with a tab of panes the test grows and shrinks; `sleep` moves a clock the test owns. */
 function world() {
-	const w = { tab: ["p1"] as string[], terminals: new Map<string, string>([["p1", "t1"]]), t: 0, fails: false, agent: new Map<string, string>([["p1", "pi"]]), roles: new Map<string, string>(), calls: [] as string[], onSleep: [] as (() => void)[] };
+	const w = { tab: ["p1"] as string[], terminals: new Map<string, string>([["p1", "t1"]]), t: 0, fails: false, agent: new Map<string, string>([["p1", "pi"]]), roles: new Map<string, string>(), tags: new Map<string, string>(), calls: [] as string[], onSleep: [] as (() => void)[] };
 	const call = async (method: string, params: Record<string, unknown>) => {
 		w.calls.push(`${method} ${params.pane_id}`);
 		if (w.fails) throw new HerdrError("socket_error", "down");
@@ -13,7 +13,7 @@ function world() {
 		if (method === "pane.layout") return { layout: { panes: w.tab.map((pane_id) => ({ pane_id, rect: { width: 40 } })) } };
 		if (method === "pane.get") {
 			if (!w.tab.includes(id)) throw new HerdrError("pane_not_found", "no such pane");
-			return { pane: { pane_id: id, agent: w.agent.get(id), ...(w.roles.has(id) ? { tokens: { sb_role: w.roles.get(id)! } } : {}), terminal_id: w.terminals.get(id) } };
+			return { pane: { pane_id: id, agent: w.agent.get(id), ...(w.roles.has(id) || w.tags.has(id) ? { tokens: { ...(w.roles.has(id) ? { sb_role: w.roles.get(id)! } : {}), ...(w.tags.has(id) ? { sb_answer: w.tags.get(id)! } : {}) } } : {}), terminal_id: w.terminals.get(id) } };
 		}
 		throw new Error(`unexpected ${method}`);
 	};
@@ -111,4 +111,53 @@ test("F001: a grant never reaches a pi pane, a tower, or a pane that starts runn
 		await assert.rejects(later.g.live(grant), rejected);
 		assert.equal(later.g.get(grant.id), undefined);
 	}
+});
+
+test("ATR2-F001: an owner that tags its pane (sb_answer = the answerId) is granted that pane and no other, whatever else appears in the tab and however new it is", async () => {
+	const ID = "answer-id-0123456789";
+	// Two new panes, one tagged: the tag decides, not the count or the order.
+	const two = world();
+	const b1 = (await two.g.before("p1"))!;
+	two.w.tab.push("p2", "p3");
+	two.w.tags.set("p3", ID);
+	assert.equal((await two.g.claim("s", "p1", b1, ID))?.pane, "p3", "the untagged p2 is ignored");
+	// The tag arrives after the pane (a split first, then the report).
+	const late = world();
+	const b2 = (await late.g.before("p1"))!;
+	late.w.tab.push("p2");
+	late.w.onSleep.push(() => void 0, () => late.w.tags.set("p2", ID));
+	assert.equal((await late.g.claim("s", "p1", b2, ID))?.pane, "p2");
+	// One new pane without the tag, or with another answer's: nothing is granted, and the timing fallback is not used.
+	for (const tag of [undefined, "another-answer-0123456"]) {
+		const w = world();
+		const b = (await w.g.before("p1"))!;
+		w.w.tab.push("p2");
+		if (tag) w.w.tags.set("p2", tag);
+		assert.equal(await w.g.claim("s", "p1", b, ID), undefined, `tag ${tag ?? "none"}`);
+		assert.ok(w.w.t >= CLAIM_MS - 250, "it waited the window out");
+	}
+	// Two panes carrying the value are ambiguous; a tagged pane that runs an agent or carries sb_role is not granted; a tag on a pane that was there before the answer is not either.
+	const dup = world();
+	const b3 = (await dup.g.before("p1"))!;
+	dup.w.tab.push("p2", "p3");
+	dup.w.tags.set("p2", ID).set("p3", ID);
+	assert.equal(await dup.g.claim("s", "p1", b3, ID), undefined);
+	assert.ok(dup.w.t < CLAIM_MS, "and it says so at once, not after the window");
+	for (const turn of [(w: ReturnType<typeof world>["w"]) => w.agent.set("p2", "pi"), (w: ReturnType<typeof world>["w"]) => w.roles.set("p2", "tower")]) {
+		const w = world();
+		const b = (await w.g.before("p1"))!;
+		w.w.tab.push("p2");
+		w.w.tags.set("p2", ID);
+		turn(w.w);
+		assert.equal(await w.g.claim("s", "p1", b, ID), undefined);
+	}
+	const old = world();
+	old.w.tab.push("p2");
+	old.w.tags.set("p2", ID);
+	assert.equal(await old.g.claim("s", "p1", (await old.g.before("p1"))!, ID), undefined, "p2 was in the tab before the answer went out");
+	// An owner that does not tag keeps the timing claim.
+	const plain = world();
+	const b4 = (await plain.g.before("p1"))!;
+	plain.w.tab.push("p2");
+	assert.equal((await plain.g.claim("s", "p1", b4))?.pane, "p2");
 });

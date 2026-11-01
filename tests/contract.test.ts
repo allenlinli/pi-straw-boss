@@ -281,3 +281,13 @@ test("a choice's `next` hint (terminal, pane) is kept and not hashed; robot_hand
 	b.emit("pi-code:dialog:pending", raw([{ label: "Put it in my prompt" }]));
 	assert.equal(other[0]?.select?.choices[0]?.next, undefined, "another owner's label means nothing");
 });
+
+test("a choice's `tagged` hint travels from the owner's pending into the stored dialog only with next: pane (ATP3-F001, mutant T9)", () => {
+	const raw = (choices: unknown[]) => ({ version: 1, id: "d1", toolCallId: "c1", digest: "a".repeat(64), select: { title: "T", choices } });
+	assert.deepEqual(selectOf("x", raw([{ label: "A", next: "pane", tagged: true }, { label: "B", next: "terminal", tagged: true }, { label: "C", tagged: true }, { label: "D", next: "pane", tagged: "yes" }, { label: "E", next: "pane" }]))?.select?.choices, [{ label: "A", next: "pane", tagged: true }, { label: "B", next: "terminal" }, { label: "C" }, { label: "D", next: "pane" }, { label: "E", next: "pane" }]);
+	const b = bus(), opened: Dialog[] = [];
+	robotHand.listen(b, { open: (_, d) => opened.push(d), closed() {} });
+	b.emit("robot-hand:pending", raw([{ label: "Run it in a new Herdr pane", next: "pane", tagged: true }, { label: "No, thanks" }]));
+	assert.deepEqual(opened[0]!.select!.choices, [{ label: "Run it in a new Herdr pane", next: "pane", tagged: true }, { label: "No, thanks" }]);
+	assert.equal(selectDigest({ title: "T", choices: [{ label: "A", next: "pane", tagged: true }] }), selectDigest({ title: "T", choices: [{ label: "A" }] }), "a hint, not hashed");
+});

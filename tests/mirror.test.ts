@@ -328,6 +328,43 @@ test("a bare pane ends the moment its pane runs an agent or carries an sb_role t
 	}
 });
 
+test("ATR2-F002: a bare pane sends no frame once its pane runs an agent or carries sb_role, however recently it was looked at, and ends its grant", async () => {
+	for (const change of [(s: { agent: string }) => (s.agent = "pi"), (s: { tokens?: Record<string, string> }) => (s.tokens = { sb_role: "tower" })]) {
+		const t = setup();
+		t.state.agent = "";
+		const a = t.stream("a"), dropped: string[] = [];
+		assert.equal(t.m.toggle("grant:g1", { stream: a, on: true }, { pane: "px", terminal: "t-1", drop: () => dropped.push("g1") }).status, 200);
+		await t.c.advance(1);
+		const frames = t.frames("a").length;
+		assert.deepEqual(dropped, []);
+		change(t.state as never);
+		t.state.screen = ["pi's secret screen", "two"];
+		await t.c.advance(FAST_MS + 5); // well inside SIZE_MS of the last size check
+		assert.equal(t.frames("a").length, frames + 1);
+		assert.equal(t.frames("a").at(-1)!.ended, "The pane closed.");
+		assert.ok(t.frames("a").every((f) => !JSON.stringify(f).includes("secret screen")), "its screen was never delivered");
+		assert.deepEqual(dropped, ["g1"], "the grant ends with the reader");
+	}
+	// A pane that closes drops its grant too.
+	const g = setup();
+	g.state.agent = "";
+	const dropped: string[] = [];
+	g.m.toggle("grant:g2", { stream: g.stream("b"), on: true }, { pane: "px", drop: () => dropped.push("g2") });
+	await g.c.advance(1);
+	g.state.gone = true;
+	await g.c.advance(FAST_MS + 5);
+	assert.deepEqual(dropped, ["g2"]);
+	// A reader the last viewer left is not an end: the grant stays.
+	const h = setup();
+	h.state.agent = "";
+	const kept: string[] = [];
+	const s = h.stream("c");
+	h.m.toggle("grant:g3", { stream: s, on: true }, { pane: "px", drop: () => kept.push("g3") });
+	await h.c.advance(1);
+	h.m.toggle("grant:g3", { stream: s, on: false });
+	assert.deepEqual(kept, []);
+});
+
 test("a bare pane does not count toward a page's two terminals, and a stream that is not open is refused", async () => {
 	const t = setup();
 	const a = t.stream("a");

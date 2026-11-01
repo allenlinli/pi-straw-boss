@@ -42,9 +42,27 @@ abort signal, so when that call is aborted the bridge sends it `{cancel: true}`.
 
 Digest: `sha256(JSON.stringify(["pi-dialog/1", ...parts]))` in hex, with `["select", title, labels]` for a select and
 `["questions", [[question, header|null, multiple, [[title, description|null]…]]…]]` for a questionnaire. Notes, `localOnly`, `copy`,
-previews, and a choice's `next` are hints and not hashed. `next` (`"terminal"`: a step in the session's terminal, such as Enter on a prompt that was filled;
+previews, and a choice's `next` and `tagged` are hints and not hashed. `next` (`"terminal"`: a step in the session's terminal, such as Enter on a prompt that was filled;
 `"pane"`: a new Herdr pane the choice opened) tells the page to open that terminal once the answer is accepted (`then` in the answer's reply; docs/how-it-works.md,
-*An answer that needs the terminal opens it*). It is optional in v1: an owner that sends none is read by label in its adapter (`src/owners.ts`, robot_hand 0.3.2).
+*An answer that needs the terminal opens it*). It is optional in v1: an owner that sends none is read by label in its adapter (`src/owners.ts`, robot_hand 0.3.2). `tagged: true` (with `"pane"` only) says the owner tags the pane it opens: see *Which pane an answer opened* below.
+
+### Which pane an answer opened
+
+A choice with `next: "pane"` opens a Herdr pane, and the page then mirrors and keys into it through a **grant** the server mints for it (`src/answerpane.ts`; docs/how-it-works.md, *An answer that needs the terminal opens it*). The grant must name the pane the owner opened and no other, so an owner can say which one it is.
+
+**Tagging (contract v1, optional).** A choice that opens a pane and tags it carries `tagged: true` next to `next: "pane"` in `pending` (a hint like `next`: not hashed, ignored without `next: "pane"`, read from the stored dialog and never from a request). When it takes an accepted answer to that choice, the owner reports one token on the pane it opened, right after the split and before anything runs in it:
+
+```
+herdr pane report-metadata <pane_id> --source <owner> --token sb_answer=<answerId> --ttl-ms 600000
+```
+
+(or `pane.report_metadata { pane_id, source, tokens: { sb_answer: "<answerId>" }, ttl_ms }` on the socket). The value is the `answerId` of the answer it accepted (`[A-Za-z0-9_-]{16,64}`), not the dialog id. The pane is in the asking pi pane's tab. The server starts looking when the owner's `answer-result` is accepted and looks for 3 s, every 250 ms; a tag set before the result is found at once. If the owner cannot tag the pane, it does nothing else and the server grants nothing (`then.pane` is `null`; the card says a pane opened in Herdr).
+
+**Server rule.** For a `tagged` choice the grant goes to the one pane that was not in the tab when the answer went out and carries `sb_answer` equal to the answer's `answerId`. A pane without the token or with another value is never granted, however new it is; two panes with the value grant nothing; a matching pane that runs an agent or carries `sb_role` is not granted. There is no timing fallback for a tagged choice, so a foreign pane that shows first cannot take it.
+
+**Fallback and its residual.** A choice without `tagged` (pi-robot-hand <= 0.3.x) keeps the timing claim: exactly one new pane in the tab within 3 s that runs no agent and carries no `sb_role`. Nothing ties that pane to the owner (ATR2-F001): a pane that appears alone in the same window (a subagent or `/boss open` split whose pi Herdr has not reported yet, the boss's own split, another session's answer) is granted instead. Until Herdr reports its agent, the page's keys reach it without pi's confirms; then the grant ends. Bounded: it needs a coincident pane in a window of at most 3 s, and gives no authority beyond the boss keyboard a paired device already has. It goes away when the owner tags.
+
+**End of a grant.** Every key checks the pane again, and the bare mirror reads the pane with every frame it reads: a pane that now runs an agent or carries `sb_role` (a pi session or a tower), has another terminal, or is gone ends the grant (409 `pane_closed` on a key; the mirror sends no frame of what it just read, ends with "The pane closed.", and drops the grant).
 
 ## Bridge (`src/bridge.ts`, every pi session in Herdr, subagents included)
 

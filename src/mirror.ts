@@ -7,8 +7,9 @@ import type { Found } from "./net.ts";
 // 250 ms while the screen changed in the last 2 s, else every second, with every row again on attach, after a size change, and every 10 s.
 // A stream asks for a session's mirror with POST …/mirror {stream, on}; the reads are shared by every stream on that session and stop when
 // the last one leaves, when the unit leaves the registry or its pane runs something else, or after 10 failed reads in a row (`ended`).
-// A pane an answer opened (answerpane.ts; keys `grant:<id>`) is mirrored the same way as a "bare" reader: no registry entry, no pi on it, no secret to hide; it ends with "The pane closed."
-// when Herdr no longer has it or its terminal is another, and it does not count toward a page's two terminals.
+// A pane an answer opened (answerpane.ts; keys `grant:<id>`) is mirrored the same way as a "bare" reader: no registry entry, no pi on it, no secret to hide. Because nothing hides a pi pane's secret, the pane
+// is looked at with every read (`pane.get` beside `pane.read`) and a frame is sent only if it still has its terminal and runs no agent and carries no `sb_role`; if not, the reader ends with "The pane closed."
+// and its grant ends with it (`Bare.drop`), as it does when Herdr no longer has the pane. A bare reader does not count toward a page's two terminals.
 // While the session file's open call is secret_drop no row is read, and the streams hear `hidden` instead. Rows are display data only:
 // nothing here reads them for meaning, and the sanitizer keeps SGR (colours and attributes) and drops every other escape and control.
 
@@ -18,8 +19,8 @@ export type TimerId = ReturnType<typeof setTimeout> | number;
 export interface Timer { now(): number; set(run: () => void, ms: number): TimerId; clear(id: TimerId | undefined): void }
 export interface MirrorDeps { call?: HerdrCall; lookup(key: string): Found | undefined; secret(file: string): Promise<boolean>; canonical(file?: string): string | undefined; timer?: Timer }
 interface Viewer { send: Send; at: number; whole: boolean }
-/** A pane the mirror reads without a session: `terminal` is the one it had when granted. */
-export interface Bare { pane: string; terminal?: string }
+/** A pane the mirror reads without a session: `terminal` is the one it had when granted; `drop` ends the grant when the reader ends because the pane closed, changed terminal, or turned into a pi session or a tower. */
+export interface Bare { pane: string; terminal?: string; drop?(): void }
 interface Reader { key: string; pane: string; file: string; bare?: Bare; viewers: Map<string, Viewer>; rows: string[]; cols: number; seq: number; changed: number; whole: number; sized: number; fails: number; hidden: boolean; timer?: TimerId; gone: boolean }
 
 // CSI (kept only as SGR: final m, no intermediates, digits and separators), OSC/DCS/SOS/PM/APC up to BEL or ST, any other escape, C0 and C1.
@@ -44,6 +45,7 @@ export function createMirrors({ call, lookup, secret, canonical, timer = timers 
 		r.gone = true;
 		timer.clear(r.timer);
 		readers.delete(r.key);
+		if (r.bare && reason === "The pane closed.") r.bare.drop?.(); // the grant ends with its pane's reader
 		r.viewers.forEach((v, id) => void (streams.get(id)?.keys.delete(r.key), v.send("mirror", { key: r.key, ended: reason })));
 		r.viewers.clear(); // a read still on its way delivers to nobody
 	};
@@ -76,14 +78,17 @@ export function createMirrors({ call, lookup, secret, canonical, timer = timers 
 			if ((r.hidden = hidden)) return (r.rows = []), deliver(r, []); // a secret is typed into that screen: nothing is read
 		}
 		if (timer.now() - r.sized >= SIZE_MS) {
-			const [{ pane }, { layout }] = (await Promise.all([call!("pane.get", { pane_id: r.pane }), call!("pane.layout", { pane_id: r.pane })])) as [{ pane: Pane }, { layout: { panes: { pane_id: string; rect: { width: number } }[] } }];
-			if (r.bare ? (Boolean(r.bare.terminal) && pane.terminal_id !== r.bare.terminal) || isPiPane(pane) : pane.agent !== "pi" || canonical(pane.agent_session?.value) !== r.file) return end(r, r.bare ? "The pane closed." : "The pane runs something else now.");
+			const [got, { layout }] = (await Promise.all([r.bare ? undefined : call!("pane.get", { pane_id: r.pane }), call!("pane.layout", { pane_id: r.pane })])) as [{ pane: Pane } | undefined, { layout: { panes: { pane_id: string; rect: { width: number } }[] } }];
+			if (got && (got.pane.agent !== "pi" || canonical(got.pane.agent_session?.value) !== r.file)) return end(r, "The pane runs something else now.");
 			const cols = layout.panes.find((p) => p.pane_id === r.pane)?.rect.width ?? r.cols;
 			if (cols !== r.cols) [r.cols, r.whole] = [cols, 0];
 			r.sized = timer.now();
 		}
 		if (r.gone) return;
-		const { read } = (await call!("pane.read", { pane_id: r.pane, source: "visible", format: "ansi", strip_ansi: false })) as { read: { text: string } };
+		// A bare pane is looked at with every read, and what was read is dropped unsent if it is a pi session or a tower by now.
+		const [{ read }, bare] = (await Promise.all([call!("pane.read", { pane_id: r.pane, source: "visible", format: "ansi", strip_ansi: false }), r.bare ? call!("pane.get", { pane_id: r.pane }) : undefined])) as [{ read: { text: string } }, { pane: Pane } | undefined];
+		if (r.bare && bare && ((Boolean(r.bare.terminal) && bare.pane.terminal_id !== r.bare.terminal) || isPiPane(bare.pane))) return end(r, "The pane closed.");
+		if (r.gone) return;
 		const rows = String(read.text).split("\n").slice(-MAX_ROWS).map(sanitize), changed = rows.flatMap((row, i) => (row !== r.rows[i] ? [i] : []));
 		if (rows.length !== r.rows.length) r.whole = 0; // a size change sends every row
 		if (changed.length) [r.seq, r.changed] = [r.seq + 1, timer.now()];

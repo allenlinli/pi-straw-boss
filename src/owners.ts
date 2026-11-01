@@ -7,8 +7,8 @@ import { createHash, randomUUID } from "node:crypto";
 
 export interface Bus { emit(channel: string, data: unknown): void; on(channel: string, handler: (data: unknown) => void): () => void }
 /** `localOnly`: the choice acts on this computer (a paired device may still pick it). `hereOnly`: only this computer's own page or terminal may pick it; a paired device sees it and cannot (the link_request approvals of docs/specs/2026-10-25-straw-link.md). */
-export interface Choice { label: string; note?: string; localOnly?: true; hereOnly?: true; next?: Next }
-/** Where the choice leaves the user once it is taken: `terminal`, a step in this session's terminal (its prompt waits for Enter); `pane`, a new Herdr pane the choice opened. A hint like `note`, not hashed; the page opens that terminal for an accepted answer (control.ts `then`, gui/ask.ts). */
+export interface Choice { label: string; note?: string; localOnly?: true; hereOnly?: true; next?: Next; tagged?: true }
+/** Where the choice leaves the user once it is taken: `terminal`, a step in this session's terminal (its prompt waits for Enter); `pane`, a new Herdr pane the choice opened. `tagged` (only with `pane`): the owner marks that pane with the token `sb_answer=<answerId>`, so the server grants that pane and no other (spec: Which pane an answer opened). Hints like `note`, not hashed; the page opens that terminal for an accepted answer (control.ts `then`, gui/ask.ts). */
 export type Next = "terminal" | "pane";
 const NEXT: readonly unknown[] = ["terminal", "pane"];
 /** What an accepted answer leaves the user to do in a terminal, for the page to open: this session's terminal, or the new Herdr pane the answer opened (a grant id, answerpane.ts; null when the pane could not be told from others). Filled by control.ts from the stored dialog's choice, never from the request. */
@@ -61,7 +61,7 @@ export function selectOf(owner: string, raw: unknown): Dialog | undefined {
 	const choices = Array.isArray(p?.select?.choices) ? (p.select.choices as Choice[]) : undefined;
 	if (p?.version !== 1 || !str(p.id) || p.id.length > 64 || !str(p.digest) || !str(p.select?.title) || !choices?.length || (p.toolCallId !== undefined && !str(p.toolCallId))) return;
 	if (!choices.every((c) => str(c?.label) && (c.note === undefined || str(c.note)))) return;
-	const select = { title: p.select.title, choices: choices.map((c) => ({ label: c.label, ...(c.note ? { note: c.note } : {}), ...(c.localOnly === true ? { localOnly: true as const } : {}), ...(c.hereOnly === true ? { hereOnly: true as const } : {}), ...(NEXT.includes(c.next) ? { next: c.next as Next } : {}) })), ...(str(p.select.copy) ? { copy: p.select.copy } : {}), ...((p.select as { confirm?: unknown }).confirm === true ? { confirm: true as const } : {}) };
+	const select = { title: p.select.title, choices: choices.map((c) => ({ label: c.label, ...(c.note ? { note: c.note } : {}), ...(c.localOnly === true ? { localOnly: true as const } : {}), ...(c.hereOnly === true ? { hereOnly: true as const } : {}), ...(NEXT.includes(c.next) ? { next: c.next as Next } : {}), ...(c.next === "pane" && c.tagged === true ? { tagged: true as const } : {}) })), ...(str(p.select.copy) ? { copy: p.select.copy } : {}), ...((p.select as { confirm?: unknown }).confirm === true ? { confirm: true as const } : {}) };
 	return { owner, id: p.id, ...(p.toolCallId ? { toolCallId: p.toolCallId as string } : {}), digest: p.digest, select };
 }
 

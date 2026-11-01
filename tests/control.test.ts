@@ -727,7 +727,7 @@ test("a dialog the owner relays and no net reading bound yet is matched by the p
 
 /** A server whose dialog (robot_hand's) has a choice for each next step: the prompt (terminal), a new pane (pane), the clipboard, and No. The pane `opens` appears 100 ms after the ack, as robot_hand's split does. */
 async function opening({ opens = ["wB:p9"] as string[], agent = "" } = {}) {
-	const calls: [string, Record<string, unknown>][] = [], sent: unknown[] = [], stored = new Map<string, { status: number; body: unknown }>(), tab = ["wA:p1"], w = { terminal: "t9", gone: false, agent: undefined as string | undefined };
+	const calls: [string, Record<string, unknown>][] = [], sent: unknown[] = [], stored = new Map<string, { status: number; body: unknown }>(), tab = ["wA:p1"], w = { terminal: "t9", gone: false, agent: undefined as string | undefined, tags: {} as Record<string, string> };
 	const call = async (method: string, params: Record<string, unknown>) => {
 		calls.push([method, params]);
 		const id = String(params.pane_id);
@@ -735,11 +735,11 @@ async function opening({ opens = ["wB:p9"] as string[], agent = "" } = {}) {
 		if (method === "pane.get") {
 			if (id === "wA:p1") return { pane: { pane_id: id, agent: "pi", agent_status: "blocked", agent_session: { value: FILE } } };
 			if (!tab.includes(id) || w.gone) throw new HerdrError("pane_not_found", "no such pane");
-			return { pane: { pane_id: id, agent: w.agent ?? agent, terminal_id: w.terminal } };
+			return { pane: { pane_id: id, agent: w.agent ?? agent, terminal_id: w.terminal, ...(w.tags[id] ? { tokens: { sb_answer: w.tags[id]! } } : {}) } };
 		}
 		return method === "pane.read" ? { read: { text: "$ npm run deploy\r\n" } } : {};
 	};
-	const answer = { dialog: "d1", digest: "a".repeat(64), select: { title: "T", choices: [{ label: "Put it in my prompt", next: "terminal" as const }, { label: "Type it into a new Herdr pane", next: "pane" as const }, { label: "Copy", localOnly: true as const }, { label: "No" }] } };
+	const answer = { dialog: "d1", digest: "a".repeat(64), select: { title: "T", choices: [{ label: "Put it in my prompt", next: "terminal" as const }, { label: "Type it into a new Herdr pane", next: "pane" as const }, { label: "Copy", localOnly: true as const }, { label: "No" }, { label: "Run it in a new Herdr pane", next: "pane" as const, tagged: true as const }] } };
 	const hub = {
 		target: { from: "S", bridgeId: "B", answer } as Target | undefined,
 		running: true, me: "G", start() {}, stop() {}, receive() {}, relayed: () => ({ dialogsOf: () => undefined, merge: () => ({ callId: "", tool: "" }) }), has: () => false,
@@ -748,7 +748,7 @@ async function opening({ opens = ["wB:p9"] as string[], agent = "" } = {}) {
 			sent.push({ to: t.bridgeId, ...a });
 			const reply = { status: 200, body: { outcome: "accepted" } };
 			stored.set(a.answerId, reply);
-			if (a.choice === 1) setTimeout(() => tab.push(...opens), 100);
+			if (a.choice === 1 || a.choice === 4) setTimeout(() => tab.push(...opens), 100);
 			return reply;
 		},
 	};
@@ -819,7 +819,8 @@ test("answer: a pane grant stops taking keys the moment its pane runs pi, and ne
 	const forged = await send(o.gui, "sessions/sess-1/answer", { dialog: "d1", digest: "a".repeat(64), answerId: ID(5), choice: 2, next: "pane", then: { terminal: true } });
 	assert.deepEqual(forged.body, { outcome: "accepted" }, "the clipboard choice: no then, whatever the request says");
 	assert.equal(o.calls.filter(([m]) => m === "pane.layout").length, 0, "and no pane was looked for");
-	const grant = ((await o.answer(1, ID(6))).body as { then: { pane: string } }).then.pane;
+	const real = (await o.answer(1, ID(6))).body as { then: { pane: string } };
+	const grant = real.then.pane;
 	assert.equal((await send(o.gui, `panes/${grant}/mirror`, { stream: o.stream, on: true })).status, 200);
 	await o.wait(() => o.events.join("").includes(`"key":"grant:${grant}"`));
 	assert.deepEqual((await send(o.gui, `panes/${grant}/keys`, { key: "enter", stream: o.stream })).body, { accepted: true });
@@ -828,6 +829,46 @@ test("answer: a pane grant stops taking keys the moment its pane runs pi, and ne
 	assert.deepEqual([refused.status, refused.body.error], [409, "pane_closed"]);
 	assert.equal(o.calls.filter(([m]) => m.startsWith("pane.send")).length, 1, "the second key was never sent");
 	o.close();
+});
+
+test("answer: when the bare mirror of a grant ends (its pane runs pi), the route drops the grant (ATP3-F002, mutant M6)", async () => {
+	const o = await opening();
+	const grant = ((await o.answer(1, ID(1))).body as { then: { pane: string } }).then.pane;
+	assert.equal((await send(o.gui, `panes/${grant}/mirror`, { stream: o.stream, on: true })).status, 200);
+	await o.wait(() => o.events.join("").includes(`"key":"grant:${grant}"`));
+	o.w.agent = "pi";
+	await o.wait(() => o.events.join("").includes("The pane closed.") || o.events.join("").includes("ended"));
+	assert.equal((await send(o.gui, `panes/${grant}/mirror`, { stream: o.stream, on: true })).status, 404, "the grant went with its reader");
+	assert.equal(o.calls.filter(([m]) => m.startsWith("pane.send")).length, 0, "and nothing was typed");
+	o.close();
+});
+
+test("answer: a forged then on a choice that does open a pane is not used; the grant is the one the server minted", async () => {
+	const o = await opening();
+	const r = await send(o.gui, "sessions/sess-1/answer", { dialog: "d1", digest: "a".repeat(64), answerId: ID(11), choice: 1, then: { pane: "forged" } });
+	const pane = (r.body as { then: { pane: string } }).then.pane;
+	assert.match(pane, /^[0-9a-f]{32}$/, "a minted grant, not the request's");
+	assert.equal((await send(o.gui, `panes/${pane}/mirror`, { stream: o.stream, on: true })).status, 200, "and it is a live grant");
+	assert.equal((await send(o.gui, "panes/forged/mirror", { stream: o.stream, on: true })).status, 404);
+	o.close();
+});
+
+test("answer: a choice that is tagged grants the pane carrying the answerId and no other; tagged comes from the stored dialog, never from the request", async () => {
+	const o = await opening({ opens: ["wB:p8", "wB:p9"] });
+	o.w.tags["wB:p9"] = ID(12);
+	const r = await o.answer(4, ID(12));
+	const pane = (r.body as { then: { pane: string | null } }).then.pane;
+	assert.match(String(pane), /^[0-9a-f]{32}$/, "two new panes, one tagged: the tagged one");
+	assert.equal((await send(o.gui, `panes/${pane}/mirror`, { stream: o.stream, on: true })).status, 200);
+	await o.wait(() => o.calls.some(([m, p]) => m === "pane.read" && p.pane_id === "wB:p9"));
+	assert.ok(o.calls.every(([m, p]) => m !== "pane.read" || p.pane_id === "wB:p9"), "p8 was never read");
+	// The same two panes for an untagged choice: the timing claim sees two panes and grants nothing, whatever the request says.
+	const forged = await opening({ opens: ["wB:p8", "wB:p9"] });
+	forged.w.tags["wB:p9"] = ID(13);
+	const f = await send(forged.gui, "sessions/sess-1/answer", { dialog: "d1", digest: "a".repeat(64), answerId: ID(13), choice: 1, tagged: true, tag: ID(13) });
+	assert.deepEqual(f.body, { outcome: "accepted", then: { pane: null } });
+	o.close();
+	forged.close();
 });
 
 test("a paired device's hereOnly choice is still refused, and a refused or failed answer grants nothing", async () => {

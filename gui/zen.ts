@@ -38,7 +38,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
 	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0;
 	const to = (key: string) => deps.post?.(key) ?? postTo(key), trustTo: TrustPost = deps.trust ?? ((body) => post("trust/answer", body));
-	// A draft holds the screen while the boss is at it: the box has text and he touched the companion (a tap or a drag on the log, a wheel, a key) in the last DRAFT_MS, focused or not. Typing keeps renewing it; walking away from a focused box does not hold the screen.
+	// A draft holds the screen while the boss is at it: the box has text and he touched the companion (a tap or a drag on the log, a wheel, a key, or text that arrives with no key, as dictation and a suggestion tap do) in the last DRAFT_MS, focused or not. Typing keeps renewing it; walking away from a focused box does not hold the screen.
 	let touched = -Infinity;
 	const typing = () => Boolean(company?.composer && company.composer.box.value !== "" && now() - touched < DRAFT_MS);
 	const model = createZen({ now, typing });
@@ -82,7 +82,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (trust) {
 			const panel = mounts.trust((body) => tell(trustTo(body)));
 			slot.replaceChildren(panel);
-			return { key: a.key, el, said, out, skip, enter: () => false, cancel: () => false, sending: () => false, update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
+			return { key: a.key, el, said, out, skip, enter: () => false, cancel: () => false, sending: () => panel.sending(), update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
 		}
 		let ask: ReturnType<typeof mountAsk> | undefined, noted = false;
 		const words = () => {
@@ -181,7 +181,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			drawCompany();
 		});
 	}
-	for (const type of ["pointerdown", "wheel", "touchstart", "keydown"]) root.addEventListener(type, () => (touched = now()), { capture: true, passive: true });
+	for (const type of ["pointerdown", "wheel", "touchstart", "keydown", "input"]) root.addEventListener(type, () => (touched = now()), { capture: true, passive: true });
 	const tap = () => shown.kind === "pause" && apply(model.tap());
 	root.addEventListener("pointerdown", tap);
 	root.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && shown.kind === "pause" && !/^button$/i.test((e.target as HTMLElement | null)?.tagName ?? "") && (e.preventDefault(), tap()));

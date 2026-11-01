@@ -24,7 +24,7 @@ const secret = (): Pending => ({ callId: "c3", tool: "secret_drop", why: "It wai
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy"], more: 0 }], agents: [{ pane: "1", base: "Harbor", role: "member", at: 5 }] };
 
-function rig(o: { ripple?: Record<string, unknown>; remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }> } = {}) {
+function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }> } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
 	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[] };
@@ -46,7 +46,7 @@ function rig(o: { ripple?: Record<string, unknown>; remote?: boolean | null; sto
 		recent: async () => items,
 		post: (key: string) => (action: string, body: Record<string, unknown>) => (calls.posts.push({ key, action, body }), new Promise<Answer>((resolve) => replies.push(resolve))),
 		trust: (body: Record<string, unknown>) => (calls.trust.push(body), new Promise<Answer>((resolve) => replies.push(resolve))),
-		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => true,
+		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => !o.offline,
 		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), watch: (k: string | null) => void calls.watch.push(k),
 		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => o.stored,
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
@@ -743,4 +743,62 @@ test("hiding the layer stops the ripples and disarms a first Esc (M29, M30)", as
 	await r.settle();
 	esc(r);
 	assert.deepEqual(r.calls.leave, [], "an Esc armed before hide does not pair with one after");
+});
+
+for (const type of ["pointerdown", "wheel", "input"]) {
+	test(`${type} alone, every 5 s for 60 s, keeps holding an unfocused draft (UR2-F002, UR2-F003)`, async () => {
+		const r = rig();
+		r.feed(net([unit("m", "working")]));
+		r.z.show();
+		await r.settle();
+		const box = r.calls.composers.at(-1)!.box, log = r.by((el) => el.getAttribute("class") === "zen-log")[0]!;
+		box.type("half a sentence");
+		(type === "input" ? box : log).bubble(type);
+		r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
+		for (let i = 0; i < 12; i++) {
+			(type === "input" ? box : log).bubble(type);
+			await wait(r, 5000);
+		}
+		assert.equal(r.button("Maybe later"), undefined, `${type} renews the hold`);
+		await wait(r, DRAFT_MS + 1000);
+		assert.ok(r.button("Maybe later"), "and 20 s without it lets the item in");
+	});
+}
+
+test("Esc on a card whose unit is offline is Not now: Cancel is disabled, so it is not pressed (UR2-F002, M04)", async () => {
+	const r = rig({ offline: true });
+	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
+	r.z.show();
+	await r.settle();
+	assert.equal(r.button("Cancel")?.disabled, true);
+	esc(r);
+	assert.deepEqual(r.calls.posts, [], "no cancel is posted");
+	assert.ok(r.by((el) => el.getAttribute("role") === "img").length, "Not now");
+});
+
+test("Esc while a trust answer is on its way does not rest the card: the refusal shows (UR2-F001)", async () => {
+	const r = rig();
+	r.feed(net([], [TRUST]));
+	r.z.show();
+	await r.settle();
+	r.button("Trust this time")!.click();
+	assert.equal(r.calls.trust.length, 1);
+	esc(r);
+	assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, "no pause screen");
+	await r.reply({ outcome: "stale" });
+	assert.ok(r.button("Maybe later"), "the card is still there");
+});
+
+test("Esc while an answer is on its way, after a second dialog replaced the panel, does not rest the card (UR2-F001)", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
+	r.z.show();
+	await r.settle();
+	r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
+	r.button("Send answer")!.click();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, dialog: "d2" }) })]));
+	await r.settle();
+	esc(r);
+	assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, "no pause screen");
+	assert.deepEqual(r.calls.posts.length, 1, "no cancel is posted");
 });

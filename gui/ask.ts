@@ -172,7 +172,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 			const b = cur && !cur.done ? cur.cancel : undefined;
 			return Boolean(b && !b.disabled && (b.click(), true));
 		},
-		sending: () => Boolean(cur?.sending),
+		sending: () => busy, // any answer from this panel set is on its way (the panel on show may be another by then)
 		/** The unit's pending dialog now, and whether it can be answered or its pane brought forward (it waits and the stream is up). */
 		update(next: Pending | undefined, can: boolean) {
 			ready = can;

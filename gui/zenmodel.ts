@@ -22,7 +22,7 @@ export function companionOf(net: Net | undefined, stored: With | undefined): { k
 	return t(stored?.ws) ?? t(net?.bases.find((b) => b.head)?.id);
 }
 
-export interface ZenDeps { now(): number; /** The companion's box has the focus and text. */ typing(): boolean }
+export interface ZenDeps { now(): number; /** The companion's box has text and a real input (tap, drag, wheel, key, or text input) in the last DRAFT_MS. */ typing(): boolean }
 export function createZen({ now, typing }: ZenDeps) {
 	let alerts = new Map<string, Alert>(), screen: Screen = { kind: "companion" }, until = 0, hidden = false, quiet = false;
 	const seen = new Map<string, number>(), rests = new Map<string, { until: number; q: string }>();

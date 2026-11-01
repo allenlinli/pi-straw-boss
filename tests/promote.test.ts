@@ -109,7 +109,7 @@ test("Tab after /boss completes its subcommands as whole argument lines, and not
 	const a = world.agent({ id: "a", pane: "wA:p1", tab: "wA:t1" });
 	await a.start();
 	const complete = (prefix: string) => a.commands.get("boss")!.getArgumentCompletions!(prefix)?.map((item) => item.value) ?? null;
-	assert.deepEqual(complete(""), ["status", "close", "close all", "tower", "tower status", "tower parked", "tower retry", "tower leave", "tower new", "gui", "gui stop", "gui rotate", "gui remote", "gui remote off", "gui lan", "gui lan off", "gui lan reset", "gui view", "gui view auto", "gui view standard", "gui view geek", "server", "server stop", "server restart", "memory", "memory confirm", "memory reject", "memory add standing", "memory add decision", "stash", "pop"]);
+	assert.deepEqual(complete(""), ["status", "close", "close all", "tower", "tower status", "tower parked", "tower retry", "tower leave", "tower new", "gui", "gui stop", "gui rotate", "gui remote", "gui remote off", "gui lan", "gui lan off", "gui lan reset", "gui view", "gui view auto", "gui view standard", "gui view geek", "gui devices", "gui unpair all", "server", "server stop", "server restart", "server logs", "memory", "memory confirm", "memory reject", "memory add standing", "memory add decision", "stash", "stash --workspace", "pop", "dismiss", "dismiss all"]);
 	assert.deepEqual(complete("memory a"), ["memory add standing", "memory add decision"]);
 	assert.deepEqual(complete("gui r"), ["gui rotate", "gui remote", "gui remote off"]);
 	assert.deepEqual(complete("gui view g"), ["gui view geek"]);

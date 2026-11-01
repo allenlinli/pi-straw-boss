@@ -949,7 +949,12 @@ A Straw Link message for a tower the server runs is worked in an **ally run**: a
 | `/boss gui lan`, `/boss gui lan off`, `/boss gui lan reset` | Reach the GUI from a phone on the same Wi-Fi, without Tailscale ([Wi-Fi access](#browser-view)). `lan` shows the risk and makes the computer's certificate on the first run (after you answer **y**), turns Wi-Fi access on, and opens a screen with the certificate steps and the pairing QR; you allow each new phone by typing the number it shows. `lan off` closes the listeners and forgets the wish; paired phones stay paired. `lan reset` asks whether to renew the certificate and keep the pairings, or make a new one and unpair every Wi-Fi device. |
 | `/boss server [stop\|restart [--downgrade] [reason]]` | Show the sb server and start it when it is down; stop it on purpose; restart it. See [The sb server](#the-sb-server). |
 | `/boss close all` | Quit this base's tower, mains, and members and close it, or nothing; see **Stash and pop**. |
+| `/boss close <name\|key>`, `/boss close all <workspace>` | Quit another unit, squad, or base after a confirm in pi, by posting `close/unit`, `close/tab`, or `close/all {workspace}` to the sb server's GUI (what the page's Quit posts). Boss-typed only: the command is refused in a tower run or an ally run, and no tool reaches it. |
 | `/boss stash [name]` | Put this base away under `name` (the workspace label by default) and close it; see **Stash and pop**. |
+| `/boss stash [name] --workspace <label\|id>` | Put another base away after a confirm (`close/stash {workspace, name}`). |
+| `/boss dismiss [all\|<name>]` | Hide finished subagents (`dismiss {all}` or `{key}`). |
+| `/boss gui devices`, `/boss gui unpair <id\|all>` | List the paired devices (`remote/devices`) and unpair one or all (`remote/unpair`, `remote/unpair-all`; all after a confirm); the address does not change. |
+| `/boss server logs [n]` | The last `n` (at most 200) lines of the server's log, as `boss_server logs`. |
 | `/boss pop [name]` | Open a stashed base again (any session; with no name, the only stash or one picked from the list). |
 
 `/boss` and `boss_promote` are unavailable in a sub workspace.

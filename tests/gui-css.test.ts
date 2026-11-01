@@ -84,3 +84,29 @@ test("the settings column keeps one width: auto side margins never shrink it to 
 	assert.match(column, /max-width:\s*760px/);
 	assert.match(rule(".teams-tile .go {"), /border:\s*0/);
 });
+
+const zen = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8");
+
+test("Zen's first frame in style.css is scoped to the Zen view, so Standard and Geek keep their rules: the breathing ring, its calm still, and its keyframes are the only additions", () => {
+	for (const line of css.split("\n").filter((l) => /zen-breath|#zen:empty/.test(l))) assert.match(line, /data-view="zen"|@keyframes zen-breath/, line.slice(0, 80));
+	assert.match(css, /#zen:empty:not\(\[hidden\]\)::after \{[^}]*animation: zen-breath 10s infinite/);
+	assert.match(css, /\[data-view="zen"\]\[data-calm\] #zen:empty:not\(\[hidden\]\)::after \{ animation: none; \}/);
+	assert.match(css, /40% \{ transform: scale\(1\)/, "4 s in of the 10 s breath");
+	assert.ok(!/zen/.test(css.slice(css.indexOf('[data-view="geek"] {'))), "nothing of Zen's after the Geek block opens");
+});
+
+test("zen.css: every rule is under the Zen view, the answer card has no Standard chrome, targets are 44 px, and motion stills under calm, reduced motion, and forced colours", () => {
+	const body = zen.replace(/\/\*[\s\S]*?\*\//g, "");
+	for (const sel of body.matchAll(/^(\[data-view="zen"\][^{]*|@[^{]*)\{/gm)) assert.ok(sel[1]!.includes('data-view="zen"') || sel[1]!.startsWith("@"), sel[1]);
+	assert.ok(!/(^|\n)(?!\s|\[data-view|@|\}|--)\S/.test(body.replace(/@keyframes[^{]*\{[\s\S]*?\}\s*\}|@keyframes[^{]*\{[^}]*\}/g, "")), "no rule outside the Zen view");
+	assert.match(zen, /\.zen-(fs|menubtn)[^{]*\{ width: 44px; height: 44px;/, "the corner controls are 44 px");
+	assert.match(zen, /\.zen-row \{[^}]*min-height: 44px/, "and the menu's rows");
+	assert.match(zen, /\.zen-opt[^{]*\{ min-width: 44px; min-height: 44px;/);
+	assert.match(zen, /\[data-calm\] :is\(\.zen-circle, \.zen-circle i, \.zen-drift i\) \{ animation: none; \}/);
+	assert.match(zen, /@media \(prefers-reduced-motion: reduce\)/);
+	assert.match(zen, /@media \(forced-colors: active\)[\s\S]*\.zen-drift[\s\S]*CanvasText/);
+	assert.match(zen, /:focus-visible \{ outline: 2px solid var\(--zen-seal\)/, "a visible focus ring");
+	assert.match(zen, /\.zen-card > \* \{ animation: zen-in 1\.8s/, "the card's parts arrive slowly, one after another");
+	assert.match(zen, /animation-delay: calc\(var\(--n, 0\) \* 0\.22s\)/);
+	assert.ok(!/\.zen-(header|bar|nav)\b/.test(zen) && !/zen-nothing/.test(zen));
+});

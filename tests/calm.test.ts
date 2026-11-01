@@ -78,3 +78,28 @@ test("leaving the Geek view for Standard on input starts the calm clock again", 
 		p.done();
 	}
 });
+
+test("in the Zen view the calm clock runs: after 30 s data-calm stills the circle and the drift, and input brings them back", () => {
+	const p = page();
+	try {
+		p.root.dataset.view = "zen";
+		mountCalm(p.root);
+		p.advance(31_000);
+		assert.ok(p.attrs.has("data-calm"));
+		p.input();
+		assert.ok(!p.attrs.has("data-calm"));
+	} finally {
+		p.done();
+	}
+});
+
+test("under reduced motion calm does nothing: there is no timer", () => {
+	const p = page();
+	try {
+		(globalThis as { matchMedia: unknown }).matchMedia = () => ({ matches: true });
+		mountCalm(p.root);
+		assert.equal(p.pending(), 0);
+	} finally {
+		p.done();
+	}
+});

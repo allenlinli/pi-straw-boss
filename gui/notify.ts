@@ -1,5 +1,6 @@
 import { m } from "./paraglide/messages.js";
 import type { Alert } from "./alerts.ts";
+import { readSound, readVolume, writeSound, writeVolume } from "./soundprefs.ts";
 import doneUrl from "./sounds/done.mp3";
 import errorUrl from "./sounds/error.mp3";
 import waitingUrl from "./sounds/waiting.mp3";
@@ -28,7 +29,7 @@ const write = (key: string, value: string) => {
 	} catch {}
 };
 
-export interface Notifier { signal(fresh: Alert[]): void; /** Zen: the system notification for the one item that took the screen while the page is hidden or unfocused (no clip, nothing for the items behind it). */ remind(a: Alert): void; /** The finished-unit clip, when Sound is on: a new unit that is ready (deploy.ts). */ chime(): void }
+export interface Notifier { signal(fresh: Alert[]): void; /** Zen: the system notification for the one item that took the screen while the page is hidden or unfocused (no clip, nothing for the items behind it). */ remind(a: Alert): void; /** The finished-unit clip, when Sound is on: a new unit that is ready (deploy.ts). */ chime(): void; /** The Sound switch and Volume as the settings page has them (the Zen menu drives the same). */ sound: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void } }
 
 /** Mounts the settings page's reminder switch (`#remind`) and sound switch with its volume (`#sound`, `#sound-vol`) and returns what plays a snapshot's new alerts. */
 export function mountNotify(open: (a: Alert) => void): Notifier {
@@ -36,7 +37,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	const remindBtn = $<HTMLButtonElement>("remind"), soundBtn = $<HTMLButtonElement>("sound");
 	const vol = $<HTMLInputElement>("sound-vol"), volOut = $<HTMLOutputElement>("sound-vol-out");
 	const can = typeof Notification !== "undefined";
-	let remind = read("sb.remind", "1") === "1", sound = read("sb.sound", "0") === "1", volume = Math.min(100, Math.max(0, Number(read("sb.volume", "60")) || 0));
+	let remind = read("sb.remind", "1") === "1", sound = readSound(), volume = readVolume();
 	let ac: AudioContext | undefined, gain: GainNode | undefined;
 	const clips = new Map<Kind, Promise<AudioBuffer>>();
 	const draw = () => {
@@ -60,12 +61,14 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 		draw();
 	};
 	// Each press here lets the page play, and says what a finished unit sounds like.
-	soundBtn.onclick = () => {
-		write("sb.sound", (sound = !sound) ? "1" : "0");
+	const setSound = (on: boolean) => {
+		writeSound((sound = on));
 		draw();
 		if (sound) play("done");
 	};
-	vol.oninput = () => (write("sb.volume", String((volume = Number(vol.value)))), draw());
+	const setVolume = (v: number) => (writeVolume((volume = v)), draw());
+	soundBtn.onclick = () => setSound(!sound);
+	vol.oninput = () => setVolume(Number(vol.value));
 	vol.onchange = () => play("done");
 	$("sound-try").onclick = () => play("done");
 	function play(kind: Kind) {
@@ -90,6 +93,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	draw();
 	return {
 		remind: (a) => notice(a, "waiting"),
+		sound: { on: () => sound, volume: () => volume, set: setSound, setVolume, try: () => play("done") },
 		chime: () => sound && play("done"),
 		signal(fresh) {
 			const due = fresh.flatMap((a) => ((k) => (k ? [{ a, k }] : []))(kindOf(a)));

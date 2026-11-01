@@ -49,6 +49,8 @@ function rig(o: { remote?: boolean | null; stored?: With } = {}) {
 		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => true,
 		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), watch: (k: string | null) => void calls.watch.push(k),
 		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => o.stored,
+		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
+		still: () => false, random: () => 0,
 		later: (fn: () => void, ms: number) => {
 			const e = { at: t + ms, fn };
 			timers.push(e);
@@ -90,10 +92,10 @@ test("an answerable select draws through the dialog's own panel: Send, Cancel wh
 	assert.deepEqual(r.calls.sound, ["bowl"], "the bowl as the item takes the screen");
 	assert.ok(r.text().includes("ops-main") && r.text().includes("Harbor"), "who asks, and from which base");
 	assert.ok(r.text().includes("I need a decision."), "what it last said");
-	for (const label of ["Send answer", "Cancel", "Not now"]) assert.ok(r.button(label), label);
+	for (const label of ["Send answer", "Cancel", "Maybe later"]) assert.ok(r.button(label), label);
 	assert.equal(r.button("Show terminal"), undefined);
 	assert.equal(page.focused, r.by((el) => el.getAttribute("role") === "radio")[0], "the focus goes to the first answer control");
-	assert.equal(r.by((el) => el.getAttribute("aria-live") === "polite")[0]!.textContent, "ops-main asks");
+	assert.equal(r.by((el) => el.getAttribute("aria-live") === "polite")[0]!.textContent, "ops-main wants to ask you");
 	assert.ok(!r.button("Cancel")!.disabled);
 	r.by((el) => el.getAttribute("role") === "radio")[2]!.click();
 	r.button("Send answer")!.click();
@@ -105,13 +107,13 @@ test("a questionnaire has Send and Cancel; no Cancel without an owner that takes
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
 	r.z.show();
 	await r.settle();
-	assert.ok(r.button("Send answer") && r.button("Cancel") && r.button("Not now"));
+	assert.ok(r.button("Send answer") && r.button("Cancel") && r.button("Maybe later"));
 	const again = rig();
 	again.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	again.z.show();
 	await again.settle();
 	assert.equal(again.button("Cancel"), undefined, "the owner did not say it takes a cancel");
-	assert.ok(again.button("Not now"), "Not now is on every card");
+	assert.ok(again.button("Maybe later"), "Not now is on every card");
 });
 
 test("on a paired device a hereOnly choice is disabled and Cancel needs a choice the device may give; on this computer both are offered", async () => {
@@ -142,9 +144,9 @@ test("a secret_drop is read-only on every page with no Open in Standard; any oth
 		r.z.show();
 		await r.settle();
 		assert.equal(r.button("Send answer"), undefined);
-		assert.equal(r.button("Open in Standard"), undefined, "a secret is entered in the terminal only");
+		assert.equal(r.button("Handle it in Standard"), undefined, "a secret is entered in the terminal only");
 		assert.equal(r.button("Show terminal"), undefined);
-		assert.ok(r.button("Not now"));
+		assert.ok(r.button("Maybe later"));
 	}
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: readonly() })]));
@@ -152,7 +154,7 @@ test("a secret_drop is read-only on every page with no Open in Standard; any oth
 	await r.settle();
 	assert.equal(r.button("Send answer"), undefined);
 	assert.equal(r.button("Show terminal"), undefined, "Zen words it Open in Standard");
-	r.button("Open in Standard")!.click();
+	r.button("Handle it in Standard")!.click();
 	assert.deepEqual(r.calls.leave, [{ route: { view: "session", ws: "w", key: "a" }, terminal: "a" }]);
 });
 
@@ -162,7 +164,7 @@ test("a trust question draws the trust panel with its three choices, answers thr
 	r.z.show();
 	await r.settle();
 	assert.ok(r.text().includes("Trust this folder?") && r.text().includes("/work/harbor"));
-	for (const label of ["Trust", "Trust this time", "Don't trust", "Not now"]) assert.ok(r.button(label), label);
+	for (const label of ["Trust", "Trust this time", "Don't trust", "Maybe later"]) assert.ok(r.button(label), label);
 	r.button("Trust this time")!.click();
 	assert.equal(r.calls.trust.length, 1);
 	assert.deepEqual([r.calls.trust[0]!.id, r.calls.trust[0]!.choice], ["tr", "once"]);
@@ -178,9 +180,9 @@ test("a unit that waits with no dialog has its last line, a reply composer (whic
 	assert.ok(r.text().includes("I need a decision."));
 	assert.equal(r.calls.composers.length, 1);
 	assert.equal(r.calls.composers[0]!.key, "a");
-	assert.ok(r.button("Not now"));
+	assert.ok(r.button("Maybe later"));
 	assert.deepEqual((r.calls.composers[0]!.updates.at(-1) as { mark: string }).mark, "waiting", "the composer is told the unit's real state, so its own blocked rule applies");
-	r.button("Open in Standard")!.click();
+	r.button("Handle it in Standard")!.click();
 	assert.deepEqual(r.calls.leave, [{ route: { view: "session", ws: "w", key: "a" }, terminal: "a" }]);
 	const sent = r.calls.composers[0]!.post("input" as never, { text: "go ahead" });
 	await r.reply(ok);
@@ -200,12 +202,17 @@ test("an accepted answer plays the knock, shows its outcome for 1.2 s, then the 
 	await r.reply(ok);
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 	assert.ok(r.text().includes("Answered."), "the card stays with its outcome");
-	assert.ok(r.button("Not now")!.disabled, "and takes no second answer");
+	assert.ok(r.button("Maybe later")!.disabled, "and takes no second answer");
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true }) })])); // the snapshot before the unit moved on
 	await r.advance(1300);
-	assert.equal(r.by((el) => el.getAttribute("role") === "img")[0]?.getAttribute("aria-label"), "Breathe", "the pause is the breathing circle");
-	assert.equal(r.button("Not now"), undefined);
-	await r.advance(3100);
+	assert.equal(r.by((el) => el.getAttribute("role") === "img")[0]?.getAttribute("aria-label"), "Take a breath", "the pause is the breathing circle");
+	const going = r.by((el) => el.dataset.gone !== undefined);
+	assert.equal(going.length, 1, "the answered card dissolves like ink for a moment");
+	assert.equal(going[0]!.getAttribute("inert"), "", "and takes no input meanwhile");
+	await r.advance(1500);
+	assert.equal(r.button("Maybe later"), undefined);
+	assert.equal(r.by((el) => el.dataset.gone !== undefined).length, 0, "then it is gone");
+	await r.advance(1600);
 	assert.equal(r.calls.sound.length, 2, "no second bowl for the answered item");
 	assert.ok(r.text().includes("tower") || r.calls.composers.length === 1, "the companion shows");
 	assert.equal(r.calls.composers.at(-1)!.key, "t");
@@ -231,14 +238,14 @@ test("Not now rests the item without a sound, a pause follows, and the item retu
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
 	await r.settle();
-	r.button("Not now")!.click();
+	r.button("Maybe later")!.click();
 	assert.deepEqual(r.calls.sound, ["bowl"]);
 	await r.advance(3100);
-	assert.equal(r.button("Not now"), undefined, "the companion shows, not the rested item");
+	assert.equal(r.button("Maybe later"), undefined, "the companion shows, not the rested item");
 	await r.advance(9 * 60_000);
-	assert.equal(r.button("Not now"), undefined);
+	assert.equal(r.button("Maybe later"), undefined);
 	await r.advance(60_000);
-	assert.ok(r.button("Not now"), "back, in its place by age");
+	assert.ok(r.button("Maybe later"), "back, in its place by age");
 	assert.deepEqual(r.calls.sound, ["bowl", "bowl"]);
 });
 
@@ -249,7 +256,7 @@ test("an item that stops waiting by itself plays the knock and says it was answe
 	await r.settle();
 	r.feed(net([unit("a", "working", { since: 9 })]));
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
-	assert.ok(r.text().includes("Answered elsewhere"));
+	assert.ok(r.text().includes("Already answered elsewhere"));
 });
 
 test("the page never says how many items wait or that more do: what it draws is the same with one, two, and five waiting, and names no other unit", async () => {
@@ -263,7 +270,7 @@ test("the page never says how many items wait or that more do: what it draws is 
 		const card = [r.root.dump(), r.text()].join(" ");
 		for (const other of NAMES.slice(1, count)) assert.ok(!card.includes(other), `${other} is not on the screen`);
 		assert.ok(!/queue|more|also|others|waiting/i.test(card), `no queue word (${count})`);
-		r.button("Not now")!.click();
+		r.button("Maybe later")!.click();
 		await r.settle();
 		shots.set(count, { card, pause: [r.root.dump(), r.text()].join(" ") });
 		await r.advance(3100);
@@ -304,7 +311,7 @@ test("Esc: a field with text takes the first as a blur and the next leaves; the 
 	pause.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	pause.z.show();
 	await pause.settle();
-	pause.button("Not now")!.click();
+	pause.button("Maybe later")!.click();
 	pause.z.escape({ preventDefault() {} });
 	assert.deepEqual(pause.calls.leave, [{}], "a pause just returns to the page");
 });
@@ -314,7 +321,7 @@ test("a hidden page's pause ends when the page is shown; a tap ends the pause", 
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
 	await r.settle();
-	r.button("Not now")!.click();
+	r.button("Maybe later")!.click();
 	r.z.visible(false);
 	await r.advance(5000);
 	assert.ok(r.by((el) => el.getAttribute("role") === "img").length, "still the pause: no one was there to breathe");
@@ -324,7 +331,7 @@ test("a hidden page's pause ends when the page is shown; a tap ends the pause", 
 	tap.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	tap.z.show();
 	await tap.settle();
-	tap.button("Not now")!.click();
+	tap.button("Maybe later")!.click();
 	assert.ok(tap.by((el) => el.getAttribute("role") === "img").length);
 	tap.root.bubble("pointerdown");
 	assert.equal(tap.by((el) => el.getAttribute("role") === "img").length, 0, "a tap skips it");
@@ -366,12 +373,12 @@ test("the companion: the tower by fallback, its log and composer, the stream wat
 	box.value = "half a sentence";
 	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
 	await r.advance(600);
-	assert.equal(r.button("Not now"), undefined, "the item waits");
+	assert.equal(r.button("Maybe later"), undefined, "the item waits");
 	assert.deepEqual(r.calls.sound, []);
 	box.value = "";
 	box.bubble("input");
 	await r.advance(10);
-	assert.ok(r.button("Not now"), "it takes the screen when the box empties");
+	assert.ok(r.button("Maybe later"), "it takes the screen when the box empties");
 	assert.deepEqual(r.calls.sound, ["bowl"]);
 	assert.equal(r.calls.watch.at(-1), null, "and the stream stops watching the companion");
 });
@@ -386,7 +393,8 @@ test("the stored companion wins while the net lists it live; without one, nothin
 	alone.feed(net([unit("m", "working")], [], false));
 	alone.z.show();
 	await alone.settle();
-	assert.ok(alone.text().includes("Nothing waits for you."));
+	assert.ok(alone.by((el) => el.getAttribute("class") === "zen-line").length === 1, "one quiet line under the circle");
+	assert.ok(!alone.text().includes("Nothing waits"), "no headline");
 	assert.equal(alone.calls.composers.length, 0);
 	assert.equal(alone.calls.watch.at(-1), null);
 });
@@ -412,7 +420,7 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 		r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 		r.z.show();
 		await r.settle();
-		r.button("Not now")!.click();
+		r.button("Maybe later")!.click();
 		const circle = r.by((el) => el.getAttribute("role") === "img")[0]!;
 		assert.equal(page.focused, circle, "the focus lands on the layer for the pause");
 		page.focused!.bubble("keydown", { key });
@@ -422,7 +430,7 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
 	await r.settle();
-	r.button("Not now")!.click();
+	r.button("Maybe later")!.click();
 	const corner = r.by((el) => el.getAttribute("class") === "zen-leave")[0]!;
 	corner.focus();
 	let prevented = 0;

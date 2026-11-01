@@ -5,6 +5,8 @@ import type { mountAsk } from "./ask.ts";
 import type { mountComposer, Post } from "./composer.ts";
 import type { Route } from "./router.ts";
 import type { TrustPost, trustPanel } from "./trust.ts";
+import type { FsEnv } from "./zenfs.ts";
+import type { MenuDeps } from "./zenmenu.ts";
 import type { Sound } from "./zenmodel.ts";
 import type { With } from "./zenwith.ts";
 
@@ -30,6 +32,13 @@ export interface ZenDeps {
 	remote?: boolean;
 	/** The session this device last talked to (zenwith.ts); unset: the stored one. */
 	stored?(): With | undefined;
+	/** The corner menu's rows (language, view, sound); a row without its dep is left out. */
+	menu?: MenuDeps;
+	/** The full-screen control's page facts (a test gives its own). */
+	fs?: FsEnv;
+	/** Whether the page holds still (reduced motion, calm): the idle line then stays as it is. */
+	still?(): boolean;
+	random?: () => number;
 	now?: () => number;
 	/** The page's timer (a test moves its own): runs `fn` after `ms` and returns what cancels it. */
 	later?(fn: () => void, ms: number): () => void;

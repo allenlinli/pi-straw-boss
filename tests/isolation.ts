@@ -1,13 +1,15 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { consumeRefusals, PIDS_DIR, TEST_ROOT } from "../src/server/testguard.ts";
 import { startOf } from "../src/startof.ts";
 
 // A test process never touches the developer's machine (tests/setup.ts installs this before any module loads; a test file is a process of its own, so each has a root): HOME, USERPROFILE, the agent folder, and the temp folder point into a root made for the
 // run (the temp folder too, so the folders a test makes go with it and a socket path in one stays short), nothing of the session the run was started from (its Herdr pane, its intercom identity, its subagent role) is inherited, and the Herdr socket is a path nobody listens on. The root is
 // short on purpose (a unix socket path is limited to about 100 characters). The process that made the root removes it at exit; every process kills the servers it noted in `pids/` and, when
-// one was still running, makes the run fail.
+// one was still running, makes the run fail. A run also fails when an entry appeared at the top of the checkout (or of the folder it ran in) that was not there when it started, and when a `~` is there at all:
+// npm run with an empty HOME (or `~`) writes its cache and logs to a literal `~/.npm` below the folder it runs in, and the `npm test` that starts the run does it before this file loads (`strays`).
 
 /** The folders go derives its caches and telemetry from (os.UserCacheDir, os.UserConfigDir): isolation points them into the root, and `goEnv` gives go the real ones back. */
 const GO_DIRS = ["APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"] as const;
@@ -22,7 +24,7 @@ export function installIsolation(env: NodeJS.ProcessEnv = process.env, platform:
 	if (given && existsSync(given)) return { root: given, owner: false };
 	// Read before HOME changes: a checkout that the account has and a test uses (link-relay-live.test.ts) stays where it is. The Go toolchain is not asked for its folders: `goEnv` runs it with the real home, and a
 	// synchronous `go env` in every test process (150 in a run, 100 ms to 1.6 s each on a loaded machine) held the machine for nothing.
-	const home = env.HOME ?? homedir(), relay = join(home, "projects", "straw-relay");
+	const home = env.HOME || homedir(), relay = join(home, "projects", "straw-relay");
 	if (!env.STRAW_RELAY_DIR && existsSync(join(relay, ".git"))) env.STRAW_RELAY_DIR = relay;
 	env.SB_TEST_REAL_HOME = home;
 	for (const key of GO_DIRS) if (env[key] !== undefined) env[`SB_TEST_REAL_${key}`] = env[key];
@@ -51,6 +53,34 @@ export const goEnv = (env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv =
 	}
 	return out;
 };
+
+/** Entries a run may make at the top of the checkout: what git ignores by name, and the state of tools that watch the folder. */
+const TOOL_STATE = [".git", ".metadata_cache"];
+
+/** The folders a run must leave as it found them: the checkout the tests are in, and the folder the run was started from when that is another. */
+export const watchedDirs = (cwd = process.cwd(), checkout = fileURLToPath(new URL("..", import.meta.url))): string[] => [...new Set([resolve(checkout), resolve(cwd)])];
+
+/** The names at the top of each folder, now. */
+export function topLevel(dirs: string[] = watchedDirs()): Map<string, Set<string>> {
+	return new Map(dirs.map((dir) => [dir, new Set(existsSync(dir) ? readdirSync(dir) : [])]));
+}
+
+/**
+ * The top-level names that were not in `before` and that nothing allows: the entries a test left in the checkout. Names that `.gitignore` lists as a plain top-level name or folder (`dist/`, `scratch/`) are allowed.
+ * A `~` is reported whenever it is there: the `npm test` or `pretest` that started the run makes it before any test loads (an empty or `~` HOME in the shell that ran it), so no snapshot taken here has it as new.
+ */
+export function strays(before: Map<string, Set<string>>): string[] {
+	const found: string[] = [];
+	for (const [dir, known] of before) {
+		let allowed = new Set(TOOL_STATE);
+		try {
+			allowed = new Set([...allowed, ...readFileSync(join(dir, ".gitignore"), "utf8").split("\n").map((l) => l.trim().replace(/^\/|\/$/g, "")).filter((l) => l && !l.startsWith("#") && !/[*?[\]!/]/.test(l))]);
+		} catch { /* no .gitignore: only the tools' own state is allowed */ }
+		if (!existsSync(dir)) continue;
+		for (const name of readdirSync(dir)) if (name === "~" || (!known.has(name) && !allowed.has(name))) found.push(join(dir, name));
+	}
+	return found;
+}
 
 /** Whether the process noted for `pid` still runs: the pid answers, it is one this account may signal (EPERM is another account's process), and its start time is the one noted when it is known. */
 const alive = (pid: number, root: string, platform: NodeJS.Platform = process.platform) => {
@@ -107,7 +137,7 @@ export function reap(root: string, by?: number, platform: NodeJS.Platform = proc
 }
 
 /** Ends the run's part in this process: kills its servers, fails the process when any still ran, and, in the process that made the root, removes it. */
-export function finish({ root, owner }: Isolation): number[] {
+export function finish({ root, owner }: Isolation, watched?: Map<string, Set<string>>): number[] {
 	const left = reap(root, owner ? undefined : process.pid);
 	if (left.length) {
 		process.stderr.write(`test isolation: the run left sb server processes running (${left.join(", ")}); they were killed\n`);
@@ -120,14 +150,19 @@ export function finish({ root, owner }: Isolation): number[] {
 		process.stderr.write(`test isolation: the guard refused ${refused.length} start(s) nobody asserted (a test that expects a refusal takes it with consumeRefusals):\n${refused.map((text) => `  ${text}`).join("\n")}\n`);
 		process.exitCode = 1;
 	}
+	const strayed = watched ? strays(watched) : [];
+	if (strayed.length) {
+		process.stderr.write(`test isolation: the run left entries at the top of the checkout (a ~ is npm run with an empty or ~ HOME, here or in the shell that started the run: remove it, and set HOME):\n${strayed.map((path) => `  ${path}`).join("\n")}\n`);
+		process.exitCode = 1;
+	}
 	if (owner) rmSync(root, { recursive: true, force: true });
 	return left;
 }
 
 /** Installs the isolation and the exit check, once per process. */
 export function setup(): Isolation {
-	const isolation = installIsolation();
-	process.once("exit", () => void finish(isolation));
+	const isolation = installIsolation(), watched = topLevel();
+	process.once("exit", () => void finish(isolation, watched));
 	for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]] as const) process.once(signal, () => process.exit(code));
 	return isolation;
 }

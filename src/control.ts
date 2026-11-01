@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { MAX_PREFIX } from "./commands.ts";
-import type { Grants } from "./answerpane.ts";
+import { type Grants, panes, thenOf } from "./answerpane.ts";
 import { ANSWER_ID, checkAnswer, CONTROL, type Hub, type Sent, type Target } from "./dialogs.ts";
 import { HerdrError, type HerdrCall, type Pane } from "./herdr.ts";
 import { defaultDequeue, keyLabel } from "./dequeuekey.ts";
@@ -202,28 +202,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			if (remote && view?.prefill) delete view.prefill.text;
 			return { status: 200, body };
 		}
-		if (scope === "panes") {
-			// A pane an answer opened: reached by its grant alone. Detaching a mirror needs no live grant (the pane may be gone).
-			const g = grants?.get(key), id = `grant:${key}`;
-			if (!grants || (action !== "mirror" && action !== "keys")) return no(404, "not_found", "No such action.");
-			if (action === "mirror" && read.json.on === false) return mirrors ? mirrors.toggle(id, read.json) : no(503, "unavailable", "This server shows no terminals.");
-			if (!g) return no(404, "not_found", "That pane is not open here any more.");
-			if (action === "mirror") return mirrors ? mirrors.toggle(id, read.json, { pane: g.pane, ...(g.terminal ? { terminal: g.terminal } : {}) }) : no(503, "unavailable", "This server shows no terminals.");
-			if (!call) return no(503, "unavailable", "This server cannot reach Herdr.");
-			if (busy.has(id)) return no(429, "busy", "Another key to this pane is still on its way.");
-			const asked = pad.check(id, read.json, remote);
-			if ("status" in asked) return asked;
-			busy.add(id);
-			try {
-				const plan = pad.bare(id, (await grants.live(g)).pane_id, asked);
-				for (const [i, [method, params]] of plan.calls.entries()) (i && (await new Promise((r) => setTimeout(r, 60))), await call(method, params, 15_000));
-				return { status: 200, body: { accepted: true } };
-			} catch (error) {
-				return (error as Reply).status ? (error as Reply) : refused(error);
-			} finally {
-				busy.delete(id);
-			}
-		}
+		if (scope === "panes") return panes({ grants, mirrors, pad, call, busy, refused }, key, action, read.json, remote);
 		if (scope === "tower") {
 			if (action === "memory") return tower?.memory && tower.has(key) ? tower.memory(key, read.json) : no(404, "not_found", "No such tower.");
 			if (action === "leave" || action === "new") {
@@ -381,8 +360,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 				// A choice that leaves a step in a terminal (its `next`, from the stored dialog): the panes of the tab are noted before the answer goes out, so the one it opens can be told after.
 				const next = "choice" in checked ? target.answer.select?.choices[checked.choice]?.next : undefined, noted = next === "pane" ? await grants?.before(at.pane_id) : undefined;
 				const sent = await answers.send(key, target, { id: dialog, answerId, digest, ...checked });
-				// On the stored object, so Check again replays it with the same `then`.
-				if (sent.body.outcome === "accepted" && next) sent.body.then = next === "terminal" ? { terminal: true } : { pane: (noted && (await grants!.claim(key, at.pane_id, noted))?.id) || null };
+				if (sent.body.outcome === "accepted" && next) sent.body.then = await thenOf(grants, next, key, at.pane_id, noted); // on the stored object, so Check again replays it with the same `then`
 				return sent;
 			};
 		} else job = async () => call("agent.focus", { target: (await live(found)).pane_id });

@@ -95,7 +95,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Wi-Fi access (L5) to 466 (the RVL4 merge adds the documents' device and their revoke): gui.ts hands the LAN listeners the handler of kind "lan" (the entry, the verdict, the cookies, the documents' ticket, the streams keyed by network) and routes the `lan/*` reads and writes to this computer's page only.
 	// Merge fix (MM-F001) to 468: gui.ts answers a LAN listener's favicon and touch-icon requests with an uncounted 404 before the verdict.
 	// The server's default view (Geek step 3) to 478: gui.ts writes `sb-view` into the page it serves (the page is built per request now), puts `view` in the hello, sends the `view` event, and has `view()` and `setView()` on the Gui.
-	assert.ok(sum("src", ["net.ts", "gui.ts"]) <= 478, `src/net.ts and src/gui.ts have ${sum("src", ["net.ts", "gui.ts"])} lines`);
+	// An answer that needs the terminal opens it (feat/answer-opens-terminal) to 479: gui.ts makes the pane grants (answerpane.ts) and routes `panes`.
+	assert.ok(sum("src", ["net.ts", "gui.ts"]) <= 479, `src/net.ts and src/gui.ts have ${sum("src", ["net.ts", "gui.ts"])} lines`);
 	// Input (the spec's figure), remote access over Tailscale, its terminal pairing panel (QR, c copies, o opens), and the QR encoder each have their own.
 	// What a waiting session waits on (0.5.0, read for display only; answering is deferred) has its own as well.
 	// 0.5.1 raised remote.ts from 165 to 185 (a recorded server counts as running only if its process started when the entry says: a reused PID
@@ -795,7 +796,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Settings page (step 5) to 208,000 bytes / 82 KB gzipped: gui/settings.ts (the sections that fill when opened, 1.4 KB, its own chunk) and the messages of the page in both languages (the map chunk carries every message; the lazy chunks import it by its hashed name).
 	// Cancel (fix/ask-cancel) to 208,700 bytes / 82.4 KB gzipped: the question card's Cancel button (gui/ask.ts), its cancel body and outcome, and its two messages in both languages.
 	// Zen model (Z2) to 209,000 bytes / 82.45 KB gzipped: session.ts records the device's last talk through zenwith.ts.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 209_000 && total(chunks, gz) <= 82_450, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// An answer that needs the terminal opens it (feat/answer-opens-terminal) to 209,700 bytes / 82.7 KB gzipped: the question card's `opens` hook (ask.ts, session.ts) and its one message in both languages.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 209_700 && total(chunks, gz) <= 82_700, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

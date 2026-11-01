@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -814,6 +815,42 @@ test("R9-F001: a fresh CLI whose start-time read takes longer than the wait (3.5
 		const done = await ensure(ctx, { boss: true });
 		assert.ok("server" in done && done.server === "found");
 		assert.equal(world.spawned.length, 0, "no second server");
+	} finally {
+		await s.close();
+	}
+});
+
+test("the wait for a start time on the denied path is ended when the read answers first: its timer is cleared, not left to run out its 3 s", async () => {
+	const s = await deniedServer();
+	try {
+		const signals: (AbortSignal | undefined)[] = [];
+		const ctx = world.ctx({ alive: () => true, startOf: () => undefined, startedLater: async () => "T-RUN", sleep: (_ms: number, signal?: AbortSignal) => (signals.push(signal), new Promise<void>(() => {})) });
+		const seen = await probe(ctx);
+		assert.deepEqual([seen.live, seen.denied, seen.runs], [false, true, true]);
+		assert.equal(signals.length, 1, "one wait was started");
+		assert.equal(signals[0]?.aborted, true, "and ended when the race was over");
+	} finally {
+		await s.close();
+	}
+});
+
+test("a process that probes a denied server and leaves by itself is not held by the 3 s wait for a start time (the real timer is cleared)", async () => {
+	const s = await deniedServer();
+	try {
+		// What this asks is what holds the child's loop once the probe has answered: the child reports its active timers before and after.
+		const code = `import { makeCtx, probe } from ${JSON.stringify(new URL("../src/server/client.ts", import.meta.url).href)};
+import { slotOf, secretDir } from ${JSON.stringify(new URL("../src/server/record.ts", import.meta.url).href)};
+const slot = slotOf(process.argv[1], process.env);
+const ctx = makeCtx({ slot, version: "0.44.0", cli: "/fake/cli.mjs", by: "child", env: process.env, platform: "linux", alive: () => true, startOf: () => undefined, startedLater: async () => "T-RUN", prepare: (s) => secretDir(s.dir), spawn: () => { throw new Error("no spawn"); } });
+setTimeout(() => process.exit(3), 10000).unref();
+const before = process.getActiveResourcesInfo().filter((r) => r === "Timeout");
+const seen = await probe(ctx);
+process.stdout.write(JSON.stringify({ denied: seen.denied, before, after: process.getActiveResourcesInfo().filter((r) => r === "Timeout") }));`;
+		const run = spawnSync(process.execPath, ["--input-type=module", "-e", code, world.stateDir], { encoding: "utf8", timeout: 60_000, env: world.env });
+		assert.equal(run.status, 0, `exit ${run.status}: ${run.stderr}`);
+		const out = JSON.parse(run.stdout) as { denied: boolean; before: string[]; after: string[] };
+		assert.equal(out.denied, true);
+		assert.deepEqual(out.after, out.before, "no timer holds the loop once the probe has answered");
 	} finally {
 		await s.close();
 	}

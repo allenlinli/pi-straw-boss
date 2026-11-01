@@ -66,6 +66,8 @@ export interface ServiceOptions {
 }
 
 const NOTICES = 10;
+/** What a request is told when nothing is set up: no holder is coming until someone presses Set up, so it is not told to ask again. */
+const NOT_SET_UP = "Straw Link is not set up on this computer: no link holder runs here. Open Teams in the GUI and press Set up";
 
 export interface Notice { at: number; level: "info" | "warning" | "error"; text: string }
 type Answer = { ok: boolean; error?: string; [key: string]: unknown };
@@ -189,7 +191,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 	/** What the holder does for a request; the holder itself checks that the sender is the tower of a bound workspace. */
 	const handle = async (body: unknown, from: string): Promise<unknown> => {
 		const op = (typeof body === "object" && body !== null ? body : {}) as { op?: unknown; device?: unknown; workspace?: unknown; text?: unknown; reply?: unknown; allow?: unknown; team?: unknown; dialogId?: unknown; digest?: unknown; tool?: unknown; args?: unknown; tower?: unknown; id?: unknown };
-		if (!holder?.active || !election?.isHolder()) return { ok: false, error: "The link holder is not running in the sb server yet; ask again in a moment", code: "no_holder" };
+		if (!holder?.active || !election?.isHolder()) return { ok: false, code: "no_holder", error: inUse() ? "The link holder is not running in the sb server yet; ask again in a moment" : NOT_SET_UP };
 		const only = Array.isArray((body as { teams?: unknown }).teams) ? ((body as { teams: unknown[] }).teams.filter((t) => typeof t === "string") as string[]) : undefined;
 		if (op.op === "list") return { ok: true, teams: holder.list(only) };
 		if (op.op === "board-read") return holder.boards({ ...(only ? { only } : {}), ...(typeof op.device === "string" ? { device: op.device } : {}) });

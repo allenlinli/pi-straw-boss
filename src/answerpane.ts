@@ -4,14 +4,15 @@ import { HerdrError, type HerdrCall, type Pane } from "./herdr.ts";
 import type { createMirrors } from "./mirror.ts";
 import type { Next, Then } from "./owners.ts";
 
-// A pane an accepted answer opened (robot_hand's "Type it into a new Herdr pane" and "Run it in a new Herdr pane"): the server notes the panes of the session's tab before the
-// answer goes out, and after it is accepted looks for the one that is new. Exactly one new pane that runs no agent and has no `sb_role` is granted; it ends if either shows later: the page may then mirror it and key into it
-// (`/api/panes/<grant>/mirror|keys`, control.ts) like a session's terminal, for as long as that pane lives with the same terminal. Two new panes, none within the window, or a layout
-// that cannot be read grant nothing: the page says a pane opened and leaves it to Herdr. A grant is an unguessable id, never a pane id from the browser; a reused pane id under
-// another terminal is refused.
+// A pane an accepted answer opened (robot_hand's "Type it into a new Herdr pane" and "Run it in a new Herdr pane"): the server notes the panes of the session's tab before the answer goes out, and after it is accepted looks for the one that is new.
+// An owner whose choice is `tagged` marks its pane with the token `sb_answer=<answerId>`: only a new pane carrying that value is granted (two carrying it, or a pi pane or tower, grant nothing), and the timing claim is not used.
+// For an owner that does not tag (pi-robot-hand 0.3.x) the claim is timing only: exactly one new pane that runs no agent and has no `sb_role` is granted. The page may then mirror it and key into it (`/api/panes/<grant>/mirror|keys`, control.ts)
+// like a session's terminal, for as long as that pane lives with the same terminal and runs no agent and carries no `sb_role`: if it does, a key is refused, the mirror stops sending, and the grant is dropped. Two new panes (untagged),
+// none within the window, or a layout that cannot be read grant nothing: the page says a pane opened and leaves it to Herdr. A grant is an unguessable id, never a pane id from the browser; a reused pane id under another terminal is refused.
 
 /** A pane that is, or is becoming, a pi session or a tower: Herdr reports an agent on it, or it carries an `sb_role` token. A grant never reaches one, and ends the moment its pane turns into one. */
 export const isPiPane = (pane: Pick<Pane, "agent" | "tokens">): boolean => Boolean(pane.agent) || Boolean(pane.tokens?.sb_role);
+const MAX_TAGGED_LOOK = 16;
 export const MAX_GRANTS = 8, GRANT_MS = 6 * 3_600_000, CLAIM_MS = 3000, CLAIM_STEP_MS = 250;
 export interface Grant { id: string; session: string; pane: string; terminal?: string; at: number }
 export interface GrantDeps { call: HerdrCall; now?(): number; sleep?(ms: number): Promise<void>; id?(): string }
@@ -33,20 +34,29 @@ export function createGrants({ call, now = Date.now, sleep = (ms) => new Promise
 	return {
 		/** The tab's panes now, noted before an answer goes out. */
 		before: panesOf,
-		/** The pane the answer opened: the one pane in the tab that was not in `before` and does not run pi, within the window; undefined when none or when it is not the only one. */
-		async claim(session: string, pane: string, before: Set<string>): Promise<Grant | undefined> {
+		/** The pane the answer opened, within the window; undefined when none can be told. With `tag` (the answerId, for an owner whose choice is `tagged`): the one new pane in the tab whose `sb_answer` token is that value; an untagged pane is never taken for it, however new. Without: the one new pane in the tab that does not run pi. */
+		async claim(session: string, pane: string, before: Set<string>, tag?: string): Promise<Grant | undefined> {
+			const mint = (got: Pane) => {
+				const made = { id: id(), session, pane: got.pane_id, ...(got.terminal_id ? { terminal: got.terminal_id } : {}), at: now() };
+				grants.set(made.id, made);
+				while (grants.size > MAX_GRANTS) grants.delete(grants.keys().next().value!);
+				return made;
+			};
+			const get = (pane_id: string) => call("pane.get", { pane_id }).then((r) => (r as { pane: Pane }).pane, () => undefined);
 			for (let waited = 0; ; waited += CLAIM_STEP_MS) {
 				const now_ = await panesOf(pane), fresh = now_ ? [...now_].filter((p) => !before.has(p) && p !== pane) : [];
-				if (fresh.length > 1) return undefined;
-				if (fresh.length === 1) {
-					const got = await call("pane.get", { pane_id: fresh[0]! }).then((r) => (r as { pane: Pane }).pane, () => undefined);
-					if (got && !isPiPane(got)) {
-						const made = { id: id(), session, pane: got.pane_id, ...(got.terminal_id ? { terminal: got.terminal_id } : {}), at: now() };
-						grants.set(made.id, made);
-						while (grants.size > MAX_GRANTS) grants.delete(grants.keys().next().value!);
-						return made;
+				if (tag !== undefined) {
+					if (fresh.length > MAX_TAGGED_LOOK) return undefined;
+					const tagged = (await Promise.all(fresh.map(get))).filter((p): p is Pane => p?.tokens?.sb_answer === tag);
+					if (tagged.length > 1) return undefined;
+					if (tagged.length === 1) return isPiPane(tagged[0]!) ? undefined : mint(tagged[0]!);
+				} else {
+					if (fresh.length > 1) return undefined;
+					if (fresh.length === 1) {
+						const got = await get(fresh[0]!);
+						if (got && !isPiPane(got)) return mint(got);
+						if (got) return undefined;
 					}
-					if (got) return undefined;
 				}
 				if (waited >= CLAIM_MS) return undefined;
 				await sleep(CLAIM_STEP_MS);
@@ -74,14 +84,14 @@ export function createGrants({ call, now = Date.now, sleep = (ms) => new Promise
 	};
 }
 
-/** What an accepted answer to a choice with `next` leaves to open: the session's terminal, or the pane it opened (a grant id; null when none could be told apart). `noted`: the tab's panes before the answer went out. */
-export async function thenOf(grants: Pick<Grants, "claim"> | undefined, next: Next, session: string, pane: string, noted: Set<string> | undefined): Promise<Then> {
-	return next === "terminal" ? { terminal: true } : { pane: (noted && (await grants?.claim(session, pane, noted))?.id) || null };
+/** What an accepted answer to a choice with `next` leaves to open: the session's terminal, or the pane it opened (a grant id; null when none could be told apart). `noted`: the tab's panes before the answer went out. `tag`: the answerId when the stored choice is `tagged`. */
+export async function thenOf(grants: Pick<Grants, "claim"> | undefined, next: Next, session: string, pane: string, noted: Set<string> | undefined, tag?: string): Promise<Then> {
+	return next === "terminal" ? { terminal: true } : { pane: (noted && (await grants?.claim(session, pane, noted, tag))?.id) || null };
 }
 
 /** POST /api/panes/<grant>/mirror {stream, on} and /keys: a pane an answer opened, reached by its grant alone and mirrored and keyed like a session's terminal (mirror.ts `Bare`, keys.ts `bare`), after control.ts's write guards. Detaching needs no live grant: the pane may be gone. */
 export async function panes(
-	{ grants, mirrors, pad, call, busy, refused }: { grants?: Pick<Grants, "get" | "live">; mirrors?: Pick<ReturnType<typeof createMirrors>, "toggle">; pad: ReturnType<typeof createKeys>; call?: HerdrCall; busy: Set<string>; refused(error: unknown): Reply },
+	{ grants, mirrors, pad, call, busy, refused }: { grants?: Pick<Grants, "get" | "live" | "drop">; mirrors?: Pick<ReturnType<typeof createMirrors>, "toggle">; pad: ReturnType<typeof createKeys>; call?: HerdrCall; busy: Set<string>; refused(error: unknown): Reply },
 	grant: string, action: string, json: Record<string, unknown>, remote: boolean,
 ): Promise<Reply> {
 	const g = grants?.get(grant), id = `grant:${grant}`;
@@ -89,7 +99,7 @@ export async function panes(
 	if (action === "mirror") {
 		if (!mirrors) return no(503, "unavailable", "This server shows no terminals.");
 		if (json.on === false) return mirrors.toggle(id, json);
-		return g ? mirrors.toggle(id, json, { pane: g.pane, ...(g.terminal ? { terminal: g.terminal } : {}) }) : no(404, "not_found", "That pane is not open here any more.");
+		return g ? mirrors.toggle(id, json, { pane: g.pane, ...(g.terminal ? { terminal: g.terminal } : {}), drop: () => grants.drop(grant) }) : no(404, "not_found", "That pane is not open here any more.");
 	}
 	if (!g) return no(404, "not_found", "That pane is not open here any more.");
 	if (!call) return no(503, "unavailable", "This server cannot reach Herdr.");

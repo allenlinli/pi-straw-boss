@@ -53,7 +53,7 @@ const wait = <T>(map: Map<string, (x?: T) => void>, k: string, ms: number) => ne
 /** A relayed dialog, checked so a malformed message cannot break the net reading. */
 const valid = (d: Dialog) => str(d?.owner) && str(d.id) && d.id.length <= 64 && /^[0-9a-f]{64}$/.test(String(d.digest)) && opt(d.toolCallId) &&
 	(d.secret === undefined || (str(d.secret?.label) && Array.isArray(d.secret.instructions) && d.secret.instructions.every(str) && opt(d.secret.url) && str(d.secret.destination))) &&
-	(d.select === undefined || (str(d.select?.title) && Array.isArray(d.select.choices) && d.select.choices.every((c) => str(c?.label) && opt(c.note) && (c.next === undefined || c.next === "terminal" || c.next === "pane")) && opt(d.select.copy))) &&
+	(d.select === undefined || (str(d.select?.title) && Array.isArray(d.select.choices) && d.select.choices.every((c) => str(c?.label) && opt(c.note) && (c.next === undefined || c.next === "terminal" || c.next === "pane") && (c.tagged === undefined || (c.tagged === true && c.next === "pane"))) && opt(d.select.copy))) &&
 	(d.questions === undefined || (Array.isArray(d.questions) && d.questions.every((q) => str(q?.question) && opt(q.header) && typeof q.multiple === "boolean" && Array.isArray(q.options) && q.options.every((o) => str(o?.title) && opt(o.description)))));
 /** Own words or a note as they would be typed: CRLF to LF, never blank, within `max` bytes, no control characters but tab and newline. */
 const words = (v: unknown, max: number) => (str(v) && v.trim() && Buffer.byteLength(v) <= max && !CONTROL.test(v.replace(/\r\n?/g, "\n")) ? v.replace(/\r\n?/g, "\n") : null);

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -11,6 +12,7 @@ import { HERE_ONLY } from "./link/request.ts";
 import type { ServerLook } from "./server-look.ts";
 import { towerRunsEnabled } from "./server/towerruns.ts";
 import { markRun } from "./runmark.ts";
+import { refusedInRun } from "./runallow.ts";
 import { startOf as processStart } from "./startof.ts";
 import { ALLY_ENTRY, ENTRY, type Kit } from "./state.ts";
 import { MEMORY_DESCRIPTION, memoryParameters } from "./memorytool.ts";
@@ -395,11 +397,16 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 	});
 	pi.on("agent_start", () => void ((inTurn = true), (triggered = undefined)));
 	pi.on("agent_settled", () => void ((inTurn = false), flushQuit()));
-	pi.on("tool_call", (event) => {
+	pi.on("tool_call", (event, context) => {
 		if (mode !== "run") return;
 		if (event.toolName === "intercom") return { block: true, reason: BLOCKED };
 		// A subagent would outlive the run (a pane and a process left behind after tower_done): a run routes work through the mains it opens.
 		if (event.toolName === "subagent" || event.toolName === "subagent_resume") return { block: true, reason: NO_SUBAGENTS };
+		// A local run is started with `--tools` naming what it may call (runallow.ts), so a tool off the list is not registered at all; this refuses it again for the case an extension turned it back on, and refuses a path of the state folder or a secret folder.
+		// An ally run keeps the gate of its sender's level (link/hooks.ts), and a hand run is the boss's own pi in the standing pane, started with the tools the boss chose: neither is held to the list.
+		if (claim?.kind !== "local" || claim.hand) return;
+		const home = cfg.link?.home ?? homedir(), why = refusedInRun(event.toolName, event.input as Record<string, unknown>, { cwd: context.cwd, home, agentDir: env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), stateDir: guiDir });
+		if (why) return { block: true, reason: why };
 	});
 	// An ally run has no business with pi-intercom: its own id is fresh and no header names it, so a message from it is dropped from the context as a backstop.
 	pi.on("context", (event) => {

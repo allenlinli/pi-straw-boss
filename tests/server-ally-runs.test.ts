@@ -73,6 +73,7 @@ test("a message that waits for the tower identity gets an ally run in a pane spl
 	assert.deepEqual(pi.slice(0, 1), ["--name"]);
 	assert.match(pi[1]!, new RegExp(`^ally run · label-${DEV1} · ${id.slice(0, 8)}$`));
 	assert.deepEqual(pi.slice(2, 4), ["--sb-run", id]);
+	assert.ok(!pi.includes("--tools"), "an ally run keeps the gate of its sender's level, not the allowlist of a local run");
 	const rec = readRun(world.slot, "wA", id)!;
 	assert.equal(rec.kind, "ally");
 	assert.equal(rec.device, DEV1);

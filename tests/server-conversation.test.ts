@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { LOCAL_RUN_TOOLS } from "../src/runallow.ts";
 import { BOSS_FILE_MAX, readPointer, resumable, type BossPointer, writePointer } from "../src/server/bossconv.ts";
 import { addText, updateMemory } from "../src/server/towermemory.ts";
 import { readNotes, readRun } from "../src/server/towerrunstore.ts";
@@ -118,6 +119,7 @@ test("the next conversation resumes that session (--session), says so in its bri
 	const second = await conversation(s, 3, file, "again");
 	const args = argsOf(second.id);
 	assert.equal(args[args.indexOf("--session") + 1], realpathSync(file));
+	assert.equal(args[args.indexOf("--tools") + 1], LOCAL_RUN_TOOLS.join(","), "a resumed boss session is started with the allowlist too: an explicit --tools replaces the tools the session had");
 	assert.deepEqual(readRun(world.slot, "wA", second.id)?.conversation?.resumed, true);
 	assert.match(second.brief, /Boss conversation: the boss is at this pane\. Resumed session from \d{4}-\d\d-\d\d, 1 boss turn\./);
 	assert.match(second.brief, /Since you last talked with the boss:\n- \d+m ago: that run's own handoff note, not the boss's words: «routed the green build to docs/);

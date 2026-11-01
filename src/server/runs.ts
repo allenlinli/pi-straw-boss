@@ -20,6 +20,7 @@ import type { Slot } from "./record.ts";
 import { addNote, clearTimer, listRuns, pruneRuns, readNotes, readTimer, type Outcome, type RunRecord, writeRun, writeTimer } from "./towerrunstore.ts";
 import { appendEvent, dropParked, parkEvent, type QueuedEvent, readQueue, removeEvent, type ServiceRecord, unparkEvent, updateEvent } from "./towerstore.ts";
 import { RUN_CAP_MINUTES } from "./towerbrief.ts";
+import { LOCAL_RUN_TOOLS } from "../runallow.ts";
 import type { RunWho } from "./rungate.ts";
 
 // The runs of the tower service (docs/specs/2026-10-26-sb-backend.md, The wake protocol, Crash and timeout, Queueing and concurrency). An event wakes a run: a new pi started in the tower tab's standing pane
@@ -491,7 +492,8 @@ export function createRuns(o: RunsOptions) {
 					active.unstarted = true;
 					return void (await finish(active, "herdr-restart", "the standing pane is no longer proven to be the tower's"));
 				}
-				await start(o.run, o.sleep, rec.agent, rec.pane, ["--name", name, "--sb-run", id, ...extra, ...(o.model() ? ["--model", o.model()!] : [])], () => (rec.kind === "ally" ? allyPaneHeld(active) : svc.ref.proven()));
+				// A local run (the boss conversation included, whose resumed session may still have had a shell) names its tools: the tower tools and read-only files, no shell or edit (runallow.ts). An ally run keeps its sender's gate.
+				await start(o.run, o.sleep, rec.agent, rec.pane, ["--name", name, "--sb-run", id, ...extra, ...(rec.kind === "local" ? ["--tools", LOCAL_RUN_TOOLS.join(",")] : []), ...(o.model() ? ["--model", o.model()!] : [])], () => (rec.kind === "ally" ? allyPaneHeld(active) : svc.ref.proven()));
 				started = true;
 				const found = await procOf(rec.pane, id);
 				if (!found) throw new Error("pi's process was not found in the pane");

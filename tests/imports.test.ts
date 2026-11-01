@@ -619,7 +619,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen review fixes: gui/viewlabel.ts (the Auto label, out of main.ts) is new, and view.ts takes the Zen back button's mount (out of main.ts): both are testable now, 2639 to 2649.
 	// Z1 and Z2 together (the merge) to 2639: the two increments over the common 2531.
 	// The Zen layer (Z3) to 2965: gui/zenchunk.ts (3, the chunk's entry with its stylesheet) is new, and gui/zen.ts (the item card, the pause, the companion, and the way out; 227) and gui/intel.ts (11, out of layer.ts) are new; main.ts, fixture.ts, notify.ts, drawer.ts, view.ts, ask.ts, and zenmodel.ts take their few lines.
-	assert.ok(page <= 2965, `the page's TypeScript has ${page} lines`);
+	// The stuck-overlay way out (fix/connect-stuck) to 2652 (with Z1 and its fixes): connect.ts takes the static Reload link away once the page has booted (+3).
+	assert.ok(page <= 2968, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -872,5 +873,6 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The connection overlay to 102,200 bytes / 21.9 KB gzipped: `.connect` (the modal overlay over the page, its card, ring, and Try again) and the ring's rest in calm and Geek.
 	// The value zen (Zen step Z1) to 102,400 bytes: `.zen-back`, the header button hidden outside Standard-while-away.
 	// The Zen layer (Z3) to 105,800 bytes / 23.2 KB gzipped: the first-frame block in style.css (about 0.3 KB) and gui/zen.css (2.9 KB, loaded with the Zen chunk; Z4 restyles it).
-	assert.ok(total(css, (n) => size(n).length) <= 105_800 && total(css, gz) <= 23_200, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// The Reload link in the overlay (fix/connect-stuck) to 102,900 bytes / 22.0 KB gzipped (with Z1's .zen-back): `.connect-reload` (revealed after 10 s by a step), its keyframes, the reduced-motion exception, and forced colors.
+	assert.ok(total(css, (n) => size(n).length) <= 106_300 && total(css, gz) <= 23_300, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

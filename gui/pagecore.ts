@@ -8,16 +8,16 @@ import { CONNECTING, type Status } from "./stream.ts";
 import { unitsOf, waitingOf } from "./units.ts";
 import { enterZen, type PageView } from "./view.ts";
 import { mountFace } from "./viewface.ts";
-import type { Exit } from "./zentypes.ts";
+import type { Exit, Term } from "./zentypes.ts";
 
 // What the page decides, apart from what it draws: the face (Zen or Standard), the route, the stream's state and watch, and where each snapshot goes. main.ts builds the parts (DOM, chunks, the stream) and hands them in;
 // this module holds the state and the rules over them, so tests/pagecore.test.ts can run the page's wiring with plain fakes (Z3R-F006). No events and no registry: the page calls these functions, and they call the parts it gave.
 /** An Escape keydown, as far as the page reads it. */
 export interface Esc { key: string; defaultPrevented: boolean; isComposing: boolean; preventDefault(): void; stopPropagation(): void }
 /** The Zen layer, as the page drives it. `escape` says whether it took the key. */
-export interface ZenFace { net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): unknown }
+export interface ZenFace { net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void }
 /** The overlay layer (the dialogs and tiles), as the page drives it. */
-interface PanelsFace { stack: { show(a: Alert): void; close(how?: "go"): unknown }; terminal: { open(key: string, name: string, keys?: boolean): void } }
+interface PanelsFace { stack: { show(a: Alert): void; close(how?: "go"): boolean }; terminal: { open(key: string, name: string, keys?: boolean): void } }
 /** The focus views (the base, the session's comms and dossier). */
 interface FocusFace { terminal(key: string): void }
 export interface PageIo {
@@ -111,11 +111,17 @@ export function createPage(io: PageIo) {
 	/** The page is visible again, or Zen was left: it draws the newest snapshot it kept back. */
 	const wake = () => void (pending && snapshot(pending));
 	const openAlert = (a: Alert) => io.withPanels((p) => p.stack.show(a));
-	/** A session's comms; with `mode: "term"` its terminal, and nothing queued opens over it. The route goes first: it starts the focus views' chunk, which the terminal's request then waits for. */
-	function openSession(ws: string, key: string, { mode, at }: { mode?: "chat" | "term"; at?: string } = {}) {
+	/** A session's comms; with `mode: "term"` its terminal, and nothing queued opens over it. In Zen the terminal is the Zen layer's, with no route and no Standard. The route goes first: it starts the focus views' chunk, which the terminal's request then waits for. */
+	function openSession(ws: string, key: string, { mode, at }: { mode?: "chat" | "term"; at?: string } = {}): void {
+		if (mode === "term" && zenOn()) return io.withZen((z) => (zenOn() ? z.terminal({ key }) : openSession(ws, key, { mode, at })));
 		if (mode === "term") io.panels()?.stack.close("go");
 		io.go({ view: "session", ws, key, at });
 		if (mode === "term") io.withFocus((f) => f.terminal(key));
+	}
+	/** A pane an answer opened shows with the keyboard in it: in Zen as the Zen layer's terminal, else as a tile. */
+	function openPane(grant: string): void {
+		if (zenOn()) return io.withZen((z) => (zenOn() ? z.terminal({ key: `grant:${grant}` }) : openPane(grant)));
+		io.withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true));
 	}
 	return {
 		/** The route and the newest snapshot. */
@@ -145,16 +151,12 @@ export function createPage(io: PageIo) {
 			rewatch();
 		},
 		openAlert, openSession,
-		/** A pane an answer opened shows as a terminal tile with the keyboard in it, whichever face the page has: Zen leaves for Standard first, as it does for a session's terminal (a Zen that draws its own terminals changes this and `leaveZen`). */
-		openPane(grant: string) {
-			zenOn() && face.leave();
-			io.withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true));
-		},
-		/** The way out of Zen (zen.ts): Standard first, then the item's dialog, the session (its terminal), and the newest snapshot. */
-		leaveZen({ item, route, terminal }: Exit) {
+		openPane,
+		/** The way out of Zen (zen.ts): Standard first, then the item's dialog or the session's comms, and the newest snapshot. */
+		leaveZen({ item, route }: Exit) {
 			face.leave();
 			item && openAlert(item);
-			route?.view === "session" ? openSession(route.ws, route.key, { mode: terminal ? "term" : "chat", at: route.at }) : route && io.go(route);
+			route && io.go(route);
 			wake();
 		},
 		/** The header's Zen button: the mark that this page left Zen goes and the view is read again. */
@@ -171,6 +173,7 @@ export function createPage(io: PageIo) {
 		escape(e: Esc, capture: boolean) {
 			if (e.key !== "Escape" || e.defaultPrevented || io.modal()) return;
 			if (capture) return void (!e.isComposing && zenOn() && io.zen()?.escape(e) && e.stopPropagation());
+			if (zenOn()) return; // the layer's in the capture phase, or the terminal's own: the page goes up no route from Zen
 			e.preventDefault();
 			if (io.panels()?.stack.close() || current.view === "map") return;
 			current.view === "settings" ? io.leaveSettings() : io.go(upOf(current));

@@ -109,6 +109,20 @@
 [data-view="zen"] .zen-company button { min-height: 44px; min-width: 44px; }
 [data-view="zen"] .zen-stage:has(.zen-company) { position: relative; }
 [data-view="zen"] .zen-stage:has(.zen-company) > .zen-circle { position: absolute; top: 50%; left: 50%; translate: -50% -50%; opacity: 0.25; pointer-events: none; animation: none; }
+/* The terminal layer (zenterm.ts): the page's own terminal on ink, over the whole page, with the way back in the corner where the menu was. The mirror, the key pad, and the keyboard are Standard's; only the colours are the tokens above. */
+[data-view="zen"] .zen-term { position: fixed; inset: 0; z-index: 4; display: grid; grid-template: auto minmax(0, 1fr) / minmax(0, 1fr); gap: 8px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--zen-ground); color: var(--zen-paper); animation: zen-fade 0.5s var(--zen-ease) both; }
+[data-view="zen"] .zen-term-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+[data-view="zen"] .zen-term-bar .zen-who { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.3rem; }
+[data-view="zen"] .zen-term-back { flex: none; min-width: 44px; min-height: 44px; padding: 0 20px; border: 1px solid var(--zen-line); border-radius: 22px; background: var(--zen-warm); color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; cursor: pointer; transition: background-color 0.6s var(--zen-ease); }
+[data-view="zen"] .zen-term-back:hover { background: var(--zen-warm-hi); }
+[data-view="zen"] .zen-term-host { min-height: 0; display: grid; }
+[data-view="zen"] .zen-term-host .term-tile { min-height: 0; }
+[data-view="zen"] .zen-term-host .term-scroll { border-color: var(--zen-line); background: var(--zen-sunken); }
+[data-view="zen"] .zen-term-host :is(.pad-key, .term-bar button, .cmp-link) { min-height: 44px; min-width: 44px; }
+[data-view="zen"] .zen-term-esc { position: fixed; z-index: 5; left: 50%; bottom: max(28px, calc(env(safe-area-inset-bottom) + 16px)); translate: -50% 0; width: max-content; max-width: min(24rem, 90vw); margin: 0; padding: 6px 14px; border-radius: 18px; background: var(--zen-soft); text-align: center; font-size: 0.9rem; color: var(--zen-paper); opacity: 0; transition: opacity 0.4s var(--zen-ease); pointer-events: none; }
+[data-view="zen"] .zen-term-esc:empty { display: none; }
+[data-view="zen"] .zen-term-esc[data-on] { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-term { animation: none; } [data-view="zen"] :is(.zen-term-esc, .zen-term-back) { transition: none; } }
 /* The page holds still (calm.ts: 30 s without input): the circle rests at its exhaled size, the ground on one layer. */
 [data-view="zen"][data-calm] :is(.zen-circle, .zen-circle i, .zen-drift i) { animation: none; }
 [data-view="zen"][data-calm] .zen-drift i:last-child { opacity: 0; }

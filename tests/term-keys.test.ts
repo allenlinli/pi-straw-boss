@@ -246,3 +246,28 @@ test("the keyboard has the pad's refusals: a standing or read-only unit's 409 sh
 	await gap();
 	assert.deepEqual(off.sent, []);
 });
+
+test("embed with `keys` gives the sink the keyboard on a desktop only, and `end` runs when the terminal's mirror ends, never after it is taken away", () => {
+	fine.on = true;
+	focused = undefined;
+	const kept = world();
+	assert.equal(focused, undefined, "embed alone leaves the focus to its caller (the session view)");
+	const post = () => async () => ({ ok: true, status: 200, body: {} });
+	const t = mountTerminals({ tiles: { open() {} }, post: post as never, stream: () => JSON.stringify({ stream: "st" }), pad: (x) => keypad({ ...x, state: () => "live" }) });
+	const ends: string[] = [], host = new El("div");
+	const off = t.embed("p", "pane", host as never, { keys: true, end: () => ends.push("p") });
+	closers.push(off);
+	assert.equal(focused, (host.kids[0] as El).all().find((x) => x.classes.has("term-sink")), "a desktop: the keyboard goes to the pane");
+	t.frame(JSON.stringify({ key: "p", seq: 1, rows: 1, cols: 10, whole: true, set: [[0, "hi"]] }));
+	assert.deepEqual(ends, [], "a frame is no end");
+	t.frame(JSON.stringify({ key: "p", ended: "The pane closed." }));
+	assert.deepEqual(ends, ["p"]);
+	off();
+	t.frame(JSON.stringify({ key: "p", ended: "The pane closed." }));
+	assert.deepEqual(ends, ["p"], "a terminal taken away hears nothing");
+	fine.on = false;
+	focused = undefined;
+	closers.push(t.embed("q", "pane", new El("div") as never, { keys: true }));
+	assert.equal(focused, undefined, "a phone opens its soft keyboard with the Keyboard button");
+	kept.off();
+});

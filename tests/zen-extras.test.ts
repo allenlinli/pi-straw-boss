@@ -244,7 +244,7 @@ test("the line fades to the next every 45 s, stays still under calm or reduced m
 test("the words: the new keys exist in both languages with the boss's copy, and zen_nothing is gone", () => {
 	const read = (f: string) => JSON.parse(readFileSync(new URL(`../gui/messages/${f}.json`, import.meta.url), "utf8")) as Record<string, string>;
 	const zh = read("zh-TW"), en = read("en");
-	const want: Record<string, string> = { zen_back_title: "回到禪", zen_leave_title: "回到標準畫面（Esc Esc）", zen_esc_hint: "再按一次 Esc 回到標準", zen_asks: "{name} 想問你", zen_not_now: "晚點再說", zen_open_standard: "到標準畫面處理", zen_elsewhere: "已經在別處回好了", zen_pause: "吸一口氣", zen_fullscreen: "全螢幕", zen_fullscreen_exit: "離開全螢幕", zen_add_home: "想全螢幕，可以把這頁加入主畫面。" };
+	const want: Record<string, string> = { zen_back_title: "回到禪", zen_leave_title: "回到標準畫面（Esc Esc）", zen_esc_hint: "再按一次 Esc 回到標準", zen_asks: "{name} 想問你", zen_not_now: "晚點再說", zen_open_terminal: "開啟終端機", zen_term_esc_hint: "再按一次 Esc 回到禪", zen_elsewhere: "已經在別處回好了", zen_pause: "吸一口氣", zen_fullscreen: "全螢幕", zen_fullscreen_exit: "離開全螢幕", zen_add_home: "想全螢幕，可以把這頁加入主畫面。" };
 	for (const [k, v] of Object.entries(want)) {
 		assert.equal(zh[k], v, k);
 		assert.ok(en[k] && en[k] !== v, `${k} has its English`);

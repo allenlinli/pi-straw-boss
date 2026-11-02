@@ -51,13 +51,15 @@ let focus: Focus | undefined, loading: Promise<Focus> | undefined;
 const withFocus = (call: (f: Focus) => void) => (focus ? call(focus) : void loading?.then(call));
 function loadFocus() {
 	loading ??= import("./views.ts").then(({ mountFocus }) => {
-		focus = mountFocus({ data, restart: () => stream.restart(), openTile, embedTerminal: (key, name, host) => new Promise((done) => withPanels((p) => done(p.terminal.embed(key, name, host)))), online: core.online });
+		focus = mountFocus({ data, restart: () => stream.restart(), openTile, embedTerminal: (key, name, host) => embed(key, name, host, { keys: false }), online: core.online });
 		focus.show(netOf(core.current), netOf(core.current));
 		if (core.latest) focus.net(core.latest);
 		return focus;
 	});
 }
 
+/** The page's terminal embedded in a host: the session view's terminal mode and the Zen terminal layer (the overlay chunk holds the terminals). */
+const embed = (key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void }) => new Promise<() => void>((done) => withPanels((p) => done(p.terminal.embed(key, name, host, o))));
 /** A base's name, for the dialogs and Zen's cards. */
 const label = (ws: string) => core.latest?.bases.find((b) => b.id === ws)?.label ?? ws;
 // The overlay layer (the alert queue, dialogs, and tiles) is a chunk of its own too, fetched on the first alert or tile.
@@ -85,7 +87,7 @@ const withZen = (call: (z: Zen) => void) => {
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
 		remind: (a) => notify.remind(a), sound: () => {}, // the effects are the next step's (Z5)
 		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: notify.sound }, // the corner menu's rows act through the settings page's own switches
-		leave: core.leaveZen, watch: core.watchLog,
+		leave: core.leaveZen, embed, watch: core.watchLog,
 	})));
 	void zenLoading.then(call);
 };

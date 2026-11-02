@@ -31,7 +31,7 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 			w.waiting.splice(0).forEach((call) => call(zen));
 		},
 	};
-	const zen: ZenFace = { net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false) };
+	const zen: ZenFace = { net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`) };
 	const panels = {
 		stack: { show: (a: Alert) => void w.calls.push(`show:${a.key}`), close: (how?: string) => (w.calls.push(`close:${how ?? ""}`), w.dialogOpen) },
 		terminal: { open: (key: string, name: string, keys?: boolean) => void w.calls.push(`tile:${key}:${name}:${keys}`) },
@@ -209,19 +209,38 @@ test("openSession opens a session's comms by its route; in terminal mode nothing
 	assert.deepEqual(w.core.current, { view: "session", ws: "w", key: "k2", at: "e9" });
 });
 
-test("openAlert shows the alert's dialog through the overlay layer; openPane opens the answer's pane as a terminal tile with the keys, leaving Zen first", () => {
+test("in Zen a session's terminal and a pane are the Zen layer's: no route change, no Standard, no tile; a page that left Zen, or a Zen that went away before its chunk came, keeps Standard's way", () => {
+	const w = world({ stored: "zen", zenLoaded: false });
+	w.core.sync();
+	w.core.openSession("w", "k", { mode: "term", at: "e9" });
+	w.core.openPane("g1");
+	assert.deepEqual(w.calls, [], "the Zen chunk is not here: both wait for it");
+	w.load();
+	assert.deepEqual([w.calls, w.core.zenOn(), w.core.current, w.zenEl.hidden, w.navigations.length], [['zenterm:{"key":"k"}', 'zenterm:{"key":"grant:g1"}'], true, { view: "map" }, false, 0], "no close of the dialogs, no route, no tile, no leaving Zen");
+	const chat = world({ stored: "zen" });
+	chat.core.sync();
+	chat.core.openSession("w", "k");
+	assert.deepEqual(chat.calls, ['go:{"view":"session","ws":"w","key":"k"}'], "comms are Standard's even in Zen (the route alone)");
+	const left = world({ stored: "zen", away: true });
+	left.core.openSession("w", "k", { mode: "term" });
+	left.core.openPane("g2");
+	assert.deepEqual(left.calls, ["close:go", 'go:{"view":"session","ws":"w","key":"k"}', "terminal:k", `tile:grant:g2:${m.pane_name()}:true`], "away: Standard's session terminal and pane tile");
+	const gone = world({ stored: "zen", zenLoaded: false });
+	gone.core.sync();
+	gone.core.openPane("g3");
+	gone.core.face.leave();
+	gone.load();
+	assert.deepEqual(gone.calls, [`tile:grant:g3:${m.pane_name()}:true`], "Zen left before the chunk arrived: the pane opens as Standard's tile");
+});
+
+test("openAlert shows the alert's dialog through the overlay layer; openPane opens the answer's pane as a terminal tile with the keys", () => {
 	const std = world();
 	std.core.openAlert(alert("a"));
 	std.core.openPane("g1");
 	assert.deepEqual(std.calls, ["show:a", `tile:grant:g1:${m.pane_name()}:true`], "Standard stays where it is");
-	const zen = world({ stored: "zen" });
-	zen.core.sync();
-	assert.equal(zen.zenEl.hidden, false);
-	zen.core.openPane("g2");
-	assert.deepEqual([zen.core.zenOn(), zen.zenEl.hidden, zen.calls], [false, true, [`tile:grant:g2:${m.pane_name()}:true`]], "Zen hands over to Standard, then the tile opens");
 });
 
-test("leaving Zen: Standard first, then the item's dialog, or the session's comms, or its terminal, and the newest snapshot is drawn", () => {
+test("leaving Zen: Standard first, then the item's dialog or the session's comms, and the newest snapshot is drawn (a terminal is Zen's own and never leaves)", () => {
 	const item = alert("a");
 	const w = world({ stored: "zen" });
 	w.core.snapshot(net(unit("a", "waiting")));
@@ -231,9 +250,6 @@ test("leaving Zen: Standard first, then the item's dialog, or the session's comm
 	const comms = world({ stored: "zen" });
 	comms.core.leaveZen({ route: { view: "session", ws: "w", key: "s" } });
 	assert.deepEqual([comms.core.zenOn(), comms.calls], [false, ['go:{"view":"session","ws":"w","key":"s"}']]);
-	const term = world({ stored: "zen" });
-	term.core.leaveZen({ route: { view: "session", ws: "w", key: "s" }, terminal: "s" });
-	assert.deepEqual([term.core.zenOn(), term.calls], [false, ["close:go", 'go:{"view":"session","ws":"w","key":"s"}', "terminal:s"]], "the same call as a dialog's Focus terminal");
 	const none = world({ stored: "zen" });
 	none.core.leaveZen({});
 	assert.deepEqual([none.core.zenOn(), none.calls], [false, []], "a pause just returns to the page");
@@ -316,6 +332,9 @@ test("Escape, bubble phase: it closes the top dialog; with none open it goes up 
 	const modal = world({ modal: true, route: { view: "session", ws: "w", key: "k" } }), m = key("Escape");
 	modal.core.escape(m, false);
 	assert.deepEqual([m.prevented, modal.core.current.view, modal.calls], [0, "session", []], "an open popover closes itself");
+	const inZen = world({ stored: "zen", route: { view: "session", ws: "w", key: "k" } }), z = key("Escape");
+	inZen.core.escape(z, false);
+	assert.deepEqual([z.prevented, inZen.core.current.view, inZen.calls], [0, "session", []], "in Zen the key is the layer's (capture phase): the bubble phase goes up no route, as when the terminal had the key and left it alone");
 	const other = key("a"), taken = key("Escape", { defaultPrevented: true });
 	up.core.escape(other, false);
 	up.core.escape(taken, false);

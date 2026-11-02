@@ -20,6 +20,8 @@
 	"zen_leave_title": "Back to the Standard view (Esc Esc)",
 	"zen_asks": "{name} wants to ask you",
 	"zen_not_now": "Maybe later",
+	"zen_q_line": "Question {n} of {total}: {name}, {state}. Opens it.",
+	"zen_q_none": "not answered",
 	"zen_open_standard": "Handle it in Standard",
 	"zen_elsewhere": "Already answered elsewhere",
 	"zen_pause": "Take a breath",

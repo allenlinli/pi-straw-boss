@@ -406,3 +406,67 @@ test("the stylesheet: on a short window the question area gives way and the send
 	assert.match(css, /\.zen-ask \.ask > :not\(\.ask-acts, \.ask-note\) \{[^}]*min-height: 5rem[^}]*overflow-y: auto/, "whatever the questions are (one, a select's options) they scroll inside the space left");
 	assert.match(css, /\.zen-ask \.ask > :is\(\.ask-acts, \.ask-note\) \{[^}]*flex: none/, "and the send row does not shrink");
 });
+
+/** The browser's layout for a column `room` px tall: a folded line is 44 px and a 6 px gap, a line dropped (`data-far`) none, and the focused question takes what is left. */
+function column(room: number, p: Pending) {
+	const r = rig(p);
+	const shown = () => r.blocks.filter((b) => b.dataset.dim !== undefined && b.dataset.far === undefined).length;
+	r.blocks.forEach((b) => {
+		Object.defineProperty(b, "clientHeight", { configurable: true, get: () => (b.dataset.dim !== undefined ? 44 : Math.max(0, room - shown() * 50)) });
+		Object.defineProperty(b, "scrollHeight", { configurable: true, get: () => (b.dataset.dim !== undefined ? 44 : 400) });
+	});
+	return { ...r, far: () => r.blocks.map((b) => b.dataset.far !== undefined), open: () => r.blocks.find((b) => b.dataset.dim === undefined)! };
+}
+const FOUR = () => pending(Q("A?", ["a1", "a2"]), Q("B?", ["b1", "b2"]), Q("C?", ["c1", "c2"]), Q("D?", ["d1", "d2"]));
+
+test("a short column keeps the focused question in sight: the farthest lines are dropped first until its header and first option fit", () => {
+	for (const [room, goes, far] of [
+		[112, 0, [false, true, true, true]], // nothing but the question fits
+		[175, 0, [false, false, true, true]], // one neighbour line is kept
+		[175, 3, [true, true, false, false]],
+		[465, 1, [false, false, false, false]], // plenty of room: nothing is dropped
+	] as [number, number, boolean[]][]) {
+		const r = column(room, FOUR());
+		r.blocks[(goes + 1) % 4]!.bubble("click", { detail: 1 });
+		r.blocks[goes]!.bubble("click", { detail: 1 });
+		assert.equal(r.open(), r.blocks[goes]);
+		assert.deepEqual(r.far(), far, `room ${room}, question ${goes}`);
+		assert.ok(r.open().clientHeight >= Math.min(96, room), `room ${room}: the focused question has at least its header and first option (${r.open().clientHeight})`);
+		assert.equal(r.far()[goes], false);
+	}
+	const r = column(112, pending(Q("A?", ["a1", "a2"]), Q("B?", ["b1", "b2"])));
+	r.scroller.scrollTop = 40; // a native focus scroll left the column offset
+	r.blocks[1]!.bubble("click", { detail: 1 });
+	assert.equal(r.scroller.scrollTop, 0, "a move puts the column back at its start");
+	assert.deepEqual(r.far(), [true, false], "the only other question's line gives way when it would squeeze the focused one");
+	r.blocks[0]!.bubble("click", { detail: 1 });
+	assert.deepEqual(r.far(), [false, true], "and the line that was dropped comes back when the focus moves");
+});
+
+test("the stylesheet: the focused question may shrink to the column and scrolls inside, and a dropped line is not drawn", () => {
+	const open = rule('[data-view="zen"] .zen-qs > .ask-one:not([data-dim])');
+	assert.equal(decl(open!.body, "min-height"), "0", "no floor above the column's own");
+	assert.equal(decl(rule('[data-view="zen"] .zen-qs > .ask-one[data-far]')!.body, "display"), "none");
+});
+
+test("a Ctrl+wheel (pinch or browser zoom) is the browser's: it moves no question and is not taken", () => {
+	const r = rig();
+	let taken = false;
+	r.scroller.bubble("wheel", { deltaY: 100, ctrlKey: true, deltaMode: 0, timeStamp: 1000, preventDefault: () => (taken = true) });
+	assert.equal(taken, false);
+	assert.deepEqual(r.dim(), [false, true, true]);
+});
+
+test("a folded line is one line however many lines the own words have, and says what it is to a screen reader", () => {
+	const r = rig();
+	r.own(0).value = "only the lead\nand ops\n\tafter 9";
+	r.own(0).bubble("input");
+	r.blocks[1]!.bubble("click", { detail: 1 });
+	const said = r.hold.all(cls("zen-sum-a"))[0]!.textContent;
+	assert.equal(said, " · only the lead and ops after 9");
+	const line = r.sum(0);
+	assert.equal(line.getAttribute("aria-expanded"), "false");
+	assert.match(line.getAttribute("aria-label") ?? "", /1.*3.*A/);
+	assert.match(line.getAttribute("aria-label") ?? "", /only the lead and ops after 9/);
+	assert.match(r.sum(2).getAttribute("aria-label") ?? "", /3.*3.*C/);
+});

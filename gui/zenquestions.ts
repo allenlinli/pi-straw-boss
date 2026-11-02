@@ -7,6 +7,8 @@
 // a tap on a line, a pointer's pick of a single choice (the next question without an answer comes in after a beat), and the keys of askkeys.ts (Tab, Shift+Tab, Enter), which ask for the block to be shown
 // (`ask-reveal`) before they put the keyboard focus in it, because a browser cannot focus what is not drawn.
 
+import { m } from "./paraglide/messages.js";
+
 export interface QEnv {
 	/** The page's timer: runs `fn` after `ms` and returns what cancels it. */
 	later(fn: () => void, ms: number): () => void;
@@ -20,7 +22,9 @@ const NOTCH = 24, SWIPE = 40, FLICK = 0.3;
 const marked = new WeakSet<object>();
 const CHOICE = '[role="radio"],[role="checkbox"]';
 const is = (el: Element, cls: string) => (el.getAttribute("class") ?? "").split(" ").includes(cls);
-const short = (s: string) => (s.length > 32 ? `${s.slice(0, 31)}…` : s);
+const short = (s: string) => ((s = s.replace(/\s+/g, " ")).length > 32 ? `${s.slice(0, 31)}…` : s);
+/** The least the focused question may be squeezed to (px): its header and its first option. */
+const LEAST = 96;
 
 /** `data-more` is on `el` while more of it lies below the fold, so the soft edge at its foot is deeper (zen.css) and a list that goes on under the send row is not taken for the whole list. */
 function more(el: HTMLElement) {
@@ -47,6 +51,7 @@ export function syncQuestions(hold: HTMLElement, env: QEnv) {
 		name!.textContent = b.querySelector(".ask-head")?.textContent || b.querySelector(".ask-q")?.textContent || "";
 		line!.setAttribute("class", "zen-sum");
 		line!.setAttribute("type", "button");
+		line!.setAttribute("aria-expanded", "false");
 		line!.append(name!, said!);
 		b.replaceChildren(line!, ...b.children);
 		return said!;
@@ -59,26 +64,41 @@ export function syncQuestions(hold: HTMLElement, env: QEnv) {
 		if (k === at) return void delete b.dataset.dim;
 		b.dataset.dim = "";
 		lines[k]!.textContent = answer(b) && ` · ${answer(b)}`;
+		const line = b.children[0]!;
+		line.setAttribute("aria-label", m.zen_q_line({ n: k + 1, total: blocks.length, name: line.querySelector(".zen-sum-q")?.textContent ?? "", state: answer(b) || m.zen_q_none() }));
 	});
+	/** The column is short: drop the lines farthest from the focused question, one by one, until it has at least its header and first option (the nearest lines stay while there is room). */
+	const fit = () => {
+		const open = blocks[at]!;
+		for (const b of blocks) delete b.dataset.far;
+		const order = blocks.map((_, i) => i).filter((i) => i !== at).sort((a, b) => Math.abs(b - at) - Math.abs(a - at) || b - a);
+		for (const i of order) {
+			if (open.clientHeight >= Math.min(LEAST, open.scrollHeight)) break;
+			blocks[i]!.dataset.far = "";
+		}
+		scroller.scrollTop = 0;
+	};
 	const choice = (b: HTMLElement) => b.querySelector<HTMLElement>('[aria-checked="true"]') ?? b.querySelector<HTMLElement>(CHOICE) ?? b.querySelector<HTMLElement>("textarea");
 	const done = (b: HTMLElement) => answer(b) !== "";
 	const inside = () => blocks.some((b) => b.contains(document.activeElement));
 	const room = (b: HTMLElement, dir: number) => (dir < 0 ? b.scrollTop > 0 : b.scrollTop + b.clientHeight < b.scrollHeight - 1);
-	/** Question `k` is the focused one: it opens at its top, the others fold to their lines; `focus` also puts the keyboard focus inside it, kept in view if the question is taller than the room. */
+	/** Question `k` is the focused one: it opens at its top (also when its chosen option lies below the fold: the header comes first), the others fold to their lines, and the farthest lines go when the column is short (`fit`); `focus` also puts the keyboard focus inside it. */
 	const go = (k: number, focus: boolean) => {
 		at = k;
 		mark();
 		blocks[k]!.scrollTop = 0; // after mark(): a block that is not drawn keeps the place it was left at
-		const to = focus ? choice(blocks[k]!) : undefined;
-		to?.focus({ preventScroll: true });
-		const [r, v] = [to?.getBoundingClientRect?.(), blocks[k]!.getBoundingClientRect?.()];
-		if (r && v && r.bottom > v.bottom) blocks[k]!.scrollTop += r.bottom - v.bottom;
+		fit();
+		if (focus) choice(blocks[k]!)?.focus({ preventScroll: true });
+		scroller.scrollTop = 0; // a focus that scrolled the column anyway is put back
 	};
 	/** A move of one question from the focused one, or nothing at an end. */
 	const step = (dir: number) => at + dir >= 0 && at + dir < blocks.length && go(at + dir, inside());
 	const blockOf = (t: unknown) => blocks.findIndex((b) => b.contains(t as Node));
 	mark();
+	fit();
+	if (typeof ResizeObserver !== "undefined") new ResizeObserver(fit).observe(scroller); // a turned phone or a resized window
 	scroller.addEventListener("wheel", (e) => {
+		if (e.ctrlKey) return; // a pinch or a browser zoom is the browser's
 		const cur = blocks[at]!, dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? scroller.clientHeight : 1);
 		if (!dy) return;
 		const same = e.timeStamp - last < GESTURE_MS; // the next event of a gesture, or of the inertia that follows it

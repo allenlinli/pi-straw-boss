@@ -20,6 +20,8 @@
 	"zen_leave_title": "回到標準畫面（Esc Esc）",
 	"zen_asks": "{name} 想問你",
 	"zen_not_now": "晚點再說",
+	"zen_q_line": "第 {n} 題，共 {total} 題：{name}，{state}。開啟這一題。",
+	"zen_q_none": "尚未回答",
 	"zen_open_standard": "到標準畫面處理",
 	"zen_elsewhere": "已經在別處回好了",
 	"zen_pause": "吸一口氣",

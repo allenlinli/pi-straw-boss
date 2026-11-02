@@ -1,5 +1,6 @@
 import { m } from "./paraglide/messages.js";
 import type { Alert } from "./alerts.ts";
+import { audio } from "./audio.ts";
 import { prefs } from "./prefs.ts";
 import doneUrl from "./sounds/done.mp3";
 import errorUrl from "./sounds/error.mp3";
@@ -26,8 +27,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	const vol = $<HTMLInputElement>("sound-vol"), volOut = $<HTMLOutputElement>("sound-vol-out");
 	const can = typeof Notification !== "undefined";
 	let remind = prefs.get("remind"), sound = prefs.get("sound"), volume = prefs.get("volume");
-	let ac: AudioContext | undefined, gain: GainNode | undefined;
-	const clips = new Map<Kind, Promise<AudioBuffer>>(), told: (() => void)[] = [];
+	const told: (() => void)[] = [];
 	const draw = () => {
 		const perm = can ? Notification.permission : "denied";
 		remindBtn.setAttribute("aria-pressed", String(remind));
@@ -41,7 +41,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 		soundBtn.textContent = sound ? m.state_on() : m.state_off();
 		soundBtn.setAttribute("aria-pressed", String(sound));
 		vol.value = volOut.value = String(volume);
-		if (gain) gain.gain.value = (volume / 100) ** 2; // loudness follows the square of the gain more closely than the gain
+		audio.volume(volume);
 	};
 	remindBtn.onclick = async () => {
 		if (remind && can && Notification.permission === "default") await Notification.requestPermission().catch(() => {});
@@ -61,19 +61,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	vol.oninput = () => setVolume(Number(vol.value));
 	vol.onchange = () => play("done");
 	$("sound-try").onclick = () => play("done");
-	function play(kind: Kind) {
-		ac ??= new AudioContext();
-		if (!gain) (gain = ac.createGain()).connect(ac.destination), draw();
-		const c = ac, out = gain;
-		if (!clips.has(kind)) clips.set(kind, fetch(SOUNDS[kind]).then((r) => r.arrayBuffer()).then((bytes) => c.decodeAudioData(bytes)));
-		// A browser that blocks sound before any press keeps the context suspended, and the sound stays silent.
-		void Promise.all([c.resume(), clips.get(kind)!]).then(([, clip]) => {
-			const source = c.createBufferSource();
-			source.buffer = clip;
-			source.connect(out);
-			source.start();
-		}).catch(() => clips.delete(kind));
-	}
+	const play = (kind: Kind) => audio.play(SOUNDS[kind]);
 	/** The system notification of an alert, while the page is hidden or unfocused and Remind is on and allowed. */
 	function notice(a: Alert, k: Kind) {
 		if (!remind || !can || Notification.permission !== "granted" || (!document.hidden && document.hasFocus())) return;

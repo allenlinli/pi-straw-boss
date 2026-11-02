@@ -1,7 +1,7 @@
 import type { Mark } from "../src/netdata.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
-import { type Answer, post, sendFile } from "./post.ts";
+import { type Answer, sendFile } from "./post.ts";
 import { AGENT } from "./render.ts";
 import { mountSlash } from "./slash.ts";
 import { towerWhy } from "./towerturns.ts";
@@ -32,7 +32,6 @@ const flights = new Map<string, Flight>();
 export interface Unit { wakes?: boolean; /** The boss conversation is live (and not ending): a message continues it. */ conversation?: boolean; held?: boolean; allyLive?: boolean; /** The boss is in the live event run: a message goes to it. */ eventRun?: boolean; ally?: boolean; /** The unit is an event run's comms (read only; the boss writes to the tower). */ run?: boolean; name: string; control: boolean; agent?: keyof typeof AGENT; live: boolean; mark: Mark; online: boolean; answerable?: boolean; /** Zen's words-only item: it waits with no dialog open, so a reply in words is the answer and the waiting rule does not apply. */ unlocked?: boolean }
 
 /** The server's input API for one session. */
-export const postTo = (key: string): Post => (action, body) => post(`sessions/${encodeURIComponent(key)}/${action}`, body);
 /** A file pasted, dropped, or picked: stored by the server, its path goes into the message (upload.ts). */
 export const MAX_FILE = 20 * 1024 * 1024;
 /** The note an answer leaves for a composer that is not there to say it: a refusal's reason, an unconfirmed send, or an edit of text that already went. */

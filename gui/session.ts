@@ -1,8 +1,8 @@
 import type { Mark } from "../src/netdata.ts";
 import type { Chat, Data, Who } from "./chat.ts";
-import { mountAsk } from "./ask.ts";
+import { answerPost, canAnswer, mountAnswer } from "./answer.ts";
 import { drawMonitors, drawQueued, drawTodos, foldQueue, mountQueueEdit, mountQueueFold } from "./bars.ts";
-import { mountComposer, wakeOf, postTo } from "./composer.ts";
+import { mountComposer, wakeOf } from "./composer.ts";
 import { docFor, docTile } from "./doc.ts";
 import type { Tile } from "./layer.ts";
 import { m } from "./paraglide/messages.js";
@@ -33,7 +33,7 @@ export interface SessionDeps {
 }
 
 export function mountSession(scene: Readonly<Scene>, { view, data, openTile, embedTerminal, online, fullScreen, opened }: SessionDeps) {
-	let chat: Chat | undefined, composer: ReturnType<typeof mountComposer> | undefined, asker: ReturnType<typeof mountAsk> | undefined, entering = 0;
+	let chat: Chat | undefined, composer: ReturnType<typeof mountComposer> | undefined, asker: ReturnType<typeof mountAnswer> | undefined, entering = 0;
 	let unembed: (() => void) | undefined, pendingMode: "term" | undefined, modeTurn = 0, shown: "chat" | "term" = "chat", held: string | undefined;
 	/** What stands where a tower's terminal would be while the sb server's service has no run live (the server answers its keys and mirror with 409): a sentence, and no pad over an empty box. */
 	const holdOf = (key: string) => termHold(locate(scene.net, key)?.u.service);
@@ -52,8 +52,8 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 		};
 		const opener = (path: string, card = docFor(locate(scene.net, key)?.u.docs, scene.info?.header?.cwd, path)) => card && (() => openTile(docTile(who().name, card)));
 		chat = mountChat(view.querySelector(".chat-root")!, data(key), { who, link, docFor: opener });
-		const send = recording(data(key).post ?? postTo(key), () => sendTarget(scene.net, key, wsOf(scene)));
-		[composer, asker] = [mountComposer(view.querySelector(".composer-root")!, key, send), mountAsk(view.querySelector(".ask-root")!, send, undefined, { key, show: () => setMode("term") })];
+		const send = recording(answerPost(key, () => data(key).post), () => sendTarget(scene.net, key, wsOf(scene)));
+		[composer, asker] = [mountComposer(view.querySelector(".composer-root")!, key, send), mountAnswer(view.querySelector(".ask-root")!, { key, post: send, show: () => setMode("term") })];
 		mountQueueEdit(view, () => composer?.takeQueue() ?? Promise.resolve());
 		mountQueueFold(view);
 		view.querySelectorAll<HTMLButtonElement>(".modes button").forEach((b) => (b.onclick = () => setMode(b.dataset.mode as "chat" | "term")));
@@ -145,7 +145,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 			if (shown === "term" && holdOf(u?.key ?? "") !== held) setMode("term"); // the tower woke or went to stand by: the terminal or its sentence changes
 			chat?.setLive(liveNote(u, state, mk), mk);
 			composer?.update({ name, control: Boolean(u?.control), agent: u?.agent, live: !closed(u, state), mark: mk, online: online(), answerable: Boolean(u?.pending?.answer), ...wakeOf(u?.service), ally: !u && (scene.info?.role === "ally" || scene.info?.role === "run"), run: !u && scene.info?.role === "run" });
-			asker?.update(u?.pending, mk === "waiting" && Boolean(u?.control) && online()); // its dialog above the composer, answerable or not
+			asker?.update(u?.pending, canAnswer(mk, Boolean(u?.control), online())); // its dialog above the composer, answerable or not
 		},
 	};
 }

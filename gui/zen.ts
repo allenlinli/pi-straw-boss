@@ -1,12 +1,13 @@
 import type { Net } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
+import { answerPost, canAnswer, outcomeOf, trustPost } from "./answer.ts";
 import { type AnswerPost, mountAsk } from "./ask.ts";
 import type { Chat, Data, HistoryEvent, Who } from "./chat.ts";
-import { mountComposer, postTo, wakeOf } from "./composer.ts";
+import { mountComposer, wakeOf } from "./composer.ts";
 import { h } from "./dom.ts";
 import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
-import { type Answer, post } from "./post.ts";
+import type { Answer } from "./post.ts";
 import { liveNote, roleName } from "./render.ts";
 import { closed, locate } from "./scene.ts";
 import type { StepOpen } from "./terminalthen.ts";
@@ -37,7 +38,7 @@ interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
 	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0;
-	const to = (key: string) => deps.post?.(key) ?? postTo(key), trustTo: TrustPost = deps.trust ?? ((body) => post("trust/answer", body));
+	const to = (key: string) => answerPost(key, deps.post), trustTo: TrustPost = trustPost(deps.trust);
 	// A draft holds the screen while the boss is at it: the box has text and he touched the companion (a tap or a drag on the log, a wheel, a key, or text that arrives with no key, as dictation and a suggestion tap do) in the last DRAFT_MS, focused or not. Typing keeps renewing it; walking away from a focused box does not hold the screen.
 	let touched = -Infinity;
 	const typing = () => Boolean(company?.composer && company.composer.box.value !== "" && now() - touched < DRAFT_MS);
@@ -72,7 +73,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		cancel = wait === undefined ? () => {} : later(() => apply(model.tick()), Math.max(0, wait) + 10);
 	}
 	/** An answer's reply: accepted ends the item with the knock; anything else the server refused, or no reply, plays the low bowl and leaves the card. */
-	const tell = (reply: Promise<Answer>) => reply.then((r) => (apply(r.body.outcome === "accepted" ? model.accepted() : model.refused()), r), (e: unknown) => (apply(model.refused()), Promise.reject(e)));
+	const tell = (reply: Promise<Answer>) => reply.then((r) => (apply(outcomeOf(r) === "accepted" ? model.accepted() : model.refused()), r), (e: unknown) => (apply(model.refused()), Promise.reject(e)));
 	/** What a card holds was swapped: it fades in over a short moment (opacity only, zen.css) while the box takes its new size at once. */
 	const fade = (el: HTMLElement) => (el.removeAttribute("data-fade"), void el.offsetWidth, el.setAttribute("data-fade", "")); // the read restarts the animation
 	function makeCard(a: Alert): Card {
@@ -104,7 +105,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		return {
 			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
 			update(x, outcome) {
-				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()), syncQuestions(hold!, { later })); // several questions: one focused, the rest faded (zenquestions.ts)
+				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, canAnswer(x.mark, online())), syncQuestions(hold!, { later })); // several questions: one focused, the rest faded (zenquestions.ts)
 				else if (!noted) (ask = undefined, words());
 				const now = x.pending ? `${x.pending.callId}:${x.pending.answer?.dialog ?? ""}` : "";
 				if (shown !== undefined && shown !== now) fade(slot);

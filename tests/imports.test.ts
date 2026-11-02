@@ -515,7 +515,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Unreleased (project trust) to 162: a trust question as an alert (alerts.ts: `trust` on Alert, the openings this page runs, one alert per folder and digest).
 	// Views-core R1 to 159: the walk over a net's units and the ranking left alerts.ts for gui/units.ts (3 lines), which the page's total takes.
 	assert.ok(overlay <= 159, `the overlay model has ${overlay} lines`);
-	const demo = sum("gui", ["fixture.ts", "demo-chat.ts"]);
+	const demo = sum("gui", ["fixture.ts", "demo-chat.ts", "democard.ts"]);
 	// 0.5.0 raised it from 160 to 165 for a demo question and a demo secret; 0.6.0 to 170 for a demo robot_hand selector and questionnaire that answer;
 	// 0.6.1 to 174 for a demo tool call whose arguments show cut (with the whole of them for "show all arguments"), an answerable dialog that stays
 	// until it is answered, and a toolbar that folds to a tab in the margin on a phone.
@@ -532,7 +532,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen feedback round to 265: the toolbar's server-view button and the stream's `view` event (the demo's stand-in for `/boss gui view`).
 	// Both increments summed (answer-opens-terminal +8, Z4 feedback +3, and the merged toolbar row +1): 274.
 	// Zen polish to 281 (+6): the demo's key pad answers Enter and Esc with a confirm and Tab with a refusal (PAD_REPLIES), so the confirm bar and a refused key can be looked at.
-	assert.ok(demo <= 281, `the demo fixture has ${demo} lines`);
+	// Terminal card T6 to 360 (measured 314): gui/democard.ts (66, new: the card's scripted terminal for `?card=<state>`) and fixture.ts 239 to 248 (the script's hooks, the opening, the Run choice; the `?zen=terminal` timer is gone).
+	assert.ok(demo <= 362, `the demo fixture has ${demo} lines`);
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
 	// 0.15.0 to 254 for the squads' + Member buttons, and gui/spawn.ts to 68 for the new base, member, and squad member tiles and the button reader.
@@ -571,7 +572,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// and the map's overview in a corner (gui/minimap.ts: shown while the map runs past the window, its frame moved on a scroll) have a figure each.
 	assert.ok(count("gui/timeline.ts") <= 42, `gui/timeline.ts has ${count("gui/timeline.ts")} lines`);
 	assert.ok(count("gui/minimap.ts") <= 44, `gui/minimap.ts has ${count("gui/minimap.ts")} lines`);
-	const shipped = new Set(["trust.ts", "timeline.ts", "minimap.ts", "swipe.ts", "drawer.ts", "router.ts", "chat.ts", "lightbox.ts", "follow.ts", "markdown.ts", "views.ts", "scene.ts", "tokens.ts", "nav.ts", "workspace.ts", "dossier.ts", "session.ts", "bars.ts", "layer.ts", "alerts.ts", "overlay.ts", "fixture.ts", "demo-chat.ts", "composer.ts", "pair.ts", "devices.ts", "spawn.ts", "deploy.ts", "demo-open.ts", "folders.ts", "picker.ts", "post.ts", "ask.ts", "mirror.ts", "mirrorconn.ts", "keywriter.ts", "cardmodel.ts", "termcard.ts", "stepslot.ts", "zenhost.ts", "keypad.ts", "doc.ts", "i18n.ts", "slash.ts", "hotkeys.ts", "askkeys.ts", "towerturns.ts"]);
+	const shipped = new Set(["trust.ts", "timeline.ts", "minimap.ts", "swipe.ts", "drawer.ts", "router.ts", "chat.ts", "lightbox.ts", "follow.ts", "markdown.ts", "views.ts", "scene.ts", "tokens.ts", "nav.ts", "workspace.ts", "dossier.ts", "session.ts", "bars.ts", "layer.ts", "alerts.ts", "overlay.ts", "fixture.ts", "demo-chat.ts", "democard.ts", "composer.ts", "pair.ts", "devices.ts", "spawn.ts", "deploy.ts", "demo-open.ts", "folders.ts", "picker.ts", "post.ts", "ask.ts", "mirror.ts", "mirrorconn.ts", "keywriter.ts", "cardmodel.ts", "termcard.ts", "stepslot.ts", "zenhost.ts", "keypad.ts", "doc.ts", "i18n.ts", "slash.ts", "hotkeys.ts", "askkeys.ts", "towerturns.ts"]);
 	const page = sum("gui", names("gui").filter((name) => !shipped.has(name)));
 	// 0.8.0 raised it from 540 to 543 for the scroll badge with the count of a unit's documents on its plate (render.ts).
 	// 0.10.0 to 554 for the messages: the import in main.ts, render.ts, log.ts, and stream.ts, the locale started in main.ts, and render.ts's role

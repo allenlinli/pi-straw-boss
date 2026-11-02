@@ -4,6 +4,7 @@ import { h } from "./dom.ts";
 import type { Tile } from "./layer.ts";
 import { mount, parse } from "./markdown.ts";
 import { m } from "./paraglide/messages.js";
+import { unitsOf } from "./units.ts";
 
 // The documents a session shows (show_doc, or a Mini SDD folder opening on its own), served by capability (src/docs.ts). An HTML document is a
 // tile with a frame sandboxed twice, by its attribute here and by the server's policy: no scripts and an opaque origin, its CSS, images, and
@@ -69,12 +70,11 @@ export function docTile(unit: string, card: DocCard): Tile {
 /** Every snapshot: a document that arrives for the unit whose comms are open (`at`) opens beside them without focus; elsewhere it only shows on the unit. */
 export function shelve(net: Net, seen: Map<string, Set<string>>, at: string | undefined, arrive: (unit: string, card: DocCard) => void) {
 	const cards = new Map<string, DocCard>(), keys = new Set<string>();
-	for (const b of net.bases)
-		for (const u of [...(b.tower ? [b.tower, ...b.tower.subs] : []), ...[...b.tabs.flatMap((t) => t.units), ...b.outside].flatMap((x) => [x, ...x.subs])]) {
-			for (const c of u.docs ?? []) cards.set(c.cap, c);
-			for (const c of arrivals(seen, u.key, u.docs)) if (u.key === at) arrive(u.name, c);
-			keys.add(u.key);
-		}
+	for (const { unit: u } of unitsOf(net)) {
+		for (const c of u.docs ?? []) cards.set(c.cap, c);
+		for (const c of arrivals(seen, u.key, u.docs)) if (u.key === at) arrive(u.name, c);
+		keys.add(u.key);
+	}
 	for (const k of seen.keys()) if (!keys.has(k)) seen.delete(k); // a unit that left: seen afresh when it comes back
 	refreshDocs(cards);
 }

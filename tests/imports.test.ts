@@ -505,7 +505,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// 0.25.0 to 148 for an alert of a failed or quiet monitor: its own key, `unit` (and unitOf) for the unit it belongs to, and its note.
 	// Unreleased to 157 for the alert ranking: only a unit waiting on the user (or with a dialog pending) is prominent; an error and a failed monitor are notices, and rankOf reads the alert.
 	// Unreleased (project trust) to 162: a trust question as an alert (alerts.ts: `trust` on Alert, the openings this page runs, one alert per folder and digest).
-	assert.ok(overlay <= 162, `the overlay model has ${overlay} lines`);
+	// Views-core R1 to 159: the walk over a net's units and the ranking left alerts.ts for gui/units.ts (3 lines), which the page's total takes.
+	assert.ok(overlay <= 159, `the overlay model has ${overlay} lines`);
 	const demo = sum("gui", ["fixture.ts", "demo-chat.ts"]);
 	// 0.5.0 raised it from 160 to 165 for a demo question and a demo secret; 0.6.0 to 170 for a demo robot_hand selector and questionnaire that answer;
 	// 0.6.1 to 174 for a demo tool call whose arguments show cut (with the whole of them for "show all arguments"), an answerable dialog that stays
@@ -635,7 +636,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen Z4 to 3280: zenlines.ts (88, with its 14 sourced lines), zenmenu.ts (87), zenfs.ts (55), soundprefs.ts (14), and the hooks in zen.ts, zentypes.ts, i18n.ts, notify.ts, and main.ts.
 	// Zen Z4 feedback to 3575: zenripple.ts (the ripples), viewface.ts (the page's face for every view move), zenkeys.ts (Esc's table), zensize.ts (the card's glide), and the hooks in zen.ts, ask.ts, zenmenu.ts, view.ts, main.ts, and fixture.ts.
 	// Both increments summed (answer-opens-terminal +30, Z4 feedback +295): 3605.
-	assert.ok(page <= 3605, `the page's TypeScript has ${page} lines`);
+	// Views-core R1 to 3624 (+19): gui/units.ts (18, new: the one walk over a net's units and the ranking) and one import line each in main.ts and quit.ts, less one line of zenmodel.ts; alerts.ts (-3, counted in the overlay model) and doc.ts keep one-line calls.
+	assert.ok(page <= 3624, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -735,7 +737,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Both increments summed (answer-opens-terminal +500 / +200 gzipped, Z4 +650 / +250): 85,100 bytes / 29,700 gzipped.
 	// Zen feedback round to 85,600 bytes / 29,800 gzipped: viewface.ts (what a view move does to the page's face: one table, the page's coordinator calls it), the pick that tells its listeners every time (view.ts), the capture-phase Escape, and two messages in both languages.
 	// All three increments summed (answer-opens-terminal +500 / +200, Z4 +650 / +250, Z4 feedback +1,000 / +350): 86,100 bytes / 30,050 gzipped.
-	assert.ok(size(entry).length <= 86_100 && gz(entry) <= 30_050, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
+	// Views-core R1 to 85,300 bytes / 29,900 gzipped (measured 85,154 / 29,812, from 85,966 / 29,951): units.ts replaces the unit walks of alerts.ts, quit.ts, and main.ts, and post.ts (806 bytes) now sits in a shared chunk the entry imports instead of in the entry. Where the main.ts import of units.ts sits matters: after the view.ts import, the bundler also moved linkmodel.ts and the messages they carry (7.3 KB) out of the entry.
+	assert.ok(size(entry).length <= 85_300 && gz(entry) <= 29_900, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -824,7 +827,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen Z4 to 225,200 bytes / 91.1 KB gzipped: the Zen chunk grows by the corner menu, full screen and its hint, the idle line with its 14 sourced lines in both languages, and the dissolving card (JavaScript about 15.6 KB raw / 6.9 KB gzipped, over the spec's 14 KB / 5.5 KB for the chunk; the stylesheet is counted below).
 	// Zen feedback round to 229,000 bytes / 92.7 KB gzipped: the Zen chunk grows by the ripples (zenripple.ts), Esc's table and the quiet line, the card's glide, and the draft's hold (about 3.7 KB raw / 1.5 KB gzipped).
 	// All increments summed (answer-opens-terminal +700 / +300, Z4 +6,500 / +2,900, Z4 feedback +3,800 / +1,600): 229,700 bytes / 93,000 gzipped.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 229_700 && total(chunks, gz) <= 93_000, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Views-core R1 to 230,200 bytes / 93,250 gzipped (measured 230,147 / 93,205, from 229,291 / 92,784): post.ts moved there from the entry (about 0.85 KB raw), plus units.ts's share for the lazy chunks that import it.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 230_200 && total(chunks, gz) <= 93_250, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

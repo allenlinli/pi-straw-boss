@@ -1,4 +1,5 @@
 import "./style.css";
+import { unitsOf, waitingOf } from "./units.ts";
 import { domEnv, KEY, mountPick, mountView, mountZenBack } from "./view.ts";
 import { mountFace } from "./viewface.ts";
 import { localeNames, setLocale, startI18n } from "./i18n.ts";
@@ -136,7 +137,7 @@ const openSection = (section: Section) => (current.view === "settings" ? withSet
 const tabIcon = document.querySelector<HTMLLinkElement>('link[rel="icon"]'), plain = tabIcon ? plainOf(tabIcon.href) : undefined;
 let badged = 0;
 function badge(net: Net) {
-	const n = zenOn() ? 0 : net.bases.flatMap((b) => [...(b.tower ? [b.tower, ...b.tower.subs] : []), ...[...b.tabs.flatMap((t) => t.units), ...b.outside].flatMap((u) => [u, ...u.subs])]).filter((u) => u.mark === "waiting" || u.pending).length + (net.trust?.length ?? 0);
+	const n = zenOn() ? 0 : waitingOf(unitsOf(net).map((r) => r.unit)).length + (net.trust?.length ?? 0);
 	if (!tabIcon || !plain || n === badged) return;
 	badged = n;
 	void plain.then((svg) => svg && n === badged && (tabIcon.href = iconHref(svg, n)));

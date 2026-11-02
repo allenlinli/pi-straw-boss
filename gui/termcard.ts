@@ -1,12 +1,13 @@
 import { ENDING } from "../src/probe.ts";
 import { type CardFacts, type CardState, type Kind, NO_MASK, cardState, maskStep, maskToggle, secretPrompt, stepRule, tail } from "./cardmodel.ts";
+import { confirmBar } from "./confirmbar.ts";
 import { h } from "./dom.ts";
 import { keywriter, type Write } from "./keywriter.ts";
 import type { Conn, Post, TermState } from "./mirrorconn.ts";
 import { m } from "./paraglide/messages.js";
 
 // The terminal card (docs/specs/2026-11-02-terminal-card.md): the small card an accepted answer leaves for its terminal step, shared by Standard, Geek, and Zen (each skins it in CSS). It holds the command the
-// answer put there, for a pane the last rows of its screen, one line with a mask, and one button (执行 for a prompt, Send Enter for a pane). It sends what the key pad sends, through the same writes (keywriter.ts)
+// answer put there, for a pane the last rows of its screen, one line with a mask, and one button (執行 for a prompt, Send Enter for a pane). It sends what the key pad sends, through the same writes (keywriter.ts)
 // and under the same server checks, and asks cardmodel.ts for everything it decides: its state, the mask, and when its step is over. A prompt's card is over when its own Enter is taken, a pane's when the pane is gone.
 
 /** `key`: a session's, or `grant:<id>` for a pane an answer opened; `name`: the unit that asked. */
@@ -69,14 +70,7 @@ export function termCard({ step, watch, post, stream, held, over, escape = true,
 	const state = () => cardState({ kind: step.kind, phase: conn.phase, stale: conn.stale(), rows: conn.rows, held: held(), ended, sending: busy(), refused: Boolean(refusal), confirm: confirm?.token, after } satisfies CardFacts);
 	/** The server's confirm in the page's words by its token (Enter's only), and the server's own for a token it does not know. */
 	const sentence = ({ token, said }: { token: string; said: string }) => (token === "command" ? m.card_confirm_command({ name }) : token === "unread" ? m.card_confirm_unread({ name }) : ENDING.test(`/${token}`) ? m.card_confirm_ending({ command: token }) : said);
-	function ask() {
-		const yes = h("button", { type: "button", class: "pad-yes" }, m.card_confirm_yes()), not = h("button", { type: "button", class: "pad-no" }, m.cancel()), token = confirm!.token;
-		yes.onclick = (e) => e.isTrusted && ((confirm = undefined), writer.confirm("enter", token), draw());
-		not.onclick = () => ((confirm = undefined), draw(), focus());
-		status.dataset.tone = "ask"; // the pad's note and its confirm pair
-		status.replaceChildren(h("span", { class: "pad-ask-why" }, sentence(confirm!)), h("span", { class: "pad-ask-acts" }, yes, not));
-		not.focus(); // never the confirm: a second Enter, or a held one, on the key that asked must not confirm it
-	}
+	const ask = () => confirmBar(status, sentence(confirm!), m.card_confirm_yes(), () => (writer.confirm("enter", confirm!.token), (confirm = undefined), draw()), () => ((confirm = undefined), draw(), focus()));
 	function draw() {
 		if (!link && !held()) attach();
 		const s = state(), secret = pane && conn.phase === "live" && secretPrompt(conn.rows);
@@ -85,7 +79,7 @@ export function termCard({ step, watch, post, stream, held, over, escape = true,
 		mask = next;
 		title.textContent = m.terminal_title({ name });
 		wait.textContent = m.card_waits({ name });
-		tailEl.textContent = s === "connecting" ? "" : tail(conn.rows).join("\n");
+		tailEl.textContent = s === "connecting" ? "" : tail(conn.rows, step.command).join("\n");
 		input.type = mask.on ? "password" : "text";
 		maskBtn.setAttribute("aria-pressed", String(mask.on));
 		go.textContent = s === "sending" ? m.card_sending() : pane ? m.send_enter() : m.card_run();

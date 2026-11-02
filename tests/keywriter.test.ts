@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { type Write, keywriter } from "../gui/keywriter.ts";
+const { m } = await import("../gui/paraglide/messages.js");
 
 // The key writes of gui/keywriter.ts that the pad and the terminal card share: one at a time, spaced by 130 ms on a clock the test moves, and a
 // refusal, a confirm, or a network failure dropping what still waited.
@@ -89,7 +90,7 @@ test("a paste goes as pastes of at most 4000 characters, line ends folded to \\n
 	} finally { r.done(); }
 });
 
-test("a refused write says why and drops what still waited, so an Enter never follows a text that did not land", async () => {
+test("a refused write says why in the page's words by its code and drops what still waited, so an Enter never follows a text that did not land", async () => {
 	const r = rig();
 	try {
 		r.w.text("hello");
@@ -97,13 +98,16 @@ test("a refused write says why and drops what still waited, so an Enter never fo
 		await r.reply(409, { error: "no_mirror", reason: "Keys are sent only while live." });
 		r.tick(1000);
 		assert.deepEqual(r.posts.map((p) => p.body), [{ text: "hello", stream: "st" }], "no Enter");
-		assert.deepEqual(r.heard, ["busy:true", "clear", 'sent:{"text":"hello"}', 'failed:{"text":"hello"}', "error:Keys are sent only while live.", "busy:false"]);
+		assert.deepEqual(r.heard, ["busy:true", "clear", 'sent:{"text":"hello"}', 'failed:{"text":"hello"}', `error:${m.refuse_no_mirror()}`, "busy:false"]);
+		r.w.push({ key: "up" });
+		r.tick(1000);
+		await r.reply(409, { error: "a_new_code", reason: "The server's own words." });
+		assert.ok(r.heard.includes("error:The server's own words."), "a code the page does not know shows the server's text");
 		assert.equal(r.w.queued(), 0);
 	} finally { r.done(); }
 });
 
 test("a refusal without a reason says its status; a network failure says unreachable and drops the queue", async () => {
-	const { m } = await import("../gui/paraglide/messages.js");
 	const r = rig();
 	try {
 		r.w.push({ key: "up" });

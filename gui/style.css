@@ -821,8 +821,8 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .dock > .dialog { z-index: 1; } .tcard { z-index: 0; display: grid; gap: 10px; --c1: transparent; --c4: var(--line); animation: tcard-in 0.25s ease both; } @keyframes tcard-in { from { opacity: 0; transform: translateY(8px); } }
 .tcard-cmd, .tcard-tail { margin: 0; font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; } .tcard-cmd { padding: 6px 8px; max-height: 6em; overflow: auto; border-radius: 8px; background: var(--sunken); user-select: text; } .tcard-cmd::before { content: "$ "; color: var(--dim); }
 .tcard-tail { color: var(--dim); } .tcard-tail:empty { display: none; } .tcard.stale .tcard-tail { opacity: 0.5; } .tcard-wait { margin: 0; font-size: 13px; }
-.tcard-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .tcard-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } .tcard-row:focus-within .tcard-label { position: static; width: 100%; height: auto; clip-path: none; color: var(--dim); font-size: 11px; }
-.tcard-input { flex: 1 1 8rem; min-width: 0; box-sizing: border-box; min-height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--sunken); color: var(--text); font: 13px var(--mono); }
+.tcard-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .tcard-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.tcard-input { flex: 1 1 8rem; min-width: 0; min-height: 34px; background: var(--sunken); font: 13px var(--mono); } /* the rest is the page's text box (above) */
 .tcard-mask { background: transparent; color: var(--text); } .tcard-go { border-color: var(--amber); background: var(--amber); color: var(--ink); } .tcard-mask[aria-pressed="true"] { border-color: var(--amber); } :is(.tcard-go, .tcard-mask):disabled { opacity: 0.45; cursor: default; }
 .tcard-full { justify-self: end; }
 .c0 { color: #414868; } .cz { color: var(--term-bg); } .c1 { color: #f7768e; } .c2 { color: #9ece6a; } .c3 { color: #e0af68; } .c4 { color: #7aa2f7; } .c5 { color: #bb9af7; } .c6 { color: #7dcfff; } .c7 { color: #a9b1d6; }
@@ -908,8 +908,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 /* Touch: larger targets, and a 16 px box so the phone does not zoom in on focus. */
 @media (pointer: coarse) { .composer textarea, .ask input, .ask textarea { font-size: 16px; } .composer button, .go, .later, .x, .chat-pill, .pair-btn, .alerts, .ask button, .term-bar button, .doc-acts > .cmp-link, .quit-btn, .d-doc { min-height: 40px; } }
 /* A phone's keys are as big as a thumb needs, a narrow window with a mouse included. */
-@media (max-width: 640px), (pointer: coarse) { .pad-key, .pad-yes, .pad-no { min-height: 44px; } .pad-digits summary { padding: 14px 0; } }
-@media (max-width: 640px), (pointer: coarse) { .tcard-mask, .tcard-go, .tcard-input, .tcard .x, .tcard-full { min-height: 44px; } .tcard-input { font-size: 16px; } }
+@media (max-width: 640px), (pointer: coarse) { .pad-key, .pad-yes, .pad-no, .tcard-mask, .tcard-go, .tcard-input, .tcard .x, .tcard-full { min-height: 44px; } .pad-digits summary { padding: 14px 0; } .tcard-input { font-size: 16px; } }
 /* A phone's card is a sheet over the page: the dock's full width and its bottom edge, above the composer, clear of the home bar. */
 @media (max-width: 640px) { .tcard { margin: 0 -10px calc(-10px - env(safe-area-inset-bottom)); padding-bottom: calc(14px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; } .tcard h2 { margin: 0; font-size: 13px; } }
 /* A phone's tap targets (touch or a narrow window with a mouse): every control is at least 44 × 44 px, the composer's own row 48. A dense row keeps its look and

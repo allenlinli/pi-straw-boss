@@ -169,7 +169,7 @@ test("a prompt: the server's confirm shows in the page's words by its token (an 
 	}
 });
 
-test("a prompt: Cancel clears the confirm and sends nothing; a refusal stays with the server's reason and can be retried", async () => {
+test("a prompt: Cancel clears the confirm and sends nothing; a refusal stays, in the page's words by its code, and can be retried", async () => {
 	const p = rig("prompt");
 	try {
 		p.press();
@@ -179,7 +179,7 @@ test("a prompt: Cancel clears the confirm and sends nothing; a refusal stays wit
 		p.tick(200);
 		p.press();
 		await p.reply(409, { error: "no_mirror", reason: "Keys are sent only while live." });
-		assert.deepEqual([p.status().textContent, p.status().dataset.tone, p.go().disabled, p.overs], ["Keys are sent only while live.", "error", false, []]);
+		assert.deepEqual([p.status().textContent, p.status().dataset.tone, p.go().disabled, p.overs], [m.refuse_no_mirror(), "error", false, []]);
 		p.tick(200);
 		p.press();
 		assert.equal(p.posts.length, 3, "the button is there to try again");
@@ -196,6 +196,20 @@ test("a prompt's card is over by an Enter taken from its expansion's pad and by 
 		p.taken();
 		assert.deepEqual(p.overs, ["taken"]);
 	} finally { p.done(); }
+});
+
+test("a pane's rows do not say the shown command a second time", () => {
+	const q = rig("pane");
+	try {
+		q.rows(["$ sudo apt update", "[sudo] password for boss:"]);
+		assert.equal(q.el.byClass("tcard-tail")!.textContent, "[sudo] password for boss:", "the echo of the command shown above is not in the rows");
+		assert.equal(q.el.byClass("tcard-cmd")!.textContent, "sudo apt update");
+	} finally { q.done(); }
+	const r = rig("pane", { command: "ls" });
+	try {
+		r.rows(["$ ls", "file"]);
+		assert.equal(r.el.byClass("tcard-tail")!.textContent, "file");
+	} finally { r.done(); }
 });
 
 test("a pane: Send Enter with an empty line posts Enter only", async () => {
@@ -239,7 +253,7 @@ test("a pane: a refused text drops the Enter, a plain field gets its text back, 
 		q.tick(1000);
 		assert.deepEqual(q.posts.map((p) => p.body), [{ text: "hello", stream: "st" }], "no Enter after the text that did not land");
 		assert.equal(q.input().value, "hello", "the boss can retry");
-		assert.equal(q.status().textContent, "No mirror.");
+		assert.equal(q.status().textContent, m.refuse_no_mirror());
 	} finally { q.done(); }
 	const s = rig("pane");
 	try {

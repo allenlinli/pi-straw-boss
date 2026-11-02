@@ -10,8 +10,10 @@ const SECRET = /(password|passphrase|passcode|\bpin\b|密碼|口令).{0,80}[:：
 /** A row as plain text: every escape stripped (the tile's own `rowSpans`, without its classes), right-trimmed. */
 const plain = (row: string) => rowSpans(row).map((s) => s.text).join("").trimEnd();
 
-/** The last 4 non-blank rows of the mirror, as plain text. */
-export const tail = (rows: string[]): string[] => rows.map(plain).filter(Boolean).slice(-4);
+/** A row that is only a shell prompt and the command the card shows above it: the card does not say it twice. */
+const echoes = (row: string, command: string) => row.endsWith(command) && (row.length === command.length || /[$#%>❯]\s+$/.test(row.slice(0, -command.length)));
+/** The last 4 non-blank rows of the mirror, as plain text, without the rows that only echo `command` (the one the card shows). */
+export const tail = (rows: string[], command?: string): string[] => rows.map(plain).filter((r) => r && !(command && echoes(r, command))).slice(-4);
 /** The last non-blank row ends in a colon after password, passphrase, passcode, PIN, 密碼, or 口令: only that row, because the mirror carries no cursor and the prompt is where it waits. */
 export const secretPrompt = (rows: string[]): boolean => SECRET.test(rows.map(plain).findLast(Boolean) ?? "");
 

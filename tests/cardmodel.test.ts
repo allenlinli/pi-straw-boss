@@ -9,6 +9,17 @@ const { NO_MASK, cardState, maskStep, maskToggle, secretPrompt, stepRule, tail }
 type Facts = Parameters<typeof cardState>[0];
 type Event = Parameters<typeof stepRule>[1];
 
+test("tail with the shown command: a row that only echoes it (a prompt, then the command) is dropped before the last 4 are taken", () => {
+	const cmd = "sudo apt update";
+	assert.deepEqual(tail(["$ sudo apt update"], cmd), [], "the bare echo");
+	assert.deepEqual(tail(["boss@host ~ % sudo apt update", "[sudo] password for boss:"], cmd), ["[sudo] password for boss:"], "a prompt with a host and a path");
+	assert.deepEqual(tail(["❯ sudo apt update", "a", "b", "c", "d"], cmd), ["a", "b", "c", "d"], "the echo does not take a place among the last 4");
+	for (const prompt of ["$", "#", "%", ">", "❯"]) assert.deepEqual(tail([`${prompt} sudo apt update`, "a"], cmd), ["a"], `a ${prompt} prompt`);
+	assert.deepEqual(tail(["$ sudo apt update --fix", "$ sudo apt update now sudo apt update!"], cmd), ["$ sudo apt update --fix", "$ sudo apt update now sudo apt update!"], "a longer command is another command");
+	assert.deepEqual(tail(["1", "2", "3", "$ sudo apt update", "4", "5"], cmd), ["2", "3", "4", "5"]);
+	assert.deepEqual(tail(["building: sudo apt update done", "echo sudo apt update", "sudo apt update --fix"], cmd), ["building: sudo apt update done", "echo sudo apt update", "sudo apt update --fix"], "rows that merely contain the command stay");
+	assert.deepEqual(tail(["$ sudo apt update"]), ["$ sudo apt update"], "without a command shown nothing is dropped");
+});
 test("tail: the last 4 non-blank rows as plain text, trailing blanks dropped, escapes stripped, each row right-trimmed", () => {
 	assert.deepEqual(tail([]), []);
 	assert.deepEqual(tail(["", "   ", ""]), [], "nothing but blank rows");

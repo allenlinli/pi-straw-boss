@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
+const { m } = await import("../gui/paraglide/messages.js");
+const { overwriteGetLocale } = await import("../gui/paraglide/runtime.js");
 
 // The connection to one terminal's mirror (gui/mirrorconn.ts), without a screen: the rows the frames set, the phases and the state the pad may
 // act on, and one attach per key however many watch it, here and through the tile layer (gui/mirror.ts `watch`, `embed`).
@@ -150,14 +152,14 @@ test("state(): live with fresh frames, off when stale, parked, or ended, hidden 
 });
 
 test("a refused attach turns into the refused phase with the server's reason; not found and pane_closed also end the watchers; joining again retries", async () => {
-	let reply: Reply = { ok: false, status: 409, body: { error: "not_live", reason: "This session is no longer live in a pane." } };
+	let reply: Reply = { ok: false, status: 409, body: { error: "not_live", reason: "The server's own words." } };
 	const w = world(() => reply), conns = mountConns(w);
 	const ends: string[] = [];
 	const { conn, stop } = conns.join("K", { end: () => void ends.push("end") });
 	try {
 		await settle();
 		assert.equal(conn.phase, "refused");
-		assert.equal(conn.why, "This session is no longer live in a pane.");
+		assert.equal(conn.why, m.refuse_not_live(), "said in the page's words by the code");
 		assert.equal(conn.ended, true);
 		assert.deepEqual(ends, [], "not live is a refusal, not a gone pane");
 		reply = { ok: false, status: 404, body: {} };
@@ -179,8 +181,13 @@ test("a refused attach turns into the refused phase with the server's reason; no
 		assert.equal(w.posts.length, 4, "a live connection is not retried");
 		conns.frame(frame({ ended: "The pane could not be read." }));
 		assert.equal(conn.phase, "refused");
-		assert.match(conn.why, /could not be read/);
-		assert.deepEqual(ends, ["end", "end", "end"], "an ended frame ends too");
+		assert.equal(conn.why, m.mirror_ended({ why: m.ended_unreadable() }), "the ended reason in the page's words");
+		overwriteGetLocale(() => "zh-TW");
+		conns.frame(frame({ ended: "The pane closed." }));
+		const zh = conn.why;
+		overwriteGetLocale(() => "en");
+		assert.match(zh, /窗格已關閉/, "in Traditional Chinese, the server's English reason is not shown");
+		assert.deepEqual(ends, ["end", "end", "end", "end"], "an ended frame ends too");
 	} finally {
 		stop();
 	}

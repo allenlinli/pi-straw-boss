@@ -1,6 +1,7 @@
 import type { Post } from "./mirrorconn.ts";
 import type { Answer } from "./post.ts";
 import { m } from "./paraglide/messages.js";
+import { refusalText } from "./termwords.ts";
 
 // The writes of a terminal's keys (POST …/keys, src/keys.ts), one at a time, at most one every 130 ms (the server takes 8 a second per session), in order;
 // characters typed meanwhile join the next write. A refusal, a network failure, or a confirm drops what was still queued, so an Enter never goes after a text that
@@ -24,7 +25,7 @@ export function keywriter({ post, stream, ...on }: { post: Post; stream(): strin
 			if (r.ok) on.taken?.(write);
 			else on.failed?.(write, r);
 			if (r.status === 409 && r.body.error === "confirm" && typeof r.body.confirm === "string" && "key" in write) (queue = []), on.ask?.(write, String(r.body.reason ?? ""), r.body.confirm);
-			else if (!r.ok) (queue = []), on.error?.(r.body.reason ?? m.refused({ status: r.status }));
+			else if (!r.ok) (queue = []), on.error?.(refusalText(r));
 		} catch {
 			on.failed?.(write);
 			queue = [];

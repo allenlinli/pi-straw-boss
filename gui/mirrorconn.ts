@@ -1,4 +1,5 @@
 import { m } from "./paraglide/messages.js";
+import { endedWhy, refusalText } from "./termwords.ts";
 import type { Answer } from "./post.ts";
 
 // A page's connection to one terminal's mirror (the server's `mirror` frames, src/mirror.ts, on this tab's one stream), without a screen: the attach
@@ -28,7 +29,7 @@ export function mountConns({ post, stream }: { post(key: string): Post; stream()
 	const say = (c: C, phase: Phase, why = "") => (Object.assign(c, { phase, why }), tell(c));
 	const refuse = (c: C, why: string) => ((c.ended = true), say(c, "refused", why));
 	const end = (c: C) => c.watchers.forEach((w) => w.end?.());
-	const attach = (c: C, on: boolean, s = id()) => s && void (c.queue = c.queue.then(() => c.post("mirror", { stream: s, on }).then((r) => on && !r.ok && (refuse(c, r.body.reason ?? m.refused({ status: r.status })), (r.status === 404 || r.body.error === "pane_closed") && end(c)), () => on && refuse(c, m.unreachable()))));
+	const attach = (c: C, on: boolean, s = id()) => s && void (c.queue = c.queue.then(() => c.post("mirror", { stream: s, on }).then((r) => on && !r.ok && (refuse(c, refusalText(r)), (r.status === 404 || r.body.error === "pane_closed") && end(c)), () => on && refuse(c, m.unreachable()))));
 	/** A refused or failed attach ends the mirror, so joining or opening it again tries again. */
 	const retry = (c: C) => c.ended && void ((c.ended = false), say(c, "connecting"), attach(c, true));
 	// The check runs only while a connection is held and the tab shows.
@@ -66,7 +67,7 @@ export function mountConns({ post, stream }: { post(key: string): Post; stream()
 			const c = conns.get(f.key);
 			if (!c) return;
 			c.hidden = Boolean(f.hidden || f.ended);
-			if (f.ended) return (refuse(c, m.mirror_ended({ why: f.ended })), end(c));
+			if (f.ended) return (refuse(c, m.mirror_ended({ why: endedWhy(f.ended) })), end(c));
 			[c.seen, c.ended] = [Date.now(), false];
 			if (f.hidden) return void ((c.rows.length = 0), c.watchers.forEach((w) => w.rows?.(c.rows, { key: c.key, rows: 0 }, false)), say(c, "hidden"));
 			const n = Math.min(Math.max(0, Number(f.rows) || 0), MAX_ROWS);

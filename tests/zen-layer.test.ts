@@ -27,7 +27,7 @@ const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found:
 function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }> } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
-	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[] };
+	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[] };
 	const replies: ((r: Answer) => void)[] = [];
 	const items: Item[] = [{ id: "a1", kind: "assistant", text: "I need a decision." } as Item];
 	const mounts = {
@@ -47,7 +47,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		post: (key: string) => (action: string, body: Record<string, unknown>) => (calls.posts.push({ key, action, body }), new Promise<Answer>((resolve) => replies.push(resolve))),
 		trust: (body: Record<string, unknown>) => (calls.trust.push(body), new Promise<Answer>((resolve) => replies.push(resolve))),
 		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => !o.offline,
-		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), watch: (k: string | null) => void calls.watch.push(k),
+		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), embed: async (key: string) => (calls.embeds.push(key), () => {}), watch: (k: string | null) => void calls.watch.push(k),
 		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => o.stored,
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
@@ -168,14 +168,14 @@ test("on a paired device a hereOnly choice is disabled and Cancel needs a choice
 	assert.ok(local.button("Cancel"));
 });
 
-test("a secret_drop is read-only on every page with no Open in Standard; any other read-only dialog offers Open in Standard, which leaves for the unit's terminal", async () => {
+test("a secret_drop is read-only on every page with no Open the terminal; any other read-only dialog offers it, which opens the unit's terminal in Zen's own layer", async () => {
 	for (const remote of [false, true]) {
 		const r = rig({ remote });
 		r.feed(net([unit("a", "waiting", { since: 5, pending: secret() })]));
 		r.z.show();
 		await r.settle();
 		assert.equal(r.button("Send answer"), undefined);
-		assert.equal(r.button("Handle it in Standard"), undefined, "a secret is entered in the terminal only");
+		assert.equal(r.button("Open the terminal"), undefined, "a secret is entered in the terminal only");
 		assert.equal(r.button("Show terminal"), undefined);
 		assert.ok(r.button("Maybe later"));
 	}
@@ -184,9 +184,9 @@ test("a secret_drop is read-only on every page with no Open in Standard; any oth
 	r.z.show();
 	await r.settle();
 	assert.equal(r.button("Send answer"), undefined);
-	assert.equal(r.button("Show terminal"), undefined, "Zen words it Open in Standard");
-	r.button("Handle it in Standard")!.click();
-	assert.deepEqual(r.calls.leave, [{ route: { view: "session", ws: "w", key: "a" }, terminal: "a" }]);
+	assert.equal(r.button("Show terminal"), undefined, "Zen words it Open the terminal");
+	r.button("Open the terminal")!.click();
+	assert.deepEqual([r.calls.leave, r.calls.embeds], [[], ["a"]], "the terminal opens inside Zen: Standard is not visited");
 });
 
 test("a trust question draws the trust panel with its three choices, answers through trust/answer, and has Not now", async () => {
@@ -203,7 +203,7 @@ test("a trust question draws the trust panel with its three choices, answers thr
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 });
 
-test("a unit that waits with no dialog has its last line, Not now, and Open in Standard, with no composer", async () => {
+test("a unit that waits with no dialog has its last line, Not now, and Open the terminal, with no composer", async () => {
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { name: "docs-main", since: 5 })]));
 	r.z.show();
@@ -211,8 +211,8 @@ test("a unit that waits with no dialog has its last line, Not now, and Open in S
 	assert.ok(r.text().includes("I need a decision."));
 	assert.equal(r.calls.composers.length, 0);
 	assert.ok(r.button("Maybe later"));
-	r.button("Handle it in Standard")!.click();
-	assert.deepEqual(r.calls.leave, [{ route: { view: "session", ws: "w", key: "a" }, terminal: "a" }]);
+	r.button("Open the terminal")!.click();
+	assert.deepEqual([r.calls.leave, r.calls.embeds], [[], ["a"]]);
 });
 
 test("an accepted answer plays the knock, shows its outcome for 1.2 s, then the pause, then the companion; the item does not come back at once", async () => {
@@ -668,8 +668,8 @@ test("a words-only item is a pane blocked on a terminal prompt: it says to answe
 	await r.settle();
 	assert.equal(r.calls.composers.length, 0, "no box to type into: the server refuses input to a blocked pane");
 	assert.ok(r.text().includes("answer it in its terminal"));
-	r.button("Handle it in Standard")!.click();
-	assert.deepEqual(r.calls.leave.at(-1), { route: { view: "session", ws: "w", key: "a" }, terminal: "a" });
+	r.button("Open the terminal")!.click();
+	assert.deepEqual([r.calls.leave, r.calls.embeds], [[], ["a"]], "it opens in Zen's own terminal layer, never Standard");
 });
 
 test("a live append that arrives while the newest page is in flight is not lost; a page for a companion that was left is dropped (Z3RR-F002, M3)", async () => {

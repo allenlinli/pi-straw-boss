@@ -1,4 +1,5 @@
 import type { Base, Net, Unit } from "../src/net.ts";
+import { unitsOf } from "./units.ts";
 import { m } from "./paraglide/messages.js";
 import { desk } from "./desk.ts";
 import type { NetRoute } from "./router.ts";
@@ -43,7 +44,7 @@ const sheet = (text: string, yes?: string): Promise<boolean> => new Promise((don
 });
 
 /** The keys of the finished subagents on the net, as the server counts them (net.ts: the subagents of the tower, of each tab's units, and of the outside units). */
-export const endedSubs = (net: Net): string[] => net.bases.flatMap((b) => [...(b.tower ? [b.tower] : []), ...b.tabs.flatMap((t) => t.units), ...b.outside]).flatMap((u) => u.subs).filter((c) => c.ended).map((c) => c.key);
+export const endedSubs = (net: Net): string[] => unitsOf(net).filter((r) => r.sub && "ended" in r.unit && r.unit.ended).map((r) => r.unit.key);
 
 /** The HUD's Dismiss finished button: shown only while a finished subagent is on the net, and says how many. */
 export function showDismissAll(button: HTMLElement, net: Net) {

@@ -12,10 +12,11 @@ import { liveNote, roleName } from "./render.ts";
 import type { Route } from "./router.ts";
 import { closed, locate } from "./scene.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
-import type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
+import type { Exit, Mounts, Term, ZenDeps } from "./zentypes.ts";
 import { domFs, mountFullscreen } from "./zenfs.ts";
 import { mountLine, stillNow } from "./zenlines.ts";
 import { ESC_MS, escStep } from "./zenkeys.ts";
+import { mountZenTerm } from "./zenterm.ts";
 import { mountMenu } from "./zenmenu.ts";
 import { syncQuestions } from "./zenquestions.ts";
 import { glide, settle } from "./zensize.ts";
@@ -48,7 +49,11 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const ripples = mountRipples(root, deps.ripple ?? domRipples(now)); // ink-water ripples under the pointer, on a canvas behind the content
 	const esc = h("p", { class: "zen-esc", role: "status", "aria-live": "polite" }); // the quiet line after a first Esc that nothing took
 	const clearEsc = () => (stopEsc(), (stopEsc = () => {}), (escAt = undefined), delete esc.dataset.on, (esc.textContent = ""));
-	root.replaceChildren(h("div", { class: "zen-drift", "aria-hidden": "true" }, h("i", null), h("i", null)), ripples.el, h("div", { class: "zen-corner" }, fs.button, menu.el), ...(fs.hint ? [fs.hint] : []), live, esc, stage);
+	const corner = h("div", { class: "zen-corner" }, fs.button, menu.el);
+	root.replaceChildren(h("div", { class: "zen-drift", "aria-hidden": "true" }, h("i", null), h("i", null)), ripples.el, corner, ...(fs.hint ? [fs.hint] : []), live, esc, stage);
+	// The terminal layer (zenterm.ts) lies over all of it: what is under takes no focus while it is on, and the item's card gets it back on return.
+	const term = mountZenTerm(root, { embed: deps.embed, now, later, inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)), closed: () => active && shown.kind === "item" && idle() && card && (card.enter() || card.el.focus()) });
+	const openTerm = (key: string, armed?: boolean) => term.open({ key, armed }, net);
 	const circle = (words?: string) => h("div", { class: "zen-circle", ...(words ? { role: "img", "aria-label": words } : { "aria-hidden": "true" }) }, h("i", null), h("i", null), h("i", null)); // the ink washes inside the ring
 	const stopLine = () => (line?.stop(), (line = undefined));
 	/** Ink dissolving: the card that was on the page stays a moment longer, fading and blurring out, while the next thing begins. */
@@ -88,14 +93,14 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		let ask: ReturnType<typeof mountAsk> | undefined, hold: HTMLElement | undefined, noted = false;
 		const words = () => {
 			// A waiting unit with no dialog is a pane blocked on a terminal prompt, which takes no typing from here (the server refuses it): the card says to answer in its terminal and opens it.
-			const open = h("button", { type: "button", class: "cmp-link" }, m.zen_open_standard());
-			open.onclick = () => deps.leave({ route: { view: "session", ws: a.ws, key }, terminal: key });
+			const open = h("button", { type: "button", class: "cmp-link" }, m.zen_open_terminal());
+			open.onclick = () => openTerm(key, true); // the unit waits on this terminal: its next work ends the step
 			slot.replaceChildren(h("p", { class: "zen-terminal" }, m.blocked_answer_terminal()), open);
 			noted = true;
 		};
 		const dialog = () => {
 			slot.replaceChildren((hold = h("div", { class: "zen-ask" })));
-			return mounts.ask(hold, answer, deps.remote, () => deps.leave({ route: { view: "session", ws: a.ws, key }, terminal: key }), undefined, m.zen_open_standard);
+			return mounts.ask(hold, answer, deps.remote, () => openTerm(key), undefined, m.zen_open_terminal);
 		};
 		return {
 			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
@@ -110,8 +115,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		out.dataset.tone = outcome === "error" ? "error" : "";
 		out.textContent = outcome === "elsewhere" ? m.zen_elsewhere() : outcome === "error" ? (alerts.get(a.key)?.note ?? m.mark_error()) : "";
 	};
-	/** The free-focus rule: the item takes the focus only when the page has it and the boss is not typing somewhere else. */
-	const idle = () => document.hasFocus() && (!document.activeElement || document.activeElement === document.body || root.contains(document.activeElement));
+	/** The free-focus rule: the item takes the focus only when the page has it, the boss is not typing somewhere else, and the terminal layer is not on. */
+	const idle = () => !term.isOpen() && document.hasFocus() && (!document.activeElement || document.activeElement === document.body || root.contains(document.activeElement));
 	function drawItem(s: Extract<Screen, { kind: "item" }>) {
 		if (card?.key !== s.item.key || view !== "item") {
 			card = makeCard(s.item);
@@ -182,9 +187,9 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		});
 	}
 	for (const type of ["pointerdown", "wheel", "touchstart", "keydown", "input"]) root.addEventListener(type, () => (touched = now()), { capture: true, passive: true });
-	const tap = () => shown.kind === "pause" && apply(model.tap());
+	const tap = () => shown.kind === "pause" && !term.isOpen() && apply(model.tap());
 	root.addEventListener("pointerdown", tap);
-	root.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && shown.kind === "pause" && !/^button$/i.test((e.target as HTMLElement | null)?.tagName ?? "") && (e.preventDefault(), tap()));
+	root.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && shown.kind === "pause" && !term.isOpen() && !/^button$/i.test((e.target as HTMLElement | null)?.tagName ?? "") && (e.preventDefault(), tap()));
 	/** Leaving: the item's dialog opens over Standard, the companion's session opens, a pause just returns to the page. */
 	function leave() {
 		deps.leave(shown.kind === "item" ? { item: alerts.get(shown.item.key) ?? shown.item } : shown.kind === "companion" && company ? { route: { view: "session", ws: company.ws, key: company.key } } : {});
@@ -201,6 +206,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		},
 		hide() {
 			active = false;
+			term.close();
 			ripples.off();
 			root.hidden = true;
 			cancel();
@@ -215,6 +221,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		/** A snapshot: its alerts (rank 0 are the items) and the net. */
 		net(next: Map<string, Alert>, whole: Net) {
 			[alerts, net] = [next, whole];
+			term.follow(whole);
 			if (active) apply(model.update(next));
 		},
 		history(e: HistoryEvent) {
@@ -235,6 +242,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		 */
 		escape(e: Pick<KeyboardEvent, "preventDefault"> & { repeat?: boolean }) {
 			if (!active) return false;
+			if (term.isOpen()) return term.escape(e); // the terminal's own while it has the keyboard (zenterm.ts)
 			e.preventDefault();
 			const at = document.activeElement as HTMLInputElement | null, inside = Boolean(at && at !== document.body && root.contains(at));
 			const type = inside ? (at!.getAttribute?.("type") ?? at!.type ?? "text") : "", editable = inside && (/^textarea$/i.test(at!.tagName) || (/^input$/i.test(at!.tagName) && !/^(checkbox|radio|range|button|submit|reset|file|color|image)$/i.test(type)));
@@ -257,6 +265,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			return true;
 		},
 		leave,
+		/** A terminal in Zen's own layer (zenterm.ts): a session's, or a pane an answer opened. */
+		terminal: (t: Term) => void (active && term.open(t, net)),
 		companion: () => (company ? { key: company.key, ws: company.ws } : undefined),
 	};
 }

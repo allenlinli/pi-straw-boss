@@ -474,7 +474,7 @@ test("a folded line is one line however many lines the own words have, and says 
 test("the stylesheet: a short window (max-height 560px) gives the questions the room: no unit sub-line or intro, smaller type, one-line send row", () => {
 	const at = css.indexOf("@media (max-height: 560px)");
 	assert.ok(at > 0, "the short-window block");
-	const block = css.slice(at, css.indexOf("@media (prefers-reduced-motion"));
+	const block = css.slice(at, css.indexOf("@media (prefers-reduced-motion", at));
 	assert.match(block, /:is\(\.zen-meta, \.zen-said\) \{ display: none; \}/);
 	assert.match(block, /\.zen-who \{ font-size: 1\.05rem/);
 	assert.match(block, /:is\(\.ask-q, \.ask-title\) \{ font-size: 1\.1rem/);

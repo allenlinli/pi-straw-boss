@@ -114,11 +114,14 @@ export function mountPick(group: HTMLElement, view: PageView, label?: (server: C
 	sync();
 }
 
+/** Back to Zen: the mark that this page left it goes, and the view is read again, which shows Zen (a pick: viewface.ts). */
+export const enterZen = (view: Pick<PageView, "reread">, root: { dataset: Record<string, string | undefined> }) => (delete root.dataset.zenAway, view.reread());
+
 /** The header's Zen button: shown only when the device's view is Zen and the Zen layer was left (`data-zen-away` on <html>); a click returns to it. Returns the sync. */
-export function mountZenBack(button: HTMLElement, view: PageView, root: { dataset: DOMStringMap }) {
+export function mountZenBack(button: HTMLElement, view: PageView, root: { dataset: DOMStringMap }, enter = () => enterZen(view, root)) {
 	const sync = () => (button.hidden = view.view() !== "zen" || root.dataset.zenAway === undefined);
 	view.onChange(sync);
-	button.addEventListener("click", () => (delete root.dataset.zenAway, view.reread(), sync()));
+	button.addEventListener("click", () => (enter(), sync()));
 	sync();
 	return sync;
 }

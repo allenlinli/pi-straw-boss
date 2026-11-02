@@ -25,8 +25,8 @@ const is = (el: Element, cls: string) => (el.getAttribute("class") ?? "").split(
 const short = (s: string) => ((s = s.replace(/\s+/g, " ")).length > 32 ? `${s.slice(0, 31)}…` : s);
 /** The least the focused question may be squeezed to (px): its header and its first option. */
 const LEAST = 96;
-/** The soft edge at the foot of a block (zen.css `--zen-edge`) and its padding, which an option must clear (px). */
-const EDGE = 14;
+/** The soft edge at the foot of a squeezed block (zen.css `--zen-edge-more`, 40 px, which a block has once it is squeezed) and a little air, which an option must clear (px). */
+const EDGE = 44;
 
 /** `data-more` is on `el` while more of it lies below the fold, so the soft edge at its foot is deeper (zen.css) and a list that goes on under the send row is not taken for the whole list. */
 function more(el: HTMLElement) {
@@ -69,12 +69,12 @@ export function syncQuestions(hold: HTMLElement, env: QEnv) {
 		const line = b.children[0]!;
 		line.setAttribute("aria-label", m.zen_q_line({ n: k + 1, total: blocks.length, name: line.querySelector(".zen-sum-q")?.textContent ?? "", state: answer(b) || m.zen_q_none() }));
 	});
-	/** The column is short: drop the lines farthest from the focused question, one by one, until it has at least its header and first option (the nearest lines stay while there is room). */
 	/** What the focused question needs (px): from its top to the foot of its first option, and the soft edge under it, so the option is whole and not under the fade. */
 	const need = (b: HTMLElement) => {
 		const [o, v] = [b.querySelector<HTMLElement>(CHOICE)?.getBoundingClientRect?.(), b.getBoundingClientRect?.()];
 		return o && v && v.height > 0 ? Math.max(LEAST, o.bottom - v.top + b.scrollTop + EDGE) : LEAST;
 	};
+	/** The column is short: drop the lines farthest from the focused question, one by one, until it has at least its header and first option (the nearest lines stay while there is room). */
 	const fit = () => {
 		const open = blocks[at]!;
 		for (const b of blocks) delete b.dataset.far;
@@ -86,6 +86,11 @@ export function syncQuestions(hold: HTMLElement, env: QEnv) {
 		scroller.scrollTop = 0;
 	};
 	const choice = (b: HTMLElement) => b.querySelector<HTMLElement>('[aria-checked="true"]') ?? b.querySelector<HTMLElement>(CHOICE) ?? b.querySelector<HTMLElement>("textarea");
+	/** Whether `el` lies inside the view of block `b`, clear of the soft edge at its foot (true where there is no layout to ask). */
+	const seen = (b: HTMLElement, el: HTMLElement) => {
+		const [o, v] = [el.getBoundingClientRect?.(), b.getBoundingClientRect?.()];
+		return !o || !v || (o.top >= v.top && o.bottom <= v.bottom - EDGE);
+	};
 	const done = (b: HTMLElement) => answer(b) !== "";
 	const inside = () => blocks.some((b) => b.contains(document.activeElement));
 	const room = (b: HTMLElement, dir: number) => (dir < 0 ? b.scrollTop > 0 : b.scrollTop + b.clientHeight < b.scrollHeight - 1);
@@ -93,9 +98,12 @@ export function syncQuestions(hold: HTMLElement, env: QEnv) {
 	const go = (k: number, focus: boolean) => {
 		at = k;
 		mark();
-		blocks[k]!.scrollTop = 0; // after mark(): a block that is not drawn keeps the place it was left at
-		fit();
-		if (focus) choice(blocks[k]!)?.focus({ preventScroll: true });
+		fit(); // brings back a dropped line's block, which keeps the place it was left at until it is reset: measured with it, then reset
+		blocks[k]!.scrollTop = 0;
+		if (focus) {
+			const [chosen, first] = [choice(blocks[k]!), blocks[k]!.querySelector<HTMLElement>(CHOICE)];
+			(chosen && seen(blocks[k]!, chosen) ? chosen : first ?? chosen)?.focus({ preventScroll: true }); // a key must not change what the boss cannot see
+		}
 		scroller.scrollTop = 0; // a focus that scrolled the column anyway is put back
 	};
 	/** A move of one question from the focused one, or nothing at an end. */

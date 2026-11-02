@@ -104,7 +104,7 @@
 [data-view="zen"] .zen-qs { position: relative; display: flex; flex-direction: column; justify-content: safe center; gap: 6px; height: clamp(16rem, 58vh, 34rem); padding: 0 6px; overflow: hidden; overscroll-behavior: contain; touch-action: pan-y; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }
 [data-view="zen"] .zen-ask .ask > .zen-qs { min-height: 7rem; overflow: hidden; padding-block: 0; }
 [data-view="zen"] .zen-qs > .ask-one { flex: none; margin: 0; transition: opacity 0.5s var(--zen-ease); }
-[data-view="zen"] .zen-qs > .ask-one:not([data-dim]) { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding-block: 10px; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); animation: zen-fade 0.6s var(--zen-ease) both; }
+[data-view="zen"] .zen-qs > .ask-one:not([data-dim]) { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; grid-auto-rows: max-content; padding-block: 10px; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); animation: zen-fade 0.6s var(--zen-ease) both; }
 [data-view="zen"] .zen-qs > .ask-one[data-dim] { opacity: 0.55; cursor: pointer; }
 [data-view="zen"] .zen-qs > .ask-one[data-far] { display: none; } /* the column is short: the lines far from the open question give way (zenquestions.ts) */
 [data-view="zen"] .zen-qs > .ask-one[data-dim] > :not(.zen-sum) { display: none; }
@@ -135,7 +135,7 @@
 /* A short window (a phone turned sideways, a small browser): the card gives the questions the room: no unit sub-line or intro, a smaller name, question and gaps, and a send row that stays one line. */
 @media (max-height: 560px) {
 	[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { gap: 4px; padding: 4px; }
-	[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-meta, .zen-said) { display: none; }
+	[data-view="zen"] .zen-card:has(.zen-qs) :is(.zen-meta, .zen-said) { display: none; }
 	[data-view="zen"] .zen-card:has(.zen-ask) .zen-who { font-size: 1.05rem; line-height: 1.2; }
 	[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-answer, .zen-ask, .ask) { gap: 2px; }
 	[data-view="zen"] .zen-card:has(.zen-ask) :is(.ask-q, .ask-title) { font-size: 1.1rem; line-height: 1.35; }
@@ -148,6 +148,9 @@
 	[data-view="zen"] .zen-card:has(.zen-ask) :is(.ask-send, .ask-cancel) { min-height: 44px; padding-inline: 18px; }
 	[data-view="zen"] .zen-card:has(.zen-ask) .zen-out { min-height: 0; }
 	[data-view="zen"] .zen-card:has(.zen-ask) .ask-note:empty { display: none; }
+}
+@media (max-height: 340px) { /* a lone question or a select keeps its context while it fits (it does down to here) */
+	[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-meta, .zen-said) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc, .zen-card) { transition: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
 @media (forced-colors: active) {

@@ -30,7 +30,7 @@ export interface ZenDeps {
 	sound(s: Sound): void;
 	leave(to: Exit): void;
 	/** The page's terminal embedded in a host (the overlay chunk's `embed`): the Zen terminal layer's body. */
-	embed(key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void }): Promise<() => void>;
+	embed(key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void; entered?: (sent: boolean) => void }): Promise<() => void>;
 	/** The session whose log the stream should send (the companion), or none. */
 	watch(key: string | null): void;
 	/** A paired device (`mountAsk`'s `remote`); unset: by the host name. */

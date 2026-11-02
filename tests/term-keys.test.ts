@@ -12,7 +12,7 @@ class El {
 	kids: (El | string)[] = [];
 	listeners = new Map<string, Listener[]>();
 	classes = new Set<string>();
-	classList = { add: (...c: string[]) => c.forEach((x) => this.classes.add(x)), remove: (...c: string[]) => c.forEach((x) => this.classes.delete(x)), contains: (c: string) => this.classes.has(c), toggle: (c: string) => (this.classes.has(c) ? !this.classes.delete(c) : !!this.classes.add(c)) };
+	classList = { add: (...c: string[]) => c.forEach((x) => this.classes.add(x)), remove: (...c: string[]) => c.forEach((x) => this.classes.delete(x)), contains: (c: string) => this.classes.has(c), toggle: (c: string, force?: boolean) => ((force ?? !this.classes.has(c)) ? !!this.classes.add(c) : !this.classes.delete(c)) };
 	dataset: Record<string, string> = {};
 	style: Record<string, string> = {};
 	hidden = false;
@@ -270,4 +270,55 @@ test("embed with `keys` gives the sink the keyboard on a desktop only, and `end`
 	closers.push(t.embed("q", "pane", new El("div") as never, { keys: true }));
 	assert.equal(focused, undefined, "a phone opens its soft keyboard with the Keyboard button");
 	kept.off();
+});
+
+test("ZT-F003: a pane whose attach the server refuses (the grant is gone) ends like an ended frame; a network failure does not", async () => {
+	fine.on = false;
+	for (const [res, ends] of [[{ ok: false, status: 404, body: { error: "not_found", reason: "That pane is not open here any more." } }, 1], [{ ok: false, status: 409, body: { error: "pane_closed" } }, 1], [{ ok: false, status: 429, body: {} }, 0], [undefined, 0]] as const) {
+		const calls: string[] = [], post = () => async (action: string) => (action === "mirror" && !res ? Promise.reject(new Error("down")) : action === "mirror" ? res : { ok: true, status: 200, body: {} });
+		const t = mountTerminals({ tiles: { open() {} }, post: post as never, stream: () => JSON.stringify({ stream: "st" }), pad: (x) => keypad({ ...x, state: () => "live" }) });
+		closers.push(t.embed("g", "pane", new El("div") as never, { end: () => calls.push("end") }));
+		t.hello();
+		await gap();
+		assert.equal(calls.length > 0, ends > 0, JSON.stringify(res)); // the tile attaches when it opens and again on hello
+	}
+});
+
+test("ZT-F002: Shift+Esc in the sink lets the keyboard go (nothing is sent to the pane), where plain Esc goes to the pane; the sink says whether its pad is live", async () => {
+	fine.on = true;
+	const w = world();
+	w.sink.focus();
+	const esc = w.sink.fire("keydown", { key: "Escape", shiftKey: true, ctrlKey: false, altKey: false, metaKey: false });
+	assert.ok(esc.defaultPrevented);
+	assert.ok(focused !== w.sink, "the sink let go");
+	assert.ok(focused === w.scroll, "the focus stays in the terminal's body, where Tab moves on");
+	await gap();
+	assert.deepEqual(w.sent, [], "no Esc reached the pane");
+	w.sink.focus();
+	w.sink.fire("keydown", { key: "Escape", shiftKey: false, ctrlKey: false, altKey: false, metaKey: false });
+	await gap();
+	assert.deepEqual(w.sent, [{ key: "esc", stream: "st" }], "a plain Esc is the pane's");
+	assert.equal(w.sink.dataset.pad, "off", "no frame yet: nothing to take keys");
+	w.terminal.frame(JSON.stringify({ key: "k", seq: 1, rows: 1, cols: 10, whole: true, set: [[0, "hi"]] }));
+	assert.equal(w.sink.dataset.pad, "live");
+	w.terminal.frame(JSON.stringify({ key: "k", ended: "The pane closed." }));
+	assert.equal(w.sink.dataset.pad, "off", "an ended mirror takes no key");
+	fine.on = false;
+});
+
+test("ZT-F001: the pad tells its owner when it sends Enter (a key, a soft keyboard's line break) and when that Enter was refused", async () => {
+	fine.on = false;
+	for (const [answer, seen] of [[{ ok: true, status: 200, body: {} }, [true]], [{ ok: false, status: 409, body: { error: "confirm", confirm: "tok", reason: "r" } }, [true, false]]] as const) {
+		const heard: boolean[] = [], post = () => async () => answer;
+		const t = mountTerminals({ tiles: { open() {} }, post: post as never, stream: () => JSON.stringify({ stream: "st" }), pad: (x) => keypad({ ...x, state: () => "live" }) });
+		const host = new El("div");
+		closers.push(t.embed("k", "billing", host as never, { entered: (s: boolean) => heard.push(s) }));
+		const sink = (host.kids[0] as El).all().find((x) => x.classes.has("term-sink"))!;
+		sink.fire("keydown", { key: "ArrowUp", ctrlKey: false, altKey: false, metaKey: false, shiftKey: false });
+		await gap();
+		assert.deepEqual(heard, [], "other keys are no Enter");
+		sink.fire("keydown", { key: "Enter", ctrlKey: false, altKey: false, metaKey: false, shiftKey: false });
+		await gap();
+		assert.deepEqual(heard, seen);
+	}
 });

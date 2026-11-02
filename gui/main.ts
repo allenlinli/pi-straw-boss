@@ -59,7 +59,7 @@ function loadFocus() {
 }
 
 /** The page's terminal embedded in a host: the session view's terminal mode and the Zen terminal layer (the overlay chunk holds the terminals). */
-const embed = (key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void }) => new Promise<() => void>((done) => withPanels((p) => done(p.terminal.embed(key, name, host, o))));
+const embed = (key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void; entered?: (sent: boolean) => void }) => new Promise<() => void>((done) => withPanels((p) => done(p.terminal.embed(key, name, host, o))));
 /** A base's name, for the dialogs and Zen's cards. */
 const label = (ws: string) => core.latest?.bases.find((b) => b.id === ws)?.label ?? ws;
 // The overlay layer (the alert queue, dialogs, and tiles) is a chunk of its own too, fetched on the first alert or tile.

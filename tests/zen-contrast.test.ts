@@ -33,3 +33,15 @@ test("the first frame's ring (style.css) is 3 : 1 on the ground, and the sheet o
 		for (const [, body] of source.matchAll(/@keyframes zen-[\w-]+ \{((?:[^{}]|\{[^}]*\})*)\}/g))
 			for (const [, steps] of body!.matchAll(/\{([^}]*)\}/g)) for (const [prop] of declarations(steps!)) assert.ok(["transform", "opacity", "filter", "animation-timing-function"].includes(prop), `${name}: a zen keyframe moves ${prop}`);
 });
+
+test("text on a coloured fill (`--ink`) is the ground, never the paper: Standard's fills (the confirm's Send Enter, Send, a badge) are paper or ash in Zen and a paper label on them was blank", () => {
+	assert.match(block.body, /--ink: var\(--zen-ground\)/);
+	for (const fill of ["paper", "ash", "clay", "moss"]) assert.ok(contrast(tokens.ground!, tokens[fill]!) >= 7, `--zen-ground on --zen-${fill}: ${contrast(tokens.ground!, tokens[fill]!).toFixed(2)}`);
+	const pair = rulesOf(css).filter((r) => r.parts.some((p) => p.includes(".pad-yes") && p.includes(".pad-no")));
+	assert.ok(pair.length, "the confirm's two buttons share one Zen rule");
+	const box = declarations(pair[0]!.body);
+	assert.ok(box.some(([p, v]) => p === "min-height" && v === "44px"), "a 44 px target");
+	assert.ok(box.some(([p, v]) => p === "color" && v === "var(--zen-paper)"), "paper words");
+	const yes = rulesOf(css).find((r) => r.parts.some((p) => /\.pad-yes$/.test(p.trim())));
+	assert.ok(yes && declarations(yes.body).some(([p, v]) => p === "background" && v === "var(--zen-warm)"), "the one that sends is filled (paper on warm, 7 : 1 above)");
+});

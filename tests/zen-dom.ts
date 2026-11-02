@@ -14,6 +14,13 @@ export class El {
 	value = "";
 	selectionStart = 0;
 	selectionEnd = 0;
+	/** Geometry and scroll position, which a test sets; `scrollTo` only records the call (a smooth scroll arrives later, when the test moves `scrollTop` and sends the scroll event). */
+	offsetTop = 0;
+	offsetHeight = 0;
+	clientHeight = 0;
+	scrollHeight = 0;
+	scrollTop = 0;
+	scrolls: { top?: number; behavior?: string }[] = [];
 	private off = false;
 	readonly tagName: string;
 	constructor(tagName: string) {
@@ -68,6 +75,11 @@ export class El {
 		if (page.focused === this) page.focused = undefined;
 		this.bubble("focusout");
 	}
+	/** An event sent to this element's own listeners (a custom one, as the answer form's keys send). */
+	dispatchEvent(event: { type: string }) {
+		for (const on of this.handlers[event.type] ?? []) on(event);
+		return true;
+	}
 	/** An event that rises from this element through its ancestors' listeners. */
 	bubble(type: string, extra: object = {}) {
 		for (let at: El | undefined = this; at; at = at.parent) for (const on of at.handlers[type] ?? []) on({ target: this, preventDefault() {}, ...extra });
@@ -81,6 +93,29 @@ export class El {
 		if (v && page.focused === this) page.focused = undefined;
 	}
 	scrollIntoView() {}
+	scrollTo(o: { top?: number; behavior?: string }) {
+		this.scrolls.push(o);
+	}
+	get children(): El[] {
+		return this.kids.filter((kid): kid is El => kid instanceof El);
+	}
+	/** Whether the element matches a comma-separated list of `tag`, `.class`, and `[attr="value"]`. */
+	matches(selector: string): boolean {
+		return selector.split(",").some((part) => {
+			const attr = /^\[([\w-]+)="([^"]*)"\]$/.exec(part.trim());
+			return attr ? this.getAttribute(attr[1]!) === attr[2] : part.trim().startsWith(".") ? (this.getAttribute("class") ?? "").split(" ").includes(part.trim().slice(1)) : this.tagName === part.trim();
+		});
+	}
+	closest(selector: string): El | null {
+		for (let at: El | undefined = this; at; at = at.parent) if (at.matches(selector)) return at;
+		return null;
+	}
+	querySelectorAll(selector: string): El[] {
+		return this.all((el) => el.matches(selector));
+	}
+	querySelector(selector: string): El | null {
+		return this.querySelectorAll(selector)[0] ?? null;
+	}
 	get textContent(): string {
 		return this.kids.map((kid) => (typeof kid === "string" ? kid : kid.textContent)).join("");
 	}

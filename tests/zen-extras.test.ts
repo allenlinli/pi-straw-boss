@@ -6,7 +6,7 @@ import { El, page } from "./zen-dom.ts";
 
 // Z4's small parts, each on the fake document: the corner menu (gui/zenmenu.ts), the full-screen control (gui/zenfs.ts), the line under the idle circle (gui/zenlines.ts), the shared sound and
 // language stores, and the words.
-const { mountMenu, OPEN_MS, GRACE_MS } = await import("../gui/zenmenu.ts");
+const { mountMenu } = await import("../gui/zenmenu.ts");
 const { mountFullscreen, HINT_KEY } = await import("../gui/zenfs.ts");
 const { deck, LINES, mountLine, LINE_MS, FADE_MS } = await import("../gui/zenlines.ts");
 const { createPrefs, KEYS } = await import("../gui/prefs.ts"); // the sound stores are prefs.ts's now
@@ -52,7 +52,7 @@ function menuRig(o: { sound?: boolean } = {}) {
 		language: { get: () => lang, names: () => [{ id: "en", name: "English" }, { id: "zh-TW", name: "正體中文" }], set: (id) => ((lang = id), calls.push(`lang:${id}`)) },
 		view: { choice: () => view, auto: () => "Auto", set: (v) => ((view = v), calls.push(`view:${v}`)) },
 		sound: { on: () => sound, volume: () => volume, set: (on) => ((sound = on), writeSound(on, st), calls.push(`sound:${on}`)), setVolume: (v) => ((volume = v), writeVolume(v, st)), try: () => calls.push("try") },
-	}, () => calls.push("leave"), c.later);
+	}, () => calls.push("leave"));
 	page.body.replaceChildren(m.el as unknown as El);
 	page.focused = undefined;
 	const host = m.el as unknown as El, btn = m.button as unknown as El;
@@ -60,46 +60,40 @@ function menuRig(o: { sound?: boolean } = {}) {
 	return { c, st, calls, m, host, btn, by, key: (key: string, extra: object = {}) => (page.focused ?? host).bubble("keydown", { key, ...extra }), mouse: (type: string) => host.bubble(type, { pointerType: "mouse" }) };
 }
 
-test("the menu opens by hover after a short delay, stays through a grace area, and a press keeps it open", () => {
+test("the menu never opens by hover, whatever the pointer or the time; a press of its button opens it, a second press, Esc, a press outside, and a choice of language, view, or the way back close it", () => {
 	const r = menuRig();
 	assert.equal(r.btn.getAttribute("aria-expanded"), "false");
-	r.mouse("pointerenter");
-	r.c.advance(OPEN_MS - 1);
-	assert.equal(r.m.isOpen(), false, "not before the delay");
-	r.c.advance(2);
-	assert.equal(r.m.isOpen(), true);
-	r.mouse("pointerleave");
-	r.c.advance(GRACE_MS - 10);
-	assert.equal(r.m.isOpen(), true, "the pointer may cross the gap");
-	r.mouse("pointerenter");
-	r.c.advance(GRACE_MS * 2);
-	assert.equal(r.m.isOpen(), true, "coming back cancels the close");
-	r.mouse("pointerleave");
-	r.c.advance(GRACE_MS + 1);
-	assert.equal(r.m.isOpen(), false, "closed after the grace period");
-	r.mouse("pointerenter");
-	r.c.advance(OPEN_MS + 1);
-	r.btn.click();
-	r.mouse("pointerleave");
-	r.c.advance(GRACE_MS * 3);
-	assert.equal(r.m.isOpen(), true, "a press on a hover-opened menu pins it");
-	r.btn.click();
-	assert.equal(r.m.isOpen(), false, "a second press closes it");
-});
-
-test("a touch or a pen does not open it by hover; a tap and Enter open it with the focus inside, Esc closes it and returns the focus to the button", () => {
-	const r = menuRig();
-	r.host.bubble("pointerenter", { pointerType: "touch" });
-	r.c.advance(5000);
-	assert.equal(r.m.isOpen(), false);
-	r.btn.click(); // a tap, or Enter on the focused button: both are a click
+	assert.equal(r.host.handlers.pointerenter, undefined, "no hover handler is listening");
+	assert.equal(r.host.handlers.pointerleave, undefined);
+	for (const pointerType of ["mouse", "touch", "pen"]) r.host.bubble("pointerenter", { pointerType });
+	r.c.advance(60_000);
+	assert.equal(r.m.isOpen(), false, "hovering opens nothing");
+	assert.equal(r.c.pending(), 0, "and sets no timer");
+	r.btn.click(); // a click, a tap, Enter, or Space on the focused button: all are a click
 	assert.equal(r.m.isOpen(), true);
 	assert.equal(r.btn.getAttribute("aria-expanded"), "true");
 	assert.equal(page.focused, r.by("English"), "the focus moves into the menu");
+	r.host.bubble("pointerleave", { pointerType: "mouse" });
+	r.c.advance(60_000);
+	assert.equal(r.m.isOpen(), true, "leaving with the pointer closes nothing");
+	r.btn.click();
+	assert.equal(r.m.isOpen(), false, "a second press closes it");
+	r.btn.click();
 	r.key("Escape");
 	assert.equal(r.m.isOpen(), false);
-	assert.equal(page.focused, r.btn, "and returns to the button");
+	assert.equal(page.focused, r.btn, "Esc returns the focus to the button");
 	assert.equal(r.m.close(), false, "closing a closed menu is not Zen's key to take");
+	r.btn.click();
+	for (const on of page.on.pointerdown ?? []) on({ target: new El("div") });
+	assert.equal(r.m.isOpen(), false, "a press outside closes it");
+	for (const label of ["正體中文", "Standard", "Leave Zen"]) {
+		r.btn.click();
+		(label === "Leave Zen" ? r.host.all((e) => e.getAttribute("class") === "zen-leave")[0]! : r.by(label)).click();
+		assert.equal(r.m.isOpen(), false, `choosing ${label} closes it`);
+	}
+	r.btn.click();
+	r.by("Off").click();
+	assert.equal(r.m.isOpen(), true, "the sound's switch leaves it open, so the volume can follow");
 });
 
 test("an open menu traps Tab inside, and a press outside closes it", () => {

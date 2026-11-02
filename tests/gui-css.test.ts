@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { declarations, rulesOf } from "./css-rules.ts";
 
 // What the page's style sheet must keep (no browser runs here): the hidden slash menu stays hidden, the selected pair tab is shown by more than colour,
 // and text boxes and menus are themed.
@@ -107,8 +108,10 @@ test("zen.css: every rule is under the Zen view, the answer card has no Standard
 	assert.match(zen, /@media \(forced-colors: active\)[\s\S]*\.zen-drift[\s\S]*CanvasText/);
 	assert.match(zen, /:focus-visible \{ outline: 2px solid var\(--zen-seal\)/, "a visible focus ring");
 	assert.match(zen, /\.zen-card-in > \* \{ animation: zen-in 1\.8s/, "the card's parts arrive slowly, one after another");
-	assert.match(zen, /\.zen-card \{[^}]*transition: height 0\.52s var\(--zen-ease\)/, "the card's box eases to the size its content needs (zensize.ts), 400 to 600 ms");
-	assert.match(zen, /prefers-reduced-motion: reduce\) \{[^\n]*\.zen-card\) \{ transition: none; \}/, "and follows at once under reduced motion");
+	assert.ok(!/transition:[^;}]*\b(height|width|max-height|all)\b/.test(zen) && !/animation[^;}]*\b(height|width)\b/.test(zen), "no height or width animation anywhere on a Zen card: it takes its size at once");
+	assert.match(zen, /@keyframes zen-in \{ from \{ opacity: 0; \} \}/, "a card's parts arrive by opacity alone");
+	assert.match(zen, /\.zen-card \[data-fade\] \{ animation: zen-fade 0\.3s/, "a swap of what the card holds fades in over a short moment");
+	assert.match(zen, /prefers-reduced-motion: reduce\) \{[^\n]*\.zen-card-in > \*, \[data-view="zen"\] \.zen-card \[data-fade\] \{ animation: none; \}/, "and under reduced motion nothing fades");
 	assert.match(zen, /animation-delay: calc\(var\(--n, 0\) \* 0\.22s\)/);
 	assert.match(zen, /\.zen-log \.chat-scroll \{ overscroll-behavior: contain; touch-action: pan-y; \}/, "the log scrolls itself only: nothing chains to the page, a finger moves it up and down");
 	assert.match(zen, /\.zen-card \{ overscroll-behavior: contain; \}/);
@@ -116,4 +119,17 @@ test("zen.css: every rule is under the Zen view, the answer card has no Standard
 	assert.match(zen, /#zen \{ overscroll-behavior: none; \}/, "no pull-to-refresh or history swipe from the layer");
 	assert.match(readFileSync(new URL("../gui/style.css", import.meta.url), "utf8"), /html\[data-view="zen"\], html\[data-view="zen"\] body \{[^}]*overscroll-behavior: none;/, "nor from the page under it, from the first frame");
 	assert.ok(!/\.zen-(header|bar|nav)\b/.test(zen) && !/zen-nothing/.test(zen));
+});
+
+test("the key pad's confirm buttons are one pair in Standard and Geek: one box rule for both (the same height, a border, 12 px words), the yes filled with --amber and its --ink words, the no outlined, and both 44 px on a phone", () => {
+	const both = rulesOf(css).find((r) => r.parts.some((p) => p === ".pad-yes, .pad-no" || (p === ".pad-yes" && r.parts.includes(".pad-no"))));
+	assert.ok(both, "one rule holds both");
+	const d = Object.fromEntries(declarations(both.body));
+	assert.equal(d["min-height"], "34px");
+	assert.match(d.border ?? "", /^1px solid/);
+	assert.match(d.font ?? "", /^600 12px/);
+	const yes = rulesOf(css).find((r) => r.parts.length === 1 && r.parts[0] === ".pad-yes");
+	assert.ok(yes && /background: var\(--amber\)/.test(yes.body) && /color: var\(--ink\)/.test(yes.body), "filled, with the ink on the fill");
+	assert.match(css, /\(pointer: coarse\) \{ \.pad-key, \.pad-yes, \.pad-no \{ min-height: 44px; \}/);
+	assert.ok(!/\.pad-yes[^{]*\{[^}]*text-decoration/.test(css), "no link underline on either");
 });

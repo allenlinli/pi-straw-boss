@@ -847,7 +847,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// All increments summed (answer-opens-terminal +700 / +300, Z4 +6,500 / +2,900, Z4 feedback +3,800 / +1,600): 229,700 bytes / 93,000 gzipped.
 	// Views-core: the figure counts the lazy chunks only now (VC12-F001); post.ts and the runtimes are eager. At 0.52.0 they were 226,642 / 91,444, R1 added units.ts's share to the lazy chunks that import it: 226,692 / 91,472, and the cap is 226,750 / 91,550.
 	// Zen terminal layer: the layer (zenterm.ts, in the Zen chunk) and the embed options in the overlay chunk: 228,825 / 92,327, +2,133 raw / +855 gzipped over R1's 226,692 / 91,472; the eager bytes grew by 150 only.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 228_900 && total(chunks, gz) <= 92_400, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Zen terminal fix round: 229,790 / 92,677 (+965 raw / +350 gzipped: the Enter rule, the tower's sentence, Shift+Esc, the pad's state on the sink, and the two messages' words), cap 229,900 / 92,800.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 229_900 && total(chunks, gz) <= 92_800, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

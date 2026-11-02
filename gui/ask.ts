@@ -48,11 +48,11 @@ const final = (r: Answer) => ["accepted", "stale", "busy", "unknown"].includes(S
 /** A panel drawn for a pending. `done`: it takes no further answer from here; `sending`: its answer is on its way; `focus`: what had the focus in it
  * when it left the page (it takes it back on coming back); `lost`: the control that lost the focus by being disabled here (it takes it back when enabled); `busy`: refused while another answer was on its way, and `spell` once the server showed
  * that answer (read-only): the dialog answerable after it means that answer was refused, so this panel answers again. */
-interface Panel { first?: () => HTMLButtonElement | HTMLInputElement | undefined; key: string; el: HTMLElement; note: HTMLElement; send?: HTMLButtonElement; cancel?: HTMLButtonElement; controls: (HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement)[]; pick: () => Pick | undefined; done: boolean; sending: boolean; focus?: HTMLElement; lost?: HTMLButtonElement | HTMLInputElement; busy?: boolean; spell?: boolean }
+interface Panel { copy?: string; first?: () => HTMLButtonElement | HTMLInputElement | undefined; key: string; el: HTMLElement; note: HTMLElement; send?: HTMLButtonElement; cancel?: HTMLButtonElement; controls: (HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement)[]; pick: () => Pick | undefined; done: boolean; sending: boolean; focus?: HTMLElement; lost?: HTMLButtonElement | HTMLInputElement; busy?: boolean; spell?: boolean }
 /** A dialog the page may answer is known by its id and digest, under whichever call the server reads it; anything else by its call and why. */
 const keyOf = (p: Pending) => (p.answer ? `d\n${p.answer.dialog}\n${p.answer.digest}` : `c\n${p.callId}\n${p.why ?? ""}`);
 
-/** `terminal` opens the session's terminal tile: a read-only panel offers it (Show terminal; Zen words it `terminalLabel`), except for a secret_drop, whose mirror stays hidden. */
+/** `terminal`: the unit's key (an accepted answer's `then` opens a card for it, terminalthen.ts) and `show`, which opens the session's terminal: a read-only panel offers it (Show terminal; Zen words it `terminalLabel`), except for a secret_drop, whose mirror stays hidden. */
 /** A long question scrolls inside its card on a phone (style.css, the card's `max-height`): `data-more` is set while more of it lies below, with the words the cue says, so a list that ends under the Send row is never taken for the whole list. */
 function cue(el: HTMLElement) {
 	if (el.dataset.cued) return;
@@ -67,7 +67,7 @@ function cue(el: HTMLElement) {
 	if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(check);
 }
 
-export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: () => void, accepted?: (opened: boolean) => void, terminalLabel: () => string = m.show_terminal) {
+export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: { key: string; show(): void }, accepted?: (opened: boolean) => void, terminalLabel: () => string = m.show_terminal) {
 	// `cur` is the panel on show, drawn for `shown`; `kept` is the newest one that answers, which comes back as it was when its dialog does.
 	let shown: Pending | undefined, cur: Panel | undefined, kept: Panel | undefined, ready = false, busy = false, leave: ReturnType<typeof setTimeout> | undefined;
 	for (const type of ["focusin", "pointerdown"]) document.addEventListener(type, (e) => cur && !cur.el.contains(e.target as Node) && (cur.lost = undefined)); // the user went elsewhere
@@ -93,7 +93,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		[x.done, x.sending, busy, x.busy] = [!r || final(r), false, false, r?.body.outcome === "busy"];
 		say(x.note, tone, text, ...(retry ? [again] : []));
 		// An accepted answer that leaves a step in a terminal opens it, whichever view this is (terminalthen.ts): `terminal` is how this view shows the session's.
-		const then = r?.body.outcome === "accepted" ? (r.body.then as Then | undefined) : undefined, instead = then && openThen(then, terminal);
+		const then = r?.body.outcome === "accepted" ? (r.body.then as Then | undefined) : undefined, instead = then && openThen(then, { key: terminal?.key ?? "", command: x.copy });
 		if (instead) say(x.note, tone, `${text} ${instead}`);
 		draw();
 		x.note.scrollIntoView?.({ block: "nearest" }); // a long panel scrolls: its outcome must be read
@@ -139,13 +139,13 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 	}
 	function build(p: Pending): Panel {
 		const asks = p.asks ?? (p.ask ? [p.ask] : []), list = asks.length > 1, a = p.answer;
-		const x: Panel = { key: keyOf(p), el: h("section", { class: "ask" }), note: h("p", { class: "ask-note", role: "status", "aria-live": "polite" }), controls: [], pick: () => undefined, done: false, sending: false };
+		const x: Panel = { copy: a?.select?.copy, key: keyOf(p), el: h("section", { class: "ask" }), note: h("p", { class: "ask-note", role: "status", "aria-live": "polite" }), controls: [], pick: () => undefined, done: false, sending: false };
 		if (a) (x.send = h("button", { type: "button", class: "ask-send" }, m.send_answer())).onclick = () => void (x.pick() && answer(x, bodyOf(a, x.pick()!, crypto.randomUUID())));
 		const noSecret = p.tool === "secret_drop"; // never an answerable secret, on any page, whatever it was sent (SB-F001): it gets no Cancel to press either, not even a detached one
 		if (a && !noSecret && cancellable(a, remote)) (x.cancel = h("button", { type: "button", class: "ask-cancel" }, m.cancel())).onclick = () => void answer(x, cancelOf(a, crypto.randomUUID())); // no pick needed: it ends the dialog the way Escape does in the terminal, the owner's own cancelled result
 		const term = h("p", { class: "ask-term" }, p.why && asks.length ? p.why : `${list ? m.answer_them() : m.answer_it()} ${list || !asks[0] ? "" : how(asks[0])}`.trim());
 		const show = terminal && p.tool !== "secret_drop" && h("button", { type: "button", class: "cmp-link" }, terminalLabel());
-		if (show) show.onclick = terminal;
+		if (show) show.onclick = terminal.show;
 		const during = p.answer?.twin && p.tool && p.tool !== "dialog" ? [h("p", { class: "ask-why" }, m.opened_during({ tool: p.tool }))] : []; // a dialog bound to the one call in flight may be unrelated to it
 		x.el.append(...during, ...(a && !noSecret ? (a.select ? select(x, a) : questions(x, a)) : [...(asks.length ? asks.map((y) => block(y, list)) : [h("p", { class: "ask-why" }, noSecret ? (remote ? m.secret_remote() : m.secret_terminal()) : (p.why ?? m.waits_dialog()))]), h("div", { class: "ask-acts" }, noSecret ? h("p", { class: "ask-term" }, m.answer_it()) : term, show)]), x.note);
 		if (x.cancel) x.controls.push(x.cancel); // draw() enables it with the rest

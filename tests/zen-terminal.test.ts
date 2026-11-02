@@ -7,6 +7,7 @@ import { El, page } from "./zen-dom.ts";
 import { alertsOf } from "../gui/alerts.ts";
 import { m } from "../gui/paraglide/messages.js";
 import type { Pending } from "../src/ask.ts";
+import type { StepOpen } from "../gui/terminalthen.ts";
 
 // The Zen terminal layer (gui/zenterm.ts, docs/specs/2026-11-01-zen-view.md, A terminal in Zen): the terminal an answer opens shows inside Zen, over the screen that was there, and goes back to it.
 // The terminal itself (mirror.ts, the key pad) is the page's one; here `embed` is a recorder that puts a keyboard sink into the host, as the real tile does.
@@ -22,8 +23,37 @@ const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why:
 function rig() {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
-	const calls = { leave: [] as unknown[], embeds: [] as { key: string; name: string; host: El; keys: boolean | undefined; end: (() => void) | undefined; entered: ((sent: boolean) => void) | undefined }[], off: [] as string[], sinks: [] as El[] };
+	const calls = {
+		leave: [] as unknown[],
+		embeds: [] as { key: string; name: string; host: El; keys: boolean | undefined; end: (() => void) | undefined; taken: (() => void) | undefined }[],
+		watches: [] as { key: string; name: string; w: { rows(rows: string[]): void; state(s: string, c: unknown): void; end(): void; taken(): void } }[],
+		off: [] as string[], stops: [] as string[], sinks: [] as El[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[],
+		/** The mirror attaches and detaches the page's terminals would make: a key is attached while anything holds it (an embed, a watch). */
+		attaches: [] as string[], detaches: [] as string[],
+	};
+	const holders = new Map<string, number>();
+	const hold = (key: string) => (holders.get(key) ?? 0) === 0 && calls.attaches.push(key), join = (key: string) => (hold(key), holders.set(key, (holders.get(key) ?? 0) + 1));
+	const leaveKey = (key: string) => (holders.set(key, (holders.get(key) ?? 1) - 1), holders.get(key) === 0 && calls.detaches.push(key));
 	let resolveEmbed: (() => void) | undefined;
+	const kit = {
+		embed: (key: string, name: string, host: El, o: { keys: boolean; end?: () => void; taken?: () => void }) => {
+			calls.embeds.push({ key, name, host, keys: o.keys, end: o.end, taken: o.taken });
+			join(key);
+			const sink = new El("textarea");
+			sink.setAttribute("class", "term-sink");
+			calls.sinks.push(sink);
+			host.replaceChildren(new El("div"), sink);
+			return () => (calls.off.push(key), leaveKey(key));
+		},
+		watch: (key: string, name: string, w: (typeof calls.watches)[number]["w"]) => {
+			calls.watches.push({ key, name, w });
+			join(key);
+			const conn = { key, rows: [] as string[], cols: 80, phase: "live", why: "", stale: () => false };
+			return { conn, stop: () => (calls.stops.push(key), leaveKey(key)) };
+		},
+		post: (key: string) => async (action: string, body: Record<string, unknown>) => (calls.posts.push({ key, action, body }), { ok: true, status: 200, body: {} }),
+		stream: () => "st",
+	};
 	const deps = {
 		data: () => ({ older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined }),
 		recent: async () => [],
@@ -32,18 +62,10 @@ function rig() {
 		remote: false, now: () => t, stored: () => undefined,
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} },
 		still: () => false, random: () => 0,
-		embed: (key: string, name: string, host: El, o: { keys?: boolean; end?: () => void; entered?: (sent: boolean) => void } = {}) => {
-			calls.embeds.push({ key, name, host, keys: o.keys, end: o.end, entered: o.entered });
-			const sink = new El("textarea");
-			sink.setAttribute("class", "term-sink");
-			calls.sinks.push(sink);
-			host.replaceChildren(new El("div"), sink);
-			return new Promise<() => void>((done) => {
-				const give = () => done(() => void calls.off.push(key));
-				if (resolveEmbed === undefined) give();
-				else resolveEmbed = give;
-			});
-		},
+		terminals: () => new Promise<typeof kit>((done) => {
+			if (resolveEmbed === undefined) done(kit);
+			else resolveEmbed = () => done(kit);
+		}),
 		later: (fn: () => void, ms: number) => {
 			const e = { at: t + ms, fn };
 			timers.push(e);
@@ -158,7 +180,7 @@ test("hiding Zen (Esc, the corner control, a view pick) lets the terminal go wit
 	late.z.hide();
 	late.release();
 	await late.settle();
-	assert.deepEqual([late.calls.off, late.layer()], [["a"], undefined], "an embed still on its way when the layer closes is let go the moment it lands");
+	assert.deepEqual([late.calls.embeds, late.layer()], [[], undefined], "the terminals still on their way when the layer closes are never used");
 });
 
 test("Esc while the terminal has the keyboard goes to the terminal: not taken, not prevented, however often; the layer stays", async () => {
@@ -209,29 +231,19 @@ test("a pane that closes or whose grant ends returns to Zen by itself; a session
 	const s = await shown();
 	s.z.terminal({ key: "a" });
 	await s.settle();
-	assert.equal(s.calls.embeds[0]!.end, undefined, "a session's mirror ending says the session left the pane, which the boss should read");
+	s.calls.embeds[0]!.end!();
+	await s.settle();
+	assert.ok(s.layer(), "a session's mirror ending says the session left the pane, which the boss should read");
 });
 
-test("a session's terminal returns when the session starts working after it idled (the command was submitted); the first working of an answer being taken does not", async () => {
+test("a terminal opened to look at (no step) is the boss's to end: no mark sequence and no Enter returns it", async () => {
 	const r = await shown();
 	r.z.terminal({ key: "a" });
 	await r.settle();
-	r.feed(net([unit("a", "working", { name: "ops-main" })]));
-	assert.ok(r.layer(), "the tool's result reaches the agent, which works on: the command still waits in the prompt");
-	r.feed(idle());
-	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 9 })]));
-	assert.ok(r.layer(), "idle, then something else: still waiting for Enter");
-	r.feed(idle());
-	r.calls.embeds[0]!.entered!(true);
-	r.feed(net([unit("a", "working", { name: "ops-main" })]));
+	for (const n of [net([unit("a", "working", { name: "ops-main" })]), idle(), net([unit("a", "waiting", { name: "ops-main", since: 9 })]), idle(), net([unit("a", "working", { name: "ops-main" })])]) r.feed(n);
+	r.calls.embeds[0]!.taken!();
 	await r.settle();
-	assert.deepEqual([r.layer(), r.calls.off, r.calls.leave], [undefined, ["a"], []], "Enter sent the command: pi works");
-	const other = await shown();
-	other.z.terminal({ key: "a" });
-	await other.settle();
-	other.feed(idle());
-	other.feed(net([unit("a", "idle", { name: "ops-main" }), unit("b", "working")]));
-	assert.ok(other.layer(), "another unit's work is no signal");
+	assert.ok(r.layer(), "the tool's result, an intercom, a wake, even the boss's own Enter: this terminal was not opened for a step");
 });
 
 test("a terminal opened for a unit that waits at once (a blocked prompt) returns at its first working: `armed` says the wait is the terminal step", async () => {
@@ -283,6 +295,8 @@ test("an Open terminal button (a unit blocked on a terminal prompt, a dialog sho
 	ro.root.all((el) => el.tagName === "button" && el.textContent === m.zen_open_terminal())[0]!.click();
 	await ro.settle();
 	assert.deepEqual([ro.calls.leave, ro.calls.embeds.map((e) => e.key)], [[], ["a"]]);
+	ro.feed(net([unit("a", "working", { name: "ops-main" })]));
+	assert.equal(ro.layer(), undefined, "a read-only dialog's button is armed too: its unit waits on that dialog now, and its next work ends the step");
 });
 
 test("a terminal asked for while Zen is not shown is not drawn", async () => {
@@ -301,43 +315,6 @@ test("the layer's sheet is ink only: every rule is under the Zen view, takes its
 	}
 	assert.ok(rules.some((l) => /prefers-reduced-motion: reduce\)[^]*\.zen-term \{ animation: none/.test(l)), "reduced motion stills the layer's fade");
 	assert.ok(/\.zen-term \{[^}]*position: fixed; inset: 0/.test(css), "full screen");
-});
-
-test("ZT-F001: a session's terminal returns on work after idle only when this layer sent an Enter since the idle; an intercom, a report, or a tower's wake keeps it", async () => {
-	const r = await shown();
-	r.z.terminal({ key: "a" });
-	await r.settle();
-	r.feed(idle());
-	r.feed(net([unit("a", "working", { name: "ops-main" })]));
-	assert.ok(r.layer(), "woken by something else: the command still waits in the prompt");
-	r.feed(idle());
-	r.calls.embeds[0]!.entered!(true);
-	r.feed(idle());
-	r.feed(net([unit("a", "working", { name: "ops-main" })]));
-	await r.settle();
-	assert.equal(r.layer(), undefined, "Enter went from this layer, then pi works");
-});
-
-test("ZT-F001: an Enter that the server refused (or asked to confirm) does not arm the return, and an Enter from before the idle does not count", async () => {
-	const r = await shown();
-	r.z.terminal({ key: "a" });
-	await r.settle();
-	r.feed(idle());
-	r.calls.embeds[0]!.entered!(true);
-	r.calls.embeds[0]!.entered!(false);
-	r.feed(net([unit("a", "working", { name: "ops-main" })]));
-	assert.ok(r.layer(), "refused");
-	r.feed(idle());
-	r.calls.embeds[0]!.entered!(true);
-	r.feed(net([unit("a", "working", { name: "ops-main" })]));
-	assert.equal(r.layer(), undefined);
-	const old = await shown();
-	old.z.terminal({ key: "a" });
-	await old.settle();
-	old.calls.embeds[0]!.entered!(true);
-	old.feed(idle());
-	old.feed(net([unit("a", "working", { name: "ops-main" })]));
-	assert.ok(old.layer(), "the Enter came before the unit idled: it was not that one");
 });
 
 test("ZT-F002: Esc is the terminal's only while its pad can take it (live or hidden); a dead terminal releases Esc, so Esc Esc returns", async () => {
@@ -391,4 +368,154 @@ test("ZT-F004: a standing or held tower's terminal shows the sentence, not an em
 	await r.settle();
 	assert.deepEqual(r.calls.off, ["a"], "the terminal is let go");
 	assert.ok(r.text().includes(termHold({ state: "standing" } as never)!));
+});
+
+const cardOf = (r: ReturnType<typeof rig>) => r.root.all((el) => (el.getAttribute("class") ?? "").split(" ").includes("tcard"))[0];
+const fullLink = (r: ReturnType<typeof rig>) => r.root.all((el) => (el.getAttribute("class") ?? "").split(" ").includes("tcard-full"))[0]!;
+const step = (o: Partial<StepOpen> = {}): StepOpen => ({ kind: "prompt", key: "a", asker: "a", command: "! ls", ...o });
+
+test("an accepted answer's step opens the terminal card in the layer: the card mode, the connection of the terminal without a full terminal, the unit that asked named, and nothing leaves Zen", async () => {
+	const r = await shown();
+	r.z.step(step());
+	await r.settle();
+	assert.equal(r.layer()!.getAttribute("data-mode"), "card");
+	assert.ok(cardOf(r), "the card is in the layer");
+	assert.ok(r.layer()!.contains(cardOf(r)), "inside the layer's host");
+	assert.deepEqual([r.calls.embeds, r.calls.watches.map((x) => [x.key, x.name]), r.calls.leave], [[], [["a", "ops-main"]], []], "no full terminal, one connection, Standard never visited");
+	assert.equal(r.stage().getAttribute("inert"), "", "what is under takes no focus");
+	assert.ok(r.root.dump().includes("! ls"), "the command the dialog put there");
+	assert.equal(r.root.dump().includes(m.card_full()), true, "and the way to the full terminal");
+});
+
+test("a pane's step is named for the unit that asked, not 'Herdr pane', and a newer step replaces the card and lets go of the old connection", async () => {
+	const r = await shown();
+	r.z.step(step({ kind: "pane", key: "grant:g1", command: "sudo apt update" }));
+	await r.settle();
+	assert.deepEqual(r.calls.watches.map((x) => [x.key, x.name]), [["grant:g1", "ops-main"]]);
+	assert.equal(r.root.dump().includes(m.pane_name()), false);
+	r.z.step(step({ kind: "pane", key: "grant:g2" }));
+	await r.settle();
+	assert.deepEqual([r.calls.stops, r.calls.watches.map((x) => x.key), r.root.all((e) => (e.getAttribute("class") ?? "").includes("zen-term")).filter((e) => e.tagName === "section").length], [["grant:g1"], ["grant:g1", "grant:g2"], 1], "one layer, the old connection let go");
+});
+
+test("a prompt's card ends when its own Enter is taken and by no mark sequence; its mirror ending stays and says why; a pane's ends when the pane is gone", async () => {
+	const r = await shown();
+	r.z.step(step());
+	await r.settle();
+	for (const n of [net([unit("a", "working", { name: "ops-main" })]), idle(), net([unit("a", "waiting", { name: "ops-main", since: 9 })]), idle(), net([unit("a", "working", { name: "ops-main" })])]) r.feed(n);
+	assert.ok(r.layer(), "the demo's working session: no mark sequence returns a prompt's card");
+	r.calls.watches[0]!.w.end();
+	assert.ok(r.layer(), "the session left its pane: the boss reads why");
+	r.calls.watches[0]!.w.taken();
+	await r.settle();
+	assert.deepEqual([r.layer(), r.calls.stops, r.calls.leave], [undefined, ["a"], []], "its own Enter, taken");
+	const p = await shown();
+	p.z.step(step({ kind: "pane", key: "grant:g1" }));
+	await p.settle();
+	p.calls.watches[0]!.w.taken();
+	assert.ok(p.layer(), "an Enter taken does not end a pane's card: a password is followed by more prompts");
+	p.calls.watches[0]!.w.end();
+	await p.settle();
+	assert.deepEqual([p.layer(), p.calls.stops], [undefined, ["grant:g1"]], "the pane closed");
+});
+
+test("Esc in card mode is the layer's two-press, there being no terminal to keep it; Back to Zen returns", async () => {
+	const r = await shown();
+	r.z.step(step());
+	await r.settle();
+	let pressed = 0;
+	for (const on of cardOf(r)!.handlers.keydown ?? []) on({ key: "Escape", isComposing: false, preventDefault: () => void pressed++ });
+	assert.deepEqual([pressed, Boolean(r.layer())], [0, true], "the card itself takes no Esc: the layer owns it");
+	assert.deepEqual(r.esc(), { took: true, prevented: 1 });
+	assert.ok(r.text().includes(m.zen_term_esc_hint()));
+	await r.advance(200);
+	r.esc();
+	await r.settle();
+	assert.deepEqual([r.layer(), r.calls.stops], [undefined, ["a"]]);
+	const b = await shown();
+	b.z.step(step());
+	await b.settle();
+	b.back()!.click();
+	assert.deepEqual([b.layer(), b.calls.stops], [undefined, ["a"]]);
+});
+
+test("the card's Full terminal link turns the layer to full mode in place: the full terminal joins the card's connection (one attach, no detach), and the step's rule goes with it", async () => {
+	const r = await shown();
+	r.z.step(step());
+	await r.settle();
+	fullLink(r).click();
+	await r.settle();
+	assert.equal(r.layer()!.getAttribute("data-mode"), "full");
+	assert.deepEqual([r.calls.embeds.map((e) => [e.key, e.keys]), r.calls.attaches, r.calls.detaches, r.calls.stops, cardOf(r)], [[["a", true]], ["a"], [], ["a"], undefined], "one attach for the card and the full terminal; the card let go only after the terminal joined");
+	r.feed(net([unit("a", "working", { name: "ops-main" })]));
+	r.feed(idle());
+	assert.ok(r.layer(), "no mark returns a prompt's full terminal either");
+	r.calls.embeds[0]!.end!();
+	assert.ok(r.layer(), "nor does the session's mirror ending");
+	r.calls.embeds[0]!.taken!();
+	await r.settle();
+	assert.deepEqual([r.layer(), r.calls.off], [undefined, ["a"]], "an Enter from the pad or sink, taken");
+	const p = await shown();
+	p.z.step(step({ kind: "pane", key: "grant:g1" }));
+	await p.settle();
+	fullLink(p).click();
+	await p.settle();
+	p.calls.embeds[0]!.taken!();
+	assert.ok(p.layer(), "a pane's full terminal is not over by an Enter");
+	p.calls.embeds[0]!.end!();
+	assert.equal(p.layer(), undefined, "the pane is gone");
+	assert.deepEqual([p.calls.attaches, p.calls.detaches], [["grant:g1"], ["grant:g1"]]);
+});
+
+test("an Open the terminal button's full terminal is armed: the unit's first work ends it, and the card's own kind is not changed by it", async () => {
+	const r = await shown(net([unit("a", "waiting", { name: "ops-main", since: 5 })]));
+	r.z.terminal({ key: "a", armed: true });
+	await r.settle();
+	assert.equal(r.layer()!.getAttribute("data-mode"), "full");
+	assert.deepEqual([r.calls.watches, r.calls.embeds.length], [[], 1], "straight to the full terminal, with no card");
+	r.feed(idle());
+	assert.ok(r.layer());
+	r.feed(net([unit("a", "working", { name: "ops-main" })]));
+	assert.equal(r.layer(), undefined);
+});
+
+test("a held tower's card shows the sentence and attaches nothing until a run is live, and stands by again with the sentence", async () => {
+	const tower = (mark: Mark, service: object): Net => { const n = net([]); n.bases[0]!.tower = { name: "tower", mark, key: "a", control: true, subs: [], service } as never; return n; };
+	const standing = () => tower("idle", { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [] });
+	const running = () => tower("working", { state: "running", queued: 0, allyRuns: [], notices: [], parked: [], run: { id: "r1", kind: "local", startedAt: "" } });
+	const r = await shown(standing());
+	r.z.step(step());
+	await r.settle();
+	const watched = () => r.calls.watches.map((x) => x.key);
+	assert.deepEqual(watched(), [], "nothing to attach to");
+	assert.ok(r.text().includes(termHold({ state: "standing" } as never)!));
+	r.feed(running());
+	await r.settle();
+	assert.deepEqual(watched(), ["a"], "the run is live: the connection");
+	assert.equal(r.text().includes(termHold({ state: "standing" } as never)!), false);
+});
+
+test("a step asked for while Zen is not shown is not drawn", async () => {
+	const r = rig();
+	r.z.step(step());
+	await r.settle();
+	assert.deepEqual([r.layer(), r.calls.watches.length], [undefined, 0]);
+});
+
+test("on a phone the focus moves into the layer for a card too (Back to Zen); on a desktop the card takes it", async () => {
+	const g = globalThis as { matchMedia?: unknown }, was = g.matchMedia;
+	try {
+		g.matchMedia = () => ({ matches: false });
+		const phone = await shown();
+		phone.z.step(step({ kind: "pane", key: "grant:g1" }));
+		await phone.settle();
+		assert.equal(page.activeElement, phone.back());
+		g.matchMedia = () => ({ matches: true });
+		const desk = await shown();
+		desk.z.step(step({ kind: "pane", key: "grant:g1" }));
+		await desk.settle();
+		assert.ok(cardOf(desk)!.contains(page.activeElement), "the card's line");
+	} finally {
+		g.matchMedia = was;
+	}
 });

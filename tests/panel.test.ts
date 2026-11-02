@@ -95,7 +95,7 @@ class El {
 const page = { addEventListener: (type: string, on: (e: { target: unknown }) => void) => (page.on[type] = on), on: {} as Record<string, (e: { target: unknown }) => void>, body: new El("body"), focused: undefined as El | undefined, createElement: (tag: string) => new El(tag), get activeElement() { return page.focused && page.body.contains(page.focused) ? page.focused : page.body; } };
 Object.assign(globalThis, { document: page });
 const { mountAsk } = await import("../gui/ask.ts");
-const { onPane, openThen } = await import("../gui/terminalthen.ts");
+const { onStep, openThen } = await import("../gui/terminalthen.ts");
 
 const SELECT = { title: "MCP: scratch wants to run echo", choices: [{ label: "Allow once" }, { label: "Allow for session", note: "This exact call" }, { label: "Deny" }] };
 const QUESTIONS = [{ question: "Ship it tonight?", header: "Ship", multiple: false, options: [{ title: "Yes" }, { title: "No" }] }, { question: "Who hears about it?", header: "Notify", multiple: true, options: [{ title: "ops" }, { title: "billing" }, { title: "support" }] }];
@@ -311,7 +311,7 @@ test("a click on the page outside the panel keeps the focus where the user put i
 
 test("a read-only panel offers Show terminal (the session's mirror); a secret and an answerable dialog do not", () => {
 	let shown = 0;
-	const ask = mountAsk(root as unknown as HTMLElement, async () => ({ ok: true, status: 200, body: {} }), false, () => void shown++);
+	const ask = mountAsk(root as unknown as HTMLElement, async () => ({ ok: true, status: 200, body: {} }), false, { key: "S", show: () => void shown++ });
 	const button = () => root.all((el) => el.textContent === "Show terminal")[0];
 	ask.update({ callId: "c1", tool: "ask_user", why: "It waits on a dialog." }, true);
 	button()!.click();
@@ -661,12 +661,13 @@ test("the dismiss-all button counts the finished subagents the server would dism
 	for (const locale of locales) assert.match(m.dismiss_all({ count: 3 }, { locale }), /3/, locale);
 });
 
-test("an accepted answer that leaves a step in a terminal opens it (the one rule, terminalthen.ts): the view's own way for then.terminal, the page's pane tile for then.pane; a pane that could not be told apart says so; a refused, stale, or unconfirmed answer opens nothing", async () => {
-	const opened: (object | string)[] = [], note = (x: object | string) => void opened.push(x);
-	onPane((grant) => note({ pane: grant }));
-	const ask = mountAsk(root as unknown as HTMLElement, (action, body) => (sent.push({ action, body }), new Promise((resolve) => replies.push(resolve))), false, () => note({ terminal: true }));
-	const answerWith = async (dialog: string, body: Record<string, unknown>, status = 200) => {
-		ask.update(approval(dialog), true);
+test("an accepted answer that leaves a step in a terminal opens its card (the one rule, terminalthen.ts): a prompt's for then.terminal and a pane's for then.pane, each with the command the dialog put there and the unit that asked; a pane that could not be told apart says so; a refused, stale, or unconfirmed answer opens nothing", async () => {
+	const opened: unknown[] = [], note = (x: unknown) => void opened.push(x);
+	onStep((step) => note(step));
+	const ask = mountAsk(root as unknown as HTMLElement, (action, body) => (sent.push({ action, body }), new Promise((resolve) => replies.push(resolve))), false, { key: "k1", show: () => note("show") });
+	const answerWith = async (dialog: string, body: Record<string, unknown>, status = 200, copy?: string) => {
+		const p = approval(dialog);
+		ask.update(copy ? { ...p, answer: { ...p.answer!, select: { ...SELECT, copy } } } : p, true);
 		choices()[0]!.click();
 		button("Send answer")!.click();
 		await reply(body, status);
@@ -674,22 +675,28 @@ test("an accepted answer that leaves a step in a terminal opens it (the one rule
 	await answerWith("t1", { outcome: "accepted" });
 	assert.deepEqual(opened, [], "an answer with nothing left to do opens nothing");
 	await answerWith("t2", { outcome: "accepted", then: { terminal: true } });
-	assert.deepEqual(opened, [{ terminal: true }]);
+	assert.deepEqual(opened, [{ kind: "prompt", key: "k1", asker: "k1", command: undefined }]);
 	assert.equal(status(), "Answered.");
-	await answerWith("t3", { outcome: "accepted", then: { pane: "a".repeat(32) } });
-	assert.deepEqual(opened.at(-1), { pane: "a".repeat(32) });
+	await answerWith("t3", { outcome: "accepted", then: { pane: "a".repeat(32) } }, 200, "sudo apt update");
+	assert.deepEqual(opened.at(-1), { kind: "pane", key: `grant:${"a".repeat(32)}`, asker: "k1", command: "sudo apt update" }, "the dialog's command, the grant's key, the unit that asked");
+	await answerWith("t3b", { outcome: "accepted", then: { terminal: true } }, 200, "! ls -la");
+	assert.deepEqual(opened.at(-1), { kind: "prompt", key: "k1", asker: "k1", command: "! ls -la" });
+	const before = opened.length;
 	await answerWith("t4", { outcome: "accepted", then: { pane: null } });
-	assert.equal(opened.length, 2, "no pane to open");
+	assert.equal(opened.length, before, "no pane to open");
 	assert.match(String(status()), /^Answered\. .*pane/i, "and the panel says a pane opened, to find in Herdr");
 	await answerWith("t5", { outcome: "stale", by: "local", then: { terminal: true } });
 	await answerWith("t6", { outcome: "rejected", reason: "digest", then: { terminal: true } });
 	await answerWith("t7", { outcome: "unknown" }, 504);
 	await answerWith("t8", { error: "x", reason: "no" }, 409);
-	assert.equal(opened.length, 2, "only an accepted answer opens a terminal");
-	// Zen's blocked pane reaches the same call.
-	assert.equal(openThen({ terminal: true }, () => note("zen")), undefined);
-	assert.equal(opened.at(-1) as unknown, "zen");
-	onPane(undefined);
+	assert.equal(opened.length, before, "only an accepted answer opens a card");
+	// A caller with no panel of its own reaches the same call.
+	assert.equal(openThen({ terminal: true }, { key: "z" }), undefined);
+	assert.deepEqual(opened.at(-1), { kind: "prompt", key: "z", asker: "z", command: undefined });
+	assert.equal(openThen({ pane: "g".repeat(32) }, { key: "z" }), undefined);
+	assert.deepEqual(opened.at(-1), { kind: "pane", key: `grant:${"g".repeat(32)}`, asker: "z", command: undefined });
+	assert.ok(!opened.some((x) => x === "show"), "an accepted answer never opens the full terminal");
+	onStep(undefined);
 });
 
 test("an alert's dialog closes 1.2 s after its answer landed, and at once, told so, when the answer sent the user to a terminal (nothing queued then opens over it)", async () => {

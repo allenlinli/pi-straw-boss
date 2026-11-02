@@ -47,7 +47,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		post: (key: string) => (action: string, body: Record<string, unknown>) => (calls.posts.push({ key, action, body }), new Promise<Answer>((resolve) => replies.push(resolve))),
 		trust: (body: Record<string, unknown>) => (calls.trust.push(body), new Promise<Answer>((resolve) => replies.push(resolve))),
 		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => !o.offline,
-		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), embed: async (key: string) => (calls.embeds.push(key), () => {}), watch: (k: string | null) => void calls.watch.push(k),
+		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), terminals: async () => ({ embed: (key: string) => (calls.embeds.push(key), () => {}), watch: () => ({ conn: {}, stop() {} }), post: () => async () => ({ ok: true, status: 200, body: {} }), stream: () => "st" }), watch: (k: string | null) => void calls.watch.push(k),
 		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => o.stored,
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
@@ -186,6 +186,7 @@ test("a secret_drop is read-only on every page with no Open the terminal; any ot
 	assert.equal(r.button("Send answer"), undefined);
 	assert.equal(r.button("Show terminal"), undefined, "Zen words it Open the terminal");
 	r.button("Open the terminal")!.click();
+	await new Promise((done) => setImmediate(done)); // the page's terminals come behind their chunk
 	assert.deepEqual([r.calls.leave, r.calls.embeds], [[], ["a"]], "the terminal opens inside Zen: Standard is not visited");
 });
 
@@ -212,6 +213,7 @@ test("a unit that waits with no dialog has its last line, Not now, and Open the 
 	assert.equal(r.calls.composers.length, 0);
 	assert.ok(r.button("Maybe later"));
 	r.button("Open the terminal")!.click();
+	await new Promise((done) => setImmediate(done)); // the page's terminals come behind their chunk
 	assert.deepEqual([r.calls.leave, r.calls.embeds], [[], ["a"]]);
 });
 
@@ -681,6 +683,7 @@ test("a words-only item is a pane blocked on a terminal prompt: it says to answe
 	assert.equal(r.calls.composers.length, 0, "no box to type into: the server refuses input to a blocked pane");
 	assert.ok(r.text().includes("answer it in its terminal"));
 	r.button("Open the terminal")!.click();
+	await new Promise((done) => setImmediate(done)); // the page's terminals come behind their chunk
 	assert.deepEqual([r.calls.leave, r.calls.embeds], [[], ["a"]], "it opens in Zen's own terminal layer, never Standard");
 });
 

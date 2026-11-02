@@ -1,19 +1,20 @@
 import type { Net } from "../src/net.ts";
+import { type StepEvent, stepRule } from "./cardmodel.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { locate } from "./scene.ts";
+import type { StepOpen } from "./terminalthen.ts";
 import { termHold } from "./towerturns.ts";
 import { ESC_MS, termStep } from "./zenkeys.ts";
-import type { Term } from "./zentypes.ts";
+import { draw, type Layer, type Open } from "./zenhost.ts";
+import type { Term, TermKit } from "./zentypes.ts";
 
-// The terminal an answer (or a blocked prompt's button) opens, inside Zen (docs/specs/2026-11-01-zen-view.md, A terminal in Zen): one full-screen layer over the screen that was there, holding the page's own terminal
-// (mirror.ts `embed`: the mirror, the key pad, the keyboard sink; this file only gives it ink and a host). It ends by the button, by Esc Esc with the focus outside the terminal, or by itself: a pane's mirror ended (the pane
-// closed or its grant ended, or its attach was refused as gone), or the session started working after it idled when this layer had sent the Enter (the command waiting in its prompt was submitted here; a wake by an
-// intercom, a report, or a tower is not that). Zen's own screen is never redrawn for it, so coming back shows what it showed.
+// The terminal step inside Zen (docs/specs/2026-11-01-zen-view.md, A terminal in Zen; 2026-11-02-terminal-card.md): one layer over the screen that was there, holding the terminal card an accepted answer leaves or the full terminal (zenhost.ts); this file gives
+// them ink and a host. It ends by the button, by Esc Esc with the focus outside the terminal, or by its step's rule (cardmodel.ts `stepRule`): a prompt's own Enter taken, a pane gone, an armed terminal's unit at work; a mark alone never ends a prompt's.
 
 export interface ZenTermDeps {
-	/** The page's terminal embedded in `host` (the Terminals `embed`, behind the overlay chunk); the promise gives what takes it away. */
-	embed(key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void; entered?: (sent: boolean) => void }): Promise<() => void>;
+	/** The page's terminals, behind the overlay chunk (fetched on the first call). */
+	terminals(): Promise<TermKit>;
 	now(): number;
 	later(fn: () => void, ms: number): () => void;
 	/** What lies under the layer takes no focus and no tab while it is on. */
@@ -21,7 +22,6 @@ export interface ZenTermDeps {
 	/** The layer went away by the button, Esc Esc, or its own end: Zen has the page again. */
 	closed(): void;
 }
-interface Open { name: string; key: string; armed: boolean; /** The unit idled since the layer opened (or since its work last ended). */ idled: boolean; /** This layer sent an Enter since then. */ entered: boolean; /** The unit's mark in the last snapshot. */ mark?: string; /** The sentence that stands for a tower with no run live; none while the terminal is embedded. */ held?: string; layer: HTMLElement; host: HTMLElement; hint: HTMLElement; back: HTMLElement; off?: () => void; shown: number }
 const isPane = (key: string) => key.startsWith("grant:");
 
 export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
@@ -43,48 +43,48 @@ export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
 		deps.inert(false);
 		deps.closed();
 	}
-	/** The terminal in the host, or the sentence that stands for a tower with no run live; a new `shown` makes an embed still on its way let go on arrival. */
-	function show(c: Open, net: Net | undefined) {
-		const held = isPane(c.key) ? undefined : termHold(locate(net, c.key)?.u.service);
-		if (c.shown && c.held === held) return;
-		const mine = ++c.shown;
-		c.held = held;
-		c.off?.();
-		c.off = undefined;
-		if (held) return c.host.replaceChildren(h("p", { class: "term-hold", role: "status" }, held));
-		c.host.replaceChildren();
-		const end = isPane(c.key) ? { end: () => c === cur && close() } : {};
-		void deps.embed(c.key, c.name, c.host, { keys: true, ...end, entered: (sent) => void (c.entered = sent) }).then((off) => (c === cur && mine === c.shown ? (c.off = off) : off()));
+	/** What the host's content asks of the layer. A step's rule (cardmodel.ts) ends the layer when the step is over. */
+	const on: Layer = { live: (c) => c === cur, close, step: (c: Open, e: StepEvent) => void (c === cur && c.kind !== "plain" && stepRule(c.kind, e) === "close" && close()) };
+	/** A snapshot reached the layer: the unit's name, a tower's held sentence, and an armed terminal's first work. */
+	function follow(net: Net | undefined) {
+		const c = cur;
+		if (!c) return;
+		const hit = locate(net, c.asker ?? c.key);
+		c.name = c.asker && hit ? hit.u.name : c.name;
+		c.held = isPane(c.key) ? undefined : termHold(locate(net, c.key)?.u.service);
+		draw(c, on);
+		const mark = locate(net, c.key)?.u.mark;
+		if (c.kind === "armed" && mark && !isPane(c.key)) on.step(c, { type: "mark", mark });
 	}
-	/** The unit the session's terminal is for has idled (its command waits in the prompt) or works again: work after an idle ends the step when this layer sent the Enter in between (an armed terminal: at its first work). */
-	const watch = (net: Net | undefined) => {
-		if (!cur) return;
-		show(cur, net);
-		if (isPane(cur.key)) return;
-		const mark = locate(net, cur.key)?.u.mark, was = cur.mark;
-		cur.mark = mark;
-		if (mark === "idle" || mark === "done") {
-			if (was !== "idle" && was !== "done") [cur.idled, cur.entered] = [true, false]; // an Enter before this idle was another command's
-		} else if (mark === "working" && (cur.armed || (cur.idled && cur.entered))) close();
+	function mount(c: Open, net: Net | undefined) {
+		drop();
+		c.back.onclick = close;
+		cur = c;
+		root.append(c.layer);
+		deps.inert(true);
+		void deps.terminals().then((k) => c === cur && ((c.kit = k), follow(net)));
+		if (!globalThis.matchMedia?.("(pointer: fine)").matches) c.back.focus(); // a phone's keyboard comes with the terminal's own button: the focus goes into the layer now, where the card's button it came from has gone inert
+	}
+	const fresh = (key: string, name: string, kind: Open["kind"], mode: Open["mode"], extra: Partial<Open> = {}): Open => {
+		const back = h("button", { type: "button", class: "zen-term-back" }, m.zen_back_title()), host = h("div", { class: "zen-term-host" }), hint = h("p", { class: "zen-term-esc", role: "status", "aria-live": "polite" });
+		const layer = h("section", { class: "zen-term", "data-mode": mode, "aria-label": m.terminal_title({ name }) }, h("header", { class: "zen-term-bar" }, h("h2", { class: "zen-who" }, name), back), host, hint);
+		return { name, key, kind, mode, layer, host, hint, back, ...extra };
 	};
 	return {
 		isOpen: () => cur !== undefined,
-		/** Shows the terminal of `t.key` (a session's, or a pane an answer opened: `grant:<id>`), or brings the one on show forward. `armed`: the unit waits on this terminal now, so its next work ends the step. */
-		open(t: Term, net: Net | undefined) {
-			if (cur?.key === t.key) return;
-			drop();
-			const pane = isPane(t.key), name = pane ? m.pane_name() : (locate(net, t.key)?.u.name ?? t.key);
-			const back = h("button", { type: "button", class: "zen-term-back" }, m.zen_back_title()), host = h("div", { class: "zen-term-host" }), hint = h("p", { class: "zen-term-esc", role: "status", "aria-live": "polite" });
-			back.onclick = close;
-			const layer = h("section", { class: "zen-term", "aria-label": m.terminal_title({ name }) }, h("header", { class: "zen-term-bar" }, h("h2", { class: "zen-who" }, name), back), host, hint);
-			cur = { name, key: t.key, armed: Boolean(t.armed), idled: false, entered: false, layer, host, hint, back, shown: 0 };
-			root.append(layer);
-			deps.inert(true);
-			watch(net);
-			if (!globalThis.matchMedia?.("(pointer: fine)").matches) back.focus(); // a phone's keyboard comes with the terminal's own button: the focus goes into the layer now, where the card's button it came from has gone inert
+		/** The terminal card of a step an accepted answer left (a prompt's or a pane's), replacing the layer on show. */
+		step(s: StepOpen, net: Net | undefined) {
+			const name = locate(net, s.asker)?.u.name ?? s.asker;
+			mount(fresh(s.key, name, s.kind, "card", { command: s.command, asker: s.asker }), net);
 		},
-		/** A snapshot: a session's terminal ends when the unit starts working after it was idle. */
-		follow: watch,
+		/** The full terminal of `t.key` (a session's, or a pane an answer opened: `grant:<id>`), or the one on show brought forward. `armed`: the unit waits on this terminal now, so its next work ends the step. */
+		terminal(t: Term, net: Net | undefined) {
+			if (cur?.key === t.key && cur.mode === "full") return;
+			const pane = isPane(t.key);
+			mount(fresh(t.key, pane ? m.pane_name() : (locate(net, t.key)?.u.name ?? t.key), t.armed ? "armed" : pane ? "pane" : "plain", "full"), net);
+		},
+		/** A snapshot: the name, a tower's held sentence, and an armed terminal's first work. */
+		follow,
 		close,
 		/**
 		 * Escape while the layer is on: the terminal's own while its keyboard sink has the focus and its pad can take the key (false: not taken, not prevented, so pi and vim get it), else Zen's two-press return. Shift+Esc in the sink (mirror.ts) lets the sink go. True when the key was the layer's.

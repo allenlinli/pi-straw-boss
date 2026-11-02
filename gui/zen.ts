@@ -9,6 +9,7 @@ import { m } from "./paraglide/messages.js";
 import { type Answer, post } from "./post.ts";
 import { liveNote, roleName } from "./render.ts";
 import { closed, locate } from "./scene.ts";
+import type { StepOpen } from "./terminalthen.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 import type { Exit, Mounts, Term, ZenDeps } from "./zentypes.ts";
 import { domFs, mountFullscreen } from "./zenfs.ts";
@@ -49,8 +50,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const corner = h("div", { class: "zen-corner" }, fs.button, menu.el);
 	root.replaceChildren(h("div", { class: "zen-drift", "aria-hidden": "true" }, h("i", null), h("i", null)), ripples.el, corner, ...(fs.hint ? [fs.hint] : []), live, esc, stage);
 	// The terminal layer (zenterm.ts) lies over all of it: what is under takes no focus while it is on, and the item's card gets it back on return.
-	const term = mountZenTerm(root, { embed: deps.embed, now, later, inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)), closed: () => active && shown.kind === "item" && idle() && card && (card.enter() || card.el.focus()) });
-	const openTerm = (key: string, armed?: boolean) => term.open({ key, armed }, net);
+	const term = mountZenTerm(root, { terminals: deps.terminals, now, later, inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)), closed: () => active && shown.kind === "item" && idle() && card && (card.enter() || card.el.focus()) });
+	const openTerm = (key: string, armed?: boolean) => term.terminal({ key, armed }, net);
 	const circle = (words?: string) => h("div", { class: "zen-circle", ...(words ? { role: "img", "aria-label": words } : { "aria-hidden": "true" }) }, h("i", null), h("i", null), h("i", null)); // the ink washes inside the ring
 	const stopLine = () => (line?.stop(), (line = undefined));
 	/** Ink dissolving: the card that was on the page stays a moment longer, fading and blurring out, while the next thing begins. */
@@ -98,7 +99,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		};
 		const dialog = () => {
 			slot.replaceChildren((hold = h("div", { class: "zen-ask" })));
-			return mounts.ask(hold, answer, deps.remote, () => openTerm(key), undefined, m.zen_open_terminal);
+			return mounts.ask(hold, answer, deps.remote, { key, show: () => openTerm(key, true) }, undefined, m.zen_open_terminal); // the unit waits on this dialog now: its next work ends the step
 		};
 		return {
 			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
@@ -268,7 +269,9 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		},
 		leave,
 		/** A terminal in Zen's own layer (zenterm.ts): a session's, or a pane an answer opened. */
-		terminal: (t: Term) => void (active && term.open(t, net)),
+		terminal: (t: Term) => void (active && term.terminal(t, net)),
+		/** A step an accepted answer left: the layer's terminal card (zenterm.ts). */
+		step: (s: StepOpen) => void (active && term.step(s, net)),
 		companion: () => (company ? { key: company.key, ws: company.ws } : undefined),
 	};
 }

@@ -40,7 +40,7 @@ const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 function pad(state: "live" | "hidden" | "off" = "live") {
 	const heard: string[] = [], posts: Record<string, unknown>[] = [], replies: ((r: { ok: boolean; status: number; body: Record<string, unknown> }) => void)[] = [];
 	const s = { state };
-	const p = mod.keypad({ name: "billing", state: () => s.state, stream: () => "st", entered: (sent) => void heard.push(`entered:${sent}`), taken: () => void heard.push("taken"), post: (action, body) => (assert.equal(action, "keys"), posts.push(body), new Promise((resolve) => replies.push(resolve))) });
+	const p = mod.keypad({ name: "billing", state: () => s.state, stream: () => "st", taken: () => void heard.push("taken"), post: (action, body) => (assert.equal(action, "keys"), posts.push(body), new Promise((resolve) => replies.push(resolve))) });
 	const el = p.el as unknown as El;
 	const key = (k: string) => el.all().find((b) => b.dataset.key === k)!;
 	const reply = async (status: number, body: Record<string, unknown> = {}) => (replies.shift()!({ ok: status < 300, status, body }), await tick());
@@ -160,19 +160,19 @@ test("a mirror hidden for a secret leaves only Escape; a stale, ended, or paused
 test("taken fires once for an Enter the server took, directly or after the confirm, and never while it is on its way, refused, or for another key", async () => {
 	const { press, reply, heard } = pad();
 	press("enter");
-	assert.deepEqual(heard, ["entered:true"], "going is not taken");
+	assert.deepEqual(heard, [], "going is not taken");
 	await reply(200, { accepted: true });
-	assert.deepEqual(heard, ["entered:true", "taken"]);
+	assert.deepEqual(heard, ["taken"]);
 	heard.length = 0;
 	await gap();
 	press("enter");
 	await reply(409, { error: "confirm", confirm: "command", reason: "x" });
-	assert.deepEqual(heard, ["entered:true", "entered:false"], "a confirm is not taken");
+	assert.deepEqual(heard, [], "a confirm is not taken");
 	heard.length = 0;
 	await gap();
 	press("enter");
 	await reply(409, { error: "no_mirror", reason: "x" });
-	assert.deepEqual(heard, ["entered:true", "entered:false"], "a refusal is not taken");
+	assert.deepEqual(heard, [], "a refusal is not taken");
 	heard.length = 0;
 	await gap();
 	press("up");
@@ -184,9 +184,8 @@ test("an Enter confirmed through the pad's inline button is taken when the serve
 	const { press, reply, heard, el } = pad();
 	press("enter");
 	await reply(409, { error: "confirm", confirm: "command", reason: "x" });
-	heard.length = 0;
 	el.all().find((x) => x.attrs.get("class") === "pad-yes")!.onclick!({ isTrusted: true });
-	assert.deepEqual(heard, ["entered:true"]);
+	assert.deepEqual(heard, [], "the confirmed Enter is on its way");
 	await reply(200, { accepted: true });
-	assert.deepEqual(heard, ["entered:true", "taken"]);
+	assert.deepEqual(heard, ["taken"]);
 });

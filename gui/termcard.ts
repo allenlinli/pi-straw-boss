@@ -23,11 +23,13 @@ export interface CardDeps {
 	over(why: "taken" | "gone" | "closed" | "full"): void;
 	/** Esc inside the card closes it (Standard); Zen's layer owns Esc. */
 	escape?: boolean;
+	/** A × in the header (Standard); Zen's layer has its own way back. */
+	close?: boolean;
 }
 const OK: CardState[] = ["live", "secret", "running", "refused"], WORDS: Partial<Record<CardState, () => string>> = { connecting: m.connecting, secret: m.card_secret, sending: m.card_sending, stale: m.card_stale, paused: m.paused_hidden, hidden: m.mirror_hidden };
 let ids = 0;
 
-export function termCard({ step, watch, post, stream, held, over, escape = true }: CardDeps) {
+export function termCard({ step, watch, post, stream, held, over, escape = true, close = true }: CardDeps) {
 	const pane = step.kind === "pane", id = `tcard-${++ids}`, fine = () => Boolean(globalThis.matchMedia?.("(pointer: fine)").matches);
 	let name = step.name, mask = NO_MASK, ended = false, refusal = "", confirm: { token: string; said: string } | undefined, sent = false, after: string[] | undefined, kept = "", shown = "";
 	const title = h("h2", { id, tabindex: "-1" }), command = h("pre", { class: "tcard-cmd" }, step.command), cmdOut = h("div", { class: "tcard-cmdbox" }, command);
@@ -36,7 +38,7 @@ export function termCard({ step, watch, post, stream, held, over, escape = true 
 	const label = h("label", { class: "tcard-label", for: `${id}-in` }, m.card_input()), maskBtn = h("button", { type: "button", class: "tcard-mask", "aria-pressed": "false" }, m.card_mask());
 	const go = h("button", { type: "button", class: "tcard-go" }), status = h("p", { class: "tcard-status pad-note", role: "status" });
 	const full = h("button", { type: "button", class: "cmp-link tcard-full" }, m.card_full()), x = h("button", { type: "button", class: "x tcard-x", "aria-label": m.close() }, "×");
-	const el = h("section", { class: "tcard", role: "dialog", "aria-modal": "false", "aria-labelledby": id, tabindex: "-1", "data-kind": step.kind }, h("header", { class: "tcard-head" }, title, x), step.command ? cmdOut : null, pane ? tailEl : wait, pane ? h("div", { class: "tcard-row" }, label, input, maskBtn, go) : h("div", { class: "tcard-row" }, go), status, full);
+	const el = h("section", { class: "tcard", role: "dialog", "aria-modal": "false", "aria-labelledby": id, tabindex: "-1", "data-kind": step.kind }, h("header", { class: "tcard-head" }, title, close && x), step.command ? cmdOut : null, pane ? tailEl : wait, pane ? h("div", { class: "tcard-row" }, label, input, maskBtn, go) : h("div", { class: "tcard-row" }, go), status, full);
 	const isEnter = (w: Write) => "key" in w && w.key === "enter";
 	const writer = keywriter({
 		post,
@@ -51,7 +53,12 @@ export function termCard({ step, watch, post, stream, held, over, escape = true 
 		ask: (_, said, token) => ((confirm = { token, said }), draw()),
 		error: (text) => ((refusal = text), draw()),
 	});
-	const { conn, stop } = watch({ rows: () => draw(), state: () => draw(), end: () => (stepRule(step.kind, { type: "end" }) === "close" ? over("gone") : ((ended = true), draw())), taken: () => onTaken() });
+	// The connection is made when the terminal can be had: at once, and for a tower with no run live when it has one.
+	let conn: Conn = { key: step.key, post, rows: [], cols: 0, seen: 0, phase: "connecting", why: "", hidden: false, ended: false, parked: false, watchers: new Set(), state: () => "off", stale: () => false }, link: ReturnType<typeof watch> | undefined;
+	function attach() {
+		link = watch({ rows: () => draw(), state: () => draw(), end: () => (stepRule(step.kind, { type: "end" }) === "close" ? over("gone") : ((ended = true), draw())), taken: () => onTaken() });
+		conn = link.conn;
+	}
 	function onTaken() {
 		kept = "";
 		if (stepRule(step.kind, { type: "taken" }) === "close") return over("taken");
@@ -71,6 +78,7 @@ export function termCard({ step, watch, post, stream, held, over, escape = true 
 		not.focus(); // never the confirm: a second Enter, or a held one, on the key that asked must not confirm it
 	}
 	function draw() {
+		if (!link && !held()) attach();
 		const s = state(), secret = pane && conn.phase === "live" && secretPrompt(conn.rows);
 		const next = pane ? maskStep(mask, { secret, empty: input.value === "" }) : mask;
 		if (next.on && !mask.on && !next.hand && fine()) input.focus();
@@ -115,7 +123,7 @@ export function termCard({ step, watch, post, stream, held, over, escape = true 
 			draw();
 		},
 		focus,
-		stop,
+		stop: () => link?.stop(),
 		state,
 	};
 }

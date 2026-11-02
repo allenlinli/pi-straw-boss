@@ -22,11 +22,12 @@ import { hang, mountPage } from "./render.ts";
 import { settingsAllowed } from "./desk.ts";
 import { createRouter, depthOf, netOf, parseRoute, type Route, type Section } from "./router.ts";
 import { CONNECTING, createStream, type Source, type Status } from "./stream.ts";
-import { onPane } from "./terminalthen.ts";
+import { onStep } from "./terminalthen.ts";
 import { mountTimeline } from "./timeline.ts";
 import type { mountFocus } from "./views.ts";
 import { iconHref, plainOf } from "./tabicon.ts";
 import type { mountZen } from "./zen.ts";
+import type { TermKit } from "./zentypes.ts";
 
 // The view goes first, before anything is drawn: `data-view` on <html> picks the palette, so no frame is painted in the other one (view.ts).
 // The demo's `?zen=<state>` opens it in Zen for this page only (fixture.ts): the stored choice is not written.
@@ -59,7 +60,9 @@ function loadFocus() {
 }
 
 /** The page's terminal embedded in a host: the session view's terminal mode and the Zen terminal layer (the overlay chunk holds the terminals). */
-const embed = (key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void; entered?: (sent: boolean) => void }) => new Promise<() => void>((done) => withPanels((p) => done(p.terminal.embed(key, name, host, o))));
+const embed = (key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void }) => new Promise<() => void>((done) => withPanels((p) => done(p.terminal.embed(key, name, host, o))));
+/** The page's terminals for Zen's layer (the card and the full terminal). */
+const terminals = () => new Promise<TermKit>((done) => withPanels((p) => done(p.kit)));
 /** A base's name, for the dialogs and Zen's cards. */
 const label = (ws: string) => core.latest?.bases.find((b) => b.id === ws)?.label ?? ws;
 // The overlay layer (the alert queue, dialogs, and tiles) is a chunk of its own too, fetched on the first alert or tile.
@@ -87,7 +90,7 @@ const withZen = (call: (z: Zen) => void) => {
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
 		remind: (a) => notify.remind(a), sound: () => {}, // the effects are the next step's (Z5)
 		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: notify.sound }, // the corner menu's rows act through the settings page's own switches
-		leave: core.leaveZen, embed, watch: core.watchLog,
+		leave: core.leaveZen, terminals, watch: core.watchLog,
 	})));
 	void zenLoading.then(call);
 };
@@ -123,7 +126,7 @@ function draw(net: Net, fresh: Alert[], now: Map<string, Alert>) {
 	showStashed(el("stashed"), el("stashed-list"), net);
 	moreActs();
 	drawer?.net(net);
-	if (fresh.length || panels) withPanels((p) => p.alerts(fresh, now));
+	if (fresh.length || panels) withPanels((p) => p.alerts(fresh, now, net));
 	timeline.net(net);
 	withFocus((f) => f.net(net));
 }
@@ -153,7 +156,7 @@ const core = createPage({
 	icon, link: (link) => linkBar.net(link), signal: (fresh) => notify.signal(fresh), draw, map: page.show, navigate, layout: () => requestAnimationFrame(page.layout),
 	panels: () => panels, withPanels, withFocus, go: (route) => router.go(route), modal, chime: () => notify.chime(),
 });
-onPane(core.openPane); // a pane an answer opened (terminalthen.ts)
+onStep(core.openStep); // the step an accepted answer left (terminalthen.ts)
 const linkBar = mountLinkBar(() => openSection("teams"), core.news);
 const notify = mountNotify(core.notified);
 

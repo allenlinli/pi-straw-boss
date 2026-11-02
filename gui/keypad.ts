@@ -1,6 +1,6 @@
 import { confirmReason } from "./confirmwords.ts";
 import { h } from "./dom.ts";
-import { keywriter, type Write } from "./keywriter.ts";
+import { keywriter } from "./keywriter.ts";
 import type { Post, TermState } from "./mirror.ts";
 import { m } from "./paraglide/messages.js";
 
@@ -11,8 +11,7 @@ import { m } from "./paraglide/messages.js";
 // On a desktop the keyboard also goes straight to the pane while the terminal has focus (mirror.ts feeds `type`, `text`, and `paste`): the
 // pad's keys, Delete, and Ctrl or Alt chords by their key (⌘ stays the browser's, and so do copy and paste off a Mac), characters as typed
 // text from an input event (so an input method and dead keys work), and a paste as one paste. The writes (one at a time, spaced, a refusal or a confirm dropping
-// what was still queued) are keywriter.ts. `blip` runs for each thing the keyboard handed the pane, so the terminal can light up; `entered` hears each Enter as it goes (true) and when it did not run (false);
-// `taken` hears each Enter the server took (200, directly or after the confirm).
+// what was still queued) are keywriter.ts. `blip` runs for each thing the keyboard handed the pane, so the terminal can light up; `taken` hears each Enter the server took (200, directly or after the confirm).
 
 const ROWS: [string, string, () => string][][] = [
 	[["esc", "esc", m.key_escape], ["tab", "tab", m.key_tab], ["up", "↑", m.key_up], ["enter", "enter", m.key_enter]],
@@ -27,10 +26,9 @@ const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator
 const spoken = (key: string) => key.split("+").map((part) => (part.length === 1 ? part.toUpperCase() : part[0]!.toUpperCase() + part.slice(1))).join("+");
 
 /** The pad of one terminal tile; `update` follows the mirror's state. */
-export function keypad({ name, state, post, stream, blip, entered, taken }: { name: string; state(): TermState; post: Post; stream(): string; blip?(): void; entered?(sent: boolean): void; taken?(): void }) {
+export function keypad({ name, state, post, stream, blip, taken }: { name: string; state(): TermState; post: Post; stream(): string; blip?(): void; taken?(): void }) {
 	const buttons: HTMLButtonElement[] = [], note = h("p", { class: "pad-note", role: "status" });
-	const isEnter = (w: Write) => "key" in w && w.key === "enter"; // the owner hears of an Enter as it goes, and again if it did not run (a confirm, a refusal)
-	const writer = keywriter({ post, stream, busy: () => update(), clear: () => say(""), ask: (w, reason, token) => ask(w.key, reason, token), error: (text) => say(text, "error"), sent: (w) => isEnter(w) && entered?.(true), failed: (w) => isEnter(w) && entered?.(false), taken: (w) => isEnter(w) && taken?.() });
+	const writer = keywriter({ post, stream, busy: () => update(), clear: () => say(""), ask: (w, reason, token) => ask(w.key, reason, token), error: (text) => say(text, "error"), taken: (w) => "key" in w && w.key === "enter" && taken?.() });
 	const button = ([key, label, spoken]: [string, string, () => string]) => {
 		const b = h("button", { type: "button", class: "pad-key", "data-key": key, "aria-label": spoken() }, label);
 		b.onclick = (e) => e.isTrusted && writer.push({ key }); // a key pressed while one is on its way waits its turn

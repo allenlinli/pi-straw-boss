@@ -1,78 +1,13 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { createKeys } from "../src/keys.ts";
+import { El, page } from "./card-dom.ts";
 import en from "../gui/messages/en.json" with { type: "json" };
 import zh from "../gui/messages/zh-TW.json" with { type: "json" };
 
 // The terminal card (gui/termcard.ts) as the page drives it, on a fake DOM: each state drawn as its words and buttons, a prompt's card (執行, the server's confirm), a pane's (one line, the mask, Send Enter), the
 // ways it closes, and every body it posts checked by the server's own `check`. The rules it asks of cardmodel.ts are tested there; here they are seen working through the DOM.
 
-class El {
-	attrs = new Map<string, string>();
-	kids: (El | string)[] = [];
-	parent: El | undefined;
-	dataset: Record<string, string> = {};
-	handlers: Record<string, ((e: Record<string, unknown>) => void)[]> = {};
-	onclick: ((e: { isTrusted: boolean }) => void) | null = null;
-	disabled = false;
-	value = "";
-	classes = new Set<string>();
-	readonly tag: string;
-	constructor(tag: string) {
-		this.tag = tag;
-	}
-	classList = { toggle: (c: string, on?: boolean) => void ((on ?? !this.classes.has(c)) ? this.classes.add(c) : this.classes.delete(c)), contains: (c: string) => this.classes.has(c) };
-	setAttribute(name: string, value: string) {
-		this.attrs.set(name, value);
-		if (name === "class") this.classes = new Set(value.split(" "));
-		if (name.startsWith("data-")) this.dataset[name.slice(5)] = value;
-	}
-	getAttribute(name: string) {
-		return this.attrs.get(name) ?? null;
-	}
-	get type() {
-		return this.attrs.get("type") ?? "";
-	}
-	set type(v: string) {
-		this.attrs.set("type", v);
-	}
-	addEventListener(type: string, on: (e: Record<string, unknown>) => void) {
-		(this.handlers[type] ??= []).push(on);
-	}
-	append(...kids: (El | string)[]) {
-		for (const k of kids) (k instanceof El && (k.parent = this), this.kids.push(k));
-	}
-	replaceChildren(...kids: (El | string)[]) {
-		this.kids = [];
-		this.append(...kids);
-	}
-	focus() {
-		page.focus = this;
-	}
-	get textContent(): string {
-		return this.kids.map((k) => (typeof k === "string" ? k : k.textContent)).join("");
-	}
-	set textContent(t: string) {
-		this.replaceChildren(...(t ? [t] : []));
-	}
-	all(): El[] {
-		return this.kids.flatMap((k) => (k instanceof El ? [k, ...k.all()] : []));
-	}
-	querySelector(sel: string) {
-		return this.byClass(sel.slice(1)) ?? null;
-	}
-	byClass(c: string) {
-		return this.all().find((e) => e.classes.has(c));
-	}
-	/** Fires a listener-style event and returns whether preventDefault was called. */
-	fire(type: string, e: Record<string, unknown> = {}) {
-		let prevented = false;
-		for (const on of this.handlers[type] ?? []) on({ isTrusted: true, preventDefault: () => void (prevented = true), ...e });
-		return prevented;
-	}
-}
-const page = { focus: undefined as El | undefined, fine: true };
-Object.assign(globalThis, { document: { createElement: (tag: string) => new El(tag), addEventListener() {}, hidden: false }, matchMedia: () => ({ matches: page.fine }) });
 const { termCard } = await import("../gui/termcard.ts");
 const { m } = await import("../gui/paraglide/messages.js");
 

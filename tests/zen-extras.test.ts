@@ -269,9 +269,9 @@ test("Zen's Esc table: the menu first, then a field with text, an item, an empty
 });
 
 test("an open menu redraws Sound and Volume when another tab changes them; a closed one is left alone", () => {
-	const c = clock(), told: (() => void)[] = [];
+	const told: (() => void)[] = [];
 	let sound = false, volume = 60;
-	const m = mountMenu({ sound: { on: () => sound, volume: () => volume, set: () => {}, setVolume: () => {}, try: () => {}, onChange: (fn) => void told.push(fn) } }, () => {}, c.later);
+	const m = mountMenu({ sound: { on: () => sound, volume: () => volume, set: () => {}, setVolume: () => {}, try: () => {}, onChange: (fn) => void told.push(fn) } }, () => {});
 	page.body.replaceChildren(m.el as unknown as El);
 	const host = m.el as unknown as El, on = host.all((e) => e.getAttribute("class") === "zen-opt")[0]!;
 	const vol = host.all((e) => e.tagName === "input")[0]!;

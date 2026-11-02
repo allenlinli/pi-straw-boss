@@ -158,8 +158,8 @@ const linkBar = mountLinkBar(() => openSection("teams"), core.news);
 const notify = mountNotify(core.notified);
 
 function report(next: Status) {
+	connect(next); // the overlay opens or closes before Zen's card redraws under it (its controls change with the state, and the overlay notes and restores the focus)
 	core.status(next);
-	connect(next);
 	const stale = next.state === "reconnecting" || next.state === "offline" || next.state === "replaced";
 	document.body.dataset.stale = el("stage").dataset.stale = String(stale);
 	el("link").dataset.state = next.state;

@@ -27,6 +27,8 @@ export interface Status {
 	/** The server's reason when the stream is up but the net cannot be read. */
 	problem?: string;
 }
+/** Before the first attempt. */
+export const CONNECTING: Status = { state: "connecting", attempt: 0 };
 export interface Deps {
 	open(): Source;
 	now(): number;

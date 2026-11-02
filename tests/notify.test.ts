@@ -10,10 +10,16 @@ const heard: ((e: { key: string | null }) => void)[] = [];
 Object.assign(globalThis, { addEventListener: (type: string, on: (e: { key: string | null }) => void) => type === "storage" && heard.push(on) });
 const { KEYS } = await import("../gui/prefs.ts");
 const { mountNotify } = await import("../gui/notify.ts");
+const { audio } = await import("../gui/audio.ts");
+// The page's one playback core is replaced by recorders: what notify asks of it is what these tests read.
+const played: string[] = [], volumes: number[] = [];
+audio.play = (url) => void played.push(url);
+audio.volume = (v) => void volumes.push(v);
 
 const ids = ["remind", "remind-note", "sound", "sound-vol", "sound-vol-out", "sound-try"];
 function rig(seed: Record<string, string> = {}) {
 	stored.clear();
+	played.length = volumes.length = 0;
 	for (const [k, v] of Object.entries(seed)) stored.set(k, v);
 	const els = Object.fromEntries(ids.map((id) => [id, new El(id === "sound-vol" ? "input" : id === "sound-vol-out" ? "output" : "button")]));
 	Object.assign(page, { getElementById: (id: string) => els[id] });
@@ -63,4 +69,57 @@ test("another tab's Volume applies here: the slider and the answer follow, and n
 	assert.equal(told, 1);
 	r.other(KEYS.view, "zen"); // another key: ignored
 	assert.equal(told, 1);
+});
+
+const alert = (mark: string) => ({ key: mark, name: mark, mark }) as never;
+
+test("Volume reaches the playback core at mount, on the slider, and from another tab", () => {
+	const r = rig({ [KEYS.volume]: "35" });
+	assert.equal(volumes.at(-1), 35, "the stored Volume at mount");
+	r.n.sound.setVolume(80);
+	assert.equal(volumes.at(-1), 80, "the slider");
+	r.other(KEYS.volume, "25");
+	assert.equal(volumes.at(-1), 25, "another tab");
+	assert.deepEqual([...new Set(volumes)].sort(), [25, 35, 80]);
+});
+
+test("a batch plays the clip of its most urgent mark, only when Sound is on", () => {
+	const off = rig();
+	off.n.signal([alert("waiting")]);
+	assert.deepEqual(played, [], "Sound off: silent");
+	const r = rig({ [KEYS.sound]: "1" });
+	r.n.signal([alert("done"), alert("waiting"), alert("error")]);
+	assert.equal(played.length, 1);
+	assert.match(played[0]!, /waiting\.mp3$/);
+	r.n.signal([alert("done"), alert("error")]);
+	assert.match(played[1]!, /error\.mp3$/);
+	r.n.signal([alert("done")]);
+	assert.match(played[2]!, /done\.mp3$/);
+	assert.equal(played.length, 3);
+	assert.notEqual(played[0], played[1]);
+	assert.notEqual(played[1], played[2]);
+});
+
+test("chime plays the finished clip with Sound on and nothing with Sound off", () => {
+	const off = rig();
+	off.n.chime();
+	assert.deepEqual(played, []);
+	const r = rig({ [KEYS.sound]: "1" });
+	r.n.chime();
+	assert.equal(played.length, 1);
+	assert.match(played[0]!, /done\.mp3$/);
+	r.other(KEYS.sound, "0");
+	r.n.chime();
+	assert.equal(played.length, 1, "another tab's Off silences it");
+});
+
+test("Try and turning Sound on play the finished clip, whatever the switch said before", () => {
+	const r = rig();
+	r.n.sound.try();
+	assert.match(played.at(-1)!, /done\.mp3$/);
+	played.length = 0;
+	r.n.sound.set(true);
+	assert.equal(played.length, 1, "on: one clip to say so");
+	r.n.sound.set(false);
+	assert.equal(played.length, 1, "off: none");
 });

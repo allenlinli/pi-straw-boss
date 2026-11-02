@@ -45,3 +45,43 @@ test("text on a coloured fill (`--ink`) is the ground, never the paper: Standard
 	const yes = rulesOf(css).find((r) => r.parts.some((p) => /\.pad-yes$/.test(p.trim())));
 	assert.ok(yes && declarations(yes.body).some(([p, v]) => p === "background" && v === "var(--zen-warm)"), "the one that sends is filled (paper on warm, 7 : 1 above)");
 });
+
+// Yellow in Zen: the ink palette has none. Standard's amber and gold are paper and ash here (the token block), and the terminal mirror's yellows (ANSI 33 and 93 as classes, 256-colour and truecolor inline) are an ochre and muted as a whole.
+const hsv = (hex: string) => {
+	const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number], max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+	const h = d === 0 ? 0 : (max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
+	return { h, s: max === 0 ? 0 : d / max, v: max };
+};
+const MUTED = 0.5; // a Zen colour in the yellow hues (35° to 70°) is at most this saturated (HSV)
+const literals = (text: string) => [...text.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/#([0-9a-f]{6}|[0-9a-f]{3})\b/gi)].map((m) => ("#" + (m[1]!.length === 3 ? [...m[1]!].map((c) => c + c).join("") : m[1]!)).toLowerCase());
+
+test("no colour literal in the Zen sheet is a bright yellow, and the first frame's literals are not either", () => {
+	for (const [name, text] of [["zen.css", css], ["style.css first frame", first.split("\n").filter((l) => /data-view="zen"|#zen/.test(l)).join("\n")]] as const)
+		for (const hex of literals(text)) {
+			const { h, s } = hsv(hex);
+			assert.ok(!(h >= 35 && h <= 70 && s > MUTED), `${name}: ${hex} is a yellow (hue ${h.toFixed(0)}°, saturation ${s.toFixed(2)})`);
+		}
+	for (const token of ["--gold", "--amber", "--paper", "--paper-hi", "--paper-edge", "--accent", "--accent-hi"]) assert.match(block.body, new RegExp(`${token}: var\\(--zen-`), `${token} is an ink token in Zen`);
+});
+
+test("the terminal's yellows in Zen are the ochre pair, readable (7 : 1 on the sunken ground), and the mirror's rows are muted as a whole", () => {
+	const host = '[data-view="zen"] .zen-term-host';
+	const colour = (cls: string, prop: string) => {
+		const rule = rulesOf(css).find((r) => r.parts.includes(`${host} ${cls}`));
+		assert.ok(rule, `${cls} has a Zen rule`);
+		return declarations(rule.body).find(([p]) => p === prop)?.[1];
+	};
+	for (const [cls, token] of [[".c3", "ochre"], [".c11", "ochre-hi"]] as const) {
+		const ochre = tokens[token];
+		assert.ok(ochre, `--zen-${token} is a token`);
+		assert.equal(colour(cls, "color"), `var(--zen-${token})`, `${cls} is the ochre`);
+		assert.equal(colour(cls.replace("c", "k"), "background"), `var(--zen-${token})`, `${cls.replace("c", "k")} is the same ochre as a fill`);
+		assert.ok(hsv(ochre).s <= MUTED, `${ochre} is muted`);
+		assert.ok(contrast(ochre, tokens.sunken!) >= 7, `${cls} on --zen-sunken: ${contrast(ochre, tokens.sunken!).toFixed(2)}`);
+		assert.ok(contrast(tokens.sunken!, ochre) >= 7, `the sunken ground as text on the ${cls} fill`);
+	}
+	const mute = rulesOf(css).find((r) => r.parts.includes(`${host} .term`));
+	const sat = declarations(mute?.body ?? "").find(([p]) => p === "filter")?.[1].match(/^saturate\(([\d.]+)\)$/)?.[1];
+	assert.ok(sat && Number(sat) <= 0.5, `the mirror's rows are desaturated (filter: ${sat})`);
+	assert.ok(!/\.c(3|11)\b|\.k(3|11)\b/.test(first.split("\n").filter((l) => /data-view="zen"/.test(l)).join("\n")), "Standard's own classes are not touched from style.css");
+});

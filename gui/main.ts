@@ -1,5 +1,6 @@
 import "./style.css";
 import { unitsOf, waitingOf } from "./units.ts";
+import { RULES, rulesOf } from "./faces.ts";
 import { domEnv, KEY, mountPick, mountView, mountZenBack } from "./view.ts";
 import { mountFace } from "./viewface.ts";
 import { localeNames, setLocale, startI18n } from "./i18n.ts";
@@ -82,7 +83,7 @@ onPane((grant) => (zenOn() && face.leave(), withPanels((p) => p.terminal.open(`g
 
 // The Zen layer (zen.ts, with the pure model in zenmodel.ts) is a chunk of its own, fetched the first time the page shows Zen. `zenOn()`: the device's view is Zen, this page has not left it
 // (Esc or the corner control: `data-zen-away` on <html>, this page only), and the route is not the settings page, which Zen never covers.
-const zenOn = () => view.view() === "zen" && root.dataset.zenAway === undefined && current.view !== "settings";
+const rules = () => rulesOf(view.view(), root.dataset.zenAway !== undefined || current.view === "settings"), zenOn = () => rules() === RULES.zen;
 type Zen = ReturnType<typeof mountZen>;
 let zen: Zen | undefined, zenLoading: Promise<Zen> | undefined, zenKey: string | null = null, watching: string | null = null;
 const withZen = (call: (z: Zen) => void) => {
@@ -137,7 +138,7 @@ const openSection = (section: Section) => (current.view === "settings" ? withSet
 const tabIcon = document.querySelector<HTMLLinkElement>('link[rel="icon"]'), plain = tabIcon ? plainOf(tabIcon.href) : undefined;
 let badged = 0;
 function badge(net: Net) {
-	const n = zenOn() ? 0 : waitingOf(unitsOf(net).map((r) => r.unit)).length + (net.trust?.length ?? 0);
+	const n = rules().count ? waitingOf(unitsOf(net).map((r) => r.unit)).length + (net.trust?.length ?? 0) : 0;
 	if (!tabIcon || !plain || n === badged) return;
 	badged = n;
 	void plain.then((svg) => svg && n === badged && (tabIcon.href = iconHref(svg, n)));
@@ -156,8 +157,8 @@ function show(net: Net) {
 	badge(net);
 	linkBar.net(net.link);
 	const now = alertsOf(net, Date.now());
-	if (zenOn()) return void ((heard = now), withZen((z) => z.net(now, net))); // Zen makes no clip and counts nothing: it takes the alerts, and Standard draws this snapshot on leaving
-	if (heard) notify.signal(arrivals(heard, now)); // what was already waiting when the page opened is no news
+	if (rules().announce === "current") return void ((heard = now), withZen((z) => z.net(now, net))); // Zen makes no clip and counts nothing: it takes the alerts, and Standard draws this snapshot on leaving
+	if (heard && rules().clips) notify.signal(arrivals(heard, now)); // what was already waiting when the page opened is no news
 	heard = now;
 	if (document.hidden) return;
 	page.stats(net);
@@ -284,8 +285,8 @@ document.addEventListener("click", (event) => {
 }, true);
 const router = createRouter((route) => navigate(route));
 const openTeams = () => openSection("teams");
-const linkBar = mountLinkBar(openTeams, linkChime(zenOn, () => notify.chime()));
-const notify = mountNotify((a) => zenOn() || (a.trust ? withPanels((p) => p.stack.show(a)) : router.go({ view: "session", ws: a.ws, key: unitOf(a) })));
+const linkBar = mountLinkBar(openTeams, linkChime(() => !rules().chime, () => notify.chime()));
+const notify = mountNotify((a) => rules().announce === "current" || (a.trust ? withPanels((p) => p.stack.show(a)) : router.go({ view: "session", ws: a.ws, key: unitOf(a) })));
 const stream = createStream({
 	open,
 	now: Date.now,
@@ -322,7 +323,7 @@ addEventListener("keydown", (event) => {
 	if (current.view === "settings") leaveSettings();
 	else router.go(upOf(current));
 });
-mountHotkeys((hotkey) => panels?.hotkey(hotkey) ?? false, () => zenOn() || document.querySelector(MODAL) !== null); // Space opens the next alert, F enlarges the top dialog; nothing before the overlay layer has loaded
+mountHotkeys((hotkey) => panels?.hotkey(hotkey) ?? false, () => rules().keys === "zen" || document.querySelector(MODAL) !== null); // Space opens the next alert, F enlarges the top dialog; nothing before the overlay layer has loaded
 // The gear is a link to the settings page; on the page it leaves it, as Escape does.
 el("prefs").addEventListener("click", (event) => current.view === "settings" && (event.preventDefault(), leaveSettings()));
 // A pair request waits while the Same Wi-Fi tab is not open: a header notice that opens the settings page on that tab (this computer's page only).
@@ -330,7 +331,7 @@ if (phoneOk) void import("./lanwait.ts").then(({ mountLanWait }) => mountLanWait
 // The phone's quick-switch drawer (drawer.ts, swipe.ts): its own chunk, fetched where there is a touch screen or a narrow window, now or once the window narrows.
 let drawer: Drawer | undefined;
 const touchy = matchMedia("(pointer: coarse), (max-width: 640px)");
-const loadDrawer = () => void import("./drawer.ts").then(({ mountDrawer }) => ((drawer ??= mountDrawer(zenOn)), latest && drawer.net(latest), drawer.route(current)));
+const loadDrawer = () => void import("./drawer.ts").then(({ mountDrawer }) => ((drawer ??= mountDrawer(() => !rules().drawer)), latest && drawer.net(latest), drawer.route(current)));
 if (touchy.matches) loadDrawer();
 else touchy.addEventListener("change", () => touchy.matches && !drawer && loadDrawer(), { once: true });
 mountQuit({ route: () => netOf(current), net: () => latest, go: (route) => router.go(route) });

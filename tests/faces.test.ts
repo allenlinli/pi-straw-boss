@@ -4,7 +4,7 @@ import { RULES, rulesOf } from "../gui/faces.ts";
 import type { View } from "../gui/view.ts";
 
 // The rules table (gui/faces.ts) is the one place that says what a view does beyond its skin, as typegate.test.ts is for the server's typing rule: each row is written out in full, so a changed cell fails here and nowhere else.
-const STANDARD = { count: true, clips: true, announce: "arrivals", keys: "dialogs", drawer: true, calm: true, chime: true, escape: "stay" } as const;
+const STANDARD = { count: true, signal: true, announce: "arrivals", keys: "dialogs", drawer: true, calm: true, chime: true, escape: "stay" } as const;
 
 test("Standard: the tab icon counts, arrivals make the clips and reminders, the dialog keys and the drawer are on, the page calms, new link notices chime, Esc stays in a filled field", () => {
 	assert.deepEqual(RULES.standard, STANDARD);
@@ -15,13 +15,13 @@ test("Geek is Standard's behavior with one difference: its stylesheet keeps the 
 });
 
 test("Zen: no count, no clip, no Standard keys, no drawer, no chime; it announces the current item itself; calm on; Esc blurs a filled field first", () => {
-	assert.deepEqual(RULES.zen, { count: false, clips: false, announce: "current", keys: "zen", drawer: false, calm: true, chime: false, escape: "blur" });
+	assert.deepEqual(RULES.zen, { count: false, signal: false, announce: "current", keys: "zen", drawer: false, calm: true, chime: false, escape: "blur" });
 });
 
 test("Zen shows no count anywhere: every rule that could carry one is off", () => {
 	const z = RULES.zen;
 	assert.equal(z.count, false, "the tab icon");
-	assert.equal(z.clips, false, "the clips");
+	assert.equal(z.signal, false, "the clips and the system notifications");
 	assert.equal(z.chime, false, "the link bar's chime");
 	assert.equal(z.drawer, false, "the drawer's per-unit list");
 	assert.equal(z.announce, "current", "one item at a time, not every arrival");

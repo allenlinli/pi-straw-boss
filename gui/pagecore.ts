@@ -76,7 +76,7 @@ export function createPage(io: PageIo) {
 		io.link(net.link);
 		const now = alertsOf(net, Date.now()), r = rules();
 		if (r.announce === "current") return void ((heard = now), io.withZen((z) => z.net(now, net))); // Zen makes no clip and counts nothing: it takes the alerts, and Standard draws this snapshot on leaving
-		if (heard && r.clips) io.signal(arrivals(heard, now)); // what was already waiting when the page opened is no news
+		if (heard && r.signal) io.signal(arrivals(heard, now)); // what was already waiting when the page opened is no news
 		heard = now;
 		if (io.hidden()) return;
 		const fresh = arrivals(known, now);

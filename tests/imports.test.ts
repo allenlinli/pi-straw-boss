@@ -661,7 +661,14 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	const assets = readdirSync(join(dir, "assets")), size = (name: string) => readFileSync(join(dir, "assets", name)), gz = (name: string) => gzipSync(size(name)).length;
 	const entry = /assets\/(index-[\w-]+\.js)/.exec(readFileSync(join(dir, "index.html"), "utf8"))?.[1];
 	assert.ok(entry, "index.html loads one entry script");
-	const chunks = assets.filter((name) => name.endsWith(".js") && name !== entry), css = assets.filter((name) => name.endsWith(".css"));
+	// What loads at start is the entry and the files it imports statically (the bundler may split a shared module out of the entry: post.ts, the runtimes), so the map's budget below is that sum and the lazy chunks are the rest (VC12-F001).
+	const eager = new Set<string>(), reach = (name: string): void => {
+		if (eager.has(name)) return;
+		eager.add(name);
+		for (const found of size(name).toString().matchAll(/(?:from|import)\s*["']\.\/([\w.-]+\.js)["']/g)) reach(found[1]!);
+	};
+	reach(entry);
+	const chunks = assets.filter((name) => name.endsWith(".js") && !eager.has(name)), css = assets.filter((name) => name.endsWith(".css"));
 	const total = (list: string[], measure: (name: string) => number) => list.reduce((sum, name) => sum + measure(name), 0);
 	// 0.7.0 raised the gzip figure from 6 KB to 6.1 KB: the page's one stream lives in this chunk, so it routes the terminal tiles' hello and frames to the layer.
 	// 0.10.0 to 24.7 KB / 9.75 KB for English and Traditional Chinese (Paraglide): its runtime, about 5 KB raw, whose locale getter stays whole because
@@ -739,10 +746,10 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Both increments summed (answer-opens-terminal +500 / +200 gzipped, Z4 +650 / +250): 85,100 bytes / 29,700 gzipped.
 	// Zen feedback round to 85,600 bytes / 29,800 gzipped: viewface.ts (what a view move does to the page's face: one table, the page's coordinator calls it), the pick that tells its listeners every time (view.ts), the capture-phase Escape, and two messages in both languages.
 	// All three increments summed (answer-opens-terminal +500 / +200, Z4 +650 / +250, Z4 feedback +1,000 / +350): 86,100 bytes / 30,050 gzipped.
-	// Views-core R1 to 85,300 bytes / 29,900 gzipped (measured 85,154 / 29,812, from 85,966 / 29,951): units.ts replaces the unit walks of alerts.ts, quit.ts, and main.ts, and post.ts (806 bytes) now sits in a shared chunk the entry imports instead of in the entry. Where the main.ts import of units.ts sits matters: after the view.ts import, the bundler also moved linkmodel.ts and the messages they carry (7.3 KB) out of the entry.
-	// Views-core R2 to 85,600 bytes / 30,050 gzipped (measured 85,548 / 29,992, +394 raw / +180 gzipped over R1, 0.1 KB over the 0.3 KB asked): faces.ts's table is new data (24 cells, about 330 bytes, which `escape` and `clips` take without a reader until R8 and Z5); the reads of it in main.ts, calm.ts, and linkbar.ts cost what the `zenOn()` calls did. Still 0.4 KB under the entry before R1 (85,966).
-	// Views-core R3a to 86,350 bytes / 30,550 gzipped (measured 86,304 / 30,529, +756 raw / +537 gzipped over R2): the seam between main.ts and pagecore.ts costs what the moved code does not give back (16 parts handed in, `core.` reads, draw and navigate as functions of their own); sb backlog's cap for R3 as a whole is 1.0 KB raw.
-	assert.ok(size(entry).length <= 86_350 && gz(entry) <= 30_550, `the map chunk is ${size(entry).length} bytes (${gz(entry)} gzipped)`);
+	// Views-core, measured as the entry plus the files it imports statically (eager bytes; this test's gzip). 0.52.0: 88,615 / 31,291 (entry 85,966 with post.ts inside it). R1 (units.ts replaces the unit walks of alerts.ts, quit.ts, and main.ts; post.ts, 806 bytes, now sits in a file the entry imports): 88,609 / 31,545, so R1 is -6 raw / +254 gzipped (the split costs gzip). R2 (faces.ts: 24 table cells whose key names cannot be mangled, and the reads of it): 89,003 / 31,725, +394 raw / +180 gzipped over R1, +388 / +434 over 0.52.0.
+	// Views-core R3a (gui/pagecore.ts: createPage(io) takes the page's face, route, stream state and watch out of main.ts, which hands it 16 parts): 89,759 / 32,262, +756 raw / +537 gzipped over R2 (entry alone 86,304 / 30,529). The seam costs what the moved code does not give back: the parts handed in, the `core.` reads in main.ts, and draw and navigate as functions of their own. The cap for R3 as a whole is 1.0 KB raw over R2.
+	const eagerBytes = total([...eager], (n) => size(n).length), eagerGz = total([...eager], gz);
+	assert.ok(eagerBytes <= 89_800 && eagerGz <= 32_300, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -831,8 +838,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen Z4 to 225,200 bytes / 91.1 KB gzipped: the Zen chunk grows by the corner menu, full screen and its hint, the idle line with its 14 sourced lines in both languages, and the dissolving card (JavaScript about 15.6 KB raw / 6.9 KB gzipped, over the spec's 14 KB / 5.5 KB for the chunk; the stylesheet is counted below).
 	// Zen feedback round to 229,000 bytes / 92.7 KB gzipped: the Zen chunk grows by the ripples (zenripple.ts), Esc's table and the quiet line, the card's glide, and the draft's hold (about 3.7 KB raw / 1.5 KB gzipped).
 	// All increments summed (answer-opens-terminal +700 / +300, Z4 +6,500 / +2,900, Z4 feedback +3,800 / +1,600): 229,700 bytes / 93,000 gzipped.
-	// Views-core R1 to 230,200 bytes / 93,250 gzipped (measured 230,147 / 93,205, from 229,291 / 92,784): post.ts moved there from the entry (about 0.85 KB raw), plus units.ts's share for the lazy chunks that import it.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 230_200 && total(chunks, gz) <= 93_250, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Views-core: the figure counts the lazy chunks only now (VC12-F001); post.ts and the runtimes are eager. At 0.52.0 they were 226,642 / 91,444, R1 added units.ts's share to the lazy chunks that import it: 226,692 / 91,472, and the cap is 226,750 / 91,550.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 226_750 && total(chunks, gz) <= 91_550, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

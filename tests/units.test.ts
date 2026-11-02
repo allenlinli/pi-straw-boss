@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
-import { rankOf } from "../gui/alerts.ts";
+import { alertsOf, rankOf } from "../gui/alerts.ts";
 import { unitsOf, waitingOf } from "../gui/units.ts";
 
 const unit = (key: string, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark: "idle" as Mark, subs: [], ...o });
@@ -54,4 +54,10 @@ test("waitingOf keeps what rankOf puts first: a unit that waits, or has a dialog
 test("the tab icon's count is what waitingOf finds over unitsOf: a tower, a subagent, and an outside unit count once each", () => {
 	const n = net(base("w", { key: "tw", mark: "waiting" }, [unit("a", { subs: [unit("a1", { role: "subagent", mark: "waiting" })] }), unit("b", { mark: "working" })], [unit("o", { role: "outside", mark: "waiting" })]));
 	assert.equal(waitingOf(unitsOf(n).map((r) => r.unit)).length, 3);
+});
+
+test("alertsOf gives a tower the alert role 'tower' (the net gives a tower no role of its own) and every other unit its own role", () => {
+	const n = net(base("w", { key: "tw", subs: [unit("ts", { role: "subagent" })] }, [unit("a", { role: "member" })], [unit("o", { role: "outside" })]));
+	const roles = Object.fromEntries([...alertsOf(n, 1).values()].map((a) => [a.key, a.role]));
+	assert.deepEqual(roles, { tw: "tower", ts: "subagent", a: "member", o: "outside" });
 });

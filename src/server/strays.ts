@@ -1,7 +1,7 @@
 import { parseSddl, SYSTEM_SID, type Sddl } from "./acl.ts";
 
-// The grants `icacls <dir> /inheritance:r /grant:r <owner> <SYSTEM>` leaves on a folder: it turns the inherited ACEs explicit and replaces only the grants of the SIDs it names, so an elevated token's
-// new folder (a GitHub windows runner's runneradmin) kept BUILTIN\Administrators, and the strict check (`folderProblems`) refused it. Those grants are taken off by SID. The check is not touched.
+// The grants `icacls <dir> /inheritance:r /grant:r <owner> <SYSTEM>` leaves on a folder: it removes the inherited ACEs and replaces only the grants of the SIDs it names, so an explicit ACE of any other account (an elevated token's
+// new folder, a GitHub windows runner's runneradmin, carried an explicit BUILTIN\Administrators one) survives, and the strict check (`folderProblems`) refused it. Those grants are taken off by SID. The check is not touched.
 
 /** The SIDs SDDL writes as two-letter aliases, as `S-1-…` (what `icacls /remove:g *<SID>` takes). Domain-relative aliases (CA, DA, DU, LA, LG, …) are not here: they cannot be told from the owner alone. */
 const ALIAS_SIDS: Record<string, string> = {

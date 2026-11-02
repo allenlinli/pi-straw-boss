@@ -22,7 +22,7 @@ export const nativeCommand = (name: string, args: string[], env: NodeJS.ProcessE
 	file: system32Path(name, env), args,
 	options: { encoding: "utf8" as const, windowsHide: true, timeout, cwd: system32(env), stdio: ["ignore", "pipe", "pipe"] as ("ignore" | "pipe")[], ...(extraEnv ? { env: { ...env, ...extraEnv } } : {}) },
 });
-const runNative: RunNative = (name, args, timeoutMs = NATIVE_MS, extraEnv) => {
+export const runNative: RunNative = (name, args, timeoutMs = NATIVE_MS, extraEnv) => {
 	const { file, args: argv, options } = nativeCommand(name, args, process.env, Math.max(500, Math.min(timeoutMs, NATIVE_MS)), extraEnv);
 	return execFileSync(file, argv, options);
 };
@@ -417,6 +417,8 @@ function secure(target: string, run: RunNative, left: () => number | undefined, 
 	}
 	const problems = folderProblems(dacl, sid!);
 	if (problems.length) throw new Refused(problems.join("; "));
+	// The folder read back is the one protected: one swapped in during the remove call or the last read is refused (a temporary folder is not: R12-F001, the PowerShell gates judge it).
+	if (!fresh && fileIdentity(target) !== read) throw new Refused(`${target} was replaced while it was protected`);
 	// The owner was judged above (or by the gate) and the DACL is closed now: the gate need not read this folder again.
 	if (!fresh) remember(target, read);
 }

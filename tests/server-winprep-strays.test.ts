@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { ACL_SCRIPT, folderProblems } from "../src/server/acl.ts";
 import { removeArgs, strayGrants } from "../src/server/strays.ts";
-import { forgetSid, ownerGate, protectArgs, protectFolder } from "../src/server/winprep.ts";
+import { OWNER_READ_RETRY_MS, forgetSid, ownerGate, protectArgs, protectFolder, setNote } from "../src/server/winprep.ts";
 import { ServerWorld } from "./server-world.ts";
 
-// An elevated token (a GitHub windows runner's runneradmin) makes folders that carry an explicit BUILTIN\Administrators ACE next to the ones inherited from the parent. `/inheritance:r /grant:r`
-// turns the inherited ACEs explicit and replaces only the grants it names, so BA, Users and Authenticated Users stayed and the strict check refused the folder (exit 3, "grants … BA").
+// An elevated token (a GitHub windows runner's runneradmin) makes folders that carry explicit ACEs of other accounts (BUILTIN\Administrators). `/inheritance:r` removes the inherited ACEs and
+// `/grant:r` replaces only the grants it names, so an explicit BA ACE (and any other explicit one) stayed and the strict check refused the folder (exit 3, "grants … BA").
 // The fake icacls here keeps a DACL that the calls change: protect, then `/remove:g`, as icacls does.
 
 const OWNER = "S-1-5-21-1111111111-2222222222-3333333333-1001";
@@ -127,6 +127,15 @@ test("an open folder whose stray grants cannot be removed stays open: told once,
 	const calls = n.calls.length;
 	await ownerGate(dir, n.run, undefined, () => 1000);
 	assert.equal(n.calls.length, calls, "inside the retry window nothing is called");
+	const notes: string[] = [];
+	setNote((text) => notes.push(text));
+	try {
+		await ownerGate(dir, n.run, undefined, () => OWNER_READ_RETRY_MS + 1);
+	} finally {
+		setNote(undefined);
+	}
+	assert.ok(n.calls.length > calls, "after the retry window the folder is judged again: it was never remembered");
+	assert.equal(notes.length, 0, "told once, at the first failure");
 });
 
 test("the server's PowerShell script takes the other explicit grants off the folder by SID, after the protect call and before the reset of what is below", () => {
@@ -137,4 +146,44 @@ test("the server's PowerShell script takes the other explicit grants off the fol
 	assert.match(lines[strays]!, /\$_ -ne \$sid -and \$_ -ne 'S-1-5-18'/, "all but the owner and SYSTEM");
 	assert.match(lines[remove]!, /'\*' \+ \$_/, "by SID with the * prefix, so a localized group name cannot matter");
 	assert.match(lines[remove]!, /\$LASTEXITCODE -ne 0/);
+});
+
+test("the folder swapped for a link during the remove call is refused (the link is looked at again after the remove)", () => {
+	const dir = join(world.root, "swapped-link");
+	mkdirSync(dir);
+	const elsewhere = join(world.root, "elsewhere");
+	mkdirSync(elsewhere);
+	const n = icacls({ start: OPEN, afterProtect: ELEVATED, afterRemove: GOOD });
+	const run = (file: string, args: string[]) => {
+		const out = n.run(file, args);
+		if (args.includes("/remove:g")) {
+			rmdirSync(dir);
+			symlinkSync(elsewhere, dir, "dir");
+		}
+		return out;
+	};
+	assert.throws(() => protectFolder(dir, run), /link or junction/);
+});
+
+test("the folder replaced by another after the last read-back is refused", () => {
+	const dir = join(world.root, "swapped-folder");
+	mkdirSync(dir);
+	const other = join(world.root, "other");
+	mkdirSync(other);
+	const n = icacls({ start: OPEN, afterProtect: ELEVATED, afterRemove: GOOD });
+	let saves = 0;
+	const run = (file: string, args: string[]) => {
+		const out = n.run(file, args);
+		if (args.includes("/save") && ++saves === 3) {
+			renameSync(dir, join(world.root, "moved"));
+			renameSync(other, dir);
+		}
+		return out;
+	};
+	assert.throws(() => protectFolder(dir, run), /replaced while it was protected/);
+});
+
+test("the server's PowerShell script lists only Allow rules, as the Node path does", () => {
+	const line = ACL_SCRIPT.split("\n").find((l) => l.includes("$strays = "))!;
+	assert.match(line, /Where-Object \{ \$_\.AccessControlType -eq 'Allow' \}/);
 });

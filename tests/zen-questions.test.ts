@@ -25,7 +25,7 @@ const pending = (...qs: ReturnType<typeof Q>[]): Pending => ({ callId: "c", tool
 const THREE = () => pending(Q("A?", ["a1", "a2"]), Q("B?", ["b1", "b2"]), Q("C?", ["c1", "c2"]));
 const cls = (name: string) => (el: El) => (el.getAttribute("class") ?? "").split(" ").includes(name);
 
-function rig(p: Pending = THREE()) {
+function rig(p: Pending = THREE(), geometry?: (b: El) => void) {
 	let t = 0;
 	const timers: { at: number; fn: () => void }[] = [];
 	const env = {
@@ -49,6 +49,7 @@ function rig(p: Pending = THREE()) {
 	page.focused = undefined;
 	const ask = mountAsk(hold as never, (async () => ({ ok: true, status: 200, body: { outcome: "accepted" } })) as never, false);
 	ask.update(p, true);
+	if (geometry) hold.all(cls("ask-one")).forEach(geometry); // the layout a browser has when the layer first fits
 	syncQuestions(hold as never, env);
 	const panel = hold.children[0]!, scroller = hold.all(cls("zen-qs"))[0];
 	const blocks = scroller ? scroller.children : [];
@@ -56,9 +57,9 @@ function rig(p: Pending = THREE()) {
 	const put = new Map<El, (top: number) => void>();
 	blocks.forEach((b) => {
 		let top = 0;
-		Object.defineProperty(b, "scrollTop", { get: () => top, set: (v: number) => void (b.dataset.dim === undefined && (top = v)) });
+		Object.defineProperty(b, "scrollTop", { get: () => top, set: (v: number) => void (b.dataset.dim === undefined && b.dataset.far === undefined && (top = v)) });
 		put.set(b, (v) => void (top = v));
-		[b.clientHeight, b.scrollHeight] = [200, 200];
+		if (!geometry) [b.clientHeight, b.scrollHeight] = [200, 200];
 	});
 	const left = (b: El, top: number) => put.get(b)!(top);
 	const choices = (k: number) => blocks[k]!.all((el) => ["radio", "checkbox"].includes(el.getAttribute("role") ?? ""));
@@ -407,13 +408,19 @@ test("the stylesheet: on a short window the question area gives way and the send
 	assert.match(css, /\.zen-ask \.ask > :is\(\.ask-acts, \.ask-note\) \{[^}]*flex: none/, "and the send row does not shrink");
 });
 
-/** The browser's layout for a column `room` px tall: a folded line is 44 px and a 6 px gap, a line dropped (`data-far`) none, and the focused question takes what is left. */
-function column(room: number, p: Pending) {
-	const r = rig(p);
-	const shown = () => r.blocks.filter((b) => b.dataset.dim !== undefined && b.dataset.far === undefined).length;
-	r.blocks.forEach((b) => {
+/** The browser's layout for a column `room` px tall: a folded line is 44 px and a 6 px gap, a line dropped (`data-far`) none, and the focused question takes what is left. With `bottom`, every block is 100 px tall at the top and its first option ends at `bottom`. */
+function column(room: number, p: Pending, bottom?: number) {
+	const all: El[] = [];
+	const shown = () => all.filter((b) => b.dataset.dim !== undefined && b.dataset.far === undefined).length;
+	const r = rig(p, (b) => {
+		all.push(b);
 		Object.defineProperty(b, "clientHeight", { configurable: true, get: () => (b.dataset.dim !== undefined ? 44 : Math.max(0, room - shown() * 50)) });
 		Object.defineProperty(b, "scrollHeight", { configurable: true, get: () => (b.dataset.dim !== undefined ? 44 : 400) });
+		if (bottom !== undefined) {
+			(b as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ top: 0, bottom: 100, height: 100 });
+			const first = b.all((el) => ["radio", "checkbox"].includes(el.getAttribute("role") ?? ""))[0]!;
+			(first as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ top: 0, bottom, height: 40 });
+		}
 	});
 	return { ...r, far: () => r.blocks.map((b) => b.dataset.far !== undefined), open: () => r.blocks.find((b) => b.dataset.dim === undefined)! };
 }
@@ -475,9 +482,68 @@ test("the stylesheet: a short window (max-height 560px) gives the questions the 
 	const at = css.indexOf("@media (max-height: 560px)");
 	assert.ok(at > 0, "the short-window block");
 	const block = css.slice(at, css.indexOf("@media (prefers-reduced-motion", at));
-	assert.match(block, /:is\(\.zen-meta, \.zen-said\) \{ display: none; \}/);
+	assert.match(block, /\.zen-card:has\(\.zen-qs\) :is\(\.zen-meta, \.zen-said\) \{ display: none; \}/, "several questions need the room most");
+	assert.doesNotMatch(block.slice(0, block.indexOf("@media (max-height: 340px)")), /\.zen-card:has\(\.zen-ask\) :is\(\.zen-meta, \.zen-said\)/, "a lone question or a select keeps its context while it fits");
+	assert.match(block, /@media \(max-height: 340px\) \{[^}]*\.zen-card:has\(\.zen-ask\) :is\(\.zen-meta, \.zen-said\) \{ display: none; \}/, "and gives it up when even it does not");
 	assert.match(block, /\.zen-who \{ font-size: 1\.05rem/);
 	assert.match(block, /:is\(\.ask-q, \.ask-title\) \{ font-size: 1\.1rem/);
 	assert.match(block, /\.ask-acts \{ flex-wrap: nowrap/);
 	assert.match(block, /button\.ask-opt \{ padding-block: 6px/);
+});
+
+test("a short column is fitted when it is first drawn, before any click", () => {
+	assert.deepEqual(column(175, FOUR()).far(), [false, false, true, true]);
+});
+
+test("the focused question needs its first option whole and clear of the foot's soft edge: what the option measures counts, with the block's own scroll", () => {
+	for (const [bottom, scrolled, far] of [
+		[96, 0, [false, false, true, true]], // 96 and the edge: 140 asks for two lines to go
+		[150, 0, [false, true, true, true]], // an option ending at 150 needs 194: all go
+		[106, 20, [false, true, true, true]], // the block scrolled 20 px counts 20 more
+		[106, 0, [false, false, true, true]],
+	] as [number, number, boolean[]][]) {
+		const r = column(200, FOUR(), bottom);
+		r.blocks[1]!.bubble("click", { detail: 1 });
+		r.left(r.blocks[0]!, scrolled);
+		r.blocks[0]!.bubble("click", { detail: 1 });
+		assert.deepEqual(r.far(), far, `option ends at ${bottom}, scrolled ${scrolled}`);
+	}
+});
+
+test("the focused question is never the one that gives way, however small the room", () => {
+	const r = column(40, FOUR());
+	for (const k of [1, 3, 0, 2]) {
+		r.blocks[k]!.bubble("click", { detail: 1 });
+		assert.equal(r.far()[k], false, `question ${k}`);
+		assert.equal(r.open(), r.blocks[k]);
+		assert.equal(r.far().filter(Boolean).length, 3, "every other line is dropped");
+	}
+});
+
+test("a question whose line was dropped still opens at its top: the reset comes after the lines are brought back", () => {
+	const r = column(112, FOUR());
+	r.blocks[3]!.bubble("click", { detail: 1 });
+	r.left(r.blocks[3]!, 85);
+	r.blocks[2]!.bubble("click", { detail: 1 });
+	assert.equal(r.far()[3], true, "its line is dropped while question 3 is open");
+	r.blocks[3]!.bubble("click", { detail: 1 });
+	assert.equal(r.blocks[3]!.scrollTop, 0, "and a block that is drawn again keeps the place it had, unless it is reset after");
+});
+
+test("a tap on a line puts the keyboard focus on the chosen option only while the boss can see it, else on the first option", () => {
+	for (const [top, bottom, seen] of [[200, 240, false], [20, 50, true], [10, 90, false]] as [number, number, boolean][]) { // the last ends under the soft edge at the foot
+		const r = rig();
+		for (const b of r.blocks) (b as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ top: 0, bottom: 100, height: 100 });
+		r.blocks[1]!.bubble("click", { detail: 1 });
+		r.tap(r.choices(1)[1]!);
+		(r.choices(1)[1]! as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ top, bottom, height: bottom - top });
+		(r.choices(1)[0]! as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({ top: 5, bottom: 30, height: 25 });
+		r.blocks[0]!.bubble("click", { detail: 1 });
+		r.blocks[1]!.bubble("click", { detail: 1 });
+		assert.equal(page.focused, seen ? r.choices(1)[1] : r.choices(1)[0], `chosen option at ${top}..${bottom}`);
+	}
+});
+
+test("the stylesheet: the open question's rows do not shrink under a definite height, so the own-words box keeps its size", () => {
+	assert.equal(decl(rule('[data-view="zen"] .zen-qs > .ask-one:not([data-dim])')!.body, "grid-auto-rows"), "max-content");
 });

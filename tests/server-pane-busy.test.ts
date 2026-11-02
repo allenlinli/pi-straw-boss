@@ -472,6 +472,10 @@ test("RV10-F004 (M4): where Herdr lists the foreground (not Windows) the process
 	assert.equal((await startNotice(s)).every((t) => !/busy with/.test(t)), true, "the foreground list is the source there");
 });
 
+test("the lineage read runs Windows PowerShell without a PowerShell 7 PSModulePath", () => {
+	assert.equal("PSModulePath" in (cimCommand("abc", { PATH: "p", PSModulePath: "C:\\pwsh7\\Modules" }).options.env ?? {}), false);
+});
+
 test("RV10-F003: the process table marks the tower prompt (CIM's sixth field, `ps`'s command line); an older five-field row has no mark", () => {
 	const [prompt, plain, old] = parseCim(["5000\t900\t2026-10-28T09:40:00.123Z\tnode.exe\t0\t1", "7777\t900\t2026-10-28T09:40:01.123Z\tnode.exe\t0\t0", "7778\t900\t2026-10-28T09:40:02.123Z\tnode.exe\t0"].join("\r\n"));
 	assert.equal(prompt!.prompt, true);

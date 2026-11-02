@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { execFileExe } from "../exe.mjs";
 import { POWERSHELL_FLAGS, PROGRESS_OFF } from "./acl.ts";
-import { powershellPath, system32 } from "../winpath.ts";
+import { powershellEnv, powershellPath, system32 } from "../winpath.ts";
 
 // Which process is pi. `herdr pane process-info` lists what runs in a pane's foreground, and when pi is started through a wrapper (`cmd.exe /c pi.cmd` on Windows, a `sh -c` or Volta shim elsewhere)
 // that is the wrapper, not pi: pi claims its run with its own PID, which is a child of the wrapper's. The server settles the relation itself, from the process table (CIM on Windows, `ps`
@@ -83,7 +83,7 @@ const ISO_START = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 export const cimCommand = (runId: string, env: NodeJS.ProcessEnv = process.env) => ({
 	file: powershellPath(env),
 	args: [...POWERSHELL_FLAGS, "-Command", `${PROGRESS_OFF}; $ErrorActionPreference='Stop'; $id='${runId}'; $inv=[cultureinfo]::InvariantCulture; Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate,Name,CommandLine | ForEach-Object { $d=''; if ($_.CreationDate) { $d=$_.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ',$inv) }; $c='0'; if ($_.CommandLine -and $_.CommandLine.Contains('--sb-run ' + $id)) { $c='1' }; $q='0'; if ($_.CommandLine -and $_.CommandLine.Contains('${PROMPT_WORDS}')) { $q='1' }; (@($_.ProcessId,$_.ParentProcessId,$d,$_.Name,$c,$q) -join [char]9) }`],
-	options: { encoding: "utf8" as const, timeout: READ_MS, windowsHide: true, cwd: system32(env), maxBuffer: 16 * 1024 * 1024 },
+	options: { encoding: "utf8" as const, timeout: READ_MS, windowsHide: true, cwd: system32(env), env: powershellEnv(env), maxBuffer: 16 * 1024 * 1024 },
 });
 export function parseCim(text: string): Proc[] {
 	return text.split(/\r?\n/).flatMap((line) => {

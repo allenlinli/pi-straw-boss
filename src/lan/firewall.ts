@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { win32 } from "node:path";
 import { execFileExe } from "../exe.mjs";
 import { asciiJson, CLM_CHECK, CLM_TEXT, CLM_WORD, execFailure, POWERSHELL_FLAGS, PROGRESS_OFF, UTF8_OUT } from "../server/acl.ts";
-import { powershellPath, system32 } from "../winpath.ts";
+import { powershellEnv, powershellPath, system32 } from "../winpath.ts";
 
 // What the desktop firewall says about Wi-Fi access (docs/specs/2026-10-30-sb-gui-lan.md, "Firewalls" and "Windows"; Steps L8). The server never changes a firewall and runs nothing elevated: it reads the state a
 // plain account can read, and the notes it returns name the commands the boss can run. Everything here is a function of the text a read command printed, so the parsers are tested on recorded and synthetic
@@ -133,7 +133,7 @@ export const WINDOWS_SCRIPT = [UTF8_OUT, PROGRESS_OFF, CLM_CHECK, "$ErrorActionP
 /** The PowerShell call: `-EncodedCommand` so no quoting of the script can go wrong; no elevation is asked for. */
 export function windowsCommand(env: NodeJS.ProcessEnv = process.env, nodePaths: string[] = []) {
 	const leaves = [...new Set(nodePaths.map((p) => win32.basename(p.replace(/\//g, "\\")).toLowerCase()).filter(Boolean))].join("|");
-	return { file: powershellPath(env), args: [...POWERSHELL_FLAGS, "-EncodedCommand", Buffer.from(WINDOWS_SCRIPT, "utf16le").toString("base64")], options: { timeout: READ_MS, env: { ...env, SB_FW_NODE: leaves } as NodeJS.ProcessEnv, cwd: system32(env) } };
+	return { file: powershellPath(env), args: [...POWERSHELL_FLAGS, "-EncodedCommand", Buffer.from(WINDOWS_SCRIPT, "utf16le").toString("base64")], options: { timeout: READ_MS, env: { ...powershellEnv(env), SB_FW_NODE: leaves } as NodeJS.ProcessEnv, cwd: system32(env) } };
 }
 
 const asList = (value: unknown): unknown[] => (Array.isArray(value) ? value : value === undefined || value === null || value === "" ? [] : [value]);

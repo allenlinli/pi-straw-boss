@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { powershellPath, system32 } from "../winpath.ts";
+import { powershellEnv, powershellPath, system32 } from "../winpath.ts";
 
 // The Windows ACL of the state directory (docs/specs/2026-10-26-sb-backend.md, The control socket). A named pipe is not protected by its name or by a file mode, so the
 // secret that opens a connection lives in server.json, and server.json is only as private as the folder it is in. The folder `straw-boss/` (never the agent directory
@@ -115,7 +115,7 @@ export function aclCommand(dir: string, env: NodeJS.ProcessEnv = process.env, ti
 	return {
 		file: powershellPath(env),
 		args: [...POWERSHELL_FLAGS, "-EncodedCommand", Buffer.from(ACL_SCRIPT, "utf16le").toString("base64")],
-		options: { encoding: "utf8" as const, timeout, windowsHide: true, cwd: system32(env), env: { ...env, SB_ACL_DIR: dir, SB_ACL_PID: String(pid) } },
+		options: { encoding: "utf8" as const, timeout, windowsHide: true, cwd: system32(env), env: { ...powershellEnv(env), SB_ACL_DIR: dir, SB_ACL_PID: String(pid) } },
 	};
 }
 

@@ -104,6 +104,7 @@ test("the same PowerShell start tells the server's start time (Win32_Process.Cre
 	assert.match(ACL_SCRIPT, /started = \$started/);
 	assert.equal(aclCommand("C:\\s", { PATH: "p" }, 5000, 4321).options.env.SB_ACL_PID, "4321");
 	assert.equal(aclCommand("C:\\s", { PATH: "p" }).options.env.SB_ACL_PID, String(process.pid));
+	assert.equal("PSModulePath" in aclCommand("C:\\s", { PATH: "p", PSModulePath: "C:\\pwsh7\\Modules" }).options.env, false);
 });
 
 test("sbr-F007: the script sets UTF-8 output on its first line and prints its answer as ASCII only, so no OEM code page can put a backslash inside a JSON string", () => {

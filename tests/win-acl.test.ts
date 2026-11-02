@@ -38,9 +38,8 @@ test("a deny ACE is still refused, and named", { skip: !win }, () => {
 test("the server's PowerShell script leaves the seeded folder with the owner and SYSTEM only", { skip: !win }, () => {
 	forgetSid();
 	const dir = seeded("script");
-	// The runner's shell is PowerShell 7, whose PSModulePath Windows PowerShell 5.1 cannot load Microsoft.PowerShell.Security from: the script runs with the machine's own.
-	const { PSModulePath: _, ...env } = process.env;
-	const { file, args, options } = aclCommand(dir, env);
+	// The runner's shell is PowerShell 7: aclCommand itself must drop its PSModulePath, so this runs what production runs.
+	const { file, args, options } = aclCommand(dir, process.env);
 	const result = parseAclOutput(execFileSync(file, args, options));
 	assert.deepEqual(aclProblems(result), []);
 });

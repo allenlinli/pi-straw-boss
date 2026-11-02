@@ -20,5 +20,10 @@ export function systemRoot(env: NodeJS.ProcessEnv = process.env): string {
 export const system32 = (env: NodeJS.ProcessEnv = process.env) => win32.join(systemRoot(env), "System32");
 /** A program of the system by absolute path: `system32Path("whoami.exe")`. */
 export const system32Path = (name: string, env: NodeJS.ProcessEnv = process.env) => win32.join(system32(env), name);
+/** The environment for a Windows PowerShell 5.1 child: PowerShell sets its own PSModulePath, and a PowerShell 7 parent's makes 5.1 fail to load its modules (Get-Acl, Get-CimInstance). */
+export const powershellEnv = (env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => {
+	const { PSModulePath: _modules, ...rest } = env;
+	return rest;
+};
 /** Windows PowerShell 5.1, which every supported Windows has. */
 export const powershellPath = (env: NodeJS.ProcessEnv = process.env) => win32.join(system32(env), "WindowsPowerShell", "v1.0", "powershell.exe");

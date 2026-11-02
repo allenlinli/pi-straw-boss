@@ -7,7 +7,8 @@ import { parseSddl, SYSTEM_SID, type Sddl } from "./acl.ts";
 const ALIAS_SIDS: Record<string, string> = {
 	WD: "S-1-1-0", CO: "S-1-3-0", CG: "S-1-3-1", NU: "S-1-5-2", IU: "S-1-5-4", SU: "S-1-5-6", AN: "S-1-5-7", PS: "S-1-5-10", AU: "S-1-5-11", RC: "S-1-5-12", ED: "S-1-5-9",
 	LS: "S-1-5-19", NS: "S-1-5-20", BA: "S-1-5-32-544", BU: "S-1-5-32-545", BG: "S-1-5-32-546", PU: "S-1-5-32-547", AO: "S-1-5-32-548", SO: "S-1-5-32-549", PO: "S-1-5-32-550",
-	BO: "S-1-5-32-551", RE: "S-1-5-32-552", RU: "S-1-5-32-554", RD: "S-1-5-32-555", NO: "S-1-5-32-556", MU: "S-1-5-32-558", LU: "S-1-5-32-559", IS: "S-1-5-32-568",
+	BO: "S-1-5-32-551", RE: "S-1-5-32-552", RU: "S-1-5-32-554", RD: "S-1-5-32-555", NO: "S-1-5-32-556", MU: "S-1-5-32-558", LU: "S-1-5-32-559", IS: "S-1-5-32-568", CY: "S-1-5-32-569", ER: "S-1-5-32-573", RA: "S-1-5-32-575", ES: "S-1-5-32-576", MS: "S-1-5-32-577",
+	HA: "S-1-5-32-578", AA: "S-1-5-32-579", RM: "S-1-5-32-580", OW: "S-1-3-4", AC: "S-1-15-2-1", WR: "S-1-5-33",
 };
 /**
  * The explicit allow ACEs of a folder's SDDL that belong to neither the owner nor SYSTEM, as `S-1-…` SIDs (never a localized name): what `icacls /remove:g` must take off after `/inheritance:r /grant:r`

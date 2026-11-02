@@ -39,6 +39,10 @@ function icacls(over: Fake) {
 }
 const STRAYS = ["S-1-5-32-544", "S-1-5-32-545", "S-1-5-11"];
 
+test("strayGrants resolves OW, AC, RA and the other fixed well-known aliases", () => {
+	assert.deepEqual(strayGrants(`D:P(A;;FA;;;${OWNER})(A;;FA;;;SY)(A;;FA;;;OW)(A;;FA;;;AC)(A;;FA;;;RA)`, OWNER), ["S-1-3-4", "S-1-15-2-1", "S-1-5-32-575"]);
+});
+
 test("strayGrants names every explicit allow ACE that is neither the owner nor SYSTEM, by SID (aliases resolved), and only those", () => {
 	assert.deepEqual(strayGrants(ELEVATED, OWNER), STRAYS);
 	assert.deepEqual(strayGrants(GOOD, OWNER), []);

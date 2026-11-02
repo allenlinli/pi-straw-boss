@@ -71,7 +71,7 @@ test("the folder is protected first and without /T, then everything already in i
 	assert.match(reset[0]!, /^& \$icacls "\$dir\\\*" \/reset \/T \/C \/L \/Q \| Out-Null$/);
 	assert.ok(lines.indexOf(reset[0]!) > folder, "after the folder");
 	assert.ok(lines.findIndex((l) => l.includes("(Sddl $p)")) > lines.indexOf(reset[0]!), "the SDDLs are read back after the repair");
-	assert.equal(ACL_SCRIPT.match(/& \$icacls/g)!.length, 3, "icacls is started three times, whatever the number of items: the folder, the reset, and the owner of what is below (R7-F002)");
+	assert.equal(ACL_SCRIPT.match(/& \$icacls/g)!.length, 4, "icacls is started four times, whatever the number of items: the folder, the folder's other grants taken off by SID (only when it has any), the reset, and the owner of what is below (R7-F002)");
 	assert.equal(ACL_SCRIPT.match(/icacls\.exe/g)!.length, 1, "named once, by the system folder's path");
 	// The files the check reads include the ones that existed before the ACL: the lock the starter took and the log.
 	assert.match(ACL_SCRIPT, /'server\.json', 'server\.lock', 'server\.log'/);
@@ -104,6 +104,7 @@ test("the same PowerShell start tells the server's start time (Win32_Process.Cre
 	assert.match(ACL_SCRIPT, /started = \$started/);
 	assert.equal(aclCommand("C:\\s", { PATH: "p" }, 5000, 4321).options.env.SB_ACL_PID, "4321");
 	assert.equal(aclCommand("C:\\s", { PATH: "p" }).options.env.SB_ACL_PID, String(process.pid));
+	assert.equal("PSModulePath" in aclCommand("C:\\s", { PATH: "p", PSModulePath: "C:\\pwsh7\\Modules" }).options.env, false);
 });
 
 test("sbr-F007: the script sets UTF-8 output on its first line and prints its answer as ASCII only, so no OEM code page can put a backslash inside a JSON string", () => {

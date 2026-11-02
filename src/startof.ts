@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { execFileSyncExe } from "./exe.mjs";
 import { POWERSHELL_FLAGS, PROGRESS_OFF } from "./server/acl.ts";
-import { powershellPath, system32 } from "./winpath.ts";
+import { powershellEnv, powershellPath, system32 } from "./winpath.ts";
 
 // A process's start time, which tells a PID another process now holds from the process that wrote a record (remote.ts `runs`, the GUI and link records).
 
@@ -16,7 +16,7 @@ export const startCommand = (pid: number, timeout = READ_MS, env: NodeJS.Process
 	file: powershellPath(env),
 	args: [...POWERSHELL_FLAGS, "-Command", `${PROGRESS_OFF}; $ErrorActionPreference='Stop'; (Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [cultureinfo]::InvariantCulture)`],
 	// By absolute path and from System32: a bare name is looked for in the current folder first, which is a project (nodejs/node#46264).
-	options: { encoding: "utf8" as const, timeout, windowsHide: true, cwd: system32(env) },
+	options: { encoding: "utf8" as const, timeout, windowsHide: true, cwd: system32(env), env: powershellEnv(env) },
 });
 const ISO_START = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 type Launch = (file: string, args: string[], options: ReturnType<typeof startCommand>["options"], done: (error: Error | null, stdout: string) => void) => unknown;

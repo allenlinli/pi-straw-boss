@@ -78,3 +78,22 @@ test("the ACL script runs icacls from the system folder too (PowerShell never lo
 	assert.match(ACL_SCRIPT, /\$icacls = Join-Path \(\[Environment\]::SystemDirectory\) 'icacls\.exe'/);
 	assert.ok(!/& icacls\.exe/.test(ACL_SCRIPT));
 });
+
+test("WA3-F002: every Windows PowerShell 5.1 launch (acl, cim start time, firewall read, server launch, owner read) drops the PSModulePath of a PowerShell 7 parent and keeps the rest", async () => {
+	const { windowsCommand } = await import("../src/lan/firewall.ts");
+	const env = { SystemRoot: "C:\\Windows", PATH: "C:\\p", PSModulePath: "C:\\pwsh7\\Modules" };
+	const spec = { command: "C:\\n\\node.exe", args: ["x"], cwd: "C:\\w", env } as never;
+	const seen: [string, NodeJS.ProcessEnv | undefined][] = [
+		["startCommand", startCommand(1, 1000, env).options.env],
+		["windowsCommand", windowsCommand(env).options.env],
+		["launchCommand", launchCommand(spec, env).options.env],
+		["ownerCall", nativeCommand("WindowsPowerShell\\v1.0\\powershell.exe", [], env, 1000, { SB_OWNER_DIR: "C:\\d" }).options.env],
+	];
+	for (const [name, got] of seen) {
+		assert.ok(got, name);
+		assert.equal("PSModulePath" in got!, false, `${name} passes no PSModulePath`);
+		assert.equal(got!.PATH, "C:\\p", `${name} keeps PATH`);
+		assert.equal(got!.SystemRoot, "C:\\Windows", `${name} keeps SystemRoot`);
+	}
+	assert.equal(seen[3]![1]!.SB_OWNER_DIR, "C:\\d");
+});

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { alive as pidAlive } from "../remote.ts";
-import { powershellPath, system32 } from "../winpath.ts";
+import { powershellEnv, powershellPath, system32 } from "../winpath.ts";
 import { ACL_STEPS, OWNER_OK_PS, aclMarkerPath, asciiJson, asciiLine, CLM_CHECK, execFailure, POWERSHELL_FLAGS, PROGRESS_OFF, UTF8_OUT } from "./acl.ts";
 import type { Launched, SpawnSpec, Started } from "./client.ts";
 
@@ -127,7 +127,7 @@ export function launchCommand(spec: SpawnSpec, env: NodeJS.ProcessEnv = process.
 	return {
 		file: powershellPath(env),
 		args: [...POWERSHELL_FLAGS, "-EncodedCommand", Buffer.from(LAUNCH_SCRIPT, "utf16le").toString("base64")],
-		options: { encoding: "utf8" as const, timeout, windowsHide: true, cwd: system32(env), env: { ...spec.env, SB_LAUNCH_CMD: commandLine(spec), SB_LAUNCH_CMD_INJOB: commandLine(spec, "wmi-in-job"), SB_LAUNCH_CWD: spec.cwd, ...(spec.starterPid ? { SB_STARTER_PID: String(spec.starterPid) } : {}), ...(spec.acl ? { SB_ACL_DIR: spec.acl.dir, SB_ACL_MARKER: aclMarkerPath(spec.acl.dir, spec.acl.token) } : {}) } as NodeJS.ProcessEnv },
+		options: { encoding: "utf8" as const, timeout, windowsHide: true, cwd: system32(env), env: { ...powershellEnv(spec.env), SB_LAUNCH_CMD: commandLine(spec), SB_LAUNCH_CMD_INJOB: commandLine(spec, "wmi-in-job"), SB_LAUNCH_CWD: spec.cwd, ...(spec.starterPid ? { SB_STARTER_PID: String(spec.starterPid) } : {}), ...(spec.acl ? { SB_ACL_DIR: spec.acl.dir, SB_ACL_MARKER: aclMarkerPath(spec.acl.dir, spec.acl.token) } : {}) } as NodeJS.ProcessEnv },
 	};
 }
 

@@ -368,7 +368,7 @@ const decl = (body: string, prop: string) => new RegExp(`(?:^|;|\\s)${prop}:\\s*
 test("the stylesheet: a column of a fixed height with a soft edge that holds the focused question and the lines, faded lines that show nothing but their summary, and no motion under reduced motion", () => {
 	const qs = rule('[data-view="zen"] .zen-qs');
 	assert.ok(qs, "the scroller's rule");
-	assert.match(decl(qs.body, "height") ?? "", /^clamp\(/, "a fixed height: the card's size (zensize.ts) never follows the focus");
+	assert.match(decl(qs.body, "height") ?? "", /^clamp\(/, "a fixed height: the card's size never follows the focus");
 	assert.equal(decl(qs.body, "overflow"), "hidden", "it does not scroll itself: the layer pages it");
 	assert.match(decl(qs.body, "display") ?? "", /^flex$/);
 	assert.equal(decl(qs.body, "flex-direction"), "column");
@@ -392,7 +392,7 @@ test("the stylesheet: a column of a fixed height with a soft edge that holds the
 	assert.match(forced, /\.zen-qs > \.ask-one\[data-dim\] \{ opacity: 0\.[4-9][^}]*border: 1px dashed GrayText/, "forced colours: a border says which is the other question");
 	const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"), css.indexOf("@media (forced-colors: active)"));
 	assert.match(reduced, /\.zen-qs > \.ask-one \{ transition: none; animation: none; \}/, "the fade is instant");
-	assert.match(rule('[data-view="zen"] .zen-card')!.body, /transition: height/, "the card still eases its own box");
+	assert.doesNotMatch(rule('[data-view="zen"] .zen-card')!.body, /transition/, "the card takes its size at once, with no easing");
 });
 
 test("the stylesheet: on a short window the question area gives way and the send row, Cancel, the outcome, and Maybe later stay on the page", () => {

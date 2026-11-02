@@ -833,3 +833,22 @@ test("Esc while an answer is on its way, after a second dialog replaced the pane
 	assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, "no pause screen");
 	assert.deepEqual(r.calls.posts.length, 1, "no cancel is posted");
 });
+
+test("a card takes its size at once and a swap of its content fades: the first drawing is the entrance, a new dialog or an outcome line sets data-fade, and nothing writes a box height", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d1" }) })]));
+	r.z.show();
+	await r.settle();
+	const slot = r.by((el) => el.getAttribute("class") === "zen-answer")[0]!, out = r.by((el) => el.getAttribute("class") === "zen-out")[0]!, card = r.by((el) => el.getAttribute("class") === "zen-card")[0]!;
+	assert.equal(slot.getAttribute("data-fade"), null, "the first drawing is the card's entrance");
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d1" }) })]));
+	assert.equal(slot.getAttribute("data-fade"), null, "the same dialog again changes nothing");
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d2" }) })]));
+	assert.notEqual(slot.getAttribute("data-fade"), null, "a new dialog on the same unit fades in");
+	assert.equal(out.getAttribute("data-fade"), null);
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5 })]));
+	assert.notEqual(slot.getAttribute("data-fade"), null, "the dialog gone, the words that stand for it fade in");
+	assert.equal(card.getAttribute("style"), null, "no box height is written");
+	const { existsSync } = await import("node:fs");
+	assert.ok(!existsSync(new URL("../gui/zensize.ts", import.meta.url)), "the card's easing is gone with its file");
+});

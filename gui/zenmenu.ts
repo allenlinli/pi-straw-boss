@@ -3,8 +3,8 @@ import { m } from "./paraglide/messages.js";
 import type { Choice } from "./view.ts";
 
 // Zen's corner menu: one quiet button that opens a small panel of the settings a page in Zen would otherwise have to leave for (language, view, sound, the way back to Standard). Every row
-// calls what the settings page calls, so the two never disagree. It opens on hover (desktop: after a short delay, and it closes after a grace period so the pointer can cross the gap), and on a
-// tap or Enter (then it stays until Esc, a second press, or a press outside, and keeps the focus inside).
+// calls what the settings page calls, so the two never disagree. It opens only on a press of its button (a click, a tap, Enter, or Space), never on hover, and takes the focus inside. It closes on Esc,
+// a second press of the button, a press outside, and a choice of language, view, or the way back (the sound's switch and volume stay, so the volume can be set after the switch).
 
 export interface MenuDeps {
 	language?: { get(): string; names(): { id: string; name: string }[]; set(id: string): void };
@@ -12,17 +12,14 @@ export interface MenuDeps {
 	view?: { choice(): Choice; set(c: Choice): void; auto(): string };
 	sound?: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void };
 }
-export const OPEN_MS = 250, GRACE_MS = 500;
-type Later = (fn: () => void, ms: number) => () => void;
-
-export function mountMenu(deps: MenuDeps, leave: () => void, later: Later) {
+export function mountMenu(deps: MenuDeps, leave: () => void) {
 	const button = h("button", { type: "button", class: "zen-menubtn", "aria-haspopup": "true", "aria-expanded": "false", "aria-label": m.zen_menu(), title: m.zen_menu() }, "…");
 	const panel = h("div", { class: "zen-menu", role: "group", "aria-label": m.zen_menu(), hidden: "" }), host = h("div", { class: "zen-menuhost" }, button, panel);
 	const redraw: (() => void)[] = [], controls: HTMLElement[] = [];
 	const row = (label: string, ...ctl: HTMLElement[]) => (controls.push(...ctl), h("div", { class: "zen-row" }, h("span", { class: "zen-rowlab" }, label), h("span", { class: "zen-ctl" }, ...ctl)));
 	const pick = (text: string, pressed: () => boolean, run: () => void) => {
 		const b = h("button", { type: "button", class: "zen-opt" }, text);
-		b.onclick = run;
+		b.onclick = () => (run(), close()); // a choice is made: the menu has done its work
 		redraw.push(() => b.setAttribute("aria-pressed", String(pressed())));
 		return b;
 	};
@@ -45,45 +42,29 @@ export function mountMenu(deps: MenuDeps, leave: () => void, later: Later) {
 		panel.append(row(m.sound(), on), row(m.sound_volume(), vol));
 	}
 	const away = h("button", { type: "button", class: "zen-leave" }, m.zen_leave_title());
-	away.onclick = leave;
+	away.onclick = () => (leave(), close());
 	controls.push(away);
 	panel.append(h("div", { class: "zen-row" }, away), h("div", { class: "zen-music", hidden: "" })); // the music rows (on or off, track, the catalogue) take this slot in Z6
-	let open = false, pinned = false, opening = () => {}, closing = () => {};
-	const show = (pin: boolean) => {
-		opening();
-		closing();
-		if (open) return void (pinned ||= pin);
-		[open, pinned, panel.hidden] = [true, pin, false];
+	let open = false;
+	const show = () => {
+		[open, panel.hidden] = [true, false];
 		button.setAttribute("aria-expanded", "true");
 		redraw.forEach((r) => r());
-		if (pin) controls[0]?.focus();
+		controls[0]?.focus();
 	};
-	const close = () => {
-		opening();
-		closing();
+	function close() {
 		if (!open) return false;
 		const inside = host.contains(document.activeElement);
-		[open, pinned, panel.hidden] = [false, false, true];
+		[open, panel.hidden] = [false, true];
 		button.setAttribute("aria-expanded", "false");
 		if (inside) button.focus();
 		return true;
-	};
-	button.onclick = () => (open && pinned ? close() : show(true)); // a hover that opened it turns into a press that keeps it
-	const mouse = (e: unknown) => (e as { pointerType?: string }).pointerType === "mouse";
-	host.addEventListener("pointerenter", (e) => {
-		if (!mouse(e)) return;
-		closing();
-		if (!open) (opening(), (opening = later(() => show(false), OPEN_MS)));
-	});
-	host.addEventListener("pointerleave", (e) => {
-		if (!mouse(e)) return;
-		opening();
-		if (open && !pinned) (closing(), (closing = later(close, GRACE_MS)));
-	});
+	}
+	button.onclick = () => (open ? close() : show());
 	host.addEventListener("keydown", (e) => {
 		const k = e as unknown as KeyboardEvent;
 		if (k.key === "Escape" && open) (k.preventDefault(), k.stopPropagation?.(), close());
-		else if (k.key === "Tab" && open && pinned && controls.length) {
+		else if (k.key === "Tab" && open && controls.length) {
 			const at = controls.indexOf(document.activeElement as HTMLElement), to = k.shiftKey ? (at <= 0 ? controls.length - 1 : at - 1) : at < 0 || at === controls.length - 1 ? 0 : at + 1;
 			k.preventDefault();
 			controls[to]!.focus();

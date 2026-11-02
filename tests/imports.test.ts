@@ -473,7 +473,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen terminal layer: zen.ts 265 to 272 (the layer's mount, the guards that keep the terminal's keys from the pause, `terminal`), zentypes.ts 49 to 53 (`Term`, the `embed` dep), mirror.ts 200 to 202 (`embed` takes `keys` and `end`); zenterm.ts (the layer: the host, the button, Esc, the two auto-returns) is new.
 	// Zen Z4 feedback: zen.ts 230 to 265 and zentypes.ts 46 to 49 (the ripples dep; Esc's facts and the quiet line, the card's two boxes and their glide, the draft's hold, the ripples' mount), ask.ts 185 to 189 (`cancel()`, the card's Cancel pressed by Esc), zenmenu.ts 90 to 96 (the Auto row and the choice-based marks); zenkeys.ts (Esc's table), zensize.ts (the card's glide), zenripple.ts (the ripples), and viewface.ts (what a view move does to the page's face) are new.
 	// Zen terminal fix round (ZT-F001 to F003): mirror.ts 202 to 207 (the sink says what its pad may do, `entered` for the pad's Enter, a gone pane's refused attach ends it, Shift+Esc lets the sink go); keypad.ts 131 to 135 (`entered`); zenterm.ts 92 to 111 (the Enter rule, the tower's sentence, the dead pad's Esc, the phone's focus).
-	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 151], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 80], ["composer.ts", 327], ["ask.ts", 194], ["terminalthen.ts", 21], ["mirror.ts", 207], ["keypad.ts", 135], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 272], ["zenquestions.ts", 151], ["zentypes.ts", 53], ["zenterm.ts", 111], ["zenlines.ts", 90], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["soundprefs.ts", 14], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
+	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 151], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 80], ["composer.ts", 327], ["ask.ts", 194], ["terminalthen.ts", 21], ["mirror.ts", 207], ["keypad.ts", 136], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 274], ["zenquestions.ts", 151], ["zentypes.ts", 53], ["zenterm.ts", 111], ["zenlines.ts", 90], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["soundprefs.ts", 14], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
 	// 0.28.0 to 185 with the answer keys' hooks into gui/ask.ts (the focus on the first option, the textarea). 0.28.0 raised gui/ask.ts from 156 to 175 for the secret panel: the masked field with Show and Hide, Submit, the way back to the terminal, the unsupported-remote notice, and a value that leaves with its one request.
 	// 0.10.0: the page's text comes from Paraglide's messages (gui/messages), which raised chat.ts, views.ts, layer.ts, ask.ts, mirror.ts, and doc.ts by one
 	// line each for the messages import; the strings replaced in place. gui/i18n.ts picks the locale (the menu's choice, the browser's languages with
@@ -525,7 +525,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// An answer that needs the terminal opens it (feat/answer-opens-terminal) to 270: the demo's robot_hand button (billing-main waits on the selector) and the `then` its answer returns, read from the chosen choice's `next`.
 	// Zen feedback round to 265: the toolbar's server-view button and the stream's `view` event (the demo's stand-in for `/boss gui view`).
 	// Both increments summed (answer-opens-terminal +8, Z4 feedback +3, and the merged toolbar row +1): 274.
-	assert.ok(demo <= 275, `the demo fixture has ${demo} lines`);
+	// Zen polish to 281 (+6): the demo's key pad answers Enter and Esc with a confirm and Tab with a refusal (PAD_REPLIES), so the confirm bar and a refused key can be looked at.
+	assert.ok(demo <= 281, `the demo fixture has ${demo} lines`);
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
 	// 0.15.0 to 254 for the squads' + Member buttons, and gui/spawn.ts to 68 for the new base, member, and squad member tiles and the button reader.
@@ -852,10 +853,11 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen terminal layer: the layer (zenterm.ts, in the Zen chunk) and the embed options in the overlay chunk: 228,825 / 92,327, +2,133 raw / +855 gzipped over R1's 226,692 / 91,472; the eager bytes grew by 150 only.
 	// Zen terminal fix round: 229,790 / 92,677 (+965 raw / +350 gzipped: the Enter rule, the tower's sentence, Shift+Esc, the pad's state on the sink, and the two messages' words), cap 229,900 / 92,800.
 	// Several questions merged over the terminal layer: 234,078 / 94,306, cap 234,100 / 94,400.
+	// Zen polish (the pad confirm's words by token: six messages in both languages and gui/confirmwords.ts, the card's fade, the click-only menu): 235,693 / 94,944, cap 235,700 / 95,000.
 	// Several questions in Zen (feat/zen-multi-question) to 231,400 bytes / 93,600 gzipped: gui/zenquestions.ts (the Zen chunk, from 229,291 / 92,784 to 231,357 / 93,541: +2.1 KB raw, +0.8 KB gzipped).
 	// Its fix round (folded lines with their summaries, paging by wheel and swipe, the deeper foot edge) to 232,691 bytes / 94,096 gzipped (+1,300 / +550 over the first round).
 	// Fix round 2 (dropping far lines on a short column, Ctrl+wheel, summary names in both languages) about +900 / +450.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 234_100 && total(chunks, gz) <= 94_400, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 235_700 && total(chunks, gz) <= 95_000, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -934,8 +936,9 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen feedback round to 117,500 bytes / 25.8 KB gzipped: the card's two boxes and their eased height, the log's overscroll rules, the pill, the ripples' canvas, and the Esc line.
 	// Zen terminal layer to 119,343 bytes / 25,983 gzipped (+1.8 KB raw / +0.2 KB gzipped): the layer's grid, bar, button, host rules, and the quiet Esc line in gui/zen.css.
 	// Several questions merged over the terminal layer: 123,314 / 26,630, cap 123,400 / 26,700.
+	// Zen polish (the pad confirm's two buttons in Zen, the fade rule): 124,108 / 26,719, cap 124,200 / 26,800.
 	// Several questions in Zen (feat/zen-multi-question) to 118,200 bytes / 26 KB gzipped: gui/zen.css grows by the scroller, the faded blocks, and their forced-colors and reduced-motion rules (117,430 / 25,752 to 118,150 / 25,926).
 	// Its fix round to 120,300 bytes / 26.3 KB gzipped: the card's column down to the panel (the send row never given up), the folded lines and their summaries, the soft edges, and the deeper foot while more lies below (118,150 / 25,926 to 120,228 / 26,240).
 	// Fix round 2 to 121,400 bytes / 26.5 KB gzipped: the short-window block (max-height 560px) and the dropped lines (121,372 / 26,403).
-	assert.ok(total(css, (n) => size(n).length) <= 123_400 && total(css, gz) <= 26_700, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	assert.ok(total(css, (n) => size(n).length) <= 124_200 && total(css, gz) <= 26_800, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

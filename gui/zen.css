@@ -1,11 +1,11 @@
 /* The Zen layer (gui/zen.ts): lofi ink. Dark only, low in colour, slow. Text is paper and ash on the ink grounds at 7 : 1 or more; borders, the circle's ring, and the focus ring at 3 : 1 or more
-   (tests/zen-contrast.test.ts computes both from the values below). Only transform, opacity, and filter move, and the answer card's height (its box eases to its content, zensize.ts). Nothing here applies outside the Zen view (docs/specs/2026-11-01-zen-view.md). */
+   (tests/zen-contrast.test.ts computes both from the values below). Only transform, opacity, and filter move; a card takes its size at once and only fades. Nothing here applies outside the Zen view (docs/specs/2026-11-01-zen-view.md). */
 [data-view="zen"] :is(#zen, .connect) {
 	--zen-ground: #14110e; --zen-ground-2: #1b1612; --zen-soft: #26201a; --zen-sunken: #1f1a15; --zen-warm: #4c3a2b; --zen-warm-hi: #574232;
 	--zen-paper: #ebe3d3; --zen-ash: #bdb3a2; --zen-line: #857a6b; --zen-seal: #c4553a; --zen-moss: #8fa58a; --zen-clay: #e8a58f;
 	/* The page's own tokens, in ink: the answer panels, the composer, and the log are Standard's, and follow. */
 	--bg: var(--zen-ground); --bg-2: var(--zen-ground-2); --surface-0: var(--zen-soft); --surface-1: var(--zen-soft); --raised: var(--zen-soft); --sunken: var(--zen-sunken); --well: var(--zen-sunken); --panel: var(--zen-soft); --plate: var(--zen-soft); --plate-hi: var(--zen-soft); --term-bg: var(--zen-sunken); --term-fg: var(--zen-paper);
-	--line: var(--zen-line); --line-c: var(--zen-line); --hi: var(--zen-paper); --shadow: transparent; --text: var(--zen-paper); --dim: var(--zen-ash); --ink: var(--zen-paper);
+	--line: var(--zen-line); --line-c: var(--zen-line); --hi: var(--zen-paper); --shadow: transparent; --text: var(--zen-paper); --dim: var(--zen-ash); --ink: var(--zen-ground);
 	--accent: var(--zen-paper); --accent-hi: var(--zen-paper); --working: var(--zen-ash); --gold: var(--zen-paper); --amber: var(--zen-paper); --ok: var(--zen-moss); --err: var(--zen-clay); --err-soft: var(--zen-clay); --violet: var(--zen-ash); --idle: var(--zen-ash); --unknown: var(--zen-ash);
 	--sans: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; --serif: ui-serif, "Iowan Old Style", "Songti TC", "Noto Serif TC", PMingLiU, serif; --soft: var(--zen-ash);
 	--zen-ease: cubic-bezier(0.4, 0, 0.2, 1);
@@ -57,14 +57,15 @@
 [data-view="zen"] .zen-esc[data-on] { opacity: 1; }
 @keyframes zen-hint { 0%, 100% { opacity: 0; } 15%, 85% { opacity: 1; } }
 @keyframes zen-fade { from { opacity: 0; } }
-/* An item: the card is only the words and the choices, laid out in the middle and appearing one part after another, slowly. The outer box takes an explicit height from the inner one's (zensize.ts) and eases it, so a card entering with its dialog, a line arriving, an outcome, or a second question changes its box smoothly. */
-[data-view="zen"] .zen-card { width: min(36rem, 100%); max-height: 100%; overflow-y: auto; text-align: center; outline: none; scrollbar-width: none; transition: height 0.52s var(--zen-ease); }
+/* An item: the card is only the words and the choices, laid out in the middle and appearing one part after another, slowly (opacity only). The box takes the size its content needs at once; a swap of what it holds fades (below). */
+[data-view="zen"] .zen-card { width: min(36rem, 100%); max-height: 100%; overflow-y: auto; text-align: center; outline: none; scrollbar-width: none; }
 [data-view="zen"] .zen-card-in { display: grid; gap: 14px; padding: 8px 4px; }
 [data-view="zen"] .zen-card-in > * { animation: zen-in 1.8s var(--zen-ease) both; animation-delay: calc(var(--n, 0) * 0.22s); }
 [data-view="zen"] .zen-card-in > :nth-child(2) { --n: 1; } [data-view="zen"] .zen-card-in > :nth-child(3) { --n: 2; } [data-view="zen"] .zen-card-in > :nth-child(4) { --n: 3; } [data-view="zen"] .zen-card-in > :nth-child(5) { --n: 4; } [data-view="zen"] .zen-card-in > :nth-child(6) { --n: 5; }
-@keyframes zen-in { from { opacity: 0; filter: blur(10px); transform: scale(1.02); } }
+@keyframes zen-in { from { opacity: 0; } }
+/* A swap of what the card holds (zen.ts `fade`): the box has taken its new size at once, and the new content fades in over a short moment. Opacity only. */
+[data-view="zen"] .zen-card [data-fade] { animation: zen-fade 0.3s var(--zen-ease) both; }
 [data-view="zen"] .zen-card[data-gone] { position: absolute; top: 50%; left: 50%; translate: -50% -50%; pointer-events: none; animation: zen-ink-out 1.3s ease-in both; }
-[data-view="zen"] .zen-card[data-gone] { transition: none; }
 [data-view="zen"] .zen-card[data-gone] .zen-card-in > * { animation: none; }
 @keyframes zen-ink-out { to { opacity: 0; filter: blur(14px); transform: scale(1.04); } }
 [data-view="zen"] .zen-who { margin: 0; font: 600 1.6rem/1.4 var(--serif); letter-spacing: 0.12em; }
@@ -139,10 +140,13 @@
 [data-view="zen"] .zen-term-host .term-tile { min-height: 0; }
 [data-view="zen"] .zen-term-host .term-scroll { border-color: var(--zen-line); background: var(--zen-sunken); }
 [data-view="zen"] .zen-term-host :is(.pad-key, .term-bar button, .cmp-link) { min-height: 44px; min-width: 44px; }
+[data-view="zen"] .zen-term-host :is(.pad-yes, .pad-no) { min-height: 44px; min-width: 44px; padding: 0 22px; border: 1px solid var(--zen-line); border-radius: 22px; background: transparent; color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; transition: background-color 0.6s var(--zen-ease); }
+[data-view="zen"] .zen-term-host .pad-yes { background: var(--zen-warm); }
+[data-view="zen"] .zen-term-host :is(.pad-yes, .pad-no):hover:not(:disabled) { background: var(--zen-warm-hi); }
 [data-view="zen"] .zen-term-esc { position: fixed; z-index: 5; left: 50%; bottom: max(28px, calc(env(safe-area-inset-bottom) + 16px)); translate: -50% 0; width: max-content; max-width: min(24rem, 90vw); margin: 0; padding: 6px 14px; border-radius: 18px; background: var(--zen-soft); text-align: center; font-size: 0.9rem; color: var(--zen-paper); opacity: 0; transition: opacity 0.4s var(--zen-ease); pointer-events: none; }
 [data-view="zen"] .zen-term-esc:empty { display: none; }
 [data-view="zen"] .zen-term-esc[data-on] { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-term { animation: none; } [data-view="zen"] :is(.zen-term-esc, .zen-term-back) { transition: none; } }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-term { animation: none; } [data-view="zen"] :is(.zen-term-esc, .zen-term-back, .zen-term-host .pad-yes, .zen-term-host .pad-no) { transition: none; } }
 /* The page holds still (calm.ts: 30 s without input): the circle rests at its exhaled size, the ground on one layer. */
 [data-view="zen"][data-calm] :is(.zen-circle, .zen-circle i, .zen-drift i) { animation: none; }
 [data-view="zen"][data-calm] .zen-drift i:last-child { opacity: 0; }
@@ -163,7 +167,7 @@
 	[data-view="zen"] .zen-card:has(.zen-ask) .zen-out { min-height: 0; }
 	[data-view="zen"] .zen-card:has(.zen-ask) .ask-note:empty { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc, .zen-card) { transition: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc) { transition: none; } [data-view="zen"] .zen-card-in > *, [data-view="zen"] .zen-card [data-fade] { animation: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
 @media (forced-colors: active) {
 	[data-view="zen"] .zen-drift, [data-view="zen"] .zen-circle i, [data-view="zen"] .zen-ripples { display: none; }
 	[data-view="zen"] .zen-circle { border: 1px solid CanvasText; background: none; }

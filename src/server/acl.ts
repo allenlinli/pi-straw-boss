@@ -65,6 +65,10 @@ export const ACL_STEPS = [
 	"CheckOwner $dir",
 	"& $icacls $dir /inheritance:r /grant:r \"*${sid}:(OI)(CI)F\" '*S-1-5-18:(OI)(CI)F' | Out-Null",
 	"if ($LASTEXITCODE -ne 0) { throw \"icacls failed with exit code $LASTEXITCODE\" }",
+	// `/grant:r` replaces only the grants of the SIDs it names: an explicit ACE of any other account (an elevated token's folder carries BUILTIN\Administrators) survives `/inheritance:r`. Every other explicit
+	// allow ACE of the folder is removed here by SID, before the reset below hands the folder's ACL to what is under it; the read-back still refuses a folder that holds anything but the owner and SYSTEM.
+	"$strays = @([IO.Directory]::GetAccessControl($dir, [Security.AccessControl.AccessControlSections]::Access).GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]) | ForEach-Object { $_.IdentityReference.Value } | Where-Object { $_ -ne $sid -and $_ -ne 'S-1-5-18' } | Sort-Object -Unique)",
+	"if ($strays.Count -gt 0) { & $icacls $dir /remove:g @($strays | ForEach-Object { '*' + $_ }) | Out-Null; if ($LASTEXITCODE -ne 0) { throw \"icacls failed with exit code $LASTEXITCODE\" } }",
 	// ONE walk reads everything about an entry once (R13, the perf of 3,000 files in link\inbox): its attributes, whether it is a junction or symbolic link (`LinkType`; other reparse points, OneDrive and other
 	// cloud placeholders, dedup, are ordinary files and folders), and its OWNER as a SID. A link or junction, or an owner that is not the user, BUILTIN\Administrators or SYSTEM, is thrown BEFORE any call
 	// below changes anything (R11-F001; VM pass 5b): `/setowner /C` would take an entry another account made and granted the user WRITE_OWNER on, and a reset would rewrite the DACL of an entry it still owns.

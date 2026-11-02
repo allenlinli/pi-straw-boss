@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { system32, system32Path } from "../winpath.ts";
 import { asciiLine, CLM_CHECK, execFailure, folderProblems, OWNER_OK_SIDS, POWERSHELL_FLAGS, PROGRESS_OFF, SYSTEM_SID } from "./acl.ts";
+import { removeArgs, strayGrants } from "./strays.ts";
 
 // The state folder is protected before the first file is created in it (docs/specs/2026-10-26-sb-backend.md, The control socket): a cold start used to leave server.lock, the
 // placeholder record, and server.log with the parent's inherited ACEs (Users read, Authenticated Users modify outside the profile) until the server's PowerShell call, 4 to 7 s later.
@@ -311,7 +312,13 @@ async function shut(dir: string, id: string | undefined, key: string, seen: stri
 	try {
 		if (!id || fileIdentity(dir) !== id) return;
 		await run("icacls.exe", protectArgs(dir, sid!), timeoutMs);
-		const problems = folderProblems(await readDaclAsync(dir, run, timeoutMs), sid!);
+		let dacl = await readDaclAsync(dir, run, timeoutMs);
+		const stray = strayGrants(dacl, sid!);
+		if (stray.length) {
+			await run("icacls.exe", removeArgs(dir, stray), timeoutMs);
+			dacl = await readDaclAsync(dir, run, timeoutMs);
+		}
+		const problems = folderProblems(dacl, sid!);
 		if (problems.length) throw new Error(problems.join("; "));
 		open.delete(key);
 		remember(dir, id);
@@ -400,7 +407,15 @@ function secure(target: string, run: RunNative, left: () => number | undefined, 
 	stepOf("protect", target, () => run("icacls.exe", protectArgs(target, sid!), left()));
 	// The folder could have been swapped for a link between the first look and the calls: looked at again before anything is read from it or written into it.
 	refuseLink(target);
-	const problems = folderProblems(stepOf("read-back", target, () => readDacl(target, run, left())), sid!);
+	let dacl = stepOf("read-back", target, () => readDacl(target, run, left()));
+	// `/grant:r` leaves the explicit ACEs of other accounts (BUILTIN\Administrators on an elevated token's new folder): they are taken off by SID, and the folder is read back again. What cannot be taken off is refused below.
+	const stray = strayGrants(dacl, sid!);
+	if (stray.length) {
+		stepOf("protect", target, () => run("icacls.exe", removeArgs(target, stray), left()));
+		refuseLink(target);
+		dacl = stepOf("read-back", target, () => readDacl(target, run, left()));
+	}
+	const problems = folderProblems(dacl, sid!);
 	if (problems.length) throw new Refused(problems.join("; "));
 	// The owner was judged above (or by the gate) and the DACL is closed now: the gate need not read this folder again.
 	if (!fresh) remember(target, read);

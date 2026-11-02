@@ -71,7 +71,7 @@ test("the folder is protected first and without /T, then everything already in i
 	assert.match(reset[0]!, /^& \$icacls "\$dir\\\*" \/reset \/T \/C \/L \/Q \| Out-Null$/);
 	assert.ok(lines.indexOf(reset[0]!) > folder, "after the folder");
 	assert.ok(lines.findIndex((l) => l.includes("(Sddl $p)")) > lines.indexOf(reset[0]!), "the SDDLs are read back after the repair");
-	assert.equal(ACL_SCRIPT.match(/& \$icacls/g)!.length, 3, "icacls is started three times, whatever the number of items: the folder, the reset, and the owner of what is below (R7-F002)");
+	assert.equal(ACL_SCRIPT.match(/& \$icacls/g)!.length, 4, "icacls is started four times, whatever the number of items: the folder, the folder's other grants taken off by SID (only when it has any), the reset, and the owner of what is below (R7-F002)");
 	assert.equal(ACL_SCRIPT.match(/icacls\.exe/g)!.length, 1, "named once, by the system folder's path");
 	// The files the check reads include the ones that existed before the ACL: the lock the starter took and the log.
 	assert.match(ACL_SCRIPT, /'server\.json', 'server\.lock', 'server\.log'/);

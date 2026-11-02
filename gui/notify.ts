@@ -17,7 +17,7 @@ type Kind = "waiting" | "error" | "done";
 const SOUNDS: Record<Kind, string> = { waiting: waitingUrl, error: errorUrl, done: doneUrl };
 const kindOf = (a: Alert): Kind | undefined => (a.mark === "waiting" || a.pending ? "waiting" : a.mark === "error" ? "error" : a.mark === "done" ? "done" : undefined);
 
-export interface Notifier { signal(fresh: Alert[]): void; /** Zen: the system notification for the one item that took the screen while the page is hidden or unfocused (no clip, nothing for the items behind it). */ remind(a: Alert): void; /** The finished-unit clip, when Sound is on: a new unit that is ready (deploy.ts). */ chime(): void; /** The Sound switch and Volume as the settings page has them (the Zen menu drives the same). */ sound: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void } }
+export interface Notifier { signal(fresh: Alert[]): void; /** Zen: the system notification for the one item that took the screen while the page is hidden or unfocused (no clip, nothing for the items behind it). */ remind(a: Alert): void; /** The finished-unit clip, when Sound is on: a new unit that is ready (deploy.ts). */ chime(): void; /** The Sound switch and Volume as the settings page has them (the Zen menu drives the same). */ sound: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void; /** Called after another tab's Sound or Volume was applied here (the Zen menu redraws). */ onChange(fn: () => void): void } }
 
 /** Mounts the settings page's reminder switch (`#remind`) and sound switch with its volume (`#sound`, `#sound-vol`) and returns what plays a snapshot's new alerts. */
 export function mountNotify(open: (a: Alert) => void): Notifier {
@@ -27,7 +27,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	const can = typeof Notification !== "undefined";
 	let remind = prefs.get("remind"), sound = prefs.get("sound"), volume = prefs.get("volume");
 	let ac: AudioContext | undefined, gain: GainNode | undefined;
-	const clips = new Map<Kind, Promise<AudioBuffer>>();
+	const clips = new Map<Kind, Promise<AudioBuffer>>(), told: (() => void)[] = [];
 	const draw = () => {
 		const perm = can ? Notification.permission : "denied";
 		remindBtn.setAttribute("aria-pressed", String(remind));
@@ -55,8 +55,8 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 		if (sound) play("done");
 	};
 	const setVolume = (v: number) => (prefs.set("volume", (volume = v)), draw());
-	prefs.on("sound", () => ((sound = prefs.get("sound")), draw())); // another tab's switch applies here
-	prefs.on("volume", () => ((volume = prefs.get("volume")), draw()));
+	prefs.on("sound", () => ((sound = prefs.get("sound")), draw(), told.forEach((f) => f()))); // another tab's switch applies here
+	prefs.on("volume", () => ((volume = prefs.get("volume")), draw(), told.forEach((f) => f())));
 	soundBtn.onclick = () => setSound(!sound);
 	vol.oninput = () => setVolume(Number(vol.value));
 	vol.onchange = () => play("done");
@@ -83,7 +83,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	draw();
 	return {
 		remind: (a) => notice(a, "waiting"),
-		sound: { on: () => sound, volume: () => volume, set: setSound, setVolume, try: () => play("done") },
+		sound: { on: () => sound, volume: () => volume, set: setSound, setVolume, try: () => play("done"), onChange: (fn) => void told.push(fn) },
 		chime: () => sound && play("done"),
 		signal(fresh) {
 			const due = fresh.flatMap((a) => ((k) => (k ? [{ a, k }] : []))(kindOf(a)));

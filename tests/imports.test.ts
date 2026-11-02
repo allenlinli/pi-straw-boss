@@ -757,8 +757,9 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Views-core R3b (the actions, 7 more parts handed in): 89,908 / 32,209, +905 raw / +484 gzipped over R2 (entry alone 86,453 / 30,476), inside the 1.0 KB raw cap for R3 as a whole that sb backlog set after R3a measured +756: a seam of 23 parts, not code that grew.
 	// Zen terminal layer (the layer itself is in the Zen chunk; the entry takes only the page's two calls and the shared `embed`): 90,058 / 32,256, +150 raw / +47 gzipped over R3b, inside the 0.3 KB cap that sb backlog set.
 	// Views-core R6 (gui/prefs.ts: one typed store for the device's preferences, replacing soundprefs.ts and the stores in notify.ts, view.ts, i18n.ts, layer.ts, zenfs.ts, and zenwith.ts; Sound and Volume now follow another tab): 90,346 / 32,404, +288 raw / +151 gzipped over the Zen terminal layer (90,058 / 32,253), inside the 0.3 KB raw cap.
+	// R6 review follow-up (VC6-F002: the open Zen menu redraws when another tab changes Sound or Volume, `Notifier.sound.onChange`): 90,415 / 32,421, +69 raw / +17 gzipped over R6.
 	const eagerBytes = total([...eager], (n) => size(n).length), eagerGz = total([...eager], gz);
-	assert.ok(eagerBytes <= 90_350 && eagerGz <= 32_410, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	assert.ok(eagerBytes <= 90_430 && eagerGz <= 32_430, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).

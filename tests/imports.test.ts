@@ -950,5 +950,6 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Fix round 2 to 121,400 bytes / 26.5 KB gzipped: the short-window block (max-height 560px) and the dropped lines (121,372 / 26,403).
 	// Fix round 3 to 121,600 bytes / 26.55 KB gzipped: the 340px rule for a lone question's context and the open block's row size (121,500 / 26,429).
 	// Integration of fix/zen-polish and feat/zen-multi-question to 124,400 bytes / 26.9 KB gzipped (measured 124,236 / 26,746): the confirm pair, the questions' scroller and edges, and the 340px rule.
-	assert.ok(total(css, (n) => size(n).length) <= 124_400 && total(css, gz) <= 26_900, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Zen's yellows (the ochre tokens, the muted mirror, the paper tokens): 124,740 / 26,839, cap 124,800 / 26,900.
+	assert.ok(total(css, (n) => size(n).length) <= 124_800 && total(css, gz) <= 26_900, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

@@ -4,7 +4,7 @@ import type { StepOpen } from "./terminalthen.ts";
 // The terminal card's demo (docs/specs/2026-11-02-terminal-card.md, section 12), for `npm run gui:dev` and the demo build: `?card=<state>` opens the card a moment after the page starts, with or without `?zen=`, and this script answers its
 // terminal. `prompt`: billing-main's prompt waits for Enter (the server asks to confirm the command, then takes it). `reload`: the same with a /reload (an ending command). `type`: a pane waits at `$ sudo apt update`; Enter asks for a
 // password, text and Enter print three rows, and the pane closes 4 s later. `run`: output scrolls for 8 s, then the pane closes. `secretmiss`: a prompt the rule cannot know (`Enter secret>`). `refused`: every key is refused. `stale`: the
-// frames stop. `gone`: the attach is refused as not found. `hidden`: a session behind a secret_drop. `held`: a tower standing by. `second`: another browser already holds the terminal, so the attach is refused.
+// frames stop. `gone`: the attach is refused as not found. `hidden`: a session behind a secret_drop. `held`: a tower standing by. `second`: the page already shows two terminals, so the attach is refused (429 `too_many`) and keys are refused for lack of a mirror.
 
 export const CARD_STATES = ["prompt", "reload", "type", "run", "secretmiss", "refused", "stale", "gone", "hidden", "held", "second"] as const;
 export type CardState = (typeof CARD_STATES)[number];
@@ -24,7 +24,7 @@ export function demoCard(state: CardState, send: (type: string, payload: unknown
 	let stage = 0, seq = 0, beat: ReturnType<typeof setInterval> | undefined, began = 0, closeAt = Infinity;
 	const rows = (): string[] => {
 		if (state === "run") return ["$ sudo apt update", ...Array.from({ length: Math.min(40, Math.floor((Date.now() - began) / 1000) + 1) }, (_, i) => `Get:${i + 1} http://ports.ubuntu.com/ubuntu-ports noble-security/main arm64 Packages [${120 + i * 7} kB]`)];
-		if (state === "secretmiss") return ["$ ssh deploy@harbor", "Welcome to Harbor.", stage ? "Accepted." : "Enter secret>"];
+		if (state === "secretmiss") return ["$ sudo apt update", "Reading package lists… Done", stage ? "Accepted." : "Enter secret>"];
 		if (state === "stale") return ["$ sudo apt update", "Working…"];
 		return ["$ sudo apt update", ...(stage > 0 ? ["[sudo] password for boss:"] : []), ...(stage > 1 ? OUT : [])];
 	};
@@ -42,7 +42,7 @@ export function demoCard(state: CardState, send: (type: string, payload: unknown
 			stop();
 			if (!on) return ok({ attached: false });
 			if (state === "gone") return no(404, "not_found", "That pane is gone.");
-			if (state === "second") return no(409, "busy", "Another page is already showing this terminal; close it there first.");
+			if (state === "second") return no(429, "too_many", "A page shows at most 2 terminals; close one first.");
 			if (state === "run") closeAt = Date.now() + 8000;
 			[began, beat] = [Date.now(), setInterval(tick, 1000)];
 			setTimeout(tick, 50);
@@ -51,7 +51,7 @@ export function demoCard(state: CardState, send: (type: string, payload: unknown
 		/** The terminal's keys: Enter for a session's prompt (the confirm, then taken), Enter and text for a pane. */
 		keys(at: string, body: Record<string, unknown>): Answer | undefined {
 			if (at !== key) return undefined;
-			if (state === "refused") return no(409, "no_mirror", "Keys are sent only while this page shows the session's terminal live; open it again.");
+			if (state === "refused" || state === "second") return no(409, "no_mirror", "Keys are sent only while this page shows the session's terminal live; open it again.");
 			if (state === "hidden") return no(409, "blocked", "While it waits on a secret only Escape is sent from here.");
 			if (body.key !== "enter") return ok();
 			if (!pane) {

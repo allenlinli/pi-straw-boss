@@ -7,10 +7,18 @@ import { endedWhy, refusalText, REFUSAL_CODES } from "../gui/termwords.ts";
 
 const ans = (error: string, reason = "the server's words", status = 409) => ({ ok: false, status, body: { error, reason } });
 const source = (file: string) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
-const codes = [...new Set([...source("keys.ts").matchAll(/\bno\(\d+, "([a-z_]+)"/g), ...source("mirror.ts").matchAll(/\bno\(\d+, "([a-z_]+)"/g)].map((x) => x[1]!))].filter((c) => c !== "confirm");
+/** The codes the keys and mirror routes refuse with: their own files whole, a pane's answerpane.ts whole, and control.ts's lines for the session routes (the tower standing, the mirror, the session, the key in flight). */
+const routes = () => {
+	const lines = source("control.ts").split("\n"), from = lines.findIndex((l) => l.includes('if (action === "mirror")'));
+	const to = lines.findIndex((l, i) => i > from && l.includes('if (action === "commands")'));
+	return [...lines.filter((l) => l.includes('["keys", "mirror", "focus"]') || l.includes("Another input to this session")), ...lines.slice(from, to)].join("\n");
+};
+const found = (text: string) => [...text.matchAll(/\bno\(\d+, "([a-z_]+)"/g)].map((x) => x[1]!);
+const codes = [...new Set([...found(source("keys.ts")), ...found(source("mirror.ts")), ...found(source("answerpane.ts")), ...found(routes())])].filter((c) => c !== "confirm");
 const CJK = /[\u4e00-\u9fff]/;
 
-test("every code the server's keys and mirror refuse with has the page's words, and the table lists no code the server lacks", () => {
+test("every code the server's keys and mirror routes refuse with (keys.ts, mirror.ts, answerpane.ts, control.ts) has the page's words, and the table lists no code the server lacks", () => {
+	assert.ok(codes.includes("standing") && codes.includes("not_found") && codes.includes("pane_closed"), "the control.ts and answerpane.ts codes are read");
 	assert.ok(codes.length >= 12, `${codes.length} codes found in the sources`);
 	assert.deepEqual([...REFUSAL_CODES].sort(), [...codes].sort());
 });

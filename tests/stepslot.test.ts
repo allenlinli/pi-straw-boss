@@ -23,7 +23,7 @@ function rig() {
 	const calls = { watches: [] as { key: string; name: string; w: W }[], stops: [] as string[], shows: [] as string[], panes: [] as string[], posts: [] as { key: string; body: Record<string, unknown> }[] };
 	const kit = {
 		embed: () => () => {},
-		watch: (key: string, name: string, w: W) => (calls.watches.push({ key, name, w }), { conn: { key, rows: [] as string[], cols: 80, phase: "live", why: "", stale: () => false }, stop: () => void calls.stops.push(key) }),
+		watch: (key: string, name: string, w: W) => (calls.watches.push({ key, name, w }), { conn: { key, rows: [] as string[], cols: 80, phase: "live", why: "", stale: () => false }, stop: () => void calls.stops.push(key), retry: () => {} }),
 		post: (key: string) => async (_a: string, body: Record<string, unknown>) => (calls.posts.push({ key, body }), { ok: true, status: 200, body: {} }),
 		stream: () => "st",
 	};
@@ -130,5 +130,35 @@ test("focus() gives the card the focus a closing dialog took", () => {
 		page.focus = undefined;
 		r.slot.focus();
 		assert.equal(page.focus, r.cards()[0]!.byClass("tcard-input"));
+	} finally { r.done(); }
+});
+
+test("the card writes to the terminal it shows: a pane step's keys go to its grant and a prompt step's to the session, never to the unit that asked, and the connection and the writes name the same key", async () => {
+	const r = rig();
+	try {
+		r.slot.step({ kind: "pane", key: "grant:g1", asker: "a" }, N);
+		r.cards()[0]!.byClass("tcard-go")!.onclick!({ isTrusted: true });
+		await Promise.resolve();
+		assert.deepEqual(r.calls.posts.map((p) => p.key), ["grant:g1"], "the pane's grant, not the asker");
+		assert.equal(r.calls.watches[0]!.key, r.calls.posts[0]!.key);
+		r.slot.step({ kind: "prompt", key: "sess", asker: "a" }, N);
+		r.cards()[0]!.byClass("tcard-go")!.onclick!({ isTrusted: true });
+		await Promise.resolve();
+		assert.deepEqual(r.calls.posts.map((p) => p.key), ["grant:g1", "sess"], "the session the prompt is in");
+		assert.equal(r.calls.watches[1]!.key, "sess");
+	} finally { r.done(); }
+});
+
+test("a replaced card's late reply closes nothing of the card that took its place", async () => {
+	const r = rig();
+	try {
+		r.slot.step({ kind: "prompt", key: "a", asker: "a" }, N);
+		const old = r.cards()[0]!;
+		old.byClass("tcard-go")!.onclick!({ isTrusted: true });
+		r.slot.step({ kind: "pane", key: "grant:g1", asker: "a" }, N);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		assert.equal(r.calls.posts.length, 1, "the old Enter was answered 200 (taken) after the new card stood");
+		assert.equal(r.cards().length, 1, "and the pane's card stands");
+		assert.notEqual(r.cards()[0], old);
 	} finally { r.done(); }
 });

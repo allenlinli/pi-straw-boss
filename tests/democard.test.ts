@@ -29,7 +29,9 @@ test("a prompt's Enter asks to confirm, then is taken with the token it named", 
 test("refusals: keys refused, a hidden session, a second page, and a pane that is gone", () => {
 	for (const [state, status] of [["refused", 409], ["hidden", 409]] as const) assert.equal(demoCard(state, quiet).keys(stepOf(state).key, { key: "enter" })!.status, status, state);
 	const second = demoCard("second", quiet), gone = demoCard("gone", quiet);
-	assert.deepEqual([second.mirror(stepOf("second").key, true)!.status, gone.mirror(stepOf("gone").key, true)!.status], [409, 404]);
+	assert.deepEqual([second.mirror(stepOf("second").key, true)!.status, gone.mirror(stepOf("gone").key, true)!.status], [429, 404]);
+	assert.equal(second.mirror(stepOf("second").key, true)!.body.error, "too_many", "the server's code for a third terminal on a page, which the page words itself");
+	assert.equal(second.keys(stepOf("second").key, { key: "enter" })!.body.error, "no_mirror", "nothing is attached, so keys are refused");
 	assert.equal(second.mirror(stepOf("second").key, false)!.ok, true);
 });
 

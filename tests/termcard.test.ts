@@ -22,10 +22,10 @@ function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "bil
 	page.focus = undefined;
 	const posts: { action: string; body: Record<string, unknown> }[] = [], replies: ((r: Reply) => void)[] = [], overs: string[] = [];
 	const conn = { key: "k", rows: [] as string[], cols: 80, phase: "live" as Phase, why: "", stale: () => stale };
-	let stale = false, hold: string | undefined, w!: { rows(rows: string[]): void; state(s: string, c: unknown): void; end(): void; taken(): void }, stops = 0;
+	let stale = false, hold: string | undefined, w!: { rows(rows: string[]): void; state(s: string, c: unknown): void; end(): void; taken(): void }, stops = 0, retries = 0;
 	const card = termCard({
 		step: { kind, key: kind === "pane" ? "grant:g1" : "S", name, command },
-		watch: (x) => ((w = x), { conn: conn as never, stop: () => void stops++ }),
+		watch: (x) => ((w = x), { conn: conn as never, stop: () => void stops++, retry: () => (retries++, rig.phase("connecting")) }),
 		post: (action, body) => (posts.push({ action, body }), new Promise((resolve) => replies.push(resolve as never))),
 		stream: () => "st",
 		held: () => hold,
@@ -44,6 +44,7 @@ function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "bil
 		end: () => w.end(),
 		taken: () => w.taken(),
 		stops: () => stops,
+		retries: () => retries,
 		click: (b: El) => b.onclick!({ isTrusted: true }),
 		press: () => rig.click(rig.go()),
 		reply: async (status: number, body: Record<string, unknown> = {}) => (replies.shift()!({ ok: status < 300, status, body }), await settle()),
@@ -500,4 +501,136 @@ test("stop leaves the connection and the card keeps nothing of what was typed", 
 		assert.equal(q.stops(), 1);
 		assert.ok(!q.el.all().some((e) => e.getAttribute("value") === "hunter2" || e.textContent.includes("hunter2")), "the typed text is in the field only");
 	} finally { q.done(); }
+});
+
+test("a card whose attach was refused reattaches from its button instead of sending keys, says it is connecting, and backs off when refused again", async () => {
+	for (const kind of ["prompt", "pane"] as const) {
+		const q = rig(kind);
+		try {
+			q.phase("refused", "Too many terminals are open.");
+			assert.equal(q.el.dataset.state, "refused");
+			assert.ok(!q.go().disabled, "the button is enabled");
+			q.press();
+			assert.equal(q.retries(), 1, "one attach again");
+			assert.deepEqual(q.posts, [], "and no key, which the server would refuse for lack of a mirror");
+			assert.equal(q.el.dataset.state, "connecting");
+			assert.equal(q.status().textContent, m.connecting());
+			assert.ok(q.go().disabled);
+			q.phase("refused", "again");
+			q.press();
+			assert.equal(q.retries(), 1, "refused again at once: it waits");
+			assert.equal(q.el.dataset.state, "connecting", "and says so");
+			q.tick(999);
+			assert.equal(q.retries(), 1);
+			q.tick(1);
+			assert.equal(q.retries(), 2, "the second try after 1 s");
+			q.phase("refused", "again");
+			q.press();
+			q.tick(1999);
+			assert.equal(q.retries(), 2);
+			q.tick(1);
+			assert.equal(q.retries(), 3, "the third after 2 s more");
+			q.rows(["$ "]);
+			q.phase("live");
+			q.press();
+			assert.deepEqual(q.posts.length, 1, "attached: the button sends keys again");
+		} finally { q.done(); }
+	}
+	const w = rig("prompt");
+	try {
+		w.phase("refused", "x");
+		w.press();
+		w.phase("refused", "x");
+		w.press();
+		w.card.stop();
+		w.tick(10_000);
+		assert.equal(w.retries(), 1, "a card that is gone does not reattach");
+	} finally { w.done(); }
+});
+
+test("the Enter that commits an input method's composition (keyCode 229 with isComposing already false) sends nothing and is left to the browser", () => {
+	const q = rig("pane");
+	try {
+		q.rows(["$ "]);
+		assert.equal(q.input().fire("keydown", { key: "Enter", keyCode: 229, isComposing: false }), false, "not kept from the browser, which commits the candidate");
+		assert.equal(q.posts.length, 0);
+		assert.equal(q.input().fire("keydown", { key: "Enter", isComposing: true }), false);
+		assert.equal(q.posts.length, 0);
+		assert.equal(q.input().fire("keydown", { key: "Enter", keyCode: 13 }), true);
+		assert.equal(q.posts.length, 1);
+	} finally { q.done(); }
+});
+
+test("a card that was stopped is over for good: a late reply to its Enter or its text closes nothing", async () => {
+	for (const reply of [[200, {}], [404, { error: "not_found" }], [409, { error: "pane_closed" }]] as const) {
+		const q = rig("prompt");
+		try {
+			q.press();
+			q.card.stop();
+			await q.reply(reply[0], reply[1]);
+			q.taken();
+			q.end();
+			assert.deepEqual(q.overs, [], `a late ${reply[0]} after stop`);
+		} finally { q.done(); }
+	}
+	const p = rig("pane");
+	try {
+		p.rows(["$ "]);
+		p.input().value = "yes";
+		p.press();
+		p.card.stop();
+		await p.reply(404, { error: "not_found" });
+		assert.deepEqual(p.overs, []);
+	} finally { p.done(); }
+});
+
+test("a text that landed is not put back when its Enter is refused, so a retry does not type it twice", async () => {
+	const q = rig("pane");
+	try {
+		q.rows(["$ "]);
+		q.input().value = "yes";
+		q.press();
+		await q.reply(200);
+		q.tick(130);
+		await q.reply(409, { error: "rate", reason: "slow" });
+		assert.equal(q.input().value, "", "the line already holds it");
+	} finally { q.done(); }
+});
+
+test("the mask reset on an accepted send does not unmask characters typed while it was on its way", async () => {
+	const q = rig("pane");
+	try {
+		q.rows(["Enter secret>"]);
+		q.click(q.mask());
+		q.input().value = "s3cret";
+		q.press();
+		q.input().value = "next";
+		await q.reply(200);
+		q.tick(130);
+		await q.reply(200);
+		assert.equal(q.input().type, "password", "typed characters stay hidden");
+		assert.equal(q.input().value, "next");
+		q.input().value = "";
+		q.rows(["ok", "$ "]);
+		assert.equal(q.input().type, "text", "and the empty field follows the prompt again");
+	} finally { q.done(); }
+});
+
+test("the auto-mask moves the focus only from the page's body or from inside the card, never from another field", () => {
+	const q = rig("pane");
+	try {
+		const other = new El("textarea");
+		page.root.append(other);
+		other.focus();
+		q.rows(PW);
+		assert.equal(q.input().type, "password", "the field is masked all the same");
+		assert.equal(page.focus, other, "the boss's typing elsewhere is not taken");
+	} finally { q.done(); }
+	const r = rig("pane");
+	try {
+		page.root.append(r.el);
+		r.mask().focus();
+		r.rows(PW);
+		assert.equal(page.focus, r.input(), "from inside the card it goes to the line");
+	} finally { r.done(); }
 });

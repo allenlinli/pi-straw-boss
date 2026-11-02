@@ -178,9 +178,10 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 			if (keys && globalThis.matchMedia?.("(pointer: fine)").matches) requestAnimationFrame(() => at.sink.focus({ preventScroll: true }));
 			return () => ((at.end = at.taken = undefined), tile.closed?.(), host.replaceChildren());
 		},
-		/** The connection of `key` without a screen, for a view that draws its own (the terminal card): `rows`, `state`, `end` as the connection tells them, `taken` when the server took an Enter a pad on this key sent. It shares the attach with a tile or embed of the same key, so the first to join attaches and the last to leave detaches; `stop` leaves. */
+		/** The connection of `key` without a screen, for a view that draws its own (the terminal card): `rows`, `state`, `end` as the connection tells them, `taken` when the server took an Enter a pad on this key sent. `retry` attaches again after a refusal. It shares the attach with a tile or embed of the same key, so the first to join attaches and the last to leave detaches; `stop` leaves. */
 		watch(key: string, _name: string, { rows, state, end, taken }: { rows?(rows: string[]): void; state?(s: TermState, c: Conn): void; end?(): void; taken?(): void }) {
-			return conns.join(key, { rows: rows && ((r) => rows(r)), state, end, taken });
+			const joined = conns.join(key, { rows: rows && ((r) => rows(r)), state, end, taken });
+			return { ...joined, retry: () => conns.retry(joined.conn) };
 		},
 		/** This page's stream id, which a write to a terminal's keys names. */
 		id: conns.id,

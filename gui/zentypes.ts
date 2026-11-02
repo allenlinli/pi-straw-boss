@@ -20,7 +20,7 @@ export interface Term { key: string; armed?: boolean }
 /** The page's terminals behind the overlay chunk (mirror.ts, layer.ts): the full terminal embedded in a host, a terminal's connection without a screen (the card's), and what a write to its keys needs. */
 export interface TermKit {
 	embed(key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void; taken?: () => void }): () => void;
-	watch(key: string, name: string, w: { rows(rows: string[]): void; state(s: TermState, c: Conn): void; end(): void; taken(): void }): { conn: Conn; stop(): void };
+	watch(key: string, name: string, w: { rows(rows: string[]): void; state(s: TermState, c: Conn): void; end(): void; taken(): void }): { conn: Conn; stop(): void; retry(): void };
 	post(key: string): KeysPost;
 	stream(): string;
 }

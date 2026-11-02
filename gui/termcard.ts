@@ -14,8 +14,8 @@ import { m } from "./paraglide/messages.js";
 export interface Step { kind: Kind; key: string; name: string; command?: string }
 export interface CardDeps {
 	step: Step;
-	/** The page's connection to the step's terminal without a screen (mirror.ts `watch`); `taken`: an Enter a pad on the same key got taken. */
-	watch(w: { rows(rows: string[]): void; state(s: TermState, c: Conn): void; end(): void; taken(): void }): { conn: Conn; stop(): void };
+	/** The page's connection to the step's terminal without a screen (mirror.ts `watch`); `taken`: an Enter a pad on the same key got taken; `retry`: attach again after a refusal or a failure. */
+	watch(w: { rows(rows: string[]): void; state(s: TermState, c: Conn): void; end(): void; taken(): void }): { conn: Conn; stop(): void; retry(): void };
 	post: Post;
 	stream(): string;
 	/** The sentence that stands for a tower with no run live, or none. */
@@ -30,8 +30,11 @@ export interface CardDeps {
 const OK: CardState[] = ["live", "secret", "running", "refused"], WORDS: Partial<Record<CardState, () => string>> = { connecting: m.connecting, secret: m.card_secret, sending: m.card_sending, stale: m.card_stale, paused: m.paused_hidden, hidden: m.mirror_hidden };
 let ids = 0;
 
-export function termCard({ step, watch, post, stream, held, over, escape = true, close = true }: CardDeps) {
+export function termCard({ step, watch, post, stream, held, over: owner, escape = true, close = true }: CardDeps) {
 	const pane = step.kind === "pane", id = `tcard-${++ids}`, fine = () => Boolean(globalThis.matchMedia?.("(pointer: fine)").matches);
+	let stopped = false, tries = 0, nextAt = 0, retrying: ReturnType<typeof setTimeout> | undefined;
+	// A card that is gone says nothing more: a late reply to what it sent must not close the card or layer that took its place.
+	const over: CardDeps["over"] = (why) => stopped || owner(why);
 	let name = step.name, mask = NO_MASK, ended = false, refusal = "", confirm: { token: string; said: string } | undefined, sent = false, after: string[] | undefined, kept = "", shown = "";
 	const title = h("h2", { id, tabindex: "-1" }), command = h("pre", { class: "tcard-cmd" }, step.command), cmdOut = h("div", { class: "tcard-cmdbox" }, command);
 	const tailEl = h("pre", { class: "tcard-tail", "aria-live": "off" }), wait = h("p", { class: "tcard-wait" });
@@ -45,7 +48,7 @@ export function termCard({ step, watch, post, stream, held, over, escape = true,
 		post,
 		stream,
 		busy: () => draw(),
-		taken: (w) => isEnter(w) && onTaken(),
+		taken: (w) => ("text" in w ? (kept = "") : isEnter(w) && onTaken()), // text that landed is in the pane's line: a refused Enter must not put it back
 		failed: (w, r) => {
 			if (kept && !input.value) input.value = kept;
 			kept = "";
@@ -63,11 +66,12 @@ export function termCard({ step, watch, post, stream, held, over, escape = true,
 	function onTaken() {
 		kept = "";
 		if (stepRule(step.kind, { type: "taken" }) === "close") return over("taken");
-		[sent, after, mask] = [true, tail(conn.rows), NO_MASK]; // a hand mask is for the prompt it answered
+		[sent, after] = [true, tail(conn.rows)];
+		mask = input.value ? { on: mask.on, hand: false } : NO_MASK; // a hand mask is for the prompt it answered; characters typed meanwhile stay hidden
 		draw();
 	}
 	const busy = () => writer.busy() || writer.queued() > 0;
-	const state = () => cardState({ kind: step.kind, phase: conn.phase, stale: conn.stale(), rows: conn.rows, held: held(), ended, sending: busy(), refused: Boolean(refusal), confirm: confirm?.token, after } satisfies CardFacts);
+	const state = () => cardState({ kind: step.kind, phase: retrying ? "connecting" : conn.phase, stale: conn.stale(), rows: conn.rows, held: held(), ended, sending: busy(), refused: Boolean(refusal), confirm: confirm?.token, after } satisfies CardFacts);
 	/** The server's confirm in the page's words by its token (Enter's only), and the server's own for a token it does not know. */
 	const sentence = ({ token, said }: { token: string; said: string }) => (token === "command" ? m.card_confirm_command({ name }) : token === "unread" ? m.card_confirm_unread({ name }) : ENDING.test(`/${token}`) ? m.card_confirm_ending({ command: token }) : said);
 	const ask = () => confirmBar(status, sentence(confirm!), m.card_confirm_yes(), () => (writer.confirm("enter", confirm!.token), (confirm = undefined), draw()), () => ((confirm = undefined), draw(), focus()));
@@ -75,7 +79,9 @@ export function termCard({ step, watch, post, stream, held, over, escape = true,
 		if (!link && !held()) attach();
 		const s = state(), secret = pane && conn.phase === "live" && secretPrompt(conn.rows);
 		const next = pane ? maskStep(mask, { secret, empty: input.value === "" }) : mask;
-		if (next.on && !mask.on && !next.hand && fine()) input.focus();
+		if (conn.phase === "live") [tries, nextAt] = [0, 0];
+		const at = document.activeElement; // the boss typing in another field keeps the focus: the status line says it
+		if (next.on && !mask.on && !next.hand && fine() && (!at || at === document.body || el.contains(at))) input.focus();
 		mask = next;
 		title.textContent = m.terminal_title({ name });
 		wait.textContent = m.card_waits({ name });
@@ -90,8 +96,23 @@ export function termCard({ step, watch, post, stream, held, over, escape = true,
 		const key = s === "confirm" ? `ask:${confirm?.token}` : `${s}:${words}`;
 		if (key !== shown) ((shown = key), s === "confirm" ? ask() : (status.replaceChildren(words ?? ""), (status.dataset.tone = s === "refused" ? "error" : "")));
 	}
+	/** A refused attach is tried again from the button, at most once a second and doubling to 8 s while it keeps failing; the card says it is connecting meanwhile. */
+	function reattach() {
+		[refusal, confirm] = ["", undefined];
+		const again = () => {
+			retrying = undefined;
+			nextAt = Date.now() + Math.min(1000 * 2 ** tries++, 8000);
+			if (link) link.retry();
+			else attach();
+			draw();
+		}, wait = nextAt - Date.now();
+		if (wait > 0) retrying = setTimeout(again, wait);
+		else again();
+		draw();
+	}
 	function press() {
 		if (!OK.includes(state()) || busy()) return;
+		if (conn.phase === "refused") return reattach();
 		[refusal, confirm, sent] = ["", undefined, false];
 		if (!pane) writer.push({ key: "enter" });
 		else (([kept] = [mask.on ? "" : input.value]), writer.text(input.value), (input.value = ""), writer.push({ key: "enter" }));
@@ -99,7 +120,7 @@ export function termCard({ step, watch, post, stream, held, over, escape = true,
 	}
 	go.onclick = (e) => e.isTrusted && press();
 	go.addEventListener("keydown", (e) => e.key === "Enter" && e.repeat && e.preventDefault()); // a held Enter from the answer must not run the command
-	input.addEventListener("keydown", (e) => e.key === "Enter" && (e.preventDefault(), e.isTrusted && !e.repeat && !e.isComposing && press()));
+	input.addEventListener("keydown", (e) => e.key === "Enter" && !e.isComposing && e.keyCode !== 229 && (e.preventDefault(), e.isTrusted && !e.repeat && press()));
 	maskBtn.onclick = (e) => e.isTrusted && ((mask = maskToggle(mask)), draw());
 	x.onclick = () => over("closed");
 	full.onclick = () => over("full");
@@ -117,7 +138,11 @@ export function termCard({ step, watch, post, stream, held, over, escape = true,
 			draw();
 		},
 		focus,
-		stop: () => link?.stop(),
+		stop() {
+			stopped = true;
+			clearTimeout(retrying);
+			link?.stop();
+		},
 		state,
 	};
 }

@@ -36,7 +36,7 @@ export function draw(c: Open, on: Layer) {
 			post: kit.post(key),
 			stream: kit.stream,
 			held: () => c.held,
-			over: (why) => (why === "full" ? on.live(c) && toFull(c, on) : why !== "closed" && on.close()),
+			over: (why) => on.live(c) && (why === "full" ? toFull(c, on) : why !== "closed" && on.close()),
 			escape: false,
 			close: false,
 		}));

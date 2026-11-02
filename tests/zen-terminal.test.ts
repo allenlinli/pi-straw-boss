@@ -49,7 +49,7 @@ function rig() {
 			calls.watches.push({ key, name, w });
 			join(key);
 			const conn = { key, rows: [] as string[], cols: 80, phase: "live", why: "", stale: () => false };
-			return { conn, stop: () => (calls.stops.push(key), leaveKey(key)) };
+			return { conn, stop: () => (calls.stops.push(key), leaveKey(key)), retry: () => {} };
 		},
 		post: (key: string) => async (action: string, body: Record<string, unknown>) => (calls.posts.push({ key, action, body }), { ok: true, status: 200, body: {} }),
 		stream: () => "st",
@@ -518,4 +518,34 @@ test("on a phone the focus moves into the layer for a card too (Back to Zen); on
 	} finally {
 		g.matchMedia = was;
 	}
+});
+
+const click = (el: El) => (el.onclick as unknown as (e: object) => void)({ isTrusted: true });
+const goOf = (r: ReturnType<typeof rig>) => r.root.all((el) => (el.getAttribute("class") ?? "").split(" ").includes("tcard-go"))[0]!;
+
+test("the card in the layer writes to the terminal it shows: a pane's keys go to its grant and a prompt's to the session, never to the unit that asked, and the watch names the same key", async () => {
+	const p = await shown();
+	p.z.step(step({ kind: "pane", key: "grant:g1", asker: "a" }));
+	await p.settle();
+	click(goOf(p));
+	await p.settle();
+	assert.deepEqual(p.calls.posts.map((x) => [x.key, x.action]), [["grant:g1", "keys"]]);
+	assert.equal(p.calls.watches[0]!.key, "grant:g1");
+	const r = await shown();
+	r.z.step(step({ key: "sess", asker: "a" }));
+	await r.settle();
+	click(goOf(r));
+	await r.settle();
+	assert.deepEqual(r.calls.posts.map((x) => x.key), ["sess"]);
+	assert.equal(r.calls.watches[0]!.key, "sess");
+});
+
+test("a card the layer let go of says nothing more: its late reply does not close the layer that stands now", async () => {
+	const r = await shown();
+	r.z.step(step());
+	await r.settle();
+	click(goOf(r));
+	r.z.step(step({ kind: "pane", key: "grant:g1" }));
+	await r.settle();
+	assert.ok(r.layer(), "the pane's layer stands after the old Enter was taken");
 });

@@ -116,6 +116,35 @@ test("a questionnaire has Send and Cancel; no Cancel without an owner that takes
 	assert.ok(again.button("Maybe later"), "Not now is on every card");
 });
 
+const several = (): Pending => ({ callId: "c5", tool: "ask_user_question", answer: { dialog: "q2", digest: "2".repeat(64), cancel: true, questions: [{ question: "Ship it?", header: "Ship", multiple: false, options: [{ title: "Yes" }, { title: "No" }] }, { question: "Which channels?", header: "Channels", multiple: false, options: [{ title: "email" }, { title: "chat" }] }] } });
+
+test("a card with several questions puts them in one snapping scroller with the first focused; one question stays as it was; the same dialog on a new snapshot keeps its scroller and the pick", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: several() })]));
+	r.z.show();
+	await r.settle();
+	const scrollers = () => r.by((el) => el.getAttribute("class") === "zen-qs");
+	assert.equal(scrollers().length, 1);
+	const blocks = scrollers()[0]!.children, radios = r.by((el) => el.getAttribute("role") === "radio");
+	assert.deepEqual(blocks.map((b) => b.dataset.dim !== undefined), [false, true], "the first is focused, the other faded");
+	assert.equal(page.focused, radios[0], "the keyboard focus lands inside the focused question");
+	assert.ok(r.button("Send answer") && !scrollers()[0]!.all((el) => el.textContent === "Send answer").length, "Send is outside the scroller");
+	radios[0]!.bubble("keydown", { key: "Tab", shiftKey: false });
+	assert.deepEqual(blocks.map((b) => b.dataset.dim !== undefined), [true, false], "Tab moves the focus to the second question");
+	assert.equal(page.focused, radios[2]);
+	radios[0]!.click();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: several() })]));
+	await r.settle();
+	assert.equal(scrollers().length, 1);
+	assert.equal(scrollers()[0], blocks[0]!.parent, "the same scroller");
+	assert.equal(r.by((el) => el.getAttribute("role") === "radio")[0]!.getAttribute("aria-checked"), "true", "the pick survived the snapshot");
+	const one = rig();
+	one.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
+	one.z.show();
+	await one.settle();
+	assert.equal(one.by((el) => el.getAttribute("class") === "zen-qs").length, 0, "a single question is not wrapped");
+});
+
 test("on a paired device a hereOnly choice is disabled and Cancel needs a choice the device may give; on this computer both are offered", async () => {
 	const paired = rig({ remote: true });
 	paired.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true }) })]));

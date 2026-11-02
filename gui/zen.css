@@ -92,6 +92,12 @@
 [data-view="zen"] .cmp-link { color: var(--zen-paper); text-decoration-color: var(--zen-line); }
 [data-view="zen"] .zen-card :is(.ask-acts, .cmp-acts) { justify-content: center; flex-wrap: wrap; gap: 10px; }
 [data-view="zen"] .zen-card button:disabled, [data-view="zen"] .composer button:disabled { opacity: 0.55; }
+/* Several questions (zenquestions.ts): the blocks sit in one scroller of a fixed height (so the card's box never follows the focus) and snap to its centre; the spacers let the first and the last reach it. The focused block is at full strength, the rest are faded and answer only a tap. The send row is outside the scroller. */
+[data-view="zen"] .zen-qs { position: relative; display: flex; flex-direction: column; gap: 22px; height: clamp(16rem, 58vh, 34rem); padding: 0 6px; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; scroll-snap-type: y mandatory; scrollbar-width: none; }
+[data-view="zen"] .zen-qs::before, [data-view="zen"] .zen-qs::after { content: ""; flex: 0 0 18%; }
+[data-view="zen"] .zen-qs > .ask-one { flex: none; margin: 0; scroll-snap-align: center; scroll-snap-stop: always; transition: opacity 0.5s var(--zen-ease); }
+[data-view="zen"] .zen-qs > .ask-one[data-dim] { opacity: 0.4; cursor: pointer; }
+[data-view="zen"] .zen-qs > .ask-one[data-dim] > * { pointer-events: none; }
 /* The companion: the log and the composer on the same ink. */
 [data-view="zen"] .zen-company { position: relative; z-index: 1; width: min(46rem, 100%); min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; }
 [data-view="zen"] .zen-company > header { min-height: 44px; padding-right: 100px; }
@@ -112,12 +118,13 @@
 /* The page holds still (calm.ts: 30 s without input): the circle rests at its exhaled size, the ground on one layer. */
 [data-view="zen"][data-calm] :is(.zen-circle, .zen-circle i, .zen-drift i) { animation: none; }
 [data-view="zen"][data-calm] .zen-drift i:last-child { opacity: 0; }
-@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc, .zen-card) { transition: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc, .zen-card) { transition: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
 @media (forced-colors: active) {
 	[data-view="zen"] .zen-drift, [data-view="zen"] .zen-circle i, [data-view="zen"] .zen-ripples { display: none; }
 	[data-view="zen"] .zen-circle { border: 1px solid CanvasText; background: none; }
 	[data-view="zen"] .zen-fs::before { forced-color-adjust: none; background: CanvasText; }
 	[data-view="zen"] :is(.zen-card, .zen-menu) { border: 1px solid CanvasText; }
+	[data-view="zen"] .zen-qs > .ask-one[data-dim] { opacity: 0.6; border: 1px dashed GrayText; border-radius: 12px; } /* faded stays readable, and the border says it is the other question */
 	[data-view="zen"] :is(.zen-opt, .zen-leave, .ask-opt, .ask-send, .cmp-send, .ask-cancel, .cmp-alt, .zen-skip)[aria-pressed="true"], [data-view="zen"] .ask-opt[aria-checked="true"] { border: 1px solid Highlight; }
 	[data-view="zen"] :is(.ask-send, .cmp-send) { border: 1px solid ButtonText; }
 }

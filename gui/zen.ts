@@ -17,6 +17,7 @@ import { domFs, mountFullscreen } from "./zenfs.ts";
 import { mountLine, stillNow } from "./zenlines.ts";
 import { ESC_MS, escStep } from "./zenkeys.ts";
 import { mountMenu } from "./zenmenu.ts";
+import { reducedNow, syncQuestions } from "./zenquestions.ts";
 import { glide, settle } from "./zensize.ts";
 import { domRipples, mountRipples } from "./zenripple.ts";
 import { companionOf, createZen, type Outcome, type Screen, type Sound } from "./zenmodel.ts";
@@ -84,7 +85,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			slot.replaceChildren(panel);
 			return { key: a.key, el, said, out, skip, enter: () => false, cancel: () => false, sending: () => panel.sending(), update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
 		}
-		let ask: ReturnType<typeof mountAsk> | undefined, noted = false;
+		let ask: ReturnType<typeof mountAsk> | undefined, hold: HTMLElement | undefined, noted = false;
 		const words = () => {
 			// A waiting unit with no dialog is a pane blocked on a terminal prompt, which takes no typing from here (the server refuses it): the card says to answer in its terminal and opens it.
 			const open = h("button", { type: "button", class: "cmp-link" }, m.zen_open_standard());
@@ -93,14 +94,13 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			noted = true;
 		};
 		const dialog = () => {
-			const hold = h("div", { class: "zen-ask" });
-			slot.replaceChildren(hold);
+			slot.replaceChildren((hold = h("div", { class: "zen-ask" })));
 			return mounts.ask(hold, answer, deps.remote, () => deps.leave({ route: { view: "session", ws: a.ws, key }, terminal: key }), undefined, m.zen_open_standard);
 		};
 		return {
 			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
 			update(x, outcome) {
-				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()));
+				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()), syncQuestions(hold!, { later, reduced: reducedNow })); // several questions: one focused, the rest faded (zenquestions.ts)
 				else if (!noted) (ask = undefined, words());
 				say(out, outcome, x);
 			},

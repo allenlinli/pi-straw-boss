@@ -639,7 +639,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Views-core R1 to 3624 (+19): gui/units.ts (18, new: the one walk over a net's units and the ranking) and one import line each in main.ts and quit.ts, less one line of zenmodel.ts; alerts.ts (-3, counted in the overlay model) and doc.ts keep one-line calls.
 	// Views-core R2 to 3639 (+15): gui/faces.ts (13, new: the rules table and rulesOf) and the imports and rule reads in main.ts (+1) and calm.ts (+1); nothing moves out of those files in this step, since each `zenOn()` it reads becomes a rule read of the same length.
 	// Views-core R3a to 3710 (+71): gui/pagecore.ts (123 with its comments, new: createPage(io) holds the page's face, route, stream state and watch, and sends each snapshot to the presenter its face names) takes those from main.ts (352 to 309); stream.ts names the state before the first attempt (+2).
-	assert.ok(page <= 3710, `the page's TypeScript has ${page} lines`);
+	// Views-core R3b to 3755 (+45): pagecore.ts takes the page's actions (open a session, an alert, a pane; leave and come back to Zen; the notification click; the keys', drawer's, and chime's rules; Escape) out of main.ts (309 to 290) and view.ts names the return to Zen once (+3).
+	assert.ok(page <= 3755, `the page's TypeScript has ${page} lines`);
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -748,8 +749,9 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// All three increments summed (answer-opens-terminal +500 / +200, Z4 +650 / +250, Z4 feedback +1,000 / +350): 86,100 bytes / 30,050 gzipped.
 	// Views-core, measured as the entry plus the files it imports statically (eager bytes; this test's gzip). 0.52.0: 88,615 / 31,291 (entry 85,966 with post.ts inside it). R1 (units.ts replaces the unit walks of alerts.ts, quit.ts, and main.ts; post.ts, 806 bytes, now sits in a file the entry imports): 88,609 / 31,545, so R1 is -6 raw / +254 gzipped (the split costs gzip). R2 (faces.ts: 24 table cells whose key names cannot be mangled, and the reads of it): 89,003 / 31,725, +394 raw / +180 gzipped over R1, +388 / +434 over 0.52.0.
 	// Views-core R3a (gui/pagecore.ts: createPage(io) takes the page's face, route, stream state and watch out of main.ts, which hands it 16 parts): 89,759 / 32,262, +756 raw / +537 gzipped over R2 (entry alone 86,304 / 30,529). The seam costs what the moved code does not give back: the parts handed in, the `core.` reads in main.ts, and draw and navigate as functions of their own. The cap for R3 as a whole is 1.0 KB raw over R2.
+	// Views-core R3b (the actions, 7 more parts handed in): 89,908 / 32,209, +905 raw / +484 gzipped over R2 (entry alone 86,453 / 30,476), inside the 1.0 KB raw cap for R3 as a whole that sb backlog set after R3a measured +756: a seam of 23 parts, not code that grew.
 	const eagerBytes = total([...eager], (n) => size(n).length), eagerGz = total([...eager], gz);
-	assert.ok(eagerBytes <= 89_800 && eagerGz <= 32_300, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	assert.ok(eagerBytes <= 89_950 && eagerGz <= 32_250, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).

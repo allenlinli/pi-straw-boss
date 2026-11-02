@@ -8,25 +8,25 @@ import { getLocale } from "./paraglide/runtime.js";
 import type { Net } from "../src/net.ts";
 import type { Data, HistoryEvent } from "./chat.ts";
 import type { Post } from "./composer.ts";
-import { type Alert, unitOf } from "./alerts.ts";
+import type { Alert } from "./alerts.ts";
 import type { Drawer } from "./drawer.ts";
 import type { mountPanels, Tile } from "./layer.ts";
 import type { mountSettings } from "./settings.ts";
 import { mountConnect } from "./connect.ts";
 import { MODAL, mountHotkeys } from "./hotkeys.ts";
-import { linkChime, mountLinkBar } from "./linkbar.ts";
+import { mountLinkBar } from "./linkbar.ts";
 import { mountMenus } from "./menu.ts";
 import { mountNotify } from "./notify.ts";
 import { mountQuit, showDismissAll, showStashed } from "./quit.ts";
 import { hang, mountPage } from "./render.ts";
 import { settingsAllowed } from "./desk.ts";
-import { createRouter, depthOf, netOf, parseRoute, type Route, type Section, upOf } from "./router.ts";
+import { createRouter, depthOf, netOf, parseRoute, type Route, type Section } from "./router.ts";
 import { CONNECTING, createStream, type Source, type Status } from "./stream.ts";
 import { onPane } from "./terminalthen.ts";
 import { mountTimeline } from "./timeline.ts";
 import type { mountFocus } from "./views.ts";
 import { iconHref, plainOf } from "./tabicon.ts";
-import type { Exit, mountZen } from "./zen.ts";
+import type { mountZen } from "./zen.ts";
 
 // The view goes first, before anything is drawn: `data-view` on <html> picks the palette, so no frame is painted in the other one (view.ts).
 // The demo's `?zen=<state>` opens it in Zen for this page only (fixture.ts): the stored choice is not written.
@@ -39,7 +39,7 @@ mountPick(document.getElementById("view-pick")!, view, followLabel);
 const page = mountPage(), timeline = mountTimeline(document.getElementById("timeline") as HTMLDetailsElement);
 const el = (id: string) => document.getElementById(id)!;
 // Away from Zen (data-zen-away on <html>, set by the Zen layer): the header's Zen button returns to it. It stays hidden unless the device's resolved view is Zen.
-const root = document.documentElement, syncBack = mountZenBack(el("zen-back"), view, root);
+const root = document.documentElement, syncBack = mountZenBack(el("zen-back"), view, root, () => core.enterZen());
 const time = (at?: number) => (at ? new Date(at).toLocaleTimeString([], { hour12: false }) : m.never());
 
 let started = false, hello = "";
@@ -70,13 +70,11 @@ const withPanels = (call: (p: Panels) => void) => {
 		recent,
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action as Parameters<Post>[0], body)),
 		stream: () => hello,
-		showTerminal: (ws, key) => (panels?.stack.close("go"), router.go({ view: "session", ws, key }), withFocus((f) => f.terminal(key))), // the user is going to that terminal, so nothing queued opens over it; the route goes first: it starts the focus views' chunk, which `withFocus` then waits for (before it, a first visit lost the request)
+		showTerminal: (ws, key) => core.openSession(ws, key, { mode: "term" }),
 	})));
 	void panelsLoading.then(call);
 };
 const openTile = (tile: Tile, take?: boolean) => withPanels((p) => p.tiles.open(tile, take));
-// A pane an answer opened (terminalthen.ts) shows as a terminal tile with the keyboard in it, whichever view the user is in: Zen leaves for Standard first, as it does for a session's terminal.
-onPane((grant) => (core.zenOn() && core.face.leave(), withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true))));
 
 // The Zen layer (zen.ts, with the pure model in zenmodel.ts) is a chunk of its own, fetched the first time the page shows Zen (pagecore.ts says when it does).
 type Zen = ReturnType<typeof mountZen>;
@@ -87,18 +85,10 @@ const withZen = (call: (z: Zen) => void) => {
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
 		remind: (a) => notify.remind(a), sound: () => {}, // the effects are the next step's (Z5)
 		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: notify.sound }, // the corner menu's rows act through the settings page's own switches
-		leave: leaveZen, watch: (key) => core.watchLog(key),
+		leave: core.leaveZen, watch: core.watchLog,
 	})));
 	void zenLoading.then(call);
 };
-/** The way out of Zen (zen.ts): Standard first, then the item's dialog, the session (its terminal), and the newest snapshot. */
-function leaveZen({ item, route, terminal }: Exit) {
-	core.face.leave();
-	item && withPanels((p) => p.stack.show(item));
-	terminal && (loadFocus(), withFocus((f) => f.terminal(terminal)));
-	route && router.go(route);
-	core.wake();
-}
 
 // The settings page's sections (Phone, Teams, Server) are a chunk of their own, fetched the first time the page opens; they are built when a section opens and dropped when it closes (settings.ts).
 // Phone and the server's panel are this computer's: a paired device has neither, and a desk window has no Phone (desk.ts).
@@ -153,15 +143,17 @@ function navigate(next: Route, before: Route) {
 	else if (before.view === "settings") withSettings((s) => s.hide());
 }
 
-const openTeams = () => openSection("teams"), openAlert = (a: Alert) => withPanels((p) => p.stack.show(a));
-const linkBar = mountLinkBar(openTeams, linkChime(() => !core.rules().chime, () => notify.chime()));
-const notify = mountNotify((a) => core.rules().announce === "current" || (a.trust ? openAlert(a) : router.go({ view: "session", ws: a.ws, key: unitOf(a) })));
 const leaveSettings = () => (depthOf(window.history.state) > 0 ? window.history.back() : router.go({ view: "map" })); // `history` is the module's own reader of a session's log
-// The page's face, route, stream state, and watch live in pagecore.ts; this file gives it the parts (the DOM, the lazy chunks, the stream).
+const modal = () => document.querySelector(MODAL) !== null;
+// The page's face, route, stream state, and watch live in pagecore.ts, with what the page does when asked (open a session, an alert, a pane, leave or come back to Zen, Escape); this file gives it the parts (the DOM, the lazy chunks, the stream).
 const core = createPage({
 	view, root, zenEl: el("zen"), zen: () => zen, withZen, hidden: () => document.hidden, back: syncBack, leaveSettings, restart: () => started && stream.restart(),
-	icon, link: linkBar.net, signal: notify.signal, draw, map: page.show, navigate, layout: () => requestAnimationFrame(page.layout),
+	icon, link: (link) => linkBar.net(link), signal: (fresh) => notify.signal(fresh), draw, map: page.show, navigate, layout: () => requestAnimationFrame(page.layout),
+	panels: () => panels, withPanels, withFocus, go: (route) => router.go(route), modal, chime: () => notify.chime(),
 });
+onPane(core.openPane); // a pane an answer opened (terminalthen.ts)
+const linkBar = mountLinkBar(() => openSection("teams"), core.news);
+const notify = mountNotify(core.notified);
 
 function report(next: Status) {
 	core.status(next);
@@ -242,7 +234,7 @@ document.addEventListener("click", (event) => {
 	const alert = core.alertOf(route.key);
 	if (!alert) return;
 	event.preventDefault();
-	openAlert(alert);
+	core.openAlert(alert);
 }, true);
 const router = createRouter((route) => core.route(route));
 const stream = createStream({
@@ -266,21 +258,10 @@ document.addEventListener("visibilitychange", () => {
 	withFocus((f) => f.wake());
 	resume();
 });
-// Escape closes the top dialog; with none open it goes up one route. A modal (a close confirmation, the lightbox) takes it for itself.
-// In Zen the layer takes Escape first, in the capture phase (so a field's own handler cannot keep it from the rule): one press closes the menu, lets go of a field, or cancels or skips the card, and two
-// that nothing took, within 600 ms, leave (zenkeys.ts). The page never goes up a route from Zen.
-addEventListener("keydown", (event) => {
-	if (event.key === "Escape" && !event.defaultPrevented && !event.isComposing && core.zenOn() && !document.querySelector(MODAL) && zen?.escape(event)) event.stopPropagation();
-}, true);
-addEventListener("keydown", (event) => {
-	if (event.key !== "Escape" || event.defaultPrevented || document.querySelector(MODAL)) return; // an open popover closes itself
-	event.preventDefault();
-	if (panels?.stack.close() || core.current.view === "map") return;
-	// Settings returns to where it was opened from; a page that opened on it goes to the map. A session goes up a level.
-	if (core.current.view === "settings") leaveSettings();
-	else router.go(upOf(core.current));
-});
-mountHotkeys((hotkey) => panels?.hotkey(hotkey) ?? false, () => core.rules().keys === "zen" || document.querySelector(MODAL) !== null); // Space opens the next alert, F enlarges the top dialog; nothing before the overlay layer has loaded
+// Escape (pagecore.ts): in Zen the layer takes it first, in the capture phase.
+addEventListener("keydown", (event) => core.escape(event, true), true);
+addEventListener("keydown", (event) => core.escape(event, false));
+mountHotkeys((hotkey) => panels?.hotkey(hotkey) ?? false, core.owned); // Space opens the next alert, F enlarges the top dialog; nothing before the overlay layer has loaded
 // The gear is a link to the settings page; on the page it leaves it, as Escape does.
 el("prefs").addEventListener("click", (event) => core.current.view === "settings" && (event.preventDefault(), leaveSettings()));
 // A pair request waits while the Same Wi-Fi tab is not open: a header notice that opens the settings page on that tab (this computer's page only).
@@ -288,7 +269,7 @@ if (phoneOk) void import("./lanwait.ts").then(({ mountLanWait }) => mountLanWait
 // The phone's quick-switch drawer (drawer.ts, swipe.ts): its own chunk, fetched where there is a touch screen or a narrow window, now or once the window narrows.
 let drawer: Drawer | undefined;
 const touchy = matchMedia("(pointer: coarse), (max-width: 640px)");
-const loadDrawer = () => void import("./drawer.ts").then(({ mountDrawer }) => ((drawer ??= mountDrawer(() => !core.rules().drawer)), core.latest && drawer.net(core.latest), drawer.route(core.current)));
+const loadDrawer = () => void import("./drawer.ts").then(({ mountDrawer }) => ((drawer ??= mountDrawer(core.noDrawer)), core.latest && drawer.net(core.latest), drawer.route(core.current)));
 if (touchy.matches) loadDrawer();
 else touchy.addEventListener("change", () => touchy.matches && !drawer && loadDrawer(), { once: true });
 mountQuit({ route: () => netOf(core.current), net: () => core.latest, go: (route) => router.go(route) });
@@ -298,7 +279,7 @@ document.addEventListener("click", (event) => {
 	const button = (event.target as Element | null)?.closest?.<HTMLElement>("button[data-open]");
 	if (button) void import("./spawn.ts").then(({ openingOf, spawnTile }) => {
 		const opening = openingOf(button, core.latest?.bases ?? []);
-		if (opening) openTile(spawnTile(opening, (ws, key, tile) => (panels?.tiles.close(tile), router.go({ view: "session", ws, key })), () => notify.chime()), true);
+		if (opening) openTile(spawnTile(opening, (ws, key, tile) => (panels?.tiles.close(tile), core.openSession(ws, key)), () => notify.chime()), true);
 	});
 });
 for (const event of ["focus", "pageshow", "online"]) window.addEventListener(event, () => !document.hidden && resume());

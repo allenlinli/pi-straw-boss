@@ -1,18 +1,27 @@
 import type { Net } from "../src/net.ts";
-import { type Alert, alertsOf, arrivals } from "./alerts.ts";
+import { type Alert, alertsOf, arrivals, unitOf } from "./alerts.ts";
 import { RULES, rulesOf } from "./faces.ts";
-import { type Route, watchOf } from "./router.ts";
+import { linkChime } from "./linkbar.ts";
+import { m } from "./paraglide/messages.js";
+import { type Route, upOf, watchOf } from "./router.ts";
 import { CONNECTING, type Status } from "./stream.ts";
 import { unitsOf, waitingOf } from "./units.ts";
-import type { PageView } from "./view.ts";
+import { enterZen, type PageView } from "./view.ts";
 import { mountFace } from "./viewface.ts";
+import type { Exit } from "./zentypes.ts";
 
 // What the page decides, apart from what it draws: the face (Zen or Standard), the route, the stream's state and watch, and where each snapshot goes. main.ts builds the parts (DOM, chunks, the stream) and hands them in;
 // this module holds the state and the rules over them, so tests/pagecore.test.ts can run the page's wiring with plain fakes (Z3R-F006). No events and no registry: the page calls these functions, and they call the parts it gave.
-/** The Zen layer, as the page drives it. */
-export interface ZenFace { net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void }
+/** An Escape keydown, as far as the page reads it. */
+export interface Esc { key: string; defaultPrevented: boolean; isComposing: boolean; preventDefault(): void; stopPropagation(): void }
+/** The Zen layer, as the page drives it. `escape` says whether it took the key. */
+export interface ZenFace { net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): unknown }
+/** The overlay layer (the dialogs and tiles), as the page drives it. */
+interface PanelsFace { stack: { show(a: Alert): void; close(how?: "go"): unknown }; terminal: { open(key: string, name: string, keys?: boolean): void } }
+/** The focus views (the base, the session's comms and dossier). */
+interface FocusFace { terminal(key: string): void }
 export interface PageIo {
-	view: Pick<PageView, "view" | "refresh" | "onChange">;
+	view: Pick<PageView, "view" | "refresh" | "onChange" | "reread">;
 	/** `<html>`: `data-zen-away` is on it while this page has left Zen. */
 	root: { dataset: Record<string, string | undefined> };
 	/** The Zen layer's box. */
@@ -41,6 +50,18 @@ export interface PageIo {
 	navigate(next: Route, before: Route): void;
 	/** The map laid out again after it comes back in view. */
 	layout(): void;
+	/** The overlay layer once its chunk is here, or none yet. */
+	panels(): PanelsFace | undefined;
+	/** The overlay layer, fetching its chunk first when it is not here. */
+	withPanels(call: (p: PanelsFace) => void): void;
+	/** The focus views; a call made before their chunk is here waits for it, in order. */
+	withFocus(call: (f: FocusFace) => void): void;
+	/** The router moves the page to a route. */
+	go(route: Route): void;
+	/** A modal (a confirmation, the lightbox, an open popover) holds the keyboard. */
+	modal(): boolean;
+	/** The finished-unit clip, when Sound is on. */
+	chime(): void;
 }
 
 export function createPage(io: PageIo) {
@@ -87,6 +108,15 @@ export function createPage(io: PageIo) {
 		shown = net;
 		pending = undefined;
 	}
+	/** The page is visible again, or Zen was left: it draws the newest snapshot it kept back. */
+	const wake = () => void (pending && snapshot(pending));
+	const openAlert = (a: Alert) => io.withPanels((p) => p.stack.show(a));
+	/** A session's comms; with `mode: "term"` its terminal, and nothing queued opens over it. The route goes first: it starts the focus views' chunk, which the terminal's request then waits for. */
+	function openSession(ws: string, key: string, { mode, at }: { mode?: "chat" | "term"; at?: string } = {}) {
+		if (mode === "term") io.panels()?.stack.close("go");
+		io.go({ view: "session", ws, key, at });
+		if (mode === "term") io.withFocus((f) => f.terminal(key));
+	}
 	return {
 		/** The route and the newest snapshot. */
 		get current() { return current },
@@ -104,7 +134,7 @@ export function createPage(io: PageIo) {
 		/** The stream opens (again): what it is asked to watch from now on. */
 		opened: () => (watching = watch()),
 		/** The page is visible again: it draws the newest snapshot it kept back. */
-		wake: () => void (pending && snapshot(pending)),
+		wake,
 		/** A route change: show its view and watch what it needs (one connection serves one page). */
 		route(next: Route) {
 			const before = current;
@@ -113,6 +143,37 @@ export function createPage(io: PageIo) {
 			io.navigate(next, before);
 			if (next.view === "map" && latest && latest !== shown) (snapshot(latest), io.layout());
 			rewatch();
+		},
+		openAlert, openSession,
+		/** A pane an answer opened shows as a terminal tile with the keyboard in it, whichever face the page has: Zen leaves for Standard first, as it does for a session's terminal (a Zen that draws its own terminals changes this and `leaveZen`). */
+		openPane(grant: string) {
+			zenOn() && face.leave();
+			io.withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true));
+		},
+		/** The way out of Zen (zen.ts): Standard first, then the item's dialog, the session (its terminal), and the newest snapshot. */
+		leaveZen({ item, route, terminal }: Exit) {
+			face.leave();
+			item && openAlert(item);
+			route?.view === "session" ? openSession(route.ws, route.key, { mode: terminal ? "term" : "chat", at: route.at }) : route && io.go(route);
+			wake();
+		},
+		/** The header's Zen button: the mark that this page left Zen goes and the view is read again. */
+		enterZen: () => enterZen(io.view, io.root),
+		/** A click on a system notification: Zen tells its one item itself; a trust question opens its dialog, any other alert its session. */
+		notified: (a: Alert) => rules().announce === "current" || (a.trust ? openAlert(a) : openSession(a.ws, unitOf(a))),
+		/** The chime for new link notices: Zen makes no sound of its own accord. */
+		news: linkChime(() => !rules().chime, io.chime),
+		/** What owns the keyboard: a modal, or in Zen the layer. */
+		owned: () => rules().keys === "zen" || io.modal(),
+		/** The phone's quick-switch drawer is off in Zen. */
+		noDrawer: () => !rules().drawer,
+		/** Escape closes the top dialog; with none open it goes up one route (the settings page steps back to where it was opened from); a modal takes it for itself. In Zen the layer takes it first, in the capture phase (so a field's own handler cannot keep it from the rule): one press closes the menu, lets go of a field, or cancels or skips the card, and two that nothing took, within 600 ms, leave (zenkeys.ts). */
+		escape(e: Esc, capture: boolean) {
+			if (e.key !== "Escape" || e.defaultPrevented || io.modal()) return;
+			if (capture) return void (!e.isComposing && zenOn() && io.zen()?.escape(e) && e.stopPropagation());
+			e.preventDefault();
+			if (io.panels()?.stack.close() || current.view === "map") return;
+			current.view === "settings" ? io.leaveSettings() : io.go(upOf(current));
 		},
 		/** The Zen companion's session whose log the stream sends (none: the route's). */
 		watchLog(key: string | null) {

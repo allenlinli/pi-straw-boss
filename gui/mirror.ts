@@ -1,22 +1,22 @@
 import { h, replay } from "./dom.ts";
 import type { Tile } from "./layer.ts";
 import { m } from "./paraglide/messages.js";
-import type { Answer } from "./post.ts";
+import { type Conn, type Frame, MAX_ROWS, mountConns, type Post, type TermState } from "./mirrorconn.ts";
+
+export type { Frame, Post, TermState } from "./mirrorconn.ts";
 
 // The terminal tile: what a session's pane shows, drawn from the server's `mirror` frames (src/mirror.ts) on this tab's one stream. Rows are
 // display only: each becomes spans of text nodes, SGR colours and attributes as classes or checked colour styles, never markup, and the
-// mirror takes no input. A tile attaches the stream when it opens and again on a new stream's `hello`, detaches 5 s after the tab is hidden
-// (attaching again when it shows) and when it closes. Fit width scales the font to the tile and goes to the bottom; otherwise rows keep their size and scroll sideways.
+// mirror takes no input. The connection (attach on open and on a new stream's `hello`, detach 5 s after the tab is hidden and when the last
+// view closes, the rows) is mirrorconn.ts; a tile draws it. Fit width scales the font to the tile and goes to the bottom; otherwise rows keep their size and scroll sideways.
 // The keyboard: a pane is not a text field, so a phone's soft keyboard never opens on a tap into it. The tile has a hidden text box (the sink) and a
 // Keyboard button that focuses it (a second tap, or the tile closing, blurs it); on a desktop a click into the mirror focuses it too.
 
 export interface Span { text: string; cls: string; fg?: string; bg?: string }
 const SENTINEL = "\u200b";
-export interface Frame { key: string; seq?: number; rows?: number; cols?: number; whole?: boolean; set?: [number, string][]; hidden?: boolean; ended?: string }
-export type Post = (action: "mirror" | "keys", body: Record<string, unknown>) => Promise<Answer>;
 type Color = number | string | undefined; // a palette index (0–15), an rgb() colour, or the terminal's own
 interface Style { fg?: Color; bg?: Color; b?: boolean; d?: boolean; i?: boolean; u?: boolean; v?: boolean; s?: boolean }
-const CUBE = [0, 95, 135, 175, 215, 255], MAX_ROWS = 120, AWAY_MS = 5000, STALE_MS = 3000;
+const CUBE = [0, 95, 135, 175, 215, 255];
 const byte = (n: number) => Number.isInteger(n) && n >= 0 && n <= 255;
 /** A 256-colour index as a palette index or an rgb() colour; anything else is no colour. */
 const indexed = (n: number): Color => (!byte(n) ? undefined : n < 16 ? n : n < 232 ? `rgb(${CUBE[Math.floor((n - 16) / 36)]},${CUBE[Math.floor((n - 16) / 6) % 6]},${CUBE[(n - 16) % 6]})` : `rgb(${8 + 10 * (n - 232)},${8 + 10 * (n - 232)},${8 + 10 * (n - 232)})`);
@@ -83,36 +83,28 @@ export function applyFrame(box: HTMLElement, f: Frame) {
 	}
 }
 
-/** `state` is what the pad may do: send keys (`live`), only Escape (`hidden`, a secret), or nothing (`off`: stale, ended, parked, connecting). */
-export type TermState = "live" | "hidden" | "off";
-interface Term { key: string; box: HTMLElement; scroll: HTMLElement; state: HTMLElement; fit: HTMLButtonElement; kb: HTMLButtonElement; typing: HTMLElement; sink: HTMLTextAreaElement; post: Post; cols: number; seen: number; away?: ReturnType<typeof setTimeout>; parked: boolean; first: boolean; ended: boolean; tile?: Tile; queue: Promise<unknown>; pad?: Pad; end?: () => void; entered?: (sent: boolean) => void }
+interface Term { key: string; conn: Conn; stop(): void; box: HTMLElement; scroll: HTMLElement; state: HTMLElement; fit: HTMLButtonElement; kb: HTMLButtonElement; typing: HTMLElement; sink: HTMLTextAreaElement; first: boolean; tile?: Tile; pad?: Pad; end?: () => void; entered?: (sent: boolean) => void }
 /** The key pad under a mirror (keypad.ts): its element, and `update` when what the pad may do changes. */
 export interface Pad { el: HTMLElement; update(): void; type?(e: KeyboardEvent): boolean; key?(key: string): void; text?(typed: string): void; paste?(pasted: string): void }
 /** The terminal tiles of this page: `stream()` is the newest `hello` as it came (JSON); `pad` puts the key pad under a mirror. */
 export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(tile: Tile, focus?: boolean): void }; post(key: string): Post; stream(): string; pad?(t: { name: string; state(): TermState; post: Post; stream(): string; blip(): void; entered(sent: boolean): void }): Pad }) {
 	const open = new Map<string, Term>();
-	let tick: ReturnType<typeof setInterval> | undefined;
-	const id = () => { try { return String(JSON.parse(stream()).stream ?? ""); } catch { return ""; } };
-	const stateOf = (t: Term): TermState => (t.parked || t.ended || stale(t) ? "off" : t.box.classList.contains("hidden") ? "hidden" : "live");
+	const conns = mountConns({ post, stream });
 	/** The sink carries what the pad may do, so a layer that owns Esc (Zen's) can tell a terminal that takes it from a dead one. */
-	const sync = (t: Term) => void (t.sink.dataset.pad = stateOf(t));
-	const say = (t: Term, text: string, tone = "") => (t.pad?.update(), sync(t), (t.state.textContent !== text || t.state.dataset.tone !== tone) && ((t.state.dataset.tone = tone), (t.state.textContent = text))); // a status that stays is not announced again
-	// One request at a time per tile, so an off sent right after an on reaches the server after it.
-	// A refused or failed attach ends the tile's mirror, so opening the terminal again tries again. A pane the server no longer knows (its grant is gone, or it closed) is an end for whoever embedded it, as an `ended` frame is.
-	const refused = (t: Term, why: string) => ((t.ended = true), say(t, m.retry_terminal({ why }), "error"));
-	const attach = (t: Term, on: boolean, s = id()) => s && void (t.queue = t.queue.then(() => t.post("mirror", { stream: s, on }).then((r) => on && !r.ok && (refused(t, r.body.reason ?? m.refused({ status: r.status })), (r.status === 404 || r.body.error === "pane_closed") && t.end?.()), () => on && refused(t, m.unreachable()))));
+	const sync = (t: Term) => void (t.sink.dataset.pad = t.conn.state());
+	const words = (c: Conn): [string, string] => (c.phase === "live" ? [m.mirror_live({ cols: c.cols, rows: c.rows.length }), "ok"] : c.phase === "refused" ? [m.retry_terminal({ why: c.why }), "error"] : [c.phase === "hidden" ? m.mirror_hidden() : c.phase === "paused" ? m.paused_hidden() : m.connecting(), ""]);
+	const say = (t: Term) => {
+		const c = t.conn, [text, tone] = words(c);
+		t.box.classList.toggle("stale", c.stale());
+		t.box.classList.toggle("hidden", c.hidden);
+		t.pad?.update();
+		sync(t);
+		(t.state.textContent !== text || t.state.dataset.tone !== tone) && ((t.state.dataset.tone = tone), (t.state.textContent = text)); // a status that stays is not announced again
+	};
 	// The widest of the pane's columns and its longest row: rows drawn before the pane narrowed stay wider until they are redrawn.
-	const fit = (t: Term, n = Math.max(t.cols, ...[...t.box.children].map((r) => r.textContent?.length ?? 0))) => (t.box.style.fontSize = t.fit.getAttribute("aria-pressed") === "true" && n ? `${Math.max(6, Math.floor((t.scroll.clientWidth - 20) / (n * 0.6)))}px` : "");
-	const stale = (t: Term) => Date.now() - t.seen > STALE_MS;
-	// A frame comes at least once a second; a mirror without one for 3 s dims. The check runs only while a tile is open and the tab shows.
-	const watch = () => (clearInterval(tick), (tick = open.size && !document.hidden ? setInterval(() => open.forEach((t) => (t.box.classList.toggle("stale", stale(t)), t.pad?.update(), sync(t))), 1000) : undefined));
-	document.addEventListener("visibilitychange", () => (watch(), open.forEach((t) => {
-		clearTimeout(t.away);
-		if (document.hidden) t.away = setTimeout(() => ((t.parked = true), attach(t, false), say(t, m.paused_hidden())), AWAY_MS);
-		else if (t.parked) void ((t.parked = false), attach(t, true));
-	})));
+	const fit = (t: Term, n = Math.max(t.conn.cols, ...[...t.box.children].map((r) => r.textContent?.length ?? 0))) => (t.box.style.fontSize = t.fit.getAttribute("aria-pressed") === "true" && n ? `${Math.max(6, Math.floor((t.scroll.clientWidth - 20) / (n * 0.6)))}px` : "");
 	const make = (key: string, name: string): Tile => {
-		const t: Term = { key, box: h("div", { class: "term", role: "group", "aria-label": m.terminal_of({ name }) }), scroll: h("div", { class: "term-scroll", tabindex: "0" }), state: h("p", { class: "term-state", role: "status" }, m.connecting()), fit: h("button", { type: "button", class: "cmp-link", "aria-pressed": "false" }, m.fit_width()), kb: h("button", { type: "button", class: "cmp-link term-kb", "aria-pressed": "false" }, m.keyboard()), typing: h("span", { class: "term-typing", hidden: "" }, m.typing_direct()), sink: h("textarea", { class: "term-sink", rows: "1", "aria-label": m.typing_hint(), inputmode: "text", enterkeyhint: "enter", autocomplete: "off", autocapitalize: "off", autocorrect: "off", spellcheck: "false" }) as HTMLTextAreaElement, post: post(key), cols: 0, seen: 0, parked: false, first: true, ended: false, queue: Promise.resolve() };
+		const t = { key, box: h("div", { class: "term", role: "group", "aria-label": m.terminal_of({ name }) }), scroll: h("div", { class: "term-scroll", tabindex: "0" }), state: h("p", { class: "term-state", role: "status" }, m.connecting()), fit: h("button", { type: "button", class: "cmp-link", "aria-pressed": "false" }, m.fit_width()), kb: h("button", { type: "button", class: "cmp-link term-kb", "aria-pressed": "false" }, m.keyboard()), typing: h("span", { class: "term-typing", hidden: "" }, m.typing_direct()), sink: h("textarea", { class: "term-sink", rows: "1", "aria-label": m.typing_hint(), inputmode: "text", enterkeyhint: "enter", autocomplete: "off", autocapitalize: "off", autocorrect: "off", spellcheck: "false" }) as HTMLTextAreaElement, first: true } as Omit<Term, "conn" | "stop"> as Term; // conn and stop come from the join below
 		// The font changes size, so the rows move: the view goes to the bottom, where pi's editor is, once the new size is laid out.
 		t.fit.onclick = () => (t.fit.setAttribute("aria-pressed", String(t.fit.getAttribute("aria-pressed") !== "true")), fit(t), requestAnimationFrame(() => (t.scroll.scrollTop = t.scroll.scrollHeight)));
 		t.scroll.append(t.box);
@@ -159,18 +151,19 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 		}
 		new ResizeObserver(() => fit(t)).observe(t.scroll);
 		open.set(key, t);
-		attach(t, true);
-		watch();
-		const state = () => stateOf(t);
-		t.pad = pad?.({ name, state, post: t.post, stream: id, blip: () => replay(t.scroll, "blip"), entered: (sent) => t.entered?.(sent) });
+		Object.assign(t, conns.join(key, { rows: (_, f, size) => (applyFrame(t.box, f), size && fit(t), t.first && f.whole && ((t.first = false), requestAnimationFrame(() => (t.scroll.scrollTop = t.scroll.scrollHeight)))), state: () => say(t), end: () => t.end?.(), entered: (sent) => t.entered?.(sent) }));
+		const { conn } = t;
+		if (conn.rows.length) applyFrame(t.box, { key, rows: conn.rows.length, set: conn.rows.map((row, i) => [i, row]) });
+		if (conn.phase !== "connecting") say(t);
+		t.pad = pad?.({ name, state: conn.state, post: conn.post, stream: conns.id, blip: () => replay(t.scroll, "blip"), entered: (sent) => conns.entered(conn, sent) });
 		sync(t);
-		return (t.tile = { id: `term:${key}`, title: m.terminal_title({ name }), icon: "i-comms", body: () => h("div", { class: "term-tile" }, h("div", { class: "term-bar" }, t.state, t.typing, t.kb, t.fit), t.scroll, t.sink, t.pad?.el), closed: () => (clearTimeout(t.away), t.sink.blur(), attach(t, false), open.delete(key), watch()) });
+		return (t.tile = { id: `term:${key}`, title: m.terminal_title({ name }), icon: "i-comms", body: () => h("div", { class: "term-tile" }, h("div", { class: "term-bar" }, t.state, t.typing, t.kb, t.fit), t.scroll, t.sink, t.pad?.el), closed: () => (t.sink.blur(), t.stop(), open.delete(key)) });
 	};
 	return {
 		/** Opens (or brings forward) the tile of a terminal, a session's or a pane an answer opened (key `grant:<id>`), the user's own act, so it takes focus; a mirror that ended tries again. `keys`: the keyboard goes to it (a desktop's; a phone has the pad under it, and its Keyboard button). */
 		open(key: string, name: string, keys = false) {
 			const t = open.get(key);
-			if (t?.ended) void ((t.ended = false), say(t, m.connecting()), attach(t, true));
+			if (t) conns.retry(t.conn);
 			tiles.open(t?.tile ?? make(key, name), true);
 			const at = open.get(key);
 			if (keys && at && globalThis.matchMedia?.("(pointer: fine)").matches) requestAnimationFrame(() => at.sink.focus({ preventScroll: true }));
@@ -178,30 +171,20 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 		/** Shows a terminal inside `host` (the session view's terminal mode, Zen's layer) until the returned function takes it away. `keys`: the keyboard goes to it (a desktop's); `end`: its mirror ended (the pane closed, the grant ended, or its attach was refused as gone); `entered`: the pad sent an Enter (true) or the server refused it (false). */
 		embed(key: string, name: string, host: HTMLElement, { keys = false, end, entered }: { keys?: boolean; end?: () => void; entered?: (sent: boolean) => void } = {}): () => void {
 			const t = open.get(key);
-			if (t?.ended) void ((t.ended = false), say(t, m.connecting()), attach(t, true));
+			if (t) conns.retry(t.conn);
 			const tile = t?.tile ?? make(key, name), at = open.get(key)!;
 			[at.end, at.entered] = [end, entered];
 			host.replaceChildren(tile.body());
 			if (keys && globalThis.matchMedia?.("(pointer: fine)").matches) requestAnimationFrame(() => at.sink.focus({ preventScroll: true }));
 			return () => ((at.end = at.entered = undefined), tile.closed?.(), host.replaceChildren());
 		},
-		/** A new stream said hello: every open tile attaches to it. */
-		hello: () => open.forEach((t) => !t.parked && !t.ended && attach(t, true)),
-		/** One `mirror` event from the stream. */
-		frame(raw: string) {
-			let f: Frame;
-			try { f = JSON.parse(raw) as Frame; } catch { return; }
-			const t = open.get(f.key);
-			if (!t) return;
-			t.box.classList.toggle("hidden", Boolean(f.hidden || f.ended));
-			if (f.ended) return (refused(t, m.mirror_ended({ why: f.ended })), t.end?.());
-			[t.seen, t.ended] = [Date.now(), false];
-			t.box.classList.remove("stale");
-			if (f.hidden) return applyFrame(t.box, { key: t.key, rows: 0 }), say(t, m.mirror_hidden());
-			applyFrame(t.box, f);
-			if (f.whole || (f.cols && f.cols !== t.cols)) void ((t.cols = f.cols || t.cols), fit(t));
-			say(t, m.mirror_live({ cols: t.cols, rows: t.box.children.length }), "ok");
-			if (t.first && f.whole) void ((t.first = false), requestAnimationFrame(() => (t.scroll.scrollTop = t.scroll.scrollHeight)));
+		/** The connection of `key` without a screen, for a view that draws its own (the terminal card): `rows`, `state`, `end` as the connection tells them, `taken` when a pad on this key sent an Enter. It shares the attach with a tile or embed of the same key, so the first to join attaches and the last to leave detaches; `stop` leaves. */
+		watch(key: string, _name: string, { rows, state, end, taken }: { rows?(rows: string[]): void; state?(s: TermState, c: Conn): void; end?(): void; taken?(): void }) {
+			return conns.join(key, { rows: rows && ((r) => rows(r)), state, end, entered: (sent) => sent && taken?.() });
 		},
+		/** A new stream said hello: every connection attaches to it. */
+		hello: conns.hello,
+		/** One `mirror` event from the stream. */
+		frame: conns.frame,
 	};
 }

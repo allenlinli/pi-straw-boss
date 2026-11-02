@@ -283,6 +283,18 @@ test("an item that stops waiting by itself plays the knock and says it was answe
 	assert.ok(r.text().includes("Already answered elsewhere"));
 });
 
+test("an outcome line fades in when it is first said, and the same words again do not restart it", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
+	r.z.show();
+	await r.settle();
+	const out = r.by((el) => el.getAttribute("class") === "zen-out")[0]!;
+	assert.equal(out.getAttribute("data-fade"), null, "no outcome, no fade");
+	r.feed(net([unit("a", "working", { since: 9 })]));
+	assert.ok(r.text().includes("Already answered elsewhere"));
+	assert.notEqual(out.getAttribute("data-fade"), null, "the outcome line fades in");
+});
+
 test("the page never says how many items wait or that more do: what it draws is the same with one, two, and five waiting, and names no other unit", async () => {
 	const NAMES = ["alpha", "bravo", "charlie", "delta", "echo"];
 	const shots = new Map<number, { card: string; pause: string }>();

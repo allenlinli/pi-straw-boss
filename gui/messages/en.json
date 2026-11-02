@@ -347,7 +347,7 @@
 	"send_escape": "Send Escape",
 	"send_key": "Send {key}",
 	"confirm_unread": "Enter might run a command that ends this session, and the editor could not be read to check. Enter goes to whatever has focus in the terminal.",
-	"confirm_command": "The editor holds a slash command, which Enter may complete and run. Enter goes to whatever has focus in the terminal.",
+	"confirm_command": "The editor holds a command (a / command or a ! shell command), which Enter may complete and run. Enter goes to whatever has focus in the terminal.",
 	"confirm_ending": "Enter would run {command} (or the command picked in pi's menu, if it is open), which ends or replaces this session. Enter goes to whatever has focus in the terminal.",
 	"confirm_double_esc": "A second Esc on an idle session runs pi's double-Esc action (tree or fork).",
 	"confirm_ctrl_d": "Ctrl+D leaves pi when its editor is empty, which ends this session.",

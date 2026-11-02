@@ -108,6 +108,18 @@ test("the confirm's two buttons are one family: the yes button carries its label
 	assert.equal(m.send_enter({}, { locale: "zh-TW" }), "送出 Enter");
 });
 
+test("a confirm pressed while its key is on its way sends nothing more", async () => {
+	const { press, posts, reply, el } = pad();
+	press("enter");
+	await reply(409, { error: "confirm", confirm: "reload", reason: "x" });
+	const yes = el.all().find((x) => x.attrs.get("class") === "pad-yes")!;
+	yes.onclick!({ isTrusted: true });
+	assert.equal(posts.length, 2);
+	yes.onclick!({ isTrusted: true });
+	assert.equal(posts.length, 2, "the confirm is busy until its write is answered");
+	await reply(200, { accepted: true });
+});
+
 test("the server's confirm shows inline with its reason, and sends the same key with the token it named, once; Cancel sends nothing", async () => {
 	const { press, posts, reply, el } = pad();
 	press("enter");

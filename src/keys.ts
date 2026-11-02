@@ -40,7 +40,7 @@ const no = (status: number, error: string, reason: string, extra = {}): Reply =>
 const FOCUS = "Enter goes to whatever has focus in the terminal; confirm to send it.";
 const ASK: Record<string, string> = {
 	unread: `The session's editor could not be read, so Enter might run a command that ends the session. ${FOCUS}`,
-	command: `The editor holds a slash command, which Enter may complete and run. ${FOCUS}`,
+	command: `The editor holds a command (a / command or a ! shell command), which Enter may complete and run. ${FOCUS}`,
 	"double-esc": "A second Escape on an idle session runs pi's double-Escape action (tree or fork); confirm to run it.",
 	"ctrl-d": "Ctrl+D leaves pi when its editor is empty, which ends this session; confirm to send it.",
 	"double-ctrl-c": "A second Ctrl+C within a second leaves pi, which ends this session; confirm to send it.",

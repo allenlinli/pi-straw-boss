@@ -94,6 +94,22 @@ test("the menu never opens by hover, whatever the pointer or the time; a press o
 	r.btn.click();
 	r.by("Off").click();
 	assert.equal(r.m.isOpen(), true, "the sound's switch leaves it open, so the volume can follow");
+	const vol = r.host.all((e) => e.tagName === "input")[0]!;
+	vol.value = "40";
+	vol.oninput?.();
+	(vol as unknown as { onchange?: () => void }).onchange?.();
+	vol.bubble("change");
+	assert.equal(r.m.isOpen(), true, "a volume change leaves it open too");
+	for (const type of ["pointerover", "mouseenter", "mouseover", "pointermove"]) {
+		r.m.close();
+		assert.equal(r.m.isOpen(), false);
+		assert.equal(r.host.handlers[type], undefined, `no ${type} handler on the menu`);
+		assert.equal(r.btn.handlers[type], undefined, `no ${type} handler on its button`);
+		r.host.bubble(type, { pointerType: "mouse" });
+		r.btn.bubble(type, { pointerType: "mouse" });
+		r.c.advance(60_000);
+		assert.equal(r.m.isOpen(), false, `${type} opens nothing`);
+	}
 });
 
 test("an open menu traps Tab inside, and a press outside closes it", () => {

@@ -10,7 +10,7 @@ export interface MenuDeps {
 	language?: { get(): string; names(): { id: string; name: string }[]; set(id: string): void };
 	/** `choice` is the device's (Auto, Standard, Geek, Zen); `auto` words the Auto row (Auto, or Follow server with the default's name). */
 	view?: { choice(): Choice; set(c: Choice): void; auto(): string };
-	sound?: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void };
+	sound?: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void; /** Another tab changed Sound or Volume: the open panel redraws. */ onChange?(fn: () => void): void };
 }
 export const OPEN_MS = 250, GRACE_MS = 500;
 type Later = (fn: () => void, ms: number) => () => void;
@@ -41,7 +41,7 @@ export function mountMenu(deps: MenuDeps, leave: () => void, later: Later) {
 		on.onclick = () => (sound.set(!sound.on()), draw());
 		vol.oninput = () => sound.setVolume(Number(vol.value));
 		vol.onchange = () => sound.try();
-		redraw.push(draw);
+		redraw.push(draw), sound.onChange?.(() => open && draw());
 		panel.append(row(m.sound(), on), row(m.sound_volume(), vol));
 	}
 	const away = h("button", { type: "button", class: "zen-leave" }, m.zen_leave_title());

@@ -5,6 +5,7 @@ import type { Hotkey } from "./hotkeys.ts";
 import { keypad } from "./keypad.ts";
 import { mountTerminals } from "./mirror.ts";
 import { rankOf, unitOf } from "./alerts.ts";
+import { prefs } from "./prefs.ts";
 import { type Alert, createStack, tally } from "./overlay.ts";
 import { m } from "./paraglide/messages.js";
 import { type Answer, post } from "./post.ts";
@@ -83,9 +84,7 @@ export function mountPanels(deps: PanelDeps) {
 	const wide = () => dock.classList.contains("wide");
 	const zoom = (on: boolean) => {
 		dock.classList.toggle("wide", on);
-		try {
-			localStorage.setItem("sb.dialog-wide", on ? "1" : "0");
-		} catch {} // storage refused: this page keeps the size
+		prefs.set("wide", on); // storage refused: this page keeps the size
 		for (const b of dock.querySelectorAll<HTMLButtonElement>(".zoom")) drawZoom(b);
 	};
 	const drawZoom = (b: HTMLButtonElement) => {
@@ -94,9 +93,7 @@ export function mountPanels(deps: PanelDeps) {
 		b.setAttribute("aria-label", wide() ? m.dialog_shrink() : m.dialog_enlarge());
 		b.title = b.getAttribute("aria-label")!;
 	};
-	try {
-		dock.classList.toggle("wide", localStorage.getItem("sb.dialog-wide") === "1");
-	} catch {}
+	dock.classList.toggle("wide", prefs.get("wide"));
 	const fill = (el: HTMLElement, a: Alert, depth: number, queue: Alert[]) => {
 		mark(el, a.mark);
 		drawZoom(el.querySelector(".zoom")!);

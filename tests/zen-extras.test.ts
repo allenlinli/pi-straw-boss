@@ -9,7 +9,11 @@ import { El, page } from "./zen-dom.ts";
 const { mountMenu, OPEN_MS, GRACE_MS } = await import("../gui/zenmenu.ts");
 const { mountFullscreen, HINT_KEY } = await import("../gui/zenfs.ts");
 const { deck, LINES, mountLine, LINE_MS, FADE_MS } = await import("../gui/zenlines.ts");
-const { readSound, readVolume, writeSound, writeVolume, SOUND_KEY, VOLUME_KEY } = await import("../gui/soundprefs.ts");
+const { createPrefs, KEYS } = await import("../gui/prefs.ts"); // the sound stores are prefs.ts's now
+const [SOUND_KEY, VOLUME_KEY] = [KEYS.sound, KEYS.volume];
+type St = Parameters<typeof createPrefs>[0];
+const [readSound, readVolume] = [(st: St) => createPrefs(st).get("sound"), (st: St) => createPrefs(st).get("volume")];
+const [writeSound, writeVolume] = [(on: boolean, st: St) => createPrefs(st).set("sound", on), (v: number, st: St) => createPrefs(st).set("volume", v)];
 const { setLocale } = await import("../gui/i18n.ts");
 
 /** A clock the test moves: `later` queues, `advance` runs what falls due. */
@@ -268,4 +272,23 @@ test("Zen's Esc table: the menu first, then a field with text, an item, an empty
 	assert.equal(escStep({ ...none, armed: true }), "leave");
 	assert.equal(escStep({ ...none, armed: true, repeat: true }), "none", "a held key is nothing");
 	assert.equal(escStep({ ...none, menu: true, repeat: true }), "none");
+});
+
+test("an open menu redraws Sound and Volume when another tab changes them; a closed one is left alone", () => {
+	const c = clock(), told: (() => void)[] = [];
+	let sound = false, volume = 60;
+	const m = mountMenu({ sound: { on: () => sound, volume: () => volume, set: () => {}, setVolume: () => {}, try: () => {}, onChange: (fn) => void told.push(fn) } }, () => {}, c.later);
+	page.body.replaceChildren(m.el as unknown as El);
+	const host = m.el as unknown as El, on = host.all((e) => e.getAttribute("class") === "zen-opt")[0]!;
+	const vol = host.all((e) => e.tagName === "input")[0]!;
+	m.button.click();
+	assert.equal(on.getAttribute("aria-pressed"), "false");
+	[sound, volume] = [true, 25];
+	told.forEach((f) => f());
+	assert.equal(on.getAttribute("aria-pressed"), "true");
+	assert.equal(vol.value, "25");
+	m.close();
+	[sound, volume] = [false, 80];
+	told.forEach((f) => f());
+	assert.equal(on.getAttribute("aria-pressed"), "true", "closed: not redrawn (the next open does)");
 });

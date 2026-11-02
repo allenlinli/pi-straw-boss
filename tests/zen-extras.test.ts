@@ -9,7 +9,11 @@ import { El, page } from "./zen-dom.ts";
 const { mountMenu, OPEN_MS, GRACE_MS } = await import("../gui/zenmenu.ts");
 const { mountFullscreen, HINT_KEY } = await import("../gui/zenfs.ts");
 const { deck, LINES, mountLine, LINE_MS, FADE_MS } = await import("../gui/zenlines.ts");
-const { readSound, readVolume, writeSound, writeVolume, SOUND_KEY, VOLUME_KEY } = await import("../gui/soundprefs.ts");
+const { createPrefs, KEYS } = await import("../gui/prefs.ts"); // the sound stores are prefs.ts's now
+const [SOUND_KEY, VOLUME_KEY] = [KEYS.sound, KEYS.volume];
+type St = Parameters<typeof createPrefs>[0];
+const [readSound, readVolume] = [(st: St) => createPrefs(st).get("sound"), (st: St) => createPrefs(st).get("volume")];
+const [writeSound, writeVolume] = [(on: boolean, st: St) => createPrefs(st).set("sound", on), (v: number, st: St) => createPrefs(st).set("volume", v)];
 const { setLocale } = await import("../gui/i18n.ts");
 
 /** A clock the test moves: `later` queues, `advance` runs what falls due. */

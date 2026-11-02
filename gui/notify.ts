@@ -1,6 +1,6 @@
 import { m } from "./paraglide/messages.js";
 import type { Alert } from "./alerts.ts";
-import { readSound, readVolume, writeSound, writeVolume } from "./soundprefs.ts";
+import { prefs } from "./prefs.ts";
 import doneUrl from "./sounds/done.mp3";
 import errorUrl from "./sounds/error.mp3";
 import waitingUrl from "./sounds/waiting.mp3";
@@ -16,18 +16,6 @@ import waitingUrl from "./sounds/waiting.mp3";
 type Kind = "waiting" | "error" | "done";
 const SOUNDS: Record<Kind, string> = { waiting: waitingUrl, error: errorUrl, done: doneUrl };
 const kindOf = (a: Alert): Kind | undefined => (a.mark === "waiting" || a.pending ? "waiting" : a.mark === "error" ? "error" : a.mark === "done" ? "done" : undefined);
-const read = (key: string, fallback: string) => {
-	try {
-		return localStorage.getItem(key) ?? fallback;
-	} catch {
-		return fallback; // storage refused: the default holds for this page
-	}
-};
-const write = (key: string, value: string) => {
-	try {
-		localStorage.setItem(key, value);
-	} catch {}
-};
 
 export interface Notifier { signal(fresh: Alert[]): void; /** Zen: the system notification for the one item that took the screen while the page is hidden or unfocused (no clip, nothing for the items behind it). */ remind(a: Alert): void; /** The finished-unit clip, when Sound is on: a new unit that is ready (deploy.ts). */ chime(): void; /** The Sound switch and Volume as the settings page has them (the Zen menu drives the same). */ sound: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void } }
 
@@ -37,7 +25,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	const remindBtn = $<HTMLButtonElement>("remind"), soundBtn = $<HTMLButtonElement>("sound");
 	const vol = $<HTMLInputElement>("sound-vol"), volOut = $<HTMLOutputElement>("sound-vol-out");
 	const can = typeof Notification !== "undefined";
-	let remind = read("sb.remind", "1") === "1", sound = readSound(), volume = readVolume();
+	let remind = prefs.get("remind"), sound = prefs.get("sound"), volume = prefs.get("volume");
 	let ac: AudioContext | undefined, gain: GainNode | undefined;
 	const clips = new Map<Kind, Promise<AudioBuffer>>();
 	const draw = () => {
@@ -57,16 +45,18 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	};
 	remindBtn.onclick = async () => {
 		if (remind && can && Notification.permission === "default") await Notification.requestPermission().catch(() => {});
-		else write("sb.remind", (remind = !remind) ? "1" : "0");
+		else prefs.set("remind", (remind = !remind));
 		draw();
 	};
 	// Each press here lets the page play, and says what a finished unit sounds like.
 	const setSound = (on: boolean) => {
-		writeSound((sound = on));
+		prefs.set("sound", (sound = on));
 		draw();
 		if (sound) play("done");
 	};
-	const setVolume = (v: number) => (writeVolume((volume = v)), draw());
+	const setVolume = (v: number) => (prefs.set("volume", (volume = v)), draw());
+	prefs.on("sound", () => ((sound = prefs.get("sound")), draw())); // another tab's switch applies here
+	prefs.on("volume", () => ((volume = prefs.get("volume")), draw()));
 	soundBtn.onclick = () => setSound(!sound);
 	vol.oninput = () => setVolume(Number(vol.value));
 	vol.onchange = () => play("done");

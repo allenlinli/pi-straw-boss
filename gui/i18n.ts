@@ -1,4 +1,5 @@
 import { m } from "./paraglide/messages.js";
+import { createPrefs, prefs } from "./prefs.ts";
 import { baseLocale, type Locale, locales, overwriteGetLocale, toLocale } from "./paraglide/runtime.js";
 
 // The page's language. The messages are Paraglide's (gui/messages/<locale>.json, compiled into gui/paraglide); this module only picks the
@@ -6,7 +7,6 @@ import { baseLocale, type Locale, locales, overwriteGetLocale, toLocale } from "
 // Chinese tag maps by script, so zh-HK reads Traditional Chinese and zh-SG Simplified once that locale exists. Pinning the locale keeps
 // Paraglide from resolving it on every message call. Choosing another reloads the page, which draws every view in it afresh.
 
-const KEY = "sb-locale";
 /** A browser language tag as one of the page's locales: the tag itself, Chinese by script or region, or its base language. */
 export function match(tag: string): Locale | undefined {
 	const zh = /^zh\b/i.test(tag) && (/-(hant|tw|hk|mo)\b/i.test(tag) ? "zh-TW" : /-(hans|cn|sg|my)\b/i.test(tag) ? "zh-CN" : undefined);
@@ -27,11 +27,7 @@ export const pageKeys = Object.keys(PAGE);
 
 /** Keeps `next` as the device's language and reloads the page in it; false when the storage refused. The settings page's menu and the Zen menu both choose through this. */
 export function setLocale(next: string, store: Pick<Storage, "setItem"> = localStorage, reload: () => void = () => location.reload()) {
-	try {
-		store.setItem(KEY, next);
-	} catch {
-		return false;
-	}
+	if (!createPrefs(store).set("locale", next)) return false;
 	reload();
 	return true;
 }
@@ -39,11 +35,7 @@ export const localeNames = () => locales.map((l) => ({ id: l as string, name: m.
 
 /** Pins the locale, translates the page's static text, and fills the language menu. */
 export function startI18n() {
-	let stored: string | null = null;
-	try {
-		stored = localStorage.getItem(KEY);
-	} catch {} // storage refused: the browser's language decides
-	const locale = pick(stored, navigator.languages ?? [navigator.language]);
+	const locale = pick(prefs.get("locale"), navigator.languages ?? [navigator.language]);
 	overwriteGetLocale(() => locale);
 	document.documentElement.lang = locale;
 	const put: Record<string, (el: HTMLElement, v: string) => void> = { m: (el, v) => (el.textContent = v), mLabel: (el, v) => el.setAttribute("aria-label", v), mTitle: (el, v) => (el.title = v), mEmpty: (el, v) => (el.dataset.empty = v) };

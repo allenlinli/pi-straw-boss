@@ -1,3 +1,5 @@
+import { createPrefs, KEYS } from "./prefs.ts";
+
 // The page's view: Standard (the Tokyo Night palette with its motion), Geek (black, monospace, AAA contrast, nothing moves; style.css `[data-view="geek"]`), or Zen (ink; one waiting item at a time, docs/specs/2026-11-01-zen-view.md; until its layer lands a Zen page shows Standard's page).
 // The choice is the device's: Auto, Standard, Geek, or Zen in localStorage `sb.view`. An explicit Standard or Geek wins; Auto (also a missing or invalid value)
 // follows the server's default when the boss set one (`/boss gui view`: Standard, Geek, or Zen), else the OS, Geek when it asks for more contrast (prefers-contrast: more).
@@ -9,7 +11,7 @@ export type Choice = "auto" | "standard" | "geek" | "zen";
 export type View = "standard" | "geek" | "zen";
 /** What moved the view: the person chose one (`pick`: here or on another page of this device), or the page's own Auto followed the server's default or the screen (`follow`). */
 export type Cause = "pick" | "follow";
-export const KEY = "sb.view";
+export const KEY: string = KEYS.view;
 /** The theme-color of the Geek and Zen views (Zen: the ink ground); Standard keeps the color the page came with (index.html). */
 export const THEME = { geek: "#000000", zen: "#14110e" } as const;
 
@@ -43,13 +45,7 @@ export function domEnv(): ViewEnv {
 
 export function mountView(env: ViewEnv = domEnv()) {
 	const listeners: ((view: View, cause: Cause) => void)[] = [], serverListeners: ((server: Choice) => void)[] = [], standard = env.meta?.content ?? "";
-	const read = () => {
-		try {
-			return choiceOf(env.storage.getItem(KEY));
-		} catch {
-			return "auto"; // storage refused: the OS decides
-		}
-	};
+	const prefs = createPrefs(env.storage), read = () => choiceOf(prefs.get("view")); // storage refused: the OS decides
 	let choice = read(), server = choiceOf(env.server?.content), shown: View | undefined;
 	/** A `pick` tells the listeners every time, even when the view it resolves to is the one shown (a Zen page that was left comes back); a `follow` only when the view changed. */
 	function apply(cause?: Cause) {
@@ -78,9 +74,7 @@ export function mountView(env: ViewEnv = domEnv()) {
 		/** Switches at once and keeps the choice for this device; a refused storage still switches this page. */
 		set(next: Choice) {
 			choice = next;
-			try {
-				env.storage.setItem(KEY, next);
-			} catch {} // the choice holds until the page closes
+			prefs.set("view", next); // storage refused: the choice holds until the page closes
 			apply("pick");
 		},
 		/** Draws the view again (the page left Zen or came back, viewface.ts) without reading the storage, and tells no one. */
@@ -90,6 +84,8 @@ export function mountView(env: ViewEnv = domEnv()) {
 			choice = read();
 			apply("pick");
 		},
+		/** Another tab of this device wrote the choice. */
+		onStored: (fn: () => void) => prefs.on("view", fn),
 		onChange: (fn: (view: View, cause: Cause) => void) => void listeners.push(fn),
 		/** Told when the server's default changed (the settings' Auto button names it). */
 		onServer: (fn: (server: Choice) => void) => void serverListeners.push(fn),
@@ -110,7 +106,7 @@ export function mountPick(group: HTMLElement, view: PageView, label?: (server: C
 	view.onServer(words);
 	const sync = () => buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.choice === view.choice())));
 	for (const b of buttons) b.addEventListener("click", () => (view.set(choiceOf(b.dataset.choice)), sync()));
-	addEventListener("storage", (e) => e.key === KEY && (view.reread(), sync()));
+	view.onStored(() => (view.reread(), sync()));
 	sync();
 }
 

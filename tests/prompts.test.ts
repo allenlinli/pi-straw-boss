@@ -15,6 +15,7 @@ import { PROMPT_DIR } from "./fakes.ts";
 // Tower comms: tower 360 to 380 for never forwarding a main's board items or todo text to an ally (T2 review F009).
 // Merge of call timing (D19) and board auto-fill: main 458 (three call_tower points beside the board line), tower 380.
 // Board clearing: main 458 to 484 (clear the board before stopping when work ends or is shelved; `board_set { clear: true }`; Done-when includes it).
+// 2026-11-02 (a main edited prompts itself and stalled its chain): main dispatches work independent of its chain; +14 words, 13 cut from the board and rename lines (the tool states the 16-character limit), main stays 483 of 484.
 const BUDGETS: Record<string, number> = { "main.md": 484, "tower.md": 380, "member.md": 140, "member-no-main.md": 150 };
 const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir"]);
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
@@ -110,4 +111,10 @@ test("merge train: the integrator needs no shared call for its own merges, and t
 	assert.ok(integrator.includes("Your own merges and pushes need no `shared` call: the slips' auth covers them"));
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower-run.md`, "utf8").includes("from the integrator itself, answer go or wait"));
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8").includes("the integrator's own: go/wait"));
+});
+
+// 2026-11-02: a main carried a side task itself under the single-loop rule "carry bounded work in the session" and stalled its own chain.
+test("the main dispatches work independent of its chain to a subagent in parallel", () => {
+	const main = readFileSync(`${PROMPT_DIR}/main.md`, "utf8");
+	for (const term of ["Dispatch work independent of your chain to a subagent in parallel", "binds a single loop, not you"]) assert.ok(main.includes(term), `main.md names ${term}`);
 });

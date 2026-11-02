@@ -1,4 +1,5 @@
 import type { Post } from "./mirrorconn.ts";
+import type { Answer } from "./post.ts";
 import { m } from "./paraglide/messages.js";
 
 // The writes of a terminal's keys (POST …/keys, src/keys.ts), one at a time, at most one every 130 ms (the server takes 8 a second per session), in order;
@@ -7,8 +8,8 @@ import { m } from "./paraglide/messages.js";
 
 export type Write = { key: string } | { text: string } | { paste: string };
 export const GAP = 130, MAX_TYPED = 64, MAX_PASTE = 4000;
-/** What a writer tells its owner. `busy`: a write went out or came back; `ask`: the server asked to confirm a key (`token` names it); `error`: a refusal or a failure in the page's words; `sent`/`failed`: a write is on its way / did not run; `taken`: the server took it (200). */
-export interface WriterEvents { busy?(): void; clear?(): void; ask?(write: { key: string }, reason: string, token: string): void; error?(text: string): void; sent?(w: Write): void; taken?(w: Write): void; failed?(w: Write): void }
+/** What a writer tells its owner. `busy`: a write went out or came back; `ask`: the server asked to confirm a key (`token` names it); `error`: a refusal or a failure in the page's words; `sent`/`failed`: a write is on its way / did not run (`r`: the server's refusal; none for a network failure); `taken`: the server took it (200). */
+export interface WriterEvents { busy?(): void; clear?(): void; ask?(write: { key: string }, reason: string, token: string): void; error?(text: string): void; sent?(w: Write): void; taken?(w: Write): void; failed?(w: Write, r?: Answer): void }
 
 export function keywriter({ post, stream, ...on }: { post: Post; stream(): string } & WriterEvents) {
 	let queue: Write[] = [], last = 0, busy = false, wait: ReturnType<typeof setTimeout> | undefined;
@@ -21,7 +22,7 @@ export function keywriter({ post, stream, ...on }: { post: Post; stream(): strin
 		try {
 			const r = await post("keys", { ...write, stream: stream(), ...(confirmed ? { confirmed } : {}) });
 			if (r.ok) on.taken?.(write);
-			else on.failed?.(write);
+			else on.failed?.(write, r);
 			if (r.status === 409 && r.body.error === "confirm" && typeof r.body.confirm === "string" && "key" in write) (queue = []), on.ask?.(write, String(r.body.reason ?? ""), r.body.confirm);
 			else if (!r.ok) (queue = []), on.error?.(r.body.reason ?? m.refused({ status: r.status }));
 		} catch {

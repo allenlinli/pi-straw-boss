@@ -42,6 +42,8 @@ test("secretPrompt: the last non-blank row ends in a colon after password, passp
 	const no = ["password updated.", "$ echo password", "Enter command:", "Enter secret>", "Username:", "spin:", "pining:", "", `password${"x".repeat(81)}:`, "passwords are stored here", "Password: not required for this host", "the password: ok, continuing"];
 	for (const row of no) assert.equal(secretPrompt(["Hit:1 http://x", row]), false, row);
 	assert.equal(secretPrompt([]), false, "no rows");
+	assert.equal(secretPrompt(["Password for 'https://boss@github.com':", "Enter command:"]), false, "a password prompt above the last row is not the prompt");
+	assert.equal(secretPrompt(["Password:", "", "  "]), true, "blank rows below do not count");
 	assert.equal(secretPrompt(["Password:", "", "  ", ""]), true, "blank rows after the prompt do not hide it");
 	assert.equal(secretPrompt(["Password:", "Sorry, try again."]), false, "a prompt that is not the last non-blank row is not asked");
 	assert.equal(secretPrompt(["Password:", "[sudo] password for boss:"]), true, "only the last one counts, and it matches");

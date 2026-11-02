@@ -932,5 +932,18 @@
 	"lan_fw_win_block_left": "Cannot go in a command (the name holds a control character, an invisible or direction-changing character, or a wildcard): {left}. Disable them in wf.msc (Inbound Rules, the rule, Disable Rule).",
 	"lan_fw_win_noallow": "No Windows Firewall rule allows incoming connections to TCP port {port}, so a phone cannot connect. A port rule survives node upgrades, which a program rule does not. In an elevated PowerShell: {command}",
 	"lan_fw_win_public": "Windows calls the network of {where} Public, which blocks incoming connections: Settings, Network & internet, Wi-Fi, the network, Network profile type, Private.",
-	"lan_fw_win_unknown": "Windows Firewall could not be read ({why}). If a phone cannot connect, allow the port in an elevated PowerShell with {allow} and list rules that block node.exe with {list}; disable one by its InstanceID with Disable-NetFirewallRule -Name '<InstanceID>'."
+	"lan_fw_win_unknown": "Windows Firewall could not be read ({why}). If a phone cannot connect, allow the port in an elevated PowerShell with {allow} and list rules that block node.exe with {list}; disable one by its InstanceID with Disable-NetFirewallRule -Name '<InstanceID>'.",
+	"card_run": "Run",
+	"card_waits": "The command waits in {name}'s prompt.",
+	"card_input": "A line for the terminal",
+	"card_mask": "Hide what I type",
+	"card_secret": "Looks like a password prompt: what you type is hidden.",
+	"card_sending": "Sending…",
+	"card_sent": "Sent.",
+	"card_stale": "The terminal has not updated for a moment; waiting.",
+	"card_full": "Full terminal",
+	"card_confirm_yes": "Send it",
+	"card_confirm_command": "This runs a command in {name}'s prompt.",
+	"card_confirm_unread": "{name}'s prompt could not be read, so Enter may run something else.",
+	"card_confirm_ending": "Enter runs /{command}, which ends or replaces this session."
 }

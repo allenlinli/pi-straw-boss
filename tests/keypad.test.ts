@@ -38,13 +38,13 @@ const mod = await import("../gui/keypad.ts");
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 function pad(state: "live" | "hidden" | "off" = "live") {
-	const posts: Record<string, unknown>[] = [], replies: ((r: { ok: boolean; status: number; body: Record<string, unknown> }) => void)[] = [];
+	const heard: string[] = [], posts: Record<string, unknown>[] = [], replies: ((r: { ok: boolean; status: number; body: Record<string, unknown> }) => void)[] = [];
 	const s = { state };
-	const p = mod.keypad({ name: "billing", state: () => s.state, stream: () => "st", post: (action, body) => (assert.equal(action, "keys"), posts.push(body), new Promise((resolve) => replies.push(resolve))) });
+	const p = mod.keypad({ name: "billing", state: () => s.state, stream: () => "st", entered: (sent) => void heard.push(`entered:${sent}`), taken: () => void heard.push("taken"), post: (action, body) => (assert.equal(action, "keys"), posts.push(body), new Promise((resolve) => replies.push(resolve))) });
 	const el = p.el as unknown as El;
 	const key = (k: string) => el.all().find((b) => b.dataset.key === k)!;
 	const reply = async (status: number, body: Record<string, unknown> = {}) => (replies.shift()!({ ok: status < 300, status, body }), await tick());
-	return { p, el, s, posts, key, reply, press: (k: string, isTrusted = true) => key(k).onclick!({ isTrusted }), keys: () => el.all().filter((b) => b.dataset.key).map((b) => b.dataset.key) };
+	return { p, el, s, posts, heard, key, reply, press: (k: string, isTrusted = true) => key(k).onclick!({ isTrusted }), keys: () => el.all().filter((b) => b.dataset.key).map((b) => b.dataset.key) };
 }
 
 test("the module exposes the pad and nothing that sends a sequence; the pad has exactly the server's keys", () => {
@@ -155,4 +155,38 @@ test("a mirror hidden for a secret leaves only Escape; a stale, ended, or paused
 	s.state = "live";
 	p.update();
 	assert.equal(keys().filter((k) => !key(k!).disabled).length, PAD.length);
+});
+
+test("taken fires once for an Enter the server took, directly or after the confirm, and never while it is on its way, refused, or for another key", async () => {
+	const { press, reply, heard } = pad();
+	press("enter");
+	assert.deepEqual(heard, ["entered:true"], "going is not taken");
+	await reply(200, { accepted: true });
+	assert.deepEqual(heard, ["entered:true", "taken"]);
+	heard.length = 0;
+	await gap();
+	press("enter");
+	await reply(409, { error: "confirm", confirm: "command", reason: "x" });
+	assert.deepEqual(heard, ["entered:true", "entered:false"], "a confirm is not taken");
+	heard.length = 0;
+	await gap();
+	press("enter");
+	await reply(409, { error: "no_mirror", reason: "x" });
+	assert.deepEqual(heard, ["entered:true", "entered:false"], "a refusal is not taken");
+	heard.length = 0;
+	await gap();
+	press("up");
+	await reply(200, { accepted: true });
+	assert.deepEqual(heard, [], "another key is not an Enter");
+});
+
+test("an Enter confirmed through the pad's inline button is taken when the server answers 200 to it", async () => {
+	const { press, reply, heard, el } = pad();
+	press("enter");
+	await reply(409, { error: "confirm", confirm: "command", reason: "x" });
+	heard.length = 0;
+	el.all().find((x) => x.attrs.get("class") === "pad-yes")!.onclick!({ isTrusted: true });
+	assert.deepEqual(heard, ["entered:true"]);
+	await reply(200, { accepted: true });
+	assert.deepEqual(heard, ["entered:true", "taken"]);
 });

@@ -14,8 +14,8 @@ export type TermState = "live" | "hidden" | "off";
 /** What the connection last had to say: no frame yet, rows, a secret, the tab hidden, or a refusal (`why`: the server's reason, or the end of the mirror). */
 export type Phase = "connecting" | "live" | "hidden" | "paused" | "refused";
 export interface Conn { key: string; post: Post; rows: string[]; cols: number; seen: number; phase: Phase; why: string; hidden: boolean; ended: boolean; parked: boolean; watchers: Set<Watch>; state(): TermState; stale(): boolean }
-/** Who listens. `rows`: a frame's rows were applied (`f` the frame, `size` its width changed or it is whole); `state`: the phase or the staleness may have changed (also once a second); `end`: the pane is gone (an `ended` frame, or an attach refused as not found or closed); `entered`: a pad sent an Enter (true) or the server refused it (false). */
-export interface Watch { rows?(rows: string[], f: Frame, size: boolean): void; state?(s: TermState, c: Conn): void; end?(): void; entered?(sent: boolean): void }
+/** Who listens. `rows`: a frame's rows were applied (`f` the frame, `size` its width changed or it is whole); `state`: the phase or the staleness may have changed (also once a second); `end`: the pane is gone (an `ended` frame, or an attach refused as not found or closed); `entered`: a pad sent an Enter (true) or the server refused it (false); `taken`: the server took a pad's Enter. */
+export interface Watch { rows?(rows: string[], f: Frame, size: boolean): void; state?(s: TermState, c: Conn): void; end?(): void; entered?(sent: boolean): void; taken?(): void }
 export const MAX_ROWS = 120;
 const AWAY_MS = 5000, STALE_MS = 3000;
 interface C extends Conn { queue: Promise<unknown>; away?: ReturnType<typeof setTimeout> }
@@ -43,6 +43,8 @@ export function mountConns({ post, stream }: { post(key: string): Post; stream()
 		retry: (c: Conn) => retry(c as C),
 		/** A pad on `c` sent an Enter (true) or the server refused it (false). */
 		entered: (c: Conn, sent: boolean) => c.watchers.forEach((w) => w.entered?.(sent)),
+		/** The server took an Enter a pad on `c` sent. */
+		taken: (c: Conn) => c.watchers.forEach((w) => w.taken?.()),
 		/** `w` joins the connection of `key` (made and attached by the first); `stop` leaves it (the last to leave detaches). */
 		join(key: string, w: Watch): { conn: Conn; stop(): void } {
 			let c = conns.get(key);

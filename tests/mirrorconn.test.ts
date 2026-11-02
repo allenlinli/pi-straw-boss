@@ -260,7 +260,7 @@ test("the tab hidden for 5 s parks every connection once (a watcher count does n
 
 test("a watcher and an embedded terminal on one key share one attach and one set of rows; the embed starts with the rows the watcher holds and leaving it keeps the mirror for the watcher", async () => {
 	const w = world();
-	const padCalls: { entered(sent: boolean): void }[] = [];
+	const padCalls: { entered(sent: boolean): void; taken(): void }[] = [];
 	const terminals = mountTerminals({ tiles: { open() {} }, post: w.post, stream: w.stream, pad: (x) => (padCalls.push(x), { el: new El() as never, update() {} }) });
 	const got: string[][] = [], states: string[] = [], ends: string[] = [], taken: string[] = [];
 	const watching = terminals.watch("K", "billing", { rows: (rows) => void got.push([...rows]), state: (s) => void states.push(s), end: () => void ends.push("end"), taken: () => void taken.push("taken") });
@@ -277,9 +277,10 @@ test("a watcher and an embedded terminal on one key share one attach and one set
 	assert.match(host.textContent, /NEXT/);
 	assert.deepEqual(got.at(-1), ["ROW-ONE", "NEXT"], "both hear a frame");
 	padCalls[0]!.entered(false);
-	assert.deepEqual(taken, [], "a refused Enter is not taken");
 	padCalls[0]!.entered(true);
-	assert.deepEqual(taken, ["taken"], "the watcher hears the Enter the embed's pad sent");
+	assert.deepEqual(taken, [], "an Enter going, or refused, is not taken");
+	padCalls[0]!.taken();
+	assert.deepEqual(taken, ["taken"], "the watcher hears the Enter the server took from the embed's pad");
 	terminals.frame(frame({ ended: "pane closed" }));
 	assert.deepEqual([ends, embedEnds], [["end"], ["end"]], "both hear the end");
 	off();

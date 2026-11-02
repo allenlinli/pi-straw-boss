@@ -83,11 +83,11 @@ export function applyFrame(box: HTMLElement, f: Frame) {
 	}
 }
 
-interface Term { key: string; conn: Conn; stop(): void; box: HTMLElement; scroll: HTMLElement; state: HTMLElement; fit: HTMLButtonElement; kb: HTMLButtonElement; typing: HTMLElement; sink: HTMLTextAreaElement; first: boolean; tile?: Tile; pad?: Pad; end?: () => void; entered?: (sent: boolean) => void }
+interface Term { key: string; conn: Conn; stop(): void; box: HTMLElement; scroll: HTMLElement; state: HTMLElement; fit: HTMLButtonElement; kb: HTMLButtonElement; typing: HTMLElement; sink: HTMLTextAreaElement; first: boolean; tile?: Tile; pad?: Pad; end?: () => void; entered?: (sent: boolean) => void; taken?: () => void }
 /** The key pad under a mirror (keypad.ts): its element, and `update` when what the pad may do changes. */
 export interface Pad { el: HTMLElement; update(): void; type?(e: KeyboardEvent): boolean; key?(key: string): void; text?(typed: string): void; paste?(pasted: string): void }
 /** The terminal tiles of this page: `stream()` is the newest `hello` as it came (JSON); `pad` puts the key pad under a mirror. */
-export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(tile: Tile, focus?: boolean): void }; post(key: string): Post; stream(): string; pad?(t: { name: string; state(): TermState; post: Post; stream(): string; blip(): void; entered(sent: boolean): void }): Pad }) {
+export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(tile: Tile, focus?: boolean): void }; post(key: string): Post; stream(): string; pad?(t: { name: string; state(): TermState; post: Post; stream(): string; blip(): void; entered(sent: boolean): void; taken(): void }): Pad }) {
 	const open = new Map<string, Term>();
 	const conns = mountConns({ post, stream });
 	/** The sink carries what the pad may do, so a layer that owns Esc (Zen's) can tell a terminal that takes it from a dead one. */
@@ -151,11 +151,11 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 		}
 		new ResizeObserver(() => fit(t)).observe(t.scroll);
 		open.set(key, t);
-		Object.assign(t, conns.join(key, { rows: (_, f, size) => (applyFrame(t.box, f), size && fit(t), t.first && f.whole && ((t.first = false), requestAnimationFrame(() => (t.scroll.scrollTop = t.scroll.scrollHeight)))), state: () => say(t), end: () => t.end?.(), entered: (sent) => t.entered?.(sent) }));
+		Object.assign(t, conns.join(key, { rows: (_, f, size) => (applyFrame(t.box, f), size && fit(t), t.first && f.whole && ((t.first = false), requestAnimationFrame(() => (t.scroll.scrollTop = t.scroll.scrollHeight)))), state: () => say(t), end: () => t.end?.(), entered: (sent) => t.entered?.(sent), taken: () => t.taken?.() }));
 		const { conn } = t;
 		if (conn.rows.length) applyFrame(t.box, { key, rows: conn.rows.length, set: conn.rows.map((row, i) => [i, row]) });
 		if (conn.phase !== "connecting") say(t);
-		t.pad = pad?.({ name, state: conn.state, post: conn.post, stream: conns.id, blip: () => replay(t.scroll, "blip"), entered: (sent) => conns.entered(conn, sent) });
+		t.pad = pad?.({ name, state: conn.state, post: conn.post, stream: conns.id, blip: () => replay(t.scroll, "blip"), entered: (sent) => conns.entered(conn, sent), taken: () => conns.taken(conn) });
 		sync(t);
 		return (t.tile = { id: `term:${key}`, title: m.terminal_title({ name }), icon: "i-comms", body: () => h("div", { class: "term-tile" }, h("div", { class: "term-bar" }, t.state, t.typing, t.kb, t.fit), t.scroll, t.sink, t.pad?.el), closed: () => (t.sink.blur(), t.stop(), open.delete(key)) });
 	};
@@ -168,19 +168,19 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 			const at = open.get(key);
 			if (keys && at && globalThis.matchMedia?.("(pointer: fine)").matches) requestAnimationFrame(() => at.sink.focus({ preventScroll: true }));
 		},
-		/** Shows a terminal inside `host` (the session view's terminal mode, Zen's layer) until the returned function takes it away. `keys`: the keyboard goes to it (a desktop's); `end`: its mirror ended (the pane closed, the grant ended, or its attach was refused as gone); `entered`: the pad sent an Enter (true) or the server refused it (false). */
-		embed(key: string, name: string, host: HTMLElement, { keys = false, end, entered }: { keys?: boolean; end?: () => void; entered?: (sent: boolean) => void } = {}): () => void {
+		/** Shows a terminal inside `host` (the session view's terminal mode, Zen's layer) until the returned function takes it away. `keys`: the keyboard goes to it (a desktop's); `end`: its mirror ended (the pane closed, the grant ended, or its attach was refused as gone); `entered`: the pad sent an Enter (true) or the server refused it (false); `taken`: the server took the pad's Enter. */
+		embed(key: string, name: string, host: HTMLElement, { keys = false, end, entered, taken }: { keys?: boolean; end?: () => void; entered?: (sent: boolean) => void; taken?: () => void } = {}): () => void {
 			const t = open.get(key);
 			if (t) conns.retry(t.conn);
 			const tile = t?.tile ?? make(key, name), at = open.get(key)!;
-			[at.end, at.entered] = [end, entered];
+			[at.end, at.entered, at.taken] = [end, entered, taken];
 			host.replaceChildren(tile.body());
 			if (keys && globalThis.matchMedia?.("(pointer: fine)").matches) requestAnimationFrame(() => at.sink.focus({ preventScroll: true }));
-			return () => ((at.end = at.entered = undefined), tile.closed?.(), host.replaceChildren());
+			return () => ((at.end = at.entered = at.taken = undefined), tile.closed?.(), host.replaceChildren());
 		},
-		/** The connection of `key` without a screen, for a view that draws its own (the terminal card): `rows`, `state`, `end` as the connection tells them, `taken` when a pad on this key sent an Enter. It shares the attach with a tile or embed of the same key, so the first to join attaches and the last to leave detaches; `stop` leaves. */
+		/** The connection of `key` without a screen, for a view that draws its own (the terminal card): `rows`, `state`, `end` as the connection tells them, `taken` when the server took an Enter a pad on this key sent. It shares the attach with a tile or embed of the same key, so the first to join attaches and the last to leave detaches; `stop` leaves. */
 		watch(key: string, _name: string, { rows, state, end, taken }: { rows?(rows: string[]): void; state?(s: TermState, c: Conn): void; end?(): void; taken?(): void }) {
-			return conns.join(key, { rows: rows && ((r) => rows(r)), state, end, entered: (sent) => sent && taken?.() });
+			return conns.join(key, { rows: rows && ((r) => rows(r)), state, end, taken });
 		},
 		/** A new stream said hello: every connection attaches to it. */
 		hello: conns.hello,

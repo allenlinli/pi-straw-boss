@@ -17,7 +17,7 @@ import { domFs, mountFullscreen } from "./zenfs.ts";
 import { mountLine, stillNow } from "./zenlines.ts";
 import { ESC_MS, escStep } from "./zenkeys.ts";
 import { mountMenu } from "./zenmenu.ts";
-import { reducedNow, syncQuestions } from "./zenquestions.ts";
+import { syncQuestions } from "./zenquestions.ts";
 import { glide, settle } from "./zensize.ts";
 import { domRipples, mountRipples } from "./zenripple.ts";
 import { companionOf, createZen, type Outcome, type Screen, type Sound } from "./zenmodel.ts";
@@ -100,7 +100,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		return {
 			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
 			update(x, outcome) {
-				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()), syncQuestions(hold!, { later, reduced: reducedNow })); // several questions: one focused, the rest faded (zenquestions.ts)
+				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()), syncQuestions(hold!, { later })); // several questions: one focused, the rest faded (zenquestions.ts)
 				else if (!noted) (ask = undefined, words());
 				say(out, outcome, x);
 			},

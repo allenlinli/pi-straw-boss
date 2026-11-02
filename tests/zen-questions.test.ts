@@ -6,20 +6,29 @@ import { El, page } from "./zen-dom.ts";
 import { rulesOf } from "./css-rules.ts";
 
 // Several questions in Zen (gui/zenquestions.ts): the real answer panel (gui/ask.ts, with its keys from gui/askkeys.ts) on a fake document, enhanced the way the Zen card does, and the stylesheet's rules read as text.
-// The layout is a browser's, so the geometry is a test's: three blocks 200 tall at 100, 400, and 700 in a scroller 300 tall, so centring block k puts scrollTop at 50, 350, and 650.
+// The layout is a browser's, so the geometry is a test's: blocks are 200 tall with nothing to scroll unless a test says otherwise, and the wheel and the touches are events with the times the test gives them.
 const { mountAsk } = await import("../gui/ask.ts");
-const { BEAT_MS, HOLD_MS, syncQuestions } = await import("../gui/zenquestions.ts");
+const { BEAT_MS, syncQuestions } = await import("../gui/zenquestions.ts");
 
-const Q = (question: string, titles: string[], multiple = false) => ({ question, header: question.slice(0, 1), multiple, options: titles.map((title) => ({ title })) });
+// A faded block shows only its summary line (zen.css: display none), and a browser cannot focus what is not shown: the fake does not either, so a test that moves the focus into a faded block passes only when the layer shows it first.
+const hidden = (el: El) => {
+	for (let at = el.parent; at; at = at.parent) if ((at.getAttribute("class") ?? "").split(" ").includes("ask-one") && at.dataset.dim !== undefined) return !(el.getAttribute("class") ?? "").split(" ").includes("zen-sum");
+	return false;
+};
+const focus = El.prototype.focus;
+El.prototype.focus = function (this: El, ...args: []) {
+	if (!hidden(this)) focus.apply(this, args);
+};
+
+const Q = (question: string, titles: string[], multiple = false, header: string | undefined = question.slice(0, 1)) => ({ question, header, multiple, options: titles.map((title) => ({ title })) });
 const pending = (...qs: ReturnType<typeof Q>[]): Pending => ({ callId: "c", tool: "ask_user_question", answer: { dialog: "q", digest: "1".repeat(64), cancel: true, questions: qs } });
 const THREE = () => pending(Q("A?", ["a1", "a2"]), Q("B?", ["b1", "b2"]), Q("C?", ["c1", "c2"]));
 const cls = (name: string) => (el: El) => (el.getAttribute("class") ?? "").split(" ").includes(name);
 
-function rig(p: Pending = THREE(), o: { reduced?: boolean } = {}) {
+function rig(p: Pending = THREE()) {
 	let t = 0;
 	const timers: { at: number; fn: () => void }[] = [];
 	const env = {
-		reduced: () => Boolean(o.reduced),
 		later: (fn: () => void, ms: number) => {
 			const e = { at: t + ms, fn };
 			timers.push(e);
@@ -43,23 +52,47 @@ function rig(p: Pending = THREE(), o: { reduced?: boolean } = {}) {
 	syncQuestions(hold as never, env);
 	const panel = hold.children[0]!, scroller = hold.all(cls("zen-qs"))[0];
 	const blocks = scroller ? scroller.children : [];
-	if (scroller) {
-		[scroller.clientHeight, scroller.scrollHeight] = [300, 1000];
-		blocks.forEach((b, i) => ([b.offsetTop, b.offsetHeight] = [100 + i * 300, 200]));
-	}
+	// A browser keeps no scroll position it is told while the block is not drawn (a faded block): the fake does the same; `left` puts a place there as the user left it.
+	const put = new Map<El, (top: number) => void>();
+	blocks.forEach((b) => {
+		let top = 0;
+		Object.defineProperty(b, "scrollTop", { get: () => top, set: (v: number) => void (b.dataset.dim === undefined && (top = v)) });
+		put.set(b, (v) => void (top = v));
+		[b.clientHeight, b.scrollHeight] = [200, 200];
+	});
+	const left = (b: El, top: number) => put.get(b)!(top);
 	const choices = (k: number) => blocks[k]!.all((el) => ["radio", "checkbox"].includes(el.getAttribute("role") ?? ""));
+	const own = (k: number) => blocks[k]!.all((el) => el.tagName === "textarea")[0]!;
+	const note = (k: number) => blocks[k]!.all((el) => el.tagName === "input")[0]!;
+	const sum = (k: number) => blocks[k]!.children[0]!;
 	const dim = () => blocks.map((b) => b.dataset.dim !== undefined);
 	const inside = () => blocks.findIndex((b) => b.contains(page.focused));
-	const key = (to: El, k: string, extra: object = {}) => to.bubble("keydown", { key: k, shiftKey: false, ...extra });
+	/** A key press; whether the form took it (the browser does not move the focus for a key it took). */
+	const key = (to: El, k: string, extra: object = {}) => {
+		let taken = false;
+		to.bubble("keydown", { key: k, shiftKey: false, preventDefault: () => (taken = true), ...extra });
+		return taken;
+	};
 	/** A pointer's tap on `el` (the button's own handler, then the click that rises). */
 	const tap = (el: El) => (el.onclick?.(), el.bubble("click", { detail: 1 }));
 	/** The same tap landing on the words inside a button (a browser's click target is the innermost element). */
 	const tapWord = (el: El) => (el.onclick?.(), el.children[0]!.bubble("click", { detail: 1 }));
-	const scrollTo = (top: number) => ((scroller!.scrollTop = top), scroller!.bubble("scroll"));
-	return { hold, ask, panel, scroller: scroller!, blocks, choices, dim, inside, key, tap, tapWord, scrollTo, advance, env };
+	/** A wheel event over `over` at time `at`; whether the layer took it from the browser. */
+	const wheel = (deltaY: number, at: number, over: El = scroller!) => {
+		let taken = false;
+		over.bubble("wheel", { deltaY, deltaMode: 0, timeStamp: at, preventDefault: () => (taken = true) });
+		return taken;
+	};
+	/** A finger down at `from`, `during` run, and up at `to` after `ms`. */
+	const swipe = (from: number, to: number, ms: number, during?: () => void, over: El = scroller!) => {
+		over.bubble("touchstart", { touches: [{ clientY: from }], timeStamp: 1000 });
+		during?.();
+		over.bubble("touchend", { changedTouches: [{ clientY: to }], touches: [], timeStamp: 1000 + ms });
+	};
+	return { hold, ask, panel, scroller: scroller!, blocks, left, choices, own, note, sum, dim, inside, key, tap, tapWord, wheel, swipe, advance, env };
 }
 
-test("two questions or more go into one scroller; the first is focused and the others faded; the send row stays outside it", () => {
+test("two questions or more go into one scroller; the first is focused and the others faded to a line; the send row stays outside it", () => {
 	const r = rig();
 	assert.equal(r.hold.all(cls("zen-qs")).length, 1);
 	assert.equal(r.blocks.length, 3);
@@ -67,41 +100,73 @@ test("two questions or more go into one scroller; the first is focused and the o
 	assert.deepEqual(r.dim(), [false, true, true]);
 	assert.deepEqual(r.panel.children.map((el) => el.getAttribute("class")), ["zen-qs", "ask-acts", "ask-note"], "Send and Cancel, and the outcome line, are pinned below the scroller");
 	assert.equal(r.panel.all((el) => el.textContent === "Send answer").length, 1);
-	r.advance(0);
-	assert.deepEqual(r.scroller.scrolls, [{ top: 50, behavior: "auto" }], "the first block is brought to the middle, without a glide");
+	assert.ok(r.blocks.every((b, k) => cls("zen-sum")(r.sum(k)) && r.sum(k).tagName === "button"), "each block begins with its summary line, a button");
+	assert.equal(r.scroller.scrolls.length, 0, "the scroller does not scroll: the focused question is expanded in place");
 });
 
 test("a dialog with one question is left as Standard draws it, and a second update does not enhance twice", () => {
 	const one = rig(pending(Q("A?", ["a1", "a2"])));
 	assert.equal(one.hold.all(cls("zen-qs")).length, 0);
 	assert.ok(one.panel.children.some(cls("ask-one")));
+	assert.equal(one.hold.all(cls("zen-sum")).length, 0);
 	const r = rig();
 	r.ask.update(THREE(), true);
 	syncQuestions(r.hold as never, r.env);
 	assert.equal(r.hold.all(cls("zen-qs")).length, 1, "the same dialog keeps its panel and its scroller");
 	assert.equal(r.panel.all(cls("ask-one")).length, 3);
-	r.scroller.scrolls.length = 0;
-	r.advance(0);
-	r.choices(0)[0]!.focus();
-	assert.equal(r.scroller.scrolls.length, 1, "one listener set only: the focus moved nothing twice");
+	assert.equal(r.hold.all(cls("zen-sum")).length, 3);
+	assert.equal(r.scroller.handlers.wheel?.length, 1, "one listener set only");
 });
 
-test("Tab, Shift+Tab, and Enter on an option move the focus to the next question and scroll it to the middle, smoothly", () => {
+test("a faded question is one line: its header (or its question without one), and its answer after a dot once it has one", () => {
+	const r = rig(pending(Q("B?", ["b1", "b2", "b3"], true), Q("Pick one?", ["x", "y"], false, ""), Q("Own?", ["o1"])));
+	assert.equal(r.sum(1).textContent, "Pick one?", "no header: the question stands for it");
+	assert.equal(r.sum(2).textContent, "O", "an unanswered question is its header alone");
+	r.sum(1).bubble("click", { detail: 1 });
+	r.tap(r.choices(1)[0]!);
+	r.advance(BEAT_MS);
+	assert.deepEqual(r.dim(), [true, true, false], "the beat goes on to the next question without an answer");
+	assert.equal(r.sum(1).textContent, "Pick one? · x", "the answer it was left with");
+	r.blocks[0]!.bubble("click", { detail: 1 });
+	r.tap(r.choices(0)[0]!);
+	r.tap(r.choices(0)[2]!);
+	r.blocks[2]!.bubble("click", { detail: 1 });
+	assert.equal(r.sum(0).textContent, "B · b1, b3", "several picks are listed");
+	r.own(2).type("é".repeat(80));
+	r.blocks[1]!.bubble("click", { detail: 1 });
+	const said = r.sum(2).textContent;
+	assert.ok(said.startsWith("O · ééé") && said.endsWith("…") && said.length < 50, `own words are cut short: ${said}`);
+	r.own(1).type("");
+	assert.equal(r.own(2).value.length, 80, "what was typed is kept whole");
+});
+
+test("a faded question's controls are not drawn, so a screen reader's activation only reaches its line; the line brings the question in", () => {
+	const r = rig();
+	assert.equal(hidden(r.choices(1)[0]!), true, "the fake document refuses a focus there, as display: none does");
+	r.sum(1).focus();
+	assert.deepEqual(r.dim(), [true, false, true], "Tab onto the line shows the question");
+	assert.ok(r.choices(1).includes(page.focused as El), "and the focus goes in, onto an option: the line itself is gone");
+	r.blocks[0]!.bubble("click", { detail: 0 }); // Enter or Space on the line is a click without a pointer
+	assert.deepEqual(r.dim(), [false, true, true]);
+	assert.equal(r.inside(), 0);
+});
+
+test("Enter on an option and Tab from a question's last box move the focus into the next question, which comes in even though it was faded", () => {
 	const r = rig();
 	r.choices(0)[0]!.focus();
-	r.key(r.choices(0)[0]!, "Tab");
-	assert.equal(r.inside(), 1, "the keyboard focus lands inside the focused question");
+	assert.equal(r.key(r.choices(0)[0]!, "Tab"), false, "Tab from an option is the browser's: it goes to the question's own words");
+	r.note(0).focus();
+	assert.equal(r.key(r.note(0), "Tab"), true, "from the last box it goes on to the next question");
+	assert.equal(r.inside(), 1, "the keyboard focus lands inside the next question");
 	assert.deepEqual(r.dim(), [true, false, true]);
-	assert.deepEqual(r.scroller.scrolls.at(-1), { top: 350, behavior: "smooth" });
-	r.key(page.focused as El, "Tab", { shiftKey: true });
-	assert.equal(r.inside(), 0);
+	assert.equal(r.key(r.choices(1)[0]!, "Tab", { shiftKey: true }), true);
+	assert.equal(page.focused, r.note(0), "Shift+Tab goes back to the box the question before it ends in");
 	assert.deepEqual(r.dim(), [false, true, true]);
-	assert.deepEqual(r.scroller.scrolls.at(-1), { top: 50, behavior: "smooth" });
-	r.key(page.focused as El, "Enter");
+	r.choices(0)[0]!.focus();
+	r.key(r.choices(0)[0]!, "Enter");
 	assert.equal(r.choices(0)[0]!.getAttribute("aria-checked"), "true", "Enter picks, as in Standard");
 	assert.equal(r.inside(), 1, "and goes on to the next question without an answer");
 	assert.deepEqual(r.dim(), [true, false, true]);
-	assert.deepEqual(r.scroller.scrolls.at(-1), { top: 350, behavior: "smooth" });
 });
 
 test("a pointer's pick of a single choice brings the next unanswered question in after a beat; arrows, multiple choice, and Enter do not add a second move", () => {
@@ -115,7 +180,6 @@ test("a pointer's pick of a single choice brings the next unanswered question in
 	r.advance(1);
 	assert.deepEqual(r.dim(), [true, true, false], "C is the next one without an answer");
 	assert.equal(r.inside(), 2);
-	assert.deepEqual(r.scroller.scrolls.at(-1), { top: 650, behavior: "smooth" });
 	r.tap(r.choices(2)[0]!);
 	r.advance(BEAT_MS);
 	assert.deepEqual(r.dim(), [true, true, false], "all answered: nothing is left to go to");
@@ -136,99 +200,209 @@ test("a pointer's pick of a single choice brings the next unanswered question in
 test("the next question is not forced in when the boss has moved on during the beat", () => {
 	const r = rig();
 	r.tap(r.choices(0)[0]!);
-	r.blocks[2]!.bubble("click", { detail: 1 }); // a tap on C inside the beat
+	r.blocks[2]!.bubble("click", { detail: 1 }); // a tap on C's line inside the beat
 	assert.deepEqual(r.dim(), [true, true, false]);
 	r.advance(BEAT_MS);
 	assert.deepEqual(r.dim(), [true, true, false], "C stays");
 });
 
-test("a tap on a faded question brings it in and puts the focus inside it; a tap on the focused one does nothing", () => {
+test("a tap on a faded question's line brings it in and puts the focus inside it; a tap on the focused one does nothing", () => {
 	const r = rig();
-	r.advance(0);
-	r.scroller.scrolls.length = 0;
 	r.blocks[0]!.bubble("click", { detail: 1 });
-	assert.deepEqual(r.scroller.scrolls, []);
+	assert.deepEqual(r.dim(), [false, true, true]);
 	r.blocks[2]!.bubble("click", { detail: 1 });
 	assert.deepEqual(r.dim(), [true, true, false]);
 	assert.equal(r.inside(), 2);
-	assert.deepEqual(r.scroller.scrolls, [{ top: 650, behavior: "smooth" }]);
 });
 
-test("scrolling by hand changes the focused question, and the keyboard focus follows it out of a faded one", () => {
+test("a wheel notch moves one question, whatever its size, and the next notch later moves one more; the ends stay", () => {
 	const r = rig();
-	r.advance(0);
-	r.scroller.scrolls.length = 0;
-	r.choices(0)[0]!.focus();
-	r.scrollTo(150);
-	assert.deepEqual(r.dim(), [false, true, true], "nearer A than B");
-	r.scrollTo(350);
-	assert.deepEqual(r.dim(), [true, false, true]);
-	assert.equal(r.inside(), 1, "the focus was in a question and goes with the scroll");
-	r.scrollTo(660);
+	assert.equal(r.wheel(100, 1000), true, "the layer takes the wheel from the page");
+	assert.deepEqual(r.dim(), [true, false, true], "one notch, one question");
+	for (const dy of [53, 120, 15]) {
+		r.wheel(dy, 5000 + dy * 100); // notches a pause apart each move once, up to the last question
+	}
+	assert.deepEqual(r.dim(), [true, true, false], "and no further than the last");
+	assert.equal(r.wheel(100, 9000), true, "at the end the wheel is still the layer's: the page behind does not move");
 	assert.deepEqual(r.dim(), [true, true, false]);
-	assert.deepEqual(r.scroller.scrolls, [], "a scroll the hand makes is not scrolled again");
+	r.wheel(-100, 9500);
+	assert.deepEqual(r.dim(), [true, false, true], "up goes back");
+	r.wheel(-40, 10000);
+	r.wheel(-40, 10400);
+	assert.deepEqual(r.dim(), [false, true, true], "no further than the first");
+});
+
+test("one fling is one move: the wheel events that follow a move closely are its inertia and do nothing", () => {
+	const r = rig();
+	let at = 2000;
+	for (const dy of [4, 12, 40, 90, 120, 100, 70, 45, 30, 18, 9, 4, 2, 1]) r.wheel(dy, (at += 16)); // a trackpad: it grows, then fades over 200 ms
+	assert.deepEqual(r.dim(), [true, false, true], "a gentle start adds up to a move, once");
+	for (const dy of [30, 60, 90, 60, 30]) r.wheel(dy, (at += 16)); // a second push inside the same fling
+	assert.deepEqual(r.dim(), [true, false, true], "it is still the same gesture");
+	r.wheel(100, (at += 400));
+	assert.deepEqual(r.dim(), [true, true, false], "a gesture after a pause is a new one");
+	const fast = rig();
+	for (const t of [0, 50, 100, 150]) fast.wheel(100, 3000 + t);
+	assert.deepEqual(fast.dim(), [true, false, true], "a wheel spun fast is one gesture too");
+});
+
+test("a wheel too small to mean a move adds up within its gesture and is forgotten after a pause", () => {
+	const r = rig();
+	r.wheel(10, 1000);
+	r.wheel(10, 1500);
+	r.wheel(10, 2000);
+	assert.deepEqual(r.dim(), [false, true, true], "three whispers apart are nothing");
+	r.wheel(10, 2016);
+	r.wheel(10, 2032);
+	assert.deepEqual(r.dim(), [true, false, true], "ten close together are a move");
+});
+
+test("the focused question's own scroll takes the wheel first, and its end then lets the next notch move on", () => {
+	const r = rig();
+	const tall = r.blocks[0]!;
+	[tall.clientHeight, tall.scrollHeight, tall.scrollTop] = [300, 700, 0];
+	assert.equal(r.wheel(100, 1000, tall), false, "over the question the browser scrolls it");
+	assert.deepEqual(r.dim(), [false, true, true]);
+	assert.equal(r.wheel(100, 3000, r.blocks[1]!), true, "over a faded line the layer scrolls it for the browser");
+	assert.equal(tall.scrollTop, 100);
+	tall.scrollTop = 400; // the end: 400 + 300 = 700
+	assert.equal(r.wheel(100, 5000, tall), true, "at the end the browser would scroll nothing");
+	assert.deepEqual(r.dim(), [true, false, true], "so the notch moves on");
+	[tall.scrollTop] = [0];
+	r.wheel(-100, 7000, r.blocks[1]!);
+	assert.deepEqual(r.dim(), [false, true, true], "and from the top a notch up moves back");
+
+	const inertia = rig();
+	const t2 = inertia.blocks[0]!;
+	[t2.clientHeight, t2.scrollHeight, t2.scrollTop] = [300, 700, 380];
+	inertia.wheel(100, 1000, t2);
+	t2.scrollTop = 400;
+	for (let at = 1016; at < 1400; at += 16) inertia.wheel(60, at, t2); // its inertia runs on past the end
+	assert.deepEqual(inertia.dim(), [false, true, true], "the same gesture does not carry on into the next question");
+	inertia.wheel(100, 2000, t2);
+	assert.deepEqual(inertia.dim(), [true, false, true], "the next one does");
+});
+
+test("a swipe of more than 40 px, or a quick flick, moves one question; a short slow drag, and a drag that scrolled the question, do not", () => {
+	const r = rig();
+	r.swipe(500, 440, 300);
+	assert.deepEqual(r.dim(), [true, false, true], "up by 60 px: the next");
+	r.swipe(500, 470, 600);
+	assert.deepEqual(r.dim(), [true, false, true], "30 px slowly is a drag that means nothing");
+	r.swipe(300, 340, 200);
+	assert.deepEqual(r.dim(), [true, false, true], "40 px is not more than 40");
+	r.swipe(300, 345, 200);
+	assert.deepEqual(r.dim(), [false, true, true], "down by 45 px: the one before");
+	r.swipe(500, 480, 40);
+	assert.deepEqual(r.dim(), [true, false, true], "20 px in 40 ms is a flick");
+	r.swipe(500, 300, 300);
+	r.swipe(500, 300, 300);
+	assert.deepEqual(r.dim(), [true, true, false], "and no further than the last");
+
+	const tall = rig();
+	const b = tall.blocks[0]!;
+	[b.clientHeight, b.scrollHeight] = [300, 700];
+	tall.swipe(500, 300, 400, () => (b.scrollTop = 150), b);
+	assert.deepEqual(tall.dim(), [false, true, true], "the question moved under the finger: that was its scroll");
+	tall.swipe(500, 300, 400, undefined, tall.blocks[1]!);
+	assert.deepEqual(tall.dim(), [true, false, true], "a drag that moved nothing is a swipe");
+});
+
+test("a question that goes on below the fold says so while it does, and a lone question does the same", () => {
+	const r = rig();
+	const tall = r.blocks[0]!;
+	[tall.clientHeight, tall.scrollHeight] = [300, 700];
+	tall.bubble("scroll");
+	assert.equal(tall.getAttribute("data-more"), "", "more lies below");
+	r.left(tall, 399);
+	tall.bubble("scroll");
+	assert.equal(tall.getAttribute("data-more"), null, "the end (within 4 px) is the end");
+	tall.scrollTop = 100;
+	tall.bubble("scroll");
+	assert.equal(tall.getAttribute("data-more"), "");
+	const one = rig(pending(Q("A?", ["a1", "a2"])));
+	const lone = one.panel.children.find(cls("ask-one"))!;
+	[lone.clientHeight, lone.scrollHeight] = [200, 600];
+	lone.bubble("scroll");
+	assert.equal(lone.getAttribute("data-more"), "", "the same for a dialog of one question, which is not wrapped");
+	assert.equal(one.panel.children.find(cls("ask-acts"))!.getAttribute("data-more"), null, "and the send row is never marked");
+});
+
+test("a scroll inside the focused question leaves the keyboard focus where it is; a move takes it along", () => {
+	const r = rig();
+	r.own(0).focus();
+	r.scroller.bubble("scroll");
+	r.blocks[0]!.bubble("scroll");
+	assert.equal(page.focused, r.own(0), "the caret stays in the question's own words");
+	assert.deepEqual(r.dim(), [false, true, true]);
+	r.wheel(100, 1000);
+	assert.equal(r.inside(), 1, "paging takes the keyboard focus out of the question that fades");
 	page.focused = undefined;
-	r.scrollTo(40);
+	r.wheel(-100, 3000);
 	assert.deepEqual(r.dim(), [false, true, true]);
 	assert.equal(r.inside(), -1, "a focus that was elsewhere is not pulled in");
 });
 
-test("a scroll we start holds the focus where it goes until it arrives; a hand on the scroller or the hold's end lets go", () => {
+test("a question taller than the space arrives at its top, however it was left", () => {
 	const r = rig();
-	r.advance(0);
-	r.choices(0)[0]!.focus();
-	r.key(r.choices(0)[0]!, "Tab");
-	r.scrollTo(100); // the way there passes A and B
-	assert.deepEqual(r.dim(), [true, false, true], "no flicker on the way");
-	r.scrollTo(350);
-	assert.deepEqual(r.dim(), [true, false, true]);
-	r.scrollTo(150);
-	assert.deepEqual(r.dim(), [false, true, true], "arrived: a later scroll is the hand's");
-
-	const wheel = rig();
-	wheel.advance(0);
-	wheel.choices(0)[0]!.focus();
-	wheel.key(wheel.choices(0)[0]!, "Tab");
-	wheel.scroller.bubble("wheel");
-	wheel.scrollTo(100);
-	assert.deepEqual(wheel.dim(), [false, true, true], "a wheel takes over from ours");
-
-	const stuck = rig();
-	stuck.advance(0);
-	stuck.choices(0)[0]!.focus();
-	stuck.key(stuck.choices(0)[0]!, "Tab");
-	stuck.advance(HOLD_MS);
-	stuck.scrollTo(100);
-	assert.deepEqual(stuck.dim(), [false, true, true], "a scroll that never arrived does not hold for ever");
-});
-
-test("under reduced motion the scroll is instant", () => {
-	const r = rig(THREE(), { reduced: true });
-	r.choices(0)[0]!.focus();
-	r.key(r.choices(0)[0]!, "Tab");
+	const b = r.blocks[1]!;
+	[b.clientHeight, b.scrollHeight] = [300, 900];
+	r.left(b, 400);
+	assert.equal(b.scrollTop, 400);
+	r.blocks[1]!.bubble("click", { detail: 1 });
+	assert.equal(b.scrollTop, 0, "its header and its question are what the boss sees");
+	assert.equal(r.scroller.scrollTop, 0);
+	assert.equal(r.scroller.scrolls.length, 0, "and the scroller around it never moved");
+	b.scrollTop = 300;
 	r.blocks[2]!.bubble("click", { detail: 1 });
-	assert.deepEqual(r.scroller.scrolls, [{ top: 350, behavior: "auto" }, { top: 650, behavior: "auto" }]);
+	r.left(b, 300);
+	r.key(r.choices(2)[0]!, "Tab", { shiftKey: true }); // a key press into a question taller than the space too
+	assert.deepEqual(r.dim(), [true, false, true]);
+	assert.equal(b.scrollTop, 0);
 });
 
 const css = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8");
 const rule = (part: string) => rulesOf(css).find((x) => x.parts.includes(part));
 const decl = (body: string, prop: string) => new RegExp(`(?:^|;|\\s)${prop}:\\s*([^;]+)`).exec(body)?.[1]?.trim();
 
-test("the stylesheet: a scroller of a fixed height that snaps to the centre, faded blocks that stay readable and answer only a tap, and no motion under reduced motion", () => {
+test("the stylesheet: a column of a fixed height with a soft edge that holds the focused question and the lines, faded lines that show nothing but their summary, and no motion under reduced motion", () => {
 	const qs = rule('[data-view="zen"] .zen-qs');
 	assert.ok(qs, "the scroller's rule");
 	assert.match(decl(qs.body, "height") ?? "", /^clamp\(/, "a fixed height: the card's size (zensize.ts) never follows the focus");
-	assert.equal(decl(qs.body, "scroll-snap-type"), "y mandatory");
-	assert.equal(decl(qs.body, "overflow-y"), "auto");
-	assert.equal(decl(qs.body, "overscroll-behavior"), "contain");
-	const one = rule('[data-view="zen"] .zen-qs > .ask-one');
-	assert.equal(decl(one!.body, "scroll-snap-align"), "center");
+	assert.equal(decl(qs.body, "overflow"), "hidden", "it does not scroll itself: the layer pages it");
+	assert.match(decl(qs.body, "display") ?? "", /^flex$/);
+	assert.equal(decl(qs.body, "flex-direction"), "column");
+	assert.doesNotMatch(qs.body, /scroll-snap/, "no snapping to fight the paging");
+	assert.match(qs.body, /(?:-webkit-)?mask-image: var\(--zen-edge\)/, "the soft edge");
+	assert.match(css, /--zen-edge: linear-gradient\(to bottom, transparent, #000 10px, #000 calc\(100% - 10px\), transparent\)/);
+	const focused = rule('[data-view="zen"] .zen-qs > .ask-one:not([data-dim])');
+	assert.equal(decl(focused!.body, "overflow-y"), "auto", "a question taller than the space scrolls inside itself");
+	assert.equal(decl(focused!.body, "overscroll-behavior"), "contain");
 	const faded = rule('[data-view="zen"] .zen-qs > .ask-one[data-dim]');
 	assert.ok(Number(decl(faded!.body, "opacity")) >= 0.35 && Number(decl(faded!.body, "opacity")) < 1, "faded, not gone");
-	assert.equal(decl(rule('[data-view="zen"] .zen-qs > .ask-one[data-dim] > *')!.body, "pointer-events"), "none", "a faded block's controls take no pointer; the block itself takes the tap");
+	assert.equal(decl(rule('[data-view="zen"] .zen-qs > .ask-one[data-dim] > :not(.zen-sum)')!.body, "display"), "none", "a faded question's controls are not drawn: a screen reader's activation cannot reach them");
+	assert.equal(rule('[data-view="zen"] .zen-qs > .ask-one[data-dim] > *'), undefined, "no pointer-events trick in place of it");
+	assert.equal(decl(rule('[data-view="zen"] .zen-qs > .ask-one:not([data-dim]) > .zen-sum')!.body, "display"), "none", "the focused question is not its own summary");
+	const line = rule('[data-view="zen"] .zen-sum');
+	assert.ok(line && Number.parseFloat(decl(line.body, "min-height") ?? "0") >= 44, "a line is a control, 44 px at least");
+	assert.equal(decl(rule('[data-view="zen"] .zen-sum-q')!.body, "text-overflow"), "ellipsis", "one line, however long the question");
+	assert.match(css, /\.zen-qs > \.ask-one:not\(\[data-dim\]\)\[data-more\][^}]*var\(--zen-edge-more\)/, "the foot fades deeper while more lies below");
+	assert.match(css, /--zen-edge-more: linear-gradient\(to bottom, transparent, #000 10px, #000 calc\(100% - 40px\), transparent\)/);
 	const forced = css.slice(css.indexOf("@media (forced-colors: active)"));
 	assert.match(forced, /\.zen-qs > \.ask-one\[data-dim\] \{ opacity: 0\.[4-9][^}]*border: 1px dashed GrayText/, "forced colours: a border says which is the other question");
 	const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"), css.indexOf("@media (forced-colors: active)"));
-	assert.match(reduced, /\.zen-qs > \.ask-one \{ transition: none; \}/, "the fade is instant");
+	assert.match(reduced, /\.zen-qs > \.ask-one \{ transition: none; animation: none; \}/, "the fade is instant");
 	assert.match(rule('[data-view="zen"] .zen-card')!.body, /transition: height/, "the card still eases its own box");
+});
+
+test("the stylesheet: on a short window the question area gives way and the send row, Cancel, the outcome, and Maybe later stay on the page", () => {
+	const inner = rule('[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in');
+	assert.ok(inner, "a card that holds a dialog");
+	assert.equal(decl(inner.body, "display"), "flex");
+	assert.equal(decl(inner.body, "flex-direction"), "column");
+	assert.match(decl(inner.body, "max-height") ?? "", /100dvh/, "no taller than the page");
+	assert.match(css, /\.zen-card:has\(\.zen-ask\) :is\(\.zen-answer, \.zen-ask, \.ask\) \{[^}]*min-height: 0/, "the chain down to the questions can be squeezed");
+	assert.match(css, /\.zen-card:has\(\.zen-ask\) :is\(\.zen-answer, \.zen-ask, \.ask\) \{[^}]*display: flex; flex-direction: column/, "the panel is a column: the questions, then the send row");
+	assert.match(css, /\.zen-ask \.ask > :not\(\.ask-acts, \.ask-note\) \{[^}]*min-height: 5rem[^}]*overflow-y: auto/, "whatever the questions are (one, a select's options) they scroll inside the space left");
+	assert.match(css, /\.zen-ask \.ask > :is\(\.ask-acts, \.ask-note\) \{[^}]*flex: none/, "and the send row does not shrink");
 });

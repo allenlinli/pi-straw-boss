@@ -75,6 +75,11 @@ export class El {
 		if (page.focused === this) page.focused = undefined;
 		this.bubble("focusout");
 	}
+	/** An event sent to this element's own listeners (a custom one, as the answer form's keys send). */
+	dispatchEvent(event: { type: string }) {
+		for (const on of this.handlers[event.type] ?? []) on(event);
+		return true;
+	}
 	/** An event that rises from this element through its ancestors' listeners. */
 	bubble(type: string, extra: object = {}) {
 		for (let at: El | undefined = this; at; at = at.parent) for (const on of at.handlers[type] ?? []) on({ target: this, preventDefault() {}, ...extra });

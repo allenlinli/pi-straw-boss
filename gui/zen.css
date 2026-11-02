@@ -9,6 +9,7 @@
 	--accent: var(--zen-paper); --accent-hi: var(--zen-paper); --working: var(--zen-ash); --gold: var(--zen-paper); --amber: var(--zen-paper); --ok: var(--zen-moss); --err: var(--zen-clay); --err-soft: var(--zen-clay); --violet: var(--zen-ash); --idle: var(--zen-ash); --unknown: var(--zen-ash);
 	--sans: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; --serif: ui-serif, "Iowan Old Style", "Songti TC", "Noto Serif TC", PMingLiU, serif; --soft: var(--zen-ash);
 	--zen-ease: cubic-bezier(0.4, 0, 0.2, 1);
+	--zen-edge: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 10px), transparent); --zen-edge-more: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 40px), transparent); /* the soft edges of what scrolls inside the card; deeper at the foot while more lies below */
 }
 [data-view="zen"] #zen { position: fixed; inset: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; overflow: hidden; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--zen-ground); color: var(--zen-paper); font: 16px/1.6 var(--sans); }
 [data-view="zen"] #zen[hidden] { display: none; }
@@ -92,12 +93,24 @@
 [data-view="zen"] .cmp-link { color: var(--zen-paper); text-decoration-color: var(--zen-line); }
 [data-view="zen"] .zen-card :is(.ask-acts, .cmp-acts) { justify-content: center; flex-wrap: wrap; gap: 10px; }
 [data-view="zen"] .zen-card button:disabled, [data-view="zen"] .composer button:disabled { opacity: 0.55; }
-/* Several questions (zenquestions.ts): the blocks sit in one scroller of a fixed height (so the card's box never follows the focus) and snap to its centre; the spacers let the first and the last reach it. The focused block is at full strength, the rest are faded and answer only a tap. The send row is outside the scroller. */
-[data-view="zen"] .zen-qs { position: relative; display: flex; flex-direction: column; gap: 22px; height: clamp(16rem, 58vh, 34rem); padding: 0 6px; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; scroll-snap-type: y mandatory; scrollbar-width: none; }
-[data-view="zen"] .zen-qs::before, [data-view="zen"] .zen-qs::after { content: ""; flex: 0 0 18%; }
-[data-view="zen"] .zen-qs > .ask-one { flex: none; margin: 0; scroll-snap-align: center; scroll-snap-stop: always; transition: opacity 0.5s var(--zen-ease); }
-[data-view="zen"] .zen-qs > .ask-one[data-dim] { opacity: 0.4; cursor: pointer; }
-[data-view="zen"] .zen-qs > .ask-one[data-dim] > * { pointer-events: none; }
+/* A dialog on the card (ask.ts): the room is the page's, and the send row is never given up for it. The card's inner box is a column no taller than the page, down to the panel; what lies above the send row (the questions, a select's options) gives way and scrolls inside the room that is left, with a soft edge. */
+[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { display: flex; flex-direction: column; max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))); box-sizing: border-box; }
+[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in > * { flex: none; }
+[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-answer, .zen-ask, .ask) { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; gap: 8px; }
+[data-view="zen"] .zen-ask .ask > :not(.ask-acts, .ask-note) { flex: 0 1 auto; min-height: 5rem; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding-block: 10px; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }
+[data-view="zen"] .zen-ask .ask > :is(.ask-acts, .ask-note) { flex: none; }
+[data-view="zen"] :is(.zen-ask .ask > [data-more], .zen-qs > .ask-one:not([data-dim])[data-more]) { -webkit-mask-image: var(--zen-edge-more); mask-image: var(--zen-edge-more); } /* more lies below: the foot fades deeper */
+/* Several questions (zenquestions.ts): the blocks sit in one column of a fixed height (so the card's box never follows the focus), centred in it. The focused block is open at full strength and scrolls inside itself when it is taller than the room; the rest are folded to their summary line, faded, and answer only a tap. The layer pages the column (a wheel, a swipe, a tap, the keys): it never scrolls. The send row is outside it. */
+[data-view="zen"] .zen-qs { position: relative; display: flex; flex-direction: column; justify-content: safe center; gap: 6px; height: clamp(16rem, 58vh, 34rem); padding: 0 6px; overflow: hidden; overscroll-behavior: contain; touch-action: pan-y; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }
+[data-view="zen"] .zen-ask .ask > .zen-qs { min-height: 7rem; overflow: hidden; padding-block: 0; }
+[data-view="zen"] .zen-qs > .ask-one { flex: none; margin: 0; transition: opacity 0.5s var(--zen-ease); }
+[data-view="zen"] .zen-qs > .ask-one:not([data-dim]) { flex: 0 1 auto; min-height: 8rem; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding-block: 10px; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); animation: zen-fade 0.6s var(--zen-ease) both; }
+[data-view="zen"] .zen-qs > .ask-one[data-dim] { opacity: 0.55; cursor: pointer; }
+[data-view="zen"] .zen-qs > .ask-one[data-dim] > :not(.zen-sum) { display: none; }
+[data-view="zen"] .zen-qs > .ask-one:not([data-dim]) > .zen-sum { display: none; }
+[data-view="zen"] .zen-sum { display: flex; align-items: baseline; justify-content: center; gap: 0; width: 100%; min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: var(--zen-paper); font: 400 1.05rem/1.5 var(--serif); letter-spacing: 0.08em; cursor: pointer; }
+[data-view="zen"] .zen-sum-q { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+[data-view="zen"] .zen-sum-a { flex: 0 2 auto; min-width: 0; overflow: hidden; white-space: pre; text-overflow: ellipsis; color: var(--zen-ash); }
 /* The companion: the log and the composer on the same ink. */
 [data-view="zen"] .zen-company { position: relative; z-index: 1; width: min(46rem, 100%); min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; }
 [data-view="zen"] .zen-company > header { min-height: 44px; padding-right: 100px; }
@@ -118,7 +131,7 @@
 /* The page holds still (calm.ts: 30 s without input): the circle rests at its exhaled size, the ground on one layer. */
 [data-view="zen"][data-calm] :is(.zen-circle, .zen-circle i, .zen-drift i) { animation: none; }
 [data-view="zen"][data-calm] .zen-drift i:last-child { opacity: 0; }
-@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc, .zen-card) { transition: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc, .zen-card) { transition: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
 @media (forced-colors: active) {
 	[data-view="zen"] .zen-drift, [data-view="zen"] .zen-circle i, [data-view="zen"] .zen-ripples { display: none; }
 	[data-view="zen"] .zen-circle { border: 1px solid CanvasText; background: none; }

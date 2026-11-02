@@ -72,7 +72,7 @@ function towerService(state: TowerState): { service?: TowerService; mark: Mark }
 const HEAL_MS = 8000, SERVER_VIEWS = ["auto", "standard", "geek", "zen"];
 export interface Control { drop(): void; silence(): void; restore(): void; doc(): void; hand(): void; tower(state?: string): void; /** The server's default view changes, as `/boss gui view` does: the stream's `view` event (no value: the next of Auto, Standard, Geek, Zen). */ serverView(view?: string): void }
 
-// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion). The idle states make no new waits for a minute and a half.
+// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion), `terminal` (the same item as `item`, and the pane an answer opens closes itself 20 s after its terminal shows: Zen's terminal layer returns to the card by itself). The idle states make no new waits for a minute and a half.
 const zenState = (net: Net, state: string | null) => {
 	const main = units(net).find((u) => u.key === "a3")!;
 	if (state === "trust") net.trust = [{ id: "tr1", digest: "t".repeat(64), folder: "/work/harbor-api", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy", "release", "triage"], more: 0 }, { kind: "extensions", path: ".pi/extensions", items: ["harbor-hooks.ts"], more: 0 }], agents: [{ pane: "1", base: "Harbor API", role: "member", at: Date.now() - 50 * 60_000 }] }];
@@ -200,6 +200,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 		clearInterval(panes.get(key));
 		const beat = (rows = demoScreen(name, n++)) => current?.send("mirror", { key, seq: n, rows: rows.length, cols: 60, ...(n === 1 && { whole: true }), set: n === 1 ? rows.map((r, i) => [i, r]) : [5, 8].map((i) => [i, rows[i]]) });
 		if (on) (beat(), panes.set(key, setInterval(beat, 1000)));
+		if (on && zen === "terminal" && key.startsWith("grant:")) setTimeout(() => (clearInterval(panes.get(key)), current?.send("mirror", { key, ended: "The pane closed." })), 20_000);
 		return { ok: true, status: 200, body: { attached: on } };
 	};
 	/** An answer lands at once, and the unit goes back to work a moment later. */

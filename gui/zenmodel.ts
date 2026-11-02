@@ -1,5 +1,6 @@
 import type { Net } from "../src/net.ts";
-import { type Alert, rankOf } from "./alerts.ts";
+import type { Alert } from "./alerts.ts";
+import { rankOf, unitsOf, waitingOf } from "./units.ts";
 import type { With } from "./zenwith.ts";
 
 // What Zen shows, decided without a page (docs/specs/2026-11-01-zen-view.md): the one current item, the pause, or the companion. The view it hands out never says how many items wait.
@@ -13,9 +14,7 @@ const questionOf = (a: Alert) => `${a.key}|${a.pending?.answer ? `${a.pending.an
 
 /** The session for company: the stored one while the net lists it live, else its base's tower, else the head base's tower. */
 export function companionOf(net: Net | undefined, stored: With | undefined): { key: string; ws: string } | undefined {
-	type U = { key: string; control: boolean; ended?: boolean; subs: U[] };
-	const all = (u: U): U[] => [u, ...u.subs.flatMap(all)];
-	const live = (k: string) => net?.bases.find((b) => [...(b.tower ? all(b.tower as U) : []), ...[...b.tabs.flatMap((t) => t.units), ...b.outside].flatMap((u) => all(u as U))].some((u) => u.key === k && u.control && !u.ended))?.id;
+	const live = (k: string) => net && unitsOf(net).find(({ unit: u }) => u.key === k && u.control && !("ended" in u && u.ended))?.base.id;
 	const ws = stored && live(stored.key);
 	if (stored && ws !== undefined) return { key: stored.key, ws };
 	const t = (id?: string) => ((b) => (b?.tower ? { key: b.tower.key, ws: b.id } : undefined))(net?.bases.find((x) => x.id === id));
@@ -27,7 +26,7 @@ export function createZen({ now, typing }: ZenDeps) {
 	let alerts = new Map<string, Alert>(), screen: Screen = { kind: "companion" }, until = 0, hidden = false, quiet = false;
 	const seen = new Map<string, number>(), rests = new Map<string, { until: number; q: string }>();
 	let sound: Sound | undefined;
-	const items = () => [...alerts.values()].filter((a) => rankOf(a) === 0 && a.mark !== "error");
+	const items = () => waitingOf(alerts.values()).filter((a) => a.mark !== "error");
 	const age = (a: Alert) => a.since ?? seen.get(a.key) ?? now();
 	const next = () => items().filter((a) => !rests.has(a.key)).sort((a, b) => age(a) - age(b) || (a.key < b.key ? -1 : 1))[0];
 	const take = (item: Alert) => ((screen = { kind: "item", item }), (quiet = false), (sound = "bowl"));

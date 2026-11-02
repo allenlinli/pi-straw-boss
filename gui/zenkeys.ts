@@ -31,3 +31,8 @@ export function escStep(f: EscFacts): EscStep {
 	if (f.field === "empty") return "blur";
 	return f.armed ? "leave" : "hint";
 }
+
+// The terminal layer's Esc (zenterm.ts): pi interrupts on Esc and vim leaves insert mode on it, so while the terminal has the keyboard (its sink has the focus) every Esc is the terminal's:
+// `pass`, not taken and not prevented. With the focus anywhere else in the layer the same two-press window as above returns to Zen: `hint` for the first, `leave` for a second within ESC_MS.
+export type TermStep = "pass" | "hint" | "leave" | "none";
+export const termStep = (f: { typing: boolean; armed: boolean; repeat?: boolean }): TermStep => (f.typing ? "pass" : f.repeat ? "none" : f.armed ? "leave" : "hint");

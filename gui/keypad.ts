@@ -10,7 +10,7 @@ import { m } from "./paraglide/messages.js";
 // pad's keys, Delete, and Ctrl or Alt chords by their key (⌘ stays the browser's, and so do copy and paste off a Mac), characters as typed
 // text from an input event (so an input method and dead keys work), and a paste as one paste. Writes go one at a time, at most one every
 // 130 ms (the server takes 8 a second per session), and characters typed meanwhile join the next write. A refusal or a confirm drops what
-// was still queued. `blip` runs for each thing the keyboard handed the pane, so the terminal can light up.
+// was still queued. `blip` runs for each thing the keyboard handed the pane, so the terminal can light up; `entered` hears each Enter as it goes (true) and when it did not run (false).
 
 const ROWS: [string, string, () => string][][] = [
 	[["esc", "esc", m.key_escape], ["tab", "tab", m.key_tab], ["up", "↑", m.key_up], ["enter", "enter", m.key_enter]],
@@ -27,7 +27,7 @@ const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator
 const spoken = (key: string) => key.split("+").map((part) => (part.length === 1 ? part.toUpperCase() : part[0]!.toUpperCase() + part.slice(1))).join("+");
 
 /** The pad of one terminal tile; `update` follows the mirror's state. */
-export function keypad({ name, state, post, stream, blip }: { name: string; state(): TermState; post: Post; stream(): string; blip?(): void }) {
+export function keypad({ name, state, post, stream, blip, entered }: { name: string; state(): TermState; post: Post; stream(): string; blip?(): void; entered?(sent: boolean): void }) {
 	const buttons: HTMLButtonElement[] = [], note = h("p", { class: "pad-note", role: "status" });
 	let busy = false;
 	const button = ([key, label, spoken]: [string, string, () => string]) => {
@@ -53,11 +53,15 @@ export function keypad({ name, state, post, stream, blip }: { name: string; stat
 		update();
 		say("");
 		last = Date.now();
+		const enter = "key" in write && write.key === "enter"; // the owner hears of an Enter as it goes, and again if it did not run (a confirm, a refusal)
+		if (enter) entered?.(true);
 		try {
 			const r = await post("keys", { ...write, stream: stream(), ...(confirmed ? { confirmed } : {}) });
+			if (enter && !r.ok) entered?.(false);
 			if (r.status === 409 && r.body.error === "confirm" && typeof r.body.confirm === "string" && "key" in write) (queue = []), ask(write.key, String(r.body.reason ?? ""), r.body.confirm);
 			else if (!r.ok) (queue = []), say(r.body.reason ?? m.refused({ status: r.status }), "error");
 		} catch {
+			if (enter) entered?.(false);
 			queue = [];
 			say(m.unreachable(), "error");
 		} finally {

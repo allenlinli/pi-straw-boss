@@ -85,24 +85,27 @@ export function applyFrame(box: HTMLElement, f: Frame) {
 
 /** `state` is what the pad may do: send keys (`live`), only Escape (`hidden`, a secret), or nothing (`off`: stale, ended, parked, connecting). */
 export type TermState = "live" | "hidden" | "off";
-interface Term { key: string; box: HTMLElement; scroll: HTMLElement; state: HTMLElement; fit: HTMLButtonElement; kb: HTMLButtonElement; typing: HTMLElement; sink: HTMLTextAreaElement; post: Post; cols: number; seen: number; away?: ReturnType<typeof setTimeout>; parked: boolean; first: boolean; ended: boolean; tile?: Tile; queue: Promise<unknown>; pad?: Pad }
+interface Term { key: string; box: HTMLElement; scroll: HTMLElement; state: HTMLElement; fit: HTMLButtonElement; kb: HTMLButtonElement; typing: HTMLElement; sink: HTMLTextAreaElement; post: Post; cols: number; seen: number; away?: ReturnType<typeof setTimeout>; parked: boolean; first: boolean; ended: boolean; tile?: Tile; queue: Promise<unknown>; pad?: Pad; end?: () => void; entered?: (sent: boolean) => void }
 /** The key pad under a mirror (keypad.ts): its element, and `update` when what the pad may do changes. */
 export interface Pad { el: HTMLElement; update(): void; type?(e: KeyboardEvent): boolean; key?(key: string): void; text?(typed: string): void; paste?(pasted: string): void }
 /** The terminal tiles of this page: `stream()` is the newest `hello` as it came (JSON); `pad` puts the key pad under a mirror. */
-export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(tile: Tile, focus?: boolean): void }; post(key: string): Post; stream(): string; pad?(t: { name: string; state(): TermState; post: Post; stream(): string; blip(): void }): Pad }) {
+export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(tile: Tile, focus?: boolean): void }; post(key: string): Post; stream(): string; pad?(t: { name: string; state(): TermState; post: Post; stream(): string; blip(): void; entered(sent: boolean): void }): Pad }) {
 	const open = new Map<string, Term>();
 	let tick: ReturnType<typeof setInterval> | undefined;
 	const id = () => { try { return String(JSON.parse(stream()).stream ?? ""); } catch { return ""; } };
-	const say = (t: Term, text: string, tone = "") => (t.pad?.update(), (t.state.textContent !== text || t.state.dataset.tone !== tone) && ((t.state.dataset.tone = tone), (t.state.textContent = text))); // a status that stays is not announced again
+	const stateOf = (t: Term): TermState => (t.parked || t.ended || stale(t) ? "off" : t.box.classList.contains("hidden") ? "hidden" : "live");
+	/** The sink carries what the pad may do, so a layer that owns Esc (Zen's) can tell a terminal that takes it from a dead one. */
+	const sync = (t: Term) => void (t.sink.dataset.pad = stateOf(t));
+	const say = (t: Term, text: string, tone = "") => (t.pad?.update(), sync(t), (t.state.textContent !== text || t.state.dataset.tone !== tone) && ((t.state.dataset.tone = tone), (t.state.textContent = text))); // a status that stays is not announced again
 	// One request at a time per tile, so an off sent right after an on reaches the server after it.
-	// A refused or failed attach ends the tile's mirror, so opening the terminal again tries again.
+	// A refused or failed attach ends the tile's mirror, so opening the terminal again tries again. A pane the server no longer knows (its grant is gone, or it closed) is an end for whoever embedded it, as an `ended` frame is.
 	const refused = (t: Term, why: string) => ((t.ended = true), say(t, m.retry_terminal({ why }), "error"));
-	const attach = (t: Term, on: boolean, s = id()) => s && void (t.queue = t.queue.then(() => t.post("mirror", { stream: s, on }).then((r) => on && !r.ok && refused(t, r.body.reason ?? m.refused({ status: r.status })), () => on && refused(t, m.unreachable()))));
+	const attach = (t: Term, on: boolean, s = id()) => s && void (t.queue = t.queue.then(() => t.post("mirror", { stream: s, on }).then((r) => on && !r.ok && (refused(t, r.body.reason ?? m.refused({ status: r.status })), (r.status === 404 || r.body.error === "pane_closed") && t.end?.()), () => on && refused(t, m.unreachable()))));
 	// The widest of the pane's columns and its longest row: rows drawn before the pane narrowed stay wider until they are redrawn.
 	const fit = (t: Term, n = Math.max(t.cols, ...[...t.box.children].map((r) => r.textContent?.length ?? 0))) => (t.box.style.fontSize = t.fit.getAttribute("aria-pressed") === "true" && n ? `${Math.max(6, Math.floor((t.scroll.clientWidth - 20) / (n * 0.6)))}px` : "");
 	const stale = (t: Term) => Date.now() - t.seen > STALE_MS;
 	// A frame comes at least once a second; a mirror without one for 3 s dims. The check runs only while a tile is open and the tab shows.
-	const watch = () => (clearInterval(tick), (tick = open.size && !document.hidden ? setInterval(() => open.forEach((t) => (t.box.classList.toggle("stale", stale(t)), t.pad?.update())), 1000) : undefined));
+	const watch = () => (clearInterval(tick), (tick = open.size && !document.hidden ? setInterval(() => open.forEach((t) => (t.box.classList.toggle("stale", stale(t)), t.pad?.update(), sync(t))), 1000) : undefined));
 	document.addEventListener("visibilitychange", () => (watch(), open.forEach((t) => {
 		clearTimeout(t.away);
 		if (document.hidden) t.away = setTimeout(() => ((t.parked = true), attach(t, false), say(t, m.paused_hidden())), AWAY_MS);
@@ -130,7 +133,8 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 			}
 			t.kb.addEventListener("mousedown", (e) => e.preventDefault()); // the button does not take the focus from the sink, so a second tap sees it open and closes it
 			t.kb.addEventListener("click", () => (on ? sink.blur() : sink.focus({ preventScroll: true })));
-			sink.addEventListener("keydown", (e) => t.pad?.type?.(e) && e.preventDefault());
+			// Shift+Esc is the keyboard's way out of the sink (a plain Esc is the pane's: pi interrupts on it, vim leaves insert mode): the focus goes to the mirror's body, where Tab moves on.
+			sink.addEventListener("keydown", (e) => (e.key === "Escape" && e.shiftKey ? (e.preventDefault(), sink.blur(), t.scroll.focus({ preventScroll: true })) : t.pad?.type?.(e) && e.preventDefault()));
 			sink.addEventListener("beforeinput", (e) => {
 				const { inputType, isComposing } = e as InputEvent, key = inputType === "deleteContentBackward" && !typedIn() ? "backspace" : inputType === "insertLineBreak" || inputType === "insertParagraph" ? "enter" : undefined;
 				if (isComposing || !key) return;
@@ -157,8 +161,9 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 		open.set(key, t);
 		attach(t, true);
 		watch();
-		const state = (): TermState => (t.parked || t.ended || stale(t) ? "off" : t.box.classList.contains("hidden") ? "hidden" : "live");
-		t.pad = pad?.({ name, state, post: t.post, stream: id, blip: () => replay(t.scroll, "blip") });
+		const state = () => stateOf(t);
+		t.pad = pad?.({ name, state, post: t.post, stream: id, blip: () => replay(t.scroll, "blip"), entered: (sent) => t.entered?.(sent) });
+		sync(t);
 		return (t.tile = { id: `term:${key}`, title: m.terminal_title({ name }), icon: "i-comms", body: () => h("div", { class: "term-tile" }, h("div", { class: "term-bar" }, t.state, t.typing, t.kb, t.fit), t.scroll, t.sink, t.pad?.el), closed: () => (clearTimeout(t.away), t.sink.blur(), attach(t, false), open.delete(key), watch()) });
 	};
 	return {
@@ -170,13 +175,15 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 			const at = open.get(key);
 			if (keys && at && globalThis.matchMedia?.("(pointer: fine)").matches) requestAnimationFrame(() => at.sink.focus({ preventScroll: true }));
 		},
-		/** Shows a session's terminal inside `host` (the session view's terminal mode) until the returned function takes it away. */
-		embed(key: string, name: string, host: HTMLElement): () => void {
+		/** Shows a terminal inside `host` (the session view's terminal mode, Zen's layer) until the returned function takes it away. `keys`: the keyboard goes to it (a desktop's); `end`: its mirror ended (the pane closed, the grant ended, or its attach was refused as gone); `entered`: the pad sent an Enter (true) or the server refused it (false). */
+		embed(key: string, name: string, host: HTMLElement, { keys = false, end, entered }: { keys?: boolean; end?: () => void; entered?: (sent: boolean) => void } = {}): () => void {
 			const t = open.get(key);
 			if (t?.ended) void ((t.ended = false), say(t, m.connecting()), attach(t, true));
-			const tile = t?.tile ?? make(key, name);
+			const tile = t?.tile ?? make(key, name), at = open.get(key)!;
+			[at.end, at.entered] = [end, entered];
 			host.replaceChildren(tile.body());
-			return () => (tile.closed?.(), host.replaceChildren());
+			if (keys && globalThis.matchMedia?.("(pointer: fine)").matches) requestAnimationFrame(() => at.sink.focus({ preventScroll: true }));
+			return () => ((at.end = at.entered = undefined), tile.closed?.(), host.replaceChildren());
 		},
 		/** A new stream said hello: every open tile attaches to it. */
 		hello: () => open.forEach((t) => !t.parked && !t.ended && attach(t, true)),
@@ -187,7 +194,7 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 			const t = open.get(f.key);
 			if (!t) return;
 			t.box.classList.toggle("hidden", Boolean(f.hidden || f.ended));
-			if (f.ended) return refused(t, m.mirror_ended({ why: f.ended }));
+			if (f.ended) return (refused(t, m.mirror_ended({ why: f.ended })), t.end?.());
 			[t.seen, t.ended] = [Date.now(), false];
 			t.box.classList.remove("stale");
 			if (f.hidden) return applyFrame(t.box, { key: t.key, rows: 0 }), say(t, m.mirror_hidden());

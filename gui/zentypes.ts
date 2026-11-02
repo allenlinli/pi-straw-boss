@@ -12,8 +12,10 @@ import type { Sound } from "./zenmodel.ts";
 import type { With } from "./zenwith.ts";
 
 // What the Zen layer (zen.ts) is given: the page's hooks and the panels it mounts.
-/** Where leaving Zen goes (the page shows Standard first): an item's dialog opens over it (`item`), a session opens (`route`, in terminal mode with `terminal` its key), or nothing more. */
-export interface Exit { item?: Alert; route?: Route; terminal?: string }
+/** Where leaving Zen goes (the page shows Standard first): an item's dialog opens over it (`item`), a session's comms open (`route`), or nothing more. */
+export interface Exit { item?: Alert; route?: Route }
+/** A terminal Zen shows in its own layer (zenterm.ts): a session's by its key, a pane an answer opened by `grant:<id>`. `armed`: the unit waits on this terminal now, so its next work ends the step. */
+export interface Term { key: string; armed?: boolean }
 export interface ZenDeps {
 	data(key: string): Data;
 	recent(key: string): Promise<Item[]>;
@@ -27,6 +29,8 @@ export interface ZenDeps {
 	/** Z5 fills this with the effects; Zen makes no sound of its own here. */
 	sound(s: Sound): void;
 	leave(to: Exit): void;
+	/** The page's terminal embedded in a host (the overlay chunk's `embed`): the Zen terminal layer's body. */
+	embed(key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void; entered?: (sent: boolean) => void }): Promise<() => void>;
 	/** The session whose log the stream should send (the companion), or none. */
 	watch(key: string | null): void;
 	/** A paired device (`mountAsk`'s `remote`); unset: by the host name. */

@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { system32, system32Path } from "../winpath.ts";
+import { powershellEnv, system32, system32Path } from "../winpath.ts";
 import { asciiLine, CLM_CHECK, execFailure, folderProblems, OWNER_OK_SIDS, POWERSHELL_FLAGS, PROGRESS_OFF, SYSTEM_SID } from "./acl.ts";
 import { removeArgs, strayGrants } from "./strays.ts";
 
@@ -20,7 +20,7 @@ export const NATIVE_MS = 15_000;
 /** A system program by absolute path, run from System32 (a bare name is looked for in the current folder first, which is a project: nodejs/node#46264). */
 export const nativeCommand = (name: string, args: string[], env: NodeJS.ProcessEnv = process.env, timeout = NATIVE_MS, extraEnv?: Record<string, string>) => ({
 	file: system32Path(name, env), args,
-	options: { encoding: "utf8" as const, windowsHide: true, timeout, cwd: system32(env), stdio: ["ignore", "pipe", "pipe"] as ("ignore" | "pipe")[], ...(extraEnv ? { env: { ...env, ...extraEnv } } : {}) },
+	options: { encoding: "utf8" as const, windowsHide: true, timeout, cwd: system32(env), stdio: ["ignore", "pipe", "pipe"] as ("ignore" | "pipe")[], ...(extraEnv ? { env: { ...powershellEnv(env), ...extraEnv } } : {}) },
 });
 export const runNative: RunNative = (name, args, timeoutMs = NATIVE_MS, extraEnv) => {
 	const { file, args: argv, options } = nativeCommand(name, args, process.env, Math.max(500, Math.min(timeoutMs, NATIVE_MS)), extraEnv);

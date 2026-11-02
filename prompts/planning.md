@@ -6,7 +6,7 @@ Plan before your first dispatch, and again when the work's shape changes.
 
 Take the first case that matches:
 
-- **single-loop**: one bounded task that you carry yourself, or that one subagent carries. Do not state it, and do not write a plan.
+- **single-loop**: one bounded task that you carry yourself, or that one subagent carries. Do not state it; its plan is one todo whose `metadata.anchor` names its check.
 - **fan-out/fan-in**: independent branches run in subagents, and you integrate their results.
 - **orchestrator-worker**: several workers, each owning one app's task end to end, with dependency edges or more ready tasks than the concurrency cap.
 
@@ -19,7 +19,7 @@ For fan-out and orchestrator-worker, create one todo per task. A task is the lar
 - `subject`: the required outcome.
 - `owner`: the subagent's name, or `self` for work you carry yourself.
 - `description`: the app, the worktree branch for a parallel writer, the anchor and who exercises it, and the exact artifact path a dependent will read.
-- `blockedBy`: the tasks whose output or landed change this one needs. Edges set the order. Tasks with no open blocker run in parallel, up to the cap (4 unless the boss or the project names another). Writers that would clash in one checkout wait.
+- `blockedBy`: the tasks whose output or landed change this one needs. Tasks with no open blocker run in parallel, up to the cap (4 unless the boss or the project names another). Writers that would clash in one checkout wait.
 - `metadata`: `{ "graph": "...", "anchor": "...", "checkpoint": "own" | "<checkpoint todo id>" }`.
 
 ## 3. Name the anchors
@@ -31,7 +31,7 @@ Each anchor is the lightest check that can fail before the change and still reac
 - **human**: the boss operates or judges the delivered result. Use it where the boss's judgment is the real check: UI feel, wording, a business rule.
 - **adversarial-review**: a fresh-context agent challenges the result against the requirement. Use it for read-only work that has no executable checkpoint.
 
-Tasks that share one anchor share one checkpoint. Do not verify the same thing separately in each branch. Give each such group one checkpoint todo, `blockedBy` every task it covers, and tell those workers to hand their evidence to it instead of running it themselves. A task whose check is distinct, or plainly cheaper in place, keeps its own.
+Tasks that share one anchor share one checkpoint. Give each such group one checkpoint todo, `blockedBy` every task it covers, and tell those workers to hand their evidence to it instead of running it themselves. A task whose check is distinct, or plainly cheaper in place, keeps its own.
 
 In an app that declares `integration`, the coordinator's anchor before handoff is its review (P0 and P1 clear) plus behaviour tests aimed at its own change, plus the project skill's `Light checks`. Format, lint, build, full type-check, full suites, publish, and similar quality gates run once, by the integrator, on the integrated pre-dev head (its skill's `Full gates`); the skill may name exceptions. The train replaces your merge-time checkpoint, not the fresh reviewer below.
 
@@ -39,8 +39,8 @@ A change-set that touches a shared contract, authorization or permission data, o
 
 ## 4. Start
 
-Dispatch without asking the boss to confirm the plan, and change the graph, an edge, or an anchor the same way: the todos record it. Through your question tool, bring the boss only the decisions the plan cannot settle, before the task they block: a requirement that is unclear or contradicts the architecture, and an authorization the work needs, such as a merge to a shared branch or a deploy.
+Dispatch without asking the boss to confirm the plan, and change the graph, an edge, or an anchor the same way: the todos record it. Before offering the boss a design choice, read the owning app's instructions and the UI and architecture rules they name; drop the options they forbid, and quote the rule that settles the design in the brief. Through your question tool, bring the boss only the decisions the plan cannot settle, before the task they block: a requirement that is unclear or contradicts the architecture, and an authorization the work needs, such as a merge to a shared branch or a deploy.
 
 ## 5. Run it
 
-Dispatch each ready task. When a result arrives, check it against its brief and anchor, mark the todo `completed`, then dispatch what it unblocked. A failed or cancelled task leaves its dependents blocked: report them, and resolve the next step with the boss. Only a completed task satisfies a dependency.
+Dispatch each ready task. When a result arrives, check it against its brief and anchor, mark the todo `completed`, then dispatch what it unblocked. A failed or cancelled task leaves its dependents blocked: report them, and resolve the next step with the boss.

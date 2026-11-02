@@ -57,10 +57,18 @@ test("the main plans from planning.md: graph, todos with owners and blockedBy, s
 	assert.match(plan, /^# Planning work/);
 	for (const term of ["single-loop", "fan-out", "orchestrator-worker", "`owner`", "`blockedBy`", "share one checkpoint", "without asking the boss to confirm the plan", "contradicts the architecture"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
 	assert.doesNotMatch(plan, /Start only on their confirmation/);
-	assert.ok(words(plan) <= 650, `planning.md has ${words(plan)} words (budget 650)`);
+	// 2026-11-02 audit (a coordinator offered the boss a page-local design that the app's rules forbade, and a single-loop task opened no anchor loop): +45 words, 20 cut, budget 650 to 670.
+	for (const term of ["its plan is one todo whose `metadata.anchor` names its check", "read the owning app's instructions", "quote the rule that settles the design in the brief"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
+	assert.ok(words(plan) <= 670, `planning.md has ${words(plan)} words (budget 670)`);
 });
 
 // D18 and D19 (docs/specs/2026-10-26-sb-backend.md, Decisions): coordination goes through the tower, and a main calls it at three points only. main.md goes from 332 to about 425 words for that rule; the "who owns it" clause of `blocked` takes it to about 445.
+// 2026-11-02 audit: a worker that read "ask first" in its app's rules built the thing anyway; the brief's closing line now sends that case to caller_ping. The boss_status/boss_broadcast line went (the tools describe themselves) to keep main.md within 484.
+test("the main's brief closing line covers a rule that says to ask first", () => {
+	const main = readFileSync(`${PROMPT_DIR}/main.md`, "utf8");
+	assert.ok(main.includes("or a rule you follow says to ask first, call `caller_ping` and stop"));
+});
+
 test("D19: the main calls the tower at three points only, routine progress stays on the board, and a milestone goes without a reply", () => {
 	const main = readFileSync(`${PROMPT_DIR}/main.md`, "utf8");
 	for (const term of ["`call_tower`", "three points only", "`milestone`", "`shared`", "`blocked`", "reply: false", "never call the tower to report", "10 minutes"]) assert.ok(main.includes(term), `main.md names ${term}`);

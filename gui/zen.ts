@@ -1,4 +1,3 @@
-import type { Item } from "../src/items.ts";
 import type { Net } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
 import { type AnswerPost, mountAsk } from "./ask.ts";
@@ -9,7 +8,6 @@ import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
 import { type Answer, post } from "./post.ts";
 import { liveNote, roleName } from "./render.ts";
-import type { Route } from "./router.ts";
 import { closed, locate } from "./scene.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 import type { Exit, Mounts, Term, ZenDeps } from "./zentypes.ts";
@@ -18,7 +16,7 @@ import { mountLine, stillNow } from "./zenlines.ts";
 import { ESC_MS, escStep } from "./zenkeys.ts";
 import { mountZenTerm } from "./zenterm.ts";
 import { mountMenu } from "./zenmenu.ts";
-import { glide, settle } from "./zensize.ts";
+import { syncQuestions } from "./zenquestions.ts";
 import { domRipples, mountRipples } from "./zenripple.ts";
 import { companionOf, createZen, type Outcome, type Screen, type Sound } from "./zenmodel.ts";
 import { recall, recording, sendTarget, type With } from "./zenwith.ts";
@@ -44,7 +42,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const typing = () => Boolean(company?.composer && company.composer.box.value !== "" && now() - touched < DRAFT_MS);
 	const model = createZen({ now, typing });
 	const stage = h("div", { class: "zen-stage" }), live = h("p", { class: "zen-live", role: "status", "aria-live": "polite" });
-	const fs = mountFullscreen(deps.fs ?? domFs(later)), menu = mountMenu(deps.menu ?? {}, () => leave(), later);
+	const fs = mountFullscreen(deps.fs ?? domFs(later)), menu = mountMenu(deps.menu ?? {}, () => leave());
 	const ripples = mountRipples(root, deps.ripple ?? domRipples(now)); // ink-water ripples under the pointer, on a canvas behind the content
 	const esc = h("p", { class: "zen-esc", role: "status", "aria-live": "polite" }); // the quiet line after a first Esc that nothing took
 	const clearEsc = () => (stopEsc(), (stopEsc = () => {}), (escAt = undefined), delete esc.dataset.on, (esc.textContent = ""));
@@ -56,7 +54,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const circle = (words?: string) => h("div", { class: "zen-circle", ...(words ? { role: "img", "aria-label": words } : { "aria-hidden": "true" }) }, h("i", null), h("i", null), h("i", null)); // the ink washes inside the ring
 	const stopLine = () => (line?.stop(), (line = undefined));
 	/** Ink dissolving: the card that was on the page stays a moment longer, fading and blurring out, while the next thing begins. */
-	const dissolve = (el: HTMLElement) => (settle(el), el.dataset.gone = "", el.setAttribute("inert", ""), stage.append(el), later(() => el.remove(), 1400));
+	const dissolve = (el: HTMLElement) => (el.dataset.gone = "", el.setAttribute("inert", ""), stage.append(el), later(() => el.remove(), 1400));
 	/** What the stage draws changed: the sound goes out, the screen follows, and the one timer is set for the next moment the model may change. */
 	function apply(o: { screen: Screen; sound?: Sound }) {
 		if (!active) return;
@@ -74,12 +72,13 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	}
 	/** An answer's reply: accepted ends the item with the knock; anything else the server refused, or no reply, plays the low bowl and leaves the card. */
 	const tell = (reply: Promise<Answer>) => reply.then((r) => (apply(r.body.outcome === "accepted" ? model.accepted() : model.refused()), r), (e: unknown) => (apply(model.refused()), Promise.reject(e)));
+	/** What a card holds was swapped: it fades in over a short moment (opacity only, zen.css) while the box takes its new size at once. */
+	const fade = (el: HTMLElement) => (el.removeAttribute("data-fade"), void el.offsetWidth, el.setAttribute("data-fade", "")); // the read restarts the animation
 	function makeCard(a: Alert): Card {
 		const trust = a.trust, key = unitOf(a), said = h("p", { class: "zen-said" }), out = h("p", { class: "zen-out", role: "status" });
 		const slot = h("div", { class: "zen-answer" }), skip = h("button", { type: "button", class: "cmp-alt zen-skip" }, m.zen_not_now());
 		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, trust ? m.trust_title() : a.name), h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, h("div", { class: "zen-acts" }, skip), out);
 		const el = h("section", { class: "zen-card", tabindex: "-1" }, inner);
-		glide(el, inner); // the box follows its content's height, eased (zensize.ts)
 		skip.onclick = () => apply(model.skip());
 		if (!trust) void deps.recent(key).then((items) => (said.textContent = intel(items).said ?? ""), () => {});
 		const answer: AnswerPost = (action, body) => tell(to(key)(action, body));
@@ -89,7 +88,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			slot.replaceChildren(panel);
 			return { key: a.key, el, said, out, skip, enter: () => false, cancel: () => false, sending: () => panel.sending(), update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
 		}
-		let ask: ReturnType<typeof mountAsk> | undefined, noted = false;
+		let ask: ReturnType<typeof mountAsk> | undefined, hold: HTMLElement | undefined, noted = false, shown: string | undefined; // `shown`: which dialog the slot holds ("" for the words)
 		const words = () => {
 			// A waiting unit with no dialog is a pane blocked on a terminal prompt, which takes no typing from here (the server refuses it): the card says to answer in its terminal and opens it.
 			const open = h("button", { type: "button", class: "cmp-link" }, m.zen_open_terminal());
@@ -98,22 +97,25 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			noted = true;
 		};
 		const dialog = () => {
-			const hold = h("div", { class: "zen-ask" });
-			slot.replaceChildren(hold);
+			slot.replaceChildren((hold = h("div", { class: "zen-ask" })));
 			return mounts.ask(hold, answer, deps.remote, () => openTerm(key), undefined, m.zen_open_terminal);
 		};
 		return {
 			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
 			update(x, outcome) {
-				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()));
+				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, x.mark === "waiting" && online()), syncQuestions(hold!, { later })); // several questions: one focused, the rest faded (zenquestions.ts)
 				else if (!noted) (ask = undefined, words());
+				const now = x.pending ? `${x.pending.callId}:${x.pending.answer?.dialog ?? ""}` : "";
+				if (shown !== undefined && shown !== now) fade(slot);
+				shown = now;
 				say(out, outcome, x);
 			},
 		};
 	}
 	const say = (out: HTMLElement, outcome: Outcome | undefined, a: Alert) => {
 		out.dataset.tone = outcome === "error" ? "error" : "";
-		out.textContent = outcome === "elsewhere" ? m.zen_elsewhere() : outcome === "error" ? (alerts.get(a.key)?.note ?? m.mark_error()) : "";
+		const text = outcome === "elsewhere" ? m.zen_elsewhere() : outcome === "error" ? (alerts.get(a.key)?.note ?? m.mark_error()) : "";
+		if (out.textContent !== text) (out.textContent = text, text && fade(out));
 	};
 	/** The free-focus rule: the item takes the focus only when the page has it, the boss is not typing somewhere else, and the terminal layer is not on. */
 	const idle = () => !term.isOpen() && document.hasFocus() && (!document.activeElement || document.activeElement === document.body || root.contains(document.activeElement));

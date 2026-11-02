@@ -57,6 +57,11 @@ class El {
 		page.focused = this;
 		this.bubble("focusin");
 	}
+	/** An event sent to this element's own listeners (a custom one, as the answer form's keys send). */
+	dispatchEvent(event: { type: string }) {
+		for (const on of this.handlers[event.type] ?? []) on(event);
+		return true;
+	}
 	/** An event that rises from this element through its ancestors' listeners. */
 	bubble(type: string) {
 		for (let at: El | undefined = this; at; at = at.parent) for (const on of at.handlers[type] ?? []) on({ target: this });
@@ -385,7 +390,7 @@ test("a select: arrows move and select (a radio group), Enter or Space confirms 
 	assert.deepEqual(sent.map((s) => s.body.choice), [1]);
 });
 
-test("two questions: arrows select in a single choice and only move in a multiple one (Space toggles), Tab and Shift+Tab walk the questions, Enter goes on", () => {
+test("two questions: arrows select in a single choice and only move in a multiple one (Space toggles), Tab and Shift+Tab walk the questions and their boxes, Enter goes on", () => {
 	const panel = mount();
 	panel.update(questionnaire(), true);
 	const [yes, no, ops, billing, support] = choices() as [El, El, El, El, El], send = button("Send answer")!;
@@ -393,11 +398,15 @@ test("two questions: arrows select in a single choice and only move in a multipl
 	assert.equal(page.activeElement, yes);
 	press(yes, "ArrowDown");
 	assert.deepEqual([page.activeElement, checked()], [no, [1]]);
-	assert.equal(press(no, "Tab").taken, true);
-	assert.equal(page.activeElement, ops, "Tab goes to the next question's first option");
+	const [note1, note2] = field("Note") as [El, El];
+	assert.equal(press(no, "Tab").taken, false, "Tab from an option is the browser's: on to the question's own words, then its note");
+	assert.equal(press(field("Your own answer")[0]!, "Tab").taken, false);
+	assert.equal(press(note1, "Tab").taken, true);
+	assert.equal(page.activeElement, ops, "Tab from the question's last box goes to the next question's first option");
 	assert.equal(press(ops, "Tab", { shiftKey: true }).taken, true);
-	assert.equal(page.activeElement, no, "and Shift+Tab to the previous one's chosen option");
-	press(no, "Tab");
+	assert.equal(page.activeElement, note1, "and Shift+Tab to the last box of the question before");
+	assert.equal(press(note1, "Tab", { shiftKey: true }).taken, false, "from a box it is the browser's: back to the box and the option before");
+	press(note1, "Tab");
 	press(ops, "ArrowDown");
 	assert.deepEqual([page.activeElement, checked()], [billing, [1]], "a multiple choice moves the focus without choosing");
 	press(billing, "Enter");
@@ -409,7 +418,8 @@ test("two questions: arrows select in a single choice and only move in a multipl
 	assert.equal(page.activeElement, send, "all answered: Enter goes on to Send");
 	assert.equal(press(on(support), "Tab").taken, false, "from the last question Tab is the browser's: its own words, then Send");
 	assert.equal(press(support, "Tab", { shiftKey: true }).taken, true);
-	assert.equal(page.activeElement, no, "Shift+Tab from the last question goes back to the one before");
+	assert.equal(page.activeElement, note1, "Shift+Tab from the last question goes back to the one before");
+	assert.equal(press(note2, "Tab").taken, false, "from the last question's note Tab is the browser's: on to Send");
 	press(on(yes), "Enter");
 	assert.deepEqual([page.activeElement, checked()], [send, [0, 3]], "Enter on a single choice confirms it, and with nothing left unanswered goes to Send");
 	press(yes, "Tab", { shiftKey: true });
@@ -422,11 +432,11 @@ test("four questions: Enter goes to the next unanswered one (round the end too),
 	const opts = (q: number) => choices().slice(q * 3, q * 3 + 3);
 	assert.equal(panel.enter(), true);
 	assert.equal(page.activeElement, opts(0)[0]);
-	for (let q = 0; q < 3; q++) press(opts(q)[0]!, "Tab");
+	for (let q = 0; q < 3; q++) press(field("Note")[q]!, "Tab");
 	assert.equal(page.activeElement, opts(3)[0], "Tab walked 1 to 4");
 	assert.equal(press(opts(3)[0]!, "Tab").taken, false, "the last one lets Tab go on");
 	for (let q = 3; q > 0; q--) press(opts(q)[0]!, "Tab", { shiftKey: true });
-	assert.equal(page.activeElement, opts(0)[0], "Shift+Tab walked back to 1");
+	assert.equal(page.activeElement, field("Note")[0], "Shift+Tab walked back to the end of 1");
 	// Question 3 is answered first: Enter on 1 goes to 2, Enter on 2 skips 3 to 4.
 	opts(2)[1]!.click();
 	press(opts(0)[1]!, "Enter");
@@ -485,8 +495,9 @@ test("the own-words box: Enter goes on like Enter on an option, Shift+Enter is a
 	on(own1).type("first");
 	press(own1, "Enter");
 	assert.equal(page.activeElement, button("Send answer"));
-	press(on(own1), "Tab");
-	assert.equal(page.activeElement, ops, "Tab out of an earlier question's box goes to the next question");
+	assert.equal(press(on(own1), "Tab").taken, false, "Tab out of the own words is the browser's: the note is next");
+	press(on(field("Note")[0]!), "Tab");
+	assert.equal(page.activeElement, ops, "Tab out of an earlier question's last box goes to the next question");
 });
 
 test("keys that carry Ctrl, Alt, or ⌘, a held Enter, and keys outside the form are left alone; Space's release is swallowed once it moved the focus", () => {

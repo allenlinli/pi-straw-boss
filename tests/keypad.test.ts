@@ -74,6 +74,52 @@ test("one key per trusted press of its button; a synthetic click sends nothing, 
 
 const gap = () => new Promise((r) => setTimeout(r, 160));
 
+test("the confirm says its reason in the page's words by the token the server named, and keeps the server's words for a token it does not know", async () => {
+	const { m } = await import("../gui/paraglide/messages.js");
+	const { press, reply, el, key } = pad();
+	const note = () => el.all().find((x) => x.attrs.get("class") === "pad-note")!;
+	const said = "Server English that must not show.";
+	for (const [token, want] of [["unread", m.confirm_unread()], ["command", m.confirm_command()], ["reload", m.confirm_ending({ command: "/reload" })], ["quit", m.confirm_ending({ command: "/quit" })], ["double-esc", m.confirm_double_esc()], ["ctrl-d", m.confirm_ctrl_d()], ["double-ctrl-c", m.confirm_double_ctrl_c()]] as const) {
+		press("enter");
+		await reply(409, { error: "confirm", confirm: token, reason: said });
+		const why = note().all().find((x) => x.attrs.get("class") === "pad-ask-why")!;
+		assert.equal(why.text, want, token);
+		assert.ok(!note().text.includes(said), token);
+		note().all().find((x) => x.attrs.get("class") === "pad-no")!.onclick!({ isTrusted: true });
+		await gap();
+	}
+	press("enter");
+	await reply(409, { error: "confirm", confirm: "something-new", reason: said });
+	assert.equal(note().all().find((x) => x.attrs.get("class") === "pad-ask-why")!.text, said, "an unknown token shows what the server said");
+	assert.ok(key("enter"));
+	assert.match(m.confirm_ending({ command: "/reload" }, { locale: "zh-TW" }), /\/reload.*結束或取代/);
+	for (const name of ["confirm_unread", "confirm_command", "confirm_double_esc", "confirm_ctrl_d", "confirm_double_ctrl_c"] as const) assert.match(m[name]({}, { locale: "zh-TW" }), /[\u4e00-\u9fff]/, name);
+});
+
+test("the confirm's two buttons are one family: the yes button carries its label (Send Enter, Send Escape, Send Ctrl+D), the other is Cancel, both classed pad-yes and pad-no and no link", async () => {
+	const { m } = await import("../gui/paraglide/messages.js");
+	const { press, reply, el } = pad();
+	const note = () => el.all().find((x) => x.attrs.get("class") === "pad-note")!;
+	press("enter");
+	await reply(409, { error: "confirm", confirm: "reload", reason: "x" });
+	const buttons = note().all().filter((x) => x.attrs.get("type") === "button");
+	assert.deepEqual(buttons.map((b) => [b.attrs.get("class"), b.text]), [["pad-yes", m.send_enter()], ["pad-no", m.cancel()]]);
+	assert.ok(!note().all().some((x) => x.attrs.get("class") === "cmp-link"), "Cancel is no link");
+	assert.equal(m.send_enter({}, { locale: "zh-TW" }), "送出 Enter");
+});
+
+test("a confirm pressed while its key is on its way sends nothing more", async () => {
+	const { press, posts, reply, el } = pad();
+	press("enter");
+	await reply(409, { error: "confirm", confirm: "reload", reason: "x" });
+	const yes = el.all().find((x) => x.attrs.get("class") === "pad-yes")!;
+	yes.onclick!({ isTrusted: true });
+	assert.equal(posts.length, 2);
+	yes.onclick!({ isTrusted: true });
+	assert.equal(posts.length, 2, "the confirm is busy until its write is answered");
+	await reply(200, { accepted: true });
+});
+
 test("the server's confirm shows inline with its reason, and sends the same key with the token it named, once; Cancel sends nothing", async () => {
 	const { press, posts, reply, el } = pad();
 	press("enter");

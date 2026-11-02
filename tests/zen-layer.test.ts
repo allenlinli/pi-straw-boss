@@ -116,6 +116,37 @@ test("a questionnaire has Send and Cancel; no Cancel without an owner that takes
 	assert.ok(again.button("Maybe later"), "Not now is on every card");
 });
 
+const several = (): Pending => ({ callId: "c5", tool: "ask_user_question", answer: { dialog: "q2", digest: "2".repeat(64), cancel: true, questions: [{ question: "Ship it?", header: "Ship", multiple: false, options: [{ title: "Yes" }, { title: "No" }] }, { question: "Which channels?", header: "Channels", multiple: false, options: [{ title: "email" }, { title: "chat" }] }] } });
+
+test("a card with several questions puts them in one column with the first focused; one question stays as it was; the same dialog on a new snapshot keeps its scroller and the pick", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: several() })]));
+	r.z.show();
+	await r.settle();
+	const scrollers = () => r.by((el) => el.getAttribute("class") === "zen-qs");
+	assert.equal(scrollers().length, 1);
+	const blocks = scrollers()[0]!.children, radios = r.by((el) => el.getAttribute("role") === "radio");
+	assert.deepEqual(blocks.map((b) => b.dataset.dim !== undefined), [false, true], "the first is focused, the other faded");
+	assert.equal(page.focused, radios[0], "the keyboard focus lands inside the focused question");
+	assert.ok(r.button("Send answer") && !scrollers()[0]!.all((el) => el.textContent === "Send answer").length, "Send is outside the scroller");
+	const note = r.by((el) => el.getAttribute("aria-label") === "Note")[0]!;
+	note.focus();
+	note.bubble("keydown", { key: "Tab", shiftKey: false });
+	assert.deepEqual(blocks.map((b) => b.dataset.dim !== undefined), [true, false], "Tab moves the focus to the second question");
+	assert.equal(page.focused, radios[2]);
+	radios[0]!.click();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: several() })]));
+	await r.settle();
+	assert.equal(scrollers().length, 1);
+	assert.equal(scrollers()[0], blocks[0]!.parent, "the same scroller");
+	assert.equal(r.by((el) => el.getAttribute("role") === "radio")[0]!.getAttribute("aria-checked"), "true", "the pick survived the snapshot");
+	const one = rig();
+	one.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
+	one.z.show();
+	await one.settle();
+	assert.equal(one.by((el) => el.getAttribute("class") === "zen-qs").length, 0, "a single question is not wrapped");
+});
+
 test("on a paired device a hereOnly choice is disabled and Cancel needs a choice the device may give; on this computer both are offered", async () => {
 	const paired = rig({ remote: true });
 	paired.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true }) })]));
@@ -250,6 +281,18 @@ test("an item that stops waiting by itself plays the knock and says it was answe
 	r.feed(net([unit("a", "working", { since: 9 })]));
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 	assert.ok(r.text().includes("Already answered elsewhere"));
+});
+
+test("an outcome line fades in when it is first said, and the same words again do not restart it", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
+	r.z.show();
+	await r.settle();
+	const out = r.by((el) => el.getAttribute("class") === "zen-out")[0]!;
+	assert.equal(out.getAttribute("data-fade"), null, "no outcome, no fade");
+	r.feed(net([unit("a", "working", { since: 9 })]));
+	assert.ok(r.text().includes("Already answered elsewhere"));
+	assert.notEqual(out.getAttribute("data-fade"), null, "the outcome line fades in");
 });
 
 test("the page never says how many items wait or that more do: what it draws is the same with one, two, and five waiting, and names no other unit", async () => {
@@ -801,4 +844,23 @@ test("Esc while an answer is on its way, after a second dialog replaced the pane
 	esc(r);
 	assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, "no pause screen");
 	assert.deepEqual(r.calls.posts.length, 1, "no cancel is posted");
+});
+
+test("a card takes its size at once and a swap of its content fades: the first drawing is the entrance, a new dialog or an outcome line sets data-fade, and nothing writes a box height", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d1" }) })]));
+	r.z.show();
+	await r.settle();
+	const slot = r.by((el) => el.getAttribute("class") === "zen-answer")[0]!, out = r.by((el) => el.getAttribute("class") === "zen-out")[0]!, card = r.by((el) => el.getAttribute("class") === "zen-card")[0]!;
+	assert.equal(slot.getAttribute("data-fade"), null, "the first drawing is the card's entrance");
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d1" }) })]));
+	assert.equal(slot.getAttribute("data-fade"), null, "the same dialog again changes nothing");
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d2" }) })]));
+	assert.notEqual(slot.getAttribute("data-fade"), null, "a new dialog on the same unit fades in");
+	assert.equal(out.getAttribute("data-fade"), null);
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5 })]));
+	assert.notEqual(slot.getAttribute("data-fade"), null, "the dialog gone, the words that stand for it fade in");
+	assert.equal(card.getAttribute("style"), null, "no box height is written");
+	const { existsSync } = await import("node:fs");
+	assert.ok(!existsSync(new URL("../gui/zensize.ts", import.meta.url)), "the card's easing is gone with its file");
 });

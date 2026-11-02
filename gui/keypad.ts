@@ -1,3 +1,4 @@
+import { confirmReason } from "./confirmwords.ts";
 import { h } from "./dom.ts";
 import type { Post, TermState } from "./mirror.ts";
 import { m } from "./paraglide/messages.js";
@@ -39,13 +40,13 @@ export function keypad({ name, state, post, stream, blip, entered }: { name: str
 	const digits = h("details", { class: "pad-digits" }, h("summary", null, "1–9"), h("div", { class: "pad-row" }, ...DIGITS.map((d) => button([d, d, () => d]))));
 	const el = h("div", { class: "pad", role: "group", "aria-label": m.keys_for({ name }) }, ...ROWS.map((row) => h("div", { class: "pad-row" }, ...row.map(button))), digits, note);
 	const say = (text: string, tone = "") => ((note.dataset.tone = tone), note.replaceChildren(text));
-	/** The server's confirm, inline: its reason, then the same key again with the token it named, or nothing. */
+	/** The server's confirm, inline: its reason (in the page's words by its token), then the same key again with the token it named, or nothing. */
 	const ask = (key: string, reason: string, token: string) => {
-		const yes = h("button", { type: "button", class: "pad-yes" }, key === "enter" ? m.send_enter() : key === "esc" ? m.send_escape() : m.send_key({ key: spoken(key) })), not = h("button", { type: "button", class: "cmp-link" }, m.cancel());
+		const yes = h("button", { type: "button", class: "pad-yes" }, key === "enter" ? m.send_enter() : key === "esc" ? m.send_escape() : m.send_key({ key: spoken(key) })), not = h("button", { type: "button", class: "pad-no" }, m.cancel());
 		yes.onclick = (e) => e.isTrusted && !busy && void send({ key }, token);
 		not.onclick = () => say("");
 		note.dataset.tone = "ask";
-		note.replaceChildren(h("span", null, reason), yes, not);
+		note.replaceChildren(h("span", { class: "pad-ask-why" }, confirmReason(token, reason)), h("span", { class: "pad-ask-acts" }, yes, not)); // the two buttons are one pair: the one that sends, and the one that does not
 		not.focus(); // never the confirm: a second Enter, or a held one, on the key that asked must not confirm it
 	};
 	async function send(write: Write, confirmed?: string) {

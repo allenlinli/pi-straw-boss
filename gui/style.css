@@ -813,7 +813,10 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .pad-note:empty { display: none; }
 .pad-note { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 0; font-size: 12px; color: var(--dim); } .pad-note[data-tone="error"] { color: var(--err-soft); }
 .pad-note[data-tone="ask"] { padding: 8px 10px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); color: var(--text); }
-.pad-yes { padding: 5px 11px; border: 0; border-radius: 9px; background: var(--amber); color: var(--ink); font: 600 12px var(--sans); cursor: pointer; }
+.pad-ask-why { flex: 1 1 14rem; min-width: 0; } .pad-ask-acts { display: flex; flex: none; gap: 8px; }
+/* The confirm's two buttons are a pair: the same box, one filled (it sends) and one outlined (it does not). */
+.pad-yes, .pad-no { box-sizing: border-box; min-height: 34px; padding: 0 14px; border: 1px solid var(--line); border-radius: 9px; font: 600 12px var(--sans); cursor: pointer; }
+.pad-yes { border-color: var(--amber); background: var(--amber); color: var(--ink); } .pad-no { background: transparent; color: var(--text); }
 .c0 { color: #414868; } .cz { color: var(--term-bg); } .c1 { color: #f7768e; } .c2 { color: #9ece6a; } .c3 { color: #e0af68; } .c4 { color: #7aa2f7; } .c5 { color: #bb9af7; } .c6 { color: #7dcfff; } .c7 { color: #a9b1d6; }
 .c8 { color: #545c7e; } .c9 { color: #ff899d; } .c10 { color: #9fe044; } .c11 { color: #faba4a; } .c12 { color: #8db0ff; } .c13 { color: #c7a9ff; } .c14 { color: #a4daff; } .c15 { color: #c0caf5; }
 .k0 { background: var(--term-bg); } .k1 { background: #f7768e; } .k2 { background: #9ece6a; } .k3 { background: #e0af68; } .k4 { background: #7aa2f7; } .k5 { background: #bb9af7; } .k6 { background: #7dcfff; } .k7, .kz { background: #a9b1d6; }
@@ -897,7 +900,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 /* Touch: larger targets, and a 16 px box so the phone does not zoom in on focus. */
 @media (pointer: coarse) { .composer textarea, .ask input, .ask textarea { font-size: 16px; } .composer button, .go, .later, .x, .chat-pill, .pair-btn, .alerts, .ask button, .term-bar button, .doc-acts > .cmp-link, .quit-btn, .d-doc { min-height: 40px; } }
 /* A phone's keys are as big as a thumb needs, a narrow window with a mouse included. */
-@media (max-width: 640px), (pointer: coarse) { .pad-key, .pad-yes { min-height: 44px; } .pad-digits summary { padding: 14px 0; } }
+@media (max-width: 640px), (pointer: coarse) { .pad-key, .pad-yes, .pad-no { min-height: 44px; } .pad-digits summary { padding: 14px 0; } }
 /* A phone's tap targets (touch or a narrow window with a mouse): every control is at least 44 × 44 px, the composer's own row 48. A dense row keeps its look and
    gets the room instead: a chip draws its pill in ::before inside a 44 px box, and a disclosure row is 44 px tall, so neighbours never share a hit area. The
    timeline's marks (10 px, placed by time, many within a few px of each other) cannot be made 44 px, so they stop taking taps: the units they point to are the cards. */

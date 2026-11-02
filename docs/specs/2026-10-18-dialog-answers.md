@@ -43,8 +43,8 @@ abort signal, so when that call is aborted the bridge sends it `{cancel: true}`.
 Digest: `sha256(JSON.stringify(["pi-dialog/1", ...parts]))` in hex, with `["select", title, labels]` for a select and
 `["questions", [[question, header|null, multiple, [[title, description|null]…]]…]]` for a questionnaire. Notes, `localOnly`, `copy`,
 previews, and a choice's `next` and `tagged` are hints and not hashed. `next` (`"terminal"`: a step in the session's terminal, such as Enter on a prompt that was filled;
-`"pane"`: a new Herdr pane the choice opened) tells the page to open that terminal once the answer is accepted (`then` in the answer's reply; docs/how-it-works.md,
-*An answer that needs the terminal opens it*). It is optional in v1: an owner that sends none is read by label in its adapter (`src/owners.ts`, robot_hand 0.3.2). `tagged: true` (with `"pane"` only) says the owner tags the pane it opens: see *Which pane an answer opened* below.
+`"pane"`: a new Herdr pane the choice opened) tells the page to open the terminal card for that step once the answer is accepted (`then` in the answer's reply; docs/how-it-works.md,
+*An answer that needs the terminal opens it*; the card: docs/specs/2026-11-02-terminal-card.md). It is optional in v1: an owner that sends none is read by label in its adapter (`src/owners.ts`, robot_hand 0.3.2). `tagged: true` (with `"pane"` only) says the owner tags the pane it opens: see *Which pane an answer opened* below.
 
 ### Which pane an answer opened
 

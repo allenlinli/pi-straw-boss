@@ -130,6 +130,32 @@ test("the key pad's confirm buttons are one pair in Standard and Geek: one box r
 	assert.match(d.font ?? "", /^600 12px/);
 	const yes = rulesOf(css).find((r) => r.parts.length === 1 && r.parts[0] === ".pad-yes");
 	assert.ok(yes && /background: var\(--amber\)/.test(yes.body) && /color: var\(--ink\)/.test(yes.body), "filled, with the ink on the fill");
-	assert.match(css, /\(pointer: coarse\) \{ \.pad-key, \.pad-yes, \.pad-no \{ min-height: 44px; \}/);
+	assert.match(css, /\(pointer: coarse\) \{ \.pad-key, \.pad-yes, \.pad-no[^{]*\{ min-height: 44px; \}/);
 	assert.ok(!/\.pad-yes[^{]*\{[^}]*text-decoration/.test(css), "no link underline on either");
+});
+
+test("the terminal card is the dock's other box: a dialog's box rules, the confirm pair's box for its mask and Send, 44 px targets and a bottom sheet on a phone, flat in Geek, ink in Zen with no header", () => {
+	const box = rulesOf(css).find((r) => r.parts.includes(".dialog") && r.parts.includes(".tcard") && r.body.includes("border-radius: 18px"));
+	assert.ok(box, "the card is drawn as a dialog is");
+	const pair = rulesOf(css).find((r) => r.parts.includes(".pad-yes") && r.parts.includes(".pad-no"));
+	assert.ok(pair?.parts.includes(".tcard-mask") && pair.parts.includes(".tcard-go"), "its buttons are the confirm pair's box: one height, one border, 12 px words");
+	assert.match(css, /\.tcard-go \{[^}]*background: var\(--amber\); color: var\(--ink\)/, "the one that sends is filled");
+	assert.match(css, /\.tcard-mask \{ background: transparent/, "the mask toggle is outlined");
+	assert.match(css, /\(pointer: coarse\) \{ \.pad-key, \.pad-yes, \.pad-no, \.tcard-mask, \.tcard-go, \.tcard-input, \.tcard \.x, \.tcard-full \{ min-height: 44px; \}/, "44 px targets, in the pad's phone rule");
+	assert.match(css, /@media \(max-width: 640px\) \{ \.tcard \{[^}]*env\(safe-area-inset-bottom\)/, "a sheet clear of the home bar");
+	assert.match(css, /\.dock > \.dialog \{ z-index: 1; \}/, "a dialog opened over the card covers it");
+	assert.match(css, /\[data-view="geek"\] :is\([^)]*\.tcard[^)]*\) \{ background: var\(--surface-0\); \}/, "flat in Geek");
+	assert.match(css, /forced-colors: active\) \{[\s\S]*\.tcard \{ border: 1px solid CanvasText; \}/);
+	assert.match(zen, /\.tcard > header \{ position: absolute;[^}]*clip-path/, "Zen's layer names the unit: the card's header is for readers only");
+	assert.match(zen, /\.zen-term-host :is\(\.pad-yes, \.pad-no, \.tcard-mask, \.tcard-go\) \{ min-height: 44px/);
+	assert.match(zen, /prefers-reduced-motion: reduce\) \{ \[data-view="zen"\] \.tcard \{ animation: none; \} \}/);
+});
+
+test("the terminal card's input label is only for screen readers, in every view: no rule shows it", () => {
+	const zen = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8");
+	const own = (text: string) => text.split("\n").flatMap((line) => line.match(/[^{}]*\.tcard-label[^{]*\{[^}]*\}/g) ?? []);
+	const rules = [...own(css), ...own(zen)];
+	assert.equal(rules.length, 1, "one rule names it");
+	assert.match(rules[0]!, /position:\s*absolute[^}]*width:\s*1px[^}]*height:\s*1px[^}]*clip-path:\s*inset\(50%\)/);
+	assert.doesNotMatch(css + zen, /tcard-row:focus-within/, "nothing reveals it on focus");
 });

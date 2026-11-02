@@ -306,13 +306,13 @@ test("ZT-F002: Shift+Esc in the sink lets the keyboard go (nothing is sent to th
 	fine.on = false;
 });
 
-test("ZT-F001: the pad tells its owner when it sends Enter (a key, a soft keyboard's line break) and when that Enter was refused", async () => {
+test("the pad tells its owner when the server took its Enter (a 200), and not when the Enter was going, asked to confirm, or refused", async () => {
 	fine.on = false;
-	for (const [answer, seen] of [[{ ok: true, status: 200, body: {} }, [true]], [{ ok: false, status: 409, body: { error: "confirm", confirm: "tok", reason: "r" } }, [true, false]]] as const) {
-		const heard: boolean[] = [], post = () => async () => answer;
+	for (const [answer, seen] of [[{ ok: true, status: 200, body: {} }, [true]], [{ ok: false, status: 409, body: { error: "confirm", confirm: "tok", reason: "r" } }, []], [{ ok: false, status: 409, body: { error: "no_mirror", reason: "r" } }, []]] as const) {
+		const heard: true[] = [], post = () => async () => answer;
 		const t = mountTerminals({ tiles: { open() {} }, post: post as never, stream: () => JSON.stringify({ stream: "st" }), pad: (x) => keypad({ ...x, state: () => "live" }) });
 		const host = new El("div");
-		closers.push(t.embed("k", "billing", host as never, { entered: (s: boolean) => heard.push(s) }));
+		closers.push(t.embed("k", "billing", host as never, { taken: () => heard.push(true) }));
 		const sink = (host.kids[0] as El).all().find((x) => x.classes.has("term-sink"))!;
 		sink.fire("keydown", { key: "ArrowUp", ctrlKey: false, altKey: false, metaKey: false, shiftKey: false });
 		await gap();

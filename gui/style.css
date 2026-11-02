@@ -710,10 +710,10 @@ summary::-webkit-details-marker { display: none; }
 
 /* The dock, over the side column: dialogs stack, the top one in front, the ones beneath peeking out above it and inert. */
 .dock { position: fixed; z-index: 20; top: calc(var(--hud, 64px) + 24px); right: max(20px, calc((100vw - 2200px) / 2 + 20px)); width: min(300px, calc(100vw - 44px)); display: grid; pointer-events: none; }
-.dialog { position: relative; grid-area: 1 / 1; pointer-events: auto; padding: 14px 16px 16px; border-radius: 18px; border: 1px solid var(--c4); background: linear-gradient(var(--c1), var(--surface-0) 70%), var(--raised); box-shadow: 0 24px 60px color-mix(in srgb, var(--shadow) 80%, transparent); transform-origin: top; transition: transform 0.3s, opacity 0.3s; }
-.dialog:focus { outline: none; }
-.dialog { max-height: calc(100dvh - var(--hud, 64px) - 44px); overflow-y: auto; overscroll-behavior: contain; } /* a long questionnaire scrolls inside its dialog */
-.dialog > header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; min-width: 0; }
+.dialog, .tcard { position: relative; grid-area: 1 / 1; pointer-events: auto; padding: 14px 16px 16px; border-radius: 18px; border: 1px solid var(--c4); background: linear-gradient(var(--c1), var(--surface-0) 70%), var(--raised); box-shadow: 0 24px 60px color-mix(in srgb, var(--shadow) 80%, transparent); transform-origin: top; transition: transform 0.3s, opacity 0.3s; }
+.dialog:focus, .tcard:focus, .tcard h2:focus { outline: none; }
+.dialog, .tcard { max-height: calc(100dvh - var(--hud, 64px) - 44px); overflow-y: auto; overscroll-behavior: contain; } /* a long questionnaire scrolls inside its dialog */
+.dialog > header, .tcard > header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; min-width: 0; }
 .where { min-width: 0; }
 .x { margin-left: auto; border: 0; background: none; color: var(--dim); font-size: 20px; cursor: pointer; }
 .zoom { margin-left: auto; padding: 0 6px; border: 0; background: none; color: var(--dim); font-size: 17px; cursor: pointer; } .zoom + .x { margin-left: 0; } .zoom:hover, .x:hover { color: var(--text); }
@@ -815,8 +815,16 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .pad-note[data-tone="ask"] { padding: 8px 10px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); color: var(--text); }
 .pad-ask-why { flex: 1 1 14rem; min-width: 0; } .pad-ask-acts { display: flex; flex: none; gap: 8px; }
 /* The confirm's two buttons are a pair: the same box, one filled (it sends) and one outlined (it does not). */
-.pad-yes, .pad-no { box-sizing: border-box; min-height: 34px; padding: 0 14px; border: 1px solid var(--line); border-radius: 9px; font: 600 12px var(--sans); cursor: pointer; }
+.pad-yes, .pad-no, .tcard-mask, .tcard-go { box-sizing: border-box; min-height: 34px; padding: 0 14px; border: 1px solid var(--line); border-radius: 9px; font: 600 12px var(--sans); cursor: pointer; }
 .pad-yes { border-color: var(--amber); background: var(--amber); color: var(--ink); } .pad-no { background: transparent; color: var(--text); }
+/* The terminal card (termcard.ts) is the dock's other box, drawn as a dialog is (above): the command, a pane's last rows, one line, and a filled button beside the outlined mask toggle, the confirm's pair in the same box. A dialog opened over it covers it. */
+.dock > .dialog { z-index: 1; } .tcard { z-index: 0; display: grid; gap: 10px; --c1: transparent; --c4: var(--line); animation: tcard-in 0.25s ease both; } @keyframes tcard-in { from { opacity: 0; transform: translateY(8px); } }
+.tcard-cmd, .tcard-tail { margin: 0; font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; } .tcard-cmd { padding: 6px 8px; max-height: 6em; overflow: auto; border-radius: 8px; background: var(--sunken); user-select: text; } .tcard-cmd::before { content: "$ "; color: var(--dim); }
+.tcard-tail { color: var(--dim); } .tcard-tail:empty { display: none; } .tcard.stale .tcard-tail { opacity: 0.5; } .tcard-wait { margin: 0; font-size: 13px; }
+.tcard-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .tcard-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.tcard-input { flex: 1 1 8rem; min-width: 0; min-height: 34px; background: var(--sunken); font: 13px var(--mono); } /* the rest is the page's text box (above) */
+.tcard-mask { background: transparent; color: var(--text); } .tcard-go { border-color: var(--amber); background: var(--amber); color: var(--ink); } .tcard-mask[aria-pressed="true"] { border-color: var(--amber); } :is(.tcard-go, .tcard-mask):disabled { opacity: 0.45; cursor: default; }
+.tcard-full { justify-self: end; }
 .c0 { color: #414868; } .cz { color: var(--term-bg); } .c1 { color: #f7768e; } .c2 { color: #9ece6a; } .c3 { color: #e0af68; } .c4 { color: #7aa2f7; } .c5 { color: #bb9af7; } .c6 { color: #7dcfff; } .c7 { color: #a9b1d6; }
 .c8 { color: #545c7e; } .c9 { color: #ff899d; } .c10 { color: #9fe044; } .c11 { color: #faba4a; } .c12 { color: #8db0ff; } .c13 { color: #c7a9ff; } .c14 { color: #a4daff; } .c15 { color: #c0caf5; }
 .k0 { background: var(--term-bg); } .k1 { background: #f7768e; } .k2 { background: #9ece6a; } .k3 { background: #e0af68; } .k4 { background: #7aa2f7; } .k5 { background: #bb9af7; } .k6 { background: #7dcfff; } .k7, .kz { background: #a9b1d6; }
@@ -900,7 +908,9 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 /* Touch: larger targets, and a 16 px box so the phone does not zoom in on focus. */
 @media (pointer: coarse) { .composer textarea, .ask input, .ask textarea { font-size: 16px; } .composer button, .go, .later, .x, .chat-pill, .pair-btn, .alerts, .ask button, .term-bar button, .doc-acts > .cmp-link, .quit-btn, .d-doc { min-height: 40px; } }
 /* A phone's keys are as big as a thumb needs, a narrow window with a mouse included. */
-@media (max-width: 640px), (pointer: coarse) { .pad-key, .pad-yes, .pad-no { min-height: 44px; } .pad-digits summary { padding: 14px 0; } }
+@media (max-width: 640px), (pointer: coarse) { .pad-key, .pad-yes, .pad-no, .tcard-mask, .tcard-go, .tcard-input, .tcard .x, .tcard-full { min-height: 44px; } .pad-digits summary { padding: 14px 0; } .tcard-input { font-size: 16px; } }
+/* A phone's card is a sheet over the page: the dock's full width and its bottom edge, above the composer, clear of the home bar. */
+@media (max-width: 640px) { .tcard { margin: 0 -10px calc(-10px - env(safe-area-inset-bottom)); padding-bottom: calc(14px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; } .tcard h2 { margin: 0; font-size: 13px; } }
 /* A phone's tap targets (touch or a narrow window with a mouse): every control is at least 44 × 44 px, the composer's own row 48. A dense row keeps its look and
    gets the room instead: a chip draws its pill in ::before inside a 44 px box, and a disclosure row is 44 px tall, so neighbours never share a hit area. The
    timeline's marks (10 px, placed by time, many within a few px of each other) cannot be made 44 px, so they stop taking taps: the units they point to are the cards. */
@@ -1166,7 +1176,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 [data-view="geek"] *:not(.plate, .tower)::before, [data-view="geek"] *:not(.plate, .tower)::after { border-color: var(--line) !important; }
 [data-view="geek"] .drawer .unit.current > .card { border-color: var(--text) !important; }
 /* Flat surfaces: no gradient, no tint behind a base, a dialog, a plate, or a portrait. */
-[data-view="geek"] :is(.base, .base.head, .base.ally, .dialog, .squad, .squad[data-mark="waiting"]) { background: var(--surface-0); }
+[data-view="geek"] :is(.base, .base.head, .base.ally, .dialog, .tcard, .squad, .squad[data-mark="waiting"]) { background: var(--surface-0); }
 [data-view="geek"] :is(.plate, .logo, .ava, .tower::before) { background: var(--plate); }
 [data-view="geek"] :is(.plate, .ava) { border: 1px solid var(--line); }
 [data-view="geek"] .portrait { background: none; }
@@ -1209,6 +1219,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 	.connect-reload { border: 1px solid LinkText; color: LinkText; }
 	.badge, .link i, .tog::before, .flag, .tl-mark::before { border: 1px solid CanvasText; }
 	.qr, .term-scroll { forced-color-adjust: none; }
+	.tcard { border: 1px solid CanvasText; } .tcard-go { border: 1px solid ButtonText; } .tcard-go:disabled, .tcard-mask:disabled { color: GrayText; border-color: GrayText; opacity: 1; }
 	/* A disabled control and a placeholder take the system's own grey; the map's dashed connectors (the wires between towers, an svg the system leaves in colour, and the tree's gradient lines) would run over the cards, and the indent says the same. */
 	:is(.composer, .ask) button:disabled { opacity: 1; color: GrayText; border-color: GrayText; }
 	:is(textarea, input)::placeholder { color: GrayText; opacity: 1; }

@@ -2,6 +2,7 @@ import type { Item } from "../src/items.ts";
 import type { Alert } from "./alerts.ts";
 import type { Chat, Data, HistoryEvent, Who } from "./chat.ts";
 import type { mountAsk } from "./ask.ts";
+import type { Conn, Post as KeysPost, TermState } from "./mirrorconn.ts";
 import type { mountComposer, Post } from "./composer.ts";
 import type { Route } from "./router.ts";
 import type { TrustPost, trustPanel } from "./trust.ts";
@@ -16,6 +17,13 @@ import type { With } from "./zenwith.ts";
 export interface Exit { item?: Alert; route?: Route }
 /** A terminal Zen shows in its own layer (zenterm.ts): a session's by its key, a pane an answer opened by `grant:<id>`. `armed`: the unit waits on this terminal now, so its next work ends the step. */
 export interface Term { key: string; armed?: boolean }
+/** The page's terminals behind the overlay chunk (mirror.ts, layer.ts): the full terminal embedded in a host, a terminal's connection without a screen (the card's), and what a write to its keys needs. */
+export interface TermKit {
+	embed(key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void; taken?: () => void }): () => void;
+	watch(key: string, name: string, w: { rows(rows: string[]): void; state(s: TermState, c: Conn): void; end(): void; taken(): void }): { conn: Conn; stop(): void; retry(): void };
+	post(key: string): KeysPost;
+	stream(): string;
+}
 export interface ZenDeps {
 	data(key: string): Data;
 	recent(key: string): Promise<Item[]>;
@@ -29,8 +37,8 @@ export interface ZenDeps {
 	/** Z5 fills this with the effects; Zen makes no sound of its own here. */
 	sound(s: Sound): void;
 	leave(to: Exit): void;
-	/** The page's terminal embedded in a host (the overlay chunk's `embed`): the Zen terminal layer's body. */
-	embed(key: string, name: string, host: HTMLElement, o: { keys: boolean; end?: () => void; entered?: (sent: boolean) => void }): Promise<() => void>;
+	/** The page's terminals (the overlay chunk's, fetched on the first call): the Zen terminal layer's card and full terminal. */
+	terminals(): Promise<TermKit>;
 	/** The session whose log the stream should send (the companion), or none. */
 	watch(key: string | null): void;
 	/** A paired device (`mountAsk`'s `remote`); unset: by the host name. */

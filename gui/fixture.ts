@@ -2,11 +2,13 @@ import { trackActivity } from "../src/activity.ts";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, TowerService, Unit } from "../src/net.ts";
 import type { Data, Page } from "./chat.ts";
+import { demoCard, isCard, stepOf } from "./democard.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
 import { docHooks } from "./doc.ts";
 import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
+import { openThen } from "./terminalthen.ts";
 
 // The demo net for `npm run gui:dev`: invented names, state changes on a timer, and a stream that can be dropped to see the
 // disconnected page. It stands in for the server's EventSource, so the real reconnect logic runs against it.
@@ -14,7 +16,7 @@ import { type Source, WATCHDOG_MS } from "./stream.ts";
 const unit = (id: string, name: string, role: Unit["role"], mark: Mark, note?: string, subs: Unit[] = []): Unit => ({ id, key: id, control: true, name, role, mark, note, subs });
 // What the nth wait is on: a secret_drop that only waits in the terminal (odd n), two questions as ask_user_question asks them (n % 4 == 2; rpiv takes a cancel, so the card has Cancel), or robot_hand's selector (no cancel path).
 const two = [{ header: "Window", question: "When should the ops deploy go out?", options: [{ title: "Tonight 22:00", description: "Low traffic; on-call is awake." }, { title: "Tomorrow 08:00" }], multiple: false, freeform: true }, { header: "Notify", question: "Who should be told?", options: [{ title: "ops" }, { title: "billing" }, { title: "support" }], multiple: true, freeform: true }];
-const hand = { title: "Robot Hand — Deploy needs your sudo password\n\n  ! npm run deploy", copy: "npm run deploy", choices: [{ label: "Type it into a new Herdr pane (I press Enter)", note: "Opens a pane with the command typed; press Enter there", next: "pane" as const }, { label: "Put it in my prompt", note: "Lands in the terminal's prompt; press Enter there", next: "terminal" as const }, { label: "Copy it to my clipboard", note: "Copies on this computer", localOnly: true as const }, { label: "No, thanks" }] };
+const hand = { title: "Robot Hand — Deploy needs your sudo password\n\n  ! npm run deploy", copy: "npm run deploy", choices: [{ label: "Type it into a new Herdr pane (I press Enter)", note: "Opens a pane with the command typed; press Enter there", next: "pane" as const }, { label: "Run it in a new Herdr pane", note: "Opens a pane that runs the command", next: "pane" as const }, { label: "Put it in my prompt", note: "Lands in the terminal's prompt; press Enter there", next: "terminal" as const }, { label: "Copy it to my clipboard", note: "Copies on this computer", localOnly: true as const }, { label: "No, thanks" }] };
 const ask = (n: number): Unit["pending"] => (n % 2 ? { callId: `demo-${n}`, tool: "secret_drop", why: "It waits for a secret." } : { callId: `demo-${n}`, ...(n % 4 ? { tool: "ask_user_question", asks: two, answer: { dialog: `d${n}`, digest: "0".repeat(64), cancel: true as const, questions: two } } : { tool: "robot_hand", answer: { dialog: `d${n}`, digest: "0".repeat(64), select: hand } }) });
 const doc = (cap: string, display: string, reason: string, revision = 1) => ({ cap, display, kind: display.endsWith(".html") ? ("html" as const) : ("text" as const), reason, revision, onScreen: true });
 const demo = (): Net => ({
@@ -78,7 +80,7 @@ const PAD_REPLIES: Record<string, { ok: boolean; status: number; body: Record<st
 	esc: { ok: false, status: 409, body: { error: "confirm", confirm: "double-esc", reason: "A second Escape on an idle session runs pi's double-Escape action (tree or fork); confirm to run it." } },
 	tab: { ok: false, status: 409, body: { error: "blocked", reason: "While it waits on a secret or a question only Escape is sent from here; answer the question in its panel or the terminal." } },
 };
-// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion), `terminal` (the same item as `item`, and the pane an answer opens closes itself 20 s after its terminal shows: Zen's terminal layer returns to the card by itself). The idle states make no new waits for a minute and a half.
+// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half.
 const zenState = (net: Net, state: string | null) => {
 	const main = units(net).find((u) => u.key === "a3")!;
 	if (state === "trust") net.trust = [{ id: "tr1", digest: "t".repeat(64), folder: "/work/harbor-api", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy", "release", "triage"], more: 0 }, { kind: "extensions", path: ".pi/extensions", items: ["harbor-hooks.ts"], more: 0 }], agents: [{ pane: "1", base: "Harbor API", role: "member", at: Date.now() - 50 * 60_000 }] }];
@@ -93,7 +95,9 @@ const zenState = (net: Net, state: string | null) => {
 export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer> } {
 	demoOpen(); // the opening tiles' folder picker and deploy, with no server
 	let towerNow: TowerState = "off", serverNow = "auto";
-	const zen = new URLSearchParams(location.search).get("zen");
+	const zen = new URLSearchParams(location.search).get("zen"), cardParam = new URLSearchParams(location.search).get("card");
+	/** The terminal card's script (democard.ts): `?card=<state>` starts one; an answer that leaves a terminal step starts the default one (a pane types its command, "Run it" runs it). */
+	let card = isCard(cardParam) ? demoCard(cardParam, (type, payload) => current?.send(type, payload)) : undefined;
 	let net = demo(), step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
 	// The demo documents stand in for the server's: the HTML one as a data: page, the text ones from here.
 	[docHooks.src, docHooks.load] = [() => `data:text/html;charset=utf-8,${encodeURIComponent(DEMO_PAGE)}`, async (cap) => ({ text: cap === "plan" ? DEMO_DOC : `# Notes ${cap.slice(5)}\n\nA demo document that arrived on its own.` })];
@@ -187,12 +191,17 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	};
 	const start = new URLSearchParams(location.search).get("tower");
 	if (start) control.tower(start);
+	if (isCard(cardParam)) {
+		if (cardParam === "held") control.tower("standing"); // a tower standing by has no terminal
+		const step = stepOf(cardParam);
+		setTimeout(() => openThen(step.kind === "pane" ? { pane: "demo-pane" } : { terminal: true }, { key: step.asker, command: step.command }), 1800);
+	}
 	mountToolbar(control);
 	const data = (key: string): Data => ({
 		older: async (before) => page(before),
 		latest: async () => page(),
 		// Input is accepted, and shows in the log a moment later as pi would write it.
-		post: async (action, body) => (action === "commands" ? { ok: true, status: 200, body: { commands: [{ name: "review", source: "prompt", description: "Review the current diff" }, { name: "boss", source: "extension", description: "Straw Boss: gui, status, join" }, { name: "skill:release", source: "skill", description: "Cut a release" }].filter((c) => c.name.includes(String(body.prefix))) } } : action === "dequeue" ? { ok: true, status: 200, body: { text: "Also check the refund path while you are in there.\n\nWhen done, write a short summary for the changelog." } } : action === "answer" ? answered(key, body) : action === "mirror" ? mirror(key, body.on === true) : action === "keys" && typeof body.key === "string" && body.key in PAD_REPLIES && !body.confirmed ? PAD_REPLIES[body.key]! : (action === "input" && setTimeout(() => current?.send("history", { key, reset: false, items: [{ id: `you-${++live}`, kind: "user", at: new Date().toISOString(), text: String(body.text) }] }), 700), { ok: true, status: 200, body: {} })),
+		post: async (action, body) => (action === "keys" && card?.keys(key, body)) || (action === "mirror" && card?.mirror(key, body.on === true)) || (action === "commands" ? { ok: true, status: 200, body: { commands: [{ name: "review", source: "prompt", description: "Review the current diff" }, { name: "boss", source: "extension", description: "Straw Boss: gui, status, join" }, { name: "skill:release", source: "skill", description: "Cut a release" }].filter((c) => c.name.includes(String(body.prefix))) } } : action === "dequeue" ? { ok: true, status: 200, body: { text: "Also check the refund path while you are in there.\n\nWhen done, write a short summary for the changelog." } } : action === "answer" ? answered(key, body) : action === "mirror" ? mirror(key, body.on === true) : action === "keys" && typeof body.key === "string" && body.key in PAD_REPLIES && !body.confirmed ? PAD_REPLIES[body.key]! : (action === "input" && setTimeout(() => current?.send("history", { key, reset: false, items: [{ id: `you-${++live}`, kind: "user", at: new Date().toISOString(), text: String(body.text) }] }), 700), { ok: true, status: 200, body: {} })),
 		// Demo images, drawn as SVG: the user's two on the last round, the read result's one, and a broken third index.
 		pic: (id, n) => (n > 1 ? "data:," : `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${n ? 900 : 640}" height="${n ? 1400 : 360}"><rect width="100%" height="100%" fill="${id.startsWith("r") ? "#1f3a5f" : n ? "#3d2a5c" : "#14532d"}"/><text x="50%" y="50%" fill="#fff" font-size="48" text-anchor="middle" font-family="sans-serif">${id} · ${n + 1}</text></svg>`)}`),
 		entry: async (id) => {
@@ -206,14 +215,14 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 		clearInterval(panes.get(key));
 		const beat = (rows = demoScreen(name, n++)) => current?.send("mirror", { key, seq: n, rows: rows.length, cols: 60, ...(n === 1 && { whole: true }), set: n === 1 ? rows.map((r, i) => [i, r]) : [5, 8].map((i) => [i, rows[i]]) });
 		if (on) (beat(), panes.set(key, setInterval(beat, 1000)));
-		if (on && zen === "terminal" && key.startsWith("grant:")) setTimeout(() => (clearInterval(panes.get(key)), current?.send("mirror", { key, ended: "The pane closed." })), 20_000);
 		return { ok: true, status: 200, body: { attached: on } };
 	};
 	/** An answer lands at once, and the unit goes back to work a moment later. */
 	const answered = (key: string, body: Record<string, unknown> = {}) => {
 		// The unit is found when the answer lands: the tick clones the net meanwhile.
 		// What the choice leaves to do in a terminal is read from the dialog, as the server does (src/control.ts): a new pane (a grant), or the session's own prompt.
-		const next = (units(net).find((x) => x.key === key)?.pending?.answer?.select?.choices ?? [])[Number(body.choice)]?.next, then = next === "pane" ? { pane: "demo-pane" } : next === "terminal" ? { terminal: true as const } : undefined;
+		const choice = (units(net).find((x) => x.key === key)?.pending?.answer?.select?.choices ?? [])[Number(body.choice)], next = choice?.next, then = next === "pane" ? { pane: "demo-pane" } : next === "terminal" ? { terminal: true as const } : undefined;
+		if (then && !isCard(cardParam)) card = demoCard(next === "pane" ? (choice?.label.startsWith("Run") ? "run" : "type") : "prompt", (type, payload) => current?.send(type, payload));
 		setTimeout((u = units(net).find((x) => x.key === key)) => u && ((u.mark = "working"), (u.note = "thinking"), (u.pending = undefined), (net = structuredClone(net)), current?.send("message", net)), 1500);
 		return { ok: true, status: 200, body: { outcome: "accepted", ...(then ? { then } : {}) } };
 	};

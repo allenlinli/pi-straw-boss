@@ -476,7 +476,14 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen terminal layer: zen.ts 265 to 272 (the layer's mount, the guards that keep the terminal's keys from the pause, `terminal`), zentypes.ts 49 to 53 (`Term`, the `embed` dep), mirror.ts 200 to 202 (`embed` takes `keys` and `end`); zenterm.ts (the layer: the host, the button, Esc, the two auto-returns) is new.
 	// Zen Z4 feedback: zen.ts 230 to 265 and zentypes.ts 46 to 49 (the ripples dep; Esc's facts and the quiet line, the card's two boxes and their glide, the draft's hold, the ripples' mount), ask.ts 185 to 189 (`cancel()`, the card's Cancel pressed by Esc), zenmenu.ts 90 to 96 (the Auto row and the choice-based marks); zenkeys.ts (Esc's table), zensize.ts (the card's glide), zenripple.ts (the ripples), and viewface.ts (what a view move does to the page's face) are new.
 	// Zen terminal fix round (ZT-F001 to F003): mirror.ts 202 to 207 (the sink says what its pad may do, `entered` for the pad's Enter, a gone pane's refused attach ends it, Shift+Esc lets the sink go); keypad.ts 131 to 135 (`entered`); zenterm.ts 92 to 111 (the Enter rule, the tower's sentence, the dead pad's Esc, the phone's focus).
-	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 151], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 80], ["composer.ts", 327], ["ask.ts", 194], ["terminalthen.ts", 21], ["mirror.ts", 207], ["keypad.ts", 136], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 274], ["zenquestions.ts", 159], ["zentypes.ts", 53], ["zenterm.ts", 111], ["zenlines.ts", 90], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["prefs.ts", 41], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
+	// Terminal card T1 (a move, no behavior change): the connection core leaves mirror.ts for mirrorconn.ts (82, new: attach queue, hello, park, stale check, refusals and the end, the rows the frames set; the tile and `embed` are views of it, and `watch` is the third), so mirror.ts goes 207 to 190.
+	// Terminal card T3: gui/cardmodel.ts (47, new, pure: tail, secretPrompt, the mask, cardState, stepRule; the spec allows 90). Nothing imports it yet, so no bundle changes.
+	// Terminal card T2: gui/keywriter.ts (69, new: the writes of a terminal's keys, taken from keypad.ts, which goes 136 to 87; the spec allows 70); mirrorconn.ts 82 to 84 (`taken`).
+	// Terminal card T4: gui/termcard.ts (121, new: the card's DOM and its sends; the spec allows 160), keywriter.ts 69 to 70 (the refusal reaches `failed`).
+	// Terminal card T5: gui/stepslot.ts (63, new: the dock's slot), gui/zenhost.ts (59, new: what Zen's layer host holds), termcard.ts 121 to 129 (the lazy attach for a held tower, the optional ×), layer.ts 253 to 262 (the slot, `kit`), zenterm.ts stays 111 (card mode and full mode, with the host's drawing in zenhost.ts; the idle bookkeeping is gone), zen.ts 274 to 277, mirror.ts 190 to 192 (`id`), zentypes.ts 53 to 61 (`TermKit`), keypad.ts and mirrorconn.ts lose `entered`.
+	// Terminal card T7: gui/confirmbar.ts (12, new: the confirm pair, once for the pad's note and the card's status; keypad.ts 87 to 80, termcard.ts 129 to 123) and gui/termwords.ts (18, new: the refusals of a terminal's keys and mirror by the server's code, and the mirror's ended reasons, in the page's language; keywriter.ts 70 to 71).
+	// Terminal card review fixes (TC-F001 to F008): termcard.ts 123 to 148 (the retry from the button with its backoff, the stopped card's silence, the focus and mask rules), mirror.ts 192 to 193 (`watch` gives `retry`), termwords.ts 18 to 19 (four codes).
+	for (const [name, max] of [["router.ts", 80], ["chat.ts", 334], ["markdown.ts", 180], ["views.ts", 90], ["scene.ts", 47], ["tokens.ts", 24], ["nav.ts", 43], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 151], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 264], ["askkeys.ts", 80], ["composer.ts", 327], ["ask.ts", 194], ["terminalthen.ts", 21], ["mirror.ts", 193], ["mirrorconn.ts", 84], ["keywriter.ts", 71], ["termcard.ts", 148], ["confirmbar.ts", 12], ["termwords.ts", 19], ["stepslot.ts", 63], ["zenhost.ts", 59], ["cardmodel.ts", 49], ["keypad.ts", 80], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 277], ["zenquestions.ts", 159], ["zentypes.ts", 61], ["zenterm.ts", 111], ["zenlines.ts", 90], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["prefs.ts", 41], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
 	// 0.28.0 to 185 with the answer keys' hooks into gui/ask.ts (the focus on the first option, the textarea). 0.28.0 raised gui/ask.ts from 156 to 175 for the secret panel: the masked field with Show and Hide, Submit, the way back to the terminal, the unsupported-remote notice, and a value that leaves with its one request.
 	// 0.10.0: the page's text comes from Paraglide's messages (gui/messages), which raised chat.ts, views.ts, layer.ts, ask.ts, mirror.ts, and doc.ts by one
 	// line each for the messages import; the strings replaced in place. gui/i18n.ts picks the locale (the menu's choice, the browser's languages with
@@ -512,7 +519,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Unreleased (project trust) to 162: a trust question as an alert (alerts.ts: `trust` on Alert, the openings this page runs, one alert per folder and digest).
 	// Views-core R1 to 159: the walk over a net's units and the ranking left alerts.ts for gui/units.ts (3 lines), which the page's total takes.
 	assert.ok(overlay <= 159, `the overlay model has ${overlay} lines`);
-	const demo = sum("gui", ["fixture.ts", "demo-chat.ts"]);
+	const demo = sum("gui", ["fixture.ts", "demo-chat.ts", "democard.ts"]);
 	// 0.5.0 raised it from 160 to 165 for a demo question and a demo secret; 0.6.0 to 170 for a demo robot_hand selector and questionnaire that answer;
 	// 0.6.1 to 174 for a demo tool call whose arguments show cut (with the whole of them for "show all arguments"), an answerable dialog that stays
 	// until it is answered, and a toolbar that folds to a tab in the margin on a phone.
@@ -529,7 +536,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen feedback round to 265: the toolbar's server-view button and the stream's `view` event (the demo's stand-in for `/boss gui view`).
 	// Both increments summed (answer-opens-terminal +8, Z4 feedback +3, and the merged toolbar row +1): 274.
 	// Zen polish to 281 (+6): the demo's key pad answers Enter and Esc with a confirm and Tab with a refusal (PAD_REPLIES), so the confirm bar and a refused key can be looked at.
-	assert.ok(demo <= 281, `the demo fixture has ${demo} lines`);
+	// Terminal card T6 to 360 (measured 314): gui/democard.ts (66, new: the card's scripted terminal for `?card=<state>`) and fixture.ts 239 to 248 (the script's hooks, the opening, the Run choice; the `?zen=terminal` timer is gone).
+	assert.ok(demo <= 362, `the demo fixture has ${demo} lines`);
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
 	// 0.15.0 to 254 for the squads' + Member buttons, and gui/spawn.ts to 68 for the new base, member, and squad member tiles and the button reader.
@@ -568,7 +576,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// and the map's overview in a corner (gui/minimap.ts: shown while the map runs past the window, its frame moved on a scroll) have a figure each.
 	assert.ok(count("gui/timeline.ts") <= 42, `gui/timeline.ts has ${count("gui/timeline.ts")} lines`);
 	assert.ok(count("gui/minimap.ts") <= 44, `gui/minimap.ts has ${count("gui/minimap.ts")} lines`);
-	const shipped = new Set(["trust.ts", "timeline.ts", "minimap.ts", "swipe.ts", "drawer.ts", "router.ts", "chat.ts", "lightbox.ts", "follow.ts", "markdown.ts", "views.ts", "scene.ts", "tokens.ts", "nav.ts", "workspace.ts", "dossier.ts", "session.ts", "bars.ts", "layer.ts", "alerts.ts", "overlay.ts", "fixture.ts", "demo-chat.ts", "composer.ts", "pair.ts", "devices.ts", "spawn.ts", "deploy.ts", "demo-open.ts", "folders.ts", "picker.ts", "post.ts", "ask.ts", "mirror.ts", "keypad.ts", "doc.ts", "i18n.ts", "slash.ts", "hotkeys.ts", "askkeys.ts", "towerturns.ts"]);
+	const shipped = new Set(["trust.ts", "timeline.ts", "minimap.ts", "swipe.ts", "drawer.ts", "router.ts", "chat.ts", "lightbox.ts", "follow.ts", "markdown.ts", "views.ts", "scene.ts", "tokens.ts", "nav.ts", "workspace.ts", "dossier.ts", "session.ts", "bars.ts", "layer.ts", "alerts.ts", "overlay.ts", "fixture.ts", "demo-chat.ts", "democard.ts", "composer.ts", "pair.ts", "devices.ts", "spawn.ts", "deploy.ts", "demo-open.ts", "folders.ts", "picker.ts", "post.ts", "ask.ts", "mirror.ts", "mirrorconn.ts", "keywriter.ts", "cardmodel.ts", "termcard.ts", "stepslot.ts", "zenhost.ts", "keypad.ts", "doc.ts", "i18n.ts", "slash.ts", "hotkeys.ts", "askkeys.ts", "towerturns.ts"]);
 	const page = sum("gui", names("gui").filter((name) => !shipped.has(name)));
 	// 0.8.0 raised it from 540 to 543 for the scroll badge with the count of a unit's documents on its plate (render.ts).
 	// 0.10.0 to 554 for the messages: the import in main.ts, render.ts, log.ts, and stream.ts, the locale started in main.ts, and render.ts's role
@@ -657,7 +665,11 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Integration of fix/zen-polish and feat/zen-multi-question on views-core R6 to 4021 (measured): R6's 3897 plus gui/zenquestions.ts (159), the confirm bar (confirmwords.ts, keypad.ts 136), and the questions' hooks in zen.ts (274) and askkeys.ts (80), less zensize.ts.
 	// Views-core R7 to 4039 (+18): gui/audio.ts (the playback core, new) takes the context, gain, and clip cache out of notify.ts (-12).
 	// R7 review fixes (VC7-F003: out(), running(), unlock() that says if it is running, in audio.ts; the music bus in gui/audiobus.ts, which only the Zen chunk will import) to 4054 (+15).
-	assert.ok(page <= 4054, `the page's TypeScript has ${page} lines`);
+	// Merge of views-core R7 and the terminal card to 4099 (measured): R7's 4054 plus the card's +45.
+	assert.ok(page <= 4100, `the page's TypeScript has ${page} lines`);
+	// Terminal card T5 to 4040 (measured 4035): termcard.ts (129), cardmodel.ts (47), keywriter.ts (70), mirrorconn.ts (82), stepslot.ts (63), and zenhost.ts (59) are new, less keypad.ts (136 to 85), mirror.ts (207 to 192), and the idle bookkeeping of zenterm.ts.
+	// Terminal card T7 to 4065 (measured): termwords.ts (18) and confirmbar.ts (12) are new, less keypad.ts (87 to 80) and termcard.ts (129 to 123); cardmodel.ts +2 (the echo of the shown command), keywriter.ts +1.
+	// Terminal card review fixes to 4066 (measured): termcard.ts 123 to 148, mirror.ts +1, termwords.ts +1, less what the merge with main moved.
 });
 
 test("the built page is small, self-contained (no remote URLs, fonts, or imports), and carries no demo fixture", { skip: !existsSync(join(root, "dist/gui/index.html")) && "run npm run gui:build first" }, () => {
@@ -772,8 +784,9 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// R6 review follow-up (VC6-F002: the open Zen menu redraws when another tab changes Sound or Volume, `Notifier.sound.onChange`): 90,415 / 32,421, +69 raw / +17 gzipped over R6.
 	// Views-core R7 (gui/audio.ts: the one playback core, a context and a gain shared by every view; notify.ts plays through it): 90,599 / 32,497, +184 raw / +77 gzipped over 53438f4 (90,415 / 32,420), inside the 0.3 KB raw cap.
 	// R7 review fixes (VC7-F003: audio.ts exposes the context and master gain, `running()`, and an `unlock()` that answers; the music bus is audiobus.ts, outside the entry): 90,639 / 32,518, +40 raw / +21 gzipped over R7, +224 / +98 over 53438f4 (90,415 / 32,420), inside the 0.3 KB raw cap.
+	// Merge of views-core R7 and the terminal card: 90,678 / 32,551, +39 raw / +33 gzipped over R7's fixes, +263 / +131 over 53438f4, inside the 0.3 KB raw cap.
 	const eagerBytes = total([...eager], (n) => size(n).length), eagerGz = total([...eager], gz);
-	assert.ok(eagerBytes <= 90_650 && eagerGz <= 32_530, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	assert.ok(eagerBytes <= 90_690 && eagerGz <= 32_560, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -865,13 +878,19 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Views-core: the figure counts the lazy chunks only now (VC12-F001); post.ts and the runtimes are eager. At 0.52.0 they were 226,642 / 91,444, R1 added units.ts's share to the lazy chunks that import it: 226,692 / 91,472, and the cap is 226,750 / 91,550.
 	// Zen terminal layer: the layer (zenterm.ts, in the Zen chunk) and the embed options in the overlay chunk: 228,825 / 92,327, +2,133 raw / +855 gzipped over R1's 226,692 / 91,472; the eager bytes grew by 150 only.
 	// Zen terminal fix round: 229,790 / 92,677 (+965 raw / +350 gzipped: the Enter rule, the tower's sentence, Shift+Esc, the pad's state on the sink, and the two messages' words), cap 229,900 / 92,800.
+	// Terminal card T1 (gui/mirrorconn.ts: the connection core out of mirror.ts, now shared by the tile, `embed`, and `watch`, with a rows model and a watcher set): 231,072 / 93,093, +1,357 raw / +438 gzipped over the fix round's 229,715 / 92,655 (main at bf95cbd), cap 231,100 / 93,100. The eager bytes did not grow: 90,415 / 32,420.
 	// Several questions merged over the terminal layer: 234,078 / 94,306, cap 234,100 / 94,400.
 	// Zen polish (the pad confirm's words by token: six messages in both languages and gui/confirmwords.ts, the card's fade, the click-only menu): 235,693 / 94,944, cap 235,700 / 95,000.
 	// Several questions in Zen (feat/zen-multi-question) to 231,400 bytes / 93,600 gzipped: gui/zenquestions.ts (the Zen chunk, from 229,291 / 92,784 to 231,357 / 93,541: +2.1 KB raw, +0.8 KB gzipped).
 	// Its fix round (folded lines with their summaries, paging by wheel and swipe, the deeper foot edge) to 232,691 bytes / 94,096 gzipped (+1,300 / +550 over the first round).
 	// Fix round 2 (dropping far lines on a short column, Ctrl+wheel, summary names in both languages) about +900 / +450.
 	// Integration of fix/zen-polish and feat/zen-multi-question to 236,000 bytes / 95,200 gzipped (measured 235,805 / 94,995): both branches' Zen chunk growth summed, less zensize.ts.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 236_000 && total(chunks, gz) <= 95_200, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Merge of the terminal card's T1 (mirrorconn.ts, +1,357 / +438 over main's 235,805 / 94,995) with main d922096: 237,236 / 95,489, cap 237,300 / 95,500.
+	// Terminal card T2 (gui/keywriter.ts: the pad's queue, gap, confirm token, and refusal drop, shared with the card; `taken` through mirror.ts and mirrorconn.ts): 237,684 / 95,683, +448 raw / +194 gzipped, cap 237,750 / 95,750.
+	// Terminal card T5 (the card, its model, the dock's slot, Zen's host, and the card's 13 messages join the lazy chunks): 246,268 / 99,528, +8,584 raw / +3,845 gzipped over T2's 237,684 / 95,683, +10,463 / +4,533 over main d922096's 235,805 / 94,995, cap 246,300 / 99,600. The spec aimed at +3.5 KB / +1.4 KB; T7 trims toward it and records the final figure. The eager bytes: 90,455 / 32,449, +40 / +29 over 90,415 / 32,420 (pagecore.openStep, main.ts's registration), cap 90,500 / 32,480.
+	// Terminal card T7 (the refusals of a terminal's keys and mirror, 13 codes and 5 ended reasons, in both languages: gui/termwords.ts and 18 messages; the echo of the shown command dropped from the rows; gui/confirmbar.ts shared by the pad and the card): 249,813 / 101,040, +14,008 raw / +6,045 gzipped over main d922096's 235,805 / 94,995, cap 249,850 / 101,100. Of the +14.0 KB, the messages are about 6.5 KB (the card's 13 and the refusals' 18, an English and a Chinese text each) and the code about 7.5 KB (termcard.ts 4.6 KB, mirrorconn.ts 2.2 KB less the 0.8 KB that left mirror.ts, keywriter.ts 1.3 KB less the 0.8 KB that left keypad.ts, cardmodel.ts 1.0, stepslot.ts 1.0, zenhost.ts 1.1). T7's trims: the pad's and the card's confirm pair are one function, and the card's input takes the page's text box rules. The eager bytes are unchanged.
+	// Terminal card review fixes (the card's retry and rules, four more refusal words in both languages): 250,973 / 101,531, +1,160 raw / +491 gzipped over T7's 249,813 / 101,040, cap 251,000 / 101,600.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 251_000 && total(chunks, gz) <= 101_600, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -956,6 +975,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Fix round 2 to 121,400 bytes / 26.5 KB gzipped: the short-window block (max-height 560px) and the dropped lines (121,372 / 26,403).
 	// Fix round 3 to 121,600 bytes / 26.55 KB gzipped: the 340px rule for a lone question's context and the open block's row size (121,500 / 26,429).
 	// Integration of fix/zen-polish and feat/zen-multi-question to 124,400 bytes / 26.9 KB gzipped (measured 124,236 / 26,746): the confirm pair, the questions' scroller and edges, and the 340px rule.
+	// Terminal card T4 (the card in the dock: a dialog's box shared, the confirm pair's box for the mask and Send, the phone sheet, the Geek flat surface; and Zen's ink skin in gui/zen.css): 127,856 / 27,410, +3,620 raw / +664 gzipped over the integration's 124,236 / 26,746, cap 127,900 / 27,450. The spec aimed at +1.5 KB / +0.4 KB; the three skins and the sheet took more, with the dialog's and the pad's rules already shared.
 	// Zen's yellows (the ochre tokens, the muted mirror, the paper tokens): 124,740 / 26,839, cap 124,800 / 26,900.
-	assert.ok(total(css, (n) => size(n).length) <= 124_800 && total(css, gz) <= 26_900, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Merge of the terminal card's T4 with main's Zen yellows: 128,119 / 27,465, cap 128,150 / 27,500.
+	assert.ok(total(css, (n) => size(n).length) <= 128_150 && total(css, gz) <= 27_500, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

@@ -32,6 +32,16 @@ export class El {
 	getAttribute(name: string) {
 		return this.attrs.get(name) ?? null;
 	}
+	/** The class list the card and the layer toggle, over the `class` attribute. */
+	get classList() {
+		const read = () => new Set((this.getAttribute("class") ?? "").split(" ").filter(Boolean)), write = (set: Set<string>) => this.setAttribute("class", [...set].join(" "));
+		return {
+			add: (c: string) => write(read().add(c)),
+			remove: (c: string) => { const set = read(); set.delete(c); write(set); },
+			contains: (c: string) => read().has(c),
+			toggle: (c: string, on?: boolean) => { const set = read(), want = on ?? !set.has(c); want ? set.add(c) : set.delete(c); write(set); return want; },
+		};
+	}
 	removeAttribute(name: string) {
 		this.attrs.delete(name);
 	}

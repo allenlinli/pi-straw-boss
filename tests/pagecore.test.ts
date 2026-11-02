@@ -5,6 +5,7 @@ import type { Mark } from "../src/netdata.ts";
 import type { Alert } from "../gui/alerts.ts";
 import { m } from "../gui/paraglide/messages.js";
 import { createPage, type Esc, type PageIo, type ZenFace } from "../gui/pagecore.ts";
+import type { StepOpen } from "../gui/terminalthen.ts";
 import type { Route } from "../gui/router.ts";
 import type { Status } from "../gui/stream.ts";
 import { type Choice, mountView, type ViewEnv } from "../gui/view.ts";
@@ -31,10 +32,10 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 			w.waiting.splice(0).forEach((call) => call(zen));
 		},
 	};
-	const zen: ZenFace = { net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`) };
+	const zen: ZenFace = { net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
 	const panels = {
 		stack: { show: (a: Alert) => void w.calls.push(`show:${a.key}`), close: (how?: string) => (w.calls.push(`close:${how ?? ""}`), w.dialogOpen) },
-		terminal: { open: (key: string, name: string, keys?: boolean) => void w.calls.push(`tile:${key}:${name}:${keys}`) },
+		step: (s: StepOpen, n?: Net) => void w.calls.push(`step:${JSON.stringify(s)}:${n ? "net" : "-"}`),
 	};
 	const io: PageIo = {
 		view, root, zenEl: w.zenEl, zen: () => (w.zenLoaded ? zen : undefined), withZen: (call) => (w.zenLoaded ? call(zen) : void w.waiting.push(call)), hidden: () => w.hidden,
@@ -209,35 +210,39 @@ test("openSession opens a session's comms by its route; in terminal mode nothing
 	assert.deepEqual(w.core.current, { view: "session", ws: "w", key: "k2", at: "e9" });
 });
 
-test("in Zen a session's terminal and a pane are the Zen layer's: no route change, no Standard, no tile; a page that left Zen, or a Zen that went away before its chunk came, keeps Standard's way", () => {
+const STEP: StepOpen = { kind: "pane", key: "grant:g1", asker: "k", command: "sudo ls" };
+test("in Zen a session's terminal is the Zen layer's and a step's card is its card mode: no route change, no Standard; a page that left Zen, or a Zen that went away before its chunk came, keeps Standard's way", () => {
 	const w = world({ stored: "zen", zenLoaded: false });
 	w.core.sync();
 	w.core.openSession("w", "k", { mode: "term", at: "e9" });
-	w.core.openPane("g1");
+	w.core.openStep(STEP);
 	assert.deepEqual(w.calls, [], "the Zen chunk is not here: both wait for it");
 	w.load();
-	assert.deepEqual([w.calls, w.core.zenOn(), w.core.current, w.zenEl.hidden, w.navigations.length], [['zenterm:{"key":"k"}', 'zenterm:{"key":"grant:g1"}'], true, { view: "map" }, false, 0], "no close of the dialogs, no route, no tile, no leaving Zen");
+	assert.deepEqual([w.calls, w.core.zenOn(), w.core.current, w.zenEl.hidden, w.navigations.length], [['zenterm:{"key":"k"}', `zenstep:${JSON.stringify(STEP)}`], true, { view: "map" }, false, 0], "no close of the dialogs, no route, no card in the dock, no leaving Zen");
 	const chat = world({ stored: "zen" });
 	chat.core.sync();
 	chat.core.openSession("w", "k");
 	assert.deepEqual(chat.calls, ['go:{"view":"session","ws":"w","key":"k"}'], "comms are Standard's even in Zen (the route alone)");
 	const left = world({ stored: "zen", away: true });
 	left.core.openSession("w", "k", { mode: "term" });
-	left.core.openPane("g2");
-	assert.deepEqual(left.calls, ["close:go", 'go:{"view":"session","ws":"w","key":"k"}', "terminal:k", `tile:grant:g2:${m.pane_name()}:true`], "away: Standard's session terminal and pane tile");
+	left.core.openStep(STEP);
+	assert.deepEqual(left.calls, ["close:go", 'go:{"view":"session","ws":"w","key":"k"}', "terminal:k", `step:${JSON.stringify(STEP)}:-`], "away: Standard's session terminal and the card in the dock");
 	const gone = world({ stored: "zen", zenLoaded: false });
 	gone.core.sync();
-	gone.core.openPane("g3");
+	gone.core.openStep(STEP);
 	gone.core.face.leave();
 	gone.load();
-	assert.deepEqual(gone.calls, [`tile:grant:g3:${m.pane_name()}:true`], "Zen left before the chunk arrived: the pane opens as Standard's tile");
+	assert.deepEqual(gone.calls, [`step:${JSON.stringify(STEP)}:-`], "Zen left before the chunk arrived: the card opens in the dock");
 });
 
-test("openAlert shows the alert's dialog through the overlay layer; openPane opens the answer's pane as a terminal tile with the keys", () => {
-	const std = world();
+test("openAlert shows the alert's dialog through the overlay layer; openStep shows a step's card in the dock with the newest net, and the route does not change", () => {
+	const std = world({ route: { view: "session", ws: "w", key: "k" } }), n = net(unit("k", "waiting"));
+	std.core.snapshot(n);
+	std.calls.length = 0;
 	std.core.openAlert(alert("a"));
-	std.core.openPane("g1");
-	assert.deepEqual(std.calls, ["show:a", `tile:grant:g1:${m.pane_name()}:true`], "Standard stays where it is");
+	std.core.openStep({ kind: "prompt", key: "k", asker: "k", command: "! ls" });
+	assert.deepEqual(std.calls, ["show:a", `step:${JSON.stringify({ kind: "prompt", key: "k", asker: "k", command: "! ls" })}:net`], "Standard stays where it is");
+	assert.deepEqual(std.core.current, { view: "session", ws: "w", key: "k" }, "the route does not change: the chat keeps showing the command's output");
 });
 
 test("leaving Zen: Standard first, then the item's dialog or the session's comms, and the newest snapshot is drawn (a terminal is Zen's own and never leaves)", () => {

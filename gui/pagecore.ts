@@ -2,9 +2,9 @@ import type { Net } from "../src/net.ts";
 import { type Alert, alertsOf, arrivals, unitOf } from "./alerts.ts";
 import { RULES, rulesOf } from "./faces.ts";
 import { linkChime } from "./linkbar.ts";
-import { m } from "./paraglide/messages.js";
 import { type Route, upOf, watchOf } from "./router.ts";
 import { CONNECTING, type Status } from "./stream.ts";
+import type { StepOpen } from "./terminalthen.ts";
 import { unitsOf, waitingOf } from "./units.ts";
 import { enterZen, type PageView } from "./view.ts";
 import { mountFace } from "./viewface.ts";
@@ -15,9 +15,9 @@ import type { Exit, Term } from "./zentypes.ts";
 /** An Escape keydown, as far as the page reads it. */
 export interface Esc { key: string; defaultPrevented: boolean; isComposing: boolean; preventDefault(): void; stopPropagation(): void }
 /** The Zen layer, as the page drives it. `escape` says whether it took the key. */
-export interface ZenFace { net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void }
+export interface ZenFace { net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
 /** The overlay layer (the dialogs and tiles), as the page drives it. */
-interface PanelsFace { stack: { show(a: Alert): void; close(how?: "go"): boolean }; terminal: { open(key: string, name: string, keys?: boolean): void } }
+interface PanelsFace { stack: { show(a: Alert): void; close(how?: "go"): boolean }; /** A step an answer left, as the dock's terminal card. */ step(s: StepOpen, net?: Net): void }
 /** The focus views (the base, the session's comms and dossier). */
 interface FocusFace { terminal(key: string): void }
 export interface PageIo {
@@ -118,10 +118,10 @@ export function createPage(io: PageIo) {
 		io.go({ view: "session", ws, key, at });
 		if (mode === "term") io.withFocus((f) => f.terminal(key));
 	}
-	/** A pane an answer opened shows with the keyboard in it: in Zen as the Zen layer's terminal, else as a tile. */
-	function openPane(grant: string): void {
-		if (zenOn()) return io.withZen((z) => (zenOn() ? z.terminal({ key: `grant:${grant}` }) : openPane(grant)));
-		io.withPanels((p) => p.terminal.open(`grant:${grant}`, m.pane_name(), true));
+	/** The step an accepted answer left shows as the terminal card (terminalthen.ts): in Zen on the layer's own screen, else in the dock. The route does not change: an answer given in the session view keeps its chat. */
+	function openStep(s: StepOpen): void {
+		if (zenOn()) return io.withZen((z) => (zenOn() ? z.step(s) : openStep(s)));
+		io.withPanels((p) => p.step(s, latest));
 	}
 	return {
 		/** The route and the newest snapshot. */
@@ -151,7 +151,7 @@ export function createPage(io: PageIo) {
 			rewatch();
 		},
 		openAlert, openSession,
-		openPane,
+		openStep,
 		/** The way out of Zen (zen.ts): Standard first, then the item's dialog or the session's comms, and the newest snapshot. */
 		leaveZen({ item, route }: Exit) {
 			face.leave();

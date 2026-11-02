@@ -1,4 +1,5 @@
 import type { Item } from "../src/items.ts";
+import type { Net } from "../src/net.ts";
 import { type Intel, intel } from "./intel.ts";
 import { mountAsk } from "./ask.ts";
 import type { Hotkey } from "./hotkeys.ts";
@@ -10,6 +11,7 @@ import { type Alert, createStack, tally } from "./overlay.ts";
 import { m } from "./paraglide/messages.js";
 import { type Answer, post } from "./post.ts";
 import { aim, byId, doing, fillPlate, hang, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
+import { mountStepSlot } from "./stepslot.ts";
 import { trustPanel, whereOf } from "./trust.ts";
 
 // The overlay layer's DOM, a chunk fetched on the first alert, dialog, or tile: the HUD alert with its queue, the dialogs in the dock (stacked; the
@@ -115,7 +117,7 @@ export function mountPanels(deps: PanelDeps) {
 		if (!intels.has(a.key)) learn(a);
 		tell(el, a);
 		let ask = asks.get(el);
-		if (!ask) asks.set(el, (ask = mountAsk(el.querySelector(".ask-root")!, to(unitOf(a)), undefined, () => deps.showTerminal(a.ws, unitOf(a)), (opened) => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close(opened ? "go" : "close"))))); // a dialog that sent the user to a terminal reveals nothing queued over it
+		if (!ask) asks.set(el, (ask = mountAsk(el.querySelector(".ask-root")!, to(unitOf(a)), undefined, { key: unitOf(a), show: () => deps.showTerminal(a.ws, unitOf(a)) }, (opened) => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close(opened ? "go" : "close"), opened && slot.focus())))); // a dialog that sent the user to a terminal reveals nothing queued over it, and the card it opened keeps the focus the closing dialog would give back
 		ask.update(a.pending, a.mark === "waiting" && document.body.dataset.stale !== "true"); // what it waits on, answerable or not; the stream state redraws it (report in main.ts)
 	};
 	// Finished units wait under the HUD's Finished button, apart from what needs the user: a row goes to the unit's comms and clears it, Clear all clears every one.
@@ -228,10 +230,16 @@ export function mountPanels(deps: PanelDeps) {
 	// fit() needs only the work's width, so it watches a gauge as wide and no height: the work's height changes inside the map's packing report.
 	new ResizeObserver(fit).observe(work.appendChild(Object.assign(document.createElement("i"), { className: "gauge" })));
 	const terminal = mountTerminals({ tiles, post: to, stream: deps.stream, pad: keypad });
+	const kit = { embed: terminal.embed, watch: terminal.watch, post: to, stream: terminal.id };
+	const slot = mountStepSlot({ dock, kit, showTerminal: deps.showTerminal, openPane: (key, name) => terminal.open(key, name, true) }); // the terminal card (stepslot.ts)
 	return {
 		tiles,
 		stack,
 		terminal,
+		/** A step an accepted answer left (terminalthen.ts): its card in the dock. */
+		step: slot.step,
+		/** The terminals as Zen's layer uses them (zenterm.ts). */
+		kit,
 		/** A page key (hotkeys.ts): Space is the HUD alert button's click, F the top dialog's ⤢ (a phone hides it). False when it had nothing to do. */
 		hotkey(key: Hotkey) {
 			if (key === "next") {
@@ -245,7 +253,8 @@ export function mountPanels(deps: PanelDeps) {
 			return true;
 		},
 		/** A snapshot's alerts: the new ones queue, and the queue drops the ones whose unit moved on. */
-		alerts(fresh: Alert[], now: Map<string, Alert>) {
+		alerts(fresh: Alert[], now: Map<string, Alert>, net?: Net) {
+			if (net) slot.follow(net);
 			for (const alert of fresh) void (alert.trust || learn(alert), stack.arrive(alert));
 			stack.prune((key) => now.get(key));
 		},

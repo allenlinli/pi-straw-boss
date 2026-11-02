@@ -132,6 +132,23 @@
 /* The page holds still (calm.ts: 30 s without input): the circle rests at its exhaled size, the ground on one layer. */
 [data-view="zen"][data-calm] :is(.zen-circle, .zen-circle i, .zen-drift i) { animation: none; }
 [data-view="zen"][data-calm] .zen-drift i:last-child { opacity: 0; }
+/* A short window (a phone turned sideways, a small browser): the card gives the questions the room: no unit sub-line or intro, a smaller name, question and gaps, and a send row that stays one line. */
+@media (max-height: 560px) {
+	[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { gap: 4px; padding: 4px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-meta, .zen-said) { display: none; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .zen-who { font-size: 1.05rem; line-height: 1.2; }
+	[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-answer, .zen-ask, .ask) { gap: 2px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) :is(.ask-q, .ask-title) { font-size: 1.1rem; line-height: 1.35; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .ask-head { font-size: 0.75rem; line-height: 1.2; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .ask-opts { gap: 4px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) button.ask-opt { padding-block: 6px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .zen-qs { gap: 2px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .zen-qs > .ask-one:not([data-dim]) { padding-block: 4px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .ask-acts { flex-wrap: nowrap; gap: 6px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) :is(.ask-send, .ask-cancel) { min-height: 44px; padding-inline: 18px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .zen-out { min-height: 0; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .ask-note:empty { display: none; }
+}
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc, .zen-card) { transition: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
 @media (forced-colors: active) {
 	[data-view="zen"] .zen-drift, [data-view="zen"] .zen-circle i, [data-view="zen"] .zen-ripples { display: none; }

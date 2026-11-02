@@ -25,6 +25,8 @@ const is = (el: Element, cls: string) => (el.getAttribute("class") ?? "").split(
 const short = (s: string) => ((s = s.replace(/\s+/g, " ")).length > 32 ? `${s.slice(0, 31)}…` : s);
 /** The least the focused question may be squeezed to (px): its header and its first option. */
 const LEAST = 96;
+/** The soft edge at the foot of a block (zen.css `--zen-edge`) and its padding, which an option must clear (px). */
+const EDGE = 14;
 
 /** `data-more` is on `el` while more of it lies below the fold, so the soft edge at its foot is deeper (zen.css) and a list that goes on under the send row is not taken for the whole list. */
 function more(el: HTMLElement) {
@@ -68,12 +70,17 @@ export function syncQuestions(hold: HTMLElement, env: QEnv) {
 		line.setAttribute("aria-label", m.zen_q_line({ n: k + 1, total: blocks.length, name: line.querySelector(".zen-sum-q")?.textContent ?? "", state: answer(b) || m.zen_q_none() }));
 	});
 	/** The column is short: drop the lines farthest from the focused question, one by one, until it has at least its header and first option (the nearest lines stay while there is room). */
+	/** What the focused question needs (px): from its top to the foot of its first option, and the soft edge under it, so the option is whole and not under the fade. */
+	const need = (b: HTMLElement) => {
+		const [o, v] = [b.querySelector<HTMLElement>(CHOICE)?.getBoundingClientRect?.(), b.getBoundingClientRect?.()];
+		return o && v && v.height > 0 ? Math.max(LEAST, o.bottom - v.top + b.scrollTop + EDGE) : LEAST;
+	};
 	const fit = () => {
 		const open = blocks[at]!;
 		for (const b of blocks) delete b.dataset.far;
 		const order = blocks.map((_, i) => i).filter((i) => i !== at).sort((a, b) => Math.abs(b - at) - Math.abs(a - at) || b - a);
 		for (const i of order) {
-			if (open.clientHeight >= Math.min(LEAST, open.scrollHeight)) break;
+			if (open.clientHeight >= Math.min(need(open), open.scrollHeight)) break;
 			blocks[i]!.dataset.far = "";
 		}
 		scroller.scrollTop = 0;

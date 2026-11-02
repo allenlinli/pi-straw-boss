@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -403,7 +404,8 @@ test("a probe from G for this bridge is answered with what Enter would submit, a
 		ui.getEditorText = () => draft;
 		s.message({ version: 1, type: "probe", to, probeId: `p${i}` });
 		const got = s.published.at(-1)!;
-		assert.deepEqual([got.audience, got.payload], ["owner", { version: 1, type: "probe-result", bridgeId: to, probeId: `p${i}`, ...want }], JSON.stringify(draft));
+		const told = want.editor === "command" ? { ...want, hash: createHash("sha256").update(draft!).digest("hex") } : want; // a command draft tells a hash of its line, never the line
+		assert.deepEqual([got.audience, got.payload], ["owner", { version: 1, type: "probe-result", bridgeId: to, probeId: `p${i}`, ...told }], JSON.stringify(draft));
 		if (draft && want.editor === "text" && !want.ending) assert.ok(!JSON.stringify(got.payload).includes("secret"), "the draft never leaves");
 	}
 	ui.getEditorText = () => { throw new Error("no editor"); };

@@ -11,7 +11,7 @@ import { m } from "./paraglide/messages.js";
 // and under the same server checks, and asks cardmodel.ts for everything it decides: its state, the mask, and when its step is over. A prompt's card is over when its own Enter is taken, a pane's when the pane is gone.
 
 /** `key`: a session's, or `grant:<id>` for a pane an answer opened; `name`: the unit that asked. */
-export interface Step { kind: Kind; key: string; name: string; command?: string }
+export interface Step { kind: Kind; key: string; name: string; command?: string; /** A prompt step's one-tap grant: the answer id its first Enter names (once; a refusal leaves the usual confirm). */ run?: string }
 export interface CardDeps {
 	step: Step;
 	/** The page's connection to the step's terminal without a screen (mirror.ts `watch`); `taken`: an Enter a pad on the same key got taken; `retry`: attach again after a refusal or a failure. */
@@ -114,7 +114,7 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 		if (!OK.includes(state()) || busy()) return;
 		if (conn.phase === "refused") return reattach();
 		[refusal, confirm, sent] = ["", undefined, false];
-		if (!pane) writer.push({ key: "enter" });
+		if (!pane) (writer.push({ key: "enter", ...(step.run ? { run: step.run } : {}) }), (step.run = undefined));
 		else (([kept] = [mask.on ? "" : input.value]), writer.text(input.value), (input.value = ""), writer.push({ key: "enter" }));
 		draw();
 	}

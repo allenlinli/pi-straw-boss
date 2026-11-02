@@ -6,6 +6,7 @@ import { ANSWER_ID, checkAnswer, CONTROL, type Hub, type Sent, type Target } fro
 import { HerdrError, type HerdrCall, type Pane } from "./herdr.ts";
 import { defaultDequeue, keyLabel } from "./dequeuekey.ts";
 import { createKeys } from "./keys.ts";
+import { createRuns } from "./runs.ts";
 import type { Asked } from "./gui.ts";
 import type { Overlay } from "./lan/faces.ts";
 import { linkRequest as linkRequestOwner } from "./owners.ts";
@@ -160,7 +161,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 	};
 	// A link_request is open when the session file shows its call or the runtime that owns the approval relays its dialog (a call nested in codemode is not in the file).
 	const requested = async (key: string, found: Found) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, found));
-	const pad = createKeys({ overlay, fresh: (id, key, pane) => mirrors?.fresh(id, key, pane) ?? false, secret, answerable: async (key) => Boolean(await answers?.target(key)), linkRequest: async (found, key) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, { pane: found.pane, file: found.file })), probe: async (key) => answers?.probe(key) });
+	const runs = createRuns(), pad = createKeys({ overlay, run: (session, id, hash) => runs.take(session, id, hash), fresh: (id, key, pane) => mirrors?.fresh(id, key, pane) ?? false, secret, answerable: async (key) => Boolean(await answers?.target(key)), linkRequest: async (found, key) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, { pane: found.pane, file: found.file })), probe: async (key) => answers?.probe(key) });
 	/** The origin checks, then the session checks, then one Herdr call. `parts` is the path after api/: sessions/<key>/<action>, remote/pair, or server/stop. */
 	return async function handle(req: IncomingMessage, origin: string, [scope, key = "", action = ""]: string[], remote = false): Promise<Reply> {
 		if (req.method !== "POST") return no(405, "method", "Use POST.");
@@ -361,6 +362,8 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 				const picked = "choice" in checked ? target.answer.select?.choices[checked.choice] : undefined, next = picked?.next, tag = picked?.tagged ? answerId : undefined, noted = next === "pane" ? await grants?.before(at.pane_id) : undefined;
 				const sent = await answers.send(key, target, { id: dialog, answerId, digest, ...checked });
 				if (sent.body.outcome === "accepted" && next) sent.body.then = await thenOf(grants, next, key, at.pane_id, noted, tag); // on the stored object, so Check again replays it with the same `then`
+				// The command the answer put in the prompt may run in one tap (runs.ts): the page is told, and the grant waits for its Enter.
+				if (sent.body.outcome === "accepted" && next === "terminal" && runs.issue(key, answerId, target.answer.select?.copy)) (sent.body.then as { run?: true }).run = true;
 				return sent;
 			};
 		} else job = async () => call("agent.focus", { target: (await live(found)).pane_id });

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { type Asked, COMBOS, createKeys, PAD, type Reply, SEQUENCES } from "../src/keys.ts";
 import type { Found } from "../src/net.ts";
 import type { Editor } from "../src/probe.ts";
+import { commandHash, createRuns, RUN_TTL_MS } from "../src/runs.ts";
 
 const FOUND: Found = { key: "S", base: "wA", name: "s", role: "main", file: "/s/2026_S.jsonl", pane: "wA:p1", live: true };
 /** The guards with a fake clock and fakes for the mirror, the secret check, the hub's dialogs, and the bridge's editor check. */
@@ -301,4 +302,114 @@ test("a granted pane's keys (bare): the same keys and the same rate as a session
 	w.t += 5000;
 	const codes = Array.from({ length: 10 }, () => calls(plan({ key: "tab", stream: "st" })));
 	assert.equal(codes.filter((c) => c === 429).length, 2, "8 a second, as for a session");
+});
+
+// The one-tap prompt run: an Enter that names the answer (`run`) skips the `command` confirm when the session's prompt line hashes to the command that answer put there.
+function tap({ line = "! npm run deploy", hash = true, ending }: { line?: string; hash?: boolean; ending?: string } = {}) {
+	const w = { t: 1_000_000, line, hash, ending, probes: 0 };
+	const runs = createRuns(() => w.t);
+	const probe = async (): Promise<Editor> => (w.probes++, w.ending ? { editor: "text", ending: w.ending, hash: commandHash(w.line) } : { editor: "command", ...(w.hash ? { hash: commandHash(w.line) } : {}) });
+	const k = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe, run: (s, id, h) => runs.take(s, id, h), now: () => w.t });
+	const send = async (body: Record<string, unknown>): Promise<string[] | Reply> => {
+		const a = k.check("S", body);
+		if ("status" in a) return a;
+		try {
+			return (await k.send("S", FOUND, { pane_id: "wA:p1", agent_status: "idle" }, a as Asked)).keys;
+		} catch (e) {
+			return e as Reply;
+		}
+	};
+	const err = (r: string[] | Reply) => (Array.isArray(r) ? undefined : (r.body as { error?: string }).error);
+	return { w, runs, send, err };
+}
+const RUN = "a1b2c3d4e5f6a7b8";
+
+test("one tap: Enter naming the answer goes with no confirm when the prompt line is exactly the command the answer put there", async () => {
+	const t = tap();
+	t.runs.issue("S", RUN, "npm run deploy");
+	assert.deepEqual(await t.send(pad("enter", { run: RUN })), ["enter"]);
+	assert.equal(t.w.probes, 1, "the editor was still probed");
+});
+
+test("one tap: without `run` the `command` confirm still stands, and confirming it works as before", async () => {
+	const t = tap();
+	t.runs.issue("S", RUN, "npm run deploy");
+	const r = await t.send(pad("enter"));
+	assert.equal(token(r), "command");
+	assert.deepEqual(await t.send(pad("enter", { confirmed: "command" })), ["enter"]);
+});
+
+test("one tap refused: an edited prompt line (run_changed), and the grant is spent", async () => {
+	const t = tap({ line: "! npm run deploy --force" });
+	t.runs.issue("S", RUN, "npm run deploy");
+	const r = await t.send(pad("enter", { run: RUN }));
+	assert.equal(code(r), 409);
+	assert.equal(t.err(r), "run_changed");
+	assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_unknown", "and a second try finds nothing");
+});
+
+test("one tap refused: a replay after it ran (run_unknown), another session's, and an id never issued", async () => {
+	const t = tap();
+	t.runs.issue("S", RUN, "npm run deploy");
+	assert.deepEqual(await t.send(pad("enter", { run: RUN })), ["enter"]);
+	assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_unknown", "replay");
+	t.runs.issue("T", "b1b2c3d4e5f6a7b8", "npm run deploy");
+	assert.equal(t.err(await t.send(pad("enter", { run: "b1b2c3d4e5f6a7b8" }))), "run_unknown", "an answer of another session");
+	assert.equal(t.err(await t.send(pad("enter", { run: "c1b2c3d4e5f6a7b8" }))), "run_unknown", "never issued");
+});
+
+test("one tap refused: stale (run_expired), after the time to live", async () => {
+	const t = tap();
+	t.runs.issue("S", RUN, "npm run deploy");
+	t.w.t += RUN_TTL_MS + 1;
+	assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_expired");
+});
+
+test("one tap never skips an ending command's confirm: /reload with a grant for the same text still asks", async () => {
+	const t = tap({ ending: "reload", line: "/reload" }); // even a bridge that tells a matching hash for it
+	t.runs.issue("S", RUN, "/reload");
+	const r = await t.send(pad("enter", { run: RUN }));
+	assert.equal(token(r), "reload");
+	assert.deepEqual(await t.send(pad("enter", { confirmed: "reload" })), ["enter"]);
+});
+
+test("one tap with an old bridge (no hash in its answer) falls back to the inline confirm, and the grant is spent", async () => {
+	const t = tap({ hash: false });
+	t.runs.issue("S", RUN, "npm run deploy");
+	assert.equal(token(await t.send(pad("enter", { run: RUN }))), "command");
+	assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_unknown");
+});
+
+test("one tap: an editor the bridge could not read still asks (unread), whatever the grant", async () => {
+	const t = tap();
+	t.runs.issue("S", RUN, "npm run deploy");
+	const k = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe: async () => undefined, run: (s, id, h) => t.runs.take(s, id, h), now: () => t.w.t });
+	const a = k.check("S", pad("enter", { run: RUN }));
+	await assert.rejects(k.send("S", FOUND, { pane_id: "wA:p1", agent_status: "idle" }, a as Asked), (e: Reply) => (e.body as { confirm?: string }).confirm === "unread");
+});
+
+test("one tap: `run` rides only on Enter and only as an answer id; any other key or shape is a 400 and never reaches the grants", async () => {
+	const t = tap();
+	for (const body of [pad("up", { run: RUN }), { text: "a", stream: "st", run: RUN }, pad("enter", { run: 5 }), pad("enter", { run: "short" }), pad("enter", { run: `${RUN}!` }), pad("enter", { run: RUN, confirmed: "command" })])
+		assert.equal(code(await t.send(body)), 400, JSON.stringify(body));
+	assert.equal(t.w.probes, 0);
+});
+
+test("one tap: a confirm that was given together with `run` is a 400 (the page never sends both)", async () => {
+	const t = tap();
+	t.runs.issue("S", RUN, "npm run deploy");
+	assert.equal(code(await t.send(pad("enter", { run: RUN, confirmed: "command" }))), 400);
+});
+
+test("one tap does not weaken the guards: a secret or dialog that opened during the probe still blocks Enter, and keeps the grant unspent", async () => {
+	const t = tap();
+	t.runs.issue("S", RUN, "npm run deploy");
+	let secret = false;
+	const k = createKeys({ fresh: () => true, secret: async () => secret, answerable: async () => false, probe: async () => {
+		secret = true;
+		return { editor: "command", hash: commandHash("! npm run deploy") };
+	}, run: (s, id, h) => t.runs.take(s, id, h), now: () => t.w.t });
+	const a = k.check("S", pad("enter", { run: RUN }));
+	await assert.rejects(k.send("S", FOUND, { pane_id: "wA:p1", agent_status: "idle" }, a as Asked), (e: Reply) => (e.body as { error?: string }).error === "blocked");
+	assert.equal(t.runs.take("S", RUN, commandHash("! npm run deploy")), "match");
 });

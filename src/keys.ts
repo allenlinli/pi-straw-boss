@@ -2,12 +2,14 @@ import { DEQUEUE_KEY } from "./dequeuekey.ts";
 import type { Overlay } from "./lan/faces.ts";
 import type { Found } from "./net.ts";
 import type { Editor } from "./probe.ts";
+import type { Taken } from "./runs.ts";
 
 // The key pad's keys (POST …/sessions/<key>/keys {key, stream, confirmed?}), checked in order after the write guards and the registry:
 // the key is on the pad and alone, at most 8 a second per session; the page's stream holds this session's mirror, on its pane, and got a
 // frame in the last 3 s; while the session file's open call is `secret_drop` or the unit has an answerable dialog, only Escape (the same on every page, a paired device's too); while it has an open `link_request` call a paired device (`remote`) too sends only Escape (its approval is given on this computer only, and Enter in the terminal confirm is Yes); Enter asks
 // the session's bridge what it would submit (probe.ts), checks the mirror, the secret, and the dialog again after the answer, and needs the
-// confirm the server names for an ending command, another `/` or `!` command, or an editor it could not read. A second Escape within 1 s
+// confirm the server names for an ending command, another `/` or `!` command, or an editor it could not read. An Enter that names the answer which put a command in the prompt (`run`, runs.ts) passes the `command`
+// confirm alone, and only when the bridge's hash of the prompt line is the hash of that command: a line edited since, another session's or an unknown, spent, or stale answer is refused (run_changed, run_unknown, run_expired), and an old bridge without a hash gets the confirm. A second Escape within 1 s
 // (from when Herdr took the first) to a session that neither works nor waits runs pi's double-Escape action, so it needs a confirm; once
 // confirmed both Escapes go, as two writes 60 ms apart (one write of two ESC bytes reads as Ctrl+Alt+[ to a terminal without the kitty
 // protocol, and pi pairs Escapes only within 500 ms), or one if the confirm came within 450 ms of the first, which pi pairs with it.
@@ -29,9 +31,9 @@ export const RATE = 8, RATE_MS = 1000, DOUBLE_MS = 1000, PAIR_MS = 450, MAX_TYPE
 /** C0 and C1 controls and DEL: what could end a line, start an escape sequence, or signal; typed text holds none, a paste only line breaks and tabs. */
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/, PASTE_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 export interface Reply { status: number; body: unknown }
-export interface KeyDeps { /** The marks of the `/boss gui lan` overlay (lan/faces.ts): a paired device sends Escape only to a marked pane. */ overlay?: Overlay; fresh(stream: string, key: string, pane: string): boolean; secret(file: string): Promise<boolean>; answerable(key: string): Promise<boolean>; linkRequest?(found: Found, session: string): Promise<boolean>; probe(key: string): Promise<Editor | undefined>; now?(): number }
+export interface KeyDeps { /** The marks of the `/boss gui lan` overlay (lan/faces.ts): a paired device sends Escape only to a marked pane. */ overlay?: Overlay; fresh(stream: string, key: string, pane: string): boolean; secret(file: string): Promise<boolean>; answerable(key: string): Promise<boolean>; linkRequest?(found: Found, session: string): Promise<boolean>; probe(key: string): Promise<Editor | undefined>; /** The one-tap grants (runs.ts `take`): what an answer id says of the prompt line's hash. */ run?(session: string, answerId: string, hash: string | undefined): Taken; now?(): number }
 /** `text`: typed characters, sent as they are, or a paste already inside its markers (key is then "text" or "paste"). */
-export interface Asked { key: string; stream?: string; confirmed?: unknown; text?: string; remote?: boolean }
+export interface Asked { key: string; stream?: string; confirmed?: unknown; text?: string; remote?: boolean; /** The answer id of a one-tap run (Enter only). */ run?: string }
 type Pane = { pane_id: string; agent_status?: string };
 /** The keys to send, the Herdr calls that send them, and whether they are the confirmed double-Escape. */
 export interface Plan { keys: string[]; calls: [string, Record<string, unknown>][]; double: boolean }
@@ -45,9 +47,15 @@ const ASK: Record<string, string> = {
 	"ctrl-d": "Ctrl+D leaves pi when its editor is empty, which ends this session; confirm to send it.",
 	"double-ctrl-c": "A second Ctrl+C within a second leaves pi, which ends this session; confirm to send it.",
 };
+const RUN_ID = /^[A-Za-z0-9_-]{16,64}$/;
+/** Why a one-tap run was refused (the Enter itself is not lost: pressing it again, with no `run`, asks the usual confirm). */
+const refusedRun = (taken: Taken): Reply =>
+	taken === "changed" ? no(409, "run_changed", "The prompt no longer holds the command that was placed there, so nothing was sent; read it in the terminal.")
+	: taken === "expired" ? no(409, "run_expired", "The command waited too long to run in one tap; press Enter again to confirm it.")
+	: no(409, "run_unknown", "That command was not placed by an answer here, or it was already run; press Enter again to confirm it.");
 const confirm = (token: string) => no(409, "confirm", ASK[token] ?? `Enter would run /${token} (or the command picked in pi's menu, if it is open), which ends or replaces this session. ${FOCUS}`, { confirm: token });
 
-export function createKeys({ overlay, fresh, secret, answerable, linkRequest = async () => false, probe, now = Date.now }: KeyDeps) {
+export function createKeys({ overlay, fresh, secret, answerable, linkRequest = async () => false, probe, run = () => "unknown", now = Date.now }: KeyDeps) {
 	const sent = new Map<string, number[]>(), escaped = new Map<string, number>(), interrupted = new Map<string, number>();
 	const guard = async (session: string, found: Found, pane: Pane, a: Asked) => {
 		if (a.stream !== undefined && !fresh(a.stream, session, pane.pane_id)) throw no(409, "no_mirror", "Keys are sent only while this page shows the session's terminal live; open it again.");
@@ -82,11 +90,12 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 			if (pasted && (typeof json.paste !== "string" || !json.paste || [...json.paste].length > MAX_PASTE || PASTE_CONTROL.test(json.paste))) return no(400, "paste", `A paste is 1 to ${MAX_PASTE} characters, with line breaks and tabs but no other control character.`);
 			if (json.key === "ctrl+z") return no(400, "key", "Ctrl+Z is never sent: it would stop pi in the background, where nothing here can bring it back.");
 			if (!stop && !typed && !pasted && (json.text !== undefined || json.paste !== undefined || typeof json.key !== "string" || !(PAD.includes(json.key) || json.key === "delete" || COMBOS.test(json.key)) || json.keys !== undefined)) return no(400, "key", "One key at a time: a pad key, Delete, or a Ctrl or Alt chord (never a letter alone).");
+			if (json.run !== undefined && (json.key !== "enter" || typeof json.run !== "string" || !RUN_ID.test(json.run) || json.confirmed !== undefined)) return no(400, "key", "`run` names the answer that put a command in the prompt, on Enter alone and without a confirm.");
 			if (!stop && (typeof json.stream !== "string" || !json.stream)) return no(400, "bad_request", "Name this page's stream; reload the page if it reconnected.");
 			const limited = counted(session);
 			if (limited) return limited;
 			if (pasted) return { key: "paste", text: `\x1b[200~${json.paste as string}\x1b[201~`, stream: json.stream as string, remote };
-			return stop ? { key: "esc", remote } : typed ? { key: "text", text: json.text as string, stream: json.stream as string, remote } : { key: json.key as string, stream: json.stream as string, confirmed: json.confirmed, remote };
+			return stop ? { key: "esc", remote } : typed ? { key: "text", text: json.text as string, stream: json.stream as string, remote } : { key: json.key as string, stream: json.stream as string, confirmed: json.confirmed, remote, ...(json.run !== undefined && { run: json.run as string }) };
 		},
 		/**
 		 * The calls that send a checked key to a pane an answer opened (answerpane.ts), which is no pi session (`live` has just refused it, ending its grant, if it runs an agent or carries `sb_role`): only the mirror precondition (this page's stream holds that pane's mirror, live) and the keys `check` let through.
@@ -109,8 +118,15 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 		async keys(session: string, found: Found, pane: Pane, a: Asked): Promise<{ keys: string[]; double: boolean }> {
 			await guard(session, found, pane, a);
 			if (a.key === "enter") {
-				const e = await probe(session), need = !e || e.editor === "unknown" ? "unread" : (e.ending ?? (e.editor === "command" ? "command" : undefined));
+				const e = await probe(session);
 				await guard(session, found, pane, a); // the probe took up to a second: a secret or a dialog may have opened meanwhile
+				let need = !e || e.editor === "unknown" ? "unread" : (e.ending ?? (e.editor === "command" ? "command" : undefined));
+				if (a.run !== undefined) {
+					const taken = run(session, a.run, e?.hash);
+					// Only the plain `command` confirm is ever met by the hash: an ending command or an unreadable editor still asks, and a refusal stands only where the editor was read.
+					if (taken !== "match" && taken !== "nohash" && e && e.editor !== "unknown") throw refusedRun(taken);
+					if (taken === "match" && need === "command") need = undefined;
+				}
 				if (need && a.confirmed !== need) throw confirm(need);
 			}
 			if (a.key === "ctrl+d" && a.confirmed !== "ctrl-d") throw confirm("ctrl-d");

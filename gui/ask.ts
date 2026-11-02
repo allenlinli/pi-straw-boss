@@ -93,7 +93,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		[x.done, x.sending, busy, x.busy] = [!r || final(r), false, false, r?.body.outcome === "busy"];
 		say(x.note, tone, text, ...(retry ? [again] : []));
 		// An accepted answer that leaves a step in a terminal opens it, whichever view this is (terminalthen.ts): `terminal` is how this view shows the session's.
-		const then = r?.body.outcome === "accepted" ? (r.body.then as Then | undefined) : undefined, instead = then && openThen(then, { key: terminal?.key ?? "", command: x.copy });
+		const then = r?.body.outcome === "accepted" ? (r.body.then as Then | undefined) : undefined, instead = then && openThen(then, { key: terminal?.key ?? "", command: x.copy, answerId: String(body.answerId ?? "") });
 		if (instead) say(x.note, tone, `${text} ${instead}`);
 		draw();
 		x.note.scrollIntoView?.({ block: "nearest" }); // a long panel scrolls: its outcome must be read

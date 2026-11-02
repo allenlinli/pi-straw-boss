@@ -15,7 +15,7 @@ type Phase = "connecting" | "live" | "hidden" | "paused" | "refused";
 interface Reply { ok: boolean; status: number; body: Record<string, unknown> }
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "billing-main", escape }: { command?: string; name?: string; escape?: boolean } = {}) {
+function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "billing-main", escape, run }: { command?: string; name?: string; escape?: boolean; run?: string } = {}) {
 	mock.timers.reset();
 	mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });
 	page.fine = true;
@@ -24,7 +24,7 @@ function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "bil
 	const conn = { key: "k", rows: [] as string[], cols: 80, phase: "live" as Phase, why: "", stale: () => stale };
 	let stale = false, hold: string | undefined, w!: { rows(rows: string[]): void; state(s: string, c: unknown): void; end(): void; taken(): void }, stops = 0, retries = 0;
 	const card = termCard({
-		step: { kind, key: kind === "pane" ? "grant:g1" : "S", name, command },
+		step: { kind, key: kind === "pane" ? "grant:g1" : "S", name, command, run },
 		watch: (x) => ((w = x), { conn: conn as never, stop: () => void stops++, retry: () => (retries++, rig.phase("connecting")) }),
 		post: (action, body) => (posts.push({ action, body }), new Promise((resolve) => replies.push(resolve as never))),
 		stream: () => "st",
@@ -144,6 +144,31 @@ test("a prompt: 執行 posts one Enter with the stream, nothing while it is on i
 		await p.reply(200, { accepted: true });
 		assert.deepEqual(p.overs, ["taken"]);
 	} finally { p.done(); }
+});
+
+test("one tap: a prompt step that holds a grant sends Enter naming its answer once; a refusal leaves the usual confirm on the next press, with no run", async () => {
+	const p = rig("prompt", { run: "a1b2c3d4e5f6a7b8" });
+	try {
+		p.press();
+		assert.deepEqual(p.posts[0]!.body, { key: "enter", stream: "st", run: "a1b2c3d4e5f6a7b8" });
+		await p.reply(409, { error: "run_changed", reason: "server English" });
+		assert.equal(p.status().textContent, m.refuse_run_changed(), "in the page's words by the code");
+		p.tick(200);
+		p.press();
+		assert.deepEqual(p.posts[1]!.body, { key: "enter", stream: "st" }, "the grant is spent: the next Enter asks the confirm");
+		await p.reply(409, { error: "confirm", confirm: "command", reason: "x" });
+		assert.deepEqual(p.overs, []);
+	} finally { p.done(); }
+});
+
+test("one tap: a step with no grant, and a pane step, never send run", () => {
+	for (const kind of ["prompt", "pane"] as const) {
+		const p = rig(kind, { run: kind === "pane" ? "a1b2c3d4e5f6a7b8" : undefined });
+		try {
+			p.press();
+			assert.equal("run" in p.posts[0]!.body, false, kind);
+		} finally { p.done(); }
+	}
 });
 
 test("a prompt: the server's confirm shows in the page's words by its token (an unknown one in the server's), the focus goes to Cancel, and Send it posts exactly the token the server named", async () => {

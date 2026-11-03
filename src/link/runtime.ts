@@ -7,11 +7,10 @@ import { readRecord, slotOf } from "../server/record.ts";
 import { type Channel, type Kit, REGISTER } from "../state.ts";
 import { createApproval } from "./approval.ts";
 import { ASK_MS, HolderSlow, NO_HOLDER, SUMMARY_KEEP_MS, SUMMARY_MS } from "./guiport.ts";
-import { readLinkConfig } from "./config.ts";
 import type { AllyBoard, AllyTeam, ConfirmView, LinkSummary } from "./holder.ts";
 import { createRemoteTurns } from "./hooks.ts";
 import { HERE_ONLY } from "./request.ts";
-import { readPolicy } from "./policy.ts";
+import { type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
 import { type ServiceDeps } from "./service.ts";
 import { type InboxItem, LinkStore } from "./store.ts";
 import { type RemoteTower, remoteTowers } from "./remotelist.ts";
@@ -60,10 +59,12 @@ export function createLink({ pi, cfg, s, guiDir, me, tell }: Kit) {
 	const stateDir = cfg.stateDir ?? guiDir;
 	const store = new LinkStore(join(stateDir, "link"));
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
-	const config = () => readLinkConfig(stateDir, { home, agentDir });
-	const inUse = () => config().teams.size > 0 || store.teamIds().length > 0 || store.enabled;
+	const policyDeps: PolicyDeps = { home, agentDir, ...opts.policy };
+	/** The teams and trust every reader sees: the policy file's on an unattended device, config.json's otherwise (policy.ts `readEffectiveConfig`). */
+	const config = () => readEffectiveConfig(readPolicy(policyDeps), stateDir, { home, agentDir });
+	const inUse = () => readPolicy(policyDeps).mode === "unattended" || config().teams.size > 0 || store.teamIds().length > 0 || store.enabled;
 	/** Whether this computer's policy leaves it attended: the GUI's team changes and `link_request` are for an attended computer only. */
-	const attended = () => readPolicy(opts.policy).mode === "attended";
+	const attended = () => readPolicy(policyDeps).mode === "attended";
 	const approval = createApproval({ bus: pi.events, timeoutMs: opts.requestMs, terminalDelayMs: opts.terminalMs, onError: (what, error) => store.log({ event: "approval-failed", what, error: error.message }) });
 	let channel: Channel | undefined;
 	let stopped = false, told = false;
@@ -196,7 +197,7 @@ export function createLink({ pi, cfg, s, guiDir, me, tell }: Kit) {
 	// ---- Remote turns --------------------------------------------------------------------------------------------------------------------
 
 	const remote = createRemoteTurns({
-		pi, now: cfg.now, config, policy: opts.policy, home, agentDir, linkDir: join(stateDir, "link"), gateMs: opts.gateMs,
+		pi, now: cfg.now, config, policy: policyDeps, home, agentDir, linkDir: join(stateDir, "link"), gateMs: opts.gateMs,
 		setOrigin: (origin) => void (s.remoteOrigin = origin), tower: () => s.ownName || pi.getSessionName() || sid(),
 		log: (event) => store.log(event), tell,
 		ask: (op) => ask(op),

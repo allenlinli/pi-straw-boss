@@ -35,18 +35,29 @@ export function readLinkConfig(stateDir: string, { home, agentDir }: { home: str
 		}
 	}
 	if (!isObject(link.teams)) return out;
-	for (const [team, value] of Object.entries(link.teams)) {
-		const bad = (reason: string) => void out.problems.push(`team ${team}: ${reason}`);
+	for (const [team, policy] of parseTeams(link.teams, { home, agentDir }, (reason) => out.problems.push(reason), true)) out.teams.set(team, policy);
+	return out;
+}
+
+/**
+ * The teams of a `teams` object, config.json's or the policy file's: a team id of 32 hex digits, a `project` that passes `projectProblem`, a `share` of `presence` or
+ * `status` (the default). A team that is wrong is left out and said through `bad`. `tilde` lets `~` and `~/…` stand for the home folder (config.json does; the policy file
+ * names absolute paths only).
+ */
+export function parseTeams(raw: Record<string, unknown>, { home, agentDir }: { home: string; agentDir: string }, report: (reason: string) => void, tilde: boolean): Map<string, TeamPolicy> {
+	const teams = new Map<string, TeamPolicy>();
+	for (const [team, value] of Object.entries(raw)) {
+		const bad = (reason: string) => report(`team ${team}: ${reason}`);
 		if (!/^[0-9a-f]{32}$/.test(team)) { bad("the team id has to be 32 hex digits"); continue; }
 		if (!isObject(value) || typeof value.project !== "string" || !value.project) { bad("it has no project"); continue; }
 		if (value.share !== undefined && value.share !== "presence" && value.share !== "status") { bad('share has to be "presence" or "status"'); continue; }
-		const project = value.project === "~" ? home : value.project.startsWith("~/") ? join(home, value.project.slice(2)) : value.project;
+		const project = !tilde ? value.project : value.project === "~" ? home : value.project.startsWith("~/") ? join(home, value.project.slice(2)) : value.project;
 		const problem = projectProblem(project, { home, agentDir });
 		if (problem) { bad(problem); continue; }
 		const path = isAbsolute(project) ? resolve(project) : project;
-		out.teams.set(team, { project: path, share: value.share ?? "status", name: basename(path) });
+		teams.set(team, { project: path, share: value.share ?? "status", name: basename(path) });
 	}
-	return out;
+	return teams;
 }
 
 /**

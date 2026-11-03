@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { buildEnvelope } from "../src/link/envelope.ts";
 import { encodePlaintext } from "../src/link/kinds.ts";
+import { type PolicyDeps } from "../src/link/policy.ts";
 import { RelayClient } from "../src/link/relay.ts";
 import { type InboxItem, LinkStore, LOCK_WAIT_MS } from "../src/link/store.ts";
 import { POST_WAIT_MS } from "../src/link/holder.ts";
@@ -35,7 +36,7 @@ afterEach(async () => {
 const FAST = { tickMs: 15, drainMs: 20, presenceMs: 40, pumpMs: 10, offerAgainMs: 60_000 };
 
 /** One computer: its own Herdr, intercom broker, state directory, and link files, and the link holder of its sb server (`start: false` leaves the server's first look to the test). */
-function computer(name: "a" | "b", o: { configured?: boolean; entries?: ReturnType<typeof rosterOf>; start?: boolean } = {}) {
+function computer(name: "a" | "b", o: { configured?: boolean; entries?: ReturnType<typeof rosterOf>; start?: boolean; policy?: (project: string) => string } = {}) {
 	const world = new World();
 	worlds.push(world);
 	const keys = name === "a" ? alice : bob, home = join(root, `home-${name}`), project = join(root, `project-${name}`);
@@ -49,7 +50,9 @@ function computer(name: "a" | "b", o: { configured?: boolean; entries?: ReturnTy
 		writeFileSync(join(world.stateDir, "config.json"), JSON.stringify({ towerRuns: { enabled: false }, link: { relay: "http://relay.test", teams: { [TEAM_HEX]: { project, share: "status" } } } }));
 	}
 	relay.addTeam(TEAM, [alice.id, bob.id], entries);
-	const service = { ...FAST, home, relay: clientFor(relay), alive: (r: { session: string }) => !world.gone.has(r.session) };
+	// A policy file owned by root and not writable by this user, read from memory.
+	const policy: PolicyDeps | undefined = o.policy && { path: "/etc/straw-link/policy.json", uid: 501, stat: () => ({ uid: 0, symlink: false }), writable: () => false, read: () => o.policy!(project) };
+	const service = { ...FAST, home, relay: clientFor(relay), alive: (r: { session: string }) => !world.gone.has(r.session), ...(policy ? { policy } : {}) };
 	const server = linkServer(world, { deps: service, start: o.start });
 	const deps = { link: { ...service, ask: server.ask } };
 	const tower = (id: string, ws = "wA") => {
@@ -420,4 +423,54 @@ test("RC-F003: the last summary stands in for a slow holder only while it is fre
 	await gone.a.server.stop();
 	assert.equal(holderOf(gone.a), undefined, "no holder record");
 	assert.equal(await gone.link.summary(), undefined, "NO_HOLDER is not covered by the last reading");
+});
+
+// ---- Unattended policy (docs/specs/2026-10-25-straw-link.md, Unattended devices) -----------------------------------------------------------------------------
+
+const unattended = (over: (project: string) => Record<string, unknown> = () => ({})) => (project: string) => JSON.stringify({ unattended: true, trust: {}, ...over(project) });
+
+test("a refused policy means no holder: the look returns before the election, no stream opens, and the reason is said once", async () => {
+	const a = computer("a", { start: false, policy: () => JSON.stringify({ unattended: true, teams: { nothex: { project: "/tmp" } } }) });
+	for (let i = 0; i < 3; i++) await a.server.service.look();
+	assert.equal(a.server.service.status().active, false);
+	assert.equal(a.server.service.holder, undefined);
+	assert.equal(holderOf(a), undefined, "no holder record");
+	assert.equal(relay.opened.length, 0, "no stream");
+	assert.ok(!a.world.broker.registrations.some((x) => x.id === a.server.id && x.namespace === "straw-boss/link"), "no channel either");
+	const told = a.server.notices.filter((n) => /unattended mode is refused/.test(n.text));
+	assert.equal(told.length, 1, "said once");
+	assert.match(told[0]!.text, /team nothex: the team id has to be 32 hex digits/);
+	assert.equal(told[0]!.level, "error");
+	assert.deepEqual(await a.server.service.request({ op: "list" }, a.server.id), { ok: false, code: "no_holder", error: told[0]!.text });
+	assert.equal(a.server.service.levelOf(alice.id), "reply");
+});
+
+test("an unattended device with no team still makes device.json and device.id: id mode 600 in a 700 folder, and the id is the one in device.json", async () => {
+	const a = computer("a", { configured: false, start: false, policy: unattended() });
+	assert.equal(a.server.service.status().inUse, true, "in use before any team");
+	await a.server.service.start();
+	await holding(a);
+	const store = new LinkStore(a.dir), id = join(a.dir, "device.id");
+	assert.ok(existsSync(join(a.dir, "device.json")));
+	assert.equal(statSync(id).mode & 0o777, 0o600);
+	assert.equal(statSync(a.dir).mode & 0o777, 0o700);
+	assert.equal(readFileSync(id, "utf8"), `${store.device()!.keys.id}\n`);
+	assert.equal(a.server.service.config().teams.size, 0);
+});
+
+test("under an unattended policy the teams come from the policy file and config.json's link section is ignored", async () => {
+	const other = join(root, "other-project");
+	mkdirSync(other, { recursive: true });
+	// config.json (written by `computer`) names the team at project-a; the policy names no team, then the team at another project.
+	const none = computer("a", { start: false, policy: unattended() });
+	await none.server.service.start();
+	await holding(none);
+	assert.equal(none.server.service.config().teams.size, 0, "config.json's team is not granted");
+	assert.equal(relay.opened.length, 0, "so no team stream opens");
+	assert.ok(none.server.notices.some((n) => /has no entry under link\.teams/.test(n.text)), "the team file without an entry is said");
+	const named = computer("a", { start: false, policy: unattended(() => ({ teams: { [TEAM_HEX]: { project: other } } })) });
+	const team = named.server.service.config().teams.get(TEAM_HEX);
+	assert.deepEqual(team && { project: team.project, share: team.share, name: team.name }, { project: other, share: "status", name: "other-project" });
+	await named.server.service.start();
+	await until(() => relay.opened.some((o) => o.device === alice.id), "the team's stream");
 });

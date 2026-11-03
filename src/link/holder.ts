@@ -293,7 +293,7 @@ export class LinkHolder {
 			if (config.teams.has(team) && (await this.stillStopped(team))) continue;
 			if (!config.teams.has(team)) {
 				if (this.admin.joiningTeam() === team) continue; // a join waiting for its project folder
-				this.tellOnce(`noconfig/${team}`, `Straw Link: team ${team.slice(0, 6)} has no entry under link.teams in config.json, so it takes no messages`, "info");
+				this.tellOnce(`noconfig/${team}`, `Straw Link: team ${team.slice(0, 6)} has no entry under link.teams in config.json (or in the policy file on an unattended device), so it takes no messages`, "info");
 				continue;
 			}
 			try {
@@ -303,7 +303,7 @@ export class LinkHolder {
 			}
 		}
 		for (const policy of config.teams.keys()) {
-			if (!store.teamIds().includes(policy)) this.tellOnce(`nofile/${policy}`, `Straw Link: team ${policy.slice(0, 6)} is in config.json but this device has no team file for it; join the team again`);
+			if (!store.teamIds().includes(policy)) this.tellOnce(`nofile/${policy}`, `Straw Link: team ${policy.slice(0, 6)} is in the team list (config.json, or the policy file on an unattended device) but this device has no team file for it; join the team again`);
 		}
 	}
 

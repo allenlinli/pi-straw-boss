@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { readLinkConfig } from "../src/link/config.ts";
-import { type PolicyDeps, POLICY_PATH, policyProblem, readPolicy } from "../src/link/policy.ts";
+import { type PolicyDeps, POLICY_PATH, policyProblem, readEffectiveConfig, readPolicy } from "../src/link/policy.ts";
 
 // Trust levels: config.json on an attended device, the policy file on an unattended one, which refuses to run unless that file and its folder are
 // owned by another user and not writable by its own (docs/specs/2026-10-25-straw-link.md, Storage and policy).
@@ -75,4 +75,71 @@ test("attended trust comes from config.json's link.trust; a sender with no entry
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+// ---- Teams in the policy ---------------------------------------------------------------------------------------------------------------------------------
+
+const hex = "0123456789abcdef0123456789abcdef", hex2 = "fedcba9876543210fedcba9876543210";
+/** A real project folder (`projectProblem` wants it to exist) and a home folder apart from it. */
+function folders(run: (project: string, dirs: { home: string; agentDir: string }) => void) {
+	const dir = mkdtempSync(join(tmpdir(), "psb-link-policy-teams-"));
+	try {
+		const project = join(dir, "srv", "work"), home = join(dir, "home");
+		mkdirSync(project, { recursive: true });
+		mkdirSync(home, { recursive: true });
+		run(project, { home, agentDir: join(home, ".pi", "agent") });
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+test("an unattended policy carries its teams: an absolute project that passes projectProblem, share defaulting to status; a controller set to true is at dispatch", () => {
+	folders((project, dirs) => {
+		const p = readPolicy({ ...fs({ text: file({ trust: { [ctrl]: true }, teams: { [hex]: { project }, [hex2]: { project, share: "presence" } } }) }), ...dirs });
+		assert.equal(p.mode, "unattended");
+		if (p.mode !== "unattended") return;
+		assert.deepEqual([...p.trust], [[ctrl, "dispatch"]]);
+		assert.deepEqual([...p.teams], [[hex, { project, share: "status", name: "work" }], [hex2, { project, share: "presence", name: "work" }]]);
+		const none = readPolicy({ ...fs({ text: file() }), ...dirs });
+		assert.equal(none.mode === "unattended" && none.teams.size, 0, "no teams key means no teams, still unattended");
+	});
+});
+
+test("a malformed teams makes the whole policy refused, with the reason", () => {
+	folders((project, dirs) => {
+		const refused = (teams: unknown, reason: RegExp) => {
+			const p = readPolicy({ ...fs({ text: file({ teams }) }), ...dirs });
+			assert.equal(p.mode, "refused");
+			assert.match(p.mode === "refused" ? p.reason : "", reason);
+		};
+		refused([], /teams has to be an object/);
+		refused("x", /teams has to be an object/);
+		refused(null, /teams has to be an object/);
+		refused({ [hex]: { project }, short: { project } }, /team short: the team id has to be 32 hex digits/);
+		refused({ [hex]: {} }, /it has no project/);
+		refused({ [hex]: { project: "work" } }, /absolute path/);
+		refused({ [hex]: { project: "~/work" } }, /absolute path/);
+		refused({ [hex]: { project: join(project, "missing") } }, /does not exist/);
+		refused({ [hex]: { project: dirs.home } }, /home folder/);
+		refused({ [hex]: { project, share: "all" } }, /share has to be/);
+	});
+});
+
+test("readEffectiveConfig: the policy's teams and trust on an unattended device, config.json's link section ignored; config.json's on an attended one; nothing on a refused one", () => {
+	folders((project, dirs) => {
+		const state = join(dirs.home, "state");
+		mkdirSync(state, { recursive: true });
+		writeFileSync(join(state, "config.json"), JSON.stringify({ link: { relay: "http://r", trust: { [other]: "dispatch" }, teams: { [hex2]: { project } } } }));
+		const un = readEffectiveConfig(readPolicy({ ...fs({ text: file({ trust: { [ctrl]: "forward" }, teams: { [hex]: { project } } }) }), ...dirs }), state, dirs);
+		assert.deepEqual([...un.teams.keys()], [hex]);
+		assert.deepEqual([...un.trust], [[ctrl, "forward"]]);
+		assert.equal(un.relay, undefined);
+		assert.deepEqual(un.problems, []);
+		const missing = Object.assign(new Error("no such file"), { code: "ENOENT" });
+		const at = readEffectiveConfig(readPolicy({ ...fs(), read: () => { throw missing; } }), state, dirs);
+		assert.deepEqual([...at.teams.keys()], [hex2]);
+		assert.equal(at.trust.get(other), "dispatch");
+		const re = readEffectiveConfig({ mode: "refused", reason: "x" }, state, dirs);
+		assert.equal(re.teams.size + re.trust.size, 0);
+	});
 });

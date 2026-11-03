@@ -16,7 +16,9 @@ import { mountConnect } from "./connect.ts";
 import { MODAL, mountHotkeys } from "./hotkeys.ts";
 import { mountLinkBar } from "./linkbar.ts";
 import { mountMenus } from "./menu.ts";
+import { audio } from "./audio.ts";
 import { mountNotify } from "./notify.ts";
+import { prefs } from "./prefs.ts";
 import { mountQuit, showDismissAll, showStashed } from "./quit.ts";
 import { hang, mountPage } from "./render.ts";
 import { settingsAllowed } from "./desk.ts";
@@ -90,6 +92,16 @@ const withZen = (call: (z: Zen) => void) => {
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
 		remind: (a) => notify.remind(a), sound: () => {}, // the effects are the next step's (Z5)
 		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: notify.sound }, // the corner menu's rows act through the settings page's own switches
+		music: {
+			tracks: async () => (fixture ? [] : ((await api("music")) as { tracks: { file: string; size: number }[] }).tracks), // the demo has no music folder
+			player: async (report) => {
+				const { createPlayer } = await import("./zenmusic.ts"); // the player is a chunk of its own, loaded once the music is on
+				return createPlayer({ audio, make: () => document.createElement("audio"), url: (file) => `api/music/${encodeURIComponent(file)}`, later: (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); }, report });
+			},
+			unlock: () => audio.unlock(),
+			prefs: { on: () => prefs.get("zenMusic"), setOn: (on) => void prefs.set("zenMusic", on), track: () => prefs.get("zenTrack"), setTrack: (file) => void prefs.set("zenTrack", file) },
+			coarse: () => matchMedia("(pointer: coarse)").matches,
+		},
 		leave: core.leaveZen, terminals, watch: core.watchLog,
 	})));
 	void zenLoading.then(call);

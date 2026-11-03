@@ -9,6 +9,7 @@ import type { TrustPost, trustPanel } from "./trust.ts";
 import type { FsEnv } from "./zenfs.ts";
 import type { RippleEnv } from "./zenripple.ts";
 import type { MenuDeps } from "./zenmenu.ts";
+import type { MusicDeps } from "./zenmusicbar.ts";
 import type { Sound } from "./zenmodel.ts";
 import type { With } from "./zenwith.ts";
 
@@ -47,6 +48,8 @@ export interface ZenDeps {
 	stored?(): With | undefined;
 	/** The corner menu's rows (language, view, sound); a row without its dep is left out. */
 	menu?: MenuDeps;
+	/** The music controls (zenmusicbar.ts): the server's tracks, the player, the stored switch. Unset: no music control. */
+	music?: MusicDeps;
 	/** The full-screen control's page facts (a test gives its own). */
 	fs?: FsEnv;
 	/** The ripples' page facts (a test gives its own). */

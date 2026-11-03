@@ -37,11 +37,21 @@
 [data-view="zen"] .zen-line-by { display: block; margin-top: 8px; font: 0.8rem/1.4 var(--sans); letter-spacing: 0.12em; color: var(--zen-ash); }
 /* The corner: one quiet menu button, and full screen beside it. */
 [data-view="zen"] .zen-corner { position: fixed; z-index: 3; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); display: flex; gap: 2px; }
-[data-view="zen"] :is(.zen-fs, .zen-menubtn) { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--zen-ash); opacity: 0.6; cursor: pointer; transition: opacity 0.6s var(--zen-ease); font-size: 1.5rem; line-height: 1; }
-[data-view="zen"] :is(.zen-fs, .zen-menubtn):is(:hover, :focus-visible, [aria-expanded="true"]) { opacity: 1; }
+[data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-music-btn, .zen-musicmore) { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--zen-ash); opacity: 0.6; cursor: pointer; transition: opacity 0.6s var(--zen-ease); font-size: 1.5rem; line-height: 1; }
+[data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-music-btn, .zen-musicmore):is(:hover, :focus-visible, [aria-expanded="true"]) { opacity: 1; }
 [data-view="zen"] .zen-fs[hidden] { display: none; }
 [data-view="zen"] .zen-fs::before { content: ""; display: block; width: 20px; height: 20px; margin: auto; background: currentColor; -webkit-mask: var(--zen-fs-icon) center / contain no-repeat; mask: var(--zen-fs-icon) center / contain no-repeat; --zen-fs-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'/%3E%3C/svg%3E"); }
 [data-view="zen"] .zen-fs[aria-pressed="true"]::before { --zen-fs-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5'/%3E%3C/svg%3E"); }
+[data-view="zen"] .zen-musichost { position: relative; display: flex; }
+[data-view="zen"] .zen-musichost[hidden], [data-view="zen"] .zen-musicmore[hidden] { display: none; }
+[data-view="zen"] .zen-musicmore { width: 28px; margin-left: -10px; font-size: 1rem; }
+[data-view="zen"] .zen-music-btn[data-state="off"] { opacity: 0.4; }
+[data-view="zen"] .zen-music-btn[data-state="playing"] { opacity: 0.9; }
+[data-view="zen"] .zen-music-btn[data-state="tap"] { opacity: 0.9; text-decoration: underline dotted; text-underline-offset: 4px; }
+[data-view="zen"] .zen-musicpanel { position: absolute; right: 0; top: calc(100% + 4px); display: flex; flex-direction: column; width: min(18rem, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--zen-line); border-radius: 18px; background: var(--zen-soft); animation: zen-fade 0.5s var(--zen-ease) both; }
+[data-view="zen"] .zen-musicpanel[hidden] { display: none; }
+[data-view="zen"] .zen-musicpanel .zen-opt { text-align: start; overflow-wrap: anywhere; }
+[data-view="zen"] .zen-opt[aria-checked="true"] { background: var(--zen-warm); border-color: var(--zen-line); }
 [data-view="zen"] .zen-menuhost { position: relative; }
 [data-view="zen"] .zen-menu { position: absolute; right: 0; top: calc(100% + 4px); width: min(21rem, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--zen-line); border-radius: 18px; background: var(--zen-soft); animation: zen-fade 0.5s var(--zen-ease) both; }
 [data-view="zen"] .zen-menu[hidden] { display: none; }
@@ -182,15 +192,15 @@
 @media (max-height: 340px) { /* a lone question or a select keeps its context while it fits (it does down to here) */
 	[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-meta, .zen-said) { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc) { transition: none; } [data-view="zen"] .zen-card-in > *, [data-view="zen"] .zen-card [data-fade] { animation: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-music-btn, .zen-musicmore, .zen-opt, .zen-esc) { transition: none; } [data-view="zen"] .zen-card-in > *, [data-view="zen"] .zen-card [data-fade] { animation: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .tcard { animation: none; } }
 @media (forced-colors: active) { [data-view="zen"] .tcard :is(.tcard-cmd, .tcard-input) { border: 1px solid CanvasText; } }
 @media (forced-colors: active) {
 	[data-view="zen"] .zen-drift, [data-view="zen"] .zen-circle i, [data-view="zen"] .zen-ripples { display: none; }
 	[data-view="zen"] .zen-circle { border: 1px solid CanvasText; background: none; }
 	[data-view="zen"] .zen-fs::before { forced-color-adjust: none; background: CanvasText; }
-	[data-view="zen"] :is(.zen-card, .zen-menu) { border: 1px solid CanvasText; }
+	[data-view="zen"] :is(.zen-card, .zen-menu, .zen-musicpanel) { border: 1px solid CanvasText; }
 	[data-view="zen"] .zen-qs > .ask-one[data-dim] { opacity: 0.6; border: 1px dashed GrayText; border-radius: 12px; } /* faded stays readable, and the border says it is the other question */
-	[data-view="zen"] :is(.zen-opt, .zen-leave, .ask-opt, .ask-send, .cmp-send, .ask-cancel, .cmp-alt, .zen-skip)[aria-pressed="true"], [data-view="zen"] .ask-opt[aria-checked="true"] { border: 1px solid Highlight; }
+	[data-view="zen"] :is(.zen-opt, .zen-leave, .ask-opt, .ask-send, .cmp-send, .ask-cancel, .cmp-alt, .zen-skip)[aria-pressed="true"], [data-view="zen"] :is(.ask-opt, .zen-opt)[aria-checked="true"] { border: 1px solid Highlight; }
 	[data-view="zen"] :is(.ask-send, .cmp-send) { border: 1px solid ButtonText; }
 }

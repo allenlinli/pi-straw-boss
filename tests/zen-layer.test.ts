@@ -1106,6 +1106,53 @@ test("the palette's Back to the breath leaves the companion for the circle for t
 	assert.equal(r.by((el) => el.getAttribute("role") === "option" && el.textContent.startsWith("Back to the breath")).length, 0, "the circle offers no way back to itself");
 });
 
+test("a companion that is not on the core's list steps to the list's first with ] and its last with [, never to the circle first (ZVLR-F002)", async () => {
+	for (const [dir, want] of [[1, "a"], [-1, "b"]] as const) {
+		const r = rig({ z4b: true, candidates: () => [{ key: "a", ws: "w" }, { key: "b", ws: "w" }] }); // the visit starts on the tower t, which the list leaves out
+		r.feed(net([unit("a", "working"), unit("b", "idle")]));
+		r.z.show();
+		await r.settle();
+		assert.equal(companionKey(r), "t");
+		assert.equal(r.z.cycle(dir), true);
+		await r.settle();
+		assert.equal(r.z.companion()?.key, want);
+	}
+});
+
+test("with one candidate that is the companion itself, the palette still offers Previous and Next, the way to the circle (ZVLR-F002)", async () => {
+	const r = rig({ z4b: true, candidates: () => [{ key: "t", ws: "w" }] });
+	r.feed(net([unit("a", "working")]));
+	r.z.show();
+	await r.settle();
+	r.z.palette();
+	r.by((el) => el.getAttribute("role") === "option" && el.textContent.startsWith("Next companion"))[0]!.click();
+	await r.settle();
+	assert.equal(r.z.companion(), undefined, "the circle");
+});
+
+test("a step or Back to the breath from the companion's composer leaves the focus on the corner menu, not the body (ZVLR-F004)", async () => {
+	const r = rig({ z4b: true });
+	r.feed(net([unit("a", "working"), unit("b", "idle")]));
+	r.z.show();
+	await r.settle();
+	const menu = r.by((el) => el.getAttribute("class") === "zen-menubtn")[0]!;
+	r.calls.composers.at(-1)!.box.focus();
+	r.z.palette();
+	r.by((el) => el.getAttribute("role") === "option" && el.textContent.startsWith("Back to the breath"))[0]!.click();
+	await r.settle();
+	assert.equal(page.focused, menu, "the palette's way back");
+	r.z.cycle(1);
+	await r.settle();
+	r.calls.composers.at(-1)!.box.focus();
+	r.z.cycle(1);
+	await r.settle();
+	assert.equal(page.focused, menu, "a ] from the composer");
+	menu.blur();
+	r.z.cycle(1);
+	await r.settle();
+	assert.equal(page.focused, undefined, "a ] with the focus on the body leaves it there");
+});
+
 test("the strip says how many units work and how many are idle, from the core's selector, on the companion and the pause, not on a card; it is the same with one, two, and five waiting", async () => {
 	const shots: string[] = [];
 	for (const count of [1, 2, 5]) {

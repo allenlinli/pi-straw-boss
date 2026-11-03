@@ -237,17 +237,23 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		const to = ring[(at + dir + ring.length) % ring.length];
 		if (!to && !company) return false;
 		picked = to && { key: to.key, ws: to.ws };
-		disposeCompany();
-		drawCompany();
+		swapCompany();
 		live.textContent = to ? m.zen_with({ name: company?.name.textContent ?? to.key }) : m.zen_rest();
 		return true;
 	}
 	/** The palette's way back to the breathing circle for the rest of this visit. */
 	function rest() {
 		picked = undefined;
+		swapCompany();
+		live.textContent = m.zen_rest();
+	}
+	/** A step or a rest swaps the companion; a focus that was in the old one goes to the corner menu, not the body (ZVLR-F004). */
+	function swapCompany() {
+		const at = document.activeElement, had = Boolean(at && at !== root && root.contains(at));
 		disposeCompany();
 		drawCompany();
-		live.textContent = m.zen_rest();
+		const now = document.activeElement;
+		if (had && (!now || now === document.body || !now.isConnected)) menu.button.focus();
 	}
 	const face = {
 		cycle,

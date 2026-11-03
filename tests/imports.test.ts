@@ -1012,7 +1012,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merge of the terminal card's T4 with main's Zen yellows: 128,119 / 27,465, cap 128,150 / 27,500.
 	// Z5+Z6 (zen.css music and sound rows) took the stylesheet to 131,608 / 27,977 (measured at 314cad1 and after the eager-entry trim), cap +15.
 	// Zen Z7 layout fixes (the ring-less focus, the log's pill box, unsqueezed choices, the open history's rules, the phone and 900 px tightening, the strip's phone place): 133,483 / 28,223 measured, +1,875 raw / +246 gzipped, cap 133,500 / 28,240.
-	assert.ok(total(css, (n) => size(n).length) <= 133_500 && total(css, gz) <= 28_240, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Z-D13 (Zen keeps breathing at rest, the faint breath behind the companion's log, the half-minute tide and wander, the companion without boxes): 134,446 / 28,449 measured, +963 raw / +226 gzipped, cap 134,461 / 28,464.
+	assert.ok(total(css, (n) => size(n).length) <= 134_461 && total(css, gz) <= 28_464, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

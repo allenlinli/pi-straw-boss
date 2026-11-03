@@ -79,7 +79,7 @@ test("leaving the Geek view for Standard on input starts the calm clock again", 
 	}
 });
 
-test("in the Zen view the calm clock runs: after 30 s data-calm stills the circle and the drift, and input brings them back", () => {
+test("in the Zen view the calm clock runs (the ripples rest by it), while zen.css stills nothing by it: the circle and the drift keep breathing (Z-D13)", () => {
 	const p = page();
 	try {
 		p.root.dataset.view = "zen";

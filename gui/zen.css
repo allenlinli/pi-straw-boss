@@ -19,19 +19,20 @@
 /* The pause's circle and the item's card take the focus from the script only so that Enter, Space, and the keys find the layer (zen.ts): neither is a control, so neither wears a ring, and the circle keeps its round shape. */
 [data-view="zen"] #zen :is(.zen-circle, .zen-card):focus-visible { outline: none; }
 [data-view="zen"] #zen .zen-circle:focus-visible { border-radius: 50%; }
-/* The ground: two layers cross-fade over 90 s, and the washes inside the circle drift. */
+/* The ground: a warm layer fades and wanders over the dark one on a half-minute tide, and the washes inside the circle drift; Zen keeps breathing however long the page rests (Z-D13: calm.ts does not still it; reduced motion does). */
 [data-view="zen"] .zen-drift { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 [data-view="zen"] .zen-drift i { position: absolute; inset: 0; }
 [data-view="zen"] .zen-drift i:first-child { background: radial-gradient(120% 90% at 50% 40%, #17130f 0, var(--zen-ground) 70%); }
-[data-view="zen"] .zen-drift i:last-child { background: radial-gradient(120% 90% at 42% 58%, var(--zen-ground-2) 0, transparent 75%); opacity: 0; animation: zen-tide 90s ease-in-out infinite alternate; }
+[data-view="zen"] .zen-drift i:last-child { inset: -15%; background: radial-gradient(60% 50% at 42% 58%, rgba(122, 100, 76, 0.2) 0, rgba(90, 74, 58, 0.08) 45%, transparent 75%); opacity: 0.3; animation: zen-tide 30s ease-in-out infinite alternate, zen-wander 47s ease-in-out infinite alternate; }
 @keyframes zen-tide { to { opacity: 1; } }
+@keyframes zen-wander { from { transform: translate3d(-7%, -5%, 0) scale(1); } to { transform: translate3d(7%, 6%, 0) scale(1.12); } }
 /* The ripples (zenripple.ts): one canvas on the ground, behind the stage and everything on it. */
 [data-view="zen"] .zen-ripples { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 [data-view="zen"] .zen-circle { position: relative; width: min(48vmin, 320px); aspect-ratio: 1; box-sizing: border-box; border: 1px solid var(--zen-line); border-radius: 50%; transform: scale(0.72); opacity: 0.55; animation: zen-breath 10s infinite; }
-[data-view="zen"] .zen-circle i { position: absolute; inset: -40%; border-radius: 50%; pointer-events: none; animation: zen-wash 70s ease-in-out infinite alternate; background: radial-gradient(circle, rgba(150, 136, 116, 0.14) 0, rgba(118, 106, 90, 0.09) 36%, rgba(80, 70, 58, 0.04) 58%, transparent 70%); }
-[data-view="zen"] .zen-circle i:nth-child(2) { inset: -25% -55% -50% -10%; animation-duration: 95s; animation-direction: alternate-reverse; background: radial-gradient(circle, rgba(160, 142, 118, 0.1) 0, rgba(110, 98, 82, 0.05) 50%, transparent 70%); }
-[data-view="zen"] .zen-circle i:nth-child(3) { inset: -50% -30% -25% -45%; animation-duration: 120s; background: radial-gradient(circle, rgba(170, 150, 124, 0.08) 0, rgba(120, 106, 88, 0.04) 55%, transparent 72%); }
-@keyframes zen-wash { from { transform: translate3d(-3%, -2%, 0) rotate(-5deg); } to { transform: translate3d(3%, 2.5%, 0) rotate(7deg); } }
+[data-view="zen"] .zen-circle i { position: absolute; inset: -40%; border-radius: 50%; pointer-events: none; animation: zen-wash 24s ease-in-out infinite alternate; background: radial-gradient(circle, rgba(150, 136, 116, 0.14) 0, rgba(118, 106, 90, 0.09) 36%, rgba(80, 70, 58, 0.04) 58%, transparent 70%); }
+[data-view="zen"] .zen-circle i:nth-child(2) { inset: -25% -55% -50% -10%; animation-duration: 31s; animation-direction: alternate-reverse; background: radial-gradient(circle, rgba(160, 142, 118, 0.1) 0, rgba(110, 98, 82, 0.05) 50%, transparent 70%); }
+[data-view="zen"] .zen-circle i:nth-child(3) { inset: -50% -30% -25% -45%; animation-duration: 40s; background: radial-gradient(circle, rgba(170, 150, 124, 0.08) 0, rgba(120, 106, 88, 0.04) 55%, transparent 72%); }
+@keyframes zen-wash { from { transform: translate3d(-6%, -4%, 0) rotate(-12deg); } to { transform: translate3d(6%, 5%, 0) rotate(14deg); } }
 [data-view="zen"] .zen-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); margin: 0; }
 [data-view="zen"] .zen-stage { position: relative; z-index: 1; width: 100%; height: 100%; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; align-content: center; gap: 28px; min-height: 0; } /* one row as tall as the page: a card's max-height: 100% has something to be a percentage of */
 [data-view="zen"] .zen-stage:has(.zen-company) { place-items: stretch center; align-content: stretch; }
@@ -169,7 +170,18 @@
 [data-view="zen"] .zen-company .composer { padding: 8px 0 0; border-top: 0; background: transparent; }
 [data-view="zen"] .zen-company button { min-height: 44px; min-width: 44px; }
 [data-view="zen"] .zen-stage:has(.zen-company) { position: relative; }
-[data-view="zen"] .zen-stage:has(.zen-company) > .zen-circle { position: absolute; top: 50%; left: 50%; translate: -50% -50%; opacity: 0.25; pointer-events: none; animation: none; }
+[data-view="zen"] .zen-stage:has(.zen-company) > .zen-circle { position: absolute; top: 50%; left: 50%; translate: -50% -50%; opacity: 0.18; pointer-events: none; animation-name: zen-breath-low; } /* it breathes behind the log too, faintly (Z-D13) */
+@keyframes zen-breath-low { 0% { transform: scale(0.72); opacity: 0.18; animation-timing-function: ease-in-out; } 40% { transform: scale(1); opacity: 0.34; animation-timing-function: ease-in-out; } 100% { transform: scale(0.72); opacity: 0.18; } }
+/* The companion has no boxes (Z-D13): its messages, tool calls, code, tables, pictures, and composer are set apart by space and the quieter ash, not by borders; forced colours keeps the system's own. */
+[data-view="zen"] .zen-log :is(.tx-body, .bubble, details.act, .thought, .more, pre, th, td, .pic) { border-color: transparent; box-shadow: none; }
+[data-view="zen"] .zen-log :is(.tx-body, details.act, .thought, .more) { background: transparent; }
+[data-view="zen"] .zen-log :is(.thought, .more)::before { border-color: transparent; } /* a touch screen draws their outline on ::before (style.css) */
+[data-view="zen"] .zen-log .tx-body { padding-inline: 0; }
+[data-view="zen"] .zen-log details.act { color: var(--zen-ash); }
+[data-view="zen"] .zen-log .bubble { background: rgba(235, 227, 211, 0.05); }
+[data-view="zen"] .zen-company .composer textarea { border: 0; border-bottom: 1px solid var(--zen-line); border-radius: 0; background: transparent; }
+[data-view="zen"] .zen-company .cmp-send { border-color: transparent; background: transparent; }
+[data-view="zen"] .zen-company .cmp-send:hover:not(:disabled) { background: var(--zen-sunken); }
 /* The terminal layer (zenterm.ts): the page's own terminal on ink, over the whole page, with the way back in the corner where the menu was. The mirror, the key pad, and the keyboard are Standard's; only the colours are the tokens above. */
 [data-view="zen"] .zen-term { position: fixed; inset: 0; z-index: 4; display: grid; grid-template: auto minmax(0, 1fr) / minmax(0, 1fr); gap: 8px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--zen-ground); color: var(--zen-paper); animation: zen-fade 0.5s var(--zen-ease) both; }
 [data-view="zen"] .zen-term-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
@@ -198,9 +210,6 @@
 [data-view="zen"] .zen-term-esc:empty { display: none; }
 [data-view="zen"] .zen-term-esc[data-on] { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-term { animation: none; } [data-view="zen"] :is(.zen-term-esc, .zen-term-back, .zen-term-host .pad-yes, .zen-term-host .pad-no) { transition: none; } }
-/* The page holds still (calm.ts: 30 s without input): the circle rests at its exhaled size, the ground on one layer. */
-[data-view="zen"][data-calm] :is(.zen-circle, .zen-circle i, .zen-drift i) { animation: none; }
-[data-view="zen"][data-calm] .zen-drift i:last-child { opacity: 0; }
 @media (max-height: 900px) { /* a page of an ordinary laptop or phone: the card spends less on air, so a question with five two-line choices still shows them all, and only a longer one scrolls */
 	[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { gap: 10px; }
 	[data-view="zen"] .zen-card:has(.zen-ask) :is(.ask-q, .ask-title) { font-size: clamp(1.2rem, 3.2vw, 1.6rem); line-height: 1.4; }

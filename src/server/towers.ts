@@ -44,7 +44,7 @@ const UNKNOWN = "(unknown)";
 /** A run's request is held 30 s (server-look.ts): the server's resends for a tool stop at about 20 s, so a tool never fails while a copy is still going out. */
 export const RUN_SEND_CAP_MS = 20_000;
 const RETRY_MS = [1000, 2000, 5000, 10_000, 30_000];
-const REFRESH_MS = 4 * 60_000, RECOVER_MS = 60_000, RECOVER_POLL_MS = 2000, RESIDENT_MS = 2000, REGISTER_WAIT_MS = 3000, LEAVE_MS = 2000;
+const REPUBLISH_MS = 300, REFRESH_MS = 4 * 60_000, RECOVER_MS = 60_000, RECOVER_POLL_MS = 2000, RESIDENT_MS = 2000, REGISTER_WAIT_MS = 3000, LEAVE_MS = 2000;
 /** How old a caller's "I just made this pane" may be and still be believed (the desk step asks within a second or two of making the base). */
 const MADE_WITHIN_MS = 30_000;
 /** What a tab is called once its standing pane was replaced and it kept other panes. */
@@ -72,6 +72,7 @@ export interface TowersOptions {
 	/** How often the minute after a restart looks at the tabs again (2 s); a test shortens it to leave the minute's look out of what it pins. */
 	recoverPollMs?: number;
 	refreshMs?: number;
+	republishMs?: number;
 	residentMs?: number;
 	/** How long `ensure` waits for the identity to register before it answers. */
 	registerMs?: number;
@@ -165,7 +166,7 @@ export function createTowers(o: TowersOptions): Towers {
 	const services = new Map<string, Live>();
 	const opening = new Map<string, Promise<Ensured>>();
 	let activation: Promise<void> | undefined, loadedAll = false, stopped = false, recoverUntil = 0, events: (() => void) | undefined;
-	const timers: ReturnType<typeof setInterval>[] = [];
+	const timers: (ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>)[] = [];
 	const digest = createDigest(run, now);
 	const readHead = headReader({ run, digest, workspaces: () => [...services.values()].filter((l) => l.state !== "waiting" && !l.stopped).map((l) => l.record.workspace) });
 	let looking: Promise<void> = Promise.resolve();
@@ -389,7 +390,9 @@ export function createTowers(o: TowersOptions): Towers {
 	// --- tokens ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 	/** The marks the guard, `tower_list`, the dashboard, and the sidebar find the tower by: the workspace's `tower` token and the standing pane's role and sort key. Display and discovery only. */
-	const publish = async (l: Live) => {
+	const published = new WeakMap<Live, string>();
+	/** `ifChanged`: a republish after a workspace event writes nothing when the tokens are the ones last written. */
+	const publish = async (l: Live, ifChanged = false) => {
 		// Nothing is written to a pane that is not proven to be the tower's own (a stranger's shell under a reused id gets no marks).
 		if (!l.seated) return;
 		// A live foreign holder keeps the workspace: this service steps back and waits for it (a hand-over whose reply was lost leaves the resident running and publishing its own token).
@@ -398,6 +401,9 @@ export function createTowers(o: TowersOptions): Towers {
 		const own: Record<string, string | null> = await netTokens(run, place(l), "tower", l.record.name, now(), cfg.world).then((net) => net.own, () => ({}));
 		// The proof is asked of a listing read now, after the reads above: the marks go only to a pane that is still in the terminal it was proven for.
 		if (!(await proven(l))) return;
+		const key = JSON.stringify(own);
+		if (ifChanged && published.get(l) === key) return;
+		published.set(l, key);
 		await Promise.all([
 			report(run, "workspace", l.record.workspace, { tower: l.record.id, sb_tower_quit: null }),
 			report(run, "pane", l.record.pane, { sb_role: "tower", ...own }),
@@ -734,11 +740,23 @@ export function createTowers(o: TowersOptions): Towers {
 		const adopted = listServices(slot).map((record) => adopt(record));
 		log.line("towers-active", { services: adopted.length });
 		let connections = 0;
+		// A workspace made, closed, or moved changes every tower's place in the net: the keys are written again soon (events in a burst make one pass), not at the next refresh.
+		let republish: ReturnType<typeof setTimeout> | undefined;
+		const republishSoon = () => {
+			if (republish) return;
+			republish = setTimeout(() => {
+				republish = undefined;
+				for (const l of services.values()) if (l.state === "live") void publish(l, true);
+			}, o.republishMs ?? REPUBLISH_MS);
+			republish.unref();
+			timers.push(republish);
+		};
 		const stop = cfg.events(WATCHED, (event) => {
 			// Every acknowledgement after the first is a reconnection (Herdr restarted): the recovery window opens here too, since nothing orders this connection against the watch's
 			// takeover, and a tab that is not back yet must not end its service.
 			if (event === null && connections++ > 0) herdrChanged();
 			if (event === null || HEAD_EVENTS.has(event.event)) readHead();
+			if (event && HEAD_EVENTS.has(event.event)) republishSoon();
 			look();
 		});
 		events = stop;

@@ -763,3 +763,21 @@ test("B4R-F010: a start that failed once is tried again by the next ensure", asy
 	assert.equal(first.ok, true, JSON.stringify(first));
 	assert.equal(first.live, true);
 });
+
+test("a workspace reorder or close rewrites a live tower's sb_order without waiting for the refresh", async () => {
+	const s = await started();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	await sleep(50);
+	const order = () => pane(String(reply.pane)).tokens.sb_order;
+	const first = order();
+	assert.ok(first, "the tower is keyed");
+	const [a, b] = world.herdr.workspaces;
+	world.herdr.workspaces = [b!, a!];
+	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
+	await until(() => order() !== first, "the key to follow the reorder");
+	const moved = order();
+	world.herdr.workspaces = world.herdr.workspaces.filter((w) => w.workspace_id !== "wB");
+	world.herdr.emit("workspace.closed", "workspace_closed", { workspace_id: "wB" });
+	await until(() => order() !== moved, "the key to follow the close");
+});

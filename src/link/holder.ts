@@ -208,7 +208,7 @@ export class LinkHolder {
 		const stateDir = o.stateDir ?? "", me = this;
 		this.admin = new TeamAdmin({
 			store: o.store, stateDir, home: o.home ?? "", agentDir: o.agentDir ?? "", now: () => this.now(),
-			device: () => this.device!, config: o.config, relayFor: (url, keys) => o.relay(url, keys),
+			device: () => this.device!, config: o.config, unattended: () => (o.attended ? !o.attended() : false), relayFor: (url, keys) => o.relay(url, keys),
 			runs: () => [...this.runs.values()], load: (team) => this.loadTeam(team),
 			takeEntries: (run, entries) => this.takeEntries(run as TeamRun, entries), syncRoster: (run) => this.syncRoster(run as TeamRun),
 			refresh: () => this.refresh(), stopTeam: async (team) => {
@@ -234,6 +234,7 @@ export class LinkHolder {
 		try {
 			this.device = await store.withLock(() => store.ensureDevice());
 			await this.refresh();
+			this.takeJoinFile();
 		} catch (error) {
 			// `running` stays false after a failed start, so the module sees there is no holder and nothing answers "queued" to a send.
 			await this.stop();
@@ -270,9 +271,15 @@ export class LinkHolder {
 		this.o.notify(text, level);
 	}
 
+	/** An unattended device's `link/join.txt` (admin.ts `joinFileTick`); the relay call it makes does not hold up the tick. */
+	private takeJoinFile(): void {
+		void this.admin.joinFileTick().catch((error: Error) => this.o.store.log({ event: "join-file-failed", error: error.message }));
+	}
+
 	private async tick(): Promise<void> {
 		if (!this.running) return;
 		await this.refresh();
+		this.takeJoinFile();
 		await this.drain();
 		await this.sendBoards();
 		await this.sendCaps();

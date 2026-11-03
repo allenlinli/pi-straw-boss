@@ -1467,6 +1467,18 @@ stay registered in every joined session, so this needs no new hook code. B6 gets
 - `assertSettingsSafe` and the project trust question apply to its runs too. A trust question on an unattended device has nobody to
   answer it, so its infra pre-trusts the bound projects (`trust.json`); without that, the run fails with the reason as a `notice` to the
   controller.
+- **Opening the tower (S3, built).** The holder asks for it (`HolderOptions.openTower`, wired in `main.ts`; the Herdr part is `src/server/opentower.ts`) at a drain
+  pass, for a waiting message that finds no tower of the team's project, only when all of these hold: the device is unattended (`attended()` is false), the sender's
+  level in the policy's `trust` is `dispatch` at that moment, and the seam exists. It finds a workspace that is not a sub workspace and has a pane whose real path is
+  inside the project (and, when the sender named a workspace, with that label), else makes one with `herdr workspace create --cwd <real project> --label <basename>
+  --no-focus`, marks its root pane `sb_role=tower`, and calls `ensure-tower` with that pane as the made claim. A named workspace is never made (its label would be the
+  sender's). The project is checked again by real path. At most one open per project runs at a time, and a project is not opened again for 60 s after the last
+  attempt ended, whether it worked or not (a tower slow to show in the net must not be opened in a loop); each attempt is `tower-open`, then `tower-opened` or
+  `tower-open-failed` in the link log. The drain runs again when an attempt ends. The failure notice to the controller is S5.
+- **`open-main` from an ally run needs no change.** An ally run opens its main through the `run-tool` request (`boss_open_main`, `runtools.ts`, the workspace's
+  own ledger `ally-opened.json`), not through the control command `open-main` that `rungate.ts` refuses to run tokens of kind `ally`. `boss_open_main` is in the
+  ally tool set and is free at `dispatch` (gated below it), so a dispatch ally run opens a main on an unattended device already, and `rungate.ts` stays as it is.
+  This is the case for an attended device whose `link.trust` is `dispatch` too; no attended device gets a workspace made.
 
 ## GUI
 

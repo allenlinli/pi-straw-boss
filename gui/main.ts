@@ -73,7 +73,7 @@ const withPanels = (call: (p: Panels) => void) => {
 	panelsLoading ??= import("./layer.ts").then(({ mountPanels }) => (panels = mountPanels({
 		label,
 		recent,
-		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action as Parameters<Post>[0], body)),
+		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action as Parameters<Post>[0], body)), trust: fixture && fixture.trust,
 		stream: () => hello,
 		showTerminal: (ws, key) => core.openSession(ws, key, { mode: "term" }),
 	})));

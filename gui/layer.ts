@@ -1,7 +1,7 @@
 import type { Item } from "../src/items.ts";
 import type { Net } from "../src/net.ts";
 import { type Intel, intel } from "./intel.ts";
-import { mountAsk } from "./ask.ts";
+import { answerPost, canAnswer, mountAnswer, type SessionPost, trustPost } from "./answer.ts";
 import type { Hotkey } from "./hotkeys.ts";
 import { keypad } from "./keypad.ts";
 import { mountTerminals } from "./mirror.ts";
@@ -9,10 +9,9 @@ import { rankOf, unitOf } from "./alerts.ts";
 import { prefs } from "./prefs.ts";
 import { type Alert, createStack, tally } from "./overlay.ts";
 import { m } from "./paraglide/messages.js";
-import { type Answer, post } from "./post.ts";
 import { aim, byId, doing, fillPlate, hang, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
 import { mountStepSlot } from "./stepslot.ts";
-import { trustPanel, whereOf } from "./trust.ts";
+import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 
 // The overlay layer's DOM, a chunk fetched on the first alert, dialog, or tile: the HUD alert with its queue, the dialogs in the dock (stacked; the
 // rules are in overlay.ts), and the tiles beside the current view. A tile is a document (a demo document in the dev fixture) or a session's terminal (mirror.ts); tiles share the
@@ -56,9 +55,8 @@ export function createTiles(io: TilesIO) {
 	};
 }
 
-/** `post` is the demo fixture's stand-in for the server's session endpoints; `stream` the newest `hello` of the page's stream, as it came. */
-export type SessionPost = (action: string, body: Record<string, unknown>) => Promise<Answer>;
-export interface PanelDeps { label(ws: string): string; recent(key: string): Promise<Item[]>; post?(key: string): SessionPost | undefined; stream(): string; showTerminal(ws: string, key: string): void }
+/** `post` and `trust` are the demo fixture's stand-ins for the server's session and trust endpoints; `stream` the newest `hello` of the page's stream, as it came. */
+export interface PanelDeps { label(ws: string): string; recent(key: string): Promise<Item[]>; post?(key: string): SessionPost | undefined; trust?: TrustPost; stream(): string; showTerminal(ws: string, key: string): void }
 const dialogEl = () => html(`<section class="dialog" role="dialog" aria-modal="false" tabindex="-1"><header><b class="tag">${m.dialog_alert()}</b><span class="where"></span><button class="zoom" type="button"></button><button class="x" type="button" aria-label="${m.close()}">×</button></header><div class="who">${PLATE}<div><h3></h3><p><em class="role"></em> <span class="state"></span></p></div></div><div class="intel"><h4>${m.last_transmission()}</h4><p class="said">…</p><p class="pending" hidden><b>${m.waiting_on()}</b> <span></span></p></div><div class="ask-root"></div><footer><a class="go">${m.open_comms()}</a><button class="later" type="button">${m.later()}</button><span class="queued"></span></footer></section>`);
 const doneEl = () => html(`<li><a class="done-go">${PLATE}<span><b class="name"></b><small></small></span></a></li>`);
 const tileEl = () => html(`<section class="tile" tabindex="-1"><header><svg><use href="#i-doc"/></svg><b></b><button class="x" type="button" aria-label="${m.close_document()}">×</button></header><div class="tile-body"></div></section>`);
@@ -117,8 +115,8 @@ export function mountPanels(deps: PanelDeps) {
 		if (!intels.has(a.key)) learn(a);
 		tell(el, a);
 		let ask = asks.get(el);
-		if (!ask) asks.set(el, (ask = mountAsk(el.querySelector(".ask-root")!, to(unitOf(a)), undefined, { key: unitOf(a), show: () => deps.showTerminal(a.ws, unitOf(a)) }, (opened) => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close(opened ? "go" : "close"), opened && slot.focus())))); // a dialog that sent the user to a terminal reveals nothing queued over it, and the card it opened keeps the focus the closing dialog would give back
-		ask.update(a.pending, a.mark === "waiting" && document.body.dataset.stale !== "true"); // what it waits on, answerable or not; the stream state redraws it (report in main.ts)
+		if (!ask) asks.set(el, (ask = mountAnswer(el.querySelector(".ask-root")!, { key: unitOf(a), post: to(unitOf(a)), show: () => deps.showTerminal(a.ws, unitOf(a)), accepted: (opened) => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close(opened ? "go" : "close"), opened && slot.focus()) }))); // a dialog that sent the user to a terminal reveals nothing queued over it, and the card it opened keeps the focus the closing dialog would give back
+		ask.update(a.pending, canAnswer(a.mark, document.body.dataset.stale !== "true")); // what it waits on, answerable or not; the stream state redraws it (report in main.ts)
 	};
 	// Finished units wait under the HUD's Finished button, apart from what needs the user: a row goes to the unit's comms and clears it, Clear all clears every one.
 	const [doneBtn, donePop, doneList] = [byId("done", HTMLButtonElement), byId("done-pop", HTMLElement), byId("done-list", HTMLElement)];
@@ -153,11 +151,11 @@ export function mountPanels(deps: PanelDeps) {
 		text(el, ".role", whereOf(a.trust!));
 		text(el, ".state", ""); // the folder is in the panel, whole
 		let panel = trusts.get(el);
-		if (!panel) trusts.set(el, (panel = trustPanel((body) => post("trust/answer", body), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()))));
+		if (!panel) trusts.set(el, (panel = trustPanel(trustPost(deps.trust), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()))));
 		if (!el.querySelector(".trust")) el.querySelector(".ask-root")!.replaceChildren(panel);
 		panel.update(a.gone ? undefined : a.trust, document.body.dataset.stale !== "true");
 	};
-	const asks = new WeakMap<HTMLElement, ReturnType<typeof mountAsk>>(), to = (key: string): SessionPost => deps.post?.(key) ?? ((action, body) => post(key.startsWith("grant:") ? `panes/${encodeURIComponent(key.slice(6))}/${action}` : `sessions/${encodeURIComponent(key)}/${action}`, body)); // a pane an answer opened is reached by its grant (mirror.ts, src/answerpane.ts)
+	const asks = new WeakMap<HTMLElement, ReturnType<typeof mountAnswer>>(), to = (key: string) => answerPost(key, deps.post);
 	const stack = createStack<HTMLElement>({
 		render(open, queue) {
 			sync(dock, open.map((a) => ({ ...a, id: a.key })), dialogEl, (el, a) => fill(el, a, open.length - 1 - open.findIndex((o) => o.key === a.key), queue));

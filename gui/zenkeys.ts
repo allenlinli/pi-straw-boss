@@ -2,6 +2,7 @@
 // refactor moves this file whole.
 //
 //   menu     the corner menu is open: Esc closes it and does nothing else.
+//   history  the item's context is open on its card: Esc collapses it and does nothing else.
 //   blur     a field holds the focus and has text in it (any screen), or is focused on the companion's screen, the pause, or the empty state: Esc only lets go of it.
 //   item     an item is on the page and can still be answered: Esc cancels its question when it is cancellable (the card's Cancel), else "Not now" (the next card).
 //   leave    nothing above took the key and the last one that took none was less than ESC_MS ago: back to Standard for this page.
@@ -9,10 +10,12 @@
 // A key that repeats (held down) is no second press: it changes nothing.
 
 export const ESC_MS = 600;
-export type EscStep = "menu" | "blur" | "item" | "leave" | "hint" | "none";
+export type EscStep = "menu" | "history" | "blur" | "item" | "leave" | "hint" | "none";
 export interface EscFacts {
 	/** The corner menu is open. */
 	menu: boolean;
+	/** The item's context (its session log) is open on the card: Esc collapses it before anything else of the card. */
+	history?: boolean;
 	/** The focus is in a text field of the layer: `text` with something typed, `empty` without, `none` elsewhere. */
 	field: "text" | "empty" | "none";
 	/** An item is on the page with no outcome yet (its card can still be cancelled or skipped). */
@@ -26,6 +29,7 @@ export interface EscFacts {
 export function escStep(f: EscFacts): EscStep {
 	if (f.repeat) return "none";
 	if (f.menu) return "menu";
+	if (f.history) return "history";
 	if (f.field === "text") return "blur";
 	if (f.item) return "item";
 	if (f.field === "empty") return "blur";

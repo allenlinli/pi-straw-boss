@@ -16,9 +16,9 @@ import type { Exit, Term } from "./zentypes.ts";
 /** An Escape keydown, as far as the page reads it. */
 export interface Esc { key: string; defaultPrevented: boolean; isComposing: boolean; preventDefault(): void; stopPropagation(): void }
 /** The Zen layer, as the page drives it. `escape` says whether it took the key. `cycle`, `palette`: the companion keys and the palette key, true when the layer did them. */
-export interface ZenFace { cycle(dir: 1 | -1): boolean; palette(): boolean; net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** The keymap's Enter and Space: ends the pause; false when none is shown or the terminal layer has the keys. */ tap(): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
+export interface ZenFace { cycle(dir: 1 | -1): boolean; palette(): boolean; net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** The keymap's Enter and Space: ends the pause; false when none is shown or the terminal layer has the keys. */ tap(): boolean; /** H: expands or collapses the shown item's context; false when the screen has none. */ toggleHistory(): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
 /** The overlay layer (the dialogs and tiles), as the page drives it. */
-interface PanelsFace { /** A page key for the dialogs (layer.ts); false when it had nothing to do. */ hotkey(key: Hotkey): boolean; stack: { show(a: Alert): void; close(how?: "go"): boolean }; /** A step an answer left, as the dock's terminal card. */ step(s: StepOpen, net?: Net): void }
+interface PanelsFace { /** A page key for the dialogs (layer.ts); false when it had nothing to do. */ hotkey(key: "next" | "zoom"): boolean; stack: { show(a: Alert): void; close(how?: "go"): boolean }; /** A step an answer left, as the dock's terminal card. */ step(s: StepOpen, net?: Net): void }
 /** The focus views (the base, the session's comms and dossier). */
 interface FocusFace { terminal(key: string): void }
 export interface PageIo {
@@ -170,7 +170,7 @@ export function createPage(io: PageIo) {
 		keys: () => rules().keys,
 		modal: () => io.modal(),
 		/** A hotkey of the keymap, done: Enter and Space end Zen's pause, Space opens the next alert and F enlarges the top dialog. `[` and `]` step Zen's companion and ⌘K opens its palette. False when it had nothing to do (the key stays the browser's). */
-		hotkey: (hotkey: Hotkey) => (hotkey === "next" || hotkey === "zoom" ? io.panels()?.hotkey(hotkey) : hotkey === "pause" ? io.zen()?.tap() : hotkey === "palette" ? io.zen()?.palette() : io.zen()?.cycle(hotkey === "next-companion" ? 1 : -1)) ?? false,
+		hotkey: (hotkey: Hotkey) => (hotkey === "next" || hotkey === "zoom" ? io.panels()?.hotkey(hotkey) : hotkey === "pause" ? io.zen()?.tap() : hotkey === "history" ? io.zen()?.toggleHistory() : hotkey === "history" ? io.zen()?.toggleHistory() : hotkey === "palette" ? io.zen()?.palette() : io.zen()?.cycle(hotkey === "next-companion" ? 1 : -1)) ?? false,
 		/** The units the companion can be stepped to, idle ones and towers first (units.ts), and the strip's counts of working and idle units: both read the newest snapshot, and neither says how many wait. */
 		companions: () => companionsOf(latest),
 		activity: () => activityOf(latest),

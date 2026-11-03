@@ -189,7 +189,32 @@ test("a mouse-focused answer option keeps Space for the form, and a mouse-focuse
 	assert.deepEqual(p.asked, []);
 });
 
+test("H asks for the Zen history, plain or capital, on a button too; it yields where F and Space yield", () => {
+	for (const target of [new El("body"), null, new El("button"), new El("a", ["go"])]) for (const key of ["h", "H"]) assert.equal(hotkeyOf(press(key, target), false, false, "zen"), "history", `${key} on ${(target as El | null)?.tag}`);
+	for (const target of [new El("input", [], { type: "text" }), new El("textarea"), new El("textarea", ["term-sink"]), new El("div", ["term-scroll"]), new El("div", [], { role: "textbox" })]) assert.equal(hotkeyOf(press("h", target), false, false, "zen"), undefined, `typing in ${target.tag}`);
+	for (const over of [{ ctrlKey: true }, { altKey: true }, { metaKey: true }, { isComposing: true }, { defaultPrevented: true }]) assert.equal(hotkeyOf(press("h", undefined, over), false, false, "zen"), undefined, Object.keys(over)[0]);
+	assert.equal(hotkeyOf(press("h"), true, false, "zen"), undefined, "a modal owns the keyboard");
+});
+
+test("a held H acts once", () => {
+	const seen: { type: string; fn: (e: never) => void }[] = [], acted: Hotkey[] = [];
+	mountHotkeys((k) => (acted.push(k), true), () => false, { addEventListener: (type: string, fn: never) => void seen.push({ type, fn }) } as never, () => "zen");
+	const down = seen.find((s) => s.type === "keydown")!.fn;
+	let prevented = 0;
+	for (const repeat of [false, true, true]) down({ ...press("h"), repeat, preventDefault: () => prevented++ } as never);
+	assert.deepEqual(acted, ["history"]);
+	assert.equal(prevented, 3);
+});
+
 // R8: the keymap has a row table per face (Standard and Geek read "dialogs", Zen reads "zen").
+
+test("H is a Zen row: it acts on a button too, yields to typing and modifiers, and Standard and Geek never take it (Z4D-F001)", () => {
+	for (const key of ["h", "H"]) for (const target of [new El("body"), new El("button")]) assert.equal(hotkeyOf(press(key, target), false, false, "zen"), "history");
+	assert.equal(hotkeyOf(press("h", new El("textarea")), false, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("h", undefined, { metaKey: true }), false, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("h"), true, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("h"), false, false, "dialogs"), undefined);
+});
 
 test("Zen rows: Enter and Space end the pause, F is not Zen's, and a native control keeps its own Enter and Space however it got the focus", () => {
 	for (const key of ["Enter", " "]) {

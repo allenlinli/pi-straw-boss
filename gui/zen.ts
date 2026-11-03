@@ -3,13 +3,14 @@ import { type Alert, unitOf } from "./alerts.ts";
 import { answerPost, canAnswer, outcomeOf, trustPost } from "./answer.ts";
 import { type AnswerPost, mountAsk } from "./ask.ts";
 import type { Chat, Data, HistoryEvent, Who } from "./chat.ts";
-import { mountComposer, wakeOf } from "./composer.ts";
+import { mountComposer } from "./composer.ts";
 import { h } from "./dom.ts";
 import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
-import { liveNote, roleName } from "./render.ts";
-import { closed, locate } from "./scene.ts";
+import { roleName } from "./render.ts";
+import { composerUnit, liveOf, sendFor } from "./sessionfacts.ts";
+import { locate } from "./scene.ts";
 import type { StepOpen } from "./terminalthen.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 import type { Exit, Mounts, Term, ZenDeps } from "./zentypes.ts";
@@ -21,7 +22,7 @@ import { mountMenu } from "./zenmenu.ts";
 import { syncQuestions } from "./zenquestions.ts";
 import { domRipples, mountRipples } from "./zenripple.ts";
 import { companionOf, createZen, type Outcome, type Screen, type Sound } from "./zenmodel.ts";
-import { recall, recording, sendTarget, type With } from "./zenwith.ts";
+import { recall, type With } from "./zenwith.ts";
 
 // The Zen layer (docs/specs/2026-11-01-zen-view.md): one waiting item on the page, the breathing pause after it, or the session for company. The model (zenmodel.ts)
 // decides what is on the screen and which sound goes with a change; this file draws it and answers through the same cards and routes as Standard (ask.ts, trust.ts,
@@ -161,17 +162,14 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		const u = locate(net, c.key);
 		company!.name.textContent = u?.u.name ?? c.key;
 		company!.where.textContent = u ? deps.label(u.base.id) : "";
-		if (u) {
-			company!.chat?.setLive(liveNote(u.u, company!.state, u.u.mark), u.u.mark);
-			company!.composer?.update({ name: u.u.name, control: Boolean(u.u.control), agent: u.u.agent, live: !closed(u.u, company!.state), mark: u.u.mark, online: deps.online(), answerable: Boolean(u.u.pending?.answer), ...wakeOf(u.u.service) });
-		}
+		if (u) (company!.chat?.setLive(...liveOf(u.u, company!.state, u.u.mark)), company!.composer?.update(composerUnit(u.u, { name: u.u.name, mk: u.u.mark, state: company!.state, online: deps.online() })));
 	}
 	/** The companion's log and composer for a session; the log is a chunk of its own, and the history that arrives before it does waits in `queue`. */
 	function openCompany(c: { key: string; ws: string }) {
 		const mine = ++turn, co: Company = (company = { ...c, name: h("h2", { class: "zen-who" }), where: h("p", { class: "zen-meta" }), queue: [] });
 		const logRoot = h("div", { class: "zen-log" }), composerRoot = h("div", { class: "zen-compose" });
 		stage.replaceChildren(circle(), h("section", { class: "zen-company" }, h("header", null, co.name, co.where), logRoot, composerRoot));
-		const sent = recording(to(c.key), () => sendTarget(net, c.key, c.ws));
+		const sent = sendFor(c.key, deps.post, () => ({ net, ws: c.ws }));
 		co.composer = mounts.composer(composerRoot, c.key, async (action, body) => { const r = await sent(action, body); later(() => apply(model.tick()), 60); return r; }); // the box empties after the answer: the model looks again
 		co.composer.box.addEventListener("input", () => later(() => apply(model.tick()), 0)); // the box emptied or filled: the model looks again (a blur changes nothing)
 		deps.watch(c.key);

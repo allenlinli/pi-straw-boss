@@ -185,7 +185,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 	const hub: LocalHub & {
 		readonly running: boolean; readonly me: string; start(onChange: () => void): void; track(): void; stop(): void; relayed(sessions: Session[], refs: Map<string, Ref>): Relayed; target(key: string): Target | undefined;
 		has(key: string, owner: string, at?: { pane?: string; file?: string }): boolean; replay(answerId: string, key: string): Sent | undefined; ended(key: string, dialog: string, answerId: string): Sent | undefined; send(key: string, t: Target, a: Answer): Promise<Sent>;
-		probe(key: string): Promise<Editor | undefined>; pull(key: string, step: "begin" | "finish", ref?: string): Promise<Pull | undefined>; commands(key: string, prefix: string): Promise<Cmd[] | undefined>; close(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; stashCheck(key: string): Promise<{ reason?: string } | undefined>; doc(cap: string): { key: string; doc: Doc } | undefined; form(cap: string, answerId: string, fields: Fields): Promise<FormResult | undefined>;
+		probe(key: string, nonce?: string): Promise<Editor | undefined>; pull(key: string, step: "begin" | "finish", ref?: string): Promise<Pull | undefined>; commands(key: string, prefix: string): Promise<Cmd[] | undefined>; close(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; stashCheck(key: string): Promise<{ reason?: string } | undefined>; doc(cap: string): { key: string; doc: Doc } | undefined; form(cap: string, answerId: string, fields: Fields): Promise<FormResult | undefined>;
 	} = {
 		receive,
 		/** Whether the bridge bound to `key` relays an open dialog of `owner` (a signal from the runtime that owns the approval, not from the session file). With `at` (the unit's pane and file) the bridges are read directly too, so a dialog relayed since the last net reading counts at once. */
@@ -260,7 +260,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 			return sent;
 		},
 		/** What the session's editor would submit (unknown when undefined). */
-		probe: (key) => request(key, probes, () => checkProbe({ ...local.probe() }), (probeId) => ({ type: "probe", probeId })),
+		probe: (key, nonce) => request(key, probes, () => checkProbe({ ...local.probe(nonce) }), (probeId) => ({ type: "probe", probeId, ...(nonce && { nonce }) })),
 		/**
 		 * One step of taking the session's queue back (pull.ts): `begin` carries the page's `take` id, `finish` the ticket. The bridge may spend 1.5 s on `finish`
 		 * and is told to answer within `PULL_BUDGET_MS` of now (the clock is this machine's) or clear nothing; the hub waits longer than that, so an answer that

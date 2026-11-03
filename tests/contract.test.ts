@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { checkAnswer } from "../src/dialogs.ts";
 import { checkProbe, probeEditor } from "../src/probe.ts";
-import { commandHash } from "../src/runs.ts";
+import { lineMac } from "../src/runs.ts";
 import { type Bus, type Dialog, digestOf, linkGate, linkRequest, mcpAdapter, OWNERS, piCode, questionsDigest, robotHand, rpiv, secretDigest, secretDrop, secretOf, selectDigest, selectOf, UI_PREFIX, uiPrompt } from "../src/owners.ts";
 
 /** pi's event bus as far as owners use it: listeners run synchronously inside emit. */
@@ -155,7 +155,7 @@ test("the server checks an answer against what the page may answer: a select's o
 test("probe contract: the editor's class, the ending command by name only, and the server takes nothing else", () => {
 	const ui = (text: unknown) => ({ hasUI: true, ui: { getEditorText: () => text } }) as never;
 	const cases: [unknown, unknown][] = [["/reload", { editor: "text", ending: "reload" }], ["\n /quit", { editor: "text", ending: "quit" }], ["/exit now", { editor: "text", ending: "exit" }], ["/re", { editor: "command" }], ["/re ", { editor: "command" }], ["/re\n", { editor: "command" }], ["/im foo", { editor: "command" }], [" /compact now", { editor: "command" }], ["/model", { editor: "command" }], ["/reload-all", { editor: "command" }], ["say /reload", { editor: "text" }], ["!rm -rf build", { editor: "command" }], [" !ls", { editor: "command" }], ["it's done!", { editor: "text" }], ["", { editor: "empty" }], [" \t", { editor: "empty" }], [undefined, { editor: "unknown" }], [42, { editor: "unknown" }]];
-	for (const [text, want] of cases) assert.deepEqual(probeEditor(ui(text)), (want as { editor: string }).editor === "command" ? { ...(want as object), hash: commandHash(text as string) } : want, JSON.stringify(text));
+	for (const [text, want] of cases) assert.deepEqual(probeEditor(ui(text)), want, JSON.stringify(text));
 	assert.deepEqual(probeEditor({ hasUI: false, ui: { getEditorText: () => "/quit" } } as never), { editor: "unknown" });
 	assert.deepEqual(probeEditor(undefined), { editor: "unknown" });
 	for (const name of ["quit", "exit", "new", "resume", "fork", "clone", "import", "reload"]) assert.deepEqual(checkProbe({ editor: "text", ending: name }), { editor: "text", ending: name });
@@ -164,15 +164,21 @@ test("probe contract: the editor's class, the ending command by name only, and t
 		assert.equal(checkProbe(bad as never), undefined, JSON.stringify(bad));
 });
 
-test("probe hash: only a command draft tells the hash of its whole line; no other class does, and the server takes only a 64-digit hex hash on a command", () => {
-	const ui = (text: unknown) => ({ hasUI: true, ui: { getEditorText: () => text } }) as never;
-	assert.deepEqual(probeEditor(ui("! npm run deploy")), { editor: "command", hash: commandHash("! npm run deploy") });
-	assert.notEqual((probeEditor(ui("! npm run deploy ")) as { hash?: string }).hash, commandHash("! npm run deploy"), "a trailing space is another line");
-	for (const text of ["", "plain secret sk-123", "/reload", "/quit now", undefined]) assert.equal("hash" in probeEditor(ui(text)), false, JSON.stringify(text));
-	const h = commandHash("! x");
-	assert.deepEqual(checkProbe({ editor: "command", hash: h }), { editor: "command", hash: h });
-	for (const bad of [h.toUpperCase(), h.slice(1), `${h}0`, 5, null, "g".repeat(64)]) assert.deepEqual(checkProbe({ editor: "command", hash: bad }), { editor: "command" }, String(bad));
-	for (const ed of ["empty", "text", "unknown"]) assert.deepEqual(checkProbe({ editor: ed, hash: h }), { editor: ed }, "a hash on any other class is dropped");
+test("probe MAC (OT-F004): a command draft tells the keyed MAC of its whole line only when it was given a nonce; no other class does, and the server takes only a 64-digit hex MAC on a command", () => {
+	const ui = (text: unknown) => ({ hasUI: true, ui: { getEditorText: () => text } }) as never, nonce = "0123456789abcdef0123456789abcdef";
+	assert.deepEqual(probeEditor(ui("! npm run deploy"), nonce), { editor: "command", mac: lineMac(nonce, "! npm run deploy") });
+	assert.deepEqual(probeEditor(ui("! npm run deploy")), { editor: "command" }, "no nonce, no MAC: an ordinary Enter tells nothing of the line");
+	assert.deepEqual(probeEditor(ui("! npm run deploy"), "not a nonce"), { editor: "command" }, "a nonce out of shape is none");
+	assert.deepEqual(probeEditor(ui("! npm run deploy"), nonce.toUpperCase()), { editor: "command" });
+	assert.notEqual((probeEditor(ui("! npm run deploy "), nonce) as { mac?: string }).mac, lineMac(nonce, "! npm run deploy"), "a trailing space is another line");
+	assert.notEqual((probeEditor(ui("! npm run deploy"), "f".repeat(32)) as { mac?: string }).mac, lineMac(nonce, "! npm run deploy"), "another nonce, another MAC");
+	for (const text of ["", "plain secret sk-123", "/reload", "/quit now", undefined]) assert.equal("mac" in probeEditor(ui(text), nonce), false, JSON.stringify(text));
+	assert.equal("hash" in probeEditor(ui("! x"), nonce), false, "the old unkeyed field is gone");
+	const h = lineMac(nonce, "! x");
+	assert.deepEqual(checkProbe({ editor: "command", mac: h }), { editor: "command", mac: h });
+	for (const bad of [h.toUpperCase(), h.slice(1), `${h}0`, 5, null, "g".repeat(64)]) assert.deepEqual(checkProbe({ editor: "command", mac: bad }), { editor: "command" }, String(bad));
+	for (const ed of ["empty", "text", "unknown"]) assert.deepEqual(checkProbe({ editor: ed, mac: h }), { editor: ed }, "a MAC on any other class is dropped");
+	assert.deepEqual(checkProbe({ editor: "command", hash: h }), { editor: "command" }, "an old bridge's unkeyed hash is dropped");
 });
 
 const SECRET = { label: "Deploy token", instructions: ["Open the link.", "Create a token with the deploy scope."], url: "https://example.com/tokens", destination: ".env.local (DEPLOY_TOKEN)" };

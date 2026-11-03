@@ -13,7 +13,7 @@ import { createApproval } from "../src/link/approval.ts";
 import { ACTIONS, HERE_ONLY } from "../src/link/request.ts";
 import { canonical } from "../src/history.ts";
 import type { Editor } from "../src/probe.ts";
-import { commandHash } from "../src/runs.ts";
+import { lineMac } from "../src/runs.ts";
 import type { Found, Net, Ref } from "../src/net.ts";
 import { type Dialog, linkRequest } from "../src/owners.ts";
 import { REGISTER } from "../src/bridge.ts";
@@ -119,11 +119,14 @@ test("Stop sends Escape alone with no mirror, never Ctrl+C or Ctrl+D; any other 
 	assert.deepEqual(typed().map(([m, p]) => [m, p.keys ?? p.target]), [["pane.send_input", ["esc"]], ["pane.send_input", ["esc"]], ["agent.focus", "wA:p1"]]);
 });
 
+/** What a bridge tells of an editor: a `line` (HASHED) becomes the MAC of that line under the nonce the server gave, and only with one. */
+const told = (e: Editor | undefined, nonce?: string): Editor | undefined => (e && "line" in e ? { editor: e.editor, ...(nonce && { mac: lineMac(nonce, (e as { line: string }).line) }) } : e);
+
 /** A server with a mirror on sess-1, whose session file is `entries`, the hub's dialog `target` and editor check `editor`, and a stream that said hello. */
-async function padded({ entries = [header(), user("u1", null, "go")] as unknown[], editor = { editor: "empty" } as Editor | undefined, answerable = false, copy = undefined as string | undefined } = {}) {
+async function padded({ entries = [header(), user("u1", null, "go")] as unknown[], editor = { editor: "empty" } as Editor | undefined, answerable = false, copy = undefined as string | undefined, choices = [{ label: "A" }, { label: "Put it in my prompt", next: "terminal" as const }] as { label: string; next?: "terminal" | "pane" }[], outcome = "accepted" } = {}) {
 	const path = join(scratch, `pad-${Math.random().toString(36).slice(2)}_sess-1.jsonl`);
 	writeFileSync(path, lines(entries));
-	const file = canonical(path)!, calls: [string, Record<string, unknown>][] = [], w = { editor, answerable, answered: false, status: "idle", probes: 0, moveDuringProbe: false, moved: false, armed: false, afterProbe: false, opens: undefined as (() => void) | undefined, relayedRequest: false, at: false, asked: [] as (string | undefined)[], lookups: 0, allow: 1, pulls: [] as string[], onBegin: undefined as (() => void) | undefined };
+	const file = canonical(path)!, calls: [string, Record<string, unknown>][] = [], w = { editor, answerable, answered: false, status: "idle", probes: 0, nonces: [] as (string | undefined)[], moveDuringProbe: false, moved: false, armed: false, afterProbe: false, opens: undefined as (() => void) | undefined, relayedRequest: false, at: false, asked: [] as (string | undefined)[], lookups: 0, allow: 1, pulls: [] as string[], onBegin: undefined as (() => void) | undefined };
 	const call = async (method: string, params: Record<string, unknown>) => {
 		calls.push([method, { ...params, ...(method === "pane.send_input" && { at: Date.now() }) }]);
 		if (method === "pane.get" && w.armed) {
@@ -134,8 +137,8 @@ async function padded({ entries = [header(), user("u1", null, "go")] as unknown[
 		if (method === "pane.layout") return { layout: { panes: [{ pane_id: "wA:p1", rect: { width: 40 } }] } };
 		return method === "pane.read" ? { read: { text: "pi\r\n> " } } : {};
 	};
-	const target = { from: "S", bridgeId: "B", answer: { dialog: "d1", digest: "a".repeat(64), select: { title: "T", choices: [{ label: "A" }, { label: "Put it in my prompt", next: "terminal" as const }], ...(copy ? { copy } : {}) } } } as Target;
-	const hub = { running: true, me: "G", start() {}, stop() {}, receive() {}, relayed: () => ({ dialogsOf: () => undefined, merge: () => ({ callId: "", tool: "" }) }), has: (_key: string, owner: string, at?: { pane?: string; file?: string }) => (w.asked.push(at?.pane), true) && w.relayedRequest && owner === "straw-link-request" && (!w.at || (at?.pane === "wA:p1" && at?.file === file)), replay: () => undefined, ended: () => undefined, send: async () => (w.answered ? ((w.answerable = false), { status: 200, body: { outcome: "accepted" } }) : { status: 200, body: {} }), target: () => (w.answerable ? target : undefined), probe: async () => (w.probes++, (w.moved = w.moveDuringProbe), (w.armed = w.afterProbe), w.editor), pull: async (_key: string, step: string) => (w.pulls.push(step), step === "begin" ? (w.onBegin?.(), { pending: true, ticket: "T" }) : { text: "queued text" }) };
+	const target = { from: "S", bridgeId: "B", answer: { dialog: "d1", digest: "a".repeat(64), select: { title: "T", choices, ...(copy ? { copy } : {}) } } } as Target;
+	const hub = { running: true, me: "G", start() {}, stop() {}, receive() {}, relayed: () => ({ dialogsOf: () => undefined, merge: () => ({ callId: "", tool: "" }) }), has: (_key: string, owner: string, at?: { pane?: string; file?: string }) => (w.asked.push(at?.pane), true) && w.relayedRequest && owner === "straw-link-request" && (!w.at || (at?.pane === "wA:p1" && at?.file === file)), replay: () => undefined, ended: () => undefined, send: async () => (w.answered ? ((w.answerable = false), { status: 200, body: { outcome } }) : { status: 200, body: {} }), target: () => (w.answerable ? target : undefined), probe: async (_key: string, nonce?: string) => (w.probes++, w.nonces.push(nonce), (w.moved = w.moveDuringProbe), (w.armed = w.afterProbe), told(w.editor, nonce)), pull: async (_key: string, step: string) => (w.pulls.push(step), step === "begin" ? (w.onBegin?.(), { pending: true, ticket: "T" }) : { text: "queued text" }) };
 	// With `w.at`, only the first `w.allow` lookups after `w.lookups` was reset find the session: whatever reads it later (the guard, in the old code) gets nothing.
 	const lookup = (key: string): Found | undefined => (key === "sess-1" && !(w.at && w.lookups++ >= w.allow) ? { key, base: "wA", name: "billing", role: "main", file, pane: "wA:p1", live: true } : undefined);
 	const gui = await startGui({ read: async () => ({ bases: [] }), net: { lookup, workspace: () => [] }, call, hub: hub as unknown as Hub, dir: join(scratch, "bundle"), pollMs: 50 });
@@ -197,12 +200,12 @@ test("the pad: up recalls /reload, then Enter needs the confirm that names it; a
 });
 
 /** The answer that puts a command in the prompt, then the page's 執行: `answerId` and the answer's body. */
-async function putInPrompt(p: Awaited<ReturnType<typeof padded>>, answerId: string) {
+async function putInPrompt(p: Awaited<ReturnType<typeof padded>>, answerId: string, choice = 1) {
 	p.w.answerable = true;
 	p.w.answered = true;
-	return send(p.gui, "sessions/sess-1/answer", { dialog: "d1", digest: "a".repeat(64), answerId, choice: 1 });
+	return send(p.gui, "sessions/sess-1/answer", { dialog: "d1", digest: "a".repeat(64), answerId, choice });
 }
-const PUT = "a1b2c3d4e5f6a7b8", HASHED = (line: string): Editor => ({ editor: "command", hash: commandHash(line) });
+const PUT = "a1b2c3d4e5f6a7b8", HASHED = (line: string) => ({ editor: "command", line }) as Editor;
 
 test("one tap: the answer that put a command in the prompt says `run`, and Enter naming it goes with no confirm once the prompt line is that command; the grant is spent", async () => {
 	const p = await padded({ copy: "npm run deploy", editor: HASHED("! npm run deploy") });
@@ -228,16 +231,70 @@ test("one tap refused: an edited prompt line sends nothing (run_changed); the an
 	p.close();
 });
 
-test("one tap: a command with no copy, or a pane answer, gets no `run`; /reload in the prompt still asks even with a grant", async () => {
+test("one tap: a command with no copy gets no `run`; /reload in the prompt still asks", async () => {
 	const none = await padded();
 	assert.deepEqual((await putInPrompt(none, PUT)).body, { outcome: "accepted", then: { terminal: true } }, "no copy: nothing to match");
 	none.close();
-	const p = await padded({ copy: "/reload", editor: { editor: "text", ending: "reload" } });
+	const p = await padded({ editor: { editor: "text", ending: "reload" } });
 	await p.attach();
-	assert.equal((((await putInPrompt(p, PUT)).body as { then?: { run?: boolean } }).then)?.run, true);
+	await putInPrompt(p, PUT);
 	const r = await p.key("enter", { run: PUT });
-	assert.equal((r.body as { confirm?: string }).confirm, "reload");
+	assert.equal(r.body.error, "run_unknown");
 	assert.deepEqual(p.sentKeys(), []);
+	p.close();
+});
+
+test("one tap (OT-F002, OT-F003): a `/` copy, a pi command or a path, gets no grant and no `run`: Enter on it keeps the `command` confirm", async () => {
+	for (const copy of ["/model x", "/usr/bin/x", "/reload"]) {
+		const p = await padded({ copy, editor: { editor: "command" } });
+		await p.attach();
+		assert.deepEqual((await putInPrompt(p, PUT)).body, { outcome: "accepted", then: { terminal: true } }, copy);
+		assert.equal((await p.key("enter", { run: PUT })).body.error, "run_unknown", copy);
+		assert.equal(((await p.key("enter")).body as { confirm?: string }).confirm, "command", copy);
+		assert.deepEqual(p.sentKeys(), []);
+		p.close();
+	}
+});
+
+test("one tap (OT-F001): a prompt line edited into text, or cleared, sends nothing on `run`; the page sees run_changed", async () => {
+	for (const editor of [{ editor: "text" }, { editor: "empty" }] as Editor[]) {
+		const p = await padded({ copy: "npm run deploy", editor });
+		await p.attach();
+		assert.equal((((await putInPrompt(p, PUT)).body as { then?: { run?: boolean } }).then)?.run, true);
+		const r = await p.key("enter", { run: PUT });
+		assert.equal(r.body.error, "run_changed", editor.editor);
+		assert.deepEqual(p.sentKeys(), [], editor.editor);
+		p.close();
+	}
+});
+
+test("one tap (OT-F004): the probe of an Enter that names the grant carries the grant's nonce, one without `run` carries none", async () => {
+	const p = await padded({ copy: "npm run deploy", editor: HASHED("! npm run deploy") });
+	await p.attach();
+	await putInPrompt(p, PUT);
+	await p.key("enter");
+	assert.equal((await p.key("enter", { run: PUT })).status, 200);
+	assert.equal(p.w.nonces[0], undefined);
+	assert.match(p.w.nonces[1]!, /^[0-9a-f]{32}$/);
+	p.close();
+});
+
+test("one tap (OT-F005): only an accepted answer to a choice that says `next: terminal` leaves a grant; a pane choice, a choice with no `next`, and an answer that was not accepted leave none", async () => {
+	const choices = [{ label: "A" }, { label: "Put it in my prompt", next: "terminal" as const }, { label: "Run it in a pane", next: "pane" as const }];
+	const cases: [string, number, string][] = [["a pane choice", 2, "accepted"], ["a choice with no next", 0, "accepted"], ["a rejected answer", 1, "rejected"], ["a stale answer", 1, "stale"], ["an unknown outcome", 1, "unknown"]];
+	for (const [what, choice, outcome] of cases) {
+		const p = await padded({ copy: "npm run deploy", editor: HASHED("! npm run deploy"), choices, outcome });
+		await p.attach();
+		const r = await putInPrompt(p, PUT, choice);
+		assert.equal((r.body as { then?: { run?: boolean } }).then?.run, undefined, `${what}: no run`);
+		assert.equal((await p.key("enter", { run: PUT })).body.error, "run_unknown", `${what}: and no grant`);
+		assert.deepEqual(p.sentKeys(), [], what);
+		p.close();
+	}
+	const p = await padded({ copy: "npm run deploy", editor: HASHED("! npm run deploy"), choices });
+	await p.attach();
+	assert.equal(((await putInPrompt(p, PUT, 1)).body as { then?: { run?: boolean } }).then?.run, true, "the terminal choice, accepted, does");
+	assert.equal((await p.key("enter", { run: PUT })).status, 200);
 	p.close();
 });
 

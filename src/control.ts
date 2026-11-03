@@ -161,7 +161,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 	};
 	// A link_request is open when the session file shows its call or the runtime that owns the approval relays its dialog (a call nested in codemode is not in the file).
 	const requested = async (key: string, found: Found) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, found));
-	const runs = createRuns(), pad = createKeys({ overlay, run: (session, id, hash) => runs.take(session, id, hash), fresh: (id, key, pane) => mirrors?.fresh(id, key, pane) ?? false, secret, answerable: async (key) => Boolean(await answers?.target(key)), linkRequest: async (found, key) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, { pane: found.pane, file: found.file })), probe: async (key) => answers?.probe(key) });
+	const runs = createRuns(), pad = createKeys({ overlay, run: runs, fresh: (id, key, pane) => mirrors?.fresh(id, key, pane) ?? false, secret, answerable: async (key) => Boolean(await answers?.target(key)), linkRequest: async (found, key) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, { pane: found.pane, file: found.file })), probe: async (key, nonce) => answers?.probe(key, nonce) });
 	/** The origin checks, then the session checks, then one Herdr call. `parts` is the path after api/: sessions/<key>/<action>, remote/pair, or server/stop. */
 	return async function handle(req: IncomingMessage, origin: string, [scope, key = "", action = ""]: string[], remote = false): Promise<Reply> {
 		if (req.method !== "POST") return no(405, "method", "Use POST.");

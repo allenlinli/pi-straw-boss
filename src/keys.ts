@@ -9,7 +9,7 @@ import type { Taken } from "./runs.ts";
 // frame in the last 3 s; while the session file's open call is `secret_drop` or the unit has an answerable dialog, only Escape (the same on every page, a paired device's too); while it has an open `link_request` call a paired device (`remote`) too sends only Escape (its approval is given on this computer only, and Enter in the terminal confirm is Yes); Enter asks
 // the session's bridge what it would submit (probe.ts), checks the mirror, the secret, and the dialog again after the answer, and needs the
 // confirm the server names for an ending command, another `/` or `!` command, or an editor it could not read. An Enter that names the answer which put a command in the prompt (`run`, runs.ts) passes the `command`
-// confirm alone, and only when the bridge's hash of the prompt line is the hash of that command: a line edited since, another session's or an unknown, spent, or stale answer is refused (run_changed, run_unknown, run_expired), and an old bridge without a hash gets the confirm. A second Escape within 1 s
+// confirm alone, and only when the bridge's MAC of the prompt line (under the nonce the grant gave with the probe) is the MAC of that command: a line edited, emptied, or turned into text since, another session's or an unknown, spent, or stale answer is refused (run_changed, run_unknown, run_expired), and an old bridge's `command` line without a MAC gets the confirm. A second Escape within 1 s
 // (from when Herdr took the first) to a session that neither works nor waits runs pi's double-Escape action, so it needs a confirm; once
 // confirmed both Escapes go, as two writes 60 ms apart (one write of two ESC bytes reads as Ctrl+Alt+[ to a terminal without the kitty
 // protocol, and pi pairs Escapes only within 500 ms), or one if the confirm came within 450 ms of the first, which pi pairs with it.
@@ -31,7 +31,7 @@ export const RATE = 8, RATE_MS = 1000, DOUBLE_MS = 1000, PAIR_MS = 450, MAX_TYPE
 /** C0 and C1 controls and DEL: what could end a line, start an escape sequence, or signal; typed text holds none, a paste only line breaks and tabs. */
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/, PASTE_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 export interface Reply { status: number; body: unknown }
-export interface KeyDeps { /** The marks of the `/boss gui lan` overlay (lan/faces.ts): a paired device sends Escape only to a marked pane. */ overlay?: Overlay; fresh(stream: string, key: string, pane: string): boolean; secret(file: string): Promise<boolean>; answerable(key: string): Promise<boolean>; linkRequest?(found: Found, session: string): Promise<boolean>; probe(key: string): Promise<Editor | undefined>; /** The one-tap grants (runs.ts `take`): what an answer id says of the prompt line's hash. */ run?(session: string, answerId: string, hash: string | undefined): Taken; now?(): number }
+export interface KeyDeps { /** The marks of the `/boss gui lan` overlay (lan/faces.ts): a paired device sends Escape only to a marked pane. */ overlay?: Overlay; fresh(stream: string, key: string, pane: string): boolean; secret(file: string): Promise<boolean>; answerable(key: string): Promise<boolean>; linkRequest?(found: Found, session: string): Promise<boolean>; /** The editor class; with a `nonce` the bridge also tells the MAC of a command line under it (probe.ts). */ probe(key: string, nonce?: string): Promise<Editor | undefined>; /** The one-tap grants (runs.ts): the nonce to probe with, and what an answer id says of the prompt line's MAC. */ run?: { nonce(session: string, answerId: string): string | undefined; take(session: string, answerId: string, mac: string | undefined): Taken }; now?(): number }
 /** `text`: typed characters, sent as they are, or a paste already inside its markers (key is then "text" or "paste"). */
 export interface Asked { key: string; stream?: string; confirmed?: unknown; text?: string; remote?: boolean; /** The answer id of a one-tap run (Enter only). */ run?: string }
 type Pane = { pane_id: string; agent_status?: string };
@@ -50,12 +50,12 @@ const ASK: Record<string, string> = {
 const RUN_ID = /^[A-Za-z0-9_-]{16,64}$/;
 /** Why a one-tap run was refused (the Enter itself is not lost: pressing it again, with no `run`, asks the usual confirm). */
 const refusedRun = (taken: Taken): Reply =>
-	taken === "changed" ? no(409, "run_changed", "The prompt no longer holds the command that was placed there, so nothing was sent; read it in the terminal.")
+	taken === "changed" || taken === "nohash" ? no(409, "run_changed", "The prompt no longer holds the command that was placed there, so nothing was sent; read it in the terminal.")
 	: taken === "expired" ? no(409, "run_expired", "The command waited too long to run in one tap; press Enter again to confirm it.")
 	: no(409, "run_unknown", "That command was not placed by an answer here, or it was already run; press Enter again to confirm it.");
 const confirm = (token: string) => no(409, "confirm", ASK[token] ?? `Enter would run /${token} (or the command picked in pi's menu, if it is open), which ends or replaces this session. ${FOCUS}`, { confirm: token });
 
-export function createKeys({ overlay, fresh, secret, answerable, linkRequest = async () => false, probe, run = () => "unknown", now = Date.now }: KeyDeps) {
+export function createKeys({ overlay, fresh, secret, answerable, linkRequest = async () => false, probe, run, now = Date.now }: KeyDeps) {
 	const sent = new Map<string, number[]>(), escaped = new Map<string, number>(), interrupted = new Map<string, number>();
 	const guard = async (session: string, found: Found, pane: Pane, a: Asked) => {
 		if (a.stream !== undefined && !fresh(a.stream, session, pane.pane_id)) throw no(409, "no_mirror", "Keys are sent only while this page shows the session's terminal live; open it again.");
@@ -118,13 +118,13 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 		async keys(session: string, found: Found, pane: Pane, a: Asked): Promise<{ keys: string[]; double: boolean }> {
 			await guard(session, found, pane, a);
 			if (a.key === "enter") {
-				const e = await probe(session);
+				const e = await probe(session, a.run === undefined ? undefined : run?.nonce(session, a.run)); // the grant's nonce goes with a `run` Enter's probe only: no other Enter has a MAC of the draft made
 				await guard(session, found, pane, a); // the probe took up to a second: a secret or a dialog may have opened meanwhile
 				let need = !e || e.editor === "unknown" ? "unread" : (e.ending ?? (e.editor === "command" ? "command" : undefined));
 				if (a.run !== undefined) {
-					const taken = run(session, a.run, e?.hash);
-					// Only the plain `command` confirm is ever met by the hash: an ending command or an unreadable editor still asks, and a refusal stands only where the editor was read.
-					if (taken !== "match" && taken !== "nohash" && e && e.editor !== "unknown") throw refusedRun(taken);
+					const taken = run?.take(session, a.run, e?.mac) ?? "unknown";
+					// Only the plain `command` confirm is ever met by the MAC: an ending command or an unreadable editor still asks. Where the editor was read, `run` sends only a line that matched: an edited, emptied, or ending line, a spent or unknown grant is refused. The one exception is a `command` line with no MAC, an old bridge, which gets the confirm.
+					if (e && e.editor !== "unknown" && taken !== "match" && !(taken === "nohash" && e.editor === "command")) throw refusedRun(taken);
 					if (taken === "match" && need === "command") need = undefined;
 				}
 				if (need && a.confirmed !== need) throw confirm(need);

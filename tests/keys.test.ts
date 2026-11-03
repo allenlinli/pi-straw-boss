@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { type Asked, COMBOS, createKeys, PAD, type Reply, SEQUENCES } from "../src/keys.ts";
 import type { Found } from "../src/net.ts";
 import type { Editor } from "../src/probe.ts";
-import { commandHash, createRuns, RUN_TTL_MS } from "../src/runs.ts";
+import { createRuns, lineMac, RUN_TTL_MS } from "../src/runs.ts";
 
 const FOUND: Found = { key: "S", base: "wA", name: "s", role: "main", file: "/s/2026_S.jsonl", pane: "wA:p1", live: true };
 /** The guards with a fake clock and fakes for the mirror, the secret check, the hub's dialogs, and the bridge's editor check. */
@@ -304,12 +304,13 @@ test("a granted pane's keys (bare): the same keys and the same rate as a session
 	assert.equal(codes.filter((c) => c === 429).length, 2, "8 a second, as for a session");
 });
 
-// The one-tap prompt run: an Enter that names the answer (`run`) skips the `command` confirm when the session's prompt line hashes to the command that answer put there.
-function tap({ line = "! npm run deploy", hash = true, ending }: { line?: string; hash?: boolean; ending?: string } = {}) {
-	const w = { t: 1_000_000, line, hash, ending, probes: 0 };
+// The one-tap prompt run: an Enter that names the answer (`run`) skips the `command` confirm when the session's prompt line is the command that answer put there, as a bridge shows by the MAC it makes of the line under the grant's nonce.
+function tap({ line = "! npm run deploy", mac = true, ending, editor = "command" }: { line?: string; mac?: boolean; ending?: string; editor?: Editor["editor"] } = {}) {
+	const w = { t: 1_000_000, line, mac, ending, editor, probes: 0, nonces: [] as (string | undefined)[] };
 	const runs = createRuns(() => w.t);
-	const probe = async (): Promise<Editor> => (w.probes++, w.ending ? { editor: "text", ending: w.ending, hash: commandHash(w.line) } : { editor: "command", ...(w.hash ? { hash: commandHash(w.line) } : {}) });
-	const k = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe, run: (s, id, h) => runs.take(s, id, h), now: () => w.t });
+	// A bridge as probe.ts: a MAC only for a `command` line and only when it was given a nonce; an ending is a `text` class.
+	const probe = async (_key: string, nonce?: string): Promise<Editor> => (w.probes++, w.nonces.push(nonce), w.ending ? { editor: "text", ending: w.ending, ...(nonce && { mac: lineMac(nonce, w.line) }) } : { editor: w.editor, ...(w.mac && nonce && w.editor === "command" ? { mac: lineMac(nonce, w.line) } : {}) });
+	const k = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe, run: runs, now: () => w.t });
 	const send = async (body: Record<string, unknown>): Promise<string[] | Reply> => {
 		const a = k.check("S", body);
 		if ("status" in a) return a;
@@ -324,11 +325,21 @@ function tap({ line = "! npm run deploy", hash = true, ending }: { line?: string
 }
 const RUN = "a1b2c3d4e5f6a7b8";
 
-test("one tap: Enter naming the answer goes with no confirm when the prompt line is exactly the command the answer put there", async () => {
+test("one tap: Enter naming the answer goes with no confirm when the prompt line is exactly the command the answer put there; the bridge was given the grant's nonce", async () => {
 	const t = tap();
 	t.runs.issue("S", RUN, "npm run deploy");
+	const nonce = t.runs.nonce("S", RUN);
 	assert.deepEqual(await t.send(pad("enter", { run: RUN })), ["enter"]);
 	assert.equal(t.w.probes, 1, "the editor was still probed");
+	assert.deepEqual(t.w.nonces, [nonce]);
+});
+
+test("one tap: an Enter without `run` asks the bridge for no nonce, so no MAC of the draft is made for it (OT-F004)", async () => {
+	const t = tap();
+	t.runs.issue("S", RUN, "npm run deploy");
+	assert.equal(token(await t.send(pad("enter"))), "command");
+	assert.deepEqual(t.w.nonces, [undefined]);
+	assert.equal(t.runs.size(), 1, "and the grant is untouched");
 });
 
 test("one tap: without `run` the `command` confirm still stands, and confirming it works as before", async () => {
@@ -345,7 +356,27 @@ test("one tap refused: an edited prompt line (run_changed), and the grant is spe
 	const r = await t.send(pad("enter", { run: RUN }));
 	assert.equal(code(r), 409);
 	assert.equal(t.err(r), "run_changed");
-	assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_unknown", "and a second try finds nothing");
+	assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_unknown", "a second try finds nothing");
+});
+
+test("one tap refused (OT-F001): a prompt line that is no longer a command, text or empty, sends nothing on `run`, whatever the bridge told, and the grant is spent", async () => {
+	for (const editor of ["text", "empty"] as const) {
+		const t = tap({ editor, line: editor === "text" ? "deploy it" : "" });
+		t.runs.issue("S", RUN, "npm run deploy");
+		const r = await t.send(pad("enter", { run: RUN }));
+		assert.equal(t.err(r), "run_changed", editor);
+		assert.equal(code(r), 409, editor);
+		assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_unknown", `${editor}: spent`);
+	}
+});
+
+test("one tap refused (OT-F001): the same for a line that holds an ending command or a bridge that read nothing but a class; only a `command` line without a MAC (an old bridge) asks the confirm", async () => {
+	const t = tap({ ending: "reload", line: "/reload" });
+	t.runs.issue("S", RUN, "npm run deploy");
+	assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_changed");
+	const old = tap({ mac: false });
+	old.runs.issue("S", RUN, "npm run deploy");
+	assert.equal(token(await old.send(pad("enter", { run: RUN }))), "command", "an old bridge: the inline confirm");
 });
 
 test("one tap refused: a replay after it ran (run_unknown), another session's, and an id never issued", async () => {
@@ -356,6 +387,7 @@ test("one tap refused: a replay after it ran (run_unknown), another session's, a
 	t.runs.issue("T", "b1b2c3d4e5f6a7b8", "npm run deploy");
 	assert.equal(t.err(await t.send(pad("enter", { run: "b1b2c3d4e5f6a7b8" }))), "run_unknown", "an answer of another session");
 	assert.equal(t.err(await t.send(pad("enter", { run: "c1b2c3d4e5f6a7b8" }))), "run_unknown", "never issued");
+	assert.deepEqual(t.w.nonces.slice(1), [undefined, undefined, undefined], "and none of the three was given a nonce");
 });
 
 test("one tap refused: stale (run_expired), after the time to live", async () => {
@@ -365,27 +397,23 @@ test("one tap refused: stale (run_expired), after the time to live", async () =>
 	assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_expired");
 });
 
-test("one tap never skips an ending command's confirm: /reload with a grant for the same text still asks", async () => {
-	const t = tap({ ending: "reload", line: "/reload" }); // even a bridge that tells a matching hash for it
-	t.runs.issue("S", RUN, "/reload");
+test("one tap never skips an ending command's confirm: even a bridge that tells a matching MAC for /reload on an ending line still asks", async () => {
+	const t = tap({ ending: "reload", line: "! npm run deploy" }); // a bridge that wrongly tells a matching MAC on an ending class
+	t.runs.issue("S", RUN, "npm run deploy");
 	const r = await t.send(pad("enter", { run: RUN }));
 	assert.equal(token(r), "reload");
 	assert.deepEqual(await t.send(pad("enter", { confirmed: "reload" })), ["enter"]);
 });
 
-test("one tap with an old bridge (no hash in its answer) falls back to the inline confirm, and the grant is spent", async () => {
-	const t = tap({ hash: false });
-	t.runs.issue("S", RUN, "npm run deploy");
-	assert.equal(token(await t.send(pad("enter", { run: RUN }))), "command");
-	assert.equal(t.err(await t.send(pad("enter", { run: RUN }))), "run_unknown");
-});
-
 test("one tap: an editor the bridge could not read still asks (unread), whatever the grant", async () => {
 	const t = tap();
 	t.runs.issue("S", RUN, "npm run deploy");
-	const k = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe: async () => undefined, run: (s, id, h) => t.runs.take(s, id, h), now: () => t.w.t });
+	const k = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe: async () => undefined, run: t.runs, now: () => t.w.t });
 	const a = k.check("S", pad("enter", { run: RUN }));
 	await assert.rejects(k.send("S", FOUND, { pane_id: "wA:p1", agent_status: "idle" }, a as Asked), (e: Reply) => (e.body as { confirm?: string }).confirm === "unread");
+	const u = tap({ editor: "unknown" });
+	u.runs.issue("S", RUN, "npm run deploy");
+	assert.equal(token(await u.send(pad("enter", { run: RUN }))), "unread", "an editor class `unknown` too");
 });
 
 test("one tap: `run` rides only on Enter and only as an answer id; any other key or shape is a 400 and never reaches the grants", async () => {
@@ -405,11 +433,11 @@ test("one tap does not weaken the guards: a secret or dialog that opened during 
 	const t = tap();
 	t.runs.issue("S", RUN, "npm run deploy");
 	let secret = false;
-	const k = createKeys({ fresh: () => true, secret: async () => secret, answerable: async () => false, probe: async () => {
+	const k = createKeys({ fresh: () => true, secret: async () => secret, answerable: async () => false, probe: async (_key, nonce) => {
 		secret = true;
-		return { editor: "command", hash: commandHash("! npm run deploy") };
-	}, run: (s, id, h) => t.runs.take(s, id, h), now: () => t.w.t });
+		return { editor: "command", mac: lineMac(nonce!, "! npm run deploy") };
+	}, run: t.runs, now: () => t.w.t });
 	const a = k.check("S", pad("enter", { run: RUN }));
 	await assert.rejects(k.send("S", FOUND, { pane_id: "wA:p1", agent_status: "idle" }, a as Asked), (e: Reply) => (e.body as { error?: string }).error === "blocked");
-	assert.equal(t.runs.take("S", RUN, commandHash("! npm run deploy")), "match");
+	assert.equal(t.runs.take("S", RUN, lineMac(t.runs.nonce("S", RUN)!, "! npm run deploy")), "match");
 });

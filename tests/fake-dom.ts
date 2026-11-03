@@ -4,11 +4,20 @@
 // What a test needs beyond that (a matchMedia, a location, a fetch) it assigns itself; `sessionGlobals()` gives the session view's.
 
 type Kid = El | string;
+const dataName = (key: string) => `data-${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
 export class El {
 	attrs = new Map<string, string>();
 	kids: Kid[] = [];
 	parent: El | undefined;
-	dataset: Record<string, string | undefined> = {};
+	/** A view over the `data-*` attributes, as the DOM's: `dataset.fooBar` is `data-foo-bar`, a set stringifies, a delete removes the attribute. */
+	readonly dataset: Record<string, string | undefined> = new Proxy({} as Record<string, string | undefined>, {
+		get: (_, key) => (typeof key === "string" ? this.attrs.get(dataName(key)) : undefined),
+		set: (_, key, value) => (typeof key === "string" && this.attrs.set(dataName(key), String(value)), true),
+		deleteProperty: (_, key) => (typeof key === "string" && this.attrs.delete(dataName(key)), true),
+		has: (_, key) => typeof key === "string" && this.attrs.has(dataName(key)),
+		ownKeys: () => [...this.attrs.keys()].filter((name) => name.startsWith("data-")).map((name) => name.slice(5).replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())),
+		getOwnPropertyDescriptor: (_, key) => (typeof key === "string" && this.attrs.has(dataName(key)) ? { value: this.attrs.get(dataName(key)), enumerable: true, configurable: true, writable: true } : undefined),
+	});
 	style: Record<string, string> = {};
 	handlers: Record<string, ((e: any) => void)[]> = {};
 	onclick: (() => void) | null = null;
@@ -37,7 +46,6 @@ export class El {
 	}
 	setAttribute(name: string, value: string) {
 		this.attrs.set(name, String(value));
-		if (name.startsWith("data-")) this.dataset[name.slice(5)] = String(value);
 	}
 	getAttribute(name: string) {
 		return this.attrs.get(name) ?? null;
@@ -70,8 +78,8 @@ export class El {
 	get classList() {
 		const read = () => this.classes, write = (set: Set<string>) => this.setAttribute("class", [...set].join(" "));
 		return {
-			add: (c: string) => write(read().add(c)),
-			remove: (c: string) => { const set = read(); set.delete(c); write(set); },
+			add: (...cs: string[]) => write(new Set([...read(), ...cs])),
+			remove: (...cs: string[]) => { const set = read(); for (const c of cs) set.delete(c); write(set); },
 			contains: (c: string) => read().has(c),
 			toggle: (c: string, on?: boolean) => { const set = read(), want = on ?? !set.has(c); want ? set.add(c) : set.delete(c); write(set); return want; },
 		};
@@ -107,7 +115,7 @@ export class El {
 		this.kids.unshift(...kids);
 	}
 	replaceChildren(...kids: Kid[]) {
-		for (const kid of this.kids) if (kid instanceof El) kid.parent = undefined;
+		for (const kid of this.kids) if (kid instanceof El) (this.dropFocus(kid), (kid.parent = undefined));
 		this.kids = [];
 		this.append(...kids);
 	}
@@ -119,7 +127,12 @@ export class El {
 		for (const node of nodes) if (node instanceof El) node.parent = parent;
 		parent.kids.splice(parent.kids.indexOf(this), 0, ...nodes);
 	}
+	/** A browser moves the focus to the body when the focused node leaves the document (here: when its subtree is cut loose from where it stood). */
+	private dropFocus(gone: El) {
+		if (page.focused && gone.contains(page.focused)) page.focused = undefined;
+	}
 	remove() {
+		this.dropFocus(this);
 		this.parent?.kids.splice(this.parent.kids.indexOf(this), 1);
 		this.parent = undefined;
 	}
@@ -225,7 +238,7 @@ export class El {
 	}
 	/** The element's text, attributes, and data, as one string: what a reader (or a screen reader) could find in it. */
 	dump(): string {
-		return [...this.attrs.values(), ...Object.values(this.dataset).filter(Boolean), ...this.kids.map((kid) => (typeof kid === "string" ? kid : kid.dump()))].join(" ");
+		return [...this.attrs.values(), ...this.kids.map((kid) => (typeof kid === "string" ? kid : kid.dump()))].join(" ");
 	}
 }
 

@@ -25,7 +25,7 @@ let dock: El;
 const calls = { posts: [] as string[], trusts: [] as unknown[], shown: [] as string[] };
 const mount = () => {
 	page.body.replaceChildren();
-	page.body.dataset.stale = undefined;
+	delete page.body.dataset.stale;
 	for (const id of ["dock", "work", "tiles", "tile-tabs", "alerts", "done", "done-pop", "done-list", "done-clear"]) {
 		const el = new El(id === "alerts" || id === "done" || id === "done-clear" ? "button" : "div");
 		el.id = id;

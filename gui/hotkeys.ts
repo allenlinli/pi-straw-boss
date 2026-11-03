@@ -15,6 +15,8 @@ export type Keys = "dialogs" | "zen";
 export interface Pressed { key: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean; isComposing: boolean; defaultPrevented: boolean; target: unknown }
 interface Reach { isContentEditable?: boolean; closest?(selector: string): object | null }
 const TYPING = "input, textarea, select, [role=textbox], [role=combobox], [role=listbox], .term-scroll";
+/** What sends its keys to a terminal: the mirror's sink and scroll, the step card's input, and anything inside a terminal tile or layer. A `mod` row yields here (Ctrl+K is the terminal's kill-line). */
+const TERMINAL = ".term-sink, .term-scroll, .tcard-input, .tcard, .term, .term-tile, .zen-term";
 const NATIVE = "button, a, summary, [role=button], [role=link]";
 const OPTION = ".ask-opt, [role=radio], [role=checkbox]";
 /** What owns the keyboard while it is open. */
@@ -23,7 +25,7 @@ export const MODAL = "dialog.sheet[open], dialog.lightbox[open], [popover]:popov
 /**
  * One row of a keymap: the keys (compared lowercase), what they ask for, and how the target gates them. `native`: the key keeps the activation of a focused
  * button or link (unless the mouse focused it, and the row says `mouse`). `mod`: the platform's command key must be held and nothing else (⌘ on a Mac, Ctrl elsewhere), and the row
- * opens from a box being typed in too. `alt`: the key may be typed with Option (or AltGr, which a browser reports as Ctrl and Alt together), because some layouts make it that way:
+ * opens from a box being typed in too (not a terminal's: its key goes to the terminal). `alt`: the key may be typed with Option (or AltGr, which a browser reports as Ctrl and Alt together), because some layouts make it that way:
  * the key the layout made is what counts, not the Alt gate.
  */
 interface Row { keys: string[]; hotkey: Hotkey; native?: "keyboard" | "any"; mod?: boolean; alt?: boolean }
@@ -41,7 +43,7 @@ export function hotkeyOf(e: Pressed, owned: boolean, mouse = false, keys: Keys =
 	if (owned || e.defaultPrevented || e.isComposing) return;
 	const key = e.key.toLowerCase(), row = KEYMAP[keys].find((r) => r.keys.includes(key) && takes(r, e, mac));
 	const at = e.target as Reach | null;
-	if (!row || (!row.mod && (at?.isContentEditable || at?.closest?.(TYPING)))) return;
+	if (!row || (row.mod ? at?.closest?.(TERMINAL) : at?.isContentEditable || at?.closest?.(TYPING))) return;
 	if (row.native && at?.closest?.(NATIVE) && (row.native === "any" || !mouse)) return;
 	if (key === " " && at?.closest?.(OPTION)) return;
 	return row.hotkey;

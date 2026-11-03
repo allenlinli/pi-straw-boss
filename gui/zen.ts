@@ -54,7 +54,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const corner = h("div", { class: "zen-corner" }, fs.button, menu.el);
 	const strip = h("p", { class: "zen-strip" }); // how many units work and how many are idle (the core's selector): nothing about what waits
 	strip.hidden = true;
-	const palette = mountPalette({ entries: () => paletteEntries(), inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)) });
+	const palette = mountPalette({ entries: () => paletteEntries(), inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)), closed: () => active && shown.kind === "item" && idle() && card && (card.enter() || card.el.focus()) });
 	root.replaceChildren(h("div", { class: "zen-drift", "aria-hidden": "true" }, h("i", null), h("i", null)), ripples.el, corner, ...(fs.hint ? [fs.hint] : []), live, esc, stage, strip, palette.el);
 	// The terminal layer (zenterm.ts) lies over all of it: what is under takes no focus while it is on, and the item's card gets it back on return.
 	const term = mountZenTerm(root, { terminals: deps.terminals, now, later, inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)), closed: () => active && shown.kind === "item" && idle() && card && (card.enter() || card.el.focus()) });
@@ -214,8 +214,11 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	}
 	/** `[` and `]`: the companion steps to the previous or next candidate of the core's list (wrapping); false when there is nothing to step on or to. */
 	function cycle(dir: 1 | -1) {
-		const list = deps.companions?.() ?? [], at = list.findIndex((x) => x.key === company?.key), to = list.length ? list[at < 0 ? (dir > 0 ? 0 : list.length - 1) : (at + dir + list.length) % list.length] : undefined;
-		if (!active || shown.kind !== "companion" || !company || term.isOpen() || palette.isOpen() || !to || to.key === company.key) return false;
+		if (!active || shown.kind !== "companion" || !company || term.isOpen() || palette.isOpen()) return false;
+		const all = deps.companions?.() ?? [], at = all.findIndex((x) => x.key === company!.key);
+		// The first candidate in the direction that companionOf would land on: one it resolves elsewhere (the tower, say) would leave the cycle on that unit.
+		const to = Array.from({ length: all.length }, (_, i) => all[at < 0 ? (dir > 0 ? i : all.length - 1 - i) : (((at + dir * (i + 1)) % all.length) + all.length) % all.length]!).find((x) => x.key !== company!.key && companionOf(net, { key: x.key, ws: x.ws, at: 0 })?.key === x.key);
+		if (!to) return false;
 		picked = { key: to.key, ws: to.ws, at: 0 };
 		disposeCompany();
 		drawCompany();

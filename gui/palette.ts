@@ -5,7 +5,7 @@ import { m } from "./paraglide/messages.js";
 // `entries` (read at each opening and after an entry that keeps it open, so labels and hints are current) and what to make inert behind it. Its box is a text box, so the page's own keys stay out of it (hotkeys.ts).
 /** One thing the palette can do. `hint`: its state, beside the label. `keep`: the palette stays open after it runs (a switch, a volume step). */
 export interface Entry { id: string; label: string; hint?: string; keep?: boolean; run(): void }
-export interface PaletteDeps { entries(): Entry[]; /** The page behind the palette is inert while it is open. */ inert?(on: boolean): void }
+export interface PaletteDeps { entries(): Entry[]; /** The page behind the palette is inert while it is open. */ inert?(on: boolean): void; /** Called after the palette closed and the focus went back: the page may have something else for the focus now (an item that arrived meanwhile). */ closed?(): void }
 
 /** The entries whose label has every word of the query (any case, any order). */
 export function filterEntries(all: Entry[], query: string): Entry[] {
@@ -14,7 +14,7 @@ export function filterEntries(all: Entry[], query: string): Entry[] {
 }
 
 export function mountPalette(deps: PaletteDeps) {
-	const box = h("input", { type: "text", class: "palette-box", role: "combobox", "aria-autocomplete": "list", "aria-expanded": "true", "aria-controls": "palette-list", "aria-label": m.pal_label(), placeholder: m.pal_placeholder(), autocomplete: "off", spellcheck: "false" });
+	const box = h("input", { type: "text", class: "palette-box", role: "combobox", "aria-autocomplete": "list", "aria-expanded": "false", "aria-controls": "palette-list", "aria-label": m.pal_label(), placeholder: m.pal_placeholder(), autocomplete: "off", spellcheck: "false" });
 	const list = h("ul", { id: "palette-list", class: "palette-list", role: "listbox", "aria-label": m.pal_label() }), none = h("p", { class: "palette-none", role: "status" }, m.pal_none());
 	const back = h("div", { class: "palette-back" }), el = h("div", { class: "palette", role: "dialog", "aria-modal": "true", "aria-label": m.pal_label(), hidden: "" }, back, h("div", { class: "palette-panel" }, box, list, none));
 	let open = false, all: Entry[] = [], shown: Entry[] = [], at = 0, returnTo: HTMLElement | null = null;
@@ -27,7 +27,8 @@ export function mountPalette(deps: PaletteDeps) {
 			return li;
 		}));
 		none.hidden = shown.length > 0;
-		box.setAttribute("aria-activedescendant", shown.length ? `palette-${at}` : "");
+		if (shown.length) box.setAttribute("aria-activedescendant", `palette-${at}`);
+		else box.removeAttribute("aria-activedescendant");
 	}
 	function run(e: Entry) {
 		if (e.keep) return (e.run(), (all = deps.entries()), draw());
@@ -37,9 +38,11 @@ export function mountPalette(deps: PaletteDeps) {
 	function close() {
 		if (!open) return false;
 		[open, el.hidden] = [false, true];
+		box.setAttribute("aria-expanded", "false");
 		deps.inert?.(false);
 		if (returnTo?.isConnected) returnTo.focus();
 		returnTo = null;
+		deps.closed?.();
 		return true;
 	}
 	function show() {
@@ -47,6 +50,7 @@ export function mountPalette(deps: PaletteDeps) {
 		returnTo = document.activeElement as HTMLElement | null;
 		[open, el.hidden, box.value, at, all] = [true, false, "", 0, deps.entries()];
 		deps.inert?.(true);
+		box.setAttribute("aria-expanded", "true");
 		draw();
 		box.focus();
 	}

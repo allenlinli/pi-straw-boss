@@ -68,7 +68,7 @@ test("companionsOf: live units that answer to the page, idle ones and towers fir
 		base("w1", { key: "tw1", mark: "working" }, [unit("a", { mark: "working" }), unit("b", { mark: "idle" }), unit("c", { mark: "waiting" }), unit("gone", { mark: "idle", ended: true }), unit("lost", { mark: "idle", control: false })], [unit("o", { role: "outside", mark: "idle" })], [unit("d", { mark: "error" })]),
 		base("w2", null, [unit("e", { mark: "idle" }), unit("f", { mark: "working" })]),
 	);
-	assert.deepEqual(companionsOf(n).map((c) => [c.key, c.ws]), [["tw1", "w1"], ["b", "w1"], ["o", "w1"], ["e", "w2"], ["a", "w1"], ["c", "w1"], ["d", "w1"], ["f", "w2"]]);
+	assert.deepEqual(companionsOf(n).map((c) => [c.key, c.ws]), [["tw1", "w1"], ["b", "w1"], ["o", "w1"], ["e", "w2"], ["a", "w1"], ["d", "w1"], ["f", "w2"]]);
 	assert.deepEqual(companionsOf(undefined), []);
 	assert.deepEqual(companionsOf({ bases: [] }), []);
 });
@@ -89,4 +89,9 @@ test("activityOf counts the working and the idle units and nothing else: what wa
 	assert.deepEqual(activityOf(noisy), activityOf(quiet), "more waiting changes neither number: a count of what waits cannot be read back from them");
 	assert.deepEqual(Object.keys(activityOf(noisy)).sort(), ["idle", "working"]);
 	assert.deepEqual(activityOf(undefined), { working: 0, idle: 0 });
+});
+
+test("companionsOf: a unit that waits (the mark, or a dialog pending, rested or not) is never a candidate", () => {
+	const n = net(base("w", null, [unit("a"), unit("w", { mark: "waiting" }), unit("p", { mark: "idle", pending: { callId: "c1" } as never })]));
+	assert.deepEqual(companionsOf(n).map((c) => c.key), ["a"]);
 });

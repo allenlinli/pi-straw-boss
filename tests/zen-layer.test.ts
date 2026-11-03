@@ -1051,3 +1051,21 @@ test("the palette key does nothing in a hidden layer or over the terminal layer"
 	await r.settle();
 	assert.equal(r.z.palette(), false, "the terminal has the keyboard");
 });
+
+test("[ and ] never land on a unit that waits, a rested 'maybe later' one too", async () => {
+	const r = rig({ z4b: true });
+	r.feed(net([unit("a", "idle")]));
+	r.z.show();
+	await r.settle();
+	r.feed(net([unit("a", "idle"), unit("q", "waiting", { since: 5, pending: select() })]));
+	await r.advance(600);
+	r.button("Maybe later")!.click();
+	await r.advance(3100);
+	const seen = new Set<string>();
+	for (let i = 0; i < 4; i++) {
+		r.z.cycle(1);
+		await r.settle();
+		seen.add(r.z.companion()!.key);
+	}
+	assert.deepEqual([...seen].sort(), ["a", "t"], "the tower and a; q waits");
+});

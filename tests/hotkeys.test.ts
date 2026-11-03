@@ -247,8 +247,8 @@ test("[ and ] never fire inside a box being typed in, the composer, the palette'
 	for (const target of [new El("body"), new El("button"), new El("a")]) assert.equal(hotkeyOf(press("]", target), false, false, "zen"), "next-companion", target.tag);
 });
 
-test("the palette key opens from the composer, an input, and the terminal's box; a modal, an input method composing, or a key another listener took still stop it", () => {
-	for (const target of [new El("textarea"), new El("input", [], { type: "text" }), new El("div", [], {}, undefined, true), new El("textarea", ["term-sink"]), new El("div", ["term-scroll"])]) {
+test("the palette key opens from the composer and an input; a modal, an input method composing, or a key another listener took still stop it", () => {
+	for (const target of [new El("textarea"), new El("input", [], { type: "text" }), new El("div", [], {}, undefined, true)]) {
 		assert.equal(hotkeyOf(press("k", target, { metaKey: true }), false, false, "zen", true), "palette", `⌘K in ${target.tag}`);
 		assert.equal(hotkeyOf(press("k", target, { ctrlKey: true }), false, false, "zen"), "palette", `Ctrl+K in ${target.tag}`);
 	}
@@ -308,4 +308,13 @@ test("a Zen Space the layer took has its release taken too, so a button the next
 	down("Enter");
 	assert.equal(up("Enter"), false, "only Space is clicked on its release");
 	assert.equal(up(" "), false, "and nothing is held after");
+});
+
+test("the palette key is the terminal's from its sink, scroll, the step card's input, and anything inside a terminal tile or layer (kill-line)", () => {
+	const tile = new El("div", ["term-tile"]), layer = new El("section", ["zen-term"]), card = new El("section", ["tcard"]);
+	const targets = [new El("textarea", ["term-sink"]), new El("div", ["term-scroll"]), new El("input", ["tcard-input"], { type: "text" }), new El("button", [], {}, tile), new El("span", [], {}, layer), new El("input", [], { type: "text" }, card)];
+	for (const target of targets) {
+		assert.equal(hotkeyOf(press("k", target, { metaKey: true }), false, false, "zen", true), undefined, `⌘K in ${target.tag}`);
+		assert.equal(hotkeyOf(press("k", target, { ctrlKey: true }), false, false, "zen"), undefined, `Ctrl+K in ${target.tag}`);
+	}
 });

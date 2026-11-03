@@ -18,9 +18,9 @@ export const rankOf = (a: { mark: Mark; pending?: Pending }) => (a.mark === "wai
 export const waitingOf = <T extends { mark: Mark; pending?: Pending }>(all: Iterable<T>): T[] => [...all].filter((a) => rankOf(a) === 0);
 /** A unit Zen's companion can be stepped to (`[` and `]`): its key and its base. */
 export interface Candidate { key: string; ws: string }
-/** The units the companion can be: live (the page can talk to them, their run is not over) and not a subagent. Towers and idle units come first, then the rest; each group keeps the net's order. */
+/** The units the companion can be: live (the page can talk to them, their run is not over), not a subagent, and not waiting on the user (`rankOf` 0, a rested "maybe later" one too: Zen never lets a waiting unit show through). Towers and idle units come first, then the rest; each group keeps the net's order. */
 export function companionsOf(net: Net | undefined): Candidate[] {
-	const live = net ? unitsOf(net).filter(({ unit, sub }) => !sub && unit.control && !("ended" in unit && unit.ended)) : [];
+	const live = net ? unitsOf(net).filter(({ unit, sub }) => !sub && unit.control && rankOf(unit) === 1 && !("ended" in unit && unit.ended)) : [];
 	const first = (r: Row) => r.base.tower === r.unit || r.unit.mark === "idle";
 	return [...live.filter(first), ...live.filter((r) => !first(r))].map((r) => ({ key: r.unit.key, ws: r.base.id }));
 }

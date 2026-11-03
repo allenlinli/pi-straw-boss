@@ -1,6 +1,7 @@
-import type { ConfirmView, LinkSummary } from "../src/link/holder.ts";
+import type { ConfirmView, LinkAlert, LinkSummary } from "../src/link/holder.ts";
 import { h, nodes } from "./dom.ts";
-import { alertLine, urgentFirst } from "./linkmodel.ts";
+import { type AnswerPost, mountAsk } from "./ask.ts";
+import { alertLine, dialogState, dialogStateLine, remoteAnswer, remoteDialog, urgentFirst } from "./linkmodel.ts";
 import { m } from "./paraglide/messages.js";
 import { post } from "./post.ts";
 import { byId, hang } from "./render.ts";
@@ -39,13 +40,39 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 		row.append(h("b", null, alertLine({ id: "", kind: "confirm", level: "warning", team: c.team, teamName: "", data: { label: c.fromLabel, short: c.fromShort, tool: c.tool, tower: c.tower } })), h("pre", { class: "link-args" }, c.args), h("div", { class: "devices-acts" }, allow, deny), h("small", { class: "link-note", role: "status" }));
 		return row;
 	};
+	// A forwarded dialog keeps its row (and the question panel in it, with what was picked and typed) while it lives, however often the list is drawn again.
+	const dialogs = new Map<string, { row: HTMLElement; line: HTMLElement; root: HTMLElement; status: HTMLElement; ask: ReturnType<typeof mountAsk>; digest: string }>();
+	const dialogRow = (a: LinkAlert) => {
+		const device = String(a.data.device), dialogId = String(a.data.dialogId), digest = String(a.data.digest);
+		let x = dialogs.get(a.id);
+		if (x && x.digest !== digest) (dialogs.delete(a.id), (x = undefined)); // the same id asking something else: a fresh panel
+		if (!x) {
+			const row = h("li", { class: "link-alert", "data-kind": "dialog" }), line = h("b", null), root = h("div", { class: "link-dialog" }), status = h("small", { class: "link-note", role: "status" });
+			// Which dialog and digest the panel answers is what the holder checks again (answerDialog); the panel only says which choice or words.
+			const send: AnswerPost = async (_action, body) => {
+				const r = await post("link/dialog-answer", { device, dialogId, digest, answer: remoteAnswer(body) });
+				return r.ok ? { ok: true, status: 200, body: { outcome: "accepted" } } : { ok: false, status: r.status, body: { reason: m.link_dialog_error({ reason: r.body.reason ?? m.refused({ status: r.status }) }) } };
+			};
+			x = { row, line, root, status, ask: mountAsk(root, send, true), digest };
+			row.append(line, root, status);
+			dialogs.set(a.id, x);
+		}
+		const state = dialogState(a), pending = remoteDialog(a);
+		x.row.dataset.level = a.level;
+		x.row.dataset.state = state;
+		x.line.textContent = alertLine(a);
+		x.ask.update(state === "open" && pending ? pending : undefined, state === "open"); // an answered or ended question leaves the panel (a panel just answered shows its outcome for a few seconds)
+		x.status.textContent = state === "open" ? (pending ? "" : m.link_dialog_unreadable()) : dialogStateLine(state);
+		return x.row;
+	};
 	return {
 		net(summary: LinkSummary | undefined) {
 			const alerts = urgentFirst((summary?.alerts ?? []).filter((a) => a.kind !== "confirm")), confirms = summary?.confirms ?? [];
 			const next = JSON.stringify([alerts, confirms]);
 			if (next === sig) return;
 			sig = next;
-			const need = new Set([...confirms.map((c) => `c/${c.dialogId}`), ...alerts.filter((a) => a.kind === "join-request").map((a) => a.id)]);
+			const need = new Set([...confirms.map((c) => `c/${c.dialogId}`), ...alerts.filter((a) => a.kind === "join-request" || (a.kind === "dialog" && dialogState(a) === "open")).map((a) => a.id)]);
+			for (const id of dialogs.keys()) if (!alerts.some((a) => a.id === id)) dialogs.delete(id);
 			if (!first) news([...need].filter((k) => !known.has(k)).length);
 			[known, first] = [need, false];
 			const count = alerts.length + confirms.length;
@@ -54,6 +81,7 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 			btn.dataset.state = confirms.length || alerts.some((a) => a.level === "error") ? "error" : alerts.some((a) => a.level === "warning") ? "waiting" : "done";
 			if (!count && pop.matches(":popover-open")) pop.hidePopover();
 			list.replaceChildren(...nodes(...confirms.map(confirmRow), ...alerts.map((a) => {
+				if (a.kind === "dialog") return dialogRow(a);
 				const row = h("li", { class: "link-alert", "data-level": a.level }, h("span", null, alertLine(a)));
 				if (a.kind === "join-request" || a.kind === "fork" || a.kind === "mismatch") {
 					const go = h("button", { type: "button", class: "later" }, a.kind === "join-request" ? m.link_review() : m.link_open_teams());

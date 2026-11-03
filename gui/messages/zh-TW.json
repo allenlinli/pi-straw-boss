@@ -855,5 +855,13 @@
 	"pal_next": "下一位陪伴",
 	"pal_louder": "音量調大",
 	"pal_quieter": "音量調小",
-	"pal_music": "音樂"
+	"pal_music": "音樂",
+	"link_dialog_sent": "已送出你的答案；對方裝置還沒關閉這個問題。",
+	"link_dialog_done_here": "你已從這裡回答。",
+	"link_dialog_done_other": "已由團隊的另一個控制端回答。",
+	"link_dialog_done_local": "已在該裝置上回答。",
+	"link_dialog_cancelled": "已在該裝置上取消。",
+	"link_dialog_expired": "問題在有人回答前就結束了。",
+	"link_dialog_unreadable": "這個問題無法在這裡顯示，請到該裝置上回答。",
+	"link_dialog_error": "答案沒有送出：{reason}"
 }

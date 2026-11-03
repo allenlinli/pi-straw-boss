@@ -1006,7 +1006,7 @@ export class LinkHolder {
 		if (fresh) this.o.notify(`Straw Link: ${sender.label} asks a question (${restrictLabel(p.owner)})`, "warning");
 	}
 	private takeDialogClose(header: Header, p: DialogClose): void {
-		this.dialogViews.drop(header.from, p.dialogId);
+		this.dialogViews.close(header.from, p.dialogId, p.by, this.now());
 	}
 	private takeDialogAnswer(run: TeamRun, roster: RosterState, header: Header, p: DialogAnswer): void {
 		const drop = (reason: string) => this.o.store.log({ event: "drop", team: run.team, reason, from: header.from, kind: "dialog-answer", dialog: p.dialogId });
@@ -1017,20 +1017,21 @@ export class LinkHolder {
 		if (!sink) return drop("dialog-answer-unhandled");
 		void Promise.resolve().then(() => sink({ team: run.team, from: header.from, dialogId: p.dialogId, digest: p.digest, answer: p.answer, answerId: p.answerId })).catch((error: Error) => this.o.store.log({ event: "dialog-answer-failed", error: error.message }));
 	}
-	/** The forwarded dialogs waiting for this device's boss, of devices still in their team. */
-	dialogRequests() {
-		return this.dialogViews.list((v) => {
+	/** The forwarded dialogs of devices still in their team: those waiting for this device's boss, and with `ended` the ones that closed in the last two minutes (the card says how). */
+	dialogRequests(ended = false) {
+		const all = this.dialogViews.list((v) => {
 			try {
 				return this.loadTeam(v.team).state.members.has(v.device);
 			} catch {
 				return false;
 			}
-		});
+		}, this.now());
+		return ended ? all : all.filter((v) => !v.closed);
 	}
 	/** This device's boss (or a paired phone, through the GUI) answers a forwarded dialog: the answer goes to the device that asked, once per dialog. `answer` is JSON (dialogs-out.ts `RemoteAnswer`). */
 	async answerDialog(device: string, dialogId: string, digest: string, answer: string): Promise<{ ok: true } | { ok: false; error: string }> {
 		const v = this.dialogViews.get(device, dialogId);
-		if (!v) return { ok: false, error: "That question is gone" };
+		if (!v || v.closed) return { ok: false, error: "That question is gone" };
 		if (v.digest !== digest) return { ok: false, error: "The question changed; look at it again" };
 		if (v.answered) return { ok: false, error: "This device already answered that question" };
 		if (!(this.o.attended?.() ?? true)) return { ok: false, error: "An unattended device does not answer for others" };
@@ -1223,7 +1224,7 @@ export class LinkHolder {
 		const now = this.now(), name = (team: string) => this.o.config().teams.get(team)?.name ?? team.slice(0, 6), out: LinkAlert[] = [];
 		for (const r of this.admin.joinRequests()) out.push({ id: `join/${r.id}`, kind: "join-request", level: "warning", team: r.team, teamName: r.teamName, data: { label: r.label, short: r.short, unattended: r.unattended ? 1 : 0 } });
 		for (const c of this.confirmRequests()) out.push({ id: `confirm/${c.dialogId}`, kind: "confirm", level: "warning", team: c.team, teamName: name(c.team), data: { label: c.fromLabel, short: c.fromShort, tool: restrictLabel(c.tool) } });
-		for (const v of this.dialogRequests()) out.push({ id: `dialog/${v.device}/${v.dialogId}`, kind: "dialog", level: "warning", team: v.team, teamName: name(v.team), data: { device: v.device, dialogId: v.dialogId, digest: v.digest, owner: v.owner, dialog: v.dialog, label: this.memberLabel(v.team, v.device), short: shortId(v.device), answered: v.answered ? 1 : 0 } });
+		for (const v of this.dialogRequests(true)) out.push({ id: `dialog/${v.device}/${v.dialogId}`, kind: "dialog", level: v.closed ? "info" : "warning", team: v.team, teamName: name(v.team), data: { device: v.device, dialogId: v.dialogId, digest: v.digest, owner: v.owner, dialog: v.dialog, label: this.memberLabel(v.team, v.device), short: shortId(v.device), answered: v.answered ? 1 : 0, ...(v.closed ? { closed: v.closed.by } : {}) } });
 		for (const team of this.o.store.teamIds()) {
 			const why = this.stopped.has(team) ? (this.o.store.readStopped(team)?.reason ?? "stopped") : this.o.store.readStopped(team)?.reason;
 			const run = this.runs.get(team);

@@ -10,7 +10,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
  * Whether pi-tui's editor can have a completion menu open on a `! <copy>` line whose text stays byte-identical (OT2-F001). Enter with the menu open applies the selection and, for a `/` prefix, falls through to submit, so a
  * matching line could send another command. The menu belongs to the token before the cursor (pi-tui `autocomplete.js` `extractPathPrefix`/`extractAtPrefix`, `editor.js` `buildTriggerPattern`). Tokens end at whitespace, `"`, `'`, `=`, or a
  * non-ASCII character (CJK punctuation); leading `([{<` and a backtick are stripped. A token can have the menu when it contains `/`, `\`, `~`, `@`, `#`, a quote or backtick, or starts with `.`; and the empty token after a
- * trailing separator opens it too. Not covered, and said so in the docs: Tab on a plain word like `ls foo` completes against the working folder, which this rule cannot tell from a command word.
+ * trailing separator opens it too. Not covered, and said so in the docs: Tab on a plain word like `ls foo` completes against the working folder, which this rule cannot tell from a command word; Enter then fills in the pick and runs nothing.
  */
 export function completable(copy: string): boolean {
 	if (/[\s"'=`]$|[^\x00-\x7f]$/u.test(copy)) return true;

@@ -714,6 +714,7 @@
 			}
 		}
 	],
+	"link_a_dialog": "{label} ({short}) in team {team} asks a question ({owner}).",
 	"tower_state_waking": "waking",
 	"tower_state_closing": "closing",
 	"tower_state_held": "held",

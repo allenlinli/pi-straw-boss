@@ -57,6 +57,8 @@ export interface ServiceOptions {
 	/** A notice for the boss. The server has no screen: it goes to the log, and the last few are in `status()`. */
 	notify: (text: string, level?: "info" | "warning" | "error") => void;
 	deps?: ServiceDeps;
+	/** An unattended device: takes a `dialog-answer` the holder has checked (src/link/dialogs-out.ts). */
+	dialogAnswer?: HolderOptions["dialogAnswer"];
 	/** The tower service of the same server (towers.ts), when it runs: the asks local towers made for their mains, and what to tell when messages wait for a tower identity it runs. */
 	tower?: Pick<HolderOptions, "asks" | "served"> & {
 		/** An answer to a `forward` confirm for a tower identity the server runs (an ally run waits for it): true when the server took it, so it is not published on the channel. */
@@ -72,7 +74,7 @@ export interface Notice { at: number; level: "info" | "warning" | "error"; text:
 type Answer = { ok: boolean; error?: string; [key: string]: unknown };
 type ChannelEvent = { type: string; fromSessionId?: string; payload?: unknown };
 
-export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower }: ServiceOptions) {
+export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer }: ServiceOptions) {
 	const { pi, cfg } = kit;
 	const store = new LinkStore(join(stateDir, "link"));
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
@@ -154,7 +156,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 				if (!tower?.confirmed?.(to, dialogId, allow)) void publish({ version: 1, type: "confirmed", to, id: dialogId, allow });
 			},
 			drainMs: opts.drainMs, presenceMs: opts.presenceMs, boardMinMs: opts.boardMs, offerAgainMs: opts.offerAgainMs, capsMs: opts.capsMs, capsMinMs: opts.capsMinMs,
-			...(tower?.asks ? { asks: tower.asks } : {}), ...(tower?.served ? { served: tower.served } : {}),
+			...(tower?.asks ? { asks: tower.asks } : {}), ...(tower?.served ? { served: tower.served } : {}), ...(dialogAnswer ? { dialogAnswer } : {}),
 		});
 		holder = fresh;
 		await fresh.start();

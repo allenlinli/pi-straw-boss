@@ -616,6 +616,7 @@
 	"tower_drop": "捨棄",
 	"tower_action_failed": "塔台拒絕了：{reason}",
 	"link_a_served": "團隊 {team} 的收件匣有 {count} 則 Straw Link 訊息等隊友 run 接手已超過 10 分鐘。請看地圖上塔台的卡片：塔台已暫停或 run 啟動被拒，都會讓它們一直等。",
+	"link_a_dialog": "團隊 {team} 的 {label}（{short}）問了一個問題（{owner}）。",
 	"tower_state_waking": "喚醒中",
 	"tower_state_closing": "收工中",
 	"tower_state_held": "已暫停",

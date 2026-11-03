@@ -346,7 +346,11 @@ export function createGuiHost(o: GuiHostOptions) {
 	};
 	const unsavedReply = (g: Gui) => (unsaved(g) ? { warning: unsaved(g) } : {});
 
+	/** A reading of the net for the dialog forwarder (src/link/dialogs-out.ts): it binds the hub's relayed dialogs to units whether or not a page listens. */
+	let forwardNet: ReturnType<typeof netSource> | undefined;
 	return {
+		/** The hub and a net reading that binds its dialogs, for the forwarder an unattended device runs. */
+		dialogs: () => ({ hub: theHub(), read: async () => void (await (forwardNet ??= netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), run: cfg.run, world: cfg.world, sessions, hub: theHub() })).read()) }),
 		/** At the server's start: the GUI on the recorded ports unless it was stopped on purpose (which only the boss's own command undoes). */
 		async start(): Promise<void> {
 			// The gates' tracking does not depend on the page: a GUI stopped on purpose, or one that could not bind, still has the Allows of the boss's yes in the terminal.

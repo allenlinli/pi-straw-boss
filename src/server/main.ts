@@ -15,6 +15,7 @@ import { allyPort } from "./allyport.ts";
 import { createAsks } from "./asks.ts";
 import { cliBeside, createGuiHost, spawnRestart } from "./guihost.ts";
 import { type IntercomModule, loadIntercom, LoaderError } from "./intercom.ts";
+import { DialogForwarder } from "../link/dialogs-out.ts";
 import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
 import { createLog, tailLog } from "./log.ts";
 import { gateRun, type RunInfo } from "./rungate.ts";
@@ -269,6 +270,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		timers.forEach(clearInterval);
 		stops.forEach((stop) => stop());
 		// The link holder's record goes before the server does, so the next server takes it at its first look and no relay stream is left half open.
+		forwarder?.stop();
 		await Promise.race([link?.stop().catch((error: Error) => log.line("error", { code: "link", text: phrase(error.message, 300) })), sleep(LINK_STOP_MS)]);
 		// The GUI listeners and the remote entry go before the intercom ids are released.
 		await Promise.race([guiHost?.leave(phase === "stopping").catch(() => {}), sleep(GUI_LEAVE_MS)]);
@@ -537,11 +539,19 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 
 	// pi-intercom: the server's own session, reconnecting with the sidecar's backoff (1, 2, 5, 10, then 30 s). While it is disconnected its identities are not live.
 	// The link holder (B3): the primary server only, built once the first connection is attached (the kit's channel needs a client). A computer with no team set up gets no channel, election, or files.
+	// An unattended device forwards the questions its sessions ask to the controllers it trusts at `dispatch` (src/link/dialogs-out.ts); an attended computer has none, so this does nothing there.
+	let forwarder: DialogForwarder | undefined;
+	const dialogsOut = () => (forwarder ??= new DialogForwarder({
+		...guiHost!.dialogs(), controllers: () => link?.holder?.dialogControllers() ?? [],
+		post: async (team, device, kind, payload) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, kind, payload); },
+		log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),
+	}));
 	const startLink = () => {
 		if (link || !slot.primary || leaving) return;
 		link = createLinkService({
 			kit, stateDir: slot.stateDir, version, pid, started: () => own.started,
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
+			dialogAnswer: (a) => dialogsOut().answer(a),
 			// The tower service takes part in the holder's work (B6): an ask answered by a `tower-reply` is the main's, messages for a tower identity the server runs wake an ally run, and a `forward` answer reaches its run.
 			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false },
 		});
@@ -590,6 +600,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 
 	// The GUI binds the recorded ports last (under the stored token), after the intercom ids are as registered as they can be and, with the link holder in the server, after that.
 	await guiHost?.start();
+	if (slot.primary) dialogsOut().start();
 
 	// Ready: `restarting` goes, and the start-error of this attempt (and any before it) with it.
 	if (phase === "starting") {

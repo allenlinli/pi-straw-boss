@@ -199,3 +199,12 @@ test("Zen: on a phone the status strip stands at the left, clear of the corner b
 	const narrow = /@media \(max-width: 640px\) \{[^@]*\.zen-strip \{[^}]*left:\s*max\(12px[^}]*translate:\s*none[^}]*max-width:\s*calc\(100vw - 190px\)/;
 	assert.match(zen, narrow);
 });
+
+test("Zen: a page under 900 px high and one under 600 px wide spend less on air before a question's choices scroll", () => {
+	const media = (q: string) => zen.slice(zen.indexOf(`@media (${q}) {`)).split(/\n\}/)[0]!;
+	assert.match(media("max-height: 900px"), /\.zen-card-in \{ gap: 10px/);
+	assert.match(media("max-height: 900px"), /button\.ask-opt \{ padding-block: 7px/);
+	assert.match(media("max-width: 600px"), /\.zen-card-in \{ gap: 6px/);
+	assert.match(media("max-width: 600px"), /button\.ask-opt \{ padding: 6px 16px; font-size: 1rem/);
+	assert.match(media("max-width: 600px"), /\.ask-opt small \{ font-size: 0\.78rem/);
+});

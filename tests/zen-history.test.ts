@@ -123,6 +123,27 @@ test("tapping it mounts the log, watches the unit, and shows the history; tappin
 	assert.equal(link(r)!.getAttribute("aria-expanded"), "false");
 });
 
+test("opening it scrolls the box into view, and closing it does not (Z7-F002)", async () => {
+	const seen: unknown[] = [];
+	const proto = El.prototype as unknown as { scrollIntoView: (o?: unknown) => void };
+	const orig = proto.scrollIntoView;
+	proto.scrollIntoView = function (o?: unknown) { seen.push(o); };
+	try {
+		const r = rig();
+		r.feed(waiting());
+		r.z.show();
+		await r.settle();
+		link(r)!.click();
+		await r.settle();
+		assert.deepEqual(seen, [{ block: "nearest" }]);
+		link(r)!.click();
+		await r.settle();
+		assert.equal(seen.length, 1, "closing scrolls nothing");
+	} finally {
+		proto.scrollIntoView = orig;
+	}
+});
+
 test("a new snapshot while it is open keeps the watch", async () => {
 	const r = rig();
 	r.feed(waiting());

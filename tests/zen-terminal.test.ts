@@ -275,11 +275,13 @@ test("the pause under the layer ignores the terminal's Enter and Space and its t
 	await r.settle();
 	assert.equal(r.key("keydown", "Enter", sinkOf(r)), 0, "not prevented");
 	assert.equal(r.key("keydown", " ", sinkOf(r)), 0);
+	// Since views-core R8 the pause key reaches Zen through the page's keymap (core.hotkey → zen.tap()), not a root listener.
+	assert.equal(r.z.tap(), false, "the keymap's pause key does nothing under the layer");
 	for (const on of r.root.handlers.pointerdown ?? []) on({ target: sinkOf(r) });
 	assert.ok(r.root.dump().includes(m.zen_pause()), "a tap in the terminal does not end the pause under it");
 	r.back()!.click();
 	await r.settle();
-	assert.equal(r.key("keydown", "Enter", r.root), 1, "without the layer a key on the pause ends it (control)");
+	assert.equal(r.z.tap(), true, "without the layer the pause key ends the pause (control)");
 });
 
 test("an Open terminal button (a unit blocked on a terminal prompt, a dialog shown read-only) opens the layer, not Standard", async () => {

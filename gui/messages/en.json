@@ -1007,6 +1007,7 @@
 	"link_dialog_done_local": "Answered at the device itself.",
 	"link_dialog_cancelled": "It was cancelled at the device.",
 	"link_dialog_expired": "It ended before anyone answered it.",
+	"link_dialog_withdrawn": "You no longer answer this device's questions; it is still open there.",
 	"link_dialog_unreadable": "This question could not be shown here. Answer it at the device.",
 	"link_dialog_error": "The answer was not sent: {reason}",
 	"zen_rest": "Back to the breath"

@@ -788,10 +788,10 @@ export class LinkHolder {
 
 	// ---- Sending -----------------------------------------------------------------------------------------------------------------------
 
-	/** The last text a tower of workspace `label` sent to `device`, for the unit report an unattended device gives that controller. In memory only. */
+	/** The last text a tower of workspace id `workspace` sent to `device`, for the unit report an unattended device gives that controller. In memory only. */
 	private lastSent = new Map<string, { text: string; at: number }>();
-	lastSentTo(label: string, device: string): { text: string; at: number } | undefined {
-		return this.lastSent.get(`${label}\n${device}`);
+	lastSentTo(workspace: string, device: string): { text: string; at: number } | undefined {
+		return this.lastSent.get(`${workspace}\n${device}`);
 	}
 	async send(req: SendRequest): Promise<SendResult> {
 		const { store } = this.o;
@@ -862,7 +862,7 @@ export class LinkHolder {
 		const who = members.find((m) => m.team === target.team && m.id === target.id);
 		const name = `${who?.label ?? "device"} (${shortId(target.id)})`;
 		if (outcome === undefined || outcome === "halted") run.gone.set(id, `the message to ${name}`);
-		this.lastSent.set(`${workspace?.label ?? ""}\n${target.id}`, { text: req.text, at: this.now() });
+		this.lastSent.set(`${pane.workspace_id}\n${target.id}`, { text: req.text, at: this.now() });
 		while (this.lastSent.size > 64) this.lastSent.delete(this.lastSent.keys().next().value!);
 		store.log({ event: "send", team: run.team, to: target.id, id, outcome: outcome === undefined ? "queued" : outcome === "posted" ? "posted" : String(outcome) });
 		const details = { team: run.team, device: target.id, id, seq: queued.seq, as: kind, ...(req.awaitsReply !== undefined ? { asked: withAsk } : {}) };
@@ -1024,15 +1024,31 @@ export class LinkHolder {
 	}
 	/** The attended members of a running team that this unattended device trusts at `dispatch` now: where its dialogs go. Nothing on an attended device. */
 	dialogControllers(): { team: string; device: string }[] {
-		if (!this.running || !this.device || (this.o.attended?.() ?? true)) return [];
-		const trust = this.o.config().trust, out: { team: string; device: string }[] = [];
+		return this.controllerRead().list;
+	}
+	/** False while the controller list cannot be trusted to be complete (the holder is not running, or a team's roster could not be read): a caller does not withdraw anything then. */
+	controllersKnown(): boolean {
+		return this.controllerRead().known;
+	}
+	/** Whether `device` of `team` has sent a presence recently (the same test the device list uses). */
+	deviceOnline(team: string, device: string): boolean {
+		const seen = this.runs.get(team)?.presences.get(device);
+		return seen !== undefined && this.now() - seen.at <= PRESENCE_ONLINE_MS;
+	}
+	private controllerRead(): { list: { team: string; device: string }[]; known: boolean } {
+		if (!this.running || !this.device) return { list: [], known: false };
+		if (this.o.attended?.() ?? true) return { list: [], known: true };
+		const trust = this.o.config().trust, list: { team: string; device: string }[] = [];
+		let known = true;
 		for (const run of this.runs.values()) {
 			if (run.dead) continue;
 			try {
-				for (const [id, m] of this.loadTeam(run.team).state.members) if (id !== this.device.keys.id && m.attended && trust.get(id) === "dispatch") out.push({ team: run.team, device: id });
-			} catch { /* a team that cannot be read has no controllers now */ }
+				for (const [id, m] of this.loadTeam(run.team).state.members) if (id !== this.device.keys.id && m.attended && trust.get(id) === "dispatch") list.push({ team: run.team, device: id });
+			} catch {
+				known = false;
+			}
 		}
-		return out;
+		return { list, known };
 	}
 	/** A `dialog-open`, `dialog-close`, or `notice` to one device of a team (the forwarder's and the unit reporter's way out). */
 	async sendDialog(team: string, device: string, kind: "dialog-open" | "dialog-close" | "notice", payload: DialogOpen | DialogClose | Notice): Promise<void> {

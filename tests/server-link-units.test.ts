@@ -7,7 +7,7 @@ import { encodeHeader } from "../src/link/envelope.ts";
 import { decodePlaintext, type Kind } from "../src/link/kinds.ts";
 import type { Share } from "../src/link/config.ts";
 import { LinkStore } from "../src/link/store.ts";
-import { readRun } from "../src/server/towerrunstore.ts";
+import { addNote, readRun } from "../src/server/towerrunstore.ts";
 import { callControl } from "../src/server/socket.ts";
 import { FakeRelay } from "./link/fake-relay.ts";
 import { alice, bob, clientFor, rosterOf, stateOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
@@ -94,4 +94,22 @@ test("a run that crashes reaches the controllers as a notice through the server'
 	await until(() => toBob("notice").length > 0, "the notice at the controller");
 	assert.deepEqual(toBob("notice").map((n) => [n.kind, n.unit]), [["run-crashed", "Alpha"]]);
 	assert.deepEqual(world.signals.map((x) => x.kind), ["ended"], "a seam that watches the runs hears it as well");
+});
+
+test("a unit's report comes from the workspace inside the team's project, not another with the same label", async () => {
+	const u = unattended("status");
+	const s = await world.start({ link: u.link, unitsMs: 20 });
+	await s.handle.ready;
+	// The outside workspace is made first, so a lookup by label would meet it first.
+	await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	world.herdr.workspaces.find((w) => w.workspace_id === "wB")!.label = "Alpha";
+	for (const p of world.herdr.panes) p.cwd = p.workspace_id === "wA" ? u.real : u.elsewhere;
+	const row = (kind: "local") => ({ kind, run: "r", at: new Date().toISOString(), note: "" });
+	addNote(world.slot, "wB", { ...row("local"), note: "outside note" });
+	addNote(world.slot, "wA", { ...row("local"), note: "inside note" });
+	await until(() => toBob("unit-status").some((m) => (m.units as { report: string }[]).length > 0), "a status with a unit");
+	const reports = toBob("unit-status").flatMap((m) => (m.units as { report: string }[]).map((x) => x.report));
+	assert.ok(reports.includes("inside note"), JSON.stringify(reports));
+	assert.ok(!reports.includes("outside note"), JSON.stringify(reports));
 });

@@ -867,6 +867,7 @@
 	"link_dialog_done_local": "已在該裝置上回答。",
 	"link_dialog_cancelled": "已在該裝置上取消。",
 	"link_dialog_expired": "問題在有人回答前就結束了。",
+	"link_dialog_withdrawn": "你已不再負責回答這台裝置的問題；問題在那邊仍未結束。",
 	"link_dialog_unreadable": "這個問題無法在這裡顯示，請到該裝置上回答。",
 	"link_dialog_error": "答案沒有送出：{reason}",
 	"zen_rest": "回到呼吸"

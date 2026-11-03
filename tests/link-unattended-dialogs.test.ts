@@ -344,6 +344,31 @@ describe("dialog forwarding", () => {
 		assert.equal(a.holder.dialogRequests().length, 0);
 	});
 
+	test("an offline controller is not sent the dialog again every ten minutes, and gets it once when it is back; an unreadable controller list withdraws nothing", async () => {
+		const { h, d } = await start();
+		const clock = fakeClock(), posts: string[] = [];
+		let online = false, known = true, controllers = d.holder.dialogControllers();
+		const f = forwarder(d, h, { now: clock.now, controllers: () => controllers, online: () => online, controllersKnown: () => known, post: async (_t, _dev, k, p) => void posts.push(`${k}:${p.dialogId}`) });
+		h.open("D1");
+		await f.tick();
+		assert.deepEqual(posts, ["dialog-open:D1"], "sent once, queued");
+		clock.advance(REFRESH_MS * 3);
+		await f.tick();
+		assert.deepEqual(posts, ["dialog-open:D1"], "an offline controller is not refreshed");
+		online = true;
+		await f.tick();
+		assert.deepEqual(posts, ["dialog-open:D1", "dialog-open:D1"], "back online: the open again");
+		await f.tick();
+		assert.equal(posts.length, 2, "and only once");
+		known = false;
+		controllers = [];
+		await f.tick();
+		assert.equal(posts.length, 2, "no withdraw while the list is unknown");
+		known = true;
+		await f.tick();
+		assert.equal(posts.at(-1), "dialog-close:D1");
+	});
+
 	test("a close reaches every controller that was sent the dialog", async () => {
 		const { h, d, a, b, f } = await start({ [alice.id]: "dispatch", [bob.id]: "dispatch" });
 		h.open("D1");

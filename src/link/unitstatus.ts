@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { allyLabel } from "../boardauto.ts";
 import { cutBytes } from "./canon.ts";
 import type { RunSignal } from "../server/runs.ts";
 import { LIMITS, type Notice, type UnitStatus } from "./kinds.ts";
@@ -16,7 +17,7 @@ export interface UnitReporterDeps {
 	/** The units to tell the controllers of `team`: those inside that team's project, and none when its policy shares presence only. */
 	units(team: string): Promise<UnitFacts[]>;
 	/** The last `tower_done` summary of the unit, or the last `tower_send` text to this controller, whichever came later. */
-	report(unit: string, device: string): string;
+	report(unit: string, device: string, team: string): string;
 	status(team: string, device: string, units: UnitStatus[]): Promise<void>;
 	notice(team: string, device: string, notice: Notice): Promise<void>;
 	now(): number;
@@ -47,7 +48,7 @@ export class UnitReporter {
 			// One reading per team in a pass, however many controllers it has.
 			let mine = facts.get(c.team);
 			if (!mine) facts.set(c.team, (mine = await this.d.units(c.team)));
-			const k = `${c.team}\n${c.device}`, units = mine.map((u) => ({ ...u, report: cutBytes(this.d.report(u.unit, c.device), LIMITS.report) })), sig = JSON.stringify(units), before = this.sent.get(k);
+			const k = `${c.team}\n${c.device}`, units = mine.map((u) => ({ ...u, report: cutBytes(this.d.report(u.unit, c.device, c.team), LIMITS.report) })), sig = JSON.stringify(units), before = this.sent.get(k);
 			if (before && before.sig === sig && now - before.at < STATUS_EVERY_MS) continue;
 			try {
 				await this.d.status(c.team, c.device, units);
@@ -79,8 +80,8 @@ export class UnitReporter {
 export function runNotice(s: RunSignal): { key: string; notice: Notice } {
 	const who = s.ally ? "An ally run" : "A run";
 	// The key goes into the log, and a refusal's text can carry a path or a line of the project's settings: the key holds a hash of it.
-	if (s.kind === "refused") return { key: `refused/${s.workspace}/${createHash("sha256").update(s.text).digest("hex").slice(0, 16)}`, notice: { kind: "run-refused", unit: s.label, text: s.text } };
+	if (s.kind === "refused") return { key: `refused/${s.workspace}/${createHash("sha256").update(s.text).digest("hex").slice(0, 16)}`, notice: { kind: "run-refused", unit: allyLabel(s.label), text: s.text } };
 	const trust = s.detail?.startsWith("No trust decision");
 	const kind = trust ? "trust-unanswered" : s.outcome === "quit" ? "run-quit" : s.outcome === "timeout" ? "run-timeout" : "run-crashed";
-	return { key: `run/${s.run}`, notice: { kind, unit: s.label, text: `${who} ${s.outcome === "quit" ? "was quit" : s.outcome === "timeout" ? "timed out" : "crashed"}${s.detail ? `: ${s.detail}` : ""}` } };
+	return { key: `run/${s.run}`, notice: { kind, unit: allyLabel(s.label), text: `${who} ${s.outcome === "quit" ? "was quit" : s.outcome === "timeout" ? "timed out" : "crashed"}${s.detail ? `: ${s.detail}` : ""}` } };
 }

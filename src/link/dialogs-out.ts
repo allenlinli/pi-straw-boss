@@ -26,6 +26,10 @@ export interface DialogsOutDeps {
 	controllers(): { team: string; device: string }[];
 	post(team: string, device: string, kind: "dialog-open" | "dialog-close", payload: DialogOpen | DialogClose): Promise<void>;
 	log(entry: Record<string, unknown>): void;
+	/** Whether the controller's device has sent a presence lately. Absent: always online. An offline controller gets the open once (queued) and no refresh until it is back. */
+	online?(team: string, device: string): boolean;
+	/** False while `controllers()` may be short for a reason other than lost trust (the holder is stopped, a roster unreadable): nothing is withdrawn then. Absent: true. */
+	controllersKnown?(): boolean;
 	/** The clock (default `Date.now`), for the unanswered-dialog notice. */
 	now?(): number;
 	/** Tells the controllers (src/link/unitstatus.ts `UnitReporter.notify`); once per key. Absent: no notices. */
@@ -39,7 +43,7 @@ export const REFRESH_MS = 10 * 60_000;
 export const UNKNOWN_RECHECK_MS = 15_000;
 export interface DialogAnswerInput { team: string; from: string; dialogId: string; digest: string; answer: string; answerId: string }
 /** `sent` is where the dialog was last sent, per controller, and when; `claimed` is set while an answer is on its way or has been accepted; `unknownAt` is when an answer no session confirmed was sent. */
-interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Map<string, number>; claimed: boolean; unknownAt?: number; since: number; told: boolean }
+interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Map<string, number>; away: Set<string>; claimed: boolean; unknownAt?: number; since: number; told: boolean }
 
 export class DialogForwarder {
 	private readonly d: DialogsOutDeps;
@@ -93,7 +97,7 @@ export class DialogForwarder {
 				continue;
 			}
 			if (this.open.size >= MAX_OPEN) continue;
-			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, text, sent: new Map(), claimed: false, since: this.now(), told: false });
+			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, text, sent: new Map(), away: new Set(), claimed: false, since: this.now(), told: false });
 		}
 		for (const [id, d] of [...this.open]) {
 			const state = this.d.hub.outcome(id);
@@ -109,7 +113,7 @@ export class DialogForwarder {
 				d.sent.clear();
 			}
 			// A controller that lost `dispatch` is told the question is withdrawn; one that has it again gets it open again below.
-			for (const k of [...d.sent.keys()]) {
+			for (const k of this.d.controllersKnown?.() === false ? [] : [...d.sent.keys()]) {
 				if (to.some((c) => `${c.team}\n${c.device}` === k)) continue;
 				d.sent.delete(k);
 				await this.send(k, "dialog-close", { dialogId: id, by: "withdrawn" });
@@ -120,8 +124,11 @@ export class DialogForwarder {
 			}
 			for (const c of to) {
 				const k = `${c.team}\n${c.device}`;
-				const at = d.sent.get(k);
-				if (at !== undefined && this.now() - at < REFRESH_MS) continue;
+				const at = d.sent.get(k), up = this.d.online?.(c.team, c.device) ?? true;
+				if (!up) {
+					d.away.add(k);
+					if (at !== undefined) continue;
+				} else if (at !== undefined && !d.away.delete(k) && this.now() - at < REFRESH_MS) continue;
 				d.sent.set(k, this.now());
 				if (!(await this.send(k, "dialog-open", { dialogId: id, digest: d.target.answer.digest, owner: d.owner, dialog: d.text }))) d.sent.delete(k);
 			}

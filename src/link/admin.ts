@@ -326,7 +326,7 @@ export class TeamAdmin {
 	 * `unattended` is the join of `link/join.txt`: the team has to be one the policy names (its project and share come from there, so no project is asked for), the team
 	 * file is written without touching config.json, and `outcome` is told how it ended. It is only for an unattended device.
 	 */
-	async joinStart(i: { text: string; label?: string; unattended?: boolean; outcome?: Joining["outcome"] }): Promise<Done<{ words: string[]; expires: number; pinned: boolean }>> {
+	async joinStart(i: { text: string; label?: string; unattended?: boolean; outcome?: Joining["outcome"]; /** An earlier attempt for this same invite may have reached the relay: "invite-used" then means it did, and the join waits for approval. */ resume?: boolean }): Promise<Done<{ words: string[]; expires: number; pinned: boolean }>> {
 		const invite = decodeInvite(i.text);
 		if (!invite) return no("That is not a Straw Link invite: it starts with strawlink1:");
 		const dev = this.h.device(), label = (i.label ?? dev.label).trim();
@@ -343,7 +343,7 @@ export class TeamAdmin {
 		try {
 			await relay.join(inviteHash(invite.secret), buildJoinRequest({ team: invite.team, secret: invite.secret, record: recordOf(dev.keys), label }));
 		} catch (error) {
-			return { ...no(relayText(error, invite.relay)), ...(retryable(error) ? { retry: true as const } : {}) };
+			if (!(i.resume === true && error instanceof ConflictError && error.code === "invite-used")) return { ...no(relayText(error, invite.relay)), ...(retryable(error) ? { retry: true as const } : {}) };
 		}
 		const words = safetyWords({ team: invite.team, inviterKeyHash: invite.inviterKeyHash, joiner: recordOf(dev.keys), secret: invite.secret });
 		const startedAt = this.h.now(), joining: Joining = { id: randomBytes(8).toString("hex"), invite, label, words, startedAt, expires: startedAt + (pinned ? PINNED_INVITE_MS : JOIN_WAIT_MS), state: "waiting", share: "status", unattended: i.unattended === true, ...(i.outcome ? { outcome: i.outcome } : {}), abort: new AbortController() };
@@ -464,7 +464,7 @@ export class TeamAdmin {
 		try {
 			const path = joinFilePath(this.h.store.dir);
 			const mark = fileMark(path);
-			if (mark === undefined) return void (this.stuck = undefined);
+			if (mark === undefined) return void ((this.stuck = undefined), (this.retryAt = this.retryWait = 0));
 			if (mark === this.stuck) return;
 			const found = readJoinFile(path);
 			if (found.state === "absent") return;
@@ -484,7 +484,7 @@ export class TeamAdmin {
 			if (!invite) return void (await end({ outcome: "refused", why: "it holds no Straw Link invite" }));
 			const team = invite.team.toString("hex");
 			if (this.h.store.teamIds().includes(team)) return void (await end({ outcome: "already-member", team }));
-			const started = await this.joinStart({ text: found.text, unattended: true, outcome: (o) => end(o) });
+			const started = await this.joinStart({ text: found.text, unattended: true, resume: this.retryWait > 0, outcome: (o) => end(o) });
 			if (started.ok) return;
 			if (started.retry) {
 				// The relay or the network failed for a reason that may pass: the file stays, and the next try waits longer (30 s up to 5 min).

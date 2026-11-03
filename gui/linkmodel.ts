@@ -65,13 +65,13 @@ export function stateName(state: string): string {
 /** Whether the summary has anything to show in the HUD's Link button: a notice or a confirm. A quiet inbox note counts too, but a held message does not shout. */
 export const hasLinkNews = (s: LinkSummary | undefined): boolean => Boolean(s && (s.alerts.length || s.confirms.length));
 
-/** Where a forwarded dialog stands: asking, answered from here and not yet closed, or closed (how: by a controller, at the device, cancelled there, or ended with no answer). */
-export type DialogState = "open" | "sent" | "done-here" | "done-other" | "done-local" | "cancelled" | "expired";
+/** Where a forwarded dialog stands: asking, answered from here and not yet closed, or closed (how: by a controller, at the device, cancelled there, withdrawn from this controller because it lost `dispatch`, or ended with no answer). */
+export type DialogState = "open" | "sent" | "done-here" | "done-other" | "done-local" | "cancelled" | "expired" | "withdrawn";
 export function dialogState(a: Pick<LinkAlert, "data">): DialogState {
 	const { closed, answered } = a.data;
 	if (closed === undefined) return answered ? "sent" : "open";
 	if (closed === "remote") return answered ? "done-here" : "done-other";
-	return closed === "local" ? "done-local" : closed === "cancel" ? "cancelled" : "expired";
+	return closed === "local" ? "done-local" : closed === "cancel" ? "cancelled" : closed === "withdrawn" ? "withdrawn" : "expired";
 }
 
 /** The units an unattended device reported that belong to an ally base: those of its workspace, or all of them for a device whose presence names no workspace yet. */

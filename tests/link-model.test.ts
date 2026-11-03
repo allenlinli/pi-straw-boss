@@ -74,9 +74,9 @@ const forwarded = (extra: LinkAlert["data"] = {}, dialog: unknown = { select: SE
 
 test("a forwarded dialog names its device and owner, and its state reads from the holder's fields", () => {
 	assert.equal(alertLine(forwarded()), "ci-box (abc123) in team moldplan asks a question (rpiv).");
-	assert.deepEqual(([{}, { answered: 1 }, { closed: "remote" }, { closed: "remote", answered: 1 }, { closed: "local" }, { closed: "cancel" }, { closed: "gone" }] as LinkAlert["data"][]).map((d) => dialogState(forwarded(d))),
-		["open", "sent", "done-other", "done-here", "done-local", "cancelled", "expired"]);
-	for (const s of ["sent", "done-here", "done-other", "done-local", "cancelled", "expired"] as const) {
+	assert.deepEqual(([{}, { answered: 1 }, { closed: "remote" }, { closed: "remote", answered: 1 }, { closed: "local" }, { closed: "cancel" }, { closed: "withdrawn" }, { closed: "gone" }] as LinkAlert["data"][]).map((d) => dialogState(forwarded(d))),
+		["open", "sent", "done-other", "done-here", "done-local", "cancelled", "withdrawn", "expired"]);
+	for (const s of ["sent", "done-here", "done-other", "done-local", "cancelled", "withdrawn", "expired"] as const) {
 		assert.ok(dialogStateLine(s).length > 0);
 		assert.notEqual(m.link_dialog_sent({}, { locale: "zh-TW" }), m.link_dialog_sent());
 	}

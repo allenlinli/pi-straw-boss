@@ -15,6 +15,7 @@ export function dialogStateLine(state: Exclude<DialogState, "open">): string {
 		case "done-local": return m.link_dialog_done_local();
 		case "cancelled": return m.link_dialog_cancelled();
 		case "expired": return m.link_dialog_expired();
+		case "withdrawn": return m.link_dialog_withdrawn();
 	}
 }
 

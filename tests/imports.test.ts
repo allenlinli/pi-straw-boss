@@ -690,7 +690,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen Z4b (companion keys, palette, status strip) to 4380 measured, +159 over the 4221 the branch base measured (the figure above had not followed Z5 and the earlier merges): gui/palette.ts (63, new: the shared component), gui/paletteentries.ts (38, new: Zen's entries), zen.ts 277 to 309 (cycle, the palette's mount and entries, the strip), zentypes.ts 61 to 69 (the core's selectors, the settings route, a music switch), pagecore.ts 191 to 196, units.ts 18 to 31 (companionsOf, activityOf); hotkeys.ts has its own figure (68 to 71: the alt and mod rows, the platform).
 	// Z4b review fixes and the merge with Z4d: 4492 measured (zen.ts 333, hotkeys.ts 73, palette.ts 67).
 	// Merge of feat/link-unattended with 0.55.0: 4971 measured (Zen's Z-D16 trim, -133, under the S4b/S5/ut-s6 additions).
-	assert.ok(page <= 4971, `the page's TypeScript has ${page} lines`);
+	// UT6-F003 (the `withdrawn` dialog state): 4972 measured, +1 (one line in dialogState).
+	assert.ok(page <= 4972, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -825,7 +826,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Forwarded dialog cards (feat/link-unattended-dialog-gui): 92,381 / 33,199 (measured), +545 raw / +204 gzipped over the 91,836 / 32,995 the branch base (af392fb, S1 to S4a merged) measures, which already stood 302 / 66 over the cap above: the notice's `dialogState`, the lazy load, and the card's rows in linkbar.ts, and the eight state words used by the lazy cards stay out. The cards and the question panel (ask.ts) are lazy chunks. Cap = measured + 15.
 	// Unit status and notices (S5): 93,683 / 33,591 (measured), +1,302 raw / +392 gzipped over the 92,381 / 33,199 the branch base measures: the notice's line and Clear, the ally base's unit list (`unitsFor`, `unitLine`), and five messages in both languages.
 	// Merge with 0.55.0 (Zen Z-D12 to Z-D16 on main): 93,905 / 33,636 (measured), +222 / +45 over the S5 figure. Cap = measured + 15.
-	assert.ok(eagerBytes <= 93_920 && eagerGz <= 33_651, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// UT6-F003 (`withdrawn` state and its two messages): 93,933 / 33,650 (measured), +28 raw / +14 gzipped over the merge figure. Cap = measured + 15.
+	assert.ok(eagerBytes <= 93_948 && eagerGz <= 33_665, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).

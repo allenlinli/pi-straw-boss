@@ -32,6 +32,8 @@ export class FakeRelay {
 	failPosts = 0;
 	/** The next this many join requests are answered 503 (a relay that is down for a moment). */
 	failJoins = 0;
+	/** The next this many join requests are taken and then answered 503 (the request landed, the answer was lost). */
+	landJoins = 0;
 	/** Kinds this relay does not know (a relay older than a kind): a POST of one is refused with 422 `unknown-kind`. */
 	rejectKinds = new Set<string>();
 	/** Invites by hash: who made it, the team, and whether a join request was taken. */
@@ -131,6 +133,7 @@ export class FakeRelay {
 		const request = Buffer.from(String(body.request), "base64url");
 		this.joined.push({ hash, request });
 		for (const s of this.streams.filter((x) => x.team === inv.team && x.device === inv.by && !x.closed)) this.send(s, "join", { hash, request: request.toString("base64url") });
+		if (this.landJoins > 0) return (this.landJoins--, json(503, { error: "unavailable" }));
 		return json(202, { queued: true });
 	}
 

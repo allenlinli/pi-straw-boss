@@ -552,19 +552,19 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	// pi-intercom: the server's own session, reconnecting with the sidecar's backoff (1, 2, 5, 10, then 30 s). While it is disconnected its identities are not live.
 	// The link holder (B3): the primary server only, built once the first connection is attached (the kit's channel needs a client). A computer with no team set up gets no channel, election, or files.
 	const dialogsOut = () => (forwarder ??= new DialogForwarder({
-		...guiHost!.dialogs(), controllers: () => link?.holder?.dialogControllers() ?? [],
+		...guiHost!.dialogs(), controllers: () => link?.holder?.dialogControllers() ?? [], online: (team, device) => link?.holder?.deviceOnline(team, device) ?? false, controllersKnown: () => link?.holder?.controllersKnown() ?? false,
 		post: async (team, device, kind, payload) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, kind, payload); },
 		log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),
 		now, notice: (key, notice) => unitsOut().notify(key, notice),
 	}));
-	/** The label a unit is told under (scrubbed) → its workspace's own label, for the report lookup. */
-	const unitLabels = new Map<string, string>();
+	/** `team\nlabel` a unit is told under (scrubbed) → its workspace id, for the report lookup: two workspaces may share a label, and a team reads only its own. */
+	const unitWorkspaces = new Map<string, string>();
 	const unitsOut = () => (reporter ??= new UnitReporter({
 		controllers: () => link?.holder?.dialogControllers() ?? [],
 		// Per team: the units whose workspace has a pane inside that team's project, when its policy shares status. Labels and monitor commands leave this computer, so they pass the same scrub as a board's.
 		units: async (team) => {
 			const policy = link?.holder?.policyOf(team), rows = towers?.status() ?? [];
-			unitLabels.clear();
+			for (const k of [...unitWorkspaces.keys()]) if (k.startsWith(`${team}\n`)) unitWorkspaces.delete(k);
 			if (policy?.share !== "status" || !rows.length) return [];
 			const here = await panes(cfg.run).catch(() => []), mons = guiHost!.dialogs().hub.monitors(), by = new Map<string, string[]>();
 			for (const m of mons) {
@@ -573,13 +573,13 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			}
 			return rows.filter((r) => here.some((p) => p.workspace_id === r.workspace && p.cwd !== undefined && inside(p.cwd, policy.project))).map((r) => {
 				const unit = allyLabel(r.label);
-				unitLabels.set(unit, r.label);
+				unitWorkspaces.set(`${team}\n${unit}`, r.workspace);
 				return { unit, state: r.service?.state ?? r.state, monitors: (by.get(r.workspace) ?? []).slice(0, 6) };
 			});
 		},
 		// The later of the unit's last `tower_done` summary and the last `tower_send` text to this controller.
-		report: (unit, device) => {
-			const own = unitLabels.get(unit) ?? unit, ws = towers?.status().find((r) => r.label === own)?.workspace, note = ws ? readNotes(slot, ws).at(-1) : undefined, sent = link?.holder?.lastSentTo(own, device);
+		report: (unit, device, team) => {
+			const ws = unitWorkspaces.get(`${team}\n${unit}`), note = ws ? readNotes(slot, ws).at(-1) : undefined, sent = ws ? link?.holder?.lastSentTo(ws, device) : undefined;
 			return note && (!sent || Date.parse(note.at) >= sent.at) ? note.note : sent?.text ?? "";
 		},
 		status: async (team, device, units) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendUnitStatus(team, device, units); },
@@ -598,7 +598,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 					try {
 						await openTower({ run: cfg.run, towers: () => towers, now, home: o.link?.home ?? homedir(), agentDir: env.PI_CODING_AGENT_DIR ?? join(o.link?.home ?? homedir(), ".pi", "agent") }, project, toWorkspace);
 					} catch (error) {
-						void unitsOut().notify(`tower-open/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: project, text: `Could not open a tower for ${project}: ${(error as Error).message}` });
+						void unitsOut().notify(`tower-open/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: allyLabel(project), text: `Could not open a tower for ${project}: ${(error as Error).message}` });
 						throw error;
 					}
 				} },

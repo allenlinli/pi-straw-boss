@@ -215,6 +215,34 @@ test("a relay that fails for a moment at the join request keeps join.txt: it is 
 	assert.deepEqual(events(b, "join-file").map((e) => e.outcome), ["joined"]);
 });
 
+test("a join that reached the relay but lost its answer is not refused as used on the retry: it waits for approval, and join.txt going resets the wait", async () => {
+	const a = await computer("a", "alice-mac"), b = await computer("b", "ci-box", { unattended: true });
+	const { team, text } = await invited(a, b);
+	relay.landJoins = 1;
+	drop(b, text);
+	await until(() => events(b, "join-file-retry").length === 1, 3000, "the retry logged");
+	assert.equal(relay.joined.length, 1, "the first attempt landed");
+	b.clock.skew += 31_000;
+	const request = await until(() => a.holder.admin.joinRequests()[0], 3000, "the join request at A");
+	assert.deepEqual(await a.holder.admin.decide({ id: request.id, approve: true }), { ok: true, joined: true });
+	await until(() => !existsSync(b.join), 3000, "the file deleted");
+	assert.deepEqual(b.store.teamIds(), [team]);
+	assert.deepEqual(events(b, "join-file").map((e) => e.outcome), ["joined"]);
+});
+
+test("a retry wait ends when join.txt goes: the next file is read at once", async () => {
+	const a = await computer("a", "alice-mac"), b = await computer("b", "ci-box", { unattended: true });
+	const { text } = await invited(a, b);
+	relay.failJoins = 1;
+	drop(b, text);
+	await until(() => events(b, "join-file-retry").length === 1, 3000, "the retry logged");
+	b.clock.skew += 31_000;
+	rmSync(b.join);
+	await b.holder.admin.joinFileTick();
+	drop(b, text);
+	await until(() => relay.joined.length === 1, 3000, "the new file tried without the old wait");
+});
+
 test("a join.txt that cannot be removed is told once, not at every tick; a new file after it is taken", async () => {
 	const a = await computer("a", "alice-mac"), b = await computer("b", "ci-box", { unattended: true });
 	await invited(a, b);

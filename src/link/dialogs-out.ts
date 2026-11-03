@@ -1,0 +1,237 @@
+import { randomBytes } from "node:crypto";
+import { ANSWER_ID, checkAnswer, type Hub } from "../dialogs.ts";
+import type { Answer } from "../owners.ts";
+import { LIMITS, type DialogClose, type DialogOpen, type Notice } from "./kinds.ts";
+
+// Dialogs across devices (docs/specs/2026-10-25-straw-link.md, Unattended devices: Asking back; Message kinds: dialog-open, dialog-answer, dialog-close).
+// An unattended device has no one at its screen, so a question one of its sessions asks is forwarded to the controllers its policy trusts at `dispatch`
+// (`DialogForwarder`); a controller shows it (`DialogViews`) and answers it with `dialog-answer`. The unattended device takes an answer only from an attended
+// sender that is at `dispatch` now, for an open dialog, with the dialog's digest, under an answer id it has not seen; the first valid answer wins. What is
+// forwarded is the dialog the hub already lets a page answer (dialogs.ts `merge`): never a secret_drop, never one that waits in the terminal. The log carries
+// ids and outcomes, never a dialog's text.
+
+/** The `dialog` field of a `dialog-open`: what a controller needs to draw the question, as JSON. */
+export interface RemoteDialog { select?: unknown; questions?: unknown; cancel?: true }
+/** The `answer` field of a `dialog-answer`, as JSON: `{ choice }`, `{ answers }`, or `{ cancel: true }` (dialogs.ts `checkAnswer`). */
+export type RemoteAnswer = { choice: number } | { answers: unknown[] } | { cancel: true };
+
+/** The most dialogs one device keeps open for forwarding, and the answer ids it remembers. */
+const MAX_OPEN = 32, MAX_SEEN = 1024;
+
+export interface DialogsOutDeps {
+	hub: Pick<Hub, "onChange" | "answerable" | "outcome" | "send">;
+	/** One net reading, which binds the hub's relayed dialogs to their units (so `answerable` is current). */
+	read(): Promise<void>;
+	/** The attended devices at `dispatch` that are members of a running team now (empty on an attended computer). */
+	controllers(): { team: string; device: string }[];
+	post(team: string, device: string, kind: "dialog-open" | "dialog-close", payload: DialogOpen | DialogClose): Promise<void>;
+	log(entry: Record<string, unknown>): void;
+	/** Whether the controller's device has sent a presence lately. Absent: always online. An offline controller gets the open once (queued) and no refresh until it is back. */
+	online?(team: string, device: string): boolean;
+	/** False while `controllers()` may be short for a reason other than lost trust (the holder is stopped, a roster unreadable): nothing is withdrawn then. Absent: true. */
+	controllersKnown?(): boolean;
+	/** The clock (default `Date.now`), for the unanswered-dialog notice. */
+	now?(): number;
+	/** Tells the controllers (src/link/unitstatus.ts `UnitReporter.notify`); once per key. Absent: no notices. */
+	notice?(key: string, notice: Notice): void | Promise<void>;
+}
+/** A dialog nobody has answered this long is told to the controllers, once. */
+export const UNANSWERED_MS = 30 * 60_000;
+/** An open dialog is sent again to each controller this often, so a controller that lost it (a restart, a missed post) has it back, and one that expires views not refreshed (`OPEN_STALE_MS`) keeps it. */
+export const REFRESH_MS = 10 * 60_000;
+/** How long an answer that no session confirmed (`unknown`) is trusted to have landed before a dialog that is still open is taken as unanswered. */
+export const UNKNOWN_RECHECK_MS = 15_000;
+export interface DialogAnswerInput { team: string; from: string; dialogId: string; digest: string; answer: string; answerId: string }
+/** `sent` is where the dialog was last sent, per controller, and when; `claimed` is set while an answer is on its way or has been accepted; `unknownAt` is when an answer no session confirmed was sent. */
+interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Map<string, number>; away: Set<string>; claimed: boolean; unknownAt?: number; since: number; told: boolean }
+
+export class DialogForwarder {
+	private readonly d: DialogsOutDeps;
+	private open = new Map<string, Open>();
+	private skipped = new Set<string>();
+	private seen = new Set<string>();
+	private off: (() => void) | undefined;
+	private polling: Promise<void> | undefined;
+	private again = false;
+	constructor(d: DialogsOutDeps) {
+		this.d = d;
+	}
+	start(): void {
+		this.off ??= this.d.hub.onChange(() => void this.poll());
+	}
+	stop(): void {
+		this.off?.();
+		this.off = undefined;
+	}
+	/** The periodic look: a controller that gained `dispatch` while a dialog was open gets it now, and a dialog unanswered for 30 minutes is told once. */
+	tick(): Promise<void> {
+		return this.poll();
+	}
+	/** Looks at the hub now; calls that overlap run once more after the one in flight. */
+	poll(): Promise<void> {
+		if (this.polling) return ((this.again = true), this.polling);
+		const run = (async () => {
+			do {
+				this.again = false;
+				try {
+					await this.pass();
+				} catch (error) {
+					this.d.log({ event: "dialog-forward-failed", error: String((error as Error).message).slice(0, 200) });
+				}
+			} while (this.again);
+		})().finally(() => (this.polling = undefined));
+		return (this.polling = run);
+	}
+	private async pass(): Promise<void> {
+		const to = this.d.controllers();
+		if (!to.length && !this.open.size) return;
+		if (to.length) await this.d.read();
+		for (const o of to.length ? this.d.hub.answerable() : []) {
+			const id = o.target.answer.dialog;
+			if (this.open.has(id) || this.skipped.has(id)) continue;
+			const { select, questions, cancel } = o.target.answer, text = JSON.stringify({ ...(select ? { select } : {}), ...(questions ? { questions } : {}), ...(cancel ? { cancel } : {}) } satisfies RemoteDialog);
+			if (Buffer.byteLength(text) > LIMITS.dialog) {
+				this.skipped.add(id);
+				this.d.log({ event: "dialog-oversize", dialog: id, bytes: Buffer.byteLength(text) });
+				await this.d.notice?.(`oversize/${id}`, { kind: "dialog-oversize", unit: o.key, text: `A question of ${o.owner} was not forwarded: it is ${Buffer.byteLength(text)} bytes, over the ${LIMITS.dialog} the link carries. It waits at the device.` });
+				continue;
+			}
+			if (this.open.size >= MAX_OPEN) continue;
+			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, text, sent: new Map(), away: new Set(), claimed: false, since: this.now(), told: false });
+		}
+		for (const [id, d] of [...this.open]) {
+			const state = this.d.hub.outcome(id);
+			if (!state.open) {
+				this.open.delete(id);
+				for (const k of d.sent.keys()) await this.send(k, "dialog-close", { dialogId: id, by: state.by });
+				continue;
+			}
+			// An answer no session confirmed, and the dialog is still open a while after: it did not land, so the next valid answer may win and the controllers get the question open again.
+			if (d.claimed && d.unknownAt !== undefined && this.now() - d.unknownAt >= UNKNOWN_RECHECK_MS) {
+				d.claimed = false;
+				d.unknownAt = undefined;
+				d.sent.clear();
+			}
+			// A controller that lost `dispatch` is told the question is withdrawn; one that has it again gets it open again below.
+			for (const k of this.d.controllersKnown?.() === false ? [] : [...d.sent.keys()]) {
+				if (to.some((c) => `${c.team}\n${c.device}` === k)) continue;
+				d.sent.delete(k);
+				await this.send(k, "dialog-close", { dialogId: id, by: "withdrawn" });
+			}
+			if (!d.told && !d.claimed && to.length && this.now() - d.since >= UNANSWERED_MS) {
+				d.told = true;
+				await this.d.notice?.(`unanswered/${id}`, { kind: "dialog-unanswered", unit: d.key, text: `A question of ${d.owner} has waited ${Math.round((this.now() - d.since) / 60_000)} minutes for an answer.` });
+			}
+			for (const c of to) {
+				const k = `${c.team}\n${c.device}`;
+				const at = d.sent.get(k), up = this.d.online?.(c.team, c.device) ?? true;
+				if (!up) {
+					d.away.add(k);
+					if (at !== undefined) continue;
+				} else if (at !== undefined && !d.away.delete(k) && this.now() - at < REFRESH_MS) continue;
+				d.sent.set(k, this.now());
+				if (!(await this.send(k, "dialog-open", { dialogId: id, digest: d.target.answer.digest, owner: d.owner, dialog: d.text }))) d.sent.delete(k);
+			}
+		}
+		for (const id of [...this.skipped]) if (!this.d.hub.outcome(id).open) this.skipped.delete(id);
+	}
+	private now = () => this.d.now?.() ?? Date.now();
+	private async send(k: string, kind: "dialog-open" | "dialog-close", payload: DialogOpen | DialogClose): Promise<boolean> {
+		const [team, device] = k.split("\n") as [string, string];
+		try {
+			await this.d.post(team, device, kind, payload);
+			return true;
+		} catch (error) {
+			this.d.log({ event: "dialog-post-failed", kind, dialog: payload.dialogId, error: String((error as Error).message).slice(0, 200) });
+			return false;
+		}
+	}
+	/** Has the next pass send the dialog open again to one controller, so its card can be answered again. */
+	private reopen(d: Open, team: string, device: string): void {
+		d.sent.delete(`${team}\n${device}`);
+		void this.poll();
+	}
+	/**
+	 * An answer the holder has checked came from an attended member at `dispatch`. It counts only for an open dialog with the same digest, under an answer id not seen
+	 * before, and only the first such answer is carried to the session; the rest are dropped with a log line.
+	 */
+	async answer(a: DialogAnswerInput): Promise<void> {
+		const drop = (reason: string) => this.d.log({ event: "drop", reason, kind: "dialog-answer", from: a.from, dialog: a.dialogId });
+		const d = this.open.get(a.dialogId);
+		if (!d) return drop("dialog-answer-unknown");
+		if (d.target.answer.digest !== a.digest) return drop("dialog-answer-digest");
+		if (!ANSWER_ID.test(a.answerId) || this.seen.has(a.answerId)) return drop("dialog-answer-id");
+		this.seen.add(a.answerId);
+		while (this.seen.size > MAX_SEEN) this.seen.delete(this.seen.values().next().value!);
+		if (d.claimed) return drop("dialog-answer-late");
+		let json: unknown;
+		try {
+			json = JSON.parse(a.answer);
+		} catch {
+			return drop("dialog-answer-malformed");
+		}
+		if (typeof json !== "object" || json === null || Array.isArray(json)) return drop("dialog-answer-malformed");
+		const checked = checkAnswer(d.target.answer, json as Record<string, unknown>);
+		if (typeof checked === "string") return drop("dialog-answer-invalid");
+		// A choice only this computer may pick, and a cancel where every choice is, as control.ts holds a paired device to: the controller is one, whatever it sent.
+		const choices = d.target.answer.select?.choices;
+		if (("choice" in checked && choices?.[checked.choice]?.hereOnly) || ("cancel" in checked && choices?.every((c) => c.hereOnly))) {
+			this.reopen(d, a.team, a.from);
+			return drop("dialog-answer-here-only");
+		}
+		d.claimed = true;
+		const answer: Answer = { id: a.dialogId, answerId: a.answerId, digest: a.digest, ...checked };
+		const sent = await this.d.hub.send(d.key, d.target, answer);
+		const outcome = sent.body.outcome;
+		// Only an accepted answer keeps the dialog claimed. One the session turned down or could not take (`rejected`, `busy`, `unsent`) leaves it open for the next valid answer, and the
+		// controller that gave it gets the question open again; one no session confirmed (`unknown`) may have landed, so it is looked at again on a later pass (`UNKNOWN_RECHECK_MS`).
+		if (outcome === "unknown") d.unknownAt = this.now();
+		else if (outcome !== "accepted") {
+			d.claimed = false;
+			if (outcome !== "stale") this.reopen(d, a.team, a.from);
+		}
+		this.d.log({ event: "dialog-answered", dialog: a.dialogId, from: a.from, outcome });
+	}
+}
+
+/** A dialog an unattended device forwarded to this device, as the controller keeps it in memory. */
+export interface DialogView { team: string; device: string; dialogId: string; digest: string; owner: string; dialog: string; at: number; answered: boolean; /** The `by` of the `dialog-close` that ended it, and when it came: the card says how it ended for a while. */ closed?: { by: string; at: number } }
+const MAX_VIEWS = 50;
+/** How long a card of an ended dialog stays, to say how it ended. */
+export const CLOSED_MS = 2 * 60_000;
+/** How long an open dialog stays without its device sending it again (it does every `REFRESH_MS`): a device that went away does not leave a question nobody can answer. */
+export const OPEN_STALE_MS = 25 * 60_000;
+
+/** The forwarded dialogs waiting here, the latest per device and dialog id. */
+export class DialogViews {
+	private views = new Map<string, DialogView>();
+	private key = (device: string, dialogId: string) => `${device}\n${dialogId}`;
+	/** Returns whether the dialog is new (not a replacement of one held). */
+	put(v: Omit<DialogView, "answered">): boolean {
+		const k = this.key(v.device, v.dialogId), held = this.views.get(k);
+		this.views.delete(k);
+		// A dialog-open for a dialog held opens it for answering again, answered before or not: the device sends it again after it turned an answer down or lost it (`DialogForwarder`).
+		this.views.set(k, { ...v, answered: false });
+		while (this.views.size > MAX_VIEWS) this.views.delete(this.views.keys().next().value!);
+		return !held;
+	}
+	drop(device: string, dialogId: string): void {
+		this.views.delete(this.key(device, dialogId));
+	}
+	/** The dialog ended (the device's `dialog-close`): it stays as a card that says how, until `CLOSED_MS` has passed. */
+	close(device: string, dialogId: string, by: string, at: number): void {
+		const v = this.views.get(this.key(device, dialogId));
+		if (v) v.closed = { by, at };
+	}
+	get(device: string, dialogId: string): DialogView | undefined {
+		return this.views.get(this.key(device, dialogId));
+	}
+	/** Those of devices `keep` still counts as members; an ended one only until `CLOSED_MS` after it ended, and an open one only until `OPEN_STALE_MS` after the device last sent it. */
+	list(keep: (v: DialogView) => boolean, now: number): DialogView[] {
+		for (const [k, v] of this.views) if (!keep(v) || (v.closed ? now - v.closed.at > CLOSED_MS : now - v.at > OPEN_STALE_MS)) this.views.delete(k);
+		return [...this.views.values()];
+	}
+}
+
+/** A fresh answer id (32 hex characters, which `ANSWER_ID` takes). */
+export const newAnswerId = () => randomBytes(16).toString("hex");

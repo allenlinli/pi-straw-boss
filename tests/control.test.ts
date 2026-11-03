@@ -793,6 +793,7 @@ test("Straw Link's team settings: this computer's page asks the holder by name (
 			seen.push([name, args]);
 			if (name === "invite") return { ok: true, text: "strawlink1:abc", expires: 1, hash: "h" };
 			if (name === "state") return { ok: true, view: { teams: [], prefill: { kind: "join", text: "strawlink1:secret", reason: "r", session: "s" } } };
+			if (name === "dialog-answer") return args.digest === "good" ? { ok: true } : { ok: false, error: "The question changed; look at it again" };
 			return name === "trust" ? { ok: false, error: "That device is in none of this computer's teams" } : { ok: true };
 		},
 	};
@@ -805,6 +806,7 @@ test("Straw Link's team settings: this computer's page asks the holder by name (
 	assert.deepEqual([refused.status, refused.body.error, refused.body.reason], [409, "link_failed", "That device is in none of this computer's teams"]);
 	assert.equal((await send(gui, "link/enable", {})).status, 200);
 	assert.equal(enabled, 1);
+	assert.equal((await send(gui, "link/dialog-answer", { device: "d1", dialogId: "D1", digest: "good", answer: { choice: 0 } }, { "x-sb-csrf": "wrong" })).status, 403, "an answer needs the page's secret");
 	assert.equal((await send(gui, "link/explode", {})).status, 404);
 	assert.equal((await send(gui, "link/invite", { team: "t1" }, { "x-sb-csrf": "wrong" })).status, 403, "the page's secret is needed");
 	assert.deepEqual(seen.map(([n]) => n), ["invite", "trust"]);
@@ -813,11 +815,14 @@ test("Straw Link's team settings: this computer's page asks the holder by name (
 	assert.equal(state.status, 200);
 	assert.deepEqual((state.body as { view: { prefill: Record<string, unknown> } }).view.prefill, { kind: "join", reason: "r", session: "s" }, "a pending invite text is not shown to a paired device");
 	assert.equal((await phone.post("link/confirm-answer", { dialogId: "d", allow: true })).status, 200);
+	assert.equal((await phone.post("link/dialog-answer", { device: "d1", dialogId: "D1", digest: "good", answer: { choice: 0 } })).status, 200, "a paired phone answers a forwarded dialog like a forwarded confirm");
+	const wrong = await phone.post("link/dialog-answer", { device: "d1", dialogId: "D1", digest: "stale", answer: { choice: 0 } });
+	assert.deepEqual([wrong.status, wrong.body.error, wrong.body.reason], [409, "link_failed", "The question changed; look at it again"], "the holder's refusal of another digest reaches the page");
 	for (const name of ["create", "invite", "decide", "join-start", "trust", "remove", "role", "rotate", "leave", "enable", "invite-text"]) {
 		const r = await phone.post(`link/${name}`, {});
 		assert.deepEqual([name, r.status, r.body.error], [name, 403, "local_only"], `${name} is this computer's own page's`);
 	}
-	assert.deepEqual(seen.map(([n]) => n), ["invite", "trust", "state", "confirm-answer"], "the holder heard nothing from the paired device but those two");
+	assert.deepEqual(seen.map(([n]) => n), ["invite", "trust", "state", "confirm-answer", "dialog-answer", "dialog-answer"], "the holder heard nothing from the paired device but those");
 });
 
 test("a dialog the owner relays and no net reading bound yet is matched by the pane and file of the session the guard holds: a paired device's key, paste, and the queue's Edit get 403 local_only; this computer's page is not limited", async () => {

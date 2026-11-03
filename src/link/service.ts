@@ -5,12 +5,11 @@ import { join } from "node:path";
 import type { Session } from "../herdr.ts";
 import { startOf } from "../startof.ts";
 import { type Channel, type Kit, REGISTER } from "../state.ts";
-import { readLinkConfig } from "./config.ts";
 import type { DeviceKeys } from "./device.ts";
 import { holderAlive, LinkElection } from "./election.ts";
 import { LinkHolder, type HolderOptions, type RelayPort, type SendResult } from "./holder.ts";
 import { createLevelOf } from "./level.ts";
-import { type PolicyDeps, readPolicy } from "./policy.ts";
+import { type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
 import { RelayClient } from "./relay.ts";
 import type { NetView } from "./routing.ts";
 import { type HolderRecord, LinkStore } from "./store.ts";
@@ -58,8 +57,10 @@ export interface ServiceOptions {
 	/** A notice for the boss. The server has no screen: it goes to the log, and the last few are in `status()`. */
 	notify: (text: string, level?: "info" | "warning" | "error") => void;
 	deps?: ServiceDeps;
+	/** An unattended device: takes a `dialog-answer` the holder has checked (src/link/dialogs-out.ts). */
+	dialogAnswer?: HolderOptions["dialogAnswer"];
 	/** The tower service of the same server (towers.ts), when it runs: the asks local towers made for their mains, and what to tell when messages wait for a tower identity it runs. */
-	tower?: Pick<HolderOptions, "asks" | "served"> & {
+	tower?: Pick<HolderOptions, "asks" | "served" | "openTower"> & {
 		/** An answer to a `forward` confirm for a tower identity the server runs (an ally run waits for it): true when the server took it, so it is not published on the channel. */
 		confirmed?: (tower: string, dialogId: string, allow: boolean) => boolean;
 	};
@@ -73,14 +74,19 @@ export interface Notice { at: number; level: "info" | "warning" | "error"; text:
 type Answer = { ok: boolean; error?: string; [key: string]: unknown };
 type ChannelEvent = { type: string; fromSessionId?: string; payload?: unknown };
 
-export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower }: ServiceOptions) {
+export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer }: ServiceOptions) {
 	const { pi, cfg } = kit;
 	const store = new LinkStore(join(stateDir, "link"));
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
-	const config = () => readLinkConfig(stateDir, { home, agentDir });
-	const inUse = () => config().teams.size > 0 || store.teamIds().length > 0 || store.enabled;
+	/** The policy file's reading, with this server's home and agent folder for the projects of its teams. */
+	const policyDeps: PolicyDeps = { home, agentDir, ...opts.policy };
+	const policy = () => readPolicy(policyDeps);
+	/** The teams and trust every reader sees: the policy file's on an unattended device, config.json's otherwise (policy.ts `readEffectiveConfig`). */
+	const config = () => readEffectiveConfig(policy(), stateDir, { home, agentDir });
+	/** An unattended device is in use before it has a team, so its first look makes `device.json` and `device.id` for the infra to read. */
+	const inUse = () => policy().mode === "unattended" || config().teams.size > 0 || store.teamIds().length > 0 || store.enabled;
 	/** Whether this computer's policy leaves it attended: the GUI's team changes and `link_request` are for an attended computer only. */
-	const attended = () => readPolicy(opts.policy).mode === "attended";
+	const attended = () => policy().mode === "attended";
 	/** The session that hosts the GUI server (gui.json): the only one whose GUI requests the holder takes, besides this server itself once it hosts the GUI. */
 	const guiOwner = (): string | undefined => {
 		try {
@@ -94,7 +100,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 	let ticker: ReturnType<typeof setInterval> | undefined, looking: Promise<void> | undefined;
 	const holderUp = opts.alive ?? holderAlive();
 	const notices: Notice[] = [];
-	let lookError = "";
+	let lookError = "", refusedTold = "";
 	const sid = () => kit.me();
 	const note = (raw: string, level: "info" | "warning" | "error" = "info") => {
 		const text = restrictNotice(raw);
@@ -108,6 +114,11 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 		if (error.message === lookError) return;
 		lookError = error.message;
 		note(`Straw Link: the link holder could not start: ${error.message}`, "error");
+	};
+	/** Why no holder runs, when the policy is refused. */
+	const refusal = (): string | undefined => {
+		const found = policy();
+		return found.mode === "refused" ? `Straw Link: unattended mode is refused (${found.reason}); no link holder runs on this computer` : undefined;
 	};
 	const failed = (what: string) => (error: Error) => store.log({ event: `${what}-failed`, error: error.message });
 
@@ -145,7 +156,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 				if (!tower?.confirmed?.(to, dialogId, allow)) void publish({ version: 1, type: "confirmed", to, id: dialogId, allow });
 			},
 			drainMs: opts.drainMs, presenceMs: opts.presenceMs, boardMinMs: opts.boardMs, offerAgainMs: opts.offerAgainMs, capsMs: opts.capsMs, capsMinMs: opts.capsMinMs,
-			...(tower?.asks ? { asks: tower.asks } : {}), ...(tower?.served ? { served: tower.served } : {}),
+			...(tower?.asks ? { asks: tower.asks } : {}), ...(tower?.served ? { served: tower.served } : {}), ...(dialogAnswer ? { dialogAnswer } : {}), ...(tower?.openTower ? { openTower: tower.openTower } : {}),
 		});
 		holder = fresh;
 		await fresh.start();
@@ -163,6 +174,13 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 	/** One look at the election, serialised: the server looks at the record, and takes it when the rules say it may. */
 	const look = (): Promise<void> => (looking ??= (async () => {
 		if (stopped) return;
+		// A refused policy means no holder: the election is left (a holder that ran is stopped) and the reason is said once.
+		const found = policy();
+		if (found.mode === "refused") {
+			if (refusedTold !== found.reason) (refusedTold = found.reason, store.log({ event: "policy-refused", reason: found.reason }), note(`Straw Link: unattended mode is refused (${found.reason}); no link holder runs on this computer`, "error"));
+			return void (await election?.release());
+		}
+		refusedTold = "";
 		if (!inUse()) return void (await election?.release());
 		if (!sid()) return;
 		if (!connect()) return;
@@ -191,7 +209,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 	/** What the holder does for a request; the holder itself checks that the sender is the tower of a bound workspace. */
 	const handle = async (body: unknown, from: string): Promise<unknown> => {
 		const op = (typeof body === "object" && body !== null ? body : {}) as { op?: unknown; device?: unknown; workspace?: unknown; text?: unknown; reply?: unknown; allow?: unknown; team?: unknown; dialogId?: unknown; digest?: unknown; tool?: unknown; args?: unknown; tower?: unknown; id?: unknown };
-		if (!holder?.active || !election?.isHolder()) return { ok: false, code: "no_holder", error: inUse() ? "The link holder is not running in the sb server yet; ask again in a moment" : NOT_SET_UP };
+		if (!holder?.active || !election?.isHolder()) return { ok: false, code: "no_holder", error: refusal() ?? (inUse() ? "The link holder is not running in the sb server yet; ask again in a moment" : NOT_SET_UP) };
 		const only = Array.isArray((body as { teams?: unknown }).teams) ? ((body as { teams: unknown[] }).teams.filter((t) => typeof t === "string") as string[]) : undefined;
 		if (op.op === "list") return { ok: true, teams: holder.list(only) };
 		if (op.op === "board-read") return holder.boards({ ...(only ? { only } : {}), ...(typeof op.device === "string" ? { device: op.device } : {}) });
@@ -240,6 +258,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 			case "rotate": return h.admin.rotate({ team: text("team") });
 			case "trust": return h.admin.trust({ device: text("device"), level: text("level") as "reply" });
 			case "leave": return h.admin.leave({ team: text("team"), force: a.force === true });
+			case "dialog-answer": return typeof a.answer === "object" && a.answer !== null && !Array.isArray(a.answer) ? h.answerDialog(text("device"), text("dialogId"), text("digest"), JSON.stringify(a.answer)) : { ok: false, error: "Answer the question" };
 			case "confirm-answer": return typeof a.allow === "boolean" ? h.answerConfirm(text("dialogId"), a.allow) : { ok: false, error: "Allow or deny" };
 			default: return { ok: false, error: "unknown request" };
 		}
@@ -291,7 +310,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 		/** The teams and projects of config.json, read fresh. */
 		config,
 		/** The level this computer gives a device (the policy file's, else `link.trust`, else `reply`): an ally run is claimed at it. */
-		levelOf: createLevelOf({ config, policy: opts.policy, log: (event) => store.log(event), tell: (text, level) => note(text, level) }),
+		levelOf: createLevelOf({ config, policy: policyDeps, log: (event) => store.log(event), tell: (text, level) => note(text, level) }),
 	};
 	return api;
 }

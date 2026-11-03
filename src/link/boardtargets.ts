@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { readLinkConfig } from "./config.ts";
+import { type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
 import { replayEncoded } from "./roster.ts";
 import { inside } from "./routing.ts";
 import { LinkStore } from "./store.ts";
@@ -9,8 +9,8 @@ import { LinkStore } from "./store.ts";
 
 export interface BoardTarget { name: string; devices: number }
 
-export function boardTargets(stateDir: string, dir: string, o: { home: string; agentDir: string }): BoardTarget[] {
-	const config = readLinkConfig(stateDir, o);
+export function boardTargets(stateDir: string, dir: string, o: { home: string; agentDir: string; policy?: PolicyDeps }): BoardTarget[] {
+	const config = readEffectiveConfig(readPolicy({ home: o.home, agentDir: o.agentDir, ...o.policy }), stateDir, o);
 	if (config.teams.size === 0) return [];
 	const store = new LinkStore(join(stateDir, "link"));
 	return [...config.teams].flatMap(([team, policy]): BoardTarget[] => {

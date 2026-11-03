@@ -714,6 +714,12 @@
 			}
 		}
 	],
+	"link_a_dialog": "{label} ({short}) in team {team} asks a question ({owner}).",
+	"link_a_notice": "{label} ({short}), unattended, in team {team} — {what}, {unit}: {text}",
+	"link_notice_clear": "Clear",
+	"link_unit_monitors": "{count} monitors running",
+	"link_unit_report": "Last report",
+	"link_unit_stale": "no status lately",
 	"tower_state_waking": "waking",
 	"tower_state_closing": "closing",
 	"tower_state_held": "held",
@@ -995,5 +1001,14 @@
 	"pal_louder": "Volume up",
 	"pal_quieter": "Volume down",
 	"pal_music": "Music",
+	"link_dialog_sent": "Your answer was sent; the device has not closed the question yet.",
+	"link_dialog_done_here": "You answered it from here.",
+	"link_dialog_done_other": "Answered by another controller of this team.",
+	"link_dialog_done_local": "Answered at the device itself.",
+	"link_dialog_cancelled": "It was cancelled at the device.",
+	"link_dialog_expired": "It ended before anyone answered it.",
+	"link_dialog_withdrawn": "You no longer answer this device's questions; it is still open there.",
+	"link_dialog_unreadable": "This question could not be shown here. Answer it at the device.",
+	"link_dialog_error": "The answer was not sent: {reason}",
 	"zen_rest": "Back to the breath"
 }

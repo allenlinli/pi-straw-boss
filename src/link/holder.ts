@@ -5,11 +5,11 @@ import { MAX_BODY_BYTES } from "./wire.ts";
 import { restrictLabel } from "./text.ts";
 import { createHash, randomBytes } from "node:crypto";
 import type { Session } from "../herdr.ts";
-import type { LinkConfig } from "./config.ts";
+import type { LinkConfig, Share } from "./config.ts";
 import { shortId, type DeviceKeys } from "./device.ts";
 import { buildEnvelope, openEnvelope, parseEnvelope, recordTaken, type Header, type ReceiveState } from "./envelope.ts";
 import { PayloadTooLargeError, RelayError, UnauthorizedError } from "./errors.ts";
-import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, encodePlaintext, LIMITS, type Presence, type TowerMessage, type TowerReply, type WorkspaceState } from "./kinds.ts";
+import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, LIMITS, type Notice, type Presence, type TowerMessage, type TowerReply, type UnitStatus, type WorkspaceState } from "./kinds.ts";
 import { type AdminRun, type InviteView, type JoinRequestView, type JoinView, type Prefill, TeamAdmin, type TeamView } from "./admin.ts";
 import { Outbox, type QueuedEnvelope } from "./outbox.ts";
 import { Requests } from "./request.ts";
@@ -19,6 +19,7 @@ import { inside, nearestTeams, oneTeamEach, resolveDevice, towersFor, type Membe
 import type { Backoff, Sleep } from "./retry.ts";
 import type { Disposition, EnvelopeEvent, RelayEvent, RosterEvent } from "./sse.ts";
 import { TeamFileError, type InboxItem, type LinkStore, type TeamFile, type ThreadRow } from "./store.ts";
+import { type DialogAnswerInput, DialogViews, newAnswerId } from "./dialogs-out.ts";
 import { towerRunsEnabled } from "../server/towerruns.ts";
 
 // The link holder's work (docs/specs/2026-10-25-straw-link.md, Link holder). Only the session the election names runs this: it reads the device
@@ -75,9 +76,13 @@ export interface HolderOptions {
 	asks?: { take(q: { team: string; device: string; ask: string }): { main: string; mainName: string; tower: string; workspace: string } | undefined };
 	/** Told, at each pass of the inbox, that messages wait for a tower identity the sb server runs (src/server/towers.ts): an ally run is woken for them. */
 	served?: (identity: string) => void;
+	/** Opens a tower for the team's project (src/server/opentower.ts): asked only for a `dispatch` sender, on an unattended device, when no tower of the project is open. Absent: nothing is opened. */
+	openTower?: (project: string, toWorkspace?: string) => Promise<void>;
 	/** How often `caps` is sent unchanged (default an hour) and the least time between two (default 15 s). */
 	capsMs?: number;
 	capsMinMs?: number;
+	/** An unattended device: where a `dialog-answer` goes once the sender is checked to be attended and at `dispatch` now (src/link/dialogs-out.ts `DialogForwarder.answer`, which checks the rest). */
+	dialogAnswer?: (a: DialogAnswerInput) => void | Promise<void>;
 }
 
 export interface ConfirmRequestInput { fromSession: string; team: string; device: string; dialogId: string; digest: string; tool: string; args: string; tower: string }
@@ -89,16 +94,22 @@ const CONFIRM_MAX = 20;
 export interface SendRequest { fromSession: string; device: string; workspace?: string; text: string; reply: boolean; awaitsReply?: string; inReplyTo?: string }
 export type SendResult = { ok: true; text: string; details: Record<string, unknown> } | { ok: false; error: string };
 /** What the GUI shows as a notice. `data` is plain text and numbers: the page puts them in text nodes. */
-export type AlertKind = "join-request" | "confirm" | "fork" | "mismatch" | "unreachable" | "inbox" | "held" | "served";
+export type AlertKind = "join-request" | "confirm" | "dialog" | "fork" | "mismatch" | "unreachable" | "inbox" | "held" | "served" | "notice";
 /** A tower the sb server runs (src/server/towers.ts) is an identity, not a session: it takes no offer, so what is for it waits in the inbox until an ally run takes it (B6). */
 const SERVED_TOWER = /^sb-tower-/;
+const OPEN_BACKOFF_MS = 60_000;
 /** The pi the server started for a run, which sits in the standing pane while the run lives: the message is the tower's, even if the run's pi is the session found there. */
 const SERVED_RUN = /^tower run · /;
 export interface LinkAlert { id: string; kind: AlertKind; level: "info" | "warning" | "error"; team: string; teamName: string; data: Record<string, string | number> }
 /** A teammate's workspace as the map shows it beside the local bases (spec, GUI). */
 export interface AllyBase { id: string; team: string; teamName: string; device: string; short: string; label: string; online: boolean; workspace: string | null; tower: string; tabs: { label: string; state: string }[] }
 /** The compact reading the net snapshot carries: it changes only when something worth redrawing does. */
-export interface LinkSummary { allies: AllyBase[]; alerts: LinkAlert[]; confirms: ConfirmView[] }
+/** What an unattended device last said about its units (`unit-status`, kept in memory): shown beside its ally bases while it keeps saying it. */
+/** `stale` is set when the device has sent no status for `UNITS_FRESH_MS`: what is shown is its last one. */
+export interface DeviceUnits { team: string; device: string; units: UnitStatus[]; stale?: true }
+export interface LinkSummary { allies: AllyBase[]; alerts: LinkAlert[]; confirms: ConfirmView[]; units: DeviceUnits[] }
+/** Units a peer's `unit-status` may carry that are kept; how long one counts as current; how many notices are kept, and for how long. */
+const UNITS_MAX = 32, UNITS_FRESH_MS = 3 * 60_000, UNITS_GONE_MS = 30 * 60_000, NOTICES_KEPT = 20, NOTICE_KEEP_MS = 24 * 3600_000;
 /** The whole state the team settings page draws. */
 export interface LinkView extends LinkSummary {
 	deviceId: string;
@@ -154,6 +165,9 @@ interface TeamRun {
 	lastEphemeral: Map<string, number>;
 	/** The last `caps` of each peer, in memory only: the relay gives it back on the next stream. */
 	caps: Map<string, { at: number; features: string[] }>;
+	/** The last `unit-status` of each unattended peer, in memory only, and the `ts` of the last one this device sent (an ephemeral kind's `ts` has to rise). */
+	units: Map<string, { at: number; units: UnitStatus[] }>;
+	unitTs: number;
 	/** What this holder last sent as `caps` to the team: when, the `ts` used, and until when a relay that refused the kind is left alone. */
 	capsSent: { at: number; ts: number; offUntil: number };
 	/** Until when a relay that refused `tower-reply` is not sent one (a plain `tower` goes instead). */
@@ -187,11 +201,16 @@ export class LinkHolder {
 	private asked = new Map<string, { team: string; device: string; digest: string; tower: string; at: number }>();
 	/** Confirm requests other devices put to this one. */
 	private confirms = new Map<string, ConfirmView>();
+	/** Dialogs unattended devices forwarded to this one (src/link/dialogs-out.ts). */
+	private dialogViews = new DialogViews();
 	private draining: Promise<void> | undefined;
 	private again = false;
 	/** Inbox messages no tower has taken yet: no tower open, or offered and not taken. For the GUI's notices. */
 	/** The main whose reply fell back to an ally run, per inbox id: a `taken` of that main that arrives afterwards (it read the item before the rewrite) does not remove the item an ally run is to get. */
 	private replyFellBack = new Map<string, string>();
+	/** Projects a tower is being opened for, and when an open of a project last ended, whether it worked or not (it is not tried again for `OPEN_BACKOFF_MS`: a tower that is slow to show in the net must not be opened again in a loop). */
+	private opening = new Map<string, Promise<void>>();
+	private openEnded = new Map<string, number>();
 	private waiting = new Map<string, { team: string; from: string; since: number; offered: boolean; served?: boolean; identity?: string }>();
 	/** When a `tower-reply` last fell back to a plain `tower`, by device, so the log tells it once an hour. */
 	private fellBack = new Map<string, number>();
@@ -208,7 +227,7 @@ export class LinkHolder {
 		const stateDir = o.stateDir ?? "", me = this;
 		this.admin = new TeamAdmin({
 			store: o.store, stateDir, home: o.home ?? "", agentDir: o.agentDir ?? "", now: () => this.now(),
-			device: () => this.device!, config: o.config, relayFor: (url, keys) => o.relay(url, keys),
+			device: () => this.device!, config: o.config, unattended: () => (o.attended ? !o.attended() : false), relayFor: (url, keys) => o.relay(url, keys),
 			runs: () => [...this.runs.values()], load: (team) => this.loadTeam(team),
 			takeEntries: (run, entries) => this.takeEntries(run as TeamRun, entries), syncRoster: (run) => this.syncRoster(run as TeamRun),
 			refresh: () => this.refresh(), stopTeam: async (team) => {
@@ -234,6 +253,7 @@ export class LinkHolder {
 		try {
 			this.device = await store.withLock(() => store.ensureDevice());
 			await this.refresh();
+			this.takeJoinFile();
 		} catch (error) {
 			// `running` stays false after a failed start, so the module sees there is no holder and nothing answers "queued" to a send.
 			await this.stop();
@@ -270,9 +290,15 @@ export class LinkHolder {
 		this.o.notify(text, level);
 	}
 
+	/** An unattended device's `link/join.txt` (admin.ts `joinFileTick`); the relay call it makes does not hold up the tick. */
+	private takeJoinFile(): void {
+		void this.admin.joinFileTick().catch((error: Error) => this.o.store.log({ event: "join-file-failed", error: error.message }));
+	}
+
 	private async tick(): Promise<void> {
 		if (!this.running) return;
 		await this.refresh();
+		this.takeJoinFile();
 		await this.drain();
 		await this.sendBoards();
 		await this.sendCaps();
@@ -293,7 +319,7 @@ export class LinkHolder {
 			if (config.teams.has(team) && (await this.stillStopped(team))) continue;
 			if (!config.teams.has(team)) {
 				if (this.admin.joiningTeam() === team) continue; // a join waiting for its project folder
-				this.tellOnce(`noconfig/${team}`, `Straw Link: team ${team.slice(0, 6)} has no entry under link.teams in config.json, so it takes no messages`, "info");
+				this.tellOnce(`noconfig/${team}`, `Straw Link: team ${team.slice(0, 6)} has no entry under link.teams in config.json (or in the policy file on an unattended device), so it takes no messages`, "info");
 				continue;
 			}
 			try {
@@ -303,7 +329,7 @@ export class LinkHolder {
 			}
 		}
 		for (const policy of config.teams.keys()) {
-			if (!store.teamIds().includes(policy)) this.tellOnce(`nofile/${policy}`, `Straw Link: team ${policy.slice(0, 6)} is in config.json but this device has no team file for it; join the team again`);
+			if (!store.teamIds().includes(policy)) this.tellOnce(`nofile/${policy}`, `Straw Link: team ${policy.slice(0, 6)} is in the team list (config.json, or the policy file on an unattended device) but this device has no team file for it; join the team again`);
 		}
 	}
 
@@ -374,7 +400,7 @@ export class LinkHolder {
 			},
 			onRetry: (_item, error) => store.log({ event: "send-retry", team, error: String(error) }),
 		});
-		const run: TeamRun = { team, teamId, client, outbox, stream: undefined, presences: new Map(), boards: new Map(), boardSent: { hash: undefined, looked: 0, at: 0, ts: 0, epoch: 0, offUntil: 0, wasEmpty: false }, lastEphemeral: new Map(), caps: new Map(), capsSent: { at: 0, ts: 0, offUntil: 0 }, replyOffUntil: 0, presenceTimer: undefined, dead: undefined, settled, haltTimer: undefined, gone, waiters, downSince: undefined, headDiff: new Map() };
+		const run: TeamRun = { team, teamId, client, outbox, stream: undefined, presences: new Map(), boards: new Map(), boardSent: { hash: undefined, looked: 0, at: 0, ts: 0, epoch: 0, offUntil: 0, wasEmpty: false }, lastEphemeral: new Map(), caps: new Map(), units: new Map(), unitTs: 0, capsSent: { at: 0, ts: 0, offUntil: 0 }, replyOffUntil: 0, presenceTimer: undefined, dead: undefined, settled, haltTimer: undefined, gone, waiters, downSince: undefined, headDiff: new Map() };
 		this.runs.set(team, run);
 		// What an earlier holder (or this one before a restart) built and did not see land goes first, in order, before anything new is accepted.
 		for (const item of store.outboxPending(team)) {
@@ -463,6 +489,7 @@ export class LinkHolder {
 		}
 		run.lastEphemeral = recordTaken(this.state(run, tf, roster), opened.header).lastEphemeral;
 		if (opened.header.kind === "board") run.boards.set(opened.header.from, { at: this.now(), ts: opened.header.ts, board: opened.message as Board });
+		if (opened.header.kind === "unit-status") this.takeUnitStatus(run, roster, opened.header, opened.message as { units: UnitStatus[] });
 		if (opened.header.kind === "caps") run.caps.set(opened.header.from, { at: this.now(), features: (opened.message as Caps).features });
 		if (opened.header.kind === "presence") {
 			const presence = opened.message as Presence;
@@ -493,6 +520,10 @@ export class LinkHolder {
 			else if (header.kind === "tower-reply") this.takeReply(run, roster, header, opened.message as TowerReply);
 			else if (header.kind === "confirm-request") this.takeConfirmRequest(run, roster, header, opened.message as ConfirmRequest);
 			else if (header.kind === "confirm-answer") this.takeConfirmAnswer(run, roster, header, opened.message as ConfirmAnswer);
+			else if (header.kind === "dialog-open") this.takeDialogOpen(run, roster, header, opened.message as DialogOpen);
+			else if (header.kind === "dialog-close") this.takeDialogClose(header, opened.message as DialogClose);
+			else if (header.kind === "dialog-answer") this.takeDialogAnswer(run, roster, header, opened.message as DialogAnswer);
+			else if (header.kind === "notice") this.takeNotice(run, roster, header, opened.message as Notice);
 			else store.log({ event: "unhandled-kind", team: run.team, kind: header.kind, from: header.from });
 			// The sequence guard moves only after the message is in the inbox (or known not to need it), in the same locked write (R-F021).
 			const next = recordTaken(state, header);
@@ -672,6 +703,7 @@ export class LinkHolder {
 			const picks = towersFor(net, policy.project, item.toWorkspace), first = picks[0];
 			if (!first) {
 				this.waiting.get(id)!.offered = false;
+				this.openFor(policy.project, item.from, item.toWorkspace || undefined, config.trust.get(item.from));
 				this.tellOnce(`inbox/${id}`, `Straw Link: a message from ${item.fromLabel} waits in the inbox; no tower is open on ${policy.project}${item.toWorkspace ? ` in workspace ${restrictLabel(item.toWorkspace)}` : ""}`, "info");
 				continue;
 			}
@@ -696,6 +728,31 @@ export class LinkHolder {
 				store.log({ event: "served-failed", error: String(error) });
 			}
 		}
+	}
+
+	/**
+	 * A controller at `dispatch` of an unattended device asked for a project that has no tower: one is opened for it (docs/specs/2026-10-26-sb-backend.md, Unattended devices). Never below `dispatch`, never on an attended
+	 * device. One open per project at a time and 60 s after the last one ended; the drain runs again when it is done, and the message then finds the tower the server runs.
+	 */
+	private openFor(project: string, from: string, toWorkspace: string | undefined, level: string | undefined): void {
+		const { openTower, store } = this.o;
+		if (!openTower || level !== "dispatch" || (this.o.attended?.() ?? true) || this.opening.has(project)) return;
+		const ended = this.openEnded.get(project);
+		if (ended !== undefined && this.now() - ended < OPEN_BACKOFF_MS) return;
+		store.log({ event: "tower-open", project, from });
+		const attempt = (async () => {
+			try {
+				await openTower(project, toWorkspace);
+				store.log({ event: "tower-opened", project });
+			} catch (error) {
+				store.log({ event: "tower-open-failed", project, error: (error as Error).message });
+			}
+		})().finally(() => {
+			this.openEnded.set(project, this.now());
+			this.opening.delete(project);
+			if (this.running) void this.drain();
+		});
+		this.opening.set(project, attempt);
 	}
 
 	/** Threads older than 7 days go, and so does the thread of a device that is no member of any team this computer still has a file for (it left, was removed, or this computer left the team). Under the lock. */
@@ -731,6 +788,11 @@ export class LinkHolder {
 
 	// ---- Sending -----------------------------------------------------------------------------------------------------------------------
 
+	/** The last text a tower of workspace id `workspace` sent to `device`, for the unit report an unattended device gives that controller. In memory only. */
+	private lastSent = new Map<string, { text: string; at: number }>();
+	lastSentTo(workspace: string, device: string): { text: string; at: number } | undefined {
+		return this.lastSent.get(`${workspace}\n${device}`);
+	}
 	async send(req: SendRequest): Promise<SendResult> {
 		const { store } = this.o;
 		if (!this.running || !this.device) return { ok: false, error: "This computer's link holder is not running" };
@@ -800,6 +862,8 @@ export class LinkHolder {
 		const who = members.find((m) => m.team === target.team && m.id === target.id);
 		const name = `${who?.label ?? "device"} (${shortId(target.id)})`;
 		if (outcome === undefined || outcome === "halted") run.gone.set(id, `the message to ${name}`);
+		this.lastSent.set(`${pane.workspace_id}\n${target.id}`, { text: req.text, at: this.now() });
+		while (this.lastSent.size > 64) this.lastSent.delete(this.lastSent.keys().next().value!);
 		store.log({ event: "send", team: run.team, to: target.id, id, outcome: outcome === undefined ? "queued" : outcome === "posted" ? "posted" : String(outcome) });
 		const details = { team: run.team, device: target.id, id, seq: queued.seq, as: kind, ...(req.awaitsReply !== undefined ? { asked: withAsk } : {}) };
 		const how = req.awaitsReply !== undefined ? (withAsk ? " It carries your ask id, so its answer comes back to the main that asked." : " That device\'s build does not take ask ids, so it went as a plain message and the answer will reach a fresh ally run here, not the main.") : req.inReplyTo !== undefined ? (kind === "tower-reply" ? " Sent as a reply to the ask." : " Sent as a plain message: that device\'s build takes no replies to an ask.") : "";
@@ -948,6 +1012,143 @@ export class LinkHolder {
 				plaintext: encodePlaintext("confirm-answer", { dialogId, digest: c.digest, allow, answerId: randomBytes(16).toString("hex") }),
 			});
 		});
+		return { ok: true };
+	}
+
+	// ---- Dialogs across devices (Unattended devices, Asking back) ------------------------------------------------------------------------
+
+	/** The project and share of a team in the policy now, or nothing for a team the policy does not name (what the unit status of the sb server is scoped by). */
+	policyOf(team: string): { project: string; share: Share } | undefined {
+		const policy = this.o.config().teams.get(team);
+		return policy && { project: policy.project, share: policy.share };
+	}
+	/** The attended members of a running team that this unattended device trusts at `dispatch` now: where its dialogs go. Nothing on an attended device. */
+	dialogControllers(): { team: string; device: string }[] {
+		return this.controllerRead().list;
+	}
+	/** False while the controller list cannot be trusted to be complete (the holder is not running, or a team's roster could not be read): a caller does not withdraw anything then. */
+	controllersKnown(): boolean {
+		return this.controllerRead().known;
+	}
+	/** Whether `device` of `team` has sent a presence recently (the same test the device list uses). */
+	deviceOnline(team: string, device: string): boolean {
+		const seen = this.runs.get(team)?.presences.get(device);
+		return seen !== undefined && this.now() - seen.at <= PRESENCE_ONLINE_MS;
+	}
+	private controllerRead(): { list: { team: string; device: string }[]; known: boolean } {
+		if (!this.running || !this.device) return { list: [], known: false };
+		if (this.o.attended?.() ?? true) return { list: [], known: true };
+		const trust = this.o.config().trust, list: { team: string; device: string }[] = [];
+		let known = true;
+		for (const run of this.runs.values()) {
+			if (run.dead) continue;
+			try {
+				for (const [id, m] of this.loadTeam(run.team).state.members) if (id !== this.device.keys.id && m.attended && trust.get(id) === "dispatch") list.push({ team: run.team, device: id });
+			} catch {
+				known = false;
+			}
+		}
+		return { list, known };
+	}
+	/** A `dialog-open`, `dialog-close`, or `notice` to one device of a team (the forwarder's and the unit reporter's way out). */
+	async sendDialog(team: string, device: string, kind: "dialog-open" | "dialog-close" | "notice", payload: DialogOpen | DialogClose | Notice): Promise<void> {
+		const run = this.runs.get(team);
+		if (!run || run.dead || !this.running || !this.device) throw new Error("That team is not running on this device");
+		if (!this.loadTeam(team).state.members.has(device)) throw new Error("That device is not in the team");
+		await run.outbox.submit((seq) => {
+			const { state } = this.loadTeam(team), key = state.keys.get(state.epoch);
+			if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
+			return buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device!.keys, seq, ts: this.now(), kind, to: [device], plaintext: encodePlaintext(kind, payload as never) });
+		});
+	}
+	/** A `unit-status` to one device of a team (ephemeral: no queue, no acknowledgement; the receiver keeps the latest). A relay that does not know the kind refuses it, and the reporter's next pass tries again. */
+	async sendUnitStatus(team: string, device: string, units: UnitStatus[]): Promise<void> {
+		const run = this.runs.get(team);
+		if (!run || run.dead || !this.running || !this.device) throw new Error("That team is not running on this device");
+		const { state } = this.loadTeam(team), key = state.keys.get(state.epoch);
+		if (!state.members.has(device)) throw new Error("That device is not in the team");
+		if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
+		// `ts` rises by at least 1 per status, so a receiver's per-sender guard never drops one for an equal clock reading.
+		const ts = (run.unitTs = Math.max(this.now(), run.unitTs + 1));
+		await run.client.postEnvelope(run.teamId, buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "unit-status", to: [device], plaintext: encodePlaintext("unit-status", { units }) }));
+	}
+	private takeUnitStatus(run: TeamRun, roster: RosterState, header: Header, p: { units: UnitStatus[] }): void {
+		const sender = roster.members.get(header.from);
+		// Only an attended device shows an unattended one's units; the envelope check enforces the kind's sender rule, this keeps the receiver honest on its own.
+		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "unit-status-unexpected", from: header.from, kind: "unit-status" });
+		run.units.set(header.from, { at: this.now(), units: p.units.slice(0, UNITS_MAX) });
+	}
+	/** A notice from an unattended device, kept in memory (the last `NOTICES_KEPT`, a day each) until the boss clears it on this page; clearing is local. */
+	private notices: { id: string; team: string; device: string; at: number; kind: string; unit: string; text: string }[] = [];
+	private takeNotice(run: TeamRun, roster: RosterState, header: Header, p: Notice): void {
+		const sender = roster.members.get(header.from);
+		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "notice-unexpected", from: header.from, kind: "notice" });
+		const id = createHash("sha256").update(`${header.from}\n${Buffer.from(header.id).toString("hex")}`).digest("hex").slice(0, 16);
+		if (this.notices.some((n) => n.id === id)) return;
+		this.notices.push({ id, team: run.team, device: header.from, at: this.now(), kind: p.kind, unit: p.unit, text: p.text });
+		while (this.notices.length > NOTICES_KEPT) this.notices.shift();
+	}
+	private memberLabel(team: string, device: string): string {
+		try {
+			return this.loadTeam(team).state.members.get(device)?.label ?? shortId(device);
+		} catch {
+			return shortId(device);
+		}
+	}
+	private takeDialogOpen(run: TeamRun, roster: RosterState, header: Header, p: DialogOpen): void {
+		const sender = roster.members.get(header.from);
+		// Only an attended device shows a question; only an unattended member of the team asks one (the envelope check enforces the kind's sender rule, this keeps the receiver honest on its own).
+		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "dialog-open-unexpected", from: header.from, kind: "dialog-open" });
+		const fresh = this.dialogViews.put({ team: run.team, device: header.from, dialogId: p.dialogId, digest: p.digest, owner: p.owner, dialog: p.dialog, at: this.now() });
+		if (fresh) this.o.notify(`Straw Link: ${sender.label} asks a question (${restrictLabel(p.owner)})`, "warning");
+	}
+	private takeDialogClose(header: Header, p: DialogClose): void {
+		this.dialogViews.close(header.from, p.dialogId, p.by, this.now());
+	}
+	private takeDialogAnswer(run: TeamRun, roster: RosterState, header: Header, p: DialogAnswer): void {
+		const drop = (reason: string) => this.o.store.log({ event: "drop", team: run.team, reason, from: header.from, kind: "dialog-answer", dialog: p.dialogId });
+		const sender = roster.members.get(header.from), sink = this.o.dialogAnswer;
+		if (this.o.attended?.() ?? true) return drop("dialog-answer-attended-device");
+		if (!sender || !sender.attended) return drop("dialog-answer-sender");
+		if (this.o.config().trust.get(header.from) !== "dispatch") return drop("dialog-answer-level");
+		if (!sink) return drop("dialog-answer-unhandled");
+		void Promise.resolve().then(() => sink({ team: run.team, from: header.from, dialogId: p.dialogId, digest: p.digest, answer: p.answer, answerId: p.answerId })).catch((error: Error) => this.o.store.log({ event: "dialog-answer-failed", error: error.message }));
+	}
+	/** The forwarded dialogs of devices still in their team: those waiting for this device's boss, and with `ended` the ones that closed in the last two minutes (the card says how). */
+	dialogRequests(ended = false) {
+		const all = this.dialogViews.list((v) => {
+			try {
+				return this.loadTeam(v.team).state.members.has(v.device);
+			} catch {
+				return false;
+			}
+		}, this.now());
+		return ended ? all : all.filter((v) => !v.closed);
+	}
+	/** This device's boss (or a paired phone, through the GUI) answers a forwarded dialog: the answer goes to the device that asked, once per dialog. `answer` is JSON (dialogs-out.ts `RemoteAnswer`). */
+	async answerDialog(device: string, dialogId: string, digest: string, answer: string): Promise<{ ok: true } | { ok: false; error: string }> {
+		const v = this.dialogViews.get(device, dialogId);
+		if (!v || v.closed) return { ok: false, error: "That question is gone" };
+		if (v.digest !== digest) return { ok: false, error: "The question changed; look at it again" };
+		if (v.answered) return { ok: false, error: "This device already answered that question" };
+		if (!(this.o.attended?.() ?? true)) return { ok: false, error: "An unattended device does not answer for others" };
+		if (Buffer.byteLength(answer) > LIMITS.dialog) return { ok: false, error: "The answer is too long" };
+		const run = this.runs.get(v.team);
+		if (!run || run.dead || !this.running || !this.device) return { ok: false, error: "That team is not running on this device" };
+		v.answered = true;
+		try {
+			await run.outbox.submit((seq) => {
+				const { state } = this.loadTeam(run.team), key = state.keys.get(state.epoch);
+				if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
+				return buildEnvelope({
+					team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device!.keys, seq, ts: this.now(), kind: "dialog-answer", to: [device],
+					plaintext: encodePlaintext("dialog-answer", { dialogId, digest, answer, answerId: newAnswerId() }),
+				});
+			});
+		} catch (error) {
+			v.answered = false;
+			return { ok: false, error: (error as Error).message };
+		}
 		return { ok: true };
 	}
 
@@ -1120,6 +1321,9 @@ export class LinkHolder {
 		const now = this.now(), name = (team: string) => this.o.config().teams.get(team)?.name ?? team.slice(0, 6), out: LinkAlert[] = [];
 		for (const r of this.admin.joinRequests()) out.push({ id: `join/${r.id}`, kind: "join-request", level: "warning", team: r.team, teamName: r.teamName, data: { label: r.label, short: r.short, unattended: r.unattended ? 1 : 0 } });
 		for (const c of this.confirmRequests()) out.push({ id: `confirm/${c.dialogId}`, kind: "confirm", level: "warning", team: c.team, teamName: name(c.team), data: { label: c.fromLabel, short: c.fromShort, tool: restrictLabel(c.tool) } });
+		for (const v of this.dialogRequests(true)) out.push({ id: `dialog/${v.device}/${v.dialogId}`, kind: "dialog", level: v.closed ? "info" : "warning", team: v.team, teamName: name(v.team), data: { device: v.device, dialogId: v.dialogId, digest: v.digest, owner: v.owner, dialog: v.dialog, label: this.memberLabel(v.team, v.device), short: shortId(v.device), answered: v.answered ? 1 : 0, ...(v.closed ? { closed: v.closed.by } : {}) } });
+		this.notices = this.notices.filter((n) => now - n.at < NOTICE_KEEP_MS);
+		for (const n of this.notices) out.push({ id: `notice/${n.id}`, kind: "notice", level: "warning", team: n.team, teamName: name(n.team), data: { device: n.device, label: this.memberLabel(n.team, n.device), short: shortId(n.device), what: n.kind, unit: n.unit, text: n.text } });
 		for (const team of this.o.store.teamIds()) {
 			const why = this.stopped.has(team) ? (this.o.store.readStopped(team)?.reason ?? "stopped") : this.o.store.readStopped(team)?.reason;
 			const run = this.runs.get(team);
@@ -1146,6 +1350,15 @@ export class LinkHolder {
 		return out;
 	}
 
+	/** The units unattended peers reported lately; a device that stopped reporting for `UNITS_FRESH_MS` shows its last ones marked stale, and none after `UNITS_GONE_MS`. */
+	private deviceUnits(): DeviceUnits[] {
+		const now = this.now(), out: DeviceUnits[] = [];
+		for (const run of this.runs.values()) {
+			if (run.dead) continue;
+			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_GONE_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
+		}
+		return out;
+	}
 	/** The compact reading for the net snapshot: ally bases from presence, the notices, and the confirms waiting. */
 	summary(): LinkSummary {
 		const allies = this.list().flatMap((t) => t.devices.flatMap((d): AllyBase[] => {
@@ -1153,7 +1366,7 @@ export class LinkHolder {
 			if (d.workspaces.length === 0) return [{ ...base, id: `${t.team}/${d.id}`, workspace: null, tower: "unknown", tabs: [] }];
 			return d.workspaces.map((w) => ({ ...base, id: `${t.team}/${d.id}/${w.label}`, workspace: w.label, tower: w.tower, tabs: w.tabs.map((x) => ({ label: x.label, state: x.state })) }));
 		}));
-		return { allies, alerts: this.alerts(), confirms: this.confirmRequests() };
+		return { allies, alerts: this.alerts(), confirms: this.confirmRequests(), units: this.deviceUnits() };
 	}
 
 	/** Everything the team settings page draws. */

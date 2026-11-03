@@ -1,6 +1,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { herdrApi, herdrCall, herdrRun, socketRun } from "../herdr.ts";
+import { allyLabel } from "../boardauto.ts";
+import { herdrApi, herdrCall, herdrRun, panes, socketRun } from "../herdr.ts";
+import { inside } from "../link/routing.ts";
 import { type HeadlessDeps, headlessConfig } from "../agent/config.ts";
 import { createHeadlessKit, type IntercomLike } from "../agent/kit.ts";
 import { herdrEvents, herdrWatch, type HerdrWatch } from "../server-watch.ts";
@@ -15,6 +17,8 @@ import { allyPort } from "./allyport.ts";
 import { createAsks } from "./asks.ts";
 import { cliBeside, createGuiHost, spawnRestart } from "./guihost.ts";
 import { type IntercomModule, loadIntercom, LoaderError } from "./intercom.ts";
+import { DialogForwarder } from "../link/dialogs-out.ts";
+import { openTower } from "./opentower.ts";
 import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
 import { createLog, tailLog } from "./log.ts";
 import { gateRun, type RunInfo } from "./rungate.ts";
@@ -24,6 +28,8 @@ import {
 } from "./record.ts";
 import { AFTER, endpointFor, helloOf, listenControl, newSecret, PROTOCOL, type Reply, type Request } from "./socket.ts";
 import { promptCommand } from "./standing.ts";
+import { UnitReporter, runNotice } from "../link/unitstatus.ts";
+import { readNotes } from "./towerrunstore.ts";
 import { createTowers, type Towers, type TowersOptions } from "./towers.ts";
 import { towerPanel } from "./towerpanel.ts";
 import { runsStopMs } from "./runs.ts";
@@ -80,6 +86,8 @@ export interface ServerOptions {
 	/** Listens here instead of at `endpointFor` (tests: a server that models Windows on another platform has no pipe namespace, and its random pipe name would be a socket file in the folder the test runs in). */
 	endpoint?: string;
 	herdrUp?: () => Promise<boolean>;
+	/** How often the dialog forwarder and the unit reporter look (default 15 s; a test shortens it). */
+	unitsMs?: number;
 	watch?: HerdrWatch;
 	herdr?: HeadlessDeps;
 	/** Replaces the tower service's timers and the like, for tests. */
@@ -264,11 +272,15 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	};
 	const facts = () => ({ pid, ...(own.started ? { started: own.started } : {}), version, mode, desk, phase, ready: phase === "ready" });
 
+	// The dialog forwarder (src/link/dialogs-out.ts) and the unit reporter (src/link/unitstatus.ts) are built later, with the link; they are declared here so a start that gives up early can shut down before either exists.
+	let forwarder: DialogForwarder | undefined;
+	let reporter: UnitReporter | undefined;
 	const shutdown = (code: number): Promise<void> => (leaving ??= (async () => {
 		const began = now();
 		timers.forEach(clearInterval);
 		stops.forEach((stop) => stop());
 		// The link holder's record goes before the server does, so the next server takes it at its first look and no relay stream is left half open.
+		forwarder?.stop();
 		await Promise.race([link?.stop().catch((error: Error) => log.line("error", { code: "link", text: phrase(error.message, 300) })), sleep(LINK_STOP_MS)]);
 		// The GUI listeners and the remote entry go before the intercom ids are released.
 		await Promise.race([guiHost?.leave(phase === "stopping").catch(() => {}), sleep(GUI_LEAVE_MS)]);
@@ -519,6 +531,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		link: async (body, from) => (!slot.primary ? { ok: false, code: "no_link", error: NO_LINK } : link ? link.request(body, from) : { ok: false, code: "no_holder", error: "The link holder is not running in the sb server yet; ask again in a moment" }),
 		sessions: () => (client ? client.listSessions() : Promise.reject(new Error("pi-intercom is not connected"))),
 		promptCommand: (workspace) => promptCommand(cliBeside(), slot.stateDir, workspace), ...o.towers,
+		// A seam that watches the runs (tests) sees every signal too, and does not take the place of the notice to the controllers.
+		runs: { ...o.towers?.runs, signal: (sig) => { const r = runNotice(sig); void reporter?.notify(r.key, r.notice); o.towers?.runs?.signal?.(sig); } },
 	});
 	stops.push(cfg.watch(() => {
 		log.line("herdr-takeover");
@@ -537,13 +551,57 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 
 	// pi-intercom: the server's own session, reconnecting with the sidecar's backoff (1, 2, 5, 10, then 30 s). While it is disconnected its identities are not live.
 	// The link holder (B3): the primary server only, built once the first connection is attached (the kit's channel needs a client). A computer with no team set up gets no channel, election, or files.
+	const dialogsOut = () => (forwarder ??= new DialogForwarder({
+		...guiHost!.dialogs(), controllers: () => link?.holder?.dialogControllers() ?? [], online: (team, device) => link?.holder?.deviceOnline(team, device) ?? false, controllersKnown: () => link?.holder?.controllersKnown() ?? false,
+		post: async (team, device, kind, payload) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, kind, payload); },
+		log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),
+		now, notice: (key, notice) => unitsOut().notify(key, notice),
+	}));
+	/** `team\nlabel` a unit is told under (scrubbed) → its workspace id, for the report lookup: two workspaces may share a label, and a team reads only its own. */
+	const unitWorkspaces = new Map<string, string>();
+	const unitsOut = () => (reporter ??= new UnitReporter({
+		controllers: () => link?.holder?.dialogControllers() ?? [],
+		// Per team: the units whose workspace has a pane inside that team's project, when its policy shares status. Labels and monitor commands leave this computer, so they pass the same scrub as a board's.
+		units: async (team) => {
+			const policy = link?.holder?.policyOf(team), rows = towers?.status() ?? [];
+			for (const k of [...unitWorkspaces.keys()]) if (k.startsWith(`${team}\n`)) unitWorkspaces.delete(k);
+			if (policy?.share !== "status" || !rows.length) return [];
+			const here = await panes(cfg.run).catch(() => []), mons = guiHost!.dialogs().hub.monitors(), by = new Map<string, string[]>();
+			for (const m of mons) {
+				const ws = here.find((p) => p.pane_id === m.pane)?.workspace_id;
+				if (ws) by.set(ws, [...(by.get(ws) ?? []), allyLabel(m.what)]);
+			}
+			return rows.filter((r) => here.some((p) => p.workspace_id === r.workspace && p.cwd !== undefined && inside(p.cwd, policy.project))).map((r) => {
+				const unit = allyLabel(r.label);
+				unitWorkspaces.set(`${team}\n${unit}`, r.workspace);
+				return { unit, state: r.service?.state ?? r.state, monitors: (by.get(r.workspace) ?? []).slice(0, 6) };
+			});
+		},
+		// The later of the unit's last `tower_done` summary and the last `tower_send` text to this controller.
+		report: (unit, device, team) => {
+			const ws = unitWorkspaces.get(`${team}\n${unit}`), note = ws ? readNotes(slot, ws).at(-1) : undefined, sent = ws ? link?.holder?.lastSentTo(ws, device) : undefined;
+			return note && (!sent || Date.parse(note.at) >= sent.at) ? note.note : sent?.text ?? "";
+		},
+		status: async (team, device, units) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendUnitStatus(team, device, units); },
+		notice: async (team, device, n) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, "notice", n); },
+		now, log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),
+	}));
 	const startLink = () => {
 		if (link || !slot.primary || leaving) return;
 		link = createLinkService({
 			kit, stateDir: slot.stateDir, version, pid, started: () => own.started,
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
+			dialogAnswer: (a) => dialogsOut().answer(a),
 			// The tower service takes part in the holder's work (B6): an ask answered by a `tower-reply` is the main's, messages for a tower identity the server runs wake an ally run, and a `forward` answer reaches its run.
-			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false },
+			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false,
+				openTower: async (project, toWorkspace) => {
+					try {
+						await openTower({ run: cfg.run, towers: () => towers, now, home: o.link?.home ?? homedir(), agentDir: env.PI_CODING_AGENT_DIR ?? join(o.link?.home ?? homedir(), ".pi", "agent") }, project, toWorkspace);
+					} catch (error) {
+						void unitsOut().notify(`tower-open/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: allyLabel(project), text: `Could not open a tower for ${project}: ${(error as Error).message}` });
+						throw error;
+					}
+				} },
 		});
 		linkFirst = link.start();
 	};
@@ -590,6 +648,12 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 
 	// The GUI binds the recorded ports last (under the stored token), after the intercom ids are as registered as they can be and, with the link holder in the server, after that.
 	await guiHost?.start();
+	// Not when the start gave up while it waited (a stop, a restart, a displacement): a timer made now would outlive `shutdown`, which has run its list already.
+	if (slot.primary && !leaving && phase === "starting") {
+		dialogsOut().start();
+		// A controller that gained `dispatch` mid-dialog gets it, a dialog unanswered for 30 minutes is told, and each controller's unit-status goes out when it changed or a minute has passed.
+		timers.push(setInterval(() => void Promise.all([dialogsOut().tick(), unitsOut().tick()]), o.unitsMs ?? 15_000));
+	}
 
 	// Ready: `restarting` goes, and the start-error of this attempt (and any before it) with it.
 	if (phase === "starting") {

@@ -1,5 +1,5 @@
 import type { Mark } from "../src/netdata.ts";
-import type { AllyBase, LinkAlert, LinkSummary } from "../src/link/holder.ts";
+import type { AllyBase, DeviceUnits, LinkAlert, LinkSummary } from "../src/link/holder.ts";
 import { m } from "./paraglide/messages.js";
 
 // What the page says about Straw Link, as plain functions of the holder's reading (src/link/holder.ts `LinkSummary`, `LinkView`): the notice texts,
@@ -13,12 +13,14 @@ export function alertLine(a: LinkAlert): string {
 	switch (a.kind) {
 		case "join-request": return d.unattended ? m.link_a_join_unattended({ label: text(d.label), short: text(d.short), team }) : m.link_a_join({ label: text(d.label), short: text(d.short), team });
 		case "confirm": return d.tower ? m.link_a_confirm({ label: text(d.label), short: text(d.short), tool: text(d.tool), tower: text(d.tower) }) : m.link_a_confirm_plain({ label: text(d.label), short: text(d.short), tool: text(d.tool) });
+		case "dialog": return m.link_a_dialog({ label: text(d.label), short: text(d.short), team, owner: text(d.owner) });
 		case "fork": return m.link_a_fork({ team, reason: text(d.reason) });
 		case "mismatch": return m.link_a_mismatch({ label: text(d.label), short: text(d.short), team });
 		case "unreachable": return m.link_a_unreachable({ team, minutes: text(d.minutes) });
 		case "inbox": return m.link_a_inbox({ count: Number(d.count) || 0, team });
 		case "held": return m.link_a_held({ count: Number(d.count) || 0, team });
 		case "served": return m.link_a_served({ count: Number(d.count) || 0, team });
+		case "notice": return m.link_a_notice({ label: text(d.label), short: text(d.short), team, what: text(d.what), unit: text(d.unit), text: text(d.text) });
 	}
 }
 
@@ -62,3 +64,20 @@ export function stateName(state: string): string {
 
 /** Whether the summary has anything to show in the HUD's Link button: a notice or a confirm. A quiet inbox note counts too, but a held message does not shout. */
 export const hasLinkNews = (s: LinkSummary | undefined): boolean => Boolean(s && (s.alerts.length || s.confirms.length));
+
+/** Where a forwarded dialog stands: asking, answered from here and not yet closed, or closed (how: by a controller, at the device, cancelled there, withdrawn from this controller because it lost `dispatch`, or ended with no answer). */
+export type DialogState = "open" | "sent" | "done-here" | "done-other" | "done-local" | "cancelled" | "expired" | "withdrawn";
+export function dialogState(a: Pick<LinkAlert, "data">): DialogState {
+	const { closed, answered } = a.data;
+	if (closed === undefined) return answered ? "sent" : "open";
+	if (closed === "remote") return answered ? "done-here" : "done-other";
+	return closed === "local" ? "done-local" : closed === "cancel" ? "cancelled" : closed === "withdrawn" ? "withdrawn" : "expired";
+}
+
+/** The units an unattended device reported that belong to an ally base: those of its workspace, or all of them for a device whose presence names no workspace yet. */
+export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">) {
+	const mine = (units ?? []).find((u) => u.team === a.team && u.device === a.device);
+	return mine ? mine.units.filter((u) => a.workspace === null || u.unit === a.workspace).map((u) => ({ ...u, stale: mine.stale === true })) : [];
+}
+/** One unit's line under an ally base: its state, how many monitors run. The report is shown apart, as text. */
+export const unitLine = (u: { state: string; monitors: string[]; stale?: boolean }): string => [stateName(u.state), ...(u.monitors.length ? [m.link_unit_monitors({ count: String(u.monitors.length) })] : []), ...(u.stale ? [m.link_unit_stale()] : [])].join(" · ");

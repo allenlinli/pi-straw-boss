@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type Channel, REGISTER } from "../state.ts";
-import { readLinkConfig } from "./config.ts";
+import { type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
 import { holderAlive } from "./election.ts";
 import type { LinkSummary } from "./holder.ts";
 import { type HolderRecord, LinkStore } from "./store.ts";
@@ -32,6 +32,8 @@ export interface GuiLinkOptions {
 	stateDir: string;
 	agentDir: string;
 	home?: string;
+	/** The unattended policy file and who owns what (policy.ts); the real device reads the fixed path. */
+	policy?: PolicyDeps;
 	now?: () => number;
 	alive?: (record: HolderRecord) => boolean;
 	askMs?: number;
@@ -45,8 +47,9 @@ type ChannelEvent = { type: string; fromSessionId?: string; payload?: unknown };
 
 export function createGuiLink(o: GuiLinkOptions) {
 	const now = o.now ?? Date.now, store = new LinkStore(join(o.stateDir, "link")), home = o.home ?? homedir(), holderUp = o.alive ?? holderAlive();
-	const config = () => readLinkConfig(o.stateDir, { home, agentDir: o.agentDir });
-	const inUse = () => config().teams.size > 0 || store.teamIds().length > 0 || store.enabled;
+	const policyDeps: PolicyDeps = { home, agentDir: o.agentDir, ...o.policy };
+	const config = () => readEffectiveConfig(readPolicy(policyDeps), o.stateDir, { home, agentDir: o.agentDir });
+	const inUse = () => readPolicy(policyDeps).mode === "unattended" || config().teams.size > 0 || store.teamIds().length > 0 || store.enabled;
 	const nonce = randomUUID().slice(0, 8), reassembler = new Reassembler();
 	const pending = new Map<string, { resolve: (body: unknown) => void; holder: string; timer: ReturnType<typeof setTimeout> }>();
 	let channel: Channel | undefined, told = false, lastSummary: { at: number; summary: LinkSummary } | undefined;

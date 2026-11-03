@@ -1,6 +1,7 @@
 import type { Net } from "../src/net.ts";
 import { type Alert, alertsOf, arrivals, unitOf } from "./alerts.ts";
 import { RULES, rulesOf } from "./faces.ts";
+import type { Hotkey } from "./hotkeys.ts";
 import { linkChime } from "./linkbar.ts";
 import { type Route, upOf, watchOf } from "./router.ts";
 import { CONNECTING, type Status } from "./stream.ts";
@@ -15,9 +16,9 @@ import type { Exit, Term } from "./zentypes.ts";
 /** An Escape keydown, as far as the page reads it. */
 export interface Esc { key: string; defaultPrevented: boolean; isComposing: boolean; preventDefault(): void; stopPropagation(): void }
 /** The Zen layer, as the page drives it. `escape` says whether it took the key. */
-export interface ZenFace { net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
+export interface ZenFace { net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** The keymap's Enter and Space: ends the pause; false when none is shown or the terminal layer has the keys. */ tap(): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
 /** The overlay layer (the dialogs and tiles), as the page drives it. */
-interface PanelsFace { stack: { show(a: Alert): void; close(how?: "go"): boolean }; /** A step an answer left, as the dock's terminal card. */ step(s: StepOpen, net?: Net): void }
+interface PanelsFace { /** A page key for the dialogs (layer.ts); false when it had nothing to do. */ hotkey(key: Hotkey): boolean; stack: { show(a: Alert): void; close(how?: "go"): boolean }; /** A step an answer left, as the dock's terminal card. */ step(s: StepOpen, net?: Net): void }
 /** The focus views (the base, the session's comms and dossier). */
 interface FocusFace { terminal(key: string): void }
 export interface PageIo {
@@ -165,11 +166,11 @@ export function createPage(io: PageIo) {
 		notified: (a: Alert) => rules().announce === "current" || (a.trust ? openAlert(a) : openSession(a.ws, unitOf(a))),
 		/** The chime for new link notices: Zen makes no sound of its own accord. */
 		news: linkChime(() => !rules().chime, io.chime),
-		/** What owns the keyboard: a modal, or in Zen the layer. */
-		owned: () => rules().keys === "zen" || io.modal(),
 		/** The keymap the page reads (hotkeys.ts), and whether a modal holds the keyboard. */
 		keys: () => rules().keys,
 		modal: () => io.modal(),
+		/** A hotkey of the keymap, done: Enter and Space end Zen's pause, Space opens the next alert and F enlarges the top dialog. False when it had nothing to do (the key stays the browser's), as for the rows the page has no action for yet (Z4b). */
+		hotkey: (hotkey: Hotkey) => (hotkey === "pause" ? io.zen()?.tap() ?? false : hotkey === "next" || hotkey === "zoom" ? io.panels()?.hotkey(hotkey) ?? false : false),
 		/** The phone's quick-switch drawer is off in Zen. */
 		noDrawer: () => !rules().drawer,
 		/** Escape closes the top dialog; with none open it goes up one route (the settings page steps back to where it was opened from); a modal takes it for itself. In Zen the layer takes it first, in the capture phase (so a field's own handler cannot keep it from the rule): one press closes the menu, lets go of a field, or cancels or skips the card, and two that nothing took, within 600 ms, leave (zenkeys.ts). */

@@ -191,12 +191,11 @@ test("a mouse-focused answer option keeps Space for the form, and a mouse-focuse
 
 // R8: the keymap has a row table per face (Standard and Geek read "dialogs", Zen reads "zen").
 
-test("Zen rows: Enter and Space end the pause, F is not Zen's, and a native control keeps its own Enter and Space however it got the focus", () => {
+test("Zen rows: Enter and Space end the pause, F stays the dialogs' zoom, and a native control keeps its own Enter and Space however it got the focus", () => {
 	for (const key of ["Enter", " "]) {
 		assert.equal(hotkeyOf(press(key), false, false, "zen"), "pause", key);
 		for (const target of [new El("button"), new El("a"), new El("div", [], { role: "button" })]) for (const mouse of [false, true]) assert.equal(hotkeyOf(press(key, target), false, mouse, "zen"), undefined, `${key} on ${target.tag}`);
 	}
-	assert.equal(hotkeyOf(press("f"), false, false, "zen"), undefined);
 	assert.equal(hotkeyOf(press("Escape"), false, false, "zen"), undefined, "Escape stays with the core's ladder");
 	assert.equal(hotkeyOf(press("Enter", new El("textarea")), false, false, "zen"), undefined, "a box being typed in");
 	assert.equal(hotkeyOf(press("Enter"), true, false, "zen"), undefined, "a modal");
@@ -234,4 +233,28 @@ test("mountHotkeys reads the face at each press, and a Zen pause key is taken on
 	keys = "dialogs";
 	assert.equal(down("Enter").taken, false);
 	assert.deepEqual(asked, ["pause", "pause"]);
+});
+
+test("F still enlarges the top dialog in Zen, and keeps the same gates (typing, modal, ⌘)", () => {
+	assert.equal(hotkeyOf(press("f"), false, false, "zen"), "zoom");
+	assert.equal(hotkeyOf(press("F"), false, false, "zen"), "zoom");
+	assert.equal(hotkeyOf(press("f", new El("textarea")), false, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("f"), true, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("f", undefined, { metaKey: true }), false, false, "zen"), undefined);
+});
+
+test("a Zen Space the layer took has its release taken too, so a button the next card focused is not clicked by it (VC8-F003)", () => {
+	const on: Record<string, (e: never) => void> = {};
+	mountHotkeys(() => true, () => false, { addEventListener: (t: string, fn: (e: never) => void) => (on[t] = fn) } as unknown as Window, () => "zen");
+	const down = (key: string) => on.keydown!({ ...press(key), repeat: false, preventDefault() {} } as never);
+	const up = (key: string) => {
+		const e = { key, taken: false, preventDefault() { this.taken = true; } };
+		on.keyup!(e as never);
+		return e.taken;
+	};
+	down(" ");
+	assert.equal(up(" "), true);
+	down("Enter");
+	assert.equal(up("Enter"), false, "only Space is clicked on its release");
+	assert.equal(up(" "), false, "and nothing is held after");
 });

@@ -266,7 +266,7 @@ document.addEventListener("visibilitychange", () => {
 // Escape (pagecore.ts): in Zen the layer takes it first, in the capture phase.
 addEventListener("keydown", (event) => core.escape(event, true), true);
 addEventListener("keydown", (event) => core.escape(event, false));
-mountHotkeys((hotkey) => (hotkey === "pause" ? zen?.tap() ?? false : hotkey === "next" || hotkey === "zoom" ? panels?.hotkey(hotkey) ?? false : false), core.modal, window, core.keys); // the keymap (hotkeys.ts): Space opens the next alert, F enlarges the top dialog; in Zen Enter and Space end the pause; nothing before the layer has loaded
+mountHotkeys(core.hotkey, core.modal, window, core.keys); // the keymap (hotkeys.ts): Space opens the next alert, F enlarges the top dialog; in Zen Enter and Space end the pause; nothing before the layer has loaded
 // The gear is a link to the settings page; on the page it leaves it, as Escape does.
 el("prefs").addEventListener("click", (event) => core.current.view === "settings" && (event.preventDefault(), leaveSettings()));
 // A pair request waits while the Same Wi-Fi tab is not open: a header notice that opens the settings page on that tab (this computer's page only).

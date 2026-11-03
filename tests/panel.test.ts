@@ -4,96 +4,12 @@ import type { Pending } from "../src/ask.ts";
 import type { Net } from "../src/net.ts";
 import { questionsDigest, selectDigest } from "../src/owners.ts";
 import { m } from "../gui/paraglide/messages.js";
+import { El, page } from "./fake-dom.ts";
 
 // The answer panel (gui/ask.ts) as the page drives it: the server's updates arrive while the user picks, types, and notes, and the panel
 // keeps all of that for the dialog the user is filling. The updates are the ones the server really sends (dialogs.ts merge): the same
 // dialog read under another call, a read-only spell while an answer is on its way, a reading where the unit shows no pending at all.
 
-/** The few DOM calls the panel makes: elements with attributes, children, value, disabled, handlers, and focus. */
-class El {
-	attrs = new Map<string, string>();
-	kids: (El | string)[] = [];
-	parent: El | undefined;
-	dataset: Record<string, string> = {};
-	onclick: (() => void) | null = null;
-	oninput: (() => void) | null = null;
-	private off = false;
-	value = "";
-	selectionStart = 0;
-	selectionEnd = 0;
-	handlers: Record<string, ((e: unknown) => void)[]> = {};
-	readonly tagName: string;
-	constructor(tagName: string) {
-		this.tagName = tagName;
-	}
-	setAttribute(name: string, value: string) {
-		this.attrs.set(name, String(value));
-	}
-	addEventListener(type: string, on: (e: unknown) => void) {
-		(this.handlers[type] ??= []).push(on);
-	}
-	getAttribute(name: string) {
-		return this.attrs.get(name) ?? null;
-	}
-	append(...kids: (El | string)[]) {
-		for (const kid of kids) {
-			if (kid instanceof El) {
-				kid.parent?.kids.splice(kid.parent.kids.indexOf(kid), 1);
-				kid.parent = this;
-			}
-			this.kids.push(kid);
-		}
-	}
-	replaceChildren(...kids: (El | string)[]) {
-		for (const kid of this.kids) if (kid instanceof El) kid.parent = undefined;
-		this.kids = [];
-		this.append(...kids);
-	}
-	contains(other: unknown) {
-		for (let at = other as El | undefined; at; at = at.parent) if (at === this) return true;
-		return false;
-	}
-	focus() {
-		page.focused = this;
-		this.bubble("focusin");
-	}
-	/** An event sent to this element's own listeners (a custom one, as the answer form's keys send). */
-	dispatchEvent(event: { type: string }) {
-		for (const on of this.handlers[event.type] ?? []) on(event);
-		return true;
-	}
-	/** An event that rises from this element through its ancestors' listeners. */
-	bubble(type: string) {
-		for (let at: El | undefined = this; at; at = at.parent) for (const on of at.handlers[type] ?? []) on({ target: this });
-	}
-	/** A browser drops the focus from a control that becomes disabled (to the body). */
-	get disabled() {
-		return this.off;
-	}
-	set disabled(v: boolean) {
-		this.off = v;
-		if (v && page.focused === this) page.focused = undefined;
-	}
-	scrollIntoView() {}
-	get textContent(): string {
-		return this.kids.map((kid) => (typeof kid === "string" ? kid : kid.textContent)).join("");
-	}
-	/** A click the way a browser takes it: a disabled control ignores it. */
-	click() {
-		if (this.disabled) return;
-		this.onclick?.();
-		this.bubble("click");
-	}
-	type(text: string) {
-		[this.value, this.selectionStart, this.selectionEnd] = [text, text.length, text.length];
-		this.oninput?.();
-	}
-	all(match: (el: El) => boolean): El[] {
-		return this.kids.flatMap((kid) => (kid instanceof El ? [...(match(kid) ? [kid] : []), ...kid.all(match)] : []));
-	}
-}
-const page = { addEventListener: (type: string, on: (e: { target: unknown }) => void) => (page.on[type] = on), on: {} as Record<string, (e: { target: unknown }) => void>, body: new El("body"), focused: undefined as El | undefined, createElement: (tag: string) => new El(tag), get activeElement() { return page.focused && page.body.contains(page.focused) ? page.focused : page.body; } };
-Object.assign(globalThis, { document: page });
 const { mountAsk } = await import("../gui/ask.ts");
 const { onStep, openThen } = await import("../gui/terminalthen.ts");
 
@@ -304,7 +220,7 @@ test("a click on the page outside the panel keeps the focus where the user put i
 	panel.update(approval("m1"), true);
 	choices()[1]!.focus();
 	panel.update(approval("m1"), false);
-	page.on.pointerdown!({ target: page.body });
+	for (const on of page.on.pointerdown ?? []) on({ target: page.body });
 	panel.update(approval("m1"), true);
 	assert.equal(page.activeElement, page.body);
 });

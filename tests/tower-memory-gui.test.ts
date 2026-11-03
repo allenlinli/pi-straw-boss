@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { MemorySummary, TowerService } from "../src/net.ts";
-import { El } from "./chat-dom.ts";
+import { El } from "./fake-dom.ts";
 
 // The tower's memory in its comms (gui/towermemory.ts, gui/towermodel.ts): the closed line from the snapshot's summary, the panel read when it opens, the boss's adds, edits, deletes and resolves each
 // naming the rev they read, a memory that moved on shown again, a wait for the boss as a notice with an Answer link, and every text set as text.
@@ -47,7 +47,7 @@ const settle = () => new Promise((done) => setTimeout(done, 5));
 const open = async (box: El) => {
 	const details = box.find((el) => el.tag === "details")[0]!;
 	(details as unknown as { open: boolean }).open = true;
-	(details.listeners.get("toggle") as () => void)();
+	details.dispatchEvent({ type: "toggle" });
 	await settle();
 	return details;
 };

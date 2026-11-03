@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 // The composer's `/` menu is hidden until the server answers with a match, and hidden again when it closes. The composer's own redraw must not
 // show it: a live session's update once set `hidden = false` on every part of the form, which left an empty bordered list above the box.
-const { El } = await import("./chat-dom.ts");
+const { El } = await import("./fake-dom.ts");
 Object.assign(globalThis, { matchMedia: () => ({ matches: false }), CSS: { supports: () => true }, window: {} });
 const { mountComposer } = await import("../gui/composer.ts");
 

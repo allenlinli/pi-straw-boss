@@ -4,7 +4,7 @@ import type { Item } from "../src/items.ts";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
 import type { Pending } from "../src/ask.ts";
-import { El, page, stored } from "./zen-dom.ts";
+import { El, page, stored } from "./fake-dom.ts";
 import { alertsOf } from "../gui/alerts.ts";
 import { activityOf, companionsOf } from "../gui/units.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
@@ -151,27 +151,6 @@ test("a card with several questions puts them in one column with the first focus
 	one.z.show();
 	await one.settle();
 	assert.equal(one.by((el) => el.getAttribute("class") === "zen-qs").length, 0, "a single question is not wrapped");
-});
-
-test("on a paired device a hereOnly choice is disabled and Cancel needs a choice the device may give; on this computer both are offered", async () => {
-	const paired = rig({ remote: true });
-	paired.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true }) })]));
-	paired.z.show();
-	await paired.settle();
-	assert.ok(paired.button("Cancel"), "some choice is the device's to give");
-	const here = rig({ remote: true });
-	here.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, hereOnly: true }) })]));
-	here.z.show();
-	await here.settle();
-	assert.equal(here.button("Cancel"), undefined, "every choice is hereOnly: a cancel would be refused as well");
-	const radios = here.by((el) => el.getAttribute("role") === "radio");
-	assert.ok(radios.every((o) => o.disabled), "the hereOnly choices are shown, disabled");
-	const local = rig({ remote: false });
-	local.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, hereOnly: true }) })]));
-	local.z.show();
-	await local.settle();
-	assert.ok(local.by((el) => el.getAttribute("role") === "radio").every((o) => !o.disabled), "this computer's page may give them");
-	assert.ok(local.button("Cancel"));
 });
 
 test("a secret_drop is read-only on every page with no Open the terminal; any other read-only dialog offers it, which opens the unit's terminal in Zen's own layer", async () => {
@@ -513,6 +492,32 @@ test("a reminder goes out only for the item that takes the screen while the page
 	await seen.settle();
 	assert.deepEqual(seen.calls.remind, [], "a page that is in front needs no reminder");
 	page.hidden = false;
+});
+
+test("a card answers only while the link is live: offline its choices are disabled, online they are not", async () => {
+	for (const offline of [true, false]) {
+		const r = rig({ offline });
+		r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
+		r.z.show();
+		await r.settle();
+		const choices = r.by((el) => el.getAttribute("role") === "radio");
+		assert.ok(choices.length);
+		assert.deepEqual(choices.map((c) => c.disabled), choices.map(() => offline), offline ? "no answer while offline" : "answerable while online");
+	}
+});
+
+test("the companion's composer sends by the fixture's route for its key, and is told its unit's facts: control, live, and the link", async () => {
+	for (const offline of [false, true]) {
+		const r = rig({ offline });
+		r.feed(net([unit("m", "working")]));
+		r.z.show();
+		await r.settle();
+		const c = r.calls.composers.at(-1)!;
+		void (c.post as unknown as (a: string, b: Record<string, unknown>) => Promise<unknown>)("answer", { dialog: "x" });
+		assert.deepEqual(r.calls.posts.map((p) => [p.key, p.action]), [["t", "answer"]], "the fixture's route, for the companion's key");
+		const facts = c.updates.at(-1) as { control: boolean; live: boolean; online: boolean; ally: boolean; run: boolean };
+		assert.deepEqual([facts.control, facts.live, facts.online, facts.ally, facts.run], [true, true, !offline, false, false]);
+	}
 });
 
 test("the companion: the tower by fallback, its log and composer, the stream watching its key, history for its key only; an item waits while the boss types", async () => {

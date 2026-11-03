@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BOSS_MARK, CRASH_FLAG } from "../src/eventmarks.ts";
 import type { TowerService } from "../src/net.ts";
-import { El } from "./chat-dom.ts";
+import { El } from "./fake-dom.ts";
 
 // The session view's wiring for a service tower's boss turn (gui/chat.ts `render`, towerturns.ts `bossTurn`; review RV2-F001): the bubble shows what the boss wrote without the server's marker line,
 // a crash flag as a note (`.boss-flag`), and the raw text as its `title`. A tower without a service, and any other turn, are drawn as they were.

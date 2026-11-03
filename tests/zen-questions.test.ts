@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { Pending } from "../src/ask.ts";
-import { El, page } from "./zen-dom.ts";
+import { El, page } from "./fake-dom.ts";
 import { rulesOf } from "./css-rules.ts";
 
 // Several questions in Zen (gui/zenquestions.ts): the real answer panel (gui/ask.ts, with its keys from gui/askkeys.ts) on a fake document, enhanced the way the Zen card does, and the stylesheet's rules read as text.

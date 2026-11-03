@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { El, page, stored } from "./zen-dom.ts";
+import { El, page, stored } from "./fake-dom.ts";
 
 // startI18n reads the language the menu chose (`sb-locale`) from the store once, at load.
 class Option {

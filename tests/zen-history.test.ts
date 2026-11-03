@@ -4,7 +4,7 @@ import type { Item } from "../src/items.ts";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
 import type { Pending } from "../src/ask.ts";
-import { El, page, stored } from "./zen-dom.ts";
+import { El, page, stored } from "./fake-dom.ts";
 import { alertsOf } from "../gui/alerts.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";

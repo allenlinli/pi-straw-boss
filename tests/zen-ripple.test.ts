@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { contrast, declarations, rulesOf } from "./css-rules.ts";
-import { El } from "./zen-dom.ts";
+import { El } from "./fake-dom.ts";
 
 // The ripples (gui/zenripple.ts): the rules for starting one (rate, travel, cap, touch), the rings' shape, the contrast budget computed from the stroke values, and the page's switches (reduced motion,
 // forced colours, hidden, calm, the layer's showing), on a stand-in page.

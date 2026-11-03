@@ -41,7 +41,7 @@ export function mountStepSlot({ dock, kit, showTerminal, openPane }: SlotDeps) {
 			const name = nameOf(s.asker), at = document.activeElement, from = at instanceof HTMLElement && at !== document.body ? at : undefined;
 			end(false);
 			const c = termCard({
-				step: { kind: s.kind, key: s.key, name, command: s.command },
+				step: { kind: s.kind, key: s.key, name, command: s.command, run: s.run },
 				watch: (w) => kit.watch(s.key, name, w),
 				post: kit.post(s.key),
 				stream: kit.stream,

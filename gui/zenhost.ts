@@ -7,7 +7,7 @@ import type { TermKit } from "./zentypes.ts";
 
 type Mode = "card" | "full";
 /** `kind`: what ends the step (`plain`: a terminal opened to look at, which only the boss ends). `drawn`: what the host holds now. `held`: the sentence for a tower with no run live. */
-export interface Open { name: string; key: string; kind: StepKind | "plain"; mode: Mode; command?: string; asker?: string; kit?: TermKit; card?: ReturnType<typeof termCard>; drawn?: "card" | "full" | "hold"; held?: string; layer: HTMLElement; host: HTMLElement; hint: HTMLElement; back: HTMLElement; off?: () => void }
+export interface Open { name: string; key: string; kind: StepKind | "plain"; mode: Mode; command?: string; run?: string; asker?: string; kit?: TermKit; card?: ReturnType<typeof termCard>; drawn?: "card" | "full" | "hold"; held?: string; layer: HTMLElement; host: HTMLElement; hint: HTMLElement; back: HTMLElement; off?: () => void }
 export interface Layer {
 	/** Whether `c` is the layer on show. */
 	live(c: Open): boolean;
@@ -31,7 +31,7 @@ export function draw(c: Open, on: Layer) {
 	if (c.mode === "card") {
 		if (c.card) return c.card.update(c.name);
 		const key = c.key, card = (c.card = termCard({
-			step: { kind: c.kind === "pane" ? "pane" : "prompt", key, name: c.name, command: c.command },
+			step: { kind: c.kind === "pane" ? "pane" : "prompt", key, name: c.name, command: c.command, run: c.run },
 			watch: (w) => kit.watch(key, c.name, w),
 			post: kit.post(key),
 			stream: kit.stream,

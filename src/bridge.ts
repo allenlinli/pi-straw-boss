@@ -21,7 +21,7 @@ import { todoOfBranch, type TodoSum } from "./todo.ts";
 // Per dialog: open → settling (an answer is with the owner) → open again if refused, or closed by the owner's `closed`, the end of its tool
 // call, or the session's end. An answer whose verdict does not come within 2 s leaves it `unknown`: later answers get `busy` until it closes.
 // The bridge follows gui.json from the session's start (a stat every 2 s), so it is on G's channel whenever a server runs: the key pad's
-// Enter guard asks it what the editor would submit (`probe`, probe.ts), and it answers with a class and at most a command name, never the draft. It relays
+// Enter guard asks it what the editor would submit (`probe`, probe.ts), and it answers with a class and at most a command name, never the draft (for a command draft, and only when the probe carries a nonce, also the HMAC of the line under it: one-tap, runs.ts). It relays
 // the documents the session shows with its dialogs (documents.ts) and hands a form answer for one of them to their owner. The composer's `/` menu
 // asks it (`commands`) for the session's commands that match what is typed, and it answers with their names, sources, and descriptions.
 // A close button asks it (`close`) to quit its session the way /boss close does (index.ts), which answers whether it will. A stash asks it
@@ -65,7 +65,7 @@ export interface AnswerMessage extends Omit<Answer, "value"> { version: 1; type:
 /** The hub when it runs in this session: it takes what a remote bridge would publish, from this session's id. */
 export interface LocalHub { receive(from: string, msg: ToHub): void }
 /** What the hub calls on the bridge of its own session. */
-export interface Bridge { deliver(msg: AnswerMessage, reply: (ack: Ack) => void): void; sync(): void; probe(): Editor; commands(prefix: string): Cmd[]; form(msg: FormMessage, reply: (r: FormReply) => void): void; close(keepPane: boolean, ifStashable?: boolean): { accepted: boolean; reason?: string }; stashCheck(): string | undefined; pull(step: "begin" | "finish", ref?: string, deadline?: number): Pull | Promise<Pull> }
+export interface Bridge { deliver(msg: AnswerMessage, reply: (ack: Ack) => void): void; sync(): void; probe(nonce?: string): Editor; commands(prefix: string): Cmd[]; form(msg: FormMessage, reply: (r: FormReply) => void): void; close(keepPane: boolean, ifStashable?: boolean): { accepted: boolean; reason?: string }; stashCheck(): string | undefined; pull(step: "begin" | "finish", ref?: string, deadline?: number): Pull | Promise<Pull> }
 interface Channel { snapshot(): { connected: boolean; owner?: { sessionId: string; epoch: string } }; publish(payload: unknown, options?: { audience?: "owner" | "capable" }): void }
 interface Rec { adapter: OwnerAdapter; d: Dialog; state: "open" | "settling" | "unknown" | "closed"; answerId?: string; accepted?: boolean; by?: string; allow?: true; at?: number; last?: Ack; waiting: ((ack: Ack) => void)[] }
 type Event = { type: string; fromSessionId?: string; owner?: { sessionId: string; epoch: string }; payload?: Record<string, unknown> };
@@ -75,7 +75,7 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 	const bus = pi.events as Bus, bridgeId = randomUUID(), recs = new Map<string, Rec>(), calls = new Map<string, { tool: string; signal?: AbortSignal; stop?: () => void }>();
 	const chans = new Map<string, Channel>(), me = () => env.PI_INTERCOM_SESSION_ID ?? "";
 	let g: string | undefined, gpid = 0, seen: number | undefined, poll: ReturnType<typeof setInterval> | undefined, offs: (() => void)[] = [], warned = false;
-	let file: () => string | undefined = () => undefined, tell = (_text: string) => {}, editor = (): Editor => ({ editor: "unknown" }), docs: Doc[] = [];
+	let file: () => string | undefined = () => undefined, tell = (_text: string) => {}, editor = (_nonce?: unknown): Editor => ({ editor: "unknown" }), docs: Doc[] = [];
 	let ticket: { id: string; before: string; expected: string; at: number; take?: string } | undefined, taken: { take: string; text: string; at: number } | undefined, ui: Pick<ExtensionContext, "hasUI" | "ui"> | undefined;
 	let queued: Queued[] = [], waits = () => false, idle = () => true, todo: TodoSum | undefined, branch = (): readonly unknown[] => [];
 	const open = () => [...recs.values()].filter((r) => r.state !== "closed");
@@ -141,7 +141,7 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		// SAFETY: deliver and form check the fields they use before they hand anything to an owner.
 		if (p.type === "form" && p.to === bridgeId && from === g) form(p as unknown as FormMessage, (r) => send(from, r));
 		if (p.type === "answer" && p.to === bridgeId && from === g) deliver(p as unknown as AnswerMessage, (ack) => send(from, ack));
-		if (p.type === "probe" && p.to === bridgeId && from === g && alive() && typeof p.probeId === "string" && p.probeId.length <= 64) send(from, { version: 1, type: "probe-result", bridgeId, probeId: p.probeId, ...editor() });
+		if (p.type === "probe" && p.to === bridgeId && from === g && alive() && typeof p.probeId === "string" && p.probeId.length <= 64) send(from, { version: 1, type: "probe-result", bridgeId, probeId: p.probeId, ...editor(p.nonce) });
 		if (p.type === "close" && p.to === bridgeId && from === g && alive() && typeof p.reqId === "string" && p.reqId.length <= 64 && typeof p.keepPane === "boolean") send(from, { version: 1, type: "close-result", bridgeId, reqId: p.reqId, ...shut(p.keepPane, p.ifStashable === true) });
 		if (p.type === "stash-check" && p.to === bridgeId && from === g && alive() && typeof p.reqId === "string" && p.reqId.length <= 64) send(from, { version: 1, type: "stash-check-result", bridgeId, reqId: p.reqId, ...((r) => (r ? { reason: r } : {}))(stashCheck()) });
 		if (p.type === "pull" && p.to === bridgeId && from === g && alive() && typeof p.reqId === "string" && p.reqId.length <= 64 && ((p.step === "begin" && (p.take === undefined || (typeof p.take === "string" && p.take.length <= 64))) || (p.step === "finish" && typeof p.ticket === "string" && p.ticket.length <= 64 && typeof p.deadline === "number" && Number.isFinite(p.deadline)))) void pull(p.step, (p.step === "begin" ? p.take : p.ticket) as string | undefined, p.deadline as number | undefined).then((r) => send(from, { version: 1, type: "pull-result", bridgeId, reqId: p.reqId as string, ...r }));
@@ -294,7 +294,7 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		branch = () => { try { return ctx.sessionManager.getBranch(); } catch { return []; } }; // a replaced session's context throws
 		todo = todoOfBranch(branch());
 		tell = (text) => ctx.hasUI && ctx.ui.notify(text, "warning");
-		editor = () => probeEditor(ctx);
+		editor = (nonce) => probeEditor(ctx, nonce);
 		ui = ctx;
 		ticket = taken = undefined;
 		monitors = trackMonitors(bus, () => push());
@@ -327,5 +327,5 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		offs.splice(0).forEach((off) => off());
 		(clearInterval(poll), (poll = undefined));
 	});
-	return { deliver, sync: () => ((seen = -1), follow()), probe: () => editor(), commands: (prefix) => listCommands(pi, prefix), form, close: shut, stashCheck, pull };
+	return { deliver, sync: () => ((seen = -1), follow()), probe: (nonce) => editor(nonce), commands: (prefix) => listCommands(pi, prefix), form, close: shut, stashCheck, pull };
 }

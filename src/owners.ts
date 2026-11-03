@@ -12,7 +12,7 @@ export interface Choice { label: string; note?: string; localOnly?: true; hereOn
 export type Next = "terminal" | "pane";
 const NEXT: readonly unknown[] = ["terminal", "pane"];
 /** What an accepted answer leaves the user to do in a terminal, for the page to open: this session's terminal, or the new Herdr pane the answer opened (a grant id, answerpane.ts; null when the pane could not be told from others). Filled by control.ts from the stored dialog's choice, never from the request. */
-export type Then = { terminal: true } | { pane: string | null };
+export type Then = { terminal: true; /** The server holds a one-tap grant for the command the answer put in the prompt (runs.ts): the card's Run may name the answer id. */ run?: true } | { pane: string | null };
 /** `confirm`: a ctx.ui.confirm relayed as Yes and No, told apart from a select by its digest. A paired device answers it as this computer's page does (docs/how-it-works.md, Remote; R-F027). */
 export interface Select { title: string; choices: Choice[]; copy?: string; confirm?: true }
 export interface Option { title: string; description?: string; preview?: true }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash, createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -403,9 +404,19 @@ test("a probe from G for this bridge is answered with what Enter would submit, a
 		ui.getEditorText = () => draft;
 		s.message({ version: 1, type: "probe", to, probeId: `p${i}` });
 		const got = s.published.at(-1)!;
-		assert.deepEqual([got.audience, got.payload], ["owner", { version: 1, type: "probe-result", bridgeId: to, probeId: `p${i}`, ...want }], JSON.stringify(draft));
+		assert.deepEqual([got.audience, got.payload], ["owner", { version: 1, type: "probe-result", bridgeId: to, probeId: `p${i}`, ...want }], JSON.stringify(draft)); // no nonce, no MAC: the line is not told in any form
 		if (draft && want.editor === "text" && !want.ending) assert.ok(!JSON.stringify(got.payload).includes("secret"), "the draft never leaves");
 	}
+	const nonce = "0123456789abcdef0123456789abcdef";
+	ui.getEditorText = () => "! npm run deploy";
+	s.message({ version: 1, type: "probe", to, probeId: "n1", nonce });
+	assert.deepEqual(s.published.at(-1)!.payload, { version: 1, type: "probe-result", bridgeId: to, probeId: "n1", editor: "command", mac: createHmac("sha256", nonce).update("! npm run deploy").digest("hex") }, "with the grant's nonce: HMAC-SHA-256 of the line, not its plain hash");
+	assert.ok(!JSON.stringify(s.published.at(-1)!.payload).includes("npm run deploy") && !JSON.stringify(s.published.at(-1)!.payload).includes(createHash("sha256").update("! npm run deploy").digest("hex")));
+	for (const [i, bad] of [5, "short", "G".repeat(32), `${nonce}0`, null, {}].entries()) {
+		s.message({ version: 1, type: "probe", to, probeId: `n${i + 2}`, nonce: bad });
+		assert.deepEqual(s.published.at(-1)!.payload, { version: 1, type: "probe-result", bridgeId: to, probeId: `n${i + 2}`, editor: "command" }, `a nonce out of shape (${JSON.stringify(bad)}) is none`);
+	}
+	assert.deepEqual(s.bridge.probe(nonce), { editor: "command", mac: createHmac("sha256", nonce).update("! npm run deploy").digest("hex") }, "the hub of this session asks in-process with the nonce too");
 	ui.getEditorText = () => { throw new Error("no editor"); };
 	s.message({ version: 1, type: "probe", to, probeId: "t" });
 	assert.equal((s.published.at(-1)!.payload as { editor: string }).editor, "unknown", "an editor that cannot be read");

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { checkAnswer } from "../src/dialogs.ts";
 import { checkProbe, probeEditor } from "../src/probe.ts";
+import { lineMac } from "../src/runs.ts";
 import { type Bus, type Dialog, digestOf, linkGate, linkRequest, mcpAdapter, OWNERS, piCode, questionsDigest, robotHand, rpiv, secretDigest, secretDrop, secretOf, selectDigest, selectOf, UI_PREFIX, uiPrompt } from "../src/owners.ts";
 
 /** pi's event bus as far as owners use it: listeners run synchronously inside emit. */
@@ -161,6 +162,23 @@ test("probe contract: the editor's class, the ending command by name only, and t
 	for (const ok of ["empty", "text", "command", "unknown"]) assert.deepEqual(checkProbe({ editor: ok, extra: "dropped" }), { editor: ok });
 	for (const bad of [undefined, {}, { editor: "draft" }, { editor: "text", ending: "model" }, { editor: "text", ending: "RELOAD" }, { editor: "text", ending: "reload x" }, { editor: "text", ending: 1 }, { editor: "command", ending: "new" }, { editor: "unknown", ending: "quit" }])
 		assert.equal(checkProbe(bad as never), undefined, JSON.stringify(bad));
+});
+
+test("probe MAC (OT-F004): a command draft tells the keyed MAC of its whole line only when it was given a nonce; no other class does, and the server takes only a 64-digit hex MAC on a command", () => {
+	const ui = (text: unknown) => ({ hasUI: true, ui: { getEditorText: () => text } }) as never, nonce = "0123456789abcdef0123456789abcdef";
+	assert.deepEqual(probeEditor(ui("! npm run deploy"), nonce), { editor: "command", mac: lineMac(nonce, "! npm run deploy") });
+	assert.deepEqual(probeEditor(ui("! npm run deploy")), { editor: "command" }, "no nonce, no MAC: an ordinary Enter tells nothing of the line");
+	assert.deepEqual(probeEditor(ui("! npm run deploy"), "not a nonce"), { editor: "command" }, "a nonce out of shape is none");
+	assert.deepEqual(probeEditor(ui("! npm run deploy"), nonce.toUpperCase()), { editor: "command" });
+	assert.notEqual((probeEditor(ui("! npm run deploy "), nonce) as { mac?: string }).mac, lineMac(nonce, "! npm run deploy"), "a trailing space is another line");
+	assert.notEqual((probeEditor(ui("! npm run deploy"), "f".repeat(32)) as { mac?: string }).mac, lineMac(nonce, "! npm run deploy"), "another nonce, another MAC");
+	for (const text of ["", "plain secret sk-123", "/reload", "/quit now", undefined]) assert.equal("mac" in probeEditor(ui(text), nonce), false, JSON.stringify(text));
+	assert.equal("hash" in probeEditor(ui("! x"), nonce), false, "the old unkeyed field is gone");
+	const h = lineMac(nonce, "! x");
+	assert.deepEqual(checkProbe({ editor: "command", mac: h }), { editor: "command", mac: h });
+	for (const bad of [h.toUpperCase(), h.slice(1), `${h}0`, 5, null, "g".repeat(64)]) assert.deepEqual(checkProbe({ editor: "command", mac: bad }), { editor: "command" }, String(bad));
+	for (const ed of ["empty", "text", "unknown"]) assert.deepEqual(checkProbe({ editor: ed, mac: h }), { editor: ed }, "a MAC on any other class is dropped");
+	assert.deepEqual(checkProbe({ editor: "command", hash: h }), { editor: "command" }, "an old bridge's unkeyed hash is dropped");
 });
 
 const SECRET = { label: "Deploy token", instructions: ["Open the link.", "Create a token with the deploy scope."], url: "https://example.com/tokens", destination: ".env.local (DEPLOY_TOKEN)" };

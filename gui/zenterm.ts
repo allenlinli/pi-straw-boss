@@ -75,7 +75,7 @@ export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
 		/** The terminal card of a step an accepted answer left (a prompt's or a pane's), replacing the layer on show. */
 		step(s: StepOpen, net: Net | undefined) {
 			const name = locate(net, s.asker)?.u.name ?? s.asker;
-			mount(fresh(s.key, name, s.kind, "card", { command: s.command, asker: s.asker }), net);
+			mount(fresh(s.key, name, s.kind, "card", { command: s.command, asker: s.asker, run: s.run }), net);
 		},
 		/** The full terminal of `t.key` (a session's, or a pane an answer opened: `grant:<id>`), or the one on show brought forward. `armed`: the unit waits on this terminal now, so its next work ends the step. */
 		terminal(t: Term, net: Net | undefined) {

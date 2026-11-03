@@ -7,7 +7,7 @@ import { refusalText } from "./termwords.ts";
 // characters typed meanwhile join the next write. A refusal, a network failure, or a confirm drops what was still queued, so an Enter never goes after a text that
 // did not land. The pad (keypad.ts) and the terminal card (termcard.ts) share it; each draws its own confirm and its own words for a refusal.
 
-export type Write = { key: string } | { text: string } | { paste: string };
+export type Write = { key: string; run?: string } | { text: string } | { paste: string };
 export const GAP = 130, MAX_TYPED = 64, MAX_PASTE = 4000;
 /** What a writer tells its owner. `busy`: a write went out or came back; `ask`: the server asked to confirm a key (`token` names it); `error`: a refusal or a failure in the page's words; `sent`/`failed`: a write is on its way / did not run (`r`: the server's refusal; none for a network failure); `taken`: the server took it (200). */
 export interface WriterEvents { busy?(): void; clear?(): void; ask?(write: { key: string }, reason: string, token: string): void; error?(text: string): void; sent?(w: Write): void; taken?(w: Write): void; failed?(w: Write, r?: Answer): void }

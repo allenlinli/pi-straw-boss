@@ -32,16 +32,16 @@ const net = (): Net => ({ bases: [{ id: "wA", label: "Alpha", mark: "working", h
 /** A hub for session G with a fake intercom channel, a local bridge that records what it was handed, and session S on pane wA:p1. */
 function hub({ me = "G", owner = "G" } = {}) {
 	const published: { payload: unknown; options: unknown }[] = [], delivered: AnswerMessage[] = [], changes: number[] = [];
-	let reg: { onEvent(e: Record<string, unknown>): void } | undefined, reply: ((a: AnswerMessage) => Ack | undefined) | undefined, editor: Editor = { editor: "empty" };
+	let reg: { onEvent(e: Record<string, unknown>): void } | undefined, reply: ((a: AnswerMessage) => Ack | undefined) | undefined, editor: Editor | ((nonce?: string) => Editor) = { editor: "empty" };
 	const forms: FormMessage[] = [];
 	let pullReply: (step: "begin" | "finish", ref?: string, deadline?: number) => Pull | Promise<Pull> = () => ({ reason: "no_editor" });
 	let formReply: ((m: FormMessage) => FormReply | undefined) | undefined;
 	const events = { emit: (ch: string, r: never) => ch === REGISTER && ((reg = r), (r as { onReady(c: unknown): void }).onReady({ snapshot: () => ({ connected: true, owner: { sessionId: owner, epoch: "e1" } }), publish: (payload: unknown, options: unknown) => void published.push({ payload, options }) })), on: () => () => {} };
-	const local = { deliver: (m: AnswerMessage, r: (a: Ack) => void) => { delivered.push(m); const a = reply?.(m); if (a) r(a); }, sync: () => {}, probe: () => editor, commands: () => [], close: () => ({ accepted: true }), stashCheck: () => undefined, pull: (step: "begin" | "finish", ref?: string, deadline?: number) => pullReply(step, ref, deadline), form: (m: FormMessage, r: (x: FormReply) => void) => { forms.push(m); const x = formReply?.(m); if (x) r(x); } };
+	const local = { deliver: (m: AnswerMessage, r: (a: Ack) => void) => { delivered.push(m); const a = reply?.(m); if (a) r(a); }, sync: () => {}, probe: (nonce?: string) => (typeof editor === "function" ? editor(nonce) : editor), commands: () => [], close: () => ({ accepted: true }), stashCheck: () => undefined, pull: (step: "begin" | "finish", ref?: string, deadline?: number) => pullReply(step, ref, deadline), form: (m: FormMessage, r: (x: FormReply) => void) => { forms.push(m); const x = formReply?.(m); if (x) r(x); } };
 	const h = createHub({ events } as unknown as ExtensionAPI, me, local);
 	h.start(() => changes.push(1));
 	const list = (dialogs: Dialog[], extra: Partial<Dialogs> = {}): Dialogs => ({ version: 1, type: "dialogs", bridgeId: "B", pane: "wA:p1", file: null, dialogs, closed: [], ...extra });
-	return { h, published, delivered, changes, list, forms, event: (e: Record<string, unknown>) => reg?.onEvent(e), answerWith: (f: typeof reply) => (reply = f), editorIs: (e: Editor) => (editor = e), formWith: (f: typeof formReply) => (formReply = f), pullWith: (f: typeof pullReply) => (pullReply = f) };
+	return { h, published, delivered, changes, list, forms, event: (e: Record<string, unknown>) => reg?.onEvent(e), answerWith: (f: typeof reply) => (reply = f), editorIs: (e: Editor | ((nonce?: string) => Editor)) => (editor = e), formWith: (f: typeof formReply) => (formReply = f), pullWith: (f: typeof pullReply) => (pullReply = f) };
 }
 /** The snapshot as the server reads it: S is the unit on pane wA:p1 with session file `path`. */
 async function read(x: ReturnType<typeof hub>, path: string | undefined, { pane = "wA:p1", from = "S" } = {}) {
@@ -260,6 +260,26 @@ test("probe: the hub asks the bridge bound to the unit's pane and file, a bridge
 		x.h.receive("S", { ...result(bad), probeId: id } as never);
 		assert.equal(await again, undefined, why);
 	}
+});
+
+test("probe (OT-F004): a nonce goes to the bridge in the probe message only when one is given, and in-process to the session's own bridge; the MAC comes back on a command", async () => {
+	const x = hub(), path = file([]), nonce = "0123456789abcdef0123456789abcdef";
+	x.h.receive("S", x.list([], { file: path }));
+	await read(x, path);
+	void x.h.probe("S");
+	assert.equal("nonce" in (x.published.at(-1)!.payload as object), false, "none asked, none sent");
+	const asked = x.h.probe("S", nonce), sent = x.published.at(-1)!.payload as { probeId: string; nonce?: string };
+	assert.equal(sent.nonce, nonce);
+	const mac = "a".repeat(64);
+	x.h.receive("S", { version: 1, type: "probe-result", bridgeId: "B", probeId: sent.probeId, editor: "command", mac } as never);
+	assert.deepEqual(await asked, { editor: "command", mac });
+	const own = hub({ me: "S", owner: "S" }), seen: (string | undefined)[] = [];
+	own.h.receive("S", own.list([], { file: path }));
+	await read(own, path);
+	own.editorIs((nonce?: string) => (seen.push(nonce), { editor: "command" }));
+	await own.h.probe("S", nonce);
+	await own.h.probe("S");
+	assert.deepEqual(seen, [nonce, undefined]);
 });
 
 test("commands: the hub asks the bound bridge for a prefix and takes only its matching, well-formed list", async () => {

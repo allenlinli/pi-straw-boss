@@ -154,6 +154,34 @@ test("a card with several questions puts them in one column with the first focus
 	assert.equal(one.by((el) => el.getAttribute("class") === "zen-qs").length, 0, "a single question is not wrapped");
 });
 
+test("Zen hands its injected remote to the dialog: on a paired device a hereOnly choice is disabled and Cancel needs a choice the device may give; on this computer both are offered", async () => {
+	const paired = rig({ remote: true });
+	paired.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true }) })]));
+	paired.z.show();
+	await paired.settle();
+	assert.ok(paired.button("Cancel"), "some choice is the device's to give");
+	const here = rig({ remote: true });
+	here.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, hereOnly: true }) })]));
+	here.z.show();
+	await here.settle();
+	assert.equal(here.button("Cancel"), undefined, "every choice is hereOnly: a cancel would be refused as well");
+	assert.ok(here.by((el) => el.getAttribute("role") === "radio").every((o) => o.disabled), "the hereOnly choices are shown, disabled");
+	// the host says this computer; the injected remote wins
+	Object.assign(globalThis, { location: { hostname: "127.0.0.1" } });
+	const local = rig({ remote: false });
+	local.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, hereOnly: true }) })]));
+	local.z.show();
+	await local.settle();
+	assert.ok(local.by((el) => el.getAttribute("role") === "radio").every((o) => !o.disabled), "this computer's page may give them");
+	assert.ok(local.button("Cancel"));
+	Object.assign(globalThis, { location: { hostname: "192.168.1.7" } });
+	const injected = rig({ remote: false });
+	injected.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, hereOnly: true }) })]));
+	injected.z.show();
+	await injected.settle();
+	assert.ok(injected.by((el) => el.getAttribute("role") === "radio").every((o) => !o.disabled), "an injected remote of false beats a paired host");
+});
+
 test("a secret_drop is read-only on every page with no Open the terminal; any other read-only dialog offers it, which opens the unit's terminal in Zen's own layer", async () => {
 	for (const remote of [false, true]) {
 		const r = rig({ remote });

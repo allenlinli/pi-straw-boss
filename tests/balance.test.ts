@@ -144,6 +144,39 @@ const gone = closing(0);
 await balanceAfterClose("w1", "w:t1", { run: gone.run, lockRoot, pollMs: 1, waitMs: 1000 });
 assert.deepEqual(gone.laidOut, ["lead", "lead"], "a pane already closed still rebalances the tab it left");
 
+// Herdr itself gone (socket or pipe missing, connection refused) means the pane is gone: no waiting.
+for (const failure of [
+	Object.assign(new Error("connect"), { code: "ENOENT" }),
+	Object.assign(new Error("connect"), { code: "ECONNREFUSED" }),
+	Object.assign(new Error("exit 1"), { code: 1, stderr: "No such file or directory (os error 2)" }),
+	Object.assign(new Error("exit 1"), { code: 1, stderr: "Connection refused (os error 61)" }),
+	Object.assign(new Error("exit 1"), { code: 1, stderr: "The system cannot find the file specified. (os error 2)" }),
+]) {
+	let calls = 0;
+	await balanceAfterClose("w1", "w:t1", {
+		run: async (args) => {
+			calls++;
+			if (args[1] === "get") throw failure;
+			throw new Error("herdr is gone");
+		},
+		lockRoot, pollMs: 50, waitMs: 5000,
+	}).catch(() => {});
+	assert.equal(calls <= 2, true, `a gone Herdr ends the wait at once: ${failure.code} ${failure.stderr ?? ""}`);
+}
+
+// Any other failure still waits for the deadline: a busy or closing Windows pipe (Herdr alive), an English phrase without its code.
+for (const stderr of ["temporary failure", "All pipe instances are busy. (os error 231)", "The pipe is being closed. (os error 232)", "No such file or directory", "os error 20"]) {
+	let transientGets = 0;
+	await balanceAfterClose("w1", "w:t1", {
+		run: async () => {
+			transientGets++;
+			throw Object.assign(new Error("exit 1"), { code: 1, stderr });
+		},
+		lockRoot, pollMs: 1, waitMs: 30,
+	});
+	assert.equal(transientGets > 2, true, `a transient error keeps polling: ${stderr}`);
+}
+
 	rmSync(lockRoot, { recursive: true, force: true });
 });
 

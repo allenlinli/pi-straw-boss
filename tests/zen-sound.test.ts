@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createAudio } from "../gui/audio.ts";
 import { BOWL, createZenSound, DUCK, GAP, KNOCK, LOW, schedule } from "../gui/zensound.ts";
@@ -22,7 +23,7 @@ function rig(running = true) {
 	const doc = { addEventListener: (n: string, f: () => void) => void listeners.set(n, f), removeEventListener: (n: string) => void listeners.delete(n) };
 	let on = true, bus: { gain: Param } | undefined;
 	const z = createZenSound(a, { on: () => on }, () => bus as never, doc as never);
-	return { ac, a, z, oscs, gains, filters, noise, listeners, setOn: (v: boolean) => (on = v), setBus: (b?: { gain: Param }) => (bus = b), settle: () => new Promise((r) => setTimeout(r, 0)) };
+	return { ac, a, z, oscs, gains, filters, noise, listeners, setOn: (v: boolean) => (on = v), setBus: (b?: { gain: Param }) => (bus = b), duckGain: () => gains.find((g) => g.to === a.out().g && g.gain.ev.some((e) => e[0] === "cancel"))!, settle: () => new Promise((r) => setTimeout(r, 0)) };
 }
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
@@ -103,27 +104,67 @@ test("before the first gesture an effect is dropped, after it the context resume
 	assert.equal(r.oscs.length, 8);
 });
 
-test("an effect ducks playing music by 6 dB over 0.3 s and lets it back over 1.5 s", async () => {
+test("an effect ducks playing music through a fixed duck node by 6 dB over 0.3 s and lets it back over 1.5 s", async () => {
 	const r = rig();
 	await r.a.unlock();
 	const bus = { gain: param() };
 	bus.gain.value = 0.5;
 	r.setBus(bus);
 	r.z.play("knock");
-	const ev = bus.gain.ev;
+	assert.equal(bus.gain.ev.length, 0, "the music bus's own gain is never touched");
+	const d = r.duckGain();
+	const ev = d.gain.ev;
 	assert.deepEqual(ev[0], ["cancel", 0, 10]);
-	assert.deepEqual(ev[1], ["set", 0.5, 10]);
-	assert.ok(close(ev[2]![1], 0.5 * 10 ** (-DUCK.db / 20)) && close(ev[2]![2], 10.3) && ev[2]![0] === "lin");
-	assert.ok(ev[3]![1] === 0.5 && close(ev[3]![2], 11.8));
-	assert.ok(ev[2]![1] < 0.2512 && ev[2]![1] > 0.2490, "6 dB is about half");
+	assert.deepEqual(ev[1], ["set", 1, 10]);
+	assert.ok(close(ev[2]![1], 10 ** (-DUCK.db / 20)) && close(ev[2]![2], 10.3) && ev[2]![0] === "lin");
+	assert.ok(ev[3]![1] === 1 && close(ev[3]![2], 11.8));
+	assert.ok(ev[2]![1] < 0.5013 && ev[2]![1] > 0.5009, "6 dB is about half");
+	assert.equal(d.to, r.a.out().g, "the duck node feeds the master gain");
 });
 
-test("no music bus, no ducking; a dropped effect does not duck", () => {
-	const r = rig(false);
-	const bus = { gain: param() };
-	r.setBus(bus);
+test("overlapping ducks never read the param: each ramp starts at 1 and ends at 1", async () => {
+	const r = rig();
+	await r.a.unlock();
+	r.setBus({ gain: param() });
+	r.z.play("knock");
+	const d = r.duckGain();
+	Object.defineProperty(d.gain, "value", { get() { throw new Error("value read"); } });
+	r.ac.currentTime = 10.5;
 	r.z.play("bowl");
-	assert.equal(bus.gain.ev.length, 0);
+	const sets = d.gain.ev.filter((e) => e[0] === "set"), lins = d.gain.ev.filter((e) => e[0] === "lin");
+	assert.deepEqual(sets.map((e) => e[1]), [1, 1]);
+	assert.deepEqual(lins.map((e) => e[1]).map((v) => Math.round(v * 1000)), [501, 1000, 501, 1000]);
+});
+
+test("a try ducks once for each of its three effects", async () => {
+	const r = rig();
+	r.setBus({ gain: param() });
+	r.z.tryAll();
+	await r.settle();
+	const d = r.duckGain();
+	assert.deepEqual(d.gain.ev.filter((e) => e[0] === "set").map((e) => e[2]), [10, 10 + GAP, 10 + 2 * GAP]);
+});
+
+test("after the context is suspended again the next gesture re-arms the unlock and effects resume", async () => {
+	const r = rig();
+	await r.a.unlock();
+	r.listeners.clear();
+	r.ac.state = "suspended";
+	r.z.play("bowl");
+	assert.equal(r.oscs.length, 0, "dropped while suspended");
+	assert.deepEqual([...r.listeners.keys()].sort(), ["keydown", "pointerdown"], "the gesture hooks are back");
+	r.listeners.get("keydown")!();
+	await r.settle();
+	r.z.play("bowl");
+	assert.equal(r.oscs.length, 8);
+});
+
+test("main.ts hands the page's audio and Sound switch to createZenSound and Zen gets its play, try, and tryAll", () => {
+	const src = readFileSync(new URL("../gui/main.ts", import.meta.url), "utf8");
+	assert.match(src, /createZenSound\(audio, notify\.sound\)/);
+	assert.match(src, /sound: zs\.play/);
+	assert.match(src, /try: zs\.try/);
+	assert.match(src, /effects: zs\.tryAll/);
 });
 
 test("Try ignores the Sound switch, lets the page play, and plays the bowl, knock, and low bowl in turn", async () => {

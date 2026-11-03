@@ -61,28 +61,31 @@ export function schedule(c: Ctx, dest: AudioNode, t: number, r: Recipe): number 
 	return t + r.length;
 }
 
-/** What Zen's effects need: the page's audio core, the Sound switch, the music bus when one plays (Z6), and the document that carries the first gesture. */
+/** What Zen's effects need: the page's audio core, the Sound switch, the music bus when one plays (Z6), and the document that carries the first gesture.
+ * Music (Z6) connects to `bus()`, a gain node into the master that only ducking moves, so a duck never reads or fights the music's own gain. */
 export function createZenSound(a: Audio, sw: { on(): boolean }, music: () => GainNode | undefined = () => undefined, doc: Pick<Document, "addEventListener" | "removeEventListener"> = document) {
-	// The first press or key lets the browser play: the context is resumed then, and an effect due before it is dropped, not queued behind it.
-	const gestures = ["pointerdown", "keydown"], unlock = () => (gestures.forEach((g) => doc.removeEventListener(g, unlock, true)), void a.unlock());
-	gestures.forEach((g) => doc.addEventListener(g, unlock, true));
+	// A press or key lets the browser play: the context is resumed then, and an effect due before it is dropped, not queued behind it. A context the browser suspends again (iOS on hide or lock) re-arms the hooks.
+	const gestures = ["pointerdown", "keydown"], unlock = () => (gestures.forEach((g) => doc.removeEventListener(g, unlock, true)), void a.unlock()), arm = () => gestures.forEach((g) => doc.addEventListener(g, unlock, true));
+	arm();
+	let node: GainNode | undefined;
+	const bus = () => (node ??= (() => { const { c, g } = a.out(), n = c.createGain(); n.connect(g); return n; })());
+	// Fixed nominal levels, 1 down 6 dB and back to 1, from the effect's own start; the param's value is never read.
 	const duck = (t: number) => {
-		const p = music()?.gain;
-		if (!p) return;
-		const base = p.value;
+		if (!music()) return;
+		const p = bus().gain;
 		p.cancelScheduledValues(t);
-		p.setValueAtTime(base, t);
-		p.linearRampToValueAtTime(base * 10 ** (-DUCK.db / 20), t + DUCK.in);
-		p.linearRampToValueAtTime(base, t + DUCK.in + DUCK.out);
+		p.setValueAtTime(1, t);
+		p.linearRampToValueAtTime(10 ** (-DUCK.db / 20), t + DUCK.in);
+		p.linearRampToValueAtTime(1, t + DUCK.in + DUCK.out);
 	};
 	const at = (names: Sound[]) => {
 		const { c, g } = a.out(), t0 = c.currentTime;
-		names.forEach((n, i) => schedule(c, g, t0 + i * GAP, RECIPES[n]));
-		duck(t0);
+		names.forEach((n, i) => (schedule(c, g, t0 + i * GAP, RECIPES[n]), duck(t0 + i * GAP)));
 	};
 	return {
+		bus,
 		/** One effect, when Sound is on and the page may play; otherwise nothing, and nothing queued. */
-		play(s: Sound) { if (sw.on() && a.running()) at([s]); },
+		play(s: Sound) { if (!a.running()) arm(); else if (sw.on()) at([s]); },
 		/** The bowl alone, for the volume's release: it ignores the switch (a press lets the page play). */
 		try() { void a.unlock().then((ok) => ok && at(["bowl"])); },
 		/** The Try button: the three in turn. */

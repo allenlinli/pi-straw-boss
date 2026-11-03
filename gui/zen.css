@@ -74,6 +74,11 @@
 [data-view="zen"] .zen-said { margin: 0; font-size: 1.05rem; letter-spacing: 0.04em; }
 [data-view="zen"] .zen-said:empty { display: none; }
 [data-view="zen"] .zen-acts { display: flex; justify-content: center; }
+[data-view="zen"] .zen-acts { flex-wrap: wrap; gap: 4px 8px; }
+[data-view="zen"] .zen-history[hidden] { display: none; }
+[data-view="zen"] .zen-history { display: grid; max-height: min(46vh, 26rem); min-height: 0; text-align: left; border: 1px solid var(--zen-line); border-radius: 14px; background: var(--zen-sunken); overflow: hidden; }
+[data-view="zen"] .zen-history .zen-log { min-height: 0; }
+[data-view="zen"] .zen-history-btn { min-height: 44px; min-width: 44px; }
 [data-view="zen"] .zen-out { margin: 0; min-height: 1.2em; }
 [data-view="zen"] .zen-out[data-tone="error"] { color: var(--zen-clay); }
 [data-view="zen"] .zen-card :is(.ask-q, .ask-title) { font: 400 clamp(1.3rem, 3.4vw, 1.9rem)/1.6 var(--serif); letter-spacing: 0.06em; text-wrap: balance; }

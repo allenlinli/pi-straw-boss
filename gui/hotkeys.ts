@@ -5,10 +5,10 @@
 // Space on a button or a link keeps its own activation only while the keyboard put the focus there: a control the mouse left focused (the logo
 // after a click) does not hold the key, so Space still opens the next alert. :focus-visible cannot tell them apart here, because a browser
 // turns it on for the focused element as the key goes down, so mountHotkeys notes which focus a pointer press gave.
-// Zen reads its own rows (KEYMAP): Enter and Space end the pause wherever the focus is, except on a native control (a button or link keeps its Enter and Space,
+// Zen reads its own rows (KEYMAP): H expands or collapses the shown item's context; Enter and Space end the pause wherever the focus is, except on a native control (a button or link keeps its Enter and Space,
 // however it got focus). The same gates apply (typing, modifiers, composing, a modal).
 
-export type Hotkey = "next" | "zoom" | "pause" | "prev-companion" | "next-companion" | "palette";
+export type Hotkey = "next" | "zoom" | "history" | "pause" | "prev-companion" | "next-companion" | "palette";
 /** Which keymap the page reads: the alert dialogs' (Standard, Geek) or Zen's (faces.ts `keys`). */
 export type Keys = "dialogs" | "zen";
 /** The few fields of a keydown the routing reads. */
@@ -28,7 +28,7 @@ export const MODAL = "dialog.sheet[open], dialog.lightbox[open], [popover]:popov
 interface Row { keys: string[]; hotkey: Hotkey; native?: "keyboard" | "any"; meta?: boolean }
 const KEYMAP: Record<Keys, Row[]> = {
 	dialogs: [{ keys: ["f"], hotkey: "zoom" }, { keys: [" "], hotkey: "next", native: "keyboard" }],
-	zen: [{ keys: ["enter", " "], hotkey: "pause", native: "any" }, { keys: ["["], hotkey: "prev-companion" }, { keys: ["]"], hotkey: "next-companion" }, { keys: ["k"], hotkey: "palette", meta: true }],
+	zen: [{ keys: ["enter", " "], hotkey: "pause", native: "any" }, { keys: ["h"], hotkey: "history" }, { keys: ["["], hotkey: "prev-companion" }, { keys: ["]"], hotkey: "next-companion" }, { keys: ["k"], hotkey: "palette", meta: true }],
 };
 
 /** What a keydown asks for, or undefined when the key is not the page's to take. `owned`: a modal is open; `mouse`: the target got its focus from a pointer press. */

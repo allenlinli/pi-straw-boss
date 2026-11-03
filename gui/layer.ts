@@ -2,7 +2,6 @@ import type { Item } from "../src/items.ts";
 import type { Net } from "../src/net.ts";
 import { type Intel, intel } from "./intel.ts";
 import { answerPost, canAnswer, mountAnswer, type SessionPost, trustPost } from "./answer.ts";
-import type { Hotkey } from "./hotkeys.ts";
 import { keypad } from "./keypad.ts";
 import { mountTerminals } from "./mirror.ts";
 import { rankOf, unitOf } from "./alerts.ts";
@@ -239,7 +238,7 @@ export function mountPanels(deps: PanelDeps) {
 		/** The terminals as Zen's layer uses them (zenterm.ts). */
 		kit,
 		/** A page key (hotkeys.ts): Space is the HUD alert button's click, F the top dialog's ⤢ (a phone hides it). False when it had nothing to do. */
-		hotkey(key: Hotkey) {
+		hotkey(key: "next" | "zoom") {
 			if (key === "next") {
 				if (button.disabled) return false;
 				stack.next();

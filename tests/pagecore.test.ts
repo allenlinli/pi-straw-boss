@@ -1,3 +1,4 @@
+import { hotkeyOf } from "../gui/hotkeys.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Net, Unit } from "../src/net.ts";
@@ -32,7 +33,7 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 			w.waiting.splice(0).forEach((call) => call(zen));
 		},
 	};
-	const zen: ZenFace = { tap: () => (w.calls.push("tap"), o.tapTakes ?? false), net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
+	const zen: ZenFace = { toggleHistory: () => (w.calls.push("history"), o.tapTakes ?? false), tap: () => (w.calls.push("tap"), o.tapTakes ?? false), net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
 	const panels = {
 		hotkey: (key: string) => (w.calls.push(`hotkey:${key}`), o.hotkeyTakes ?? false),
 		stack: { show: (a: Alert) => void w.calls.push(`show:${a.key}`), close: (how?: string) => (w.calls.push(`close:${how ?? ""}`), w.dialogOpen) },
@@ -314,6 +315,16 @@ test("a hotkey reaches the part that does it: pause the Zen layer's tap, next an
 	}
 	const early = world({ stored: "zen", zenLoaded: false });
 	assert.equal(early.core.hotkey("pause"), false, "the layer is not loaded yet: the key stays the browser's");
+});
+
+test("H reaches the Zen layer's toggleHistory through hotkeyOf(zen) and core.hotkey, and Standard and Geek never see it (Z4D-F001)", () => {
+	const w = world({ stored: "zen", tapTakes: true });
+	const pressed = { key: "h", ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target: null };
+	const asked = hotkeyOf(pressed, w.core.modal(), false, w.core.keys());
+	assert.equal(asked, "history");
+	assert.equal(w.core.hotkey(asked!), true);
+	assert.deepEqual(w.calls, ["history"], "not the dialogs");
+	assert.equal(hotkeyOf(pressed, false, false, "dialogs"), undefined);
 });
 
 test("Escape, capture phase: in Zen the layer takes it and stops it only when it did; anything else (a modal, a composing key, another face) leaves it alone", () => {

@@ -546,7 +546,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Both increments summed (answer-opens-terminal +8, Z4 feedback +3, and the merged toolbar row +1): 274.
 	// Zen polish to 281 (+6): the demo's key pad answers Enter and Esc with a confirm and Tab with a refusal (PAD_REPLIES), so the confirm bar and a refused key can be looked at.
 	// Terminal card T6 to 360 (measured 314): gui/democard.ts (66, new: the card's scripted terminal for `?card=<state>`) and fixture.ts 239 to 248 (the script's hooks, the opening, the Run choice; the `?zen=terminal` timer is gone).
-	assert.ok(demo <= 362, `the demo fixture has ${demo} lines`);
+	// Zen Z7 to 370 (measured 366): the `?zen=history|palette|pause` key presses and `?music=<n>` with the fixture's `api` (the demo's music folder); the real build did not grow.
+	assert.ok(demo <= 370, `the demo fixture has ${demo} lines`);
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
 	// 0.15.0 to 254 for the squads' + Member buttons, and gui/spawn.ts to 68 for the new base, member, and squad member tiles and the button reader.

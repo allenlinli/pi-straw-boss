@@ -86,7 +86,7 @@ type Zen = ReturnType<typeof mountZen>;
 let zen: Zen | undefined, zenLoading: Promise<Zen> | undefined;
 const withZen = (call: (z: Zen) => void) => {
 	zenLoading ??= import("./zenchunk.ts").then(({ mountZen, zenPage }) => {
-		const host = zenPage({ sound: notify.sound, api, demo: Boolean(fixture), snapshot: core.newest }); // the effects, the music, and the companion readers (zenpage.ts) are built in the chunk
+		const host = zenPage({ sound: notify.sound, api: fixture?.api ?? api, snapshot: core.newest }); // the effects, the music, and the companion readers (zenpage.ts) are built in the chunk
 		return (zen = mountZen(el("zen"), {
 			data, recent, label, online: core.online,
 			post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,

@@ -28,6 +28,7 @@ import type { mountFocus } from "./views.ts";
 import { iconHref, plainOf } from "./tabicon.ts";
 import type { mountZen } from "./zen.ts";
 import type { TermKit } from "./zentypes.ts";
+import { audio } from "./audio.ts";
 
 // The view goes first, before anything is drawn: `data-view` on <html> picks the palette, so no frame is painted in the other one (view.ts).
 // The demo's `?zen=<state>` opens it in Zen for this page only (fixture.ts): the stored choice is not written.
@@ -85,13 +86,16 @@ const openTile = (tile: Tile, take?: boolean) => withPanels((p) => p.tiles.open(
 type Zen = ReturnType<typeof mountZen>;
 let zen: Zen | undefined, zenLoading: Promise<Zen> | undefined;
 const withZen = (call: (z: Zen) => void) => {
-	zenLoading ??= import("./zenchunk.ts").then(({ mountZen }) => (zen = mountZen(el("zen"), {
+	zenLoading ??= import("./zenchunk.ts").then(({ mountZen, createZenSound }) => {
+		const zs = createZenSound(audio, notify.sound); // Zen's effects play on the page's one audio core, behind the Sound switch
+		return (zen = mountZen(el("zen"), {
 		data, recent, label, online: core.online,
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
-		remind: (a) => notify.remind(a), sound: () => {}, // the effects are the next step's (Z5)
-		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: notify.sound }, // the corner menu's rows act through the settings page's own switches
+		remind: (a) => notify.remind(a), sound: zs.play,
+		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: { ...notify.sound, try: zs.try, effects: zs.tryAll } }, // the corner menu's rows act through the settings page's own switches
 		leave: core.leaveZen, terminals, watch: core.watchLog,
-	})));
+	}));
+	});
 	void zenLoading.then(call);
 };
 

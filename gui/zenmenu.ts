@@ -10,7 +10,7 @@ export interface MenuDeps {
 	language?: { get(): string; names(): { id: string; name: string }[]; set(id: string): void };
 	/** `choice` is the device's (Auto, Standard, Geek, Zen); `auto` words the Auto row (Auto, or Follow server with the default's name). */
 	view?: { choice(): Choice; set(c: Choice): void; auto(): string };
-	sound?: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void; /** Another tab changed Sound or Volume: the open panel redraws. */ onChange?(fn: () => void): void };
+	sound?: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void; /** The Try button: Zen's three effects in turn. */ effects?(): void; /** Another tab changed Sound or Volume: the open panel redraws. */ onChange?(fn: () => void): void };
 }
 export function mountMenu(deps: MenuDeps, leave: () => void) {
 	const button = h("button", { type: "button", class: "zen-menubtn", "aria-haspopup": "true", "aria-expanded": "false", "aria-label": m.zen_menu(), title: m.zen_menu() }, "…");
@@ -39,7 +39,10 @@ export function mountMenu(deps: MenuDeps, leave: () => void) {
 		vol.oninput = () => sound.setVolume(Number(vol.value));
 		vol.onchange = () => sound.try();
 		redraw.push(draw), sound.onChange?.(() => open && draw());
-		panel.append(row(m.sound(), on), row(m.sound_volume(), vol));
+		const eff = sound.effects;
+		const tryBtn = eff && h("button", { type: "button", class: "zen-opt" }, m.zen_try());
+		if (tryBtn) tryBtn.onclick = () => eff();
+		panel.append(row(m.sound(), on, ...(tryBtn ? [tryBtn] : [])), row(m.sound_volume(), vol));
 	}
 	const away = h("button", { type: "button", class: "zen-leave" }, m.zen_leave_title());
 	away.onclick = () => (leave(), close());

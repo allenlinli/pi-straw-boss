@@ -70,7 +70,23 @@ test("an answer from the dock's dialog goes by the page's fixture route when it 
 	assert.deepEqual([calls.posts, fetched], [["u1 answer m1"], []]);
 });
 
-test("a project trust question's dialog answers through the fixture's trust route too, and is disabled on a stale page", async () => {
+test("a project trust question's dialog is disabled on a stale page before anything is answered, and the stream's return enables it", () => {
+	const layer = mount();
+	layer.alerts([trust as never], new Map([[trust.key, trust as never]]));
+	page.body.dataset.stale = "true";
+	layer.stack.show(trust as never);
+	const choices = () => dock.all((el) => el.getAttribute("data-choice") !== null);
+	assert.equal(choices().length, 3);
+	assert.ok(choices().every((b) => b.disabled), "no trust answer while the stream is not live");
+	page.body.dataset.stale = "false";
+	layer.stack.redraw();
+	assert.ok(choices().every((b) => !b.disabled), "and the stream's return enables them");
+	page.body.dataset.stale = "true";
+	layer.stack.redraw();
+	assert.ok(choices().every((b) => b.disabled), "a stream that drops again disables them again");
+});
+
+test("a project trust question's dialog answers through the fixture's trust route too, never to the server", async () => {
 	const layer = mount();
 	layer.alerts([trust as never], new Map([[trust.key, trust as never]]));
 	layer.stack.show(trust as never);
@@ -79,7 +95,4 @@ test("a project trust question's dialog answers through the fixture's trust rout
 	choices()[0]!.click();
 	await settle();
 	assert.deepEqual([calls.trusts.length, fetched], [1, []]);
-	page.body.dataset.stale = "true";
-	layer.stack.redraw();
-	assert.ok(choices().every((b) => b.disabled), "no trust answer while the stream is not live");
 });

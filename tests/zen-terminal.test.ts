@@ -59,7 +59,7 @@ function rig() {
 		recent: async () => [],
 		post: () => () => new Promise(() => {}), label: (ws: string) => ws, online: () => true,
 		remind: () => {}, sound: () => {}, leave: (e: unknown) => void calls.leave.push(e), watch: () => {},
-		remote: false, now: () => t, stored: () => undefined,
+		remote: false, now: () => t, start: () => undefined,
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} },
 		still: () => false, random: () => 0,
 		terminals: () => new Promise<typeof kit>((done) => {

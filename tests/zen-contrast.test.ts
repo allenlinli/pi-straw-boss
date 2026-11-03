@@ -42,8 +42,9 @@ test("text on a coloured fill (`--ink`) is the ground, never the paper: Standard
 	const box = declarations(pair[0]!.body);
 	assert.ok(box.some(([p, v]) => p === "min-height" && v === "44px"), "a 44 px target");
 	assert.ok(box.some(([p, v]) => p === "color" && v === "var(--zen-paper)"), "paper words");
-	const yes = rulesOf(css).find((r) => r.parts.some((p) => /\.pad-yes$/.test(p.trim())));
-	assert.ok(yes && declarations(yes.body).some(([p, v]) => p === "background" && v === "var(--zen-warm)"), "the one that sends is filled (paper on warm, 7 : 1 above)");
+	// The visual language (Z-D15): the pair is two words of one style, the one that sends in paper and the other in ash; neither is filled, so no label sits on a fill.
+	assert.match(css, /\.zen-term-host :is\(\.pad-yes, \.tcard-go\) \{ border-color: transparent; background: transparent; color: var\(--zen-paper\);/, "the one that sends is the paper word");
+	assert.match(css, /\.zen-term-host :is\(\.pad-no, \.tcard-mask\) \{ border-color: transparent; background: transparent; color: var\(--zen-ash\); \}/, "the other the ash word");
 });
 
 // Yellow in Zen: the ink palette has none. Standard's amber and gold are paper and ash here (the token block), and the terminal mirror's yellows (ANSI 33 and 93 as classes, 256-colour and truecolor inline) are an ochre and muted as a whole.

@@ -73,6 +73,6 @@ export function mountMenu(deps: MenuDeps, leave: () => void) {
 			controls[to]!.focus();
 		}
 	});
-	document.addEventListener("pointerdown", (e) => open && !host.contains(e.target as Node | null) && close());
+	document.addEventListener("pointerdown", (e) => open && (e.target === host || !host.contains(e.target as Node | null)) && close()); // the host itself is the veil it draws (zen.css), which takes the press
 	return { el: host, button, isOpen: () => open, close };
 }

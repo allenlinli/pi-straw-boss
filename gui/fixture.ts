@@ -95,7 +95,7 @@ const zenState = (net: Net, extra: string | null) => {
 	return net;
 };
 
-export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer>; api(path: string): Promise<unknown> } {
+export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer>; api(path: string): Promise<unknown>; start(): { key: string; ws: string } | undefined } {
 	demoOpen(); // the opening tiles' folder picker and deploy, with no server
 	let towerNow: TowerState = "off", serverNow = "auto";
 	const zen = new URLSearchParams(location.search).get("zen"), cardParam = new URLSearchParams(location.search).get("card");
@@ -165,9 +165,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	for (let i = 41; i > 0; i--) ((clock = Date.now() - i * 40_000), i === 41 ? (net = track(net)) : advance());
 	net = track(zenState(net, zen));
 	if (zen === "idle" || zen === "alone") quietUntil = Date.now() + 90_000;
-	// The companion is only a session this device talked to (Z-D12): `idle` and `palette` start as if the boss had last written to billing-main, `alone` as if he had written to no one.
-	if (zen === "idle" || zen === "palette") localStorage.setItem("sb.zen.with", JSON.stringify({ key: "a1", ws: "w1", at: Date.now() }));
-	if (zen === "alone") localStorage.removeItem("sb.zen.with");
+	// A visit starts at the breathing circle (Z-D16): `idle` and `palette` start their first visit as if the boss had stepped to billing-main with `]`; a later visit starts at the circle, as the page does.
+	let first = zen === "idle" || zen === "palette";
+	const zenStart = () => (first ? ((first = false), { key: "a1", ws: "w1" }) : undefined);
 	setInterval(() => ((clock = Date.now()), advance() && current?.send("message", net)), tick);
 	const control: Control = {
 		// The overlay a drop or silence brings up is modal over this toolbar too, so the demo restores itself: a drop a few seconds on, a silence a few seconds after the watchdog has noticed it.
@@ -242,7 +242,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	/** The page's `api/<path>` reads the demo answers itself: the music folder (`?music=<n>`). */
 	const tracks = Array.from({ length: Math.min(6, Number(new URLSearchParams(location.search).get("music")) || 0) }, (_, i) => ({ file: ["Morning ink.mp3", "Rain on the roof.mp3", "Slow tea.mp3", "Temple bell.mp3", "Late harbour.mp3", "Paper lantern.mp3"][i]!, size: 3_400_000 + i * 410_000 }));
 	const api = async (path: string) => (path === "music" ? { tracks } : Promise.reject(new Error("404")));
-	return { open: (watch) => new FixtureSource(watch), data, control, trust, api };
+	return { open: (watch) => new FixtureSource(watch), data, control, trust, api, start: zenStart };
 }
 
 function mountToolbar(control: Control) {

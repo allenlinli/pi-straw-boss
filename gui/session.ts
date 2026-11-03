@@ -1,6 +1,6 @@
 import type { Mark } from "../src/netdata.ts";
 import type { Chat, Data, Who } from "./chat.ts";
-import { canAnswer, mountAnswer } from "./answer.ts";
+import { answerPost, canAnswer, mountAnswer } from "./answer.ts";
 import { drawMonitors, drawQueued, drawTodos, foldQueue, mountQueueEdit, mountQueueFold } from "./bars.ts";
 import { mountComposer } from "./composer.ts";
 import { docFor, docTile } from "./doc.ts";
@@ -10,7 +10,7 @@ import { aimSession } from "./quit.ts";
 import { aim, aimOpening, html, LABEL, mark, text } from "./render.ts";
 import { channelOf, locate, type Scene, type Subject, towerBase, wsOf } from "./scene.ts";
 import { linkTo } from "./tokens.ts";
-import { composerUnit, liveOf, sendFor } from "./sessionfacts.ts";
+import { composerUnit, liveOf } from "./sessionfacts.ts";
 import { fillAllies } from "./towerallies.ts";
 import { fillConversation } from "./towerconv.ts";
 import { fillMemory } from "./towermemory.ts";
@@ -52,7 +52,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 		};
 		const opener = (path: string, card = docFor(locate(scene.net, key)?.u.docs, scene.info?.header?.cwd, path)) => card && (() => openTile(docTile(who().name, card)));
 		chat = mountChat(view.querySelector(".chat-root")!, data(key), { who, link, docFor: opener });
-		const send = sendFor(key, () => data(key).post, () => ({ net: scene.net, ws: wsOf(scene) }));
+		const send = answerPost(key, () => data(key).post);
 		[composer, asker] = [mountComposer(view.querySelector(".composer-root")!, key, send), mountAnswer(view.querySelector(".ask-root")!, { key, post: send, show: () => setMode("term") })];
 		mountQueueEdit(view, () => composer?.takeQueue() ?? Promise.resolve());
 		mountQueueFold(view);

@@ -1,7 +1,6 @@
 import type { Net } from "../src/net.ts";
 import type { Alert } from "./alerts.ts";
 import { rankOf, unitsOf, waitingOf } from "./units.ts";
-import type { With } from "./zenwith.ts";
 
 // What Zen shows, decided without a page (docs/specs/2026-11-01-zen-view.md): the one current item, the pause, or the companion. The view it hands out never says how many items wait.
 export type Sound = "bowl" | "knock" | "low";
@@ -12,10 +11,12 @@ export const REST_MS = 10 * 60_000, OUTCOME_MS = 1200, HOLD_MS = 30_000, PAUSE_M
 /** What changes a resting item's question: its dialog (and digest), else its tool call; a trust question has its digest in its key. */
 const questionOf = (a: Alert) => `${a.key}|${a.pending?.answer ? `${a.pending.answer.dialog}:${a.pending.answer.digest}` : (a.pending?.callId ?? "")}`;
 
-/** The session for company: the stored one while the net lists it live with control; else none, and the breathing circle shows (Z-D12: no tower stands in). */
-export function companionOf(net: Net | undefined, stored: With | undefined): { key: string; ws: string } | undefined {
-	const ws = stored && net && unitsOf(net).find(({ unit: u }) => u.key === stored.key && u.control && !("ended" in u && u.ended))?.base.id;
-	return stored && ws !== undefined ? { key: stored.key, ws } : undefined;
+/** A session Zen keeps company with: its key and its base. */
+export interface With { key: string; ws: string }
+/** The session for company: the asked one while the net lists it live with control; else none, and the breathing circle shows (Z-D12: no tower stands in). */
+export function companionOf(net: Net | undefined, asked: With | undefined): With | undefined {
+	const ws = asked && net && unitsOf(net).find(({ unit: u }) => u.key === asked.key && u.control && !("ended" in u && u.ended))?.base.id;
+	return asked && ws !== undefined ? { key: asked.key, ws } : undefined;
 }
 
 export interface ZenDeps { now(): number; /** The companion's box has text and a real input (tap, drag, wheel, key, or text input) in the last DRAFT_MS. */ typing(): boolean }

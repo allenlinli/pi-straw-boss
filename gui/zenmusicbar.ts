@@ -106,7 +106,7 @@ export function mountMusic(deps: MusicDeps) {
 			radios()[to]?.focus();
 		}
 	});
-	document.addEventListener("pointerdown", (e) => open && !host.contains(e.target as Node | null) && close());
+	document.addEventListener("pointerdown", (e) => open && (e.target === host || !host.contains(e.target as Node | null)) && close()); // the host itself is the veil it draws (zen.css), which takes the press
 	/** The first press or key anywhere (outside the controls, which act for themselves) starts a switch that was stored on. Press-up and key-down both count as the browser's user activation, an iPhone's included. */
 	const gesture = (e: { target: unknown }) => {
 		if (!armed || !shown || host.contains(e.target as Node | null)) return;

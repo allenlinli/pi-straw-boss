@@ -9,7 +9,7 @@ import { alertsOf } from "../gui/alerts.ts";
 import { activityOf, companionsOf } from "../gui/zenunits.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
-import type { With } from "../gui/zenwith.ts";
+import type { With } from "../gui/zenmodel.ts";
 
 // The Zen layer (gui/zen.ts) as the page drives it: the net's snapshots go in, the card, the pause, or the companion comes out, and every answer goes through the same panels
 // and routes as Standard (ask.ts, trust.ts, the composer), which are the real ones here on a fake document. The composer and the log are stand-ins that record what they are given.
@@ -30,7 +30,7 @@ const secret = (): Pending => ({ callId: "c3", tool: "secret_drop", why: "It wai
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy"], more: 0 }], agents: [{ pane: "1", base: "Harbor", role: "member", at: 5 }] };
 
-function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; /** The session last written to: the tower `t` unless given; null for none. */ stored?: With | null; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean; candidates?: (n: Net | undefined) => { key: string; ws: string }[] } = {}) {
+function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; /** The companion the visit starts with: the tower `t` unless given; null for none. */ start?: With | null; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean; candidates?: (n: Net | undefined) => { key: string; ws: string }[] } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
 	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], settings: 0, composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[] };
@@ -55,7 +55,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		trust: (body: Record<string, unknown>) => (calls.trust.push(body), new Promise<Answer>((resolve) => replies.push(resolve))),
 		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => !o.offline,
 		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), terminals: async () => ({ embed: (key: string) => (calls.embeds.push(key), () => {}), watch: () => ({ conn: {}, stop() {} }), post: () => async () => ({ ok: true, status: 200, body: {} }), stream: () => "st" }), watch: (k: string | null) => void calls.watch.push(k),
-		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => (o.stored === null ? undefined : (o.stored ?? { key: "t", ws: "w", at: 1 })),
+		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, start: () => (o.start === null ? undefined : (o.start ?? { key: "t", ws: "w" })),
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
 		...(o.z4b ? { companions: () => (o.candidates ?? companionsOf)(netNow), activity: () => activityOf(netNow), settings: () => void calls.settings++, menu: { sound: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {} } } } : {}),
@@ -687,8 +687,8 @@ test("with no draft in the box a tap on the log is nothing: no item is waiting t
 	assert.deepEqual([r.calls.sound, r.calls.leave], [[], []]);
 });
 
-test("the stored companion wins while the net lists it live; without one, nothing waits shows the circle and the line", async () => {
-	const r = rig({ stored: { key: "m", ws: "w", at: 1 } });
+test("the companion a visit starts with wins while the net lists it live; without one, nothing waits shows the circle and the line", async () => {
+	const r = rig({ start: { key: "m", ws: "w" } });
 	r.feed(net([unit("m", "working")]));
 	r.z.show();
 	await r.settle();
@@ -703,8 +703,8 @@ test("the stored companion wins while the net lists it live; without one, nothin
 	assert.equal(alone.calls.watch.at(-1), null);
 });
 
-test("no tower stands in (Z-D12): nothing stored, or a stored session that ended, shows the circle and its line with towers in the net; [ from the circle picks the first candidate", async () => {
-	const none = rig({ stored: null, z4b: true });
+test("no tower stands in (Z-D12): nothing to start with, or a start session that ended, shows the circle and its line with towers in the net; ] from the circle picks the first candidate", async () => {
+	const none = rig({ start: null, z4b: true });
 	none.feed(net([unit("m", "idle")]));
 	none.z.show();
 	await none.settle();
@@ -714,7 +714,7 @@ test("no tower stands in (Z-D12): nothing stored, or a stored session that ended
 	assert.equal(none.z.cycle(1), true, "] from the circle steps to a companion");
 	await none.settle();
 	assert.ok(none.calls.composers.length > 0, "the stepped one opens its log and composer");
-	const ended = rig({ stored: { key: "m", ws: "w", at: 1 } });
+	const ended = rig({ start: { key: "m", ws: "w" } });
 	ended.feed(net([unit("m", "working")]));
 	ended.z.show();
 	await ended.settle();
@@ -985,10 +985,17 @@ test("[ and ] step the companion through the core's candidates (idle and towers 
 	assert.equal(r.z.cycle(1), true);
 	assert.equal(r.z.cycle(1), true);
 	await r.settle();
-	assert.equal(companionKey(r), "t", "wraps past the last");
+	assert.equal(r.z.companion(), undefined, "past the last: the breathing circle (Z-D16)");
+	assert.equal(r.by((el) => el.getAttribute("class") === "zen-line").length, 1, "with its line");
+	assert.equal(r.calls.watch.at(-1), null, "and no log streams");
+	assert.equal(r.by((el) => el.getAttribute("role") === "status" && el.textContent === "Back to the breath").length, 1, "said to a reader");
+	assert.equal(r.z.cycle(1), true);
+	await r.settle();
+	assert.equal(companionKey(r), "t", "then round to the first");
+	assert.equal(r.z.cycle(-1), true);
 	assert.equal(r.z.cycle(-1), true);
 	await r.settle();
-	assert.equal(companionKey(r), "a", "and past the first");
+	assert.equal(companionKey(r), "a", "and backwards past the circle to the last");
 	assert.equal(r.by((el) => el.getAttribute("role") === "status" && el.textContent === "With a").length, 1, "the new companion is said to a reader");
 	r.feed(net([unit("a", "working"), unit("b", "idle"), unit("q", "waiting", { since: 5, pending: select() })]));
 	await r.advance(600);
@@ -996,7 +1003,7 @@ test("[ and ] step the companion through the core's candidates (idle and towers 
 	r.button("Maybe later")!.click();
 	await r.advance(3100);
 	assert.deepEqual(r.z.companion(), { key: "a", ws: "w" }, "the companion the boss stepped to comes back");
-	assert.deepEqual(stored.get("sb.zen.with") ?? null, null, "stepping is not talking: the stored companion is not touched");
+	assert.equal(stored.has("sb.zen.with"), false, "nothing records a companion (Z-D16)");
 });
 
 test("] and [ skip a candidate that is not a live companion: every press lands on a new companion and never sticks (Z4B-F003)", async () => {
@@ -1005,21 +1012,26 @@ test("] and [ skip a candidate that is not a live companion: every press lands o
 	r.feed(net([unit("a", "working"), unit("b", "idle")]));
 	r.z.show();
 	await r.settle();
-	const step = async (dir: 1 | -1) => (assert.equal(r.z.cycle(dir), true), await r.settle(), companionKey(r));
+	const step = async (dir: 1 | -1) => (assert.equal(r.z.cycle(dir), true), await r.settle(), r.z.companion()?.key ?? "circle");
 	assert.equal(companionKey(r), "t");
-	assert.deepEqual([await step(1), await step(1), await step(1), await step(1), await step(1)], ["b", "a", "t", "b", "a"], "g is jumped over each time round");
-	assert.deepEqual([await step(-1), await step(-1), await step(-1)], ["b", "t", "a"], "and backwards");
+	assert.deepEqual([await step(1), await step(1), await step(1), await step(1), await step(1)], ["b", "a", "circle", "t", "b"], "g is jumped over each time round, and the circle sits where the list wraps");
+	assert.deepEqual([await step(-1), await step(-1), await step(-1)], ["t", "circle", "a"], "and backwards");
 	assert.deepEqual(r.z.companion(), { key: "a", ws: "w" });
 });
 
 test("[ and ] do nothing (false, so the key stays the browser's) with nothing to step to, on a card, on the pause, with the terminal or the palette open, or while hidden", async () => {
 	const r = rig({ z4b: true });
 	assert.equal(r.z.cycle(1), false, "not shown");
-	r.feed(net([], [], true));
+	const bare = rig({ z4b: true, candidates: () => [] });
+	bare.feed(net([unit("a", "working")]));
+	bare.z.show();
+	await bare.settle();
+	assert.equal(bare.z.cycle(1), true, "no candidates: the companion steps to the circle");
+	await bare.settle();
+	assert.equal(bare.z.cycle(1), false, "and from the circle there is nothing to step to");
+	r.feed(net([unit("a", "working")]));
 	r.z.show();
 	await r.settle();
-	assert.equal(r.z.cycle(1), false, "the tower alone: nothing to step to");
-	r.feed(net([unit("a", "working")]));
 	assert.equal(r.z.cycle(1), true);
 	r.z.palette();
 	assert.equal(r.z.cycle(1), false, "the palette is open");
@@ -1038,7 +1050,7 @@ test("[ and ] do nothing (false, so the key stays the browser's) with nothing to
 	assert.equal(card.z.cycle(1), false, "so is the pause");
 });
 
-test("hiding Zen forgets the stepped companion: coming back shows the stored one (or the circle)", async () => {
+test("hiding Zen forgets the stepped companion: coming back starts the visit again", async () => {
 	const r = rig({ z4b: true });
 	r.feed(net([unit("a", "working"), unit("b", "idle")]));
 	r.z.show();
@@ -1050,6 +1062,48 @@ test("hiding Zen forgets the stepped companion: coming back shows the stored one
 	r.z.show();
 	await r.settle();
 	assert.equal(r.z.companion()?.key, "t");
+});
+
+test("a visit starts at the breathing circle (Z-D16): the page names no start, a session written to before does not come back, and neither does one written to from Zen", async () => {
+	stored.set("sb.zen.with", JSON.stringify({ key: "a", ws: "w", at: 1 })); // what 0.54 left in a device's storage
+	const r = rig({ z4b: true, start: null });
+	r.feed(net([unit("a", "working"), unit("b", "idle")]));
+	r.z.show();
+	await r.settle();
+	assert.equal(r.z.companion(), undefined, "the circle, not the last session written to");
+	assert.equal(r.calls.composers.length, 0);
+	r.z.cycle(1);
+	await r.settle();
+	const key = r.z.companion()!.key;
+	const sent = (r.calls.composers.at(-1)!.post as unknown as (a: string, b: object) => Promise<Answer>)("input", { text: "hi" });
+	await r.reply({});
+	assert.equal((await sent).ok, true, "the message went");
+	r.z.hide();
+	r.z.show();
+	await r.settle();
+	assert.equal(r.z.companion(), undefined, `coming back after talking to ${key}: the circle again`);
+	stored.delete("sb.zen.with");
+});
+
+test("the palette's Back to the breath leaves the companion for the circle for the rest of the visit: an item that comes and goes returns to the circle", async () => {
+	const r = rig({ z4b: true });
+	r.feed(net([unit("a", "working"), unit("b", "idle")]));
+	r.z.show();
+	await r.settle();
+	assert.equal(companionKey(r), "t");
+	r.z.palette();
+	r.by((el) => el.getAttribute("role") === "option" && el.textContent.startsWith("Back to the breath"))[0]!.click();
+	await r.settle();
+	assert.equal(r.z.companion(), undefined, "the circle");
+	assert.equal(r.calls.watch.at(-1), null);
+	assert.equal(r.by((el) => el.getAttribute("role") === "status" && el.textContent === "Back to the breath").length, 1);
+	r.feed(net([unit("a", "working"), unit("b", "idle"), unit("q", "waiting", { since: 5, pending: select() })]));
+	await r.advance(600);
+	r.button("Maybe later")!.click();
+	await r.advance(3100);
+	assert.equal(r.z.companion(), undefined, "the circle comes back, not the companion the visit started with");
+	r.z.palette();
+	assert.equal(r.by((el) => el.getAttribute("role") === "option" && el.textContent.startsWith("Back to the breath")).length, 0, "the circle offers no way back to itself");
 });
 
 test("the strip says how many units work and how many are idle, from the core's selector, on the companion and the pause, not on a card; it is the same with one, two, and five waiting", async () => {
@@ -1163,7 +1217,7 @@ test("[ and ] never land on a unit that waits, a rested 'maybe later' one too", 
 	for (let i = 0; i < 4; i++) {
 		r.z.cycle(1);
 		await r.settle();
-		seen.add(r.z.companion()!.key);
+		seen.add(r.z.companion()?.key ?? "circle");
 	}
-	assert.deepEqual([...seen].sort(), ["a", "t"], "the tower and a; q waits");
+	assert.deepEqual([...seen].sort(), ["a", "circle", "t"], "the tower, a, and the circle; q waits");
 });

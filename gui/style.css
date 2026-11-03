@@ -965,6 +965,10 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .ally-tab { display: flex; justify-content: space-between; gap: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }
 .ally-tab b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ally-tab span { color: var(--dim); flex: none; }
+.ally-units { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; } .ally-units:empty { display: none; }
+.ally-unit { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 6px 10px; border-left: 2px solid var(--accent); font-size: 12px; }
+.ally-unit b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ally-unit span { color: var(--dim); }
+.ally-unit pre { grid-column: 1 / -1; margin: 0; max-height: 6.5em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dim); font: inherit; }
 .ally-tab[data-state="working"] span { color: var(--accent); } .ally-tab[data-state="blocked"] span { color: var(--amber); }
 .link-pop { width: min(460px, calc(100vw - 16px)); }
 .link-pop ul { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow: auto; display: grid; gap: 8px; }
@@ -972,6 +976,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .link-alert[data-level="error"] { background: color-mix(in srgb, #f7768e 10%, transparent); }
 .link-alert[data-level="warning"] { background: color-mix(in srgb, var(--amber) 9%, transparent); }
 .link-args { margin: 0; max-height: 180px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+.link-alert[data-kind="notice"] { grid-template-columns: 1fr auto; align-items: start; } .link-alert[data-kind="notice"] span { overflow-wrap: anywhere; max-height: 7em; overflow: auto; }
 .link-note { color: var(--dim); } .link-note:empty, .link-dialog:empty { display: none; }
 .link-alert .ask { margin: 0; padding: 0; border: 0; background: none; } /* the card is the border: the question panel inside sits flat, not a box in a box */
 .link-alert .ask-acts { position: sticky; bottom: -8px; padding: 6px 0 8px; background: var(--card); } /* Send answer stays in view while a long list scrolls, on the card's own opaque colour */

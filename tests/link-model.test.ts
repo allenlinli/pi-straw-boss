@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LinkAlert } from "../src/link/holder.ts";
-import { alertLine, allyMark, countdown, dialogState, hasLinkNews, lastSeen, stateName, urgentFirst } from "../gui/linkmodel.ts";
+import { alertLine, allyMark, countdown, dialogState, hasLinkNews, lastSeen, stateName, unitLine, unitsFor, urgentFirst } from "../gui/linkmodel.ts";
 import { dialogStateLine, remoteAnswer, remoteDialog } from "../gui/linkdialogmodel.ts";
 import { m } from "../gui/paraglide/messages.js";
 
@@ -64,8 +64,8 @@ test("an ally base takes its mark from the tower's state, dim while offline", ()
 
 test("the HUD's Link button shows only when there is a notice or a confirm", () => {
 	assert.equal(hasLinkNews(undefined), false);
-	assert.equal(hasLinkNews({ allies: [], alerts: [], confirms: [] }), false);
-	assert.equal(hasLinkNews({ allies: [], alerts: [alert("inbox", {})], confirms: [] }), true);
+	assert.equal(hasLinkNews({ allies: [], alerts: [], confirms: [], units: [] }), false);
+	assert.equal(hasLinkNews({ allies: [], alerts: [alert("inbox", {})], confirms: [], units: [] }), true);
 });
 
 const SELECT = { title: "Deploy?", choices: [{ label: "Yes" }, { label: "No" }] };
@@ -94,4 +94,14 @@ test("the panel's answer goes to the holder as one of its three shapes, whatever
 	assert.deepEqual(remoteAnswer({ dialog: "D1", digest: "ab", answerId: "x", choice: 1 }), { choice: 1 });
 	assert.deepEqual(remoteAnswer({ answers: [{ choices: [0] }], choice: undefined }), { answers: [{ choices: [0] }] });
 	assert.deepEqual(remoteAnswer({ cancel: true, answerId: "x" }), { cancel: true });
+});
+
+test("a notice of an unattended device reads in words, and its units sit beside its ally bases", () => {
+	assert.equal(alertLine(alert("notice", { label: "ci-box", short: "def456", what: "run-crashed", unit: "moldplan", text: "An ally run crashed: <b>x</b>" })), "ci-box (def456), unattended, in team moldplan — run-crashed, moldplan: An ally run crashed: <b>x</b>");
+	const units = [{ team: "t", device: "d1", units: [{ unit: "moldplan", state: "working", monitors: ["a", "b"], report: "done" }, { unit: "other", state: "idle", monitors: [], report: "" }] }];
+	assert.deepEqual(unitsFor(units, { team: "t", device: "d1", workspace: "moldplan" }).map((u) => u.unit), ["moldplan"]);
+	assert.equal(unitsFor(units, { team: "t", device: "d1", workspace: null }).length, 2, "a device with no workspace in its presence shows all");
+	assert.equal(unitsFor(units, { team: "t", device: "d2", workspace: null }).length, 0);
+	assert.equal(unitLine(units[0]!.units[0]!), "working · 2 monitors running");
+	assert.equal(unitLine(units[0]!.units[1]!), "idle");
 });

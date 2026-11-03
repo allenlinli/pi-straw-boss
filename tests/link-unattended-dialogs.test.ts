@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import type { Offer, Sent } from "../src/dialogs.ts";
-import { DialogForwarder } from "../src/link/dialogs-out.ts";
+import { DialogForwarder, UNANSWERED_MS } from "../src/link/dialogs-out.ts";
+import { runNotice, STATUS_EVERY_MS, UnitReporter, type UnitFacts } from "../src/link/unitstatus.ts";
+import { fakeClock } from "./fake-clock.ts";
 import { buildEnvelope } from "../src/link/envelope.ts";
 import { LinkHolder } from "../src/link/holder.ts";
 import { encodePlaintext } from "../src/link/kinds.ts";
@@ -256,5 +258,94 @@ describe("dialog forwarding", () => {
 		const { d, a } = await start();
 		assert.deepEqual(d.holder.dialogControllers(), [{ team: TEAM_HEX, device: alice.id }]);
 		assert.deepEqual(a.holder.dialogControllers(), []);
+	});
+});
+
+// unit-status and notice (Unattended devices): the unattended device reports its units to its dispatch controllers every minute and on a change, and tells them what went wrong, once.
+describe("unit-status and notices", () => {
+	async function start(trust: Record<string, "reply" | "forward" | "dispatch"> = { [alice.id]: "dispatch", [bob.id]: "reply" }) {
+		world();
+		const clock = fakeClock(), d = rig("dave", trust), a = rig("alice"), b = rig("bob");
+		let units: UnitFacts[] = [{ unit: "moldplan", state: "live", monitors: [] }], report = "Deployed v1.2";
+		const posted: { device: string; units: number }[] = [];
+		const reporter = (who: Rig) => new UnitReporter({
+			controllers: () => who.holder.dialogControllers(), units: async () => units, report: () => report, now: clock.now, log: (e) => who.store.log(e),
+			status: async (t, dev, u) => (posted.push({ device: dev, units: u.length }), who.holder.sendUnitStatus(t, dev, u)), notice: (t, dev, n) => who.holder.sendDialog(t, dev, "notice", n),
+		});
+		await Promise.all([d.holder.start(), a.holder.start(), b.holder.start()]);
+		return { clock, d, a, b, reporter: reporter(d), attended: reporter(a), posted, set: (u: UnitFacts[], r = report) => ((units = u), (report = r)) };
+	}
+
+	test("the status goes to the controller at dispatch, again on a change and after a minute, never twice for nothing", async () => {
+		const { clock, a, b, reporter, posted, set } = await start();
+		await reporter.tick();
+		await until(() => a.holder.summary().units.length === 1, 3000, "the status on alice");
+		assert.deepEqual(a.holder.summary().units[0], { team: TEAM_HEX, device: dave.id, units: [{ unit: "moldplan", state: "live", monitors: [], report: "Deployed v1.2" }] });
+		assert.equal(b.holder.summary().units.length, 0, "bob is at reply: no status");
+		await reporter.tick();
+		clock.advance(STATUS_EVERY_MS - 1);
+		await reporter.tick();
+		assert.equal(posted.length, 1, "nothing changed and the minute has not passed");
+		set([{ unit: "moldplan", state: "working", monitors: ["tail -f log"] }]);
+		await reporter.tick();
+		assert.equal(posted.length, 2, "a change goes at once");
+		await until(() => a.holder.summary().units[0]?.units[0]?.state === "working", 3000, "the change on alice");
+		clock.advance(STATUS_EVERY_MS);
+		await reporter.tick();
+		assert.equal(posted.length, 3, "a minute later it goes again");
+		set([{ unit: "moldplan", state: "working", monitors: [] }], "x".repeat(6000));
+		await reporter.tick();
+		await until(() => (a.holder.summary().units[0]?.units[0]?.report.length ?? 0) > 0 && a.holder.summary().units[0]!.units[0]!.monitors.length === 0, 3000, "the long report");
+		assert.equal(Buffer.byteLength(a.holder.summary().units[0]!.units[0]!.report), 4096, "the report is cut to 4 KB");
+	});
+
+	test("a notice goes once per trigger to the controllers at dispatch, and clears with the day", async () => {
+		const { a, b, reporter } = await start();
+		const n = runNotice({ kind: "ended", run: "r1", workspace: "w", label: "moldplan", ally: true, outcome: "crashed", detail: "pi exited without tower_done" });
+		await reporter.notify(n.key, n.notice);
+		await reporter.notify(n.key, n.notice);
+		await until(() => a.holder.summary().alerts.some((x) => x.kind === "notice"), 3000, "the notice on alice");
+		const alerts = a.holder.summary().alerts.filter((x) => x.kind === "notice");
+		assert.equal(alerts.length, 1);
+		assert.deepEqual([alerts[0]!.data.what, alerts[0]!.data.unit, alerts[0]!.data.text, alerts[0]!.data.label], ["run-crashed", "moldplan", "An ally run crashed: pi exited without tower_done", "ci-box"]);
+		assert.equal(b.holder.summary().alerts.some((x) => x.kind === "notice"), false);
+		const trust = runNotice({ kind: "ended", run: "r2", workspace: "w", label: "moldplan", ally: false, outcome: "crashed", detail: "No trust decision for /p within 10 minutes" });
+		assert.equal(trust.notice.kind, "trust-unanswered");
+		assert.equal(runNotice({ kind: "refused", workspace: "w", label: "moldplan", ally: false, text: "A run could not start: x" }).notice.kind, "run-refused");
+	});
+
+	test("an attended computer sends no status and no notice", async () => {
+		const { a, attended, posted } = await start();
+		await attended.tick();
+		await attended.notify("k", { kind: "run-crashed", unit: "u", text: "t" });
+		assert.equal(posted.length, 0);
+		assert.equal(a.holder.summary().alerts.some((x) => x.kind === "notice"), false);
+	});
+
+	test("a dialog unanswered for 30 minutes and an oversize one are told once; an answered one is not", async () => {
+		const { clock, d, a, reporter } = await start();
+		const h = fakeHub(), f = new DialogForwarder({ hub: h.hub, read: async () => {}, controllers: () => d.holder.dialogControllers(), post: (t, dev, k, p) => d.holder.sendDialog(t, dev, k, p), log: (e) => d.store.log(e), now: clock.now, notice: (k, n) => reporter.notify(k, n) });
+		d.sink = (x) => f.answer(x);
+		const noticesOnAlice = () => a.holder.summary().alerts.filter((x) => x.kind === "notice");
+		h.open("D1");
+		h.open("D2");
+		await f.tick();
+		await until(() => a.holder.dialogRequests().length === 2, 3000, "both on alice");
+		clock.advance(UNANSWERED_MS - 1);
+		await f.tick();
+		assert.equal(noticesOnAlice().length, 0);
+		assert.deepEqual(await a.holder.answerDialog(dave.id, "D2", selectDigest(SELECT), JSON.stringify({ choice: 0 })), { ok: true });
+		await until(() => h.sent.length === 1, 3000, "D2 answered");
+		clock.advance(1);
+		await f.tick();
+		await f.tick();
+		await until(() => noticesOnAlice().length === 1, 3000, "the unanswered notice");
+		assert.equal(noticesOnAlice()[0]!.data.what, "dialog-unanswered");
+		const big = { title: "x".repeat(70_000), choices: [{ label: "ok" }] };
+		h.open("BIG", answerable("BIG", { digest: selectDigest(big), select: big }));
+		await f.tick();
+		await f.tick();
+		await until(() => noticesOnAlice().length === 2, 3000, "the oversize notice");
+		assert.equal(noticesOnAlice().filter((x) => x.data.what === "dialog-oversize").length, 1);
 	});
 });

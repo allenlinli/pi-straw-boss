@@ -42,10 +42,12 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 	// The cards of forwarded dialogs (linkdialogs.ts, with the question panel) load when the first one shows, so the page's start does not carry them; until then the notice's line stands in.
 	let cards: ReturnType<typeof import("./linkdialogs.ts").mountDialogCards> | undefined, last: LinkSummary | undefined;
 	const loadCards = () => void import("./linkdialogs.ts").then(({ mountDialogCards }) => ((cards = mountDialogCards()), (sig = ""), api.net(last)));
+	/** The notices of unattended devices the boss cleared: forgotten here only, the holder keeps them for a day. */
+	const cleared = new Set<string>();
 	const api = {
 		net(summary: LinkSummary | undefined) {
 			last = summary;
-			const alerts = urgentFirst((summary?.alerts ?? []).filter((a) => a.kind !== "confirm")), confirms = summary?.confirms ?? [];
+			const alerts = urgentFirst((summary?.alerts ?? []).filter((a) => a.kind !== "confirm" && !cleared.has(a.id))), confirms = summary?.confirms ?? [];
 			const next = JSON.stringify([alerts, confirms]);
 			if (next === sig) return;
 			sig = next;
@@ -66,6 +68,11 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 					const go = h("button", { type: "button", class: "later" }, a.kind === "join-request" ? m.link_review() : m.link_open_teams());
 					go.onclick = () => (pop.hidePopover(), open());
 					row.append(go);
+				}
+				if (a.kind === "notice") {
+					const clear = h("button", { type: "button", class: "later" }, m.link_notice_clear());
+					clear.onclick = () => (cleared.add(a.id), (sig = ""), api.net(last));
+					row.append(clear);
 				}
 				// A message that waits for an ally run is explained on the tower's card (held, a refused start), so the notice points there.
 				if (a.kind === "served") {

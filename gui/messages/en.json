@@ -715,6 +715,11 @@
 		}
 	],
 	"link_a_dialog": "{label} ({short}) in team {team} asks a question ({owner}).",
+	"link_a_notice": "{label} ({short}), unattended, in team {team} — {what}, {unit}: {text}",
+	"link_notice_clear": "Clear",
+	"link_unit_monitors": "{count} monitors running",
+	"link_unit_report": "Last report",
+	"link_unit_stale": "no status lately",
 	"tower_state_waking": "waking",
 	"tower_state_closing": "closing",
 	"tower_state_held": "held",

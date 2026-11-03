@@ -96,9 +96,8 @@ fit a headless unattended device):
   not acknowledged, whatever its event id, so a saved event id never skips mail; the receive checks drop repeats.
 - The holder acknowledges an envelope to the relay only after it is delivered to a tower or written to the inbox, so a crash or a
   takeover delivers it again rather than losing it; the receive checks drop the second copy.
-- The holder needs a joined pi session to run in. An unattended device's infra starts one pi session at boot, in the first bound project
-  (**Unattended devices**). The election works when one long-lived tower is the only candidate, as in straw-boss-desk, whose shell
-  starts `herdr server` and one tower pi and keeps them alive.
+- The holder is the sb server, which is the only candidate, so no pi session has to run for the link: an unattended device starts no boot pi session
+  (**Unattended devices**, and the rebased section of [the sb server spec](2026-10-26-sb-backend.md), Unattended devices (Straw Link step 6, rebased)).
 
 ## Storage and policy
 
@@ -399,22 +398,17 @@ characters (a folder named in Chinese stays so) and is only cleaned of control c
 
 ## Unattended devices
 
-An unattended device keeps pi running in the **default** Herdr server, started headless by its infra (launchd or systemd, with a clean
-environment), so pi-intercom resolves its sessions' Herdr locations; a named `herdr --session` is invisible to the net today. The infra
-runs `herdr server` (not `herdr`, which wants a terminal) under `env -i` with only `HOME`, `PATH`, `TERM`, and `LANG`, and installs Herdr's
-pi integration (`herdr integration install pi`), which lets Herdr resume pi panes from their session files. On first boot it creates the
-workspace (`herdr workspace create --cwd <first bound project>`) and starts pi in it (`herdr pane run <pane> pi`), so the device has a link
-holder before any work arrives; after that, Herdr's restore brings the layout and pi back.
+An unattended device runs the Herdr server and the sb server (`cli.mjs serve`) under its infra (systemd user units with lingering, or launchd with `UserName`), both under `env -i` with only
+`HOME`, `PATH`, `TERM`, and `LANG`, and with Herdr on its **default** socket so the sb server is the primary one (a named `herdr --session` is invisible to the net). The sb server is the link
+holder; there is no boot pi session. The setup, as the rebased step 6 of [the sb server spec](2026-10-26-sb-backend.md) (Unattended devices (Straw Link step 6, rebased)) defines it, is written out in
+[docs/unattended-device.md](../unattended-device.md). Herdr's pi integration (`herdr integration install pi`) still lets Herdr resume pi panes from their session files.
 
-Checked on 2026-10-25 with Herdr 0.9.5 and pi 1.4.0, in an isolated `HOME` with no client ever attached: the server gives a headless
-pane a 120×40 terminal, pi starts in it and joins the net; after `herdr server stop` and a new `herdr server`, Herdr restored the layout
-and restarted pi with its session within a second, and pi joined the net again. Herdr's documentation says restored agent panes resume
-after a client attaches; in 0.9.5 the headless server did not wait for one. Not checked: a real OS reboot, which depends on how the infra
-starts the server at boot (a launchd daemon with `UserName`, or a systemd user unit with lingering enabled).
+Checked on 2026-10-25 with Herdr 0.9.5 and pi 1.4.0, in an isolated `HOME` with no client ever attached: the server gives a headless pane a 120×40 terminal, pi starts in it and joins the net; after
+`herdr server stop` and a new `herdr server`, Herdr restored the layout and restarted pi with its session within a second, and pi joined the net again. Not checked: a real OS reboot.
 
 - **Taking work.** A `tower` message from a controller at `dispatch` goes to the tower of the bound workspace. With none open, the link
-  holder opens a workspace in the bound `project` directory (which may be outside the home folder: it comes from the policy file, not from
-  the GUI's folder picker) and starts its tower there; this is new code, since today a tower opens only in its caller's workspace. It
+  server opens a workspace in the bound `project` directory (which may be outside the home folder: it comes from the policy file, not from
+  the GUI's folder picker) and gives it a tower (`ensure-tower`; built in step 6). It
   opens nothing for any other sender, and nothing outside the bound directories.
 - **Asking back.** A dialog that waits on someone in any session on the device (`select`, `confirm`, `ask_user_question`) goes to its
   controllers at `dispatch` as `dialog-open`; the first valid `dialog-answer` is taken, as the local GUI takes an answer, and `dialog-close` closes it in
@@ -820,3 +814,34 @@ Built in `src/board.ts` (entry rules, files, expiry, the local join), `boardset.
 - **Auto-fill (2026-10-28)** is built in `src/boardauto.ts` (derivation and scrub), `src/boardfill.ts` (the session's writer and `board_set { auto }`), `src/board.ts` (`src`, `count`, `forAllies`), and `src/todo.ts` (`todosOfBranch`). The ally reduction is applied in `link/holder.ts` (`boardFor`), `boardread.ts` (a remote turn), and `server/towerbrief.ts` (an ally run's `seen` rows). **One gate for labels (T2 re-check 4):** every label, name, and opened-by that an ally can read goes through `allyLabel` (`boardauto.ts`: scrub, then cut, so a token at the cut leaves no prefix), and nothing else calls `scrubBoard`: the board wire (`boardFor`), the presence's workspace and tab labels (`statusOf`), a `tower` message's `fromWorkspace`, a `confirm-request`'s `tower`, `tower_list` and `boss_status` in a remote turn or an ally run (`reach.ts`), `board_read` (`boardread.ts`), and the ally brief (`towerbrief.ts`). Fields that hold a device's own words or ids (a message's text, `toWorkspace`, a confirm's `tool` and `args`, session ids) are not labels and are not scrubbed. `tests/ally-egress.test.ts` drives every one of these paths with a path, a token, and an email address in each label and checks the local views stay raw.
 - **Test seams**: `LinkDeps.boardMs` and `HolderOptions.boardMinMs` shorten the 15 second spacing; the live test uses 150 ms and still goes through the real relay.
 
+## Build record: step 6 (unattended devices, 2026-11-03)
+
+Built on `feat/link-unattended` in five tasks (S1 to S5) in `src/link/{policy,config,service,joinfile,admin,dialogs-out,unitstatus,holder}.ts`, `src/server/{opentower,runs,main}.ts`, `gui/{linkdialogs,linkdialogmodel,linkbar,linkmodel,render}.ts`, with
+`docs/unattended-device.md` for the infra. `src/link/kinds.ts` and `tests/link/vectors.json` are unchanged: every kind used here existed, so the relay is not affected.
+
+- **S1, policy.** The policy's project must exist and be absolute (the same `projectProblem` as `link.teams`); `share` defaults to `status`; a controller set to `true` is at `dispatch`. A policy that is refused
+  (owner or write check, malformed `teams`) means empty teams, empty trust, and no holder: `look()` returns before the election and says the reason once. `readEffectiveConfig` gives every reader of
+  `link.teams` the policy's teams on an unattended device and ignores config.json's `link` section, the relay included (the relay comes from the invite). An unattended device is `inUse()` before it has a team,
+  so the first look creates `device.json` and `device.id` for an admin to pin an invite to.
+- **S2, `join.txt`.** The holder reads it at start and each tick while no join is in flight. It has to be a regular file, not a symlink, owned by the own user, mode 600; any file-check failure deletes the file
+  (and logs the refusal). The relay of the invite is stored in the team file, so the device needs no relay setting. An invite for a team the policy does not name is refused before the relay hears of it. A holder
+  restart in the middle of a join loses the invite (known, P2: the infra drops a new file). The invite text is never logged.
+- **S3, the tower.** The server opens the tower itself: a workspace of Herdr with a pane inside the project (and the named label when the sender named one), else `workspace create --cwd <real project> --label
+  <basename> --no-focus`, the root pane marked `sb_role=tower`, then `ensure-tower` with that pane as the made claim. Only for a `dispatch` sender on an unattended device, never for a workspace name the sender chose.
+  One open per project at a time and a 60 s backoff after any attempt, successful or not (`tower-open`, `tower-opened`, `tower-open-failed`). Opening a main for an ally run needs no change in the run gate:
+  `boss_open_main` goes through the run-tool path at dispatch, which already checks the level.
+- **S4a, dialogs out.** `DialogForwarder` forwards what the hub lets a page answer (never a `secret_drop`, never one that waits in the terminal), one `dialog-open` per controller at `dispatch`, at most 32 open, 64 KB
+  each (an oversize one is skipped and logged). An answer counts only from an attended sender at `dispatch` now, for an open dialog, with its digest, under an answer id not seen: the first valid answer wins, a
+  session that could not be reached leaves the dialog open for the next. `dialog-close` carries only `by`.
+- **S4b, dialog cards.** A card per forwarded dialog in the Link bar with the shared question panel, answered through `link/dialog-answer` (the holder checks the dialog and digest again; paired phones may answer).
+  A closed card stays 2 minutes and says how it ended; because the close carries only `by`, a dialog another controller answered reads "answered by another controller". An answer sent from this page is
+  `done-here`.
+- **S5, status and notices.** `UnitReporter` (`src/link/unitstatus.ts`) holds no timer: the server calls `tick()` every 15 s (`unitsMs`), which sends a `unit-status` to a controller when it differs from the last one
+  sent or the last is a minute old, and `notify(key, notice)` tells every `dispatch` controller once per key (a key is remembered only when there was somebody to tell). `unit-status` is ephemeral (seq 0, an
+  increasing `ts` per sender, addressed `to` the controller); `notice` is queued like a dialog. Units are `towers.status()` rows; the monitors are the hub's running monitors mapped to a workspace by their pane;
+  the report is the later of the last `tower_done` note and the last `tower_send` text to that controller, cut to 4 KB. Run ends (`crashed`, `timeout`, `quit`) and settings refusals reach the reporter through
+  `RunsOptions.signal`; a trust question nobody answered for ten minutes ends the run as a crash with that reason and is told as `trust-unanswered`. The forwarder's own timer also re-sends a dialog to a controller
+  that gained `dispatch` mid-dialog and tells a dialog unanswered for 30 minutes once. The controller keeps the latest status per device in memory (fresh for 3 minutes, shown under the device's ally base) and
+  the last 20 notices for a day; clearing a notice is local to that page. `dialog-oversize`, a failed tower open, and a refused run each send a notice. An attended computer has no controllers, so it sends none.
+- **Tests.** `tests/link-unattended.test.ts` (policy file and join), `tests/link-unattended-dialogs.test.ts` (dialogs, status, notices), `tests/link-model.test.ts` (page model), `tests/server-tower-runs.test.ts` (the
+  runs' signals), all with fake clocks or the test's own clock; screenshots of the ally base with a status and of a notice came from the demo fixture (`gui/fixture.ts`).

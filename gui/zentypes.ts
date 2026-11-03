@@ -8,7 +8,7 @@ import type { Route } from "./router.ts";
 import type { TrustPost, trustPanel } from "./trust.ts";
 import type { FsEnv } from "./zenfs.ts";
 import type { RippleEnv } from "./zenripple.ts";
-import type { Candidate } from "./units.ts";
+import type { Candidate } from "./zenunits.ts";
 import type { MenuDeps } from "./zenmenu.ts";
 import type { MusicDeps } from "./zenmusicbar.ts";
 import type { Sound } from "./zenmodel.ts";

@@ -1,3 +1,4 @@
+import { activityOf, companionsOf } from "../gui/zenunits.ts";
 import { hotkeyOf } from "../gui/hotkeys.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -319,15 +320,15 @@ test("a hotkey reaches the part that does it: pause the Zen layer's tap, next an
 	for (const key of ["pause", "prev-companion", "next-companion", "palette"] as const) assert.equal(early.core.hotkey(key), false, `${key}: the layer is not loaded yet: the key stays the browser's`);
 });
 
-test("the companion candidates and the strip's counts are the core's selectors over the newest snapshot; none before one", () => {
+test("the core hands out the newest snapshot, which the companion candidates and the strip's counts read; none before one", () => {
 	const w = world({ stored: "zen" });
-	assert.deepEqual([w.core.companions(), w.core.activity()], [[], { working: 0, idle: 0 }]);
+	assert.deepEqual([companionsOf(w.core.newest()), activityOf(w.core.newest())], [[], { working: 0, idle: 0 }]);
 	const waiting = Array.from({ length: 4 }, (_, i) => unit(`w${i}`, "waiting"));
 	w.core.snapshot(net(unit("a", "working"), unit("b", "idle"), ...waiting));
-	assert.deepEqual(w.core.companions().map((c) => [c.key, c.ws]), [["b", "w"], ["a", "w"]], "a waiting unit is not a candidate");
-	assert.deepEqual(w.core.activity(), { working: 1, idle: 1 }, "what waits is in neither number");
+	assert.deepEqual(companionsOf(w.core.newest()).map((c) => [c.key, c.ws]), [["b", "w"], ["a", "w"]], "a waiting unit is not a candidate");
+	assert.deepEqual(activityOf(w.core.newest()), { working: 1, idle: 1 }, "what waits is in neither number");
 	w.core.snapshot(net(unit("a", "working"), unit("b", "idle")));
-	assert.deepEqual(w.core.activity(), { working: 1, idle: 1 }, "so the numbers do not tell how many waited");
+	assert.deepEqual(activityOf(w.core.newest()), { working: 1, idle: 1 }, "so the numbers do not tell how many waited");
 });
 
 test("the settings page opens by its route from anywhere, Zen included, and Zen goes away behind it", () => {

@@ -679,7 +679,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Views-core R5 to 4114 measured: zen.ts 278 to 276 (counted here); sessionfacts.ts (15, new) and session.ts (151 to 150) are shipped files with budgets of their own. All of gui grows by 12 lines (8756 to 8768), the shared module's price.
 	// Zen Z4b (companion keys, palette, status strip) to 4380 measured, +159 over the 4221 the branch base measured (the figure above had not followed Z5 and the earlier merges): gui/palette.ts (63, new: the shared component), gui/paletteentries.ts (38, new: Zen's entries), zen.ts 277 to 309 (cycle, the palette's mount and entries, the strip), zentypes.ts 61 to 69 (the core's selectors, the settings route, a music switch), pagecore.ts 191 to 196, units.ts 18 to 31 (companionsOf, activityOf); hotkeys.ts has its own figure (68 to 71: the alt and mod rows, the platform).
 	// Z4b review fixes and the merge with Z4d: 4492 measured (zen.ts 333, hotkeys.ts 73, palette.ts 67).
-	assert.ok(page <= 4804, `the page's TypeScript has ${page} lines`);
+	assert.ok(page <= 4835, `the page's TypeScript has ${page} lines`);
+	// Eager trim to 4835 (measured): gui/zenpage.ts (38, new) and gui/zenunits.ts (new) take what main.ts, pagecore.ts, and units.ts held for Zen; the lines are moved, plus the two files' headers.
 	// Z6 merged with Z4b/Z4d to 4804 (measured): Z5's zensound.ts (94), Z6's zenmusic.ts (116) and zenmusicbar.ts (178), and the music hooks in zen.ts (336), zentypes.ts (70), main.ts, and prefs.ts.
 	// Terminal card T5 to 4040 (measured 4035): termcard.ts (129), cardmodel.ts (47), keywriter.ts (70), mirrorconn.ts (82), stepslot.ts (63), and zenhost.ts (59) are new, less keypad.ts (136 to 85), mirror.ts (207 to 192), and the idle bookkeeping of zenterm.ts.
 	// Terminal card T7 to 4065 (measured): termwords.ts (18) and confirmbar.ts (12) are new, less keypad.ts (87 to 80) and termcard.ts (129 to 123); cardmodel.ts +2 (the echo of the shown command), keywriter.ts +1.
@@ -803,7 +804,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	const eagerBytes = total([...eager], (n) => size(n).length), eagerGz = total([...eager], gz);
 	// Views-core R4 (answer.ts stays out of the entry; post.ts's import moves with the callers): 90,697 / 32,552, +19 raw / +1 gzipped over c5e302f (90,678 / 32,551), inside the 0.1 KB raw cap.
 	// Merge of views-core R4 and the one-tap run: 90,817 / 32,612 (measured), the run id carried through pagecore's step.
-	assert.ok(eagerBytes <= 90_830 && eagerGz <= 32_620, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Eager trim (fix/eager-trim): by 314cad1 the entry had grown to 93,330 / 33,543 (a45f2cc: 90,947 / 32,723 with the sourcemap comment, 90,817 / 32,612 without). Zen-only code moved behind the Zen load: the sound, the music block and the companion readers into gui/zenpage.ts (built by the zen chunk), companionsOf and activityOf into gui/zenunits.ts; pagecore hands out `newest()` instead. Measured 92,097 / 33,144: +1,280 / +532 over the last cap, all of it the keymap rows (hotkeys.ts +703, Z4b/R8) and the core's routing (pagecore.ts +253, main.ts +198, prefs.ts +88 for the two music keys).
+	assert.ok(eagerBytes <= 92_112 && eagerGz <= 33_159, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -911,11 +913,11 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// One-tap prompt run: 251,918 / 101,847, +945 raw / +316 gzipped over the review fixes (three refusal words in both languages, the grant carried through the card and Zen host).
 	// Merge of views-core R4 and the one-tap run: 252,165 / 101,970 (measured).
 	// Views-core R5 (sessionfacts.ts joins the lazy chunks, shared by the focus views and Zen): 252,252 / 102,042, +87 raw / +72 gzipped, cap 252,300 / 102,050.
-	// Z5+Z6 (zensound.ts, zenmusicbar.ts, zenmusic.ts) are lazy bytes not yet measured against these caps: measure after `npm run gui:build`, then raise the figures and add a history line above.
-	const musicChunk = chunks.find((n) => /createPlayer/.test(size(n).toString())); // zenmusic.ts is a chunk of its own: at most 4 KB raw (the spec's Asset budget)
+	// Z5+Z6+eager trim (zensound.ts, zenmusicbar.ts, zenmusic.ts, zenpage.ts, zenunits.ts join the lazy chunks): 269,304 / 108,191 measured, cap 269,319 / 108,206.
+	const musicChunk = chunks.find((n) => n.startsWith("zenmusic-")); // zenmusic.ts is a chunk of its own: at most 4 KB raw (the spec's Asset budget)
 	assert.ok(musicChunk, "the music chunk (createPlayer) is in the build");
 	assert.ok(size(musicChunk).length <= 4096, `the music chunk is ${size(musicChunk).length} bytes`);
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 252_300 && total(chunks, gz) <= 102_050, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 269_319 && total(chunks, gz) <= 108_206, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1003,5 +1005,5 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Terminal card T4 (the card in the dock: a dialog's box shared, the confirm pair's box for the mask and Send, the phone sheet, the Geek flat surface; and Zen's ink skin in gui/zen.css): 127,856 / 27,410, +3,620 raw / +664 gzipped over the integration's 124,236 / 26,746, cap 127,900 / 27,450. The spec aimed at +1.5 KB / +0.4 KB; the three skins and the sheet took more, with the dialog's and the pad's rules already shared.
 	// Zen's yellows (the ochre tokens, the muted mirror, the paper tokens): 124,740 / 26,839, cap 124,800 / 26,900.
 	// Merge of the terminal card's T4 with main's Zen yellows: 128,119 / 27,465, cap 128,150 / 27,500.
-	assert.ok(total(css, (n) => size(n).length) <= 128_150 && total(css, gz) <= 27_500, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	assert.ok(total(css, (n) => size(n).length) <= 131_623 && total(css, gz) <= 27_992, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { Net, Unit } from "../src/net.ts";
 import type { Mark } from "../src/netdata.ts";
 import { RULES, rulesOf } from "../gui/faces.ts";
-import { activityOf } from "../gui/units.ts";
+import { activityOf } from "../gui/zenunits.ts";
 import type { View } from "../gui/view.ts";
 
 // The rules table (gui/faces.ts) is the one place that says what a view does beyond its skin, as typegate.test.ts is for the server's typing rule: each row is written out in full, so a changed cell fails here and nowhere else.

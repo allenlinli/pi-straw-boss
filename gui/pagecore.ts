@@ -6,7 +6,7 @@ import { linkChime } from "./linkbar.ts";
 import { type Route, upOf, watchOf } from "./router.ts";
 import { CONNECTING, type Status } from "./stream.ts";
 import type { StepOpen } from "./terminalthen.ts";
-import { activityOf, companionsOf, unitsOf, waitingOf } from "./units.ts";
+import { unitsOf, waitingOf } from "./units.ts";
 import { enterZen, type PageView } from "./view.ts";
 import { mountFace } from "./viewface.ts";
 import type { Exit, Term } from "./zentypes.ts";
@@ -171,9 +171,8 @@ export function createPage(io: PageIo) {
 		modal: () => io.modal(),
 		/** A hotkey of the keymap, done: Enter and Space end Zen's pause, Space opens the next alert and F enlarges the top dialog. `[` and `]` step Zen's companion and ⌘K opens its palette. False when it had nothing to do (the key stays the browser's). */
 		hotkey: (hotkey: Hotkey) => (hotkey === "next" || hotkey === "zoom" ? io.panels()?.hotkey(hotkey) : hotkey === "pause" ? io.zen()?.tap() : hotkey === "history" ? io.zen()?.toggleHistory() : hotkey === "palette" ? io.zen()?.palette() : io.zen()?.cycle(hotkey === "next-companion" ? 1 : -1)) ?? false,
-		/** The units the companion can be stepped to, idle ones and towers first (units.ts), and the strip's counts of working and idle units: both read the newest snapshot, and neither says how many wait. */
-		companions: () => companionsOf(latest),
-		activity: () => activityOf(latest),
+		/** The newest snapshot: what Zen's companion and strip read (units.ts), in the Zen chunk. */
+		newest: () => latest,
 		/** The settings page, by its route. */
 		openSettings: () => io.go({ view: "settings" }),
 		/** The phone's quick-switch drawer is off in Zen. */

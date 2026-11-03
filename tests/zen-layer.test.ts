@@ -6,7 +6,7 @@ import type { Net, Unit } from "../src/net.ts";
 import type { Pending } from "../src/ask.ts";
 import { El, page, stored } from "./zen-dom.ts";
 import { alertsOf } from "../gui/alerts.ts";
-import { activityOf, companionsOf } from "../gui/units.ts";
+import { activityOf, companionsOf } from "../gui/zenunits.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
 import type { With } from "../gui/zenwith.ts";

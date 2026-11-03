@@ -11,6 +11,7 @@ import { addEntry, createEntry, encodeEntry, removeEntry, roleEntry, rotateEntry
 import { projectProblem } from "./routing.ts";
 import type { InviteFile, LinkStore, TeamFile } from "./store.ts";
 import type { Presence } from "./kinds.ts";
+import { joinFilePath, readJoinFile, removeJoinFile } from "./joinfile.ts";
 
 // What the GUI (and an approved `link_request`) does to teams (docs/specs/2026-10-25-straw-link.md, GUI, Joining with a QR code, Roster): create a
 // team, invite a computer, take its join request and compare the safety words, join a team, change the roster, set trust, and leave. Every one of
@@ -33,6 +34,8 @@ export interface AdminHost {
 	now(): number;
 	device(): { keys: DeviceKeys; label: string };
 	config(): LinkConfig;
+	/** Whether the device is unattended: its teams come from the policy file, its invite from `link/join.txt`, and `config.json` is never written. */
+	unattended(): boolean;
 	relayFor(url: string, device: DeviceKeys): RelayPort;
 	runs(): AdminRun[];
 	load(team: string): { tf: TeamFile; state: RosterState };
@@ -88,9 +91,14 @@ interface JoinReq {
 	at: number;
 	expires: number;
 }
+/** How an unattended join ended (`joinStart`'s `outcome`): `refused` before it asked the relay (or `already-member` when the file is for a team the device is in), `lapsed` when nobody approved in time, `failed` for the rest. */
+export interface JoinOutcome { outcome: "joined" | "refused" | "lapsed" | "failed" | "already-member"; team?: string; why?: string }
 interface Joining {
 	id: string;
 	invite: Invite;
+	unattended: boolean;
+	/** Said once when an unattended join ends (never for an attended one, whose page polls `joinView`). */
+	outcome?: (o: JoinOutcome) => void | Promise<void>;
 	label: string;
 	words: string[];
 	startedAt: number;
@@ -311,12 +319,19 @@ export class TeamAdmin {
 
 	// ---- Join ------------------------------------------------------------------------------------------------------------------
 
-	async joinStart(i: { text: string; label?: string }): Promise<Done<{ words: string[]; expires: number; pinned: boolean }>> {
+	/**
+	 * `unattended` is the join of `link/join.txt`: the team has to be one the policy names (its project and share come from there, so no project is asked for), the team
+	 * file is written without touching config.json, and `outcome` is told how it ended. It is only for an unattended device.
+	 */
+	async joinStart(i: { text: string; label?: string; unattended?: boolean; outcome?: Joining["outcome"] }): Promise<Done<{ words: string[]; expires: number; pinned: boolean }>> {
 		const invite = decodeInvite(i.text);
 		if (!invite) return no("That is not a Straw Link invite: it starts with strawlink1:");
 		const dev = this.h.device(), label = (i.label ?? dev.label).trim();
 		if (!labelOk(label)) return no("A label is 1 to 40 letters, digits, spaces, and . _ - with no space at either end");
 		const id = invite.team.toString("hex");
+		if (i.unattended === true && !this.h.unattended()) return no("Only an unattended device joins from a file");
+		if (i.unattended !== true && this.h.unattended()) return no("This computer is unattended: its teams come from its infra's policy file");
+		if (i.unattended === true && !this.h.config().teams.has(id)) return no(`The policy file does not name team ${id.slice(0, 6)}`);
 		if (this.h.store.teamIds().includes(id)) return no("This computer is in that team already");
 		if (invite.forDevice && invite.forDevice !== dev.keys.id) return no(`This invite is for another device (${shortId(invite.forDevice)}), not this one (${dev.keys.shortId})`);
 		this.joining?.abort.abort();
@@ -327,21 +342,29 @@ export class TeamAdmin {
 			return no(relayText(error, invite.relay));
 		}
 		const words = safetyWords({ team: invite.team, inviterKeyHash: invite.inviterKeyHash, joiner: recordOf(dev.keys), secret: invite.secret });
-		const startedAt = this.h.now(), joining: Joining = { id: randomBytes(8).toString("hex"), invite, label, words, startedAt, expires: startedAt + (pinned ? PINNED_INVITE_MS : JOIN_WAIT_MS), state: "waiting", share: "status", abort: new AbortController() };
+		const startedAt = this.h.now(), joining: Joining = { id: randomBytes(8).toString("hex"), invite, label, words, startedAt, expires: startedAt + (pinned ? PINNED_INVITE_MS : JOIN_WAIT_MS), state: "waiting", share: "status", unattended: i.unattended === true, ...(i.outcome ? { outcome: i.outcome } : {}), abort: new AbortController() };
 		this.joining = joining;
 		void this.awaitMembership(joining, relay, dev.keys).catch((error: Error) => this.failJoin(joining, error.message));
 		return { ok: true, words, expires: joining.expires, pinned };
 	}
-	private failJoin(j: Joining, error: string) {
-		if (j.state === "done") return;
+	private failJoin(j: Joining, error: string, lapsed = false) {
+		if (j.state === "done" || j.state === "failed") return;
 		j.state = "failed";
 		j.error = error;
+		this.ended(j, { outcome: lapsed ? "lapsed" : "failed", why: error });
+	}
+	/** Tells an unattended join's owner how it ended; what it does cannot fail the join, and a throw from it is only logged. */
+	private ended(j: Joining, o: JoinOutcome) {
+		if (!j.unattended || !j.outcome) return;
+		const done = j.outcome;
+		j.outcome = undefined;
+		void Promise.resolve().then(() => done({ ...o, ...(j.team ? { team: j.team } : {}) })).catch((error: Error) => this.h.log({ event: "join-outcome-failed", error: error.message }));
 	}
 	private async awaitMembership(j: Joining, relay: RelayPort, keys: DeviceKeys): Promise<void> {
 		const { signal } = j.abort;
 		let delay = 1500;
 		while (!signal.aborted) {
-			if (this.h.now() > j.expires) return this.failJoin(j, "Nobody confirmed the words in time: the invite lapsed. Ask for a new one");
+			if (this.h.now() > j.expires) return this.failJoin(j, "Nobody confirmed the words in time: the invite lapsed. Ask for a new one", true);
 			try {
 				const { entries } = await relay.getRoster(j.invite.team, undefined, signal);
 				const checked = checkJoiner({ invite: j.invite, self: keys, entries: entries.map((e) => e.entry), label: j.label });
@@ -379,6 +402,7 @@ export class TeamAdmin {
 	}
 	private async finishJoin(j: Joining): Promise<void> {
 		if (j.state === "done" || !j.file) return;
+		if (j.unattended) return this.finishUnattended(j, j.file);
 		if (j.project === undefined) return void this.h.notify(`Straw Link: you were added to team ${j.file.team.slice(0, 6)}; pick its project folder on the join screen to finish`, "info");
 		const file = j.file, project = j.project;
 		await this.h.store.withLock(() => {
@@ -389,9 +413,67 @@ export class TeamAdmin {
 		await this.h.refresh();
 		this.h.log({ event: "joined-team", team: file.team });
 	}
+	/** The join of an unattended device: the team file only. The project and share are the policy's, read now, and config.json is not written. */
+	private async finishUnattended(j: Joining, file: TeamFile): Promise<void> {
+		const policy = this.h.config().teams.get(file.team);
+		if (!policy) return this.failJoin(j, `The policy file no longer names team ${file.team.slice(0, 6)}, so this device did not join`);
+		try {
+			await this.h.store.withLock(() => {
+				if (!this.h.store.teamIds().includes(file.team)) this.h.store.createTeam(file);
+			});
+		} catch (error) {
+			return this.failJoin(j, (error as Error).message);
+		}
+		j.state = "done";
+		j.project = policy.project;
+		j.share = policy.share;
+		await this.h.refresh();
+		this.h.log({ event: "joined-team", team: file.team });
+		this.ended(j, { outcome: "joined" });
+	}
 	cancelJoin(): void {
-		this.joining?.abort.abort();
+		const j = this.joining;
+		j?.abort.abort();
 		this.joining = undefined;
+		if (j && j.state !== "done" && j.state !== "failed") this.ended(j, { outcome: "failed", why: "the join was cancelled" });
+	}
+
+	// ---- The join file of an unattended device -------------------------------------------------------------------------------------
+
+	private polling = false;
+	/**
+	 * Takes `link/join.txt` when there is one and no join is in flight (the holder calls this at start and on each tick). One outcome per file: a join started, or the file
+	 * refused, and in every case the file is deleted once it has ended, with one line in the link log that never holds the invite text. A device that is not unattended
+	 * leaves the file alone.
+	 */
+	async joinFileTick(): Promise<void> {
+		if (!this.h.unattended() || this.polling) return;
+		const j = this.joining;
+		if (j && j.state !== "done" && j.state !== "failed") return;
+		this.polling = true;
+		try {
+			const path = joinFilePath(this.h.store.dir);
+			const found = readJoinFile(path);
+			if (found.state === "absent") return;
+			const end = async (o: JoinOutcome) => {
+				try {
+					await this.h.store.withLock(() => removeJoinFile(path));
+				} catch (error) {
+					this.h.log({ event: "join-file-stuck", error: (error as Error).message });
+				}
+				this.h.log({ event: "join-file", ...o });
+				this.h.notify(`Straw Link: join.txt ${o.outcome}${o.why ? ` (${o.why})` : ""}`, o.outcome === "joined" || o.outcome === "already-member" ? "info" : "warning");
+			};
+			if (found.state === "refused") return void (await end({ outcome: "refused", why: found.reason }));
+			const invite = decodeInvite(found.text);
+			if (!invite) return void (await end({ outcome: "refused", why: "it holds no Straw Link invite" }));
+			const team = invite.team.toString("hex");
+			if (this.h.store.teamIds().includes(team)) return void (await end({ outcome: "already-member", team }));
+			const started = await this.joinStart({ text: found.text, unattended: true, outcome: (o) => end(o) });
+			if (!started.ok) await end({ outcome: "refused", team, why: started.error });
+		} finally {
+			this.polling = false;
+		}
 	}
 	/** True while a join waits for its project folder, so the holder does not nag about a team file that has no config entry yet. */
 	joiningTeam(): string | undefined {

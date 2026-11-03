@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Level } from "../src/link/config.ts";
@@ -71,7 +71,7 @@ for (const level of ["reply", "forward", undefined] as const) {
 }
 
 // openTowerFor itself, against the fake Herdr.
-const deps = () => ({ run: world.herdr.runFor("none"), ensure: (r: Parameters<NonNullable<typeof world.expose>["ensure"]>[0]) => world.expose!.ensure(r), now: () => Date.now() });
+const deps = () => ({ home: join(world.root, "home"), agentDir: join(world.root, "home", ".pi", "agent"), run: world.herdr.runFor("none"), ensure: (r: Parameters<NonNullable<typeof world.expose>["ensure"]>[0]) => world.expose!.ensure(r), now: () => Date.now() });
 
 test("a workspace of the project that has no tower is the one opened; none is made", async () => {
 	const s = await world.start();
@@ -105,4 +105,39 @@ test("a folder that does not exist, or a named workspace with none inside the pr
 	const made = await openTowerFor(deps(), project);
 	assert.equal(made.created, true);
 	assert.equal(world.herdr.panes.find((p) => p.workspace_id === made.workspace)?.cwd, realpathSync(project));
+});
+
+test("a project that now leads to the home folder, to ~/.pi, or to the agent folder gets no workspace, however it is spelled", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	const home = join(world.root, "home"), pi = join(home, ".pi"), agent = join(pi, "agent");
+	mkdirSync(agent, { recursive: true });
+	symlinkSync(home, join(world.root, "to-home"));
+	symlinkSync(agent, join(home, "to-agent"));
+	for (const [project, why] of [[home, /home folder/], [join(world.root, "to-home"), /home folder/], [pi, /contain or be inside|~\/\.pi|inside/], [join(home, "to-agent"), /~\/\.pi|agent folder/]] as const) {
+		await assert.rejects(openTowerFor(deps(), project), why, project);
+	}
+	assert.equal(world.herdr.workspaces.length, base, "nothing was made");
+});
+
+test("a project that is pointed at another folder while the workspaces are read gets no workspace", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	const home = join(world.root, "home"), one = join(home, "one"), two = join(home, "two"), link = join(home, "link");
+	mkdirSync(one, { recursive: true });
+	mkdirSync(two, { recursive: true });
+	symlinkSync(one, link);
+	const run = world.herdr.runFor("none");
+	let swapped = false;
+	const swapping = async (args: string[]) => {
+		if (!swapped && args[0] === "pane" && args[1] === "list") {
+			swapped = true;
+			rmSync(link);
+			symlinkSync(two, link);
+		}
+		return run(args);
+	};
+	await assert.rejects(openTowerFor({ ...deps(), run: swapping }, link), /moved while its tower was being opened/);
+	assert.equal(swapped, true);
+	assert.equal(world.herdr.workspaces.length, base, "nothing was made");
 });

@@ -12,13 +12,10 @@ export const REST_MS = 10 * 60_000, OUTCOME_MS = 1200, HOLD_MS = 30_000, PAUSE_M
 /** What changes a resting item's question: its dialog (and digest), else its tool call; a trust question has its digest in its key. */
 const questionOf = (a: Alert) => `${a.key}|${a.pending?.answer ? `${a.pending.answer.dialog}:${a.pending.answer.digest}` : (a.pending?.callId ?? "")}`;
 
-/** The session for company: the stored one while the net lists it live, else its base's tower, else the head base's tower. */
+/** The session for company: the stored one while the net lists it live with control; else none, and the breathing circle shows (Z-D12: no tower stands in). */
 export function companionOf(net: Net | undefined, stored: With | undefined): { key: string; ws: string } | undefined {
-	const live = (k: string) => net && unitsOf(net).find(({ unit: u }) => u.key === k && u.control && !("ended" in u && u.ended))?.base.id;
-	const ws = stored && live(stored.key);
-	if (stored && ws !== undefined) return { key: stored.key, ws };
-	const t = (id?: string) => ((b) => (b?.tower ? { key: b.tower.key, ws: b.id } : undefined))(net?.bases.find((x) => x.id === id));
-	return t(stored?.ws) ?? t(net?.bases.find((b) => b.head)?.id);
+	const ws = stored && net && unitsOf(net).find(({ unit: u }) => u.key === stored.key && u.control && !("ended" in u && u.ended))?.base.id;
+	return stored && ws !== undefined ? { key: stored.key, ws } : undefined;
 }
 
 export interface ZenDeps { now(): number; /** The companion's box has text and a real input (tap, drag, wheel, key, or text input) in the last DRAFT_MS. */ typing(): boolean }

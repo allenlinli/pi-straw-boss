@@ -30,7 +30,7 @@ const secret = (): Pending => ({ callId: "c3", tool: "secret_drop", why: "It wai
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy"], more: 0 }], agents: [{ pane: "1", base: "Harbor", role: "member", at: 5 }] };
 
-function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean; candidates?: (n: Net | undefined) => { key: string; ws: string }[] } = {}) {
+function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; /** The session last written to: the tower `t` unless given; null for none. */ stored?: With | null; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean; candidates?: (n: Net | undefined) => { key: string; ws: string }[] } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
 	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], settings: 0, composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[] };
@@ -55,7 +55,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		trust: (body: Record<string, unknown>) => (calls.trust.push(body), new Promise<Answer>((resolve) => replies.push(resolve))),
 		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => !o.offline,
 		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), terminals: async () => ({ embed: (key: string) => (calls.embeds.push(key), () => {}), watch: () => ({ conn: {}, stop() {} }), post: () => async () => ({ ok: true, status: 200, body: {} }), stream: () => "st" }), watch: (k: string | null) => void calls.watch.push(k),
-		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => o.stored,
+		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => (o.stored === null ? undefined : (o.stored ?? { key: "t", ws: "w", at: 1 })),
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
 		...(o.z4b ? { companions: () => (o.candidates ?? companionsOf)(netNow), activity: () => activityOf(netNow), settings: () => void calls.settings++, menu: { sound: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {} } } } : {}),
@@ -578,7 +578,7 @@ test("the companion's composer sends by the fixture's route for its key, and is 
 	}
 });
 
-test("the companion: the tower by fallback, its log and composer, the stream watching its key, history for its key only; an item waits while the boss types", async () => {
+test("the companion: the tower the boss last wrote to, its log and composer, the stream watching its key, history for its key only; an item waits while the boss types", async () => {
 	const r = rig();
 	r.feed(net([unit("m", "working")]));
 	r.z.show();
@@ -701,6 +701,28 @@ test("the stored companion wins while the net lists it live; without one, nothin
 	assert.ok(!alone.text().includes("Nothing waits"), "no headline");
 	assert.equal(alone.calls.composers.length, 0);
 	assert.equal(alone.calls.watch.at(-1), null);
+});
+
+test("no tower stands in (Z-D12): nothing stored, or a stored session that ended, shows the circle and its line with towers in the net; [ from the circle picks the first candidate", async () => {
+	const none = rig({ stored: null, z4b: true });
+	none.feed(net([unit("m", "idle")]));
+	none.z.show();
+	await none.settle();
+	assert.equal(none.calls.composers.length, 0, "no companion: the tower is not one");
+	assert.equal(none.by((el) => el.getAttribute("class") === "zen-line").length, 1, "the circle's line");
+	assert.equal(none.calls.watch.at(-1), null);
+	assert.equal(none.z.cycle(1), true, "] from the circle steps to a companion");
+	await none.settle();
+	assert.ok(none.calls.composers.length > 0, "the stepped one opens its log and composer");
+	const ended = rig({ stored: { key: "m", ws: "w", at: 1 } });
+	ended.feed(net([unit("m", "working")]));
+	ended.z.show();
+	await ended.settle();
+	assert.equal(ended.calls.composers.at(-1)!.key, "m");
+	ended.feed(net([unit("m", "done", { ended: true })]));
+	await ended.settle();
+	assert.equal(ended.by((el) => el.getAttribute("class") === "zen-line").length, 1, "an ended companion gives the circle at the next snapshot");
+	assert.equal(ended.calls.watch.at(-1), null, "and not the tower");
 });
 
 test("the companion always has its log: the newest page is fetched and applied as a reset when no history event came, and not when one did (Z3R-F001)", async () => {
@@ -954,7 +976,7 @@ test("[ and ] step the companion through the core's candidates (idle and towers 
 	r.feed(net([unit("a", "working"), unit("b", "idle")]));
 	r.z.show();
 	await r.settle();
-	assert.equal(companionKey(r), "t", "the tower by fallback");
+	assert.equal(companionKey(r), "t", "the tower the boss last wrote to");
 	assert.equal(r.z.cycle(1), true);
 	await r.settle();
 	assert.equal(companionKey(r), "b", "candidates: t, b, a");
@@ -977,7 +999,7 @@ test("[ and ] step the companion through the core's candidates (idle and towers 
 	assert.deepEqual(stored.get("sb.zen.with") ?? null, null, "stepping is not talking: the stored companion is not touched");
 });
 
-test("] and [ skip a candidate the companion resolves elsewhere (the tower by fallback): every press lands on a new companion and never sticks (Z4B-F003)", async () => {
+test("] and [ skip a candidate that is not a live companion: every press lands on a new companion and never sticks (Z4B-F003)", async () => {
 	// "g" is on the core's list but not live in the net, so companionOf would send it to the tower.
 	const r = rig({ z4b: true, candidates: () => [{ key: "t", ws: "w" }, { key: "g", ws: "w" }, { key: "b", ws: "w" }, { key: "a", ws: "w" }] });
 	r.feed(net([unit("a", "working"), unit("b", "idle")]));
@@ -1016,7 +1038,7 @@ test("[ and ] do nothing (false, so the key stays the browser's) with nothing to
 	assert.equal(card.z.cycle(1), false, "so is the pause");
 });
 
-test("hiding Zen forgets the stepped companion: coming back shows the stored one (or the tower)", async () => {
+test("hiding Zen forgets the stepped companion: coming back shows the stored one (or the circle)", async () => {
 	const r = rig({ z4b: true });
 	r.feed(net([unit("a", "working"), unit("b", "idle")]));
 	r.z.show();

@@ -80,7 +80,7 @@ const PAD_REPLIES: Record<string, { ok: boolean; status: number; body: Record<st
 	esc: { ok: false, status: 409, body: { error: "confirm", confirm: "double-esc", reason: "A second Escape on an idle session runs pi's double-Escape action (tree or fork); confirm to run it." } },
 	tab: { ok: false, status: 409, body: { error: "blocked", reason: "While it waits on a secret or a question only Escape is sent from here; answer the question in its panel or the terminal." } },
 };
-// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half. Three more states press a key a moment after the page starts, for pictures: `history` is `item` with the card's 前情 (H) open, `palette` is `idle` with the command palette (⌘K, Ctrl+K off a Mac) open, `pause` is `item` answered at once, so the 3 s breathing pause shows. `?music=<n>` gives the demo a music folder of n invented tracks (1 to 6; none by default, so the ♪ stays hidden); the demo has no audio file, so a track that is switched on says "tap to play" (`localStorage` `sb.zen.music` = 1 switches it on).
+// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion, billing-main, as the session last written to), `alone` (nothing waits and nothing was written to: the breathing circle and its line). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half. Three more states press a key a moment after the page starts, for pictures: `history` is `item` with the card's 前情 (H) open, `palette` is `idle` with the command palette (⌘K, Ctrl+K off a Mac) open, `pause` is `item` answered at once, so the 3 s breathing pause shows. `?music=<n>` gives the demo a music folder of n invented tracks (1 to 6; none by default, so the ♪ stays hidden); the demo has no audio file, so a track that is switched on says "tap to play" (`localStorage` `sb.zen.music` = 1 switches it on).
 const zenState = (net: Net, extra: string | null) => {
 	const state = extra === "palette" ? "idle" : extra === "history" || extra === "pause" ? "item" : extra;
 	const main = units(net).find((u) => u.key === "a3")!;
@@ -89,7 +89,6 @@ const zenState = (net: Net, extra: string | null) => {
 	for (const u of units(net)) if (u.key !== "a3" || state === "idle" || state === "alone") if (u.mark === "waiting" || u.pending) [u.mark, u.note, u.pending] = ["working", "thinking", undefined];
 	if (state === "questions" || state === "secret") main.pending = ask(state === "secret" ? 1 : 2);
 	if (state === "words") main.pending = undefined;
-	if (state === "alone") net.bases[0]!.tower = null;
 	return net;
 };
 
@@ -163,6 +162,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	for (let i = 41; i > 0; i--) ((clock = Date.now() - i * 40_000), i === 41 ? (net = track(net)) : advance());
 	net = track(zenState(net, zen));
 	if (zen === "idle" || zen === "alone") quietUntil = Date.now() + 90_000;
+	// The companion is only a session this device talked to (Z-D12): `idle` and `palette` start as if the boss had last written to billing-main, `alone` as if he had written to no one.
+	if (zen === "idle" || zen === "palette") localStorage.setItem("sb.zen.with", JSON.stringify({ key: "a1", ws: "w1", at: Date.now() }));
+	if (zen === "alone") localStorage.removeItem("sb.zen.with");
 	setInterval(() => ((clock = Date.now()), advance() && current?.send("message", net)), tick);
 	const control: Control = {
 		// The overlay a drop or silence brings up is modal over this toolbar too, so the demo restores itself: a drop a few seconds on, a silence a few seconds after the watchdog has noticed it.

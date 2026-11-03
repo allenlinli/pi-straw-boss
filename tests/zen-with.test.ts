@@ -43,23 +43,24 @@ test("an ally or event run (no unit in the net) records its base's tower; a unit
 	assert.equal(sendTarget(n, "ally/run1", "zz"), undefined);
 });
 
-test("the companion falls back in order: the stored unit, its base's tower, the head base's tower, none", () => {
+test("the companion is the stored unit while it is live, and else none (the breathing circle), towers or not (Z-D12)", () => {
 	const stored = { key: "u", ws: "w2", at: 1 };
 	const full = net(base("w1", true, "t1", []), base("w2", false, "t2", [unit("u")]));
 	assert.deepEqual(companionOf(full, stored), { key: "u", ws: "w2" });
-	assert.deepEqual(companionOf(net(base("w1", true, "t1", []), base("w2", false, "t2", [unit("u", { control: false })])), stored), { key: "t2", ws: "w2" }, "listed without control");
-	assert.deepEqual(companionOf(net(base("w1", true, "t1", []), base("w2", false, "t2", [unit("u", { ended: true })])), stored), { key: "t2", ws: "w2" }, "ended");
-	assert.deepEqual(companionOf(net(base("w1", true, "t1", []), base("w2", false, null, [])), stored), { key: "t1", ws: "w1" }, "its base has no tower");
-	assert.deepEqual(companionOf(net(base("w1", true, "t1", [])), stored), { key: "t1", ws: "w1" }, "its base is gone");
-	assert.deepEqual(companionOf(net(base("w1", true, "t1", [])), undefined), { key: "t1", ws: "w1" }, "nothing stored");
+	assert.equal(companionOf(net(base("w1", true, "t1", []), base("w2", false, "t2", [unit("u", { control: false })])), stored), undefined, "listed without control");
+	assert.equal(companionOf(net(base("w1", true, "t1", []), base("w2", false, "t2", [unit("u", { ended: true })])), stored), undefined, "ended");
+	assert.equal(companionOf(net(base("w1", true, "t1", []), base("w2", false, null, [])), stored), undefined, "its base has no tower");
+	assert.equal(companionOf(net(base("w1", true, "t1", [])), stored), undefined, "its base is gone");
+	assert.equal(companionOf(net(base("w1", true, "t1", [])), undefined), undefined, "nothing stored");
 	assert.equal(companionOf(net(base("w1", true, null, [])), stored), undefined);
 	assert.equal(companionOf(undefined, stored), undefined);
+	assert.deepEqual(companionOf(net(base("w1", true, "t1", [])), { key: "t1", ws: "w1", at: 1 }), { key: "t1", ws: "w1" }, "a tower the boss talked to (an ally or event run records it) is a companion");
 });
 
-test("a companion that leaves the net is replaced at the next snapshot, and one in a subagent or outside slot is found", () => {
+test("a companion that leaves the net gives the circle at the next snapshot, and one in a subagent or outside slot is found", () => {
 	const stored = { key: "u", ws: "w", at: 1 };
 	assert.equal(companionOf(net(base("w", true, "t", [unit("u")])), stored)?.key, "u");
-	assert.equal(companionOf(net(base("w", true, "t", [])), stored)?.key, "t");
+	assert.equal(companionOf(net(base("w", true, "t", [])), stored), undefined);
 	assert.equal(companionOf(net(base("w", true, "t", [unit("x", { subs: [unit("u")] })])), stored)?.key, "u");
 	assert.equal(companionOf(net(base("w", true, "t", [], [unit("u")])), stored)?.key, "u");
 });

@@ -227,15 +227,15 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		return entriesOf({
 			standard: () => deps.leave({}), settings: deps.settings,
 			companion: c && { name: c.name.textContent ?? c.key, session: () => deps.leave({ route: { view: "session", ws: c.ws, key: c.key } }), terminal: () => openTerm(c.key) },
-			cycle: c && n > 1 ? { prev: () => void cycle(-1), next: () => void cycle(1) } : undefined,
+			cycle: shown.kind === "companion" && n > (c ? 1 : 0) ? { prev: () => void cycle(-1), next: () => void cycle(1) } : undefined,
 		}, { ...deps.menu, music: music?.switch });
 	}
 	/** `[` and `]`: the companion steps to the previous or next candidate of the core's list (wrapping); false when there is nothing to step on or to. */
 	function cycle(dir: 1 | -1) {
-		if (!active || shown.kind !== "companion" || !company || term.isOpen() || palette.isOpen()) return false;
-		const all = deps.companions?.() ?? [], at = all.findIndex((x) => x.key === company!.key);
+		if (!active || shown.kind !== "companion" || term.isOpen() || palette.isOpen()) return false; // from the circle too: the first step picks a companion
+		const all = deps.companions?.() ?? [], at = company ? all.findIndex((x) => x.key === company!.key) : -1;
 		// The first candidate in the direction that companionOf would land on: one it resolves elsewhere (the tower, say) would leave the cycle on that unit.
-		const to = Array.from({ length: all.length }, (_, i) => all[at < 0 ? (dir > 0 ? i : all.length - 1 - i) : (((at + dir * (i + 1)) % all.length) + all.length) % all.length]!).find((x) => x.key !== company!.key && companionOf(net, { key: x.key, ws: x.ws, at: 0 })?.key === x.key);
+		const to = Array.from({ length: all.length }, (_, i) => all[at < 0 ? (dir > 0 ? i : all.length - 1 - i) : (((at + dir * (i + 1)) % all.length) + all.length) % all.length]!).find((x) => x.key !== company?.key && companionOf(net, { key: x.key, ws: x.ws, at: 0 })?.key === x.key);
 		if (!to) return false;
 		picked = { key: to.key, ws: to.ws, at: 0 };
 		disposeCompany();

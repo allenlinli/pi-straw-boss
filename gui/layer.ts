@@ -2,7 +2,6 @@ import type { Item } from "../src/items.ts";
 import type { Net } from "../src/net.ts";
 import { type Intel, intel } from "./intel.ts";
 import { answerPost, canAnswer, mountAnswer, type SessionPost, trustPost } from "./answer.ts";
-import type { Hotkey } from "./hotkeys.ts";
 import { keypad } from "./keypad.ts";
 import { mountTerminals } from "./mirror.ts";
 import { rankOf, unitOf } from "./alerts.ts";

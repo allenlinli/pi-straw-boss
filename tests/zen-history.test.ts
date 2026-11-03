@@ -237,13 +237,67 @@ test("Esc collapses the history before a field with text, which keeps its text (
 	}
 });
 
-test("H does nothing while the corner menu is open (Z4D-F005)", async () => {
+test("H does nothing while the corner menu or the terminal layer is open (Z4D-F005, M6, M7)", async () => {
 	const r = rig();
 	r.feed(waiting());
 	r.z.show();
 	await r.settle();
+	const menu = r.by((el) => el.getAttribute("class") === "zen-menubtn")[0]!;
+	menu.click();
+	assert.equal(r.by((el) => el.getAttribute("class") === "zen-menu")[0]!.hidden, false, "the menu is open");
+	assert.equal(r.z.toggleHistory(), false);
+	assert.equal(link(r)!.getAttribute("aria-expanded"), "false");
+	menu.click();
+	assert.equal(r.z.toggleHistory(), true, "with the menu closed it acts");
 	assert.equal(r.z.toggleHistory(), true);
+	const term = rig();
+	term.feed(waiting());
+	term.z.show();
+	await term.settle();
+	term.z.terminal({ key: "a" } as never);
+	await term.settle();
+	await term.settle();
+	assert.equal(term.z.toggleHistory(), false, "the terminal layer has the keys");
+	assert.equal(link(term)!.getAttribute("aria-expanded"), "false");
+});
+
+test("closing the context from inside it returns the focus to its link (Z4D-F006, M8)", async () => {
+	const r = rig();
+	r.feed(waiting());
+	r.z.show();
+	await r.settle();
+	link(r)!.click();
+	await r.settle();
+	const region = r.by((el) => el.getAttribute("class") === "zen-history")[0]!;
+	const inside = new El("button");
+	region.append(inside);
+	inside.focus();
+	assert.equal(page.focused, inside);
+	esc(r);
+	assert.equal(page.focused, link(r), "Esc");
+	link(r)!.click();
+	await r.settle();
+	const again = new El("button");
+	region.append(again);
+	again.focus();
 	assert.equal(r.z.toggleHistory(), true);
+	assert.equal(page.focused, link(r), "H");
+});
+
+test("a card that leaves for another, while its unit stays in the net, closes its context (Z4D-F004)", async () => {
+	const r = rig();
+	const both = (a: Mark) => net([unit("a", a, { name: "a", since: 5, ...(a === "waiting" ? { pending: select({ cancel: true }) } : {}) }), unit("b", "waiting", { name: "b", since: 6, pending: select({ cancel: true, dialog: "d2" }) })]);
+	r.feed(both("waiting"));
+	r.z.show();
+	await r.settle();
+	link(r)!.click();
+	await r.settle();
+	const region = r.by((el) => el.getAttribute("class") === "zen-history")[0]!;
+	assert.equal(region.hidden, false);
+	r.feed(both("idle"));
+	await r.advance(5000);
+	assert.equal(region.hidden, true, "the old card's context is closed");
+	assert.equal(r.calls.watch.at(-1), null);
 });
 
 test("the link points at the region it opens (Z4D-F006)", async () => {

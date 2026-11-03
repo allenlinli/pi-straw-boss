@@ -5,7 +5,7 @@
 // Space on a button or a link keeps its own activation only while the keyboard put the focus there: a control the mouse left focused (the logo
 // after a click) does not hold the key, so Space still opens the next alert. :focus-visible cannot tell them apart here, because a browser
 // turns it on for the focused element as the key goes down, so mountHotkeys notes which focus a pointer press gave.
-// Zen reads its own rows (KEYMAP): Enter and Space end the pause wherever the focus is, except on a native control (a button or link keeps its Enter and Space,
+// Zen reads its own rows (KEYMAP): H expands or collapses the shown item's context; Enter and Space end the pause wherever the focus is, except on a native control (a button or link keeps its Enter and Space,
 // however it got focus). The same gates apply (typing, modifiers, composing, a modal).
 
 export type Hotkey = "next" | "zoom" | "history" | "pause" | "prev-companion" | "next-companion" | "palette";

@@ -11,8 +11,7 @@ import type { RippleEnv } from "./zenripple.ts";
 import type { Candidate } from "./zenunits.ts";
 import type { MenuDeps } from "./zenmenu.ts";
 import type { MusicDeps } from "./zenmusicbar.ts";
-import type { Sound } from "./zenmodel.ts";
-import type { With } from "./zenwith.ts";
+import type { Sound, With } from "./zenmodel.ts";
 
 // What the Zen layer (zen.ts) is given: the page's hooks and the panels it mounts.
 /** Where leaving Zen goes (the page shows Standard first): an item's dialog opens over it (`item`), a session's comms open (`route`), or nothing more. */
@@ -45,8 +44,8 @@ export interface ZenDeps {
 	watch(key: string | null): void;
 	/** A paired device (`mountAsk`'s `remote`); unset: by the host name. */
 	remote?: boolean;
-	/** The session this device last talked to (zenwith.ts); unset: the stored one. */
-	stored?(): With | undefined;
+	/** The companion a visit starts with; the page names none, so every visit starts at the breathing circle (Z-D16). */
+	start?(): With | undefined;
 	/** The corner menu's rows (language, view, sound); a row without its dep is left out. */
 	menu?: MenuDeps;
 	/** The core's candidates for the companion (`[` and `]`), and its counts of working and idle units for the strip (zenunits.ts); unset: no stepping, no strip. */

@@ -96,14 +96,49 @@ test("Zen's first frame in style.css is scoped to the Zen view, so Standard and 
 	assert.ok(!/zen/.test(css.slice(css.indexOf('[data-view="geek"] {'))), "nothing of Zen's after the Geek block opens");
 });
 
-test("zen.css: every rule is under the Zen view, the answer card has no Standard chrome, targets are 44 px, and motion stills under calm, reduced motion, and forced colours", () => {
+test("zen.css: the visual language (Z-D15): no boxes, selection is light with a dot, the seal marks only the keys and never as a ring around a box, overlays let the page recede", () => {
+	const at = zen.indexOf("The visual language (Z-D15");
+	assert.ok(at > 0, "the block");
+	const v = zen.slice(at, zen.indexOf("@media (prefers-reduced-motion: reduce) { [data-view=\"zen\"] .zen-ripples", at));
+	assert.match(v, /\.zen-card button\.ask-opt \{ display: grid;[^}]*row-gap: 0;[^}]*border: 1px solid transparent;[^}]*background: transparent;/, "a choice is a line, not a pill");
+	assert.match(v, /\.zen-card button\.ask-opt::before \{ content: "";[^}]*border-radius: 50%;/, "with a dot before it");
+	assert.match(v, /\.ask-opt\[aria-checked="true"\]::before \{ border-color: var\(--zen-paper\); background: var\(--zen-paper\); \}/, "the dot fills when chosen");
+	assert.match(v, /button\.ask-opt:focus-visible::before \{ border-color: var\(--zen-seal\);/, "the keys ring the dot, inside the line");
+	assert.match(v, /#zen :is\([^)]*\.ask-send[^)]*\):focus-visible \{ outline: none; text-decoration: underline 1px var\(--zen-seal\)/, "a button the keys are on is underlined in seal, not ringed");
+	assert.match(v, /:is\(\.zen-card \.ask-own, \.composer textarea, \.tcard-input\) \{ border: 1px solid transparent; border-bottom-color: var\(--zen-line\); border-radius: 0; background: transparent;/, "a text field is one line under the words");
+	assert.match(v, /#zen :is\([^)]*\.palette-box\):focus-visible \{ outline: none; border-radius: 0;/, "and its focus beats the page-wide ring");
+	assert.match(v, /:is\(\.ask-send, \.cmp-send, \.cmp-yes, \.pad-yes, \.tcard-go, \.zen-term-back\) \{ border-color: transparent; background: transparent;/, "Send is a word");
+	assert.match(v, /\.zen-log \.bubble \{ padding-inline: 0; background: transparent; color: var\(--zen-ash\); \}/, "what you said: at the right, in ash, no ground (the boss's pick)");
+	assert.match(v, /\.palette-back \{ background: var\(--zen-veil\);[^}]*(?<!-)backdrop-filter: blur\(10px\);/, "the palette's page recedes (the unprefixed property, not only -webkit-)");
+	assert.match(v, /\.palette-panel \{[^}]*border-color: transparent; background: transparent;/, "and the palette has no panel");
+	assert.match(v, /:is\(\.zen-menuhost:has\(> \.zen-menu:not\(\[hidden\]\)\), \.zen-musichost:has\(> \.zen-musicpanel:not\(\[hidden\]\)\)\)::before \{ content: ""; position: fixed; inset: 0;[^}]*pointer-events: auto;/, "the menu and the music list lay the same veil, which takes the press that closes them (ZVL-F002)");
+	assert.match(v, /\.zen-term-host :is\(\.pad-yes, \.tcard-go\) \{ border-color: transparent; background: transparent; color: var\(--zen-paper\);/, "the terminal layer's yes is a word, over its pill rule (ZVL-F001)");
+	assert.match(v, /\.zen-term-host :is\(\.pad-no, \.tcard-mask\) \{ border-color: transparent; background: transparent; color: var\(--zen-ash\); \}/, "and its no is the quieter word");
+	assert.match(v, /\.zen-term-host :is\(\.pad-yes, \.tcard-go\):hover:not\(:disabled\) \{ background: var\(--zen-glow\); \}/, "its hover is the glow, not the warm pill");
+	assert.doesNotMatch(zen, /\.zen-term-host[^{]*\{[^}]*background: var\(--zen-warm\)/, "no older term-host rule fills a pair button with the warm ground (a mask[aria-pressed] in its :is outranked the block)");
+	assert.match(v, /:is\(\.zen-menu, \.zen-musicpanel\) \{ border-color: transparent; background: transparent;/);
+	assert.match(zen.slice(zen.indexOf("@media (forced-colors: active) {\n")), /^\t\[data-view="zen"\] \.zen-card \.ask-opt\[aria-checked="true"\]::before \{ forced-color-adjust: none; border-color: Highlight; background: Highlight; \}/m, "forced colours keeps the chosen dot (ZVL-F003)");
+	assert.doesNotMatch(zen, /\.zen-company \.composer textarea \{ border: 0/, "the companion's box is a transparent border with a line under it, not border 0 (ZVL-F004)");
+	assert.doesNotMatch(v, /border: 0[;\s]|border: none/, "borders turn transparent, never go: forced colours draws them");
+	assert.doesNotMatch(v, /rgba?\(|#[0-9a-f]{3,8}\b/i, "the block's colours are the ink tokens");
+});
+
+test("zen.css: every rule is under the Zen view, the answer card has no Standard chrome, targets are 44 px, and motion keeps breathing at rest (Z-D13) and stills under reduced motion and forced colours", () => {
 	const body = zen.replace(/\/\*[\s\S]*?\*\//g, "");
 	for (const sel of body.matchAll(/^(\[data-view="zen"\][^{]*|@[^{]*)\{/gm)) assert.ok(sel[1]!.includes('data-view="zen"') || sel[1]!.startsWith("@"), sel[1]);
 	assert.ok(!/(^|\n)(?!\s|\[data-view|@|\}|--)\S/.test(body.replace(/@keyframes[^{]*\{[\s\S]*?\}\s*\}|@keyframes[^{]*\{[^}]*\}/g, "")), "no rule outside the Zen view");
 	assert.match(zen, /\.zen-(fs|menubtn)[^{]*\{ width: 44px; height: 44px;/, "the corner controls are 44 px");
 	assert.match(zen, /\.zen-row \{[^}]*min-height: 44px/, "and the menu's rows");
 	assert.match(zen, /\.zen-opt[^{]*\{ min-width: 44px; min-height: 44px;/);
-	assert.match(zen, /\[data-calm\] :is\(\.zen-circle, \.zen-circle i, \.zen-drift i\) \{ animation: none; \}/);
+	assert.ok(!/\[data-calm\]/.test(zen.replace(/\/\*[\s\S]*?\*\//g, "")), "calm stills nothing in Zen: the circle and the ground keep breathing (Z-D13)");
+	assert.match(zen, /\.zen-stage:has\(\.zen-company\) > \.zen-circle \{[^}]*animation-name: zen-breath-low;/, "the circle breathes behind the companion's log");
+	assert.match(zen, /@keyframes zen-breath-low \{ 0% \{ transform: scale\(0\.72\)[^}]*\} 40% \{ transform: scale\(1\)/);
+	assert.match(zen, /\.zen-drift i:last-child \{[^}]*animation: zen-tide 30s[^;]*, zen-wander 47s/, "the ground's tide is half a minute, and it wanders");
+	assert.match(zen, /@keyframes zen-wander \{ from \{ transform: translate3d\(/, "the wander moves by transform alone");
+	assert.match(zen, /animation: zen-wash 24s/, "the washes drift within half a minute");
+	assert.match(zen, /\.zen-log :is\(\.tx-body, \.bubble, details\.act, \.thought, \.more, pre, th, td, \.pic\) \{ border-color: transparent;/, "the companion's log has no boxes");
+	assert.match(zen, /\.zen-log :is\(\.thought, \.more\)::before \{ border-color: transparent; \}/, "nor the outline a touch screen draws on ::before");
+	assert.match(zen, /\.zen-company \.composer textarea \{ border: 1px solid transparent; border-bottom-color: var\(--zen-line\)/, "its composer is one line");
 	assert.match(zen, /@media \(prefers-reduced-motion: reduce\)/);
 	assert.match(zen, /@media \(forced-colors: active\)[\s\S]*\.zen-drift[\s\S]*CanvasText/);
 	assert.match(zen, /:focus-visible \{ outline: 2px solid var\(--zen-seal\)/, "a visible focus ring");

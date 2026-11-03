@@ -53,3 +53,8 @@ test("the overlay layer's dock holds the terminal card through the step slot, an
 	assert.match(layer, /step: slot\.step,/);
 	assert.match(layer, /if \(net\) slot\.follow\(net\);/);
 });
+
+test("Zen's visit starts at the circle in the page: only the demo fixture names a start (Z-D16)", () => {
+	assert.equal((main.match(/\bstart:/g) ?? []).length, 1, "one start in main.ts");
+	assert.match(main, /\bstart: fixture\?\.start\b/, "and it is the fixture's, undefined in the live build");
+});

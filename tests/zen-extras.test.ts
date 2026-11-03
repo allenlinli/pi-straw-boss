@@ -86,6 +86,9 @@ test("the menu never opens by hover, whatever the pointer or the time; a press o
 	r.btn.click();
 	for (const on of page.on.pointerdown ?? []) on({ target: new El("div") });
 	assert.equal(r.m.isOpen(), false, "a press outside closes it");
+	r.btn.click();
+	for (const on of page.on.pointerdown ?? []) on({ target: r.host });
+	assert.equal(r.m.isOpen(), false, "so does a press on the veil, which the host draws and takes, so the press never reaches the card under it (ZVL-F002)");
 	for (const label of ["正體中文", "Standard", "Leave Zen"]) {
 		r.btn.click();
 		(label === "Leave Zen" ? r.host.all((e) => e.getAttribute("class") === "zen-leave")[0]! : r.by(label)).click();

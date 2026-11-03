@@ -22,7 +22,7 @@ export function mountPalette(deps: PaletteDeps) {
 		shown = filterEntries(all, box.value);
 		at = Math.min(at, Math.max(0, shown.length - 1));
 		list.replaceChildren(...shown.map((e, i) => {
-			const li = h("li", { id: `palette-${i}`, class: "palette-item", role: "option", "aria-selected": String(i === at) }, h("span", { class: "palette-label" }, e.label), e.hint ? h("span", { class: "palette-hint" }, e.hint) : null);
+			const li = h("li", { id: `palette-${i}`, class: "palette-item", role: "option", "aria-selected": String(i === at), "data-id": e.id }, h("span", { class: "palette-label" }, e.label), e.hint ? h("span", { class: "palette-hint" }, e.hint) : null);
 			li.onclick = () => run(e);
 			return li;
 		}));

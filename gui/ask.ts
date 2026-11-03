@@ -19,7 +19,9 @@ export type AnswerPost = (action: "answer", body: Record<string, unknown>) => Pr
 type Pick = { choice?: number; answers?: Reply[] };
 const how = (a: Ask) => (a.multiple ? m.ask_several() : a.freeform && a.options.length ? m.ask_own_words() : "");
 /** One question, read-only: its header tag, the question, its context, its options, and (in a list of several) how it is answered. */
-const block = (a: Ask, list: boolean) => h("div", { class: "ask-one" }, a.header && h("b", { class: "ask-head" }, a.header), h("p", { class: "ask-q" }, a.question), a.context && h("div", { class: "ask-ctx" }, a.context),
+/** A question longer than this many characters is marked `data-long`, so a view that sets questions as titles (Zen) can set it as text instead. */
+const LONG_Q = 90;
+const block = (a: Ask, list: boolean) => h("div", { class: "ask-one" }, a.header && h("b", { class: "ask-head" }, a.header), h("p", { class: "ask-q", ...(a.question.length > LONG_Q ? { "data-long": "" } : {}) }, a.question), a.context && h("div", { class: "ask-ctx" }, a.context),
 	a.options.length > 0 && h("ol", { class: "ask-opts", "aria-label": m.options() }, ...a.options.map((o) => h("li", { class: "ask-opt" }, h("b", null, o.title), o.description && h("small", null, o.description)))), list && how(a) && h("small", { class: "ask-how" }, how(a)));
 /** C0 and C1 controls but tab and newline, and Unicode format characters (bidi overrides, zero-width marks), drawn as U+FFFD: the text is shown as text, and the digest covers the raw one. */
 export const visible = (s: string) => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}]/gu, "\ufffd");
@@ -131,7 +133,7 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 			s.text.oninput = () => (q.multiple || (s.picks.clear(), opts.forEach((b) => b.setAttribute("aria-checked", "false"))), draw());
 			x.controls.push(...opts, s.text, s.note);
 			groups.push({ opts, multiple: Boolean(q.multiple), own: s.text, note: s.note, answered: () => s.picks.size > 0 || s.text.value.trim() !== "" });
-			return h("div", { class: "ask-one" }, q.header && h("b", { class: "ask-head" }, q.header), h("p", { class: "ask-q" }, q.question), h("div", { class: "ask-opts", role: q.multiple ? "group" : "radiogroup", "aria-label": m.options() }, ...opts), s.text, s.note);
+			return h("div", { class: "ask-one" }, q.header && h("b", { class: "ask-head" }, q.header), h("p", { class: "ask-q", ...(q.question.length > LONG_Q ? { "data-long": "" } : {}) }, q.question), h("div", { class: "ask-opts", role: q.multiple ? "group" : "radiogroup", "aria-label": m.options() }, ...opts), s.text, s.note);
 		});
 		x.pick = () => (state.every((s) => s.picks.size || s.text.value.trim()) ? { answers: state.map((s) => replyOf(s.picks, s.text.value, s.note.value)) } : undefined);
 		x.first = wire(x.el, groups, () => x.send);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Base, Net, Unit } from "../src/net.ts";
-import { composerUnit, liveOf, sendFor } from "../gui/sessionfacts.ts";
+import { composerUnit, liveOf } from "../gui/sessionfacts.ts";
 
 // The facts a session's composer and live line read, decided once for the session view and Zen's companion (gui/sessionfacts.ts).
 
@@ -38,17 +38,3 @@ test("the live line: a working unit says what it does, a waiting one that it wai
 	assert.equal(liveOf(unit(), "live", "idle")[0], "");
 });
 
-test("a message sent from a composer is posted by the fixture's route or the session's, and an accepted input is remembered as the companion", async () => {
-	const store = new Map<string, string>();
-	const mem = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
-	const seen: string[] = [];
-	const send = sendFor("u", (key: string) => (action: string) => (seen.push(`${key} ${action}`), ok()), () => ({ net: net(unit()), ws: "w1" }), () => 7, mem);
-	await send("answer", {});
-	assert.deepEqual([seen, store.size], [["u answer"], 0], "a dialog answer is not talking");
-	await send("input", { text: "hi" });
-	assert.deepEqual(seen, ["u answer", "u input"]);
-	assert.deepEqual(JSON.parse([...store.values()][0]!), { key: "u", ws: "w1", at: 7 });
-	store.clear();
-	await sendFor("ally-1", () => () => ok(), () => ({ net: net(unit()), ws: "w1" }), () => 9, mem)("input", {});
-	assert.deepEqual(JSON.parse([...store.values()][0]!), { key: "t", ws: "w1", at: 9 }, "a run the net does not list reaches its base's tower");
-});

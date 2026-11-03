@@ -288,8 +288,18 @@ interface Svc {
 	allyCrashes: Map<string, number[]>;
 }
 
+/**
+ * What the unattended device tells its controllers about a run (src/link/unitstatus.ts): a run that ended as crashed, timed out, or quit (a trust question nobody answered ends as a crash with its reason), and a run the
+ * settings check refused. Nothing in it is a secret: the reason is the server's own text, cut by the notice.
+ */
+export type RunSignal =
+	| { kind: "ended"; run: string; workspace: string; label: string; ally: boolean; outcome: "crashed" | "timeout" | "quit"; detail?: string }
+	| { kind: "refused"; workspace: string; label: string; ally: boolean; text: string };
+
 export interface RunsOptions {
 	slot: Slot;
+	/** Told of the ends and refusals above; absent on a computer that tells nobody. */
+	signal?: (s: RunSignal) => void;
 	run: HerdrRun;
 	sleep: Sleep;
 	now: () => number;
@@ -409,6 +419,7 @@ export function createRuns(o: RunsOptions) {
 			svc.state = "standing";
 			svc.refusedAt = now();
 			noticeOf(svc, { id: "settings", level: "error", kind: "settings", text: `A run could not start: ${(cause as Error).message}` });
+			o.signal?.({ kind: "refused", workspace: svc.ref.workspace, label: svc.ref.record().label, ally: false, text: `A run could not start: ${(cause as Error).message}` });
 			log.line("run-refused", { workspace: svc.ref.workspace, why: "settings" });
 			return;
 		}
@@ -614,6 +625,7 @@ export function createRuns(o: RunsOptions) {
 			release();
 			svc.refusedAt = now();
 			noticeOf(svc, { id: "settings", level: "error", kind: "settings", text: `A run could not start: ${(cause as Error).message}` });
+			o.signal?.({ kind: "refused", workspace: svc.ref.workspace, label: svc.ref.record().label, ally: true, text: `A run could not start: ${(cause as Error).message}` });
 			log.line("run-refused", { workspace: svc.ref.workspace, why: "settings", kind: "ally" });
 			return;
 		}
@@ -864,6 +876,7 @@ export function createRuns(o: RunsOptions) {
 		a.rec.outcome = outcome;
 		a.rec.endedAt = iso(now());
 		if (detail) a.rec.detail = phrase(detail, 200);
+		if (outcome === "crashed" || outcome === "timeout" || outcome === "quit") o.signal?.({ kind: "ended", run: a.rec.id, workspace: ws, label: svc.ref.record().label, ally: a.rec.kind === "ally", outcome, ...(detail ? { detail: phrase(detail, 200) } : {}) });
 		try { writeRun(slot, a.rec); pruneRuns(slot, ws); } catch (cause) { error("run-record", (cause as Error).message); }
 		if (a.token) byToken.delete(a.token);
 		byRun.delete(a.rec.id);

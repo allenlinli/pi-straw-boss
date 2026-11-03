@@ -193,7 +193,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 		return d.busy ? terminal("An answer is on its way; check the terminal.") : { ...rest, answer };
 	};
 	const hub: LocalHub & {
-		readonly running: boolean; readonly me: string; onChange(cb: () => void): () => void; answerable(): Offer[]; outcome(dialogId: string): Outcome; start(onChange: () => void): void; track(): void; stop(): void; relayed(sessions: Session[], refs: Map<string, Ref>): Relayed; target(key: string): Target | undefined;
+		readonly running: boolean; readonly me: string; onChange(cb: () => void): () => void; answerable(): Offer[]; monitors(): { pane: string; what: string }[]; outcome(dialogId: string): Outcome; start(onChange: () => void): void; track(): void; stop(): void; relayed(sessions: Session[], refs: Map<string, Ref>): Relayed; target(key: string): Target | undefined;
 		has(key: string, owner: string, at?: { pane?: string; file?: string }): boolean; replay(answerId: string, key: string): Sent | undefined; ended(key: string, dialog: string, answerId: string): Sent | undefined; send(key: string, t: Target, a: Answer): Promise<Sent>;
 		probe(key: string, nonce?: string): Promise<Editor | undefined>; pull(key: string, step: "begin" | "finish", ref?: string): Promise<Pull | undefined>; commands(key: string, prefix: string): Promise<Cmd[] | undefined>; close(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; stashCheck(key: string): Promise<{ reason?: string } | undefined>; doc(cap: string): { key: string; doc: Doc } | undefined; form(cap: string, answerId: string, fields: Fields): Promise<FormResult | undefined>;
 	} = {
@@ -240,6 +240,8 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 			// What was relayed is gone with the page's state: the bridges are asked for their open dialogs again, so a gate still open is known when it closes.
 			if (tracking) sync();
 		},
+		/** The monitors that run in the sessions that relayed to this hub, with the pane each runs in (the sb server tells its controllers which units have background work). */
+		monitors: () => [...bridges.values()].flatMap((b) => (b.monitors ?? []).filter((x) => x.status === "running").map((x) => ({ pane: b.pane, what: x.what }))),
 		/** Binds each relayed list to a unit, from this net reading's sessions and registry. */
 		relayed(sessions, refs) {
 			[bound, targets, reach] = [new Map(), new Map(), new Map()];

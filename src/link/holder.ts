@@ -9,7 +9,7 @@ import type { LinkConfig } from "./config.ts";
 import { shortId, type DeviceKeys } from "./device.ts";
 import { buildEnvelope, openEnvelope, parseEnvelope, recordTaken, type Header, type ReceiveState } from "./envelope.ts";
 import { PayloadTooLargeError, RelayError, UnauthorizedError } from "./errors.ts";
-import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, LIMITS, type Presence, type TowerMessage, type TowerReply, type WorkspaceState } from "./kinds.ts";
+import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, LIMITS, type Notice, type Presence, type TowerMessage, type TowerReply, type UnitStatus, type WorkspaceState } from "./kinds.ts";
 import { type AdminRun, type InviteView, type JoinRequestView, type JoinView, type Prefill, TeamAdmin, type TeamView } from "./admin.ts";
 import { Outbox, type QueuedEnvelope } from "./outbox.ts";
 import { Requests } from "./request.ts";
@@ -94,7 +94,7 @@ const CONFIRM_MAX = 20;
 export interface SendRequest { fromSession: string; device: string; workspace?: string; text: string; reply: boolean; awaitsReply?: string; inReplyTo?: string }
 export type SendResult = { ok: true; text: string; details: Record<string, unknown> } | { ok: false; error: string };
 /** What the GUI shows as a notice. `data` is plain text and numbers: the page puts them in text nodes. */
-export type AlertKind = "join-request" | "confirm" | "dialog" | "fork" | "mismatch" | "unreachable" | "inbox" | "held" | "served";
+export type AlertKind = "join-request" | "confirm" | "dialog" | "fork" | "mismatch" | "unreachable" | "inbox" | "held" | "served" | "notice";
 /** A tower the sb server runs (src/server/towers.ts) is an identity, not a session: it takes no offer, so what is for it waits in the inbox until an ally run takes it (B6). */
 const SERVED_TOWER = /^sb-tower-/;
 const OPEN_BACKOFF_MS = 60_000;
@@ -104,7 +104,11 @@ export interface LinkAlert { id: string; kind: AlertKind; level: "info" | "warni
 /** A teammate's workspace as the map shows it beside the local bases (spec, GUI). */
 export interface AllyBase { id: string; team: string; teamName: string; device: string; short: string; label: string; online: boolean; workspace: string | null; tower: string; tabs: { label: string; state: string }[] }
 /** The compact reading the net snapshot carries: it changes only when something worth redrawing does. */
-export interface LinkSummary { allies: AllyBase[]; alerts: LinkAlert[]; confirms: ConfirmView[] }
+/** What an unattended device last said about its units (`unit-status`, kept in memory): shown beside its ally bases while it keeps saying it. */
+export interface DeviceUnits { team: string; device: string; units: UnitStatus[] }
+export interface LinkSummary { allies: AllyBase[]; alerts: LinkAlert[]; confirms: ConfirmView[]; units: DeviceUnits[] }
+/** Units a peer's `unit-status` may carry that are kept; how long one counts as current; how many notices are kept, and for how long. */
+const UNITS_MAX = 32, UNITS_FRESH_MS = 3 * 60_000, NOTICES_KEPT = 20, NOTICE_KEEP_MS = 24 * 3600_000;
 /** The whole state the team settings page draws. */
 export interface LinkView extends LinkSummary {
 	deviceId: string;
@@ -160,6 +164,9 @@ interface TeamRun {
 	lastEphemeral: Map<string, number>;
 	/** The last `caps` of each peer, in memory only: the relay gives it back on the next stream. */
 	caps: Map<string, { at: number; features: string[] }>;
+	/** The last `unit-status` of each unattended peer, in memory only, and the `ts` of the last one this device sent (an ephemeral kind's `ts` has to rise). */
+	units: Map<string, { at: number; units: UnitStatus[] }>;
+	unitTs: number;
 	/** What this holder last sent as `caps` to the team: when, the `ts` used, and until when a relay that refused the kind is left alone. */
 	capsSent: { at: number; ts: number; offUntil: number };
 	/** Until when a relay that refused `tower-reply` is not sent one (a plain `tower` goes instead). */
@@ -392,7 +399,7 @@ export class LinkHolder {
 			},
 			onRetry: (_item, error) => store.log({ event: "send-retry", team, error: String(error) }),
 		});
-		const run: TeamRun = { team, teamId, client, outbox, stream: undefined, presences: new Map(), boards: new Map(), boardSent: { hash: undefined, looked: 0, at: 0, ts: 0, epoch: 0, offUntil: 0, wasEmpty: false }, lastEphemeral: new Map(), caps: new Map(), capsSent: { at: 0, ts: 0, offUntil: 0 }, replyOffUntil: 0, presenceTimer: undefined, dead: undefined, settled, haltTimer: undefined, gone, waiters, downSince: undefined, headDiff: new Map() };
+		const run: TeamRun = { team, teamId, client, outbox, stream: undefined, presences: new Map(), boards: new Map(), boardSent: { hash: undefined, looked: 0, at: 0, ts: 0, epoch: 0, offUntil: 0, wasEmpty: false }, lastEphemeral: new Map(), caps: new Map(), units: new Map(), unitTs: 0, capsSent: { at: 0, ts: 0, offUntil: 0 }, replyOffUntil: 0, presenceTimer: undefined, dead: undefined, settled, haltTimer: undefined, gone, waiters, downSince: undefined, headDiff: new Map() };
 		this.runs.set(team, run);
 		// What an earlier holder (or this one before a restart) built and did not see land goes first, in order, before anything new is accepted.
 		for (const item of store.outboxPending(team)) {
@@ -481,6 +488,7 @@ export class LinkHolder {
 		}
 		run.lastEphemeral = recordTaken(this.state(run, tf, roster), opened.header).lastEphemeral;
 		if (opened.header.kind === "board") run.boards.set(opened.header.from, { at: this.now(), ts: opened.header.ts, board: opened.message as Board });
+		if (opened.header.kind === "unit-status") this.takeUnitStatus(run, roster, opened.header, opened.message as { units: UnitStatus[] });
 		if (opened.header.kind === "caps") run.caps.set(opened.header.from, { at: this.now(), features: (opened.message as Caps).features });
 		if (opened.header.kind === "presence") {
 			const presence = opened.message as Presence;
@@ -514,6 +522,7 @@ export class LinkHolder {
 			else if (header.kind === "dialog-open") this.takeDialogOpen(run, roster, header, opened.message as DialogOpen);
 			else if (header.kind === "dialog-close") this.takeDialogClose(header, opened.message as DialogClose);
 			else if (header.kind === "dialog-answer") this.takeDialogAnswer(run, roster, header, opened.message as DialogAnswer);
+			else if (header.kind === "notice") this.takeNotice(run, roster, header, opened.message as Notice);
 			else store.log({ event: "unhandled-kind", team: run.team, kind: header.kind, from: header.from });
 			// The sequence guard moves only after the message is in the inbox (or known not to need it), in the same locked write (R-F021).
 			const next = recordTaken(state, header);
@@ -778,6 +787,11 @@ export class LinkHolder {
 
 	// ---- Sending -----------------------------------------------------------------------------------------------------------------------
 
+	/** The last text a tower of workspace `label` sent to `device`, for the unit report an unattended device gives that controller. In memory only. */
+	private lastSent = new Map<string, { text: string; at: number }>();
+	lastSentTo(label: string, device: string): { text: string; at: number } | undefined {
+		return this.lastSent.get(`${label}\n${device}`);
+	}
 	async send(req: SendRequest): Promise<SendResult> {
 		const { store } = this.o;
 		if (!this.running || !this.device) return { ok: false, error: "This computer's link holder is not running" };
@@ -847,6 +861,8 @@ export class LinkHolder {
 		const who = members.find((m) => m.team === target.team && m.id === target.id);
 		const name = `${who?.label ?? "device"} (${shortId(target.id)})`;
 		if (outcome === undefined || outcome === "halted") run.gone.set(id, `the message to ${name}`);
+		this.lastSent.set(`${workspace?.label ?? ""}\n${target.id}`, { text: req.text, at: this.now() });
+		while (this.lastSent.size > 64) this.lastSent.delete(this.lastSent.keys().next().value!);
 		store.log({ event: "send", team: run.team, to: target.id, id, outcome: outcome === undefined ? "queued" : outcome === "posted" ? "posted" : String(outcome) });
 		const details = { team: run.team, device: target.id, id, seq: queued.seq, as: kind, ...(req.awaitsReply !== undefined ? { asked: withAsk } : {}) };
 		const how = req.awaitsReply !== undefined ? (withAsk ? " It carries your ask id, so its answer comes back to the main that asked." : " That device\'s build does not take ask ids, so it went as a plain message and the answer will reach a fresh ally run here, not the main.") : req.inReplyTo !== undefined ? (kind === "tower-reply" ? " Sent as a reply to the ask." : " Sent as a plain message: that device\'s build takes no replies to an ask.") : "";
@@ -1012,8 +1028,8 @@ export class LinkHolder {
 		}
 		return out;
 	}
-	/** A `dialog-open` or `dialog-close` to one device of a team (the forwarder's way out). */
-	async sendDialog(team: string, device: string, kind: "dialog-open" | "dialog-close", payload: DialogOpen | DialogClose): Promise<void> {
+	/** A `dialog-open`, `dialog-close`, or `notice` to one device of a team (the forwarder's and the unit reporter's way out). */
+	async sendDialog(team: string, device: string, kind: "dialog-open" | "dialog-close" | "notice", payload: DialogOpen | DialogClose | Notice): Promise<void> {
 		const run = this.runs.get(team);
 		if (!run || run.dead || !this.running || !this.device) throw new Error("That team is not running on this device");
 		if (!this.loadTeam(team).state.members.has(device)) throw new Error("That device is not in the team");
@@ -1022,6 +1038,33 @@ export class LinkHolder {
 			if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
 			return buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device!.keys, seq, ts: this.now(), kind, to: [device], plaintext: encodePlaintext(kind, payload as never) });
 		});
+	}
+	/** A `unit-status` to one device of a team (ephemeral: no queue, no acknowledgement; the receiver keeps the latest). A relay that does not know the kind refuses it, and the reporter's next pass tries again. */
+	async sendUnitStatus(team: string, device: string, units: UnitStatus[]): Promise<void> {
+		const run = this.runs.get(team);
+		if (!run || run.dead || !this.running || !this.device) throw new Error("That team is not running on this device");
+		const { state } = this.loadTeam(team), key = state.keys.get(state.epoch);
+		if (!state.members.has(device)) throw new Error("That device is not in the team");
+		if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
+		// `ts` rises by at least 1 per status, so a receiver's per-sender guard never drops one for an equal clock reading.
+		const ts = (run.unitTs = Math.max(this.now(), run.unitTs + 1));
+		await run.client.postEnvelope(run.teamId, buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "unit-status", to: [device], plaintext: encodePlaintext("unit-status", { units }) }));
+	}
+	private takeUnitStatus(run: TeamRun, roster: RosterState, header: Header, p: { units: UnitStatus[] }): void {
+		const sender = roster.members.get(header.from);
+		// Only an attended device shows an unattended one's units; the envelope check enforces the kind's sender rule, this keeps the receiver honest on its own.
+		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "unit-status-unexpected", from: header.from, kind: "unit-status" });
+		run.units.set(header.from, { at: this.now(), units: p.units.slice(0, UNITS_MAX) });
+	}
+	/** A notice from an unattended device, kept in memory (the last `NOTICES_KEPT`, a day each) until the boss clears it on this page; clearing is local. */
+	private notices: { id: string; team: string; device: string; at: number; kind: string; unit: string; text: string }[] = [];
+	private takeNotice(run: TeamRun, roster: RosterState, header: Header, p: Notice): void {
+		const sender = roster.members.get(header.from);
+		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "notice-unexpected", from: header.from, kind: "notice" });
+		const id = createHash("sha256").update(`${header.from}\n${Buffer.from(header.id).toString("hex")}`).digest("hex").slice(0, 16);
+		if (this.notices.some((n) => n.id === id)) return;
+		this.notices.push({ id, team: run.team, device: header.from, at: this.now(), kind: p.kind, unit: p.unit, text: p.text });
+		while (this.notices.length > NOTICES_KEPT) this.notices.shift();
 	}
 	private memberLabel(team: string, device: string): string {
 		try {
@@ -1257,6 +1300,8 @@ export class LinkHolder {
 		for (const r of this.admin.joinRequests()) out.push({ id: `join/${r.id}`, kind: "join-request", level: "warning", team: r.team, teamName: r.teamName, data: { label: r.label, short: r.short, unattended: r.unattended ? 1 : 0 } });
 		for (const c of this.confirmRequests()) out.push({ id: `confirm/${c.dialogId}`, kind: "confirm", level: "warning", team: c.team, teamName: name(c.team), data: { label: c.fromLabel, short: c.fromShort, tool: restrictLabel(c.tool) } });
 		for (const v of this.dialogRequests(true)) out.push({ id: `dialog/${v.device}/${v.dialogId}`, kind: "dialog", level: v.closed ? "info" : "warning", team: v.team, teamName: name(v.team), data: { device: v.device, dialogId: v.dialogId, digest: v.digest, owner: v.owner, dialog: v.dialog, label: this.memberLabel(v.team, v.device), short: shortId(v.device), answered: v.answered ? 1 : 0, ...(v.closed ? { closed: v.closed.by } : {}) } });
+		this.notices = this.notices.filter((n) => now - n.at < NOTICE_KEEP_MS);
+		for (const n of this.notices) out.push({ id: `notice/${n.id}`, kind: "notice", level: "warning", team: n.team, teamName: name(n.team), data: { device: n.device, label: this.memberLabel(n.team, n.device), short: shortId(n.device), what: n.kind, unit: n.unit, text: n.text } });
 		for (const team of this.o.store.teamIds()) {
 			const why = this.stopped.has(team) ? (this.o.store.readStopped(team)?.reason ?? "stopped") : this.o.store.readStopped(team)?.reason;
 			const run = this.runs.get(team);
@@ -1283,6 +1328,15 @@ export class LinkHolder {
 		return out;
 	}
 
+	/** The units unattended peers reported lately; a device that stopped reporting for `UNITS_FRESH_MS` shows none. */
+	private deviceUnits(): DeviceUnits[] {
+		const now = this.now(), out: DeviceUnits[] = [];
+		for (const run of this.runs.values()) {
+			if (run.dead) continue;
+			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_FRESH_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units });
+		}
+		return out;
+	}
 	/** The compact reading for the net snapshot: ally bases from presence, the notices, and the confirms waiting. */
 	summary(): LinkSummary {
 		const allies = this.list().flatMap((t) => t.devices.flatMap((d): AllyBase[] => {
@@ -1290,7 +1344,7 @@ export class LinkHolder {
 			if (d.workspaces.length === 0) return [{ ...base, id: `${t.team}/${d.id}`, workspace: null, tower: "unknown", tabs: [] }];
 			return d.workspaces.map((w) => ({ ...base, id: `${t.team}/${d.id}/${w.label}`, workspace: w.label, tower: w.tower, tabs: w.tabs.map((x) => ({ label: x.label, state: x.state })) }));
 		}));
-		return { allies, alerts: this.alerts(), confirms: this.confirmRequests() };
+		return { allies, alerts: this.alerts(), confirms: this.confirmRequests(), units: this.deviceUnits() };
 	}
 
 	/** Everything the team settings page draws. */

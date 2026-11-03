@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { ANSWER_ID, checkAnswer, type Hub } from "../dialogs.ts";
 import type { Answer } from "../owners.ts";
-import { LIMITS, type DialogClose, type DialogOpen } from "./kinds.ts";
+import { LIMITS, type DialogClose, type DialogOpen, type Notice } from "./kinds.ts";
 
 // Dialogs across devices (docs/specs/2026-10-25-straw-link.md, Unattended devices: Asking back; Message kinds: dialog-open, dialog-answer, dialog-close).
 // An unattended device has no one at its screen, so a question one of its sessions asks is forwarded to the controllers its policy trusts at `dispatch`
@@ -26,9 +26,15 @@ export interface DialogsOutDeps {
 	controllers(): { team: string; device: string }[];
 	post(team: string, device: string, kind: "dialog-open" | "dialog-close", payload: DialogOpen | DialogClose): Promise<void>;
 	log(entry: Record<string, unknown>): void;
+	/** The clock (default `Date.now`), for the unanswered-dialog notice. */
+	now?(): number;
+	/** Tells the controllers (src/link/unitstatus.ts `UnitReporter.notify`); once per key. Absent: no notices. */
+	notice?(key: string, notice: Notice): void | Promise<void>;
 }
+/** A dialog nobody has answered this long is told to the controllers, once. */
+export const UNANSWERED_MS = 30 * 60_000;
 export interface DialogAnswerInput { team: string; from: string; dialogId: string; digest: string; answer: string; answerId: string }
-interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Set<string>; claimed: boolean }
+interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Set<string>; claimed: boolean; since: number; told: boolean }
 
 export class DialogForwarder {
 	private readonly d: DialogsOutDeps;
@@ -47,6 +53,10 @@ export class DialogForwarder {
 	stop(): void {
 		this.off?.();
 		this.off = undefined;
+	}
+	/** The periodic look: a controller that gained `dispatch` while a dialog was open gets it now, and a dialog unanswered for 30 minutes is told once. */
+	tick(): Promise<void> {
+		return this.poll();
 	}
 	/** Looks at the hub now; calls that overlap run once more after the one in flight. */
 	poll(): Promise<void> {
@@ -74,10 +84,11 @@ export class DialogForwarder {
 			if (Buffer.byteLength(text) > LIMITS.dialog) {
 				this.skipped.add(id);
 				this.d.log({ event: "dialog-oversize", dialog: id, bytes: Buffer.byteLength(text) });
+				await this.d.notice?.(`oversize/${id}`, { kind: "dialog-oversize", unit: o.key, text: `A question of ${o.owner} was not forwarded: it is ${Buffer.byteLength(text)} bytes, over the ${LIMITS.dialog} the link carries. It waits at the device.` });
 				continue;
 			}
 			if (this.open.size >= MAX_OPEN) continue;
-			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, text, sent: new Set(), claimed: false });
+			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, text, sent: new Set(), claimed: false, since: this.now(), told: false });
 		}
 		for (const [id, d] of [...this.open]) {
 			const state = this.d.hub.outcome(id);
@@ -85,6 +96,10 @@ export class DialogForwarder {
 				this.open.delete(id);
 				for (const k of d.sent) await this.send(k, "dialog-close", { dialogId: id, by: state.by });
 				continue;
+			}
+			if (!d.told && !d.claimed && to.length && this.now() - d.since >= UNANSWERED_MS) {
+				d.told = true;
+				await this.d.notice?.(`unanswered/${id}`, { kind: "dialog-unanswered", unit: d.key, text: `A question of ${d.owner} has waited ${Math.round((this.now() - d.since) / 60_000)} minutes for an answer.` });
 			}
 			for (const c of to) {
 				const k = `${c.team}\n${c.device}`;
@@ -95,6 +110,7 @@ export class DialogForwarder {
 		}
 		for (const id of [...this.skipped]) if (!this.d.hub.outcome(id).open) this.skipped.delete(id);
 	}
+	private now = () => this.d.now?.() ?? Date.now();
 	private async send(k: string, kind: "dialog-open" | "dialog-close", payload: DialogOpen | DialogClose): Promise<boolean> {
 		const [team, device] = k.split("\n") as [string, string];
 		try {

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
 import { alertsOf, rankOf } from "../gui/alerts.ts";
-import { unitsOf, waitingOf } from "../gui/units.ts";
+import { activityOf, companionsOf, unitsOf, waitingOf } from "../gui/units.ts";
 
 const unit = (key: string, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark: "idle" as Mark, subs: [], ...o });
 const base = (id: string, tower: { key: string; subs?: Unit[]; mark?: Mark } | null, units: Unit[], outside: Unit[] = [], extra: Unit[] = []) => ({
@@ -60,4 +60,33 @@ test("alertsOf gives a tower the alert role 'tower' (the net gives a tower no ro
 	const n = net(base("w", { key: "tw", subs: [unit("ts", { role: "subagent" })] }, [unit("a", { role: "member" })], [unit("o", { role: "outside" })]));
 	const roles = Object.fromEntries([...alertsOf(n, 1).values()].map((a) => [a.key, a.role]));
 	assert.deepEqual(roles, { tw: "tower", ts: "subagent", a: "member", o: "outside" });
+});
+
+// Z4b: who the companion can be stepped to ([ and ]), and the strip's counts (working, idle).
+test("companionsOf: live units that answer to the page, idle ones and towers first, each group in the net's order; no ended unit, no unit the page cannot control", () => {
+	const n = net(
+		base("w1", { key: "tw1", mark: "working" }, [unit("a", { mark: "working" }), unit("b", { mark: "idle" }), unit("c", { mark: "waiting" }), unit("gone", { mark: "idle", ended: true }), unit("lost", { mark: "idle", control: false })], [unit("o", { role: "outside", mark: "idle" })], [unit("d", { mark: "error" })]),
+		base("w2", null, [unit("e", { mark: "idle" }), unit("f", { mark: "working" })]),
+	);
+	assert.deepEqual(companionsOf(n).map((c) => [c.key, c.ws]), [["tw1", "w1"], ["b", "w1"], ["o", "w1"], ["e", "w2"], ["a", "w1"], ["c", "w1"], ["d", "w1"], ["f", "w2"]]);
+	assert.deepEqual(companionsOf(undefined), []);
+	assert.deepEqual(companionsOf({ bases: [] }), []);
+});
+
+test("companionsOf: a subagent under a unit is never a candidate, whatever its mark", () => {
+	const n = net(base("w", null, [unit("a", { subs: [unit("a1", { role: "subagent", mark: "idle", subs: [unit("a11", { mark: "idle" })] })] })]));
+	assert.deepEqual(companionsOf(n).map((c) => c.key), ["a"]);
+});
+
+test("activityOf counts the working and the idle units and nothing else: what waits (a waiting mark, or a dialog pending on any mark), errors, finished, ended and unknown units change neither number, and the result has no other field", () => {
+	const quiet = net(base("w", { key: "tw", mark: "working" }, [unit("a", { mark: "working" }), unit("b", { mark: "idle" }), unit("c", { mark: "idle", subs: [unit("c1", { role: "subagent", mark: "working" })] })], [unit("o", { mark: "idle" })]));
+	assert.deepEqual(activityOf(quiet), { working: 3, idle: 3 }, "the tower, a, and the subagent work; b, c, and the outside unit are idle");
+	const noisy = net(base("w", { key: "tw", mark: "working" }, [
+		unit("a", { mark: "working" }), unit("b", { mark: "idle" }), unit("c", { mark: "idle", subs: [unit("c1", { role: "subagent", mark: "working" })] }),
+		unit("w1", { mark: "waiting" }), unit("w2", { mark: "waiting" }), unit("w3", { mark: "idle", pending: { callId: "x" } as never }), unit("w4", { mark: "working", pending: { callId: "y" } as never }),
+		unit("e", { mark: "error" }), unit("d", { mark: "done" }), unit("u", { mark: "unknown" }), unit("m", { mark: "commanding" }), unit("end", { mark: "idle", ended: true }),
+	], [unit("o", { mark: "idle" })]));
+	assert.deepEqual(activityOf(noisy), activityOf(quiet), "more waiting changes neither number: a count of what waits cannot be read back from them");
+	assert.deepEqual(Object.keys(activityOf(noisy)).sort(), ["idle", "working"]);
+	assert.deepEqual(activityOf(undefined), { working: 0, idle: 0 });
 });

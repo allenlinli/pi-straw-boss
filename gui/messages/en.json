@@ -971,5 +971,21 @@
 	"ended_other": "The pane runs something else now.",
 	"ended_closed": "The pane closed.",
 	"ended_unreadable": "The pane could not be read.",
-	"ended_moved": "The session moved to another pane."
+	"ended_moved": "The session moved to another pane.",
+	"zen_strip": "Working {working} · Idle {idle}",
+	"zen_with": "With {name}",
+	"pal_label": "Command palette",
+	"pal_placeholder": "Type a command",
+	"pal_none": "Nothing matches",
+	"pal_current": "current",
+	"pal_pick": "{what}: {choice}",
+	"pal_standard": "Back to the Standard view",
+	"pal_session": "Open {name}'s session",
+	"pal_terminal": "Open {name}'s terminal",
+	"pal_settings": "Settings",
+	"pal_prev": "Previous companion",
+	"pal_next": "Next companion",
+	"pal_louder": "Volume up",
+	"pal_quieter": "Volume down",
+	"pal_music": "Music"
 }

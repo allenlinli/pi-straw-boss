@@ -6,7 +6,7 @@ import { linkChime } from "./linkbar.ts";
 import { type Route, upOf, watchOf } from "./router.ts";
 import { CONNECTING, type Status } from "./stream.ts";
 import type { StepOpen } from "./terminalthen.ts";
-import { unitsOf, waitingOf } from "./units.ts";
+import { activityOf, companionsOf, unitsOf, waitingOf } from "./units.ts";
 import { enterZen, type PageView } from "./view.ts";
 import { mountFace } from "./viewface.ts";
 import type { Exit, Term } from "./zentypes.ts";
@@ -15,8 +15,8 @@ import type { Exit, Term } from "./zentypes.ts";
 // this module holds the state and the rules over them, so tests/pagecore.test.ts can run the page's wiring with plain fakes (Z3R-F006). No events and no registry: the page calls these functions, and they call the parts it gave.
 /** An Escape keydown, as far as the page reads it. */
 export interface Esc { key: string; defaultPrevented: boolean; isComposing: boolean; preventDefault(): void; stopPropagation(): void }
-/** The Zen layer, as the page drives it. `escape` says whether it took the key. */
-export interface ZenFace { net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** The keymap's Enter and Space: ends the pause; false when none is shown or the terminal layer has the keys. */ tap(): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
+/** The Zen layer, as the page drives it. `escape` says whether it took the key. `cycle`, `palette`: the companion keys and the palette key, true when the layer did them. */
+export interface ZenFace { cycle(dir: 1 | -1): boolean; palette(): boolean; net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** The keymap's Enter and Space: ends the pause; false when none is shown or the terminal layer has the keys. */ tap(): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
 /** The overlay layer (the dialogs and tiles), as the page drives it. */
 interface PanelsFace { /** A page key for the dialogs (layer.ts); false when it had nothing to do. */ hotkey(key: Hotkey): boolean; stack: { show(a: Alert): void; close(how?: "go"): boolean }; /** A step an answer left, as the dock's terminal card. */ step(s: StepOpen, net?: Net): void }
 /** The focus views (the base, the session's comms and dossier). */
@@ -169,8 +169,13 @@ export function createPage(io: PageIo) {
 		/** The keymap the page reads (hotkeys.ts), and whether a modal holds the keyboard. */
 		keys: () => rules().keys,
 		modal: () => io.modal(),
-		/** A hotkey of the keymap, done: Enter and Space end Zen's pause, Space opens the next alert and F enlarges the top dialog. False when it had nothing to do (the key stays the browser's), as for the rows the page has no action for yet (Z4b). */
-		hotkey: (hotkey: Hotkey) => (hotkey === "pause" ? io.zen()?.tap() ?? false : hotkey === "next" || hotkey === "zoom" ? io.panels()?.hotkey(hotkey) ?? false : false),
+		/** A hotkey of the keymap, done: Enter and Space end Zen's pause, Space opens the next alert and F enlarges the top dialog. `[` and `]` step Zen's companion and ⌘K opens its palette. False when it had nothing to do (the key stays the browser's). */
+		hotkey: (hotkey: Hotkey) => (hotkey === "next" || hotkey === "zoom" ? io.panels()?.hotkey(hotkey) : hotkey === "pause" ? io.zen()?.tap() : hotkey === "palette" ? io.zen()?.palette() : io.zen()?.cycle(hotkey === "next-companion" ? 1 : -1)) ?? false,
+		/** The units the companion can be stepped to, idle ones and towers first (units.ts), and the strip's counts of working and idle units: both read the newest snapshot, and neither says how many wait. */
+		companions: () => companionsOf(latest),
+		activity: () => activityOf(latest),
+		/** The settings page, by its route. */
+		openSettings: () => io.go({ view: "settings" }),
 		/** The phone's quick-switch drawer is off in Zen. */
 		noDrawer: () => !rules().drawer,
 		/** Escape closes the top dialog; with none open it goes up one route (the settings page steps back to where it was opened from); a modal takes it for itself. In Zen the layer takes it first, in the capture phase (so a field's own handler cannot keep it from the rule): one press closes the menu, lets go of a field, or cancels or skips the card, and two that nothing took, within 600 ms, leave (zenkeys.ts). */

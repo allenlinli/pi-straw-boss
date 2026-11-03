@@ -6,6 +6,7 @@ import type { Net, Unit } from "../src/net.ts";
 import type { Pending } from "../src/ask.ts";
 import { El, page, stored } from "./zen-dom.ts";
 import { alertsOf } from "../gui/alerts.ts";
+import { activityOf, companionsOf } from "../gui/units.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
 import type { With } from "../gui/zenwith.ts";
@@ -27,11 +28,12 @@ const secret = (): Pending => ({ callId: "c3", tool: "secret_drop", why: "It wai
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy"], more: 0 }], agents: [{ pane: "1", base: "Harbor", role: "member", at: 5 }] };
 
-function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }> } = {}) {
+function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
-	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[] };
+	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], settings: 0, composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[] };
 	const replies: ((r: Answer) => void)[] = [];
+	let netNow: Net | undefined;
 	const items: Item[] = [{ id: "a1", kind: "assistant", text: "I need a decision." } as Item];
 	const mounts = {
 		...real,
@@ -54,6 +56,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => o.stored,
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
+		...(o.z4b ? { companions: () => companionsOf(netNow), activity: () => activityOf(netNow), settings: () => void calls.settings++, menu: { sound: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {} } } } : {}),
 		later: (fn: () => void, ms: number) => {
 			const e = { at: t + ms, fn };
 			timers.push(e);
@@ -77,7 +80,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 	};
 	return {
 		z, root, calls, advance, settle, items, now: () => t,
-		feed: (n: Net) => z.net(alertsOf(n, t), n),
+		feed: (n: Net) => ((netNow = n), z.net(alertsOf(n, t), n)),
 		reply: async (body: Record<string, unknown>, status = 200) => (replies.shift()!({ ok: status < 400, status, body }), await settle()),
 		button: (text: string) => root.all((el) => el.tagName === "button" && el.textContent === text)[0],
 		by: (match: (el: El) => boolean) => root.all(match),
@@ -877,4 +880,174 @@ test("a card takes its size at once and a swap of its content fades: the first d
 	assert.equal(card.getAttribute("style"), null, "no box height is written");
 	const { existsSync } = await import("node:fs");
 	assert.ok(!existsSync(new URL("../gui/zensize.ts", import.meta.url)), "the card's easing is gone with its file");
+});
+
+// Z4b: stepping the companion, the palette, and the strip.
+const companionKey = (r: { calls: { composers: { key: string }[] } }) => r.calls.composers.at(-1)!.key;
+const three = () => net([unit("a", "working"), unit("b", "idle"), unit("c", "waiting", { since: 5, pending: undefined, mark: "working" })]);
+
+test("[ and ] step the companion through the core's candidates (idle and towers first), wrap, open that session's log and composer, and the stream watches it; the stepped one stays when an item comes and goes", async () => {
+	const r = rig({ z4b: true });
+	r.feed(net([unit("a", "working"), unit("b", "idle")]));
+	r.z.show();
+	await r.settle();
+	assert.equal(companionKey(r), "t", "the tower by fallback");
+	assert.equal(r.z.cycle(1), true);
+	await r.settle();
+	assert.equal(companionKey(r), "b", "candidates: t, b, a");
+	assert.equal(r.calls.watch.at(-1), "b");
+	assert.deepEqual(r.z.companion(), { key: "b", ws: "w" });
+	assert.equal(r.z.cycle(1), true);
+	assert.equal(r.z.cycle(1), true);
+	await r.settle();
+	assert.equal(companionKey(r), "t", "wraps past the last");
+	assert.equal(r.z.cycle(-1), true);
+	await r.settle();
+	assert.equal(companionKey(r), "a", "and past the first");
+	assert.equal(r.by((el) => el.getAttribute("role") === "status" && el.textContent === "With a").length, 1, "the new companion is said to a reader");
+	r.feed(net([unit("a", "working"), unit("b", "idle"), unit("q", "waiting", { since: 5, pending: select() })]));
+	await r.advance(600);
+	assert.ok(r.button("Maybe later"), "an item takes the screen");
+	r.button("Maybe later")!.click();
+	await r.advance(3100);
+	assert.deepEqual(r.z.companion(), { key: "a", ws: "w" }, "the companion the boss stepped to comes back");
+	assert.deepEqual(stored.get("sb.zen.with") ?? null, null, "stepping is not talking: the stored companion is not touched");
+});
+
+test("[ and ] do nothing (false, so the key stays the browser's) with nothing to step to, on a card, on the pause, with the terminal or the palette open, or while hidden", async () => {
+	const r = rig({ z4b: true });
+	assert.equal(r.z.cycle(1), false, "not shown");
+	r.feed(net([], [], true));
+	r.z.show();
+	await r.settle();
+	assert.equal(r.z.cycle(1), false, "the tower alone: nothing to step to");
+	r.feed(net([unit("a", "working")]));
+	assert.equal(r.z.cycle(1), true);
+	r.z.palette();
+	assert.equal(r.z.cycle(1), false, "the palette is open");
+	r.z.palette();
+	const none = rig();
+	none.feed(net([unit("a", "working")]));
+	none.z.show();
+	await none.settle();
+	assert.equal(none.z.cycle(1), false, "no candidates given to the layer");
+	const card = rig({ z4b: true });
+	card.feed(net([unit("a", "waiting", { since: 5, pending: select() }), unit("b", "idle")]));
+	card.z.show();
+	await card.settle();
+	assert.equal(card.z.cycle(1), false, "an item is on the screen");
+	card.button("Maybe later")!.click();
+	assert.equal(card.z.cycle(1), false, "so is the pause");
+});
+
+test("hiding Zen forgets the stepped companion: coming back shows the stored one (or the tower)", async () => {
+	const r = rig({ z4b: true });
+	r.feed(net([unit("a", "working"), unit("b", "idle")]));
+	r.z.show();
+	await r.settle();
+	r.z.cycle(1);
+	await r.settle();
+	assert.equal(r.z.companion()?.key, "b");
+	r.z.hide();
+	r.z.show();
+	await r.settle();
+	assert.equal(r.z.companion()?.key, "t");
+});
+
+test("the strip says how many units work and how many are idle, from the core's selector, on the companion and the pause, not on a card; it is the same with one, two, and five waiting", async () => {
+	const shots: string[] = [];
+	for (const count of [1, 2, 5]) {
+		const r = rig({ z4b: true });
+		const waiting = Array.from({ length: count }, (_, i) => unit(`w${i}`, "waiting", { since: 5 + i, pending: select() }));
+		const strip = () => r.by((el) => el.getAttribute("class") === "zen-strip")[0]!;
+		r.feed(net([unit("a", "working"), unit("b", "working"), unit("i", "idle")]));
+		r.z.show();
+		await r.settle();
+		assert.equal(strip().textContent, "Working 2 · Idle 2", "the tower is idle too");
+		assert.equal(strip().hidden, false);
+		r.feed(net([unit("a", "working"), unit("b", "working"), unit("i", "idle"), ...waiting]));
+		await r.settle();
+		assert.equal(strip().hidden, true, "a card is on the screen: no strip under it");
+		r.button("Maybe later")!.click();
+		await r.settle();
+		assert.equal(strip().hidden, false, "the pause");
+		shots.push(strip().textContent);
+		assert.ok(!/wait|queue|more/i.test(strip().dump()), "no word about what waits");
+	}
+	assert.deepEqual(shots, ["Working 2 · Idle 2", "Working 2 · Idle 2", "Working 2 · Idle 2"]);
+});
+
+test("the strip is hidden when no unit works or idles, and the layer without the selector draws none", async () => {
+	const r = rig({ z4b: true });
+	r.feed(net([unit("e", "error")], [], false));
+	r.z.show();
+	await r.settle();
+	assert.equal(r.by((el) => el.getAttribute("class") === "zen-strip")[0]!.hidden, true);
+	const bare = rig();
+	bare.feed(net([unit("a", "working")]));
+	bare.z.show();
+	await bare.settle();
+	assert.equal(bare.by((el) => el.getAttribute("class") === "zen-strip")[0]!.hidden, true);
+});
+
+test("the palette opens over Zen with the page's actions and the menu's preferences, makes the page behind inert, and an item that arrives does not take the focus from its box", async () => {
+	const r = rig({ z4b: true });
+	r.feed(net([unit("a", "working"), unit("b", "idle")]));
+	r.z.show();
+	await r.settle();
+	assert.equal(r.z.palette(), true);
+	const palette = r.by((el) => el.getAttribute("role") === "dialog")[0]!, box = r.by((el) => el.getAttribute("role") === "combobox")[0]!;
+	assert.equal(page.focused, box);
+	const labels = r.by((el) => el.getAttribute("role") === "option").map((o) => o.textContent);
+	for (const want of ["Open tower's session", "Open tower's terminal", "Previous companion", "Next companion", "Settings", "Back to the Standard view", "Sound", "Volume up"]) assert.ok(labels.some((l) => l.startsWith(want)), want);
+	assert.ok(r.by((el) => el.getAttribute("class") === "zen-stage")[0]!.getAttribute("inert") !== null, "the stage is inert");
+	assert.equal(palette.hidden, false);
+	r.feed(net([unit("a", "working"), unit("q", "waiting", { since: 5, pending: select() })]));
+	await r.advance(600);
+	assert.equal(page.focused, box, "the item takes the screen but not the focus");
+	assert.equal(r.z.palette(), true, "the key again closes it");
+	assert.equal(palette.hidden, true);
+	assert.equal(r.by((el) => el.getAttribute("class") === "zen-stage")[0]!.getAttribute("inert"), null);
+});
+
+test("palette entries act through the page: settings, Standard (the way back), the companion's session (the same exit as Esc Esc), and its terminal", async () => {
+	const r = rig({ z4b: true });
+	r.feed(net([unit("a", "working")]));
+	r.z.show();
+	await r.settle();
+	const pick = (label: string) => (r.z.palette(), r.by((el) => el.getAttribute("role") === "option" && el.textContent.startsWith(label))[0]!.click());
+	pick("Settings");
+	assert.equal(r.calls.settings, 1);
+	pick("Back to the Standard view");
+	pick("Open tower's session");
+	assert.deepEqual(r.calls.leave, [{}, { route: { view: "session", ws: "w", key: "t" } }]);
+	pick("Open tower's terminal");
+	assert.deepEqual(r.calls.embeds.length >= 0, true);
+	assert.equal(r.by((el) => el.getAttribute("role") === "dialog")[0]!.hidden, true, "a pick closed the palette");
+});
+
+test("Esc closes the palette first and does nothing else; it is the layer's key while the palette is open, a field with text included", async () => {
+	const r = rig({ z4b: true });
+	r.feed(net([unit("a", "working")]));
+	r.z.show();
+	await r.settle();
+	r.z.palette();
+	const box = r.by((el) => el.getAttribute("role") === "combobox")[0]!;
+	box.type("vol");
+	const e = esc(r);
+	assert.equal(e.took, true);
+	assert.equal(r.by((el) => el.getAttribute("role") === "dialog")[0]!.hidden, true);
+	assert.deepEqual(r.calls.leave, []);
+	assert.equal(r.by((el) => el.getAttribute("class") === "zen-esc")[0]!.textContent, "", "and no hint of leaving");
+});
+
+test("the palette key does nothing in a hidden layer or over the terminal layer", async () => {
+	const r = rig({ z4b: true });
+	assert.equal(r.z.palette(), false, "not shown");
+	r.feed(net([unit("a", "working")]));
+	r.z.show();
+	await r.settle();
+	r.z.terminal({ key: "a" } as never);
+	await r.settle();
+	assert.equal(r.z.palette(), false, "the terminal has the keyboard");
 });

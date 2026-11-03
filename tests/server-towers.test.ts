@@ -763,3 +763,118 @@ test("B4R-F010: a start that failed once is tried again by the next ensure", asy
 	assert.equal(first.ok, true, JSON.stringify(first));
 	assert.equal(first.live, true);
 });
+
+test("a workspace reorder or close rewrites a live tower's sb_order without waiting for the refresh", async () => {
+	const s = await started();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	await sleep(50);
+	const order = () => pane(String(reply.pane)).tokens.sb_order;
+	const first = order();
+	assert.ok(first, "the tower is keyed");
+	const [a, b] = world.herdr.workspaces;
+	world.herdr.workspaces = [b!, a!];
+	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
+	await until(() => order() !== first, "the key to follow the reorder");
+	const moved = order();
+	world.herdr.workspaces = world.herdr.workspaces.filter((w) => w.workspace_id !== "wB");
+	world.herdr.emit("workspace.closed", "workspace_closed", { workspace_id: "wB" });
+	await until(() => order() !== moved, "the key to follow the close");
+});
+
+// The tower's pane report writes after a workspace event (TO-F001 to F005).
+const paneWrites = (id: string) => world.herdr.calls.filter((c) => c[0] === "pane" && c[1] === "report-metadata" && c[2] === id).length;
+const reorder = (to: string) => {
+	const first = world.herdr.workspaces.find((w) => w.workspace_id === to)!;
+	world.herdr.workspaces = [first, ...world.herdr.workspaces.filter((w) => w !== first)];
+};
+
+test("TO-F005: a workspace created ahead of the tower rewrites its key", async () => {
+	const s = await started();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	await sleep(50);
+	const order = () => pane(String(reply.pane)).tokens.sb_order;
+	const first = order();
+	world.herdr.workspaces = [{ workspace_id: "wC", label: "Gamma", tokens: {} }, ...world.herdr.workspaces];
+	world.herdr.emit("workspace.created", "workspace_created", { workspace_id: "wC" });
+	await until(() => order() !== first, "the key to follow the new workspace");
+});
+
+test("TO-F003/F005: a burst of events makes one write, and an event that changes nothing writes nothing", async () => {
+	const s = await started();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	await sleep(50);
+	const id = String(reply.pane);
+	const before = paneWrites(id);
+	reorder("wB");
+	// Events 100 ms apart: a trailing debounce waits for the last one, so the burst is one pass.
+	for (let i = 0; i < 4; i++) {
+		world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
+		await sleep(100);
+	}
+	await until(() => paneWrites(id) > before, "the write");
+	await sleep(700);
+	assert.equal(paneWrites(id), before + 1, "one write for the burst");
+	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
+	await sleep(700);
+	assert.equal(paneWrites(id), before + 1, "an unchanged key is not written again");
+});
+
+test("TO-F004: a failed write is tried again by the next event", async () => {
+	const s = await started();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	await sleep(50);
+	const id = String(reply.pane);
+	const order = () => pane(id).tokens.sb_order;
+	const first = order();
+	reorder("wB");
+	world.herdr.failPaneReport = true;
+	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
+	await sleep(800);
+	assert.equal(order(), first, "the write failed");
+	world.herdr.failPaneReport = false;
+	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
+	await until(() => order() !== first, "the retry after the failed write");
+});
+
+test("TO-F002/F005: stop clears the pending republish", async () => {
+	const s = await started();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	await sleep(50);
+	const id = String(reply.pane);
+	const before = paneWrites(id);
+	reorder("wB");
+	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
+	await sleep(30);
+	await s.handle.shutdown(0);
+	await s.handle.done;
+	await sleep(700);
+	assert.equal(paneWrites(id), before, "nothing is written after the server left");
+});
+
+test("TO-F001: passes overlap in order: a slow earlier pass cannot write its older key last", async () => {
+	const s = await started();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	await sleep(50);
+	const id = String(reply.pane);
+	const order = () => pane(id).tokens.sb_order;
+	const first = order();
+	// Pass 1 reads the net as it is after the first move, then is held before its write lands; pass 2 follows the second move and is not held.
+	reorder("wB");
+	let release!: () => void;
+	let held = false;
+	world.herdr.paneReportHook = (p) => (held || p !== id ? undefined : ((held = true), new Promise<void>((r) => (release = r))));
+	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
+	await until(() => held, "pass 1 held at the proof");
+	world.herdr.workspaces = [world.herdr.workspaces[1]!, { workspace_id: "wC", label: "Gamma", tokens: {} }, world.herdr.workspaces[0]!];
+	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wA" });
+	await sleep(900);
+	release();
+	await sleep(900);
+	const newest = order();
+	assert.notEqual(newest, first);
+	// The newest net: one more pass from scratch gives the key the last write must equal.
+	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wA" });
+	await sleep(900);
+	assert.equal(order(), newest, "the standing key is the newest one");
+});

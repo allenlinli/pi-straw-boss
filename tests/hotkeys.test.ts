@@ -189,7 +189,32 @@ test("a mouse-focused answer option keeps Space for the form, and a mouse-focuse
 	assert.deepEqual(p.asked, []);
 });
 
+test("H asks for the Zen history, plain or capital, on a button too; it yields where F and Space yield", () => {
+	for (const target of [new El("body"), null, new El("button"), new El("a", ["go"])]) for (const key of ["h", "H"]) assert.equal(hotkeyOf(press(key, target), false, false, "zen"), "history", `${key} on ${(target as El | null)?.tag}`);
+	for (const target of [new El("input", [], { type: "text" }), new El("textarea"), new El("textarea", ["term-sink"]), new El("div", ["term-scroll"]), new El("div", [], { role: "textbox" })]) assert.equal(hotkeyOf(press("h", target), false, false, "zen"), undefined, `typing in ${target.tag}`);
+	for (const over of [{ ctrlKey: true }, { altKey: true }, { metaKey: true }, { isComposing: true }, { defaultPrevented: true }]) assert.equal(hotkeyOf(press("h", undefined, over), false, false, "zen"), undefined, Object.keys(over)[0]);
+	assert.equal(hotkeyOf(press("h"), true, false, "zen"), undefined, "a modal owns the keyboard");
+});
+
+test("a held H acts once", () => {
+	const seen: { type: string; fn: (e: never) => void }[] = [], acted: Hotkey[] = [];
+	mountHotkeys((k) => (acted.push(k), true), () => false, { addEventListener: (type: string, fn: never) => void seen.push({ type, fn }) } as never, () => "zen");
+	const down = seen.find((s) => s.type === "keydown")!.fn;
+	let prevented = 0;
+	for (const repeat of [false, true, true]) down({ ...press("h"), repeat, preventDefault: () => prevented++ } as never);
+	assert.deepEqual(acted, ["history"]);
+	assert.equal(prevented, 3);
+});
+
 // R8: the keymap has a row table per face (Standard and Geek read "dialogs", Zen reads "zen").
+
+test("H is a Zen row: it acts on a button too, yields to typing and modifiers, and Standard and Geek never take it (Z4D-F001)", () => {
+	for (const key of ["h", "H"]) for (const target of [new El("body"), new El("button")]) assert.equal(hotkeyOf(press(key, target), false, false, "zen"), "history");
+	assert.equal(hotkeyOf(press("h", new El("textarea")), false, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("h", undefined, { metaKey: true }), false, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("h"), true, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("h"), false, false, "dialogs"), undefined);
+});
 
 test("Zen rows: Enter and Space end the pause, F is not Zen's, and a native control keeps its own Enter and Space however it got the focus", () => {
 	for (const key of ["Enter", " "]) {
@@ -208,15 +233,73 @@ test("Standard and Geek rows do not take Enter, and the default face is the dial
 	assert.equal(hotkeyOf(press(" "), false), "next");
 });
 
-test("Z4b's rows are explicit: [ and ] are Zen's, and ⌘K is the only ⌘ combination any face takes", () => {
+test("Z4b's rows are explicit: [ and ] are Zen's, and the platform's ⌘K or Ctrl+K is the only modifier combination any face takes", () => {
 	assert.equal(hotkeyOf(press("["), false, false, "zen"), "prev-companion");
 	assert.equal(hotkeyOf(press("]"), false, false, "zen"), "next-companion");
-	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true }), false, false, "zen"), "palette");
-	assert.equal(hotkeyOf(press("k"), false, false, "zen"), undefined, "K without ⌘");
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true }), false, false, "zen", true), "palette", "⌘K on a Mac");
+	assert.equal(hotkeyOf(press("K", undefined, { metaKey: true }), false, false, "zen", true), "palette");
+	assert.equal(hotkeyOf(press("k", undefined, { ctrlKey: true }), false, false, "zen"), "palette", "Ctrl+K elsewhere");
+	assert.equal(hotkeyOf(press("k"), false, false, "zen"), undefined, "K without a modifier");
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true, ctrlKey: true }), false, false, "zen", true), undefined);
 	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true, ctrlKey: true }), false, false, "zen"), undefined);
-	assert.equal(hotkeyOf(press("f", undefined, { metaKey: true }), false, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("k", undefined, { altKey: true, ctrlKey: true }), false, false, "zen"), undefined, "Ctrl+Alt+K is not the palette");
+	assert.equal(hotkeyOf(press("f", undefined, { metaKey: true }), false, false, "zen", true), undefined);
+	assert.equal(hotkeyOf(press("f", undefined, { ctrlKey: true }), false, false, "zen"), undefined);
 	for (const key of ["[", "]"]) assert.equal(hotkeyOf(press(key), false, false, "dialogs"), undefined);
-	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true }), false, false, "dialogs"), undefined);
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true }), false, false, "dialogs", true), undefined);
+	assert.equal(hotkeyOf(press("k", undefined, { ctrlKey: true }), false, false, "dialogs"), undefined);
+});
+
+test("on a Mac Ctrl+K is not the palette (it kills a line in a text box), and elsewhere ⌘ is not either", () => {
+	assert.equal(hotkeyOf(press("k", undefined, { ctrlKey: true }), false, false, "zen", true), undefined);
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true }), false, false, "zen", false), undefined);
+});
+
+test("[ and ] typed with Option (German and French Mac layouts) or AltGr (Ctrl and Alt together on Windows) still step the companion: the key the layout made is what counts; ⌘ or a lone Ctrl does not", () => {
+	for (const over of [{ altKey: true }, { altKey: true, shiftKey: true }, { altKey: true, ctrlKey: true }] as Partial<Pressed>[]) {
+		assert.equal(hotkeyOf(press("[", undefined, over), false, false, "zen", true), "prev-companion", JSON.stringify(over));
+		assert.equal(hotkeyOf(press("]", undefined, over), false, false, "zen"), "next-companion", JSON.stringify(over));
+	}
+	for (const over of [{ ctrlKey: true }, { metaKey: true }, { altKey: true, metaKey: true }] as Partial<Pressed>[]) assert.equal(hotkeyOf(press("[", undefined, over), false, false, "zen"), undefined, JSON.stringify(over));
+	assert.equal(hotkeyOf(press("f", undefined, { altKey: true }), false, false, "dialogs"), undefined, "the Alt gate stays for every other row");
+	assert.equal(hotkeyOf(press("Enter", undefined, { altKey: true }), false, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press(" ", undefined, { altKey: true }), false, false, "zen"), undefined);
+});
+
+test("[ and ] never fire inside a box being typed in, the composer, the palette's own box, or the terminal; they do fire from a button, a link, and the page", () => {
+	const typing = [new El("input", [], { type: "text" }), new El("textarea"), new El("div", [], {}, undefined, true), new El("textarea", ["term-sink"]), new El("div", ["term-scroll"]), new El("li", [], { role: "option" }, new El("ul", [], { role: "listbox" }))];
+	for (const target of typing) for (const key of ["[", "]"]) for (const over of [{}, { altKey: true }]) assert.equal(hotkeyOf(press(key, target, over), false, false, "zen"), undefined, `${key} in ${target.tag}`);
+	for (const target of [new El("body"), new El("button"), new El("a")]) assert.equal(hotkeyOf(press("]", target), false, false, "zen"), "next-companion", target.tag);
+});
+
+test("the palette key opens from the composer and an input; a modal, an input method composing, or a key another listener took still stop it", () => {
+	for (const target of [new El("textarea"), new El("input", [], { type: "text" }), new El("div", [], {}, undefined, true)]) {
+		assert.equal(hotkeyOf(press("k", target, { metaKey: true }), false, false, "zen", true), "palette", `⌘K in ${target.tag}`);
+		assert.equal(hotkeyOf(press("k", target, { ctrlKey: true }), false, false, "zen"), "palette", `Ctrl+K in ${target.tag}`);
+	}
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true }), true, false, "zen", true), undefined, "a modal");
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true, isComposing: true }), false, false, "zen", true), undefined);
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true, defaultPrevented: true }), false, false, "zen", true), undefined);
+});
+
+test("mountHotkeys takes ⌘K by the platform it is given, and takes the key only when the page opened the palette", () => {
+	for (const [mac, over] of [[true, { metaKey: true }], [false, { ctrlKey: true }]] as const) {
+		const on: Record<string, (e: never) => void> = {}, asked: Hotkey[] = [];
+		let handled = true;
+		mountHotkeys((k) => (asked.push(k), handled), () => false, { addEventListener: (t: string, fn: (e: never) => void) => (on[t] = fn) } as unknown as Window, () => "zen", () => mac);
+		const down = (target: unknown) => {
+			const e = { ...press("k", target, over), repeat: false, taken: false, preventDefault() { this.taken = true; } };
+			on.keydown!(e as never);
+			return e.taken;
+		};
+		assert.equal(down(new El("textarea")), true, `mac ${mac}`);
+		handled = false;
+		assert.equal(down(new El("textarea")), false);
+		assert.deepEqual(asked, ["palette", "palette"]);
+		const wrong = { ...press("k", undefined, mac ? { ctrlKey: true } : { metaKey: true }), repeat: false, taken: false, preventDefault() { this.taken = true; } };
+		on.keydown!(wrong as never);
+		assert.equal(wrong.taken, false, "the other platform's modifier is the browser's");
+	}
 });
 
 test("mountHotkeys reads the face at each press, and a Zen pause key is taken only when the layer ended the pause", () => {
@@ -250,4 +333,13 @@ test("a Zen Space the layer took has its release taken too, so a button the next
 	down("Enter");
 	assert.equal(up("Enter"), false, "only Space is clicked on its release");
 	assert.equal(up(" "), false, "and nothing is held after");
+});
+
+test("the palette key is the terminal's from its sink, scroll, the step card's input, and anything inside a terminal tile or layer (kill-line)", () => {
+	const tile = new El("div", ["term-tile"]), layer = new El("section", ["zen-term"]), card = new El("section", ["tcard"]);
+	const targets = [new El("textarea", ["term-sink"]), new El("div", ["term-scroll"]), new El("input", ["tcard-input"], { type: "text" }), new El("button", [], {}, tile), new El("span", [], {}, layer), new El("input", [], { type: "text" }, card)];
+	for (const target of targets) {
+		assert.equal(hotkeyOf(press("k", target, { metaKey: true }), false, false, "zen", true), undefined, `⌘K in ${target.tag}`);
+		assert.equal(hotkeyOf(press("k", target, { ctrlKey: true }), false, false, "zen"), undefined, `Ctrl+K in ${target.tag}`);
+	}
 });

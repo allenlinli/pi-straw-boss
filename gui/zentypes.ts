@@ -8,6 +8,7 @@ import type { Route } from "./router.ts";
 import type { TrustPost, trustPanel } from "./trust.ts";
 import type { FsEnv } from "./zenfs.ts";
 import type { RippleEnv } from "./zenripple.ts";
+import type { Candidate } from "./units.ts";
 import type { MenuDeps } from "./zenmenu.ts";
 import type { MusicDeps } from "./zenmusicbar.ts";
 import type { Sound } from "./zenmodel.ts";
@@ -48,6 +49,11 @@ export interface ZenDeps {
 	stored?(): With | undefined;
 	/** The corner menu's rows (language, view, sound); a row without its dep is left out. */
 	menu?: MenuDeps;
+	/** The core's candidates for the companion (`[` and `]`), and its counts of working and idle units for the strip (units.ts); unset: no stepping, no strip. */
+	companions?(): Candidate[];
+	activity?(): { working: number; idle: number };
+	/** The page's settings route (the palette's Settings); unset: no such entry. */
+	settings?(): void;
 	/** The music controls (zenmusicbar.ts): the server's tracks, the player, the stored switch. Unset: no music control. */
 	music?: MusicDeps;
 	/** The full-screen control's page facts (a test gives its own). */

@@ -107,7 +107,7 @@ const withZen = (call: (z: Zen) => void) => {
 			prefs: { on: () => prefs.get("zenMusic"), setOn: (on) => void prefs.set("zenMusic", on), track: () => prefs.get("zenTrack"), setTrack: (file) => void prefs.set("zenTrack", file) },
 			coarse: () => matchMedia("(pointer: coarse)").matches,
 		},
-		leave: core.leaveZen, terminals, watch: core.watchLog,
+		leave: core.leaveZen, terminals, watch: core.watchLog, companions: core.companions, activity: core.activity, settings: core.openSettings,
 	}));
 	});
 	void zenLoading.then(call);

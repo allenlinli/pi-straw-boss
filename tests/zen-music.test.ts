@@ -472,3 +472,28 @@ test("a shown phone page whose audio context stayed suspended says tap to play, 
 	await flush();
 	assert.deepEqual([r.log.started.length, r.label()], [before + 1, "Music: on"]);
 });
+
+test("after a refused resume the same track plays again at the next start", async () => {
+	const r = playerRig();
+	await r.player.start("rain.mp3");
+	r.player.pause();
+	r.els[0]!.fail = { name: "NotAllowedError" };
+	assert.equal(await r.player.resume(), false);
+	r.els[0]!.fail = undefined;
+	const plays = r.els[0]!.plays;
+	assert.equal(await r.player.start("rain.mp3"), true);
+	assert.deepEqual([r.els[0]!.plays, r.els[0]!.paused], [plays + 1, false], "the element plays, not just claims to");
+	assert.equal(await r.player.start("rain.mp3"), true);
+	assert.equal(r.els[0]!.plays, plays + 1, "a track that is playing is left alone");
+});
+
+test("a context the browser kept shut stops the player: nothing keeps playing under tap to play", async () => {
+	const r = barRig({ on: true });
+	await r.shown();
+	r.set("unlock", false);
+	const stops = r.log.stops;
+	r.gesture("pointerup");
+	await flush();
+	assert.equal(r.label(), "Music: tap to play");
+	assert.ok(r.log.stops > stops, "the player was stopped");
+});

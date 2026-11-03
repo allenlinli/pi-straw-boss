@@ -246,7 +246,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 			if (req.method === "GET" && parts[0] === "music") {
 				if (parts.length > 2) return void fail(404);
 				if (!parts[1]) return void library.list().then((tracks) => answer({ status: 200, body: { tracks } }), () => fail(404));
-				return void library.open(parts[1], req.headers.range).then((hit) => {
+				return void library.open(parts[1], req.headers.range, [req.headers["if-range"]].flat()[0]).then((hit) => {
 					if (!hit) return fail(404);
 					if (res.destroyed) return void hit.body?.destroy(); // the request went away while the file was being opened: nothing would ever close it
 					if (hit.headers.etag && req.headers["if-none-match"] === hit.headers.etag) return void (hit.body?.destroy(), res.writeHead(304, { ...HEADERS, "cache-control": hit.headers["cache-control"]!, etag: hit.headers.etag }).end());

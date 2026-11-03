@@ -62,6 +62,7 @@ export function mountMusic(deps: MusicDeps) {
 		const ok = (await un) && (await (first ?? p.start(file)));
 		if (mine !== run) return;
 		if (ok) heard = true;
+		else if (!(await un)) p.stop(); // the context stayed shut: nothing is fetched or left playing under "tap to play"
 		settle(ok ? "playing" : "tap");
 	}
 	function stop() {
@@ -69,15 +70,16 @@ export function mountMusic(deps: MusicDeps) {
 		held = false;
 		ready?.stop();
 	}
-	note.onclick = () => {
+	/** The switch: on starts the chosen track (from a gesture), off stops it. */
+	function setOn(next: boolean) {
 		if (!list.length) return;
-		if (on && status === "tap") return void begin();
-		on = !on;
+		on = next;
 		deps.prefs.setOn(on);
 		if (on) return void begin();
 		stop();
 		settle("off");
-	};
+	}
+	note.onclick = () => (on && status === "tap" ? void begin() : setOn(!on));
 	// The pick list: a native-feeling popover as the corner menu's (a press opens it, Esc, a press outside, and a choice close it).
 	const close = () => {
 		if (!open) return false;
@@ -131,6 +133,8 @@ export function mountMusic(deps: MusicDeps) {
 		button: note,
 		isOpen: () => open,
 		close,
+		/** The palette's switch (a keypress is a gesture). */
+		switch: { on: () => on, set: setOn },
 		/** Zen shows (first, or again): the folder is read, and a switch stored on gets ready to play. */
 		show() {
 			shown = true;

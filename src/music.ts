@@ -3,7 +3,7 @@ import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, sep } from "node:path";
 
-// Zen's music folder (docs/specs/2026-11-01-zen-view.md, Music): the boss drops audio files into one folder (`music/` in the sb state folder) and the GUI's /api/music routes list and stream them. The folder is
+// Zen's music folder (docs/specs/2026-11-01-zen-view.md, Music): the boss drops audio files into one folder (`straw-boss-music/` beside the state folder in the agent folder) and the GUI's /api/music routes list and stream them. The folder is
 // read at each ask. Only a file that the folder's own listing holds, by its exact name, of an audio type, that is a regular file and whose real path stays inside the folder's real path, is a track:
 // a path that climbs out, a name in a sub folder, a link that leaves the folder, and every other type are not there. Range requests answer the <audio> element's seeks (an iPhone asks nothing else).
 
@@ -56,20 +56,25 @@ export function createMusic(dir?: string) {
 			return found.flatMap((f) => (f.hit ? [{ file: f.file, size: f.hit.size }] : [])).sort((a, b) => byName(a.file, b.file)).slice(0, LIMIT);
 		},
 		/** The track named `name` (one path segment, as the folder spells it), or undefined. `range` is the request's Range header. */
-		async open(name: string, range?: string): Promise<Served | undefined> {
+		async open(name: string, range?: string, ifRange?: string): Promise<Served | undefined> {
 			if (!plain(name) || !(await names()).includes(name)) return undefined; // the listing is the allow-list: a name it does not hold, in another case or with a trailing space, is not served
 			const hit = await track(name);
 			if (!hit) return undefined;
-			const type = TYPES[extname(name).toLowerCase()]!, want = slice(range, hit.size);
-			if (want === "bad") return { status: 416, headers: { "content-range": `bytes */${hit.size}`, "content-length": "0" } };
-			const [from, to] = want === "all" ? [0, hit.size - 1] : want;
+			const type = TYPES[extname(name).toLowerCase()]!;
 			const file = await open(hit.real, "r").catch(() => undefined);
 			if (!file) return undefined;
-			const now = await file.stat();
-			if (!now.isFile() || now.size !== hit.size) return void (await file.close()); // it changed between the check and the open
+			const now = await file.stat().catch(() => undefined);
+			if (!now || !now.isFile() || now.size !== hit.size) return void (await file.close()); // it changed between the check and the open
+			const etag = `"${now.size.toString(36)}-${Math.floor(now.mtimeMs).toString(36)}"`, modified = now.mtime.toUTCString();
+			const want = ifRange && ifRange !== etag && ifRange !== modified ? "all" : slice(range, hit.size); // RFC 9110 13.1.5: a failed If-Range sends the whole representation
+			if (want === "bad") {
+				await file.close();
+				return { status: 416, headers: { "content-range": `bytes */${hit.size}`, "content-length": "0" } };
+			}
+			const [from, to] = want === "all" ? [0, hit.size - 1] : want;
 			return {
 				status: want === "all" ? 200 : 206,
-				headers: { "content-type": type, "accept-ranges": "bytes", "content-length": String(to - from + 1), "cache-control": "private, max-age=3600", etag: `"${now.size.toString(36)}-${Math.floor(now.mtimeMs).toString(36)}"`, "last-modified": now.mtime.toUTCString(), ...(want === "all" ? {} : { "content-range": `bytes ${from}-${to}/${hit.size}` }) },
+				headers: { "content-type": type, "accept-ranges": "bytes", "content-length": String(to - from + 1), "cache-control": "private, max-age=3600", etag, "last-modified": modified, ...(want === "all" ? {} : { "content-range": `bytes ${from}-${to}/${hit.size}` }) },
 				body: file.createReadStream({ start: from, end: to }),
 			};
 		},

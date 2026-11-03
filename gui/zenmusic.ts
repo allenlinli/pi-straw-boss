@@ -12,6 +12,7 @@ export interface MediaEl {
 	readonly duration: number;
 	preload: string;
 	play(): Promise<void>;
+	readonly paused: boolean;
 	pause(): void;
 	load(): void;
 	removeAttribute(name: string): void;
@@ -91,14 +92,14 @@ export function createPlayer(env: PlayerEnv): Player {
 	return {
 		file: () => name,
 		async start(file) {
-			if (name && slots[at]?.file) return file === name ? true : fade(file);
+			if (name && slots[at]?.file) return file !== name ? fade(file) : slots[at]!.el.paused ? play(slots[at]!) : true; // the same track on a paused element (a refused resume) plays again
 			const s = slot(at);
 			s.file = name = file;
 			s.el.src = env.url(file);
 			s.gain.gain.cancelScheduledValues(0);
 			s.gain.gain.value = 1;
 			const ok = await play(s);
-			if (!ok && name === file) (name = s.file = undefined); // a play that did not start leaves nothing playing, so the next start tries again
+			if (!ok && name === file) [name, s.file] = [undefined, undefined]; // a play that did not start leaves nothing playing, so the next start tries again
 			return ok;
 		},
 		stop() {

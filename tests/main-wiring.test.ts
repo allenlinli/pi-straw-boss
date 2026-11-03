@@ -30,6 +30,10 @@ test("the header's Zen button returns through the core, and the Zen layer's exit
 	assert.ok(main.includes("withPanels((p) => done(p.kit))"), "Zen's card and full terminal are the overlay chunk's terminals");
 });
 
+test("main.ts hands the keymap the core's face reader, so Zen reads its own rows (VC8R-F002)", () => {
+	assert.match(main, /^mountHotkeys\(core\.hotkey, core\.modal, window, core\.keys\);/m);
+});
+
 test("report() opens or closes the connect overlay before the core tells Zen the state (the overlay notes and restores the focus Zen's card moves)", () => {
 	const report = body("report");
 	const connect = report.indexOf("connect(next)"), status = report.indexOf("core.status(next)");

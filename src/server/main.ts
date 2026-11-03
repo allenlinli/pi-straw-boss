@@ -270,6 +270,9 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	};
 	const facts = () => ({ pid, ...(own.started ? { started: own.started } : {}), version, mode, desk, phase, ready: phase === "ready" });
 
+	// The dialog forwarder (src/link/dialogs-out.ts) and the unit reporter (src/link/unitstatus.ts) are built later, with the link; they are declared here so a start that gives up early can shut down before either exists.
+	let forwarder: DialogForwarder | undefined;
+	let reporter: UnitReporter | undefined;
 	const shutdown = (code: number): Promise<void> => (leaving ??= (async () => {
 		const began = now();
 		timers.forEach(clearInterval);
@@ -520,8 +523,6 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		if (read.problem !== toldConfig) (toldConfig = read.problem ?? "", read.problem && recordError("config", read.problem));
 		return read;
 	};
-	// What an unattended device tells its controllers about its units and runs (src/link/unitstatus.ts); the reporter is built below, with the link, and told nothing before it exists.
-	let reporter: UnitReporter | undefined;
 	towers = createTowers({
 		ally: allyPort(() => link), allows, asks,
 		slot, cfg, env, connect: () => mod.connect(), log, pid, startedAt, enabled: () => towerRuns().enabled, server: serverTools,
@@ -547,8 +548,6 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 
 	// pi-intercom: the server's own session, reconnecting with the sidecar's backoff (1, 2, 5, 10, then 30 s). While it is disconnected its identities are not live.
 	// The link holder (B3): the primary server only, built once the first connection is attached (the kit's channel needs a client). A computer with no team set up gets no channel, election, or files.
-	// An unattended device forwards the questions its sessions ask to the controllers it trusts at `dispatch` (src/link/dialogs-out.ts); an attended computer has none, so this does nothing there.
-	let forwarder: DialogForwarder | undefined;
 	const dialogsOut = () => (forwarder ??= new DialogForwarder({
 		...guiHost!.dialogs(), controllers: () => link?.holder?.dialogControllers() ?? [],
 		post: async (team, device, kind, payload) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, kind, payload); },

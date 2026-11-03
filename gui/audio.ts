@@ -15,7 +15,7 @@ export function createAudio(make: () => Ctx = () => new AudioContext(), bytes: (
 	};
 	return {
 		volume: (v) => void ((level = (v / 100) ** 2), gain && (gain.gain.value = level)),
-		unlock: () => out().c.resume().then(() => true, () => false),
+		unlock: () => out().c.resume().then(() => out().c.state === "running", () => false),
 		out,
 		running: () => ac?.state === "running",
 		play(url) {

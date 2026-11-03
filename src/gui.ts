@@ -16,6 +16,8 @@ import { createMirrors } from "./mirror.ts";
 import type { Found, Net, Ref } from "./net.ts";
 import { qr } from "./qr.ts";
 import { createEntry, zhOf } from "./appentry.ts";
+import { pipeline } from "node:stream";
+import { createMusic } from "./music.ts";
 import { type LanAt, type LanEvent, lanAppCookieFor, lanCookieFor } from "./lan/access.ts";
 import type { Overlay } from "./lan/faces.ts";
 import type { LanHandler } from "./lan/listener.ts";
@@ -60,11 +62,11 @@ export interface LanOptions { panel: LanPanel; overlay: Overlay; file?: string; 
 /** `net` is the registry behind the net reading (the allow list of session keys); without it no session can be watched. `call` reaches Herdr for input. */
 /** `hub` carries answers to the dialogs bridges relay (dialogs.ts); it runs exactly as long as the server. */
 /** `onRemote` and `onRemoteOff` turn remote access on and off from the page, in the session that runs the server. `onStop` takes another session's stop request (requestStop), so the owner also takes its remote entry down; without it the server stops itself. */
-export interface GuiOptions { read(): Promise<Net>; net?: { lookup(key: string): Found | undefined; workspace(id: string): Ref[]; dismiss?(key: string): boolean; dismissAll?(): number }; call?: HerdrCall; hub?: Hub; dir?: string; paired?: string; port?: number; remotePort?: number; pollMs?: number; idleMs?: number; pingMs?: number; onStop?(asked: Asked): void; /** A takeover is refused with 409 (the sb server is never taken over by a session of an older build, which then leaves its GUI alone). */ refuseTake?: boolean; onRemote?(): Promise<void>; onRemoteOff?(): Promise<void>; onSaveFailed?(reason: string): void; spawn?: ControlDeps["spawn"]; close?: ControlDeps["close"]; trust?: { answer: NonNullable<ControlDeps["trust"]>; watch(poke: () => void): () => void }; link?: ControlDeps["link"]; server?: ControlDeps["server"]; tower?: ControlDeps["tower"]; /** How long a preferred port that is still held (by the server this one replaces) is retried before another is taken. */ bindWaitMs?: number; /** The token and CSRF secret of the last listener with the two ports they belong to (server/guisecrets.ts): kept only when both ports are bound again; otherwise they are drawn anew. */ keep?: { token: string; csrf: string; port: number; remotePort: number }; /** The server runs with the desk switch (STRAW_BOSS_DESK=1): the page carries `<meta name="sb-desk">` and hides GUI remote access and stash (gui/desk.ts). */ desk?: boolean; /** Wi-Fi access (the primary slot's server only). */ lan?: LanOptions; /** The server's default view the page starts with (guiprefs.ts); `auto` when none was set. */ view?: ServerView }
+export interface GuiOptions { read(): Promise<Net>; net?: { lookup(key: string): Found | undefined; workspace(id: string): Ref[]; dismiss?(key: string): boolean; dismissAll?(): number }; call?: HerdrCall; hub?: Hub; dir?: string; paired?: string; port?: number; remotePort?: number; pollMs?: number; idleMs?: number; pingMs?: number; onStop?(asked: Asked): void; /** A takeover is refused with 409 (the sb server is never taken over by a session of an older build, which then leaves its GUI alone). */ refuseTake?: boolean; onRemote?(): Promise<void>; onRemoteOff?(): Promise<void>; onSaveFailed?(reason: string): void; spawn?: ControlDeps["spawn"]; close?: ControlDeps["close"]; trust?: { answer: NonNullable<ControlDeps["trust"]>; watch(poke: () => void): () => void }; link?: ControlDeps["link"]; server?: ControlDeps["server"]; tower?: ControlDeps["tower"]; /** How long a preferred port that is still held (by the server this one replaces) is retried before another is taken. */ bindWaitMs?: number; /** The token and CSRF secret of the last listener with the two ports they belong to (server/guisecrets.ts): kept only when both ports are bound again; otherwise they are drawn anew. */ keep?: { token: string; csrf: string; port: number; remotePort: number }; /** The server runs with the desk switch (STRAW_BOSS_DESK=1): the page carries `<meta name="sb-desk">` and hides GUI remote access and stash (gui/desk.ts). */ desk?: boolean; /** Wi-Fi access (the primary slot's server only). */ lan?: LanOptions; /** The server's default view the page starts with (guiprefs.ts); `auto` when none was set. */ view?: ServerView; /** The folder of Zen's music (music.ts): its audio files are listed and streamed at /api/music; none: no tracks. */ music?: string }
 export interface Asked { by: string; take: boolean }
 
 /** Starts the server. A preferred `port` and `remotePort` are reused when free. The token and the CSRF secret are drawn anew unless `keep` names them and both of its ports are bound again (D27): a listener that had to move to another port is a new one, and a page an open tab already has, or whatever else holds the old secrets, opens nothing here. */
-export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, port = 0, remotePort = 0, pollMs = 2000, idleMs = 10_000, pingMs = 15_000, onStop, refuseTake, onRemote, onRemoteOff, onSaveFailed, spawn, close, trust, link, server: panel, tower, bindWaitMs = 0, keep, desk = false, lan, view: firstView = "auto" }: GuiOptions): Promise<Gui> {
+export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, port = 0, remotePort = 0, pollMs = 2000, idleMs = 10_000, pingMs = 15_000, onStop, refuseTake, onRemote, onRemoteOff, onSaveFailed, spawn, close, trust, link, server: panel, tower, bindWaitMs = 0, keep, desk = false, lan, view: firstView = "auto", music }: GuiOptions): Promise<Gui> {
 	try {
 		if (!statSync(join(dir, "index.html")).isFile()) throw new Error();
 	} catch {
@@ -124,6 +126,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 			return undefined; // a manifest that is not JSON is served as it is
 		}
 	})();
+	const library = createMusic(music);
 	const files: Files = { lookup: (key) => net?.lookup(key), workspace: (id) => net?.workspace(id) ?? [], readers: readers() };
 	// Turning remote access off ends the streams of remote pages, and unpairing a device ends that device's (`remotes` names each stream's device); their next request finds the cookie void.
 	const clients = new Map<ServerResponse, Watch | undefined>(), remotes = new Map<ServerResponse, { device: string; net: Network }>();
@@ -239,6 +242,19 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 			if (["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "lan"].includes(parts[0]!)) return void control(req, who.origin, parts, who.remote).then(answer, () => answer({ status: 500, body: { error: "internal", reason: "The request could not be handled." } }));
 			// An entry never changes once written, so its image is cached for a day; the token in the URL keeps it to this page.
 			if (req.method === "GET" && parts[0] === "image") return void image(files, parts.slice(1)).then((p) => (p ? res.writeHead(200, { ...HEADERS, "content-type": p.type, "cache-control": "private, max-age=86400" }).end(p.bytes) : fail(404)), () => fail(404));
+			// Zen's music: the list, and one track with range requests (music.ts). Same token and paired-device checks as the reads around it; the folder's files are the only thing it reads.
+			if (req.method === "GET" && parts[0] === "music") {
+				if (parts.length > 2) return void fail(404);
+				if (!parts[1]) return void library.list().then((tracks) => answer({ status: 200, body: { tracks } }), () => fail(404));
+				return void library.open(parts[1], req.headers.range, [req.headers["if-range"]].flat()[0]).then((hit) => {
+					if (!hit) return fail(404);
+					if (res.destroyed) return void hit.body?.destroy(); // the request went away while the file was being opened: nothing would ever close it
+					if (hit.headers.etag && req.headers["if-none-match"] === hit.headers.etag) return void (hit.body?.destroy(), res.writeHead(304, { ...HEADERS, "cache-control": hit.headers["cache-control"]!, etag: hit.headers.etag }).end());
+					res.writeHead(hit.status, { ...HEADERS, ...hit.headers });
+					if (!hit.body) return res.end();
+					pipeline(hit.body, res, () => {}); // closes the file when the response ends, errors, or is aborted
+				}, () => fail(404));
+			}
 			if (req.method === "GET") return void (parts[0] === "doc" && docs ? answer(docs.text(parts[1] ?? "", wifiDoc && { cookie: wifiDoc.cookie })) : api(files, parts, url.searchParams).then(answer, () => fail(404)));
 		}
 		if (req.method !== "GET") return void fail(403);

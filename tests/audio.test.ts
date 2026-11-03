@@ -130,3 +130,9 @@ test("unlock() says whether the context is running; a refused resume is false an
 	assert.equal(f.a.running(), false);
 	assert.equal(await f.a.unlock(), false, "and again");
 });
+
+test("unlock() is false when resume() resolves but the context stays suspended", async () => {
+	const r = rig();
+	r.ac.resume = async () => {}; // an iPhone that resolves and stays suspended or interrupted
+	assert.equal(await r.a.unlock(), false);
+});

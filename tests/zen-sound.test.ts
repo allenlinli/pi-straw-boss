@@ -161,7 +161,8 @@ test("after the context is suspended again the next gesture re-arms the unlock a
 
 test("main.ts hands the page's audio and Sound switch to createZenSound and Zen gets its play, try, and tryAll", () => {
 	const src = readFileSync(new URL("../gui/main.ts", import.meta.url), "utf8");
-	assert.match(src, /createZenSound\(audio, notify\.sound\)/);
+	assert.match(src, /createZenSound\(audio, notify\.sound, /);
+	assert.match(src, /musicBus\(audio, zs\.bus\(\)\)/, "the music reaches the master through the duck node, so an effect ducks it");
 	assert.match(src, /sound: zs\.play/);
 	assert.match(src, /try: zs\.try/);
 	assert.match(src, /effects: zs\.tryAll/);

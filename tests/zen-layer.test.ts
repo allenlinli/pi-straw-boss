@@ -6,7 +6,7 @@ import type { Net, Unit } from "../src/net.ts";
 import type { Pending } from "../src/ask.ts";
 import { El, page, stored } from "./fake-dom.ts";
 import { alertsOf } from "../gui/alerts.ts";
-import { activityOf, companionsOf } from "../gui/units.ts";
+import { activityOf, companionsOf } from "../gui/zenunits.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
 import type { With } from "../gui/zenwith.ts";
@@ -14,6 +14,7 @@ import type { With } from "../gui/zenwith.ts";
 // The Zen layer (gui/zen.ts) as the page drives it: the net's snapshots go in, the card, the pause, or the companion comes out, and every answer goes through the same panels
 // and routes as Standard (ask.ts, trust.ts, the composer), which are the real ones here on a fake document. The composer and the log are stand-ins that record what they are given.
 import { hotkeyOf } from "../gui/hotkeys.ts";
+import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 /** A Zen keydown as the page routes it: the keymap's row for the face, then the layer's answer (what main.ts does through the core). */
 const press = (z: { tap(): boolean }, target: unknown, key: string) => hotkeyOf({ key, ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target }, false, false, "zen") === "pause" && z.tap();
 const { DRAFT_MS, mountZen, real } = await import("../gui/zen.ts");

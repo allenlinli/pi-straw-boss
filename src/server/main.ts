@@ -16,6 +16,7 @@ import { createAsks } from "./asks.ts";
 import { cliBeside, createGuiHost, spawnRestart } from "./guihost.ts";
 import { type IntercomModule, loadIntercom, LoaderError } from "./intercom.ts";
 import { DialogForwarder } from "../link/dialogs-out.ts";
+import { openTower } from "./opentower.ts";
 import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
 import { createLog, tailLog } from "./log.ts";
 import { gateRun, type RunInfo } from "./rungate.ts";
@@ -553,7 +554,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
 			dialogAnswer: (a) => dialogsOut().answer(a),
 			// The tower service takes part in the holder's work (B6): an ask answered by a `tower-reply` is the main's, messages for a tower identity the server runs wake an ally run, and a `forward` answer reaches its run.
-			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false },
+			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false,
+				openTower: (project, toWorkspace) => openTower({ run: cfg.run, towers: () => towers, now }, project, toWorkspace) },
 		});
 		linkFirst = link.start();
 	};

@@ -76,6 +76,8 @@ export interface HolderOptions {
 	asks?: { take(q: { team: string; device: string; ask: string }): { main: string; mainName: string; tower: string; workspace: string } | undefined };
 	/** Told, at each pass of the inbox, that messages wait for a tower identity the sb server runs (src/server/towers.ts): an ally run is woken for them. */
 	served?: (identity: string) => void;
+	/** Opens a tower for the team's project (src/server/opentower.ts): asked only for a `dispatch` sender, on an unattended device, when no tower of the project is open. Absent: nothing is opened. */
+	openTower?: (project: string, toWorkspace?: string) => Promise<void>;
 	/** How often `caps` is sent unchanged (default an hour) and the least time between two (default 15 s). */
 	capsMs?: number;
 	capsMinMs?: number;
@@ -95,6 +97,7 @@ export type SendResult = { ok: true; text: string; details: Record<string, unkno
 export type AlertKind = "join-request" | "confirm" | "dialog" | "fork" | "mismatch" | "unreachable" | "inbox" | "held" | "served";
 /** A tower the sb server runs (src/server/towers.ts) is an identity, not a session: it takes no offer, so what is for it waits in the inbox until an ally run takes it (B6). */
 const SERVED_TOWER = /^sb-tower-/;
+const OPEN_BACKOFF_MS = 60_000;
 /** The pi the server started for a run, which sits in the standing pane while the run lives: the message is the tower's, even if the run's pi is the session found there. */
 const SERVED_RUN = /^tower run · /;
 export interface LinkAlert { id: string; kind: AlertKind; level: "info" | "warning" | "error"; team: string; teamName: string; data: Record<string, string | number> }
@@ -197,6 +200,9 @@ export class LinkHolder {
 	/** Inbox messages no tower has taken yet: no tower open, or offered and not taken. For the GUI's notices. */
 	/** The main whose reply fell back to an ally run, per inbox id: a `taken` of that main that arrives afterwards (it read the item before the rewrite) does not remove the item an ally run is to get. */
 	private replyFellBack = new Map<string, string>();
+	/** Projects a tower is being opened for, and when an open of a project last ended, whether it worked or not (it is not tried again for `OPEN_BACKOFF_MS`: a tower that is slow to show in the net must not be opened again in a loop). */
+	private opening = new Map<string, Promise<void>>();
+	private openEnded = new Map<string, number>();
 	private waiting = new Map<string, { team: string; from: string; since: number; offered: boolean; served?: boolean; identity?: string }>();
 	/** When a `tower-reply` last fell back to a plain `tower`, by device, so the log tells it once an hour. */
 	private fellBack = new Map<string, number>();
@@ -687,6 +693,7 @@ export class LinkHolder {
 			const picks = towersFor(net, policy.project, item.toWorkspace), first = picks[0];
 			if (!first) {
 				this.waiting.get(id)!.offered = false;
+				this.openFor(policy.project, item.from, item.toWorkspace || undefined, config.trust.get(item.from));
 				this.tellOnce(`inbox/${id}`, `Straw Link: a message from ${item.fromLabel} waits in the inbox; no tower is open on ${policy.project}${item.toWorkspace ? ` in workspace ${restrictLabel(item.toWorkspace)}` : ""}`, "info");
 				continue;
 			}
@@ -711,6 +718,31 @@ export class LinkHolder {
 				store.log({ event: "served-failed", error: String(error) });
 			}
 		}
+	}
+
+	/**
+	 * A controller at `dispatch` of an unattended device asked for a project that has no tower: one is opened for it (docs/specs/2026-10-26-sb-backend.md, Unattended devices). Never below `dispatch`, never on an attended
+	 * device. One open per project at a time and 60 s after the last one ended; the drain runs again when it is done, and the message then finds the tower the server runs.
+	 */
+	private openFor(project: string, from: string, toWorkspace: string | undefined, level: string | undefined): void {
+		const { openTower, store } = this.o;
+		if (!openTower || level !== "dispatch" || (this.o.attended?.() ?? true) || this.opening.has(project)) return;
+		const ended = this.openEnded.get(project);
+		if (ended !== undefined && this.now() - ended < OPEN_BACKOFF_MS) return;
+		store.log({ event: "tower-open", project, from });
+		const attempt = (async () => {
+			try {
+				await openTower(project, toWorkspace);
+				store.log({ event: "tower-opened", project });
+			} catch (error) {
+				store.log({ event: "tower-open-failed", project, error: (error as Error).message });
+			}
+		})().finally(() => {
+			this.openEnded.set(project, this.now());
+			this.opening.delete(project);
+			if (this.running) void this.drain();
+		});
+		this.opening.set(project, attempt);
 	}
 
 	/** Threads older than 7 days go, and so does the thread of a device that is no member of any team this computer still has a file for (it left, was removed, or this computer left the team). Under the lock. */

@@ -46,11 +46,15 @@ interface Rig {
 	skew: number;
 	share: "presence" | "status";
 	postWaitMs: number;
+	/** What the open-a-tower seam was asked, and whether it fails; `level` is what config.json (the policy file, unattended) gives alice. */
+	opens: { project: string; toWorkspace: string | undefined }[];
+	openFails: boolean;
+	level: "reply" | "forward" | "dispatch" | undefined;
 	start(): Promise<void>;
 	restart(over?: { store?: LinkStore }): Promise<void>;
 }
 
-function rig(name: "a" | "b", o: { entries?: ReturnType<typeof rosterOf>; seed?: boolean; towers?: boolean; runs?: boolean } = {}): Rig {
+function rig(name: "a" | "b", o: { entries?: ReturnType<typeof rosterOf>; seed?: boolean; towers?: boolean; runs?: boolean; unattended?: boolean } = {}): Rig {
 	const keys = name === "a" ? alice : bob, entries = o.entries ?? rosterOf();
 	const dir = join(root, name, "link"), project = join(root, `${name}-project`);
 	mkdirSync(project, { recursive: true });
@@ -58,14 +62,15 @@ function rig(name: "a" | "b", o: { entries?: ReturnType<typeof rosterOf>; seed?:
 	first.ensure();
 	writeDevice(first, keys, name === "a" ? "alice-mac" : "bob-mac");
 	if (o.seed !== false) writeTeam(first, entries, keys);
-	const r = { name, dir, project, offers: [], notices: [], displaced: 0, isHolder: true, skew: 0, share: "status", postWaitMs: 3000 } as unknown as Rig;
+	const r = { name, dir, project, offers: [], notices: [], displaced: 0, isHolder: true, skew: 0, share: "status", postWaitMs: 3000, opens: [], openFails: false, level: undefined } as unknown as Rig;
 	r.net = o.towers === false ? netOf([]) : netOf([[`tower-${name}`, `w-${name}`, `label-${name}`, project]]);
 	const stateDir = join(root, name, "state");
 	mkdirSync(stateDir, { recursive: true });
 	writeFileSync(join(stateDir, "config.json"), JSON.stringify({ towerRuns: { enabled: Boolean(o.runs) } }));
 	const build = (store: LinkStore) => new LinkHolder({
-		store, stateDir, isHolder: () => r.isHolder, config: () => config(project, r.share)(), net: async () => r.net, relay: clientFor(relay),
+		store, stateDir, isHolder: () => r.isHolder, config: () => { const c = config(project, r.share)(); if (r.level) c.trust.set(alice.id, r.level); return c; }, net: async () => r.net, relay: clientFor(relay),
 		offer: (tower, id) => void r.offers.push({ tower: tower.id, id }), notify: (text) => void r.notices.push(text), onDisplaced: () => void r.displaced++,
+		...(o.unattended === undefined ? {} : { attended: () => !o.unattended, openTower: async (p: string, w?: string) => { r.opens.push({ project: p, toWorkspace: w }); if (r.openFails) throw new Error("herdr said no"); } }),
 		now: () => Date.now() + r.skew, backoff: () => 5, drainMs: 20, presenceMs: 40, offerAgainMs: 60_000, postWaitMs: r.postWaitMs, haltRetryMs: 150,
 	});
 	r.store = first;
@@ -133,6 +138,64 @@ test("a tower is offered a message only if its pane is in the team's project; wi
 	b.net = netOf([["tower-late", "w-late", "late", b.project]]);
 	await until(() => b.offers.length === 1, 3000, "the late tower to be offered the message");
 	assert.equal(b.offers[0]!.tower, "tower-late");
+});
+
+test("an unattended device opens a tower for a dispatch sender whose message finds none; the drain runs again after the open and the message then waits for the server's tower", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: true })];
+	b.level = "dispatch";
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "build it", { reply: true });
+	await until(() => b.opens.length === 1, 3000, "the open");
+	assert.deepEqual(b.opens[0], { project: b.project, toWorkspace: undefined });
+	assert.deepEqual(events(b).filter((e) => /^tower-open/.test(String(e.event))).map((e) => e.event), ["tower-open", "tower-opened"]);
+	// The server's tower is there now: the message is served by it, and the open is not asked again.
+	b.net = netOf([["sb-tower-w-b", "w-b", "label-b", b.project]]);
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 1);
+	assert.equal(b.offers.length, 0, "nothing is offered to the server's identity");
+});
+
+test("an open that works but whose tower does not show in the net is not repeated at once", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: true })];
+	b.level = "dispatch";
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "build it");
+	await until(() => b.opens.length === 1, 3000, "the open");
+	await until(() => events(b).some((e) => e.event === "tower-opened"), 3000, "the open to end");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 1, "within the 60 s");
+	b.skew = 61_000;
+	await b.holder.drain();
+	await until(() => b.opens.length === 2, 3000, "another open after the 60 s");
+});
+
+test("no tower is opened below dispatch, on an attended device, or when the seam is absent", async () => {
+	for (const [level, unattended] of [["forward", true], [undefined, true], ["dispatch", false], ["dispatch", undefined]] as const) {
+		const a = rig("a"), b = rig("b", { towers: false, ...(unattended === undefined ? {} : { unattended }) });
+		b.level = level;
+		await Promise.all([a.start(), b.start()]);
+		await send(a, "build it");
+		await until(() => b.notices.some((n) => /waits in the inbox/.test(n)), 3000, `the inbox notice at ${String(level)}/${String(unattended)}`);
+		for (let i = 0; i < 3; i++) await b.holder.drain();
+		assert.equal(b.opens.length, 0, `${String(level)}/${String(unattended)}`);
+		await Promise.all([a.holder.stop(), b.holder.stop()]);
+	}
+});
+
+test("a failed open is logged and not tried again for 60 s; one in flight is not doubled", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: true })];
+	b.level = "dispatch";
+	b.openFails = true;
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => b.opens.length === 1, 3000, "the first open");
+	await until(() => events(b).some((e) => e.event === "tower-open-failed"), 3000, "the failure line");
+	assert.equal(events(b).find((e) => e.event === "tower-open-failed")!.error, "herdr said no");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 1, "backed off");
+	b.skew = 61_000;
+	await b.holder.drain();
+	await until(() => b.opens.length === 2, 3000, "the open after the backoff");
 });
 
 test("a tower the sb server runs takes no offer: the message waits in the inbox for an ally run, the boss hears of it after 10 minutes, and nothing is offered to the identity", async () => {

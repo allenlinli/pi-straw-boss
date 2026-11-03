@@ -13,8 +13,6 @@ export interface ZenPageIo {
 	sound: { on(): boolean };
 	/** The page's JSON read of its own server (`api/<path>`). */
 	api(path: string): Promise<unknown>;
-	/** The demo has no music folder. */
-	demo: boolean;
 	/** The newest snapshot, if any. */
 	snapshot(): Net | undefined;
 }
@@ -25,7 +23,7 @@ export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companio
 		sound: zs.play,
 		menuSound: { try: zs.try, effects: zs.tryAll },
 		music: {
-			tracks: async () => (io.demo ? [] : ((await io.api("music")) as { tracks: { file: string; size: number }[] }).tracks),
+			tracks: async () => ((await io.api("music")) as { tracks: { file: string; size: number }[] }).tracks,
 			player: async (report) => {
 				const { createPlayer } = await import("./zenmusic.ts"); // the player is a chunk of its own, loaded once the music is on
 				const { musicBus } = await import("./audiobus.ts");

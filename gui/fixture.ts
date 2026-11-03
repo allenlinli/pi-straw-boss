@@ -80,8 +80,9 @@ const PAD_REPLIES: Record<string, { ok: boolean; status: number; body: Record<st
 	esc: { ok: false, status: 409, body: { error: "confirm", confirm: "double-esc", reason: "A second Escape on an idle session runs pi's double-Escape action (tree or fork); confirm to run it." } },
 	tab: { ok: false, status: 409, body: { error: "blocked", reason: "While it waits on a secret or a question only Escape is sent from here; answer the question in its panel or the terminal." } },
 };
-// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half.
-const zenState = (net: Net, state: string | null) => {
+// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half. Three more states press a key a moment after the page starts, for pictures: `history` is `item` with the card's 前情 (H) open, `palette` is `idle` with the command palette (⌘K, Ctrl+K off a Mac) open, `pause` is `item` answered at once, so the 3 s breathing pause shows. `?music=<n>` gives the demo a music folder of n invented tracks (1 to 6; none by default, so the ♪ stays hidden); the demo has no audio file, so a track that is switched on says "tap to play" (`localStorage` `sb.zen.music` = 1 switches it on).
+const zenState = (net: Net, extra: string | null) => {
+	const state = extra === "palette" ? "idle" : extra === "history" || extra === "pause" ? "item" : extra;
 	const main = units(net).find((u) => u.key === "a3")!;
 	if (state === "trust") net.trust = [{ id: "tr1", digest: "t".repeat(64), folder: "/work/harbor-api", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy", "release", "triage"], more: 0 }, { kind: "extensions", path: ".pi/extensions", items: ["harbor-hooks.ts"], more: 0 }], agents: [{ pane: "1", base: "Harbor API", role: "member", at: Date.now() - 50 * 60_000 }] }];
 	// Only ops-main waits at first (the idle states: nothing does), so the first item is the one the state names.
@@ -92,7 +93,7 @@ const zenState = (net: Net, state: string | null) => {
 	return net;
 };
 
-export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer> } {
+export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer>; api(path: string): Promise<unknown> } {
 	demoOpen(); // the opening tiles' folder picker and deploy, with no server
 	let towerNow: TowerState = "off", serverNow = "auto";
 	const zen = new URLSearchParams(location.search).get("zen"), cardParam = new URLSearchParams(location.search).get("card");
@@ -196,6 +197,11 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 		const step = stepOf(cardParam);
 		setTimeout(() => openThen(step.kind === "pane" ? { pane: "demo-pane" } : { terminal: true }, { key: step.asker, command: step.command }), 1800);
 	}
+	// The states that press a key (the Zen layer takes it once it has drawn): H opens the card's context, ⌘K / Ctrl+K the palette, and an answer to the item starts the pause.
+	const press = (init: KeyboardEventInit) => setTimeout(() => window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init })), 2200);
+	if (zen === "history") press({ key: "h" });
+	if (zen === "palette") press(/Mac|iPhone|iPad/.test(navigator.platform) ? { key: "k", metaKey: true } : { key: "k", ctrlKey: true });
+	if (zen === "pause") setTimeout(() => document.querySelector<HTMLElement>("#zen .zen-skip")?.click(), 2200);
 	mountToolbar(control);
 	const data = (key: string): Data => ({
 		older: async (before) => page(before),
@@ -228,7 +234,10 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	};
 	/** A trust answer settles the question: it leaves the net a moment later. */
 	const trust = async (body: { id: string }): Promise<Answer> => (setTimeout(() => ((net = structuredClone({ ...net, trust: (net.trust ?? []).filter((t) => t.id !== body.id) })), current?.send("message", net)), 900), { ok: true, status: 200, body: { outcome: "accepted" } });
-	return { open: (watch) => new FixtureSource(watch), data, control, trust };
+	/** The page's `api/<path>` reads the demo answers itself: the music folder (`?music=<n>`). */
+	const tracks = Array.from({ length: Math.min(6, Number(new URLSearchParams(location.search).get("music")) || 0) }, (_, i) => ({ file: ["Morning ink.mp3", "Rain on the roof.mp3", "Slow tea.mp3", "Temple bell.mp3", "Late harbour.mp3", "Paper lantern.mp3"][i]!, size: 3_400_000 + i * 410_000 }));
+	const api = async (path: string) => (path === "music" ? { tracks } : Promise.reject(new Error("404")));
+	return { open: (watch) => new FixtureSource(watch), data, control, trust, api };
 }
 
 function mountToolbar(control: Control) {

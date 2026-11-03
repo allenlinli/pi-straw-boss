@@ -29,7 +29,7 @@ export const KEYMAP: Record<string, Row[]> = {
 	dialogs: [{ keys: ["f"], hotkey: "zoom" }, { keys: [" "], hotkey: "next", native: "keyboard" }],
 };
 
-/** What a keydown asks for, or undefined when the key is not the page's to take. `owned`: a modal is open; `mouse`: the target got its focus from a pointer press; `mac`: ⌘ is the command key. */
+/** What a keydown asks for, or undefined when the key is not the page's to take. `owned`: a modal is open; `mouse`: the target got its focus from a pointer press; `mac`: ⌘ is the command key; omitted, the platform decides (the Zen palette row reads it). */
 export function hotkeyOf(e: Pressed, owned: boolean, mouse = false, keys: Keys = "dialogs", mac?: boolean): Hotkey | undefined {
 	if (owned || e.defaultPrevented || e.isComposing) return;
 	const key = e.key.toLowerCase(), row = KEYMAP[keys]?.find((r) => r.keys.includes(key) && (r.takes ? r.takes(e, mac) : !e.metaKey && !e.ctrlKey && !e.altKey));

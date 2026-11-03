@@ -1008,5 +1008,12 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Terminal card T4 (the card in the dock: a dialog's box shared, the confirm pair's box for the mask and Send, the phone sheet, the Geek flat surface; and Zen's ink skin in gui/zen.css): 127,856 / 27,410, +3,620 raw / +664 gzipped over the integration's 124,236 / 26,746, cap 127,900 / 27,450. The spec aimed at +1.5 KB / +0.4 KB; the three skins and the sheet took more, with the dialog's and the pad's rules already shared.
 	// Zen's yellows (the ochre tokens, the muted mirror, the paper tokens): 124,740 / 26,839, cap 124,800 / 26,900.
 	// Merge of the terminal card's T4 with main's Zen yellows: 128,119 / 27,465, cap 128,150 / 27,500.
+	// Z5+Z6 (zen.css music and sound rows) took the stylesheet to 131,608 / 27,977 (measured at 314cad1 and after the eager-entry trim), cap +15.
 	assert.ok(total(css, (n) => size(n).length) <= 131_623 && total(css, gz) <= 27_992, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+});
+
+// The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.
+test("the Zen chunk's entry imports zenrows.ts, which registers the Zen keymap rows", () => {
+	assert.match(readFileSync(join(root, "gui/zenchunk.ts"), "utf8"), /^import\s+["']\.\/zenrows\.ts["'];?/m);
+	assert.match(readFileSync(join(root, "gui/zenrows.ts"), "utf8"), /KEYMAP\.zen\s*=|KEYMAP\[["']zen["']\]\s*=/);
 });

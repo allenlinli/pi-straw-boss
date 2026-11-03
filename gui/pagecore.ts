@@ -171,7 +171,7 @@ export function createPage(io: PageIo) {
 		modal: () => io.modal(),
 		/** A hotkey of the keymap, done: Enter and Space end Zen's pause, Space opens the next alert and F enlarges the top dialog. `[` and `]` step Zen's companion and ⌘K opens its palette. False when it had nothing to do (the key stays the browser's). */
 		hotkey: (hotkey: Hotkey) => (hotkey === "next" || hotkey === "zoom" ? io.panels()?.hotkey(hotkey) : io.zen()?.key(hotkey)) ?? false,
-		/** The newest snapshot: what Zen's companion and strip read (units.ts), in the Zen chunk. */
+		/** The newest snapshot: what Zen's companion and strip read (zenunits.ts), in the Zen chunk. */
 		newest: () => latest,
 		/** The settings page, by its route. */
 		openSettings: () => io.go({ view: "settings" }),

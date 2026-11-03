@@ -49,7 +49,7 @@ export interface ZenDeps {
 	stored?(): With | undefined;
 	/** The corner menu's rows (language, view, sound); a row without its dep is left out. */
 	menu?: MenuDeps;
-	/** The core's candidates for the companion (`[` and `]`), and its counts of working and idle units for the strip (units.ts); unset: no stepping, no strip. */
+	/** The core's candidates for the companion (`[` and `]`), and its counts of working and idle units for the strip (zenunits.ts); unset: no stepping, no strip. */
 	companions?(): Candidate[];
 	activity?(): { working: number; idle: number };
 	/** The page's settings route (the palette's Settings); unset: no such entry. */

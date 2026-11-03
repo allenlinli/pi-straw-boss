@@ -148,9 +148,15 @@ export async function balanceTab(paneId, { run = herdr, lockRoot = LOCK_ROOT } =
 	});
 }
 
-/** Whether Herdr reports the pane gone; it says so on stderr. Any other failure counts as open. */
+// Herdr's socket (Unix) or named pipe (Windows) is missing or refuses: Herdr itself has exited.
+const HERDR_GONE = /ENOENT|ECONNREFUSED|No such file or directory|Connection refused|cannot find the (file|path) specified|os error (2|61|111|231|232)\b/i;
+
+/** Whether the pane is gone: Herdr says so on stderr, or Herdr is gone with it. Any other failure counts as open. */
 const paneGone = (paneId, run) =>
-	run(["pane", "get", paneId]).then(() => false, (error) => String(error?.stderr ?? "").includes("pane_not_found"));
+	run(["pane", "get", paneId]).then(() => false, (error) => {
+		const stderr = String(error?.stderr ?? "");
+		return stderr.includes("pane_not_found") || error?.code === "ENOENT" || error?.code === "ECONNREFUSED" || HERDR_GONE.test(stderr);
+	});
 
 /**
  * Waits for `paneId` to close, then equalises `tabId`, the tab the quitting Pi was in.

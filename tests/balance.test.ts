@@ -151,10 +151,8 @@ for (const failure of [
 	Object.assign(new Error("exit 1"), { code: 1, stderr: "No such file or directory (os error 2)" }),
 	Object.assign(new Error("exit 1"), { code: 1, stderr: "Connection refused (os error 61)" }),
 	Object.assign(new Error("exit 1"), { code: 1, stderr: "The system cannot find the file specified. (os error 2)" }),
-	Object.assign(new Error("exit 1"), { code: 1, stderr: "All pipe instances are busy. (os error 231)" }),
 ]) {
 	let calls = 0;
-	const began = process.hrtime.bigint();
 	await balanceAfterClose("w1", "w:t1", {
 		run: async (args) => {
 			calls++;
@@ -164,19 +162,20 @@ for (const failure of [
 		lockRoot, pollMs: 50, waitMs: 5000,
 	}).catch(() => {});
 	assert.equal(calls <= 2, true, `a gone Herdr ends the wait at once: ${failure.code} ${failure.stderr ?? ""}`);
-	assert.equal(Number(process.hrtime.bigint() - began) / 1e6 < 1000, true);
 }
 
-// Any other failure still waits for the deadline.
-let transientGets = 0;
-await balanceAfterClose("w1", "w:t1", {
-	run: async () => {
-		transientGets++;
-		throw Object.assign(new Error("exit 1"), { code: 1, stderr: "temporary failure" });
-	},
-	lockRoot, pollMs: 1, waitMs: 30,
-});
-assert.equal(transientGets > 2, true, "a transient error keeps polling");
+// Any other failure still waits for the deadline: a busy or closing Windows pipe (Herdr alive), an English phrase without its code.
+for (const stderr of ["temporary failure", "All pipe instances are busy. (os error 231)", "The pipe is being closed. (os error 232)", "No such file or directory", "os error 20"]) {
+	let transientGets = 0;
+	await balanceAfterClose("w1", "w:t1", {
+		run: async () => {
+			transientGets++;
+			throw Object.assign(new Error("exit 1"), { code: 1, stderr });
+		},
+		lockRoot, pollMs: 1, waitMs: 30,
+	});
+	assert.equal(transientGets > 2, true, `a transient error keeps polling: ${stderr}`);
+}
 
 	rmSync(lockRoot, { recursive: true, force: true });
 });

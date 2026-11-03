@@ -672,7 +672,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// R7 review fixes (VC7-F003: out(), running(), unlock() that says if it is running, in audio.ts; the music bus in gui/audiobus.ts, which only the Zen chunk will import) to 4054 (+15).
 	// Merge of views-core R7 and the terminal card to 4099 (measured): R7's 4054 plus the card's +45.
 	// Views-core R4 to 4116 measured (gui/answer.ts, 16, new: answerPost, trustPost, canAnswer, outcomeOf, mountAnswer; layer.ts 262 to 260, composer.ts 327 to 326, session.ts and main.ts flat, zen.ts 277 to 278): +14 over the 4102 before it, not a move that shrinks; the five rules were each written two or three times in the three views, and the module is the price of one home for them.
-	// Views-core R5: sessionfacts.ts (15), session.ts (151 to 150), and zen.ts (278 to 276) are shipped files with budgets of their own; the page total outside them is unchanged.
+	// Views-core R5 to 4114 measured: zen.ts 278 to 276 (counted here); sessionfacts.ts (15, new) and session.ts (151 to 150) are shipped files with budgets of their own. All of gui grows by 12 lines (8756 to 8768), the shared module's price.
 	assert.ok(page <= 4116, `the page's TypeScript has ${page} lines`);
 	// Terminal card T5 to 4040 (measured 4035): termcard.ts (129), cardmodel.ts (47), keywriter.ts (70), mirrorconn.ts (82), stepslot.ts (63), and zenhost.ts (59) are new, less keypad.ts (136 to 85), mirror.ts (207 to 192), and the idle bookkeeping of zenterm.ts.
 	// Terminal card T7 to 4065 (measured): termwords.ts (18) and confirmbar.ts (12) are new, less keypad.ts (87 to 80) and termcard.ts (129 to 123); cardmodel.ts +2 (the echo of the shown command), keywriter.ts +1.

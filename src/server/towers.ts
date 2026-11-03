@@ -167,6 +167,8 @@ export function createTowers(o: TowersOptions): Towers {
 	const opening = new Map<string, Promise<Ensured>>();
 	let activation: Promise<void> | undefined, loadedAll = false, stopped = false, recoverUntil = 0, events: (() => void) | undefined;
 	const timers: (ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>)[] = [];
+	let republishTimer: ReturnType<typeof setTimeout> | undefined;
+	let republishSoon = () => {};
 	const digest = createDigest(run, now);
 	const readHead = headReader({ run, digest, workspaces: () => [...services.values()].filter((l) => l.state !== "waiting" && !l.stopped).map((l) => l.record.workspace) });
 	let looking: Promise<void> = Promise.resolve();
@@ -399,19 +401,23 @@ export function createTowers(o: TowersOptions): Towers {
 		const foreign = await residentOf(l);
 		if (foreign) return void (await yieldTo(l, foreign));
 		const own: Record<string, string | null> = await netTokens(run, place(l), "tower", l.record.name, now(), cfg.world).then((net) => net.own, () => ({}));
+		const key = JSON.stringify(own);
+		// Nothing is written for an unchanged key, so the proof (one more listing) is not asked for.
+		if (ifChanged && published.get(l) === key) return;
 		// The proof is asked of a listing read now, after the reads above: the marks go only to a pane that is still in the terminal it was proven for.
 		if (!(await proven(l))) return;
-		const key = JSON.stringify(own);
-		if (ifChanged && published.get(l) === key) return;
-		published.set(l, key);
+		let wrote = true;
 		await Promise.all([
 			report(run, "workspace", l.record.workspace, { tower: l.record.id, sb_tower_quit: null }),
 			report(run, "pane", l.record.pane, { sb_role: "tower", ...own }),
 		]).catch((cause: Error) => {
+			wrote = false;
 			// The pane (or its workspace) is gone: the pane a handover replaced, a workspace closed while no server ran. The reconcile loses the service, or finds its tab again within the recovery window; a report to what is not there is no error.
 			if (/\b(pane|workspace)_not_found\b/.test(cause.message)) return log.line("tokens-dropped", { workspace: l.record.workspace, pane: l.record.pane, why: phrase(cause.message, 120) });
 			error("tokens", `${l.record.id}: ${cause.message}`);
 		});
+		// The key counts as written only once the write went through: a failed one is tried again by the next pass.
+		if (wrote) published.set(l, key);
 		// The panes of its ally runs are keyed after it.
 		await runs.markAllies(l.record.workspace, own.sb_order ?? null);
 	};
@@ -741,16 +747,30 @@ export function createTowers(o: TowersOptions): Towers {
 		log.line("towers-active", { services: adopted.length });
 		let connections = 0;
 		// A workspace made, closed, or moved changes every tower's place in the net: the keys are written again soon (events in a burst make one pass), not at the next refresh.
-		let republish: ReturnType<typeof setTimeout> | undefined;
-		const republishSoon = () => {
-			if (republish) return;
-			republish = setTimeout(() => {
-				republish = undefined;
-				for (const l of services.values()) if (l.state === "live") void publish(l, true);
-			}, o.republishMs ?? REPUBLISH_MS);
-			republish.unref();
-			timers.push(republish);
+		// One timer, re-armed by every event (a trailing debounce), and one pass at a time: an event that lands while a pass runs makes one more pass after it, so the newest key is written last.
+		// The refresh joins the same chain, so its publish cannot finish after a newer pass.
+		let pass: Promise<void> | undefined, dirty: "changed" | "all" | undefined;
+		const publishAll = (force: boolean) => {
+			if (pass) {
+				dirty = force || dirty === "all" ? "all" : "changed";
+				return;
+			}
+			pass = (async () => {
+				let again: typeof dirty = force ? "all" : "changed";
+				while (again) {
+					dirty = undefined;
+					await Promise.all([...services.values()].filter((l) => l.state === "live").map((l) => publish(l, again === "changed").catch((cause: Error) => error("tokens", cause.message))));
+					again = dirty;
+				}
+			})().finally(() => void (pass = undefined));
 		};
+		const republish = () => {
+			if (stopped) return;
+			clearTimeout(republishTimer);
+			republishTimer = setTimeout(() => publishAll(false), o.republishMs ?? REPUBLISH_MS);
+			republishTimer.unref();
+		};
+		republishSoon = republish;
 		const stop = cfg.events(WATCHED, (event) => {
 			// Every acknowledgement after the first is a reconnection (Herdr restarted): the recovery window opens here too, since nothing orders this connection against the watch's
 			// takeover, and a tab that is not back yet must not end its service.
@@ -764,7 +784,8 @@ export function createTowers(o: TowersOptions): Towers {
 		timers.push(setInterval(() => {
 			if (!o.enabled()) return void retire().catch((cause: Error) => error("retire", cause.message));
 			// A run that was refused because the seat could not be read is woken again here, at the latest.
-			for (const l of services.values()) if (l.state === "live") (void publish(l), runs.poke(l.record.workspace));
+			publishAll(true);
+			for (const l of services.values()) if (l.state === "live") runs.poke(l.record.workspace);
 			try {
 				purgeQueues(slot, now());
 			} catch (cause) {
@@ -789,6 +810,7 @@ export function createTowers(o: TowersOptions): Towers {
 			activation = undefined;
 			loadedAll = false;
 			timers.splice(0).forEach(clearInterval);
+			clearTimeout(republishTimer);
 			events?.();
 			events = undefined;
 			throw cause;
@@ -1024,6 +1046,7 @@ export function createTowers(o: TowersOptions): Towers {
 			await standing.stop();
 			await runs.stop(opts);
 			timers.forEach(clearInterval);
+			clearTimeout(republishTimer);
 			events?.();
 			await Promise.all([...services.values()].map((l) => release(l)));
 		},

@@ -81,6 +81,10 @@ export class FakeHerdr {
 	/** A pane with no processes of its own shows its shell in the foreground (the pane at its prompt). */
 	shellForeground = false;
 	paneListGate: Promise<void> | undefined;
+	/** While set, a `pane report-metadata` fails as a transient Herdr error. */
+	failPaneReport = false;
+	/** Called for each `pane report-metadata` with the pane id; a promise it returns holds that one call before it takes effect (an earlier write lands after a later one). */
+	paneReportHook?: (pane: string) => Promise<void> | undefined;
 	gated = 0;
 	wsTokenHistory: (string | undefined)[] = [];
 	onAgentStart?: (pane: FakePane, args: string[]) => void;
@@ -199,6 +203,7 @@ export class FakeHerdr {
 	runFor(self: string) {
 		return async (args: string[]) => {
 			if (this.paneListGate && args[0] === "pane" && args[1] === "list") (this.gated++, await this.paneListGate);
+			if (this.paneReportHook && args[0] === "pane" && args[1] === "report-metadata") await this.paneReportHook(args[2]!);
 			return this.handle(self, args);
 		};
 	}
@@ -303,6 +308,7 @@ export class FakeHerdr {
 			return out({});
 		}
 		if (cmd === "report-metadata") {
+			if (group === "pane" && this.failPaneReport) throw new Error("herdr pane.report_metadata failed: transient");
 			// Herdr takes the positional id before the options; anything else fails like the real CLI.
 			if (args[3] !== "--source") throw new Error(`unknown option in ${args.join(" ")}`);
 			// A pane that is gone answers as Herdr's does (the code is what a caller matches).

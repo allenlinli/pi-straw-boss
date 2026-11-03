@@ -72,8 +72,9 @@ An unattended device has no screen to paste an invite into. An admin on an atten
 and 2 to 7); it exists from the first look of the server, before any team, so the admin can pin the invite to it.
 
 The holder reads the file at start and on each tick while no join is in flight, asks the relay, waits for an admin's approval, writes the team file (never `config.json`) with project and share from
-the policy, and ends with one logged outcome (`joined`, `refused`, `lapsed`, `failed`, `already-member`) after which the file is deleted. An invite for a team the policy does not name is refused
-before the relay hears of it. Any failure of the file check deletes the file, so a leaked secret does not stay on disk. A server that restarts in the middle of a join loses the invite: drop a new
+the policy, and ends with one logged outcome (`joined`, `refused`, `lapsed`, `failed`, `already-member`) after which the file is deleted. An invite for a team the policy does not name, or one that is
+not pinned to this device's id, is refused before the relay hears of it. If the relay cannot be reached or answers with a passing failure, the file stays and the device tries again after a wait
+(`join-file-retry`, 30 s up to 5 min). A file that cannot be removed (the folder is not writable) is reported once and left alone until it changes. Any failure of the file check deletes the file, so a leaked secret does not stay on disk. A server that restarts in the middle of a join loses the invite: drop a new
 one. The invite text is never logged.
 
 ## 4. Pre-trusting the projects: `trust.json`
@@ -89,15 +90,18 @@ Everything is in `<pi agent dir>/straw-boss/link/link.log` (JSON lines) and the 
 | Log event | Meaning |
 | --- | --- |
 | `policy-refused` | The policy file failed the owner or write check or is malformed; the reason is in the line. No holder runs. |
-| `join-file` with `outcome` | How a `join.txt` ended. `refused` carries the reason (symlink, owner, mode, team not in the policy). |
+| `join-file` with `outcome` | How a `join.txt` ended. `refused` carries the reason (symlink, owner, mode, not a regular file, team not in the policy, invite not pinned). |
+| `join-file-retry` | The relay failed for a passing reason; the file stays and the next try is `waitMs` away. |
+| `join-file-stuck` | The file could not be removed; reported once for that file. |
 | `tower-open-failed` | A controller's message found no tower and the server could not open one; the controller got a `notice`. |
 | `dialog-oversize` | A question was too big to forward (64 KB); the controller got a `notice`. |
 | `notice` | A notice was sent: `key`, `kind` and unit, never its text. |
-| `drop` with `reason` | A message failed a check (`dialog-answer-level`, `dialog-answer-digest`, `unit-status-unexpected`, …). |
+| `drop` with `reason` | A message failed a check (`dialog-answer-level`, `dialog-answer-digest`, `dialog-answer-here-only`, `unit-status-unexpected`, …). |
 
 ## 6. What a controller sees
 
 Its page shows the device's bases like an ally's, with each unit's state, its running monitors, and its last report (the last `tower_done` summary or the last `tower_send` text to that
-controller, cut to 4 KB), sent every minute and on a change. A `notice` (1 KB) arrives in the Link bar for: an ally or main run that crashed, timed out or was quit; a forwarded dialog
+controller, cut to 4 KB), sent every minute and on a change. Only the units of workspaces inside the team's project are listed, and none when the team shares `presence` only; a device that has sent
+nothing for 3 minutes shows its last units marked "no status lately". A `notice` (1 KB) arrives in the Link bar for: an ally or main run that crashed, timed out or was quit; a forwarded dialog
 unanswered for 30 minutes (once); a dialog too big to forward; a tower that could not be opened; a run refused by the settings check or by a trust question nobody answered. Clearing a notice
 is local to that page.

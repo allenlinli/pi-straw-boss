@@ -824,7 +824,10 @@ Built on `feat/link-unattended` in five tasks (S1 to S5) in `src/link/{policy,co
   `link.teams` the policy's teams on an unattended device and ignores config.json's `link` section, the relay included (the relay comes from the invite). An unattended device is `inUse()` before it has a team,
   so the first look creates `device.json` and `device.id` for an admin to pin an invite to.
 - **S2, `join.txt`.** The holder reads it at start and each tick while no join is in flight. It has to be a regular file, not a symlink, owned by the own user, mode 600; any file-check failure deletes the file
-  (and logs the refusal). The relay of the invite is stored in the team file, so the device needs no relay setting. An invite for a team the policy does not name is refused before the relay hears of it. A holder
+  (and logs the refusal). The relay of the invite is stored in the team file, so the device needs no relay setting. An invite for a team the policy does not name is refused before the relay hears of it, and so
+  is one that is not pinned to this device's id (an unattended device joins only with a pinned invite; `joinStart` checks it, whoever called). A relay or network failure at the join request (a network error,
+  rate limiting, a 5xx) keeps the file: `join-file-retry` is logged and the next try waits 30 s, doubling to 5 min. A file that cannot be removed is told once (remembered by device, inode, and mtime) and left
+  alone until it changes or goes. The file is checked with `lstat` for a regular file before it is opened, and opened non-blocking, so a FIFO cannot hold up the tick. A holder
   restart in the middle of a join loses the invite (known, P2: the infra drops a new file). The invite text is never logged.
 - **S3, the tower.** The server opens the tower itself: a workspace of Herdr with a pane inside the project (and the named label when the sender named one), else `workspace create --cwd <real project> --label
   <basename> --no-focus`, the root pane marked `sb_role=tower`, then `ensure-tower` with that pane as the made claim. Only for a `dispatch` sender on an unattended device, never for a workspace name the sender chose.
@@ -832,16 +835,23 @@ Built on `feat/link-unattended` in five tasks (S1 to S5) in `src/link/{policy,co
   `boss_open_main` goes through the run-tool path at dispatch, which already checks the level.
 - **S4a, dialogs out.** `DialogForwarder` forwards what the hub lets a page answer (never a `secret_drop`, never one that waits in the terminal), one `dialog-open` per controller at `dispatch`, at most 32 open, 64 KB
   each (an oversize one is skipped and logged). An answer counts only from an attended sender at `dispatch` now, for an open dialog, with its digest, under an answer id not seen: the first valid answer wins, a
-  session that could not be reached leaves the dialog open for the next. `dialog-close` carries only `by`.
+  session that could not be reached leaves the dialog open for the next. `dialog-close` carries only `by`. The controller is held to the rule a paired device has at `control.ts`: a choice marked `hereOnly` and a
+  cancel where every choice is `hereOnly` are dropped (`dialog-answer-here-only`) and the card opens again. The dialog stays claimed only after an `accepted` answer; one the session `rejected` or found `busy`
+  (or could not reach) frees it and the dialog is sent to that controller again, so its card is answerable; an `unknown` one (no ack) is trusted for 15 s, then a dialog still open is taken as unanswered and
+  sent again. An open dialog is sent again to each controller every 10 minutes; a controller that lost `dispatch` gets a `dialog-close` with `by` `withdrawn`; the controller drops an open card its device has not
+  refreshed for 25 minutes. Opening a tower checks the project's real path with `projectProblem` again (home folder, `~/.pi`, agent folder) and that it still leads to the same folder when the workspace is made.
 - **S4b, dialog cards.** A card per forwarded dialog in the Link bar with the shared question panel, answered through `link/dialog-answer` (the holder checks the dialog and digest again; paired phones may answer).
   A closed card stays 2 minutes and says how it ended; because the close carries only `by`, a dialog another controller answered reads "answered by another controller". An answer sent from this page is
   `done-here`.
 - **S5, status and notices.** `UnitReporter` (`src/link/unitstatus.ts`) holds no timer: the server calls `tick()` every 15 s (`unitsMs`), which sends a `unit-status` to a controller when it differs from the last one
   sent or the last is a minute old, and `notify(key, notice)` tells every `dispatch` controller once per key (a key is remembered only when there was somebody to tell). `unit-status` is ephemeral (seq 0, an
-  increasing `ts` per sender, addressed `to` the controller); `notice` is queued like a dialog. Units are `towers.status()` rows; the monitors are the hub's running monitors mapped to a workspace by their pane;
+  increasing `ts` per sender, addressed `to` the controller); `notice` is queued like a dialog. Units are `towers.status()` rows, per team: only those whose workspace has a pane inside that team's project, and none when the team's policy shares `presence` only (the units are read once per team in a pass,
+  with one `pane list` per read). Unit labels and monitor commands pass `allyLabel`, as a board's text does. The monitors are the hub's running monitors mapped to a workspace by their pane;
   the report is the later of the last `tower_done` note and the last `tower_send` text to that controller, cut to 4 KB. Run ends (`crashed`, `timeout`, `quit`) and settings refusals reach the reporter through
   `RunsOptions.signal`; a trust question nobody answered for ten minutes ends the run as a crash with that reason and is told as `trust-unanswered`. The forwarder's own timer also re-sends a dialog to a controller
-  that gained `dispatch` mid-dialog and tells a dialog unanswered for 30 minutes once. The controller keeps the latest status per device in memory (fresh for 3 minutes, shown under the device's ally base) and
-  the last 20 notices for a day; clearing a notice is local to that page. `dialog-oversize`, a failed tower open, and a refused run each send a notice. An attended computer has no controllers, so it sends none.
+  that gained `dispatch` mid-dialog and tells a dialog unanswered for 30 minutes once. The controller keeps the latest status per device in memory (shown under the device's ally base; after 3 minutes it is marked
+  "no status lately" and the unit's last report is labelled "Last report", and after 30 minutes it goes) and
+  the last 20 notices for a day; clearing a notice is local to that page. `dialog-oversize`, a failed tower open, and a refused run each send a notice; the key of a refusal carries a hash of its text, so the link log (which holds the key) never carries the text. An attended computer has no controllers, so it sends none.
 - **Tests.** `tests/link-unattended.test.ts` (policy file and join), `tests/link-unattended-dialogs.test.ts` (dialogs, status, notices), `tests/link-model.test.ts` (page model), `tests/server-tower-runs.test.ts` (the
-  runs' signals), all with fake clocks or the test's own clock; screenshots of the ally base with a status and of a notice came from the demo fixture (`gui/fixture.ts`).
+  runs' signals), `tests/server-link-units.test.ts` (the server's unit scoping and the notice of a crash through its own wiring: `runs.signal` now calls the reporter and then a seam's own recorder, instead of the seam replacing it),
+  `tests/server-link-open.test.ts` (the tower's project check), all with fake clocks or the test's own clock; screenshots of the ally base with a status and of a notice came from the demo fixture (`gui/fixture.ts`).

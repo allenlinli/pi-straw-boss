@@ -30,6 +30,8 @@ export class FakeRelay {
 	/** A POST of an envelope waits for this to settle before it is answered (to look at the sender's state meanwhile). */
 	holdPosts: Promise<void> | undefined;
 	failPosts = 0;
+	/** The next this many join requests are answered 503 (a relay that is down for a moment). */
+	failJoins = 0;
 	/** Kinds this relay does not know (a relay older than a kind): a POST of one is refused with 422 `unknown-kind`. */
 	rejectKinds = new Set<string>();
 	/** Invites by hash: who made it, the team, and whether a join request was taken. */
@@ -121,6 +123,7 @@ export class FakeRelay {
 		return json(201, { expires: Number(body.expires) });
 	}
 	private join(hash: string, body: Record<string, unknown>): Response {
+		if (this.failJoins > 0) return (this.failJoins--, json(503, { error: "unavailable" }));
 		const inv = this.invites.get(hash);
 		if (!inv || inv.expires < Date.now()) return json(404, { error: "no-invite" });
 		if (inv.used) return json(409, { error: "invite-used" });

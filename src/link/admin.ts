@@ -11,16 +11,19 @@ import { addEntry, createEntry, encodeEntry, removeEntry, roleEntry, rotateEntry
 import { projectProblem } from "./routing.ts";
 import type { InviteFile, LinkStore, TeamFile } from "./store.ts";
 import type { Presence } from "./kinds.ts";
-import { joinFilePath, readJoinFile, removeJoinFile } from "./joinfile.ts";
+import { fileMark, joinFilePath, readJoinFile, removeJoinFile } from "./joinfile.ts";
 
 // What the GUI (and an approved `link_request`) does to teams (docs/specs/2026-10-25-straw-link.md, GUI, Joining with a QR code, Roster): create a
 // team, invite a computer, take its join request and compare the safety words, join a team, change the roster, set trust, and leave. Every one of
 // them runs in the link holder, which alone holds the keys and writes the team files; the page and the requesting session only ask. The spec is
 // the authority on each rule; where it left a choice, the build record at its end says what this code chose.
 
-export interface Fail { ok: false; error: string }
+/** `retry` marks a failure that is the relay's or the network's and may pass (the join file then stays for a later tick). */
+export interface Fail { ok: false; error: string; retry?: true }
 export type Done<T = object> = ({ ok: true } & T) | Fail;
 const no = (error: string): Fail => ({ ok: false, error });
+/** A relay answer that a later try can change: the network, a busy relay, or a 5xx. */
+const retryable = (error: unknown): boolean => error instanceof NetworkError || error instanceof RateLimitedError || (error as RelayError).status?.toString().startsWith("5") === true;
 
 /** The part of a running team the admin needs; the holder's `TeamRun` has all of it. */
 export interface AdminRun { team: string; teamId: Buffer; client: RelayPort; dead: string | undefined; presences: Map<string, { at: number; presence: Presence }>; downSince: number | undefined }
@@ -332,6 +335,7 @@ export class TeamAdmin {
 		if (i.unattended === true && !this.h.unattended()) return no("Only an unattended device joins from a file");
 		if (i.unattended !== true && this.h.unattended()) return no("This computer is unattended: its teams come from its infra's policy file");
 		if (i.unattended === true && !this.h.config().teams.has(id)) return no(`The policy file does not name team ${id.slice(0, 6)}`);
+		if (i.unattended === true && invite.forDevice === "") return no("An unattended device joins only with an invite pinned to its id");
 		if (this.h.store.teamIds().includes(id)) return no("This computer is in that team already");
 		if (invite.forDevice && invite.forDevice !== dev.keys.id) return no(`This invite is for another device (${shortId(invite.forDevice)}), not this one (${dev.keys.shortId})`);
 		this.joining?.abort.abort();
@@ -339,7 +343,7 @@ export class TeamAdmin {
 		try {
 			await relay.join(inviteHash(invite.secret), buildJoinRequest({ team: invite.team, secret: invite.secret, record: recordOf(dev.keys), label }));
 		} catch (error) {
-			return no(relayText(error, invite.relay));
+			return { ...no(relayText(error, invite.relay)), ...(retryable(error) ? { retry: true as const } : {}) };
 		}
 		const words = safetyWords({ team: invite.team, inviterKeyHash: invite.inviterKeyHash, joiner: recordOf(dev.keys), secret: invite.secret });
 		const startedAt = this.h.now(), joining: Joining = { id: randomBytes(8).toString("hex"), invite, label, words, startedAt, expires: startedAt + (pinned ? PINNED_INVITE_MS : JOIN_WAIT_MS), state: "waiting", share: "status", unattended: i.unattended === true, ...(i.outcome ? { outcome: i.outcome } : {}), abort: new AbortController() };
@@ -377,7 +381,7 @@ export class TeamAdmin {
 			} catch (error) {
 				if (signal.aborted) return;
 				const notYet = error instanceof UnauthorizedError && error.code === "not-member";
-				if (!notYet && !(error instanceof NetworkError) && !(error instanceof RateLimitedError) && !(error as RelayError).status?.toString().startsWith("5")) return this.failJoin(j, relayText(error, j.invite.relay));
+				if (!notYet && !retryable(error)) return this.failJoin(j, relayText(error, j.invite.relay));
 			}
 			await new Promise<void>((resolve) => {
 				const timer = setTimeout(resolve, delay);
@@ -441,6 +445,11 @@ export class TeamAdmin {
 	// ---- The join file of an unattended device -------------------------------------------------------------------------------------
 
 	private polling = false;
+	/** The file that could not be removed (device, inode, mtime), told once and left alone until it changes or goes. */
+	private stuck: string | undefined;
+	/** The earliest time a join.txt whose relay call failed for a passing reason is tried again, and the wait that follows a further failure. */
+	private retryAt = 0;
+	private retryWait = 0;
 	/**
 	 * Takes `link/join.txt` when there is one and no join is in flight (the holder calls this at start and on each tick). One outcome per file: a join started, or the file
 	 * refused, and in every case the file is deleted once it has ended, with one line in the link log that never holds the invite text. A device that is not unattended
@@ -450,15 +459,21 @@ export class TeamAdmin {
 		if (!this.h.unattended() || this.polling) return;
 		const j = this.joining;
 		if (j && j.state !== "done" && j.state !== "failed") return;
+		if (this.h.now() < this.retryAt) return;
 		this.polling = true;
 		try {
 			const path = joinFilePath(this.h.store.dir);
+			const mark = fileMark(path);
+			if (mark === undefined) return void (this.stuck = undefined);
+			if (mark === this.stuck) return;
 			const found = readJoinFile(path);
 			if (found.state === "absent") return;
 			const end = async (o: JoinOutcome) => {
+				this.retryAt = this.retryWait = 0;
 				try {
 					await this.h.store.withLock(() => removeJoinFile(path));
 				} catch (error) {
+					this.stuck = mark;
 					this.h.log({ event: "join-file-stuck", error: (error as Error).message });
 				}
 				this.h.log({ event: "join-file", ...o });
@@ -470,7 +485,14 @@ export class TeamAdmin {
 			const team = invite.team.toString("hex");
 			if (this.h.store.teamIds().includes(team)) return void (await end({ outcome: "already-member", team }));
 			const started = await this.joinStart({ text: found.text, unattended: true, outcome: (o) => end(o) });
-			if (!started.ok) await end({ outcome: "refused", team, why: started.error });
+			if (started.ok) return;
+			if (started.retry) {
+				// The relay or the network failed for a reason that may pass: the file stays, and the next try waits longer (30 s up to 5 min).
+				this.retryWait = Math.min(Math.max(this.retryWait * 2, 30_000), 300_000);
+				this.retryAt = this.h.now() + this.retryWait;
+				return this.h.log({ event: "join-file-retry", team, why: started.error, waitMs: this.retryWait });
+			}
+			await end({ outcome: "refused", team, why: started.error });
 		} finally {
 			this.polling = false;
 		}

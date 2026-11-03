@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,13 +53,13 @@ async function computer(name: string, label: string, o: { unattended?: boolean; 
 }
 
 const TOKEN = "srt1_test";
-/** A makes a team and invites B's pinned id; B's policy names the team unless `named` is false. Returns the invite text. */
-async function invited(a: Computer, b: Computer, o: { named?: boolean } = {}) {
+/** A makes a team and invites B's pinned id (any device when `pinned` is false); B's policy names the team unless `named` is false. Returns the invite text. */
+async function invited(a: Computer, b: Computer, o: { named?: boolean; pinned?: boolean } = {}) {
 	relay.tokens.add(TOKEN);
 	const made = await a.holder.admin.createTeam({ relay: "http://127.0.0.1:9", token: TOKEN, project: a.project, label: "alice-mac" });
 	assert.ok(made.ok, made.ok ? "" : made.error);
 	if (o.named !== false) b.policy.set(made.team, { project: b.project, share: "presence", name: "project" });
-	const invite = await a.holder.admin.invite({ team: made.team, forDevice: b.holder.deviceId! });
+	const invite = await a.holder.admin.invite({ team: made.team, ...(o.pinned === false ? {} : { forDevice: b.holder.deviceId! }) });
 	assert.ok(invite.ok, invite.ok ? "" : invite.error);
 	await until(() => relay.streams.some((s) => s.team === made.team && s.device === a.holder.deviceId), 3000, "A's stream");
 	return { team: made.team, text: invite.text, hash: invite.hash };
@@ -175,4 +176,65 @@ test("the file check wants a regular file of the own user at mode 600", () => {
 	assert.match(JSON.stringify(readJoinFile(path, { uid: other })), /not owned by this device's own user/);
 	mkdirSync(join(root, "dir"));
 	assert.match(JSON.stringify(readJoinFile(join(root, "dir"))), /mode|regular|cannot be read/);
+});
+
+test("an unattended device joins only with an invite pinned to its id: an open one is refused and the file deleted before the relay hears of it", async () => {
+	const a = await computer("a", "alice-mac"), b = await computer("b", "ci-box", { unattended: true });
+	const { text, hash } = await invited(a, b, { pinned: false });
+	assert.deepEqual(await b.holder.admin.joinStart({ text, unattended: true }), { ok: false, error: "An unattended device joins only with an invite pinned to its id" });
+	drop(b, text);
+	await until(() => !existsSync(b.join), 3000, "the file deleted");
+	const [refused] = events(b, "join-file");
+	assert.equal(refused?.outcome, "refused");
+	assert.match(refused?.why ?? "", /pinned to its id/);
+	assert.equal(b.store.teamIds().length, 0);
+	assert.equal(a.holder.admin.joinRequests().length, 0);
+	assert.equal(relay.invites.get(hash)?.used, false, "the relay saw no join request");
+	assert.equal(relay.joined.length, 0);
+	assert.equal(logOf(b).includes(text), false);
+});
+
+test("a relay that fails for a moment at the join request keeps join.txt: it is tried again after a wait, and the join then completes", async () => {
+	const a = await computer("a", "alice-mac"), b = await computer("b", "ci-box", { unattended: true });
+	const { team, text } = await invited(a, b);
+	relay.failJoins = 1;
+	drop(b, text);
+	await until(() => events(b, "join-file-retry").length === 1, 3000, "the retry logged");
+	assert.equal(existsSync(b.join), true, "the file stays");
+	assert.equal(events(b, "join-file").length, 0, "no outcome yet");
+	assert.equal(logOf(b).includes(text), false);
+	// Many ticks pass (20 ms each) inside the wait; none tries again.
+	for (let i = 0; i < 5; i++) await b.holder.admin.joinFileTick();
+	assert.equal(events(b, "join-file-retry").length, 1);
+	assert.equal(relay.joined.length, 0);
+	b.clock.skew += 31_000;
+	const request = await until(() => a.holder.admin.joinRequests()[0], 3000, "the join request at A after the wait");
+	assert.deepEqual(await a.holder.admin.decide({ id: request.id, approve: true }), { ok: true, joined: true });
+	await until(() => !existsSync(b.join), 3000, "the file deleted");
+	assert.deepEqual(b.store.teamIds(), [team]);
+	assert.deepEqual(events(b, "join-file").map((e) => e.outcome), ["joined"]);
+});
+
+test("a join.txt that cannot be removed is told once, not at every tick; a new file after it is taken", async () => {
+	const a = await computer("a", "alice-mac"), b = await computer("b", "ci-box", { unattended: true });
+	await invited(a, b);
+	// A folder where the file should be: refused as not a regular file, and unlink cannot remove it.
+	mkdirSync(b.join);
+	await until(() => events(b, "join-file-stuck").length === 1, 3000, "the stuck line");
+	for (let i = 0; i < 5; i++) await b.holder.admin.joinFileTick();
+	assert.equal(events(b, "join-file-stuck").length, 1);
+	assert.deepEqual(events(b, "join-file").map((e) => e.outcome), ["refused"]);
+	assert.equal(b.notices.filter((n) => n.includes("join.txt")).length, 1, "one notice");
+	// Gone and replaced: the new file is taken like any other.
+	rmSync(b.join, { recursive: true });
+	await b.holder.admin.joinFileTick();
+	drop(b, "hello");
+	await until(() => events(b, "join-file").length === 2, 3000, "the new file refused");
+	assert.equal(existsSync(b.join), false);
+});
+
+test("a FIFO as join.txt is refused without being opened", () => {
+	const path = join(root, "join.txt");
+	execFileSync("mkfifo", [path]);
+	assert.match(JSON.stringify(readJoinFile(path)), /not a regular file/);
 });

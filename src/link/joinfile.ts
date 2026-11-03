@@ -13,18 +13,31 @@ export type JoinFileRead = { state: "absent" } | { state: "refused"; reason: str
 /** The file system's answers, for tests: the own user's id (default `process.getuid()`). */
 export interface JoinFileDeps { uid?: number }
 
+/** Names the file now at `path` (device, inode, mtime) without reading it, or `undefined` when there is none; a file that could not be removed is told once by this name. */
+export function fileMark(path: string): string | undefined {
+	try {
+		const st = lstatSync(path);
+		return `${st.dev}:${st.ino}:${st.mtimeMs}`;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Reads `path` if it passes the check. The text is opened without following a symlink and checked on the descriptor it was read from, so a swap between check and read gains nothing. */
 export function readJoinFile(path: string, d: JoinFileDeps = {}): JoinFileRead {
 	const uid = d.uid ?? process.getuid?.();
 	if (uid === undefined) return { state: "refused", reason: "this platform has no user ids, so the owner of join.txt cannot be checked" };
 	try {
-		if (lstatSync(path).isSymbolicLink()) return { state: "refused", reason: "join.txt is a symlink" };
+		const st = lstatSync(path);
+		if (st.isSymbolicLink()) return { state: "refused", reason: "join.txt is a symlink" };
+		// Before the open: opening a FIFO for reading would block until a writer comes, and the tick would hang on it.
+		if (!st.isFile()) return { state: "refused", reason: "join.txt is not a regular file" };
 	} catch (error) {
 		return (error as NodeJS.ErrnoException).code === "ENOENT" ? { state: "absent" } : { state: "refused", reason: `join.txt cannot be read: ${(error as NodeJS.ErrnoException).code ?? "error"}` };
 	}
 	let fd: number | undefined;
 	try {
-		fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+		fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 		const st = fstatSync(fd);
 		if (!st.isFile()) return { state: "refused", reason: "join.txt is not a regular file" };
 		if (st.uid !== uid) return { state: "refused", reason: "join.txt is not owned by this device's own user" };

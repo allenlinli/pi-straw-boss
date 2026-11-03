@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { El } from "./chat-dom.ts";
+import { El, sessionGlobals } from "./fake-dom.ts";
+
+sessionGlobals();
+Object.assign(globalThis, { setTimeout: () => 0 }); // the session view runs no timer here
 
 // An ended session shows no live activity where the GUI mounts it: the comms' live line (gui/session.ts calls liveNote) the dossier's mark and state (gui/dossier.ts), and the map's unit card (gui/render.ts).
 
-import "./session-dom.ts";
 const { m } = await import("../gui/paraglide/messages.js");
 
 const unit = (extra: object) => ({ key: "k", name: "billing-old", role: "session", mark: "working" as const, note: "tool:edit", subs: [], control: false, ...extra });

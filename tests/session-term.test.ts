@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { El } from "./chat-dom.ts";
-import "./session-dom.ts";
+import { El, sessionGlobals } from "./fake-dom.ts";
+
+sessionGlobals();
+Object.assign(globalThis, { setTimeout: () => 0 }); // the session view runs no timer here
 
 // Switching the session view to its terminal (gui/session.ts): the composer's box lets go of the keyboard, and only a desktop gives the terminal's text box the focus by itself.
 

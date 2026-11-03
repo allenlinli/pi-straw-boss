@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { TowerService } from "../src/net.ts";
-import { El } from "./chat-dom.ts";
+import { El } from "./fake-dom.ts";
 
 // The ally runs of a tower as chips (gui/towerallies.ts): a chip per run, a link to the run's comms while its unit is known and a plain statement while it is not, a count first with several, and nothing
 // drawn again while the runs are the same.

@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import type { Pending } from "../src/ask.ts";
 import { selectDigest } from "../src/owners.ts";
-import { readFileSync } from "node:fs";
-import { El, page } from "./zen-dom.ts";
+import { El, page } from "./fake-dom.ts";
 
 // The one place the page decides how an answer is posted, whether a card may answer, and what a reply means (gui/answer.ts), and its one wiring of the question panel (mountAnswer).
 // The panel's inside (outcomes, Check again, the keys) is ask.ts's own tests; what is asserted here is what the wiring hands it: where an answer goes, who may cancel, and what a paired device may pick.
@@ -124,9 +123,4 @@ test("an accepted answer that leaves a step in a terminal opens its card for the
 	assert.deepEqual(steps.map((s) => [s.key, s.asker]), [["unit-7", "unit-7"]]);
 });
 
-test("each view reads the facts its card needs: the dock the stream's state, the session view its unit's control and the link, Zen the link", () => {
-	const src = (f: string) => readFileSync(new URL(`../gui/${f}`, import.meta.url), "utf8");
-	assert.ok(src("layer.ts").includes('canAnswer(a.mark, document.body.dataset.stale !== "true")'));
-	assert.ok(src("session.ts").includes("canAnswer(mk, Boolean(u?.control), online())"));
-	assert.ok(src("zen.ts").includes("canAnswer(x.mark, online())"));
-});
+// Which facts each view hands canAnswer, and the routes it passes, are asserted by behaviour where the view is mounted: layer-answer.test.ts (the dock), session-answer.test.ts, and zen-layer.test.ts.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { El, page } from "./zen-dom.ts";
+import { El, page } from "./fake-dom.ts";
 
 // The command palette (gui/palette.ts, the shared component) and the entries Zen gives it (gui/paletteentries.ts): filtering, the keys in its box, what a pick does, focus in and out, and the list of actions and preferences.
 const { filterEntries, mountPalette } = await import("../gui/palette.ts");

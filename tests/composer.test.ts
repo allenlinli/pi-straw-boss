@@ -222,7 +222,7 @@ test("a session that is not live shows no live activity line, whatever its last 
 });
 
 test("the mounted composer hides its box and shows the bar for an ended session, and brings the box back when it is live", async () => {
-	const { El } = await import("./chat-dom.ts");
+	const { El } = await import("./fake-dom.ts");
 	Object.assign(globalThis, { matchMedia: () => ({ matches: false }), CSS: { supports: () => true }, window: {} });
 	const { mountComposer } = await import("../gui/composer.ts");
 	const root = new El("div"), composer = mountComposer(root as never, "k", (() => Promise.resolve({ ok: true })) as never);

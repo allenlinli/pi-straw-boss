@@ -17,6 +17,12 @@ test("an overlay's Show terminal and the step an answer left go to the core: the
 	assert.match(main, /withPanels\(\(p\) => p\.alerts\(fresh, now, net\)\)/, "the dock's card follows each snapshot");
 });
 
+test("the demo fixture's routes reach both overlays: the dock's answer and trust and Zen's answer and trust go to the fixture, never to the server (VC4-F003, M42)", () => {
+	const dock = main.slice(main.indexOf("const withPanels"), main.indexOf("showTerminal:")), zen = main.slice(main.indexOf("mountZen(el(\"zen\")"), main.indexOf("leave: core.leaveZen"));
+	assert.ok(dock.includes("post: (key) => fixture && ((action, body) => fixture.data(key).post!(action as Parameters<Post>[0], body)), trust: fixture && fixture.trust,"), "the dock");
+	assert.ok(zen.includes("post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,"), "Zen");
+});
+
 test("Escape reaches the core twice: the capture phase with its flag true (Zen takes the key first), the bubble phase with false", () => {
 	assert.match(main, /addEventListener\("keydown", \(event\) => core\.escape\(event, true\), true\)/);
 	assert.match(main, /addEventListener\("keydown", \(event\) => core\.escape\(event, false\)\);/);

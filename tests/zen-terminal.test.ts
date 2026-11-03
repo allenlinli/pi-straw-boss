@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
-import { El, page } from "./zen-dom.ts";
+import { El, page } from "./fake-dom.ts";
 import { alertsOf } from "../gui/alerts.ts";
 import { m } from "../gui/paraglide/messages.js";
 import type { Pending } from "../src/ask.ts";

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { BOSS_MARK, CRASH_FLAG } from "../src/eventmarks.ts";
 import { type Item, toItem } from "../src/items.ts";
 import type { TowerService } from "../src/net.ts";
-import { El } from "./chat-dom.ts";
+import { El } from "./fake-dom.ts";
 
 // A tower run's events as pi writes them: `custom_message` session entries of type `straw-tower` (src/runmode.ts `send` → pi `appendCustomMessageEntry`), never user turns. The comms must read them by
 // `details.kind` (src/items.ts → gui/towerturns.ts): the boss's own message is a YOU bubble, an intercom message / server notice / timer / teammate's message has its label, a crash flag is the B5 flag,

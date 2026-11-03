@@ -124,6 +124,14 @@ test("a choice posts the question's id and digest with an answer id, once, and t
 	assert.match(changed.note.text, /changed or is closed/);
 });
 
+test("a busy reply says another answer is on its way and leaves the choices disabled: this panel does not race it (M16)", async () => {
+	const busy = panel(() => ({ ok: true, status: 200, body: { outcome: "busy" } }));
+	busy.buttons[0]!.onclick!();
+	await settle();
+	assert.match(busy.note.text, /Another answer is on its way/);
+	assert.ok(busy.buttons.every((b) => b.disabled), "nothing more to send while the other answer decides");
+});
+
 test("an answer that was not confirmed is checked again with the same answer id, never sent as a new answer", async () => {
 	let n = 0;
 	const { sent, buttons, note } = panel(() => (n++ ? { ok: true, status: 200, body: { outcome: "accepted" } } : { ok: false, status: 504, body: { outcome: "unknown" } }));

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { Choice } from "../gui/view.ts";
-import { El, page } from "./zen-dom.ts";
+import { El, page } from "./fake-dom.ts";
 
 // Z4's small parts, each on the fake document: the corner menu (gui/zenmenu.ts), the full-screen control (gui/zenfs.ts), the line under the idle circle (gui/zenlines.ts), the shared sound and
 // language stores, and the words.

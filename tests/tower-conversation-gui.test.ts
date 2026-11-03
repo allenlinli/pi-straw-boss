@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Item } from "../src/items.ts";
 import type { TowerService } from "../src/net.ts";
-import { El } from "./chat-dom.ts";
+import { El, page } from "./fake-dom.ts";
 
 // How the page says the boss conversation (gui/towermodel.ts, towerconv.ts, chat.ts, composer.ts): the state word that is not "working" while the boss is the one being waited for, the line with how it began and
 // when it ends, Leave and New, the chips of the event runs, the divider that opens each run in the log, and a composer that does not ask to confirm `/quit` in a tower. In both languages.
@@ -166,6 +166,7 @@ test("a redraw after Leave or New keeps an open `⋯` menu open, with its result
 	try {
 		const parent = new El("div"), el = new El("div");
 		parent.append(el);
+		page.body.append(parent); // a panel opens only while it is on the page
 		fillConversation(el as unknown as HTMLElement, "wA", svc());
 		el.querySelector(".conv-done")!.textContent = "Left the conversation";
 		fillConversation(el as unknown as HTMLElement, "wA", svc({ conversation: conv({ closing: true }) }));

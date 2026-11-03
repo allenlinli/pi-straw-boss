@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { register } from "node:module";
 import { test } from "node:test";
-import { El, page, stored } from "./zen-dom.ts";
+import { El, page, stored } from "./fake-dom.ts";
 
 // gui/notify.ts on the fake document: the Sound switch and Volume follow another tab's write (the `storage` event), and the first read of the three switches comes from the store.
 // The sound clips are .mp3 imports the bundler turns into URLs; here a hook gives each one a string.

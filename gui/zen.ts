@@ -5,6 +5,7 @@ import { type AnswerPost, mountAsk } from "./ask.ts";
 import type { Chat, Data, HistoryEvent, Who } from "./chat.ts";
 import { mountComposer } from "./composer.ts";
 import { h } from "./dom.ts";
+import { hasHistory, mountHistory } from "./zenhistory.ts";
 import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
@@ -33,7 +34,7 @@ export type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
 export const DRAFT_MS = 20_000;
 export const real: Mounts = { ask: mountAsk, trust: trustPanel, composer: mountComposer, chat: () => import("./chat.ts").then((c) => c.mountChat) };
 type Composer = ReturnType<typeof mountComposer>;
-interface Card { key: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean }
+interface Card { key: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean; /** The context (session log) expanded on the card, when the unit has one. */ hist?: ReturnType<typeof mountHistory>; /** Expands or collapses the context; false when the card has none. */ toggle(): boolean }
 interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; /** Appends that came while the newest page was in flight: applied again after it, which they may not be in. */ late?: HistoryEvent[]; state?: string }
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
@@ -68,7 +69,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		else (card = undefined, shown.kind === "pause" ? drawPause() : drawCompany());
 		if (gone) dissolve(gone);
 		if (shown.kind !== "item") live.textContent = "";
-		if (shown.kind !== "companion") (disposeCompany(), deps.watch(null), stopLine());
+		if (shown.kind !== "companion") (disposeCompany(), deps.watch(shown.kind === "item" && card?.hist?.isOpen() ? card.hist.key : null), stopLine());
 		cancel();
 		const due = model.due(), wait = shown.kind === "companion" && typing() ? 500 : due === undefined ? undefined : due - now();
 		cancel = wait === undefined ? () => {} : later(() => apply(model.tick()), Math.max(0, wait) + 10);
@@ -80,8 +81,21 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	function makeCard(a: Alert): Card {
 		const trust = a.trust, key = unitOf(a), said = h("p", { class: "zen-said" }), out = h("p", { class: "zen-out", role: "status" });
 		const slot = h("div", { class: "zen-answer" }), skip = h("button", { type: "button", class: "cmp-alt zen-skip" }, m.zen_not_now());
-		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, trust ? m.trust_title() : a.name), h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, h("div", { class: "zen-acts" }, skip), out);
+		const unit = unitOf(a), hist = trust ? undefined : mountHistory({ key: unit, chat: mounts.chat, data: deps.data, who: () => locate(net, unit)?.u ?? { key: unit, name: a.name, role: a.role, mark: a.mark }, watch: deps.watch, changed: () => sync() });
+		const ctx = h("button", { type: "button", class: "cmp-link zen-history-btn", "aria-keyshortcuts": "H", "aria-expanded": "false" }, m.zen_history());
+		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, trust ? m.trust_title() : a.name), h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, hist?.el, h("div", { class: "zen-acts" }, hist && ctx, skip), out);
 		const el = h("section", { class: "zen-card", tabindex: "-1" }, inner);
+		const sync = () => {
+			const has = Boolean(hist) && hasHistory(net, unit);
+			if (!has) hist?.close();
+			ctx.hidden = !has;
+			ctx.setAttribute("aria-expanded", String(Boolean(hist?.isOpen())));
+			ctx.textContent = hist?.isOpen() ? m.zen_history_hide() : m.zen_history();
+			if (hist && !hist.el.hidden) hist.el.setAttribute("aria-label", m.zen_history_label());
+		};
+		const toggle = () => (sync(), ctx.hidden || !hist ? false : (hist.toggle(), fade(hist.el), true));
+		ctx.onclick = () => void toggle();
+		ctx.hidden = true;
 		skip.onclick = () => apply(model.skip());
 		if (!trust) void deps.recent(key).then((items) => (said.textContent = intel(items).said ?? ""), () => {});
 		const answer: AnswerPost = (action, body) => tell(to(key)(action, body));
@@ -89,7 +103,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (trust) {
 			const panel = mounts.trust((body) => tell(trustTo(body)));
 			slot.replaceChildren(panel);
-			return { key: a.key, el, said, out, skip, enter: () => false, cancel: () => false, sending: () => panel.sending(), update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
+			return { key: a.key, el, said, out, skip, toggle: () => false, enter: () => false, cancel: () => false, sending: () => panel.sending(), update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
 		}
 		let ask: ReturnType<typeof mountAsk> | undefined, hold: HTMLElement | undefined, noted = false, shown: string | undefined; // `shown`: which dialog the slot holds ("" for the words)
 		const words = () => {
@@ -104,7 +118,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			return mounts.ask(hold, answer, deps.remote, { key, show: () => openTerm(key, true) }, undefined, m.zen_open_terminal); // the unit waits on this dialog now: its next work ends the step
 		};
 		return {
-			key: a.key, el, said, out, skip, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
+			key: a.key, el, said, out, skip, hist, toggle, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
 			update(x, outcome) {
 				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, canAnswer(x.mark, online())), syncQuestions(hold!, { later })); // several questions: one focused, the rest faded (zenquestions.ts)
 				else if (!noted) (ask = undefined, words());
@@ -112,6 +126,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 				if (shown !== undefined && shown !== now) fade(slot);
 				shown = now;
 				say(out, outcome, x);
+				sync();
 			},
 		};
 	}
@@ -227,6 +242,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			if (active) apply(model.update(next));
 		},
 		history(e: HistoryEvent) {
+			card?.hist?.apply(e);
 			if (company?.key !== e.key) return;
 			company.state = e.state ?? company.state;
 			company.seen ||= Boolean(e.reset);
@@ -249,10 +265,11 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			const at = document.activeElement as HTMLInputElement | null, inside = Boolean(at && at !== document.body && root.contains(at));
 			const type = inside ? (at!.getAttribute?.("type") ?? at!.type ?? "text") : "", editable = inside && (/^textarea$/i.test(at!.tagName) || (/^input$/i.test(at!.tagName) && !/^(checkbox|radio|range|button|submit|reset|file|color|image)$/i.test(type)));
 			const armed = escAt !== undefined && now() - escAt < ESC_MS;
-			const step = escStep({ menu: menu.isOpen(), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), armed, repeat: e.repeat });
+			const step = escStep({ menu: menu.isOpen(), history: Boolean(card?.hist?.isOpen()), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), armed, repeat: e.repeat });
 			if (step === "none") return true;
 			if (step !== "hint") clearEsc();
 			if (step === "menu") menu.close();
+			else if (step === "history") card!.hist!.close();
 			else if (step === "blur") at!.blur();
 			else if (step === "item") card!.cancel() || card!.skip.click();
 			else if (step === "leave") leave();
@@ -267,6 +284,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			return true;
 		},
 		leave,
+		/** H: expands or collapses the shown item's context; false when the screen has none. */
+		toggleHistory: () => active && shown.kind === "item" && Boolean(card?.toggle()),
 		/** A terminal in Zen's own layer (zenterm.ts): a session's, or a pane an answer opened. */
 		terminal: (t: Term) => void (active && term.terminal(t, net)),
 		/** A step an accepted answer left: the layer's terminal card (zenterm.ts). */

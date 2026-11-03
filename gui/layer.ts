@@ -240,6 +240,7 @@ export function mountPanels(deps: PanelDeps) {
 		kit,
 		/** A page key (hotkeys.ts): Space is the HUD alert button's click, F the top dialog's ⤢ (a phone hides it). False when it had nothing to do. */
 		hotkey(key: Hotkey) {
+			if (key === "history") return false; // Zen's (main.ts)
 			if (key === "next") {
 				if (button.disabled) return false;
 				stack.next();

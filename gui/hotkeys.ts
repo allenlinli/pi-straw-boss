@@ -6,7 +6,7 @@
 // after a click) does not hold the key, so Space still opens the next alert. :focus-visible cannot tell them apart here, because a browser
 // turns it on for the focused element as the key goes down, so mountHotkeys notes which focus a pointer press gave.
 
-export type Hotkey = "next" | "zoom";
+export type Hotkey = "next" | "zoom" | "history";
 /** The few fields of a keydown the routing reads. */
 export interface Pressed { key: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean; isComposing: boolean; defaultPrevented: boolean; target: unknown }
 interface Reach { isContentEditable?: boolean; closest?(selector: string): object | null }
@@ -22,6 +22,7 @@ export function hotkeyOf(e: Pressed, owned: boolean, mouse = false): Hotkey | un
 	const at = e.target as Reach | null;
 	if (at?.isContentEditable || at?.closest?.(TYPING)) return;
 	if (e.key === "f" || e.key === "F") return "zoom";
+	if (e.key === "h" || e.key === "H") return "history"; // Zen's card: the unit's context opens and closes (zen.ts)
 	if (e.key === " " && !at?.closest?.(OPTION) && (mouse || !at?.closest?.(NATIVE))) return "next";
 }
 

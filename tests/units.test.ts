@@ -3,7 +3,8 @@ import { test } from "node:test";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
 import { alertsOf, rankOf } from "../gui/alerts.ts";
-import { activityOf, companionsOf, unitsOf, waitingOf } from "../gui/units.ts";
+import { unitsOf, waitingOf } from "../gui/units.ts";
+import { activityOf, companionsOf } from "../gui/zenunits.ts";
 
 const unit = (key: string, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark: "idle" as Mark, subs: [], ...o });
 const base = (id: string, tower: { key: string; subs?: Unit[]; mark?: Mark } | null, units: Unit[], outside: Unit[] = [], extra: Unit[] = []) => ({

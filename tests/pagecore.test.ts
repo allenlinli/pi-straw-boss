@@ -1,4 +1,6 @@
+import { activityOf, companionsOf } from "../gui/zenunits.ts";
 import { hotkeyOf } from "../gui/hotkeys.ts";
+import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Net, Unit } from "../src/net.ts";
@@ -33,7 +35,7 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 			w.waiting.splice(0).forEach((call) => call(zen));
 		},
 	};
-	const zen: ZenFace = { toggleHistory: () => (w.calls.push("history"), o.tapTakes ?? false), cycle: (dir) => (w.calls.push(`cycle:${dir}`), o.cycleTakes ?? false), palette: () => (w.calls.push("palette"), o.paletteTakes ?? false), tap: () => (w.calls.push("tap"), o.tapTakes ?? false), net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
+	const zen: ZenFace = { key: (hotkey) => { w.calls.push(hotkey === "history" ? "history" : hotkey === "palette" ? "palette" : hotkey === "pause" ? "tap" : `cycle:${hotkey === "next-companion" ? 1 : -1}`); return (hotkey === "history" || hotkey === "pause" ? o.tapTakes : hotkey === "palette" ? o.paletteTakes : o.cycleTakes) ?? false; }, net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
 	const panels = {
 		hotkey: (key: string) => (w.calls.push(`hotkey:${key}`), o.hotkeyTakes ?? false),
 		stack: { show: (a: Alert) => void w.calls.push(`show:${a.key}`), close: (how?: string) => (w.calls.push(`close:${how ?? ""}`), w.dialogOpen) },
@@ -319,15 +321,15 @@ test("a hotkey reaches the part that does it: pause the Zen layer's tap, next an
 	for (const key of ["pause", "prev-companion", "next-companion", "palette"] as const) assert.equal(early.core.hotkey(key), false, `${key}: the layer is not loaded yet: the key stays the browser's`);
 });
 
-test("the companion candidates and the strip's counts are the core's selectors over the newest snapshot; none before one", () => {
+test("the core hands out the newest snapshot, which the companion candidates and the strip's counts read; none before one", () => {
 	const w = world({ stored: "zen" });
-	assert.deepEqual([w.core.companions(), w.core.activity()], [[], { working: 0, idle: 0 }]);
+	assert.deepEqual([companionsOf(w.core.newest()), activityOf(w.core.newest())], [[], { working: 0, idle: 0 }]);
 	const waiting = Array.from({ length: 4 }, (_, i) => unit(`w${i}`, "waiting"));
 	w.core.snapshot(net(unit("a", "working"), unit("b", "idle"), ...waiting));
-	assert.deepEqual(w.core.companions().map((c) => [c.key, c.ws]), [["b", "w"], ["a", "w"]], "a waiting unit is not a candidate");
-	assert.deepEqual(w.core.activity(), { working: 1, idle: 1 }, "what waits is in neither number");
+	assert.deepEqual(companionsOf(w.core.newest()).map((c) => [c.key, c.ws]), [["b", "w"], ["a", "w"]], "a waiting unit is not a candidate");
+	assert.deepEqual(activityOf(w.core.newest()), { working: 1, idle: 1 }, "what waits is in neither number");
 	w.core.snapshot(net(unit("a", "working"), unit("b", "idle")));
-	assert.deepEqual(w.core.activity(), { working: 1, idle: 1 }, "so the numbers do not tell how many waited");
+	assert.deepEqual(activityOf(w.core.newest()), { working: 1, idle: 1 }, "so the numbers do not tell how many waited");
 });
 
 test("the settings page opens by its route from anywhere, Zen included, and Zen goes away behind it", () => {

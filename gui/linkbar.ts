@@ -63,7 +63,7 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 			if (!count && pop.matches(":popover-open")) pop.hidePopover();
 			list.replaceChildren(...nodes(...confirms.map(confirmRow), ...alerts.map((a) => {
 				if (a.kind === "dialog" && cards) return cards.row(a);
-				const row = h("li", { class: "link-alert", "data-level": a.level }, h("span", null, alertLine(a)));
+				const row = h("li", { class: "link-alert", "data-level": a.level, "data-kind": a.kind }, h("span", null, alertLine(a)));
 				if (a.kind === "join-request" || a.kind === "fork" || a.kind === "mismatch") {
 					const go = h("button", { type: "button", class: "later" }, a.kind === "join-request" ? m.link_review() : m.link_open_teams());
 					go.onclick = () => (pop.hidePopover(), open());

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac, createHash } from "node:crypto";
 import { test } from "node:test";
-import { createRuns, lineMac, RUN_TTL_MS } from "../src/runs.ts";
+import { completable, createRuns, lineMac, RUN_TTL_MS } from "../src/runs.ts";
 
 // The one-tap prompt run's grants: one per accepted answer that put a shell command in a session's prompt. Each is bound to the answer id and the session, carries a random nonce of its own, answers a keyed MAC of the prompt line once, and expires.
 
@@ -27,8 +27,21 @@ test("a `/` command is never granted: whichever of `/x` and `! /x` the owner pla
 		assert.equal(runs.nonce("S", ID), undefined);
 		assert.equal(runs.take("S", ID, lineMac("0".repeat(32), `! ${copy}`)), "unknown");
 	}
-	const { runs } = world();
-	assert.equal(runs.issue("S", ID, "echo /x"), true, "only a command that starts with `/` is left out");
+});
+
+test("completable (OT2-F001): which copies can have pi-tui's completion menu open on the `! ` line (Tab force-completes the token before the cursor; paths, `@`, `#`, dots, quotes, and an empty token after a space trigger it by themselves)", () => {
+	const yes = ["rm -rf /tmp/x", "cat /etc/hosts", "echo /x", "ls ~", "ls ~/x", "ls ./x", "ls ../x", "ls .", "ls .git", "a/b", "ls a\\b", "git add @src", "echo #1", "ls \"a", "ls 'a", "ls `a", "ls (/x", "ls ([.x", "ls --out=/x", "ls a=.b", "ls ", "ls\t", "ls\u3001", "ls \u3001.x", "/model x", " /x", "ls $HOME/x", "ls ~root"];
+	for (const c of yes) assert.equal(completable(c), true, JSON.stringify(c));
+	const no = ["npm run deploy", "git status", "ls -la", "echo hi there", "make test-all", "node -v", "a=b", "x+y", "ls \u3001x"];
+	for (const c of no) assert.equal(completable(c), false, JSON.stringify(c));
+});
+
+test("a copy with a completable token gets no grant (OT2-F001)", () => {
+	for (const copy of ["rm -rf /tmp/x", "ls ./a", "ls @a", "ls ~", "echo /x", "ls "]) {
+		const { runs } = world();
+		assert.equal(runs.issue("S", ID, copy), false, JSON.stringify(copy));
+		assert.equal(runs.size(), 0);
+	}
 });
 
 test("an empty or missing command issues nothing", () => {

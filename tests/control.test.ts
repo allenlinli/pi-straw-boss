@@ -245,7 +245,7 @@ test("one tap: a command with no copy gets no `run`; /reload in the prompt still
 });
 
 test("one tap (OT-F002, OT-F003): a `/` copy, a pi command or a path, gets no grant and no `run`: Enter on it keeps the `command` confirm", async () => {
-	for (const copy of ["/model x", "/usr/bin/x", "/reload"]) {
+	for (const copy of ["/model x", "/usr/bin/x", "/reload", "rm -rf /tmp/x", "ls ./a", "cat ~/x", "ls @a"]) {
 		const p = await padded({ copy, editor: { editor: "command" } });
 		await p.attach();
 		assert.deepEqual((await putInPrompt(p, PUT)).body, { outcome: "accepted", then: { terminal: true } }, copy);

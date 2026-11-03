@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { type Gui, startGui } from "../src/gui.ts";
+import { musicDirOf } from "../src/music.ts";
 import type { Net } from "../src/net.ts";
 
 // The music folder's route (src/music.ts, wired in src/gui.ts): GET /api/music lists the audio files of one folder, GET /api/music/<file> streams one with range requests. It sits behind the same token, Host, and
@@ -168,4 +170,47 @@ test("the folder is read at each ask: a file dropped in later shows, one taken o
 	rmSync(join(live, "new.mp3"));
 	assert.deepEqual(names(await get(gui, `/${gui.token}/api/music`)), []);
 	assert.equal((await get(gui, `/${gui.token}/api/music/new.mp3`)).status, 404);
+});
+
+const openFds = () => readdirSync("/dev/fd").length;
+
+test("a request that goes away before the file is open leaves no open file behind", async () => {
+	const big = join(scratch, "big-music");
+	mkdirSync(big);
+	writeFileSync(join(big, "big.mp3"), Buffer.alloc(5_000_000, 1));
+	for (let i = 0; i < 2000; i++) writeFileSync(join(big, `pad-${i}.mp3`), BYTES);
+	const gui = await serve({ music: big });
+	await get(gui, `/${gui.token}/api/music/pad-0.mp3`); // warm up: the listener's own sockets are settled before the count
+	const before = openFds();
+	await Promise.all(Array.from({ length: 200 }, (_, i) => new Promise<void>((done) => {
+		const s = connect(gui.port, "127.0.0.1", () => {
+			s.write(`GET /${gui.token}/api/music/big.mp3 HTTP/1.1\r\nHost: 127.0.0.1:${gui.port}\r\nRange: bytes=0-\r\n\r\n`, () => setTimeout(() => s.destroy(), i % 3));
+			void 0; // gone while the route is still reading the folder
+		});
+		s.on("close", () => done()).on("error", () => {});
+	})));
+	const deadline = Date.now() + 8000; // real I/O: poll the condition, not a fixed pause
+	while (openFds() > before + 1 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+	assert.ok(openFds() <= before + 1, `open files grew from ${before} to ${openFds()}`);
+});
+
+test("a track carries a validator and may be cached privately; a matching If-None-Match is a 304 with no body", async () => {
+	const gui = await serve({ music });
+	const a = await get(gui, `/${gui.token}/api/music/b-rain.mp3`);
+	const tag = a.headers.etag as string;
+	assert.ok(tag && a.headers["last-modified"], "ETag and Last-Modified");
+	assert.match(String(a.headers["cache-control"]), /^private, /);
+	assert.doesNotMatch(String(a.headers["cache-control"]), /no-store/);
+	const b = await get(gui, `/${gui.token}/api/music/b-rain.mp3`, { headers: { "if-none-match": tag } });
+	assert.deepEqual([b.status, b.bytes.length], [304, 0]);
+	const c = await get(gui, `/${gui.token}/api/music/b-rain.mp3`, { headers: { "if-none-match": '"other"' } });
+	assert.equal(c.status, 200);
+	utimesSync(join(music, "b-rain.mp3"), new Date(), new Date(Date.now() + 5000));
+	const d = await get(gui, `/${gui.token}/api/music/b-rain.mp3`, { headers: { "if-none-match": tag } });
+	assert.equal(d.status, 200, "a changed file has a new tag");
+});
+
+test("the music folder is straw-boss-music beside the state folder, from the agent folder the state folder comes from", () => {
+	assert.equal(musicDirOf({ PI_CODING_AGENT_DIR: "/agent" }), join("/agent", "straw-boss-music"));
+	assert.match(musicDirOf({}), /[\\/]\.pi[\\/]agent[\\/]straw-boss-music$/);
 });

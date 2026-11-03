@@ -207,7 +207,7 @@ function barRig(o: { files?: string[]; on?: boolean; track?: string; coarse?: bo
 	if (o.track) prefs.set("zenTrack", o.track);
 	const files = o.files ?? ["a-rain.mp3", "b-sea.ogg", "c-fire.wav"];
 	const log = { fetched: 0, built: 0, unlocked: 0, started: [] as string[], stops: 0, pauses: 0, resumes: 0, report: undefined as undefined | ((why: "blocked" | "failed") => void) };
-	let startOk = o.startOk ?? true, unlock = o.unlock ?? true, resumeOk = true, playing: string | undefined;
+	let startOk = o.startOk ?? true, unlock = o.unlock ?? true, resumeOk = true, running = true, playing: string | undefined;
 	const player = {
 		start: async (f: string) => (log.started.push(f), startOk && (playing = f, true)),
 		stop: () => (log.stops++, (playing = undefined)),
@@ -219,6 +219,7 @@ function barRig(o: { files?: string[]; on?: boolean; track?: string; coarse?: bo
 		tracks: o.tracks ?? (async () => (log.fetched++, files.map((file) => ({ file, size: 10 })))),
 		player: async (report) => (log.built++, (log.report = report), player),
 		unlock: async () => (log.unlocked++, unlock),
+		running: () => running,
 		prefs: { on: () => prefs.get("zenMusic"), setOn: (v) => void prefs.set("zenMusic", v), track: () => prefs.get("zenTrack"), setTrack: (f) => void prefs.set("zenTrack", f) },
 		coarse: () => o.coarse ?? false,
 	});
@@ -231,7 +232,7 @@ function barRig(o: { files?: string[]; on?: boolean; track?: string; coarse?: bo
 	return {
 		bar, host, note, more, panel, radios, log, st, prefs, gesture,
 		label: () => note.getAttribute("aria-label"), pressed: () => note.getAttribute("aria-pressed"),
-		set: (k: "startOk" | "unlock" | "resumeOk", v: boolean) => void (k === "startOk" ? (startOk = v) : k === "unlock" ? (unlock = v) : (resumeOk = v)),
+		set: (k: "startOk" | "unlock" | "resumeOk" | "running", v: boolean) => void (k === "startOk" ? (startOk = v) : k === "unlock" ? (unlock = v) : k === "running" ? (running = v) : (resumeOk = v)),
 		shown: async () => (bar.show(), await flush()),
 		key: (key: string, extra: object = {}) => (page.focused ?? host).bubble("keydown", { key, ...extra }),
 	};
@@ -453,4 +454,21 @@ test("prefs keep the switch as 1 or 0 and the track as its file name", () => {
 	const refused = createPrefs({ getItem: () => { throw new Error("denied"); } });
 	assert.deepEqual([refused.get("zenMusic"), refused.get("zenTrack")], [false, null], "a refused storage reads as the defaults");
 	assert.ok(stored);
+});
+
+test("a shown phone page whose audio context stayed suspended says tap to play, and the next gesture plays again", async () => {
+	const r = barRig({ coarse: true });
+	await r.shown();
+	r.note.click();
+	await flush();
+	r.bar.visible(false);
+	r.set("running", false);
+	r.bar.visible(true);
+	await flush();
+	assert.equal(r.label(), "Music: tap to play");
+	r.set("running", true);
+	const before = r.log.started.length;
+	r.gesture("pointerup");
+	await flush();
+	assert.deepEqual([r.log.started.length, r.label()], [before + 1, "Music: on"]);
 });

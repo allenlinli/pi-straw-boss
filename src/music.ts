@@ -1,5 +1,6 @@
 import type { Readable } from "node:stream";
 import { open, readdir, realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { extname, join, sep } from "node:path";
 
 // Zen's music folder (docs/specs/2026-11-01-zen-view.md, Music): the boss drops audio files into one folder (`music/` in the sb state folder) and the GUI's /api/music routes list and stream them. The folder is
@@ -11,7 +12,7 @@ const TYPES: Record<string, string> = { ".mp3": "audio/mpeg", ".m4a": "audio/mp4
 /** How many tracks the list holds: a folder of thousands is not a Zen playlist. */
 export const LIMIT = 200;
 export interface Track { file: string; size: number }
-/** `body` is absent for a 416. The caller ends the stream if the request goes away first. */
+/** `body` is absent for a 416. A track carries an ETag and Last-Modified (from its size and mtime) and is cached privately, so a loop or a seek of the same file is not fetched again. The caller ends the stream if the request goes away first. */
 export interface Served { status: 200 | 206 | 416; headers: Record<string, string>; body?: Readable }
 
 /** A name the listing may hold: no hidden file (AppleDouble `._x.mp3` too), no control character or backslash, an audio extension. */
@@ -27,6 +28,9 @@ function slice(header: string | undefined, size: number): "all" | "bad" | [numbe
 	if (m[2] !== "" && Number(m[2]) < from) return "all"; // a range that ends before it starts is no range
 	return from >= size ? "bad" : [from, m[2] === "" ? size - 1 : Math.min(Number(m[2]), size - 1)];
 }
+
+/** Where the music lives: `straw-boss-music/` beside the state folder in the agent folder, not inside it (the owner-only ACL step on Windows refuses links in the state folder). The server never creates it. */
+export const musicDirOf = (env: NodeJS.ProcessEnv = process.env) => join(env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "straw-boss-music");
 
 /** The music folder at `dir`; with no folder, or one that is not there, the library is empty. */
 export function createMusic(dir?: string) {
@@ -65,7 +69,7 @@ export function createMusic(dir?: string) {
 			if (!now.isFile() || now.size !== hit.size) return void (await file.close()); // it changed between the check and the open
 			return {
 				status: want === "all" ? 200 : 206,
-				headers: { "content-type": type, "accept-ranges": "bytes", "content-length": String(to - from + 1), ...(want === "all" ? {} : { "content-range": `bytes ${from}-${to}/${hit.size}` }) },
+				headers: { "content-type": type, "accept-ranges": "bytes", "content-length": String(to - from + 1), "cache-control": "private, max-age=3600", etag: `"${now.size.toString(36)}-${Math.floor(now.mtimeMs).toString(36)}"`, "last-modified": now.mtime.toUTCString(), ...(want === "all" ? {} : { "content-range": `bytes ${from}-${to}/${hit.size}` }) },
 				body: file.createReadStream({ start: from, end: to }),
 			};
 		},

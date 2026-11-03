@@ -14,6 +14,8 @@ export interface MusicDeps {
 	player(report: (why: "blocked" | "failed") => void): Promise<Player>;
 	/** Resumes the page's audio context from a gesture; false when the browser refused. */
 	unlock(): Promise<boolean>;
+	/** The page's audio context is running (a hidden phone page may have left it suspended or interrupted). */
+	running(): boolean;
 	prefs: { on(): boolean; setOn(on: boolean): void; track(): string | null; setTrack(file: string): void };
 	/** A touch screen: a hidden page pauses the music (O6). */
 	coarse(): boolean;
@@ -54,9 +56,10 @@ export function mountMusic(deps: MusicDeps) {
 		if (!file || !shown) return;
 		status = "playing";
 		draw();
-		const un = deps.unlock(), p = await built().catch(() => undefined);
+		const un = deps.unlock(), first = ready ? ready.start(file) : undefined; // already built: play() runs in the gesture's own turn (iOS), before any await
+		const p = first ? ready : await built().catch(() => undefined);
 		if (!p) return mine === run ? settle("tap") : undefined;
-		const ok = (await un) && (await p.start(file));
+		const ok = (await un) && (await (first ?? p.start(file)));
 		if (mine !== run) return;
 		if (ok) heard = true;
 		settle(ok ? "playing" : "tap");
@@ -159,7 +162,13 @@ export function mountMusic(deps: MusicDeps) {
 		visible(page: boolean) {
 			if (!shown || !deps.coarse() || !ready) return;
 			if (!page && status === "playing") (held = true), ready.pause();
-			else if (page && held) (held = false), void ready.resume().then((ok) => ok || settle("tap"), () => settle("tap"));
+			else if (page && held) {
+				held = false;
+				void ready.resume().then((ok) => {
+					if (ok && deps.running()) return;
+					(armed = true), settle("tap"); // a suspended context stays silent: the next gesture starts it again
+				}, () => ((armed = true), settle("tap")));
+			}
 		},
 	};
 }

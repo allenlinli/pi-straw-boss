@@ -103,6 +103,7 @@ const withZen = (call: (z: Zen) => void) => {
 				return (player = createPlayer({ audio, bus: () => musicBus(audio, zs.bus()), make: () => document.createElement("audio"), url: (file) => `api/music/${encodeURIComponent(file)}`, later: (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); }, report }));
 			},
 			unlock: () => audio.unlock(),
+			running: () => audio.running(),
 			prefs: { on: () => prefs.get("zenMusic"), setOn: (on) => void prefs.set("zenMusic", on), track: () => prefs.get("zenTrack"), setTrack: (file) => void prefs.set("zenTrack", file) },
 			coarse: () => matchMedia("(pointer: coarse)").matches,
 		},

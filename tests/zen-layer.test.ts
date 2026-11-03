@@ -12,6 +12,9 @@ import type { With } from "../gui/zenwith.ts";
 
 // The Zen layer (gui/zen.ts) as the page drives it: the net's snapshots go in, the card, the pause, or the companion comes out, and every answer goes through the same panels
 // and routes as Standard (ask.ts, trust.ts, the composer), which are the real ones here on a fake document. The composer and the log are stand-ins that record what they are given.
+import { hotkeyOf } from "../gui/hotkeys.ts";
+/** A Zen keydown as the page routes it: the keymap's row for the face, then the layer's answer (what main.ts does through the core). */
+const press = (z: { tap(): boolean }, target: unknown, key: string) => hotkeyOf({ key, ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target }, false, false, "zen") === "pause" && z.tap();
 const { DRAFT_MS, mountZen, real } = await import("../gui/zen.ts");
 type Exit = import("../gui/zen.ts").Exit;
 
@@ -659,8 +662,9 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 		const circle = r.by((el) => el.getAttribute("role") === "img")[0]!;
 		assert.equal(page.focused, circle, "the focus lands on the layer for the pause");
 		assert.equal((circle as unknown as { tabIndex: number }).tabIndex, -1, "focusable by script, out of the tab order");
-		page.focused!.bubble("keydown", { key });
+		assert.equal(press(r.z, page.focused, key), true, `${JSON.stringify(key)} is taken`);
 		assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, `${JSON.stringify(key)} ends it`);
+		assert.equal(r.z.tap(), false, "and with no pause shown the layer leaves the key alone");
 	}
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
@@ -669,10 +673,17 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 	r.button("Maybe later")!.click();
 	const corner = r.by((el) => el.getAttribute("class") === "zen-leave")[0]!;
 	corner.focus();
-	let prevented = 0;
-	corner.bubble("keydown", { key: "Enter", preventDefault: () => void prevented++ });
-	assert.equal(prevented, 0, "the button keeps its Enter");
+	assert.equal(press(r.z, corner, "Enter"), false, "the button keeps its Enter");
 	assert.ok(r.by((el) => el.getAttribute("role") === "img").length, "the pause stands");
+	assert.equal(press(r.z, undefined, "Enter"), true, "the focus on the page itself: it still ends the pause");
+	const open = rig();
+	open.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
+	open.z.show();
+	await open.settle();
+	open.button("Maybe later")!.click();
+	open.z.terminal({ key: "a" } as never);
+	await new Promise((done) => setImmediate(done)); // the page's terminals come behind their chunk
+	assert.equal(press(open.z, undefined, " "), false, "the terminal layer has the keys");
 });
 
 test("a words-only item is a pane blocked on a terminal prompt: it says to answer in its terminal, opens it, and has no composer (Z3RR-F001)", async () => {

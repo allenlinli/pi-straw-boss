@@ -1,7 +1,7 @@
 // The page's one playback core: every view's sounds (the Standard chime and clips, Zen's later sounds and music) play through one AudioContext and one master gain.
 // The context is made at the first play or unlock and resumed at each (a browser that blocks sound before any press keeps it suspended); the gain follows the square of Volume (0 to 100), which an iPhone honours.
 // `out()` is for the views' own nodes (Zen's effects, its music bus in audiobus.ts); `running()` says whether a sound due now would be heard (a suspended context queues it; Zen drops an effect instead).
-type Ctx = Pick<AudioContext, "createGain" | "createBufferSource" | "createOscillator" | "createMediaElementSource" | "decodeAudioData" | "resume" | "destination" | "currentTime" | "state">;
+type Ctx = Pick<AudioContext, "createGain" | "createBufferSource" | "createOscillator" | "createBuffer" | "createBiquadFilter" | "sampleRate" | "createMediaElementSource" | "decodeAudioData" | "resume" | "destination" | "currentTime" | "state">;
 /** `play`: a short clip, decoded whole and kept (the Standard sounds, Zen's effects), never music. `unlock`: called from a user gesture; false when the browser refused to resume. */
 export interface Audio { play(url: string): void; volume(v: number): void; unlock(): Promise<boolean>; out(): { c: Ctx; g: GainNode }; running(): boolean }
 

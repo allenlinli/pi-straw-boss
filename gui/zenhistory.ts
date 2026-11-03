@@ -6,12 +6,12 @@ import type { Net } from "../src/net.ts";
 // An item's 「Context」 in Zen (docs/specs/2026-11-01-zen-view.md): the unit's session log, read-only, expanded inside its card on a tap or H and collapsed by the same or Esc. The log is a chunk of
 // its own and nothing of it is fetched, mounted, or watched until the first expand; a collapse drops it again. The answer stays possible while it is open: the history is what the boss reads to decide.
 
-/** Whether a unit has a session log to show: a tower only while it runs one, a pane outside the net's sessions never. */
+/** Whether a unit has a session log to show: a tower only while it runs one; every pi pane (an outside one too) has its session file. */
 export function hasHistory(net: Net | undefined, key: string): boolean {
 	const hit = locate(net, key);
 	if (!hit) return false;
 	if (hit.u.role === "tower") return Boolean((hit.u as { service?: { run?: unknown } }).service?.run);
-	return hit.u.role !== "outside";
+	return true;
 }
 
 export interface HistoryDeps {
@@ -25,7 +25,7 @@ export interface HistoryDeps {
 }
 
 export function mountHistory(d: HistoryDeps) {
-	const host = h("div", { class: "zen-history", role: "region" }), log = h("div", { class: "zen-log" });
+	const host = h("div", { class: "zen-history", role: "region", id: `zen-history-${d.key.replace(/[^\w-]/g, "_")}` }), log = h("div", { class: "zen-log" });
 	host.hidden = true;
 	host.setAttribute("aria-label", "");
 	host.append(log);
@@ -52,8 +52,9 @@ export function mountHistory(d: HistoryDeps) {
 		});
 		d.changed();
 	}
-	function close() {
+	function close(focus?: HTMLElement) {
 		if (!on) return;
+		if (focus && host.contains(document.activeElement)) focus.focus();
 		on = false;
 		turn++;
 		host.hidden = true;
@@ -68,7 +69,7 @@ export function mountHistory(d: HistoryDeps) {
 		isOpen: () => on,
 		open,
 		close,
-		toggle: () => (on ? close() : open()),
+		toggle: (focus?: HTMLElement) => (on ? close(focus) : open()),
 		apply(e: HistoryEvent) {
 			if (!on || e.key !== d.key) return;
 			seen ||= Boolean(e.reset);

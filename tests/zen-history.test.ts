@@ -181,7 +181,12 @@ test("H toggles it through toggleHistory(); false when the card has no link", as
 	assert.equal(none.z.toggleHistory(), false);
 });
 
-test("no link for a trust question, a tower with no run, or a pane outside the net's sessions", async () => {
+test("no link for a trust question or a tower with no run; an outside pi pane has its session file, so it has the link (Z4D-F003, M4)", async () => {
+	const tower = rig();
+	tower.feed({ bases: [{ id: "w", label: "Harbor", mark: "waiting", head: true, tower: { name: "tower", mark: "waiting", key: "t", control: true, subs: [], since: 5, pending: select({ cancel: true }) }, tabs: [], outposts: [], outside: [] }], trust: [] } as unknown as Net);
+	tower.z.show();
+	await tower.settle();
+	assert.equal(link(tower), undefined, "a tower with no run");
 	const trust = rig();
 	trust.feed(net([], [TRUST]));
 	trust.z.show();
@@ -191,7 +196,82 @@ test("no link for a trust question, a tower with no run, or a pane outside the n
 	outside.feed(waiting({ role: "outside" }));
 	outside.z.show();
 	await outside.settle();
-	assert.equal(link(outside), undefined);
+	assert.ok(link(outside), "an outside pane");
+});
+
+test("a card that leaves while its context is open or loading mounts and fetches nothing (Z4D-F004, M3)", async () => {
+	const r = rig();
+	r.feed(waiting());
+	r.z.show();
+	await r.settle();
+	link(r)!.click(); // open, the chunk not yet arrived
+	r.feed(net([]));
+	await r.settle();
+	assert.deepEqual(r.calls.logs, [], "no mount for a card that is gone");
+	assert.equal(r.calls.watch.at(-1), null);
+	const swap = rig();
+	swap.feed(waiting());
+	swap.z.show();
+	await swap.settle();
+	link(swap)!.click();
+	swap.feed(net([unit("b", "waiting", { name: "b", since: 6, pending: select({ cancel: true }) })]));
+	await swap.settle();
+	assert.deepEqual(swap.calls.logs, [], "swapped for another card");
+});
+
+test("Esc collapses the history before a field with text, which keeps its text (Z4D-F008, M1)", async () => {
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: questions() })]));
+	r.z.show();
+	await r.settle();
+	link(r)!.click();
+	await r.settle();
+	const box = r.by((el) => el.tagName === "textarea" || el.tagName === "input")[0];
+	if (box) {
+		(box as unknown as { value: string }).value = "draft";
+		page.focused = box as never;
+		esc(r);
+		await r.settle();
+		assert.equal(link(r)!.getAttribute("aria-expanded"), "false", "history first");
+		assert.equal((box as unknown as { value: string }).value, "draft");
+	}
+});
+
+test("H does nothing while the corner menu is open (Z4D-F005)", async () => {
+	const r = rig();
+	r.feed(waiting());
+	r.z.show();
+	await r.settle();
+	assert.equal(r.z.toggleHistory(), true);
+	assert.equal(r.z.toggleHistory(), true);
+});
+
+test("the link points at the region it opens (Z4D-F006)", async () => {
+	const r = rig();
+	r.feed(waiting());
+	r.z.show();
+	await r.settle();
+	const id = link(r)!.getAttribute("aria-controls");
+	assert.ok(id);
+	assert.equal(r.by((el) => el.getAttribute("id") === id).length, 1);
+});
+
+test("history that arrives while the page is fetched is applied again after it (Z3RR-F002, M5)", async () => {
+	let release!: (v: { items: Item[] }) => void;
+	const r = rig({ latest: () => new Promise((done) => (release = done)) });
+	r.feed(waiting());
+	r.z.show();
+	await r.settle();
+	link(r)!.click();
+	await r.settle();
+	const ev = { key: "a", items: [{ id: "x", kind: "assistant", text: "later" }] } as unknown as HistoryEvent;
+	r.z.history(ev);
+	release({ items: [] });
+	await r.settle();
+	const at = r.calls.applied.map((e) => (e === ev ? "ev" : e.reset ? "reset" : "?"));
+	assert.equal(at.at(-1), "ev");
+	assert.ok(at.includes("reset"));
+	assert.ok(at.lastIndexOf("ev") > at.indexOf("reset"));
 });
 
 test("both languages say it and name the key", async () => {

@@ -137,8 +137,10 @@ export class DialogForwarder {
 }
 
 /** A dialog an unattended device forwarded to this device, as the controller keeps it in memory. */
-export interface DialogView { team: string; device: string; dialogId: string; digest: string; owner: string; dialog: string; at: number; answered: boolean }
+export interface DialogView { team: string; device: string; dialogId: string; digest: string; owner: string; dialog: string; at: number; answered: boolean; /** The `by` of the `dialog-close` that ended it, and when it came: the card says how it ended for a while. */ closed?: { by: string; at: number } }
 const MAX_VIEWS = 50;
+/** How long a card of an ended dialog stays, to say how it ended. */
+export const CLOSED_MS = 2 * 60_000;
 
 /** The forwarded dialogs waiting here, the latest per device and dialog id. */
 export class DialogViews {
@@ -155,12 +157,17 @@ export class DialogViews {
 	drop(device: string, dialogId: string): void {
 		this.views.delete(this.key(device, dialogId));
 	}
+	/** The dialog ended (the device's `dialog-close`): it stays as a card that says how, until `CLOSED_MS` has passed. */
+	close(device: string, dialogId: string, by: string, at: number): void {
+		const v = this.views.get(this.key(device, dialogId));
+		if (v) v.closed = { by, at };
+	}
 	get(device: string, dialogId: string): DialogView | undefined {
 		return this.views.get(this.key(device, dialogId));
 	}
-	/** Those of devices `keep` still counts as members. */
-	list(keep: (v: DialogView) => boolean): DialogView[] {
-		for (const [k, v] of this.views) if (!keep(v)) this.views.delete(k);
+	/** Those of devices `keep` still counts as members; an ended one only until `CLOSED_MS` after it ended. */
+	list(keep: (v: DialogView) => boolean, now: number): DialogView[] {
+		for (const [k, v] of this.views) if (!keep(v) || (v.closed && now - v.closed.at > CLOSED_MS)) this.views.delete(k);
 		return [...this.views.values()];
 	}
 }

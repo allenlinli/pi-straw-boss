@@ -26,6 +26,7 @@ let root = "";
 let relay: FakeRelay;
 const cleanup: (() => Promise<void>)[] = [];
 beforeEach(() => {
+	skew = 0;
 	root = mkdtempSync(join(tmpdir(), "psb-link-dialogs-"));
 	relay = new FakeRelay();
 });
@@ -45,6 +46,8 @@ type Who = "alice" | "bob" | "dave";
 type Sink = NonNullable<ConstructorParameters<typeof LinkHolder>[0]["dialogAnswer"]>;
 interface Rig { holder: LinkHolder; store: LinkStore; notices: string[]; answers: Parameters<Sink>[0][]; sink?: Sink }
 /** `trust`: what the device gives the others (only dave's matters here: who may answer for it). */
+/** Milliseconds the holders' clock runs ahead of the real one (a test moves it to let an ended dialog's card lapse). */
+let skew = 0;
 function rig(who: Who, trust: Record<string, "reply" | "forward" | "dispatch"> = {}): Rig {
 	const keys = DEVICES[who], dir = join(root, who, "link"), project = join(root, `${who}-project`);
 	mkdirSync(project, { recursive: true });
@@ -57,7 +60,7 @@ function rig(who: Who, trust: Record<string, "reply" | "forward" | "dispatch"> =
 		store, isHolder: () => true, attended: () => who !== "dave", net: async () => netOf([[`tower-${who}`, `w-${who}`, `label-${who}`, project]]), relay: clientFor(relay),
 		config: () => ({ teams: new Map([[TEAM_HEX, { project, share: "status" as const, name: "moldplan" }]]), trust: new Map(Object.entries(trust).map(([k, v]) => [k, v])), problems: [] }),
 		offer: () => {}, notify: (text) => void r.notices.push(text), backoff: () => 5, drainMs: 20, presenceMs: 60_000, postWaitMs: 2000,
-		dialogAnswer: (a) => (r.answers.push(a), r.sink?.(a)),
+		dialogAnswer: (a) => (r.answers.push(a), r.sink?.(a)), now: () => Date.now() + skew,
 	});
 	cleanup.push(() => r.holder.stop());
 	return r;
@@ -132,7 +135,23 @@ describe("dialog forwarding", () => {
 		h.close("D1");
 		await f.poll();
 		await until(() => a.holder.dialogRequests().length === 0, 3000, "the close on alice");
+		const ended = a.holder.summary().alerts.find((x) => x.kind === "dialog")!;
+		assert.deepEqual([ended.level, ended.data.closed, ended.data.answered], ["info", "remote", 1], "the card stays to say how it ended, and that this device answered");
+		assert.equal((await a.holder.answerDialog(dave.id, "D1", selectDigest(SELECT), JSON.stringify({ choice: 0 }))).ok, false, "an ended question takes no answer");
+		skew = 3 * 60_000;
+		assert.equal(a.holder.summary().alerts.some((x) => x.kind === "dialog"), false, "the card lapses two minutes after the close");
 		assert.ok(!events(d).some((e) => JSON.stringify(e).includes("secret title")), "no dialog text in the log");
+	});
+
+	test("an answer with another digest is refused and leaves the question open for the right one", async () => {
+		const { h, a, f } = await start();
+		h.open("D1");
+		await f.poll();
+		await until(() => a.holder.dialogRequests().length === 1, 3000, "the dialog on alice");
+		const wrong = await a.holder.answerDialog(dave.id, "D1", "0".repeat(64), JSON.stringify({ choice: 1 }));
+		assert.deepEqual(wrong, { ok: false, error: "The question changed; look at it again" });
+		assert.equal(a.holder.summary().alerts.find((x) => x.kind === "dialog")!.data.answered, 0);
+		assert.deepEqual(await a.holder.answerDialog(dave.id, "D1", selectDigest(SELECT), JSON.stringify({ choice: 1 })), { ok: true });
 	});
 
 	test("a confirm and an ask_user_question round trip", async () => {

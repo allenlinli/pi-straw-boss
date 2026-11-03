@@ -683,7 +683,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Views-core R5 to 4114 measured: zen.ts 278 to 276 (counted here); sessionfacts.ts (15, new) and session.ts (151 to 150) are shipped files with budgets of their own. All of gui grows by 12 lines (8756 to 8768), the shared module's price.
 	// Zen Z4b (companion keys, palette, status strip) to 4380 measured, +159 over the 4221 the branch base measured (the figure above had not followed Z5 and the earlier merges): gui/palette.ts (63, new: the shared component), gui/paletteentries.ts (38, new: Zen's entries), zen.ts 277 to 309 (cycle, the palette's mount and entries, the strip), zentypes.ts 61 to 69 (the core's selectors, the settings route, a music switch), pagecore.ts 191 to 196, units.ts 18 to 31 (companionsOf, activityOf); hotkeys.ts has its own figure (68 to 71: the alt and mod rows, the platform).
 	// Z4b review fixes and the merge with Z4d: 4492 measured (zen.ts 333, hotkeys.ts 73, palette.ts 67).
-	assert.ok(page <= 4858, `the page's TypeScript has ${page} lines`);
+	assert.ok(page <= 4966, `the page's TypeScript has ${page} lines`);
+	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
 	// Eager trim round 2 to 4858 (measured): gui/zenrows.ts (Zen's keymap rows, registered by the Zen chunk) is new, hotkeys.ts holds the row engine, and zen.ts takes the `key` dispatch (336 to 340).
 	// Eager trim to 4835 (measured): gui/zenpage.ts (38, new) and gui/zenunits.ts (new) take what main.ts, pagecore.ts, and units.ts held for Zen; the lines are moved, plus the two files' headers.
 	// Z6 merged with Z4b/Z4d to 4804 (measured): Z5's zensound.ts (94), Z6's zenmusic.ts (116) and zenmusicbar.ts (178), and the music hooks in zen.ts (336), zentypes.ts (70), main.ts, and prefs.ts.
@@ -811,7 +812,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merge of views-core R4 and the one-tap run: 90,817 / 32,612 (measured), the run id carried through pagecore's step.
 	// Eager trim (fix/eager-trim): by 314cad1 the entry had grown to 93,330 / 33,543 (a45f2cc: 90,947 / 32,723 with the sourcemap comment, 90,817 / 32,612 without). Zen-only code moved behind the Zen load: the sound, the music block and the companion readers into gui/zenpage.ts (built by the zen chunk), companionsOf and activityOf into gui/zenunits.ts; pagecore hands out `newest()` instead. Measured 92,097 / 33,144: +1,280 / +532 over the last cap, all of it the keymap rows (hotkeys.ts +703, Z4b/R8) and the core's routing (pagecore.ts +253, main.ts +198, prefs.ts +88 for the two music keys).
 	// Eager trim round 2: 91,519 / 32,914 (measured), -578 / -230 from 92,097 / 33,144. Zen's keymap rows and their modifier and terminal gates (gui/zenrows.ts) are registered by the Zen chunk, and the page hands every Zen key to one `key` call on the layer (pagecore.ts). Still +702 / +302 over the 90,817 / 32,612 before Z4b: hotkeys.ts's row engine, pagecore.ts's and main.ts's routing, and prefs.ts's two music keys (88) stay eager, and cannot move without a lazy key in the typed prefs store or a second keymap path in the core. Cap = measured + 15.
-	assert.ok(eagerBytes <= 91_534 && eagerGz <= 32_929, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Forwarded dialog cards (feat/link-unattended-dialog-gui): 92,381 / 33,199 (measured), +545 raw / +204 gzipped over the 91,836 / 32,995 the branch base (af392fb, S1 to S4a merged) measures, which already stood 302 / 66 over the cap above: the notice's `dialogState`, the lazy load, and the card's rows in linkbar.ts, and the eight state words used by the lazy cards stay out. The cards and the question panel (ask.ts) are lazy chunks. Cap = measured + 15.
+	assert.ok(eagerBytes <= 92_396 && eagerGz <= 33_214, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -922,10 +924,11 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Z5+Z6+eager trim (zensound.ts, zenmusicbar.ts, zenmusic.ts, zenpage.ts, zenunits.ts join the lazy chunks): 269,304 / 108,191 measured, cap 269,319 / 108,206.
 	// Eager trim round 2 (zenrows.ts joins the lazy chunks): 269,969 / 108,469 measured, cap 269,984 / 108,484.
 	// Zen Z7 layout fixes (the history box scrolled into view when it opens): 270,012 / 108,491 measured, +43 raw / +22 gzipped, cap 270,025 / 108,500.
+	// Forwarded dialog cards (feat/link-unattended-dialog-gui): 273,184 / 110,284 measured, +3,178 raw / +1,788 gzipped over the 270,006 / 108,496 the branch base (af392fb) measures: linkdialogs.ts with the card's words and the check of a sender's dialog shape is a lazy chunk, loaded with the first forwarded dialog. Cap = measured + 15.
 	const musicChunk = chunks.find((n) => n.startsWith("zenmusic-")); // zenmusic.ts is a chunk of its own: at most 4 KB raw (the spec's Asset budget)
 	assert.ok(musicChunk, "the music chunk (createPlayer) is in the build");
 	assert.ok(size(musicChunk).length <= 4096, `the music chunk is ${size(musicChunk).length} bytes`);
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 270_025 && total(chunks, gz) <= 108_500, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 273_199 && total(chunks, gz) <= 110_299, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1015,7 +1018,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merge of the terminal card's T4 with main's Zen yellows: 128,119 / 27,465, cap 128,150 / 27,500.
 	// Z5+Z6 (zen.css music and sound rows) took the stylesheet to 131,608 / 27,977 (measured at 314cad1 and after the eager-entry trim), cap +15.
 	// Zen Z7 layout fixes (the ring-less focus, the log's pill box, unsqueezed choices, the open history's rules, the phone and 900 px tightening, the strip's phone place): 133,483 / 28,223 measured, +1,875 raw / +246 gzipped, cap 133,500 / 28,240.
-	assert.ok(total(css, (n) => size(n).length) <= 133_500 && total(css, gz) <= 28_240, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Forwarded dialog cards (feat/link-unattended-dialog-gui): 134,117 / 28,348 measured, +617 raw / +108 gzipped over the cap above (the branch base is within it): the card sits flat around the question panel, keeps Send answer in view over a long list, and words how it ended in a readable colour. Cap = measured + 15.
+	assert.ok(total(css, (n) => size(n).length) <= 134_132 && total(css, gz) <= 28_363, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

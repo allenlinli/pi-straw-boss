@@ -1,6 +1,6 @@
-import type { ConfirmView, LinkSummary } from "../src/link/holder.ts";
+import type { ConfirmView, LinkAlert, LinkSummary } from "../src/link/holder.ts";
 import { h, nodes } from "./dom.ts";
-import { alertLine, urgentFirst } from "./linkmodel.ts";
+import { alertLine, dialogState, urgentFirst } from "./linkmodel.ts";
 import { m } from "./paraglide/messages.js";
 import { post } from "./post.ts";
 import { byId, hang } from "./render.ts";
@@ -39,13 +39,19 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 		row.append(h("b", null, alertLine({ id: "", kind: "confirm", level: "warning", team: c.team, teamName: "", data: { label: c.fromLabel, short: c.fromShort, tool: c.tool, tower: c.tower } })), h("pre", { class: "link-args" }, c.args), h("div", { class: "devices-acts" }, allow, deny), h("small", { class: "link-note", role: "status" }));
 		return row;
 	};
-	return {
+	// The cards of forwarded dialogs (linkdialogs.ts, with the question panel) load when the first one shows, so the page's start does not carry them; until then the notice's line stands in.
+	let cards: ReturnType<typeof import("./linkdialogs.ts").mountDialogCards> | undefined, last: LinkSummary | undefined;
+	const loadCards = () => void import("./linkdialogs.ts").then(({ mountDialogCards }) => ((cards = mountDialogCards()), (sig = ""), api.net(last)));
+	const api = {
 		net(summary: LinkSummary | undefined) {
+			last = summary;
 			const alerts = urgentFirst((summary?.alerts ?? []).filter((a) => a.kind !== "confirm")), confirms = summary?.confirms ?? [];
 			const next = JSON.stringify([alerts, confirms]);
 			if (next === sig) return;
 			sig = next;
-			const need = new Set([...confirms.map((c) => `c/${c.dialogId}`), ...alerts.filter((a) => a.kind === "join-request").map((a) => a.id)]);
+			const need = new Set([...confirms.map((c) => `c/${c.dialogId}`), ...alerts.filter((a) => a.kind === "join-request" || (a.kind === "dialog" && dialogState(a) === "open")).map((a) => a.id)]);
+			cards?.keep(new Set(alerts.map((a) => a.id)));
+			if (!cards && alerts.some((a) => a.kind === "dialog")) loadCards();
 			if (!first) news([...need].filter((k) => !known.has(k)).length);
 			[known, first] = [need, false];
 			const count = alerts.length + confirms.length;
@@ -54,6 +60,7 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 			btn.dataset.state = confirms.length || alerts.some((a) => a.level === "error") ? "error" : alerts.some((a) => a.level === "warning") ? "waiting" : "done";
 			if (!count && pop.matches(":popover-open")) pop.hidePopover();
 			list.replaceChildren(...nodes(...confirms.map(confirmRow), ...alerts.map((a) => {
+				if (a.kind === "dialog" && cards) return cards.row(a);
 				const row = h("li", { class: "link-alert", "data-level": a.level }, h("span", null, alertLine(a)));
 				if (a.kind === "join-request" || a.kind === "fork" || a.kind === "mismatch") {
 					const go = h("button", { type: "button", class: "later" }, a.kind === "join-request" ? m.link_review() : m.link_open_teams());
@@ -70,4 +77,5 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 			})));
 		},
 	};
+	return api;
 }

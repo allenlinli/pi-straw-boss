@@ -258,6 +258,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 			case "rotate": return h.admin.rotate({ team: text("team") });
 			case "trust": return h.admin.trust({ device: text("device"), level: text("level") as "reply" });
 			case "leave": return h.admin.leave({ team: text("team"), force: a.force === true });
+			case "dialog-answer": return typeof a.answer === "object" && a.answer !== null && !Array.isArray(a.answer) ? h.answerDialog(text("device"), text("dialogId"), text("digest"), JSON.stringify(a.answer)) : { ok: false, error: "Answer the question" };
 			case "confirm-answer": return typeof a.allow === "boolean" ? h.answerConfirm(text("dialogId"), a.allow) : { ok: false, error: "Allow or deny" };
 			default: return { ok: false, error: "unknown request" };
 		}

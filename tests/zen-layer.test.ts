@@ -28,7 +28,7 @@ const secret = (): Pending => ({ callId: "c3", tool: "secret_drop", why: "It wai
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy"], more: 0 }], agents: [{ pane: "1", base: "Harbor", role: "member", at: 5 }] };
 
-function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean } = {}) {
+function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; stored?: With; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean; candidates?: (n: Net | undefined) => { key: string; ws: string }[] } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
 	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], settings: 0, composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[] };
@@ -56,7 +56,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, stored: () => o.stored,
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
-		...(o.z4b ? { companions: () => companionsOf(netNow), activity: () => activityOf(netNow), settings: () => void calls.settings++, menu: { sound: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {} } } } : {}),
+		...(o.z4b ? { companions: () => (o.candidates ?? companionsOf)(netNow), activity: () => activityOf(netNow), settings: () => void calls.settings++, menu: { sound: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {} } } } : {}),
 		later: (fn: () => void, ms: number) => {
 			const e = { at: t + ms, fn };
 			timers.push(e);
@@ -912,6 +912,19 @@ test("[ and ] step the companion through the core's candidates (idle and towers 
 	await r.advance(3100);
 	assert.deepEqual(r.z.companion(), { key: "a", ws: "w" }, "the companion the boss stepped to comes back");
 	assert.deepEqual(stored.get("sb.zen.with") ?? null, null, "stepping is not talking: the stored companion is not touched");
+});
+
+test("] and [ skip a candidate the companion resolves elsewhere (the tower by fallback): every press lands on a new companion and never sticks (Z4B-F003)", async () => {
+	// "g" is on the core's list but not live in the net, so companionOf would send it to the tower.
+	const r = rig({ z4b: true, candidates: () => [{ key: "t", ws: "w" }, { key: "g", ws: "w" }, { key: "b", ws: "w" }, { key: "a", ws: "w" }] });
+	r.feed(net([unit("a", "working"), unit("b", "idle")]));
+	r.z.show();
+	await r.settle();
+	const step = async (dir: 1 | -1) => (assert.equal(r.z.cycle(dir), true), await r.settle(), companionKey(r));
+	assert.equal(companionKey(r), "t");
+	assert.deepEqual([await step(1), await step(1), await step(1), await step(1), await step(1)], ["b", "a", "t", "b", "a"], "g is jumped over each time round");
+	assert.deepEqual([await step(-1), await step(-1), await step(-1)], ["b", "t", "a"], "and backwards");
+	assert.deepEqual(r.z.companion(), { key: "a", ws: "w" });
 });
 
 test("[ and ] do nothing (false, so the key stays the browser's) with nothing to step to, on a card, on the pause, with the terminal or the palette open, or while hidden", async () => {

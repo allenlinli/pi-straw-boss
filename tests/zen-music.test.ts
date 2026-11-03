@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { El, page, stored } from "./zen-dom.ts";
+import { El, page, stored } from "./fake-dom.ts";
 
 // Zen's music (docs/specs/2026-11-01-zen-view.md, Music): the player (gui/zenmusic.ts) on a fake audio context and fake <audio> elements, and the controls (gui/zenmusicbar.ts) on the fake document with a fake player.
 // Nothing here plays a sound or fetches a byte; the clock is the test's own.

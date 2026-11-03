@@ -10,6 +10,7 @@ import type { FsEnv } from "./zenfs.ts";
 import type { RippleEnv } from "./zenripple.ts";
 import type { Candidate } from "./units.ts";
 import type { MenuDeps } from "./zenmenu.ts";
+import type { MusicDeps } from "./zenmusicbar.ts";
 import type { Sound } from "./zenmodel.ts";
 import type { With } from "./zenwith.ts";
 
@@ -53,8 +54,8 @@ export interface ZenDeps {
 	activity?(): { working: number; idle: number };
 	/** The page's settings route (the palette's Settings); unset: no such entry. */
 	settings?(): void;
-	/** A music switch for the palette, when the page has music. */
-	music?: { on(): boolean; set(on: boolean): void };
+	/** The music controls (zenmusicbar.ts): the server's tracks, the player, the stored switch. Unset: no music control. */
+	music?: MusicDeps;
 	/** The full-screen control's page facts (a test gives its own). */
 	fs?: FsEnv;
 	/** The ripples' page facts (a test gives its own). */

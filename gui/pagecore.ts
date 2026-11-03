@@ -170,7 +170,7 @@ export function createPage(io: PageIo) {
 		keys: () => rules().keys,
 		modal: () => io.modal(),
 		/** A hotkey of the keymap, done: Enter and Space end Zen's pause, Space opens the next alert and F enlarges the top dialog. `[` and `]` step Zen's companion and ⌘K opens its palette. False when it had nothing to do (the key stays the browser's). */
-		hotkey: (hotkey: Hotkey) => (hotkey === "next" || hotkey === "zoom" ? io.panels()?.hotkey(hotkey) : hotkey === "pause" ? io.zen()?.tap() : hotkey === "history" ? io.zen()?.toggleHistory() : hotkey === "history" ? io.zen()?.toggleHistory() : hotkey === "palette" ? io.zen()?.palette() : io.zen()?.cycle(hotkey === "next-companion" ? 1 : -1)) ?? false,
+		hotkey: (hotkey: Hotkey) => (hotkey === "next" || hotkey === "zoom" ? io.panels()?.hotkey(hotkey) : hotkey === "pause" ? io.zen()?.tap() : hotkey === "history" ? io.zen()?.toggleHistory() : hotkey === "palette" ? io.zen()?.palette() : io.zen()?.cycle(hotkey === "next-companion" ? 1 : -1)) ?? false,
 		/** The units the companion can be stepped to, idle ones and towers first (units.ts), and the strip's counts of working and idle units: both read the newest snapshot, and neither says how many wait. */
 		companions: () => companionsOf(latest),
 		activity: () => activityOf(latest),

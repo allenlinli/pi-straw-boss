@@ -1,13 +1,13 @@
-// The device's preferences: one typed store over localStorage for the keys the page keeps (view, language, Sound and Volume, Remind, Enlarge, Zen's last talk and Home Screen hint).
+// The device's preferences: one typed store over localStorage for the keys the page keeps (view, language, Sound and Volume, Remind, Enlarge, Zen's last talk, Home Screen hint, music switch and track).
 // A refused storage reads as the default (zenHint: as already told, so no hint) and a write it refuses is dropped; `on` hears another tab's write (the `storage` event) for one name.
 type Store = { getItem?(key: string): string | null; setItem?(key: string, value: string): void };
 type Raw = string | null | undefined; // a stored string; null: none; undefined: the storage refused
-export const KEYS = { view: "sb.view", locale: "sb-locale", sound: "sb.sound", volume: "sb.volume", remind: "sb.remind", wide: "sb.dialog-wide", zenWith: "sb.zen.with", zenHint: "sb.zen.homehint" } as const;
+export const KEYS = { view: "sb.view", locale: "sb-locale", sound: "sb.sound", volume: "sb.volume", remind: "sb.remind", wide: "sb.dialog-wide", zenWith: "sb.zen.with", zenHint: "sb.zen.homehint", zenMusic: "sb.zen.music", zenTrack: "sb.zen.track" } as const;
 export type Name = keyof typeof KEYS;
 /** How each stored string reads. A value is written as its string, a boolean as 1 or 0 (Zen's hint, true: 1). */
 const READ = {
 	view: (v: Raw) => v ?? "auto", locale: (v: Raw) => v ?? null, sound: (v: Raw) => v === "1", volume: (v: Raw) => Math.min(100, Math.max(0, Number(v ?? "60") || 0)),
-	remind: (v: Raw) => (v ?? "1") === "1", wide: (v: Raw) => v === "1", zenWith: (v: Raw) => v ?? null, zenHint: (v: Raw) => v !== null,
+	remind: (v: Raw) => (v ?? "1") === "1", wide: (v: Raw) => v === "1", zenWith: (v: Raw) => v ?? null, zenHint: (v: Raw) => v !== null, zenMusic: (v: Raw) => v === "1", zenTrack: (v: Raw) => v ?? null,
 };
 type Value<N extends Name> = ReturnType<(typeof READ)[N]>;
 

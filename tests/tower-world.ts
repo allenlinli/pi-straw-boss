@@ -84,6 +84,8 @@ export class TowerWorld extends ServerWorld {
 	settingsHold: Promise<void> | undefined;
 	/** How often the settings check ran: once for every run the server starts. */
 	settingsCalls = 0;
+	/** What the runs told the unattended device's reporter (runs.ts `RunSignal`). */
+	signals: import("../src/server/runs.ts").RunSignal[] = [];
 	runTimers: Partial<Timers> = {};
 	standingTimers: Partial<StandingTimers> = {};
 	/**
@@ -142,6 +144,7 @@ export class TowerWorld extends ServerWorld {
 				},
 				runs: {
 					timers: { ...FAST_RUNS, ...this.runTimers }, ...(this.runClock ? { now: this.runClock.now } : {}), alive: (pid) => (this.aliveCalls++, this.aliveHook?.(pid), this.live.has(pid)), procs: async (runId) => (this.procReads++, await this.procGate?.(runId), this.procTable), startOf: (pid) => (this.startCalls++, `T-${pid}`), kill: (pid, signal) => void this.kills.push([pid, signal]),
+					signal: (sig) => void this.signals.push(sig),
 					settings: async () => { this.settingsCalls++; await this.settingsHold; if (this.settingsError) throw this.settingsError; },
 					...(this.runMax ? { max: () => this.runMax! } : {}),
 					...(this.runPlatform ? { platform: this.runPlatform } : {}),

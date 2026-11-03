@@ -179,6 +179,7 @@ test("a run that exits without tower_done crashed: its taken events return flagg
 	await until(() => readRun(world.slot, "wA", first)?.outcome === "crashed", "run 1 crashed");
 	assert.deepEqual(readQueue(world.slot, "wA").map((e) => [e.text, e.flag, e.crashes, e.taken]), [["poison", "crash", 1, undefined]]);
 	assert.match(readNotes(world.slot, "wA").at(-1)!.note, /^\(crashed/);
+	assert.deepEqual(world.signals.map((x) => x.kind === "ended" ? [x.kind, x.run, x.outcome, x.ally] : [x.kind]), [["ended", first, "crashed", false]], "the unattended device's reporter hears of the crash once");
 	const crashes = async () => ((await ask(s, { cmd: "status" })).towers as { service: { crashes?: number } }[])[0]!.service.crashes;
 	assert.equal(await crashes(), 1, "the page can show how many runs failed lately");
 	// The next brief says so.
@@ -394,6 +395,7 @@ test("a refused settings check starts no run, keeps the queue, raises a notice, 
 	tower().incoming(from, msg("m1", "a"));
 	await until(async () => ((await ask(s, { cmd: "status" })).towers as { service: { notices: { kind: string; text: string }[] } }[])[0]!.service.notices.some((n) => n.kind === "settings"), "the notice");
 	assert.equal(world.pis.size, 0);
+	assert.deepEqual(world.signals.map((x) => [x.kind, x.kind === "refused" ? x.text : ""]), [["refused", "A run could not start: .pi/settings.json is a link to /dev/zero"]]);
 	assert.equal(readQueue(world.slot, "wA").length, 1);
 	tower().incoming(from, msg("m2", "b"));
 	await sleep(60);

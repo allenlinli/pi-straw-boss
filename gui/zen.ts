@@ -10,7 +10,7 @@ import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
 import { roleName } from "./render.ts";
-import { composerUnit, liveOf, sendFor } from "./sessionfacts.ts";
+import { composerUnit, liveOf } from "./sessionfacts.ts";
 import { locate } from "./scene.ts";
 import type { Hotkey } from "./hotkeys.ts";
 import type { StepOpen } from "./terminalthen.ts";
@@ -26,8 +26,7 @@ import { mountMenu } from "./zenmenu.ts";
 import { mountMusic } from "./zenmusicbar.ts";
 import { syncQuestions } from "./zenquestions.ts";
 import { domRipples, mountRipples } from "./zenripple.ts";
-import { companionOf, createZen, type Outcome, type Screen, type Sound } from "./zenmodel.ts";
-import { recall, type With } from "./zenwith.ts";
+import { companionOf, createZen, type Outcome, type Screen, type Sound, type With } from "./zenmodel.ts";
 
 // The Zen layer (docs/specs/2026-11-01-zen-view.md): one waiting item on the page, the breathing pause after it, or the session for company. The model (zenmodel.ts)
 // decides what is on the screen and which sound goes with a change; this file draws it and answers through the same cards and routes as Standard (ask.ts, trust.ts,
@@ -43,7 +42,7 @@ interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; 
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
-	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined;
+	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined; // picked: this visit's companion (its start, or the one stepped to); none is the circle
 	const to = (key: string) => answerPost(key, deps.post), trustTo: TrustPost = trustPost(deps.trust);
 	// A draft holds the screen while the boss is at it: the box has text and he touched the companion (a tap or a drag on the log, a wheel, a key, or text that arrives with no key, as dictation and a suggestion tap do) in the last DRAFT_MS, focused or not. Typing keeps renewing it; walking away from a focused box does not hold the screen.
 	let touched = -Infinity;
@@ -174,7 +173,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		company = undefined;
 	}
 	function drawCompany() {
-		const c = companionOf(net, company ? { key: company.key, ws: company.ws, at: 0 } : (picked ?? (deps.stored ?? recall)()));
+		const c = companionOf(net, company ?? picked);
 		if (!c) {
 			[company, view] = [undefined, "companion"];
 			deps.watch(null);
@@ -195,7 +194,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		const mine = ++turn, co: Company = (company = { ...c, name: h("h2", { class: "zen-who" }), where: h("p", { class: "zen-meta" }), queue: [] });
 		const logRoot = h("div", { class: "zen-log" }), composerRoot = h("div", { class: "zen-compose" });
 		stage.replaceChildren(circle(), h("section", { class: "zen-company" }, h("header", null, co.name, co.where), logRoot, composerRoot));
-		const sent = sendFor(c.key, deps.post, () => ({ net, ws: c.ws }));
+		const sent = answerPost(c.key, deps.post);
 		co.composer = mounts.composer(composerRoot, c.key, async (action, body) => { const r = await sent(action, body); later(() => apply(model.tick()), 60); return r; }); // the box empties after the answer: the model looks again
 		co.composer.box.addEventListener("input", () => later(() => apply(model.tick()), 0)); // the box emptied or filled: the model looks again (a blur changes nothing)
 		deps.watch(c.key);
@@ -226,22 +225,35 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		const c = shown.kind === "companion" ? company : undefined, n = deps.companions?.().length ?? 0;
 		return entriesOf({
 			standard: () => deps.leave({}), settings: deps.settings,
-			companion: c && { name: c.name.textContent ?? c.key, session: () => deps.leave({ route: { view: "session", ws: c.ws, key: c.key } }), terminal: () => openTerm(c.key) },
-			cycle: c && n > 1 ? { prev: () => void cycle(-1), next: () => void cycle(1) } : undefined,
+			companion: c && { name: c.name.textContent ?? c.key, session: () => deps.leave({ route: { view: "session", ws: c.ws, key: c.key } }), terminal: () => openTerm(c.key), rest },
+			cycle: shown.kind === "companion" && n > 0 ? { prev: () => void cycle(-1), next: () => void cycle(1) } : undefined,
 		}, { ...deps.menu, music: music?.switch });
 	}
-	/** `[` and `]`: the companion steps to the previous or next candidate of the core's list (wrapping); false when there is nothing to step on or to. */
+	/** `[` and `]`: the companion steps to the previous or next candidate of the core's list, and the breathing circle sits where the list wraps (Z-D16); false when there is nothing to step on or to. */
 	function cycle(dir: 1 | -1) {
-		if (!active || shown.kind !== "companion" || !company || term.isOpen() || palette.isOpen()) return false;
-		const all = deps.companions?.() ?? [], at = all.findIndex((x) => x.key === company!.key);
-		// The first candidate in the direction that companionOf would land on: one it resolves elsewhere (the tower, say) would leave the cycle on that unit.
-		const to = Array.from({ length: all.length }, (_, i) => all[at < 0 ? (dir > 0 ? i : all.length - 1 - i) : (((at + dir * (i + 1)) % all.length) + all.length) % all.length]!).find((x) => x.key !== company!.key && companionOf(net, { key: x.key, ws: x.ws, at: 0 })?.key === x.key);
-		if (!to) return false;
-		picked = { key: to.key, ws: to.ws, at: 0 };
+		if (!active || !deps.companions || shown.kind !== "companion" || term.isOpen() || palette.isOpen()) return false;
+		// Only candidates companionOf lands on: one it resolves elsewhere would leave the cycle on another unit.
+		const ring = [undefined, ...deps.companions().filter((x) => companionOf(net, x)?.key === x.key)], at = Math.max(0, company ? ring.findIndex((x) => x?.key === company!.key) : 0);
+		const to = ring[(at + dir + ring.length) % ring.length];
+		if (!to && !company) return false;
+		picked = to && { key: to.key, ws: to.ws };
+		swapCompany();
+		live.textContent = to ? m.zen_with({ name: company?.name.textContent ?? to.key }) : m.zen_rest();
+		return true;
+	}
+	/** The palette's way back to the breathing circle for the rest of this visit. */
+	function rest() {
+		picked = undefined;
+		swapCompany();
+		live.textContent = m.zen_rest();
+	}
+	/** A step or a rest swaps the companion; a focus that was in the old one goes to the corner menu, not the body (ZVLR-F004). */
+	function swapCompany() {
+		const at = document.activeElement, had = Boolean(at && at !== root && root.contains(at));
 		disposeCompany();
 		drawCompany();
-		live.textContent = m.zen_with({ name: company?.name.textContent ?? to.key });
-		return true;
+		const now = document.activeElement;
+		if (had && (!now || now === document.body || !now.isConnected)) menu.button.focus();
 	}
 	const face = {
 		cycle,
@@ -251,6 +263,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		show() {
 			if (active) return;
 			active = true;
+			picked = deps.start?.(); // a visit starts at the circle unless told otherwise (Z-D16), read once per visit
 			ripples.on();
 			music?.show();
 			root.hidden = false;

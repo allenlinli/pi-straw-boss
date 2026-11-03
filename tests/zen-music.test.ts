@@ -351,6 +351,9 @@ test("the list: a press opens it with the focus on the playing track; a pick sto
 	(page.on.pointerdown ?? []).forEach((f) => f({ target: new El("div") }));
 	assert.equal(r.bar.isOpen(), false, "a press outside closes it");
 	r.more.click();
+	(page.on.pointerdown ?? []).forEach((f) => f({ target: r.bar.el }));
+	assert.equal(r.bar.isOpen(), false, "so does a press on the veil, the host's own (ZVL-F002)");
+	r.more.click();
 	r.radios()[2]!.click();
 	assert.deepEqual([r.st.get(KEYS.zenTrack), r.bar.isOpen(), r.log.started, r.log.built], ["c-fire.wav", false, [], 0], "music off: the choice is stored, nothing plays or loads");
 	assert.deepEqual(r.radios().map((x) => x.getAttribute("aria-checked")), ["false", "false", "true"]);

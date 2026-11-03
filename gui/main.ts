@@ -93,7 +93,7 @@ const withZen = (call: (z: Zen) => void) => {
 			remind: (a) => notify.remind(a), sound: host.sound,
 			menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: { ...notify.sound, ...host.menuSound } }, // the corner menu's rows act through the settings page's own switches
 			music: host.music,
-			leave: core.leaveZen, terminals, watch: core.watchLog, companions: host.companions, activity: host.activity, settings: core.openSettings,
+			leave: core.leaveZen, terminals, watch: core.watchLog, companions: host.companions, activity: host.activity, settings: core.openSettings, start: fixture?.start,
 		}));
 	});
 	void zenLoading.then(call);

@@ -16,14 +16,13 @@ const TABLE: [Name, unknown, unknown, string][] = [
 	["volume", 60, 35, "35"],
 	["remind", true, false, "0"],
 	["wide", false, true, "1"],
-	["zenWith", null, '{"key":"k"}', '{"key":"k"}'],
 	["zenHint", false, true, "1"],
 	["zenMusic", false, true, "1"],
 	["zenTrack", null, "zen-rain.mp3", "zen-rain.mp3"],
 ];
 
 test("every key has its own storage key, unchanged from what the page wrote before", () => {
-	assert.deepEqual(Object.values(KEYS), ["sb.view", "sb-locale", "sb.sound", "sb.volume", "sb.remind", "sb.dialog-wide", "sb.zen.with", "sb.zen.homehint", "sb.zen.music", "sb.zen.track"]);
+	assert.deepEqual(Object.values(KEYS), ["sb.view", "sb-locale", "sb.sound", "sb.volume", "sb.remind", "sb.dialog-wide", "sb.zen.homehint", "sb.zen.music", "sb.zen.track"]);
 	assert.deepEqual(TABLE.map((r) => r[0]), Object.keys(KEYS));
 });
 

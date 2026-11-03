@@ -868,5 +868,6 @@
 	"link_dialog_cancelled": "已在該裝置上取消。",
 	"link_dialog_expired": "問題在有人回答前就結束了。",
 	"link_dialog_unreadable": "這個問題無法在這裡顯示，請到該裝置上回答。",
-	"link_dialog_error": "答案沒有送出：{reason}"
+	"link_dialog_error": "答案沒有送出：{reason}",
+	"zen_rest": "回到呼吸"
 }

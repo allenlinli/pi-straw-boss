@@ -478,6 +478,18 @@ test("a folded line is one line however many lines the own words have, and says 
 	assert.match(r.sum(2).getAttribute("aria-label") ?? "", /3.*3.*C/);
 });
 
+test("a lone long question keeps its own-answer box whole and is set as text: ask.ts marks a question past 90 characters, and zen.css sizes the rows by their content (the boss's squeezed box, 2026-11-03)", () => {
+	const long = "x".repeat(91);
+	const one = rig(pending(Q(long, ["a1", "a2"], true), Q("B?", ["b1"])));
+	const qs = one.panel.all(cls("ask-q"));
+	assert.equal(qs[0]!.getAttribute("data-long"), "", "past 90 characters");
+	assert.equal(qs[1]!.getAttribute("data-long"), null, "a short question stays a title");
+	assert.equal(rig(pending(Q("y".repeat(90), ["a"]))).panel.all(cls("ask-q"))[0]!.getAttribute("data-long"), null, "90 is not past 90");
+	assert.match(css, /\[data-view="zen"\] \.zen-ask \.ask-one \{ grid-auto-rows: max-content; \}/, "a lone question's rows keep their height: the box is never squeezed shut");
+	assert.match(css, /\.zen-card \.ask-own \{ min-height: 44px; \}/);
+	assert.match(css, /\.zen-card:has\(\.zen-ask\) \.ask-q\[data-long\] \{ font-size: clamp\(1\.05rem, 2\.2vw, 1\.25rem\); line-height: 1\.75;/);
+});
+
 test("the stylesheet: a short window (max-height 560px) gives the questions the room: no unit sub-line or intro, smaller type, one-line send row", () => {
 	const at = css.indexOf("@media (max-height: 560px)");
 	assert.ok(at > 0, "the short-window block");

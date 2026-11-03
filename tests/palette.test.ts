@@ -175,7 +175,7 @@ const acts = () => {
 		calls,
 		acts: {
 			standard: () => void calls.push("standard"), settings: () => void calls.push("settings"),
-			companion: { name: "Harbor", session: () => void calls.push("session"), terminal: () => void calls.push("terminal") },
+			companion: { name: "Harbor", session: () => void calls.push("session"), terminal: () => void calls.push("terminal"), rest: () => void calls.push("rest") },
 			cycle: { prev: () => void calls.push("prev"), next: () => void calls.push("next") },
 		},
 	};
@@ -191,13 +191,13 @@ test("entriesOf lists the page's actions, then the preferences the menu has: vie
 		sound: { on: () => sound, volume: () => volume, set: (on) => void (sound = on), setVolume: (v) => void (volume = v), try: () => {} },
 	});
 	assert.deepEqual(labels(list), [
-		"Open Harbor's session", "Open Harbor's terminal", "Previous companion", "Next companion", "Settings", "Back to the Standard view",
+		"Open Harbor's session", "Open Harbor's terminal", "Back to the breath", "Previous companion", "Next companion", "Settings", "Back to the Standard view",
 		"View: Auto (Zen)", "View: Standard", "View: Geek", "View: Zen", "Language: English", "Language: 繁體中文", "Sound", "Volume up", "Volume down",
 	]);
 	assert.equal(new Set(list.map((e) => e.id)).size, list.length, "ids are unique");
 	const by = (label: string) => list.find((e) => e.label === label)!;
-	for (const label of ["Open Harbor's session", "Open Harbor's terminal", "Previous companion", "Next companion", "Settings", "Back to the Standard view"]) by(label).run();
-	assert.deepEqual(a.calls, ["session", "terminal", "prev", "next", "settings", "standard"]);
+	for (const label of ["Open Harbor's session", "Open Harbor's terminal", "Back to the breath", "Previous companion", "Next companion", "Settings", "Back to the Standard view"]) by(label).run();
+	assert.deepEqual(a.calls, ["session", "terminal", "rest", "prev", "next", "settings", "standard"]);
 	by("View: Geek").run();
 	by("View: Auto (Zen)").run();
 	assert.deepEqual(views, ["geek", "auto"]);

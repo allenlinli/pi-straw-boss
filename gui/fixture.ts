@@ -15,6 +15,8 @@ import { openThen } from "./terminalthen.ts";
 
 const unit = (id: string, name: string, role: Unit["role"], mark: Mark, note?: string, subs: Unit[] = []): Unit => ({ id, key: id, control: true, name, role, mark, note, subs });
 // What the nth wait is on: a secret_drop that only waits in the terminal (odd n), two questions as ask_user_question asks them (n % 4 == 2; rpiv takes a cancel, so the card has Cancel), or robot_hand's selector (no cancel path).
+/** `?zen=long`: one multi-select question as long as an agent's real one, four described choices, and the own-answer box, the shape that once squeezed the box shut. */
+const LONG = [{ header: "Companion", question: "When nothing waits, Zen keeps a session beside you. This time it showed the tower's old log, and the page said neither why it was that one nor what comes next. Which of these changes do you want?", options: [{ title: "Add one line that explains it", description: "Under the strip, a faint line: nothing waits for you, the session beside you is the tower ([ ] to change)" }, { title: "Default to a main, not a tower", description: "With no companion chosen, prefer the main agent you used last; a tower's log is mostly relayed messages" }, { title: "Fold the tool calls", description: "On the companion, the JSON of a tower's replies and every tool call fold to one line, and only the talk stays" }, { title: "Only the breathing circle by default", description: "With nothing waiting, only the circle and the strip; a session shows after [ ] or ⌘K picks one" }], multiple: true, freeform: true }];
 const two = [{ header: "Window", question: "When should the ops deploy go out?", options: [{ title: "Tonight 22:00", description: "Low traffic; on-call is awake." }, { title: "Tomorrow 08:00" }], multiple: false, freeform: true }, { header: "Notify", question: "Who should be told?", options: [{ title: "ops" }, { title: "billing" }, { title: "support" }], multiple: true, freeform: true }];
 const hand = { title: "Robot Hand — Deploy needs your sudo password\n\n  ! npm run deploy", copy: "npm run deploy", choices: [{ label: "Type it into a new Herdr pane (I press Enter)", note: "Opens a pane with the command typed; press Enter there", next: "pane" as const }, { label: "Run it in a new Herdr pane", note: "Opens a pane that runs the command", next: "pane" as const }, { label: "Put it in my prompt", note: "Lands in the terminal's prompt; press Enter there", next: "terminal" as const }, { label: "Copy it to my clipboard", note: "Copies on this computer", localOnly: true as const }, { label: "No, thanks" }] };
 const ask = (n: number): Unit["pending"] => (n % 2 ? { callId: `demo-${n}`, tool: "secret_drop", why: "It waits for a secret." } : { callId: `demo-${n}`, ...(n % 4 ? { tool: "ask_user_question", asks: two, answer: { dialog: `d${n}`, digest: "0".repeat(64), cancel: true as const, questions: two } } : { tool: "robot_hand", answer: { dialog: `d${n}`, digest: "0".repeat(64), select: hand } }) });
@@ -88,7 +90,7 @@ const PAD_REPLIES: Record<string, { ok: boolean; status: number; body: Record<st
 	esc: { ok: false, status: 409, body: { error: "confirm", confirm: "double-esc", reason: "A second Escape on an idle session runs pi's double-Escape action (tree or fork); confirm to run it." } },
 	tab: { ok: false, status: 409, body: { error: "blocked", reason: "While it waits on a secret or a question only Escape is sent from here; answer the question in its panel or the terminal." } },
 };
-// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `idle` (nothing waits: the companion), `alone` (nothing waits and the head base has no tower: no companion). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half. Three more states press a key a moment after the page starts, for pictures: `history` is `item` with the card's 前情 (H) open, `palette` is `idle` with the command palette (⌘K, Ctrl+K off a Mac) open, `pause` is `item` answered at once, so the 3 s breathing pause shows. `?music=<n>` gives the demo a music folder of n invented tracks (1 to 6; none by default, so the ♪ stays hidden); the demo has no audio file, so a track that is switched on says "tap to play" (`localStorage` `sb.zen.music` = 1 switches it on).
+// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `long` (one long multi-select question with four described choices and the own-answer box), `idle` (nothing waits: the companion billing-main, the first visit's start), `alone` (nothing waits, a plain visit: the breathing circle and its line). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half. Three more states press a key a moment after the page starts, for pictures: `history` is `item` with the card's 前情 (H) open, `palette` is `idle` with the command palette (⌘K, Ctrl+K off a Mac) open, `pause` is `item` answered at once, so the 3 s breathing pause shows. `?music=<n>` gives the demo a music folder of n invented tracks (1 to 6; none by default, so the ♪ stays hidden); the demo has no audio file, so a track that is switched on says "tap to play" (`localStorage` `sb.zen.music` = 1 switches it on).
 const zenState = (net: Net, extra: string | null) => {
 	const state = extra === "palette" ? "idle" : extra === "history" || extra === "pause" ? "item" : extra;
 	const main = units(net).find((u) => u.key === "a3")!;
@@ -97,11 +99,11 @@ const zenState = (net: Net, extra: string | null) => {
 	for (const u of units(net)) if (u.key !== "a3" || state === "idle" || state === "alone") if (u.mark === "waiting" || u.pending) [u.mark, u.note, u.pending] = ["working", "thinking", undefined];
 	if (state === "questions" || state === "secret") main.pending = ask(state === "secret" ? 1 : 2);
 	if (state === "words") main.pending = undefined;
-	if (state === "alone") net.bases[0]!.tower = null;
+	if (state === "long") main.pending = { callId: "demo-long", tool: "ask_user_question", asks: LONG, answer: { dialog: "dlong", digest: "0".repeat(64), cancel: true as const, questions: LONG } };
 	return net;
 };
 
-export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer>; api(path: string): Promise<unknown> } {
+export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer>; api(path: string): Promise<unknown>; start(): { key: string; ws: string } | undefined } {
 	demoOpen(); // the opening tiles' folder picker and deploy, with no server
 	let towerNow: TowerState = "off", serverNow = "auto";
 	const zen = new URLSearchParams(location.search).get("zen"), cardParam = new URLSearchParams(location.search).get("card");
@@ -171,6 +173,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	for (let i = 41; i > 0; i--) ((clock = Date.now() - i * 40_000), i === 41 ? (net = track(net)) : advance());
 	net = track(zenState(net, zen));
 	if (zen === "idle" || zen === "alone") quietUntil = Date.now() + 90_000;
+	// A visit starts at the breathing circle (Z-D16): `idle` and `palette` start their first visit as if the boss had stepped to billing-main with `]`; a later visit starts at the circle, as the page does.
+	let first = zen === "idle" || zen === "palette";
+	const zenStart = () => (first ? ((first = false), { key: "a1", ws: "w1" }) : undefined);
 	setInterval(() => ((clock = Date.now()), advance() && current?.send("message", net)), tick);
 	const control: Control = {
 		// The overlay a drop or silence brings up is modal over this toolbar too, so the demo restores itself: a drop a few seconds on, a silence a few seconds after the watchdog has noticed it.
@@ -245,7 +250,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	/** The page's `api/<path>` reads the demo answers itself: the music folder (`?music=<n>`). */
 	const tracks = Array.from({ length: Math.min(6, Number(new URLSearchParams(location.search).get("music")) || 0) }, (_, i) => ({ file: ["Morning ink.mp3", "Rain on the roof.mp3", "Slow tea.mp3", "Temple bell.mp3", "Late harbour.mp3", "Paper lantern.mp3"][i]!, size: 3_400_000 + i * 410_000 }));
 	const api = async (path: string) => (path === "music" ? { tracks } : Promise.reject(new Error("404")));
-	return { open: (watch) => new FixtureSource(watch), data, control, trust, api };
+	return { open: (watch) => new FixtureSource(watch), data, control, trust, api, start: zenStart };
 }
 
 function mountToolbar(control: Control) {

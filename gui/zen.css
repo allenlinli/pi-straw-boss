@@ -10,6 +10,7 @@
 	--paper: var(--zen-ash); --paper-hi: var(--zen-paper); --paper-ink: var(--zen-ground); --paper-edge: var(--zen-line);
 	--sans: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; --serif: ui-serif, "Iowan Old Style", "Songti TC", "Noto Serif TC", PMingLiU, serif; --soft: var(--zen-ash);
 	--zen-ease: cubic-bezier(0.4, 0, 0.2, 1);
+	--zen-glow: rgba(235, 227, 211, 0.045); --zen-tint: rgba(235, 227, 211, 0.035); --zen-veil: rgba(12, 10, 8, 0.82); --zen-seal-glow: rgba(196, 85, 58, 0.3); /* the visual language (Z-D15): a lit line, a faint ground for code, the veil an overlay lays on the page, the keys' ring around a dot */
 	--zen-edge: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 10px), transparent); --zen-edge-more: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 40px), transparent); /* the soft edges of what scrolls inside the card; deeper at the foot while more lies below */
 }
 [data-view="zen"] #zen { position: fixed; inset: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; overflow: hidden; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--zen-ground); color: var(--zen-paper); font: 16px/1.6 var(--sans); }
@@ -19,19 +20,20 @@
 /* The pause's circle and the item's card take the focus from the script only so that Enter, Space, and the keys find the layer (zen.ts): neither is a control, so neither wears a ring, and the circle keeps its round shape. */
 [data-view="zen"] #zen :is(.zen-circle, .zen-card):focus-visible { outline: none; }
 [data-view="zen"] #zen .zen-circle:focus-visible { border-radius: 50%; }
-/* The ground: two layers cross-fade over 90 s, and the washes inside the circle drift. */
+/* The ground: a warm layer fades and wanders over the dark one on a half-minute tide, and the washes inside the circle drift; Zen keeps breathing however long the page rests (Z-D13: calm.ts does not still it; reduced motion does). */
 [data-view="zen"] .zen-drift { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 [data-view="zen"] .zen-drift i { position: absolute; inset: 0; }
 [data-view="zen"] .zen-drift i:first-child { background: radial-gradient(120% 90% at 50% 40%, #17130f 0, var(--zen-ground) 70%); }
-[data-view="zen"] .zen-drift i:last-child { background: radial-gradient(120% 90% at 42% 58%, var(--zen-ground-2) 0, transparent 75%); opacity: 0; animation: zen-tide 90s ease-in-out infinite alternate; }
+[data-view="zen"] .zen-drift i:last-child { inset: -15%; background: radial-gradient(60% 50% at 42% 58%, rgba(122, 100, 76, 0.2) 0, rgba(90, 74, 58, 0.08) 45%, transparent 75%); opacity: 0.3; animation: zen-tide 30s ease-in-out infinite alternate, zen-wander 47s ease-in-out infinite alternate; }
 @keyframes zen-tide { to { opacity: 1; } }
+@keyframes zen-wander { from { transform: translate3d(-7%, -5%, 0) scale(1); } to { transform: translate3d(7%, 6%, 0) scale(1.12); } }
 /* The ripples (zenripple.ts): one canvas on the ground, behind the stage and everything on it. */
 [data-view="zen"] .zen-ripples { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 [data-view="zen"] .zen-circle { position: relative; width: min(48vmin, 320px); aspect-ratio: 1; box-sizing: border-box; border: 1px solid var(--zen-line); border-radius: 50%; transform: scale(0.72); opacity: 0.55; animation: zen-breath 10s infinite; }
-[data-view="zen"] .zen-circle i { position: absolute; inset: -40%; border-radius: 50%; pointer-events: none; animation: zen-wash 70s ease-in-out infinite alternate; background: radial-gradient(circle, rgba(150, 136, 116, 0.14) 0, rgba(118, 106, 90, 0.09) 36%, rgba(80, 70, 58, 0.04) 58%, transparent 70%); }
-[data-view="zen"] .zen-circle i:nth-child(2) { inset: -25% -55% -50% -10%; animation-duration: 95s; animation-direction: alternate-reverse; background: radial-gradient(circle, rgba(160, 142, 118, 0.1) 0, rgba(110, 98, 82, 0.05) 50%, transparent 70%); }
-[data-view="zen"] .zen-circle i:nth-child(3) { inset: -50% -30% -25% -45%; animation-duration: 120s; background: radial-gradient(circle, rgba(170, 150, 124, 0.08) 0, rgba(120, 106, 88, 0.04) 55%, transparent 72%); }
-@keyframes zen-wash { from { transform: translate3d(-3%, -2%, 0) rotate(-5deg); } to { transform: translate3d(3%, 2.5%, 0) rotate(7deg); } }
+[data-view="zen"] .zen-circle i { position: absolute; inset: -40%; border-radius: 50%; pointer-events: none; animation: zen-wash 24s ease-in-out infinite alternate; background: radial-gradient(circle, rgba(150, 136, 116, 0.14) 0, rgba(118, 106, 90, 0.09) 36%, rgba(80, 70, 58, 0.04) 58%, transparent 70%); }
+[data-view="zen"] .zen-circle i:nth-child(2) { inset: -25% -55% -50% -10%; animation-duration: 31s; animation-direction: alternate-reverse; background: radial-gradient(circle, rgba(160, 142, 118, 0.1) 0, rgba(110, 98, 82, 0.05) 50%, transparent 70%); }
+[data-view="zen"] .zen-circle i:nth-child(3) { inset: -50% -30% -25% -45%; animation-duration: 40s; background: radial-gradient(circle, rgba(170, 150, 124, 0.08) 0, rgba(120, 106, 88, 0.04) 55%, transparent 72%); }
+@keyframes zen-wash { from { transform: translate3d(-6%, -4%, 0) rotate(-12deg); } to { transform: translate3d(6%, 5%, 0) rotate(14deg); } }
 [data-view="zen"] .zen-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); margin: 0; }
 [data-view="zen"] .zen-stage { position: relative; z-index: 1; width: 100%; height: 100%; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; align-content: center; gap: 28px; min-height: 0; } /* one row as tall as the page: a card's max-height: 100% has something to be a percentage of */
 [data-view="zen"] .zen-stage:has(.zen-company) { place-items: stretch center; align-content: stretch; }
@@ -140,6 +142,11 @@
 [data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-answer, .zen-ask, .ask) { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; gap: 8px; }
 [data-view="zen"] .zen-ask .ask > :not(.ask-acts, .ask-note) { flex: 0 1 auto; min-height: 5rem; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding-block: 10px; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }
 [data-view="zen"] .zen-ask .ask > :is(.ask-acts, .ask-note) { flex: none; }
+/* One question's rows keep their own height (the several-question column has the same rule): a long question and many choices scroll the block, and never squeeze the own-answer box shut. */
+[data-view="zen"] .zen-ask .ask-one { grid-auto-rows: max-content; }
+[data-view="zen"] .zen-card .ask-own { min-height: 44px; }
+/* A long question (ask.ts marks it past 90 characters) is read, not shown as a title: smaller, with room between its lines. */
+[data-view="zen"] .zen-card:has(.zen-ask) .ask-q[data-long] { font-size: clamp(1.05rem, 2.2vw, 1.25rem); line-height: 1.75; letter-spacing: 0.04em; text-wrap: pretty; }
 [data-view="zen"] :is(.zen-ask .ask > [data-more], .zen-qs > .ask-one:not([data-dim])[data-more]) { -webkit-mask-image: var(--zen-edge-more); mask-image: var(--zen-edge-more); } /* more lies below: the foot fades deeper */
 /* Several questions (zenquestions.ts): the blocks sit in one column of a fixed height (so the card's box never follows the focus), centred in it. The focused block is open at full strength and scrolls inside itself when it is taller than the room; the rest are folded to their summary line, faded, and answer only a tap. The layer pages the column (a wheel, a swipe, a tap, the keys): it never scrolls. The send row is outside it. */
 [data-view="zen"] .zen-qs { position: relative; display: flex; flex-direction: column; justify-content: safe center; gap: 6px; height: clamp(16rem, 58vh, 34rem); padding: 0 6px; overflow: hidden; overscroll-behavior: contain; touch-action: pan-y; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }
@@ -169,7 +176,16 @@
 [data-view="zen"] .zen-company .composer { padding: 8px 0 0; border-top: 0; background: transparent; }
 [data-view="zen"] .zen-company button { min-height: 44px; min-width: 44px; }
 [data-view="zen"] .zen-stage:has(.zen-company) { position: relative; }
-[data-view="zen"] .zen-stage:has(.zen-company) > .zen-circle { position: absolute; top: 50%; left: 50%; translate: -50% -50%; opacity: 0.25; pointer-events: none; animation: none; }
+[data-view="zen"] .zen-stage:has(.zen-company) > .zen-circle { position: absolute; top: 50%; left: 50%; translate: -50% -50%; opacity: 0.18; pointer-events: none; animation-name: zen-breath-low; } /* it breathes behind the log too, faintly (Z-D13) */
+@keyframes zen-breath-low { 0% { transform: scale(0.72); opacity: 0.18; animation-timing-function: ease-in-out; } 40% { transform: scale(1); opacity: 0.34; animation-timing-function: ease-in-out; } 100% { transform: scale(0.72); opacity: 0.18; } }
+/* The companion has no boxes (Z-D13): its messages, tool calls, code, tables, pictures, and composer are set apart by space and the quieter ash, not by borders; forced colours keeps the system's own. */
+[data-view="zen"] .zen-log :is(.tx-body, .bubble, details.act, .thought, .more, pre, th, td, .pic) { border-color: transparent; box-shadow: none; }
+[data-view="zen"] .zen-log :is(.tx-body, details.act, .thought, .more) { background: transparent; }
+[data-view="zen"] .zen-log :is(.thought, .more)::before { border-color: transparent; } /* a touch screen draws their outline on ::before (style.css) */
+[data-view="zen"] .zen-log .tx-body { padding-inline: 0; }
+[data-view="zen"] .zen-log details.act { color: var(--zen-ash); }
+[data-view="zen"] .zen-company .composer textarea { border: 1px solid transparent; border-bottom-color: var(--zen-line); border-radius: 0; background: transparent; }
+[data-view="zen"] .zen-company .cmp-send { border-color: transparent; background: transparent; }
 /* The terminal layer (zenterm.ts): the page's own terminal on ink, over the whole page, with the way back in the corner where the menu was. The mirror, the key pad, and the keyboard are Standard's; only the colours are the tokens above. */
 [data-view="zen"] .zen-term { position: fixed; inset: 0; z-index: 4; display: grid; grid-template: auto minmax(0, 1fr) / minmax(0, 1fr); gap: 8px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--zen-ground); color: var(--zen-paper); animation: zen-fade 0.5s var(--zen-ease) both; }
 [data-view="zen"] .zen-term-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
@@ -185,7 +201,6 @@
 [data-view="zen"] .zen-term-host .k3 { background: var(--zen-ochre); } [data-view="zen"] .zen-term-host .k11 { background: var(--zen-ochre-hi); }
 [data-view="zen"] .zen-term-host :is(.pad-key, .term-bar button, .cmp-link) { min-height: 44px; min-width: 44px; }
 [data-view="zen"] .zen-term-host :is(.pad-yes, .pad-no, .tcard-mask, .tcard-go) { min-height: 44px; min-width: 44px; padding: 0 22px; border: 1px solid var(--zen-line); border-radius: 22px; background: transparent; color: var(--zen-paper); font-size: 1rem; font-weight: 400; letter-spacing: 0.12em; transition: background-color 0.6s var(--zen-ease); }
-[data-view="zen"] .zen-term-host .pad-yes, [data-view="zen"] .zen-term-host :is(.tcard-go, .tcard-mask[aria-pressed="true"]) { background: var(--zen-warm); }
 [data-view="zen"] .zen-term-host :is(.pad-yes, .pad-no, .tcard-mask, .tcard-go):hover:not(:disabled) { background: var(--zen-warm-hi); }
 /* The terminal card (termcard.ts) in ink, inside the layer's host: the item card's width, no frame and no header (the layer names the unit and holds 回到禪), the command and the line in pill shapes. Its buttons are the host's pair (below). */
 [data-view="zen"] .tcard { justify-self: center; align-self: center; width: min(36rem, 100%); max-height: 100%; overflow-y: auto; gap: 14px; padding: 8px 4px; border: 0; background: none; box-shadow: none; color: var(--zen-paper); text-align: center; scrollbar-width: none; animation: zen-in 1.8s var(--zen-ease) both; }
@@ -198,9 +213,6 @@
 [data-view="zen"] .zen-term-esc:empty { display: none; }
 [data-view="zen"] .zen-term-esc[data-on] { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-term { animation: none; } [data-view="zen"] :is(.zen-term-esc, .zen-term-back, .zen-term-host .pad-yes, .zen-term-host .pad-no) { transition: none; } }
-/* The page holds still (calm.ts: 30 s without input): the circle rests at its exhaled size, the ground on one layer. */
-[data-view="zen"][data-calm] :is(.zen-circle, .zen-circle i, .zen-drift i) { animation: none; }
-[data-view="zen"][data-calm] .zen-drift i:last-child { opacity: 0; }
 @media (max-height: 900px) { /* a page of an ordinary laptop or phone: the card spends less on air, so a question with five two-line choices still shows them all, and only a longer one scrolls */
 	[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { gap: 10px; }
 	[data-view="zen"] .zen-card:has(.zen-ask) :is(.ask-q, .ask-title) { font-size: clamp(1.2rem, 3.2vw, 1.6rem); line-height: 1.4; }
@@ -240,6 +252,62 @@
 @media (max-height: 340px) { /* a lone question or a select keeps its context while it fits (it does down to here) */
 	[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-meta, .zen-said) { display: none; }
 }
+/* ── The visual language (Z-D15, 2026-11-03; docs/specs/2026-11-01-zen-view.md, Visual language). One focus: only what is current is full paper. No boxes: messages, choices,
+   panels, and buttons are set apart by space and tone, and the only line is the one under a text field. Selection is light (a brighter word, a filled dot), not a shape.
+   The seal marks only where the keyboard is, as a line under a word or a dot's ring, never a ring around a box, so no scroller can cut it. An overlay lets the page
+   recede. Borders turn transparent rather than go, so forced colours (below) still draws every one of them. ── */
+[data-view="zen"] .zen-who { font-weight: 400; letter-spacing: 0.14em; }
+[data-view="zen"] #zen :is(.ask-send, .ask-cancel, .cmp-send, .cmp-alt, .cmp-yes, .zen-skip, .zen-history-btn, .cmp-link, .zen-opt, .zen-leave, .tcard-full, .tcard-go, .tcard-mask, .zen-term-back, .pad-yes, .pad-no, .palette-item):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
+/* The choices: one line each, a dot before it (filled when chosen), the description in ash below; a pointer or the keys light the line, the keys ring the dot in seal. */
+[data-view="zen"] .zen-card .ask-opts { gap: 2px; text-align: left; }
+[data-view="zen"] .zen-card button.ask-opt { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 10px; row-gap: 0; /* the dot spans 9 rows: no gap between the empty ones */ align-items: baseline; padding: 10px 14px; border: 1px solid transparent; border-radius: 14px; background: transparent; color: var(--zen-paper); font: 400 1.05rem/1.5 var(--sans); letter-spacing: 0.04em; text-align: left; transition: background 0.4s var(--zen-ease); }
+[data-view="zen"] .zen-card button.ask-opt::before { content: ""; grid-row: 1 / span 9; align-self: start; justify-self: center; width: 9px; height: 9px; margin-top: 0.55em; border: 1px solid var(--zen-line); border-radius: 50%; box-sizing: border-box; transition: background 0.3s, border-color 0.3s, box-shadow 0.3s; }
+[data-view="zen"] .zen-card button.ask-opt > * { grid-column: 2; }
+[data-view="zen"] .zen-card button.ask-opt small { display: block; font-size: 0.85rem; line-height: 1.5; letter-spacing: 0.03em; }
+[data-view="zen"] .zen-card button.ask-opt:is(:hover:not(:disabled), :focus-visible) { border-color: transparent; background: var(--zen-glow); }
+[data-view="zen"] .zen-card .ask-opt[aria-checked="true"] { border-color: transparent; background: transparent; }
+[data-view="zen"] .zen-card .ask-opt[aria-checked="true"]::before { border-color: var(--zen-paper); background: var(--zen-paper); }
+[data-view="zen"] #zen .zen-card button.ask-opt:focus-visible { outline: none; text-decoration: none; }
+[data-view="zen"] .zen-card button.ask-opt:focus-visible::before { border-color: var(--zen-seal); box-shadow: 0 0 0 3px var(--zen-seal-glow); }
+/* A text field is one line under the words; it brightens while it has the caret, and turns seal for the keys. */
+[data-view="zen"] :is(.zen-card .ask-own, .composer textarea, .tcard-input) { border: 1px solid transparent; border-bottom-color: var(--zen-line); border-radius: 0; background: transparent; padding-inline: 2px; }
+[data-view="zen"] .zen-card textarea.ask-own { resize: none; } [data-view="zen"] .zen-card .ask-note { text-align: center; }
+[data-view="zen"] #zen :is(.zen-card .ask-own, .composer textarea, .tcard-input, .palette-box):focus-visible { outline: none; border-radius: 0; border-bottom-color: var(--zen-seal); } /* #zen: above the page-wide ring (top of this file) */
+/* Buttons are words: Send at full paper, the rest in ash until a pointer or the keys come to them (the face is the page's, top of this file). */
+[data-view="zen"] :is(.ask-send, .cmp-send, .cmp-yes, .pad-yes, .tcard-go, .zen-term-back) { border-color: transparent; background: transparent; color: var(--zen-paper); }
+[data-view="zen"] :is(.ask-send, .cmp-send, .cmp-yes, .pad-yes, .tcard-go, .zen-term-back):hover:not(:disabled) { background: var(--zen-glow); }
+[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .zen-history-btn, .pad-no, .tcard-mask, .tcard-full) { border-color: transparent; background: transparent; color: var(--zen-ash); text-decoration-color: transparent; transition: color 0.4s var(--zen-ease); }
+[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .zen-history-btn, .pad-no, .tcard-mask, .tcard-full):hover:not(:disabled) { background: transparent; color: var(--zen-paper); }
+[data-view="zen"] .zen-term-host :is(.pad-yes, .tcard-go) { border-color: transparent; background: transparent; color: var(--zen-paper); } /* the terminal layer's pair is two words too, above its own pill rules (ZVL-F001) */
+[data-view="zen"] .zen-term-host :is(.pad-no, .tcard-mask) { border-color: transparent; background: transparent; color: var(--zen-ash); }
+[data-view="zen"] .zen-term-host :is(.pad-yes, .tcard-go):hover:not(:disabled) { background: var(--zen-glow); }
+[data-view="zen"] .zen-term-host :is(.pad-no, .tcard-mask):hover:not(:disabled) { background: transparent; color: var(--zen-paper); }
+[data-view="zen"] .zen-term-host .tcard-mask[aria-pressed="true"] { background: transparent; color: var(--zen-paper); }
+/* The companion: what you said stands at the right in ash, with no ground of its own; the log's "N new" and jump-to-latest are quiet words on the ink. */
+[data-view="zen"] .zen-log .bubble { padding-inline: 0; background: transparent; color: var(--zen-ash); }
+[data-view="zen"] .chat-pill { border-color: transparent; background: color-mix(in srgb, var(--zen-ground) 88%, transparent); color: var(--zen-ash); }
+/* The context and the terminal: no frame, the ink goes on under them; the context's ends fade. */
+[data-view="zen"] .zen-history { border-color: transparent; background: transparent; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }
+[data-view="zen"] .zen-term-host .term-scroll { border-color: transparent; background: transparent; }
+[data-view="zen"] .tcard .tcard-cmd { border-color: transparent; background: var(--zen-tint); }
+[data-view="zen"] .zen-term-esc { background: transparent; }
+/* The palette, the corner menu, and the music list: the page recedes behind them (dark and blurred), and their words float on the ink in the middle, without a panel. */
+[data-view="zen"] .palette-back { background: var(--zen-veil); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+[data-view="zen"] .palette-panel { gap: 18px; width: min(30rem, 100%); max-height: min(36rem, calc(100dvh - 40px)); margin-top: 14vh; border-color: transparent; background: transparent; box-shadow: none; }
+[data-view="zen"] .palette-box { border: 1px solid transparent; border-bottom-color: var(--zen-line); border-radius: 0; background: transparent; text-align: center; font: 400 1.15rem var(--serif); letter-spacing: 0.1em; }
+[data-view="zen"] .palette-box:focus { outline: none; border-bottom-color: var(--zen-ash); }
+[data-view="zen"] .palette-list { -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }
+[data-view="zen"] .palette-item { justify-content: center; gap: 14px; border-color: transparent; border-radius: 0; color: var(--zen-ash); letter-spacing: 0.06em; transition: color 0.3s var(--zen-ease); }
+[data-view="zen"] .palette-item:hover, [data-view="zen"] .palette-item[aria-selected="true"] { border-color: transparent; background: transparent; color: var(--zen-paper); }
+[data-view="zen"] .palette-item[aria-selected="true"] .palette-label { text-decoration: underline 1px var(--zen-seal); text-underline-offset: 7px; }
+[data-view="zen"] .palette-hint { font-size: 0.78rem; }
+[data-view="zen"] .palette-item:is([data-id="settings"], [data-id="standard"]:not([data-id="settings"] + *), [data-id="sound"], [data-id="music"]:not([data-id="quieter"] + *)), [data-view="zen"] .palette-item:not([data-id^="view:"]) + .palette-item[data-id^="view:"], [data-view="zen"] .palette-item:not([data-id^="language:"]) + .palette-item[data-id^="language:"] { margin-top: 14px; } /* the groups: this session, the page, the view, the language, the sound */
+[data-view="zen"] :is(.zen-menu, .zen-musicpanel) { border-color: transparent; background: transparent; box-shadow: none; }
+[data-view="zen"] :is(.zen-menuhost:has(> .zen-menu:not([hidden])), .zen-musichost:has(> .zen-musicpanel:not([hidden])))::before { content: ""; position: fixed; inset: 0; z-index: -1; background: var(--zen-veil); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); pointer-events: auto; /* the veil takes the press that closes the list: it never reaches the card under it (ZVL-F002) */ animation: zen-fade 0.4s var(--zen-ease) both; }
+[data-view="zen"] :is(.zen-opt, .zen-leave) { border-color: transparent; color: var(--zen-ash); transition: color 0.3s var(--zen-ease); }
+[data-view="zen"] :is(.zen-opt, .zen-leave):hover { background: transparent; color: var(--zen-paper); }
+[data-view="zen"] .zen-opt:is([aria-pressed="true"], [aria-checked="true"]) { border-color: transparent; background: transparent; color: var(--zen-paper); }
+[data-view="zen"] .zen-opt:is([aria-pressed="true"], [aria-checked="true"])::before { content: "● "; font-size: 0.6em; vertical-align: 0.25em; }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-music-btn, .zen-musicmore, .zen-opt, .zen-esc) { transition: none; } [data-view="zen"] .zen-card-in > *, [data-view="zen"] .zen-card [data-fade] { animation: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .tcard { animation: none; } }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .palette { animation: none; } }
@@ -253,4 +321,5 @@
 	[data-view="zen"] .zen-qs > .ask-one[data-dim] { opacity: 0.6; border: 1px dashed GrayText; border-radius: 12px; } /* faded stays readable, and the border says it is the other question */
 	[data-view="zen"] :is(.zen-opt, .zen-leave, .ask-opt, .ask-send, .cmp-send, .ask-cancel, .cmp-alt, .zen-skip)[aria-pressed="true"], [data-view="zen"] :is(.ask-opt, .zen-opt)[aria-checked="true"] { border: 1px solid Highlight; }
 	[data-view="zen"] :is(.ask-send, .cmp-send) { border: 1px solid ButtonText; }
+	[data-view="zen"] .zen-card .ask-opt[aria-checked="true"]::before { forced-color-adjust: none; border-color: Highlight; background: Highlight; } /* the chosen dot, which the block's transparent fill would lose (ZVL-F003) */
 }

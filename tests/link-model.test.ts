@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LinkAlert } from "../src/link/holder.ts";
-import { alertLine, allyMark, countdown, dialogState, dialogStateLine, hasLinkNews, lastSeen, remoteAnswer, remoteDialog, stateName, urgentFirst } from "../gui/linkmodel.ts";
+import { alertLine, allyMark, countdown, dialogState, hasLinkNews, lastSeen, stateName, urgentFirst } from "../gui/linkmodel.ts";
+import { dialogStateLine, remoteAnswer, remoteDialog } from "../gui/linkdialogmodel.ts";
 import { m } from "../gui/paraglide/messages.js";
 
 // What the page says about Straw Link (gui/linkmodel.ts): the notices in words, an invite's countdown, a teammate's last presence, and the marks of an ally base.
@@ -73,7 +74,7 @@ const forwarded = (extra: LinkAlert["data"] = {}, dialog: unknown = { select: SE
 
 test("a forwarded dialog names its device and owner, and its state reads from the holder's fields", () => {
 	assert.equal(alertLine(forwarded()), "ci-box (abc123) in team moldplan asks a question (rpiv).");
-	assert.deepEqual([{}, { answered: 1 }, { closed: "remote" }, { closed: "remote", answered: 1 }, { closed: "local" }, { closed: "cancel" }, { closed: "gone" }].map((d) => dialogState(forwarded(d))),
+	assert.deepEqual(([{}, { answered: 1 }, { closed: "remote" }, { closed: "remote", answered: 1 }, { closed: "local" }, { closed: "cancel" }, { closed: "gone" }] as LinkAlert["data"][]).map((d) => dialogState(forwarded(d))),
 		["open", "sent", "done-other", "done-here", "done-local", "cancelled", "expired"]);
 	for (const s of ["sent", "done-here", "done-other", "done-local", "cancelled", "expired"] as const) {
 		assert.ok(dialogStateLine(s).length > 0);

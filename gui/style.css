@@ -973,8 +973,10 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .link-alert[data-level="warning"] { background: color-mix(in srgb, var(--amber) 9%, transparent); }
 .link-args { margin: 0; max-height: 180px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-word; }
 .link-note { color: var(--dim); } .link-note:empty, .link-dialog:empty { display: none; }
-.link-alert .ask { margin: 0; } /* the card is the border: the question panel inside sits flat */
-.link-alert[data-kind="dialog"][data-state="done-here"] .link-note { color: var(--ok); } .link-alert[data-kind="dialog"]:is([data-state="expired"], [data-state="cancelled"], [data-state="done-other"], [data-state="done-local"]) { opacity: 0.8; }
+.link-alert .ask { margin: 0; padding: 0; border: 0; background: none; } /* the card is the border: the question panel inside sits flat, not a box in a box */
+.link-alert .ask-acts { position: sticky; bottom: -8px; padding: 6px 0 8px; background: var(--card); } /* Send answer stays in view while a long list scrolls, on the card's own opaque colour */
+.link-alert[data-kind="dialog"] { --card: color-mix(in srgb, var(--amber) 9%, var(--raised)); background: var(--card); } .link-alert[data-kind="dialog"][data-level="info"] { --card: var(--raised); }
+.link-alert[data-kind="dialog"]:not([data-state="open"]) .link-note { color: var(--text); font-size: 13px; } .link-alert[data-kind="dialog"][data-state="done-here"] .link-note { color: var(--ok); } .link-alert[data-kind="dialog"][data-state="expired"] .link-note { color: var(--gold); } /* how it ended, in words you can read: an ended card is no less legible than an open one */
 .teams-tile { display: grid; gap: 14px; padding: 4px 2px 12px; font-size: 13px; }
 .teams-tile .go { --c: var(--accent); border: 0; } /* Create team and Join: a Go button fills with --c, which only a state or a tile that sets it has */
 .teams-tile h3 { font-size: 15px; } .teams-tile h4 { font-size: 13px; margin: 0 0 4px; }

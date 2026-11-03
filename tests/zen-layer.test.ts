@@ -18,6 +18,7 @@ import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 /** A Zen keydown as the page routes it: the keymap's row for the face, then the layer's answer (what main.ts does through the core). */
 const press = (z: { tap(): boolean }, target: unknown, key: string) => hotkeyOf({ key, ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target }, false, false, "zen") === "pause" && z.tap();
 const { DRAFT_MS, mountZen, real } = await import("../gui/zen.ts");
+const { onStep } = await import("../gui/terminalthen.ts");
 type Exit = import("../gui/zen.ts").Exit;
 
 const unit = (key: string, mark: Mark, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
@@ -107,6 +108,23 @@ test("an answerable select draws through the dialog's own panel: Send, Cancel wh
 	r.by((el) => el.getAttribute("role") === "radio")[2]!.click();
 	r.button("Send answer")!.click();
 	assert.deepEqual(r.calls.posts.map((p) => [p.key, p.action, p.body.choice, p.body.dialog]), [["a", "answer", 2, "d1"]], "the same route and body as Standard");
+});
+
+test("an accepted answer that leaves a step in a terminal opens the card of the unit's own terminal: the step names the asking unit's key (M34)", async () => {
+	const steps: unknown[] = [];
+	onStep((step) => steps.push(step));
+	try {
+		const r = rig();
+		r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select() })]));
+		r.z.show();
+		await r.settle();
+		r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
+		r.button("Send answer")!.click();
+		await r.reply({ outcome: "accepted", then: { terminal: true } });
+		assert.deepEqual(steps, [{ kind: "prompt", key: "a", asker: "a", command: undefined }]);
+	} finally {
+		onStep(undefined);
+	}
 });
 
 test("a questionnaire has Send and Cancel; no Cancel without an owner that takes one", async () => {

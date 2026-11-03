@@ -285,7 +285,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// 0.20.0 to 106 for an entry's images served one by one as their bytes (image).
 	assert.ok(count("src/watch.ts") <= 106, `src/watch.ts has ${count("src/watch.ts")} lines`);
 	// Pane balance is a separate extension entry with its plain-JavaScript helper.
-	assert.ok(count("src/balance.ts") + count("src/balance.mjs") <= 220, "src/balance.ts and src/balance.mjs stay small");
+	// after-close ends when Herdr is gone (desk U13, BG-F001): balance.mjs 178 to 185, the locale-free `os error` set and its note.
+	assert.ok(count("src/balance.ts") + count("src/balance.mjs") <= 222, "src/balance.ts and src/balance.mjs stay small");
 	// The blocked relay (rpiv-ask-user-question, and pi's own dialog prompts) is its own extension entry too. It was 25 lines for the rpiv relay alone;
 	// the dialog relay raised it to 42 for the label of a dialog's title and the signed count that keeps the pairs balanced when pi delivers an end ahead of its start, and the guard for an end that reaches a retired runtime.
 	assert.ok(count("src/blocked.ts") <= 42, "src/blocked.ts stays small");

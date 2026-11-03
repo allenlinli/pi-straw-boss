@@ -918,10 +918,11 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Views-core R5 (sessionfacts.ts joins the lazy chunks, shared by the focus views and Zen): 252,252 / 102,042, +87 raw / +72 gzipped, cap 252,300 / 102,050.
 	// Z5+Z6+eager trim (zensound.ts, zenmusicbar.ts, zenmusic.ts, zenpage.ts, zenunits.ts join the lazy chunks): 269,304 / 108,191 measured, cap 269,319 / 108,206.
 	// Eager trim round 2 (zenrows.ts joins the lazy chunks): 269,969 / 108,469 measured, cap 269,984 / 108,484.
+	// Zen Z7 layout fixes (the history box scrolled into view when it opens): 270,012 / 108,491 measured, +43 raw / +22 gzipped, cap 270,025 / 108,500.
 	const musicChunk = chunks.find((n) => n.startsWith("zenmusic-")); // zenmusic.ts is a chunk of its own: at most 4 KB raw (the spec's Asset budget)
 	assert.ok(musicChunk, "the music chunk (createPlayer) is in the build");
 	assert.ok(size(musicChunk).length <= 4096, `the music chunk is ${size(musicChunk).length} bytes`);
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 269_984 && total(chunks, gz) <= 108_484, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 270_025 && total(chunks, gz) <= 108_500, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1010,7 +1011,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen's yellows (the ochre tokens, the muted mirror, the paper tokens): 124,740 / 26,839, cap 124,800 / 26,900.
 	// Merge of the terminal card's T4 with main's Zen yellows: 128,119 / 27,465, cap 128,150 / 27,500.
 	// Z5+Z6 (zen.css music and sound rows) took the stylesheet to 131,608 / 27,977 (measured at 314cad1 and after the eager-entry trim), cap +15.
-	assert.ok(total(css, (n) => size(n).length) <= 131_623 && total(css, gz) <= 27_992, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Zen Z7 layout fixes (the ring-less focus, the log's pill box, unsqueezed choices, the open history's rules, the phone and 900 px tightening, the strip's phone place): 133,483 / 28,223 measured, +1,875 raw / +246 gzipped, cap 133,500 / 28,240.
+	assert.ok(total(css, (n) => size(n).length) <= 133_500 && total(css, gz) <= 28_240, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

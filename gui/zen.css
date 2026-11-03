@@ -16,6 +16,9 @@
 [data-view="zen"] #zen[hidden] { display: none; }
 [data-view="zen"] #zen :focus-visible { outline: 2px solid var(--zen-seal); outline-offset: 3px; border-radius: 8px; }
 [data-view="zen"] #zen :is(button, input, textarea) { font-family: inherit; }
+/* The pause's circle and the item's card take the focus from the script only so that Enter, Space, and the keys find the layer (zen.ts): neither is a control, so neither wears a ring, and the circle keeps its round shape. */
+[data-view="zen"] #zen :is(.zen-circle, .zen-card):focus-visible { outline: none; }
+[data-view="zen"] #zen .zen-circle:focus-visible { border-radius: 50%; }
 /* The ground: two layers cross-fade over 90 s, and the washes inside the circle drift. */
 [data-view="zen"] .zen-drift { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 [data-view="zen"] .zen-drift i { position: absolute; inset: 0; }
@@ -100,16 +103,22 @@
 [data-view="zen"] .zen-said:empty { display: none; }
 [data-view="zen"] .zen-acts { display: flex; justify-content: center; }
 [data-view="zen"] .zen-acts { flex-wrap: wrap; gap: 4px 8px; }
+/* A trust question's lists are centred like the rest of the card, without bullets: a bullet sits at the list's left edge, far from a centred item. */
+[data-view="zen"] .zen-card .trust-group ul { padding: 0; list-style: none; } [data-view="zen"] .zen-card .trust-more { margin-left: 0; }
 [data-view="zen"] .zen-history[hidden] { display: none; }
 [data-view="zen"] .zen-history { display: grid; max-height: min(46vh, 26rem); min-height: 0; text-align: left; border: 1px solid var(--zen-line); border-radius: 14px; background: var(--zen-sunken); overflow: hidden; }
 [data-view="zen"] .zen-history .zen-log { min-height: 0; }
+/* The history is open: the item above it (the question, every choice, the send row) stays whole, and the box takes the room that is left, down to 12rem; when the item and that minimum do not fit the page, the card scrolls as one. */
+[data-view="zen"] .zen-card:has(.zen-history:not([hidden])) :is(.zen-answer, .zen-ask, .ask) { flex: none; }
+[data-view="zen"] .zen-card:has(.zen-history:not([hidden])) .zen-ask .ask > :not(.ask-acts, .ask-note) { flex: none; min-height: 0; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+[data-view="zen"] .zen-card:has(.zen-history:not([hidden])) .zen-history { flex: 1 1 12rem; min-height: 12rem; max-height: min(46vh, 26rem); }
 [data-view="zen"] .zen-history-btn { min-height: 44px; min-width: 44px; }
 [data-view="zen"] .zen-out { margin: 0; min-height: 1.2em; }
 [data-view="zen"] .zen-out[data-tone="error"] { color: var(--zen-clay); }
 [data-view="zen"] .zen-card :is(.ask-q, .ask-title) { font: 400 clamp(1.3rem, 3.4vw, 1.9rem)/1.6 var(--serif); letter-spacing: 0.06em; text-wrap: balance; }
 [data-view="zen"] .zen-card :is(.ask-head, .ask-term, .ask-why, .ask-note, .ask-opt small) { color: var(--zen-ash); }
 [data-view="zen"] .zen-card .ask { border: 0; background: none; padding: 0; box-shadow: none; }
-[data-view="zen"] .zen-card .ask-opts { gap: 8px; }
+[data-view="zen"] .zen-card .ask-opts { gap: 8px; grid-auto-rows: max-content; } /* a short room scrolls the list; it never squeezes a choice below its label and description */
 [data-view="zen"] .zen-card :is(.ask-opt b, .ask-head, .ask-title) { font-weight: 400; }
 [data-view="zen"] .zen-card .ask-head { background: none; text-transform: none; letter-spacing: 0.12em; }
 [data-view="zen"] .zen-card button.ask-opt { padding: 10px 20px; min-height: 44px; border: 1px solid transparent; border-radius: 24px; background: var(--zen-soft); color: var(--zen-paper); font: 400 1.1rem/1.5 var(--serif); letter-spacing: 0.08em; text-align: center; transition: background-color 0.8s var(--zen-ease), border-color 0.8s var(--zen-ease); }
@@ -146,10 +155,10 @@
 [data-view="zen"] .zen-sum-a { flex: 0 2 auto; min-width: 0; overflow: hidden; white-space: pre; text-overflow: ellipsis; color: var(--zen-ash); }
 /* The companion: the log and the composer on the same ink. */
 [data-view="zen"] .zen-company { position: relative; z-index: 1; width: min(46rem, 100%); min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; }
-[data-view="zen"] .zen-company > header { min-height: 44px; padding-right: 100px; }
+[data-view="zen"] .zen-company > header { min-height: 44px; padding: 24px 100px 0 0; box-sizing: content-box; } /* the strip (centred at the top) has the line above the name, and the corner buttons the room to its right */
 [data-view="zen"] .zen-company .zen-who { font-size: 1.3rem; text-align: left; }
 [data-view="zen"] .zen-company .zen-meta { text-align: left; }
-[data-view="zen"] .zen-log { min-height: 0; display: grid; overflow: hidden; }
+[data-view="zen"] .zen-log { position: relative; min-height: 0; display: grid; overflow: hidden; } /* the log's jump-to-latest pill sits at the log's foot, above the composer (Standard's chat root is its own positioned box) */
 [data-view="zen"] .zen-log .chat-scroll, [data-view="zen"] .zen-log .chat-root { min-height: 0; }
 /* Scrolling the log only scrolls it: at its ends nothing chains to the page (no pull-to-refresh, no history swipe), and a finger moves it up and down only (zen.ts keeps the draft's hold, zenmodel.ts). */
 [data-view="zen"] .zen-log .chat-scroll { overscroll-behavior: contain; touch-action: pan-y; }
@@ -192,7 +201,26 @@
 /* The page holds still (calm.ts: 30 s without input): the circle rests at its exhaled size, the ground on one layer. */
 [data-view="zen"][data-calm] :is(.zen-circle, .zen-circle i, .zen-drift i) { animation: none; }
 [data-view="zen"][data-calm] .zen-drift i:last-child { opacity: 0; }
+@media (max-height: 900px) { /* a page of an ordinary laptop or phone: the card spends less on air, so a question with five two-line choices still shows them all, and only a longer one scrolls */
+	[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { gap: 10px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) :is(.ask-q, .ask-title) { font-size: clamp(1.2rem, 3.2vw, 1.6rem); line-height: 1.4; }
+	[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-answer, .zen-ask, .ask) { gap: 6px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .ask-opts { gap: 6px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) button.ask-opt { padding-block: 7px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .zen-out:empty { min-height: 0; }
+}
 /* A short window (a phone turned sideways, a small browser): the card gives the questions the room: no unit sub-line or intro, a smaller name, question and gaps, and a send row that stays one line. */
+@media (max-width: 640px) { /* a phone's strip stands at the left, clear of the corner buttons (the fullscreen, the music with its list, and the menu take the right 160 px) and above the companion's name */
+	[data-view="zen"] .zen-strip { left: max(12px, env(safe-area-inset-left)); translate: none; max-width: calc(100vw - 190px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+}
+@media (max-width: 600px) { /* a phone: the choices and the gaps are a little tighter, so more of the list is in view before it scrolls */
+	[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { gap: 6px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-answer, .zen-ask, .ask) { gap: 4px; }
+	[data-view="zen"] .zen-card:has(.zen-ask) .ask-opts { gap: 5px; }
+	[data-view="zen"] .zen-card button.ask-opt { padding: 6px 16px; font-size: 1rem; line-height: 1.4; }
+	[data-view="zen"] .zen-card .ask-opt small { font-size: 0.78rem; line-height: 1.35; }
+	[data-view="zen"] .zen-card:has(.zen-ask) :is(.ask-q, .ask-title) { font-size: 1.25rem; }
+}
 @media (max-height: 560px) {
 	[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { gap: 4px; padding: 4px; }
 	[data-view="zen"] .zen-card:has(.zen-qs) :is(.zen-meta, .zen-said) { display: none; }

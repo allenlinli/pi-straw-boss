@@ -103,7 +103,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			ctx.textContent = hist?.isOpen() ? m.zen_history_hide() : m.zen_history();
 			if (hist && !hist.el.hidden) hist.el.setAttribute("aria-label", m.zen_history_label());
 		};
-		const toggle = () => (sync(), ctx.hidden || !hist ? false : (hist.toggle(ctx), fade(hist.el), true));
+		const toggle = () => (sync(), ctx.hidden || !hist ? false : (hist.toggle(ctx), fade(hist.el), hist.isOpen() && hist.el.scrollIntoView?.({ block: "nearest" }), true)); // a card taller than the page scrolls to show the box it just opened
 		ctx.onclick = () => void toggle();
 		ctx.hidden = true;
 		skip.onclick = () => apply(model.skip());

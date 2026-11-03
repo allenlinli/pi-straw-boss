@@ -159,3 +159,43 @@ test("the terminal card's input label is only for screen readers, in every view:
 	assert.match(rules[0]!, /position:\s*absolute[^}]*width:\s*1px[^}]*height:\s*1px[^}]*clip-path:\s*inset\(50%\)/);
 	assert.doesNotMatch(css + zen, /tcard-row:focus-within/, "nothing reveals it on focus");
 });
+
+// Zen Z7 layout fixes: each of these was a defect seen in the demo's pictures at 390 x 844, 844 x 390, or 1280 x 800.
+const zenRule = (needle: string) => rulesOf(zen).filter((r) => r.parts.some((p) => p.includes(needle)));
+
+test("Zen: the log is the positioned box of its jump-to-latest pill, so the pill sits above the composer", () => {
+	const log = zenRule(".zen-log").find((r) => r.parts.includes('[data-view="zen"] .zen-log'))!;
+	assert.match(log.body, /position:\s*relative/);
+	assert.match(css, /\.chat-root \{ position: relative/, "Standard's own place for the pill is unchanged");
+});
+
+test("Zen: a choice is never squeezed below its label and description, and the list scrolls instead", () => {
+	assert.match(zenRule(".zen-card .ask-opts").map((r) => r.body).join(";"), /grid-auto-rows:\s*max-content/);
+});
+
+test("Zen: the open history leaves the item whole and takes the room that is left", () => {
+	const open = ':has(.zen-history:not([hidden]))';
+	const rules = rulesOf(zen).filter((r) => r.selector.includes(open));
+	const body = (needle: string) => rules.filter((r) => r.selector.includes(needle)).map((r) => r.body).join(";");
+	assert.match(body(".zen-answer"), /flex:\s*none/);
+	assert.match(body(".ask > :not"), /overflow:\s*visible/);
+	assert.match(body(".ask > :not"), /mask-image:\s*none/, "no soft edge over the question's subtitle");
+	assert.match(body(".zen-history"), /flex:\s*1 1 12rem[^}]*min-height:\s*12rem/);
+});
+
+test("Zen: the pause's circle and the item's card take the focus without a ring, and the circle stays round", () => {
+	const ring = rulesOf(zen).filter((r) => r.selector.includes(".zen-circle, .zen-card):focus-visible"));
+	assert.equal(ring.length, 1);
+	assert.match(ring[0]!.body, /outline:\s*none/);
+	assert.match(zenRule(".zen-circle:focus-visible").map((r) => r.body).join(";"), /border-radius:\s*50%/);
+});
+
+test("Zen: a trust list is centred without bullets, and the companion's name has the line below the strip", () => {
+	assert.match(zenRule(".trust-group ul").map((r) => r.body).join(";"), /list-style:\s*none/);
+	assert.match(zenRule(".zen-company > header").map((r) => r.body).join(";"), /padding:\s*24px 100px 0 0/);
+});
+
+test("Zen: on a phone the status strip stands at the left, clear of the corner buttons", () => {
+	const narrow = /@media \(max-width: 640px\) \{[^@]*\.zen-strip \{[^}]*left:\s*max\(12px[^}]*translate:\s*none[^}]*max-width:\s*calc\(100vw - 190px\)/;
+	assert.match(zen, narrow);
+});

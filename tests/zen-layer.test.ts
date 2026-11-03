@@ -218,6 +218,17 @@ test("a trust question draws the trust panel with its three choices, answers thr
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 });
 
+test("a trust question's choices are disabled while the link is offline and enabled while it is live", async () => {
+	for (const offline of [true, false]) {
+		const r = rig({ offline });
+		r.feed(net([], [TRUST]));
+		r.z.show();
+		await r.settle();
+		const choices = ["Trust", "Trust this time", "Don't trust"].map((label) => r.button(label)!);
+		assert.deepEqual(choices.map((c) => c.disabled), choices.map(() => offline), offline ? "no trust answer while offline" : "answerable while online");
+	}
+});
+
 test("a unit that waits with no dialog has its last line, Not now, and Open the terminal, with no composer", async () => {
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { name: "docs-main", since: 5 })]));

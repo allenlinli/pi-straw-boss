@@ -96,3 +96,15 @@ test("a project trust question's dialog answers through the fixture's trust rout
 	await settle();
 	assert.deepEqual([calls.trusts.length, fetched], [1, []]);
 });
+
+test("a dock dialog the page cannot answer sends the user to the unit's terminal: Show terminal asks the page to show that unit's terminal", () => {
+	const layer = mount();
+	const readonly = { ...alert, pending: { callId: "c4", tool: "ask_user_question", why: "Two dialogs are open." } as Pending };
+	layer.alerts([readonly], new Map([[readonly.key, readonly]]));
+	layer.stack.show(readonly);
+	assert.equal(send(), undefined, "nothing to answer here");
+	const show = dock.all((el) => el.tagName === "button" && el.textContent === "Show terminal")[0];
+	assert.ok(show, "the dialog offers the terminal");
+	show.click();
+	assert.deepEqual(calls.shown, ["u1"], "the unit's terminal");
+});

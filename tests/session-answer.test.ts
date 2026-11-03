@@ -18,18 +18,18 @@ const unit = (extra: object = {}) => ({ key: "k", name: "billing", role: "sessio
 const settle = () => new Promise((done) => setImmediate(done));
 
 async function mounted(u: object | undefined, info: object = { name: "billing", role: "session", state: "live" }) {
-	const posts: string[] = [], online = { on: true };
+	const posts: string[] = [], embeds: string[] = [], online = { on: true };
 	const scene = { route: { view: "session", ws: "w1", key: "k" }, net: { bases: [{ id: "w1", label: "w1", tabs: [], outside: u ? [u] : [] }] }, cards: {}, info } as never;
 	const data = { older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined, post: async (action: string, body: Record<string, unknown>) => (posts.push(`${action} ${body.dialog}`), { ok: true, status: 200, body: { outcome: "accepted" } }) };
 	const view = new El("div");
 	page.body.replaceChildren(view);
-	const session = mountSession(scene, { view: view as never, data: () => data as never, openTile() {}, embedTerminal: async () => () => {}, online: () => online.on, fullScreen() {}, opened() {} });
+	const session = mountSession(scene, { view: view as never, data: () => data as never, openTile() {}, embedTerminal: async (key: string) => (embeds.push(key), () => {}), online: () => online.on, fullScreen() {}, opened() {} });
 	session.open("k");
 	await settle();
 	await settle();
 	const draw = () => session.draw({ u: u as never, hit: undefined, mk: (u as { mark?: "waiting" } | undefined)?.mark ?? "unknown", state: "live", name: "billing" } as never);
 	draw();
-	return { posts, online, draw, view, choices: () => view.all((el) => el.getAttribute("role") === "radio"), send: () => view.all((el) => el.tagName === "button" && el.textContent === "Send answer")[0], bar: () => view.find((el) => el.classes.has("cmp-bar"))[0]! };
+	return { posts, embeds, online, draw, view, choices: () => view.all((el) => el.getAttribute("role") === "radio"), send: () => view.all((el) => el.tagName === "button" && el.textContent === "Send answer")[0], bar: () => view.find((el) => el.classes.has("cmp-bar"))[0]! };
 }
 
 test("the question panel answers only while the unit has a control and the stream is live", async () => {
@@ -58,4 +58,15 @@ test("an ally or event run the net does not list takes its role to the composer:
 	assert.equal((await mounted(undefined, { name: "e1", role: "run", state: "live" })).bar().textContent, m.blocked_run());
 	const listed = await mounted(unit({ pending: undefined, mark: "idle" }), { name: "billing", role: "ally", state: "live" });
 	assert.equal(listed.bar().hidden, true, "a listed unit with a control keeps its composer");
+});
+
+test("a dialog the page cannot answer sends the user to the unit's terminal: Show terminal embeds that unit's terminal, not the chat", async () => {
+	const w = await mounted(unit({ pending: { callId: "c4", tool: "ask_user_question", why: "Two dialogs are open." } }));
+	assert.equal(w.send(), undefined, "nothing to answer here");
+	const show = w.view.all((el) => el.tagName === "button" && el.textContent === m.show_terminal())[0];
+	assert.ok(show, "the dialog offers the terminal");
+	assert.deepEqual(w.embeds, []);
+	show.click();
+	await settle();
+	assert.deepEqual(w.embeds, ["k"], "the unit's terminal is embedded");
 });

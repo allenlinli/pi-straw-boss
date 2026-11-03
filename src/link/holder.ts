@@ -9,7 +9,7 @@ import type { LinkConfig } from "./config.ts";
 import { shortId, type DeviceKeys } from "./device.ts";
 import { buildEnvelope, openEnvelope, parseEnvelope, recordTaken, type Header, type ReceiveState } from "./envelope.ts";
 import { PayloadTooLargeError, RelayError, UnauthorizedError } from "./errors.ts";
-import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, encodePlaintext, LIMITS, type Presence, type TowerMessage, type TowerReply, type WorkspaceState } from "./kinds.ts";
+import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, LIMITS, type Presence, type TowerMessage, type TowerReply, type WorkspaceState } from "./kinds.ts";
 import { type AdminRun, type InviteView, type JoinRequestView, type JoinView, type Prefill, TeamAdmin, type TeamView } from "./admin.ts";
 import { Outbox, type QueuedEnvelope } from "./outbox.ts";
 import { Requests } from "./request.ts";
@@ -19,6 +19,7 @@ import { inside, nearestTeams, oneTeamEach, resolveDevice, towersFor, type Membe
 import type { Backoff, Sleep } from "./retry.ts";
 import type { Disposition, EnvelopeEvent, RelayEvent, RosterEvent } from "./sse.ts";
 import { TeamFileError, type InboxItem, type LinkStore, type TeamFile, type ThreadRow } from "./store.ts";
+import { type DialogAnswerInput, DialogViews, newAnswerId } from "./dialogs-out.ts";
 import { towerRunsEnabled } from "../server/towerruns.ts";
 
 // The link holder's work (docs/specs/2026-10-25-straw-link.md, Link holder). Only the session the election names runs this: it reads the device
@@ -78,6 +79,8 @@ export interface HolderOptions {
 	/** How often `caps` is sent unchanged (default an hour) and the least time between two (default 15 s). */
 	capsMs?: number;
 	capsMinMs?: number;
+	/** An unattended device: where a `dialog-answer` goes once the sender is checked to be attended and at `dispatch` now (src/link/dialogs-out.ts `DialogForwarder.answer`, which checks the rest). */
+	dialogAnswer?: (a: DialogAnswerInput) => void | Promise<void>;
 }
 
 export interface ConfirmRequestInput { fromSession: string; team: string; device: string; dialogId: string; digest: string; tool: string; args: string; tower: string }
@@ -89,7 +92,7 @@ const CONFIRM_MAX = 20;
 export interface SendRequest { fromSession: string; device: string; workspace?: string; text: string; reply: boolean; awaitsReply?: string; inReplyTo?: string }
 export type SendResult = { ok: true; text: string; details: Record<string, unknown> } | { ok: false; error: string };
 /** What the GUI shows as a notice. `data` is plain text and numbers: the page puts them in text nodes. */
-export type AlertKind = "join-request" | "confirm" | "fork" | "mismatch" | "unreachable" | "inbox" | "held" | "served";
+export type AlertKind = "join-request" | "confirm" | "dialog" | "fork" | "mismatch" | "unreachable" | "inbox" | "held" | "served";
 /** A tower the sb server runs (src/server/towers.ts) is an identity, not a session: it takes no offer, so what is for it waits in the inbox until an ally run takes it (B6). */
 const SERVED_TOWER = /^sb-tower-/;
 /** The pi the server started for a run, which sits in the standing pane while the run lives: the message is the tower's, even if the run's pi is the session found there. */
@@ -187,6 +190,8 @@ export class LinkHolder {
 	private asked = new Map<string, { team: string; device: string; digest: string; tower: string; at: number }>();
 	/** Confirm requests other devices put to this one. */
 	private confirms = new Map<string, ConfirmView>();
+	/** Dialogs unattended devices forwarded to this one (src/link/dialogs-out.ts). */
+	private dialogViews = new DialogViews();
 	private draining: Promise<void> | undefined;
 	private again = false;
 	/** Inbox messages no tower has taken yet: no tower open, or offered and not taken. For the GUI's notices. */
@@ -493,6 +498,9 @@ export class LinkHolder {
 			else if (header.kind === "tower-reply") this.takeReply(run, roster, header, opened.message as TowerReply);
 			else if (header.kind === "confirm-request") this.takeConfirmRequest(run, roster, header, opened.message as ConfirmRequest);
 			else if (header.kind === "confirm-answer") this.takeConfirmAnswer(run, roster, header, opened.message as ConfirmAnswer);
+			else if (header.kind === "dialog-open") this.takeDialogOpen(run, roster, header, opened.message as DialogOpen);
+			else if (header.kind === "dialog-close") this.takeDialogClose(header, opened.message as DialogClose);
+			else if (header.kind === "dialog-answer") this.takeDialogAnswer(run, roster, header, opened.message as DialogAnswer);
 			else store.log({ event: "unhandled-kind", team: run.team, kind: header.kind, from: header.from });
 			// The sequence guard moves only after the message is in the inbox (or known not to need it), in the same locked write (R-F021).
 			const next = recordTaken(state, header);
@@ -951,6 +959,94 @@ export class LinkHolder {
 		return { ok: true };
 	}
 
+	// ---- Dialogs across devices (Unattended devices, Asking back) ------------------------------------------------------------------------
+
+	/** The attended members of a running team that this unattended device trusts at `dispatch` now: where its dialogs go. Nothing on an attended device. */
+	dialogControllers(): { team: string; device: string }[] {
+		if (!this.running || !this.device || (this.o.attended?.() ?? true)) return [];
+		const trust = this.o.config().trust, out: { team: string; device: string }[] = [];
+		for (const run of this.runs.values()) {
+			if (run.dead) continue;
+			try {
+				for (const [id, m] of this.loadTeam(run.team).state.members) if (id !== this.device.keys.id && m.attended && trust.get(id) === "dispatch") out.push({ team: run.team, device: id });
+			} catch { /* a team that cannot be read has no controllers now */ }
+		}
+		return out;
+	}
+	/** A `dialog-open` or `dialog-close` to one device of a team (the forwarder's way out). */
+	async sendDialog(team: string, device: string, kind: "dialog-open" | "dialog-close", payload: DialogOpen | DialogClose): Promise<void> {
+		const run = this.runs.get(team);
+		if (!run || run.dead || !this.running || !this.device) throw new Error("That team is not running on this device");
+		if (!this.loadTeam(team).state.members.has(device)) throw new Error("That device is not in the team");
+		await run.outbox.submit((seq) => {
+			const { state } = this.loadTeam(team), key = state.keys.get(state.epoch);
+			if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
+			return buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device!.keys, seq, ts: this.now(), kind, to: [device], plaintext: encodePlaintext(kind, payload as never) });
+		});
+	}
+	private memberLabel(team: string, device: string): string {
+		try {
+			return this.loadTeam(team).state.members.get(device)?.label ?? shortId(device);
+		} catch {
+			return shortId(device);
+		}
+	}
+	private takeDialogOpen(run: TeamRun, roster: RosterState, header: Header, p: DialogOpen): void {
+		const sender = roster.members.get(header.from);
+		// Only an attended device shows a question; only an unattended member of the team asks one (the envelope check enforces the kind's sender rule, this keeps the receiver honest on its own).
+		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "dialog-open-unexpected", from: header.from, kind: "dialog-open" });
+		const fresh = this.dialogViews.put({ team: run.team, device: header.from, dialogId: p.dialogId, digest: p.digest, owner: p.owner, dialog: p.dialog, at: this.now() });
+		if (fresh) this.o.notify(`Straw Link: ${sender.label} asks a question (${restrictLabel(p.owner)})`, "warning");
+	}
+	private takeDialogClose(header: Header, p: DialogClose): void {
+		this.dialogViews.drop(header.from, p.dialogId);
+	}
+	private takeDialogAnswer(run: TeamRun, roster: RosterState, header: Header, p: DialogAnswer): void {
+		const drop = (reason: string) => this.o.store.log({ event: "drop", team: run.team, reason, from: header.from, kind: "dialog-answer", dialog: p.dialogId });
+		const sender = roster.members.get(header.from), sink = this.o.dialogAnswer;
+		if (this.o.attended?.() ?? true) return drop("dialog-answer-attended-device");
+		if (!sender || !sender.attended) return drop("dialog-answer-sender");
+		if (this.o.config().trust.get(header.from) !== "dispatch") return drop("dialog-answer-level");
+		if (!sink) return drop("dialog-answer-unhandled");
+		void Promise.resolve().then(() => sink({ team: run.team, from: header.from, dialogId: p.dialogId, digest: p.digest, answer: p.answer, answerId: p.answerId })).catch((error: Error) => this.o.store.log({ event: "dialog-answer-failed", error: error.message }));
+	}
+	/** The forwarded dialogs waiting for this device's boss, of devices still in their team. */
+	dialogRequests() {
+		return this.dialogViews.list((v) => {
+			try {
+				return this.loadTeam(v.team).state.members.has(v.device);
+			} catch {
+				return false;
+			}
+		});
+	}
+	/** This device's boss (or a paired phone, through the GUI) answers a forwarded dialog: the answer goes to the device that asked, once per dialog. `answer` is JSON (dialogs-out.ts `RemoteAnswer`). */
+	async answerDialog(device: string, dialogId: string, digest: string, answer: string): Promise<{ ok: true } | { ok: false; error: string }> {
+		const v = this.dialogViews.get(device, dialogId);
+		if (!v) return { ok: false, error: "That question is gone" };
+		if (v.digest !== digest) return { ok: false, error: "The question changed; look at it again" };
+		if (v.answered) return { ok: false, error: "This device already answered that question" };
+		if (!(this.o.attended?.() ?? true)) return { ok: false, error: "An unattended device does not answer for others" };
+		if (Buffer.byteLength(answer) > LIMITS.dialog) return { ok: false, error: "The answer is too long" };
+		const run = this.runs.get(v.team);
+		if (!run || run.dead || !this.running || !this.device) return { ok: false, error: "That team is not running on this device" };
+		v.answered = true;
+		try {
+			await run.outbox.submit((seq) => {
+				const { state } = this.loadTeam(run.team), key = state.keys.get(state.epoch);
+				if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
+				return buildEnvelope({
+					team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device!.keys, seq, ts: this.now(), kind: "dialog-answer", to: [device],
+					plaintext: encodePlaintext("dialog-answer", { dialogId, digest, answer, answerId: newAnswerId() }),
+				});
+			});
+		} catch (error) {
+			v.answered = false;
+			return { ok: false, error: (error as Error).message };
+		}
+		return { ok: true };
+	}
+
 	// ---- Presence ----------------------------------------------------------------------------------------------------------------------
 
 	private async sendPresence(run: TeamRun): Promise<void> {
@@ -1120,6 +1216,7 @@ export class LinkHolder {
 		const now = this.now(), name = (team: string) => this.o.config().teams.get(team)?.name ?? team.slice(0, 6), out: LinkAlert[] = [];
 		for (const r of this.admin.joinRequests()) out.push({ id: `join/${r.id}`, kind: "join-request", level: "warning", team: r.team, teamName: r.teamName, data: { label: r.label, short: r.short, unattended: r.unattended ? 1 : 0 } });
 		for (const c of this.confirmRequests()) out.push({ id: `confirm/${c.dialogId}`, kind: "confirm", level: "warning", team: c.team, teamName: name(c.team), data: { label: c.fromLabel, short: c.fromShort, tool: restrictLabel(c.tool) } });
+		for (const v of this.dialogRequests()) out.push({ id: `dialog/${v.device}/${v.dialogId}`, kind: "dialog", level: "warning", team: v.team, teamName: name(v.team), data: { device: v.device, dialogId: v.dialogId, digest: v.digest, owner: v.owner, dialog: v.dialog, label: this.memberLabel(v.team, v.device), short: shortId(v.device), answered: v.answered ? 1 : 0 } });
 		for (const team of this.o.store.teamIds()) {
 			const why = this.stopped.has(team) ? (this.o.store.readStopped(team)?.reason ?? "stopped") : this.o.store.readStopped(team)?.reason;
 			const run = this.runs.get(team);

@@ -32,6 +32,10 @@ interface Channel { snapshot(): { connected: boolean; owner?: { sessionId: strin
 type Event = { type: string; fromSessionId?: string; sessionId?: string; owner?: { sessionId: string; epoch: string }; payload?: unknown };
 /** Where an answer for a unit goes: its bridge, in the session `from`. */
 export interface Target { from: string; bridgeId: string; answer: Answerable }
+/** A dialog the hub's last reading made answerable (not a secret, not terminal-only): the unit key, its owner, and where an answer goes. The sb server forwards these to a controller (src/link/dialogs-out.ts). */
+export interface Offer { key: string; owner: string; target: Target }
+/** Whether a dialog is still listed by a bridge; when not, who closed it (`remote` for an answer the hub carried, `local` for the terminal, else what the bridge said), `gone` when its bridge left or never said. */
+export type Outcome = { open: true } | { open: false; by: string };
 export interface Sent { status: number; body: { outcome: string; reason?: string; by?: string; then?: Then } }
 export type Hub = ReturnType<typeof createHub>;
 /**
@@ -88,6 +92,12 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 	// `active`: a page listens (start/stop). `tracking`: the sb server keeps the hub's channel and gate tracking up whether or not a page listens, so the Allows of an ally run's gated calls (allows.ts)
 	// are noted after `/boss gui stop` and when no GUI could start (track()).
 	let channel: Channel | undefined, epoch: string | undefined, active = false, tracking = false, change = () => {};
+	/** Subscribers that hear of every bridge change whether or not a page listens (`onChange`). */
+	const watchers = new Set<() => void>();
+	const changed = () => {
+		change();
+		for (const w of [...watchers]) try { w(); } catch { /* a subscriber must not break the relay */ }
+	};
 	let bound = new Map<string, { from: string; b: Dialogs }>(), targets = new Map<string, Target>(), reach = new Map<string, { from: string; bridgeId: string }>();
 	const bridges = new Map<string, Dialogs>(), waiting = new Map<string, (ack?: Ack) => void>(), done = new Map<string, { key: string; at: number; sent: Sent }>(), probes = new Map<string, (e?: Editor) => void>(), lists = new Map<string, (c?: Cmd[]) => void>(), pulls = new Map<string, (p?: Pull) => void>();
 	const closes = new Map<string, (r?: Pick<CloseResult, "accepted" | "reason">) => void>(), checks = new Map<string, (r?: { reason?: string }) => void>();
@@ -133,7 +143,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 		const queued = msg.type === "dialogs" && Array.isArray(msg.queued) && msg.queued.length <= MAX_QUEUED && msg.queued.every((q) => typeof q?.text === "string" && q.text.length <= QUEUED_TEXT && (q.as === "steer" || q.as === "followUp")) ? msg.queued.map(({ text, as }) => ({ text, as })) : undefined;
 		const monitors = msg.type === "dialogs" && monitorsOk(msg.monitors) ? msg.monitors.map(({ id, what, status, exit, last, lines, at, ended }) => ({ id, what, status, exit, last, lines, at, ended })) : undefined;
 		const todo = msg.type === "dialogs" && todoOk(msg.todo) ? { done: msg.todo.done, total: msg.todo.total, ...(msg.todo.now && { now: msg.todo.now }) } : undefined;
-		if (closed && str(msg.pane) && (msg.file === null || str(msg.file)) && Array.isArray(msg.dialogs) && msg.dialogs.every(valid)) (noteAllows(from, msg), bridges.set(from, { ...msg, ...(docs ? { documents: docs } : { documents: [], docsCut: true as const }), queued, monitors, todo }), change());
+		if (closed && str(msg.pane) && (msg.file === null || str(msg.file)) && Array.isArray(msg.dialogs) && msg.dialogs.every(valid)) (noteAllows(from, msg), bridges.set(from, { ...msg, ...(docs ? { documents: docs } : { documents: [], docsCut: true as const }), queued, monitors, todo }), changed());
 		if (msg.type === "ack") waiting.get([from, msg.bridgeId, msg.id, msg.answerId].join("\n"))?.(msg);
 		if (msg.type === "probe-result") probes.get([from, msg.bridgeId, msg.probeId].join("\n"))?.(checkProbe({ ...msg }));
 		if (msg.type === "pull-result" && str(msg.reqId)) pulls.get([from, msg.bridgeId, msg.reqId].join("\n"))?.(checkPull({ ...msg }));
@@ -147,7 +157,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 		if (e.type === "message" && e.fromSessionId) receive(e.fromSessionId, e.payload as ToHub);
 		if (e.type === "session_left" && e.sessionId) {
 			gates.delete(e.sessionId);
-			if (bridges.delete(e.sessionId)) change();
+			if (bridges.delete(e.sessionId)) changed();
 		}
 	};
 	/** One question to the bridge bound to `key`'s pane and file (this session's answers in-process): undefined with no such bridge or no answer within 1 s. */
@@ -183,7 +193,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 		return d.busy ? terminal("An answer is on its way; check the terminal.") : { ...rest, answer };
 	};
 	const hub: LocalHub & {
-		readonly running: boolean; readonly me: string; start(onChange: () => void): void; track(): void; stop(): void; relayed(sessions: Session[], refs: Map<string, Ref>): Relayed; target(key: string): Target | undefined;
+		readonly running: boolean; readonly me: string; onChange(cb: () => void): () => void; answerable(): Offer[]; outcome(dialogId: string): Outcome; start(onChange: () => void): void; track(): void; stop(): void; relayed(sessions: Session[], refs: Map<string, Ref>): Relayed; target(key: string): Target | undefined;
 		has(key: string, owner: string, at?: { pane?: string; file?: string }): boolean; replay(answerId: string, key: string): Sent | undefined; ended(key: string, dialog: string, answerId: string): Sent | undefined; send(key: string, t: Target, a: Answer): Promise<Sent>;
 		probe(key: string, nonce?: string): Promise<Editor | undefined>; pull(key: string, step: "begin" | "finish", ref?: string): Promise<Pull | undefined>; commands(key: string, prefix: string): Promise<Cmd[] | undefined>; close(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; stashCheck(key: string): Promise<{ reason?: string } | undefined>; doc(cap: string): { key: string; doc: Doc } | undefined; form(cap: string, answerId: string, fields: Fields): Promise<FormResult | undefined>;
 	} = {
@@ -192,6 +202,25 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 		has: (key, owner, at) => Boolean(bound.get(key)?.b.dialogs.some((d) => d.owner === owner)) || Boolean(at?.pane && at.file && [...bridges.values()].some((b) => b.pane === at.pane && canonical(b.file ?? undefined) === canonical(at.file) && b.dialogs.some((d) => d.owner === owner))),
 		get running() { return active; },
 		me,
+		/** Calls `cb` after each change in what bridges relay, with or without a page (`track` suffices); returns the way to stop. */
+		onChange(cb) {
+			watchers.add(cb);
+			return () => void watchers.delete(cb);
+		},
+		/** The dialogs the last `relayed` reading + `merge` made answerable, each with where an answer goes. */
+		answerable: () => [...targets].flatMap(([key, target]) => {
+			const d = bound.get(key)?.b.dialogs.find((x) => x.id === target.answer.dialog);
+			return d ? [{ key, owner: d.owner, target }] : [];
+		}),
+		/** Read from the bridges' own lists, not from the last binding, so a reading that is half done never reads as a close. */
+		outcome(dialogId) {
+			let by: string | undefined;
+			for (const b of bridges.values()) {
+				if (b.dialogs.some((d) => d.id === dialogId)) return { open: true };
+				by ??= b.closed.find((c) => c.id === dialogId)?.by;
+			}
+			return { open: false, by: by ?? "gone" };
+		},
 		/** The channel is registered at the first start, before gui.json names this session; later starts in this process reuse it. */
 		start(onChange) {
 			[change, active] = [onChange, true];

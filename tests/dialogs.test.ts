@@ -641,3 +641,27 @@ test("a dialog whose choice is tagged (robot_hand 0.4.0) stays valid and visible
 	y.h.receive("S", y.list([dialog({ select: bad as never, digest: selectDigest(bad) })], { file: path }));
 	assert.equal(y.h.target("S"), undefined, "tagged without next: pane is not a dialog");
 });
+
+test("hub subscribers hear every bridge change with no page listening; answerable lists what a page could answer, never a secret_drop; outcome reads the bridges' own lists", async () => {
+	const x = hub(), path = file([["c1", "robot_hand"]]), heard: number[] = [];
+	x.h.stop(); // no page: only the tracking keeps the hub reading
+	assert.equal(x.h.running, false);
+	x.h.track();
+	const off = x.h.onChange(() => heard.push(1));
+	x.h.receive("S", x.list([dialog()], { file: path }));
+	assert.deepEqual([heard.length, x.changes.length, x.h.running], [1, 0, false], "the subscriber hears it, the page's callback does not");
+	assert.deepEqual(x.h.answerable(), [], "nothing is bound before a reading");
+	await read(x, path);
+	assert.deepEqual(x.h.answerable(), [{ key: "S", owner: "robot-hand", target: { from: "S", bridgeId: "B", answer: { dialog: "d1", digest: selectDigest(SELECT), select: SELECT } } }]);
+	assert.deepEqual(x.h.outcome("d1"), { open: true });
+	x.h.receive("S", x.list([], { file: path, closed: [{ id: "d1", by: "remote", answerId: "a".repeat(16) }] }));
+	assert.deepEqual(x.h.outcome("d1"), { open: false, by: "remote" });
+	assert.deepEqual(x.h.outcome("never"), { open: false, by: "gone" });
+	const secret = file([["c1", "secret_drop"]]);
+	x.h.receive("S", x.list([dialog()], { file: secret }));
+	await read(x, secret);
+	assert.deepEqual(x.h.answerable(), [], "a secret_drop open is never offered");
+	off();
+	x.h.receive("S", x.list([dialog()], { file: path }));
+	assert.equal(heard.length, 3, "an unsubscribed callback hears nothing more");
+});

@@ -141,6 +141,11 @@
 [data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-answer, .zen-ask, .ask) { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; gap: 8px; }
 [data-view="zen"] .zen-ask .ask > :not(.ask-acts, .ask-note) { flex: 0 1 auto; min-height: 5rem; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding-block: 10px; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }
 [data-view="zen"] .zen-ask .ask > :is(.ask-acts, .ask-note) { flex: none; }
+/* One question's rows keep their own height (the several-question column has the same rule): a long question and many choices scroll the block, and never squeeze the own-answer box shut. */
+[data-view="zen"] .zen-ask .ask-one { grid-auto-rows: max-content; }
+[data-view="zen"] .zen-card .ask-own { min-height: 44px; }
+/* A long question (ask.ts marks it past 90 characters) is read, not shown as a title: smaller, with room between its lines. */
+[data-view="zen"] .zen-card:has(.zen-ask) .ask-q[data-long] { font-size: clamp(1.05rem, 2.2vw, 1.25rem); line-height: 1.75; letter-spacing: 0.04em; text-wrap: pretty; }
 [data-view="zen"] :is(.zen-ask .ask > [data-more], .zen-qs > .ask-one:not([data-dim])[data-more]) { -webkit-mask-image: var(--zen-edge-more); mask-image: var(--zen-edge-more); } /* more lies below: the foot fades deeper */
 /* Several questions (zenquestions.ts): the blocks sit in one column of a fixed height (so the card's box never follows the focus), centred in it. The focused block is open at full strength and scrolls inside itself when it is taller than the room; the rest are folded to their summary line, faded, and answer only a tap. The layer pages the column (a wheel, a swipe, a tap, the keys): it never scrolls. The send row is outside it. */
 [data-view="zen"] .zen-qs { position: relative; display: flex; flex-direction: column; justify-content: safe center; gap: 6px; height: clamp(16rem, 58vh, 34rem); padding: 0 6px; overflow: hidden; overscroll-behavior: contain; touch-action: pan-y; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }

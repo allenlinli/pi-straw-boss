@@ -22,7 +22,7 @@ test("every border and the focus ring is at least 3 : 1 on the grounds and the c
 	for (const b of ["line", "seal"]) for (const g of ["ground", "ground-2", "soft", "sunken"]) assert.ok(contrast(tokens[b]!, tokens[g]!) >= 3, `--zen-${b} on --zen-${g}: ${contrast(tokens[b]!, tokens[g]!).toFixed(2)}`);
 	assert.ok(contrast(tokens.line!, tokens.warm!) >= 1.5, "the picked option's border is a hairline on its fill");
 	assert.ok(contrast(tokens.paper!, tokens.warm!) >= 7, "and its text is the paper");
-	assert.ok(!css.split("\n").some((l) => /\bcolor: var\(--zen-seal\)/.test(l)), "--zen-seal is never a text colour");
+	assert.ok(!css.split("\n").some((l) => /(?:^|[\s;{])color: var\(--zen-seal\)/.test(l)), "--zen-seal is never a text colour (a border or a line under a word may be seal)");
 });
 
 test("the first frame's ring (style.css) is 3 : 1 on the ground, and the sheet only animates transform, opacity, and filter", () => {

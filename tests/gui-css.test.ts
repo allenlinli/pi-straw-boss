@@ -96,6 +96,27 @@ test("Zen's first frame in style.css is scoped to the Zen view, so Standard and 
 	assert.ok(!/zen/.test(css.slice(css.indexOf('[data-view="geek"] {'))), "nothing of Zen's after the Geek block opens");
 });
 
+test("zen.css: the visual language (Z-D15): no boxes, selection is light with a dot, the seal marks only the keys and never as a ring around a box, overlays let the page recede", () => {
+	const at = zen.indexOf("The visual language (Z-D15");
+	assert.ok(at > 0, "the block");
+	const v = zen.slice(at, zen.indexOf("@media (prefers-reduced-motion: reduce) { [data-view=\"zen\"] .zen-ripples", at));
+	assert.match(v, /\.zen-card button\.ask-opt \{ display: grid;[^}]*row-gap: 0;[^}]*border: 1px solid transparent;[^}]*background: transparent;/, "a choice is a line, not a pill");
+	assert.match(v, /\.zen-card button\.ask-opt::before \{ content: "";[^}]*border-radius: 50%;/, "with a dot before it");
+	assert.match(v, /\.ask-opt\[aria-checked="true"\]::before \{ border-color: var\(--zen-paper\); background: var\(--zen-paper\); \}/, "the dot fills when chosen");
+	assert.match(v, /button\.ask-opt:focus-visible::before \{ border-color: var\(--zen-seal\);/, "the keys ring the dot, inside the line");
+	assert.match(v, /#zen :is\([^)]*\.ask-send[^)]*\):focus-visible \{ outline: none; text-decoration: underline 1px var\(--zen-seal\)/, "a button the keys are on is underlined in seal, not ringed");
+	assert.match(v, /:is\(\.zen-card \.ask-own, \.composer textarea, \.tcard-input\) \{ border: 1px solid transparent; border-bottom-color: var\(--zen-line\); border-radius: 0; background: transparent;/, "a text field is one line under the words");
+	assert.match(v, /#zen :is\([^)]*\.palette-box\):focus-visible \{ outline: none; border-radius: 0;/, "and its focus beats the page-wide ring");
+	assert.match(v, /:is\(\.ask-send, \.cmp-send, \.cmp-yes, \.pad-yes, \.tcard-go, \.zen-term-back\) \{ border-color: transparent; background: transparent;/, "Send is a word");
+	assert.match(v, /\.zen-log \.bubble \{ padding-inline: 0; background: transparent; color: var\(--zen-ash\); \}/, "what you said: at the right, in ash, no ground (the boss's pick)");
+	assert.match(v, /\.palette-back \{ background: var\(--zen-veil\);[^}]*(?<!-)backdrop-filter: blur\(10px\);/, "the palette's page recedes (the unprefixed property, not only -webkit-)");
+	assert.match(v, /\.palette-panel \{[^}]*border-color: transparent; background: transparent;/, "and the palette has no panel");
+	assert.match(v, /:is\(\.zen-menuhost:has\(> \.zen-menu:not\(\[hidden\]\)\), \.zen-musichost:has\(> \.zen-musicpanel:not\(\[hidden\]\)\)\)::before \{ content: ""; position: fixed; inset: 0;[^}]*pointer-events: none;/, "the menu and the music list lay the same veil, which takes no press");
+	assert.match(v, /:is\(\.zen-menu, \.zen-musicpanel\) \{ border-color: transparent; background: transparent;/);
+	assert.doesNotMatch(v, /border: 0[;\s]|border: none/, "borders turn transparent, never go: forced colours draws them");
+	assert.doesNotMatch(v, /rgba?\(|#[0-9a-f]{3,8}\b/i, "the block's colours are the ink tokens");
+});
+
 test("zen.css: every rule is under the Zen view, the answer card has no Standard chrome, targets are 44 px, and motion keeps breathing at rest (Z-D13) and stills under reduced motion and forced colours", () => {
 	const body = zen.replace(/\/\*[\s\S]*?\*\//g, "");
 	for (const sel of body.matchAll(/^(\[data-view="zen"\][^{]*|@[^{]*)\{/gm)) assert.ok(sel[1]!.includes('data-view="zen"') || sel[1]!.startsWith("@"), sel[1]);

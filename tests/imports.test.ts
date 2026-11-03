@@ -1016,7 +1016,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen Z7 layout fixes (the ring-less focus, the log's pill box, unsqueezed choices, the open history's rules, the phone and 900 px tightening, the strip's phone place): 133,483 / 28,223 measured, +1,875 raw / +246 gzipped, cap 133,500 / 28,240.
 	// Z-D13 (Zen keeps breathing at rest, the faint breath behind the companion's log, the half-minute tide and wander, the companion without boxes): 134,446 / 28,449 measured, +963 raw / +226 gzipped, cap 134,461 / 28,464.
 	// Z-D14 (a lone question's rows keep their height, the 44 px own-answer box, the long question as text): 134,710 / 28,501 measured, cap 134,725 / 28,516.
-	assert.ok(total(css, (n) => size(n).length) <= 134_725 && total(css, gz) <= 28_516, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Z-D15 (the visual language: choices as lines with a dot, the seal only for the keys, overlays on a blurred veil with no panel, fields as one line; a block at the end of zen.css over the older rules, which loads with the Zen chunk only): 140,977 / 29,417 measured, +6,267 raw / +916 gzipped, cap 140,992 / 29,432.
+	assert.ok(total(css, (n) => size(n).length) <= 140_992 && total(css, gz) <= 29_432, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

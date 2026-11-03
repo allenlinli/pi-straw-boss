@@ -77,7 +77,7 @@ export function dialogState(a: Pick<LinkAlert, "data">): DialogState {
 /** The units an unattended device reported that belong to an ally base: those of its workspace, or all of them for a device whose presence names no workspace yet. */
 export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">) {
 	const mine = (units ?? []).find((u) => u.team === a.team && u.device === a.device);
-	return mine ? mine.units.filter((u) => a.workspace === null || u.unit === a.workspace) : [];
+	return mine ? mine.units.filter((u) => a.workspace === null || u.unit === a.workspace).map((u) => ({ ...u, stale: mine.stale === true })) : [];
 }
 /** One unit's line under an ally base: its state, how many monitors run. The report is shown apart, as text. */
-export const unitLine = (u: { state: string; monitors: string[] }): string => [stateName(u.state), ...(u.monitors.length ? [m.link_unit_monitors({ count: String(u.monitors.length) })] : [])].join(" · ");
+export const unitLine = (u: { state: string; monitors: string[]; stale?: boolean }): string => [stateName(u.state), ...(u.monitors.length ? [m.link_unit_monitors({ count: String(u.monitors.length) })] : []), ...(u.stale ? [m.link_unit_stale()] : [])].join(" · ");

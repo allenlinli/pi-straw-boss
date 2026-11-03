@@ -1,6 +1,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { allyLabel } from "../boardauto.ts";
 import { herdrApi, herdrCall, herdrRun, panes, socketRun } from "../herdr.ts";
+import { inside } from "../link/routing.ts";
 import { type HeadlessDeps, headlessConfig } from "../agent/config.ts";
 import { createHeadlessKit, type IntercomLike } from "../agent/kit.ts";
 import { herdrEvents, herdrWatch, type HerdrWatch } from "../server-watch.ts";
@@ -529,7 +531,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		link: async (body, from) => (!slot.primary ? { ok: false, code: "no_link", error: NO_LINK } : link ? link.request(body, from) : { ok: false, code: "no_holder", error: "The link holder is not running in the sb server yet; ask again in a moment" }),
 		sessions: () => (client ? client.listSessions() : Promise.reject(new Error("pi-intercom is not connected"))),
 		promptCommand: (workspace) => promptCommand(cliBeside(), slot.stateDir, workspace), ...o.towers,
-		runs: { signal: (sig) => { const r = runNotice(sig); void reporter?.notify(r.key, r.notice); }, ...o.towers?.runs },
+		// A seam that watches the runs (tests) sees every signal too, and does not take the place of the notice to the controllers.
+		runs: { ...o.towers?.runs, signal: (sig) => { const r = runNotice(sig); void reporter?.notify(r.key, r.notice); o.towers?.runs?.signal?.(sig); } },
 	});
 	stops.push(cfg.watch(() => {
 		log.line("herdr-takeover");
@@ -554,19 +557,29 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),
 		now, notice: (key, notice) => unitsOut().notify(key, notice),
 	}));
+	/** The label a unit is told under (scrubbed) → its workspace's own label, for the report lookup. */
+	const unitLabels = new Map<string, string>();
 	const unitsOut = () => (reporter ??= new UnitReporter({
 		controllers: () => link?.holder?.dialogControllers() ?? [],
-		units: async () => {
-			const rows = towers?.status() ?? [], mons = guiHost!.dialogs().hub.monitors(), by = new Map<string, string[]>();
-			if (rows.length && mons.length) for (const m of mons) {
-				const ws = (await panes(cfg.run).catch(() => [])).find((p) => p.pane_id === m.pane)?.workspace_id;
-				if (ws) by.set(ws, [...(by.get(ws) ?? []), m.what]);
+		// Per team: the units whose workspace has a pane inside that team's project, when its policy shares status. Labels and monitor commands leave this computer, so they pass the same scrub as a board's.
+		units: async (team) => {
+			const policy = link?.holder?.policyOf(team), rows = towers?.status() ?? [];
+			unitLabels.clear();
+			if (policy?.share !== "status" || !rows.length) return [];
+			const here = await panes(cfg.run).catch(() => []), mons = guiHost!.dialogs().hub.monitors(), by = new Map<string, string[]>();
+			for (const m of mons) {
+				const ws = here.find((p) => p.pane_id === m.pane)?.workspace_id;
+				if (ws) by.set(ws, [...(by.get(ws) ?? []), allyLabel(m.what)]);
 			}
-			return rows.map((r) => ({ unit: r.label, state: r.service?.state ?? r.state, monitors: (by.get(r.workspace) ?? []).slice(0, 6) }));
+			return rows.filter((r) => here.some((p) => p.workspace_id === r.workspace && p.cwd !== undefined && inside(p.cwd, policy.project))).map((r) => {
+				const unit = allyLabel(r.label);
+				unitLabels.set(unit, r.label);
+				return { unit, state: r.service?.state ?? r.state, monitors: (by.get(r.workspace) ?? []).slice(0, 6) };
+			});
 		},
 		// The later of the unit's last `tower_done` summary and the last `tower_send` text to this controller.
 		report: (unit, device) => {
-			const ws = towers?.status().find((r) => r.label === unit)?.workspace, note = ws ? readNotes(slot, ws).at(-1) : undefined, sent = link?.holder?.lastSentTo(unit, device);
+			const own = unitLabels.get(unit) ?? unit, ws = towers?.status().find((r) => r.label === own)?.workspace, note = ws ? readNotes(slot, ws).at(-1) : undefined, sent = link?.holder?.lastSentTo(own, device);
 			return note && (!sent || Date.parse(note.at) >= sent.at) ? note.note : sent?.text ?? "";
 		},
 		status: async (team, device, units) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendUnitStatus(team, device, units); },
@@ -583,7 +596,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false,
 				openTower: async (project, toWorkspace) => {
 					try {
-						await openTower({ run: cfg.run, towers: () => towers, now }, project, toWorkspace);
+						await openTower({ run: cfg.run, towers: () => towers, now, home: o.link?.home ?? homedir(), agentDir: env.PI_CODING_AGENT_DIR ?? join(o.link?.home ?? homedir(), ".pi", "agent") }, project, toWorkspace);
 					} catch (error) {
 						void unitsOut().notify(`tower-open/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: project, text: `Could not open a tower for ${project}: ${(error as Error).message}` });
 						throw error;
@@ -635,7 +648,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 
 	// The GUI binds the recorded ports last (under the stored token), after the intercom ids are as registered as they can be and, with the link holder in the server, after that.
 	await guiHost?.start();
-	if (slot.primary) {
+	// Not when the start gave up while it waited (a stop, a restart, a displacement): a timer made now would outlive `shutdown`, which has run its list already.
+	if (slot.primary && !leaving && phase === "starting") {
 		dialogsOut().start();
 		// A controller that gained `dispatch` mid-dialog gets it, a dialog unanswered for 30 minutes is told, and each controller's unit-status goes out when it changed or a minute has passed.
 		timers.push(setInterval(() => void Promise.all([dialogsOut().tick(), unitsOut().tick()]), o.unitsMs ?? 15_000));

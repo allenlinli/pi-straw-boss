@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cutBytes } from "./canon.ts";
 import type { RunSignal } from "../server/runs.ts";
 import { LIMITS, type Notice, type UnitStatus } from "./kinds.ts";
@@ -12,7 +13,8 @@ export type UnitFacts = Omit<UnitStatus, "report">;
 export interface UnitReporterDeps {
 	/** The attended devices at `dispatch` that are members of a running team now (the holder's `dialogControllers`). */
 	controllers(): { team: string; device: string }[];
-	units(): Promise<UnitFacts[]>;
+	/** The units to tell the controllers of `team`: those inside that team's project, and none when its policy shares presence only. */
+	units(team: string): Promise<UnitFacts[]>;
 	/** The last `tower_done` summary of the unit, or the last `tower_send` text to this controller, whichever came later. */
 	report(unit: string, device: string): string;
 	status(team: string, device: string, units: UnitStatus[]): Promise<void>;
@@ -40,9 +42,12 @@ export class UnitReporter {
 		const to = this.d.controllers(), keys = new Set(to.map((c) => `${c.team}\n${c.device}`));
 		for (const k of this.sent.keys()) if (!keys.has(k)) this.sent.delete(k);
 		if (!to.length) return;
-		const facts = await this.d.units(), now = this.d.now();
+		const now = this.d.now(), facts = new Map<string, UnitFacts[]>();
 		for (const c of to) {
-			const k = `${c.team}\n${c.device}`, units = facts.map((u) => ({ ...u, report: cutBytes(this.d.report(u.unit, c.device), LIMITS.report) })), sig = JSON.stringify(units), before = this.sent.get(k);
+			// One reading per team in a pass, however many controllers it has.
+			let mine = facts.get(c.team);
+			if (!mine) facts.set(c.team, (mine = await this.d.units(c.team)));
+			const k = `${c.team}\n${c.device}`, units = mine.map((u) => ({ ...u, report: cutBytes(this.d.report(u.unit, c.device), LIMITS.report) })), sig = JSON.stringify(units), before = this.sent.get(k);
 			if (before && before.sig === sig && now - before.at < STATUS_EVERY_MS) continue;
 			try {
 				await this.d.status(c.team, c.device, units);
@@ -73,7 +78,8 @@ export class UnitReporter {
 /** The notice a run's end or refusal makes, with the key that tells it once (the run id, or the workspace and the reason for a refusal). */
 export function runNotice(s: RunSignal): { key: string; notice: Notice } {
 	const who = s.ally ? "An ally run" : "A run";
-	if (s.kind === "refused") return { key: `refused/${s.workspace}/${s.text}`, notice: { kind: "run-refused", unit: s.label, text: s.text } };
+	// The key goes into the log, and a refusal's text can carry a path or a line of the project's settings: the key holds a hash of it.
+	if (s.kind === "refused") return { key: `refused/${s.workspace}/${createHash("sha256").update(s.text).digest("hex").slice(0, 16)}`, notice: { kind: "run-refused", unit: s.label, text: s.text } };
 	const trust = s.detail?.startsWith("No trust decision");
 	const kind = trust ? "trust-unanswered" : s.outcome === "quit" ? "run-quit" : s.outcome === "timeout" ? "run-timeout" : "run-crashed";
 	return { key: `run/${s.run}`, notice: { kind, unit: s.label, text: `${who} ${s.outcome === "quit" ? "was quit" : s.outcome === "timeout" ? "timed out" : "crashed"}${s.detail ? `: ${s.detail}` : ""}` } };

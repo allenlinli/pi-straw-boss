@@ -229,6 +229,7 @@ function fillAlly(el: HTMLElement, a: AllyBase, reported: DeviceUnits[] | undefi
 		text(li, "span", unitLine(u));
 		text(li, "pre", u.report);
 		li.querySelector<HTMLElement>("pre")!.hidden = !u.report;
+		li.querySelector<HTMLElement>("pre")!.title = m.link_unit_report();
 		li.dataset.state = u.state;
 	});
 }

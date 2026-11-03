@@ -104,4 +104,9 @@ test("a notice of an unattended device reads in words, and its units sit beside 
 	assert.equal(unitsFor(units, { team: "t", device: "d2", workspace: null }).length, 0);
 	assert.equal(unitLine(units[0]!.units[0]!), "working · 2 monitors running");
 	assert.equal(unitLine(units[0]!.units[1]!), "idle");
+	// A device that sent no status lately: its last units, said to be stale.
+	const old = unitsFor([{ ...units[0]!, stale: true }], { team: "t", device: "d1", workspace: "moldplan" })[0]!;
+	assert.equal(old.stale, true);
+	assert.equal(unitLine(old), `working · 2 monitors running · ${m.link_unit_stale()}`);
+	assert.equal(unitsFor(units, { team: "t", device: "d1", workspace: "moldplan" })[0]!.stale, false);
 });

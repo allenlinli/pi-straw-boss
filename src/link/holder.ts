@@ -5,7 +5,7 @@ import { MAX_BODY_BYTES } from "./wire.ts";
 import { restrictLabel } from "./text.ts";
 import { createHash, randomBytes } from "node:crypto";
 import type { Session } from "../herdr.ts";
-import type { LinkConfig } from "./config.ts";
+import type { LinkConfig, Share } from "./config.ts";
 import { shortId, type DeviceKeys } from "./device.ts";
 import { buildEnvelope, openEnvelope, parseEnvelope, recordTaken, type Header, type ReceiveState } from "./envelope.ts";
 import { PayloadTooLargeError, RelayError, UnauthorizedError } from "./errors.ts";
@@ -105,10 +105,11 @@ export interface LinkAlert { id: string; kind: AlertKind; level: "info" | "warni
 export interface AllyBase { id: string; team: string; teamName: string; device: string; short: string; label: string; online: boolean; workspace: string | null; tower: string; tabs: { label: string; state: string }[] }
 /** The compact reading the net snapshot carries: it changes only when something worth redrawing does. */
 /** What an unattended device last said about its units (`unit-status`, kept in memory): shown beside its ally bases while it keeps saying it. */
-export interface DeviceUnits { team: string; device: string; units: UnitStatus[] }
+/** `stale` is set when the device has sent no status for `UNITS_FRESH_MS`: what is shown is its last one. */
+export interface DeviceUnits { team: string; device: string; units: UnitStatus[]; stale?: true }
 export interface LinkSummary { allies: AllyBase[]; alerts: LinkAlert[]; confirms: ConfirmView[]; units: DeviceUnits[] }
 /** Units a peer's `unit-status` may carry that are kept; how long one counts as current; how many notices are kept, and for how long. */
-const UNITS_MAX = 32, UNITS_FRESH_MS = 3 * 60_000, NOTICES_KEPT = 20, NOTICE_KEEP_MS = 24 * 3600_000;
+const UNITS_MAX = 32, UNITS_FRESH_MS = 3 * 60_000, UNITS_GONE_MS = 30 * 60_000, NOTICES_KEPT = 20, NOTICE_KEEP_MS = 24 * 3600_000;
 /** The whole state the team settings page draws. */
 export interface LinkView extends LinkSummary {
 	deviceId: string;
@@ -1016,6 +1017,11 @@ export class LinkHolder {
 
 	// ---- Dialogs across devices (Unattended devices, Asking back) ------------------------------------------------------------------------
 
+	/** The project and share of a team in the policy now, or nothing for a team the policy does not name (what the unit status of the sb server is scoped by). */
+	policyOf(team: string): { project: string; share: Share } | undefined {
+		const policy = this.o.config().teams.get(team);
+		return policy && { project: policy.project, share: policy.share };
+	}
 	/** The attended members of a running team that this unattended device trusts at `dispatch` now: where its dialogs go. Nothing on an attended device. */
 	dialogControllers(): { team: string; device: string }[] {
 		if (!this.running || !this.device || (this.o.attended?.() ?? true)) return [];
@@ -1328,12 +1334,12 @@ export class LinkHolder {
 		return out;
 	}
 
-	/** The units unattended peers reported lately; a device that stopped reporting for `UNITS_FRESH_MS` shows none. */
+	/** The units unattended peers reported lately; a device that stopped reporting for `UNITS_FRESH_MS` shows its last ones marked stale, and none after `UNITS_GONE_MS`. */
 	private deviceUnits(): DeviceUnits[] {
 		const now = this.now(), out: DeviceUnits[] = [];
 		for (const run of this.runs.values()) {
 			if (run.dead) continue;
-			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_FRESH_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units });
+			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_GONE_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
 		}
 		return out;
 	}

@@ -2,3 +2,4 @@
 import "./zen.css";
 export { mountZen } from "./zen.ts";
 export { zenPage } from "./zenpage.ts";
+import "./zenrows.ts"; // the Zen rows of the keymap (hotkeys.ts)

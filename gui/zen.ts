@@ -12,6 +12,7 @@ import type { Answer } from "./post.ts";
 import { roleName } from "./render.ts";
 import { composerUnit, liveOf, sendFor } from "./sessionfacts.ts";
 import { locate } from "./scene.ts";
+import type { Hotkey } from "./hotkeys.ts";
 import type { StepOpen } from "./terminalthen.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 import type { Exit, Mounts, Term, ZenDeps } from "./zentypes.ts";
@@ -242,7 +243,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		live.textContent = m.zen_with({ name: company?.name.textContent ?? to.key });
 		return true;
 	}
-	return {
+	const face = {
 		cycle,
 		/** The palette key: opens the palette, or closes it; false while hidden or while the terminal layer has the keyboard. */
 		palette: () => (active && !term.isOpen() ? (palette.toggle(), true) : false),
@@ -333,4 +334,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		step: (s: StepOpen) => void (active && term.step(s, net)),
 		companion: () => (company ? { key: company.key, ws: company.ws } : undefined),
 	};
+	/** A Zen key of the keymap (hotkeys.ts), done: the page hands every one of them to this one call. False when it had nothing to do (the key stays the browser's). */
+	const key = (hotkey: Hotkey) => (hotkey === "pause" ? face.tap() : hotkey === "history" ? face.toggleHistory() : hotkey === "palette" ? face.palette() : face.cycle(hotkey === "next-companion" ? 1 : -1));
+	return { ...face, key };
 }

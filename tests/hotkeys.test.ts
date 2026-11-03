@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Hotkey, hotkeyOf, mountHotkeys, type Pressed } from "../gui/hotkeys.ts";
+import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
+
+// Without a `mac` argument the Zen palette row reads the platform: a Linux one here, so Ctrl+K is the palette whichever machine runs the test.
+Object.defineProperty(globalThis, "navigator", { value: { platform: "Linux" }, configurable: true });
 
 // The page's keys for the alert dialogs (gui/hotkeys.ts): which key asks for what, and every case where the key is not the page's.
 

@@ -1,5 +1,6 @@
 import { activityOf, companionsOf } from "../gui/zenunits.ts";
 import { hotkeyOf } from "../gui/hotkeys.ts";
+import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Net, Unit } from "../src/net.ts";
@@ -34,7 +35,7 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 			w.waiting.splice(0).forEach((call) => call(zen));
 		},
 	};
-	const zen: ZenFace = { toggleHistory: () => (w.calls.push("history"), o.tapTakes ?? false), cycle: (dir) => (w.calls.push(`cycle:${dir}`), o.cycleTakes ?? false), palette: () => (w.calls.push("palette"), o.paletteTakes ?? false), tap: () => (w.calls.push("tap"), o.tapTakes ?? false), net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
+	const zen: ZenFace = { key: (hotkey) => { w.calls.push(hotkey === "history" ? "history" : hotkey === "palette" ? "palette" : hotkey === "pause" ? "tap" : `cycle:${hotkey === "next-companion" ? 1 : -1}`); return (hotkey === "history" || hotkey === "pause" ? o.tapTakes : hotkey === "palette" ? o.paletteTakes : o.cycleTakes) ?? false; }, net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
 	const panels = {
 		hotkey: (key: string) => (w.calls.push(`hotkey:${key}`), o.hotkeyTakes ?? false),
 		stack: { show: (a: Alert) => void w.calls.push(`show:${a.key}`), close: (how?: string) => (w.calls.push(`close:${how ?? ""}`), w.dialogOpen) },

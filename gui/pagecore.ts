@@ -167,6 +167,9 @@ export function createPage(io: PageIo) {
 		news: linkChime(() => !rules().chime, io.chime),
 		/** What owns the keyboard: a modal, or in Zen the layer. */
 		owned: () => rules().keys === "zen" || io.modal(),
+		/** The keymap the page reads (hotkeys.ts), and whether a modal holds the keyboard. */
+		keys: () => rules().keys,
+		modal: () => io.modal(),
 		/** The phone's quick-switch drawer is off in Zen. */
 		noDrawer: () => !rules().drawer,
 		/** Escape closes the top dialog; with none open it goes up one route (the settings page steps back to where it was opened from); a modal takes it for itself. In Zen the layer takes it first, in the capture phase (so a field's own handler cannot keep it from the rule): one press closes the menu, lets go of a field, or cancels or skips the card, and two that nothing took, within 600 ms, leave (zenkeys.ts). */

@@ -188,3 +188,50 @@ test("a mouse-focused answer option keeps Space for the form, and a mouse-focuse
 	assert.equal(p.down(" ", { target: box }).taken, false);
 	assert.deepEqual(p.asked, []);
 });
+
+// R8: the keymap has a row table per face (Standard and Geek read "dialogs", Zen reads "zen").
+
+test("Zen rows: Enter and Space end the pause, F is not Zen's, and a native control keeps its own Enter and Space however it got the focus", () => {
+	for (const key of ["Enter", " "]) {
+		assert.equal(hotkeyOf(press(key), false, false, "zen"), "pause", key);
+		for (const target of [new El("button"), new El("a"), new El("div", [], { role: "button" })]) for (const mouse of [false, true]) assert.equal(hotkeyOf(press(key, target), false, mouse, "zen"), undefined, `${key} on ${target.tag}`);
+	}
+	assert.equal(hotkeyOf(press("f"), false, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("Escape"), false, false, "zen"), undefined, "Escape stays with the core's ladder");
+	assert.equal(hotkeyOf(press("Enter", new El("textarea")), false, false, "zen"), undefined, "a box being typed in");
+	assert.equal(hotkeyOf(press("Enter"), true, false, "zen"), undefined, "a modal");
+});
+
+test("Standard and Geek rows do not take Enter, and the default face is the dialogs'", () => {
+	assert.equal(hotkeyOf(press("Enter"), false, false, "dialogs"), undefined);
+	assert.equal(hotkeyOf(press(" "), false, false, "dialogs"), "next");
+	assert.equal(hotkeyOf(press(" "), false), "next");
+});
+
+test("Z4b's rows are explicit: [ and ] are Zen's, and ⌘K is the only ⌘ combination any face takes", () => {
+	assert.equal(hotkeyOf(press("["), false, false, "zen"), "prev-companion");
+	assert.equal(hotkeyOf(press("]"), false, false, "zen"), "next-companion");
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true }), false, false, "zen"), "palette");
+	assert.equal(hotkeyOf(press("k"), false, false, "zen"), undefined, "K without ⌘");
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true, ctrlKey: true }), false, false, "zen"), undefined);
+	assert.equal(hotkeyOf(press("f", undefined, { metaKey: true }), false, false, "zen"), undefined);
+	for (const key of ["[", "]"]) assert.equal(hotkeyOf(press(key), false, false, "dialogs"), undefined);
+	assert.equal(hotkeyOf(press("k", undefined, { metaKey: true }), false, false, "dialogs"), undefined);
+});
+
+test("mountHotkeys reads the face at each press, and a Zen pause key is taken only when the layer ended the pause", () => {
+	const on: Record<string, (e: never) => void> = {}, asked: Hotkey[] = [];
+	let keys: "dialogs" | "zen" = "zen", handled = true;
+	mountHotkeys((k) => (asked.push(k), handled), () => false, { addEventListener: (t: string, fn: (e: never) => void) => (on[t] = fn) } as unknown as Window, () => keys);
+	const down = (key: string) => {
+		const e = { ...press(key), repeat: false, taken: false, preventDefault() { this.taken = true; } };
+		on.keydown!(e as never);
+		return e;
+	};
+	assert.equal(down("Enter").taken, true);
+	handled = false;
+	assert.equal(down(" ").taken, false, "no pause shown: the key is left alone");
+	keys = "dialogs";
+	assert.equal(down("Enter").taken, false);
+	assert.deepEqual(asked, ["pause", "pause"]);
+});

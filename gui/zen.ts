@@ -191,7 +191,6 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	for (const type of ["pointerdown", "wheel", "touchstart", "keydown", "input"]) root.addEventListener(type, () => (touched = now()), { capture: true, passive: true });
 	const tap = () => shown.kind === "pause" && !term.isOpen() && apply(model.tap());
 	root.addEventListener("pointerdown", tap);
-	root.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && shown.kind === "pause" && !term.isOpen() && !/^button$/i.test((e.target as HTMLElement | null)?.tagName ?? "") && (e.preventDefault(), tap()));
 	/** Leaving: the item's dialog opens over Standard, the companion's session opens, a pause just returns to the page. */
 	function leave() {
 		deps.leave(shown.kind === "item" ? { item: alerts.get(shown.item.key) ?? shown.item } : shown.kind === "companion" && company ? { route: { view: "session", ws: company.ws, key: company.key } } : {});
@@ -267,6 +266,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			return true;
 		},
 		leave,
+		/** The keymap's Enter and Space (hotkeys.ts): end the pause. False when no pause is shown or the terminal layer has the keys. */
+		tap: () => (shown.kind === "pause" && !term.isOpen() ? (tap(), true) : false),
 		/** A terminal in Zen's own layer (zenterm.ts): a session's, or a pane an answer opened. */
 		terminal: (t: Term) => void (active && term.terminal(t, net)),
 		/** A step an accepted answer left: the layer's terminal card (zenterm.ts). */

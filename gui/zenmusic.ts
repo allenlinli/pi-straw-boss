@@ -1,5 +1,4 @@
 import type { Audio } from "./audio.ts";
-import { musicBus } from "./audiobus.ts";
 
 // Zen's music player (docs/specs/2026-11-01-zen-view.md, Music), a chunk of its own: two <audio> elements, each through a gain of its own into the music bus (audiobus.ts), so the loop has no gap and a
 // track change is a cross-fade. 6 s before the playing element's end the other starts the same track from 0 and the two fade over equal-power curves; nothing is decoded into a buffer. The files come from
@@ -20,6 +19,8 @@ export interface MediaEl {
 }
 export interface PlayerEnv {
 	audio: Audio;
+	/** The music bus the elements' gains connect to (audiobus.ts; through Zen's duck node, zensound.ts). */
+	bus(): AudioNode;
 	make(): MediaEl;
 	url(file: string): string;
 	/** The page's timer (a test moves its own): runs `fn` after `ms`, returns what cancels it. */
@@ -52,7 +53,7 @@ export function createPlayer(env: PlayerEnv): Player {
 		el.preload = "none";
 		// SAFETY: `make` returns an <audio> element in the page (MediaEl is the slice of it this file reads); a test's fake context takes its fake element as it is
 		c.createMediaElementSource(el as unknown as HTMLMediaElement).connect(gain);
-		gain.connect(musicBus(env.audio));
+		gain.connect(env.bus());
 		el.addEventListener("timeupdate", () => i === at && !fading && s.file && left(s) <= span(s) && fade(s.file));
 		el.addEventListener("ended", () => i === at && !fading && s.file && void ((el.currentTime = 0), play(s)));
 		el.addEventListener("error", () => i === at && env.report("failed"));
@@ -96,7 +97,9 @@ export function createPlayer(env: PlayerEnv): Player {
 			s.el.src = env.url(file);
 			s.gain.gain.cancelScheduledValues(0);
 			s.gain.gain.value = 1;
-			return play(s);
+			const ok = await play(s);
+			if (!ok && name === file) (name = s.file = undefined); // a play that did not start leaves nothing playing, so the next start tries again
+			return ok;
 		},
 		stop() {
 			settle();

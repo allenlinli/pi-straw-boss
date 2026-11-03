@@ -87,23 +87,28 @@ const openTile = (tile: Tile, take?: boolean) => withPanels((p) => p.tiles.open(
 type Zen = ReturnType<typeof mountZen>;
 let zen: Zen | undefined, zenLoading: Promise<Zen> | undefined;
 const withZen = (call: (z: Zen) => void) => {
-	zenLoading ??= import("./zenchunk.ts").then(({ mountZen }) => (zen = mountZen(el("zen"), {
+	zenLoading ??= import("./zenchunk.ts").then(({ mountZen, createZenSound }) => {
+		let player: { file(): string | undefined } | undefined;
+		const zs = createZenSound(audio, notify.sound, () => (player?.file() ? zs.bus() : undefined)); // an effect ducks the music while it plays // Zen's effects play on the page's one audio core, behind the Sound switch
+		return (zen = mountZen(el("zen"), {
 		data, recent, label, online: core.online,
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
-		remind: (a) => notify.remind(a), sound: () => {}, // the effects are the next step's (Z5)
-		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: notify.sound }, // the corner menu's rows act through the settings page's own switches
+		remind: (a) => notify.remind(a), sound: zs.play,
+		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: { ...notify.sound, try: zs.try, effects: zs.tryAll } }, // the corner menu's rows act through the settings page's own switches
 		music: {
 			tracks: async () => (fixture ? [] : ((await api("music")) as { tracks: { file: string; size: number }[] }).tracks), // the demo has no music folder
 			player: async (report) => {
 				const { createPlayer } = await import("./zenmusic.ts"); // the player is a chunk of its own, loaded once the music is on
-				return createPlayer({ audio, make: () => document.createElement("audio"), url: (file) => `api/music/${encodeURIComponent(file)}`, later: (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); }, report });
+				const { musicBus } = await import("./audiobus.ts");
+				return (player = createPlayer({ audio, bus: () => musicBus(audio, zs.bus()), make: () => document.createElement("audio"), url: (file) => `api/music/${encodeURIComponent(file)}`, later: (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); }, report }));
 			},
 			unlock: () => audio.unlock(),
 			prefs: { on: () => prefs.get("zenMusic"), setOn: (on) => void prefs.set("zenMusic", on), track: () => prefs.get("zenTrack"), setTrack: (file) => void prefs.set("zenTrack", file) },
 			coarse: () => matchMedia("(pointer: coarse)").matches,
 		},
 		leave: core.leaveZen, terminals, watch: core.watchLog,
-	})));
+	}));
+	});
 	void zenLoading.then(call);
 };
 

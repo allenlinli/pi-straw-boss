@@ -9,7 +9,6 @@ const { musicBus } = await import("../gui/audiobus.ts");
 const { createPlayer, FADE_S } = await import("../gui/zenmusic.ts");
 const { mountMusic, titleOf } = await import("../gui/zenmusicbar.ts");
 const { createPrefs, KEYS } = await import("../gui/prefs.ts");
-const { setLocale } = await import("../gui/i18n.ts");
 const flush = () => new Promise<void>((done) => setImmediate(done));
 
 /** A clock the test moves: `later` queues, `advance` runs what falls due. */
@@ -24,7 +23,10 @@ function clock() {
 		},
 		advance(ms: number) {
 			t += ms;
-			for (let due = q.find((e) => e.at <= t); due; due = q.find((e) => e.at <= t)) (q.splice(q.indexOf(due), 1), due.fn());
+			for (let due = q.find((e) => e.at <= t); due; due = q.find((e) => e.at <= t)) {
+				q.splice(q.indexOf(due), 1);
+				due.fn();
+			}
 		},
 		pending: () => q.length,
 	};
@@ -69,9 +71,9 @@ function playerRig() {
 		resume: async () => {},
 	};
 	const audio = createAudio(() => ctx as never);
-	const player = createPlayer({ audio, make: () => { const e = new Media(); els.push(e); return e; }, url: (f) => `/m/${f}`, later: c.later, report: (why) => reports.push(why) });
+	const player = createPlayer({ audio, bus: () => musicBus(audio), make: () => { const e = new Media(); els.push(e); return e; }, url: (f) => `/m/${f}`, later: c.later, report: (why) => reports.push(why) });
 	// gains[0] is the master, gains[1] the bus; each slot adds its own after that
-	return { c, els, sources, gains, reports, player, ctx, audio, slotGain: (i: number) => gains[2 + i]! };
+	return { c, els, sources, gains, reports, player, ctx, audio, slotGain: (i: number) => sources[i]!.to as Node };
 }
 const curveOf = (g: Node) => g.gain.calls.find((x) => x[0] === "curve") as [string, Float32Array, number, number] | undefined;
 
@@ -152,9 +154,9 @@ test("a new track takes over with the same cross-fade; one picked mid-fade ends 
 	assert.equal(curveOf(r.slotGain(1))![3], FADE_S);
 	r.c.advance(2000);
 	await r.player.start("fire.mp3"); // mid-fade
-	assert.deepEqual([a.paused, a.src, b.src], [true, "", "/m/sea.mp3"], "the first fade was settled at once");
-	assert.deepEqual([a.plays, a.paused], [2, false], "the first element carries the newest track");
-	assert.equal(a.src, "/m/fire.mp3");
+	assert.equal(r.c.pending(), 1, "the first fade was settled at once, its timer with it; the new fade has its own");
+	assert.deepEqual([b.paused, b.src], [false, "/m/sea.mp3"], "the element that was fading in stands at full level and now fades out");
+	assert.deepEqual([a.src, a.plays, a.paused], ["/m/fire.mp3", 2, false], "the first element, let go by the settle, carries the newest track");
 	r.c.advance(FADE_S * 1000);
 	assert.deepEqual([b.paused, b.src, r.slotGain(0).gain.value, r.slotGain(1).gain.value], [true, "", 1, 0]);
 });
@@ -429,24 +431,14 @@ test("a play that is still starting when the music is switched off does not turn
 	assert.deepEqual([r.label(), r.pressed(), r.st.get(KEYS.zenMusic)], ["Music: off", "false", "0"]);
 });
 
-test("the words follow the language and the files' names lose their extension", async () => {
+test("the files' names lose their extension and the words come in both languages", async () => {
 	assert.equal(titleOf("zen-rain.mp3"), "zen-rain");
-	assert.equal(titleOf("a.b.c.flac"), "a.b");
+	assert.equal(titleOf("a.b.c.flac"), "a.b.c");
 	assert.equal(titleOf("noext"), "noext");
-	setLocale("zh-TW");
-	try {
-		const r = barRig();
-		await r.shown();
-		assert.deepEqual([r.label(), r.more.getAttribute("aria-label")], ["音樂：關", "音樂"]);
-		r.note.click();
-		await flush();
-		assert.equal(r.label(), "音樂：開");
-		const tap = barRig({ on: true });
-		await tap.shown();
-		assert.equal(tap.label(), "音樂：點一下播放");
-	} finally {
-		setLocale("en");
-	}
+	const { m } = await import("../gui/paraglide/messages.js");
+	const zh = { locale: "zh-TW" as const };
+	assert.deepEqual([m.zen_music_on({}, zh), m.zen_music_off({}, zh), m.zen_music_tap({}, zh), m.zen_tracks({}, zh)], ["音樂：開", "音樂：關", "音樂：點一下播放", "音樂"]);
+	assert.deepEqual([m.zen_music_on(), m.zen_music_off(), m.zen_music_tap(), m.zen_tracks()], ["Music: on", "Music: off", "Music: tap to play", "Music"]);
 });
 
 test("prefs keep the switch as 1 or 0 and the track as its file name", () => {

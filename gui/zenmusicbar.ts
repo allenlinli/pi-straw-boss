@@ -27,7 +27,7 @@ export function mountMusic(deps: MusicDeps) {
 	const more = h("button", { type: "button", class: "zen-musicmore", "aria-haspopup": "true", "aria-expanded": "false", "aria-label": m.zen_tracks(), title: m.zen_tracks() }, "⌄");
 	const panel = h("div", { class: "zen-musicpanel", role: "radiogroup", "aria-label": m.zen_tracks(), hidden: "" });
 	const host = h("div", { class: "zen-musichost", hidden: "" }, note, more, panel);
-	let list: Track[] = [], on = deps.prefs.on(), status: Status = "off", shown = false, open = false, armed = false, heard = false, held = false, player: Promise<Player> | undefined, run = 0, turn = 0;
+	let list: Track[] = [], on = deps.prefs.on(), status: Status = "off", shown = false, open = false, armed = false, heard = false, held = false, player: Promise<Player> | undefined, ready: Player | undefined, run = 0, turn = 0;
 	let items: HTMLElement[] = [];
 	const radios = () => items;
 	const chosen = () => ((t) => list.find((x) => x.file === t)?.file ?? list[0]?.file)(deps.prefs.track());
@@ -42,7 +42,7 @@ export function mountMusic(deps: MusicDeps) {
 		const at = chosen();
 		radios().forEach((r) => r.setAttribute("aria-checked", String(r.dataset.file === at)));
 	};
-	const built = () => (player ??= deps.player((why) => why && settle("tap")));
+	const built = () => (player ??= deps.player((why) => why && settle("tap")).then((p) => (ready = p)));
 	/** The browser would not play (or the file failed): the switch stays on and says to tap. */
 	function settle(next: Status) {
 		status = next;
@@ -64,7 +64,7 @@ export function mountMusic(deps: MusicDeps) {
 	function stop() {
 		run++;
 		held = false;
-		if (player) void player.then((p) => p.stop(), () => {});
+		ready?.stop();
 	}
 	note.onclick = () => {
 		if (!list.length) return;
@@ -157,9 +157,9 @@ export function mountMusic(deps: MusicDeps) {
 		},
 		/** The page was hidden or shown: on a touch screen the music pauses and resumes (O6); a desktop plays on. */
 		visible(page: boolean) {
-			if (!shown || !deps.coarse() || !player) return;
-			if (!page && status === "playing") (held = true), void player.then((p) => p.pause(), () => {});
-			else if (page && held) (held = false), void player.then((p) => p.resume()).then((ok) => ok || settle("tap"), () => settle("tap"));
+			if (!shown || !deps.coarse() || !ready) return;
+			if (!page && status === "playing") (held = true), ready.pause();
+			else if (page && held) (held = false), void ready.resume().then((ok) => ok || settle("tap"), () => settle("tap"));
 		},
 	};
 }

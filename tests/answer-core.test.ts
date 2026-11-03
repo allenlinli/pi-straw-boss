@@ -65,10 +65,10 @@ test("a reply is read once: accepted, unknown (the owner did not say, or a 504),
 	assert.equal(outcomeOf(r(403, { reason: "local_only" })), "refused");
 });
 
-test("mountAnswer posts a panel's answer to the unit's session by default, to the post it is given otherwise, and Show terminal and the accepted callback reach the view", async () => {
+test("mountAnswer posts a panel's answer by the post it is given (the unit's route, or its own), and Show terminal and the accepted callback reach the view", async () => {
 	let shown = 0;
 	const opened: boolean[] = [];
-	const panel = mountAnswer(root as unknown as HTMLElement, { key: "m", remote: false, show: () => shown++, accepted: (o) => opened.push(o) });
+	const panel = mountAnswer(root as unknown as HTMLElement, { key: "m", post: answerPost("m"), remote: false, show: () => shown++, accepted: (o) => opened.push(o) });
 	panel.update(pending({ answer: { ...pending().answer!, select: { ...SELECT, choices: SELECT.choices.slice(0, 1) } } }), true);
 	choices()[0]!.click();
 	button("Send answer")!.click();
@@ -91,7 +91,7 @@ test("mountAnswer posts a panel's answer to the unit's session by default, to th
 test("mountAnswer keeps the answering rules: a paired device sees a hereOnly choice disabled and no Cancel when every choice is hereOnly, a secret_drop is read-only, and a card that cannot answer disables its controls", () => {
 	const mount = (remote: boolean, p: Pending, can = true) => {
 		page.body.replaceChildren((root = new El("div")));
-		mountAnswer(root as unknown as HTMLElement, { key: "m", remote, show: () => {} }).update(p, can);
+		mountAnswer(root as unknown as HTMLElement, { key: "m", post: answerPost("m"), remote, show: () => {} }).update(p, can);
 	};
 	mount(true, pending());
 	assert.deepEqual(choices().map((c) => c.disabled), [false, true, false], "a paired device may not pick what only this computer may");

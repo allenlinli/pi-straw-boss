@@ -93,7 +93,7 @@ const withZen = (call: (z: Zen) => void) => {
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
 		remind: (a) => notify.remind(a), sound: zs.play,
 		menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: { ...notify.sound, try: zs.try, effects: zs.tryAll } }, // the corner menu's rows act through the settings page's own switches
-		leave: core.leaveZen, terminals, watch: core.watchLog,
+		leave: core.leaveZen, terminals, watch: core.watchLog, companions: core.companions, activity: core.activity, settings: core.openSettings,
 	}));
 	});
 	void zenLoading.then(call);

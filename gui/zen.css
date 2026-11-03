@@ -56,6 +56,21 @@
 /* The line after a first Esc that nothing took: quiet, at the foot of the page, gone with the 600 ms window. */
 [data-view="zen"] .zen-esc { position: fixed; z-index: 3; left: 50%; bottom: max(28px, calc(env(safe-area-inset-bottom) + 16px)); translate: -50% 0; width: max-content; max-width: min(24rem, 90vw); margin: 0; text-align: center; font-size: 0.9rem; color: var(--zen-ash); opacity: 0; transition: opacity 0.4s var(--zen-ease); pointer-events: none; }
 [data-view="zen"] .zen-esc[data-on] { opacity: 1; }
+/* The status strip (working and idle units; nothing about what waits) and the command palette (palette.ts; ink tokens only, 44 px rows). */
+[data-view="zen"] .zen-strip { position: fixed; z-index: 2; top: max(18px, calc(env(safe-area-inset-top) + 8px)); left: 50%; translate: -50% 0; width: max-content; max-width: calc(100vw - 140px); margin: 0; font-size: 0.85rem; letter-spacing: 0.08em; color: var(--zen-ash); pointer-events: none; }
+[data-view="zen"] .zen-strip[hidden] { display: none; }
+[data-view="zen"] .palette { position: fixed; inset: 0; z-index: 4; display: grid; justify-items: center; align-items: start; padding: max(12px, env(safe-area-inset-top)) 12px 12px; animation: zen-fade 0.4s var(--zen-ease) both; }
+[data-view="zen"] .palette[hidden] { display: none; }
+[data-view="zen"] .palette-back { position: absolute; inset: 0; background: color-mix(in srgb, var(--zen-ground) 78%, transparent); }
+[data-view="zen"] .palette-panel { position: relative; display: flex; flex-direction: column; gap: 4px; width: min(32rem, 100%); max-height: min(28rem, calc(100dvh - 40px)); margin-top: 12vh; padding: 8px; border: 1px solid var(--zen-line); border-radius: 18px; background: var(--zen-soft); }
+[data-view="zen"] .palette-box { flex: none; min-height: 44px; padding: 0 16px; border: 1px solid var(--zen-line); border-radius: 22px; background: var(--zen-sunken); color: var(--zen-paper); font: inherit; }
+[data-view="zen"] .palette-list { flex: 1 1 auto; min-height: 0; margin: 0; padding: 0; overflow-y: auto; list-style: none; scrollbar-width: none; }
+[data-view="zen"] .palette-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; color: var(--zen-paper); cursor: pointer; }
+[data-view="zen"] .palette-item:hover { background: var(--zen-sunken); }
+[data-view="zen"] .palette-item[aria-selected="true"] { background: var(--zen-warm); border-color: var(--zen-line); }
+[data-view="zen"] .palette-hint { flex: none; color: var(--zen-ash); font-size: 0.85rem; }
+[data-view="zen"] .palette-none { margin: 0; padding: 10px 16px; color: var(--zen-ash); }
+[data-view="zen"] .palette-none[hidden] { display: none; }
 @keyframes zen-hint { 0%, 100% { opacity: 0; } 15%, 85% { opacity: 1; } }
 @keyframes zen-fade { from { opacity: 0; } }
 /* An item: the card is only the words and the choices, laid out in the middle and appearing one part after another, slowly (opacity only). The box takes the size its content needs at once; a swap of what it holds fades (below). */
@@ -189,12 +204,14 @@
 }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-opt, .zen-esc) { transition: none; } [data-view="zen"] .zen-card-in > *, [data-view="zen"] .zen-card [data-fade] { animation: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .tcard { animation: none; } }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .palette { animation: none; } }
 @media (forced-colors: active) { [data-view="zen"] .tcard :is(.tcard-cmd, .tcard-input) { border: 1px solid CanvasText; } }
 @media (forced-colors: active) {
 	[data-view="zen"] .zen-drift, [data-view="zen"] .zen-circle i, [data-view="zen"] .zen-ripples { display: none; }
 	[data-view="zen"] .zen-circle { border: 1px solid CanvasText; background: none; }
 	[data-view="zen"] .zen-fs::before { forced-color-adjust: none; background: CanvasText; }
-	[data-view="zen"] :is(.zen-card, .zen-menu) { border: 1px solid CanvasText; }
+	[data-view="zen"] :is(.zen-card, .zen-menu, .palette-panel, .palette-box) { border: 1px solid CanvasText; }
+	[data-view="zen"] .palette-item[aria-selected="true"] { border: 1px solid Highlight; }
 	[data-view="zen"] .zen-qs > .ask-one[data-dim] { opacity: 0.6; border: 1px dashed GrayText; border-radius: 12px; } /* faded stays readable, and the border says it is the other question */
 	[data-view="zen"] :is(.zen-opt, .zen-leave, .ask-opt, .ask-send, .cmp-send, .ask-cancel, .cmp-alt, .zen-skip)[aria-pressed="true"], [data-view="zen"] .ask-opt[aria-checked="true"] { border: 1px solid Highlight; }
 	[data-view="zen"] :is(.ask-send, .cmp-send) { border: 1px solid ButtonText; }

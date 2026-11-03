@@ -834,5 +834,21 @@
 	"ended_other": "這個窗格現在執行別的程式。",
 	"ended_closed": "窗格已關閉。",
 	"ended_unreadable": "讀不到這個窗格。",
-	"ended_moved": "session 已移到另一個窗格。"
+	"ended_moved": "session 已移到另一個窗格。",
+	"zen_strip": "工作中 {working} · 閒著 {idle}",
+	"zen_with": "陪伴：{name}",
+	"pal_label": "指令面板",
+	"pal_placeholder": "輸入指令",
+	"pal_none": "沒有符合的項目",
+	"pal_current": "目前",
+	"pal_pick": "{what}：{choice}",
+	"pal_standard": "回到標準檢視",
+	"pal_session": "開啟 {name} 的對話",
+	"pal_terminal": "開啟 {name} 的終端機",
+	"pal_settings": "設定",
+	"pal_prev": "上一位陪伴",
+	"pal_next": "下一位陪伴",
+	"pal_louder": "音量調大",
+	"pal_quieter": "音量調小",
+	"pal_music": "音樂"
 }

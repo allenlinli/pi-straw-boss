@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Net, Unit } from "../src/net.ts";
+import type { Mark } from "../src/netdata.ts";
 import { RULES, rulesOf } from "../gui/faces.ts";
+import { activityOf } from "../gui/units.ts";
 import type { View } from "../gui/view.ts";
 
 // The rules table (gui/faces.ts) is the one place that says what a view does beyond its skin, as typegate.test.ts is for the server's typing rule: each row is written out in full, so a changed cell fails here and nowhere else.
@@ -40,4 +43,21 @@ test("every view has a row, and no row has a field another lacks", () => {
 	const views: View[] = ["standard", "geek", "zen"];
 	assert.deepEqual(Object.keys(RULES).sort(), [...views].sort());
 	for (const v of views) assert.deepEqual(Object.keys(RULES[v]).sort(), Object.keys(STANDARD).sort(), v);
+});
+
+// Z4b: the status strip is the one new place Zen could leak the number of waiting items through (Z-D3).
+test("Zen's status strip counts working and idle units only: what waits changes neither number, and the selector hands out no other field", () => {
+	const unit = (key: string, mark: Mark, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
+	const net = (units: Unit[]): Net => ({ bases: [{ id: "w", label: "w", mark: "idle", head: true, outposts: [], outside: [], tower: null, tabs: [{ id: "t", label: "t", units }] }] });
+	const base = [unit("a", "working"), unit("b", "idle")];
+	const seen = new Set<string>();
+	for (const waiting of [0, 1, 2, 5]) {
+		const units = [...base, ...Array.from({ length: waiting }, (_, i) => unit(`w${i}`, i % 2 ? "waiting" : "idle", { pending: { callId: `c${i}` } as never }))];
+		const strip = activityOf(net(units));
+		assert.deepEqual(Object.keys(strip).sort(), ["idle", "working"]);
+		assert.ok(!JSON.stringify(strip).includes("wait"), "no waiting field");
+		seen.add(JSON.stringify(strip));
+	}
+	assert.equal(seen.size, 1, "the strip is the same with none, one, two, and five waiting");
+	assert.equal(RULES.zen.count, false, "and the tab icon's count stays off");
 });

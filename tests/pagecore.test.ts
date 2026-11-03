@@ -18,7 +18,7 @@ const net = (...units: Unit[]): Net => ({ bases: [{ id: "w", label: "w", mark: "
 const live: Status = { state: "live", attempt: 0 };
 
 /** The page as main.ts builds it, with every part a recorder. `zenLoaded: false` is a Zen chunk that is not fetched yet (`load()` fetches it). */
-function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boolean; zenLoaded?: boolean; modal?: boolean; dialogOpen?: boolean; zenTakesEscape?: boolean; tapTakes?: boolean; hotkeyTakes?: boolean } = {}) {
+function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boolean; zenLoaded?: boolean; modal?: boolean; dialogOpen?: boolean; zenTakesEscape?: boolean; tapTakes?: boolean; hotkeyTakes?: boolean; cycleTakes?: boolean; paletteTakes?: boolean } = {}) {
 	const root = { dataset: (o.away ? { zenAway: "" } : {}) as Record<string, string | undefined> }, store = o.stored ?? "standard";
 	const env: ViewEnv = { root, meta: null, server: null, media: { matches: false, addEventListener: () => {} }, storage: { getItem: () => store, setItem: () => {} } };
 	const view = mountView(env);
@@ -33,7 +33,7 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 			w.waiting.splice(0).forEach((call) => call(zen));
 		},
 	};
-	const zen: ZenFace = { toggleHistory: () => (w.calls.push("history"), o.tapTakes ?? false), tap: () => (w.calls.push("tap"), o.tapTakes ?? false), net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
+	const zen: ZenFace = { toggleHistory: () => (w.calls.push("history"), o.tapTakes ?? false), cycle: (dir) => (w.calls.push(`cycle:${dir}`), o.cycleTakes ?? false), palette: () => (w.calls.push("palette"), o.paletteTakes ?? false), tap: () => (w.calls.push("tap"), o.tapTakes ?? false), net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
 	const panels = {
 		hotkey: (key: string) => (w.calls.push(`hotkey:${key}`), o.hotkeyTakes ?? false),
 		stack: { show: (a: Alert) => void w.calls.push(`show:${a.key}`), close: (how?: string) => (w.calls.push(`close:${how ?? ""}`), w.dialogOpen) },
@@ -303,18 +303,39 @@ test("the keys and the drawer follow the face: Zen reads its own keymap and show
 	assert.deepEqual([left.core.keys(), left.core.modal(), left.core.noDrawer()], ["dialogs", false, false], "a page that left Zen has Standard's");
 });
 
-test("a hotkey reaches the part that does it: pause the Zen layer's tap, next and zoom the dialogs, the Z4b rows nothing; the answer is what the part said (VC8-F002)", () => {
+test("a hotkey reaches the part that does it: pause the Zen layer's tap, next and zoom the dialogs, the companion keys and the palette the Zen layer; the answer is what the part said (VC8-F002)", () => {
 	for (const taken of [true, false]) {
-		const w = world({ stored: "zen", tapTakes: taken, hotkeyTakes: !taken });
+		const w = world({ stored: "zen", tapTakes: taken, hotkeyTakes: !taken, cycleTakes: taken, paletteTakes: taken });
 		assert.equal(w.core.hotkey("pause"), taken, "the layer's answer");
 		assert.deepEqual(w.calls, ["tap"], "the pause never reaches the dialogs");
 		for (const key of ["next", "zoom"] as const) assert.equal(w.core.hotkey(key), !taken, `${key}: the dialogs' answer`);
 		assert.deepEqual(w.calls, ["tap", "hotkey:next", "hotkey:zoom"]);
-		for (const key of ["prev-companion", "next-companion", "palette"] as const) assert.equal(w.core.hotkey(key), false, `${key}: no action yet`);
-		assert.equal(w.calls.length, 3, "and nothing was asked of the parts");
+		assert.equal(w.core.hotkey("prev-companion"), taken, "the layer's answer");
+		assert.equal(w.core.hotkey("next-companion"), taken);
+		assert.equal(w.core.hotkey("palette"), taken);
+		assert.deepEqual(w.calls, ["tap", "hotkey:next", "hotkey:zoom", "cycle:-1", "cycle:1", "palette"], "and the dialogs were not asked");
 	}
 	const early = world({ stored: "zen", zenLoaded: false });
-	assert.equal(early.core.hotkey("pause"), false, "the layer is not loaded yet: the key stays the browser's");
+	for (const key of ["pause", "prev-companion", "next-companion", "palette"] as const) assert.equal(early.core.hotkey(key), false, `${key}: the layer is not loaded yet: the key stays the browser's`);
+});
+
+test("the companion candidates and the strip's counts are the core's selectors over the newest snapshot; none before one", () => {
+	const w = world({ stored: "zen" });
+	assert.deepEqual([w.core.companions(), w.core.activity()], [[], { working: 0, idle: 0 }]);
+	const waiting = Array.from({ length: 4 }, (_, i) => unit(`w${i}`, "waiting"));
+	w.core.snapshot(net(unit("a", "working"), unit("b", "idle"), ...waiting));
+	assert.deepEqual(w.core.companions().map((c) => [c.key, c.ws]), [["b", "w"], ["a", "w"]], "a waiting unit is not a candidate");
+	assert.deepEqual(w.core.activity(), { working: 1, idle: 1 }, "what waits is in neither number");
+	w.core.snapshot(net(unit("a", "working"), unit("b", "idle")));
+	assert.deepEqual(w.core.activity(), { working: 1, idle: 1 }, "so the numbers do not tell how many waited");
+});
+
+test("the settings page opens by its route from anywhere, Zen included, and Zen goes away behind it", () => {
+	const w = world({ stored: "zen" });
+	w.core.sync();
+	w.core.openSettings();
+	assert.deepEqual(w.calls, ['go:{"view":"settings"}']);
+	assert.equal(w.core.zenOn(), false, "the settings page is never covered by Zen");
 });
 
 test("H reaches the Zen layer's toggleHistory through hotkeyOf(zen) and core.hotkey, and Standard and Geek never see it (Z4D-F001)", () => {

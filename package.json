@@ -32,7 +32,8 @@
     "extensions": [
       "./src/index.ts",
       "./src/balance.ts",
-      "./src/blocked.ts"
+      "./src/blocked.ts",
+      "./src/hygiene.ts"
     ]
   },
   "scripts": {

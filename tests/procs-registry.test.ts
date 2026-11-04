@@ -256,7 +256,7 @@ test("T2R-F001: a checkout that is gone is reaped through the known root above i
 	const { w, procs } = world({
 		real: (path) => (path.startsWith("/tmp/") ? `/private${path}` : path),
 		checkout: (cwd) => ({ kind: "linked", root: cwd.startsWith("/tmp/") ? `/private${cwd}` : cwd, gitdir: "/r/.git/worktrees/x" }),
-		reap: async () => ({ termed: 1, killed: 1, skipped: 0, groups: 0, left: [{ pid: 7, comm: "node" }] }),
+		reap: async () => ({ termed: 1, killed: 1, skipped: 0, groups: 0, left: [{ pid: 7, program: "node" }] }),
 		cwds: async (pids) => new Map(pids.filter((p) => p === 300).map((p) => [p, { path: `${priv}/pkg` }])),
 	});
 	await procs.hello({ pid: 200, id: "w2", cwd: "/tmp/psb-f1c/wt" });
@@ -306,7 +306,7 @@ test("T2R-F002: a reap that a restart cut off is run again by the next start; on
 	assert.deepEqual(pids(second.w.reaped), [[101, 102]], "the ended owner's snapshot is reaped after the restart");
 	assert.deepEqual(second.procs.list().map((o) => o.id), ["w2"]);
 	// a reap that left a process is not repeated at start, and `reap --owner` still works
-	const third = world({ reap: async () => ({ termed: 1, killed: 1, skipped: 0, groups: 0, left: [{ pid: 7, comm: "node" }] }) }, dir);
+	const third = world({ reap: async () => ({ termed: 1, killed: 1, skipped: 0, groups: 0, left: [{ pid: 7, program: "node" }] }) }, dir);
 	await third.procs.hello({ pid: 300, id: "w3" });
 	third.w.table.push(P(301, 300));
 	await third.procs.tick();

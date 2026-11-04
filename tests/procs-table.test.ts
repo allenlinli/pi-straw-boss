@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { baseName, cpuSeconds, descendants, isOrphan, parsePs, PS_ARGS, readTable, refOf, sameProc, type Proc } from "../src/procs/table.ts";
+import { baseName, cpuSeconds, descendants, exeName, isOrphan, named, parsePs, programOf, PS_ARGS, readTable, refOf, sameProc, type Proc } from "../src/procs/table.ts";
 import { classifyCwd, parseLsofCwd, readCwds } from "../src/procs/cwd.ts";
 
 // The process table and the cwd reader: parsing ps and lsof output, identity by (pid, start time), and the orphan test.
@@ -117,4 +117,38 @@ test("readTable keeps every account's rows with `all` (the kill sequence's membe
 	const ask = async () => ["  1 0 1 0 Ss Mon Nov  3 08:00:00 2026 0:41.20 /sbin/launchd", "  7 1 7 501 S Mon Nov  3 08:00:00 2026 0:00.00 node"].join("\n");
 	assert.deepEqual((await readTable(ask, { uid: 501, platform: "darwin" }))!.map((p) => p.pid), [7]);
 	assert.deepEqual((await readTable(ask, { uid: 501, platform: "darwin", all: true }))!.map((p) => p.pid), [1, 7]);
+});
+
+test("on Linux ps names a node process after its main thread: `named` gives a row its executable, which programOf shows; comm stays what ps said; readTable reads no link", async () => {
+	const ask = async () => [
+		"  1 0 1 0 Ss Mon Nov  3 08:00:00 2026 0:41.20 systemd",
+		"  7 1 7 501 S Mon Nov  3 08:00:00 2026 0:01.00 MainThread",
+		"  8 1 8 501 S Mon Nov  3 08:00:00 2026 0:01.00 MainThread",
+		"  9 1 9 501 Z Mon Nov  3 08:00:00 2026 0:00.00 MainThread",
+		" 10 1 10 501 S Mon Nov  3 08:00:00 2026 0:00.00 kworker",
+		" 11 1 11 502 S Mon Nov  3 08:00:00 2026 0:00.00 MainThread",
+		" 12 1 12 501 S Mon Nov  3 08:00:00 2026 0:00.00 sh",
+	].join("\n");
+	const links = new Map([[7, "/usr/local/bin/node"], [8, "/usr/bin/node (deleted)"], [9, "/usr/local/bin/node"], [11, "/usr/local/bin/node"], [12, "/usr/bin/bad\nname"]]);
+	const asked: number[] = [];
+	const readlink = (pid: number) => { asked.push(pid); const v = links.get(pid); if (!v) throw Object.assign(new Error("x"), { code: "ENOENT" }); return v; };
+	const table = (await readTable(ask, { uid: 501, platform: "linux", all: true }))!;
+	assert.ok(table.every((p) => p.exe === undefined), "the table read names nothing: the tick pays no readlink");
+	const by = new Map(table.map((p) => [p.pid, p]));
+	const show = (pid: number) => named(by.get(pid)!, { uid: 501, platform: "linux", readlink });
+	const seven = show(7);
+	assert.deepEqual([seven.comm, seven.exe, programOf(seven)], ["MainThread", "node", "node"]);
+	assert.equal(show(8).exe, "node", "a replaced file still names the program");
+	assert.deepEqual([9, 10, 11, 12].map((pid) => programOf(show(pid))), ["MainThread", "kworker", "MainThread", "sh"], "a zombie, an unreadable link, another account's row, and a name with a control character keep comm");
+	assert.deepEqual(asked.sort((a, b) => a - b), [7, 8, 10, 12], "only the account's own live rows are looked up, and only when asked");
+	assert.equal(named(by.get(7)!, { uid: 501, platform: "darwin", readlink: () => { throw new Error("not used"); } }).exe, undefined, "off Linux the link is never read");
+});
+
+test("exeName and programOf: a link's file name without ' (deleted)', refused with a control character; the path's last part of comm where there is no exe", () => {
+	assert.equal(exeName("/usr/local/bin/node"), "node");
+	assert.equal(exeName("/opt/my app/bin/node (deleted)"), "node");
+	assert.equal(exeName("/usr/bin/a\u001b[2Jb"), undefined);
+	assert.equal(exeName(""), undefined);
+	assert.equal(programOf({ comm: "/bin/sleep" }), "sleep");
+	assert.equal(programOf({ comm: "MainThread", exe: "node" }), "node");
 });

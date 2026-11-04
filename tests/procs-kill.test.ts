@@ -46,7 +46,7 @@ test("a pid that now has another start time is not signalled: not in the first l
 	w.deps.sleep = async (ms) => { await sleep(ms); w.world.table = w.world.table.map((p) => (p.pid === 10 ? { ...p, started: "reused" } : p)); };
 	const report = await killSequence([{ pid: 10, started: "t10" }, { pid: 20, started: "t20" }, { pid: 30, started: "t30" }], w.deps);
 	assert.deepEqual(w.sent.filter(([, s]) => s === "SIGKILL"), [[-20, "SIGKILL"]], "only 20 is hit the second time");
-	assert.deepEqual(report.left, [{ pid: 20, comm: "node" }], "20 survives (the fake world ignores signals) and is reported by program name");
+	assert.deepEqual(report.left, [{ pid: 20, program: "node" }], "20 survives (the fake world ignores signals) and is reported by program name");
 });
 
 test("the identity check happens right before the signal: a pid that changes between the table and the signal is skipped", async () => {

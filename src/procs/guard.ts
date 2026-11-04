@@ -1,9 +1,9 @@
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { baseName, type Proc } from "./table.ts";
+import { programOf, type Proc } from "./table.ts";
 
 // The words of the removal guard (src/hygiene.ts): which worktrees a bash command removes, what `git worktree list --porcelain` says, and the lines of the refusal. Pure text work, so a table test needs no disk.
-// Nothing here reads or prints a command line of another process: a holder is told by pid, program name (`comm`), cpu time, age and owner state.
+// Nothing here reads or prints a command line of another process: a holder is told by pid, program name (`programOf`), cpu time, age and owner state.
 
 /** A target a command removes: the word it gave (a path, a branch, or a workspace id) and the folder the command runs in by then. `via` is the program; a `herdr worktree remove` without `--workspace` has the empty target (Herdr then takes the caller's own workspace). */
 export interface RemoveTarget { target: string; cwd: string; via: "git" | "herdr" }
@@ -187,8 +187,8 @@ const shell = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`;
 
 const LISTED = 12;
 /** The refusal of a removal: the holders (pid, comm, cpu, age, owner state; never a command line) and the command that reaps what an ended worker left. */
-export function refusal(what: string, root: string, holders: readonly Holder[], reap: string, now: number): string {
-	const rows = holders.slice(0, LISTED).map((h) => `- pid ${h.proc.pid} ${clean(baseName(h.proc.comm))}, cpu ${cpuText(h.proc.cpu)}, age ${ageText(h.proc.started, now)}, ${ownerText(h)}${h.orphan ? ", orphan" : ""}`);
+export function refusal(what: string, root: string, holders: readonly Holder[], reap: string, now: number, program: (p: Proc) => string = programOf): string {
+	const rows = holders.slice(0, LISTED).map((h) => `- pid ${h.proc.pid} ${clean(program(h.proc))}, cpu ${cpuText(h.proc.cpu)}, age ${ageText(h.proc.started, now)}, ${ownerText(h)}${h.orphan ? ", orphan" : ""}`);
 	return [
 		`${what} refused: ${holders.length} process${holders.length === 1 ? "" : "es"} work${holders.length === 1 ? "s" : ""} in ${root}`,
 		...rows, ...(holders.length > LISTED ? [`- and ${holders.length - LISTED} more`] : []),

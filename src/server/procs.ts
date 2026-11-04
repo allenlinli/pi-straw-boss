@@ -62,7 +62,7 @@ export interface ProcsDeps {
 	ownUid?: number;
 	platform?: NodeJS.Platform;
 }
-export interface ReapResult { owner: string; reason: string; targets: number; termed: number; killed: number; skipped: number; left: { pid: number; comm: string }[]; spared: number; /** The cwd rule was left out: the live panes of Herdr were not known, so the reap did not risk a session's orphans. */ deferred?: boolean }
+export interface ReapResult { owner: string; reason: string; targets: number; termed: number; killed: number; skipped: number; left: { pid: number; program: string }[]; spared: number; /** The cwd rule was left out: the live panes of Herdr were not known, so the reap did not risk a session's orphans. */ deferred?: boolean }
 export interface OwnerRow { id: string; pid: number; started: string; live: boolean; roots: string[]; snapshot: number; pane?: string; subagentId?: string; endedReason?: string }
 export interface Procs {
 	/** Loads the records, reaps the owners that ended while the server was down, and takes the first tick (its cost is logged once). */
@@ -228,7 +228,7 @@ export function createProcs(d: ProcsDeps): Procs {
 			(result) => {
 				const current = owners.get(record.id) === record;
 				if (result.left.length) {
-					d.log("procs-left", { owner: record.id, count: result.left.length, programs: result.left.map((l) => l.comm).slice(0, 5).join(",") });
+					d.log("procs-left", { owner: record.id, count: result.left.length, programs: result.left.map((l) => l.program).slice(0, 5).join(",") });
 					record.snapshot = [];
 					if (record.ended) record.ended.left = true;
 				} else if (result.deferred) {

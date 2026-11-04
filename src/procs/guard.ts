@@ -187,8 +187,8 @@ const shell = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`;
 
 const LISTED = 12;
 /** The refusal of a removal: the holders (pid, comm, cpu, age, owner state; never a command line) and the command that reaps what an ended worker left. */
-export function refusal(what: string, root: string, holders: readonly Holder[], reap: string, now: number): string {
-	const rows = holders.slice(0, LISTED).map((h) => `- pid ${h.proc.pid} ${clean(programOf(h.proc))}, cpu ${cpuText(h.proc.cpu)}, age ${ageText(h.proc.started, now)}, ${ownerText(h)}${h.orphan ? ", orphan" : ""}`);
+export function refusal(what: string, root: string, holders: readonly Holder[], reap: string, now: number, program: (p: Proc) => string = programOf): string {
+	const rows = holders.slice(0, LISTED).map((h) => `- pid ${h.proc.pid} ${clean(program(h.proc))}, cpu ${cpuText(h.proc.cpu)}, age ${ageText(h.proc.started, now)}, ${ownerText(h)}${h.orphan ? ", orphan" : ""}`);
 	return [
 		`${what} refused: ${holders.length} process${holders.length === 1 ? "" : "es"} work${holders.length === 1 ? "s" : ""} in ${root}`,
 		...rows, ...(holders.length > LISTED ? [`- and ${holders.length - LISTED} more`] : []),

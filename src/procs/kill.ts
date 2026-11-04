@@ -1,5 +1,5 @@
 import { guardSignal } from "./killguard.ts";
-import { programOf, readTable, refOf, sameProc, type Proc, type Ref } from "./table.ts";
+import { named, programOf, readTable, refOf, sameProc, type Proc, type Ref } from "./table.ts";
 import { startOf } from "../startof.ts";
 
 // The kill sequence: SIGTERM to each target group and then to each target pid, 10 s later SIGKILL to what is left, then a last look. Every signal is preceded by a check that the pid still has the start time
@@ -29,7 +29,8 @@ export interface KillReport {
 	/** Targets whose identity changed or that were gone before their signal could go out. */
 	skipped: number;
 	groups: number;
-	left: { pid: number; comm: string }[];
+	/** The processes still there; `program` is the display name (the executable on Linux), not `ps` comm. */
+	left: { pid: number; program: string }[];
 }
 
 /** The groups that may be signalled whole: a group led by a target (its pgid is a target's pid) whose every member in `table` is a target. Others get their members signalled one by one. */
@@ -101,7 +102,7 @@ export async function killSequence(refs: readonly Ref[], deps: KillDeps): Promis
 		await sleep(settle.stepMs);
 		left = alive(await table());
 	}
-	report.left = left.map((p) => ({ pid: p.pid, comm: programOf(p) }));
+	report.left = left.map((p) => ({ pid: p.pid, program: programOf(named(p)) }));
 	return report;
 }
 

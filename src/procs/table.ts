@@ -16,7 +16,7 @@ export interface Proc {
 	cpu: number;
 	/** The program as `ps` names it (a path on macOS; on Linux the thread name); `programOf` for display. */
 	comm: string;
-	/** Linux only: the file name of the program, from the link `/proc/<pid>/exe`. There `comm` is the name of the main thread, which a program may set for itself (node 24 sets "MainThread"), so `programOf` prefers this. Absent where the link cannot be read (another account's process, a kernel thread, a zombie). */
+	/** Linux only, set by `named` (not by `readTable`): the file name of the program, from the link `/proc/<pid>/exe`. There `comm` is the name of the main thread, which a program may set for itself (node 24 sets "MainThread"), so `programOf` prefers this. Absent where the link cannot be read (another account's process, a kernel thread, a zombie). */
 	exe?: string;
 	zombie: boolean;
 }
@@ -66,19 +66,20 @@ export function exeName(link: string): string | undefined {
 	return name && !/[\u0000-\u001f\u007f-\u009f]/.test(name) ? name : undefined;
 }
 
-/** The account's own processes, now (`all`: every account's, which the kill sequence reads so a group with a foreign member is not signalled whole). Undefined on a platform without `ps`; a failed `ps` throws (the caller must not decide on a table it did not get). On Linux each of the account's own rows also gets the name of its executable (`readlink`: the link of a pid). */
-export async function readTable(ask: Run = run, { uid = process.getuid?.(), platform = process.platform, all = false, readlink = (pid: number) => readlinkSync(`/proc/${pid}/exe`) }: { uid?: number; platform?: NodeJS.Platform; all?: boolean; readlink?: (pid: number) => string } = {}): Promise<Proc[] | undefined> {
+/** The account's own processes, now (`all`: every account's, which the kill sequence reads so a group with a foreign member is not signalled whole). Undefined on a platform without `ps`; a failed `ps` throws (the caller must not decide on a table it did not get). */
+export async function readTable(ask: Run = run, { uid = process.getuid?.(), platform = process.platform, all = false }: { uid?: number; platform?: NodeJS.Platform; all?: boolean } = {}): Promise<Proc[] | undefined> {
 	if (platform === "win32") return undefined;
-	const rows = parsePs(await ask("ps", PS_ARGS)).filter((p) => all || uid === undefined || p.uid === uid);
-	if (platform !== "linux") return rows;
-	return rows.map((p) => {
-		if (p.zombie || uid === undefined || p.uid !== uid) return p;
-		try {
-			const exe = exeName(readlink(p.pid));
-			return exe ? { ...p, exe } : p;
-		} catch { /* gone, or not readable: comm stands */ }
-		return p;
-	});
+	return parsePs(await ask("ps", PS_ARGS)).filter((p) => all || uid === undefined || p.uid === uid);
+}
+
+/** The row with its `exe` on Linux, for a process whose name is about to be shown (the removal guard's refusal, a kill report's `left`). Lazy on purpose: the 10 s tick reads the table for owners and never shows a name, so it must not pay a `readlink` per row. Only the account's own live rows are looked up; a link that cannot be read (gone, EACCES) leaves the row as it is, and this never throws. */
+export function named(p: Proc, { uid = process.getuid?.(), platform = process.platform, readlink = (pid: number) => readlinkSync(`/proc/${pid}/exe`) }: { uid?: number; platform?: NodeJS.Platform; readlink?: (pid: number) => string } = {}): Proc {
+	if (platform !== "linux" || p.zombie || uid === undefined || p.uid !== uid) return p;
+	try {
+		const exe = exeName(readlink(p.pid));
+		return exe ? { ...p, exe } : p;
+	} catch { /* gone, or not readable: comm stands */ }
+	return p;
 }
 
 /** Whether the parent is the init process or a subreaper (the user's `systemd --user` on Linux): the process lost its starter. A parent the table does not list is another account's, not a dead one. */

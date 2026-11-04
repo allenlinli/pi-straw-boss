@@ -7,7 +7,7 @@ import { herdrRun, panes as herdrPanes, result as herdrResult, workspaces as her
 import { type Cwd, readCwds } from "./procs/cwd.ts";
 import { type Holder, parseWorktreeList, refusal, removeTargets } from "./procs/guard.ts";
 import { OWNER_KEY, readOwners, setOwner } from "./procs/marker.ts";
-import { baseName, isOrphan, type Proc, readTable } from "./procs/table.ts";
+import { baseName, isOrphan, named, programOf, type Proc, readTable } from "./procs/table.ts";
 import { checkoutOf, physical, under } from "./procs/worktree.ts";
 import { inRun, inStandingRun } from "./runmark.ts";
 import { makeCtx, trusted } from "./server/client.ts";
@@ -197,7 +197,7 @@ export function createHygiene(deps: HygieneDeps = {}) {
 		for (const [root, closes] of roots) {
 			const idle = closes ? await idleShellsOf(root, spaces) : new Set<number>();
 			const holders = (await holdersOf(root)).filter((h) => !idle.has(h.proc.pid));
-			if (holders.length) return refusal(what, root, holders, cli(), now());
+			if (holders.length) return refusal(what, root, holders, cli(), now(), (p) => programOf(named(p)));
 		}
 		return undefined;
 	}

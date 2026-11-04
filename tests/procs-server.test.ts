@@ -60,7 +60,7 @@ async function cli(argv: string[]) {
 
 test("T2R-F010 and F001: cli procs exits 1 when a reap leaves a process alive or the server refuses a path, and 0 with the list; a refused path says why", async () => {
 	const table = [P(100, 1), P(101, 100)];
-	const procs = { read: async () => table, startOf: (pid: number) => table.find((p) => p.pid === pid)?.started, cwds: async () => new Map(), markers: async () => new Map([[101, "w1"]]), reap: async (refs: readonly { pid: number }[]) => ({ termed: refs.length, killed: refs.length, skipped: 0, groups: 0, left: [{ pid: 101, comm: "node" }] }) };
+	const procs = { read: async () => table, startOf: (pid: number) => table.find((p) => p.pid === pid)?.started, cwds: async () => new Map(), markers: async () => new Map([[101, "w1"]]), reap: async (refs: readonly { pid: number }[]) => ({ termed: refs.length, killed: refs.length, skipped: 0, groups: 0, left: [{ pid: 101, program: "node" }] }) };
 	const running = await world.start({ procs });
 	await running.handle.ready;
 	assert.equal((await ask({ cmd: "procs-hello", pid: 100, id: "w1", started: "t100" })).ok, true);
@@ -73,7 +73,7 @@ test("T2R-F010 and F001: cli procs exits 1 when a reap leaves a process alive or
 	const left = await cli(["procs", "reap", "--owner", "w1"]);
 	assert.equal(left.code, 1, left.err || "something stayed alive");
 	assert.equal(left.err, "");
-	assert.deepEqual((JSON.parse(left.out) as { left: unknown[] }).left, [{ pid: 101, comm: "node" }]);
+	assert.deepEqual((JSON.parse(left.out) as { left: unknown[] }).left, [{ pid: 101, program: "node" }]);
 	const root = await cli(["procs", "reap", "--checkout", "/"]);
 	assert.equal(root.code, 1);
 	assert.match(root.err, /in no checkout: reap --checkout takes a linked worktree/);

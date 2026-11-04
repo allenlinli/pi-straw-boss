@@ -1,8 +1,9 @@
 import type { Mark } from "../src/netdata.ts";
 import type { Pending } from "../src/ask.ts";
-import type { Net, Unit } from "../src/net.ts";
+import type { Base, Net, Unit } from "../src/net.ts";
 import type { TrustAsk } from "../src/trust/types.ts";
 import { rankOf, unitsOf } from "./units.ts";
+import { type WaitInfo, waitAlerts } from "./waits.ts";
 
 export { rankOf };
 
@@ -15,9 +16,9 @@ export { rankOf };
  */
 /**
  * `unit`: the unit an alert of one of its monitors belongs to (its key is the monitor's own); its comms, terminal, and chat are the unit's.
- * `trust`: a project trust question (src/trust/): the folder's agents wait on it, and its key is the folder and the digest of what was asked.
+ * `trust`: a project trust question (src/trust/): the folder's agents wait on it, and its key is the folder and the digest of what was asked. `wait`: a wait the tower recorded on the boss (waits.ts): `unit` is the tower, and the key is the workspace and the wait's id.
  */
-export interface Alert { key: string; unit?: string; ws: string; name: string; role: string; mark: Mark; note?: string; at: number; /** When the unit took its present state (the server's activity reader; a trust question: its earliest agent). */ since?: number; pending?: Pending; gone?: boolean; closed?: boolean; trust?: TrustAsk }
+export interface Alert { key: string; unit?: string; ws: string; name: string; role: string; mark: Mark; note?: string; at: number; /** When the unit took its present state (the server's activity reader; a trust question: its earliest agent). */ since?: number; pending?: Pending; gone?: boolean; closed?: boolean; trust?: TrustAsk; wait?: WaitInfo }
 /** The openings this page runs (deploy.ts): their trust question shows inline in the deploy panel, and is no alert here. */
 export const ownOpenings = new Set<string>();
 /** The unit an alert is about. */
@@ -30,6 +31,7 @@ export function alertsOf(net: Net, at: number): Map<string, Alert> {
 		// `pending` is always set, so a refreshed alert drops a question that is gone.
 		const x: Partial<Unit> = unit, role = x.role ?? "tower";
 		out.set(x.key!, { key: x.key!, ws: b.id, name: x.name!, role, mark: x.mark!, note: x.note, at, since: x.since, pending: x.pending, closed: !x.control || Boolean(x.ended) });
+		for (const w of waitAlerts(b.id, unit as Base["tower"], at)) out.set(w.key, w); // only a tower carries a service with waits
 		// One alert per failed monitor, while its session lists it; a monitor that ran again under the same id is a new one (`at`).
 		for (const mo of x.monitors ?? []) if (mo.status === "error" || mo.status === "stale") ((key) => out.set(key, { key, unit: x.key!, ws: b.id, name: x.name!, role, mark: "error", note: `monitor:${mo.status}:${mo.what}`, at }))(`${x.key}\u001fmonitor:${mo.id}:${mo.at}`);
 	}

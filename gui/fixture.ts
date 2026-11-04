@@ -110,6 +110,22 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	/** The terminal card's script (democard.ts): `?card=<state>` starts one; an answer that leaves a terminal step starts the default one (a pane types its command, "Run it" runs it). */
 	let card = isCard(cardParam) ? demoCard(cardParam, (type, payload) => current?.send(type, payload)) : undefined;
 	let net = demo(), step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
+	// `?wait=fresh|stale|both`: the tower records a wait on the boss (20 minutes old: an alert; three days old: only the card's line, marked as out of date); the memory route's drop is this stand-in's.
+	const waitDemo = new URLSearchParams(location.search).get("wait");
+	if (waitDemo) {
+		const old = { id: "W1", text: "Boss token needed to add the Tailscale ACL cloud-pub to gx10:443", at: new Date(Date.now() - 3 * 86_400_000).toISOString() }, fresh = { id: "W2", text: "api-fix asks: deploy ws01?", at: new Date(Date.now() - 20 * 60_000).toISOString() };
+		const bossWaits = waitDemo === "stale" ? [old] : waitDemo === "fresh" ? [fresh] : [old, fresh];
+		net.bases[0]!.tower!.service = { ...towerService("standing").service!, memory: { rev: 3, standing: 0, decisions: 0, waits: bossWaits.length, bossWaits, proposals: [] } };
+		const real = globalThis.fetch;
+		globalThis.fetch = async (input, init) => {
+			const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+			if (!/api\/tower\/\w+\/memory$/.test(url)) return real(input, init);
+			const memory = net.bases[0]!.tower!.service!.memory!, id = (JSON.parse(String(init?.body)) as { id: string }).id;
+			memory.bossWaits = memory.bossWaits.filter((w) => w.id !== id);
+			(net = structuredClone(net)), current?.send("message", net);
+			return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+		};
+	}
 	// The demo documents stand in for the server's: the HTML one as a data: page, the text ones from here.
 	[docHooks.src, docHooks.load] = [() => `data:text/html;charset=utf-8,${encodeURIComponent(DEMO_PAGE)}`, async (cap) => ({ text: cap === "plan" ? DEMO_DOC : `# Notes ${cap.slice(5)}\n\nA demo document that arrived on its own.` })];
 	const history = demoHistory();

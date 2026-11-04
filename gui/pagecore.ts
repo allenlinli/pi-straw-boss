@@ -162,8 +162,8 @@ export function createPage(io: PageIo) {
 		},
 		/** The header's Zen button: the mark that this page left Zen goes and the view is read again. */
 		enterZen: () => enterZen(io.view, io.root),
-		/** A click on a system notification: Zen tells its one item itself; a trust question opens its dialog, any other alert its session. */
-		notified: (a: Alert) => rules().announce === "current" || (a.trust ? openAlert(a) : openSession(a.ws, unitOf(a))),
+		/** A click on a system notification: Zen tells its one item itself; a trust question or a wait for the boss opens its dialog, any other alert its session. */
+		notified: (a: Alert) => rules().announce === "current" || (a.trust || a.wait ? openAlert(a) : openSession(a.ws, unitOf(a))),
 		/** The chime for new link notices: Zen makes no sound of its own accord. */
 		news: linkChime(() => !rules().chime, io.chime),
 		/** The keymap the page reads (hotkeys.ts), and whether a modal holds the keyboard. */

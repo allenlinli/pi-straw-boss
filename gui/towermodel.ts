@@ -2,6 +2,7 @@ import type { MemoryProposal, MemorySummary, TowerService } from "../src/net.ts"
 import type { Mark } from "../src/netdata.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
+import { waitLine } from "./waits.ts";
 
 // What the page says about the sb server's tower service (src/server/runs.ts `ServiceStatus`, carried on the tower unit as `service`), as plain functions of the reading: the state's word, the last run,
 // the queue, the notices in the page's language, the turns of a run that the server wrote, and the buttons that answer. No DOM here, so tests drive it.
@@ -58,9 +59,9 @@ export const statusLine = (service: TowerService | undefined, mk: Mark, word: Wo
 /** The count of messages the service holds for the next run. */
 export const queueChip = (service: TowerService | undefined, o?: Opts): string | undefined => (service?.queued ? m.tower_queued({ count: service.queued }, o) : undefined);
 
-export type Act = "retry" | "deliver" | "drop" | "answer" | "confirm" | "reject";
-/** `proposal`: a memory proposal's id and `rev` the snapshot carried, which its Confirm and Reject buttons name to the memory route. */
-export interface Row { id: string; level: "info" | "warning" | "error"; text: string; event?: string; proposal?: string; rev?: number; actions: Act[] }
+export type Act = "retry" | "deliver" | "drop" | "answer" | "dismiss" | "confirm" | "reject";
+/** `proposal`: a memory proposal's id and `rev` the snapshot carried, which its Confirm and Reject buttons name to the memory route. `wait`: a wait for the boss, by its id in the tower's memory, which its Dismiss names to that route. */
+export interface Row { id: string; level: "info" | "warning" | "error"; text: string; event?: string; proposal?: string; rev?: number; wait?: string; actions: Act[] }
 const START = "A run could not start: ", UNCHECKED = "The tower could not check the standing pane for a program of yours, so it types nothing there; press Retry when it is free", NOT_AT_SHELL = "The standing pane is not at its own shell: a nested shell or a program runs there. Leave it, then press Retry", NOTHING_TYPED = "The tower types nothing in the standing pane: ", LATE = "An event was parked after two runs crashed with it: ";
 /** A notice the server wrote (English, src/server/runs.ts) in the page's language; one it does not know stays as written. The reasons inside (a path, a Herdr error) are the server's own text. */
 function noticeText(n: TowerService["notices"][number], o?: Opts): string {
@@ -73,10 +74,10 @@ function noticeText(n: TowerService["notices"][number], o?: Opts): string {
 	return n.text;
 }
 /** The service's notices (a refused settings check, a crash loop) and its parked events, each with its buttons. A notice about a parked event is its parked row's, so it is not drawn twice. */
-export function noticeRows(service: TowerService | undefined, o?: Opts): Row[] {
+export function noticeRows(service: TowerService | undefined, o?: Opts, now = Date.now()): Row[] {
 	return [
 		...(service?.notices ?? []).filter((n) => !n.id.startsWith("parked-")).map((n): Row => ({ id: n.id, level: n.level, text: noticeText(n, o), actions: n.kind === "loop" || (n.kind === "start" && n.id === "start") ? ["retry"] : [] })),
-		...(service?.memory?.bossWaits ?? []).map((w): Row => ({ id: `wait-${w.id}`, level: "warning", text: m.tower_waits_for_you({ text: w.text }, o), actions: ["answer"] })),
+		...(service?.memory?.bossWaits ?? []).map((w): Row => ({ id: `wait-${w.id}`, level: "warning", text: waitLine(w, now, o), wait: w.id, actions: ["answer", "dismiss"] })),
 		...(service?.memory?.proposals ?? []).map((p): Row => ({ id: `proposal-${p.id}`, level: "warning", text: proposalText(p, o), proposal: p.id, rev: service!.memory!.rev, actions: ["confirm", "reject"] })),
 		...(service?.memory?.problem ? [{ id: "memory-unreadable", level: "warning" as const, text: service.memory.problem, actions: [] }] : []),
 		...(service?.parked ?? []).map((p): Row => ({ id: `parked-${p.id}`, level: "warning", text: p.from ? m.tower_parked({ kind: p.kind, from: p.from, first: p.first }, o) : m.tower_parked_anon({ kind: p.kind, first: p.first }, o), event: p.id, actions: ["deliver", "drop"] })),

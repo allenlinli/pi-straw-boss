@@ -1264,8 +1264,9 @@ goes around its tools (below, T3R-F005) can also write `memory.json` directly, a
 
 **Waits** are the tower's own notes. `tower_memory { op: "add", kind: "wait", text, for: "boss" | "agent", on?, due? }`:
 
-- `for: "boss"`: the tower needs the boss's decision. The GUI shows a notice on the tower card ("waits for you") with an Answer link to the
-  composer. The tower prompt's and the stand-in's lines for it arrive with those pieces (T5/T0).
+- `for: "boss"`: the tower needs the boss's decision. It reaches the boss as an alert of the tower while it is under a day old (`FRESH_MS`): the dialog and Zen item say what it waits for and offer **Tell the tower** (the tower's
+  comms), **Dismiss** (the memory route's `drop`, below), and Later, and a system notification says it once while the page is hidden. The tower card and its comms keep a line for it as long as it is open ("waits for you", how long it has
+  stood, "may be out of date" after a day), with the same two buttons; a wait a day old raises no alert. A brief shows an open wait that old with `(open 2d 3h)`, and `prompts/tower-run.md` tells the run to check it and resolve, drop, or restate it.
 - `for: "agent"` names `on`, a live session (by id or name; the server resolves it). When a message from that session arrives, the server marks
   the wait `answered` and the brief says `answered? message from <name> HH:MM`, but only when the net the server reads (the broker's sessions and
   Herdr's panes) shows a live session with the sender's id in this tower's workspace: the id on a message is the broker's, and pi-intercom
@@ -1293,8 +1294,8 @@ the memory beyond its first 2,700 characters (the head and the standing instruct
 ### The GUI's memory route
 
 `POST /api/tower/<workspace>/memory { op, … }`, with the page's origin and CSRF like every write, on the local and the remote listener (the paired phone is the boss), and the control socket's `tower-memory
-{ workspace, json }`, are one function. `op` is `read`, `add` (`kind` standing or decision, `text`), `edit` (`id`, `text`), `delete` (`id`), `resolve` (`id`, `outcome?`), `confirm` (`proposal`), or `reject` (`proposal`);
-every write but a reject names the `rev` it read. The answer is `{ rev, entries, proposals }` (a proposal is `{ id, op, kind, text, target?, cites?, at }`). A moved file is 409 `rev` with the current memory in the body; a full cap, a missing entry or
+{ workspace, json }`, are one function. `op` is `read`, `add` (`kind` standing or decision, `text`), `edit` (`id`, `text`), `delete` (`id`), `resolve` (`id`, `outcome?`), `drop` (`id`: a wait only; the boss's Dismiss, with no `rev`, since a wait's id is never reused), `confirm` (`proposal`), or `reject` (`proposal`);
+every write but a reject and a drop names the `rev` it read. The answer is `{ rev, entries, proposals }` (a proposal is `{ id, op, kind, text, target?, cites?, at }`). A moved file is 409 `rev` with the current memory in the body; a full cap, a missing entry or
 proposal, or a proposal that no longer applies is 409 `refused`; a bad request is 400. (Every route of the control API is a POST, so the read is `op: "read"`.) The snapshot's `service.memory` carries
 `{ rev, standing, decisions, waits, bossWaits, proposals, problem? }` (`proposals` as `{ id, op, kind, text, target?, cites? }`), so the panel reads again only when `rev` moves.
 
@@ -1500,7 +1501,7 @@ What changes:
   message waiting more than 10 minutes, a server stopped on purpose that an automatic opening found, and a server `lastError`.
 - **Memory** (D22, D23): a panel in the tower's comms that mirrors `/boss memory`: the proposals waiting for the boss first (each with the boss message it cites, **Confirm** and **Reject**), then the
   standing instructions, the decisions, and the waits (open, and resolved or expired within 24 h, struck through). The boss adds, edits, and deletes there, with the caps shown; every change but a reject
-  names the `rev` it read (**Tower memory**). A wait for the boss is a notice row on the tower card with an **Answer** link to the composer, and so is every pending proposal, with **Confirm** and **Reject**.
+  names the `rev` it read (**Tower memory**). A wait for the boss is an alert (the dialog, the Zen item, the notification) and a notice row on the tower card with a **Tell the tower** link to the composer and **Dismiss**, and so is every pending proposal, with **Confirm** and **Reject**.
   zh-TW: 常駐指示, 決定, 等待, 確認, 駁回.
 - **The server** in the settings panel: state, version, uptime, last error, **Restart server**, and **Show log**, on this computer's
   page only (**Seeing and restarting the server**).

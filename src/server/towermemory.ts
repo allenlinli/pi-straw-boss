@@ -291,7 +291,9 @@ function waitRow(e: Entry, now: number): string {
 	if (e.state === "expired") return row(e.id, `expired (open for 7 days): ${e.text}`, MEM.waitText + 60);
 	const who = e.for === "boss" ? "for boss" : `for ${e.on?.name ?? "a session"}`;
 	const due = e.due ? (Date.parse(e.due) <= now ? ` (overdue ${ageOf(now - Date.parse(e.due))})` : ` (due in ${ageOf(Date.parse(e.due) - now)})`) : "";
-	return row(e.id, e.state === "answered" ? `answered? message from ${e.on?.name ?? "the session"} ${hhmm(e.answered ?? e.at)} · ${who}: ${e.text}${due}` : `${who}: ${e.text}${due}`, MEM.waitText + 140);
+	// A wait a day old or more says so, so that the run checks whether it still holds (prompts/tower-run.md).
+	const open = now - Date.parse(e.at) >= 86_400_000 ? ` (open ${ageOf(now - Date.parse(e.at))})` : "";
+	return row(e.id, e.state === "answered" ? `answered? message from ${e.on?.name ?? "the session"} ${hhmm(e.answered ?? e.at)} · ${who}: ${e.text}${due}${open}` : `${who}: ${e.text}${due}${open}`, MEM.waitText + 140);
 }
 const PENDING = "Proposed to the boss (not confirmed yet, so not instructions; they take effect only when the boss confirms them, which you cannot do):";
 /** The pending proposals, one line each behind a code-written id; the rows of a proposal are the run's words, kept short. */
@@ -361,7 +363,7 @@ const view = (m: Memory) => ({
 
 /**
  * The boss's request on the memory: the GUI panel's (`POST tower/<workspace>/memory`) and `/boss memory`'s (the control socket's `tower-memory`) are this one function. Read; and as the boss add (standing or decision),
- * edit, delete, resolve a wait, confirm a proposal, and reject one (a proposal is named by its id, which is never reused, so a reject needs no rev). Each other write names the rev it read; a file that has moved on is
+ * edit, delete, resolve a wait, drop one (the boss dismisses a wait for them from the page), confirm a proposal, and reject one (a proposal and a wait are named by an id that is never reused, so a reject and a drop need no rev). Each other write names the rev it read; a file that has moved on is
  * 409 `rev` with the current memory to redraw from. A cap that is full, an entry or proposal that is not there, or a proposal that no longer applies is 409 `refused`; a request that is wrong is 400. A run reaches none of it.
  */
 export function memoryRequest(slot: Slot, workspace: string, now: number, json: Record<string, unknown>, log?: Log): { status: number; body: Record<string, unknown> } {
@@ -378,13 +380,16 @@ export function memoryRequest(slot: Slot, workspace: string, now: number, json: 
 		edit: (m) => editEntry(m, json.id, json.text),
 		delete: (m) => removeEntry(m, json.id),
 		resolve: (m) => resolveWait(m, json.id, json.outcome, now),
+		drop: (m) => dropWait(m, json.id),
 		confirm: (m) => confirmProposal(m, now, json.proposal),
 		reject: (m) => rejectProposal(m, json.proposal),
 	};
-	if (typeof op !== "string" || !Object.hasOwn(change, op)) return no(400, "bad_request", "op is read, add, edit, delete, resolve, confirm, or reject");
-	if (op !== "reject" && (typeof json.rev !== "number" || !Number.isInteger(json.rev))) return no(400, "bad_request", "A change names the rev it read");
+	if (typeof op !== "string" || !Object.hasOwn(change, op)) return no(400, "bad_request", "op is read, add, edit, delete, resolve, drop, confirm, or reject");
+	// A reject and a drop name an id that is never reused, so they need no rev.
+	const byId = op === "reject" || op === "drop";
+	if (!byId && (typeof json.rev !== "number" || !Number.isInteger(json.rev))) return no(400, "bad_request", "A change names the rev it read");
 	try {
-		const done = updateMemory(slot, workspace, now, change[op]!, op === "reject" ? undefined : (json.rev as number));
+		const done = updateMemory(slot, workspace, now, change[op]!, byId ? undefined : (json.rev as number));
 		log?.line("tower-memory", { workspace, op, by: "boss", ...(done.value ? { id: done.value.id } : {}), ...(op === "confirm" ? { proposal: String(json.proposal) } : {}) });
 		return { status: 200, body: { ...view(done.memory), ...(done.value ? { id: done.value.id } : {}) } };
 	} catch (cause) {

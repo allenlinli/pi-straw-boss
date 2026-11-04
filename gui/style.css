@@ -383,6 +383,7 @@ body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /
 .tower-notices .tnote.warning span { color: var(--gold); }
 .tower-notices .tnote .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .tower-notices .tnote .tnote-fail:empty { display: none; }
 .tower-notices .tnote button:disabled { opacity: 0.6; cursor: progress; }
+.wait-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; } .wait-text { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; } .wait-panel .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .wait-panel .tnote-fail:empty { display: none; }
 /* In the comms the same rows sit between the log and the composer. */
 .tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }
 /* The tower's queue on its map card, and the sentence that stands where a standing tower's terminal would be. */

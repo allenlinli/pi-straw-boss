@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -46,6 +46,15 @@ test("findTsx resolves tsx/esm/api from the package's own place, and a place wit
 	assert.match(findTsx(), /tsx[\\/]dist[\\/]esm[\\/]api[\\/]index\.mjs$/, "the ESM entry: Node 22.22.x cannot tsImport from the CommonJS one");
 	const lonely = join(base, "no", "tsx", "here", "file.mjs");
 	assert.throws(() => findTsx(lonely), (e: unknown) => e instanceof LoaderError && e.code === "loader" && e.message.includes(lonely));
+});
+
+test("findTsx takes a plain string export too, and a tsx without an ESM entry says so instead of asking for a reinstall", () => {
+	const pkg = join(base, "p"), tsx = join(pkg, "node_modules", "tsx"), from = join(pkg, "file.mjs");
+	put(join(tsx, "dist", "esm", "api", "index.mjs"), "");
+	put(join(tsx, "package.json"), JSON.stringify({ name: "tsx", exports: { "./esm/api": "./dist/esm/api/index.mjs", "./package.json": "./package.json" } }));
+	assert.equal(realpathSync(findTsx(from)), realpathSync(join(tsx, "dist", "esm", "api", "index.mjs")));
+	put(join(tsx, "package.json"), JSON.stringify({ name: "tsx", exports: { "./package.json": "./package.json" } }));
+	assert.throws(() => findTsx(from), (e: unknown) => e instanceof LoaderError && /has no ESM entry/.test(e.message) && !/reinstall/.test(e.message));
 });
 
 test("loadIntercom loads pi-intercom's three modules through tsx once, however often it connects; each connect starts the broker and makes a new client", async () => {

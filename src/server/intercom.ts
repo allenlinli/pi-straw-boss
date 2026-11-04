@@ -32,13 +32,21 @@ interface ConfigModule { loadConfig(): { brokerCommand: string; brokerArgs: stri
  */
 export function findTsx(from: string = import.meta.url): string {
 	const place = from.startsWith("file:") ? fileURLToPath(from) : from;
+	let manifest: string;
 	try {
-		const manifest = createRequire(place).resolve("tsx/package.json");
-		const entry = (JSON.parse(readFileSync(manifest, "utf8")) as { exports?: Record<string, { import?: { default?: unknown } }> }).exports?.["./esm/api"]?.import?.default;
-		const file = typeof entry === "string" ? join(dirname(manifest), entry) : undefined;
-		if (file && existsSync(file)) return file;
+		manifest = createRequire(place).resolve("tsx/package.json");
+	} catch {
+		throw new LoaderError("loader", `tsx was not found from ${place}: it is a dependency of pi-straw-boss, so reinstall the package`);
+	}
+	let exp: unknown;
+	try {
+		exp = (JSON.parse(readFileSync(manifest, "utf8")) as { exports?: Record<string, unknown> }).exports?.["./esm/api"];
 	} catch {}
-	throw new LoaderError("loader", `tsx was not found from ${place}: it is a dependency of pi-straw-boss, so reinstall the package`);
+	// The nested {import: {default}} shape of every tsx 4.15+, or a plain string.
+	const entry = typeof exp === "string" ? exp : (exp as { import?: { default?: unknown } } | undefined)?.import?.default;
+	const file = typeof entry === "string" ? join(dirname(manifest), entry) : undefined;
+	if (file && existsSync(file)) return file;
+	throw new LoaderError("loader", `tsx at ${dirname(manifest)} has no ESM entry for tsx/esm/api: pi-straw-boss needs tsx ^4.23.15`);
 }
 /** The version of the pi-intercom in `dir`. */
 export function intercomVersion(dir: string): string | undefined {

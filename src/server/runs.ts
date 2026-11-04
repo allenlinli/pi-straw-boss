@@ -738,16 +738,19 @@ export function createRuns(o: RunsOptions) {
 	/**
 	 * The process Herdr lists for the run: the one whose command line holds the run id, else the one that is pi by its program (`argv0` on macOS), else a pi by its name, else the one named node. It may be a wrapper that started pi (`resolve`).
 	 * On Linux Herdr lists pi by `name` alone (the kernel's `comm`: pi's process title) with no `argv0`, and pi's title has overwritten its argv, so the command line is just "pi" and the run id is not in it. A pi found by that name
-	 * only is taken when it is the one such process in the pane's foreground, or the foreground process group's leader among several, and not one that carries another run's id.
+	 * only is taken when it is the one such process in the pane's foreground, or the foreground process group's leader among several (pi's title leaves no run id in its command line on Linux, so that rule is the only protection there).
 	 */
 	const procOf = async (pane: string, runId?: string): Promise<number | undefined> => {
 		const all = await paneInfo(pane), info = all?.foreground_processes ?? [];
-		// A pi that names another run in its command line is that run's, not this one's.
-		const named = info.filter((p) => p.name === "pi" && [undefined, runId].includes(/--sb-run (\S+)/.exec(p.cmdline ?? "")?.[1]));
-		const leader = named.find((p) => p.pid === all?.foreground_process_group_id);
-		const byName = named.length === 1 ? named[0] : leader;
-		const pick = info.find((p) => runId && p.cmdline?.includes(runId)) ?? info.find((p) => p.argv0 === "pi") ?? byName ?? info.filter((p) => p.name === "node")[0];
+		const named = piByName(all);
+		// Two pi by name and no leader: nothing is guessed, the node fallback included.
+		const pick = info.find((p) => runId && p.cmdline?.includes(runId)) ?? info.find((p) => p.argv0 === "pi") ?? named.by ?? (named.all.length > 1 ? undefined : info.filter((p) => p.name === "node")[0]);
 		return typeof pick?.pid === "number" ? pick.pid : undefined;
+	};
+	/** A pi Herdr lists by name alone (Linux): the only one in the foreground, or the foreground process group's leader among several. */
+	const piByName = (all: { foreground_processes?: { pid?: number; name?: string }[]; foreground_process_group_id?: unknown } | undefined) => {
+		const named = (all?.foreground_processes ?? []).filter((p) => p.name === "pi");
+		return { all: named, by: named.length === 1 ? named[0] : named.find((p) => p.pid === all?.foreground_process_group_id) };
 	};
 	/**
 	 * pi's own process for the one Herdr lists. A claim carries pi's PID (a pi cannot be started with any other), and the wrapper (`cmd.exe /c pi.cmd`, a `sh -c` or Volta shim) is a different one, so the
@@ -793,10 +796,12 @@ export function createRuns(o: RunsOptions) {
 	 * wrappers down to the pi below it: whatever else the pane holds is not the run's. Returns the PIDs signalled.
 	 */
 	const reap = async (a: Active): Promise<number[]> => {
-		const id = a.rec.id, known = a.rec.pid, info = (await foreground(a.rec.pane)) ?? [];
+		const id = a.rec.id, known = a.rec.pid, whole = await paneInfo(a.rec.pane), info = whole?.foreground_processes ?? [];
 		const listed = info.flatMap((p) => (typeof p.pid === "number" ? [p.pid] : []));
 		const carried = info.flatMap((p) => (typeof p.pid === "number" && p.cmdline?.includes(`--sb-run ${id}`) ? [p.pid] : []));
 		if (!listed.length) return [];
+		// Linux lists pi by name with no run id in its command line: the pane's one pi (or the group's leader) is the run's, as procOf takes it, unless its start did not complete (then the pane's pi is the boss's).
+		const byName = a.unstarted ? undefined : piByName(whole).by?.pid;
 		const table = await procs(id);
 		const root = known === undefined ? undefined : listed.find((l) => l === known || (a.rec.via ?? []).includes(l));
 		let pids: number[] = [];
@@ -810,9 +815,9 @@ export function createRuns(o: RunsOptions) {
 			}
 		}
 		if (!pids.length) {
-			for (const top of carried) {
+			for (const top of typeof byName === "number" && !carried.includes(byName) ? [...carried, byName] : carried) {
 				// A table that was read must still show the listed carrier as the run's (its PID may be another program's by now); only an unreadable table leaves it to Herdr's list.
-				if (table && !table.find((p) => p.pid === top)?.carries) continue;
+				if (table && !table.find((p) => p.pid === top)?.carries && top !== byName) continue;
 				const hit = table && leafOf(table, top);
 				pids.push(...(hit ? [hit.pid, ...[...hit.via].reverse()] : [top]));
 			}

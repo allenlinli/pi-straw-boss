@@ -102,12 +102,15 @@ export function restored(d: Restored) {
 	 */
 	async function shape(pane: string): Promise<"script" | "plain" | "unknown"> {
 		try {
-			const list = JSON.parse(await d.run(["pane", "process-info", "--pane", pane])).result.process_info.foreground_processes as { argv?: string[]; argv0?: string }[];
+			const info = JSON.parse(await d.run(["pane", "process-info", "--pane", pane])).result.process_info;
+			const list = info.foreground_processes as { pid?: number; argv?: string[]; argv0?: string; name?: string }[];
 			if (!Array.isArray(list) || list.length === 0) return "unknown";
 			if (list.some((p) => p.argv?.some((arg) => SCRIPT.test(arg)))) return "script";
 			if (windows) return "unknown";
-			const pis = list.filter((p) => p.argv0 === "pi");
-			if (pis.length !== 1 || list.some((p) => p !== pis[0] && !(Array.isArray(p.argv) && p.argv.length))) return "unknown";
+			// macOS lists pi as argv0 "pi". Linux lists no argv0 and pi's process title makes its name "pi": one such process, or the foreground group's leader among several; anything else is unknown.
+			const pis = list.filter((p) => p.argv0 === "pi" || (p.argv0 === undefined && p.name === "pi"));
+			const lead = pis.length > 1 ? pis.filter((p) => typeof p.pid === "number" && p.pid === info.foreground_process_group_id) : pis;
+			if (lead.length !== 1 || pis.some((p) => p.argv0 === "pi") && pis.length > 1 || list.some((p) => p !== lead[0] && !(Array.isArray(p.argv) && p.argv.length))) return "unknown";
 			return "plain";
 		} catch {
 			return "unknown";

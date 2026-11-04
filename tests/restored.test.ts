@@ -36,7 +36,8 @@ function rig(options: { tower?: boolean; platform?: string } = {}) {
 	const state = {
 		// The restored pane: Herdr's pane id of the launch script's surface, the child's session file, an idle pi on its own.
 		panes: [{ pane_id: "w:p2", tab_id: "w:t1", label: "kid-one", agent: "pi", agent_status: "idle", agent_session: { value: files.kidFile }, terminal_id: "t1" }] as Pane[],
-		processes: [{ argv0: "pi", name: "node" }] as { argv?: string[]; argv0?: string; name?: string }[] | undefined,
+		processes: [{ argv0: "pi", name: "node" }] as { pid?: number; argv?: string[]; argv0?: string; name?: string }[] | undefined,
+		group: undefined as number | undefined,
 		infos: 0,
 		lists: 0,
 		// The terminal the child was seen in while it ran as pi-herdr-agents started it; a restore gave the pane another one.
@@ -53,7 +54,7 @@ function rig(options: { tower?: boolean; platform?: string } = {}) {
 	const watch = () => restored({
 		run: async (args) => {
 			state.commands.push(args);
-			if (args[1] === "process-info") return state.infos++, JSON.stringify({ result: { process_info: { foreground_processes: state.processes } } });
+			if (args[1] === "process-info") return state.infos++, JSON.stringify({ result: { process_info: { foreground_processes: state.processes, foreground_process_group_id: state.group } } });
 			if (args[1] === "close") {
 				state.onClose?.();
 				if (state.closeFails) throw new Error("herdr: pane_not_found");
@@ -362,16 +363,23 @@ test("RV-F001: a launch script on a Windows path is still a script, and on Windo
 
 test("RV-F002: plain needs exactly one pi and an argv for every other process", async () => {
 	registry();
-	const cases: [string, { argv?: string[]; argv0?: string; name?: string }[], boolean][] = [
+	const cases: [string, { pid?: number; argv?: string[]; argv0?: string; name?: string }[], boolean, number?][] = [
+		["linux: one pi by name", [{ pid: 7, name: "pi", argv: ["pi"] }], true],
+		["linux: pi by name with a readable other process", [{ pid: 7, name: "pi", argv: ["pi"] }, { pid: 8, name: "claude", argv: ["claude"] }], true],
+		["linux: two pi by name, the leader is one", [{ pid: 7, name: "pi", argv: ["pi"] }, { pid: 8, name: "pi", argv: ["pi"] }], true, 8],
+		["linux: two pi by name, no leader", [{ pid: 7, name: "pi", argv: ["pi"] }, { pid: 8, name: "pi", argv: ["pi"] }], false],
+		["linux: pi by name with an unreadable other process", [{ pid: 7, name: "pi", argv: ["pi"] }, { pid: 8, name: "bash" }], false],
+		["linux: a node process is no pi", [{ pid: 7, name: "node", argv: ["node", "x.js"] }], false],
 		["two pi", [{ argv0: "pi" }, { argv0: "pi" }], false],
 		["no pi", [{ argv0: "node", argv: ["node", "x.js"] }], false],
 		["an unreadable other process", [{ argv0: "pi" }, { argv0: "bash", name: "bash" }], false],
 		["an empty argv", [{ argv0: "pi" }, { argv0: "bash", argv: [] }], false],
 		["a readable other process", [{ argv0: "pi" }, { argv0: "claude", argv: ["claude", "--x"] }], true],
 	];
-	for (const [label, processes, closes] of cases) {
+	for (const [label, processes, closes, group] of cases) {
 		const r = rig();
 		r.state.processes = processes;
+		r.state.group = group;
 		await r.polls(3);
 		assert.equal(r.closes().length, closes ? 1 : 0, label);
 	}

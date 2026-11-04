@@ -268,6 +268,31 @@ test("the line fades to the next every 45 s, stays still under calm or reduced m
 	assert.equal(c.pending(), 0, "stop cancels the timer");
 });
 
+test("a line the strip has sent away keeps its words: no swap while away (the original's height would shift the strip), and the cycle goes on after it comes back", () => {
+	const c = clock();
+	let n = 0;
+	const lines = [{ zh: "甲", en: "a", by: "x" }, { zh: "乙", en: "b", by: "y", ja: "原" }, { zh: "丙", en: "c", by: "z" }];
+	const l = mountLine(c.later, () => false, () => ((n = (n + 1) % 7) / 7), lines), el = l.el as unknown as El;
+	l.away(true);
+	const held = el.textContent, cycle = () => (c.advance(LINE_MS), c.advance(FADE_MS)); // the fake clock fires what is due once per advance
+	c.advance(LINE_MS);
+	assert.equal(el.dataset.fading, undefined, "away, the turn of the cycle does not start a fade it would not use");
+	c.advance(FADE_MS);
+	for (let i = 0; i < 3; i++) cycle();
+	assert.equal(el.textContent, held, "away, four cycles pass and the words stay");
+	assert.equal(el.dataset.fading, undefined, "and it does not start a fade it will not finish");
+	l.away(false);
+	cycle();
+	assert.notEqual(el.textContent, held, "back, the next swap comes");
+	c.advance(LINE_MS);
+	l.away(true);
+	const mid = el.textContent;
+	c.advance(FADE_MS);
+	assert.equal(el.textContent, mid, "sent away in the middle of a fade, it keeps its words");
+	assert.equal(el.dataset.fading, undefined);
+	l.stop();
+});
+
 test("the Japanese original shows under the source when a line has one, in a lang=ja element, and is hidden and empty when it has none", () => {
 	const c = clock(), lines = [{ zh: "古池", en: "pond", by: "芭蕉 / Bashō", ja: "古池や蛙飛びこむ水の音" }, { zh: "吸氣", en: "in", by: "x" }];
 	let n = 0;

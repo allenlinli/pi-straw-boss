@@ -921,6 +921,8 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	:is(.pair-btn, .quit-btn, .later, .go, .x, .tab-add, .ask-send, .ask-cancel, .sheet-yes, .cmp-yes) { min-width: 44px; }
 	.set-head .head-back { width: 44px; min-height: 44px; } .lan summary { padding-block: 13px; min-width: 44px; } .set-ctl input[type="range"] { min-height: 44px; } .set-group { padding: 12px; }
 	.set-row .lang { max-width: 55%; } .set-ctl { flex-wrap: wrap; }
+	/* The map's head pill stays 36 px to look at; its ::before reaches 44 px (the pill's padding box is 34, so 5 px each way), still inside the map's 36 px top band, clear of the first base row. */
+	.head-node::before { content: ""; position: absolute; inset: -5px 0; }
 	/* The map: a quit button, then its row. */
 	.tab h3 { min-height: 44px; }
 	/* Chips and the small pills: the pill is a 22 px drawing in a 44 px box. */

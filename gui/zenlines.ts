@@ -116,7 +116,7 @@ export const LINE_MS = 45_000, FADE_MS = 1600;
 /** Whether the page holds still: the reduced-motion setting, or the calm that follows 30 s without input (calm.ts). */
 export const stillNow = () => (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) || Boolean(document.documentElement?.hasAttribute("data-calm"));
 
-/** The line under the idle circle: it shows one line now and, every LINE_MS, fades to the next (never one already shown until all were). While the page holds still it stays as it is. `stop` cancels the timers. */
+/** The line under the idle circle: it shows one line now and, every LINE_MS, fades to the next (never one already shown until all were). While the page holds still, or the line is away, it stays as it is. `stop` cancels the timers. */
 export function mountLine(later: (fn: () => void, ms: number) => () => void, still: () => boolean = stillNow, random: () => number = Math.random, lines: readonly Line[] = LINES) {
 	const cards = deck(lines.length, random), text = h("span", { class: "zen-line-text" }), by = h("small", { class: "zen-line-by" }), ja = h("small", { class: "zen-line-ja", lang: "ja" }), el = h("p", { class: "zen-line" }, text, by, ja);
 	let cancel = () => {};
@@ -129,9 +129,9 @@ export function mountLine(later: (fn: () => void, ms: number) => () => void, sti
 		ja.hidden = !line.ja;
 	};
 	const wait = () => (cancel = later(() => {
-		if (still()) return wait();
+		if (still() || el.dataset.away !== undefined) return wait(); // a line the strip hides keeps its room (zen.css), so a swap now could move the strip by the original's height
 		el.dataset.fading = "";
-		cancel = later(() => (put(), delete el.dataset.fading, wait()), FADE_MS);
+		cancel = later(() => (el.dataset.away === undefined && put(), delete el.dataset.fading, wait()), FADE_MS); // sent away in the middle of the fade, it keeps its words too
 	}, LINE_MS));
 	put();
 	wait();

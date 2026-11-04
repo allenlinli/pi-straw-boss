@@ -110,6 +110,7 @@ test("the Whole conversation link names its key: the words, then \"· H\" in a s
 	assert.equal(key[0]!.textContent, "· H");
 	assert.equal(link.textContent, `${m.zen_head_history()} · H`, "one link: the words and the key, as the input's hint names Enter");
 	assert.equal(link.getAttribute("aria-keyshortcuts"), "H");
+	assert.equal(key[0]!.getAttribute("aria-hidden"), "true", "aria-keyshortcuts names the key, so the span is not read a second time as \"middle dot H\"");
 	assert.equal(key[0]!.parent, link, "the key is inside the link: one control, one target");
 });
 

@@ -4,7 +4,7 @@ import type { MemorySummary, TowerService } from "../src/net.ts";
 import { El } from "./fake-dom.ts";
 
 // The tower's memory in its comms (gui/towermemory.ts, gui/towermodel.ts): the closed line from the snapshot's summary, the panel read when it opens, the boss's adds, edits, deletes and resolves each
-// naming the rev they read, a memory that moved on shown again, a wait for the boss as a notice with an Answer link, and every text set as text.
+// naming the rev they read, a memory that moved on shown again, a wait for the boss as a notice with its link to the comms, and every text set as text.
 
 const { fillMemory } = await import("../gui/towermemory.ts");
 const { fillNotices } = await import("../gui/towernotes.ts");
@@ -202,9 +202,9 @@ test("the open panel lists the proposals first, each with what it cites, Confirm
 	assert.equal(box.find((el) => el.tag === "h4" && el.textContent === m.memory_pending()).length, 0, "no pending section without proposals");
 });
 
-test("a wait for the boss is a notice on the tower card with an Answer link to the comms; waits for agents are not", () => {
+test("a wait for the boss is a notice on the tower card with a link to the comms and a Dismiss; waits for agents are not (tower-wait.test.ts has the rest)", () => {
 	const service: TowerService = { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: summary({ bossWaits: [{ id: "W1", text: "api-fix asks: deploy ws01?", at: "t" }] }) };
-	assert.deepEqual(noticeRows(service).map((r) => [r.id, r.text, r.actions]), [["wait-W1", m.tower_waits_for_you({ text: "api-fix asks: deploy ws01?" }), ["answer"]]]);
+	assert.deepEqual(noticeRows(service).map((r) => [r.id, r.text, r.actions]), [["wait-W1", m.tower_waits_for_you({ text: "api-fix asks: deploy ws01?" }), ["answer", "dismiss"]]]);
 	assert.equal(noticeRows({ ...service, memory: summary() }).length, 0);
 	assert.equal(noticeRows({ ...service, memory: undefined }).length, 0);
 	const box = new El("div");

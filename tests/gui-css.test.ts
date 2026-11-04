@@ -243,3 +243,14 @@ test("Zen: a page under 900 px high and one under 600 px wide spend less on air 
 	assert.match(media("max-width: 600px"), /button\.ask-opt \{ padding: 6px 16px; font-size: 1rem/);
 	assert.match(media("max-width: 600px"), /\.ask-opt small \{ font-size: 0\.78rem/);
 });
+
+test("Zen's wait card buttons are 44 px text buttons with the vermilion underline on keyboard focus, not Standard's pills", () => {
+	const css = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8");
+	assert.match(css, /\.zen-skip, \.zen-card \.cmp-link, \.wait-panel \.pair-btn\) \{ text-transform: none; min-height: 44px/);
+	assert.match(css, /\.wait-panel \.pair-btn,[^{]*\):focus-visible \{ outline: none; text-decoration: underline 1px var\(--zen-seal\)/);
+});
+
+test("Zen's wait buttons rest as the card's quiet text buttons (no underline) and only keyboard focus draws the vermilion line", () => {
+	const css = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8");
+	assert.match(css, /\.zen-skip, \.zen-card \.cmp-link, \.wait-panel \.pair-btn, [^{]*\) \{ border-color: transparent; background: transparent; color: var\(--zen-ash\); text-decoration-color: transparent/);
+});

@@ -22,6 +22,7 @@ import { mountPalette } from "./palette.ts";
 import { entriesOf } from "./paletteentries.ts";
 import { ESC_MS, escStep } from "./zenkeys.ts";
 import { mountZenTerm } from "./zenterm.ts";
+import { waitPanel } from "./waitpanel.ts";
 import { mountMenu } from "./zenmenu.ts";
 import { mountMusic } from "./zenmusicbar.ts";
 import { syncQuestions } from "./zenquestions.ts";
@@ -90,7 +91,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	function makeCard(a: Alert): Card {
 		const trust = a.trust, key = unitOf(a), said = h("p", { class: "zen-said" }), out = h("p", { class: "zen-out", role: "status" });
 		const slot = h("div", { class: "zen-answer" }), skip = h("button", { type: "button", class: "cmp-alt zen-skip" }, m.zen_not_now());
-		const unit = unitOf(a), hist = trust ? undefined : mountHistory({ key: unit, chat: mounts.chat, data: deps.data, who: () => locate(net, unit)?.u ?? { key: unit, name: a.name, role: a.role, mark: a.mark }, watch: deps.watch, changed: () => sync() });
+		const unit = unitOf(a), hist = trust || a.wait ? undefined : mountHistory({ key: unit, chat: mounts.chat, data: deps.data, who: () => locate(net, unit)?.u ?? { key: unit, name: a.name, role: a.role, mark: a.mark }, watch: deps.watch, changed: () => sync() });
 		const ctx = h("button", { type: "button", class: "cmp-link zen-history-btn", "aria-keyshortcuts": "H", "aria-expanded": "false", "aria-controls": hist?.el.getAttribute("id") ?? "" }, m.zen_history());
 		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, trust ? m.trust_title() : a.name), h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, hist?.el, h("div", { class: "zen-acts" }, hist && ctx, skip), out);
 		const el = h("section", { class: "zen-card", tabindex: "-1" }, inner);
@@ -106,9 +107,15 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		ctx.onclick = () => void toggle();
 		ctx.hidden = true;
 		skip.onclick = () => apply(model.skip());
-		if (!trust) void deps.recent(key).then((items) => (said.textContent = intel(items).said ?? ""), () => {});
+		if (a.wait) said.textContent = a.wait.text; // a wait for the boss says what it waits for, not what the tower last said
+		else if (!trust) void deps.recent(key).then((items) => (said.textContent = intel(items).said ?? ""), () => {});
 		const answer: AnswerPost = (action, body) => tell(to(key)(action, body));
 		const online = deps.online;
+		if (a.wait) {
+			const panel = waitPanel({ ws: a.ws, id: a.wait.id, send: tell, reach: () => deps.leave({ route: { view: "session", ws: a.ws, key } }) });
+			slot.replaceChildren(panel.el);
+			return { key: a.key, el, said, out, skip, toggle: () => false, collapse() {}, enter: () => false, cancel: () => false, sending: () => panel.sending(), update: (x, outcome) => (panel.update(online()), say(out, outcome, x)) };
+		}
 		if (trust) {
 			const panel = mounts.trust((body) => tell(trustTo(body)));
 			slot.replaceChildren(panel);

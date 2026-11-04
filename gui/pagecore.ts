@@ -79,7 +79,7 @@ export function createPage(io: PageIo) {
 		io.restart();
 	}
 	/** The tab icon carries the count of units waiting on an answer, and every project trust question; Zen shows none. */
-	const badge = (net: Net) => io.icon(rules().count ? waitingOf(unitsOf(net).map((r) => r.unit)).length + (net.trust?.length ?? 0) : 0);
+	const badge = (net: Net) => io.icon(rules().count ? waitingOf(unitsOf(net).map((r) => r.unit)).length + (net.trust?.length ?? 0) + [...alertsOf(net, Date.now()).values()].filter((a) => a.wait).length : 0); // a wait the tower recorded on the boss counts like a trust question: it is an alert that is not a unit
 	/** Shows Zen or Standard to match `zenOn()`: Zen draws the newest snapshot when it comes on, and Standard draws it again on leaving. */
 	function sync() {
 		const on = zenOn();
@@ -162,8 +162,8 @@ export function createPage(io: PageIo) {
 		},
 		/** The header's Zen button: the mark that this page left Zen goes and the view is read again. */
 		enterZen: () => enterZen(io.view, io.root),
-		/** A click on a system notification: Zen tells its one item itself; a trust question opens its dialog, any other alert its session. */
-		notified: (a: Alert) => rules().announce === "current" || (a.trust ? openAlert(a) : openSession(a.ws, unitOf(a))),
+		/** A click on a system notification: Zen tells its one item itself; a trust question or a wait for the boss opens its dialog, any other alert its session. */
+		notified: (a: Alert) => rules().announce === "current" || (a.trust || a.wait ? openAlert(a) : openSession(a.ws, unitOf(a))),
 		/** The chime for new link notices: Zen makes no sound of its own accord. */
 		news: linkChime(() => !rules().chime, io.chime),
 		/** The keymap the page reads (hotkeys.ts), and whether a modal holds the keyboard. */

@@ -361,6 +361,11 @@ export function createRuns(o: RunsOptions) {
 	/** Panes that held a live run when Herdr went away, with when a resumed pi there stops being the old run. */
 	const restored = new Map<string, number>();
 	const error = (code: string, text: string) => log.line("error", { code, text: phrase(text, 300) });
+	/** Herdr's code and the start of its stderr first, then the message (which repeats the command line): the 300-char cap cuts the command, not what Herdr said. */
+	const startFailure = (cause: unknown) => {
+		const code = herdrCode(cause), said = (cause as { stderr?: unknown }).stderr, message = (cause as Error).message;
+		return typeof said === "string" && said ? `herdr ${code ?? "error"}: ${said.slice(0, 120)} | ${message}` : message;
+	};
 	/** The head tower's service (kind `head`): its runs resume one conversation in chapters and have the head's tools (docs/specs/2026-11-04-head-tower.md, Runs). */
 	const isHeadSvc = (svc: Svc) => svc.ref.record().kind === "head";
 	const headRun = (a: Active) => a.rec.kind === "local" && isHeadSvc(a.svc);
@@ -575,7 +580,7 @@ export function createRuns(o: RunsOptions) {
 					active.unstarted = true;
 					if (win) svc.paneUnproven = true;
 				}
-				error("run-start", `${rec.id}: ${(cause as Error).message}`);
+				error("run-start", `${rec.id}: ${startFailure(cause)}`);
 				svc.paneBusy = busy.length ? busy : undefined;
 				svc.busyPids = busy.length ? programs.flatMap((p) => (typeof p.pid === "number" ? [p.pid] : [])) : undefined;
 				// Herdr refused the start as busy, no program of the boss's is named, and a nested shell (cmd, git-bash) is seen in the pane: it is no program to name, and the notice says so, not Herdr's raw error.
@@ -588,7 +593,7 @@ export function createRuns(o: RunsOptions) {
 				// Herdr may have given up on a pi that is running: it is ended with its wrapper, or it stays in the pane for the next run to meet. What the pane held is logged, for the next start that times out.
 				log.line("run-start-pane", { run: rec.id, foreground: ((await foreground(rec.pane)) ?? []).map((p) => `${p.name ?? p.argv0 ?? "?"} ${p.pid ?? "?"}`).join(", ") });
 				await reap(active).catch(() => {});
-				await finish(active, "crashed", (cause as Error).message);
+				await finish(active, "crashed", startFailure(cause));
 				return;
 			}
 		}

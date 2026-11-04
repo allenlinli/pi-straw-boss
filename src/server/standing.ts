@@ -23,12 +23,15 @@ export interface StandingTimers {
 	launchMaxMs: number;
 	/** How long a run's start waits for the prompt to leave, and then again after Ctrl+C. */
 	leaveMs: number;
+	/** How long a run's start waits for the prompt's process to be gone once the prompt said it is leaving, and the settle after: zsh has the terminal back before it reads, and a command typed in that moment loses its Enter. */
+	exitMs: number;
+	settleMs: number;
 	/** How long a reported stand-in stands before it is reported again (Herdr keeps it without a refresh; the report also repairs a label Herdr lost). */
 	refreshMs: number;
 	/** How long a resident tower's hand-over is waited on for its pi to leave the pane, and how long the pane it freed is believed to be a bare shell after that (Windows lists the shell alone whatever runs under it). */
 	handMs: number;
 }
-export const STANDING: StandingTimers = { intervalMs: 3000, presentMs: 6000, launchMs: 15_000, launchMaxMs: 10 * 60_000, leaveMs: 3000, refreshMs: 4 * 60_000, handMs: 60_000 };
+export const STANDING: StandingTimers = { intervalMs: 3000, presentMs: 6000, launchMs: 15_000, launchMaxMs: 10 * 60_000, leaveMs: 3000, exitMs: 2000, settleMs: 300, refreshMs: 4 * 60_000, handMs: 60_000 };
 /** Failed typings of the command (Herdr refused `pane run`) in a row, retried one `launchMs` apart, before the server says so (once) and waits for the pane's next fresh start. */
 const TYPE_TRIES = 3;
 /** Reports of the stand-in that Herdr did not keep, in a row, before the server says so (once) and stops asking for this prompt. */
@@ -82,6 +85,8 @@ export type PromptReply = { ok: true; label: string; state: ServiceStatus["state
 interface Mine {
 	target: StandingTarget;
 	seen?: { pid: number; at: number };
+	/** The prompt that announced it is leaving (`gone`): its process may not have exited yet. */
+	leaver?: number;
 	/** A run is about to start or holds the pane: the prompt is told to leave. */
 	leaving: boolean;
 	/** The boss took the shell with Ctrl+D: nothing is typed until a run takes the pane (`freed`) or Herdr restarts (`reset`). */
@@ -385,6 +390,7 @@ export function createStanding(o: StandingOptions) {
 			const m = mines.get(workspace);
 			if (m?.seen?.pid === pid) m.seen = undefined;
 			if (m) {
+				m.leaver = pid;
 				m.launched = now();
 				m.typings = 0;
 			}
@@ -396,6 +402,7 @@ export function createStanding(o: StandingOptions) {
 			if (!m) return;
 			m.leaving = true;
 			await unreport(m);
+			const pid = m.seen?.pid;
 			for (let attempt = 0; attempt < 2 && present(m); attempt++) {
 				for (const end = now() + t.leaveMs; present(m) && now() < end; ) await sleep(25);
 				if (!present(m) || attempt) break;
@@ -404,6 +411,14 @@ export function createStanding(o: StandingOptions) {
 				log.line("prompt-interrupt", { workspace, pid: m.seen?.pid });
 				await run(["pane", "send-keys", m.target.pane(), "ctrl+c"]).catch(() => {});
 			}
+			// The prompt announcing it leaves is not its process gone: Herdr admits `agent start` a few ms after the exit, while zsh does not read yet, and the command's Enter is lost (the pane then sits on an unexecuted line until Herdr's 30 s start timeout). Windows lists no such window.
+			const leaver = m.leaver ?? pid;
+			m.leaver = undefined;
+			if (leaver === undefined || !groups) return;
+			for (const end = now() + t.exitMs; alive(leaver); await sleep(10)) {
+				if (now() >= end) throw new Error(`the tower prompt (pid ${leaver}) did not exit within ${t.exitMs} ms of leaving`);
+			}
+			await sleep(t.settleMs);
 		},
 		/**
 		 * A local run ended: the pane is free for the prompt again, and the boss's Ctrl+D is over. `fresh` false: the run's pi never started in it, so it is not known to be a bare shell (a program of the boss's may run there).
@@ -416,7 +431,7 @@ export function createStanding(o: StandingOptions) {
 			const back = giveBackGate({ fresh, keepParked, parked: m.parked, prompt: present(m), now: now(), markMs: t.handMs });
 			if (!back.apply) return;
 			m.leaving = false;
-			Object.assign(m, { ...(back.unpark ? { parked: false } : {}), launched: undefined, seen: undefined, reported: undefined, misses: 0, typings: 0, fresh: back.fresh, noStart: false, lost: false, hand: undefined, freshUntil: back.freshUntil, failures: 0, giveUp: false });
+			Object.assign(m, { leaver: undefined, ...(back.unpark ? { parked: false } : {}), launched: undefined, seen: undefined, reported: undefined, misses: 0, typings: 0, fresh: back.fresh, noStart: false, lost: false, hand: undefined, freshUntil: back.freshUntil, failures: 0, giveUp: false });
 			// A give-back ends the wait on the command typed before it (a run's pi was in the pane since, or the boss pressed Retry): the pane's record of that typing goes with it.
 			typed.delete(m.target.pane());
 			void tick(workspace);

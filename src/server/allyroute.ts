@@ -23,12 +23,16 @@ export interface Route extends Peer {
 	/** `expect`: one answer, then the route is spent; `opened`: every report of the main it opened. */
 	kind: "expect" | "opened";
 	at: number;
+	/** An `opened` route: the ask id (of the message the run was answering) that the main's report answers with `inReplyTo`; until the run answers it. */
+	ask?: string;
 }
 export interface Answer extends Peer {
 	id: string;
 	from: { id: string; name: string };
 	text: string;
 	at: number;
+	/** The ask the route carried when the session answered: the run that reads this answers it with `inReplyTo`. */
+	ask?: string;
 }
 
 const read = <T>(slot: Slot, workspace: string, file: string, now: number): T[] => {
@@ -51,6 +55,13 @@ export function addRoute(slot: Slot, workspace: string, row: Route, now: number)
 }
 /** The newest route for a session, if an ally run waits on it or opened it. */
 export const routeOf = (slot: Slot, workspace: string, session: string, now: number): Route | undefined => readRoutes(slot, workspace, now).filter((r) => r.to === session).at(-1);
+/** The run answered the ask: no later report of an opened main carries it, and an answer that waits for a run no longer names it. */
+export function dropAsk(slot: Slot, workspace: string, device: string, ask: string, now: number): void {
+	const routes = readRoutes(slot, workspace, now);
+	if (routes.some((r) => r.device === device && r.ask === ask)) write(slot, workspace, ROUTES, routes.map((r) => (r.device === device && r.ask === ask ? (({ ask: _, ...rest }) => rest)(r) : r)));
+	const answers = readAnswers(slot, workspace, now);
+	if (answers.some((a) => a.device === device && a.ask === ask)) write(slot, workspace, ANSWERS, answers.map((a) => (a.device === device && a.ask === ask ? (({ ask: _, ...rest }) => rest)(a) : a)));
+}
 /** An answer spends an `expect` route; an `opened` one stays for the main's next report. */
 export function spendRoute(slot: Slot, workspace: string, route: Route, now: number): void {
 	if (route.kind === "expect") write(slot, workspace, ROUTES, readRoutes(slot, workspace, now).filter((r) => !(r.to === route.to && r.device === route.device && r.at === route.at)));

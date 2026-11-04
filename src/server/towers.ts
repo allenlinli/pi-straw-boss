@@ -7,7 +7,7 @@ import { createTab, headModel, isHead, isStandin, isSub, type Pane, panes, paren
 import { type Opened, opener } from "../opener.ts";
 import { netTokens } from "../order.ts";
 import { allyLabel } from "../boardauto.ts";
-import { stamp } from "../header.ts";
+import { fieldsOf, stamp } from "../header.ts";
 import { createReach, nameOf, type Reach } from "../reach.ts";
 import type { HerdrEvents } from "../server-watch.ts";
 import type { Config } from "../state.ts";
@@ -24,7 +24,7 @@ import type { Asks } from "./asks.ts";
 import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, LOCAL_TOOLS } from "./towerbrief.ts";
 import { createStanding, type PromptReply, type StandingTimers } from "./standing.ts";
 import { claimGate, proofGate, seatGate, type SeatVerdict } from "./typegate.ts";
-import { addAnswer, addRoute, ALLY_LEDGER, type Peer, readAnswers, removeAnswer, routeOf, spendRoute } from "./allyroute.ts";
+import { addAnswer, addRoute, ALLY_LEDGER, dropAsk, type Peer, readAnswers, removeAnswer, routeOf, spendRoute } from "./allyroute.ts";
 import { type AllyItem, type AllyPort, createRuns, type Runs, type RunsOptions, type ServiceRef, type ServiceStatus } from "./runs.ts";
 import { type ConversationInfo, sessionsRoot } from "./bossconv.ts";
 import { addExpect, clearExpect, lastNote, listRuns, readExpects, readNotes, readTimer } from "./towerrunstore.ts";
@@ -32,7 +32,7 @@ import { runTool, type ServerTools } from "./runtools.ts";
 import { hasWaitOn, markShown, memoryRequest, memorySection, memorySummary, memoryTool, noteMessage, readMemory } from "./towermemory.ts";
 import { openSeen, type Seen } from "./towerseen.ts";
 import { readTowerRuns } from "./towerruns.ts";
-import { appendEvent, bindDir, deleteService, HEAD_KEY, headDir, listServices, purgeAll, purgeQueues, putLedger, queueLength, readHeadService, readLedger, readService, type ServiceRecord, towerDir, unbindDir, writeService } from "./towerstore.ts";
+import { appendEvent, bindDir, deleteService, HEAD_KEY, headDir, listServices, purgeAll, purgeQueues, putLedger, queueLength, readHeadService, readQueue, readLedger, readService, type ServiceRecord, towerDir, unbindDir, writeService } from "./towerstore.ts";
 
 // The tower service without runs (docs/specs/2026-10-26-sb-backend.md, The tower service; build step B4), behind `towerRuns.enabled`. The server stands in for a workspace's tower:
 // it makes the tower tab with a standing pane that sits at its shell prompt, registers the tower identity (`sb-tower-<workspace>`, with a cwd of its own) with pi-intercom, writes
@@ -219,7 +219,7 @@ export function createTowers(o: TowersOptions): Towers {
 		allyLine: (item) => {
 			const mine = { name: allyLabel(l.record.name), id: l.record.id, role: "tower" as const, workspace: allyLabel(l.record.label) };
 			// An answer a local session gave to what the run asked or opened: no verified peer header, the session is local; the device's next run reads it as data.
-			if (item.local) return stamp({ from: { name: allyLabel(item.local.name), id: item.local.id, role: "session" }, kind: "tower_reply", scope: "session", to: [mine], reply: false }, item.text);
+			if (item.local) return stamp({ from: { name: allyLabel(item.local.name), id: item.local.id, role: "session" }, kind: "tower_reply", scope: "session", to: [mine], reply: false, ...(item.awaitsReply ? { asks: item.awaitsReply } : {}) }, item.text);
 			const from = { name: item.label, id: `link:${item.device}`, role: "tower" as const, ...(item.fromWorkspace ? { workspace: item.fromWorkspace } : {}) };
 			return stamp({ from, kind: "tower_send", scope: "tower", to: [mine], reply: item.replyExpected, remote: { device: item.label, short: item.short, team: item.teamName }, ...(item.awaitsReply ? { asks: item.awaitsReply } : {}) }, item.text);
 		},
@@ -279,7 +279,7 @@ export function createTowers(o: TowersOptions): Towers {
 		project: (team) => o.ally!.project(team),
 		thread: (device) => o.ally!.thread(device),
 		waiting: (identity) => {
-			const ws = workspaceOf(identity), answers: AllyItem[] = ws ? readAnswers(slot, ws, now()).map((a) => ({ id: `${LOCAL}${a.id}`, device: a.device, label: a.label, short: a.short, team: a.team, teamName: a.teamName, fromWorkspace: "", replyExpected: false, text: a.text, at: a.at, local: a.from })) : [];
+			const ws = workspaceOf(identity), answers: AllyItem[] = ws ? readAnswers(slot, ws, now()).map((a) => ({ id: `${LOCAL}${a.id}`, device: a.device, label: a.label, short: a.short, team: a.team, teamName: a.teamName, fromWorkspace: "", replyExpected: false, text: a.text, at: a.at, local: a.from, ...(a.ask ? { awaitsReply: a.ask } : {}) })) : [];
 			return [...o.ally!.waiting(identity), ...answers].sort((a, b) => a.at - b.at);
 		},
 		taken: async (id, identity) => {
@@ -333,7 +333,7 @@ export function createTowers(o: TowersOptions): Towers {
 				const ws = l.record.workspace, route = verdict === "new" ? routeOf(slot, ws, from.id, now()) : undefined, local = route && readExpects(slot, ws, now()).find((e) => e.to === from.id);
 				if (route && (!local || route.at >= local.at)) {
 					// A session an ally run wrote to or opened is answering the device, not the local run: the answer waits for the device's next ally run.
-					addAnswer(slot, ws, { id: `${Date.now().toString(36)}-${message.id}`.slice(0, 80), device: route.device, label: route.label, short: route.short, team: route.team, teamName: route.teamName, from: { id: from.id, name: phrase(from.name ?? from.id, 40) }, text: message.content.text, at: now() }, now());
+					addAnswer(slot, ws, { id: `${Date.now().toString(36)}-${message.id}`.slice(0, 80), device: route.device, label: route.label, short: route.short, team: route.team, teamName: route.teamName, from: { id: from.id, name: phrase(from.name ?? from.id, 40) }, text: message.content.text, at: now(), ...(route.ask ? { ask: route.ask } : {}) }, now());
 					spendRoute(slot, ws, route, now());
 					seen.add(from.id, message.id, message.content.text);
 					log.line("tower-ally-answer", { workspace: ws, from: from.id });
@@ -1005,9 +1005,17 @@ export function createTowers(o: TowersOptions): Towers {
 		const l = need(who.workspace, who.kind === "head"), ws = who.workspace;
 		// What an ally run waits on or opens is its device's: the routes (allyroute.ts) send those sessions' answers to the device's next ally run, never to a local run, and its opened mains have a ledger of their own.
 		const peer: Peer | undefined = who.kind === "ally" && who.device && who.team ? { device: who.device, label: who.deviceLabel ?? who.device.slice(0, 6), short: who.deviceShort ?? who.device.slice(0, 6), team: who.team, teamName: who.teamName ?? who.team.slice(0, 6) } : undefined;
-		const route = (to: string, name: string, kind: "expect" | "opened") => { try { addRoute(slot, ws, { ...peer!, to, name, kind, at: now() }, now()); } catch (cause) { error("ally-route", (cause as Error).message); } };
+		const route = (to: string, name: string, kind: "expect" | "opened", ask?: string) => { try { addRoute(slot, ws, { ...peer!, to, name, kind, at: now(), ...(ask ? { ask } : {}) }, now()); } catch (cause) { error("ally-route", (cause as Error).message); } };
+		/** The live main of this tower's workspace named by id or name; throws when there is none, several, or it is no main of this workspace. */
+		const mainOf = async (query: string) => {
+			const net = await l.reach!.read(), named = net.sessions.filter((x) => x.id === query || nameOf(x) === query);
+			if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${query}"`);
+			const pane = net.ps.find((p) => p.pane_id === named[0]!.herdrLocation?.paneId);
+			if (pane?.tokens?.sb_role !== "main" || pane.workspace_id !== ws) throw new Error(`${query} is not a main of workspace ${l.record.label}: an ask for a main names one of its mains`);
+			return { id: named[0]!.id, name: phrase(nameOf(named[0]!), 40) };
+		};
 		const host = {
-			reach: l.reach!, open: peer ? async (request: Parameters<NonNullable<Live["open"]>>[0]) => { const opened = await l.openAlly!(request); route(opened.main, "opened main", "opened"); return opened; } : l.open!, closeMain: l.control?.closeMain as Control["closeMain"], now, boardDir: join(slot.stateDir, "board"), label: l.record.label,
+			reach: l.reach!, open: peer ? async (request: Parameters<NonNullable<Live["open"]>>[0]) => { const opened = await l.openAlly!(request); route(opened.main, "opened main", "opened", who.asks?.length === 1 ? who.asks[0] : undefined); return opened; } : l.open!, closeMain: l.control?.closeMain as Control["closeMain"], now, boardDir: join(slot.stateDir, "board"), label: l.record.label,
 			link: async (body: Record<string, unknown>) => ((await o.link?.(body, l.record.id)) ?? { ok: false, code: "no_holder", error: "The link holder is not running in the sb server" }) as { ok: boolean; error?: string },
 			server: o.server ?? { status: () => ({}), logs: () => [], restart: () => Promise.reject(new Error("The server cannot restart itself here")) },
 			expect: (to: string, name: string, text: string) => { if (peer) return route(to, phrase(name, 40), "expect"); try { addExpect(slot, ws, { to, name, at: now(), first: phrase(text, 80) }, now()); } catch (cause) { error("expects", (cause as Error).message); } },
@@ -1031,12 +1039,17 @@ export function createTowers(o: TowersOptions): Towers {
 					return { id: named[0]!.id, name: phrase(nameOf(named[0]!), 40) };
 				},
 			}, margs),
-			mainOf: async (query: string) => {
-				const net = await l.reach!.read(), named = net.sessions.filter((x) => x.id === query || nameOf(x) === query);
-				if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${query}"`);
-				const pane = net.ps.find((p) => p.pane_id === named[0]!.herdrLocation?.paneId);
-				if (pane?.tokens?.sb_role !== "main" || pane.workspace_id !== ws) throw new Error(`${query} is not a main of workspace ${l.record.label}: an ask for a main names one of its mains`);
-				return { id: named[0]!.id, name: phrase(nameOf(named[0]!), 40) };
+			mainOf,
+			// Who asked this run for the work it sends a device: the one session that sent it a `call_tower` expecting an answer, if it is a live main of this workspace. A second asker, or one that is no main, leaves it unknown.
+			requester: async () => {
+				const askers = new Set<string>();
+				for (const e of readQueue(slot, ws)) {
+					if (e.taken?.run !== who.id || e.kind !== "intercom" || !e.from) continue;
+					const fields = fieldsOf(e.text);
+					if (fields?.kind === "call_tower" && fields.reply === "expected") askers.add(e.from.id);
+				}
+				if (askers.size !== 1) return undefined;
+				return mainOf([...askers][0]!).catch(() => undefined);
 			},
 		};
 		try {
@@ -1048,7 +1061,10 @@ export function createTowers(o: TowersOptions): Towers {
 				});
 				return await headTool(head, name, args, { ...(typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {}), ...(typeof request.turn === "string" ? { turn: request.turn } : {}) });
 			}
-			return await runTool(host, who.kind, name, args, typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {});
+			const done = await runTool(host, who.kind, name, args, typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {});
+			// The ask a run answered is spent on the asking computer: a report of a main the run opened must not name it again.
+			if (peer && name === "tower_send" && typeof args.inReplyTo === "string") try { dropAsk(slot, ws, peer.device, args.inReplyTo, now()); } catch (cause) { error("ally-route", (cause as Error).message); }
+			return done;
 		} catch (cause) {
 			// The run was released while the call was under way (a /new, an end): nobody is left to read the failure, so the next run does.
 			if (!runs.runOf(request.token) && (who.kind === "local" || who.kind === "head")) runs.notice(ws, `${name} failed after your run ended: ${(cause as Error).message}`, `${name}:${phrase((cause as Error).message, 80)}`);

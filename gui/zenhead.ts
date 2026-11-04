@@ -228,7 +228,8 @@ export function mountHead(io: HeadIo) {
 	form.addEventListener("submit", (e) => (e.preventDefault(), void send()));
 	hint.onclick = () => void unfold();
 	whole.onclick = () => io.history();
-	el.addEventListener("focusout", () => unfolded && box.value === "" && !busy && fold()); // a blur with an empty box folds; with a draft it stays
+	// A blur with an empty box folds; with a draft it stays. The hint's own blur is not the box's: a click on the folded hint focuses it, and unfolding hides it, which Chrome reports as a focusout of the hint just before the box takes the focus.
+	el.addEventListener("focusout", (e: FocusEvent) => e.target !== hint && unfolded && box.value === "" && !busy && fold());
 
 	return {
 		el,

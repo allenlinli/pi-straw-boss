@@ -155,6 +155,16 @@ test("a click on the hint unfolds the input, focused; Enter on the circle does t
 	assert.equal(again.form().hidden, false, "a click unfolds it too");
 });
 
+test("a mouse click on the hint, which Chrome focuses first, still unfolds the input: the hint's own focusout when it gives way to the box folds nothing", async () => {
+	const r = rig();
+	await r.start();
+	r.hint().focus();
+	r.unfold();
+	r.hint().bubble("focusout"); // Chrome: the focused hint became hidden, and it reports the blur with no related target
+	assert.equal(r.form().hidden, false, "still unfolded");
+	assert.equal(page.focused, r.box(), "and focused");
+});
+
 test("Enter sends the text to the head's input as a send; Shift+Enter, an Enter that belongs to an input method, and an empty box send nothing", async () => {
 	const r = rig();
 	await r.start();

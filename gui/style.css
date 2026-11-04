@@ -1254,7 +1254,9 @@ a.head-ask:hover, a.head-ask:focus-visible { border-color: var(--accent); color:
 .comms-head[data-head] .head-info { display: none !important; }
 .comms-head[data-head] .head-menu { display: none; } /* nothing behind it: the head's Close is in the conversation box */
 .head-node .tower svg, .tx.in.head .ava { color: var(--gold); fill: currentColor; } /* the head's mark is the crown, in the crown's colour, beside the state's own sweep and pulse */
-.comms-head[data-head] .logo svg { fill: currentColor; }
+.comms-head[data-head] .logo { color: var(--gold); background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--gold) 30%, transparent), color-mix(in srgb, var(--bg-2) 90%, transparent)); } /* the head's plate is gold like its node and avatar, not the accent's blue */
+.comms-head[data-head]:not([data-mark="commanding"]) .logo { border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); }
+.comms-head[data-head] .logo svg { fill: currentColor; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--gold) 70%, transparent)); }
 .tx.rule.chapter p { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 5px 10px; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
 .tx.rule.chapter p::before, .tx.rule.chapter p::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .drawer-head { flex: none; display: flex; align-items: center; gap: 10px; min-height: 48px; margin: 4px 10px 8px max(10px, env(safe-area-inset-left)); padding: 0 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--gold) 35%, var(--line)); color: var(--text); text-decoration: none; background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 9%, transparent), transparent); }

@@ -1,3 +1,4 @@
+import { HEAD_KEY } from "../src/headkey.ts";
 import type { Net } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
 import { answerPost, canAnswer, outcomeOf, trustPost } from "./answer.ts";
@@ -17,6 +18,7 @@ import type { StepOpen } from "./terminalthen.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 import type { Exit, Mounts, Term, ZenDeps } from "./zentypes.ts";
 import { domFs, mountFullscreen } from "./zenfs.ts";
+import { mountGestures, mountHead } from "./zenhead.ts";
 import { mountLine, stillNow } from "./zenlines.ts";
 import { mountPalette } from "./palette.ts";
 import { entriesOf } from "./paletteentries.ts";
@@ -42,12 +44,13 @@ interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; 
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
-	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined; // picked: this visit's companion (its start, or the one stepped to); none is the circle
+	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined, histOpen = false; // picked: this visit's companion (its start, or the one stepped to); none is the circle. histOpen: the head tower's whole conversation, as a companion, on the circle screen (zenhead.ts)
 	const to = (key: string) => answerPost(key, deps.post), trustTo: TrustPost = trustPost(deps.trust);
 	// A draft holds the screen while the boss is at it: the box has text and he touched the companion (a tap or a drag on the log, a wheel, a key, or text that arrives with no key, as dictation and a suggestion tap do) in the last DRAFT_MS, focused or not. Typing keeps renewing it; walking away from a focused box does not hold the screen.
 	let touched = -Infinity;
-	const typing = () => Boolean(company?.composer && company.composer.box.value !== "" && now() - touched < DRAFT_MS);
+	const typing = () => Boolean((company?.composer && company.composer.box.value !== "") || head.drafting()) && now() - touched < DRAFT_MS; // the head tower's folded-out input holds the screen the same way
 	const model = createZen({ now, typing });
+	const head = mountHead({ now, later, post: (action, body) => answerPost(net?.head?.key ?? HEAD_KEY, deps.post)(action, body), latest: () => deps.data(net?.head?.key ?? HEAD_KEY).latest(), online: deps.online, sound: deps.sound, changed: () => void later(() => apply(model.tick()), 0), rest: (on) => void (line && (line.el.hidden = !on)), history: () => void openHistory() });
 	const stage = h("div", { class: "zen-stage" }), live = h("p", { class: "zen-live", role: "status", "aria-live": "polite" });
 	const fs = mountFullscreen(deps.fs ?? domFs(later)), menu = mountMenu(deps.menu ?? {}, () => leave()), music = deps.music && mountMusic(deps.music);
 	const ripples = mountRipples(root, deps.ripple ?? domRipples(now)); // ink-water ripples under the pointer, on a canvas behind the content
@@ -62,7 +65,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const term = mountZenTerm(root, { terminals: deps.terminals, now, later, inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)), closed: () => active && shown.kind === "item" && idle() && card && (card.enter() || card.el.focus()) });
 	const openTerm = (key: string, armed?: boolean) => term.terminal({ key, armed }, net);
 	const circle = (words?: string) => h("div", { class: "zen-circle", ...(words ? { role: "img", "aria-label": words } : { "aria-hidden": "true" }) }, h("i", null), h("i", null), h("i", null)); // the ink washes inside the ring
-	const stopLine = () => (line?.stop(), (line = undefined));
+	const stopLine = () => (line?.stop(), (line = undefined), head.stop());
 	/** Ink dissolving: the card that was on the page stays a moment longer, fading and blurring out, while the next thing begins. */
 	const dissolve = (el: HTMLElement) => (el.dataset.gone = "", el.setAttribute("inert", ""), stage.append(el), later(() => el.remove(), 1400));
 	/** What the stage draws changed: the sound goes out, the screen follows, and the one timer is set for the next moment the model may change. */
@@ -171,29 +174,40 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	function disposeCompany() {
 		turn++;
 		company = undefined;
+		histOpen = false;
 	}
+	const onCircle = () => shown.kind === "companion" && !company && !histOpen;
+	/** The head tower's whole conversation, as a companion on the circle screen; and the way back, to the strip with its input folded. */
+	const openHistory = () => !!net?.head && active && onCircle() && (disposeCompany(), (histOpen = true), drawCompany(), true);
+	const closeHistory = () => histOpen && (disposeCompany(), head.fold(), drawCompany(), true);
 	function drawCompany() {
-		const c = companionOf(net, company ?? picked);
+		histOpen &&= Boolean(net?.head);
+		const c = histOpen ? { key: net!.head!.key, ws: HEAD_KEY } : companionOf(net, company ?? picked);
 		if (!c) {
 			[company, view] = [undefined, "companion"];
-			deps.watch(null);
+			deps.watch(net?.head?.key ?? null); // the strip's lines come from the head's stream
+			head.sync(net?.head, Boolean(net));
 			if (line) return; // the empty state is already drawn
 			line = mountLine(later, deps.still ?? stillNow, deps.random);
-			return stage.replaceChildren(circle(), line.el);
+			line.el.hidden = !head.rested(); // one thing in paper at a time: the strip's lines first, the mindfulness line at rest
+			stage.replaceChildren(circle(), line.el, head.el);
+			return head.show();
 		}
 		stopLine();
 		if (view !== "companion" || company?.key !== c.key) openCompany(c);
 		view = "companion";
 		const u = locate(net, c.key);
-		company!.name.textContent = u?.u.name ?? c.key;
-		company!.where.textContent = u ? deps.label(u.base.id) : "";
-		if (u) (company!.chat?.setLive(...liveOf(u.u, company!.state, u.u.mark)), company!.composer?.update(composerUnit(u.u, { name: u.u.name, mk: u.u.mark, state: company!.state, online: deps.online() })));
+		company!.name.textContent = histOpen ? m.head_tower() : (u?.u.name ?? c.key);
+		company!.where.textContent = u && !histOpen ? deps.label(u.base.id) : "";
+		if (u) (company!.chat?.setLive(...liveOf(u.u, company!.state, u.u.mark)), company!.composer?.update(composerUnit(u.u, { name: u.u.name, mk: u.u.mark, state: company!.state, online: deps.online(), head: histOpen })));
 	}
 	/** The companion's log and composer for a session; the log is a chunk of its own, and the history that arrives before it does waits in `queue`. */
 	function openCompany(c: { key: string; ws: string }) {
 		const mine = ++turn, co: Company = (company = { ...c, name: h("h2", { class: "zen-who" }), where: h("p", { class: "zen-meta" }), queue: [] });
 		const logRoot = h("div", { class: "zen-log" }), composerRoot = h("div", { class: "zen-compose" });
-		stage.replaceChildren(circle(), h("section", { class: "zen-company" }, h("header", null, co.name, co.where), logRoot, composerRoot));
+		const back = histOpen && h("button", { type: "button", class: "zen-rest" }, m.zen_rest()); // the head's history: the way back to the breath, at its top
+		if (back) back.onclick = () => void closeHistory();
+		stage.replaceChildren(circle(), h("section", { class: "zen-company" }, h("header", null, co.name, co.where, back), logRoot, composerRoot));
 		const sent = answerPost(c.key, deps.post);
 		co.composer = mounts.composer(composerRoot, c.key, async (action, body) => { const r = await sent(action, body); later(() => apply(model.tick()), 60); return r; }); // the box empties after the answer: the model looks again
 		co.composer.box.addEventListener("input", () => later(() => apply(model.tick()), 0)); // the box emptied or filled: the model looks again (a blur changes nothing)
@@ -215,7 +229,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	}
 	for (const type of ["pointerdown", "wheel", "touchstart", "keydown", "input"]) root.addEventListener(type, () => (touched = now()), { capture: true, passive: true });
 	const tap = () => shown.kind === "pause" && !term.isOpen() && apply(model.tap());
-	root.addEventListener("pointerdown", tap);
+	root.addEventListener("pointerdown", (e) => (tap(), head.tapAway(e.target)));
+	mountGestures(stage, { on: () => (!net?.head || term.isOpen() ? undefined : histOpen ? "history" : onCircle() ? "circle" : undefined), open: openHistory, close: closeHistory }); // the head's history opens by a wheel gesture up or a swipe up, and closes by a gesture down past the log's end
 	/** Leaving: the item's dialog opens over Standard, the companion's session opens, a pause just returns to the page. */
 	function leave() {
 		deps.leave(shown.kind === "item" ? { item: alerts.get(shown.item.key) ?? shown.item } : shown.kind === "companion" && company ? { route: { view: "session", ws: company.ws, key: company.key } } : {});
@@ -225,7 +240,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		const c = shown.kind === "companion" ? company : undefined, n = deps.companions?.().length ?? 0;
 		return entriesOf({
 			standard: () => deps.leave({}), settings: deps.settings,
-			companion: c && { name: c.name.textContent ?? c.key, session: () => deps.leave({ route: { view: "session", ws: c.ws, key: c.key } }), terminal: () => openTerm(c.key), rest },
+			companion: c && !histOpen ? { name: c.name.textContent ?? c.key, session: () => deps.leave({ route: { view: "session", ws: c.ws, key: c.key } }), terminal: () => openTerm(c.key), rest } : undefined,
+			head: net?.head && shown.kind === "companion" && !company ? { talk: () => void head.unfold(), history: () => void openHistory(), page: () => deps.leave({ route: { view: "head" } }) } : undefined,
 			cycle: shown.kind === "companion" && n > 0 ? { prev: () => void cycle(-1), next: () => void cycle(1) } : undefined,
 		}, { ...deps.menu, music: music?.switch });
 	}
@@ -284,6 +300,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			music?.hide();
 			palette.close();
 			picked = undefined;
+			head.reset(); // the draft goes with the visit
 			disposeCompany();
 			view = undefined;
 			deps.watch(null);
@@ -296,6 +313,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		},
 		history(e: HistoryEvent) {
 			card?.hist?.apply(e);
+			if (e.key === net?.head?.key) head.history(e);
 			if (company?.key !== e.key) return;
 			company.state = e.state ?? company.state;
 			company.seen ||= Boolean(e.reset);
@@ -318,11 +336,12 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			const at = document.activeElement as HTMLInputElement | null, inside = Boolean(at && at !== document.body && root.contains(at));
 			const type = inside ? (at!.getAttribute?.("type") ?? at!.type ?? "text") : "", editable = inside && (/^textarea$/i.test(at!.tagName) || (/^input$/i.test(at!.tagName) && !/^(checkbox|radio|range|button|submit|reset|file|color|image)$/i.test(type)));
 			const armed = escAt !== undefined && now() - escAt < ESC_MS;
-			const step = escStep({ menu: menu.isOpen() || palette.isOpen() || Boolean(music?.isOpen()), history: Boolean(card?.hist?.isOpen()), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), armed, repeat: e.repeat });
+			const step = escStep({ menu: menu.isOpen() || palette.isOpen() || Boolean(music?.isOpen()), history: Boolean(card?.hist?.isOpen()) || histOpen, head: head.isOpen(), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), armed, repeat: e.repeat });
 			if (step === "none") return true;
 			if (step !== "hint") clearEsc();
 			if (step === "menu") (menu.close(), palette.close(), music?.close());
-			else if (step === "history") card!.collapse();
+			else if (step === "history") histOpen ? closeHistory() : card!.collapse();
+			else if (step === "head") head.fold(true);
 			else if (step === "blur") at!.blur();
 			else if (step === "item") card!.cancel() || card!.skip.click();
 			else if (step === "leave") leave();
@@ -338,7 +357,9 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		},
 		leave,
 		/** H: expands or collapses the shown item's context; false when the screen has none. */
-		toggleHistory: () => active && !term.isOpen() && !menu.isOpen() && shown.kind === "item" && Boolean(card?.toggle()),
+		toggleHistory: () => active && !term.isOpen() && !menu.isOpen() && (shown.kind === "item" ? Boolean(card?.toggle()) : histOpen ? closeHistory() : openHistory()),
+		/** Enter on the circle screen (hotkeys `talk`): ends a pause when one runs, else unfolds the head tower's input; false when neither. */
+		talk: () => face.tap() || (active && !term.isOpen() && !palette.isOpen() && !menu.isOpen() && onCircle() && head.unfold()),
 		/** The keymap's Enter and Space (hotkeys.ts): end the pause. False when no pause is shown or the terminal layer has the keys. */
 		tap: () => (shown.kind === "pause" && !term.isOpen() ? (tap(), true) : false),
 		/** A terminal in Zen's own layer (zenterm.ts): a session's, or a pane an answer opened. */
@@ -348,6 +369,6 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		companion: () => (company ? { key: company.key, ws: company.ws } : undefined),
 	};
 	/** A Zen key of the keymap (hotkeys.ts), done: the page hands every one of them to this one call. False when it had nothing to do (the key stays the browser's). */
-	const key = (hotkey: Hotkey) => (hotkey === "pause" ? face.tap() : hotkey === "history" ? face.toggleHistory() : hotkey === "palette" ? face.palette() : face.cycle(hotkey === "next-companion" ? 1 : -1));
+	const key = (hotkey: Hotkey) => (hotkey === "pause" ? face.tap() : hotkey === "talk" ? face.talk() : hotkey === "history" ? face.toggleHistory() : hotkey === "palette" ? face.palette() : face.cycle(hotkey === "next-companion" ? 1 : -1));
 	return { ...face, key };
 }

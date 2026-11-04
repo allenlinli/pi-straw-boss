@@ -243,3 +243,11 @@ test("Zen: a page under 900 px high and one under 600 px wide spend less on air 
 	assert.match(media("max-width: 600px"), /button\.ask-opt \{ padding: 6px 16px; font-size: 1rem/);
 	assert.match(media("max-width: 600px"), /\.ask-opt small \{ font-size: 0\.78rem/);
 });
+
+test("the head page's crown plate is gold like the head's node and avatar: its colour and wash come from --gold, not the accent's blue", () => {
+	const plate = css.split("\n").filter((line) => line.startsWith(".comms-head[data-head] .logo {") || line.startsWith(".comms-head[data-head]:not([data-mark=\"commanding\"]) .logo {")).join("\n");
+	assert.match(plate, /\.comms-head\[data-head\] \.logo \{[^}]*color: var\(--gold\)/);
+	assert.match(plate, /\.comms-head\[data-head\] \.logo \{[^}]*background: radial-gradient\([^;]*var\(--gold\)/);
+	assert.match(plate, /\.logo \{[^}]*border-color: color-mix\(in srgb, var\(--gold\)/, "and its border, until the unit is commanding, whose glow is the mark's own");
+	assert.match(css, /\.comms-head\[data-head\] \.logo svg \{[^}]*filter: drop-shadow\([^;]*var\(--gold\)/, "the glow around the crown");
+});

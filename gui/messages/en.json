@@ -1025,5 +1025,18 @@
 	"head_why_first": "the first conversation",
 	"head_why_new": "you asked for a new conversation",
 	"head_why_size": "the last one grew too large",
-	"head_why_unreadable": "the last one could not be resumed"
+	"head_why_unreadable": "the last one could not be resumed",
+	"head_forwarded": "→ {workspace} tower",
+	"head_from_tower": "Answer from the {workspace} tower ({ask})",
+	"zen_head_label": "What the head tower said last",
+	"zen_head_hint": "Enter to talk to the head tower",
+	"zen_head_placeholder": "Tell the head tower what to do",
+	"zen_head_working": "The head tower is on it…",
+	"zen_head_history": "Whole conversation",
+	"zen_head_refused": "The head tower did not take it: {reason}",
+	"zen_head_unreachable": "Could not reach the server",
+	"zen_head_off": "The head tower needs the tower service (towerRuns)",
+	"palette_head_talk": "Talk to the head tower",
+	"palette_head_history": "The head tower's whole conversation",
+	"palette_head_page": "Open the head tower in Standard"
 }

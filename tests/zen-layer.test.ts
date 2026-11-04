@@ -16,7 +16,7 @@ import type { With } from "../gui/zenmodel.ts";
 import { hotkeyOf } from "../gui/hotkeys.ts";
 import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 /** A Zen keydown as the page routes it: the keymap's row for the face, then the layer's answer (what main.ts does through the core). */
-const press = (z: { tap(): boolean }, target: unknown, key: string) => hotkeyOf({ key, ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target }, false, false, "zen") === "pause" && z.tap();
+const press = (z: { tap(): boolean }, target: unknown, key: string) => { const hot = hotkeyOf({ key, ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target }, false, false, "zen"); return (hot === "pause" || hot === "talk") && z.tap(); }; // Enter is `talk` (it ends a pause, else unfolds the head tower's input), Space `pause`
 const { DRAFT_MS, mountZen, real } = await import("../gui/zen.ts");
 const { onStep } = await import("../gui/terminalthen.ts");
 type Exit = import("../gui/zen.ts").Exit;

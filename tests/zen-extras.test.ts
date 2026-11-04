@@ -314,6 +314,18 @@ test("Zen's Esc table: the menu first, then a field with text, an item, an empty
 	assert.equal(escStep({ ...none, menu: true, repeat: true }), "none");
 });
 
+test("Esc's head row (docs/specs/2026-11-04-head-tower.md): after the menu and the open history, before a field with text or a card; an unfolded input is folded and nothing else happens", async () => {
+	const { escStep } = await import("../gui/zenkeys.ts");
+	const none = { menu: false, field: "none", item: false, armed: false } as const;
+	assert.equal(escStep({ ...none, head: true }), "head", "the input is unfolded: Esc folds it");
+	assert.equal(escStep({ ...none, head: true, field: "text" }), "head", "with a draft in the box too: the draft is kept, the box folds, the focus is not just let go of");
+	assert.equal(escStep({ ...none, head: true, field: "empty", armed: true }), "head", "and the pair that leaves does not form");
+	assert.equal(escStep({ ...none, head: true, history: true, field: "text" }), "history", "the history open on the circle is the history row's, which comes first");
+	assert.equal(escStep({ ...none, head: true, menu: true }), "menu", "the menu comes before it");
+	assert.equal(escStep({ ...none, head: true, repeat: true }), "none", "a held key is nothing");
+	assert.equal(escStep({ ...none, head: false, field: "text" }), "blur", "no input unfolded: the rows are as they were");
+});
+
 test("an open menu redraws Sound and Volume when another tab changes them; a closed one is left alone", () => {
 	const told: (() => void)[] = [];
 	let sound = false, volume = 60;

@@ -28,7 +28,14 @@ const phrase = (value: unknown, max: number) => (typeof value === "string" ? val
  * `relay=boss:…` tells a workspace tower that a message carries the boss's own instruction, so the field is believed from the head identity alone: the text of anyone else loses it before the event is queued (review HH2-F001).
  * The header is the sender's own code's, but a message from a main or a stray pi is only as true as its sender's id.
  */
-export const relayOnlyFromHead = (slot: Slot, senderId: string, text: string): string => (senderId === headId(slot) || fieldsOf(text)?.relay === undefined ? text : withoutField(text, "relay"));
+export function relayOnlyFromHead(slot: Slot, senderId: string, text: string): string {
+	if (senderId === headId(slot)) return text;
+	if (fieldsOf(text)) return fieldsOf(text)!.relay === undefined ? text : withoutField(text, "relay");
+	// Fail closed (review HH3-F001): a header-like start that does not parse (a stray field, a capital, a leading space) loses every `relay=` of its first line, since the tower reads the field by eye.
+	if (!/^\s*\[straw net /.test(text)) return text;
+	const end = text.indexOf("\n") < 0 ? text.length : text.indexOf("\n");
+	return text.slice(0, end).replace(/relay=(?:"[^"]*"|[^\s\]"]*)/g, "") + text.slice(end);
+}
 
 export interface HeadIntakeDeps {
 	slot: Slot;

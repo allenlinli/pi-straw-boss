@@ -83,6 +83,8 @@ export interface TowerPanel {
 	memory?(workspace: string, json: Record<string, unknown>): Promise<Reply> | Reply;
 	/** The boss closes the tower (the head's Close; a workspace tower closes through the base's own route). */
 	close?(workspace: string): Promise<{ ok: boolean; error?: string }>;
+	/** Whether the key is the head tower's (its constant key or its Herdr workspace): the head answers api/head/… only, so api/tower/… refuses it. */
+	isHead?(workspace: string): boolean;
 }
 /** What a paired device may ask: read the state, and answer a forwarded confirm or dialog. Everything else changes who may command this computer, so only its own page does it. */
 const REMOTE_LINK = ["state", "confirm-answer", "dialog-answer"];
@@ -208,6 +210,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 		}
 		if (scope === "panes") return panes({ grants, mirrors, pad, call, busy, refused }, key, action, read.json, remote);
 		if (scope === "tower") {
+			if (key.startsWith("@") || tower?.isHead?.(key)) return no(404, "not_found", "No such tower.");
 			if (action === "memory") return tower?.memory && tower.has(key) ? tower.memory(key, read.json) : no(404, "not_found", "No such tower.");
 			if (action === "leave" || action === "new") {
 				if (!tower?.conversation || !tower.has(key)) return no(404, "not_found", "No such tower.");

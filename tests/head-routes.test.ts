@@ -191,3 +191,19 @@ test("a message typed into the head page makes the head workspace and wakes a ru
 	page.end();
 	void ask;
 });
+
+test("the head has one route family, api/head/…: api/tower/@head/… and api/tower/<head workspace>/… are 404 (review HH3-F003)", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	const page = await stream();
+	assert.equal((await post("sessions/sb-head/input", { text: "go", as: "send" })).status, 200);
+	const head = world.herdr.workspaces.find((w) => w.tokens?.sb_head)!.workspace_id;
+	for (const key of ["@head", head]) {
+		for (const action of ["memory", "leave", "new", "retry", "deliver", "drop"]) {
+			const r = await post(`tower/${key}/${action}`, { op: "read", id: "e1" });
+			assert.deepEqual([r.status, r.body.error], [404, "not_found"], `${key}/${action}`);
+		}
+	}
+	assert.equal((await post("head/memory", { op: "read" })).status, 200, "the head's own family still answers");
+	page.end();
+});

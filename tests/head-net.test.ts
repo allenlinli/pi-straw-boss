@@ -79,6 +79,18 @@ test("the head service is the unit's: state, queue rows, the asks and `said` fro
 	assert.deepEqual(ref.chapters?.map((c) => [c.n, c.file]), [[1, ONE], [2, TWO]]);
 });
 
+test("the head's session is the server's own id, never the one the workspace token names: a stale or forged sb_head token moves neither its pane nor its name (review HH3-F004)", () => {
+	const refs = new Map<string, Ref>();
+	const net = buildNet({
+		sessions: [session("sb-head", "head tower", "wH:p1", "wH", "wH:t1"), session("tower-a", "tower · Alpha", "wA:p1", "wA", "wA:t1")],
+		panes: [pane("wH:p1", "wH:t1", { sb_role: "head" }), pane("wA:p1", "wA:t1", { sb_role: "tower" })],
+		workspaces: [ws("wH", "Head tower", { sb_head: "tower-a" }), ws("wA", "Alpha", { tower: "tower-a" })],
+		children: () => [], sessionDir: SESSIONS, head: seam(),
+	}, refs);
+	assert.equal(net.head?.name, "head tower");
+	assert.equal(refs.get("sb-head")?.pane, "wH:p1");
+});
+
 test("the mark is the tower unit's rule: an idle conversation is idle, a live run with the boss away is working, and the head is never waiting for a reason of its own", () => {
 	const idleConversation = headWorld(() => view({ state: "running", run: { id: "r1", kind: "local", startedAt: "2026-11-04T10:00:00Z" }, conversation: { since: "2026-11-04T10:00:00Z", resumed: true, turns: 2, idle: true, idleMs: 600_000, capAt: 1 } })).net.head!;
 	assert.equal(idleConversation.mark, "idle");

@@ -32,7 +32,7 @@ interface Input {
  * conversation across runs), else the service's own file; the older chapters are kept on the entry for the history to chain through. Without a head workspace the entry has no file and no pane.
  */
 export function headUnit({ all, sessions, ps, services, seam, readable, keep }: Input): { head: HeadUnit } {
-	const workspace = headTowerOf(all), me = sessions.find((s) => s.id === (workspace?.tokens?.sb_head ?? seam.key)), pane = ps.find((p) => p.pane_id === me?.herdrLocation?.paneId);
+	const workspace = headTowerOf(all), me = sessions.find((s) => s.id === seam.key), pane = ps.find((p) => p.pane_id === me?.herdrLocation?.paneId);
 	const view = workspace ? services?.(workspace.workspace_id) : undefined, { queue, file: runFile, allyFiles: _a, eventFiles: _e, ...rest } = view ?? ({} as Partial<TowerView>);
 	const chapters = seam.chapters().flatMap((c) => { const file = readable(c.file); return file ? [{ ...c, file }] : []; });
 	const file = chapters.at(-1)?.file ?? (view ? readable(runFile) : undefined), name = me?.name ?? "head tower";

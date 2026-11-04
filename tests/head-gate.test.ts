@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { fieldsOf } from "../src/header.ts";
+import { relayOnlyFromHead } from "../src/server/headside.ts";
 import { ASK_CAP, ASK_OPEN_MS, answerAsk, openAsk, openAsks, readAsks } from "../src/server/headasks.ts";
 import { headGate } from "../src/server/headgate.ts";
 import { HEAD_REFUSAL } from "../src/server/head.ts";
@@ -141,6 +142,23 @@ test("a boss event passes without an ask and wakes the head at once; the answer 
 	const old = openAsk(world.slot, Date.now() - ASK_OPEN_MS - 1000, { workspace: "wA", label: "Alpha", first: "x" });
 	const receipt = await refused(client, { id: "sb-tower-wa", name: "tower · Alpha" }, "late", answerFrom(old.id) + " too late");
 	assert.equal(receipt.status, "expired");
+});
+
+test("relay= fails closed: from anyone but the head a header that does not parse loses its relay= too (review HH3-F001)", () => {
+	const slot = { primary: true, slot8: "ab12cd34" } as unknown as Slot;
+	for (const text of [
+		"[straw net from=\"x\" id=main-9 head=yes relay=boss:e1 x1=y] go",
+		"[straw net from=\"x\" id=main-9 Role=tower head=yes relay=boss:e1] go",
+		" [straw net from=\"x\" id=main-9 head=yes relay=boss:e1] go",
+		"[straw net from=\"x\" id=main-9 head=yes relay=\"boss:e1\" x1=y] go",
+	]) {
+		const kept = relayOnlyFromHead(slot, "main-9", text);
+		assert.ok(!/relay=/.test(kept.split("]")[0]!), kept);
+		assert.ok(kept.endsWith("] go"), kept);
+		assert.ok(kept.includes("head=yes") && kept.includes("id=main-9"), kept);
+	}
+	const plain = "[straw net id=main-9 kind=x] relay=boss:e1 is text, not a header field";
+	assert.equal(relayOnlyFromHead(slot, "main-9", plain), plain, "the text under a header is never read");
 });
 
 test("a workspace tower's intake keeps `relay=` only on a message from the head identity: from anyone else the field is dropped before the event is queued (review HH2-F001)", async () => {

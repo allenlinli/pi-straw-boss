@@ -34,6 +34,8 @@ export function towerPanel(towers: () => Towers | undefined): { view(workspace: 
 	return {
 		view: (workspace) => (serving(workspace) ? towers()?.runs.view(workspace) : undefined),
 		has: (workspace) => (workspace === HEAD_KEY ? towers() !== undefined : serving(workspace) && towers()?.runs.view(workspace) !== undefined),
+		// The head is a tower service under its Herdr workspace, yet only api/head/… reaches it (review HH3-F003): the tower routes ask this to refuse its key and its workspace.
+		isHead: (workspace) => workspace === HEAD_KEY || (towers()?.head.status()?.workspace === workspace),
 		owns: (id) => towers()?.owns(id) ?? false,
 		close: (workspace) => asked(async (t) => (await (workspace === HEAD_KEY ? t.head.close() : t.close(at(t, workspace))), {})),
 		live: (workspace) => Boolean(towers() && (workspace !== HEAD_KEY || towers()!.head.status()) && towers()!.runs.status(at(towers()!, workspace))?.run),

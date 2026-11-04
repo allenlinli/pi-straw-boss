@@ -1,6 +1,6 @@
 # The head tower as its own entity: one conversation with the boss, work forwarded to the towers
 
-Status: design; steps H1 (the head service) and H2 (runs, gate, forwards) are built on `feat/head-tower` with the fixes of their reviews, H3 (net, routes, commands) is built and awaits its review, H4 to H7 are not. Revision 2 (2026-11-04). The boss settled the direction on 2026-11-04 (**Decisions**) and answered O1 to O4 the same day, each as recommended (**Open decisions for the boss**).
+Status: design; steps H1 (the head service) and H2 (runs, gate, forwards) are built on `feat/head-tower` with the fixes of their reviews, H3 (net, routes, commands) is built with the fixes of its review, H4 (the head page and its entries) is built, H5 to H7 are not. Revision 2 (2026-11-04). The boss settled the direction on 2026-11-04 (**Decisions**) and answered O1 to O4 the same day, each as recommended (**Open decisions for the boss**).
 Base: pi-straw-boss 0.56.0 (`main` at `6346fa7`), pi 1.4.0, Herdr 0.9.5, Node 22 or newer.
 Related: [2026-10-26-sb-backend.md](2026-10-26-sb-backend.md) (the tower service, local runs, the boss conversation, tower memory), [2026-11-01-zen-view.md](2026-11-01-zen-view.md) (Zen: Z-D12, Z-D15, Z-D16), [2026-10-26-desk-mode.md](2026-10-26-desk-mode.md) (the desk's home base), `docs/how-it-works.md` (**Talking between towers**, **The standing pane**, **Local runs (B5)**, **The boss conversation**, **Sidebar net view**).
 

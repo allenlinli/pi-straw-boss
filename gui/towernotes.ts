@@ -3,7 +3,7 @@ import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { post } from "./post.ts";
 import { formatRoute } from "./router.ts";
-import { type Act, guarded, noticeRows } from "./towermodel.ts";
+import { type Act, guarded, noticeRows, towerRoute } from "./towermodel.ts";
 
 // The tower service's notices and parked events with their buttons, drawn in the map's base card and again in the tower's comms, so a held tower shows its Retry wherever the boss looks.
 
@@ -27,7 +27,7 @@ export function fillNotices(box: HTMLElement, ws: string, service: TowerService 
 			const button = h("button", { type: "button", class: "pair-btn" }, LABEL[action]());
 			// A run's proposal is answered at the memory route, by its id (a confirm names the rev the snapshot carried).
 			const [path, body] = r.proposal && (action === "confirm" || action === "reject") ? ["memory", action === "confirm" ? { op: "confirm", proposal: r.proposal, rev: r.rev } : { op: "reject", proposal: r.proposal }] : [action, r.event ? { id: r.event } : {}];
-			button.onclick = () => void guarded(button, (text) => (fail.textContent = text ?? ""), () => post(`tower/${encodeURIComponent(ws)}/${path}`, body));
+			button.onclick = () => void guarded(button, (text) => (fail.textContent = text ?? ""), () => post(`${towerRoute(ws)}/${path}`, body));
 			row.append(button);
 		}
 		row.append(fail);

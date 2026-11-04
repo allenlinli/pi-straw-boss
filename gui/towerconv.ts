@@ -4,7 +4,7 @@ import { moreButton } from "./menu.ts";
 import { m } from "./paraglide/messages.js";
 import { post } from "./post.ts";
 import { formatRoute } from "./router.ts";
-import { conversationFacts, guarded } from "./towermodel.ts";
+import { conversationFacts, guarded, towerRoute } from "./towermodel.ts";
 
 // The boss conversation of a tower the sb server runs (src/server/runs.ts `ConversationStatus`), in the tower's comms: how it began, what it does and when the boss's silence ends it, the Leave and New buttons, and a chip
 // for each recent event run (a read-only unit of the net while its session file is known, with the note it left in the tooltip). Leave and New post to the routes whose pi twins are `/boss tower leave` and
@@ -23,7 +23,7 @@ export function fillConversation(box: HTMLElement, ws: string, service: TowerSer
 	[fail.textContent, done.textContent] = [kept[0] ?? "", kept[1] ?? ""];
 	const button = (label: string, title: string, path: "leave" | "new", ok: () => string) => {
 		const b = h("button", { type: "button", class: "pair-btn", title, "data-menu-keep": "" }, label);
-		b.onclick = () => void guarded(b, say, async () => { const r = await post(`tower/${encodeURIComponent(ws)}/${path}`, {}); if (r.ok) live("conv-done", done).textContent = ok(); return r; }, 0);
+		b.onclick = () => void guarded(b, say, async () => { const r = await post(`${towerRoute(ws)}/${path}`, {}); if (r.ok) live("conv-done", done).textContent = ok(); return r; }, 0);
 		return b;
 	};
 	// A phone shows the line alone, in one row, with a `⋯` for what acts: Leave, New and their notes, the event runs' chips, and the facts the line cuts (style.css, "A phone's menus"). Above 640 px the menu is `display: contents` and the rows are as they were.

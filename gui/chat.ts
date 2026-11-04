@@ -9,6 +9,7 @@ import { createFollow, reach } from "./follow.ts";
 import { mount, parse } from "./markdown.ts";
 import type { Post } from "./composer.ts";
 import { m } from "./paraglide/messages.js";
+import { getLocale } from "./paraglide/runtime.js";
 import { html, ICON, roleName } from "./render.ts";
 import { conversationDivider } from "./towermodel.ts";
 import { bossTurn, eventTurn, heard, senderOf, type Turn } from "./towerturns.ts";
@@ -212,7 +213,8 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor }: 
 				if (turn && turn.kind !== "boss") return notice(it, turnLabel(turn), turn.body, turn.kind === "link" ? { raw: turn.raw } : { crashed: turn.crashed });
 				return notice(it, [NOTICE[it.type ?? ""]?.() ?? it.type ?? m.notice(), " ", (it.from && link(it.from)) || (it.from ?? "")], it.text ?? "");
 			}
-			case "divider": return h("article", { class: "tx rule" }, h("details", null, h("summary", null, it.type === "compaction" ? m.compacted({ tokens: (it.tokens ?? 0).toLocaleString() }) : m.branch_summary()), h("pre", null, it.text ?? "")));
+			case "divider": if (it.type === "chapter") return h("article", { class: "tx rule chapter" }, h("p", null, m.head_chapter({ date: it.at ? new Date(it.at).toLocaleDateString(getLocale(), { year: "numeric", month: "short", day: "numeric" }) : "", why: it.text ?? "" })));
+				return h("article", { class: "tx rule" }, h("details", null, h("summary", null, it.type === "compaction" ? m.compacted({ tokens: (it.tokens ?? 0).toLocaleString() }) : m.branch_summary()), h("pre", null, it.text ?? "")));
 			default: return h("article", { class: "tx note" }, it.text ?? "", " ", stamp(it));
 		}
 	}

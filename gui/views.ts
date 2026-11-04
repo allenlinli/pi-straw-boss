@@ -1,3 +1,4 @@
+import { HEAD_KEY } from "../src/headkey.ts";
 import type { Net } from "../src/net.ts";
 import type { Data, HistoryEvent } from "./chat.ts";
 import { docTile, shelve } from "./doc.ts";
@@ -43,15 +44,21 @@ export function mountFocus({ data, restart, openTile, embedTerminal, online }: F
 		session.draw(s);
 	}
 	const draw = () => (crumbs(scene), scene.route.view === "workspace" ? drawWorkspace(wsView, scene) : drawSession());
-	return {
+	/** The head page is the comms of the head's key, which only the net knows: its route becomes a session route on the head's stand-in workspace as the net arrives (until then the view waits, empty). */
+	const resolve = (r: NetRoute): NetRoute => (r.view === "head" && scene.net?.head ? { view: "session", ws: HEAD_KEY, key: scene.net.head.key } : r);
+	let asked: NetRoute = scene.route, previous: NetRoute = scene.route;
+	const api = {
 		terminal: session.terminal,
 		locate: (key: string) => locate(scene.net, key),
-		show(next: NetRoute, before: NetRoute, from?: DOMRect) {
+		show(requested: NetRoute, before: NetRoute, from?: DOMRect) {
+			[asked, previous] = [requested, before];
+			const next = resolve(requested);
 			const [key, at] = scene.route.view === "session" ? [scene.route.key, scene.route.at] : [];
 			if (next.view !== "workspace" || scene.route.view !== "workspace" || next.ws !== scene.route.ws) scene.cards = {};
 			scene.route = next;
 			wsView.hidden = next.view !== "workspace";
-			sessionView.hidden = dossierView.hidden = next.view !== "session";
+			sessionView.hidden = next.view !== "session" && next.view !== "head";
+			dossierView.hidden = next.view !== "session" || next.ws === HEAD_KEY;
 			fullScreen(false);
 			if (next.view !== "session" || next.key !== key) session.leaveMode();
 			if (next.view === "session" && next.key !== key) {
@@ -64,6 +71,7 @@ export function mountFocus({ data, restart, openTile, embedTerminal, online }: F
 		},
 		net(next: Net) {
 			scene.net = next;
+			if (asked.view === "head" && scene.route.view === "head" && next.head) return api.show(asked, previous);
 			shelve(next, seen, scene.route.view === "session" ? scene.route.key : undefined, (unit, card) => openTile(docTile(unit, card), false));
 			if (scene.route.view !== "map") draw();
 		},
@@ -87,4 +95,5 @@ export function mountFocus({ data, restart, openTile, embedTerminal, online }: F
 			draw();
 		},
 	};
+	return api;
 }

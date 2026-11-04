@@ -1,17 +1,25 @@
 import type { Mark } from "../src/netdata.ts";
 import type { Base, Net, Unit } from "../src/net.ts";
 import type { HistoryEvent, Who } from "./chat.ts";
+import { HEAD_KEY } from "../src/headkey.ts";
 import type { NetRoute } from "./router.ts";
 
 // What the focus views draw from. views.ts owns the one Scene and is its only writer; the views (workspace, session, dossier, location bar) are
 // handed it read-only and draw whatever it holds when views.ts calls them.
 
 export interface Scene { route: NetRoute; net?: Net; cards: Record<string, string>; info?: HistoryEvent; model?: string; ctx?: number }
-export const wsOf = (scene: Readonly<Scene>) => (scene.route.view === "map" ? "" : scene.route.ws);
+export const wsOf = (scene: Readonly<Scene>) => (scene.route.view === "map" || scene.route.view === "head" ? "" : scene.route.ws);
 
 export type Found = { u: Who & { subs: Unit[] }; base: Base; squad?: string; launcher?: Unit };
 
+/** The head tower as the comms read a tower: a stand-in base (the net has none for it: no +Main, no Quit tower) with a tower unit whose buttons are `api/head/…` (towermodel.ts `towerRoute`). */
+const headFound = (net: Net | undefined, key: string): Found | undefined => {
+	const head = net?.head;
+	return head?.key === key ? { u: { key, name: head.name, role: "tower", mark: head.mark, control: true, queued: head.queued, service: head.service, subs: [] }, base: { id: HEAD_KEY, label: head.name, mark: head.mark, tower: null, tabs: [], outposts: [], outside: [] } } : undefined;
+};
 export function locate(net: Net | undefined, key: string): Found | undefined {
+	const head = headFound(net, key);
+	if (head) return head;
 	for (const base of net?.bases ?? []) {
 		if (base.tower?.key === key) return { u: { key, name: base.tower.name, role: "tower", mark: base.tower.mark, control: base.tower.control, pending: base.tower.pending, queued: base.tower.queued, monitors: base.tower.monitors, service: base.tower.service, docs: base.tower.docs, docsCut: base.tower.docsCut, subs: base.tower.subs }, base };
 		for (const [squad, units] of [...base.tabs.map((t) => [t.label, t.units] as const), [undefined, base.outside] as const, [undefined, base.tower?.subs ?? []] as const])

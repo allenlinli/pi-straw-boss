@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { Net, Unit } from "../src/net.ts";
-import { groupUnits, quitable, shortState } from "../gui/drawer.ts";
+import { groupUnits, headEntry, quitable, shortState } from "../gui/drawer.ts";
 import { m } from "../gui/paraglide/messages.js";
 import { aimUnit } from "../gui/quit.ts";
 import { aimOpening } from "../gui/render.ts";
@@ -131,5 +131,17 @@ test("the way back to the map is the drawer's foot, outside the list that scroll
 	assert.doesNotMatch(rule(".drawer-map"), /position:\s*(sticky|fixed|absolute)/, "it stays in the flow of the foot");
 	const source = readFileSync(new URL("../gui/drawer.ts", import.meta.url), "utf8");
 	assert.match(source, /h\("footer", \{ class: "drawer-foot" \}, top, home\)/, "the link is in the foot, under the Dismiss finished button that sits directly above it");
-	assert.match(source, /m\.drawer_title\(\)\), close\), body, h\("footer"/, "and nothing sits between the header and the list");
+	assert.match(source, /m\.drawer_title\(\)\), close\), front, body, h\("footer"/, "and only the head tower's row (fixed, hidden without a head) sits between the header and the list");
+	assert.match(rule(".drawer-head"), /flex:\s*none/, "the head's row stays out of the list that scrolls");
+});
+
+test("the drawer's first row is the head tower while the net has one: its state in one word, 'not open' before the head exists, and nothing without a head; both languages", () => {
+	const net = (head?: Partial<NonNullable<Net["head"]>>) => ({ bases: [], ...(head ? { head: { key: "sb-head", name: "head tower", mark: "idle", state: "standing", asks: [], ...head } } : {}) }) as unknown as Net;
+	assert.equal(headEntry(net()), undefined);
+	assert.equal(headEntry(undefined), undefined);
+	assert.deepEqual(headEntry(net({ mark: "working", state: "running" })), { mark: "working", word: shortState("working", false) });
+	assert.deepEqual(headEntry(net({ state: "absent" })), { mark: "idle", word: "not open" });
+	assert.deepEqual(headEntry(net({ state: "absent" }), "zh-TW"), { mark: "idle", word: "尚未開啟" });
+	assert.equal(headEntry(net({ mark: "idle" }), "zh-TW")?.word, shortState("idle", false, "zh-TW"));
+	assert.deepEqual(groupUnits(net({ state: "running" })), [], "the head is no base: the list of bases has no row for it");
 });

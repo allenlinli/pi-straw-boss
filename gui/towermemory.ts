@@ -2,7 +2,7 @@ import type { MemorySummary } from "../src/net.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { post } from "./post.ts";
-import { MEMORY_CAP, type MemoryEntry, type MemoryView, memoryChip, memoryGroups, memoryMeta, memoryWhy, proposalText } from "./towermodel.ts";
+import { MEMORY_CAP, type MemoryEntry, type MemoryView, memoryChip, memoryGroups, memoryMeta, memoryWhy, proposalText, towerRoute } from "./towermodel.ts";
 
 // The tower's memory in its comms (src/server/towermemory.ts): the boss's standing instructions and decisions, the tower's waits, and what runs propose. It mirrors `/boss memory` (src/memorycmd.ts): the same server op,
 // nothing of its own. The boss confirms or rejects a proposal, adds, edits, and deletes here; every change but a reject names the rev it read, and a memory that moved on is shown again with a line saying so.
@@ -30,7 +30,7 @@ export function fillMemory(box: HTMLElement, ws: string, summary: MemorySummary 
 
 async function load(p: Panel, answer?: { ok: boolean; status: number; body: Record<string, unknown> }) {
 	try {
-		const r = answer ?? (await post(`tower/${encodeURIComponent(p.ws)}/memory`, { op: "read" }));
+		const r = answer ?? (await post(`${towerRoute(p.ws)}/memory`, { op: "read" }));
 		// SAFETY: a body with `entries` is the memory route's view (towermemory.ts `view`), which a refusal for a moved rev carries as well.
 		if (r.body.entries) (p.view = r.body as unknown as MemoryView), (p.seen = p.view.rev);
 		if (!r.ok) p.note = m.memory_failed({ reason: memoryWhy(r) });
@@ -43,7 +43,7 @@ const change = async (p: Panel, body: Record<string, unknown>) => {
 	p.note = "";
 	p.edit = undefined;
 	// A proposal is rejected by its id (never reused), which needs no rev.
-	const r = await post(`tower/${encodeURIComponent(p.ws)}/memory`, body.op === "reject" ? body : { ...body, rev: p.view?.rev ?? 0 }).catch(() => undefined);
+	const r = await post(`${towerRoute(p.ws)}/memory`, body.op === "reject" ? body : { ...body, rev: p.view?.rev ?? 0 }).catch(() => undefined);
 	return load(p, r ?? { ok: false, status: 0, body: { reason: m.unreachable() } });
 };
 

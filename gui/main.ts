@@ -5,6 +5,7 @@ import { localeNames, setLocale, startI18n } from "./i18n.ts";
 import { followLabel } from "./viewlabel.ts";
 import { m } from "./paraglide/messages.js";
 import { getLocale } from "./paraglide/runtime.js";
+import { HEAD_KEY } from "../src/headkey.ts";
 import type { Net } from "../src/net.ts";
 import type { Data, HistoryEvent } from "./chat.ts";
 import type { Post } from "./composer.ts";
@@ -19,6 +20,7 @@ import { mountMenus } from "./menu.ts";
 import { mountNotify } from "./notify.ts";
 import { mountQuit, showDismissAll, showStashed } from "./quit.ts";
 import { hang, mountPage } from "./render.ts";
+import { fillHeadButton, seenAt } from "./headpage.ts";
 import { settingsAllowed } from "./desk.ts";
 import { createRouter, depthOf, netOf, parseRoute, type Route, type Section } from "./router.ts";
 import { CONNECTING, createStream, type Source, type Status } from "./stream.ts";
@@ -119,7 +121,7 @@ function icon(n: number) {
 }
 /** A phone's `⋯` in the header shows only while something is behind it (Dismiss finished, Stashed); when both go, its panel closes. */
 function moreActs() {
-	const none = el("dismiss-all").hidden && el("stashed").hidden;
+	const none = el("dismiss-all").hidden && el("stashed").hidden && el("head-btn").hidden;
 	el("bar-more").hidden = none;
 	if (none && el("bar-pop").matches(":popover-open")) el("bar-pop").hidePopover();
 }
@@ -128,6 +130,7 @@ function draw(net: Net, fresh: Alert[], now: Map<string, Alert>) {
 	page.stats(net);
 	showDismissAll(el("dismiss-all"), net);
 	showStashed(el("stashed"), el("stashed-list"), net);
+	fillHeadButton(el("head-btn"), net.head, seenAt(), core.current.view === "head" || (core.current.view === "session" && core.current.ws === HEAD_KEY));
 	moreActs();
 	drawer?.net(net);
 	if (fresh.length || panels) withPanels((p) => p.alerts(fresh, now, net));
@@ -138,15 +141,16 @@ function draw(net: Net, fresh: Alert[], now: Map<string, Alert>) {
 /** A route change: show its view (the focus chunk plays the entrance). */
 function navigate(next: Route, before: Route) {
 	const from = next.view === "workspace" && before.view === "map" ? document.querySelector(`#bases [data-key="${CSS.escape(next.ws)}"]`)?.getBoundingClientRect() : undefined;
-	document.body.dataset.route = next.view; // a phone's map has no location bar (style.css): the page is the net itself
+	const slot = next.view === "head" ? "session" : next.view; // the head page is the session view, on the head's key
+	document.body.dataset.route = slot; // a phone's map has no location bar (style.css): the page is the net itself
 	drawer?.route(next);
-	if (next.view === "workspace" || next.view === "session") loadFocus();
+	if (next.view === "workspace" || next.view === "session" || next.view === "head") loadFocus();
 	el("map").hidden = next.view !== "map";
 	el("settings-view").hidden = next.view !== "settings"; // the settings page has a header of its own
 	el("crumbs").hidden = next.view === "settings";
-	el("legend").hidden = next.view === "session" || next.view === "settings";
+	el("legend").hidden = slot === "session" || next.view === "settings";
 	el("prefs").toggleAttribute("aria-current", next.view === "settings");
-	el("stage").dataset.view = next.view; // the side column (the dossier) is the session view's alone
+	el("stage").dataset.view = next.view === "head" || (next.view === "session" && next.ws === HEAD_KEY) ? "head" : slot; // the head page has no dossier (its facts are the page's own); the side column (the dossier) is the session view's alone
 	withFocus((f) => f.show(netOf(next), netOf(before), from));
 	if (next.view === "settings") withSettings((s) => core.current === next && s.show(next.section));
 	else if (before.view === "settings") withSettings((s) => s.hide());

@@ -70,3 +70,19 @@ test("the settings page watches the net only, goes up to the map, and shows the 
 	const session: Route = { view: "session", ws: "wA", key: "k" };
 	assert.equal(netOf(session), session, "a route of the net is passed on as it is");
 });
+
+test("the head page is the route `head`: it formats back, a session link to the head's stand-in workspace is the same address, going up leaves for the map, and the stream watches the key the net gives", () => {
+	assert.deepEqual(parseRoute("head"), { view: "head" });
+	assert.deepEqual(parseRoute("/head/"), { view: "head" });
+	assert.deepEqual(parseRoute("head?x=1"), { view: "head" });
+	assert.equal(formatRoute({ view: "head" }), "head");
+	assert.equal(formatRoute({ view: "session", ws: "@head", key: "sb-head" }), "head", "any link to the head's key opens the head page");
+	assert.deepEqual(parseRoute(formatRoute({ view: "head" })), { view: "head" });
+	assert.deepEqual(upOf({ view: "head" }), { view: "map" });
+	assert.deepEqual(upOf({ view: "session", ws: "@head", key: "sb-head" }), { view: "map" });
+	assert.equal(watchOf({ view: "head" }), null, "the key is the net's: nothing to watch before the first snapshot");
+	assert.equal(watchOf({ view: "head" }, "sb-head-ab12cd34"), "sb-head-ab12cd34");
+	assert.deepEqual(netOf({ view: "head" }), { view: "head" }, "the focus views draw it");
+	assert.deepEqual(parseRoute("headx"), { view: "map" });
+	assert.deepEqual(parseRoute("head/extra"), { view: "map" }, "the head page has no sub route");
+});

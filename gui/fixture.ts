@@ -5,6 +5,7 @@ import type { Data, Page } from "./chat.ts";
 import { demoCard, isCard, stepOf } from "./democard.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
+import { headDemo, headHistory, type HeadState, isHeadState } from "./demo-head.ts";
 import { docHooks } from "./doc.ts";
 import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
@@ -112,9 +113,13 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	let net = demo(), step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
 	// The demo documents stand in for the server's: the HTML one as a data: page, the text ones from here.
 	[docHooks.src, docHooks.load] = [() => `data:text/html;charset=utf-8,${encodeURIComponent(DEMO_PAGE)}`, async (cap) => ({ text: cap === "plan" ? DEMO_DOC : `# Notes ${cap.slice(5)}\n\nA demo document that arrived on its own.` })];
-	const history = demoHistory();
-	/** The page of the chat that ends before `before` (the end of the history when absent), the way the server pages. */
-	const page = (before?: string): Page => {
+	const demoHistory0 = demoHistory(), history = demoHistory0;
+	// `?head=<state>`: the head tower on the net (demo-head.ts); without it the demo has none.
+	const headParam = new URLSearchParams(location.search).get("head"), headNow: HeadState | undefined = isHeadState(headParam) ? headParam : undefined;
+	if (headNow) net.head = headDemo(headNow);
+	/** The page of the chat that ends before `before` (the end of the history when absent), the way the server pages; the head's key has its own conversation. */
+	const page = (before?: string, key?: string): Page => {
+		const history = key === "sb-head" && headNow ? headHistory(headNow) : demoHistory0;
 		const end = before ? history.findIndex((i) => i.id === before) : history.length, start = Math.max(0, end - 150);
 		return { items: history.slice(start, end), before: start > 0 ? history[start]!.id : undefined };
 	};
@@ -130,9 +135,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 			if (dropped) return;
 			if (watch?.startsWith("w:")) this.timers.push(setTimeout(() => this.send("cards", { a1: "I merged the billing branch and the tests pass.", a3: "Waiting for your answer about the deploy window." }), 250));
 			else if (watch) {
-				this.timers.push(setTimeout(() => this.send("history", { key: watch, state: "live", reset: true, ...page(), ...(watch.startsWith("run-") ? { role: "run", name: watch.slice(4, 12) } : {}), header: { id: watch, cwd: "/work/harbor-api" }, unreadable: 0, todos: [{ id: 1, subject: "Find where the rounding happens", status: "completed" }, { id: 2, subject: "Fix the ledger rounding before tax", status: "in_progress", activeForm: "fixing the ledger rounding" }, { id: 3, subject: "Add a regression test for credit notes", status: "pending" }] }), 250));
+				this.timers.push(setTimeout(() => this.send("history", { key: watch, state: "live", reset: true, ...page(undefined, watch), ...(watch.startsWith("run-") ? { role: "run", name: watch.slice(4, 12) } : {}), header: { id: watch, cwd: "/work/harbor-api" }, unreadable: 0, todos: [{ id: 1, subject: "Find where the rounding happens", status: "completed" }, { id: 2, subject: "Fix the ledger rounding before tax", status: "in_progress", activeForm: "fixing the ledger rounding" }, { id: 3, subject: "Add a regression test for credit notes", status: "pending" }] }), 250));
 				// A new reply every few seconds, so the page shows a live chat.
-				this.timers.push(setInterval(() => {
+				if (watch !== "sb-head") this.timers.push(setInterval(() => {
 					const n = ++live, call = `live-c${n}`;
 					this.send("history", { key: watch, reset: false, items: [{ id: `live-a${n}`, kind: "assistant", model: "harbor-1", at: new Date().toISOString(), text: `Live message ${n}`, tools: [{ id: call, name: "bash", summary: "date", args: "{}" }] }, { id: `live-r${n}`, kind: "result", callId: call, name: "bash", text: new Date().toString(), isError: false, bytes: 30 }] });
 				}, 5000));
@@ -217,8 +222,8 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	if (zen === "pause") setTimeout(() => document.querySelector<HTMLElement>("#zen .zen-skip")?.click(), 2200);
 	mountToolbar(control);
 	const data = (key: string): Data => ({
-		older: async (before) => page(before),
-		latest: async () => page(),
+		older: async (before) => page(before, key),
+		latest: async () => page(undefined, key),
 		// Input is accepted, and shows in the log a moment later as pi would write it.
 		post: async (action, body) => (action === "keys" && card?.keys(key, body)) || (action === "mirror" && card?.mirror(key, body.on === true)) || (action === "commands" ? { ok: true, status: 200, body: { commands: [{ name: "review", source: "prompt", description: "Review the current diff" }, { name: "boss", source: "extension", description: "Straw Boss: gui, status, join" }, { name: "skill:release", source: "skill", description: "Cut a release" }].filter((c) => c.name.includes(String(body.prefix))) } } : action === "dequeue" ? { ok: true, status: 200, body: { text: "Also check the refund path while you are in there.\n\nWhen done, write a short summary for the changelog." } } : action === "answer" ? answered(key, body) : action === "mirror" ? mirror(key, body.on === true) : action === "keys" && typeof body.key === "string" && body.key in PAD_REPLIES && !body.confirmed ? PAD_REPLIES[body.key]! : (action === "input" && setTimeout(() => current?.send("history", { key, reset: false, items: [{ id: `you-${++live}`, kind: "user", at: new Date().toISOString(), text: String(body.text) }] }), 700), { ok: true, status: 200, body: {} })),
 		// Demo images, drawn as SVG: the user's two on the last round, the read result's one, and a broken third index.

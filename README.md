@@ -32,6 +32,14 @@ English | [繁體中文](https://github.com/wayne930242/pi-straw-boss/blob/main/
 
 <p align="center"><sub>Zen: one item at a time, the companion session when nothing waits, a breathing circle when there is no session, the corner menu, the context, the command palette, the music, and the same on a phone.</sub></p>
 
+**The head tower** is the one tower that belongs to no project. You talk to it in one long conversation, on its own page in Standard or in a line under Zen's breathing circle, and it decides which workspace owns each instruction and hands it to that workspace's tower, opening the tower if there is none. It does no work itself and answers you in a line when a tower answers it. Zen shows its last lines fading as they age (hover to read them clear, **H** or a swipe up for the whole conversation), and the input stays a hairline until you click it or press Enter.
+
+<p align="center"><img src="docs/gui-head.png" width="49%" alt="The head tower's page in the Standard view: a crowned header, the conversation with two forwards to the Harbor API and Lighthouse Web towers and one answer, the open and answered asks as chips, and the composer"> <img src="docs/gui-zen-head.png" width="49%" alt="The Zen view with the head tower: its last lines under the breathing circle, a note for the answer from the Lighthouse Web tower, and a hairline input that says Enter to talk to the head tower"></p>
+
+<p align="center"><img src="docs/gui-zen-head-open.png" width="49%" alt="The Zen strip with the input open and a draft typed, the head tower's lines clear under the pointer"> <img src="docs/gui-phone-zen-head.png" width="220" alt="The Zen strip on a phone: two lines of the head tower's conversation, the Whole conversation link, and the folded input"></p>
+
+<p align="center"><sub>The head tower: its page, the strip under Zen's circle, the open input, and the strip on a phone.</sub></p>
+
 ![Herdr with pi-straw-boss: the sidebar's net view of every workspace, tower, main agent, and subagent, beside a main agent at work](docs/herdr-window.png)
 
 <p align="center"><sub>Herdr with the net view in its sidebar.</sub></p>
@@ -47,6 +55,7 @@ Run a few agents on the same project and they start stepping on each other: two 
 - **A tower per workspace.** It opens in its own tab, pinned first, when agents start to collide: a member dispatches a subagent (it promotes itself first), a workspace has two members while another workspace already has a tower, an agent promotes itself, or you type `/boss tower`. Mains and the tower go together: a tower that opens promotes each tab's earliest member, and a tower that quits turns every main back into a member (its subagents stay). It and coordinates the main agents and the other towers, and opens a tab with a main agent for work no session owns. You don't need to talk to it.
 - **A live dashboard** in the tower: who joined, and what they and their subagents are doing.
 - **Towers talk to each other.** A tower lists every workspace's tower (`tower_list`: who a message for it reaches, what its tabs work on) and writes to one or all of them (`tower_send`); a workspace without a tower is reached through its mains, else its members. Every `call_tower`, `boss_broadcast`, and `tower_send` message opens with a header the code writes: who sent it, in what role, to whom, and whether a reply is expected ([how](docs/how-it-works.md#talking-between-towers)).
+- **A head tower of your own.** One tower that belongs to no project: you talk to it in the GUI (its page, or the line under Zen's circle) or with `/boss head`, it keeps one long conversation with you across runs, and it hands each instruction to the tower of the workspace that owns it (`tower_send`, opening that tower if needed) and tells you in a line when the tower answers. Its tools are the tower's lookup and forwarding tools and nothing else, and it listens only to you and to answers to its own forwards ([how](docs/how-it-works.md#the-head-tower)).
 - **A work board.** A main's board fills itself from its todo list and its name (`board_set` overrides it); allies see only an auto entry's name and progress (`<name> (3/5)`), never its task text; towers read every main's entry (`board_read`), on this computer and, with Straw Link, on teammates' computers, so a tower routes work knowing where each main stands ([how](docs/how-it-works.md#the-work-board)).
 - **A tower closes the mains it opened.** A main a tower opened for a request reports to the sender and to the tower, and the tower closes it (`boss_close_main`) when nothing is running in it ([how](docs/how-it-works.md#closing-an-opened-main)).
 - **A digest for the tower**: joins, subagent launches, and renames in its workspace since its last run, read into its next run once and cleared ([how](docs/how-it-works.md#the-towers-digest)).
@@ -138,7 +147,7 @@ Subagents and sessions in Herdr worktree workspaces never join: the session that
 ## Net view in the sidebar
 
 An optional Herdr plugin in [`herdr-plugin/`](herdr-plugin) turns the sidebar's Agents list into a net view.
-It lists the head tower's workspace first, in each workspace the tower, then each tab's main agent and members, and every subagent right under the session that launched it, even in a worktree workspace.
+It lists the head tower's workspace first (once the head tower exists), in each workspace the tower, then each tab's main agent and members, and every subagent right under the session that launched it, even in a worktree workspace.
 The view is on whenever the Herdr server starts, and one key switches it off and on again.
 pi-straw-boss writes the sort key (`sb_order`), a role label (`sb_mark`) and, on subagents, a tree branch (`sb_indent`) and the subagent's name (`sb_name`) the view and your sidebar rows can use.
 It needs Herdr 0.9.5 or newer and node.

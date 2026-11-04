@@ -866,10 +866,10 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// UT6-F003 (`withdrawn` state and its two messages): 93,933 / 33,650 (measured), +28 raw / +14 gzipped over the merge figure. Cap = measured + 15.
 	// A wait for the boss is an alert (gui/waits.ts): 94,897 / 33,944 (measured), +964 raw / +294 gzipped over the 93,933 / 33,650 above: the alerts of a snapshot's fresh waits (`waitAlerts`, which `alertsOf` calls on every snapshot), the line of a wait with its age and "may be out of date" (`waitLine`, the tower card's row), and four messages in both languages. The dialog's and Zen's panel (gui/waitpanel.ts) is in the lazy chunks. Cap = measured + 15.
 	// The tab icon counts the waits the tower recorded on the boss (pagecore.ts): 95,004 / 33,983, cap 95,010 / 33,990.
-	assert.ok(eagerBytes <= 95_010 && eagerGz <= 33_990, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// Head tower H4 (the header button, the head node, the page, the drawer row, the chapter divider, their words): 97,934 / 34,835 (measured). Cap = measured + 15.
 	// Head tower H4 review fixes: 98,083 / 34,866 measured (the chapter reasons, the news dots, the head-named speaker). Cap = measured + 17 / + 14.
-	assert.ok(eagerBytes <= 98_100 && eagerGz <= 34_880, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Merge of the head tower into main (0.58.0): 99,171 / 35,198 measured, the head's 98,083 / 34,866 plus the wait alert's figures. Cap = measured + 19 / + 17.
+	assert.ok(eagerBytes <= 99_190 && eagerGz <= 35_215, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -988,12 +988,12 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen lines (feat/zen-lines): 278,222 / 113,448 measured, +5,235 raw / +3,306 gzipped over the 272,987 / 110,142 the base measures: 24 more sourced lines with 22 Japanese originals (Japanese text is three bytes a character and hardly compresses), all in the lazy Zen chunk. Cap = measured + 15.
 	// A wait for the boss is an alert: 279,979 / 114,077 measured, +1,757 raw / +629 gzipped over the 278,222 / 113,448 above: the wait's dialog and Zen card (gui/waitpanel.ts, the Zen card's branch) are lazy, and the chat chunks carry the shared message module, which gained four messages. Cap = measured + 15.
 	// The wait card: Zen text-button rules, the second pair of boss words, the chip line: 279,997 / 114,078, cap 280,000 / 114,092.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 280_000 && total(chunks, gz) <= 114_092, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// Head tower H4 (the header button, the head node, the page, the drawer row, the chapter divider, their words): 280,017 / 114,188 (measured). Cap = measured + 15.
 	// Head tower H4 review fixes: 280,767 / 114,480 measured (the chat chunks carry the chapter reason words, the head Close in the conversation menu, the news dots). Cap = measured + 33 / + 20.
 	// Head tower H5 (the Zen strip: zenhead.ts, headlines.ts, the hooks in zen.ts, and thirteen words in both languages): 290,591 / 118,179 measured, +9.8 KB raw / +3.7 KB gzipped, over the spec's ~4 KB: the strip needs its own lines reducer, fade clock, input, gestures, and history way back, all in the lazy Zen chunk. Cap = measured + 25 / + 20.
 	// Head tower H6 (quietForwards, the strip's rest rule, and one word in both languages): 291,348 / 118,456 measured. Cap = measured + 25 / + 20.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 291_380 && total(chunks, gz) <= 118_480, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Merge of the head tower into main (0.58.0): 293,235 / 119,191 measured, the head's figures plus the wait alert's. Cap = measured + 15 / + 19.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 293_250 && total(chunks, gz) <= 119_210, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1094,11 +1094,11 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head tower H4 review fixes: 146,334 / 30,310 measured (the news dots, the head Info hidden). Cap = measured + 16 / + 20.
 	// Zen lines review (ZL-F001): 142,698 / 29,684 measured, +130 raw / +25 gzipped: balanced wrapping for the line and its Japanese original, so a phone leaves no one-character orphan. Cap = measured + 15.
 	// A wait for the boss is an alert: 143,023 / 29,738 measured, +325 raw / +54 gzipped over the 142,698 / 29,684 above: the wait panel's rules (gui/style.css) and the centring of its buttons in Zen (gui/zen.css). Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 143_120 && total(css, gz) <= 29_760, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 	// Head tower H4 (the crown button and dot, the head node, the asks chips, the chapter divider, the drawer row, Geek and forced-colours rules): 146,027 / 30,256 (measured). Cap = measured + 15.
 	// Head tower H5 (the strip in gui/zen.css: the lines and their fade, the folded and unfolded input, the history's way back, phone, reduced motion, forced colours; the head page's gold plate in style.css): 151,425 / 31,081 (measured). Cap = measured + 15.
 	// Head tower H6 (the Zen history's quiet forward rows, the Chinese line wrap, reduced motion for the head's lines, Geek's flat head plate; the H5 review fixes' history veil and rules since the figure above): 152,861 / 31,315 measured. Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 152_876 && total(css, gz) <= 31_330, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Merge of the head tower into main (0.58.0): 153,316 / 31,385 measured, the head's figures plus the wait alert's Zen buttons. Cap = measured + 14 / + 15.
+	assert.ok(total(css, (n) => size(n).length) <= 153_330 && total(css, gz) <= 31_400, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

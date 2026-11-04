@@ -68,6 +68,18 @@ export interface ToolHost {
 	now(): number;
 }
 
+/**
+ * A main opened for one device reports to that device: another device's write, with its expected reply, would take the next report (spec 2026-11-04-link-relay.md, Wrong thread). The main's own pane token
+ * (`sb_opened_by`, kept while it lives, in any workspace) says who it was opened for; the route table of this workspace is the second witness. The check runs before the gate, so a refusal spends no Allow.
+ */
+async function refuseOpenedForOther(host: ToolHost, query: string): Promise<void> {
+	const net = await host.reach.read(), named = net.sessions.filter((s) => s.id === query || s.name === query);
+	if (named.length !== 1) return;
+	const token = net.ps.find((p) => p.pane_id === named[0]!.herdrLocation?.paneId)?.tokens?.sb_opened_by;
+	const held = typeof token === "string" && token.startsWith("link:") ? token.replace(/^(link:)+/, "") : host.openedFor?.(named[0]!.id);
+	if (held !== undefined && held !== host.who.device) throw new Error(`${clean(named[0]!.name ?? named[0]!.id, 40)} was opened for another device: an ally run does not write to it`);
+}
+
 /** The tools an ally run may call at all; `call_tower`, `boss_server`, and `link_request` are refused by its kind. */
 const ALLY = new Set(["boss_status", "tower_list", "board_read", "tower_send", "tower_reply", "boss_open_main", "boss_close_main"]);
 export const TOOLS = ["boss_status", "tower_list", "board_read", "call_tower", "tower_send", "tower_reply", "boss_open_main", "boss_close_main", "boss_server", "link_request", "tower_memory"] as const;
@@ -129,6 +141,7 @@ async function allyTool(host: ToolHost, name: string, args: Record<string, unkno
 	if (name === "tower_reply") {
 		const to = str(args, "to", 200);
 		if (await host.isTower(to)) throw new Error("An ally run may not write to a tower identity of this computer: it would carry a peer's text into a local run");
+		await refuseOpenedForOther(host, to);
 	}
 	// The sender's own device is the one write the allowlist lets through; everything else outside the free reads needs the Allow of the gate.
 	if (gated && name !== "tower_send") {
@@ -242,9 +255,7 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			const named = net.sessions.filter((s) => s.id === to || s.name === to);
 			if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${to}"`);
 			const target = named[0]!, shown = clean(target.name ?? target.id, 40);
-			// A main opened for one device reports to that device: another device's write, with its expected reply, would take the next report (spec 2026-11-04-link-relay.md, Wrong thread).
-			const held = ally ? host.openedFor?.(target.id) : undefined;
-			if (held !== undefined && held !== host.who.device) throw new Error(`${shown} was opened for another device: an ally run does not write to it`);
+			if (ally) await refuseOpenedForOther(host, target.id);
 			// The server stamps `origin=remote:<device id>` on what an ally run sends to a local session, so the receiver knows a peer's text started it.
 			const result = await reach.post(target.id, message, "tower_reply", "session", args.reply === true, ally && host.who.device ? `remote:${host.who.device}` : undefined);
 			if (result.status !== "sent") throw new Error(`${shown} did not take the message: ${result.status} ${result.code ?? ""} ${result.detail ?? ""}`.trim());

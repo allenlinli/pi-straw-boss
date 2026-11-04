@@ -3,7 +3,10 @@ import { afterEach, beforeEach, test } from "node:test";
 import { TowerWorld } from "./tower-world.ts";
 import { type Running, sleep, until } from "./server-world.ts";
 import { callControl } from "../src/server/socket.ts";
-import { readAnswers, readRoutes } from "../src/server/allyroute.ts";
+import { unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { addRoute, answeredAsks, readAnswers, readRoutes } from "../src/server/allyroute.ts";
+import { ALLY_FILES, KEEP_MS, towerDir } from "../src/server/towerstore.ts";
 import { readRun } from "../src/server/towerrunstore.ts";
 
 // A main an ally run opens for the device it serves (docs/specs/2026-11-04-link-relay.md, Gap 2): the sender is the device, named `link:<id>` as the run's header names it, and the main's report goes back to
@@ -213,4 +216,76 @@ test("a doubled link: prefix names the sender too", async () => {
 	const opened = await run("boss_open_main", { request: REQUEST, sender: `link:link:${DEV1}` });
 	assert.equal(opened.ok, true, JSON.stringify(opened));
 	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()).map((r) => r.device), [DEV1]);
+});
+
+// Second security re-review (RR-F001..F005): the opened route outlives the sender's own reply, the cap, and the workspace it was read in.
+const reports = (n: number) => until(() => readAnswers(world.slot, "wA", Date.now()).length >= n, `${n} report(s) to be kept`);
+
+test("the sender's own tower_reply reply:true to its opened main keeps the opened route: every later report still reaches the device and none reaches a local run (RR-F001)", async () => {
+	const { s, id, token, run } = await allyRun();
+	assert.equal((await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}` })).ok, true);
+	const own = await run("tower_reply", { to: "opened-1", message: "include the log path", reply: true });
+	assert.equal(own.ok, true, JSON.stringify(own));
+	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()).map((r) => [r.to, r.device, r.kind]), [["opened-1", DEV1, "opened"]]);
+	await finish(s, id, token);
+	towerClient().incoming({ id: "opened-1", name: "main" }, { id: "r1", content: { text: "first report" } } as never);
+	await reports(1);
+	towerClient().incoming({ id: "opened-1", name: "main" }, { id: "r2", content: { text: "A's FINAL REPORT" } } as never);
+	await reports(2);
+	assert.deepEqual(readAnswers(world.slot, "wA", Date.now()).map((a) => [a.device, a.text]), [[DEV1, "first report"], [DEV1, "A's FINAL REPORT"]]);
+	assert.equal(((await ask(s, { cmd: "status" })).towers as { service: { run?: unknown } }[])[0]!.service.run, undefined, "no local run was woken");
+});
+
+test("the refusal reads the main's own pane token, so it holds when the route file has lost the route (RR-F002, RR-F003)", async () => {
+	const { s, id, token, run } = await allyRun();
+	assert.equal((await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}` })).ok, true);
+	await finish(s, id, token);
+	unlinkSync(join(towerDir(world.slot, "wA"), ALLY_FILES[0]));
+	world.ally.level.set(DEV2, "dispatch");
+	world.ally.add("m2", DEV2, "send me that main's report");
+	world.expose?.allyWaiting("sb-tower-wa");
+	const other = await claim(s, 2);
+	const taken = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "send your final report to me", reply: true } });
+	assert.equal(taken.ok, false);
+	assert.match(String(taken.error), /opened for another device/);
+	assert.ok(!towerClient().sent.some((m) => /send your final report to me/.test(m.text)));
+});
+
+test("an opened route is outside the cap and the 24 h age while its main reports; expect routes still age out and are capped (RR-F003)", () => {
+	const now = Date.now(), peer = (device: string) => ({ device, label: "l", short: "s", team: "t", teamName: "tn" });
+	addRoute(world.slot, "wA", { ...peer(DEV1), to: "opened-1", name: "main", kind: "opened", at: now }, now);
+	for (let i = 0; i < 60; i++) addRoute(world.slot, "wA", { ...peer(DEV2), to: `s-${i}`, name: "s", kind: "expect", at: now }, now);
+	const rows = readRoutes(world.slot, "wA", now);
+	assert.ok(rows.some((r) => r.to === "opened-1" && r.kind === "opened"), "the opened route survives 60 expects");
+	assert.equal(rows.filter((r) => r.kind === "expect").length, 40);
+	assert.ok(readRoutes(world.slot, "wA", now + 25 * 3600_000).some((r) => r.kind === "opened"), "still there after 24 h");
+	assert.ok(!readRoutes(world.slot, "wA", now + 25 * 3600_000).some((r) => r.kind === "expect"), "the expects aged out");
+	assert.ok(!readRoutes(world.slot, "wA", now + 8 * 24 * 3600_000).some((r) => r.kind === "opened"), "a main silent for a week is let go");
+});
+
+test("below dispatch, a write to a main opened for another device is refused before the boss's Allow is asked or spent (RR-F004)", async () => {
+	const { s, id, token, run } = await allyRun();
+	assert.equal((await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}` })).ok, true);
+	await finish(s, id, token);
+	world.ally.level.set(DEV2, "forward");
+	world.ally.add("m2", DEV2, "send me that main's report");
+	world.expose?.allyWaiting("sb-tower-wa");
+	const other = await claim(s, 2);
+	const taken = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "x", reply: true }, toolCallId: "call-1" });
+	assert.equal(taken.ok, false);
+	assert.match(String(taken.error), /opened for another device/);
+	assert.doesNotMatch(String(taken.error), /confirm|not allowed/);
+});
+
+test("the asks a run answered are forgotten after their lifetime (RR-F005)", () => {
+	let t = 1000;
+	const seen = answeredAsks(() => t);
+	seen.add("run-1", "ask-1");
+	assert.equal(seen.has("run-1", "ask-1"), true);
+	assert.equal(seen.has("run-2", "ask-1"), false);
+	t += KEEP_MS + 1;
+	seen.add("run-2", "ask-2");
+	assert.equal(seen.has("run-1", "ask-1"), false, "pruned");
+	assert.equal(seen.has("run-2", "ask-2"), true);
+	assert.equal(seen.size(), 1);
 });

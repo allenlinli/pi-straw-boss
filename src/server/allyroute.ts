@@ -35,10 +35,12 @@ export interface Answer extends Peer {
 	ask?: string;
 }
 
-const read = <T>(slot: Slot, workspace: string, file: string, now: number): T[] => {
+/** An `opened` route lives as long as its main reports: `at` is renewed by each report it relays, and a main silent for this long is let go. */
+const OPENED_KEEP_MS = 7 * KEEP_MS;
+const read = <T extends object>(slot: Slot, workspace: string, file: string, now: number): T[] => {
 	try {
 		const found = JSON.parse(readFileSync(join(towerDir(slot, workspace), file), "utf8")) as { entries?: (T & { at: number })[] };
-		return (Array.isArray(found.entries) ? found.entries : []).filter((e) => typeof e?.at === "number" && now - e.at <= KEEP_MS);
+		return (Array.isArray(found.entries) ? found.entries : []).filter((e) => typeof e?.at === "number" && now - e.at <= ((e as { kind?: string }).kind === "opened" ? OPENED_KEEP_MS : KEEP_MS));
 	} catch {
 		return [];
 	}
@@ -49,9 +51,15 @@ const write = (slot: Slot, workspace: string, file: string, entries: unknown[]) 
 };
 
 export const readRoutes = (slot: Slot, workspace: string, now: number) => read<Route>(slot, workspace, ROUTES, now).filter((r) => typeof r.to === "string" && typeof r.device === "string");
-/** A route for `row.to` and its device replaces the earlier one. */
+/**
+ * A route for `row.to` and its device replaces the earlier one, except that an `expect` never replaces an `opened` route: the opened route already relays every message of the main to the device, and losing it would send
+ * the main's next reports to a local run (RR-F001). The cap trims `expect` routes only; `opened` ones are bounded by the opener's one main per sender.
+ */
 export function addRoute(slot: Slot, workspace: string, row: Route, now: number): void {
-	write(slot, workspace, ROUTES, [...readRoutes(slot, workspace, now).filter((r) => !(r.to === row.to && r.device === row.device)), row].slice(-MAX_ROUTES));
+	const was = readRoutes(slot, workspace, now);
+	if (row.kind === "expect" && was.some((r) => r.to === row.to && r.device === row.device && r.kind === "opened")) return;
+	const rest = [...was.filter((r) => !(r.to === row.to && r.device === row.device)), row];
+	write(slot, workspace, ROUTES, [...rest.filter((r) => r.kind === "opened"), ...rest.filter((r) => r.kind !== "opened").slice(-MAX_ROUTES)]);
 }
 /** The newest route for a session, if an ally run waits on it or opened it. */
 export const routeOf = (slot: Slot, workspace: string, session: string, now: number): Route | undefined => readRoutes(slot, workspace, now).filter((r) => r.to === session).at(-1);
@@ -64,9 +72,21 @@ export function dropAsk(slot: Slot, workspace: string, device: string, ask: stri
 	const answers = readAnswers(slot, workspace, now);
 	if (answers.some((a) => a.device === device && a.ask === ask)) write(slot, workspace, ANSWERS, answers.map((a) => (a.device === device && a.ask === ask ? (({ ask: _, ...rest }) => rest)(a) : a)));
 }
-/** An answer spends an `expect` route; an `opened` one stays for the main's next report. */
+/** An answer spends an `expect` route; an `opened` one stays for the main's next report, and its age starts again. */
 export function spendRoute(slot: Slot, workspace: string, route: Route, now: number): void {
-	if (route.kind === "expect") write(slot, workspace, ROUTES, readRoutes(slot, workspace, now).filter((r) => !(r.to === route.to && r.device === route.device && r.at === route.at)));
+	const routes = readRoutes(slot, workspace, now), same = (r: Route) => r.to === route.to && r.device === route.device && r.at === route.at;
+	if (route.kind === "expect") write(slot, workspace, ROUTES, routes.filter((r) => !same(r)));
+	else write(slot, workspace, ROUTES, routes.map((r) => (same(r) ? { ...r, at: now } : r)));
+}
+/** The asks each ally run answered, kept out of the routes it opens afterwards; an entry is forgotten after the ask lifetime (KEEP_MS). */
+export function answeredAsks(now: () => number) {
+	const runs = new Map<string, { at: number; asks: Set<string> }>();
+	const prune = () => { for (const [id, e] of runs) if (now() - e.at > KEEP_MS) runs.delete(id); };
+	return {
+		add(run: string, ask: string): void { prune(); const e = runs.get(run) ?? { at: now(), asks: new Set<string>() }; e.asks.add(ask); e.at = now(); runs.set(run, e); },
+		has(run: string, ask: string): boolean { prune(); return runs.get(run)?.asks.has(ask) === true; },
+		size: () => runs.size,
+	};
 }
 
 export const readAnswers = (slot: Slot, workspace: string, now: number) => read<Answer>(slot, workspace, ANSWERS, now).filter((a) => typeof a.id === "string" && typeof a.text === "string" && typeof a.device === "string");

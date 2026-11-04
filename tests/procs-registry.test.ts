@@ -112,6 +112,24 @@ test("a Herdr pane event ends the owner when it names the owner's terminal; a re
 	assert.deepEqual(lines("procs-owner-ended").map((f) => [f.owner, f.reason]), [["w1", "pane.closed"], ["w2", "pane.exited"]]);
 });
 
+test("replay: Herdr 0.9.5 puts pane_closed and pane_exited on the wire (data without a terminal id); they end the owner and run the no-owner worktree rule like the dotted names", async () => {
+	const { w, procs, lines } = world();
+	await procs.hello({ pid: 100, id: "w1", pane: "p1", terminal: "term-1" });
+	await procs.tick();
+	await procs.paneEvent({ event: "pane_closed", data: { pane_id: "p1", type: "pane_closed", workspace_id: "ws1" } });
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[101, 102]], "the owner's pane closed: its tree is reaped");
+	assert.deepEqual(lines("procs-owner-ended").map((f) => [f.owner, f.reason]), [["w1", "pane.closed"]], "logged under the dotted name, as the docs and the other events say it");
+	// no owner in the pane: a linked worktree's orphans go, as with pane.exited
+	const wt = "/tmp/psb-wire/wt";
+	const more = world({ cwds: async (ids) => new Map(ids.filter((id) => id === 400).map((id) => [id, { path: `${wt}/pkg` }])) });
+	more.w.roots.set(wt, "linked");
+	more.w.workspaces = [{ workspace_id: "ws2", checkout_path: wt }];
+	more.w.table.push(P(400, 1));
+	await more.procs.paneEvent({ event: "pane_exited", data: { pane_id: "p7", type: "pane_exited", workspace_id: "ws2" } });
+	assert.deepEqual(pids(more.w.reaped), [[400]], "the orphan in the worktree goes");
+});
+
 test("the registry survives a server restart: snapshots are read back, and an owner that ended while the server was down is reaped at start", async () => {
 	const first = world();
 	await first.procs.hello({ pid: 100, id: "w1", pane: "p1" });

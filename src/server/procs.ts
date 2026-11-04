@@ -290,7 +290,7 @@ export function createProcs(d: ProcsDeps): Procs {
 			ticking = takeTick().finally(() => void (ticking = undefined));
 			return ticking;
 		},
-		async paneEvent(event) {
+		async paneEvent(raw) { const event = { ...raw, event: raw.event.replace("_", ".") }; // Herdr 0.9.5 puts `pane_exited` and `pane_closed` on the wire (T4 replay), though the subscription asks for the dotted names; the log keeps the dotted ones
 			if (event.event !== "pane.exited" && event.event !== "pane.closed") return;
 			const pane = typeof event.data.pane_id === "string" ? event.data.pane_id : undefined, terminal = typeof event.data.terminal_id === "string" ? event.data.terminal_id : undefined;
 			if (!pane) return;

@@ -92,7 +92,10 @@ test("a boss event at the prompt with no run live starts a conversation: a boss-
 	assert.equal(pointer.run, c.id);
 	assert.equal(pointer.turns, 1, "the boss event the run took is one boss turn");
 	// The boss is in it from the claim: tower_done stays.
-	assert.equal((await ask(s, { cmd: "run-done", token: c.token, note: "n" })).stay, true);
+	const stayed = await ask(s, { cmd: "run-done", token: c.token, note: "n" });
+	assert.equal(stayed.stay, true);
+	// The stay tells the run its answer already reached the boss, so it does not write a second one (the head's double reply on 0.58.0).
+	assert.match(String(stayed.text), /do not answer again/);
 });
 
 test("the next conversation resumes that session (--session), says so in its brief with the date and the turns, and keeps the session's start; an event run in between is fresh and moves nothing", async () => {

@@ -1274,7 +1274,7 @@ export function createRuns(o: RunsOptions) {
 		if (a.closing !== undefined) return { ok: true as const };
 		if (req.left === true) return bossLeft(a);
 		// The boss is in this run: it is not the model's to end. It answers them, and the run ends when they quit it or are silent for `bossAway` (the idle wrap-up then asks for the note).
-		if (a.boss !== undefined && a.terminating === undefined) return { ok: true as const, stay: true as const, text: `The boss is in this session: they spoke here, or woke you from the tower prompt. Stay and answer them; do not end the run. It ends when they quit it, or when they have been silent for ${Math.round(t.bossAway / 60_000)} minutes and you are asked to wrap up. Then call tower_done with your handoff note.` };
+		if (a.boss !== undefined && a.terminating === undefined) return { ok: true as const, stay: true as const, text: `The boss is in this session: they spoke here, or woke you from the tower prompt. The run stays open. What you wrote has reached them: do not answer again or repeat yourself now; write only when their next message comes. It ends when they quit it, or when they have been silent for ${Math.round(t.bossAway / 60_000)} minutes and you are asked to wrap up. Then call tower_done with your handoff note.` };
 		const note = typeof req.note === "string" ? req.note.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/g, "").split("\n").map((l) => l.trim()).filter(Boolean).join("\n") : "";
 		if (!note || note.length > 1200) return { ok: false as const, error: "the handoff note is 1 to 1,200 characters, one item per line" };
 		if (req.wakeAfter !== undefined && a.rec.kind !== "local") return { ok: false as const, error: "an ally run schedules no wake" };

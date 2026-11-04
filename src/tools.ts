@@ -154,7 +154,7 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callT
 			tool("boss_open_main", "Open a new tab in this workspace with a new pi as its main agent and hand it a request that no session owns. Does not ask the boss and does not take focus. Opens at most one main per request; when it fails, tell the sender. The main reports its outcome to the sender and to you; close it with boss_close_main after its done report.",
 				Type.Object({
 					request: Type.String({ description: "The sender's request exactly as it reached you, with every boss decision it quotes kept verbatim." }),
-					sender: Type.String({ description: "The intercom name or session id of the session that made the request; the new main reports back to it." }),
+					sender: Type.String({ description: "The intercom name or session id of the session that made the request; the new main reports back to it. For a request from a teammate's device (an ally run): the message header's id= value as it stands (it reads link:<device id>)." }),
 					label: Type.Optional(Type.String({ description: "A short label for the new tab." })),
 				}),
 				async (input) => {
@@ -190,7 +190,7 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callT
 					workspace: Type.Optional(Type.String({ description: "One workspace's id or exact label. Omit for every other tower. With device: a workspace label on that device." })),
 					device: Type.Optional(Type.String({ description: "A teammate's device (short id, id, or label) to send over Straw Link. Omit for towers on this computer." })),
 					reply: Type.Optional(Type.Boolean({ description: "Whether you wait for an answer. Default false; true only when you act on it." })),
-					for: Type.Optional(Type.String({ description: "Tower run only, with device and reply: a live main of your workspace (id or name) that asked for this. The device's answer then goes to that main directly; the result says whether the device's build can do that." })),
+					for: Type.Optional(Type.String({ description: "Tower run only, with device and reply: a live main of your workspace (id or name) that asked for this. The device's answer then goes to that main directly; the result says whether the device's build can do that. Left out, the server binds the one main that called you for this, if there is exactly one." })),
 					inReplyTo: Type.Optional(Type.String({ description: "Ally run only: the ask id (see your brief and the event header, asks=) of a message you answer. The answer goes to the main that asked. With head: the head tower's ask id (H12, the ask= of its message)." })),
 					head: Type.Optional(Type.Boolean({ description: "Answer the head tower: set it with inReplyTo, the ask id (H12) of the head tower's message to you. The message goes to the head tower alone, which tells the boss." })),
 				}),

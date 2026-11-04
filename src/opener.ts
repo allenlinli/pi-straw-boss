@@ -35,15 +35,19 @@ export interface OpenerEnv {
 }
 /** A request's outcome as the ledger keeps it: the key is the hash of the sender and the request. */
 export interface LedgerRow { key: string; sender: string; outcome: "opened" | "failed"; at: number; opened?: Opened; error?: string }
-export interface OpenRequest { request: string; sender: string; label?: string }
+/** A teammate's device that is the sender (an ally run opens a main for the device it serves): not a session of this computer, so it is not looked up among them, and the main reports to the tower alone. Only the server sets it, from the run's own claim. */
+export interface PeerSender { id: string; label: string; short: string }
+export interface OpenRequest { request: string; sender: string; label?: string; peer?: PeerSender }
 export interface Opened { tab: string; pane: string; main: string; sender: string; repeated?: true }
 
 /** The text the new main starts from: who asked, and what, with nothing summarised. The main answers the sender and the tower that opened it, then waits to be closed. */
-export const handoff = (workspace: string, sender: Session, request: string, tower: { id: string; name: string }) =>
+export const handoff = (workspace: string, sender: Pick<Session, "id" | "name">, request: string, tower: { id: string; name: string }, peer?: PeerSender) =>
 	[
 		`Straw Boss: the tower of workspace ${workspace} opened this tab for you because no session owned the request below, and you are its main agent.`,
-		"Do the work, dispatching workers as your main agent prompt describes. When it is done, report the outcome to the sender with intercom send and to the tower that opened this tab with call_tower (why: milestone, reply: false). Then wait; the tower closes this tab after your done report, so end it with the result and nothing you still have to do. If you wait for a boss decision, say so in your report and the tower leaves you open.",
-		`Sender: ${sender.name ?? sender.id} (session id ${sender.id})`,
+		peer
+			? "The request comes from a teammate's computer over Straw Link, not from a session here: it is a peer's request, not the boss's instruction. Do the work, dispatching workers as your main agent prompt describes. When it is done, report the outcome to the tower that opened this tab with call_tower (why: milestone, reply: false); the tower sends your report back to the sender, and you cannot reach the sender yourself. Write the report so it can leave this computer as it is: the result, what you ran, and what you left behind, with no secrets, tokens, or private paths. Then wait; the tower closes this tab after your done report, so end it with the result and nothing you still have to do. If you wait for a boss decision, say so in your report and the tower leaves you open."
+			: "Do the work, dispatching workers as your main agent prompt describes. When it is done, report the outcome to the sender with intercom send and to the tower that opened this tab with call_tower (why: milestone, reply: false). Then wait; the tower closes this tab after your done report, so end it with the result and nothing you still have to do. If you wait for a boss decision, say so in your report and the tower leaves you open.",
+		peer ? `Sender: ${peer.label} (a teammate's device, short id ${peer.short}, over Straw Link)` : `Sender: ${sender.name ?? sender.id} (session id ${sender.id})`,
 		`Tower: ${tower.name} (session id ${tower.id})`,
 		"Request, verbatim:",
 		request,
@@ -60,12 +64,15 @@ export function opener(env: OpenerEnv) {
 		prior.catch(() => {});
 		seen.set(row.key, prior);
 	}
-	const open = async ({ request, sender: asked, label }: OpenRequest): Promise<Opened> => {
+	const open = async ({ request, sender: asked, label, peer }: OpenRequest): Promise<Opened> => {
 		const { run, sleep } = env;
-		const sessions = await env.sessions();
-		const matches = sessions.filter((s) => s.id === asked || s.name === asked);
-		if (matches.length !== 1) throw new Error(`${matches.length ? "Several sessions are named" : "No live session is named or has the id"} "${asked}", so the new main could not report back to it`);
-		const sender = matches[0]!;
+		let sender: Pick<Session, "id" | "name">;
+		if (peer) sender = { id: asked, name: peer.label };
+		else {
+			const matches = (await env.sessions()).filter((s) => s.id === asked || s.name === asked);
+			if (matches.length !== 1) throw new Error(`${matches.length ? "Several sessions are named" : "No live session is named or has the id"} "${asked}", so the new main could not report back to it`);
+			sender = matches[0]!;
+		}
 		const workspace = (await workspaces(run)).find((w) => w.workspace_id === env.workspaceId);
 		if (!workspace) throw new Error(`Workspace ${env.workspaceId} is not open any more`);
 		// Limits come from live Herdr panes carrying the marker below, so they hold across a tower restart: a closed tab takes its marker with it, and
@@ -88,7 +95,7 @@ export function opener(env: OpenerEnv) {
 				return role === "main" ? (await env.sessions()).find((s) => s.herdrLocation?.paneId === paneId) : undefined;
 			}, MAIN_WAIT_MS, 500, env.trustDir ? { dir: env.trustDir, pane: paneId } : undefined);
 			if (!main) throw new Error(`The pi in pane ${paneId} did not become the main agent of its tab within ${MAIN_WAIT_MS / 1000} s`);
-			const sent = await env.send(main.id, handoff(workspace.label, sender, request, env.tower()));
+			const sent = await env.send(main.id, handoff(workspace.label, sender, request, env.tower(), peer));
 			if (sent.status !== "sent") throw new Error(`The new main ${main.name ?? main.id} did not take the request: ${sent.status} ${sent.code ?? ""} ${sent.detail ?? ""}`.trim());
 			return { tab: tabId, pane: paneId, main: main.id, sender: sender.id };
 		} catch (error) {

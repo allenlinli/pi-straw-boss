@@ -1,6 +1,6 @@
 import { readBoard } from "../boardread.ts";
 import type { Control } from "../closemain.ts";
-import type { Opened, OpenRequest } from "../opener.ts";
+import type { Opened, OpenRequest, PeerSender } from "../opener.ts";
 import { remoteTowers } from "../link/remotelist.ts";
 import type { AllyBoard, AllyTeam } from "../link/holder.ts";
 import { clean } from "../board.ts";
@@ -55,13 +55,33 @@ export interface ToolHost {
 	project?: string;
 	/** Whether a session (id or name) is a tower identity of this machine (an ally run may not write to one). */
 	isTower(session: string): Promise<boolean>;
+	/** The device a main was opened for, when an ally run opened it and its route is still live (allyroute.ts); undefined for any other session. */
+	openedFor?(session: string): string | undefined;
 	/** The live main of this tower's workspace named by id or name (a local run asks for it); throws when there is none or it is ambiguous. */
 	mainOf(query: string): Promise<{ id: string; name: string }>;
+	/** The one live main of this tower's workspace that sent the run a `call_tower` expecting an answer (the events the run took); undefined when there is none or there are several. */
+	requester(): Promise<{ id: string; name: string } | undefined>;
 	/** Whether an ask of the head tower to this tower's workspace is open (headasks.ts): a tower answers with `tower_send {head: true, inReplyTo}` only to one. */
 	headAsked?(id: string): boolean;
 	/** `tower_memory` of a local run (towermemory.ts): it proposes, and the boss confirms elsewhere. */
 	memory(args: Record<string, unknown>): Promise<ToolResult>;
 	now(): number;
+}
+
+/** The refusal of an ally `tower_reply` target held for another device; it does not repeat what the run named. A target that does not exist, or is ambiguous, is not refused here: it goes on to the gate like one that exists, so a run below `dispatch` is told the same of both and learns nothing about what sessions exist (RR3-F002). */
+const NO_TARGET = "tower_reply has no such target: no session of this computer that an ally run may write to has that name or id";
+
+/**
+ * A main opened for one device reports to that device: another device's write, with its expected reply, would take the next report (spec 2026-11-04-link-relay.md, Wrong thread). Two witnesses say who it was opened for:
+ * this workspace's route table, which only the server writes, and the main's own pane token (`sb_opened_by`, kept while it lives, in any workspace). Either one naming another device refuses the write, so a token a local
+ * process can set never outvotes the table (RR2-F001). The check runs before the gate, so a refusal spends no Allow. A target that is missing or ambiguous passes it: the gate and the lookup after it answer as they do for any target.
+ */
+async function refuseTarget(host: ToolHost, query: string): Promise<void> {
+	const net = await host.reach.read(), named = net.sessions.filter((s) => s.id === query || s.name === query);
+	if (named.length !== 1) return;
+	const token = net.ps.find((p) => p.pane_id === named[0]!.herdrLocation?.paneId)?.tokens?.sb_opened_by;
+	const byToken = typeof token === "string" && token.startsWith("link:") ? token.replace(/^(link:)+/, "") : undefined;
+	for (const held of [byToken, host.openedFor?.(named[0]!.id)]) if (held !== undefined && held !== host.who.device) throw new Error(NO_TARGET);
 }
 
 /** The tools an ally run may call at all; `call_tower`, `boss_server`, and `link_request` are refused by its kind. */
@@ -93,6 +113,17 @@ export async function runTool(host: ToolHost, kind: Kind, name: string, args: Re
 /** Whether the argument of `tower_send`/`device` names the run's own device (its id, short id, or label). */
 const isSender = (who: RunWho, device: string) => device === who.device || device === who.device?.slice(0, 6) || device === who.deviceLabel;
 
+/**
+ * The sender of an ally run as a main's sender, when the run names it as its header does (`link:<device id>`, or the short id): the device the run serves, never another. The id is the claim's, not the argument's, so the server
+ * decides who a main reports for. A bare label or short id is not taken, because a session of this computer may carry it; such a sender is looked up among the sessions as for a local run.
+ */
+const peerSender = (who: RunWho, sender: string): PeerSender | undefined => {
+	if (!sender.startsWith("link:") || !who.device) return undefined;
+	// The header's `id=` already reads `link:<device id>`: a model that adds the prefix again names the same device.
+	const named = sender.replace(/^(link:)+/, "");
+	return named === who.device || named === who.device.slice(0, 6) ? { id: `link:${who.device}`, label: who.deviceLabel ?? who.device.slice(0, 6), short: who.deviceShort ?? who.device.slice(0, 6) } : undefined;
+};
+
 async function allyTool(host: ToolHost, name: string, args: Record<string, unknown>, extra: CallExtra): Promise<ToolResult> {
 	const { who } = host;
 	if (!ALLY.has(name)) throw new Error(`${name} is not available in an ally run`);
@@ -106,9 +137,15 @@ async function allyTool(host: ToolHost, name: string, args: Record<string, unkno
 		if (device === undefined) throw new Error("An ally run writes to its sender only: give device (the sender's id, short id, or label)");
 		if (!isSender(who, device)) throw new Error("An ally run writes to its sender only: that device is not the sender of this run");
 	}
+	// A main opened for a `link:` sender reports for the device the run serves, and for no other: another device's id is refused here rather than looked up among the sessions of this computer.
+	if (name === "boss_open_main") {
+		const sender = str(args, "sender", 300);
+		if (sender.startsWith("link:") && !peerSender(who, sender)) throw new Error("An ally run opens a main for its own sender only: that device is not the sender of this run");
+	}
 	if (name === "tower_reply") {
 		const to = str(args, "to", 200);
 		if (await host.isTower(to)) throw new Error("An ally run may not write to a tower identity of this computer: it would carry a peer's text into a local run");
+		await refuseTarget(host, to);
 	}
 	// The sender's own device is the one write the allowlist lets through; everything else outside the free reads needs the Allow of the gate.
 	if (gated && name !== "tower_send") {
@@ -158,10 +195,12 @@ async function towerSendDevice(host: ToolHost, args: Record<string, unknown>, fo
 	if (forWho !== undefined && ally) throw new Error("An ally run asks for no main");
 	if (forWho !== undefined && !reply) throw new Error("An ask for a main has to expect a reply (reply: true)");
 	let main: { id: string; name: string } | undefined, ask: string | undefined;
-	if (forWho !== undefined) {
-		main = await host.mainOf(forWho);
-		ask = randomBytes(16).toString("hex");
-	}
+	// A tower that sends for a local session records who asked, by the server and not by the model's memory: the device's answer never enters a tower run, so without an ask nobody here would get it.
+	// `for` names the main; without it the run's one requester is taken, and with none or several nothing is guessed.
+	const requester = forWho === undefined && !ally && reply ? await host.requester() : undefined;
+	if (forWho !== undefined) main = await host.mainOf(forWho);
+	else if (requester) main = requester;
+	if (main) ask = randomBytes(16).toString("hex");
 	const answer = await host.link({ op: "send", device, text: message, reply, ...(opt(args, "workspace") ? { workspace: opt(args, "workspace") } : {}), ...(ask ? { awaitsReply: ask } : {}), ...(inReplyTo ? { inReplyTo } : {}) });
 	if (!answer.ok) throw new Error(String(answer.error));
 	const details = (answer.details ?? {}) as { team?: string; device?: string; id?: string; asked?: boolean };
@@ -169,9 +208,9 @@ async function towerSendDevice(host: ToolHost, args: Record<string, unknown>, fo
 	if (main && ask) {
 		if (details.asked === true && details.team && details.device && details.id) {
 			host.asks.open({ ask, envelope: details.id, device: details.device, team: details.team, for: main.id, forName: main.name, workspace: host.who.workspace, tower: host.identity, at: host.now(), expires: host.now() + ASK_KEEP_MS });
-			text += ` The answer will come to ${main.name} directly.`;
+			text += ` The answer will come to ${main.name} directly${forWho === undefined ? " (the main that called you for this; pass for to name another)" : ""}.`;
 		} else text += ` The answer will not come to ${main.name}: it will reach an ally run here, whose brief names the main that asked.`;
-	}
+	} else if (!ally && reply) text += " No session is bound to this send. The answer reaches an ally run here, not you or any session; pass for with a main of this workspace to have it delivered there.";
 	return { text, details: { ...(answer.details as object | undefined), ...(main ? { for: main.id } : {}) } };
 }
 
@@ -216,7 +255,10 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			return reach.towerSend(str(args, "message"), opt(args, "workspace"), args.reply === true);
 		}
 		case "tower_reply": {
-			const to = str(args, "to", 200), message = str(args, "message", 16_384), net = await reach.read();
+			const to = str(args, "to", 200), message = str(args, "message", 16_384);
+			// An ally run's target is checked again after the Allow: the session may have changed in between.
+			if (ally) await refuseTarget(host, to);
+			const net = await reach.read();
 			const named = net.sessions.filter((s) => s.id === to || s.name === to);
 			if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${to}"`);
 			const target = named[0]!, shown = clean(target.name ?? target.id, 40);
@@ -227,8 +269,9 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			return { text: `Sent to ${shown}.`, details: { to: target.id, status: result.status } };
 		}
 		case "boss_open_main": {
-			const opened = await host.open({ request: str(args, "request"), sender: str(args, "sender", 300), ...(opt(args, "label") ? { label: opt(args, "label")! } : {}) });
-			const text = opened.repeated ? `A main was already opened for this request (tab ${opened.tab}); nothing new opened.` : `Opened tab ${opened.tab} with a main agent (session ${opened.main}) and handed it the request. It reports to ${opened.sender} and to you.`;
+			const sender = str(args, "sender", 300), peer = ally ? peerSender(host.who, sender) : undefined;
+			const opened = await host.open({ request: str(args, "request"), sender: peer?.id ?? sender, ...(peer ? { peer } : {}), ...(opt(args, "label") ? { label: opt(args, "label")! } : {}) });
+			const text = opened.repeated ? `A main was already opened for this request (tab ${opened.tab}); nothing new opened.` : `Opened tab ${opened.tab} with a main agent (session ${opened.main}) and handed it the request. ${peer ? `It reports to the tower only; each report wakes a run for ${peer.label} that sends it to the sender.` : `It reports to ${opened.sender} and to you.`}`;
 			return { text, details: opened };
 		}
 		case "boss_close_main": {

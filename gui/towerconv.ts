@@ -28,14 +28,13 @@ export function fillConversation(box: HTMLElement, ws: string, service: TowerSer
 	};
 	// A phone shows the line alone, in one row, with a `⋯` for what acts: Leave, New and their notes, the event runs' chips, and the facts the line cuts (style.css, "A phone's menus"). Above 640 px the menu is `display: contents` and the rows are as they were.
 	const rows: Node[] = [], inMenu: Node[] = [];
+	let acts: HTMLElement | undefined;
 	const sep = () => h("span", { class: "conv-sep" }, " · ");
 	if (c) {
 		const facts = conversationFacts(c);
 		rows.push(h("p", { class: "conv-line" }, h("b", null, m.conv_title()), " ", h("span", { class: "conv-began", ...(facts.why ? { title: facts.why } : {}) }, facts.began), sep(), h("span", { class: "conv-now" }, facts.now), sep(), h("span", { class: "conv-cap" }, facts.cap)));
-		inMenu.push(
-			h("p", { class: "conv-facts" }, `${facts.began} · ${facts.cap}`),
-			h("p", { class: "conv-acts" }, ...(c.closing ? [] : [button(m.conv_leave(), m.conv_leave_title(), "leave", m.conv_left)]), button(m.conv_new_button(), m.conv_new_title(), "new", m.conv_fresh), fail, done),
-		);
+		acts = h("p", { class: "conv-acts" }, ...(c.closing ? [] : [button(m.conv_leave(), m.conv_leave_title(), "leave", m.conv_left)]), button(m.conv_new_button(), m.conv_new_title(), "new", m.conv_fresh), fail, done);
+		inMenu.push(h("p", { class: "conv-facts" }, `${facts.began} · ${facts.cap}`), acts);
 	}
 	if (inRun) rows.push(h("p", { class: "conv-line conv-in-run" }, h("b", null, m.conv_in_run({ id: inRun.id, time: clock(service?.run?.startedAt ?? inRun.since) }))));
 	if (events.length) {
@@ -48,7 +47,10 @@ export function fillConversation(box: HTMLElement, ws: string, service: TowerSer
 		})));
 	}
 	// The head tower's Close (head/close, asked once by quit.ts) sits in the same ⋯ menu.
-	if (closeHead) inMenu.push(h("p", { class: "conv-acts" }, h("button", { type: "button", class: "quit-btn head-quit", "data-close": "head", "data-name": m.head_tower(), "data-menu-keep": "" }, m.head_close())));
+	if (closeHead) {
+		const close = h("button", { type: "button", class: "quit-btn head-quit", "data-close": "head", "data-name": m.head_tower(), "data-menu-keep": "" }, m.head_close()); // one row with Leave and New
+		if (acts) acts.insertBefore(close, acts.querySelector(".tnote-fail")); else inMenu.push(h("p", { class: "conv-acts" }, close));
+	}
 	let panel: HTMLElement | undefined;
 	if (inMenu.length) {
 		panel = h("div", { class: "menu-pop hud-pop", popover: "auto", role: "group", "aria-label": m.menu_more() }, ...inMenu);

@@ -1252,7 +1252,8 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 a.head-ask:hover, a.head-ask:focus-visible { border-color: var(--accent); color: var(--text); }
 .head-absent { margin: 0 0 8px; color: var(--dim); font-size: 13px; }
 .comms-head[data-head] .head-info { display: none !important; }
-.comms-head[data-head] .logo { color: var(--gold); }
+.comms-head[data-head] .head-menu { display: none; } /* nothing behind it: the head's Close is in the conversation box */
+.head-node .tower svg, .tx.in.head .ava { color: var(--gold); fill: currentColor; } /* the head's mark is the crown, in the crown's colour, beside the state's own sweep and pulse */
 .comms-head[data-head] .logo svg { fill: currentColor; }
 .tx.rule.chapter p { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 5px 10px; color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
 .tx.rule.chapter p::before, .tx.rule.chapter p::after { content: ""; flex: 1; height: 1px; background: var(--line); }

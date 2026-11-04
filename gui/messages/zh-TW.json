@@ -873,6 +873,7 @@
 	"zen_rest": "回到呼吸",
 	"head_absent": "第一則訊息會開啟主塔台",
 	"head_wakes": "叫醒主塔台",
+	"head_continues": "接續與主塔台的對話",
 	"head_new": "主塔台有新的話",
 	"head_close": "關閉主塔台",
 	"head_close_ask": "要關閉主塔台嗎？對話和記憶都會保留。",

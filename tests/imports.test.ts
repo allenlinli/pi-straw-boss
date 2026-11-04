@@ -716,7 +716,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// UT6-F003 (the `withdrawn` dialog state): 4972 measured, +1 (one line in dialogState).
 	// Zen lines (feat/zen-lines) to 5023 (measured, +51 over the 4972 above): the 24 added sourced lines of zenlines.ts, two lines each (a source comment and the entry), and its `ja` field and element.
 	// Head tower H4 to 5167 (measured, +144): headpage.ts (new), demo-head.ts (new), the head route, node, wires, drawer row, and the session view's head fields.
-	assert.ok(page <= 5170, `the page's TypeScript has ${page} lines`);
+	// H4 fix round 2 to 5172 (measured, +5 over the 5167): the head's Close in the conversation row (towerconv.ts) and its composer line (composer.ts).
+	assert.ok(page <= 5175, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).

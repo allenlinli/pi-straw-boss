@@ -153,7 +153,10 @@ test("the head's words are named for the head, its chapter divider speaks the pa
 	assert.equal(chapterWhy("size"), m.head_why_size());
 	assert.equal(chapterWhy("later-code", "raw reason"), "raw reason", "a code this page does not know shows the text");
 	const unit = { name: "head tower", wakes: true, conversation: true, head: true } as Parameters<typeof placeholderOf>[0];
-	assert.equal(placeholderOf(unit), m.head_wakes(), "a live conversation does not turn the head's line into the tower's");
+	assert.equal(placeholderOf({ ...unit, conversation: false }), m.head_wakes(), "an absent or asleep head is woken");
+	assert.equal(placeholderOf(unit), m.head_continues(), "a live head continues the conversation, named for the head, never woken");
+	assert.match(m.head_continues({}, { locale: "zh-TW" }), /主塔台/);
+	assert.match(m.head_continues({}, { locale: "en" }), /head tower/);
 });
 
 test("the server's chapter reasons have codes", async () => {
@@ -169,4 +172,22 @@ test("the sheet: no self-referencing --c, no head Info, no uppercase chapter lin
 	assert.doesNotMatch(css, /\.tx\.rule\.chapter p \{[^}]*uppercase/);
 	assert.match(css, /\.bar-more\[data-news\]::after/);
 	assert.match(css, /\.drawer-head\[data-news\]/);
+});
+
+test("the head's marks: the map node and the chat avatar carry the crown in the crown's colour, one row of buttons in the conversation box, and no empty ⋯ in the page header", async () => {
+	const { readFileSync } = await import("node:fs");
+	const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8"), html = readFileSync(new URL("../gui/index.html", import.meta.url), "utf8"), chat = readFileSync(new URL("../gui/chat.ts", import.meta.url), "utf8");
+	assert.match(html, /id="head-node"[^>]*><span class="tower">(?:(?!<\/span>).)*<use href="#i-crown"\/>/, "the head node's tower mark is the crown");
+	assert.match(css, /\.head-node \.tower svg, \.tx\.in\.head \.ava \{[^}]*color: var\(--gold\)/);
+	assert.match(chat, /icon\(me\.head \? "crown" : me\.role\)/, "the head's messages wear the crown");
+	assert.match(css, /\.comms-head\[data-head\] \.head-menu \{ display: none; \}/);
+});
+
+test("Close the head tower sits in the same row as Leave and New", async () => {
+	const { fillConversation } = await import("../gui/towerconv.ts");
+	const box = new El("div"), service = { state: "idle", allyRuns: [], localRuns: [], conversation: { began: "2026-11-04T09:00:00Z", turns: 1, cap: "2026-11-04T11:00:00Z", idle: 600 } } as unknown as Parameters<typeof fillConversation>[2];
+	fillConversation(box as unknown as HTMLElement, "head", service, true);
+	const rows = box.find((el) => el.classes.has("conv-acts"));
+	assert.equal(rows.length, 1, "one row of buttons");
+	assert.ok(rows[0]!.find((el) => el.classes.has("head-quit")).length === 1, "Close is in it");
 });

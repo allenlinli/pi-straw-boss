@@ -1,0 +1,180 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, test } from "node:test";
+import { createProcs, ProcsRefusal, type ProcsDeps } from "../src/server/procs.ts";
+import type { KillReport } from "../src/procs/kill.ts";
+import type { Proc, Ref } from "../src/procs/table.ts";
+import { fakeClock } from "./fake-clock.ts";
+
+// The owner registry (src/server/procs.ts) on a fake process table and the fake clock: an owner ends three ways (bye, its pid gone, a Herdr pane event with a matching terminal), a reused pane id is ignored,
+// the snapshots survive a restart, `reap --checkout` refuses while a live owner works there, and the first tick's cost is measured and logged once.
+
+const P = (pid: number, ppid: number, over: Partial<Proc> = {}): Proc => ({ pid, ppid, pgid: pid, uid: 501, started: `t${pid}`, cpu: 0, comm: "/usr/bin/node", zombie: false, ...over });
+const dirs: string[] = [];
+let dir: string;
+beforeEach(() => void dirs.push((dir = mkdtempSync(join(tmpdir(), "psb-procs-")))));
+afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+
+/** A world: a table the test edits, a reap that records what it was asked to kill and removes it, a log. */
+function world(over: Partial<ProcsDeps> = {}, d = dir) {
+	const w = { table: [P(100, 1), P(101, 100), P(102, 101), P(200, 1), P(300, 1)] as Proc[], reaped: [] as Ref[][], log: [] as { event: string; facts: Record<string, unknown> }[], clock: fakeClock(), roots: new Map<string, "linked">(), panes: [] as { pane_id: string; terminal_id?: string }[] };
+	const procs = createProcs({
+		dir: d, now: w.clock.now, log: (event, facts) => w.log.push({ event, facts }), self: [9000], platform: "darwin",
+		read: async () => w.table.map((p) => ({ ...p })),
+		startOf: (pid) => w.table.find((p) => p.pid === pid)?.started,
+		cwds: async () => new Map(), markers: async () => new Map(), inode: () => "1",
+		checkout: (cwd) => (w.roots.has(cwd) ? { kind: "linked", root: cwd, gitdir: `${cwd}/../.git/worktrees/x` } : { kind: "main", root: cwd }),
+		panes: async () => w.panes,
+		reap: async (refs): Promise<KillReport> => {
+			w.reaped.push([...refs]);
+			w.table = w.table.filter((p) => !refs.some((r) => r.pid === p.pid && r.started === p.started));
+			return { termed: refs.length, killed: 0, skipped: 0, groups: 0, left: [] };
+		},
+		...over,
+	});
+	const lines = (event: string) => w.log.filter((l) => l.event === event).map((l) => l.facts);
+	return { w, procs, lines };
+}
+const pids = (refs: Ref[][]) => refs.map((r) => r.map((x) => x.pid).sort((a, b) => a - b));
+
+test("a bye ends the owner: what it started, noted at the last tick, is killed; a process outside its tree is not", async () => {
+	const { w, procs, lines } = world();
+	await procs.hello({ pid: 100, id: "w1", pane: "p1", terminal: "term-1" });
+	await procs.tick();
+	assert.equal(procs.list()[0]!.snapshot, 2, "101 and 102 below pid 100");
+	assert.equal(procs.bye("w1"), true);
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[101, 102]]);
+	assert.deepEqual(procs.list(), [], "an owner with nothing left is forgotten");
+	assert.deepEqual(lines("procs-reaped").map((f) => [f.owner, f.reason, f.targets, f.termed, f.left]), [["w1", "bye", 2, 2, 0]]);
+	assert.ok(w.table.some((p) => p.pid === 200) && w.table.some((p) => p.pid === 300), "the others are untouched");
+});
+
+test("an owner whose pid is gone ends at the next tick, and a child that was adopted by init meanwhile is still found by the snapshot", async () => {
+	const { w, procs, lines } = world();
+	await procs.hello({ pid: 100, id: "w1" });
+	await procs.tick();
+	// pid 100 dies; its child 101 is adopted by init (the case a ppid walk misses)
+	w.table = w.table.filter((p) => p.pid !== 100).map((p) => (p.pid === 101 ? { ...p, ppid: 1 } : p));
+	await procs.tick();
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[101, 102]]);
+	assert.deepEqual(lines("procs-owner-ended").map((f) => f.reason), ["pid gone"]);
+});
+
+test("a pid that now belongs to another process (reuse) is a pid gone, and the new process is not touched", async () => {
+	const { w, procs } = world();
+	await procs.hello({ pid: 100, id: "w1" });
+	await procs.tick();
+	w.table = w.table.map((p) => (p.pid === 100 ? { ...p, started: "reused" } : p));
+	await procs.tick();
+	await procs.settled();
+	assert.ok(w.table.some((p) => p.pid === 100 && p.started === "reused"), "the new holder of 100 was not reaped");
+	assert.deepEqual(pids(w.reaped), [[101, 102]]);
+});
+
+test("a Herdr pane event ends the owner when it names the owner's terminal; a reused pane id does not", async () => {
+	const { w, procs, lines } = world();
+	await procs.hello({ pid: 100, id: "w1", pane: "p1", terminal: "term-1" });
+	await procs.tick();
+	// the id p1 was reused by a pane with another terminal: its exit says nothing about this owner
+	await procs.paneEvent({ event: "pane.exited", data: { pane_id: "p1", terminal_id: "term-2" } });
+	await procs.paneEvent({ event: "pane.updated", data: { pane_id: "p1", terminal_id: "term-1" } });
+	await procs.paneEvent({ event: "pane.closed", data: { pane_id: "other", terminal_id: "term-1" } });
+	await procs.settled();
+	assert.deepEqual(w.reaped, [], "none of the three ends the owner");
+	// an event without a terminal: the pane is still listed with the owner's terminal, so it is the owner's pane still
+	w.panes = [{ pane_id: "p1", terminal_id: "term-1" }];
+	await procs.paneEvent({ event: "pane.closed", data: { pane_id: "p1" } });
+	await procs.settled();
+	assert.deepEqual(w.reaped, []);
+	// the listed pane has another terminal now: the owner's terminal is gone
+	w.panes = [{ pane_id: "p1", terminal_id: "term-9" }];
+	await procs.paneEvent({ event: "pane.closed", data: { pane_id: "p1" } });
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[101, 102]]);
+	// the matching terminal ends another owner at once
+	await procs.hello({ pid: 200, id: "w2", pane: "p2", terminal: "term-2" });
+	await procs.paneEvent({ event: "pane.exited", data: { pane_id: "p2", terminal_id: "term-2" } });
+	await procs.settled();
+	assert.deepEqual(lines("procs-owner-ended").map((f) => [f.owner, f.reason]), [["w1", "pane.closed"], ["w2", "pane.exited"]]);
+});
+
+test("the registry survives a server restart: snapshots are read back, and an owner that ended while the server was down is reaped at start", async () => {
+	const first = world();
+	await first.procs.hello({ pid: 100, id: "w1", pane: "p1" });
+	await first.procs.hello({ pid: 200, id: "w2" });
+	await first.procs.tick();
+	const file = join(dir, "procs", "owners.json");
+	assert.equal(statSync(file).mode & 0o777, 0o600);
+	assert.equal(JSON.parse(readFileSync(file, "utf8")).owners.find((o: { id: string }) => o.id === "w1").snapshot.length, 2);
+	// the server restarts: a new registry on the same folder; owner w1 died meanwhile, its child 101 now belongs to init
+	const second = world({}, dir);
+	second.w.table = first.w.table.filter((p) => p.pid !== 100).map((p) => (p.pid === 101 ? { ...p, ppid: 1 } : p));
+	await second.procs.start();
+	await second.procs.settled();
+	assert.deepEqual(pids(second.w.reaped), [[101, 102]]);
+	assert.deepEqual(second.procs.list().map((o) => [o.id, o.live]), [["w2", true]]);
+	assert.deepEqual(second.lines("procs-owner-ended").map((f) => f.reason), ["gone while the server was down"]);
+});
+
+test("reap --checkout refuses while a live owner works there, and kills the orphans of an ended owner's worktree after", async () => {
+	const wt = "/tmp/psb-fake-wt";
+	const { w, procs } = world({ cwds: async (pids) => new Map(pids.filter((p) => p === 300).map((p) => [p, { path: `${wt}/sub` }])) });
+	w.roots.set(wt, "linked");
+	await procs.hello({ pid: 100, id: "w1", cwd: wt });
+	await assert.rejects(procs.reapCheckout(wt), (error: Error) => error instanceof ProcsRefusal && /live owner works in \/tmp\/psb-fake-wt: w1 \(pid 100\)/.test(error.message));
+	await assert.rejects(procs.reapCheckout(`${wt}/sub`), ProcsRefusal, "a folder below the root counts");
+	await assert.rejects(procs.reapOwner("w1"), /is alive/);
+	assert.deepEqual(w.reaped, []);
+	// the owner dies; 300 is an orphan (parent init) working in the worktree
+	w.table = w.table.filter((p) => p.pid !== 100 && p.pid !== 101 && p.pid !== 102);
+	await procs.tick();
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[300]], "the cwd rule found the orphan of the worktree");
+	assert.ok(w.table.some((p) => p.pid === 200), "an orphan elsewhere stays");
+	// the same by path, for a checkout no owner is known for
+	w.table.push(P(301, 1));
+	const again = await procs.reapCheckout(wt);
+	assert.equal(again.targets, 0, "301 has no cwd in it");
+});
+
+test("a live owner's tree is spared when another owner is reaped, and a worker in the parent checkout gets no cwd rule", async () => {
+	const wt = "/tmp/psb-fake-wt2";
+	const { w, procs } = world({ cwds: async (pids) => new Map(pids.map((p) => [p, { path: `${wt}/x` }])) });
+	w.roots.set(wt, "linked");
+	await procs.hello({ pid: 100, id: "w1", cwd: wt });
+	await procs.hello({ pid: 200, id: "w2", cwd: "/tmp/parent-checkout" });
+	await procs.tick();
+	assert.deepEqual(procs.list().map((o) => [o.id, o.roots]), [["w1", [wt]], ["w2", []]]);
+	w.table.push(P(400, 200)); // below the live owner w2
+	await procs.tick();
+	w.table = w.table.filter((p) => p.pid !== 100);
+	await procs.tick();
+	await procs.settled();
+	const hit = pids(w.reaped).flat();
+	assert.ok(!hit.includes(400) && !hit.includes(200), "the live owner and its tree are not in the kill set");
+});
+
+test("the first tick's cost is measured and logged once; a slow one moves the tick to 30 s", async () => {
+	let calls = 0;
+	const clock = fakeClock();
+	const { procs, lines } = world({ now: clock.now, read: async () => { calls++; clock.advance(calls === 2 ? 1500 : 10); return [P(100, 1)]; } });
+	await procs.start();
+	await procs.tick();
+	await procs.tick();
+	assert.equal(lines("procs-tick-cost").length, 1, "once, at start");
+	assert.equal(lines("procs-tick-cost")[0]!.ms, 1500, "the first tick's table read took 1.5 s on the clock");
+	assert.equal(procs.tickMs(), 30_000);
+});
+
+test("hello refuses a pid that is not a process of the account with that start time", async () => {
+	const { procs } = world();
+	await assert.rejects(procs.hello({ pid: 999 }), ProcsRefusal);
+	await assert.rejects(procs.hello({ pid: 100, started: "t-wrong" }), ProcsRefusal);
+	await assert.rejects(procs.hello({ pid: 100, id: "bad id" }), ProcsRefusal);
+	await assert.rejects(procs.hello({ pid: 1 }), ProcsRefusal);
+	assert.deepEqual(procs.list(), []);
+});

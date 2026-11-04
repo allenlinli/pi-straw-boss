@@ -382,6 +382,7 @@
 	[data-view="zen"] .zen-stage:has(.zen-head) > .zen-circle { width: min(30vmin, 200px); }
 }
 @media (prefers-reduced-motion: reduce) { /* no fade: clear for its 20 s, then at the rest level at once; hover and a tap still clear it at once */
+	/* style.css stills every animation under reduced motion except this one (`*:not(.zen-hl)`): a step has no motion, and without it the lines would stay clear for ever */
 	[data-view="zen"] .zen-hl { animation: zen-head-step 0.01s steps(1) both; }
 	[data-view="zen"] .zen-head:is([data-bright], :hover, :focus-within) .zen-hl, [data-view="zen"] .zen-hl[data-held] { animation: none; transition: none; }
 	[data-view="zen"] .zen-head-hint, [data-view="zen"] :is(.zen-head-history, .zen-rest) { transition: none; }
@@ -392,3 +393,6 @@
 	[data-view="zen"] .zen-head-box { border-bottom-color: CanvasText; color: CanvasText; }
 	[data-view="zen"] :is(.zen-head-history, .zen-rest) { color: LinkText; }
 }
+/* The head's history (zenhead.ts quietForwards): a forward row reads as one quiet line, not as an action card's name. */
+[data-view="zen"] .zen-log details.act.quiet > summary .sum { color: var(--zen-ash); font-style: italic; }
+[data-view="zen"] .zen-hl { text-wrap: pretty; line-break: strict; } /* a clamped Chinese line does not end on one orphan character (as ZL-F001 did for the mindfulness line) */

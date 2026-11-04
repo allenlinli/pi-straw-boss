@@ -896,6 +896,7 @@
 	"zen_head_refused": "主塔台沒有收下：{reason}",
 	"zen_head_unreachable": "連不上伺服器",
 	"zen_head_off": "主塔台需要塔台服務（towerRuns）",
+	"zen_head_sent": "交給 {workspace} 塔台",
 	"palette_head_talk": "和主塔台說話",
 	"palette_head_history": "主塔台的全部對話",
 	"palette_head_page": "在標準檢視開啟主塔台"

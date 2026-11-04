@@ -78,7 +78,7 @@ export function mountHead(io: HeadIo) {
 	const el = h("section", { class: "zen-head", role: "group", "aria-label": m.zen_head_label() }, list, working, live, whole, hint, form);
 	[working.hidden, form.hidden, el.hidden] = [true, true, true];
 	let items: Item[] = [], ids = new Set<string>(), seen = false, showing = false, unfolded = false, busy = false, off = false;
-	let unit: HeadUnit | undefined, restOn: boolean | undefined, stopTimer = () => {}, hover = false, focus = false, touching = false, stopHover = () => {}, stopTouch = () => {}, local = 0;
+	let unit: HeadUnit | undefined, restOn: boolean | undefined, rested = false, kept = 0, stopTimer = () => {}, hover = false, focus = false, touching = false, stopHover = () => {}, stopTouch = () => {}, local = 0;
 	const known = new Set<string>(), shown = new Map<string, HTMLElement>(), pending: { id: string; text: string; seen: number }[] = [];
 	const one = (text: string) => text.replace(/\s+/g, " ").trim();
 	const bosses = (text: string) => headLines(items).filter((l) => l.who === "boss" && l.text === text).length;
@@ -114,9 +114,8 @@ export function mountHead(io: HeadIo) {
 		// The head's next reply is said once to a reader of the page: the lines that were there when the strip first filled are known and never announced.
 		if (seen) for (const l of keep) if (l.who === "head" && !known.has(l.id)) (known.add(l.id), announce(l.text));
 		working.hidden = unit?.mark !== "working";
-		const rested = fade.rested(keep.map((l) => l.id), held);
-		whole.hidden = rested || !keep.length;
-		if (rested !== restOn) io.rest((restOn = rested));
+		[rested, kept] = [fade.rested(keep.map((l) => l.id), held), keep.length];
+		settle();
 		stopTimer();
 		const when = fade.restAt(keep.map((l) => l.id), held);
 		stopTimer = when === undefined ? () => {} : io.later(draw, Math.max(0, when - io.now()) + 10);
@@ -134,8 +133,16 @@ export function mountHead(io: HeadIo) {
 		if (showing) draw();
 	}
 
+	/** The strip is quiet (the mindfulness line shows, the link hides) when every line has faded and nothing brings them back: a hover, focus, or tap makes the lines clear, and then one thing is in paper, not two. */
+	function settle() {
+		if (!showing) return;
+		const quiet = rested && !(hover || focus || touching);
+		whole.hidden = quiet || !kept;
+		if (quiet !== restOn) io.rest((restOn = quiet));
+	}
 	function bright() {
 		el.toggleAttribute("data-bright", hover || focus || touching);
+		settle();
 	}
 	const letGo = (set: () => void) => (stopHover(), (stopHover = io.later(() => (set(), bright(), restart()), LET_GO_MS)));
 	el.addEventListener("pointerenter", (e: PointerEvent) => e.pointerType !== "touch" && (stopHover(), (hover = true), bright()));
@@ -271,4 +278,16 @@ export function mountHead(io: HeadIo) {
 			restart();
 		},
 	};
+}
+
+/** The head's history in Zen reads as talk: a `tower_send` row (`(workspace: X)`) becomes one quiet line, "Sent to the X tower"; the card's arguments stay behind its disclosure. Standard's log (chat.ts) is not touched. */
+export function quietForwards(root: HTMLElement): () => void {
+	const fix = () => root.querySelectorAll<HTMLElement>("details.act > summary").forEach((row) => {
+		const name = row.querySelector("code"), sum = row.querySelector<HTMLElement>(".sum"), to = /^\(workspace: (.+?)\)$/.exec(sum?.textContent ?? "")?.[1];
+		if (name?.textContent === "tower_send" && sum && to) (name.hidden = true, sum.textContent = m.zen_head_sent({ workspace: to }), row.closest("details")?.classList.add("quiet"));
+	});
+	const watch = new MutationObserver(fix);
+	watch.observe(root, { childList: true, subtree: true });
+	fix();
+	return () => watch.disconnect();
 }

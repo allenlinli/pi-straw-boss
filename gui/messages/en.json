@@ -1036,6 +1036,7 @@
 	"zen_head_refused": "The head tower did not take it: {reason}",
 	"zen_head_unreachable": "Could not reach the server",
 	"zen_head_off": "The head tower needs the tower service (towerRuns)",
+	"zen_head_sent": "Sent to the {workspace} tower",
 	"palette_head_talk": "Talk to the head tower",
 	"palette_head_history": "The head tower's whole conversation",
 	"palette_head_page": "Open the head tower in Standard"

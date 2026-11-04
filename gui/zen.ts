@@ -18,7 +18,7 @@ import type { StepOpen } from "./terminalthen.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 import type { Exit, Mounts, Term, ZenDeps } from "./zentypes.ts";
 import { domFs, mountFullscreen } from "./zenfs.ts";
-import { mountGestures, mountHead } from "./zenhead.ts";
+import { mountGestures, mountHead, quietForwards } from "./zenhead.ts";
 import { mountLine, stillNow } from "./zenlines.ts";
 import { mountPalette } from "./palette.ts";
 import { entriesOf } from "./paletteentries.ts";
@@ -214,7 +214,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		deps.watch(c.key);
 		void mounts.chat().then((mountChat) => {
 			if (mine !== turn) return;
-			co.chat = mountChat(logRoot, deps.data(c.key), { who: () => locate(net, c.key)?.u ?? { key: c.key, name: c.key, role: "member", mark: "unknown" }, link: () => undefined });
+			co.chat = mountChat(logRoot, deps.data(c.key), { who: () => locate(net, c.key)?.u ?? { key: c.key, name: c.key, role: "member", mark: "unknown" }, link: () => undefined }), histOpen && quietForwards(logRoot);
 			co.chat.reveal();
 			co.queue.splice(0).forEach((e) => co.chat?.apply(e));
 			if (!co.seen) {

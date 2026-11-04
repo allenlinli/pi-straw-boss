@@ -953,7 +953,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.comms-in .ask-acts { position: sticky; bottom: -12px; margin: 0 -14px -12px; padding: 8px 14px 12px; background: color-mix(in srgb, var(--amber) 6%, var(--bg)); } /* Send answer stays in view while a long question scrolls */
 	.composer :is(.cmp-alt, .cmp-send) { min-height: 48px; } .composer .cmp-alt { min-width: 48px; } .composer .cmp-send { min-width: 64px; }
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .connect-reload { animation: connect-reveal 0s linear 10s forwards !important; } } /* the Reload link's delay is no motion, and without it the way out would stay hidden */
+@media (prefers-reduced-motion: reduce) { *:not(.zen-hl), *::before, *::after { animation: none !important; transition: none !important; } .connect-reload { animation: connect-reveal 0s linear 10s forwards !important; } } /* the Reload link's delay is no motion, and without it the way out would stay hidden; the head's Zen lines (zen.css) step to their rest level once, with a delay their script sets, which an !important shorthand would reset */
 
 /* Straw Link (src/link, gui/link.ts, gui/linkbar.ts): a teammate's bases beside ours, the Link notices under the header, and the team settings tile. Cards keep one border all round. */
 .base.ally { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 42%), linear-gradient(180deg, var(--surface-1), var(--surface-0)); }
@@ -1186,6 +1186,9 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 [data-view="geek"] :is(.base, .base.ally, .dialog, .tcard, .squad, .squad[data-mark="waiting"]) { background: var(--surface-0); }
 [data-view="geek"] :is(.plate, .logo, .ava, .tower::before) { background: var(--plate); }
 [data-view="geek"] :is(.plate, .ava) { border: 1px solid var(--line); }
+[data-view="geek"] .comms-head[data-head]:not([data-mark="commanding"]) .logo { border-color: var(--line); } /* the head page's gold plate (below) is flat and uncoloured in Geek, like every plate */
+[data-view="geek"] .comms-head[data-head] .logo { background: var(--plate); }
+[data-view="geek"] .comms-head[data-head] .logo svg { filter: none; }
 [data-view="geek"] .portrait { background: none; }
 [data-view="geek"] .deploy-fill { background: var(--accent); }
 [data-view="geek"] .tower::before { border-color: var(--line); }

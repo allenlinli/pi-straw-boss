@@ -8,7 +8,7 @@ import type { Net, TowerService, Unit } from "../src/net.ts";
 import { alertsOf } from "../gui/alerts.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
-import { joined } from "../gui/zenhead.ts";
+import { joined, quietForwards } from "../gui/zenhead.ts";
 import { hotkeyOf } from "../gui/hotkeys.ts";
 import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 import { El, page } from "./fake-dom.ts";
@@ -372,6 +372,31 @@ test("pointing at the strip or focusing it brightens the lines at once and lets 
 	assert.equal(strip.getAttribute("data-bright"), null, "a tap elsewhere ends it");
 });
 
+test("lines at rest that a hover, a focus, or a tap makes clear are not at rest: the mindfulness line steps aside and the Whole conversation link shows, and both come back when the lines let go", async () => {
+	const r = rig({ items: [headLine("a1", "fading", 1)] });
+	await r.start();
+	await r.settle();
+	await r.advance(CLEAR_MS + FADE_MS + 20);
+	const strip = r.strip()!, link = () => r.by("zen-head-history")[0]!;
+	assert.equal(r.mind()?.hidden, false, "at rest");
+	assert.equal(link().hidden, true);
+	strip.bubble("pointerenter", { pointerType: "mouse" });
+	assert.equal(r.mind()?.hidden, true, "pointed at: the line is clear, so it is the one thing in paper");
+	assert.equal(link().hidden, false, "and the way to the whole conversation shows");
+	strip.bubble("pointerleave", { pointerType: "mouse" });
+	await r.advance(1600);
+	assert.equal(r.mind()?.hidden, false, "let go: the breath's line is back");
+	assert.equal(link().hidden, true);
+	r.hint().bubble("focusin");
+	assert.equal(r.mind()?.hidden, true, "focus in the strip brightens the lines too");
+	r.hint().bubble("focusout");
+	await r.advance(1600);
+	strip.bubble("pointerdown", { pointerType: "touch" });
+	assert.equal(r.mind()?.hidden, true, "a tap");
+	await r.advance(10_100);
+	assert.equal(r.mind()?.hidden, false, "10 s later");
+});
+
 // The history: the head as a companion, opened four ways and closed four ways.
 const stage = (r: ReturnType<typeof rig>) => r.by("zen-stage")[0]!;
 const open = (r: ReturnType<typeof rig>) => r.by("zen-company").length === 1;
@@ -479,4 +504,25 @@ test("a refusal's reason reads after the colon in lower case when it is a plain 
 	assert.equal(joined("The head tower is busy."), "the head tower is busy.");
 	assert.equal(joined("API is down"), "API is down");
 	assert.equal(joined("主塔台忙碌"), "主塔台忙碌");
+});
+
+test("the head's history in Zen reads a tower_send row as one quiet line, keeps every other row, and follows rows the log adds later", () => {
+	const seen: { cb: () => void; on: boolean }[] = [], real = (globalThis as { MutationObserver?: unknown }).MutationObserver;
+	(globalThis as { MutationObserver?: unknown }).MutationObserver = class { cb: () => void; entry = { cb: () => {}, on: true }; constructor(cb: () => void) { this.cb = cb; this.entry.cb = cb; seen.push(this.entry); } observe() {} disconnect() { this.entry.on = false; } };
+	const row = (name: string, sum: string) => { const details = new El("details"), summary = new El("summary"), code = new El("code"), span = new El("span"); details.className = "act"; span.className = "sum"; code.textContent = name; span.textContent = sum; summary.append(code, span); details.append(summary); return { details, code, span }; };
+	const root = new El("div"), forward = row("tower_send", "(workspace: Harbor API)"), other = row("bash", "(workspace: not a forward)");
+	root.append(forward.details, other.details);
+	const stop = quietForwards(root as unknown as HTMLElement);
+	assert.equal(forward.span.textContent, "Sent to the Harbor API tower");
+	assert.equal(forward.code.hidden, true, "the tool's name is not read");
+	assert.ok(forward.details.classes.has("quiet"));
+	assert.equal(other.span.textContent, "(workspace: not a forward)", "another tool's row is as it was");
+	assert.equal(other.code.hidden, false);
+	const later = row("tower_send", "(workspace: Lighthouse Web)");
+	root.append(later.details);
+	seen[0]!.cb();
+	assert.equal(later.span.textContent, "Sent to the Lighthouse Web tower", "a row that comes with the stream is rewritten too");
+	stop();
+	assert.equal(seen[0]!.on, false);
+	(globalThis as { MutationObserver?: unknown }).MutationObserver = real;
 });

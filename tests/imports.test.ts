@@ -720,7 +720,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Head tower H4 to 5167 (measured, +144): headpage.ts (new), demo-head.ts (new), the head route, node, wires, drawer row, and the session view's head fields.
 	// H4 fix round 2 to 5172 (measured, +5 over the 5167): the head's Close in the conversation row (towerconv.ts) and its composer line (composer.ts).
 	// Head tower H5 to 5578 (measured, +406 over 5172): zenhead.ts (the strip, its input and its gestures) and headlines.ts (the lines and the fade clock) are new, zen.ts takes the hooks (+21), and demo-head.ts the strip's states and the head's reply.
-	assert.ok(page <= 5580, `the page's TypeScript has ${page} lines`);
+	// Head tower H6 to 5599 (measured, +21 over 5578): zenhead.ts takes `quietForwards` (a forward row in the history reads as one quiet line) and the strip's `settle` (a bright strip is not at rest), zen.ts one hook on a line it already had, and demo-head.ts the wait's words by language.
+	assert.ok(page <= 5600, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -978,7 +979,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head tower H4 (the header button, the head node, the page, the drawer row, the chapter divider, their words): 280,017 / 114,188 (measured). Cap = measured + 15.
 	// Head tower H4 review fixes: 280,767 / 114,480 measured (the chat chunks carry the chapter reason words, the head Close in the conversation menu, the news dots). Cap = measured + 33 / + 20.
 	// Head tower H5 (the Zen strip: zenhead.ts, headlines.ts, the hooks in zen.ts, and thirteen words in both languages): 290,591 / 118,179 measured, +9.8 KB raw / +3.7 KB gzipped, over the spec's ~4 KB: the strip needs its own lines reducer, fade clock, input, gestures, and history way back, all in the lazy Zen chunk. Cap = measured + 25 / + 20.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 290_620 && total(chunks, gz) <= 118_200, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Head tower H6 (quietForwards, the strip's rest rule, and one word in both languages): 291,348 / 118,456 measured. Cap = measured + 25 / + 20.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 291_380 && total(chunks, gz) <= 118_480, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1080,7 +1082,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen lines review (ZL-F001): 142,698 / 29,684 measured, +130 raw / +25 gzipped: balanced wrapping for the line and its Japanese original, so a phone leaves no one-character orphan. Cap = measured + 15.
 	// Head tower H4 (the crown button and dot, the head node, the asks chips, the chapter divider, the drawer row, Geek and forced-colours rules): 146,027 / 30,256 (measured). Cap = measured + 15.
 	// Head tower H5 (the strip in gui/zen.css: the lines and their fade, the folded and unfolded input, the history's way back, phone, reduced motion, forced colours; the head page's gold plate in style.css): 151,425 / 31,081 (measured). Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 151_440 && total(css, gz) <= 31_100, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Head tower H6 (the Zen history's quiet forward rows, the Chinese line wrap, reduced motion for the head's lines, Geek's flat head plate; the H5 review fixes' history veil and rules since the figure above): 152,861 / 31,315 measured. Cap = measured + 15.
+	assert.ok(total(css, (n) => size(n).length) <= 152_876 && total(css, gz) <= 31_330, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

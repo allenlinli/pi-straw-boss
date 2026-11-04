@@ -20,7 +20,7 @@ export function headDemo(state: HeadState, now = Date.now()): HeadUnit {
 	const service: TowerService = {
 		state: "running", queued: 0, notices: [], parked: [], allyRuns: [], run: { id: "h1", kind: "local", startedAt: began },
 		conversation: { since: began, resumed: true, turns: 9, idle, ...(idle ? { idleAt: now + 8 * 60_000 } : {}), idleMs: 600_000, capAt: now + 3 * 3600_000 },
-		...(state === "waiting" ? { memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "w1", text: "Rerun the Orchard ETL tonight?", at: began }], proposals: [] } } : {}),
+		...(state === "waiting" ? { memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "w1", text: words().wait, at: began }], proposals: [] } } : {}),
 	};
 	const asks = state === "answers"
 		? [{ id: "H3", workspace: "w1", label: "Harbor API", at: now - 12 * 60_000, open: true }, { id: "H2", workspace: "w2", label: "Lighthouse Web", at: now - 3 * 60_000, open: false, last: "Checkout test is green on main." }, { id: "H1", workspace: "w3", label: "Orchard Data", at: now - 95 * 60_000, open: false, last: "ETL rerun done, 0 rows lost." }]
@@ -30,8 +30,8 @@ export function headDemo(state: HeadState, now = Date.now()): HeadUnit {
 
 /** The demo's words by page language (the lines are the conversation's own, so the pictures in Traditional Chinese read in it). */
 const WORDS = {
-	en: { first: "the first conversation", u1: "Ask Harbor API to fix the ledger rounding, and have Lighthouse Web rerun the checkout test.", a1: "On it. I am handing the rounding fix to the Harbor API tower and the checkout rerun to Lighthouse Web.", n1: "Answer to H2: Checkout test is green on main.", a2: "Lighthouse Web finished: the checkout test is green on main. Harbor API is still on the rounding fix.", a3: "Should I also ask Orchard Data to rerun the ETL tonight, or wait until the ledger fix lands?", busy: "The head tower is busy with another message.", reply: "Handed to Harbor API. I will say when it answers." },
-	zh: { first: "第一次對話", u1: "請 Harbor API 修掉帳本的進位問題，再請 Lighthouse Web 重跑結帳測試。", a1: "收到。進位問題我交給 Harbor API 塔台，結帳重跑交給 Lighthouse Web。", n1: "H2 的回覆：main 上的結帳測試全綠。", a2: "Lighthouse Web 做完了：main 上的結帳測試全綠。Harbor API 還在修進位問題。", a3: "晚上要不要也請 Orchard Data 重跑 ETL？還是等帳本修好再說？", busy: "主塔台正在處理另一則訊息。", reply: "已轉給 Harbor API 塔台，它回覆了我再告訴你。" },
+	en: { first: "the first conversation", u1: "Ask Harbor API to fix the ledger rounding, and have Lighthouse Web rerun the checkout test.", a1: "On it. I am handing the rounding fix to the Harbor API tower and the checkout rerun to Lighthouse Web.", n1: "Answer to H2: Checkout test is green on main.", a2: "Lighthouse Web finished: the checkout test is green on main. Harbor API is still on the rounding fix.", a3: "Should I also ask Orchard Data to rerun the ETL tonight, or wait until the ledger fix lands?", busy: "The head tower is busy with another message.", wait: "Rerun the Orchard ETL tonight?", reply: "Handed to Harbor API. I will say when it answers." },
+	zh: { first: "第一次對話", u1: "請 Harbor API 修掉帳本的進位問題，再請 Lighthouse Web 重跑結帳測試。", a1: "收到。進位問題我交給 Harbor API 塔台，結帳重跑交給 Lighthouse Web。", n1: "H2 的回覆：main 上的結帳測試全綠。", a2: "Lighthouse Web 做完了：main 上的結帳測試全綠。Harbor API 還在修進位問題。", a3: "晚上要不要也請 Orchard Data 重跑 ETL？還是等帳本修好再說？", busy: "主塔台正在處理另一則訊息。", wait: "今晚要重跑 Orchard 的 ETL 嗎？", reply: "已轉給 Harbor API 塔台，它回覆了我再告訴你。" },
 };
 const words = () => WORDS[getLocale() === "zh-TW" ? "zh" : "en"];
 

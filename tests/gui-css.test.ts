@@ -247,6 +247,14 @@ test("Zen: a page under 900 px high and one under 600 px wide spend less on air 
 	assert.match(media("max-width: 600px"), /\.ask-opt small \{ font-size: 0\.78rem/);
 });
 
+test("the head's lines still reach their rest level under reduced motion: style.css stills every animation except theirs, and theirs is a step whose delay the script sets, so no !important shorthand may reset it", () => {
+	assert.match(css, /prefers-reduced-motion: reduce\) \{ \*:not\(\.zen-hl\), \*::before, \*::after \{ animation: none !important;/, "the global rule leaves the head's lines out");
+	const reduced = zen.slice(zen.indexOf("@media (prefers-reduced-motion: reduce) { /* no fade"), zen.indexOf("@media (forced-colors: active) { /* the lines"));
+	assert.match(reduced, /\[data-view="zen"\] \.zen-hl \{ animation: zen-head-step 0\.01s steps\(1\) both; \}/);
+	assert.ok(!/!important/.test(reduced), "an important animation shorthand would set the delay back to 0 over the inline one");
+	assert.match(reduced, /:is\(\[data-bright\], :hover, :focus-within\) \.zen-hl, \[data-view="zen"\] \.zen-hl\[data-held\] \{ animation: none;/, "hover, focus, a tap and a hold are clear at once");
+});
+
 test("the head page's crown plate is gold like the head's node and avatar: its colour and wash come from --gold, not the accent's blue", () => {
 	const plate = css.split("\n").filter((line) => line.startsWith(".comms-head[data-head] .logo {") || line.startsWith(".comms-head[data-head]:not([data-mark=\"commanding\"]) .logo {")).join("\n");
 	assert.match(plate, /\.comms-head\[data-head\] \.logo \{[^}]*color: var\(--gold\)/);

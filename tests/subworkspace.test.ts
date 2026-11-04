@@ -90,13 +90,33 @@ test("call_tower for a sub workspace whose parent workspace is not open is an er
 	assert.deepEqual(world.herdr.commands("tab", "create"), []);
 });
 
-test("the head tower is the tower of the first workspace that is not a sub workspace", async () => {
+test("the first workspace that is not a sub workspace is not the head tower: the head is the workspace carrying sb_head, null until it exists", async () => {
 	withSub({ firstInList: true });
 	const towerA = world.tower("tower-wA", "wA:t7", "wA:p7");
 	const towerB = world.tower("tower-wB", "wB:t7", "wB:p7");
 	await Promise.all([towerA.start(), towerB.start()]);
 	const status = JSON.parse((await towerB.tool("boss_status")).content.map((c) => (c as { text: string }).text).join(""));
-	assert.equal(status.head, "wA");
-	assert.deepEqual([status.towers[0].id, status.towers[0].head], ["tower-wA", true]);
-	assert.match((await towerB.run())["straw-boss"]!, /head tower, the tower of workspace Alpha/);
+	assert.equal(status.head, null);
+	assert.deepEqual([status.towers[0].id, status.towers[0].head], ["tower-wA", undefined]);
+	assert.match((await towerB.run())["straw-boss"]!, /The head tower \(none yet\) is the boss's own/);
+	// A head workspace with its identity joined: tower_list and boss_status show {id, state}, and it is no row of towers.
+	world.herdr.workspaces.unshift({ workspace_id: "wH", label: "Head tower", tokens: { sb_head: "sb-head" } });
+	world.herdr.addTab("wH:t1", "crown", "wH:p1");
+	await world.agent({ id: "sb-head", name: "head tower", pane: "wH:p1" }).start();
+	const after = JSON.parse((await towerB.tool("boss_status")).content.map((c) => (c as { text: string }).text).join(""));
+	assert.equal(after.head.id, "sb-head");
+	assert.deepEqual(after.towers.map((t: { id: string }) => t.id), ["tower-wA"]);
 });
+
+test("a pi typed by hand in the head tower's workspace joins no net and says why, as in a sub workspace (H2)", async () => {
+	world.herdr.workspaces.unshift({ workspace_id: "wH", label: "Head tower", tokens: { sb_head: "sb-head" } });
+	world.herdr.addTab("wH:t1", "crown", "wH:p1");
+	const s = world.agent({ id: "typed-1", pane: "wH:p1" });
+	await s.start();
+	assert.deepEqual([...s.tools.keys()], []);
+	assert.deepEqual(await s.run(), {}, "no join reminder");
+	await s.command();
+	assert.equal(s.notices.filter((n) => n.level === "info" && /head tower's workspace, so a session typed here cannot join the net/.test(n.text)).length, 1);
+	assert.deepEqual(world.broker.registrations, []);
+});
+

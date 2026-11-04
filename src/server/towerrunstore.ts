@@ -57,6 +57,8 @@ export interface RunRecord {
 	turns?: number;
 	/** The boss asked for a new session while the file was awaited: the pointer is marked fresh when it is kept, also after a restart. */
 	fresh?: true;
+	/** The head tower's run: which chapter of its one conversation it resumes or begins, since when, and the boss turns so far; a chapter that begins says why and carries the recap of the last lines (headchapters.ts). */
+	chapter?: { n: number; since: string; turns: number; resumed: boolean; why?: string; recap?: string[] };
 	/** A short word on why it ended (the quit failed, the pane vanished). */
 	detail?: string;
 }

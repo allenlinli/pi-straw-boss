@@ -1,6 +1,6 @@
 import { allyLabel } from "../boardauto.ts";
 import { clean, forAllies, joinLocal, type LiveMain, readEntries } from "../board.ts";
-import { headOf, type Pane, panes, type Session, workspaces, type Workspace } from "../herdr.ts";
+import { type Pane, panes, type Session, workspaces, type Workspace } from "../herdr.ts";
 import { commanding, sessionMark, subagents } from "../netdata.ts";
 import { nameOf, netMembers } from "../reach.ts";
 import type { HerdrRun } from "../herdr.ts";
@@ -118,8 +118,8 @@ export interface GatherDeps {
 	within?: { project: string | undefined };
 }
 /** The mains of a workspace as the brief shows them: per tab, the main with its state and board entry, and how many members the tab has. */
-export async function gatherMains(d: GatherDeps): Promise<{ rows: MainRow[]; opened: string[]; head: string }> {
-	const [sessions, ps, all] = await Promise.all([d.sessions(), panes(d.run), workspaces(d.run)]);
+export async function gatherMains(d: GatherDeps): Promise<{ rows: MainRow[]; opened: string[] }> {
+	const [sessions, ps] = await Promise.all([d.sessions(), panes(d.run)]);
 	const ws = d.workspace.workspace_id, project = d.within?.project;
 	const scoped = (m: { s: Session }) => !d.within || (project !== undefined && ps.some((p) => p.pane_id === m.s.herdrLocation?.paneId && p.cwd && inside(p.cwd, project)));
 	const here = netMembers(sessions, ps).filter((m) => m.workspace.id === ws && m.role !== "tower" && scoped(m));
@@ -143,7 +143,7 @@ export async function gatherMains(d: GatherDeps): Promise<{ rows: MainRow[]; ope
 	});
 	const sc = (t: string) => (d.within ? allyLabel(t) : t);
 	const opened = d.ledger.filter((e) => e.outcome === "opened" && e.opened && sessions.some((s) => s.id === e.opened!.main)).map((e) => `main ${sc(nameOf(sessions.find((s) => s.id === e.opened!.main)))} (tab ${sc(e.opened!.tab)}) was opened for ${sc(e.sender)}; close it after its done report`);
-	return { rows, opened, head: sc(headOf(all)?.label ?? "") };
+	return { rows, opened };
 }
 
 /** The tools of a local run, one line each (the fixed text of the brief's section 6). */

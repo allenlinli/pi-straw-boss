@@ -3,7 +3,7 @@ import type { LinkSummary } from "./link/holder.ts";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { commanding, type Mark, markOf, type Row, sessionMark, subagents } from "./netdata.ts";
-import { headOf, type HerdrRun, type HerdrWorld, isSub, type Pane, parentOf, type Session, type Workspace, worldOf } from "./herdr.ts";
+import { headOf, type HerdrRun, type HerdrWorld, isHead, isSub, type Pane, parentOf, type Session, type Workspace, worldOf } from "./herdr.ts";
 import { type Pending, type Relayed, withPending } from "./ask.ts";
 import type { Shelf } from "./documents.ts";
 import type { Monitor } from "./monitors.ts";
@@ -80,7 +80,7 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 	});
 	const towerOf = (w: Workspace) => sessions.find((s) => s.id === w.tokens?.tower);
 	// A tower launches subagents too: they hang under it, as a member's hang under the member.
-	const towers = all.filter((w) => !isSub(w)).flatMap((w) => ((t) => (t ? [t] : []))(towerOf(w)));
+	const towers = all.filter((w) => !isSub(w) && !isHead(w)).flatMap((w) => ((t) => (t ? [t] : []))(towerOf(w)));
 	const rowsOf = new Map([...joined, ...towers.map((s) => ({ s, pane: paneOf(s) }))].map(({ s, pane }) => [s.id, children(pane)]));
 	// A sub workspace that already shows as a launched subagent is not an outpost as well.
 	const claimed = new Set([...rowsOf.values()].flat().map((r) => r.workspace));
@@ -90,7 +90,7 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 		const key = keep({ key: r.id ?? `${launcher}/${r.text}`, base, name: r.text, role: "subagent", file: readable(r.file), pane: r.pane });
 		return { id: key, key, control: Boolean(r.pane), name: r.text, role: "subagent", mark: r.mark, note: r.note, subs: [], ...(r.ended && { ended: true }) };
 	});
-	const bases = all.filter((w) => !isSub(w)).flatMap((w): Base[] => {
+	const bases = all.filter((w) => !isSub(w) && !isHead(w)).flatMap((w): Base[] => {
 		const mine = joined.filter((j) => j.base === w.workspace_id && j.tab);
 		const tabs = Object.values(Object.groupBy(mine, (j) => j.tab!.id)).map((group = []): Tab => ({
 			id: group[0]!.tab!.id,

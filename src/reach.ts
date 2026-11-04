@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { allyLabel } from "./boardauto.ts";
 import { sessionMark } from "./netdata.ts";
-import { type Kind, type Party, stamp, type Why, WHYS } from "./header.ts";
-import { headOf, isSub, type Pane, panes, parentOf, type Session, towerModel, workspaces, type Workspace } from "./herdr.ts";
+import { createHeadReach, headInfo } from "./reachhead.ts";
+import { type Kind, type Party, stamp, type Stamp, type Why, WHYS } from "./header.ts";
+import { headTowerOf, isHead, isSub, type Pane, panes, parentOf, type Session, towerModel, workspaces, type Workspace } from "./herdr.ts";
 import type { Kit, Scope, SendResult } from "./state.ts";
 import { inside } from "./link/routing.ts";
 import { type Ctx, makeCtx } from "./server/client.ts";
@@ -67,7 +68,7 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		const requestId = `straw-boss-${me()}-${nonce}-${++requests}`;
 		const began = limits.retryCapMs === undefined ? 0 : cfg.now(), capped = () => limits.retryCapMs !== undefined && cfg.now() - began >= limits.retryCapMs;
 		let result = await sendOnce(to, message, requestId);
-		if (!to.startsWith("sb-tower-")) return result;
+		if (!to.startsWith("sb-tower-") && !to.startsWith("sb-head")) return result;
 		// `retryCapMs` (the server's reach, for a run's tool, whose request is held 30 s) stops the retries once that much time has gone, so the tool never fails while a resend is still under way (B5R-F008).
 		for (let n = 1, waited = 0; n <= TOWER_RETRY_AT.length && (result.status === "failed" || result.status === "blocked") && !capped(); n++) {
 			const at = TOWER_RETRY_AT[n - 1]!;
@@ -130,7 +131,7 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		const mine = all.find((w) => w.workspace_id === s.at.workspaceId);
 		const towerOf = (w?: Workspace) => {
 			const x = sessions.find((y) => y.id === w?.tokens?.tower);
-			return x && w && { workspace: L(w.label), id: x.id, name: L(nameOf(x)), head: w === headOf(all) };
+			return x && w && { workspace: L(w.label), id: x.id, name: L(nameOf(x)) };
 		};
 		const own = netMembers(sessions, ps).filter((m) => m.workspace.id === s.at.workspaceId && m.role !== "tower" && here(m.s));
 		const tabs = Object.values(Object.groupBy(own, (m) => m.tab.id)).map((group = []) => ({
@@ -142,10 +143,10 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		return {
 			me: { id: me(), role: role() },
 			workspace: { id: s.at.workspaceId, label: L(mine?.label) },
-			head: ((h) => (h !== undefined && bound(h) ? h : undefined))(headOf(all)?.workspace_id),
+			head: within ? null : headInfo(sessions, ps, all),
 			tower: towerOf(mine) ?? null,
 			tabs,
-			towers: all.filter((w) => w !== mine && bound(w.workspace_id)).flatMap((w) => towerOf(w) ?? []),
+			towers: all.filter((w) => w !== mine && !isHead(w) && bound(w.workspace_id)).flatMap((w) => towerOf(w) ?? []),
 		};
 	};
 	/** One reading of the net: the live sessions, every pane, every workspace. */
@@ -155,20 +156,20 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 	};
 	type Net = Awaited<ReturnType<typeof read>>;
 	const ROLES = new Set(["tower", "main", "member"]);
-	/** A session as a header names it: its role is the one its pane's token publishes, `session` for a pi that did not join. */
+	/** A session as a header names it: its role is the one its pane's token publishes, `session` for a pi that did not join. The head tower's pane says `head`: a tower, and the one `head=yes` is for. */
 	const partyOf = (x: Session, net: Net): Party => {
 		const token = net.ps.find((p) => p.pane_id === x.herdrLocation?.paneId)?.tokens?.sb_role ?? "";
-		const role = ROLES.has(token) ? (token as Party["role"]) : "session";
+		const role = token === "head" ? "tower" : ROLES.has(token) ? (token as Party["role"]) : "session";
 		const workspace = x.herdrLocation?.workspace;
-		return { name: nameOf(x) || x.id, id: x.id, role, ...(role === "tower" && workspace?.id === headOf(net.all)?.workspace_id ? { head: true } : {}), ...(workspace?.label ? { workspace: workspace.label } : {}) };
+		return { name: nameOf(x) || x.id, id: x.id, role, ...(token === "head" ? { head: true } : {}), ...(workspace?.label ? { workspace: workspace.label } : {}) };
 	};
 	const selfParty = (net: Net): Party => {
-		const mine = net.sessions.find((x) => x.id === me()), workspace = net.all.find((w) => w.workspace_id === s.at.workspaceId);
-		return { name: nameOf(mine) || s.ownName || me(), id: me(), role: role() ?? "session", ...(s.isTower && workspace && workspace === headOf(net.all) ? { head: true } : {}), ...(workspace ? { workspace: workspace.label } : {}) };
+		const mine = net.sessions.find((x) => x.id === me()), workspace = net.all.find((w) => w.workspace_id === s.at.workspaceId), head = Boolean(workspace && isHead(workspace));
+		return { name: nameOf(mine) || s.ownName || me(), id: me(), role: role() ?? "session", ...(head ? { head: true } : {}), ...(head ? { workspace: "head" } : workspace ? { workspace: workspace.label } : {}) };
 	};
 	/** The message under its header, once for the whole audience: every recipient reads the same line, with the others named in it. */
-	const deliver = async (targets: Session[], message: string, kind: Kind, scope: string, reply: boolean, net: Net, origin?: string, why?: Why) => {
-		const line = stamp({ from: selfParty(net), kind, scope, to: targets.map((x) => partyOf(x, net)), reply, ...(origin ?? s.remoteOrigin ? { origin: (origin ?? s.remoteOrigin)! } : {}), ...(why ? { why } : {}) }, message);
+	const deliver = async (targets: Session[], message: string, kind: Kind, scope: string, reply: boolean, net: Net, origin?: string, why?: Why, extra: Pick<Stamp, "ask" | "relay" | "inReplyTo"> = {}) => {
+		const line = stamp({ from: selfParty(net), kind, scope, to: targets.map((x) => partyOf(x, net)), reply, ...(origin ?? s.remoteOrigin ? { origin: (origin ?? s.remoteOrigin)! } : {}), ...(why ? { why } : {}), ...extra }, message);
 		return Promise.all(targets.map(async (x) => ({ id: x.id, name: nameOf(x), ...(await send(x.id, line)) })));
 	};
 	/** One session by id, with a header. The result is intercom's. */
@@ -193,13 +194,13 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 
 	/** Who a message for a workspace's tower reaches: its live tower; in a workspace without one, its mains, else its members (a tower only coordinates, so a workspace without one still has someone to hear). */
 	const stationsOf = (net: Net) => {
-		const members = netMembers(net.sessions, net.ps), head = headOf(net.all);
-		return net.all.filter((w) => !isSub(w)).map((workspace) => {
+		const members = netMembers(net.sessions, net.ps);
+		return net.all.filter((w) => !isSub(w) && !isHead(w)).map((workspace) => {
 			const tower = net.sessions.find((x) => x.id === workspace.tokens?.tower);
 			const here = members.filter((m) => m.workspace.id === workspace.workspace_id && m.role !== "tower");
 			const [mains, plain] = [here.filter((m) => m.role === "main").map((m) => m.s), here.filter((m) => m.role === "member").map((m) => m.s)];
 			const [via, sessions]: ["tower" | "main" | "member" | "none", Session[]] = tower ? ["tower", [tower]] : mains.length ? ["main", mains] : plain.length ? ["member", plain] : ["none", []];
-			return { workspace, head: workspace === head, self: workspace.workspace_id === s.at.workspaceId, via, sessions, members: here };
+			return { workspace, self: workspace.workspace_id === s.at.workspaceId, via, sessions, members: here };
 		});
 	};
 	type Station = ReturnType<typeof stationsOf>[number];
@@ -212,7 +213,8 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		return { text: `Broadcast to ${results.length} session(s):\n${summary}`, details: { scope, results } };
 	};
 	const broadcast = async (message: string, scope: Scope, reply = false) => {
-		const net = await read(), others = net.sessions.filter((x) => x.id !== me());
+		// The head tower takes only the boss's words and answers to its asks (headgate.ts): a broadcast does not go to it.
+		const net = await read(), headId = headTowerOf(net.all)?.tokens?.sb_head, others = net.sessions.filter((x) => x.id !== me() && x.id !== headId);
 		const notes = new Map<string, string>();
 		let targets: Session[];
 		if (scope === "towers") {
@@ -237,9 +239,9 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		const { bound, here } = scopeOf(within, net.ps);
 		const towers = stationsOf(net).filter((st) => bound(st.workspace.workspace_id)).map((st) => {
 			const tabs = Object.values(Object.groupBy(st.members.filter((m) => here(m.s)), (m) => m.tab.id)).map((group = []) => ({ label: L(group[0]!.tab.label), main: L(nameOf(group.find((m) => m.role === "main")?.s)) || null, members: group.filter((m) => m.role === "member").map((m) => L(nameOf(m.s))) }));
-			return { workspace: { id: st.workspace.workspace_id, label: L(st.workspace.label) }, head: st.head, self: st.self, reach: st.via, sessions: st.sessions.filter(here).map(mark), tabs };
+			return { workspace: { id: st.workspace.workspace_id, label: L(st.workspace.label) }, self: st.self, reach: st.via, sessions: st.sessions.filter(here).map(mark), tabs };
 		});
-		const result = { me: { id: me(), role: role(), workspace: { id: s.at.workspaceId, label: L(mine?.label) } }, head: (() => { const h = headOf(net.all)?.workspace_id; return h !== undefined && bound(h) ? h : undefined; })(), towers };
+		const result = { me: { id: me(), role: role(), workspace: { id: s.at.workspaceId, label: L(mine?.label) } }, head: within ? null : headInfo(net.sessions, net.ps, net.all), towers };
 		return { text: JSON.stringify(result, null, 2), details: result };
 	};
 	/** One tower by workspace id or label (a sub workspace goes to its parent), or every other tower; a workspace without a tower is reached through its mains, else its members. */
@@ -260,8 +262,9 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		const targets = chosen.flatMap((st) => st.sessions.map((x) => (noTower(st) && notes.set(x.id, noTower(st)!), x)));
 		return report(await deliver(targets, message, "tower_send", workspace === undefined ? "towers" : "tower", reply, net), notes, workspace === undefined ? "towers" : "tower");
 	};
+	const { forward, answerHead } = createHeadReach({ read, deliver });
 	/** A resident tower of this build hands its workspace to the sb server (docs/specs/2026-10-26-sb-backend.md, Migration from resident towers): the server takes this pane as the standing pane. */
 	const handOver = (workspace: string, pane: string): Promise<TowerAnswer> => ensureTowerVia(server.ctx(), { workspace, pane, cwd: process.cwd(), pid: process.pid });
-	return { send, post, callTower, openTower, handOver, status, broadcast, towerList, towerSend, read };
+	return { send, post, callTower, openTower, handOver, status, broadcast, towerList, towerSend, forward, answerHead, read };
 }
 export type Reach = ReturnType<typeof createReach>;

@@ -2,7 +2,6 @@ import type { Control } from "./closemain.ts";
 import { collect, startDashboard } from "./dashboard.ts";
 import type { Digest } from "./digest.ts";
 import { liveUrl } from "./handover.ts";
-import { watchHead } from "./headwatch.ts";
 import { headOf, report, waitFor, workspaces, panes, place } from "./herdr.ts";
 import type { Membership } from "./membership.ts";
 import type { Presence } from "./presence.ts";
@@ -65,7 +64,6 @@ export function createTower({ pi, cfg, s, guiDir, me, tell }: Kit, { membership,
 		tools.addOpenMain();
 		tools.addTowerComms();
 		control.register();
-		s.headWatch = watchHead({ run, events, digest, workspaceId: s.at.workspaceId });
 		presence.keepFresh();
 		await presence.publish();
 		// The dashboard lives exactly as long as this session holds the tower role.

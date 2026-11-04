@@ -8,7 +8,7 @@ import { clean, cleanGroup } from "./trust/found.ts";
 import { assertSettingsSafe, type SettingsRefusal, SettingsRefused } from "./trust/settings.ts";
 import { waitPastTrust } from "./trust/wait.ts";
 import { type Hidden, HiddenError, hasHidden, platformHidden } from "./hidden.ts";
-import { createTab, type HerdrCall, type HerdrRun, isSub, type Pane, panes, report, result, type Sleep, startPi, type Workspace, workspaces } from "./herdr.ts";
+import { createTab, type HerdrCall, type HerdrRun, isHead, isSub, type Pane, panes, report, result, type Sleep, startPi, type Workspace, workspaces } from "./herdr.ts";
 
 // What the page opens by itself, each pi started in a folder picked from the home folder. A base starts with no tower: it opens with one member
 // (a base is never empty), a base without a tower takes more members, and only a member that promotes itself opens the tower (index.ts), so the
@@ -103,7 +103,7 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 			if (dir && dir !== root && !seen.has(dir)) (seen.add(dir), recent.push(dir));
 		};
 		for (const ws of await workspaces(run).catch(() => [])) {
-			if (isSub(ws)) continue;
+			if (isSub(ws) || isHead(ws)) continue;
 			await keep(ws.worktree?.checkout_path);
 			for (const pane of await panes(run, ws.workspace_id).catch(() => [])) await keep(pane.cwd);
 		}

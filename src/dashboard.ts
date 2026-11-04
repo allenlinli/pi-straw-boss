@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { ARROW, headOf, type HerdrRun, type HerdrWorld, isSub, MARK, parentOf, type Session, TOWER_LABEL, worldOf } from "./herdr.ts";
+import { ARROW, headOf, type HerdrRun, type HerdrWorld, isHead, isSub, MARK, parentOf, type Session, TOWER_LABEL, worldOf } from "./herdr.ts";
 import { commanding, type Mark, markOf, type Row, sessionMark, subagents } from "./netdata.ts";
 
 // The tower's monitoring screen: a widget above the editor, never focused, animated only while something is working and the tower's tab is on screen.
@@ -89,10 +89,12 @@ export async function collect({ run, world = worldOf(run), sessions, workspaceId
 	// already shows as a launched subagent (pi-herdr-agents runs worktree children there) is not listed a second time.
 	const claimed = new Set(rows.map((r) => r.workspace));
 	for (const sub of all.filter((x) => isSub(x) && mine && parentOf(all, x) === mine && !claimed.has(x.workspace_id))) rows.push({ group: "net", depth: 0, mark: markOf(sub.agent_status), text: sub.label, kind: "sub workspace" });
-	for (const w of all.filter((x) => x !== mine && !isSub(x) && live.some((s) => s.id === x.tokens?.tower))) rows.push({ group: "towers", depth: 0, mark: markOf(w.agent_status), text: w.label, kind: w === head ? "head tower" : "tower" });
+	// The head tower is named first when it exists and is joined; it is no workspace tower, and no tower carries the tag.
+	if (head && live.some((s) => s.id === head.tokens?.sb_head)) rows.push({ group: "towers", depth: 0, mark: markOf(head.agent_status), text: head.label, kind: "head tower" });
+	for (const w of all.filter((x) => x !== mine && !isSub(x) && !isHead(x) && live.some((s) => s.id === x.tokens?.tower))) rows.push({ group: "towers", depth: 0, mark: markOf(w.agent_status), text: w.label, kind: "tower" });
 	// The title shows what needs attention most: a waiting row, then a working one, else the workspace's own status.
 	const attention = (["waiting", "working"] as const).find((m) => rows.some((r) => r.mark === m || (m === "working" && r.mark === "commanding"))); // commanding is active, like working
-	return { title: mine?.label ?? workspaceId, mark: attention ?? markOf(mine?.agent_status), head: Boolean(mine) && mine === head, rows, pending, visible: tabId === undefined ? undefined : Boolean(mine?.focused) && mine?.active_tab_id === tabId };
+	return { title: mine?.label ?? workspaceId, mark: attention ?? markOf(mine?.agent_status), head: false, rows, pending, visible: tabId === undefined ? undefined : Boolean(mine?.focused) && mine?.active_tab_id === tabId };
 }
 
 export interface Dashboard { poke(): void; stop(): void }

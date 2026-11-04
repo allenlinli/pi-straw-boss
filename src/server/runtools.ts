@@ -57,6 +57,8 @@ export interface ToolHost {
 	isTower(session: string): Promise<boolean>;
 	/** The live main of this tower's workspace named by id or name (a local run asks for it); throws when there is none or it is ambiguous. */
 	mainOf(query: string): Promise<{ id: string; name: string }>;
+	/** Whether an ask of the head tower to this tower's workspace is open (headasks.ts): a tower answers with `tower_send {head: true, inReplyTo}` only to one. */
+	headAsked?(id: string): boolean;
 	/** `tower_memory` of a local run (towermemory.ts): it proposes, and the boss confirms elsewhere. */
 	memory(args: Record<string, unknown>): Promise<ToolResult>;
 	now(): number;
@@ -78,7 +80,7 @@ const json = (result: unknown): ToolResult => ({ text: JSON.stringify(result, nu
 const NO_HOLDER = new Set(["no_holder", "no_link"]);
 const ASK = /^[0-9a-f]{32}$/;
 
-export interface CallExtra { toolCallId?: string }
+export interface CallExtra { toolCallId?: string; /** The id of the taken event that started the run's current turn, as the run's extension reports it (the head's relay); the server checks it. */ turn?: string }
 
 export async function runTool(host: ToolHost, kind: Kind, name: string, args: Record<string, unknown>, extra: CallExtra = {}): Promise<ToolResult> {
 	if (!(TOOLS as readonly string[]).includes(name)) throw new Error(`No such tool: ${name}`);
@@ -99,6 +101,7 @@ async function allyTool(host: ToolHost, name: string, args: Record<string, unkno
 	// A target on this computer that is a tower identity would carry a peer's text into a local run: refused outright, whatever the level or an Allow.
 	// And a device other than its sender is refused the same way: an Allow the boss gave for it would otherwise send the text to the sender, not to the device the boss approved.
 	if (name === "tower_send") {
+		if (args.head !== undefined) throw new Error("An ally run does not answer the head tower: head is for the tower runs of this computer");
 		const device = opt(args, "device");
 		if (device === undefined) throw new Error("An ally run writes to its sender only: give device (the sender's id, short id, or label)");
 		if (!isSender(who, device)) throw new Error("An ally run writes to its sender only: that device is not the sender of this run");
@@ -207,6 +210,7 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			return done;
 		}
 		case "tower_send": {
+			if (args.head === true) return answerHead(host, args);
 			if (opt(args, "device") !== undefined) return towerSendDevice(host, args);
 			if (opt(args, "for") !== undefined || opt(args, "inReplyTo") !== undefined) throw new Error("for and inReplyTo go with a device");
 			return reach.towerSend(str(args, "message"), opt(args, "workspace"), args.reply === true);
@@ -250,6 +254,17 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			return { text: "The sb server is restarting; pages reconnect on the same URL, and this run keeps its claim through the restart.", details: { restarting: true } };
 		}
 	}
+}
+
+/** A tower's answer to the head tower's ask: only to an open ask the head made to this tower's workspace; the head's gate checks the same again. */
+async function answerHead(host: ToolHost, args: Record<string, unknown>): Promise<ToolResult> {
+	const id = opt(args, "inReplyTo"), message = str(args, "message", 12_000);
+	if (!id || !/^H\d{1,6}$/.test(id)) throw new Error("head needs inReplyTo, the ask id (H12) of the head tower's message you answer");
+	if (opt(args, "device") !== undefined || opt(args, "for") !== undefined) throw new Error("An answer to the head tower goes to the head tower alone: leave device and for out");
+	if (!host.headAsked?.(id)) throw new Error(`The head tower has no open ask ${id} to this workspace, so there is nothing to answer`);
+	const sent = await host.reach.answerHead(message, id);
+	if (sent.status !== "sent") throw new Error(`The head tower did not take the answer: ${sent.status} ${sent.code ?? ""} ${sent.detail ?? ""}`.trim());
+	return { text: `Sent to the head tower as the answer to ${id}.`, details: { to: "head", ask: id, status: sent.status } };
 }
 
 /**

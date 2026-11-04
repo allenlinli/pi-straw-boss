@@ -42,20 +42,20 @@ test("a message sent for a session opens with a header the code writes: sender, 
 	await a1.tool("call_tower", { message: "port 3000 is taken", why: "shared" });
 	await a1.tool("call_tower", { message: "fyi", reply: false });
 	assert.deepEqual(heard().map((h) => h.line), [
-		'[straw net from=api-main id=a1 role=main workspace=Alpha kind=call_tower scope=tower to="tower · tower-wA (head tower of Alpha)" reply=expected why=shared] port 3000 is taken',
-		'[straw net from=api-main id=a1 role=main workspace=Alpha kind=call_tower scope=tower to="tower · tower-wA (head tower of Alpha)" reply=none why=unspecified] fyi',
+		'[straw net from=api-main id=a1 role=main workspace=Alpha kind=call_tower scope=tower to="tower · tower-wA (tower of Alpha)" reply=expected why=shared] port 3000 is taken',
+		'[straw net from=api-main id=a1 role=main workspace=Alpha kind=call_tower scope=tower to="tower · tower-wA (tower of Alpha)" reply=none why=unspecified] fyi',
 	]);
 });
 
-test("boss_broadcast names every recipient with its role in one header, the same line for each, and the head tower is marked in the sender's own fields", async () => {
+test("boss_broadcast names every recipient with its role in one header, the same line for each, and no workspace tower is marked as the head tower", async () => {
 	const { a1, towerA } = await town();
 	await a1.tool("boss_broadcast", { message: "lunch", scope: "workspace" });
 	const lines = new Set(heard().map((h) => h.line));
 	assert.equal(lines.size, 1, "one line for the whole audience");
-	assert.equal([...lines][0], '[straw net from=api-main id=a1 role=main workspace=Alpha kind=broadcast scope=workspace to="tower · tower-wA (head tower of Alpha); docs-writer (main of Alpha); helper (member of Alpha)" reply=none] lunch');
+	assert.equal([...lines][0], '[straw net from=api-main id=a1 role=main workspace=Alpha kind=broadcast scope=workspace to="tower · tower-wA (tower of Alpha); docs-writer (main of Alpha); helper (member of Alpha)" reply=none] lunch');
 	world.broker.delivered.length = 0;
 	await towerA.tool("tower_send", { message: "hello towers" });
-	assert.ok(heard().every((h) => h.line.startsWith("[straw net from=\"tower · tower-wA\" id=tower-wA role=tower head=yes workspace=Alpha kind=tower_send scope=towers to=")));
+	assert.ok(heard().every((h) => h.line.startsWith("[straw net from=\"tower · tower-wA\" id=tower-wA role=tower workspace=Alpha kind=tower_send scope=towers to=")));
 });
 
 test("a header field cannot be forged or broken by a session name: control characters fold to spaces and a quote cannot close the field", async () => {
@@ -76,7 +76,7 @@ test("scope towers reaches a workspace without a live tower through its mains, e
 	const result = await a1.tool("boss_broadcast", { message: "pause", scope: "towers" });
 	assert.deepEqual(sorted(), ["c1", "tower-wA", "tower-wB"], "the main of 知識庫, not its member; the sub workspace's session not at all");
 	assert.match(textOf(result), /kb-main: sent \[no tower in 知識庫: main\]/);
-	assert.match(heard()[0]!.line, /to="tower · tower-wA \(head tower of Alpha\); tower · tower-wB \(tower of Beta\); kb-main \(main of 知識庫\)"/);
+	assert.match(heard()[0]!.line, /to="tower · tower-wA \(tower of Alpha\); tower · tower-wB \(tower of Beta\); kb-main \(main of 知識庫\)"/);
 	// With the main gone, the member hears it.
 	await c1.stop();
 	world.broker.delivered.length = 0;
@@ -97,12 +97,12 @@ test("tower_list names every workspace's tower, who a message for it reaches, th
 	a1.status = "thinking";
 	await a1.tool("boss_rename", { name: "export fix" });
 	const result = await towerB.tool("tower_list");
-	const list = result.details as { me: { id: string; workspace: { id: string } }; head: string; towers: { workspace: { id: string; label: string }; head: boolean; self: boolean; reach: string; sessions: { id: string; name: string; state: string }[]; tabs: { label: string; main: string | null; members: string[] }[] }[] };
+	const list = result.details as { me: { id: string; workspace: { id: string } }; head: unknown; towers: { workspace: { id: string; label: string }; head?: boolean; self: boolean; reach: string; sessions: { id: string; name: string; state: string }[]; tabs: { label: string; main: string | null; members: string[] }[] }[] };
 	assert.equal(list.me.id, "tower-wB");
-	assert.equal(list.head, "wA");
+	assert.equal(list.head, null, "no head tower exists, and the first workspace is not it");
 	const by = (id: string) => list.towers.find((t) => t.workspace.id === id)!;
-	assert.deepEqual([by("wA").head, by("wA").self, by("wA").reach, by("wA").sessions.map((x) => x.id)], [true, false, "tower", ["tower-wA"]]);
-	assert.deepEqual([by("wB").head, by("wB").self, by("wB").reach], [false, true, "tower"]);
+	assert.deepEqual([by("wA").head, by("wA").self, by("wA").reach, by("wA").sessions.map((x) => x.id)], [undefined, false, "tower", ["tower-wA"]]);
+	assert.deepEqual([by("wB").head, by("wB").self, by("wB").reach], [undefined, true, "tower"]);
 	assert.deepEqual([by("wC").reach, by("wC").sessions.map((x) => x.name)], ["main", ["kb-main"]]);
 	assert.deepEqual(by("wA").tabs.map((t) => [t.label, t.main, t.members]), [["export fix", "export fix", ["helper"]], ["docs", "docs-writer", []]]);
 	assert.deepEqual(by("wC").tabs.map((t) => [t.label, t.main, t.members]), [["docs", "kb-main", ["kb-helper"]]]);
@@ -149,17 +149,13 @@ test("only a tower has tower_list, tower_send, and boss_close_main", async () =>
 	assert.ok(a1.tools.has("boss_broadcast"), "boss_broadcast stays for the rest");
 });
 
-test("when the head tower changes, each tower notes it in its own workspace's digest and reads it at its next run", async () => {
-	const { towerA, towerB } = await town();
-	assert.deepEqual(await towerB.run().then((s) => s[ENTRY]!.includes("head tower is now")), false);
+test("a reorder of workspaces notes nothing in any digest: the head tower is no workspace's position any more", async () => {
+	const { towerB } = await town();
 	world.herdr.workspaces = [world.herdr.workspace("wB"), world.herdr.workspace("wA"), world.herdr.workspace("wC")];
 	world.herdr.emit("workspace.reordered", "workspace_reordered", {});
-	await until(() => Object.keys(world.herdr.workspace("wA").tokens).some((k) => k.startsWith("sbd_")) && Object.keys(world.herdr.workspace("wB").tokens).some((k) => k.startsWith("sbd_")), "both digests");
-	for (const tower of [towerA, towerB]) assert.match((await tower.run())[ENTRY]!, /Since your last run:\n(- .*\n)*- \d\d:\d\d head tower is now Beta/);
-	// The same head again writes nothing.
-	world.herdr.emit("workspace.moved", "workspace_moved", {});
 	await world.quiet();
-	assert.ok(!Object.keys(world.herdr.workspace("wA").tokens).some((k) => k.startsWith("sbd_")));
+	for (const ws of ["wA", "wB"]) assert.ok(!Object.entries(world.herdr.workspace(ws).tokens).some(([k, v]) => k.startsWith("sbd_") && /head tower/.test(v)));
+	assert.equal((await towerB.run())[ENTRY]!.includes("head tower is now"), false);
 });
 
 // An opened main: the tower opens a tab for a request, and the main registers the control channel because a tower opened it.
@@ -177,7 +173,7 @@ async function opened() {
 test("the handoff carries a header, tells the main to report to the sender and the tower that opened it, then wait", async () => {
 	const { towerA } = await opened();
 	const [handoff] = heard().filter((h) => h.to === NEW.main);
-	assert.match(handoff!.line, /^\[straw net from="tower · tower-wA" id=tower-wA role=tower head=yes workspace=Alpha kind=handoff scope=main to="main · wA \(main of Alpha\)" reply=expected\]/);
+	assert.match(handoff!.line, /^\[straw net from="tower · tower-wA" id=tower-wA role=tower workspace=Alpha kind=handoff scope=main to="main · wA \(main of Alpha\)" reply=expected\]/);
 	assert.match(handoff!.body, /report the outcome to the sender with intercom send and to the tower that opened this tab with call_tower \(why: milestone, reply: false\)\. Then wait; the tower closes this tab after your done report/);
 	assert.match(handoff!.body, /Sender: api-main \(session id a1\)\nTower: tower · tower-wA \(session id tower-wA\)\nRequest, verbatim:\nFix the export button\.$/);
 	assert.match(towerA.sent.length ? "" : "ok", /ok/);

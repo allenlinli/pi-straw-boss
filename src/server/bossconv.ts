@@ -88,12 +88,16 @@ export interface ResumeEnv {
 	live: string[];
 	/** The owner a session file must have (POSIX); unset on Windows. A link anywhere below the root is refused on both. */
 	uid?: number;
+	/** The head tower's conversation (headchapters.ts): `days: null` is no age limit, `max` the size at which a new chapter starts. */
+	days?: number | null;
+	max?: number;
 }
 /** Whether the pointer's session may be resumed, and the reason when it may not (shown in the brief's first line and the GUI's divider). */
 export function resumable(pointer: BossPointer | undefined, e: ResumeEnv): Resume {
 	if (!pointer) return { ok: false, why: "no earlier boss session" };
 	if (pointer.fresh) return { ok: false, why: "the boss asked for a new one (/new)" };
-	if (e.now - Date.parse(pointer.lastAt) > BOSS_FILE_DAYS * 86_400_000) return { ok: false, why: `the last boss turn was over ${BOSS_FILE_DAYS} days ago` };
+	const days = e.days === undefined ? BOSS_FILE_DAYS : e.days, max = e.max ?? BOSS_FILE_MAX;
+	if (days !== null && e.now - Date.parse(pointer.lastAt) > days * 86_400_000) return { ok: false, why: `the last boss turn was over ${days} days ago` };
 	if (linkIn(pointer.file, e.root)) return { ok: false, why: "the last session file is, or sits behind, a link" };
 	const path = underRoot(pointer.file, e.root);
 	if (!path) return { ok: false, why: "the last session file is gone, or not under pi's sessions folder" };
@@ -105,7 +109,7 @@ export function resumable(pointer: BossPointer | undefined, e: ResumeEnv): Resum
 	}
 	if (!stat.isFile()) return { ok: false, why: "the last session file is not a regular file" };
 	if (e.uid !== undefined && stat.uid !== e.uid) return { ok: false, why: "the last session file is not the boss's" };
-	if (stat.size > BOSS_FILE_MAX) return { ok: false, why: `the last session grew past ${BOSS_FILE_MAX / 1024 / 1024} MB` };
+	if (stat.size > max) return { ok: false, why: `the last session grew past ${max / 1024 / 1024} MB` };
 	if (e.live.some((f) => (real(f) ?? f) === path)) return { ok: false, why: "the last session is open in another pane" };
 	return { ok: true, file: path };
 }

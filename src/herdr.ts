@@ -51,11 +51,13 @@ export async function result(run: HerdrRun, args: string[], timeoutMs?: number) 
 }
 
 /** The user's `towerModel` from `config.json` in the state directory, read at each tower start; anything unreadable means pi's default model. */
-export function towerModel(stateDir: string): string | undefined {
+export function towerModel(stateDir: string, key: "towerModel" | "headModel" = "towerModel"): string | undefined {
 	let model: unknown;
-	try { model = (JSON.parse(readFileSync(join(stateDir, "config.json"), "utf8")) as { towerModel?: unknown }).towerModel; } catch { /* pi's default */ }
+	try { model = (JSON.parse(readFileSync(join(stateDir, "config.json"), "utf8")) as Record<string, unknown>)[key]; } catch { /* pi's default */ }
 	return typeof model === "string" && model.trim() ? model.trim() : undefined;
 }
+/** The head tower's model: `headModel` in `config.json`, else the tower model, else pi's default; read at each start. */
+export const headModel = (stateDir: string): string | undefined => towerModel(stateDir, "headModel") ?? towerModel(stateDir);
 
 // The tower tab is labelled with the Nerd Font radio tower glyph (md-radio_tower, U+F043B) alone. The role marks (the `sb_mark` token, and the
 // dashboard's rows) are Font Awesome's star (U+F005) for a main agent and person (U+F007) for a member, and `[sub]` for a subagent.
@@ -97,10 +99,9 @@ export const isSub = (w: Workspace) => w.worktree?.is_linked_worktree === true;
 export const parentOf = (all: Workspace[], w: Workspace) => all.find((p) => !isSub(p) && p.worktree?.repo_key !== undefined && p.worktree.repo_key === w.worktree?.repo_key);
 /** The head workspace carries the token `sb_head` (the head service writes it, as a tower writes `tower`); a workspace of the boss's with the same label never does. */
 export const isHead = (w: Workspace) => Boolean(w.tokens?.sb_head);
-/** The old mark: the first workspace in list order that is not a sub workspace, the head tower's own workspace left out (it is moved first). The readers still use it until the head tower replaces it (docs/specs/2026-11-04-head-tower.md, H2: they move to `headTowerOf`/`isHead`). */
-export const headOf = (all: Workspace[]) => all.find((w) => !isSub(w) && !isHead(w));
-/** The head tower's workspace: the one that carries `sb_head`; undefined until the head exists. */
+/** The head tower's workspace: the one that carries `sb_head`; undefined until the head exists. The first workspace in Herdr's list is not the head tower any more (docs/specs/2026-11-04-head-tower.md, What replaces "head tower = first workspace"). */
 export const headTowerOf = (all: Workspace[]) => all.find(isHead);
+export const headOf = headTowerOf;
 
 export const workspaces = async (run: HerdrRun): Promise<Workspace[]> => (await result(run, ["workspace", "list"])).workspaces;
 

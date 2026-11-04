@@ -5,7 +5,7 @@ import type { Briefing } from "./briefing.ts";
 import type { Control } from "./closemain.ts";
 import type { Digest } from "./digest.ts";
 import type { Guard } from "./guard.ts";
-import { isSub, type Place, panes, place, report, waitFor, workspaces } from "./herdr.ts";
+import { isHead, isSub, type Place, panes, place, report, waitFor, workspaces } from "./herdr.ts";
 import type { createHost } from "./host.ts";
 import type { IntegrationWatch } from "./integration.ts";
 import { CONNECT_MS, type Membership } from "./membership.ts";
@@ -47,6 +47,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 			if (!here.terminalId) tell("Straw Boss: this Herdr reports no terminal_id for the pane, so a main of this session cannot come back after a Herdr restore (roles.ts)", "warning");
 			const all = await workspaces(run);
 			const sub = all.find((w) => w.workspace_id === workspaceId);
+			if (sub && isHead(sub)) return { text: "This is the head tower's workspace, so a session typed here cannot join the net; the head tower is its own", level: "info" as const };
 			return sub && isSub(sub) ? { text: `${sub.label} is a sub workspace, so this session cannot join the net; the main agent of its parent workspace represents it`, level: "info" as const } : undefined;
 		} catch (error) {
 			return { text: `Straw Boss could not tell whether this is a sub workspace: ${(error as Error).message}`, level: "error" as const };
@@ -195,8 +196,6 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		}
 		s.dashboard?.stop();
 		s.dashboard = undefined;
-		s.headWatch?.();
-		s.headWatch = undefined;
 		presence.stop();
 		guard.stop();
 		stopWatching();

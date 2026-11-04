@@ -466,20 +466,23 @@ test("a resident tower that closed its tab when it left ends the waiting service
 	assert.equal(world.client("sb-tower-wa"), undefined);
 });
 
-test("the head tower changing is noted in the digest of every tower workspace, once", async () => {
+test("the head tower opening and closing is noted in the digest of every tower workspace, once; a reorder notes nothing (H2)", async () => {
 	const s = await started();
 	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
 	await ask(s, { cmd: "ensure-tower", workspace: "wB" });
-	await sleep(50);
+	const lines = (ws: string) => Object.entries(tokens(ws)).filter(([k]) => k.startsWith("sbd_")).map(([, v]) => v);
 	const [a, b] = world.herdr.workspaces;
 	world.herdr.workspaces = [b!, a!];
 	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
-	await until(() => Object.keys(tokens("wA")).some((k) => k.startsWith("sbd_")) && Object.keys(tokens("wB")).some((k) => k.startsWith("sbd_")), "the digest lines");
-	for (const ws of ["wA", "wB"]) {
-		const lines = Object.entries(tokens(ws)).filter(([k]) => k.startsWith("sbd_")).map(([, v]) => v);
-		assert.equal(lines.length, 1);
-		assert.match(lines[0]!, /head tower is now Beta$/);
-	}
+	await sleep(150);
+	assert.deepEqual([lines("wA"), lines("wB")], [[], []], "no head tower is now Beta");
+	await world.expose!.head.ensure();
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	await until(() => lines("wA").length === 1 && lines("wB").length === 1, "the opened lines");
+	for (const ws of ["wA", "wB"]) assert.match(lines(ws)[0]!, /head tower opened$/);
+	await world.expose!.head.close();
+	await until(() => lines("wA").length === 2 && lines("wB").length === 2, "the closed lines");
+	for (const ws of ["wA", "wB"]) assert.match(lines(ws)[1]!, /head tower closed$/);
 });
 
 test("the identities of two Herdr servers on one broker do not collide: the secondary slot's carry its slot", async () => {
@@ -737,17 +740,14 @@ test("B4R-F006: with the flag turned off the server releases its identities and 
 	await until(() => !readService(world.slot, "wA") && readQueue(world.slot, "wA").length === 0, "the leftovers to go");
 });
 
-test("B4R-F009: a waiting service gets no head-change digest line (the resident notes it itself)", async () => {
+test("B4R-F009: a waiting service's workspace gets the head lines too: the resident no longer watches the head (H2)", async () => {
 	world.herdr.addTab("wA:t7", TOWER_LABEL, "wA:p7", "pi");
 	resident();
 	standing();
 	await started();
 	await sleep(100);
-	const [a, b] = world.herdr.workspaces;
-	world.herdr.workspaces = [b!, a!];
-	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wB" });
-	await sleep(150);
-	assert.deepEqual(Object.keys(tokens("wA")).filter((k) => k.startsWith("sbd_")), []);
+	await world.expose!.head.ensure();
+	await until(() => Object.keys(tokens("wA")).some((k) => k.startsWith("sbd_")), "the head line in the resident's workspace");
 });
 
 test("B4R-F010: a start that failed once is tried again by the next ensure", async () => {

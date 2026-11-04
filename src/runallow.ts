@@ -10,8 +10,13 @@ export const RUN_FILE_TOOLS = ["read", "grep", "find", "ls"] as const;
 export const RUN_TOWER_TOOLS = ["boss_status", "call_tower", "boss_server", "tower_list", "board_read", "tower_send", "boss_open_main", "boss_close_main", "tower_memory", "tower_reply", "tower_done", "link_request"] as const;
 /** The `--tools` value of a local run's pi. */
 export const LOCAL_RUN_TOOLS: readonly string[] = [...RUN_FILE_TOOLS, ...RUN_TOWER_TOOLS];
+/** The tower tools of the head tower's run (docs/specs/2026-11-04-head-tower.md, Tools and limits): it lists, reads the board, forwards, keeps its memory, ends its run, and sees the server; it opens no tab, routes inside no workspace, and writes to no peer. */
+export const HEAD_TOWER_TOOLS = ["tower_list", "board_read", "tower_send", "tower_memory", "tower_done", "boss_server"] as const;
+/** The `--tools` value of the head tower's run. */
+export const HEAD_RUN_TOOLS: readonly string[] = [...RUN_FILE_TOOLS, ...HEAD_TOWER_TOOLS];
 const ALLOWED = new Set(LOCAL_RUN_TOOLS);
-export const toolAllowed = (name: string) => ALLOWED.has(name);
+export const toolAllowed = (name: string, list: ReadonlySet<string> = ALLOWED) => list.has(name);
+const HEAD_ALLOWED = new Set(HEAD_RUN_TOOLS);
 
 export interface RunScope {
 	cwd: string;
@@ -55,8 +60,8 @@ export function refusedPath(tool: string, input: Record<string, unknown>, s: Run
 }
 
 /** The check of a run's call: `full` (a local run that is not a hand run) holds it to the list as well, any other run (ally, hand) to the path denial only. A check that fails refuses. */
-export function refusedForRun(full: boolean, tool: string, input: Record<string, unknown>, s: RunScope): string | undefined {
-	if (full) return refusedInRun(tool, input, s);
+export function refusedForRun(full: boolean | "head", tool: string, input: Record<string, unknown>, s: RunScope): string | undefined {
+	if (full) return refusedInRun(tool, input, s, full === "head");
 	try {
 		return refusedPath(tool, input, s);
 	} catch (error) {
@@ -65,8 +70,9 @@ export function refusedForRun(full: boolean, tool: string, input: Record<string,
 }
 
 /** Why a local run's call of `tool` may not go ahead (it is not on the list, or its path is refused), or undefined. A check that fails refuses: a throw out of a tool_call hook blocks the call in pi too, but without a reason. */
-function refusedInRun(tool: string, input: Record<string, unknown>, s: RunScope): string | undefined {
-	if (!toolAllowed(tool)) return `${tool} is not available in a tower run: a run has the tower tools and read-only file access (read, grep, find, ls). Route work to the main that owns it, or open one with boss_open_main (the boss's own turn in a hand run has every tool).`;
+function refusedInRun(tool: string, input: Record<string, unknown>, s: RunScope, head = false): string | undefined {
+	if (head && !toolAllowed(tool, HEAD_ALLOWED)) return `${tool} is not available to the head tower: it has the tower tools tower_list, board_read, tower_send, tower_memory, tower_done, and boss_server, and read-only file access (read, grep, find, ls). It does no work and opens no tabs: forward the work to the tower that owns it with tower_send.`;
+	if (!head && !toolAllowed(tool)) return `${tool} is not available in a tower run: a run has the tower tools and read-only file access (read, grep, find, ls). Route work to the main that owns it, or open one with boss_open_main (the boss's own turn in a hand run has every tool).`;
 	try {
 		return refusedPath(tool, input, s);
 	} catch (error) {

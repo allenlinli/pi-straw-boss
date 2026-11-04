@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
 import { join } from "node:path";
+import { HEAD_KEY } from "../headkey.ts";
 import type { LedgerRow } from "../opener.ts";
 import { renameInto, secretDir, type Slot } from "./record.ts";
 
@@ -60,8 +61,7 @@ export interface QueuedEvent {
 export const safe = (id: string) => id.replace(/[^A-Za-z0-9_-]/g, (c) => `.${c.charCodeAt(0).toString(16)}`);
 export const towersDir = (slot: Slot) => join(slot.dir, "tower");
 export const headDir = (slot: Slot) => join(slot.dir, "head");
-/** The key of the head's folder that is no Herdr id (a workspace id never starts with `@`): `towerDir(slot, HEAD_KEY)` is `head/` whether or not a head service stands, so the memory, the asks, and the conversation are reachable before the head exists and after it closed. */
-export const HEAD_KEY = "@head";
+export { HEAD_KEY };
 /** The keys (a Herdr workspace id per slot) whose service keeps its files somewhere else than `tower/<id>/`: the head's, while its service stands. */
 const bound = new Map<string, string>();
 const boundKey = (slot: Slot, workspace: string) => `${slot.dir}\0${workspace}`;

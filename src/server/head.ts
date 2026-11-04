@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { HEAD_LABEL, type HerdrApi, type HerdrRun, type Pane, report, result, type Session, type Sleep, workspaces } from "../herdr.ts";
 import type { Incoming, IntercomLike } from "../agent/kit.ts";
+import { HEAD_NEEDS_SERVICE } from "../headkey.ts";
 import { localeOf } from "../towerprompt/messages.ts";
 import type { Log } from "./log.ts";
 import { headId, headName, type Slot } from "./record.ts";
@@ -13,8 +14,7 @@ import { bindDir, headDir, type ServiceRecord, writeService } from "./towerstore
 // every channel gives when there can be no head tower. The service itself (the identity, the standing pane, the seat, the tokens, the close) is one of towers.ts's services, of kind `head`, so a tower
 // and the head share the rules F10 pins in typegate.ts; this module only makes what the head stands in.
 
-/** What every channel answers when the tower service is off: the head tower is one of its services. */
-export const HEAD_NEEDS_SERVICE = "The head tower needs the tower service (towerRuns)";
+export { HEAD_NEEDS_SERVICE };
 /** What the gate tells a sender of anything the head takes no part in; in H1 nothing reaches the head, so every message gets it. */
 export const HEAD_REFUSAL = "The head tower takes only the boss's words and answers to its own asks.";
 /** The head workspace's token (the head service writes it, as a tower writes `tower`) and the pane's sort key: the head workspace is first in the sidebar's net view. */

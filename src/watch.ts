@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { fileOfEntry, pageThrough } from "./headhistory.ts";
 import { type readers as makeReaders, PAGE, type Reader } from "./history.ts";
 import { lastLine } from "./items.ts";
 import type { Found, Ref } from "./net.ts";
@@ -31,7 +32,7 @@ export function watchSession(hub: Hub, key: string, send: Send): Watch {
 				const queued: unknown[] = [];
 				let ready = false;
 				unsub = reader.subscribe((change) => (ready ? send("history", { key, ...change }) : queued.push({ key, ...change })));
-				const { items, before } = await reader.page();
+				const { items, before } = await pageThrough(hub, found, undefined, PAGE, reader);
 				if (stopped || file !== found.file) return;
 				send("history", { ...meta(found), reset: true, items, before, header: reader.header(), unreadable: reader.unreadable(), todos: await reader.todos() });
 				ready = true;
@@ -80,14 +81,14 @@ export function watchWorkspace(hub: Hub, id: string, send: Send): Watch {
  * page shows it with <img> instead of carrying base64 in the history.
  */
 export async function image(hub: Hub, [key, id, n]: string[]): Promise<{ type: string; bytes: Buffer } | undefined> {
-	const found = key ? hub.lookup(key) : undefined, i = Number(n);
-	if (!found?.file || !id || !Number.isInteger(i) || i < 0) return undefined;
-	const reader = hub.readers.acquire(found.file);
+	const found = key ? hub.lookup(key) : undefined, i = Number(n), file = found?.file && id ? await fileOfEntry(hub, found, id) : undefined;
+	if (!file || !id || !Number.isInteger(i) || i < 0) return undefined;
+	const reader = hub.readers.acquire(file);
 	try {
 		const pic = (await reader.entry(id))?.pics?.[i], hit = pic && /^data:(image\/(?:png|jpeg|jpg|gif|webp));base64,(.*)$/s.exec(pic);
 		return hit ? { type: hit[1]!, bytes: Buffer.from(hit[2]!, "base64") } : undefined;
 	} finally {
-		hub.readers.release(found.file);
+		hub.readers.release(file);
 	}
 }
 
@@ -95,12 +96,12 @@ export async function image(hub: Hub, [key, id, n]: string[]): Promise<{ type: s
 export async function api(hub: Hub, [kind, key, id]: string[], query: URLSearchParams): Promise<{ status: number; body: unknown }> {
 	const found = key ? hub.lookup(key) : undefined;
 	if (!found?.file || !["history", "entry"].includes(kind ?? "")) return { status: 404, body: { error: "not found" } };
-	const reader = hub.readers.acquire(found.file);
+	if (kind === "history") return { status: 200, body: await pageThrough(hub, found, query.get("before") ?? undefined, Math.min(300, Math.max(1, Number(query.get("limit")) || PAGE))) };
+	const file = id ? await fileOfEntry(hub, found, id) : undefined, reader = file && hub.readers.acquire(file);
 	try {
-		if (kind === "history") return { status: 200, body: await reader.page(query.get("before") ?? undefined, Math.min(300, Math.max(1, Number(query.get("limit")) || PAGE))) };
-		const item = id ? await reader.entry(id) : undefined;
+		const item = id && reader ? await reader.entry(id) : undefined;
 		return item ? { status: 200, body: item } : { status: 404, body: { error: "not found" } };
 	} finally {
-		hub.readers.release(found.file);
+		if (file) hub.readers.release(file);
 	}
 }

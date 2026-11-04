@@ -15,6 +15,7 @@ import type { Session } from "../herdr.ts";
 import { type GuiLink } from "../link/guiport.ts";
 import { type Net, netSource, type TowerView } from "../net.ts";
 import type { TowerPanel } from "../control.ts";
+import type { HeadSeam } from "../nethead.ts";
 import type { TowerEnd } from "./towerpanel.ts";
 import { identity, type Run, switchRemote, tailscale } from "../remote.ts";
 import { createLanDevices } from "../devices.ts";
@@ -87,6 +88,8 @@ export interface GuiHostOptions {
 	link: GuiLink;
 	/** The tower service of a workspace for the net, and the composer's and notices' way to it (towers.ts). */
 	tower?: { view(workspace: string): TowerView | undefined } & TowerPanel & Partial<TowerEnd>;
+	/** The head tower in the net: its key, asks, and chapters (headnet.ts). */
+	head?: HeadSeam;
 	/** What the page's server panel shows. */
 	status(): Record<string, unknown>;
 	/** Asks the server to restart as the GUI's button does; the reply goes to the page. */
@@ -216,7 +219,7 @@ export function createGuiHost(o: GuiHostOptions) {
 	};
 	const begin = async (prefer: ReturnType<typeof recorded>, wait: number): Promise<Gui> => {
 		theHub();
-		const net = netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub });
+		const net = netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), ...(o.head ? { head: o.head } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub });
 		// `running` is read by the page's remote buttons, which only come once the server is up.
 		let running!: Gui;
 		// Wi-Fi access belongs to the primary slot (one port, one CA, one name per computer): a secondary server builds the host too, to refuse its requests in words, and never writes lan.json.

@@ -16,7 +16,8 @@ test("buildNet lists no base and no tower for the head workspace, whatever its p
 	const panes = [pane("wH:p1", "wH:t1", { sb_role: "head" }), pane("wA:p1", "wA:t1", { sb_role: "tower" })];
 	const sessions = [session("sb-head", "head tower", "wH:p1", "wH", "wH:t1"), session("tower-a", "tower · Alpha", "wA:p1", "wA", "wA:t1")];
 	const net = buildNet({ sessions, panes, workspaces, children: () => [] });
-	assert.deepEqual(net.bases.map((b) => [b.id, b.head]), [["wA", false]]);
+	assert.deepEqual(net.bases.map((b) => b.id), ["wA"]);
+	assert.ok(net.bases.every((b) => !("head" in b)), "no base carries a crown");
 });
 
 test("a stash of the head workspace is refused with a reason", async () => {

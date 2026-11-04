@@ -29,7 +29,7 @@ after(async () => {
 	rmSync(scratch, { recursive: true, force: true });
 });
 
-const net = (label: string): Net => ({ bases: [{ id: "w", label, mark: "idle", head: true, tower: null, tabs: [], outposts: [], outside: [] }] });
+const net = (label: string): Net => ({ bases: [{ id: "w", label, mark: "idle", tower: null, tabs: [], outposts: [], outside: [] }] });
 async function serve(read: () => Promise<Net>, options: { view?: "auto" | "standard" | "geek"; pollMs?: number; idleMs?: number; pingMs?: number; port?: number; remotePort?: number; bindWaitMs?: number; keep?: { token: string; csrf: string; port: number; remotePort: number }; net?: { lookup(key: string): Found | undefined; workspace(id: string): Ref[] }; call?: (method: string, params: Record<string, unknown>) => Promise<unknown>; onStop?(asked: Asked): void; onRemote?(): Promise<void> } = {}, bundle = dir) {
 	const gui = await startGui({ read, dir: bundle, pollMs: 20, pingMs: 50, ...options });
 	running.push(gui);
@@ -234,7 +234,7 @@ test("the net is read faster while someone listens, and still slowly when no one
 
 test("what changed while no page listened is on the net the next page gets, as events", async () => {
 	let mark: Net["bases"][number]["mark"] = "idle";
-	const track = trackActivity(), unit = (m: typeof mark): Net => ({ bases: [{ id: "w", label: "w", mark: m, head: true, tower: null, tabs: [{ id: "t", label: "t", units: [{ id: "a", key: "a", control: true, name: "a", role: "main", mark: m, subs: [] }] }], outposts: [], outside: [] }] });
+	const track = trackActivity(), unit = (m: typeof mark): Net => ({ bases: [{ id: "w", label: "w", mark: m, tower: null, tabs: [{ id: "t", label: "t", units: [{ id: "a", key: "a", control: true, name: "a", role: "main", mark: m, subs: [] }] }], outposts: [], outside: [] }] });
 	let reads = 0;
 	const gui = await serve(async () => (reads++, track(unit(mark))), { idleMs: 30 });
 	await until(() => reads >= 2, "a baseline");
@@ -488,7 +488,7 @@ test("each stream is named in hello; a page attaches the terminal mirror to its 
 
 test("a page that reloads gets the net's queued messages at once, from the server's last reading, with or without a change since", async () => {
 	const queued = [{ text: "queued one", as: "steer" as const }, { text: "queued two", as: "followUp" as const }];
-	const withQueue: Net = { bases: [{ id: "w", label: "w", mark: "working", head: false, tower: null, outposts: [], outside: [], tabs: [{ id: "w:t", label: "t", units: [{ id: "u", key: "u", control: true, name: "main", role: "main", mark: "working", subs: [], queued }] }] }] };
+	const withQueue: Net = { bases: [{ id: "w", label: "w", mark: "working", tower: null, outposts: [], outside: [], tabs: [{ id: "w:t", label: "t", units: [{ id: "u", key: "u", control: true, name: "main", role: "main", mark: "working", subs: [], queued }] }] }] };
 	const gui = await serve(async () => withQueue, { pollMs: 20 });
 	const first = listen(gui);
 	await until(() => first.events.some((e) => e.event === "message"), "the first reading");

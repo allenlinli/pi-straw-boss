@@ -37,13 +37,14 @@ function world(over: Partial<ControlDeps> = {}) {
 		const req = Object.assign(Readable.from([Buffer.from(JSON.stringify(body))]), { method: "POST", headers: { origin: ORIGIN, "sec-fetch-site": "same-origin", "content-type": "application/json", "x-sb-csrf": CSRF } }) as unknown as IncomingMessage;
 		return handle(req, ORIGIN, ["open", kind], remote);
 	};
-	const post = (action: string, body: unknown, remote = true): Promise<Reply> => {
+	const send = (parts: string[], body: unknown, remote = true): Promise<Reply> => {
 		const req = Object.assign(Readable.from([Buffer.from(JSON.stringify(body))]), { method: "POST", headers: { origin: ORIGIN, "sec-fetch-site": "same-origin", "content-type": "application/json", "x-sb-csrf": CSRF } }) as unknown as IncomingMessage;
-		return handle(req, ORIGIN, ["sessions", "sess-1", action], remote);
+		return handle(req, ORIGIN, parts, remote);
 	};
+	const post = (action: string, body: unknown, remote = true): Promise<Reply> => send(["sessions", "sess-1", action], body, remote);
 	/** What was written into a pane: every call but the pane look. */
 	const written = () => calls.filter(([m]) => m !== "pane.get").map(([m, p]) => [m, p.keys ?? p.text ?? p.target]);
-	return { clock, faces, calls, hooks, post, open, written };
+	return { clock, faces, calls, hooks, post, send, open, written };
 }
 const STREAM = "stream-1";
 const refused = (r: Reply) => [r.status, (r.body as { error?: string }).error];
@@ -194,4 +195,18 @@ test("a paired device's write is noted at the write, so a face that opens within
 	await refusedWrite.post("input", { text: "y", as: "send" });
 	refusedWrite.faces.close(id);
 	assert.deepEqual(refusedWrite.faces.accepts(refusedWrite.faces.open(PANE)), { ok: true }, "a write the mark refused wrote nothing, so it taints nothing");
+});
+
+test("the head tower's composer from a paired device writes into no pane, so an open overlay does not touch it and no Herdr call is made (the overlay's rules are unchanged for every session)", async () => {
+	const events: string[] = [];
+	const w = world({
+		lookup: (k) => (k === "sb-head" ? { key: k, base: "@head", name: "head tower", role: "head", live: true, pane: PANE, file: FILE } : k === "sess-1" ? found() : undefined),
+		tower: { has: (ws) => ws === "@head", live: () => true, event: async (_ws, text) => (events.push(text), { ok: true }), act: async () => ({ ok: true }) },
+	});
+	w.faces.open(PANE);
+	assert.deepEqual(refused(await w.post("input", { text: "4821", as: "send" })), [409, "lan_overlay_open"], "a session's pane is still guarded");
+	const sent = await w.send(["sessions", "sb-head", "input"], { text: "tell Alpha to start", as: "send" });
+	assert.deepEqual([sent.status, sent.body], [200, { accepted: true, woke: true }]);
+	assert.deepEqual(events, ["tell Alpha to start"]);
+	assert.deepEqual(w.written(), [], "nothing reached Herdr");
 });

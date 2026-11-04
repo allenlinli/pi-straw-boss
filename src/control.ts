@@ -16,6 +16,7 @@ import { upload } from "./upload.ts";
 import { ENDING } from "./probe.ts";
 import { qr } from "./qr.ts";
 import { parseOpen } from "./bossopen.ts";
+import { headRoutes } from "./headroutes.ts";
 
 // Typing into a session from the page, through Herdr's own input path only, as if typed in the terminal:
 //   POST /<token>/api/sessions/<key>/input {text, as: "send" | "followUp", confirmed?}   the text, then Enter (or Alt+Enter while it works)
@@ -80,6 +81,8 @@ export interface TowerPanel {
 	conversation?(workspace: string, what: "leave" | "new"): Promise<{ ok: boolean; error?: string; left?: boolean; fresh?: boolean; already?: boolean }>;
 	/** The memory panel's request (towermemory.ts `memoryRequest`): read the boss's standing instructions, decisions, and waits, or change them as the boss; a write names the rev it read. */
 	memory?(workspace: string, json: Record<string, unknown>): Promise<Reply> | Reply;
+	/** The boss closes the tower (the head's Close; a workspace tower closes through the base's own route). */
+	close?(workspace: string): Promise<{ ok: boolean; error?: string }>;
 }
 /** What a paired device may ask: read the state, and answer a forwarded confirm or dialog. Everything else changes who may command this computer, so only its own page does it. */
 const REMOTE_LINK = ["state", "confirm-answer", "dialog-answer"];
@@ -220,6 +223,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 		}
 		// A tower unit of the sb server's service: the composer's Send is a boss event for its next run, and with no run live there is no terminal to key into or show.
 		const unit = tower && scope === "sessions" ? lookup(key) : undefined, ws = unit?.role === "tower" && tower?.has(unit.base) ? unit.base : undefined;
+		if (scope === "head" || unit?.role === "head") { const head = await headRoutes(tower, [scope, key, action], read.json, checkText); if (head) return head; }
 		if (tower && ws) {
 			if (action === "input") {
 				const text = checkText(read.json.text);

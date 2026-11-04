@@ -176,7 +176,6 @@ const baseEl = () => {
 const towerLine = (t: NonNullable<Base["tower"]>) => statusLine(t.service, t.mark, (mk) => LABEL[mk]());
 function fillBase(el: HTMLElement, b: Base) {
 	mark(el, b.mark);
-	el.classList.toggle("head", b.head);
 	const tower = el.querySelector<HTMLElement>(".tower")!;
 	tower.classList.toggle("ghost", !b.tower);
 	mark(tower, b.tower?.mark ?? "unknown");

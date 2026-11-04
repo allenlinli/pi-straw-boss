@@ -10,7 +10,7 @@ import type { Base, Net, Unit } from "../src/net.ts";
 // A unit's own session view: its chat names who speaks by role (the page header names the session), and its header carries the map's Quit for that unit.
 
 const unit = (key: string, role: Unit["role"] | "tower", extra: Partial<Unit> = {}): Unit => ({ id: key, key, name: `${key}-name`, role: role as Unit["role"], mark: "idle", control: true, subs: [], ...extra });
-const base = (units: Unit[], tower?: Unit): Base => ({ id: "w1", label: "Harbor", mark: "idle", head: true, tower: tower ?? null, outposts: [], outside: [], tabs: [{ id: "w1:t1", label: "squad", units }] }) as unknown as Base;
+const base = (units: Unit[], tower?: Unit): Base => ({ id: "w1", label: "Harbor", mark: "idle", tower: tower ?? null, outposts: [], outside: [], tabs: [{ id: "w1:t1", label: "squad", units }] }) as unknown as Base;
 /** The few things aim() touches on a button. */
 const button = () => {
 	const attrs: Record<string, string> = {};

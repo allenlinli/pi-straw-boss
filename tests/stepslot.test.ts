@@ -10,7 +10,7 @@ const { termHold } = await import("../gui/towerturns.ts");
 
 type W = { rows(rows: string[]): void; state(s: string, c: unknown): void; end(): void; taken(): void };
 const unit = (key: string, name: string, extra: object = {}) => ({ id: key, key, control: true, name, role: "main", mark: "idle", subs: [], ...extra });
-const net = (...units: object[]): Net => ({ bases: [{ id: "ws1", label: "Harbor", mark: "idle", head: true, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust: [] }) as never;
+const net = (...units: object[]): Net => ({ bases: [{ id: "ws1", label: "Harbor", mark: "idle", tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust: [] }) as never;
 
 function rig() {
 	mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });

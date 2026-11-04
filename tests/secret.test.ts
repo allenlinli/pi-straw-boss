@@ -25,7 +25,7 @@ const FILE = "/s/2026_sess-1.jsonl", HOST = "box.tail1.ts.net:8443", LOGIN = "me
 const SECRET = { label: "Deploy token", instructions: ["Open the link.", "Create a token."], url: "https://example.com/tokens", destination: ".env.local" };
 const digest = secretDigest(SECRET);
 const unit = (key: string, pending?: Net["bases"][number]["outside"][number]["pending"]) => ({ id: key, key, control: true, name: key, role: "main" as const, mark: "waiting" as const, subs: [], pending });
-const net = (): Net => ({ bases: [{ id: "wA", label: "Alpha", mark: "waiting", head: true, tower: null, outposts: [], outside: [], tabs: [{ id: "wA:t1", label: "work", units: [unit("sess-1", { callId: "c1", tool: "secret_drop", why: "It waits for a secret." }), unit("sess-2", { callId: "c2", tool: "robot_hand", answer: { dialog: "d2", digest: "a".repeat(64), select: { title: "T", choices: [{ label: "A" }] } } })] }] }] });
+const net = (): Net => ({ bases: [{ id: "wA", label: "Alpha", mark: "waiting", tower: null, outposts: [], outside: [], tabs: [{ id: "wA:t1", label: "work", units: [unit("sess-1", { callId: "c1", tool: "secret_drop", why: "It waits for a secret." }), unit("sess-2", { callId: "c2", tool: "robot_hand", answer: { dialog: "d2", digest: "a".repeat(64), select: { title: "T", choices: [{ label: "A" }] } } })] }] }] });
 
 async function server() {
 	const sent: Record<string, unknown>[] = [], targets: Record<string, Target> = {};

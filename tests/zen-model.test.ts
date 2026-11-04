@@ -14,7 +14,7 @@ function rig(typing = false) {
 	return { z, at: (ms: number) => (t += ms), type: (on: boolean) => (typed = on), now: () => t };
 }
 const unit = (key: string, mark: Mark, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
-const net = (units: Unit[], trust: Net["trust"] = []): Net => ({ bases: [{ id: "w", label: "w", mark: "idle", head: true, tower: { name: "tower", mark: "idle", key: "t", control: true, subs: [{ ...unit("sub", "waiting", { role: "subagent", since: 5 }) }] }, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust });
+const net = (units: Unit[], trust: Net["trust"] = []): Net => ({ bases: [{ id: "w", label: "w", mark: "idle", tower: { name: "tower", mark: "idle", key: "t", control: true, subs: [{ ...unit("sub", "waiting", { role: "subagent", since: 5 }) }] }, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust });
 
 test("items are the rank 0 alerts: a waiting unit, a pending dialog, a tower's and a subagent's, a trust question; not an error, a failed monitor, a finished unit", () => {
 	const n = net([unit("a", "waiting"), unit("b", "working", { pending: dlg("x") as never }), unit("e", "error"), unit("d", "done"), unit("m", "working", { monitors: [{ id: "1", status: "error", what: "w", at: 1 } as never] })], [{ id: "tr", digest: "g", folder: "/x/proj", found: [], agents: [{ pane: "p", role: "main", at: 7 }] }]);

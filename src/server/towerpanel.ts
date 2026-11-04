@@ -1,4 +1,5 @@
 import type { TowerPanel } from "../control.ts";
+import { HEAD_KEY } from "../headkey.ts";
 import type { TowerView } from "../net.ts";
 import type { Towers } from "./towers.ts";
 
@@ -23,16 +24,23 @@ export function towerPanel(towers: () => Towers | undefined): { view(workspace: 
 	};
 	// A service that waits for a resident tower is not the workspace's tower yet (the runs hold it from the moment it is adopted): the page shows the resident as it did before the service, with its own bridge, terminal, and composer.
 	const serving = (workspace: string) => towers()?.stateOf(workspace) !== "waiting";
+	// The head tower's stand-in for a workspace id is `HEAD_KEY` (headroutes.ts): its service is under the Herdr workspace it stands in now, and a message makes that workspace when there is none.
+	const at = (t: Towers, workspace: string) => {
+		if (workspace !== HEAD_KEY) return workspace;
+		const ws = t.head.status()?.workspace;
+		if (!ws) throw new Error("The head tower is not open: its first message opens it.");
+		return ws;
+	};
 	return {
 		view: (workspace) => (serving(workspace) ? towers()?.runs.view(workspace) : undefined),
-		has: (workspace) => serving(workspace) && towers()?.runs.view(workspace) !== undefined,
+		has: (workspace) => (workspace === HEAD_KEY ? towers() !== undefined : serving(workspace) && towers()?.runs.view(workspace) !== undefined),
 		owns: (id) => towers()?.owns(id) ?? false,
-		close: (workspace) => asked(async (t) => (await t.close(workspace), {})),
-		live: (workspace) => Boolean(towers()?.runs.status(workspace)?.run),
+		close: (workspace) => asked(async (t) => (await (workspace === HEAD_KEY ? t.head.close() : t.close(at(t, workspace))), {})),
+		live: (workspace) => Boolean(towers() && (workspace !== HEAD_KEY || towers()!.head.status()) && towers()!.runs.status(at(towers()!, workspace))?.run),
 		// The composer is the boss at a keyboard: the same boss event as the tower prompt's (`present`), so a conversation starts or goes on (docs/how-it-works.md, The boss conversation).
-		event: (workspace, text) => asked((t) => (t.runs.boss(workspace, text, "the boss (GUI)", { present: true }), {})),
-		conversation: (workspace, what) => asked((t) => (what === "leave" ? t.runs.leave(workspace) : t.runs.fresh(workspace))),
+		event: (workspace, text) => asked(async (t) => (workspace === HEAD_KEY ? await t.head.event(text) : t.runs.boss(workspace, text, "the boss (GUI)", { present: true }), {})),
+		conversation: (workspace, what) => asked((t) => (what === "leave" ? t.runs.leave(at(t, workspace)) : t.runs.fresh(at(t, workspace)))),
 		memory: (workspace, json) => towers()!.memory(workspace, json),
-		act: (workspace, what, id) => asked((t) => (what === "retry" ? t.runs.retry(workspace) : what === "deliver" ? t.runs.deliverAgain(workspace, id!) : t.runs.dropParked(workspace, id!), {})),
+		act: (workspace, what, id) => asked((t) => ((ws) => (what === "retry" ? t.runs.retry(ws) : what === "deliver" ? t.runs.deliverAgain(ws, id!) : t.runs.dropParked(ws, id!), {}))(at(t, workspace))),
 	};
 }

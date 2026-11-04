@@ -45,10 +45,10 @@ const unit = (key: string, name: string, role: Unit["role"], mark: Unit["mark"],
 
 test("the list is every unit of every base, grouped as the map groups them: the tower with its subagents, each tab's units with theirs, then the units outside the net", () => {
 	const net: Net = { bases: [
-		{ id: "w1", label: "Harbor", mark: "working", head: true, tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, subs: [unit("t1/scout", "scout", "subagent", "working", [], { note: "tool:read" })] },
+		{ id: "w1", label: "Harbor", mark: "working", tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, subs: [unit("t1/scout", "scout", "subagent", "working", [], { note: "tool:read" })] },
 			tabs: [{ id: "w1:t1", label: "billing", units: [unit("a1", "billing-main", "main", "commanding", [unit("a1/docs", "docs", "subagent", "done", [], { ended: true })], { note: "watching a monitor" }), unit("a2", "billing-tests", "member", "waiting")] }],
 			outposts: [{ id: "w1-fix", label: "hotfix", mark: "working" }], outside: [unit("o1", "scratch", "outside", "idle")] },
-		{ id: "w2", label: "Empty", mark: "idle", head: false, tower: null, tabs: [], outposts: [], outside: [] },
+		{ id: "w2", label: "Empty", mark: "idle", tower: null, tabs: [], outposts: [], outside: [] },
 	] };
 	const list = groupUnits(net);
 	assert.deepEqual(list.map((b) => [b.id, b.label, b.groups.map((g) => [g.id, g.label])]), [["w1", "Harbor", [["tower", undefined], ["w1:t1", m.tab_label({ label: "billing" })], ["outside", m.outside_net()]]]], "a base with nothing in it is left out, and so is an outpost (it has no comms)");
@@ -79,7 +79,7 @@ test("the drawer's way back to the map and its Dismiss finished button are worde
 });
 
 // The left pane on a phone: the tower as a row of two buttons, the way back to the map stuck to the bottom, and a Quit on a main that is idle.
-const harbor = (): Net["bases"][number] => ({ id: "w1", label: "Harbor", mark: "idle", head: true, tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, subs: [] }, tabs: [{ id: "w1:t1", label: "billing", units: [] }], outposts: [], outside: [] });
+const harbor = (): Net["bases"][number] => ({ id: "w1", label: "Harbor", mark: "idle", tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, subs: [] }, tabs: [{ id: "w1:t1", label: "billing", units: [] }], outposts: [], outside: [] });
 type Fake = HTMLElement & { attrs: Record<string, string> };
 const fake = (): Fake => {
 	const attrs: Record<string, string> = {};

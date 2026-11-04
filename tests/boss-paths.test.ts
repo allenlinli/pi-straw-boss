@@ -14,9 +14,9 @@ import type { Kit } from "../src/state.ts";
 const unit = (key: string, name: string, role: Unit["role"], extra: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name, role, mark: "idle", subs: [], ...extra });
 const NET = {
 	bases: [
-		{ id: "wA", label: "Alpha", mark: "idle", head: true, tower: { name: "tower · A", mark: "idle", key: "tower-A", control: true, subs: [] }, outposts: [], outside: [],
+		{ id: "wA", label: "Alpha", mark: "idle", tower: { name: "tower · A", mark: "idle", key: "tower-A", control: true, subs: [] }, outposts: [], outside: [],
 			tabs: [{ id: "wA:t1", label: "work", units: [unit("m1", "api-main", "main", { subs: [unit("kid-old", "builder", "subagent", { ended: true }), unit("kid-live", "runner", "subagent")] }), unit("b1", "api-member", "member")] }, { id: "wA:t2", label: "other", units: [unit("m2", "dup", "main")] }] },
-		{ id: "wB", label: "Beta", mark: "idle", head: false, tower: null, outposts: [], outside: [], tabs: [{ id: "wB:t1", label: "work", units: [unit("m3", "dup", "main")] }] },
+		{ id: "wB", label: "Beta", mark: "idle", tower: null, outposts: [], outside: [], tabs: [{ id: "wB:t1", label: "work", units: [unit("m3", "dup", "main")] }] },
 	],
 } as unknown as Net;
 

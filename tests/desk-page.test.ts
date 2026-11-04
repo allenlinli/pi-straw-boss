@@ -15,7 +15,7 @@ const list = () => {
 	return el as unknown as HTMLElement & { kids: unknown[] };
 };
 Object.assign(globalThis, { document: { createElement: () => ({ append() {}, className: "", setAttribute() {}, dataset: {} as Record<string, string> }) } });
-const base = { id: "w1", label: "Harbor", mark: "idle", head: true, tower: null, outposts: [], outside: [], tabs: [] } as unknown as Base;
+const base = { id: "w1", label: "Harbor", mark: "idle", tower: null, outposts: [], outside: [], tabs: [] } as unknown as Base;
 const stashed: Net = { bases: [], stashed: [{ name: "Harbor", label: "Harbor", at: "2026-10-22T09:00:00.000Z" }] } as unknown as Net;
 
 test("the page is in desk mode only when the meta says 1", () => {

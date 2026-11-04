@@ -172,7 +172,7 @@ test("a finished unit whose pane closed clears itself from the finished list; on
 });
 
 test("an alert says when its unit has closed: its pane is gone, or pi-herdr-agents recorded its run done", () => {
-	const net: Net = { bases: [{ id: "w1", label: "W", mark: "working", head: true, tower: null, outposts: [], tabs: [{ id: "t1", label: "a", units: [{ id: "m", key: "m", control: true, name: "m", role: "main", mark: "idle", subs: [{ id: "s", key: "s", control: false, name: "s", role: "subagent", mark: "done", subs: [] }] }] }], outside: [] }] };
+	const net: Net = { bases: [{ id: "w1", label: "W", mark: "working", tower: null, outposts: [], tabs: [{ id: "t1", label: "a", units: [{ id: "m", key: "m", control: true, name: "m", role: "main", mark: "idle", subs: [{ id: "s", key: "s", control: false, name: "s", role: "subagent", mark: "done", subs: [] }] }] }], outside: [] }] };
 	const now = alertsOf(net, 1);
 	assert.deepEqual([now.get("s")!.closed, now.get("m")!.closed], [true, false]);
 	net.bases[0]!.tabs[0]!.units[0]!.subs[0]!.control = true;
@@ -181,7 +181,7 @@ test("an alert says when its unit has closed: its pane is gone, or pi-herdr-agen
 });
 
 test("alerts come from towers, agents, subagents, and units outside the net; the first snapshot raises only questions", () => {
-	const net: Net = { bases: [{ id: "w1", label: "W", mark: "working", head: true, tower: { name: "tower", mark: "waiting", key: "t", control: true, subs: [] }, outposts: [], tabs: [{ id: "t1", label: "a", units: [{ id: "m", key: "m", control: true, name: "m", role: "main", mark: "idle", subs: [{ id: "s", key: "s", control: true, name: "s", role: "subagent", mark: "done", subs: [] }] }] }], outside: [{ id: "o", key: "o", control: true, name: "o", role: "outside", mark: "error", subs: [] }] }] };
+	const net: Net = { bases: [{ id: "w1", label: "W", mark: "working", tower: { name: "tower", mark: "waiting", key: "t", control: true, subs: [] }, outposts: [], tabs: [{ id: "t1", label: "a", units: [{ id: "m", key: "m", control: true, name: "m", role: "main", mark: "idle", subs: [{ id: "s", key: "s", control: true, name: "s", role: "subagent", mark: "done", subs: [] }] }] }], outside: [{ id: "o", key: "o", control: true, name: "o", role: "outside", mark: "error", subs: [] }] }] };
 	const first = alertsOf(net, 1);
 	assert.deepEqual([...first.keys()].sort(), ["m", "o", "s", "t"]);
 	assert.deepEqual(arrivals(undefined, first).map((a) => a.key).sort(), ["t"], "a failure or a finished subagent at load is not news");
@@ -196,7 +196,7 @@ test("alerts come from towers, agents, subagents, and units outside the net; the
 test("a monitor that fails or goes quiet raises an error alert of its own, about its unit, until its session stops listing it", () => {
 	const mon = (id: string, status: Monitor["status"], at = 1): Monitor => ({ id, what: `job ${id}`, status, lines: 0, at });
 	const unit: Unit = { id: "m", key: "m", control: true, name: "m", role: "main", mark: "working", subs: [], monitors: [mon("1", "running")] };
-	const net: Net = { bases: [{ id: "w1", label: "W", mark: "working", head: true, tower: null, outposts: [], tabs: [{ id: "t1", label: "a", units: [unit] }], outside: [] }] };
+	const net: Net = { bases: [{ id: "w1", label: "W", mark: "working", tower: null, outposts: [], tabs: [{ id: "t1", label: "a", units: [unit] }], outside: [] }] };
 	const first = alertsOf(net, 1);
 	assert.deepEqual([...first.keys()], ["m"], "a running monitor raises nothing");
 	unit.monitors = [mon("1", "error"), mon("2", "stale"), mon("3", "done"), mon("4", "stopped")];
@@ -295,7 +295,7 @@ test("a dialog the user did not open slides in beneath the one they read, takes 
 
 test("an alert carries the question its unit waits on, and an open dialog drops it once the unit stops waiting", () => {
 	const pending = { callId: "c1", tool: "ask_user", ask: { question: "Ship it?", options: [{ title: "yes" }], multiple: false, freeform: false } };
-	const net = (mark: Mark, p?: typeof pending): Net => ({ bases: [{ id: "w1", label: "w", mark, head: true, tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [{ id: "a", key: "a", control: true, name: "a", role: "main", mark, subs: [], pending: p }] }] }] });
+	const net = (mark: Mark, p?: typeof pending): Net => ({ bases: [{ id: "w1", label: "w", mark, tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [{ id: "a", key: "a", control: true, name: "a", role: "main", mark, subs: [], pending: p }] }] }] });
 	const { stack } = harness();
 	stack.show(alertsOf(net("waiting", pending), 1).get("a")!);
 	assert.equal(stack.open[0]!.pending?.callId, "c1");
@@ -351,7 +351,7 @@ test("redraw draws the same models again, so the page can follow the stream stat
 test("only a unit waiting on the user raises the prominent alert; an error, a failed monitor, and a finish go to the notices list", () => {
 	const { page, stack } = harness();
 	const unit = (key: string, mark: Mark, extra: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...extra });
-	const net = (units: Unit[]): Net => ({ bases: [{ id: "w1", label: "W", mark: "working", head: true, tower: null, outposts: [], tabs: [{ id: "t1", label: "a", units }], outside: [] }] });
+	const net = (units: Unit[]): Net => ({ bases: [{ id: "w1", label: "W", mark: "working", tower: null, outposts: [], tabs: [{ id: "t1", label: "a", units }], outside: [] }] });
 	const before = alertsOf(net([unit("e", "working"), unit("q", "working"), unit("p", "working"), unit("s", "working"), unit("f", "working", { subs: [unit("sub", "working", { role: "subagent" })] })]), 1);
 	const mon = (status: Monitor["status"]): Monitor => ({ id: "1", what: "job", status, lines: 0, at: 1 });
 	const now = alertsOf(net([unit("e", "error"), unit("q", "waiting"), unit("p", "working", { pending: { callId: "c1", tool: "ctx.ui.confirm" } }), unit("s", "working", { monitors: [mon("error")] }), unit("f", "working", { subs: [unit("sub", "done", { role: "subagent" })] })]), 2);

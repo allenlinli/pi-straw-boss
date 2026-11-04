@@ -675,7 +675,7 @@ test("RC-F004: a link_request approval a bridge relays (the owner's listener, th
 	hub = createHub({ events } as never, "S", local as never);
 	const refs = new Map<string, Ref>([["sess-1", { key: "sess-1", base: "wA", name: "billing", role: "main", file, pane: "wA:p1" }]]);
 	const read = async (): Promise<Net> => {
-		const net: Net = { bases: [{ id: "wA", label: "Alpha", mark: "working", head: true, tower: null, outposts: [], outside: [], tabs: [{ id: "wA:t1", label: "work", units: [{ id: "sess-1", key: "sess-1", control: true, name: "billing", role: "main", mark: "working", subs: [] }] }] }] };
+		const net: Net = { bases: [{ id: "wA", label: "Alpha", mark: "working", tower: null, outposts: [], outside: [], tabs: [{ id: "wA:t1", label: "work", units: [{ id: "sess-1", key: "sess-1", control: true, name: "billing", role: "main", mark: "working", subs: [] }] }] }] };
 		await withPending(net, (key) => refs.get(key)?.file, hub.relayed([{ id: "S", herdrLocation: { status: "current", paneId: "wA:p1" } }] as never, refs));
 		return net;
 	};

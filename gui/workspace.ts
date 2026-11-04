@@ -24,7 +24,6 @@ export function drawWorkspace(host: HTMLElement, scene: Readonly<Scene>) {
 	if (!base) return;
 	const keep = root.querySelector<HTMLElement>(".keep")!;
 	mark(keep, base.mark);
-	keep.classList.toggle("head", base.head);
 	const tower = root.querySelector<HTMLElement>(".tower")!;
 	tower.classList.toggle("ghost", !base.tower);
 	mark(tower, base.tower?.mark ?? "unknown");

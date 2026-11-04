@@ -17,7 +17,7 @@ const { m } = await import("../gui/paraglide/messages.js");
 type Exit = import("../gui/zen.ts").Exit;
 
 const unit = (key: string, mark: Mark, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
-const net = (units: Unit[], trust: Net["trust"] = [], tower = true): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", head: true, tower: tower ? { name: "tower", mark: "idle", key: "t", control: true, subs: [] } : null, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust }) as Net;
+const net = (units: Unit[], trust: Net["trust"] = [], tower = true): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", tower: tower ? { name: "tower", mark: "idle", key: "t", control: true, subs: [] } : null, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust }) as Net;
 const SELECT = (hereOnly = false) => ({ title: "Robot Hand: deploy", choices: ["Type it in a pane", "Copy it", "No thanks"].map((label) => ({ label, ...(hereOnly ? { hereOnly: true as const } : {}) })) });
 const select = (o: { hereOnly?: boolean; cancel?: boolean; dialog?: string } = {}): Pending => ({ callId: "c1", tool: "robot_hand", answer: { dialog: o.dialog ?? "d1", digest: "0".repeat(64), select: SELECT(o.hereOnly), ...(o.cancel ? { cancel: true as const } : {}) } });
 const questions = (): Pending => ({ callId: "c2", tool: "ask_user_question", answer: { dialog: "q1", digest: "1".repeat(64), cancel: true, questions: [{ question: "When?", header: "Window", multiple: false, options: [{ title: "Tonight" }, { title: "Tomorrow" }] }] } });
@@ -204,7 +204,7 @@ test("H toggles it through toggleHistory(); false when the card has no link", as
 
 test("no link for a trust question or a tower with no run; an outside pi pane has its session file, so it has the link (Z4D-F003, M4)", async () => {
 	const tower = rig();
-	tower.feed({ bases: [{ id: "w", label: "Harbor", mark: "waiting", head: true, tower: { name: "tower", mark: "waiting", key: "t", control: true, subs: [], since: 5, pending: select({ cancel: true }) }, tabs: [], outposts: [], outside: [] }], trust: [] } as unknown as Net);
+	tower.feed({ bases: [{ id: "w", label: "Harbor", mark: "waiting", tower: { name: "tower", mark: "waiting", key: "t", control: true, subs: [], since: 5, pending: select({ cancel: true }) }, tabs: [], outposts: [], outside: [] }], trust: [] } as unknown as Net);
 	tower.z.show();
 	await tower.settle();
 	assert.equal(link(tower), undefined, "a tower with no run");

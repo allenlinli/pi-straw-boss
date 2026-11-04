@@ -1247,6 +1247,17 @@ test("findProcessHolder: any process with its cwd at or below the checkout", () 
 	assert.equal(findProcessHolder(roots, [{ pid: 7, name: "zsh", cwd: "/wt/x" }], new Set([7])), null, "the shell of a pane this run closes is ignored");
 });
 
+test("findProcessHolder: the message points at `cli.mjs procs reap --checkout` for what an ended worker left, with the path quoted for a shell", () => {
+	const message = findProcessHolder(["/wt/x", "/private/wt/x"], [{ pid: 7, name: "vite", cwd: "/private/wt/x/app" }]);
+	assert.match(message, /^process vite \(pid 7\) is working in it \(\/private\/wt\/x\/app\)/, "the old words come first, unchanged");
+	assert.ok(message.includes("cli.mjs procs reap --checkout '/wt/x'"), message);
+	assert.ok(message.includes("cli.mjs procs"), "and where to list what the server knows");
+	assert.match(message, /pi-straw-boss/, "it names the package whose cli.mjs it means, since the plugin cannot know where that is installed");
+	assert.ok(findProcessHolder(["/wt/it's"], [{ pid: 7, name: "node", cwd: "/wt/it's" }]).includes(`--checkout '/wt/it'\\''s'`), "a quote in the path is closed, escaped and reopened");
+	assert.ok(!/\n/.test(message), "one line, as a log line is");
+	assert.equal(findProcessHolder(["/wt/x"], [{ pid: 7, name: "zsh", cwd: "/repo" }]), null, "no holder, no message");
+});
+
 // A pi-herdr-agents child leaves its worktree's root shell in the workspace; the reaper closed it and then removed the checkout.
 const retainedWorld = (extra = {}) => {
 	const w = world({ workspaces: [workspace("a", "linked")], panes: [pane("a:p1", "a")], checkouts: { "/wt/linked": {} }, ...extra });
@@ -1352,6 +1363,7 @@ test("Guard 2: a process anywhere on the machine with its cwd in the checkout ke
 		await runSweep(w.deps(store), { confirmMs: 0 });
 		assert.deepEqual(w.removed, []);
 		assert.ok(w.logs.some((line) => line.startsWith("keep checkout /wt/linked") && line.includes("node (pid 4242)") && line.endsWith("branch kept")), w.logs.join("\n"));
+		assert.ok(w.logs.some((line) => line.startsWith("keep checkout /wt/linked") && line.includes("cli.mjs procs reap --checkout '/wt/linked'")), "the kept checkout's log line carries the hint");
 		assert.equal((await store.read()).pending["/wt/linked"]?.inUse, true);
 		w.holders = [{ pid: 1, name: "zsh", cwd: "/repo" }];
 		await runSweep(w.deps(store, () => NOW + 60_000), { confirmMs: 0 });

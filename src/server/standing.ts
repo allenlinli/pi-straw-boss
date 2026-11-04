@@ -70,6 +70,8 @@ export interface StandingOptions {
 	world: HerdrWorld;
 	sleep: Sleep;
 	now: () => number;
+	/** The clock of a run's wait for the prompt's exit and the settle after it (a test moves it; unset, the server's own). */
+	wait?: { now: () => number; sleep: Sleep };
 	log: Log;
 	/** The line typed into the pane's shell to start the prompt; undefined when none can be made (a path the shells could not take). */
 	command(workspace: string): string | undefined;
@@ -154,6 +156,7 @@ export function promptCommand(cli: string, stateDir: string, workspace: string):
 export function createStanding(o: StandingOptions) {
 	const t: StandingTimers = { ...STANDING, ...o.timers };
 	const { run, api, world, sleep, now, log } = o;
+	const wait = o.wait ?? { now, sleep };
 	const alive = o.alive ?? pidAlive;
 	const groups = (o.platform ?? process.platform) !== "win32";
 	const mines = new Map<string, Mine>();
@@ -370,6 +373,8 @@ export function createStanding(o: StandingOptions) {
 			const m = mines.get(workspace);
 			if (!m) return { ok: false, error: `The sb server stands in for no tower of workspace ${workspace}`, gone: true };
 			m.seen = { pid, at: now() };
+			// A prompt that polls is the current one: the pid of an earlier prompt that left is no longer the one to wait for.
+			if (m.leaver !== undefined && m.leaver !== pid) m.leaver = undefined;
 			m.typings = 0;
 			m.noStart = false;
 			m.lost = false;
@@ -412,13 +417,25 @@ export function createStanding(o: StandingOptions) {
 				await run(["pane", "send-keys", m.target.pane(), "ctrl+c"]).catch(() => {});
 			}
 			// The prompt announcing it leaves is not its process gone: Herdr admits `agent start` a few ms after the exit, while zsh does not read yet, and the command's Enter is lost (the pane then sits on an unexecuted line until Herdr's 30 s start timeout). Windows lists no such window.
+			if (!groups) {
+				m.leaver = undefined;
+				return;
+			}
+			// A prompt typed but not yet polled has no pid: wait for it to start, hear it leave, and take its pid, so the start never lands at a random offset after its exit.
+			const typedAt = typingIn(m.target.pane(), undefined)?.at;
+			if (m.leaver === undefined && pid === undefined && typedAt !== undefined && now() - typedAt < t.launchMs) {
+				for (const end = wait.now() + t.exitMs; m.leaver === undefined && wait.now() < end; ) await wait.sleep(10);
+			}
 			const leaver = m.leaver ?? pid;
 			m.leaver = undefined;
-			if (leaver === undefined || !groups) return;
-			for (const end = now() + t.exitMs; alive(leaver); await sleep(10)) {
-				if (now() >= end) throw new Error(`the tower prompt (pid ${leaver}) did not exit within ${t.exitMs} ms of leaving`);
+			if (leaver === undefined) {
+				if (typedAt !== undefined && now() - typedAt < t.launchMs) await wait.sleep(t.settleMs);
+				return;
 			}
-			await sleep(t.settleMs);
+			for (const end = wait.now() + t.exitMs; alive(leaver); await wait.sleep(10)) {
+				if (wait.now() >= end) throw new Error(`the tower prompt (pid ${leaver}) did not exit within ${t.exitMs} ms of leaving`);
+			}
+			await wait.sleep(t.settleMs);
 		},
 		/**
 		 * A local run ended: the pane is free for the prompt again, and the boss's Ctrl+D is over. `fresh` false: the run's pi never started in it, so it is not known to be a bare shell (a program of the boss's may run there).
@@ -457,7 +474,7 @@ export function createStanding(o: StandingOptions) {
 		reset() {
 			// A typing in a terminal stays on record: a new Herdr's terminals are new, and the take-over may come after the look already typed into the new one (RVSEAT2-F001).
 			for (const [id, record] of typed) if (record.terminal === undefined) typed.delete(id);
-			for (const m of mines.values()) Object.assign(m, { seen: undefined, leaving: false, parked: false, launched: undefined, reported: undefined, misses: 0, unsupported: undefined, typings: 0, fresh: true, noStart: false, lost: false, hand: undefined, freshUntil: undefined, failures: 0, giveUp: false });
+			for (const m of mines.values()) Object.assign(m, { seen: undefined, leaver: undefined, leaving: false, parked: false, launched: undefined, reported: undefined, misses: 0, unsupported: undefined, typings: 0, fresh: true, noStart: false, lost: false, hand: undefined, freshUntil: undefined, failures: 0, giveUp: false });
 		},
 		/** The look at once (a service just went live), without waiting for the interval. */
 		kick: (workspace: string) => void tick(workspace),

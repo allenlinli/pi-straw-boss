@@ -84,8 +84,8 @@ export interface TowersOptions {
 	runs?: Partial<RunsOptions>;
 	/** The line typed into a standing pane's shell to start the tower prompt (main.ts builds it from the CLI beside the server); without it the server types nothing and reports no stand-in. */
 	promptCommand?: (workspace: string) => string | undefined;
-	/** The timers of the standing pane (standing.ts), for tests. */
-	standing?: Partial<StandingTimers>;
+	/** The timers of the standing pane (standing.ts), for tests, and `standingWait`: */
+	standing?: Partial<StandingTimers>; standingWait?: /* the clock of a run's wait for the prompt's exit (tests) */ { now: () => number; sleep: (ms: number) => Promise<void> };
 	/** A request to the link holder as a tower identity (main.ts; absent in a world without one). */
 	link?: (body: unknown, from: string) => Promise<unknown>;
 	/** The server's own part of `boss_server` for a run. */
@@ -301,7 +301,7 @@ export function createTowers(o: TowersOptions): Towers {
 	};
 	const runs: Runs = createRuns({ slot, run, sleep, now, log, sessions: sessionsRoot(o.env), enabled: o.enabled, max: () => readTowerRuns(slot.stateDir).max, trustDir: trustDir(slot.stateDir), model: () => towerModel(slot.stateDir), headModel: () => headModel(slot.stateDir), ...(allyPort ? { ally: allyPort } : {}), ...o.runs });
 
-	const standing = createStanding({ run, api: cfg.api, world: cfg.world, sleep, now, log, command: o.promptCommand ?? (() => undefined), timers: o.standing, ...(o.runs?.platform ? { platform: o.runs.platform } : {}), ...(o.runs?.alive ? { alive: o.runs.alive } : {}) });
+	const standing = createStanding({ run, api: cfg.api, world: cfg.world, sleep, now, log, command: o.promptCommand ?? (() => undefined), timers: o.standing, ...(o.standingWait ? { wait: o.standingWait } : {}), ...(o.runs?.platform ? { platform: o.runs.platform } : {}), ...(o.runs?.alive ? { alive: o.runs.alive } : {}) });
 	const place = (l: Live): Place => ({ paneId: l.record.pane, tabId: l.record.tab, workspaceId: l.record.workspace });
 	const dirOf = (workspace: string) => join(towerDir(slot, workspace));
 	const error = (code: string, text: string) => log.line("error", { code, text: phrase(text, 300) });

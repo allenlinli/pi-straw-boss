@@ -93,6 +93,8 @@ export class TowerWorld extends ServerWorld {
 	signals: import("../src/server/runs.ts").RunSignal[] = [];
 	runTimers: Partial<Timers> = {};
 	standingTimers: Partial<StandingTimers> = {};
+	/** The clock of a run's wait for the prompt's exit when a test sets one (`standing.ts` `wait`). */
+	standingWait: { now: () => number; sleep: (ms: number) => Promise<void> } | undefined;
 	/**
 	 * The clock of the runs (the age of a run, the idle time, the quit grace) when a test sets one: the watcher still ticks every 20 ms, but it sees only the ages the test gives it, so a tick that comes late under load cannot step over a
 	 * time (the steer is skipped when the first tick that sees a run is already past the cap). Unset, the runs use the server's clock.
@@ -142,7 +144,7 @@ export class TowerWorld extends ServerWorld {
 			} }),
 			herdr: { run: this.herdr.runFor("none"), events: this.herdr.events, api: this.herdr.api, watch: (cb: () => void, lost?: () => void) => (this.takeovers.push(cb), lost && this.losts.push(lost), () => {}) },
 			towers: {
-				recoverMs: 150, registerMs: 500, residentMs: 20, retryMs: [20], ally: this.ally, ...(this.refreshMs ? { refreshMs: this.refreshMs } : {}), standing: { ...FAST_STANDING, ...this.standingTimers }, ...(this.serverAllows ? {} : { allows: this.allows }), expose: (t: Towers) => void (this.expose = t),
+				recoverMs: 150, registerMs: 500, residentMs: 20, retryMs: [20], ally: this.ally, ...(this.refreshMs ? { refreshMs: this.refreshMs } : {}), standing: { ...FAST_STANDING, ...this.standingTimers }, ...(this.standingWait ? { standingWait: this.standingWait } : {}), ...(this.serverAllows ? {} : { allows: this.allows }), expose: (t: Towers) => void (this.expose = t),
 				link: async (body, from) => {
 					const b = body as Record<string, unknown>;
 					this.linkCalls.push({ body: b, from });

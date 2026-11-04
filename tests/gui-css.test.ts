@@ -132,6 +132,9 @@ test("zen.css: every rule is under the Zen view, the answer card has no Standard
 	assert.match(zen, /\.zen-opt[^{]*\{ min-width: 44px; min-height: 44px;/);
 	assert.ok(!/\[data-calm\]/.test(zen.replace(/\/\*[\s\S]*?\*\//g, "")), "calm stills nothing in Zen: the circle and the ground keep breathing (Z-D13)");
 	assert.match(zen, /\.zen-stage:has\(\.zen-company\) > \.zen-circle \{[^}]*animation-name: zen-breath-low;/, "the circle breathes behind the companion's log");
+	assert.match(zen, /\.zen-stage:has\(\.zen-company \.zen-rest\) > \.zen-circle \{[^}]*animation: none;[^}]*filter: blur\(\d+px\);[^}]*border-color: transparent;/, "the head's history veils the circle: blurred, its ring gone, so no line crosses the words");
+	assert.match(zen, /\.zen-company:has\(\.zen-rest\) \.zen-log :is\(\.notice, \.act\) \{ border: 0; background: transparent; \}/, "the head's history has no boxes: a tower's answer is quiet type");
+	assert.match(zen, /\.zen-company:has\(\.zen-rest\) \.zen-log \.act code \{[^}]*text-transform: none;/, "and a tool row is no capitals");
 	assert.match(zen, /@keyframes zen-breath-low \{ 0% \{ transform: scale\(0\.72\)[^}]*\} 40% \{ transform: scale\(1\)/);
 	assert.match(zen, /\.zen-drift i:last-child \{[^}]*animation: zen-tide 30s[^;]*, zen-wander 47s/, "the ground's tide is half a minute, and it wanders");
 	assert.match(zen, /@keyframes zen-wander \{ from \{ transform: translate3d\(/, "the wander moves by transform alone");

@@ -8,6 +8,7 @@ import type { Net, TowerService, Unit } from "../src/net.ts";
 import { alertsOf } from "../gui/alerts.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
+import { joined } from "../gui/zenhead.ts";
 import { hotkeyOf } from "../gui/hotkeys.ts";
 import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 import { El, page } from "./fake-dom.ts";
@@ -193,7 +194,7 @@ test("a refusal shows the server's words under the box with the low bowl, takes 
 	r.typed("do it");
 	r.enter();
 	await r.settle();
-	assert.equal(r.note(), "The head tower did not take it: The head tower is busy.");
+	assert.equal(r.note(), "The head tower did not take it: the head tower is busy.");
 	assert.equal(r.box().value, "do it", "the draft stays");
 	assert.deepEqual(r.calls.sound, ["low"]);
 	assert.deepEqual(r.lines(), [], "his line is taken back");
@@ -472,4 +473,10 @@ test("nothing in the strip counts anything: no number for the asks, the queue, o
 	await r.settle();
 	assert.equal(/\d/.test(r.strip()!.textContent), false, `no digit in what the strip says: ${r.strip()!.textContent}`);
 	assert.equal(r.by("zen-head-working")[0]!.hidden, true);
+});
+
+test("a refusal's reason reads after the colon in lower case when it is a plain English sentence, and an acronym or Chinese stays", () => {
+	assert.equal(joined("The head tower is busy."), "the head tower is busy.");
+	assert.equal(joined("API is down"), "API is down");
+	assert.equal(joined("主塔台忙碌"), "主塔台忙碌");
 });

@@ -26,7 +26,7 @@ test("the boss's turn, the head's final words, a forward, and an answer become l
 		["boss", "Start MP-4129 for me"],
 		["note", "→ MP Center tower"],
 		["head", "Handing it to MP Center."],
-		["note", "Answer from the MP Center tower (H12)"],
+		["note", "Answer from the MP Center tower"],
 		["head", "MP Center says main is open."],
 	]);
 	assert.equal(lines[0]!.at, Date.parse(at(1)));
@@ -117,4 +117,12 @@ test("the strip is at rest only when every shown line is at its rest level and n
 	assert.equal(fade.rested(["a", "b"], true), false, "held: the mindfulness line stays away");
 	assert.equal(fade.restAt(["a", "b"], false), CLEAR_MS + FADE_MS, "the time the last line gets there, for the one timer");
 	assert.equal(fade.restAt([], false), undefined);
+});
+
+test("the label of a tower's answer names the tower and never the ask's internal id", async () => {
+	for (const file of ["en", "zh-TW"]) {
+		const { readFile } = await import("node:fs/promises");
+		const label = JSON.parse(await readFile(new URL(`../gui/messages/${file}.json`, import.meta.url), "utf8")).head_from_tower as string;
+		assert.doesNotMatch(label, /\{ask\}/, file);
+	}
 });

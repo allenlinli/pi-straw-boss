@@ -1027,7 +1027,7 @@
 	"head_why_size": "the last one grew too large",
 	"head_why_unreadable": "the last one could not be resumed",
 	"head_forwarded": "→ {workspace} tower",
-	"head_from_tower": "Answer from the {workspace} tower ({ask})",
+	"head_from_tower": "Answer from the {workspace} tower",
 	"zen_head_label": "What the head tower said last",
 	"zen_head_hint": "Enter to talk to the head tower",
 	"zen_head_placeholder": "Tell the head tower what to do",

@@ -277,7 +277,7 @@ The keymap's gates stay: a key typed into a field is the field's, so `[`, `]`, H
 | `head_new` | The head tower said something new | 主塔台有新的話 |
 | `head_close` / `head_close_ask` | Close the head tower / Close the head tower? The conversation and its memory are kept. | 關閉主塔台 / 要關閉主塔台嗎？對話和記憶都會保留。 |
 | `head_ask` / `head_ask_done` | {workspace} · {age} · open / answered | {workspace}・{age}・交辦中 / 已回覆 |
-| `head_from_tower` | Answer from the {workspace} tower ({ask}) | {workspace} 塔台回覆（{ask}） |
+| `head_from_tower` | Answer from the {workspace} tower | {workspace} 塔台回覆 |
 | `head_forwarded` | → {workspace} tower | → {workspace} 塔台 |
 | `head_chapter` | New chapter · {date} · {why} | 新的一章・{date}・{why} |
 | `zen_head_hint` | Enter to talk to the head tower | 按 Enter 和主塔台說話 |

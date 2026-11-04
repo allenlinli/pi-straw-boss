@@ -363,6 +363,15 @@
 [data-view="zen"] .zen-head-note { margin: 0; min-height: 1.2em; color: var(--zen-clay); font-size: 0.9rem; text-align: left; }
 [data-view="zen"] .zen-head-note:empty { display: none; }
 [data-view="zen"] .zen-company .zen-rest { margin-top: 4px; padding-left: 0; }
+/* The head's history reads over the circle: the circle is veiled (blurred to a glow, its ring gone) so no line crosses the words; the boss's reading area is plain ink. */
+[data-view="zen"] .zen-stage:has(.zen-company .zen-rest) > .zen-circle { animation: none; transform: scale(1); opacity: 0.12; filter: blur(28px); border-color: transparent; }
+/* In the history the head's tower rows are quiet type, not boxes: a tower's answer and a forward are ash, no frame, no badge, no capitals. */
+[data-view="zen"] .zen-company:has(.zen-rest) .zen-log :is(.notice, .act) { border: 0; background: transparent; }
+[data-view="zen"] .zen-company:has(.zen-rest) .zen-log .notice > summary { color: var(--zen-ash); font: 400 0.95rem var(--sans); letter-spacing: 0.04em; }
+[data-view="zen"] .zen-company:has(.zen-rest) .zen-log .notice > summary :is(.ava, svg, em) { opacity: 0.7; }
+[data-view="zen"] .zen-company:has(.zen-rest) .zen-log .notice > summary em { flex: none; white-space: nowrap; font: 400 0.85rem var(--sans); letter-spacing: 0.04em; text-transform: none; }
+[data-view="zen"] .zen-company:has(.zen-rest) .zen-log .act code { color: var(--zen-ash); font: 400 0.9rem var(--sans); letter-spacing: 0.04em; text-transform: none; }
+[data-view="zen"] .zen-company:has(.zen-rest) .zen-log .act > summary { color: var(--zen-ash); }
 @media (max-width: 600px), (max-height: 560px) { /* a phone, or a short window: two lines (zenhead.ts), the strip inside the safe-area insets, a smaller circle so the strip has the room */
 	[data-view="zen"] .zen-head { width: 100%; }
 	[data-view="zen"] .zen-hl { font-size: 0.95rem; }

@@ -887,7 +887,7 @@
 	"head_why_size": "上一章太長了",
 	"head_why_unreadable": "上一章無法接續",
 	"head_forwarded": "→ {workspace} 塔台",
-	"head_from_tower": "{workspace} 塔台回覆（{ask}）",
+	"head_from_tower": "{workspace} 塔台回覆",
 	"zen_head_label": "主塔台最近說的話",
 	"zen_head_hint": "按 Enter 和主塔台說話",
 	"zen_head_placeholder": "交代主塔台要做的事",

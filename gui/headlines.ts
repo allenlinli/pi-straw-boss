@@ -48,7 +48,7 @@ export function headLines(items: readonly Item[]): HeadLine[] {
 		if (turn.kind === "boss") line(it, "boss", one(turn.body));
 		else if (turn.kind === "intercom") {
 			const fields = fieldsOf(turn.body), ask = fields?.["in-reply-to"];
-			if (fields?.kind === "tower_send" && ask && fields.workspace) line(it, "note", m.head_from_tower({ workspace: fields.workspace, ask }));
+			if (fields?.kind === "tower_send" && ask && fields.workspace) line(it, "note", m.head_from_tower({ workspace: fields.workspace }));
 		}
 	}
 	end();

@@ -60,13 +60,17 @@ export interface QueuedEvent {
 export const safe = (id: string) => id.replace(/[^A-Za-z0-9_-]/g, (c) => `.${c.charCodeAt(0).toString(16)}`);
 export const towersDir = (slot: Slot) => join(slot.dir, "tower");
 export const headDir = (slot: Slot) => join(slot.dir, "head");
+/** The key of the head's folder that is no Herdr id (a workspace id never starts with `@`): `towerDir(slot, HEAD_KEY)` is `head/` whether or not a head service stands, so the memory, the asks, and the conversation are reachable before the head exists and after it closed. */
+export const HEAD_KEY = "@head";
 /** The keys (a Herdr workspace id per slot) whose service keeps its files somewhere else than `tower/<id>/`: the head's, while its service stands. */
 const bound = new Map<string, string>();
 const boundKey = (slot: Slot, workspace: string) => `${slot.dir}\0${workspace}`;
 export const bindDir = (slot: Slot, workspace: string, dir: string): void => void bound.set(boundKey(slot, workspace), dir);
 export const unbindDir = (slot: Slot, workspace: string): void => void bound.delete(boundKey(slot, workspace));
-/** A service's folder: the one its key is bound to, else `tower/<id>/`. */
-export const towerDir = (slot: Slot, workspace: string) => bound.get(boundKey(slot, workspace)) ?? join(towersDir(slot), safe(workspace));
+/** A service's folder: the head's for its constant key, else the one the key is bound to, else `tower/<id>/`. */
+export const towerDir = (slot: Slot, workspace: string) => (workspace === HEAD_KEY ? headDir(slot) : bound.get(boundKey(slot, workspace)) ?? join(towersDir(slot), safe(workspace)));
+/** Where a service record lives, by what the record says it is and not by what its key is bound to: a reused workspace id cannot send a tower's record into `head/` or the head's into `tower/<id>/` (HH1-F001, F004). */
+const recordDir = (slot: Slot, workspace: string, kind?: "head") => (kind === "head" ? headDir(slot) : join(towersDir(slot), safe(workspace)));
 const SERVICE = "service.json", OPENED = "opened.json";
 /** What the ally runs of a workspace keep apart from the local run's files (allyroute.ts): their questions to local sessions, the answers to bring back, and the mains they opened. */
 export const ALLY_FILES = ["ally-routes.json", "ally-answers.json", "ally-opened.json"] as const;
@@ -111,12 +115,13 @@ export function readService(slot: Slot, workspace: string): ServiceRecord | unde
 }
 export function writeService(slot: Slot, service: ServiceRecord): void {
 	if (service.kind !== "head") secretDir(towersDir(slot));
-	ensureDir(towerDir(slot, service.workspace));
-	writeDurable(join(towerDir(slot, service.workspace), SERVICE), service);
+	const dir = recordDir(slot, service.workspace, service.kind);
+	ensureDir(dir);
+	writeDurable(join(dir, SERVICE), service);
 }
-/** Deletes `service.json` only: the queue stays for 24 h, so a tower reopened in that time gets it. */
-export const deleteService = (slot: Slot, workspace: string) => rmSync(join(towerDir(slot, workspace), SERVICE), { force: true });
-/** Every workspace that has a service record. */
+/** Deletes `service.json` only: the queue stays for 24 h, so a tower reopened in that time gets it. `kind` is the record's: the head's is in `head/`, a tower's in `tower/<id>/`. */
+export const deleteService = (slot: Slot, workspace: string, kind?: "head") => rmSync(join(recordDir(slot, workspace, kind), SERVICE), { force: true });
+/** Every workspace that has a service record, a workspace tower's: a `kind: "head"` record found in `tower/<id>/` (a write that raced a close) is not a second head. */
 export function listServices(slot: Slot): ServiceRecord[] {
 	let names: string[] = [];
 	try {
@@ -124,7 +129,7 @@ export function listServices(slot: Slot): ServiceRecord[] {
 	} catch { /* none yet */ }
 	return names.flatMap((name) => {
 		const found = readJson<unknown>(join(towersDir(slot), name, SERVICE));
-		return isService(found) ? [found] : [];
+		return isService(found) && found.kind !== "head" ? [found] : [];
 	});
 }
 

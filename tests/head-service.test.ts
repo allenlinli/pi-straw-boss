@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { FakeHerdr } from "./fakes.ts";
+import { FakeHerdr, settle } from "./fakes.ts";
 import { TowerWorld } from "./tower-world.ts";
-import { type Running, sleep, until } from "./server-world.ts";
+import { type Running, until } from "./server-world.ts";
 import { HEAD_LABEL, headTowerOf, isHead, TOWER_LABEL, type Workspace } from "../src/herdr.ts";
 import { fileOf, slotOf } from "../src/server/record.ts";
 import { callControl } from "../src/server/socket.ts";
-import { headDir, listServices, readQueue, readService } from "../src/server/towerstore.ts";
+import { fakeClock } from "./fake-clock.ts";
+import { HEAD_KEY, headDir, listServices, readQueue, readService, towerDir } from "../src/server/towerstore.ts";
 
 // The head service (docs/specs/2026-11-04-head-tower.md, H1; src/server/head.ts): a tower service of its own kind in a Herdr workspace the server makes on first use, with its state in `head/`.
 // A fake Herdr and fake pi-intercom clients, as the tower service's tests have (tests/server-towers.test.ts). No run is started: runs, the gate, and forwards are H2.
@@ -26,11 +27,20 @@ const started = async (over: Parameters<TowerWorld["start"]>[0] = {}) => {
 	await s.handle.ready;
 	return s;
 };
+/** A server whose clock the test owns (HH1-F007): the minute a Herdr restart is given to bring the tabs back ends when the test moves the clock, not when a sleep happens to be long enough. */
+const clocked = async () => {
+	const clock = fakeClock();
+	const s = await world.start({ herdr: { run: world.herdr.runFor("none"), events: world.herdr.events, api: world.herdr.api, watch: (cb: () => void, lost?: () => void) => (world.takeovers.push(cb), lost && world.losts.push(lost), () => {}), now: clock.now } });
+	await s.handle.ready;
+	return { s, clock };
+};
 const ask = (r: Running, cmd: Record<string, unknown>) => callControl(r.handle.endpoint, world.record()!.secret, cmd as { cmd: string }).then((x) => x.reply!);
 const head = () => world.expose!.head;
 const logText = () => readFileSync(fileOf(world.slot, "log"), "utf8");
 const folder = () => join(world.env.PI_CODING_AGENT_DIR!, "straw-boss-head");
 const createCalls = () => world.herdr.commands("workspace", "create");
+/** How many workspaces the server made for a head (a Herdr restart clears the fake's call log, so the workspaces are counted). */
+const headWorkspaces = () => world.herdr.workspaces.filter((w) => w.label === "Head tower").length;
 const mode = (path: string) => statSync(path).mode & 0o777;
 
 test("nothing is made before the head is first needed: a server with the tower service on shows no head workspace, no identity, no folder", async () => {
@@ -194,7 +204,7 @@ test("the tokens are written again at the refresh: a lapsed token comes back, on
 });
 
 test("after a Herdr restart the head is seated only in a tab with the crown: the crown tab is marked again, a tab with the radio tower glyph is a stranger's and ends the service", async () => {
-	const s = await started();
+	const { s, clock } = await clocked();
 	const got = await head().ensure();
 	world.herdr.restart();
 	for (const cb of world.takeovers) cb();
@@ -204,7 +214,8 @@ test("after a Herdr restart the head is seated only in a tab with the crown: the
 	world.herdr.restart();
 	world.herdr.tabs.find((t) => t.tab_id === got.tab)!.label = TOWER_LABEL;
 	for (const cb of world.takeovers) cb();
-	await sleep(250); // the minute a restore needs (150 ms in this world) is over: a tab that is not found now is lost
+	await settle(); // the events connection is acknowledged again (it opens the minute once more) before the clock moves
+	clock.advance(1000); // the minute a restore needs (150 ms in this world) is over on the server's clock: a tab that is not found now is lost
 	world.herdr.emit("workspace.moved", "workspace_moved", {});
 	await until(() => head().status() === undefined, "the stranger's tab to end the service");
 	assert.deepEqual(world.herdr.pane(got.pane).tokens, {}, "nothing is marked in a pane that is not the head's");
@@ -302,4 +313,143 @@ test("the prompt's poll answers as the head's (head: true), and the stand-in is 
 	} finally {
 		clearInterval(timer);
 	}
+});
+
+// --- the findings of the H1 review (HH1-F001 to F007) ------------------------------------------------------------------------------------------------------------------------------
+
+test("HH1-F001: a workspace id a stale tower service still holds is never bound to head/: ensure ends the stranger first, and the head comes up as sb-head with its files in head/", async () => {
+	const s = await started();
+	world.herdr.workspaces.push({ workspace_id: "w100", label: "Proj", tokens: {} });
+	world.herdr.addTab("w100:t1", "", "w100:p1", "shell");
+	assert.equal((await ask(s, { cmd: "ensure-tower", workspace: "w100" })).id, "sb-tower-w100");
+	// Herdr lost its session and numbers from the start again: the new head workspace gets the id the tower's workspace had.
+	world.herdr.lose();
+	const got = await head().ensure();
+	assert.equal(got.workspace, "w100");
+	assert.equal(got.id, "sb-head", "the head's identity, not the tower's");
+	assert.equal(got.opened, true);
+	assert.equal(world.client("sb-head")?.registered?.name, "head tower");
+	assert.equal(head().status()?.id, "sb-head");
+	assert.equal(world.expose!.status().length, 0, "the stranger's tower service is gone");
+	assert.equal(world.client("sb-tower-w100")?.connected, false);
+	// A look after it (the stale service must not be lost later and take the head's record with it).
+	world.herdr.emit("workspace.moved", "workspace_moved", {});
+	await world.expose!.takeover();
+	assert.equal(head().status()?.state, "live");
+	assert.equal(readService(world.slot, "w100")?.kind, "head");
+	assert.equal(existsSync(join(headDir(world.slot), "service.json")), true);
+	// The tower's files never went into head/.
+	assert.equal(world.expose!.memory("w100", { op: "read" }).status, 200);
+	assert.equal(existsSync(join(world.slot.dir, "tower", "w100", "memory.json")), false);
+});
+
+test("HH1-F001: a head workspace is crowned only by the head: a tower cannot be given to it, and nothing is made under tower/ for it", async () => {
+	const s = await started();
+	const got = await head().ensure();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: got.workspace });
+	assert.equal(reply.ok, false);
+	assert.equal(towerDir(world.slot, got.workspace), headDir(world.slot));
+	assert.equal(existsSync(join(world.slot.dir, "tower", got.workspace)), false);
+});
+
+test("HH1-F002: the workspace carries sb_head from the moment it is made, before it is moved to the first place, so no reader takes it for a base while the identity registers", async () => {
+	const seen: (string | undefined)[] = [];
+	const api = world.herdr.api;
+	world.herdr.api = async (method: string, params: object) => {
+		if (method === "workspace.move") seen.push(world.herdr.workspace((params as { workspace_id: string }).workspace_id).tokens.sb_head);
+		return api(method, params);
+	};
+	await started();
+	await head().ensure();
+	assert.deepEqual(seen, ["sb-head"]);
+});
+
+test("HH1-F003: an ask during the minute after a Herdr restart finds the head's crown tab under other ids and keeps the service: no new workspace, no lost conversation", async () => {
+	await clocked();
+	const got = await head().ensure();
+	world.herdr.restart();
+	for (const cb of world.takeovers) cb();
+	// The restored session names the crown tab's pane by another id.
+	world.herdr.pane(got.pane).pane_id = `${got.workspace}:p900`;
+	const again = await head().ensure();
+	assert.equal(again.opened, false, "the same service answers");
+	assert.equal(again.workspace, got.workspace);
+	assert.equal(headWorkspaces(), 1, "no second workspace");
+	// The record follows the crown tab (the look registers the identity again with the pane it stands in now).
+	await until(() => readService(world.slot, got.workspace)?.pane === `${got.workspace}:p900` && head().status()?.state === "live", "the record to follow the crown tab");
+});
+
+test("HH1-F003: an ask during the minute after a restart, with the head's tab not back yet, is refused as `being restored`: the service stays and nothing is made; after the minute a head that is not found is lost and made again", async () => {
+	const { clock } = await clocked();
+	const got = await head().ensure();
+	world.herdr.restart();
+	for (const cb of world.takeovers) cb();
+	world.herdr.panes = world.herdr.panes.filter((p) => p.pane_id !== got.pane);
+	world.herdr.tabs = world.herdr.tabs.filter((t) => t.tab_id !== got.tab);
+	await assert.rejects(head().ensure(), /being restored/);
+	assert.equal(head().status() !== undefined, true, "the service is not lost");
+	assert.equal(headWorkspaces(), 1);
+	assert.equal(readService(world.slot, got.workspace)?.id, "sb-head");
+	await settle();
+	clock.advance(1000);
+	const made = await head().ensure();
+	assert.equal(made.opened, true, "the minute is over: the head is made again");
+	assert.equal(headWorkspaces(), 2);
+});
+
+test("HH1-F005: with the head workspace not first (the move failed, or the boss dragged it), the first base's tower is keyed after the head, never tied with it", async () => {
+	world.herdr.failWorkspaceMove = true;
+	const s = await started();
+	const got = await head().ensure();
+	assert.notEqual(world.herdr.workspaces[0]!.workspace_id, got.workspace, "the head workspace is last");
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	await until(() => world.herdr.panes.find((p) => p.workspace_id === "wA" && p.tokens.sb_role === "tower" && p.tokens.sb_order), "the tower's key");
+	const keys = world.herdr.panes.filter((p) => p.tokens.sb_role === "tower" || p.tokens.sb_role === "head").map((p) => [p.tokens.sb_role, p.tokens.sb_order]);
+	assert.deepEqual(keys.sort(), [["head", "000.0"], ["tower", "001.0"]]);
+});
+
+test("HH1-F006: the head's workspace takes no main: `open-main` and `close-main` for it are refused by the tower service", async () => {
+	const s = await started();
+	const got = await head().ensure();
+	const opened = await ask(s, { cmd: "open-main", workspace: got.workspace, request: "work on it", sender: "x" });
+	assert.equal(opened.ok, false);
+	assert.match(String(opened.error), /head tower/i);
+	const closed = await ask(s, { cmd: "close-main", workspace: got.workspace, query: "x" });
+	assert.equal(closed.ok, false);
+	assert.match(String(closed.error), /head tower/i);
+	assert.deepEqual(world.herdr.commands("tab", "create").filter((c) => c.includes(got.workspace)), [], "no tab was opened in the head workspace");
+});
+
+test("HH1 (H3's way in): head/ is reachable by the constant key while no head service stands: the store resolves it, and the memory request writes there", async () => {
+	await started();
+	assert.equal(head().status(), undefined);
+	assert.equal(towerDir(world.slot, HEAD_KEY), headDir(world.slot));
+	const read = world.expose!.memory(HEAD_KEY, { op: "read" });
+	assert.equal(read.status, 200);
+	const added = world.expose!.memory(HEAD_KEY, { op: "add", kind: "standing", text: "forward by project", rev: (read.body as { rev: number }).rev });
+	assert.equal(added.status, 200);
+	assert.equal(existsSync(join(headDir(world.slot), "memory.json")), true);
+	assert.equal(existsSync(join(world.slot.dir, "tower", HEAD_KEY)), false);
+});
+
+test("HH1-F004: a look that was asking Herdr when the head closed does not write the record again: head/service.json stays gone, and the next start adopts nothing", async () => {
+	await clocked();
+	const got = await head().ensure();
+	world.herdr.restart();
+	for (const cb of world.takeovers) cb();
+	await settle();
+	// The look will find the crown tab under another id (Herdr kept neither id), and is held while it asks for the pane list.
+	world.herdr.pane(got.pane).pane_id = `${got.workspace}:p901`;
+	let release!: () => void;
+	world.herdr.paneListGate = new Promise<void>((resolve) => (release = resolve));
+	world.herdr.emit("workspace.moved", "workspace_moved", {});
+	await settle();
+	world.herdr.paneListGate = undefined; // the look in flight stays held on the promise it already awaits
+	await head().close();
+	assert.equal(existsSync(join(headDir(world.slot), "service.json")), false);
+	release();
+	await settle();
+	assert.equal(existsSync(join(headDir(world.slot), "service.json")), false, "the look's late write is not made");
+	assert.equal(head().status(), undefined);
+	assert.deepEqual(listServices(world.slot), []);
 });

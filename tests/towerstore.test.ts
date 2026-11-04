@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, statSync, utimesSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { appendEvent, bindDir, headDir, KEEP_MS, listServices, MAX_QUEUE, purgeAll, purgeQueues, putLedger, queueLength, readLedger, readQueue, readService, type ServiceRecord, towerDir, unbindDir, writeService } from "../src/server/towerstore.ts";
+import { appendEvent, bindDir, deleteService, HEAD_KEY, headDir, KEEP_MS, listServices, MAX_QUEUE, purgeAll, purgeQueues, putLedger, queueLength, readLedger, readQueue, readService, type ServiceRecord, towerDir, unbindDir, writeService } from "../src/server/towerstore.ts";
 import type { Slot } from "../src/server/record.ts";
 
 const slotIn = () => ({ dir: mkdtempSync(join(tmpdir(), "psb-tq-")) }) as Slot;
@@ -109,4 +109,49 @@ test("purgeQueues and purgeAll reach head/ too: the queue ages out after a day a
 	writeFileSync(join(headDir(slot), "runs", "r1.json"), "{}");
 	assert.ok(purgeAll(slot) >= 3, "service.json, the queue's file, the run's record");
 	assert.deepEqual(readdirSync(headDir(slot)).sort(), ["asks.json", "boss-session.json", "chapters.json", "memory.json"]);
+});
+
+// HH1-F004: a record is kept where its kind says, not where its key happens to be bound; the head's constant key reaches head/ with no head service standing.
+test("HH1-F004: a `kind: head` record is written to head/ whatever its key is bound to, and a tower's record to tower/<id>/ even while the same id is bound to head/", () => {
+	const slot = slotIn();
+	writeService(slot, head());
+	assert.equal(existsSync(join(headDir(slot), "service.json")), true, "unbound: still head/");
+	assert.equal(existsSync(join(slot.dir, "tower", "w9")), false);
+	bindDir(slot, "w9", headDir(slot));
+	const tower = { ...service(), workspace: "w9", id: "sb-tower-w9" };
+	writeService(slot, tower);
+	assert.equal(existsSync(join(slot.dir, "tower", "w9", "service.json")), true, "the tower's record is in its own folder");
+	assert.equal(readService(slot, "w9")?.kind, "head", "head/ keeps the head's record");
+	assert.deepEqual(listServices(slot).map((r) => r.id), ["sb-tower-w9"]);
+});
+
+test("HH1-F004: listServices skips a `kind: head` record found in tower/<id>/, so a head record that landed there is not adopted as a second head", () => {
+	const slot = slotIn();
+	mkdirSync(join(slot.dir, "tower", "w9"), { recursive: true });
+	writeFileSync(join(slot.dir, "tower", "w9", "service.json"), JSON.stringify(head()));
+	writeService(slot, service());
+	assert.deepEqual(listServices(slot).map((r) => r.id), ["sb-tower-wa"]);
+});
+
+test("HH1-F001: deleteService takes the record's kind: a tower's record is deleted from tower/<id>/ and the head's from head/, whatever the id is bound to", () => {
+	const slot = slotIn();
+	writeService(slot, head());
+	const tower = { ...service(), workspace: "w9" };
+	writeService(slot, tower);
+	bindDir(slot, "w9", headDir(slot));
+	deleteService(slot, "w9");
+	assert.equal(existsSync(join(slot.dir, "tower", "w9", "service.json")), false, "the tower's record went");
+	assert.equal(existsSync(join(headDir(slot), "service.json")), true, "the head's stays");
+	deleteService(slot, "w9", "head");
+	assert.equal(existsSync(join(headDir(slot), "service.json")), false);
+});
+
+test("HH1 (H3's way in): towerDir(HEAD_KEY) is head/ with nothing bound, and a bound Herdr id does not change it", () => {
+	const slot = slotIn();
+	assert.equal(towerDir(slot, HEAD_KEY), headDir(slot));
+	bindDir(slot, "w9", join(slot.dir, "elsewhere"));
+	assert.equal(towerDir(slot, HEAD_KEY), headDir(slot));
+	appendEvent(slot, { ...head(), workspace: HEAD_KEY }, event(1));
+	assert.equal(queueLength(slot, HEAD_KEY), 1);
+	assert.equal(existsSync(join(headDir(slot), "queue")), true);
 });

@@ -38,7 +38,7 @@ export function serverSource(ctx: Ctx, workspace: string, pid: number = process.
 			}
 			if (reply.ok === true && typeof reply.label === "string" && typeof reply.state === "string" && typeof reply.queued === "number" && typeof reply.leave === "boolean") {
 				// SAFETY: a state word this build does not know is shown as the server sent it (prompt.ts cleans it of control characters), not made into one it does.
-				return { kind: "state", answer: { label: reply.label, state: reply.state as ServiceState, queued: reply.queued, leave: reply.leave } };
+				return { kind: "state", answer: { label: reply.label, state: reply.state as ServiceState, queued: reply.queued, leave: reply.leave, ...(reply.head === true ? { head: true as const } : {}) } };
 			}
 			const error = String(reply.error ?? "no usable answer");
 			return reply.gone === true ? { kind: "gone", error } : { kind: "wait", why: error };

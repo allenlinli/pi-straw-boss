@@ -28,8 +28,9 @@ export function lookOf(env: NodeJS.ProcessEnv, terminal: boolean): Look {
 	return { color: !dumb && !env.NO_COLOR, ascii, clear: !dumb };
 }
 
-/** The radio tower glyph of the tower's tab (Nerd Font md-radio_tower). */
+/** The radio tower glyph of the tower's tab (Nerd Font md-radio_tower), and the crown of the head tower's (md-crown). */
 const TOWER = "\u{F043B}";
+const CROWN = "\u{F01A5}";
 const RESET = "\x1b[0m";
 /** Clears the visible screen and homes the cursor; the scrollback stays (the last run's output is still there to scroll to). */
 export const CLEAR = "\x1b[H\x1b[2J";
@@ -73,8 +74,8 @@ export function draw(look: Look) {
 	const paint = (style: Style[], text: string) => (look.color && text ? `\x1b[${style.map((s) => SGR[s]).join(";")}m${text}${RESET}` : text);
 	const mark = (glyph: string, ascii: string) => (look.ascii ? ascii : glyph);
 	return {
-		/** `󰐻 tower · Alpha`, bold. */
-		title: (text: string) => `${paint(["accent"], mark(TOWER, "#"))} ${paint(["bold"], look.ascii ? text.replace(" · ", " - ") : text)}`,
+		/** `󰐻 tower · Alpha`, bold; the head tower's title carries the crown. */
+		title: (text: string, head = false) => `${paint(["accent"], mark(head ? CROWN : TOWER, "#"))} ${paint(["bold"], look.ascii ? text.replace(" · ", " - ") : text)}`,
 		/** `● standing by`: the dot in the colour of the state, the words dim for a tower that stands by and plain otherwise. */
 		state: (state: string, words: string) => {
 			const s = (Object.hasOwn(STATES, state) ? STATES[state] : undefined) ?? UNKNOWN_STATE;

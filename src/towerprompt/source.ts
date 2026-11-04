@@ -10,6 +10,8 @@ export interface PollAnswer {
 	queued: number;
 	/** A run is starting (or the server is ending the service): the prompt gives the pane up. */
 	leave: boolean;
+	/** The service is the head tower's: its title carries the crown and says `head tower`, not the label of a workspace. */
+	head?: true;
 }
 /** The answer of one poll: the state; the server stands in for no tower here any more (the prompt ends for good); or no usable answer yet (the server is down, restarting, or still loading). */
 export type Polled = { kind: "state"; answer: PollAnswer } | { kind: "gone"; error?: string } | { kind: "wait"; why: string };

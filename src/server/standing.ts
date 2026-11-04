@@ -1,4 +1,4 @@
-import { type HerdrApi, type HerdrRun, type HerdrWorld, isStandin, type Pane, releaseStandin, reportStandin, type Sleep } from "../herdr.ts";
+import { type HerdrApi, type HerdrRun, type HerdrWorld, isStandin, type Pane, releaseStandin, reportStandin, type Sleep, STANDIN_HEAD } from "../herdr.ts";
 import { alive as pidAlive } from "../remote.ts";
 import type { Log } from "./log.ts";
 import type { ServiceStatus } from "./runs.ts";
@@ -46,6 +46,8 @@ export interface StandingTarget {
 	label(): string;
 	/** The standing pane now (the record's, which a Herdr restart may change). */
 	pane(): string;
+	/** The label the stand-in agent is reported under: `tower` (the default) or `head`. */
+	agent?: string;
 	/** Whether the identity is registered: nothing is typed or reported before. */
 	live(): boolean;
 	/** Whether the pane is proven to be the tower's own seat (typegate.ts `seatGate`, `proofGate`) for the pane as Herdr lists it in `pane` (the look's own reading); nothing is typed before. Absent: proven (a target that needs no proof). */
@@ -75,7 +77,7 @@ export interface StandingOptions {
 	alive?: (pid: number) => boolean;
 }
 /** What a prompt's poll is answered. */
-export type PromptReply = { ok: true; label: string; state: ServiceStatus["state"]; queued: number; leave: boolean } | { ok: false; error: string; gone?: true };
+export type PromptReply = { ok: true; label: string; state: ServiceStatus["state"]; queued: number; leave: boolean; head?: true } | { ok: false; error: string; gone?: true };
 
 interface Mine {
 	target: StandingTarget;
@@ -176,7 +178,7 @@ export function createStanding(o: StandingOptions) {
 	const unreport = async (m: Mine) => {
 		if (!m.reported) return;
 		m.reported = undefined;
-		await releaseStandin(api, m.target.pane()).catch(() => {});
+		await releaseStandin(api, m.target.pane(), m.target.agent).catch(() => {});
 	};
 	const report = async (m: Mine, pane: Pane | undefined, message: string) => {
 		// A label Herdr did not keep (it answered the report and the pane shows no stand-in at the next look) is counted; at the third in a row the server says so once and stops.
@@ -189,7 +191,7 @@ export function createStanding(o: StandingOptions) {
 			return;
 		}
 		try {
-			await reportStandin(api, m.target.pane(), message);
+			await reportStandin(api, m.target.pane(), message, m.target.agent);
 			m.reported = { message, at: now() };
 		} catch (cause) {
 			error("standin", `${m.target.workspace}: ${(cause as Error).message}`);
@@ -367,7 +369,7 @@ export function createStanding(o: StandingOptions) {
 			m.noStart = false;
 			m.lost = false;
 			const status = m.target.status();
-			return { ok: true, label: m.target.label(), state: status?.state ?? "standing", queued: status?.queued ?? 0, leave: m.leaving };
+			return { ok: true, label: m.target.label(), state: status?.state ?? "standing", queued: status?.queued ?? 0, leave: m.leaving, ...(m.target.agent === STANDIN_HEAD ? { head: true as const } : {}) };
 		},
 		/** Ctrl+D at the prompt: the shell is the boss's until a run takes the pane and ends, or Herdr restarts. */
 		async leave(workspace: string, pid: number): Promise<PromptReply | { ok: true }> {

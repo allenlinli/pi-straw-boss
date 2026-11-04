@@ -21,6 +21,8 @@ function systemLanguage(): string {
 export interface Texts {
 	/** The title: `tower · Alpha`. */
 	title(label: string): string;
+	/** The head tower's title. */
+	head: string;
 	/** The tower's state in words: `standing by`, `3 queued`, `running, 2 queued`. */
 	state(answer: Pick<PollAnswer, "state" | "queued">): string;
 	/** The key rows under the first state line. */
@@ -39,6 +41,7 @@ export interface Texts {
 
 const EN: Texts = {
 	title: (label) => `tower · ${label}`,
+	head: "head tower",
 	state: (a) => stateWord(a, { standing: "standing by", waking: "waking up", running: "running", closing: "closing", held: "held" }, (n) => `${n} queued`),
 	hints: [
 		{ keys: "⏎", plain: "Enter", text: "wake the tower with your message; alone, without one" },
@@ -57,6 +60,7 @@ const EN: Texts = {
 };
 const ZH: Texts = {
 	title: (label) => `塔台 · ${label}`,
+	head: "主塔台",
 	state: (a) => stateWord(a, { standing: "待命中", waking: "喚醒中", running: "執行中", closing: "收尾中", held: "已擱置" }, (n) => `${n} 則待處理`),
 	hints: [
 		{ keys: "⏎", plain: "Enter", text: "連同你輸入的訊息喚醒塔台；單按則不帶訊息" },

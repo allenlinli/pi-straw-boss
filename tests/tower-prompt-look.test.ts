@@ -197,3 +197,28 @@ test("a state named like an Object member is an unknown state, not a prototype l
 		assert.ok(line.endsWith(" words"), state);
 	}
 });
+
+test("the head tower's prompt carries the crown in its title and says `head tower`, in ASCII `# head tower` and in zh-TW 主塔台; a workspace tower's title is unchanged", async () => {
+	const CROWN = "\u{F01A5}";
+	const headSource = () => Object.assign(new Source(), { answers: [{ kind: "state", answer: { ...STATE, label: "Head tower", head: true } }] as Polled[] });
+	const nerd = open(headSource(), NERD_LOOK);
+	await until(() => /head tower/.test(nerd.text()), "the head's title");
+	assert.match(nerd.text().replace(SGR, ""), new RegExp(`${CROWN} head tower`));
+	assert.ok(!nerd.text().replace(SGR, "").split("\n").find((line) => /head tower/.test(line))!.includes(NERD), "no radio tower in the head's title");
+	nerd.input.end();
+	await nerd.done;
+	const ascii = open(headSource(), { color: false, ascii: true, clear: false });
+	await until(() => /# head tower/.test(ascii.text()), "the ASCII title");
+	ascii.input.end();
+	await ascii.done;
+	const zh = open(headSource(), NERD_LOOK, { locale: "zh-TW" });
+	await until(() => /主塔台/.test(zh.text()), "the zh-TW title");
+	assert.match(zh.text().replace(SGR, ""), new RegExp(`${CROWN} 主塔台`));
+	zh.input.end();
+	await zh.done;
+	const tower = open(new Source(), NERD_LOOK);
+	await until(() => /tower · Alpha/.test(tower.text()), "a tower's title");
+	assert.match(tower.text().replace(SGR, ""), new RegExp(`${NERD} tower · Alpha`));
+	tower.input.end();
+	await tower.done;
+});

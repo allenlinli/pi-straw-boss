@@ -1,6 +1,6 @@
 # The head tower as its own entity: one conversation with the boss, work forwarded to the towers
 
-Status: design, not built. Revision 2 (2026-11-04). The boss settled the direction on 2026-11-04 (**Decisions**) and answered O1 to O4 the same day, each as recommended (**Open decisions for the boss**).
+Status: design; step H1 (the head service) is built on `feat/head-tower`, H2 to H7 are not. Revision 2 (2026-11-04). The boss settled the direction on 2026-11-04 (**Decisions**) and answered O1 to O4 the same day, each as recommended (**Open decisions for the boss**).
 Base: pi-straw-boss 0.56.0 (`main` at `6346fa7`), pi 1.4.0, Herdr 0.9.5, Node 22 or newer.
 Related: [2026-10-26-sb-backend.md](2026-10-26-sb-backend.md) (the tower service, local runs, the boss conversation, tower memory), [2026-11-01-zen-view.md](2026-11-01-zen-view.md) (Zen: Z-D12, Z-D15, Z-D16), [2026-10-26-desk-mode.md](2026-10-26-desk-mode.md) (the desk's home base), `docs/how-it-works.md` (**Talking between towers**, **The standing pane**, **Local runs (B5)**, **The boss conversation**, **Sidebar net view**).
 
@@ -97,7 +97,7 @@ The head tower is a pi run in a pane of its own Herdr workspace, started and end
 | `asks.json` | the asks (**Forwarding**) |
 | `memory.json` | the head tower's own memory, the same form as a tower's (`/boss memory -w head`) |
 
-The tower store's functions take a service directory instead of `towerDir(slot, workspace)` (`ServiceRef.dir`). This refactor in `towerstore.ts`, `runs.ts`, `towermemory.ts`, and `towerrunstore.ts` comes first in H1 and changes no behaviour for workspace towers.
+The tower store's functions take a service directory instead of `towerDir(slot, workspace)` (`ServiceRef.dir`). This refactor in `towerstore.ts`, `runs.ts`, `towermemory.ts`, and `towerrunstore.ts` comes first in H1 and changes no behaviour for workspace towers. H1 built it as a binding in the store: `bindDir` ties the head's Herdr workspace id to `head/` while its service stands, and `towerDir` resolves every service's folder through it, so the modules above and their callers changed no signature (the head's `ServiceRecord` carries `kind: "head"`).
 
 ### Runs
 

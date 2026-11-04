@@ -113,6 +113,7 @@ test("the session view finds the head by its key as a tower of its own: a stand-
 	const hit = locate(net, "sb-head")!;
 	assert.deepEqual([hit.u.key, hit.u.name, hit.u.role, hit.u.mark, hit.u.control], ["sb-head", "head tower", "tower", "working", true]);
 	assert.equal(hit.base.id, "@head");
+	assert.equal(hit.u.head, true, "the chat names the head's words for it");
 	assert.equal(hit.base.tower, null, "no +Main and no Quit tower: the stand-in has no tower of the base's kind");
 	assert.deepEqual(hit.u.queued, [{ text: "boss: ship it", as: "followUp" }]);
 	assert.equal(locate({ bases: [] } as unknown as Net, "sb-head"), undefined, "no head on the net");
@@ -146,8 +147,8 @@ test("a chapter divider of the head's history is a chapter divider, not a branch
 test("the head's words are named for the head, its chapter divider speaks the page's language, and its composer says what it wakes", async () => {
 	const { speaker, chapterWhy } = await import("../gui/chat.ts");
 	const { placeholderOf } = await import("../gui/composer.ts");
-	assert.equal(speaker({ role: "tower", key: "@head" }), m.head_tower());
-	assert.equal(speaker({ role: "tower", key: "w1" }), m.role_tower());
+	assert.equal(speaker({ role: "tower", head: true }), m.head_tower());
+	assert.equal(speaker({ role: "tower" }), m.role_tower());
 	assert.equal(chapterWhy("first"), m.head_why_first());
 	assert.equal(chapterWhy("size"), m.head_why_size());
 	assert.equal(chapterWhy("later-code", "raw reason"), "raw reason", "a code this page does not know shows the text");

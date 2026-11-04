@@ -15,7 +15,7 @@ export type Found = { u: Who & { subs: Unit[] }; base: Base; squad?: string; lau
 /** The head tower as the comms read a tower: a stand-in base (the net has none for it: no +Main, no Quit tower) with a tower unit whose buttons are `api/head/…` (towermodel.ts `towerRoute`). */
 const headFound = (net: Net | undefined, key: string): Found | undefined => {
 	const head = net?.head;
-	return head?.key === key ? { u: { key, name: head.name, role: "tower", mark: head.mark, control: true, queued: head.queued, service: head.service, subs: [] }, base: { id: HEAD_KEY, label: head.name, mark: head.mark, tower: null, tabs: [], outposts: [], outside: [] } } : undefined;
+	return head?.key === key ? { u: { key, name: head.name, role: "tower", head: true, mark: head.mark, control: true, queued: head.queued, service: head.service, subs: [] }, base: { id: HEAD_KEY, label: head.name, mark: head.mark, tower: null, tabs: [], outposts: [], outside: [] } } : undefined;
 };
 export function locate(net: Net | undefined, key: string): Found | undefined {
 	const head = headFound(net, key);

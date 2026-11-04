@@ -355,24 +355,38 @@ test("a dead main's row is evicted before a live one's when the cap is reached, 
 	assert.equal(openedFor(world.slot, "wA", "s-new", now + 12), DEV1, "other rows stay");
 });
 
-test("below dispatch, with no Allow, a session another device holds and a session that does not exist are refused with the same words (RR2-F003)", async () => {
+test("below dispatch, with no Allow, a session that does not exist and a writable local session get the same answer, and neither says whether it exists (RR3-F002)", async () => {
 	const { s, id, token, run } = await allyRun();
 	assert.equal((await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}` })).ok, true);
 	await finish(s, id, token);
+	world.sessions.push({ id: "local-1", name: "docs-main" });
 	world.ally.level.set(DEV2, "reply");
 	world.ally.add("m2", DEV2, "probe");
 	world.expose?.allyWaiting("sb-tower-wa");
 	const other = await claim(s, 2);
 	const errors: string[] = [];
-	for (const to of ["opened-1", "no-such-session"]) {
-		const r = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to, message: "x", reply: false } });
+	for (const to of ["local-1", "docs-main", "no-such-session"]) for (const extra of [{}, { toolCallId: "call-1" }]) {
+		const r = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to, message: "x", reply: false }, ...extra });
 		assert.equal(r.ok, false);
-		errors.push(String(r.error));
+		errors.push(String(r.error).replace(to, "<to>"));
 	}
-	assert.equal(errors[0], errors[1]);
-	assert.doesNotMatch(errors.join(" "), /opened-1|no-such-session/, "the refusal does not repeat the name");
-	const withId = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "x", reply: false }, toolCallId: "call-1" });
-	assert.equal(withId.error, errors[0], "a call that carries a tool call id is refused the same way, and spends no Allow");
+	assert.equal(new Set(errors.filter((_, i) => i % 2 === 0)).size, 1, errors.join(" | "));
+	assert.equal(new Set(errors.filter((_, i) => i % 2 === 1)).size, 1, errors.join(" | "));
+	assert.match(errors[0]!, /needs the boss's confirm/);
+	const held = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "x", reply: false }, toolCallId: "call-2" });
+	assert.match(String(held.error), /may write to has that name or id/, "a main another device holds is still refused, with no Allow spent");
+});
+
+test("a working main that one broker read misses keeps its row while Herdr still shows its pane; it goes when both say gone (RR3-F001)", () => {
+	const t0 = Date.now(), min = 60_000, panes = new Set(["pane-M"]);
+	addRoute(world.slot, "wA", { ...opened(DEV1, "M", t0), pane: "pane-M" }, t0, new Set(["M"]), panes);
+	const t1 = t0 + 30 * min;
+	addRoute(world.slot, "wA", opened(DEV2, "N", t1), t1, new Set(["N"]), panes);
+	assert.equal(routeOf(world.slot, "wA", "M", t1)?.device, DEV1, "the pane is still there");
+	addRoute(world.slot, "wA", opened(DEV2, "O", t1 + 1), t1 + 1, new Set(["N", "O"]), undefined);
+	assert.equal(routeOf(world.slot, "wA", "M", t1 + 1)?.device, DEV1, "a failed pane read keeps the row");
+	addRoute(world.slot, "wA", opened(DEV2, "P", t1 + 2), t1 + 2, new Set(["N", "O", "P"]), new Set());
+	assert.equal(routeOf(world.slot, "wA", "M", t1 + 2), undefined, "broker and Herdr both say gone");
 });
 
 test("device B's run in another workspace's tower is refused a main opened for device A: the pane token is read across workspaces (RR2-F004)", async () => {

@@ -25,6 +25,8 @@ export interface Route extends Peer {
 	/** `expect`: one answer, then the route is spent; `opened`: every report of the main it opened. */
 	kind: "expect" | "opened";
 	at: number;
+	/** An `opened` route: the Herdr pane of the main, a second witness that it is still there when the broker's list misses it (RR3-F001). */
+	pane?: string;
 	/** An `opened` route: the ask id (of the message the run was answering) that the main's report answers with `inReplyTo`; until the run answers it. */
 	ask?: string;
 }
@@ -56,12 +58,13 @@ export const readRoutes = (slot: Slot, workspace: string, now: number) => read<R
 /**
  * A route for `row.to` and its device replaces the earlier one, except that an `expect` never sits beside an `opened` route of the same session, whichever device it is for: the opened route already relays every message
  * of the main to its device, and another route would take the main's next report (RR-F001, RR2-F001). The cap trims `expect` routes. `opened` rows are bounded per device and in all, the oldest first and rows of mains
- * that are gone before live ones; with `live` (the ids of the sessions the broker lists), a row of a main that is not listed and has been silent past a short grace is dropped (RR2-F002).
+ * that are gone before live ones; with `live` (the ids of the sessions the broker lists), a row of a main that is not listed and has been silent past a short grace is dropped (RR2-F002). A row that keeps its `pane` is dead only when Herdr's `panes` no longer
+ * show that pane either, and a read of the panes that failed (`panes` undefined) keeps it: one broker read that misses a working main must not cost it its route (RR3-F001).
  */
-export function addRoute(slot: Slot, workspace: string, row: Route, now: number, live?: ReadonlySet<string>): void {
+export function addRoute(slot: Slot, workspace: string, row: Route, now: number, live?: ReadonlySet<string>, panes?: ReadonlySet<string>): void {
 	const was = readRoutes(slot, workspace, now);
 	if (row.kind === "expect" && was.some((r) => r.to === row.to && r.kind === "opened")) return;
-	const rest = [...was.filter((r) => !(r.to === row.to && r.device === row.device)), row], dead = (r: Route) => live !== undefined && !live.has(r.to);
+	const rest = [...was.filter((r) => !(r.to === row.to && r.device === row.device)), row], dead = (r: Route) => live !== undefined && !live.has(r.to) && !(r.pane !== undefined && (panes === undefined || panes.has(r.pane)));
 	// Dead rows first, then the oldest; the row being added is never the one to go.
 	const order = (a: Route, b: Route) => Number(dead(b)) - Number(dead(a)) || a.at - b.at;
 	const gone = new Set<Route>(rest.filter((r) => r.kind === "opened" && r !== row && dead(r) && now - r.at > DEAD_GRACE_MS));

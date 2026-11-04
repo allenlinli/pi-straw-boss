@@ -68,17 +68,17 @@ export interface ToolHost {
 	now(): number;
 }
 
-/** The one refusal of an ally `tower_reply` target: it does not say whether the session exists, is ambiguous, or is held for another device, and it does not repeat what the run named (RR2-F003). */
+/** The refusal of an ally `tower_reply` target held for another device; it does not repeat what the run named. A target that does not exist, or is ambiguous, is not refused here: it goes on to the gate like one that exists, so a run below `dispatch` is told the same of both and learns nothing about what sessions exist (RR3-F002). */
 const NO_TARGET = "tower_reply has no such target: no session of this computer that an ally run may write to has that name or id";
 
 /**
  * A main opened for one device reports to that device: another device's write, with its expected reply, would take the next report (spec 2026-11-04-link-relay.md, Wrong thread). Two witnesses say who it was opened for:
  * this workspace's route table, which only the server writes, and the main's own pane token (`sb_opened_by`, kept while it lives, in any workspace). Either one naming another device refuses the write, so a token a local
- * process can set never outvotes the table (RR2-F001). The check runs before the gate, so a refusal spends no Allow, and it says the same of a session that does not exist.
+ * process can set never outvotes the table (RR2-F001). The check runs before the gate, so a refusal spends no Allow. A target that is missing or ambiguous passes it: the gate and the lookup after it answer as they do for any target.
  */
 async function refuseTarget(host: ToolHost, query: string): Promise<void> {
 	const net = await host.reach.read(), named = net.sessions.filter((s) => s.id === query || s.name === query);
-	if (named.length !== 1) throw new Error(NO_TARGET);
+	if (named.length !== 1) return;
 	const token = net.ps.find((p) => p.pane_id === named[0]!.herdrLocation?.paneId)?.tokens?.sb_opened_by;
 	const byToken = typeof token === "string" && token.startsWith("link:") ? token.replace(/^(link:)+/, "") : undefined;
 	for (const held of [byToken, host.openedFor?.(named[0]!.id)]) if (held !== undefined && held !== host.who.device) throw new Error(NO_TARGET);

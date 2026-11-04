@@ -40,7 +40,7 @@ export function inside(dir: string, root: string): boolean {
 
 let refused = 0;
 /** A refusal of the guard: recorded under the run's root (the process fails when it ends unless a test asserted it and took the record, `consumeRefusals`), then thrown. */
-function refuse(message: string, proc: NodeJS.ProcessEnv): never {
+export function refuse(message: string, proc: NodeJS.ProcessEnv): never {
 	if (proc[TEST_ROOT]) {
 		mkdirSync(join(proc[TEST_ROOT], REFUSALS_DIR), { recursive: true });
 		writeFileSync(join(proc[TEST_ROOT], REFUSALS_DIR, `${process.pid}-${refused++}`), message);

@@ -206,6 +206,15 @@ The plugin starts reaping as soon as it is installed or linked, with no trial ru
 Run `bash herdr-reaper/run.sh reaper.mjs dry-run` first to see what it would do, and pin the workspaces you want to keep (the pin action works once the plugin is linked, and a `config.json` with `only_under` can be put in the plugin's config directory before that).
 [How it works](docs/how-it-works.md#worktree-reaper) has the rules and the limits.
 
+## Process hygiene
+
+Every pi loads a small extension that marks its environment, so what a worker's bash starts carries the worker's id even when `timeout` or `setsid` moved it to a process group of its own.
+A pi-herdr-agents worker registers with the sb server; when the worker quits or its pane closes, the server stops what it left (SIGTERM, then SIGKILL after 10 s, each step checked by pid and start time) and logs one `procs-reaped` line.
+`worktree_remove` and a bash `git worktree remove` are refused while a process works in the checkout, with the pid, program name, CPU and age of each holder and the command that reaps them: `node dist/server/cli.mjs procs reap --checkout <path>`.
+`cli.mjs procs` lists the workers the server knows.
+Heavy-command slots, Linux cgroups and a runaway-process watchdog are planned for a later release.
+[How it works](docs/how-it-works.md#process-hygiene-and-slots) has the rules and the limits.
+
 ## Learn more
 
 [How it works](docs/how-it-works.md) covers roles, the tower, the dashboard, the browser view, what the extension writes, and how Claude Code or Codex sessions join the net.

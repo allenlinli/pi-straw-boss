@@ -81,6 +81,8 @@ export class ServerWorld {
 			prepare: (slot) => secretDir(slot.dir),
 			// A server that models Windows on another platform listens inside this world's folder: its pipe name would be a socket file at the top of the folder the test runs in (the isolation guard's stray).
 			...(over.platform === "win32" && process.platform !== "win32" ? { endpoint: join(this.slot.dir, "pipe.sock") } : {}),
+			// The owner registry reads no process table of this machine (a test of it gives its own).
+			procs: { read: async () => [], startOf: () => undefined },
 			herdrUp: async () => true, watch: () => () => {}, touchMs: 30, brokerMs: 1500, herdrPollMs: 30, herdrGoneMs: 200, sleep,
 			// The GUI the server serves binds ports of its own; the machine's Tailscale and link holder are not asked.
 			gui: { bundle, tailscale: noTailscale, link: noLink, bindWaitMs: 200 },

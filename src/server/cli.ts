@@ -12,6 +12,7 @@ import { ACL_TOKEN } from "./acl.ts";
 import { baseFolder, type DeskRecord, deskLockFor, ensureIntegration, makeBase, readDesk, stillBase } from "./desk.ts";
 import { ensureTowerVia } from "./towerclient.ts";
 import { onFatal } from "./fatal.ts";
+import { runProcs } from "./procscli.ts";
 import { callControl, ControlError } from "./socket.ts";
 import { logSize, readFrom, tailLog } from "./log.ts";
 import { clearStartError, clearStopped, fileOf, readRecord, readStartError, type ServerRecord, slotOf, type StartError } from "./record.ts";
@@ -32,11 +33,13 @@ const USAGE = `usage: cli.mjs up [--dir FOLDER --label NAME] [--timeout SECONDS]
        cli.mjs stop | status
        cli.mjs restart [--reason TEXT] [--by TEXT] [--downgrade]
        cli.mjs logs [--lines N] [--follow]
+       cli.mjs procs [list]
+       cli.mjs procs reap (--owner ID | --checkout PATH)   (kill what an ended worker left; refused while a live worker works in the checkout)
        cli.mjs prompt --workspace ID [--state-dir DIR]   (the tower prompt of a standing pane: the server types it)`;
 export class UsageError extends Error {}
 const FLAGS: Record<string, { value: string[]; switch: string[] }> = {
 	up: { value: ["timeout", "dir", "label"], switch: ["exact"] }, serve: { value: [], switch: [] }, stop: { value: [], switch: [] }, status: { value: [], switch: [] },
-	restart: { value: ["reason", "by"], switch: ["downgrade"] }, logs: { value: ["lines"], switch: ["follow"] }, prompt: { value: ["workspace", "state-dir"], switch: [] }, run: { value: ["by", "detach", "detach-reason", "acl-token"], switch: ["detached"] },
+	restart: { value: ["reason", "by"], switch: ["downgrade"] }, logs: { value: ["lines"], switch: ["follow"] }, prompt: { value: ["workspace", "state-dir"], switch: [] }, procs: { value: ["owner", "checkout"], switch: [] }, run: { value: ["by", "detach", "detach-reason", "acl-token"], switch: ["detached"] },
 };
 export interface Args { command: string; flags: Record<string, string | true> }
 export function parseArgs(argv: string[]): Args {
@@ -45,6 +48,12 @@ export function parseArgs(argv: string[]): Args {
 	const allowed = FLAGS[command];
 	if (!allowed) throw new UsageError(`unknown command ${command}\n${USAGE}`);
 	const flags: Record<string, string | true> = {};
+	// `procs` has a word of its own: `list` (the default) or `reap`.
+	if (command === "procs") {
+		const sub = rest[0] !== undefined && !rest[0].startsWith("--") ? rest.shift()! : "list";
+		if (sub !== "list" && sub !== "reap") throw new UsageError(`unknown procs command ${sub}\n${USAGE}`);
+		flags.sub = sub;
+	}
 	for (let i = 0; i < rest.length; i++) {
 		const flag = rest[i]!.replace(/^--/, "");
 		if (!rest[i]!.startsWith("--")) throw new UsageError(`unexpected argument ${rest[i]}\n${USAGE}`);
@@ -56,6 +65,7 @@ export function parseArgs(argv: string[]): Args {
 	}
 	if ((flags.dir === undefined) !== (flags.label === undefined)) throw new UsageError(`--dir and --label go together: the desk steps need both\n${USAGE}`);
 	if (flags.dir !== undefined && (!String(flags.dir).trim() || !String(flags.label).trim())) throw new UsageError("--dir and --label are not empty");
+	if (command === "procs" && (flags.sub === "reap" ? (flags.owner === undefined) === (flags.checkout === undefined) : flags.owner !== undefined || flags.checkout !== undefined)) throw new UsageError(`procs reap needs --owner or --checkout, one of them; list takes neither\n${USAGE}`);
 	if (flags.timeout !== undefined && !(Number(flags.timeout) > 0)) throw new UsageError("--timeout is a number of seconds");
 	if (flags.lines !== undefined && !(Number.isInteger(Number(flags.lines)) && Number(flags.lines) > 0)) throw new UsageError("--lines is a positive whole number");
 	return { command, flags };
@@ -151,6 +161,7 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
 			case "serve": return await serve();
 			case "run": return await runDetached();
 			case "prompt": return await promptCommand();
+			case "procs": return await runProcs(ctx, flags, { out: json, err });
 		}
 	} catch (error) {
 		if (error instanceof ServerError) return fail(error);

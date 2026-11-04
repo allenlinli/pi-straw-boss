@@ -232,15 +232,20 @@ export function findRetainer(roots, manifests, now, idleMs, panes = null) {
 /**
  * The first process whose cwd is the checkout or below it. `processes` are `{ pid, name, cwd }` for the user's processes anywhere on
  * the machine, not only Herdr's panes; `ignorePids` are the idle shells of panes this run closes (a dry run).
+ * The message ends with the command that stops what an ended worker left (`cli.mjs procs reap`, the sb server's owner registry): the plugin
+ * only refuses, it never kills, and cannot know where the package is installed, so it names the package and the `dist/server/cli.mjs` in it, `<pi-straw-boss>` standing for where it is installed.
  * @returns {string | null}
  */
 export function findProcessHolder(roots, processes, ignorePids = new Set()) {
 	for (const process of processes) {
 		if (ignorePids.has(process.pid) || !roots.some((root) => within(process.cwd, root))) continue;
-		return `process ${process.name ?? "unknown"} (pid ${process.pid}) is working in it (${process.cwd})`;
+		return `process ${process.name ?? "unknown"} (pid ${process.pid}) is working in it (${process.cwd}); if an ended worker left it, stop it with \`node <pi-straw-boss>/dist/server/cli.mjs procs reap --checkout ${shellQuote(roots[0])}\` (\`cli.mjs procs\` lists what the sb server knows)`;
 	}
 	return null;
 }
+
+/** One shell word: single quotes, a quote inside the text closed, escaped and reopened. */
+const shellQuote = (text) => `'${String(text).replace(/'/g, `'\\''`)}'`;
 
 /**
  * Whether a checkout may be removed after its workspace closed. A dirty tree stays on disk; so does a detached HEAD no branch

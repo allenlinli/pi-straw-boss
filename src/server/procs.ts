@@ -18,6 +18,10 @@ import { writeJson } from "./record.ts";
 export const OWNERS_FILE = "owners.json";
 export const TICK_MS = 10_000, SLOW_TICK_MS = 30_000, SLOW_AFTER_MS = 1000;
 const ID = /^[A-Za-z0-9._-]{1,64}$/;
+/** How many times a reap whose cwd rule was left out (Herdr's panes unknown) is tried again at a tick. */
+export const DEFER_MAX = 3;
+/** Programs that are never a worker's pi. */
+const SHELLS = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh"]);
 /** The most descendants one owner's snapshot keeps. */
 const SNAPSHOT_MAX = 2000;
 
@@ -26,7 +30,7 @@ export interface Hello { pid: number; started?: string; id?: string; subagentId?
 export interface OwnerRecord {
 	id: string; pid: number; started: string; roots: string[]; snapshot: Ref[]; subagentId?: string; pane?: string; terminal?: string; cwd?: string; helloAt: number; seenAt: number;
 	/** Set when the owner ends. `left`: the reap ran and something stayed alive, so the record stays for `reap`; without it the reap has not finished (a restart resumes it). */
-	ended?: { at: number; reason: string; left?: boolean };
+	ended?: { at: number; reason: string; left?: boolean; /** The cwd rule was left out of the reap because the live panes were not known: tries so far; the next ticks try again until `DEFER_MAX`. */ retry?: number };
 }
 export interface PaneEvent { event: string; data: Record<string, unknown> }
 export interface ProcsDeps {
@@ -45,7 +49,7 @@ export interface ProcsDeps {
 	/** What is never signalled besides the other live owners: the Herdr server, live panes' shells and foregrounds, sb servers, the intercom broker. Read at each reap. */
 	protect?: (table: readonly Proc[]) => Promise<Protect[]>;
 	/** The panes Herdr lists now with their terminal and working folder: how a pane event without a terminal is told from a reused id, and which linked worktrees a live session (not an owner) works in. Throwing means unknown. */
-	panes?: () => Promise<{ pane_id: string; terminal_id?: string; cwd?: string }[]>;
+	panes?: () => Promise<{ pane_id: string; terminal_id?: string; cwd?: string; workspace_id?: string }[]>;
 	/** The workspaces of Herdr that are linked worktrees, with their checkout folder (a pane that closes in one with no owner gets the cwd rule). Throwing means unknown. */
 	workspaces?: () => Promise<{ workspace_id: string; checkout_path: string }[]>;
 	/** The physical path of a folder (symlinks resolved), and whether it is there. */
@@ -58,7 +62,7 @@ export interface ProcsDeps {
 	ownUid?: number;
 	platform?: NodeJS.Platform;
 }
-export interface ReapResult { owner: string; reason: string; targets: number; termed: number; killed: number; skipped: number; left: { pid: number; comm: string }[]; spared: number }
+export interface ReapResult { owner: string; reason: string; targets: number; termed: number; killed: number; skipped: number; left: { pid: number; comm: string }[]; spared: number; /** The cwd rule was left out: the live panes of Herdr were not known, so the reap did not risk a session's orphans. */ deferred?: boolean }
 export interface OwnerRow { id: string; pid: number; started: string; live: boolean; roots: string[]; snapshot: number; pane?: string; subagentId?: string; endedReason?: string }
 export interface Procs {
 	/** Loads the records, reaps the owners that ended while the server was down, and takes the first tick (its cost is logged once). */
@@ -93,11 +97,18 @@ export function createProcs(d: ProcsDeps): Procs {
 	const linked = new Map<string, string>();
 	/** The roots a pane-close reap is running for, so the pane.exited and pane.closed of one pane do not run it twice. */
 	const busy = new Set<string>();
+	/** The ended owners whose reap is running now. */
+	const running = new Set<OwnerRecord>();
 	let tickEvery = TICK_MS, ticking: Promise<void> | undefined;
 
+	// A write that fails (no space, the folder gone) is one log line: the registry goes on in memory, and nothing of the server depends on this file.
 	const save = () => {
-		mkdirSync(folder, { recursive: true, mode: 0o700 });
-		writeJson(file, { v: 1, owners: [...owners.values()] });
+		try {
+			mkdirSync(folder, { recursive: true, mode: 0o700 });
+			writeJson(file, { v: 1, owners: [...owners.values()] });
+		} catch (error) {
+			d.log("procs-error", { text: `owners.json was not written (${(error as NodeJS.ErrnoException).code ?? (error as Error).name})` });
+		}
 	};
 	const load = () => {
 		try {
@@ -124,24 +135,73 @@ export function createProcs(d: ProcsDeps): Procs {
 	};
 	const overlap = (a: string, b: string) => under(a, b) || under(b, a);
 
+	/**
+	 * The linked worktrees where a live pane of Herdr works that is not `subject`'s, and whether that is known. A pane without a folder is placed by its workspace's checkout; one that cannot be placed
+	 * (no workspace, or the workspaces cannot be read) makes the answer unknown.
+	 */
+	async function heldRoots(subject: OwnerRecord): Promise<{ roots: string[]; unknown: boolean }> {
+		if (!d.panes) return { roots: [], unknown: false };
+		let panes: Awaited<ReturnType<NonNullable<ProcsDeps["panes"]>>> | undefined;
+		try {
+			panes = await d.panes();
+		} catch { /* unknown */ }
+		if (!Array.isArray(panes)) return { roots: [], unknown: true };
+		const roots: string[] = [];
+		let unknown = false, looked: boolean | undefined;
+		for (const p of panes) {
+			if (p.pane_id === subject.pane) continue;
+			if (p.cwd) {
+				roots.push(...rootsOf(p.cwd));
+				continue;
+			}
+			if (!p.workspace_id) {
+				unknown = true;
+				continue;
+			}
+			looked ??= await lookAtWorkspaces();
+			const place = linked.get(p.workspace_id);
+			if (place) roots.push(...rootsOf(place));
+			else if (!looked) unknown = true;
+		}
+		return { roots, unknown };
+	}
+	/**
+	 * A hello is a pi's word about itself, and its snapshot later becomes a kill list: so a pid that is the Herdr server, a pane's shell, this server, an sb server or the intercom broker, a shell, or a process that has
+	 * Herdr or a pane's shell below it (a terminal app, tmux) is refused. A pane's foreground is not on this list: the worker's pi is that.
+	 */
+	async function refuseProtected(pid: number, table: readonly Proc[]): Promise<void> {
+		const proc = table.find((p) => p.pid === pid && !p.zombie);
+		if (!proc) return;
+		const no = (what: string) => new ProcsRefusal(`procs-hello: pid ${pid} is ${what}, not a pi`);
+		if (SHELLS.has(baseName(proc.comm).replace(/^-/, ""))) throw no("a shell");
+		if (self.includes(pid)) throw no("this server");
+		const named = ((await d.protect?.(table)) ?? []).filter((p) => p.why !== "pane-foreground");
+		const hit = named.find((p) => p.pid === pid && (p.started === undefined || p.started === proc.started));
+		if (hit) throw no(`protected (${hit.why})`);
+		const below = new Set(descendants(table, [pid]).map((p) => p.pid));
+		if (named.some((p) => (p.why === "herdr" || p.why === "pane") && below.has(p.pid))) throw no("above Herdr or a pane's shell");
+	}
 	/** The kill set of one owner on a fresh table, and the kill sequence over it. */
 	async function reapSet(subject: OwnerRecord, reason: string, explicit = false): Promise<ReapResult> {
 		const table = await read();
 		if (!table) throw new Error("the process table could not be read; nothing was signalled");
 		// By record, not by id: a new hello under the id of the ended owner is a live owner this reap must spare.
 		const live = [...owners.values()].filter((o) => !o.ended && o !== subject && alive(table, o)).map(owned);
-		// The linked worktrees where a pane works that is no owner's (a main, Claude Code, Codex): the cwd rule keeps out of them. An explicit `reap --checkout` is the caller's word and skips this.
-		const held = explicit || !subject.roots.length ? [] : (await d.panes?.().catch(() => []) ?? []).filter((p) => p.pane_id !== subject.pane && p.cwd).flatMap((p) => rootsOf(p.cwd));
-		const orphans = subject.roots.length ? table.filter((p) => !p.zombie && isOrphan(p, reapersOf(table))) : [];
+		// The linked worktrees where a pane works that is no owner's (a main, Claude Code, Codex): the cwd rule keeps out of them. An explicit `reap --checkout` is the caller's word and skips this. When the panes are not
+		// known (Herdr does not answer, a pane's place cannot be told) the cwd rule is left out of this reap: unknown is not "no session there".
+		const { roots: held, unknown } = explicit || !subject.roots.length ? { roots: [], unknown: false } : await heldRoots(subject);
+		if (unknown) d.log("procs-held-unknown", { owner: subject.id, reason });
+		const owner = unknown ? { ...owned(subject), roots: [] } : owned(subject);
+		const orphans = owner.roots.length ? table.filter((p) => !p.zombie && isOrphan(p, reapersOf(table))) : [];
 		const found = await cwdsOf(orphans.map((p) => p.pid));
 		const places = new Map<number, Place>();
 		for (const [pid, cwd] of found) places.set(pid, { path: cwd.path, removed: classifyCwd(cwd, inode(cwd.path)) === "removed" });
 		const markers = await markersOf(table.filter((p) => !p.zombie).map((p) => p.pid));
 		const protect = (await d.protect?.(table)) ?? [];
-		const { targets, spared } = killSet({ owner: owned(subject), live, table, places, markers, protect, reapers: reapersOf(table), self, held, ...(d.ownUid !== undefined ? { ownUid: d.ownUid } : {}) });
+		const { targets, spared } = killSet({ owner, live, table, places, markers, protect, reapers: reapersOf(table), self, held, ...(d.ownUid !== undefined ? { ownUid: d.ownUid } : {}) });
 		const report: KillReport = targets.length ? await reap(targets.map((t) => refOf(t.proc))) : { termed: 0, killed: 0, skipped: 0, groups: 0, left: [] };
-		const result: ReapResult = { owner: subject.id, reason, targets: targets.length, termed: report.termed, killed: report.killed, skipped: report.skipped, left: report.left, spared: spared.length };
-		d.log("procs-reaped", { owner: subject.id, reason, targets: targets.length, termed: report.termed, killed: report.killed, left: report.left.length, protected: spared.length });
+		const result: ReapResult = { owner: subject.id, reason, targets: targets.length, termed: report.termed, killed: report.killed, skipped: report.skipped, left: report.left, spared: spared.length, ...(unknown ? { deferred: true } : {}) };
+		d.log("procs-reaped", { owner: subject.id, reason, targets: targets.length, termed: report.termed, killed: report.killed, left: report.left.length, protected: spared.length, ...(unknown ? { deferred: true } : {}) });
 		return result;
 	}
 	/** The user's `systemd --user` adopts orphans on Linux (a subreaper): a process named systemd whose parent is init. */
@@ -157,6 +217,7 @@ export function createProcs(d: ProcsDeps): Procs {
 	}
 	/** The reap of an ended owner. What it does to the registry is keyed by the record: the id may belong to a newer owner by the time a slow reap ends. */
 	function reapEnded(record: OwnerRecord, reason: string): Promise<void> {
+		running.add(record);
 		const work = reapSet(record, reason).then(
 			(result) => {
 				const current = owners.get(record.id) === record;
@@ -164,6 +225,12 @@ export function createProcs(d: ProcsDeps): Procs {
 					d.log("procs-left", { owner: record.id, count: result.left.length, programs: result.left.map((l) => l.comm).slice(0, 5).join(",") });
 					record.snapshot = [];
 					if (record.ended) record.ended.left = true;
+				} else if (result.deferred) {
+					// The snapshot and marker rules ran; the cwd rule waits for the panes to be known. The record stays for the next ticks, and then for `reap`.
+					if (record.ended) {
+						record.ended.retry = (record.ended.retry ?? 0) + 1;
+						if (record.ended.retry >= DEFER_MAX) (record.ended.left = true, d.log("procs-error", { owner: record.id, text: "the live panes of Herdr stayed unknown; orphans in its worktree are left for procs reap" }));
+					}
 				} else if (current) owners.delete(record.id);
 				if (current) save();
 			},
@@ -173,28 +240,33 @@ export function createProcs(d: ProcsDeps): Procs {
 				record.ended = { at: d.now(), reason: `${reason}; reap failed` };
 				if (owners.get(record.id) === record) save();
 			},
-		);
+		).finally(() => void running.delete(record));
 		pending.add(work);
-		void work.finally(() => pending.delete(work));
+		work.finally(() => pending.delete(work)).catch(() => undefined);
 		return work;
 	}
 	/** A pane closed in a linked worktree with no owner: the orphans that work in the checkout (and what they started) are killed, unless a live owner or pane works there too. */
 	async function reapWorkspace(ws: string | undefined, pane: string, reason: string): Promise<void> {
-		if (ws && !linked.has(ws)) await lookAtWorkspaces();
-		const root = ws ? rootsOf(linked.get(ws))[0] : undefined;
+		// The workspace is looked at on every such event: Herdr may reuse an id, and a workspace that closed with its pane is gone from the list (its last known place is then the one).
+		const before = ws ? linked.get(ws) : undefined;
+		if (ws) await lookAtWorkspaces();
+		const root = ws ? rootsOf((ws ? linked.get(ws) : undefined) ?? before)[0] : undefined;
 		if (!root || busy.has(root)) return;
 		busy.add(root);
-		const subject: OwnerRecord = { id: `pane-${pane}`.slice(0, 64), pid: -1, started: "", roots: [root], snapshot: [], pane, helloAt: d.now(), seenAt: d.now() };
-		const work = reapSet(subject, reason).then(() => void 0, (error: Error) => d.log("procs-error", { owner: subject.id, text: error.message.slice(0, 200) })).finally(() => void busy.delete(root));
+		// The id is outside what an owner may be called, so the marker rule never matches a process that carries a name like it.
+		const subject: OwnerRecord = { id: `(pane ${pane})`.slice(0, 64), pid: -1, started: "", roots: [root], snapshot: [], pane, helloAt: d.now(), seenAt: d.now() };
+		const work = reapSet(subject, reason).then((result) => void (result.deferred && d.log("procs-error", { owner: subject.id, text: "the live panes of Herdr are unknown; orphans in the worktree are left for procs reap" })), (error: Error) => d.log("procs-error", { owner: subject.id, text: error.message.slice(0, 200) })).finally(() => void busy.delete(root));
 		pending.add(work);
-		void work.finally(() => pending.delete(work));
+		work.finally(() => pending.delete(work)).catch(() => undefined);
 		await work;
 	}
-	const lookAtWorkspaces = async () => {
+	/** Whether Herdr's workspaces were read; the map keeps its last state when they were not. */
+	const lookAtWorkspaces = async (): Promise<boolean> => {
 		const found = await d.workspaces?.().catch(() => undefined);
-		if (!found) return;
+		if (!found) return false;
 		linked.clear();
 		for (const w of found) linked.set(w.workspace_id, w.checkout_path);
+		return true;
 	};
 
 	async function takeTick(): Promise<void> {
@@ -216,13 +288,13 @@ export function createProcs(d: ProcsDeps): Procs {
 			if (next.length !== r.snapshot.length || next.some((s, i) => !sameProc(s, r.snapshot[i] ?? { pid: -1, started: "" }))) (r.snapshot = next, changed = true);
 			r.seenAt = d.now();
 		}
-		// An owner whose reap could not run (no table) is tried again.
+		// An owner whose reap could not run (no table) is tried again, and so is one whose cwd rule was left out because Herdr's panes were not known.
 		for (const r of owners.values()) {
 			if (r.ended?.reason.endsWith("; reap failed")) {
 				const reason = r.ended.reason.slice(0, -"; reap failed".length);
 				r.ended = undefined;
 				void end(r, reason);
-			}
+			} else if (r.ended && r.ended.retry !== undefined && !r.ended.left && !running.has(r)) void reapEnded(r, r.ended.reason);
 		}
 		if (changed) save();
 	}
@@ -234,7 +306,7 @@ export function createProcs(d: ProcsDeps): Procs {
 			for (const r of [...owners.values()]) {
 				// A reap that a restart cut off (the record is ended but not finished) is run again; one that left something stays for `reap`.
 				if (r.ended) {
-					if (!r.ended.left && !r.ended.reason.endsWith("; reap failed")) void reapEnded(r, r.ended.reason);
+					if (!r.ended.left && r.ended.retry === undefined && !r.ended.reason.endsWith("; reap failed")) void reapEnded(r, r.ended.reason);
 					continue;
 				}
 				if (table && !alive(table, r)) void end(r, "gone while the server was down");
@@ -254,6 +326,7 @@ export function createProcs(d: ProcsDeps): Procs {
 			const table = await read();
 			const started = table ? table.find((p) => p.pid === h.pid && !p.zombie)?.started : probe(h.pid);
 			if (!started || (h.started !== undefined && h.started !== started)) throw new ProcsRefusal("procs-hello: that pid is not a process of this account with that start time");
+			if (table) await refuseProtected(h.pid, table);
 			const known = owners.get(id);
 			if (known && !known.ended && (known.pid !== h.pid || known.started !== started)) {
 				// Another pi under the id of a live one: an id collision (a nested pi inherits its parent's subagent id) must not end the live owner and kill its tree.
@@ -321,8 +394,9 @@ export function createProcs(d: ProcsDeps): Procs {
 				const table = await read();
 				if (table && alive(table, r)) throw new ProcsRefusal(`owner ${id} (pid ${r.pid}) is alive; reap works on an owner that has ended`);
 			}
-			const result = await reapSet(r, "reap", true);
-			if (!result.left.length && owners.get(id) === r) (owners.delete(id), save());
+			// Not explicit: an owner is named, not a checkout, and its caller does not know whether a session works in that root now.
+			const result = await reapSet(r, "reap");
+			if (!result.left.length && !result.deferred && owners.get(id) === r) (owners.delete(id), save());
 			return result;
 		},
 		async reapCheckout(path) {
@@ -340,8 +414,8 @@ export function createProcs(d: ProcsDeps): Procs {
 			}
 			const live = [...holders(physicalPath), ...holders(root)];
 			if (live.length) throw new ProcsRefusal(`a live owner works in ${path}: ${[...new Set(live)].map((h) => `${h.id} (pid ${h.pid})`).join(", ")}`);
-			const known = [...owners.values()].find((r) => r.roots.some((r2) => overlap(root!, r2)));
-			const subject: OwnerRecord = known ?? { id: "checkout", pid: -1, started: "", roots: [root], snapshot: [], helloAt: d.now(), seenAt: d.now() };
+			const known = [...owners.values()].find((r) => r.roots.some((r2) => r2 === root));
+			const subject: OwnerRecord = known ?? { id: "(checkout)", pid: -1, started: "", roots: [root], snapshot: [], helloAt: d.now(), seenAt: d.now() };
 			const result = await reapSet(subject, "reap", true);
 			if (known && !result.left.length && owners.get(known.id) === known) (owners.delete(known.id), save());
 			return result;
@@ -394,7 +468,9 @@ export async function protectedSet(table: readonly Proc[], { run, stateDir, agen
 			for (const pane of listed) {
 				try {
 					const info = (JSON.parse(await run(["pane", "process-info", "--pane", pane.pane_id])) as { result?: { process_info?: { shell_pid?: number; foreground_processes?: { pid?: number }[] } } }).result?.process_info;
-					for (const pid of [info?.shell_pid, ...(info?.foreground_processes ?? []).map((f) => f.pid)]) if (typeof pid === "number" && pid > 1) out.push({ pid, why: "pane" });
+					// The shell and the foreground are told apart: a worker's pi is its pane's foreground, and a hello may not name a shell.
+					if (typeof info?.shell_pid === "number" && info.shell_pid > 1) out.push({ pid: info.shell_pid, why: "pane" });
+					for (const f of info?.foreground_processes ?? []) if (typeof f.pid === "number" && f.pid > 1) out.push({ pid: f.pid, why: "pane-foreground" });
 				} catch { /* the pane closed meanwhile */ }
 			}
 		} catch { /* Herdr does not answer */ }

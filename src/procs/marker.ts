@@ -53,7 +53,14 @@ export async function readOwners(pids: readonly number[], { run: ask = run, plat
 	}
 	for (let i = 0; i < pids.length; i += CHUNK) {
 		const chunk = pids.slice(i, i + CHUNK);
-		for (const [pid, id] of parseOwnerRows(await ask("ps", ["-E", "-ww", "-o", "pid=,command=", "-p", chunk.join(",")]), new Set(chunk))) out.set(pid, id);
+		let text = "";
+		try {
+			text = await ask("ps", ["-E", "-ww", "-o", "pid=,command=", "-p", chunk.join(",")]);
+		} catch (error) {
+			// ps exits 1 with nothing printed when none of the pids of the chunk exists any more: an empty answer for this chunk, not a failure of the others.
+			if ((error as { code?: unknown }).code !== 1) throw error;
+		}
+		for (const [pid, id] of parseOwnerRows(text, new Set(chunk))) out.set(pid, id);
 	}
 	return out;
 }

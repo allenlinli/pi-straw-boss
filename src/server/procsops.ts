@@ -64,7 +64,7 @@ export function startProcs(o: StartProcs): Procs {
 	const procs = createProcs({
 		dir: o.dir, now: o.now, log: o.log, self: [o.pid], platform: o.platform, ...(process.getuid ? { ownUid: process.getuid() } : {}),
 		protect: (table) => protectedSet(table, { run: o.run, stateDir: o.stateDir, agentDir: o.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), self: o.pid }),
-		panes: async () => (await herdrPanes(o.run)).map((p) => ({ pane_id: p.pane_id, ...(p.terminal_id ? { terminal_id: p.terminal_id } : {}), ...(p.cwd ? { cwd: p.cwd } : {}) })),
+		panes: async () => (await herdrPanes(o.run)).map((p) => ({ pane_id: p.pane_id, ...(p.terminal_id ? { terminal_id: p.terminal_id } : {}), ...(p.cwd ? { cwd: p.cwd } : {}), ...(p.workspace_id ? { workspace_id: p.workspace_id } : {}) })),
 		workspaces: async () => (await herdrWorkspaces(o.run)).flatMap((w) => (w.worktree?.is_linked_worktree && w.worktree.checkout_path ? [{ workspace_id: w.workspace_id, checkout_path: w.worktree.checkout_path }] : [])),
 		...quiet, ...o.over,
 	});

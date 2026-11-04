@@ -24,9 +24,11 @@ afterEach(() => {
 
 /** A linked worktree on disk: a folder whose `.git` is a file into `<repo>/.git/worktrees/<name>`. */
 function worktree(name: string) {
-	const dir = join(root, name);
+	const dir = join(root, name), gitdir = join(root, "repo", ".git", "worktrees", name);
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, ".git"), `gitdir: ${join(root, "repo", ".git", "worktrees", name)}\n`);
+	mkdirSync(gitdir, { recursive: true });
+	writeFileSync(join(dir, ".git"), `gitdir: ${gitdir}\n`);
+	writeFileSync(join(gitdir, "gitdir"), `${join(dir, ".git")}\n`);
 	return dir;
 }
 
@@ -50,7 +52,7 @@ function fakePi() {
 
 interface Rig { calls: Record<string, unknown>[]; asked: string[]; ticks: (() => void)[]; notes: string[]; pi: ReturnType<typeof fakePi>; env: Record<string, string>; load(): void; ctx(cwd?: string): object; tracked: Promise<unknown>[]; settle(): Promise<void> }
 /** One pi with the extension loaded; `server` answers the control socket (undefined: no server). */
-function rig(o: { env?: Record<string, string>; platform?: string; argv?: string[]; table?: object[]; cwds?: Record<number, string>; markers?: Record<number, string>; server?: (request: object) => object | undefined; git?: string | Error; workspaces?: object[]; pid?: number } = {}): Rig {
+function rig(o: { env?: Record<string, string>; platform?: string; argv?: string[]; table?: object[]; cwds?: Record<number, string>; markers?: Record<number, string>; server?: (request: object) => object | undefined; git?: string | Error; workspaces?: object[] | Error; idle?: Record<string, number[] | Error>; pid?: number; terminal?: () => Promise<string | undefined> } = {}): Rig {
 	const calls: Record<string, unknown>[] = [], asked: string[] = [], ticks: (() => void)[] = [], notes: string[] = [], tracked: Promise<unknown>[] = [];
 	const env = { ...(o.env ?? {}) };
 	const pi = fakePi();
@@ -65,8 +67,17 @@ function rig(o: { env?: Record<string, string>; platform?: string; argv?: string
 			if (o.git instanceof Error) throw o.git;
 			return o.git ?? "";
 		},
-		workspaces: async () => o.workspaces ?? [],
-		terminalOf: async (pane) => `term-of-${pane}`,
+		workspaces: async () => {
+			if (o.workspaces instanceof Error) throw o.workspaces;
+			return o.workspaces ?? [];
+		},
+		idleShells: async (workspace) => {
+			asked.push(`idle ${workspace}`);
+			const idle = o.idle?.[workspace];
+			if (idle instanceof Error) throw idle;
+			return idle ?? [];
+		},
+		terminalOf: async (pane) => (asked.push("terminal"), o.terminal ? o.terminal() : `term-of-${pane}`),
 		every: (fn) => (ticks.push(fn), () => void ticks.splice(ticks.indexOf(fn), 1)),
 		cli: () => "node '/pkg/dist/server/cli.mjs'",
 		track: (done) => void tracked.push(done),
@@ -336,8 +347,8 @@ test("words, removeTargets, parseWorktreeList and the text of age and cpu", () =
 
 test("with the real process table: a child that works in the checkout holds the removal until it is gone", async () => {
 	const wt = worktree("feat-real");
-	// A node child of this test, in the checkout; it ends by itself (the unref'd exit timer) if the test does not reach its kill.
-	const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1 << 30)"], { cwd: wt, stdio: "ignore" });
+	// A node child of this test, in the checkout; it ends by itself (its own exit timer) if the test does not reach its kill.
+	const child = spawn(process.execPath, ["-e", "setTimeout(() => process.exit(3), 120000)"], { cwd: wt, stdio: "ignore" });
 	const gone = new Promise((resolve) => child.once("exit", resolve));
 	const exit = setTimeout(() => process.exit(3), 120_000);
 	exit.unref();
@@ -355,4 +366,185 @@ test("with the real process table: a child that works in the checkout holds the 
 	} finally {
 		child.kill("SIGKILL");
 	}
+});
+
+const callRemove = async (r, target, cwd = root) => r.pi.fire("tool_call", { toolName: "worktree_remove", input: { target } }, r.ctx(cwd));
+const WS = (id: string, path: string, linked = true) => ({ workspace_id: id, worktree: { is_linked_worktree: linked, checkout_path: path } });
+
+test("T3R-F001: a retained idle pane shell of the target workspace is not a holder; a busy foreground, a shell Herdr cannot vouch for, and a shell of another workspace are", async () => {
+	const wt = worktree("feat-x");
+	const base = { table: [proc(700, { comm: "zsh" }), proc(701, { ppid: 700 }), proc(702, { comm: "zsh" })], workspaces: [WS("w7", wt), WS("w8", join(root, "other"))] };
+	// 700 is the idle shell of w7; 701 runs in its foreground (its pane is not idle); 702 is a shell of workspace w8 working in the same folder.
+	const cwds = { 700: wt, 701: wt, 702: wt };
+	const idle = rig({ ...base, cwds, idle: { w7: [700], w8: [702] } });
+	idle.load();
+	const out = await callRemove(idle, "w7");
+	assert.equal(out.block, true);
+	assert.match(out.reason, /refused: 2 processes work in /);
+	assert.ok(!out.reason.includes("pid 700 "), "the idle shell of the target workspace is exempt");
+	assert.ok(out.reason.includes("pid 701 ") && out.reason.includes("pid 702 "), "a child of the shell and the shell of another workspace still hold");
+	assert.deepEqual(idle.asked.filter((a) => a.startsWith("idle")), ["idle w7"], "only workspaces of the checkout are asked");
+
+	const only = rig({ ...base, table: [proc(700, { comm: "zsh" })], cwds: { 700: wt }, idle: { w7: [700] } });
+	only.load();
+	assert.equal(await callRemove(only, "w7"), undefined, "worker done, only its idle shell left: the removal passes");
+	assert.equal(await callRemove(only, wt), undefined, "by path too");
+
+	const cannot = rig({ ...base, table: [proc(700, { comm: "zsh" })], cwds: { 700: wt }, idle: { w7: new Error("pane closed") } });
+	cannot.load();
+	assert.equal((await callRemove(cannot, "w7")).block, true, "Herdr cannot say: the shell stays a holder");
+
+	const listFails = rig({ ...base, table: [proc(700, { comm: "zsh" })], cwds: { 700: wt }, workspaces: new Error("herdr down") });
+	listFails.load();
+	assert.equal((await callRemove(listFails, wt)).block, true, "no workspace list: nothing is exempt");
+
+	const bash = rig({ ...base, table: [proc(700, { comm: "zsh" })], cwds: { 700: wt }, idle: { w7: [700] } });
+	bash.load();
+	const attempt = async (command) => (await bash.pi.fire("tool_call", { toolName: "bash", input: { command } }, bash.ctx()))?.block === true;
+	assert.equal(await attempt("herdr worktree remove --workspace w7"), false);
+	assert.equal(await attempt(`git worktree remove ${wt}`), false);
+});
+
+test("T3R-F002: git's unique trailing path components name a worktree too", async () => {
+	const feat = worktree("feat-x"), other = join(root, "wts", "feat-y");
+	mkdirSync(other, { recursive: true });
+	const list = (...paths) => paths.map((p, i) => `worktree ${p}\nHEAD abc\nbranch refs/heads/b${i}\n`).join("\n");
+	const holder = { table: [proc(501)], cwds: { 501: feat } };
+	const repo = join(root, "repo");
+	mkdirSync(repo, { recursive: true });
+	const r = rig({ ...holder, git: list(repo, feat) });
+	r.load();
+	assert.equal((await callRemove(r, "feat-x", repo))?.block, true, "the last component, from the main checkout where no such folder exists");
+	assert.equal((await callRemove(r, "feat-x/", repo))?.block, true, "with a trailing slash");
+	assert.equal(await callRemove(r, "nothing", repo), undefined);
+	const long = rig({ table: [proc(501)], cwds: { 501: other }, git: list(repo, other, feat) });
+	long.load();
+	assert.equal((await callRemove(long, "wts/feat-y", repo))?.block, true, "several trailing components");
+	assert.equal(await callRemove(long, "ts/feat-y", repo), undefined, "a part of a component is no component");
+	const twice = rig({ ...holder, git: list(repo, feat, join(root, "elsewhere", "feat-x")) });
+	twice.load();
+	assert.equal(await callRemove(twice, "feat-x", repo), undefined, "two worktrees ending alike: git refuses it itself");
+	const main = rig({ table: [proc(501)], cwds: { 501: repo }, git: list(repo, feat) });
+	main.load();
+	assert.equal(await callRemove(main, "repo", root), undefined, "the main checkout is never a target, even as the unique suffix");
+});
+
+test("T3R-F003: a look at git or Herdr that cannot run blocks the removal and says so", async () => {
+	const wt = worktree("feat-x");
+	const holder = { table: [proc(501)], cwds: { 501: wt } };
+	const gitDown = rig({ ...holder, git: new Error("git timed out") });
+	gitDown.load();
+	const byBranch = await callRemove(gitDown, "feat/y");
+	assert.equal(byBranch.block, true);
+	assert.match(byBranch.reason, /check for running processes in the checkout failed \(git timed out\)/);
+	const viaBash = await gitDown.pi.fire("tool_call", { toolName: "bash", input: { command: "git worktree remove feat/y" } }, gitDown.ctx());
+	assert.equal(viaBash.block, true);
+	const herdrDown = rig({ ...holder, git: "", workspaces: new Error("herdr down") });
+	herdrDown.load();
+	const byId = await callRemove(herdrDown, "w7");
+	assert.equal(byId.block, true, "a workspace id with no workspace list");
+	assert.match(byId.reason, /herdr down/);
+	const herdrBash = await herdrDown.pi.fire("tool_call", { toolName: "bash", input: { command: "herdr worktree remove --workspace w7" } }, herdrDown.ctx());
+	assert.equal(herdrBash.block, true);
+	// A plain git command never asks Herdr, so a Herdr that is not there costs a git user nothing.
+	const gitOnly = rig({ table: [], git: "", workspaces: new Error("herdr down") });
+	gitOnly.load();
+	assert.equal(await gitOnly.pi.fire("tool_call", { toolName: "bash", input: { command: "git worktree remove feat/y" } }, gitOnly.ctx()), undefined);
+});
+
+test("T3R-F008: herdr worktree remove without --workspace takes the caller's workspace, or is blocked when this pi does not know it", async () => {
+	const wt = worktree("feat-x");
+	const holder = { table: [proc(501)], cwds: { 501: wt }, workspaces: [WS("w7", wt)] };
+	const known = rig({ ...holder, env: { HERDR_WORKSPACE_ID: "w7" } });
+	known.load();
+	const attempt = async (r, command) => r.pi.fire("tool_call", { toolName: "bash", input: { command } }, r.ctx());
+	assert.equal((await attempt(known, "herdr worktree remove --force"))?.block, true, "the workspace of the caller is the target");
+	const unknown = rig({ ...holder });
+	unknown.load();
+	const out = await attempt(unknown, "herdr worktree remove");
+	assert.equal(out.block, true);
+	assert.match(out.reason, /name it with --workspace/);
+	assert.equal(await attempt(unknown, "git worktree remove"), undefined, "git without a target fails by itself");
+});
+
+test("T3R-F004: a hello that outlives its session reads nothing from the stale ctx and rejects nowhere", async () => {
+	let stale = false;
+	const gate = Promise.withResolvers();
+	const r = rig({ pid: 4200, env: { PI_SUBAGENT_ID: "w1", HERDR_PANE_ID: "p_9" }, terminal: () => gate.promise, server: () => ({ ok: false, error: "the owner id is in use" }) });
+	const ctx = {
+		get cwd() { if (stale) throw new Error("This extension ctx is stale"); return "/work/tree"; },
+		get sessionManager() { if (stale) throw new Error("This extension ctx is stale"); return { getSessionFile: () => "/sessions/w.jsonl" }; },
+		get ui() { if (stale) throw new Error("This extension ctx is stale"); return { notify: (text: string) => void r.notes.push(text) }; },
+	};
+	r.load();
+	await r.pi.fire("session_start", { reason: "startup" }, ctx);
+	stale = true; // /reload: the session is replaced while the hello waits for Herdr
+	gate.resolve("term-1");
+	const results = await Promise.allSettled(r.tracked.splice(0));
+	assert.deepEqual(results.map((x) => x.status), ["fulfilled"], "the hello does not reject");
+	assert.equal(r.calls[0].cwd, "/work/tree", "the folder and the session file were read while the ctx was live");
+	assert.equal(r.calls[0].sessionFile, "/sessions/w.jsonl");
+	assert.equal(r.notes.length, 1, "the refusal is still told, through the ui read at the start");
+});
+
+test("T3R-F004: a failing background step is swallowed where it is spawned", async () => {
+	const r = rig({ pid: 4200, env: { PI_SUBAGENT_ID: "w1" }, server: () => { throw new Error("socket exploded"); } });
+	r.load();
+	await r.pi.fire("session_start", { reason: "startup" }, r.ctx());
+	r.ticks[0]();
+	const results = await Promise.allSettled(r.tracked.splice(0));
+	assert.ok(results.every((x) => x.status === "fulfilled"));
+});
+
+test("T3R-F009: the terminal of the pane is asked of Herdr once per session start, however often hello is repeated", async () => {
+	const r = rig({ pid: 4200, env: { PI_SUBAGENT_ID: "w1", HERDR_PANE_ID: "p_9" } }); // no server
+	r.load();
+	await r.pi.fire("session_start", { reason: "startup" }, r.ctx());
+	await r.settle();
+	for (let i = 0; i < 3; i++) {
+		r.ticks[0]();
+		await r.settle();
+	}
+	assert.equal(r.calls.length, 4, "a hello at every beat while no server runs");
+	assert.equal(r.asked.filter((a) => a === "terminal").length, 1);
+	await r.pi.fire("session_start", { reason: "reload" }, r.ctx());
+	await r.settle();
+	assert.equal(r.asked.filter((a) => a === "terminal").length, 2, "a new session start asks again");
+});
+
+test("T3R-F007: the main checkout is never a target, even with a process in it", async () => {
+	const wt = worktree("feat-x"), repo = join(root, "repo");
+	const porcelain = `worktree ${repo}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${wt}\nHEAD def\nbranch refs/heads/feat/x\n`;
+	const r = rig({ table: [proc(501)], cwds: { 501: repo }, git: porcelain });
+	r.load();
+	assert.equal(await callRemove(r, "main"), undefined, "a process in the main checkout does not block a removal of the branch it is on");
+	assert.equal(await callRemove(r, repo), undefined, "nor by its path");
+});
+
+test("T3R-F005: commands are split on operators outside quotes only, and the words decide", () => {
+	assert.deepEqual(removeTargets("bash -c 'cd /x; git worktree remove wt'", "/w"), [{ target: "wt", cwd: "/x", via: "git" }], "a cd inside the quotes of bash -c moves that command's folder");
+	assert.deepEqual(removeTargets(`git worktree remove "/tmp/a;b"`, "/w"), [{ target: "/tmp/a;b", cwd: "/w", via: "git" }]);
+	assert.deepEqual(removeTargets("(cd /other) ; git worktree remove wt", "/w"), [{ target: "wt", cwd: "/w", via: "git" }], "a subshell's cd ends with it");
+	assert.deepEqual(removeTargets("(cd /other && git worktree remove wt)", "/w"), [{ target: "wt", cwd: "/other", via: "git" }]);
+	assert.deepEqual(removeTargets(`git worktree "remove" wt`, "/w"), [{ target: "wt", cwd: "/w", via: "git" }], "quotes inside the subcommand");
+	assert.deepEqual(removeTargets(`git "worktree" 're'move wt`, "/w"), [{ target: "wt", cwd: "/w", via: "git" }]);
+	assert.deepEqual(removeTargets(`git commit -m 'x; git worktree remove wt'`, "/w"), []);
+	assert.deepEqual(removeTargets(`git commit -m "x && git worktree remove wt" && echo`, "/w"), []);
+	assert.deepEqual(removeTargets("git worktree remove wt > /dev/null 2>&1", "/w"), [{ target: "wt", cwd: "/w", via: "git" }], "redirections are not targets");
+	assert.deepEqual(removeTargets("git worktree remove wt 2>/dev/null &", "/w"), [{ target: "wt", cwd: "/w", via: "git" }]);
+	assert.deepEqual(removeTargets("echo a & git worktree remove wt", "/w"), [{ target: "wt", cwd: "/w", via: "git" }], "a lone & ends a command");
+	assert.deepEqual(removeTargets("cd /x\ngit worktree remove wt", "/w"), [{ target: "wt", cwd: "/x", via: "git" }], "a newline ends a command");
+	assert.deepEqual(removeTargets("echo $(cd /y; pwd); git worktree remove wt", "/w"), [{ target: "wt", cwd: "/w", via: "git" }], "a command substitution's cd ends with it");
+	assert.deepEqual(removeTargets("herdr worktree remove", "/w"), [{ target: "", cwd: "/w", via: "herdr" }], "no workspace named: the caller's");
+	assert.deepEqual(removeTargets("herdr worktree remove --force", "/w"), [{ target: "", cwd: "/w", via: "herdr" }]);
+});
+
+test("a bash command that spells the subcommand with quotes is guarded, and tokenizing costs no I/O for one that removes nothing", async () => {
+	const wt = worktree("feat-x");
+	const r = rig({ table: [proc(501)], cwds: { 501: wt } });
+	r.load();
+	const attempt = async (command) => (await r.pi.fire("tool_call", { toolName: "bash", input: { command } }, r.ctx()))?.block === true;
+	assert.equal(await attempt(`git worktree "remove" ${wt}`), true);
+	assert.equal(await attempt(`git commit -m 'git worktree remove ${wt}'`), false);
+	assert.equal(await attempt(`bash -c 'cd ${root}; git worktree remove feat-x'`), true);
 });

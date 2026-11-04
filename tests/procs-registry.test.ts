@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { createProcs, ProcsRefusal, type ProcsDeps } from "../src/server/procs.ts";
+import { createProcs, DEFER_MAX, ProcsRefusal, type ProcsDeps } from "../src/server/procs.ts";
 import type { KillReport } from "../src/procs/kill.ts";
 import type { Proc, Ref } from "../src/procs/table.ts";
 import { fakeClock } from "./fake-clock.ts";
@@ -21,7 +21,7 @@ afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, f
 function world(over: Partial<ProcsDeps> = {}, d = dir) {
 	const w = {
 		table: [P(100, 1), P(101, 100), P(102, 101), P(200, 1), P(300, 1)] as Proc[], reaped: [] as Ref[][], log: [] as { event: string; facts: Record<string, unknown> }[], clock: fakeClock(), roots: new Map<string, "linked">(),
-		panes: [] as { pane_id: string; terminal_id?: string; cwd?: string }[], workspaces: [] as { workspace_id: string; checkout_path: string }[],
+		panes: [] as { pane_id: string; terminal_id?: string; cwd?: string; workspace_id?: string }[], workspaces: [] as { workspace_id: string; checkout_path: string }[],
 		/** What the disk says: a folder is a linked worktree when it is (under) a root of `roots`, a main checkout when it is in `mains`; `gone` is not on disk. */
 		mains: new Set<string>(), gone: new Set<string>(),
 	};
@@ -412,4 +412,176 @@ test("T2R-F011: the adopted orphans of a full snapshot are the ones kept; a corr
 	assert.equal(readFileSync(join(bad, "procs", "owners.json.bad"), "utf8"), "{ not json");
 	await second.procs.hello({ pid: 100, id: "w9" });
 	assert.equal(readFileSync(join(bad, "procs", "owners.json.bad"), "utf8"), "{ not json", "the first file is kept after the next save");
+});
+
+/** A world with a worktree `wt` (linked) where owner w1 (pid 100) works and orphans 300 and 301 have their folder; 301 is in `wt/inner` when `inner` is set. */
+function held(over: Partial<ProcsDeps> = {}, inner = false) {
+	const wt = "/tmp/psb-rr/wt", where = (pid: number) => (pid === 300 ? `${wt}/pkg` : pid === 301 ? `${wt}/${inner ? "inner/" : ""}pkg` : undefined);
+	const made = world({ cwds: async (pids) => new Map(pids.flatMap((pid) => (where(pid) ? [[pid, { path: where(pid)! }] as const] : []))), ...over });
+	if (inner) made.w.roots.set(`${wt}/inner`, "linked");
+	made.w.roots.set(wt, "linked");
+	made.w.table.push(P(301, 1));
+	made.w.workspaces = [{ workspace_id: "ws1", checkout_path: wt }];
+	return { ...made, wt };
+}
+const main = (over = {}) => ({ pane_id: "p9", terminal_id: "t9", cwd: "/tmp/psb-rr/wt/x", ...over });
+
+test("RR-F001: when Herdr's panes are not known the cwd rule stays out of the reap, the record waits for the next ticks, and a session's orphans are not killed on a hiccup", async () => {
+	let down = true, asked = 0;
+	const { w, procs, wt, lines } = held({ panes: async () => { asked++; if (down) throw new Error("herdr timed out"); return w2.panes; } });
+	const w2 = w;
+	await procs.hello({ pid: 100, id: "w1", cwd: wt });
+	await procs.tick();
+	assert.ok(procs.bye("w1"));
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[101, 102]], "the snapshot rule ran, the orphans of the worktree (300, 301) were not touched");
+	assert.deepEqual(procs.list().map((o) => [o.id, o.live]), [["w1", false]], "the record stays for a retry");
+	assert.equal(lines("procs-held-unknown").length, 1);
+	assert.deepEqual(lines("procs-reaped").map((f) => f.deferred), [true]);
+	// Herdr answers again, and a main session works in the same worktree: the retry spares what is its
+	down = false;
+	w.panes = [main()];
+	await procs.tick();
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[101, 102]], "300 and 301 stay: a session works there");
+	assert.deepEqual(procs.list(), [], "the retry finished the reap");
+});
+
+test("RR-F001: the retry reaps the orphans once the panes are known and none works in the worktree; it gives up after DEFER_MAX and leaves the record for `reap`", async () => {
+	let down = true;
+	const { w, procs, wt } = held({ panes: async () => { if (down) throw new Error("down"); return []; } });
+	await procs.hello({ pid: 100, id: "w1", cwd: wt });
+	await procs.tick();
+	procs.bye("w1");
+	await procs.settled();
+	down = false;
+	await procs.tick();
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[101, 102], [300, 301]], "the next tick killed the orphans of the worktree");
+	assert.deepEqual(procs.list(), []);
+
+	const gone = held({ panes: async () => { throw new Error("down"); } });
+	await gone.procs.hello({ pid: 100, id: "w1", cwd: gone.wt });
+	gone.procs.bye("w1");
+	await gone.procs.settled();
+	for (let i = 0; i < DEFER_MAX + 2; i++) {
+		await gone.procs.tick();
+		await gone.procs.settled();
+	}
+	assert.equal(gone.lines("procs-held-unknown").length, DEFER_MAX, "tried DEFER_MAX times, then no more");
+	assert.deepEqual(gone.procs.list().map((o) => o.id), ["w1"], "the record stays for `reap`");
+	assert.ok(gone.w.table.some((p) => p.pid === 300), "nothing was killed on a guess");
+});
+
+test("RR-F001: a pane without a folder is placed by its workspace; one that cannot be placed makes the panes unknown", async () => {
+	const run = async (pane: object, workspaces?: () => Promise<{ workspace_id: string; checkout_path: string }[]>) => {
+		const made = held({ ...(workspaces ? { workspaces } : {}) });
+		made.w.panes = [pane as never];
+		await made.procs.hello({ pid: 100, id: "w1", cwd: made.wt });
+		made.procs.bye("w1");
+		await made.procs.settled();
+		return made;
+	};
+	const inWt = await run({ pane_id: "p9", workspace_id: "ws1" });
+	assert.ok(inWt.w.table.some((p) => p.pid === 300), "its workspace is the worktree: a session works there");
+	assert.equal(inWt.lines("procs-held-unknown").length, 0);
+	const elsewhere = await run({ pane_id: "p9", workspace_id: "wsMain" });
+	assert.ok(!elsewhere.w.table.some((p) => p.pid === 300), "its workspace is a main checkout: it holds no worktree");
+	const nowhere = await run({ pane_id: "p9" });
+	assert.ok(nowhere.w.table.some((p) => p.pid === 300), "no folder and no workspace: unknown, the orphans stay");
+	assert.equal(nowhere.lines("procs-held-unknown").length, 1);
+	const unreadable = await run({ pane_id: "p9", workspace_id: "wsMain" }, async () => { throw new Error("no workspaces"); });
+	assert.ok(unreadable.w.table.some((p) => p.pid === 300), "the workspaces cannot be read: unknown");
+});
+
+test("RR-F002: reap --owner keeps the session-held rule; reap --checkout is the caller's word", async () => {
+	let down = true;
+	const { w, procs, wt } = held({ panes: async () => { if (down) throw new Error("down"); return w.panes; } });
+	await procs.hello({ pid: 100, id: "w1", cwd: wt });
+	await procs.tick();
+	procs.bye("w1");
+	await procs.settled();
+	down = false;
+	w.panes = [main()];
+	const result = await procs.reapOwner("w1");
+	assert.equal(result.targets, 0, "a main works in w1's root now: its orphan 300 is not w1's");
+	assert.ok(w.table.some((p) => p.pid === 300));
+	assert.equal(procs.list().length, 0, "the owner is done");
+	const forced = await procs.reapCheckout(wt);
+	assert.ok(forced.targets >= 2, "the explicit checkout reap does not look at panes");
+});
+
+test("RR-F003: a hello is refused for the Herdr server, a pane's shell, this server, an sb server, the broker, a shell, and anything above Herdr or a pane's shell; a pane's foreground (the pi) is accepted", async () => {
+	const { w, procs } = world({
+		protect: async () => [{ pid: 50, started: "t50", why: "herdr" }, { pid: 51, why: "pane" }, { pid: 52, why: "pane-foreground" }, { pid: 70, why: "sb-server", tree: true }, { pid: 71, why: "intercom-broker", tree: true }],
+	});
+	w.table = [P(49, 1, { comm: "/Applications/Terminal" }), P(50, 49, { comm: "/usr/local/bin/herdr" }), P(51, 50, { comm: "zsh" }), P(52, 51), P(53, 52), P(54, 53), P(60, 1, { comm: "-zsh" }), P(70, 1), P(71, 1), P(9000, 1), P(80, 1)];
+	for (const [pid, what] of [[50, /protected \(herdr\)/], [51, /shell/], [49, /above Herdr/], [60, /a shell/], [70, /sb-server/], [71, /intercom-broker/], [9000, /this server/]] as const) {
+		await assert.rejects(procs.hello({ pid, id: `x${pid}` }), (e: Error) => e instanceof ProcsRefusal && what.test(e.message), `pid ${pid}`);
+	}
+	assert.deepEqual(await procs.hello({ pid: 52, id: "pi" }), { id: "pi" }, "the foreground of a pane is the worker's pi");
+	assert.deepEqual(await procs.hello({ pid: 80, id: "pi2" }), { id: "pi2" });
+	// the bye of the accepted pi kills only its own tree, never Herdr's
+	await procs.tick();
+	procs.bye("pi");
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[53, 54]]);
+});
+
+test("RR-F004: a failed write of owners.json is one log line, not an unhandled rejection that would take the server down", async (t) => {
+	if (process.getuid?.() === 0) return t.skip("root writes anywhere");
+	const { w, procs, lines } = world({}, dir);
+	await procs.hello({ pid: 100, id: "w1" });
+	await procs.tick();
+	chmodSync(join(dir, "procs"), 0o500); // the folder turns read-only while the reap runs
+	try {
+		procs.bye("w1");
+		await procs.settled();
+		await new Promise((done) => setImmediate(done));
+		assert.deepEqual(pids(w.reaped), [[101, 102]], "the reap ran");
+		assert.ok(lines("procs-error").some((f) => /owners\.json was not written/.test(String(f.text))));
+		const again = await procs.hello({ pid: 200, id: "w2" });
+		assert.deepEqual(again, { id: "w2" }, "a hello still answers");
+	} finally {
+		chmodSync(join(dir, "procs"), 0o700);
+	}
+});
+
+test("RR-F008: a reap with no registered owner uses a name no process can carry as its marker, and a pane event looks at the workspaces again before it trusts the map", async () => {
+	const marked = held({ markers: async () => new Map([[400, "checkout"], [401, "pane-p1"]]) });
+	marked.w.table.push(P(400, 1), P(401, 1));
+	await marked.procs.reapCheckout(marked.wt);
+	assert.ok(marked.w.table.some((p) => p.pid === 400), "a process that carries the marker `checkout` is not the synthetic subject's");
+	await marked.procs.paneEvent({ event: "pane.closed", data: { pane_id: "p1", workspace_id: "ws1" } });
+	assert.ok(marked.w.table.some((p) => p.pid === 401), "`pane-p1` is not the subject of a pane close either");
+
+	// Herdr reused the workspace id for another worktree between two ticks
+	const wtA = "/tmp/psb-rr/wtA", wtB = "/tmp/psb-rr/wtB";
+	const placeOf = (pid: number) => (pid === 300 ? `${wtA}/p` : pid === 301 ? `${wtB}/p` : undefined);
+	const reuse = world({ cwds: async (ids) => new Map<number, { path: string }>(ids.flatMap((pid) => (placeOf(pid) ? [[pid, { path: placeOf(pid)! }] as [number, { path: string }]] : []))) });
+	reuse.w.roots.set(wtA, "linked");
+	reuse.w.roots.set(wtB, "linked");
+	reuse.w.table.push(P(301, 1));
+	reuse.w.workspaces = [{ workspace_id: "ws1", checkout_path: wtA }];
+	await reuse.procs.tick();
+	reuse.w.workspaces = [{ workspace_id: "ws1", checkout_path: wtB }];
+	await reuse.procs.paneEvent({ event: "pane.closed", data: { pane_id: "p1", workspace_id: "ws1" } });
+	assert.deepEqual(pids(reuse.w.reaped), [[301]], "the pane closed in the worktree the id means now");
+	// a workspace that closed with its pane is gone from the list: its last known place is the one
+	reuse.w.table.push(P(301, 1));
+	reuse.w.reaped.length = 0;
+	reuse.w.workspaces = [];
+	await reuse.procs.paneEvent({ event: "pane.closed", data: { pane_id: "p1", workspace_id: "ws1" } });
+	assert.deepEqual(pids(reuse.w.reaped), [[301]]);
+});
+
+test("RR-F008: reap --checkout takes an owner record only when its root is the one asked for, not one that merely overlaps", async () => {
+	const { w, procs, wt } = held({ panes: async () => { throw new Error("down"); } }, true);
+	await procs.hello({ pid: 100, id: "w1", cwd: wt });
+	procs.bye("w1");
+	await procs.settled();
+	for (let i = 0; i < DEFER_MAX; i++) (await procs.tick(), await procs.settled());
+	const result = await procs.reapCheckout(`${wt}/inner`);
+	assert.equal(result.targets, 1, "only the orphan in the nested worktree");
+	assert.ok(w.table.some((p) => p.pid === 300), "the orphan in the outer root is not the nested worktree's");
 });

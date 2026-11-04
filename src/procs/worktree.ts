@@ -29,14 +29,14 @@ export const realDisk: Disk = {
 };
 
 /**
- * The physical path: symlinks resolved, as lsof and `process.cwd()` report a working folder (`/tmp` is `/private/tmp` on macOS). A path that is not there is resolved from its nearest folder that is, so a removed
+ * The physical path: symlinks resolved and the case the disk has (APFS ignores case), as lsof and `process.cwd()` report a working folder (`/tmp` is `/private/tmp` on macOS). A path that is not there is resolved from its nearest folder that is, so a removed
  * checkout is told apart the same way.
  */
 export function physical(path: string): string {
 	const abs = resolve(path), tail: string[] = [];
 	for (let dir = abs; ; dir = dirname(dir)) {
 		try {
-			return join(realpathSync(dir), ...tail.reverse());
+			return join(realpathSync.native(dir), ...tail.reverse());
 		} catch {
 			if (dirname(dir) === dir) return abs;
 			tail.push(basename(dir));
@@ -51,7 +51,12 @@ export function checkoutOf(cwd: string, disk: Disk = realDisk, real: (path: stri
 		if (kind === "dir") return { kind: "main", root: dir };
 		if (kind === "file") {
 			const gitdir = /^gitdir:\s*(.+?)\s*$/m.exec(disk.read(git) ?? "")?.[1];
-			if (gitdir && /[\\/]worktrees[\\/][^\\/]+[\\/]?$/.test(gitdir)) return { kind: "linked", root: dir, gitdir };
+			if (gitdir && /[\\/]worktrees[\\/][^\\/]+[\\/]?$/.test(gitdir)) {
+				// As git checks it: the folder is there and its `gitdir` file points back at this `.git`. A file that only looks like a pointer is no worktree.
+				const admin = resolve(dir, gitdir), back = disk.read(join(admin, "gitdir"))?.trim();
+				if (disk.kind(admin) === "dir" && back && real(resolve(admin, back)) === join(dir, ".git")) return { kind: "linked", root: dir, gitdir };
+				return { kind: "none" };
+			}
 			if (gitdir && /[\\/]modules[\\/]/.test(gitdir)) return { kind: "submodule", root: dir };
 			return { kind: "none" };
 		}

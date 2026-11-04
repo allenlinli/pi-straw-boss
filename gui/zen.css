@@ -41,6 +41,7 @@
 [data-view="zen"] .zen-line[data-fading] { opacity: 0; }
 [data-view="zen"] .zen-line-by { display: block; margin-top: 8px; font: 0.8rem/1.4 var(--sans); letter-spacing: 0.12em; color: var(--zen-ash); }
 [data-view="zen"] .zen-line-ja:not([hidden]) { display: block; margin-top: 6px; font: 0.74rem/1.5 var(--serif); letter-spacing: 0.1em; color: var(--zen-ash); }
+[data-view="zen"] .zen-line-text { display: block; } [data-view="zen"] :is(.zen-line-text, .zen-line-ja) { text-wrap: balance; line-break: strict; } /* balance needs a block: no one-character orphan on a phone (ZL-F001) */
 /* The corner: one quiet menu button, and full screen beside it. */
 [data-view="zen"] .zen-corner { position: fixed; z-index: 3; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); display: flex; gap: 2px; }
 [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-music-btn, .zen-musicmore) { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--zen-ash); opacity: 0.6; cursor: pointer; transition: opacity 0.6s var(--zen-ease); font-size: 1.5rem; line-height: 1; }

@@ -225,7 +225,7 @@ test("the deck shows every line once, in a random order, before any repeats, and
 });
 
 // The words no line may carry (zh, en, ja): the boss wants stillness and the Japanese eye for it without religious vocabulary. Names in `by` are as they are known; 走神 (the mind wandering, in the old lines) is not about gods.
-const BANNED = [/禪|禅/, /佛|仏/, /菩薩|菩提|涅槃|輪廻|輪迴/, /悟/, /經|経/, /神/, /祈/, /法(?!則)/, /\b(?:buddh\w*|zen|dharma|enlighten\w*|pray\w*|prayer|god|gods|divine|holy|sacred|nirvana|sutra|karma|bodhisattva|soul)\b/i];
+const BANNED = [/禪|禅/, /佛|仏/, /菩薩|菩提|涅槃|輪廻|輪迴/, /悟/, /經|経/, /神/, /祈/, /法(?!則)/, /霊|靈|魂|寺|僧|天國|天国/, /\b(?:buddh\w*|zen|dharma|enlighten\w*|pray\w*|prayer|god|gods|divine|holy|sacred|nirvana|sutra|karma|bodhisattva|soul|spirit\w*|heaven\w*|temple\w*|monks?)\b/i];
 
 test("every line is short, attributed, and sourced in a comment; a Japanese original is carried in `ja`", () => {
 	assert.equal(LINES.length, 38);

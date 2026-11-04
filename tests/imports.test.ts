@@ -1044,7 +1044,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Unit status and notices (S5): 134,774 / 28,446 (measured), +642 raw / +83 gzipped over the 134,132 / 28,363 cap: the ally base's unit list and a notice's row in style.css.
 	// Merge of feat/link-unattended with 0.55.0: 142,426 / 29,639 measured (Zen's Z-D16 sheet plus the dialog cards and the unit list), cap = measured + 15.
 	// Zen lines (feat/zen-lines): 142,568 / 29,659 measured, +142 raw / +20 gzipped over the 142,426 / 29,639 above: one rule for the small Japanese original under a line's source (gui/zen.css). Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 142_583 && total(css, gz) <= 29_674, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Zen lines review (ZL-F001): 142,698 / 29,684 measured, +130 raw / +25 gzipped: balanced wrapping for the line and its Japanese original, so a phone leaves no one-character orphan. Cap = measured + 15.
+	assert.ok(total(css, (n) => size(n).length) <= 142_713 && total(css, gz) <= 29_699, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

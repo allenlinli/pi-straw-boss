@@ -104,7 +104,7 @@ test("a record that names another Herdr socket than the slot's is refused by the
 
 test("the detached spawn: detached, no stdio, windowsHide; the starter's own identity stripped, the broker scope and transport kept; cwd the slot's folder", async () => {
 	const env = {
-		...world.env, PI_INTERCOM_SESSION_ID: "me", PI_INTERCOM_STABLE_ID: "stable", PI_SUBAGENT_ID: "sub", PI_SUBAGENT_X: "y", STRAW_BOSS_ROLE: "tower", HERDR_PANE_ID: "p1", HERDR_TAB_ID: "t1", HERDR_WORKSPACE_ID: "w1",
+		...world.env, PI_INTERCOM_SESSION_ID: "me", PI_INTERCOM_STABLE_ID: "stable", PI_SUBAGENT_ID: "sub", PI_SUBAGENT_X: "y", STRAW_BOSS_ROLE: "tower", STRAW_BOSS_OWNER: "own-a", HERDR_PANE_ID: "p1", HERDR_TAB_ID: "t1", HERDR_WORKSPACE_ID: "w1",
 		PI_INTERCOM_SCOPE_ID: "team-a", PI_INTERCOM_TRANSPORT: "tcp", PI_INTERCOM_TCP: "1", HERDR_SOCKET_PATH: "/my/herdr.sock", STRAW_BOSS_DESK: "1",
 	};
 	assert.deepEqual(SPAWN_OPTIONS, { detached: true, stdio: "ignore", windowsHide: true });
@@ -116,7 +116,7 @@ test("the detached spawn: detached, no stdio, windowsHide; the starter's own ide
 	assert.deepEqual(spec.options, { detached: true, stdio: "ignore", windowsHide: true });
 	assert.deepEqual(spec.args, ["/fake/cli.mjs", "run", "--detached", "--by", 'session "main" (3f2a1b9c)']);
 	assert.equal(spec.cwd, slot.dir);
-	for (const gone of ["PI_INTERCOM_SESSION_ID", "PI_INTERCOM_STABLE_ID", "PI_SUBAGENT_ID", "PI_SUBAGENT_X", "STRAW_BOSS_ROLE", "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID"]) assert.ok(!(gone in spec.env), gone);
+	for (const gone of ["PI_INTERCOM_SESSION_ID", "PI_INTERCOM_STABLE_ID", "PI_SUBAGENT_ID", "PI_SUBAGENT_X", "STRAW_BOSS_ROLE", "STRAW_BOSS_OWNER", "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID"]) assert.ok(!(gone in spec.env), gone);
 	for (const kept of ["PI_INTERCOM_SCOPE_ID", "PI_INTERCOM_TRANSPORT", "PI_INTERCOM_TCP", "PI_CODING_AGENT_DIR", "HERDR_SOCKET_PATH", "STRAW_BOSS_DESK"]) assert.ok(kept in spec.env, kept);
 	assert.deepEqual(serverEnv({ A: "1", PI_INTERCOM_SESSION_ID: "x" }), { A: "1" });
 });

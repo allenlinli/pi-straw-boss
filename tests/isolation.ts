@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync }
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { reapOwned } from "../src/procs/killguard.ts";
 import { consumeRefusals, PIDS_DIR, TEST_ROOT } from "../src/server/testguard.ts";
 import { startOf } from "../src/startof.ts";
 
@@ -141,6 +142,12 @@ export function finish({ root, owner }: Isolation, watched?: Map<string, Set<str
 	const left = reap(root, owner ? undefined : process.pid);
 	if (left.length) {
 		process.stderr.write(`test isolation: the run left sb server processes running (${left.join(", ")}); they were killed\n`);
+		process.exitCode = 1;
+	}
+	// A process the kill guard knows (a test noted it to be killed) that still runs is a leak too.
+	const owned = reapOwned(root, owner ? undefined : process.pid);
+	if (owned.length) {
+		process.stderr.write(`test isolation: the run left processes running that it noted for the kill guard (${owned.join(", ")}); they were killed\n`);
 		process.exitCode = 1;
 	}
 	const unsure = unjudged(root, owner ? undefined : process.pid);

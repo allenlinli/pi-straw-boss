@@ -101,9 +101,9 @@ export const spawnDetached = (spec: SpawnSpec): Launched => {
 	return { pid: child.pid, exited: new Promise<number | null>((resolve) => (child.once("exit", (code) => resolve(code)), child.once("error", () => resolve(-1)))) };
 };
 
-/** What a session's own environment sets and the server must not inherit: its intercom identity and subagent role, the tower role, and the pane it runs in. */
+/** What a session's own environment sets and the server must not inherit: its intercom identity and subagent role, the tower role, its process-owner marker (src/procs/marker.ts), and the pane it runs in. */
 export const isIdentity = (key: string) => IDENTITY.test(key);
-const IDENTITY = /^(PI_INTERCOM_SESSION_ID|PI_INTERCOM_STABLE_ID|PI_SUBAGENT_.*|STRAW_BOSS_ROLE|HERDR_PANE_ID|HERDR_TAB_ID|HERDR_WORKSPACE_ID)$/;
+const IDENTITY = /^(PI_INTERCOM_SESSION_ID|PI_INTERCOM_STABLE_ID|PI_SUBAGENT_.*|STRAW_BOSS_ROLE|STRAW_BOSS_OWNER|HERDR_PANE_ID|HERDR_TAB_ID|HERDR_WORKSPACE_ID)$/;
 /**
  * The environment the detached server gets: the starter's own minus its identity. `PI_INTERCOM_SCOPE_ID`, `PI_INTERCOM_TRANSPORT`, and `PI_INTERCOM_TCP` stay, so the
  * server registers in the same broker scope as the sessions (it records them in server.json).

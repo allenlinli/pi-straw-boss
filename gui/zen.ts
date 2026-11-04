@@ -51,7 +51,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	let touched = -Infinity;
 	const typing = () => Boolean((company?.composer && company.composer.box.value !== "") || head.drafting()) && now() - touched < DRAFT_MS; // the head tower's folded-out input holds the screen the same way
 	const model = createZen({ now, typing });
-	const head = mountHead({ now, later, post: (action, body) => answerPost(net?.head?.key ?? HEAD_KEY, deps.post)(action, body), latest: () => deps.data(net?.head?.key ?? HEAD_KEY).latest(), online: deps.online, sound: deps.sound, changed: () => void later(() => apply(model.tick()), 0), rest: (on) => void (line && (line.el.hidden = !on)), history: () => void openHistory() });
+	const head = mountHead({ now, later, post: (action, body) => answerPost(net?.head?.key ?? HEAD_KEY, deps.post)(action, body), latest: () => deps.data(net?.head?.key ?? HEAD_KEY).latest(), online: deps.online, sound: deps.sound, changed: () => void later(() => apply(model.tick()), 0), rest: (on) => void line?.away(!on), history: () => void openHistory() });
 	const stage = h("div", { class: "zen-stage" }), live = h("p", { class: "zen-live", role: "status", "aria-live": "polite" });
 	const fs = mountFullscreen(deps.fs ?? domFs(later)), menu = mountMenu(deps.menu ?? {}, () => leave()), music = deps.music && mountMusic(deps.music);
 	const ripples = mountRipples(root, deps.ripple ?? domRipples(now)); // ink-water ripples under the pointer, on a canvas behind the content
@@ -196,7 +196,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			head.sync(net?.head, Boolean(net));
 			if (line) return; // the empty state is already drawn
 			line = mountLine(later, deps.still ?? stillNow, deps.random);
-			line.el.hidden = !head.rested(); // one thing in paper at a time: the strip's lines first, the mindfulness line at rest
+			line.away(!head.rested()); // one thing in paper at a time: the strip's lines first, the mindfulness line at rest
 			stage.replaceChildren(circle(), line.el, head.el);
 			return head.show();
 		}

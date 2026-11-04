@@ -18,6 +18,7 @@ import { El, page } from "./fake-dom.ts";
 const { mountZen, real, DRAFT_MS } = await import("../gui/zen.ts");
 const { CLEAR_MS, FADE_MS } = await import("../gui/headlines.ts");
 const { entriesOf } = await import("../gui/paletteentries.ts");
+const { m } = await import("../gui/paraglide/messages.js");
 
 const at = (min: number) => new Date(Date.UTC(2026, 10, 4, 9, min)).toISOString();
 const bossLine = (id: string, text: string, min = 0): Item => ({ id, kind: "notice", type: "straw-tower", event: "boss", text: `${BOSS_MARK}\n${text}`, at: at(min) });
@@ -83,6 +84,8 @@ function rig(o: { head?: HeadUnit | null; items?: Item[]; offline?: boolean; rep
 		box: () => by("zen-head-box")[0]!,
 		note: () => by("zen-head-note")[0]!.textContent,
 		mind: () => by("zen-line")[0],
+		/** Whether the mindfulness line is faded away (zen.css `data-away`): it is never taken out of the layout. */
+		away: () => by("zen-line")[0]?.dataset.away !== undefined,
 		start: async (n: Net | undefined = net(o.head === null ? undefined : (o.head ?? head()))) => (n && r.feed(n), z.show(), await settle()),
 		/** A Zen key as the page routes it: the keymap's row for the face, then the layer's answer (hotkeys.ts, pagecore.ts). */
 		press: (key: string, target: unknown = undefined, extra: object = {}) => {
@@ -98,11 +101,23 @@ function rig(o: { head?: HeadUnit | null; items?: Item[]; offline?: boolean; rep
 	return r;
 }
 
+test("the Whole conversation link names its key: the words, then \"· H\" in a span of its own (zen.css quiets it and hides it with no keyboard), in both languages", async () => {
+	const r = rig({ items: [headLine("a1", "something", 1)] });
+	await r.start();
+	const link = r.by("zen-head-history")[0]!, key = r.by("zen-head-key");
+	assert.equal(key.length, 1);
+	assert.equal(key[0]!.textContent, m.zen_head_key());
+	assert.equal(key[0]!.textContent, "· H");
+	assert.equal(link.textContent, `${m.zen_head_history()} · H`, "one link: the words and the key, as the input's hint names Enter");
+	assert.equal(link.getAttribute("aria-keyshortcuts"), "H");
+	assert.equal(key[0]!.parent, link, "the key is inside the link: one control, one target");
+});
+
 test("under the circle stand the mindfulness line and the folded input with its hint; the stream watches the head, nothing else is on show", async () => {
 	const r = rig();
 	await r.start();
 	assert.equal(r.by("zen-circle").length, 1);
-	assert.equal(r.mind()?.hidden, false, "a fresh head has no lines: the mindfulness line shows, as before");
+	assert.equal(r.away(), false, "a fresh head has no lines: the mindfulness line shows, as before");
 	assert.equal(r.hint().textContent, "Enter to talk to the head tower");
 	assert.equal(r.hint().tagName, "button", "the folded input is one control");
 	assert.equal(r.form().hidden, true, "the box is folded");
@@ -117,7 +132,7 @@ test("the last three lines show, the newest last, and the whole text is in the l
 	assert.deepEqual(r.lines(), ["second", "third", "fourth with a second line"]);
 	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-who")), ["head", "boss", "head"]);
 	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-rank")), ["2", "1", "0"], "rank 0 is the newest");
-	assert.equal(r.mind()?.hidden, true, "one thing is in paper at a time (Z-D15)");
+	assert.equal(r.away(), true, "one thing is in paper at a time (Z-D15)");
 });
 
 test("a line is clear for 20 s from the moment it is first on screen, then fades over 3 minutes; the mindfulness line comes back only when every line has", async () => {
@@ -127,12 +142,12 @@ test("a line is clear for 20 s from the moment it is first on screen, then fades
 	const delays = () => r.by("zen-hl").map((el) => el.style.animationDelay);
 	assert.deepEqual(delays(), [`${CLEAR_MS / 1000}s`, `${CLEAR_MS / 1000}s`], "clear for 20 s, then the one CSS animation of opacity; no timer repaints");
 	await r.advance(CLEAR_MS + FADE_MS - 1);
-	assert.equal(r.mind()?.hidden, true);
+	assert.equal(r.away(), true);
 	await r.advance(20); // the timer carries a little slack
-	assert.equal(r.mind()?.hidden, false, "all at rest: the mindfulness line is back");
+	assert.equal(r.away(), false, "all at rest: the mindfulness line is back");
 	r.put([bossLine("u1", "go", 1), headLine("a1", "ok", 2), bossLine("u2", "and again", 3), headLine("a2", "a new one", 4)]);
 	await r.settle();
-	assert.equal(r.mind()?.hidden, true, "a new line starts clear, whatever the time of its item");
+	assert.equal(r.away(), true, "a new line starts clear, whatever the time of its item");
 	const [, , fresh] = r.by("zen-hl");
 	assert.equal(fresh!.style.animationDelay, `${CLEAR_MS / 1000}s`);
 });
@@ -284,7 +299,7 @@ test("an item takes the screen from the strip as today and the stream stops watc
 	const r = rig({ items: [headLine("a1", "old words", 1)] });
 	await r.start();
 	await r.advance(CLEAR_MS + FADE_MS + 20);
-	assert.equal(r.mind()?.hidden, false, "at rest");
+	assert.equal(r.away(), false, "at rest");
 	r.feed(net(head(), [waiting()]));
 	await r.settle();
 	assert.equal(r.by("zen-head").length, 0, "the card replaced the strip");
@@ -345,7 +360,7 @@ test("a wait for the boss keeps the newest line clear and the mindfulness line a
 	const r = rig({ head: head({ service: waits }), items: [headLine("a1", "Should I rerun the ETL tonight?", 5)] });
 	await r.start();
 	await r.advance(CLEAR_MS + FADE_MS + 60_000);
-	assert.equal(r.mind()?.hidden, true, "held: the mindfulness line stays away");
+	assert.equal(r.away(), true, "held: the mindfulness line stays away");
 	assert.equal(r.by("zen-hl")[0]!.getAttribute("data-held"), "", "and the newest line is marked held, which the page keeps clear");
 	r.unfold();
 	r.typed("tonight, yes");
@@ -387,24 +402,27 @@ test("lines at rest that a hover, a focus, or a tap makes clear are not at rest:
 	await r.start();
 	await r.settle();
 	await r.advance(CLEAR_MS + FADE_MS + 20);
-	const strip = r.strip()!, link = () => r.by("zen-head-history")[0]!;
-	assert.equal(r.mind()?.hidden, false, "at rest");
-	assert.equal(link().hidden, true);
+	const strip = r.strip()!, link = () => r.by("zen-head-history")[0]!, gone = () => link().dataset.away !== undefined && link().hidden === false;
+	assert.equal(r.away(), false, "at rest");
+	assert.equal(gone(), true, "faded out, its room kept");
+	const delays = () => r.by("zen-hl").map((el) => el.style.animationDelay);
+	const before = delays();
 	strip.bubble("pointerenter", { pointerType: "mouse" });
-	assert.equal(r.mind()?.hidden, true, "pointed at: the line is clear, so it is the one thing in paper");
-	assert.equal(link().hidden, false, "and the way to the whole conversation shows");
+	assert.equal(r.away(), true, "pointed at: the line is clear, so it is the one thing in paper");
+	assert.equal(link().dataset.away, undefined, "and the way to the whole conversation fades in");
 	strip.bubble("pointerleave", { pointerType: "mouse" });
 	await r.advance(1600);
-	assert.equal(r.mind()?.hidden, false, "let go: the breath's line is back");
-	assert.equal(link().hidden, true);
+	assert.equal(r.away(), false, "let go: the breath's line is back");
+	assert.equal(gone(), true, "faded out, its room kept");
+	assert.deepEqual(delays(), before, "the lines' animation ran on under the hover, so a hover let go sets no new delay: a changed delay on a running animation would move its clock");
 	r.hint().bubble("focusin");
-	assert.equal(r.mind()?.hidden, true, "focus in the strip brightens the lines too");
+	assert.equal(r.away(), true, "focus in the strip brightens the lines too");
 	r.hint().bubble("focusout");
 	await r.advance(1600);
 	strip.bubble("pointerdown", { pointerType: "touch" });
-	assert.equal(r.mind()?.hidden, true, "a tap");
+	assert.equal(r.away(), true, "a tap");
 	await r.advance(10_100);
-	assert.equal(r.mind()?.hidden, false, "10 s later");
+	assert.equal(r.away(), false, "10 s later");
 });
 
 // The history: the head as a companion, opened four ways and closed four ways.
@@ -444,9 +462,9 @@ test("the link shows only while the lines are clear; the history closes by Esc, 
 	const r = rig({ items: [headLine("a1", "something", 1)] });
 	await r.start();
 	await r.settle();
-	assert.equal(r.by("zen-head-history")[0]!.hidden, false, "shown while a line is clear");
+	assert.equal(r.by("zen-head-history")[0]!.dataset.away, undefined, "shown while a line is clear");
 	await r.advance(CLEAR_MS + FADE_MS + 20);
-	assert.equal(r.by("zen-head-history")[0]!.hidden, true, "gone at rest: the wheel, swipe, and H still open it");
+	assert.equal(r.by("zen-head-history")[0]!.dataset.away, "", "faded out at rest, its room kept: the wheel, swipe, and H still open it");
 	for (const close of [
 		(x: ReturnType<typeof rig>) => assert.equal(x.esc(), true),
 		(x: ReturnType<typeof rig>) => assert.equal(x.z.key("history"), true),

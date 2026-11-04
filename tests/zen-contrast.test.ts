@@ -25,13 +25,13 @@ test("every border and the focus ring is at least 3 : 1 on the grounds and the c
 	assert.ok(!css.split("\n").some((l) => /(?:^|[\s;{])color: var\(--zen-seal\)/.test(l)), "--zen-seal is never a text colour (a border or a line under a word may be seal)");
 });
 
-test("the first frame's ring (style.css) is 3 : 1 on the ground, and the sheet only animates transform, opacity, and filter", () => {
+test("the first frame's ring (style.css) is 3 : 1 on the ground, and the sheet only animates transform, opacity, filter, and the head lines' --fade", () => {
 	const ring = /#zen:empty:not\(\[hidden\]\)::after \{[^}]*border: 1px solid (#[0-9a-f]{6})/.exec(first)?.[1];
 	assert.ok(ring, "the first-frame ring exists");
 	assert.ok(contrast(ring, "#14110e") >= 3);
 	for (const [name, source] of [["zen.css", css], ["style.css", first]] as const)
 		for (const [, body] of source.matchAll(/@keyframes zen-[\w-]+ \{((?:[^{}]|\{[^}]*\})*)\}/g))
-			for (const [, steps] of body!.matchAll(/\{([^}]*)\}/g)) for (const [prop] of declarations(steps!)) assert.ok(["transform", "opacity", "filter", "animation-timing-function"].includes(prop), `${name}: a zen keyframe moves ${prop}`);
+			for (const [, steps] of body!.matchAll(/\{([^}]*)\}/g)) for (const [prop] of declarations(steps!)) assert.ok(["transform", "opacity", "filter", "animation-timing-function", "--fade"].includes(prop), `${name}: a zen keyframe moves ${prop}`);
 });
 
 test("text on a coloured fill (`--ink`) is the ground, never the paper: Standard's fills (the confirm's Send Enter, Send, a badge) are paper or ash in Zen and a paper label on them was blank", () => {
@@ -100,22 +100,25 @@ test("the strip's lines are 7 : 1 at every clear level, paper for the head and a
 
 test("the strip's CSS carries the same numbers: the fade ends at the rest level over 3 minutes after 20 s, ranks step the clear level, and hover, focus, a tap, a held line, and forced colours put every line at 1", async () => {
 	const { CLEAR, CLEAR_MS, FADE_MS, REST } = await import("../gui/headlines.ts");
-	const fade = /@keyframes zen-head-fade \{\s*to \{ opacity: ([\d.]+); \}\s*\}/.exec(css);
-	assert.equal(Number(fade?.[1]), REST, "the keyframes end at the rest level");
+	const fade = /@keyframes zen-head-fade \{\s*to \{ --fade: ([\d.]+); \}\s*\}/.exec(css);
+	assert.equal(Number(fade?.[1]), REST, "the keyframes end at the rest level (of --fade: the animation never touches the opacity a hover lifts)");
 	const line = rulesOf(css).find((r) => r.parts.includes('[data-view="zen"] .zen-hl'));
 	assert.ok(line, "the line's rule");
 	const d = declarations(line.body);
 	assert.match(d.find(([p]) => p === "animation")![1], new RegExp(`zen-head-fade ${FADE_MS / 1000}s linear both`));
 	assert.equal(d.find(([p]) => p === "animation-delay")![1], `${CLEAR_MS / 1000}s`, "clear for 20 s before the fade starts");
+	assert.equal(d.find(([p]) => p === "--fade")![1], "var(--clear)", "the fade starts at the rank's clear level");
+	assert.equal(d.find(([p]) => p === "--lift")![1], "0", "nothing lifts the line at rest");
+	assert.equal(d.find(([p]) => p === "opacity")![1], "calc(var(--fade) + (1 - var(--fade)) * var(--lift))", "a line's opacity is its fade lifted towards 1 by --lift");
 	CLEAR.forEach((level, rank) => {
 		const r = rulesOf(css).find((x) => x.parts.includes(`[data-view="zen"] .zen-hl[data-rank="${rank}"]`));
 		assert.equal(declarations(r!.body).find(([p]) => p === "--clear")?.[1], String(level), `rank ${rank}`);
 	});
 	const bright = rulesOf(css).find((r) => r.parts.some((p) => p.includes(".zen-head:is([data-bright], :hover, :focus-within) .zen-hl")));
 	assert.ok(bright, "hover, focus, and a tap");
-	assert.deepEqual(declarations(bright.body).filter(([p]) => p === "animation" || p === "opacity"), [["animation", "none"], ["opacity", "1"]]);
+	assert.deepEqual(declarations(bright.body), [["--lift", "1"]], "they lift the line to 1 and touch nothing else: the animation (the fade's clock) keeps running");
 	const held = rulesOf(css).find((r) => r.parts.includes('[data-view="zen"] .zen-hl[data-held]'));
-	assert.deepEqual(declarations(held!.body).filter(([p]) => p === "animation" || p === "opacity"), [["animation", "none"], ["opacity", "1"]], "a held line stays clear");
+	assert.deepEqual(declarations(held!.body), [["--lift", "1"]], "a held line stays clear");
 	const forced = css.slice(css.indexOf("@media (forced-colors: active)", css.indexOf(".zen-hl")));
 	assert.match(forced, /\.zen-hl \{[^}]*animation: none; opacity: 1;/, "forced colours: never faded");
 	assert.match(forced, /\.zen-head-hint \{[^}]*border-bottom-color: CanvasText/, "the hairline is a CanvasText border");

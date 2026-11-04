@@ -71,7 +71,7 @@ export function mountGestures(stage: HTMLElement, g: { on(): "circle" | "history
 export function mountHead(io: HeadIo) {
 	const small = io.small ?? (() => typeof matchMedia === "function" && matchMedia("(max-width: 600px), (max-height: 560px)").matches);
 	const fade = createFade(io.now), live = h("p", { class: "zen-live zen-head-live", role: "status", "aria-live": "polite" });
-	const list = h("ol", { class: "zen-head-lines" }), working = h("p", { class: "zen-head-working" }, m.zen_head_working()), whole = h("button", { type: "button", class: "zen-head-history", "aria-keyshortcuts": "H" }, m.zen_head_history());
+	const list = h("ol", { class: "zen-head-lines" }), working = h("p", { class: "zen-head-working" }, m.zen_head_working()), whole = h("button", { type: "button", class: "zen-head-history", "aria-keyshortcuts": "H" }, `${m.zen_head_history()} `, h("span", { class: "zen-head-key" }, m.zen_head_key()));
 	const hint = h("button", { type: "button", class: "zen-head-hint" }, m.zen_head_hint());
 	const box = h("textarea", { class: "zen-head-box", rows: "1", maxlength: "20000", "aria-label": m.zen_head_placeholder(), placeholder: m.zen_head_placeholder(), enterkeyhint: "send" }) as HTMLTextAreaElement;
 	const note = h("p", { class: "zen-head-note", role: "alert" }), form = h("form", { class: "zen-head-form" }, box, note);
@@ -89,10 +89,15 @@ export function mountHead(io: HeadIo) {
 		for (let i = pending.length - 1; i >= 0; i--) if (bosses(one(pending[i]!.text)) > pending[i]!.seen) pending.splice(i, 1); // a sent line goes when the stream brings its copy
 		return [...all, ...pending.map((p) => ({ id: p.id, who: "boss" as const, text: one(p.text), at: io.now() }))];
 	}
-	/** Delays of a line's animation from its age: a line first on screen long ago carries on from where it is. Set when its element is made and when the animation starts again (a hover let go, the strip back on screen). */
+	/** Delays of a line's animation from its age: a line first on screen long ago carries on from where it is. Set when its element is made and when the animation starts again (the strip back on screen). A hover, focus, or tap never stops it (zen.css `--lift`), so none of them sets a delay. */
 	const delay = (id: string) => `${(CLEAR_MS - fade.age(id)) / 1000}s`;
 	function restart() {
-		for (const [id, li] of shown) li.style.animationDelay = delay(id);
+		for (const [id, li] of shown) {
+			li.style.animationName = "none"; // the animation really starts again, so the new delay is from its start
+			void li.offsetWidth;
+			li.style.animationName = "";
+			li.style.animationDelay = delay(id);
+		}
 	}
 	const announce = (text: string) => ((live.textContent = ""), (live.textContent = text));
 
@@ -133,18 +138,19 @@ export function mountHead(io: HeadIo) {
 		if (showing) draw();
 	}
 
-	/** The strip is quiet (the mindfulness line shows, the link hides) when every line has faded and nothing brings them back: a hover, focus, or tap makes the lines clear, and then one thing is in paper, not two. */
+	/** The strip is quiet (the mindfulness line shows, the link fades out) when every line has faded and nothing brings them back: a hover, focus, or tap makes the lines clear, and then one thing is in paper, not two. */
 	function settle() {
 		if (!showing) return;
 		const quiet = rested && !(hover || focus || touching);
-		whole.hidden = quiet || !kept;
+		whole.hidden = !kept;
+		quiet ? (whole.dataset.away = "") : delete whole.dataset.away; // at rest it fades out and keeps its room: nothing moves when the lines come clear
 		if (quiet !== restOn) io.rest((restOn = quiet));
 	}
 	function bright() {
 		el.toggleAttribute("data-bright", hover || focus || touching);
 		settle();
 	}
-	const letGo = (set: () => void) => (stopHover(), (stopHover = io.later(() => (set(), bright(), restart()), LET_GO_MS)));
+	const letGo = (set: () => void) => (stopHover(), (stopHover = io.later(() => (set(), bright()), LET_GO_MS)));
 	el.addEventListener("pointerenter", (e: PointerEvent) => e.pointerType !== "touch" && (stopHover(), (hover = true), bright()));
 	el.addEventListener("pointerleave", (e: PointerEvent) => e.pointerType !== "touch" && letGo(() => (hover = false)));
 	el.addEventListener("focusin", () => (stopHover(), (focus = true), bright()));
@@ -154,7 +160,7 @@ export function mountHead(io: HeadIo) {
 		stopTouch();
 		touching = true;
 		bright();
-		stopTouch = io.later(() => ((touching = false), bright(), restart()), TAP_MS);
+		stopTouch = io.later(() => ((touching = false), bright()), TAP_MS);
 	});
 
 	function grow() {
@@ -276,7 +282,6 @@ export function mountHead(io: HeadIo) {
 			stopTouch();
 			touching = false;
 			bright();
-			restart();
 		},
 	};
 }

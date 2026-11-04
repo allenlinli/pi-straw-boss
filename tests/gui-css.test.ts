@@ -261,9 +261,34 @@ test("Zen's wait buttons rest as the card's quiet text buttons (no underline) an
 test("the head's lines still reach their rest level under reduced motion: style.css stills every animation except theirs, and theirs is a step whose delay the script sets, so no !important shorthand may reset it", () => {
 	assert.match(css, /prefers-reduced-motion: reduce\) \{ \*:not\(\.zen-hl\), \*::before, \*::after \{ animation: none !important;/, "the global rule leaves the head's lines out");
 	const reduced = zen.slice(zen.indexOf("@media (prefers-reduced-motion: reduce) { /* no fade"), zen.indexOf("@media (forced-colors: active) { /* the lines"));
-	assert.match(reduced, /\[data-view="zen"\] \.zen-hl \{ animation: zen-head-step 0\.01s steps\(1\) both; \}/);
+	assert.match(reduced, /\[data-view="zen"\] \.zen-hl \{ animation: zen-head-step 0\.01s steps\(1\) both; transition: none; \}/, "a step, and the lift (the hover's) lands at once");
+	assert.match(zen, /@keyframes zen-head-step \{ to \{ --fade: 0\.16; \} \}/);
 	assert.ok(!/!important/.test(reduced), "an important animation shorthand would set the delay back to 0 over the inline one");
-	assert.match(reduced, /:is\(\[data-bright\], :hover, :focus-within\) \.zen-hl, \[data-view="zen"\] \.zen-hl\[data-held\] \{ animation: none;/, "hover, focus, a tap and a hold are clear at once");
+	assert.doesNotMatch(reduced, /animation: none/, "hover, focus, a tap and a hold lift the line (--lift: 1 still applies, with no motion); they never stop the animation");
+});
+
+test("the Whole conversation link's key (\"· H\") is the input hint's quiet ash, no box and no vermilion, and a touch screen (no keyboard) does not show it", () => {
+	const key = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-key'));
+	assert.deepEqual(declarations(key!.body), [["color", "var(--zen-ash)"], ["opacity", "0.35"], ["transition", "opacity 0.4s var(--zen-ease)"]], "the same ash at the same 0.35 as the folded input's hint");
+	assert.match(zen, /@media \(pointer: coarse\), \(hover: none\) \{ \[data-view="zen"\] \.zen-head-key \{ display: none; \} \}/, "no key on a touch screen");
+	assert.match(zen, /\.zen-head-history:is\(:hover, :focus-visible\) \.zen-head-key \{ opacity: 1; \}/, "it comes up with the link, as the hint does");
+	for (const file of ["en", "zh-TW"]) assert.equal(JSON.parse(readFileSync(new URL(`../gui/messages/${file}.json`, import.meta.url), "utf8")).zen_head_key, "· H", `${file} has the key's words`);
+});
+
+test("the strip's two swaps move: hover, focus, and a tap ease the lines to clear and back over Zen's 0.6 s curve, and the mindfulness line fades out and in; neither restarts the fade's clock", () => {
+	assert.match(zen, /@property --fade \{ syntax: "<number>"; inherits: false; initial-value: 1; \}/);
+	assert.match(zen, /@property --lift \{ syntax: "<number>"; inherits: false; initial-value: 0; \}/, "a registered property is the only thing a transition can ease here: the animation owns --fade");
+	const line = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-hl'));
+	assert.equal(declarations(line!.body).find(([p]) => p === "transition")?.[1], "--lift 0.6s var(--zen-ease)", "the lines ease in and out on Zen's own curve");
+	const lifts = rulesOf(zen).filter((r) => r.body.includes("--lift: 1"));
+	assert.equal(lifts.length, 2, "the hover rule and the held rule");
+	assert.ok(lifts.every((r) => !/animation/.test(r.body)), "no hover rule resets or removes the animation");
+	const mind = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-line[data-away]'));
+	assert.deepEqual(declarations(mind!.body), [["opacity", "0"], ["visibility", "hidden"], ["transition", "opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s"]], "away: faded out, then out of the reading order once it is gone; a layout that does not move");
+	assert.match(zen, /\.zen-line \{[^}]*transition: opacity 1\.6s var\(--zen-ease\), visibility 0s;/, "and back at the line's own slow pace");
+	assert.doesNotMatch(zen, /\.zen-line\[hidden\]/, "the line is never taken out of the layout");
+	const link = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-history[data-away]'));
+	assert.deepEqual(declarations(link!.body), [["opacity", "0"], ["visibility", "hidden"], ["transition", "opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s"]], "the Whole conversation link fades the same way, so the strip does not jump when the lines come clear");
 });
 
 test("the head page's crown plate is gold like the head's node and avatar: its colour and wash come from --gold, not the accent's blue", () => {

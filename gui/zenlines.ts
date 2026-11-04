@@ -135,5 +135,5 @@ export function mountLine(later: (fn: () => void, ms: number) => () => void, sti
 	}, LINE_MS));
 	put();
 	wait();
-	return { el, stop: () => cancel() };
+	return { el, stop: () => cancel(), /** The line fades out (the strip's lines are clear) or back; it keeps its room (zen.css). */ away: (on: boolean) => void (on ? (el.dataset.away = "") : delete el.dataset.away) };
 }

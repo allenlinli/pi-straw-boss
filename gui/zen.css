@@ -37,8 +37,10 @@
 [data-view="zen"] .zen-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); margin: 0; }
 [data-view="zen"] .zen-stage { position: relative; z-index: 1; width: 100%; height: 100%; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; align-content: center; gap: 28px; min-height: 0; } /* one row as tall as the page: a card's max-height: 100% has something to be a percentage of */
 [data-view="zen"] .zen-stage:has(.zen-company) { place-items: stretch center; align-content: stretch; }
-[data-view="zen"] .zen-line { margin: 0; max-width: 30rem; text-align: center; font: 1.35rem/1.6 var(--serif); letter-spacing: 0.08em; transition: opacity 1.6s var(--zen-ease); }
+[data-view="zen"] .zen-line { margin: 0; max-width: 30rem; text-align: center; font: 1.35rem/1.6 var(--serif); letter-spacing: 0.08em; transition: opacity 1.6s var(--zen-ease), visibility 0s; }
 [data-view="zen"] .zen-line[data-fading] { opacity: 0; }
+/* The strip's lines are clear (a hover, focus, a tap, or lines not yet faded): the line fades out over 0.6 s and, once gone, leaves the reading order; it keeps its room, so nothing moves. It comes back at its own slow pace. */
+[data-view="zen"] .zen-line[data-away] { opacity: 0; visibility: hidden; transition: opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s; }
 [data-view="zen"] .zen-line-by { display: block; margin-top: 8px; font: 0.8rem/1.4 var(--sans); letter-spacing: 0.12em; color: var(--zen-ash); }
 [data-view="zen"] .zen-line-ja:not([hidden]) { display: block; margin-top: 6px; font: 0.74rem/1.5 var(--serif); letter-spacing: 0.1em; color: var(--zen-ash); }
 [data-view="zen"] .zen-line-text { display: block; } [data-view="zen"] :is(.zen-line-text, .zen-line-ja) { text-wrap: balance; line-break: strict; } /* balance needs a block: no one-character orphan on a phone (ZL-F001) */
@@ -329,26 +331,33 @@
 
 /* ── The head tower's strip (zenhead.ts; docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle). Under the circle: the last lines of the conversation, the boss's at the right in ash and the head's at the left in paper,
    and a hairline that is the input. No boxes (Z-D15): the only line is the one under a text field. A line is clear for 20 s from the moment it is first on screen, then fades over 3 minutes to 0.16 (the one animation of opacity,
-   its delay set from the line's age); hover, focus, a tap, a held line, and forced colours put it at 1. Rank 0 is the newest; the clear levels hold 7 : 1 (tests/zen-contrast.test.ts). ── */
+   its delay set from the line's age, and never stopped: a hover, focus, a tap, or a held line only eases --lift to 1 over 0.6 s, so the clock keeps running and opacity = fade + (1 - fade) * lift); forced colours put it at 1. Rank 0 is the newest; the clear levels hold 7 : 1 (tests/zen-contrast.test.ts). ── */
 [data-view="zen"] .zen-head { display: grid; justify-items: center; gap: 8px; width: min(40rem, 100%); padding-bottom: clamp(8px, 4vh, 40px); } /* the hairline stands clear of the page's foot */
 [data-view="zen"] .zen-head[hidden] { display: none; }
 [data-view="zen"] .zen-stage:has(.zen-head) { grid-template-rows: none; grid-auto-rows: max-content; align-content: center; } /* the circle, its line, and the strip are one group in the middle of the page, not the circle in all the room that is left */
 [data-view="zen"] .zen-head-lines { display: grid; gap: 8px; width: 100%; margin: 0; padding: 0; list-style: none; }
-[data-view="zen"] .zen-hl { --clear: 1; margin: 0; max-width: 100%; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font: 400 1rem/1.6 var(--sans); letter-spacing: 0.04em; opacity: var(--clear); animation: zen-head-fade 180s linear both; animation-delay: 20s; }
+@property --fade { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --lift { syntax: "<number>"; inherits: false; initial-value: 0; }
+[data-view="zen"] .zen-hl { --clear: 1; --fade: var(--clear); --lift: 0; margin: 0; max-width: 100%; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font: 400 1rem/1.6 var(--sans); letter-spacing: 0.04em; opacity: calc(var(--fade) + (1 - var(--fade)) * var(--lift)); animation: zen-head-fade 180s linear both; animation-delay: 20s; transition: --lift 0.6s var(--zen-ease); }
 [data-view="zen"] .zen-hl[data-rank="0"] { --clear: 1; }
 [data-view="zen"] .zen-hl[data-rank="1"] { --clear: 0.95; }
 [data-view="zen"] .zen-hl[data-rank="2"] { --clear: 0.9; }
 [data-view="zen"] .zen-hl[data-who="boss"] { justify-self: end; max-width: 85%; text-align: right; color: var(--zen-ash); }
 [data-view="zen"] .zen-hl[data-who="head"] { justify-self: start; max-width: 90%; text-align: left; color: var(--zen-paper); font-family: var(--serif); letter-spacing: 0.06em; }
 [data-view="zen"] .zen-hl[data-who="note"] { justify-self: start; text-align: left; color: var(--zen-ash); font-size: 0.85rem; }
-@keyframes zen-head-fade { to { opacity: 0.16; } }
-@keyframes zen-head-step { to { opacity: 0.16; } }
-[data-view="zen"] .zen-head:is([data-bright], :hover, :focus-within) .zen-hl { animation: none; opacity: 1; transition: opacity 0.2s var(--zen-ease); }
-[data-view="zen"] .zen-hl[data-held] { animation: none; opacity: 1; }
+@keyframes zen-head-fade { to { --fade: 0.16; } }
+@keyframes zen-head-step { to { --fade: 0.16; } }
+[data-view="zen"] .zen-head:is([data-bright], :hover, :focus-within) .zen-hl { --lift: 1; }
+[data-view="zen"] .zen-hl[data-held] { --lift: 1; }
 [data-view="zen"] .zen-head-working { margin: 0; color: var(--zen-ash); font-size: 0.9rem; letter-spacing: 0.08em; }
 [data-view="zen"] .zen-head-working[hidden] { display: none; }
 [data-view="zen"] :is(.zen-head-history, .zen-rest) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 6px; cursor: pointer; transition: color 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-history[hidden] { display: none; }
+[data-view="zen"] .zen-head-history { transition: color 0.4s var(--zen-ease), opacity 0.6s var(--zen-ease), visibility 0s; }
+[data-view="zen"] .zen-head-key { color: var(--zen-ash); opacity: 0.35; transition: opacity 0.4s var(--zen-ease); } /* the key is named as the folded input names Enter: the same ash at the same 0.35, and it comes up with the link */
+[data-view="zen"] .zen-head-history:is(:hover, :focus-visible) .zen-head-key { opacity: 1; }
+@media (pointer: coarse), (hover: none) { [data-view="zen"] .zen-head-key { display: none; } } /* a touch screen has no keyboard to name */
+[data-view="zen"] .zen-head-history[data-away] { opacity: 0; visibility: hidden; transition: opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s; } /* at rest the link fades out and keeps its room, as the mindfulness line does: a hover moves nothing */
 [data-view="zen"] :is(.zen-head-history, .zen-rest):hover { color: var(--zen-paper); }
 [data-view="zen"] #zen :is(.zen-head-history, .zen-rest, .zen-head-hint):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
 /* The folded input is a hairline about 16 rem wide with its hint at 0.35; it is one button. Unfolded it is a box that grows to four lines, a line under the words that turns seal for the keys. */
@@ -384,8 +393,7 @@
 }
 @media (prefers-reduced-motion: reduce) { /* no fade: clear for its 20 s, then at the rest level at once; hover and a tap still clear it at once */
 	/* style.css stills every animation under reduced motion except this one (`*:not(.zen-hl)`): a step has no motion, and without it the lines would stay clear for ever */
-	[data-view="zen"] .zen-hl { animation: zen-head-step 0.01s steps(1) both; }
-	[data-view="zen"] .zen-head:is([data-bright], :hover, :focus-within) .zen-hl, [data-view="zen"] .zen-hl[data-held] { animation: none; transition: none; }
+	[data-view="zen"] .zen-hl { animation: zen-head-step 0.01s steps(1) both; transition: none; }
 	[data-view="zen"] .zen-head-hint, [data-view="zen"] :is(.zen-head-history, .zen-rest) { transition: none; }
 }
 @media (forced-colors: active) { /* the lines are not faded and show in the system's colours; the hairline and the box are CanvasText */
@@ -393,6 +401,7 @@
 	[data-view="zen"] .zen-head-hint { opacity: 1; border-bottom-color: CanvasText; color: CanvasText; }
 	[data-view="zen"] .zen-head-box { border-bottom-color: CanvasText; color: CanvasText; }
 	[data-view="zen"] :is(.zen-head-history, .zen-rest) { color: LinkText; }
+	[data-view="zen"] .zen-head-key { color: inherit; opacity: 1; }
 }
 /* The head's history (zenhead.ts quietForwards): a forward row reads as one quiet line, not as an action card's name. */
 [data-view="zen"] .zen-log details.act.quiet > summary .sum { color: var(--zen-ash); font-style: italic; }

@@ -1245,9 +1245,14 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 .head-btn .dot[hidden] { display: none; }
 .head-btn[data-state="absent"] { opacity: 0.7; }
 .head-btn[aria-current="page"] { background: color-mix(in srgb, var(--gold) 14%, transparent); border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); }
-.head-node { position: relative; z-index: 1; display: flex; align-items: center; gap: 14px; width: fit-content; max-width: 100%; margin: 0 auto 26px; padding: 10px 20px 10px 12px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--gold) 40%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 10%, transparent), transparent 70%), linear-gradient(180deg, var(--surface-1), var(--surface-0)); color: var(--text); text-decoration: none; box-shadow: 0 12px 30px color-mix(in srgb, var(--shadow) 30%, transparent); }
-.head-node .crown { margin: 0; flex: none; white-space: nowrap; }
-.head-node .tstate { color: var(--dim); font-size: 12px; }
+.head-node { position: absolute; z-index: 2; top: 0; left: 50%; translate: -50% -25%; display: flex; align-items: center; gap: 8px; height: 36px; max-width: calc(100% - 16px); box-sizing: border-box; padding: 0 14px 0 3px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--gold) 40%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 12%, transparent), transparent 80%), linear-gradient(180deg, var(--surface-1), var(--surface-0)); color: var(--text); text-decoration: none; white-space: nowrap; box-shadow: 0 6px 16px color-mix(in srgb, var(--shadow) 30%, transparent); } /* it sits in the map's top band, a quarter of it above the edge and clear of the crumbs row, out of the flow: the bases start where they would without it, and the map keeps room for the rest of it (the rule below) */
+.map:has(> .head-node:not([hidden])) { padding-top: 36px; }
+.head-node .tower { width: 30px; height: 30px; }
+.head-node .tower svg { width: 20px; height: 20px; }
+.head-node .tower > .badge { right: -4px; bottom: -4px; }
+.head-node .crown { margin: 0; padding: 0; flex: none; white-space: nowrap; background: none; font-size: 11px; letter-spacing: 0.14em; }
+.head-node .crown svg { display: none; } /* the tower already wears the crown */
+.head-node .tstate { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* its state is in the node's title and the tower's badge; the words stay for a reader of the page */
 .head-node.absent { opacity: 0.55; border-style: dashed; box-shadow: none; }
 .head-node:hover, .head-node:focus-visible { border-color: color-mix(in srgb, var(--gold) 70%, var(--line)); }
 .head-asks { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
@@ -1272,5 +1277,5 @@ a.head-ask:hover, a.head-ask:focus-visible { border-color: var(--accent); color:
 .drawer-head.current { background: var(--c1); border-color: var(--c4); }
 [data-view="geek"] :is(.head-node, .drawer-head) { background: var(--surface-0); box-shadow: none; }
 [data-view="geek"] .head-btn[aria-current="page"] { background: none; }
-@media (max-width: 640px) { .head-node { margin-bottom: 18px; padding: 8px 14px 8px 8px; } .head-btn { min-height: 44px; } }
+@media (max-width: 640px) { .head-btn { min-height: 44px; } }
 @media (forced-colors: active) { .head-btn .dot { background: Highlight; } .head-node.absent, .head-ask { border-color: CanvasText; } }

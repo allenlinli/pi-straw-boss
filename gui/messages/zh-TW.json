@@ -897,6 +897,7 @@
 	"zen_head_placeholder": "交代主塔台要做的事",
 	"zen_head_working": "主塔台處理中…",
 	"zen_head_history": "全部對話",
+	"zen_head_key": "· H",
 	"zen_head_refused": "主塔台沒有收下：{reason}",
 	"zen_head_unreachable": "連不上伺服器",
 	"zen_head_off": "主塔台需要塔台服務（towerRuns）",

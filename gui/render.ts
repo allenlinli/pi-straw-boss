@@ -234,7 +234,7 @@ function fillAlly(el: HTMLElement, a: AllyBase, reported: DeviceUnits[] | undefi
 	});
 }
 
-/** The head node above the bases: a crowned tower that opens the head page, faint and dashed while the head is not open, hidden (and no hub) when the net has no head. */
+/** The head node on the map's top edge: a small crowned tower that opens the head page, faint and dashed while the head is not open, hidden (and no hub) when the net has no head. */
 export function fillHeadNode(el: HTMLElement, head: HeadUnit | undefined) {
 	el.hidden = !head;
 	el.classList.toggle("off", !head);
@@ -248,6 +248,7 @@ export function fillHeadNode(el: HTMLElement, head: HeadUnit | undefined) {
 	el.setAttribute("href", "head");
 	text(el, ".head-name", m.head_tower());
 	text(el, ".tstate", open ? statusLine(head.service, head.mark, (mk) => LABEL[mk]()) : m.head_state_absent());
+	el.title = `${m.head_tower()} · ${el.querySelector<HTMLElement>(".tstate")!.textContent}`; // the node shows no state words: a hover reads them
 }
 type Spot = readonly [number, number];
 /** The wires of the head node: one curve from its centre to each base's tower; none without a hub. */

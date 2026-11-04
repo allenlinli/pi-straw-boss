@@ -793,15 +793,15 @@ export function createRuns(o: RunsOptions) {
 	 * Ends the processes of a run's pi: pi's own first, then the ones between it and the one Herdr lists (a wrapper does not take its child with it). Each PID is verified at this moment, from Herdr's list and a
 	 * process table read now, and never taken from a record alone: the recorded pi is signalled only while it is in the table with the start time recorded and below the process Herdr lists (a reused PID shows
 	 * by its start time, whatever `gone` last said). Without a recorded pi (the start failed, the record is stale), only a listed process whose command line carries `--sb-run <id>` is ended, with the
-	 * wrappers down to the pi below it: whatever else the pane holds is not the run's. Returns the PIDs signalled.
+	 * wrappers down to the pi below it: whatever else the pane holds is not the run's; on Linux, where the command line carries no run id, a run with no recorded pid ends the pane's one pi by name, if the table read shows it. Returns the PIDs signalled.
 	 */
 	const reap = async (a: Active): Promise<number[]> => {
 		const id = a.rec.id, known = a.rec.pid, whole = await paneInfo(a.rec.pane), info = whole?.foreground_processes ?? [];
 		const listed = info.flatMap((p) => (typeof p.pid === "number" ? [p.pid] : []));
 		const carried = info.flatMap((p) => (typeof p.pid === "number" && p.cmdline?.includes(`--sb-run ${id}`) ? [p.pid] : []));
 		if (!listed.length) return [];
-		// Linux lists pi by name with no run id in its command line: the pane's one pi (or the group's leader) is the run's, as procOf takes it, unless its start did not complete (then the pane's pi is the boss's).
-		const byName = a.unstarted ? undefined : piByName(whole).by?.pid;
+		// Linux lists pi by name with no run id in its command line: with no recorded pid, the pane's one pi (or the group's leader) is the run's, as procOf takes it, unless its start did not complete (then the pane's pi is the boss's). A recorded pid that fails verification is never replaced by it: that pi may be another run's or the boss's.
+		const byName = a.unstarted || known !== undefined ? undefined : piByName(whole).by?.pid;
 		const table = await procs(id);
 		const root = known === undefined ? undefined : listed.find((l) => l === known || (a.rec.via ?? []).includes(l));
 		let pids: number[] = [];
@@ -817,7 +817,8 @@ export function createRuns(o: RunsOptions) {
 		if (!pids.length) {
 			for (const top of typeof byName === "number" && !carried.includes(byName) ? [...carried, byName] : carried) {
 				// A table that was read must still show the listed carrier as the run's (its PID may be another program's by now); only an unreadable table leaves it to Herdr's list.
-				if (table && !table.find((p) => p.pid === top)?.carries && top !== byName) continue;
+				// The by-name pi has no run id in its command line, so it needs a row in the table read (a pid the read does not show may be another program's).
+				if (table && top === byName ? !table.some((p) => p.pid === top) : table && !table.find((p) => p.pid === top)?.carries) continue;
 				const hit = table && leafOf(table, top);
 				pids.push(...(hit ? [hit.pid, ...[...hit.via].reverse()] : [top]));
 			}

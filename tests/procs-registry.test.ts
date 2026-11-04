@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -19,14 +19,24 @@ afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, f
 
 /** A world: a table the test edits, a reap that records what it was asked to kill and removes it, a log. */
 function world(over: Partial<ProcsDeps> = {}, d = dir) {
-	const w = { table: [P(100, 1), P(101, 100), P(102, 101), P(200, 1), P(300, 1)] as Proc[], reaped: [] as Ref[][], log: [] as { event: string; facts: Record<string, unknown> }[], clock: fakeClock(), roots: new Map<string, "linked">(), panes: [] as { pane_id: string; terminal_id?: string }[] };
+	const w = {
+		table: [P(100, 1), P(101, 100), P(102, 101), P(200, 1), P(300, 1)] as Proc[], reaped: [] as Ref[][], log: [] as { event: string; facts: Record<string, unknown> }[], clock: fakeClock(), roots: new Map<string, "linked">(),
+		panes: [] as { pane_id: string; terminal_id?: string; cwd?: string }[], workspaces: [] as { workspace_id: string; checkout_path: string }[],
+		/** What the disk says: a folder is a linked worktree when it is (under) a root of `roots`, a main checkout when it is in `mains`; `gone` is not on disk. */
+		mains: new Set<string>(), gone: new Set<string>(),
+	};
 	const procs = createProcs({
 		dir: d, now: w.clock.now, log: (event, facts) => w.log.push({ event, facts }), self: [9000], platform: "darwin",
 		read: async () => w.table.map((p) => ({ ...p })),
 		startOf: (pid) => w.table.find((p) => p.pid === pid)?.started,
 		cwds: async () => new Map(), markers: async () => new Map(), inode: () => "1",
-		checkout: (cwd) => (w.roots.has(cwd) ? { kind: "linked", root: cwd, gitdir: `${cwd}/../.git/worktrees/x` } : { kind: "main", root: cwd }),
-		panes: async () => w.panes,
+		checkout: (cwd) => {
+			const root = [...w.roots.keys()].find((r) => cwd === r || cwd.startsWith(`${r}/`));
+			if (root) return { kind: "linked", root, gitdir: `${root}/../.git/worktrees/x` };
+			return [...w.mains].some((m) => cwd === m || cwd.startsWith(`${m}/`)) ? { kind: "main", root: cwd } : { kind: "none" };
+		},
+		real: (path) => path, exists: (path) => !w.gone.has(path),
+		panes: async () => w.panes, workspaces: async () => w.workspaces,
 		reap: async (refs): Promise<KillReport> => {
 			w.reaped.push([...refs]);
 			w.table = w.table.filter((p) => !refs.some((r) => r.pid === p.pid && r.started === p.started));
@@ -177,4 +187,211 @@ test("hello refuses a pid that is not a process of the account with that start t
 	await assert.rejects(procs.hello({ pid: 100, id: "bad id" }), ProcsRefusal);
 	await assert.rejects(procs.hello({ pid: 1 }), ProcsRefusal);
 	assert.deepEqual(procs.list(), []);
+});
+
+// --- the findings of the T2 review ---
+
+test("T2R-F001: reap --checkout takes a linked worktree or a removed known root and nothing else: never /, a home folder, a main checkout, a folder above checkouts, or a submodule", async () => {
+	const wt = "/tmp/psb-f1/wt";
+	const kinds: Record<string, "linked" | "main" | "submodule" | "none"> = { "/": "none", "/Users/u": "none", "/Users/u/repo": "main", "/tmp/psb-f1": "none", "/Users/u/repo/sub": "submodule", [wt]: "linked" };
+	const { w, procs } = world({
+		checkout: (cwd) => { const kind = kinds[cwd] ?? "none"; return kind === "none" ? { kind } : { kind, root: cwd, ...(kind === "linked" ? { gitdir: `${cwd}/../.git/worktrees/x` } : {}) } as never; },
+		cwds: async (pids) => new Map(pids.map((p) => [p, { path: "/Users/u/Library" }])),
+	});
+	for (const path of ["/", "/Users/u", "/Users/u/repo", "/tmp/psb-f1", "/Users/u/repo/sub"]) {
+		await assert.rejects(procs.reapCheckout(path), (error: Error) => error instanceof ProcsRefusal && /reap --checkout takes a linked worktree/.test(error.message), path);
+	}
+	// a path that is not on disk and was no known owner's root is refused too
+	w.gone.add("/tmp/psb-f1/never-known");
+	await assert.rejects(procs.reapCheckout("/tmp/psb-f1/never-known"), /gone and no known worker worked in it/);
+	assert.deepEqual(w.reaped, [], "no process was asked for in any of the six");
+	// a linked worktree is reaped
+	assert.equal((await procs.reapCheckout(wt)).targets, 0);
+});
+
+test("T2R-F001/F009: the path is made physical first, and a removed checkout is taken only through a root a known owner had", async () => {
+	const priv = "/private/tmp/psb-f1b/wt";
+	const { w, procs } = world({
+		real: (path) => (path.startsWith("/tmp/") ? `/private${path}` : path),
+		// like checkoutOf, which resolves the physical path itself
+		checkout: (cwd) => { const at = cwd.startsWith("/tmp/") ? `/private${cwd}` : cwd; return at === priv || at.startsWith(`${priv}/`) ? { kind: "linked", root: priv, gitdir: "/r/.git/worktrees/x" } : { kind: "none" }; },
+		cwds: async (pids) => new Map(pids.filter((p) => p === 300).map((p) => [p, { path: `${priv}/pkg` }])),
+	});
+	await procs.hello({ pid: 100, id: "w1", cwd: "/tmp/psb-f1b/wt/src" });
+	assert.deepEqual(procs.list()[0]!.roots, [priv], "the root is the physical one lsof reports");
+	await assert.rejects(procs.reapCheckout("/tmp/psb-f1b/wt/sub"), /live owner works in/, "the logical path finds the live owner");
+	w.table = w.table.filter((p) => p.pid < 100 || p.pid > 102);
+	await procs.tick();
+	await procs.settled();
+	assert.deepEqual(pids(w.reaped), [[300]]);
+	// a second owner whose reap left a process keeps its record; its checkout is then gone from disk: its known root, and only that, can be reaped
+	await procs.hello({ pid: 200, id: "w2", cwd: priv });
+	w.gone.add(`${priv}/pkg`).add("/private/tmp/psb-f1b/elsewhere");
+	w.table = w.table.filter((p) => p.pid !== 200);
+	await procs.tick();
+	await procs.settled();
+	await assert.rejects(procs.reapCheckout("/tmp/psb-f1b/elsewhere"), /gone and no known worker/);
+});
+
+test("T2R-F001: a checkout that is gone is reaped through the known root above it", async () => {
+	const priv = "/private/tmp/psb-f1c/wt";
+	const { w, procs } = world({
+		real: (path) => (path.startsWith("/tmp/") ? `/private${path}` : path),
+		checkout: (cwd) => ({ kind: "linked", root: cwd.startsWith("/tmp/") ? `/private${cwd}` : cwd, gitdir: "/r/.git/worktrees/x" }),
+		reap: async () => ({ termed: 1, killed: 1, skipped: 0, groups: 0, left: [{ pid: 7, comm: "node" }] }),
+		cwds: async (pids) => new Map(pids.filter((p) => p === 300).map((p) => [p, { path: `${priv}/pkg` }])),
+	});
+	await procs.hello({ pid: 200, id: "w2", cwd: "/tmp/psb-f1c/wt" });
+	w.table.push(P(201, 200));
+	await procs.tick();
+	w.table = w.table.filter((p) => p.pid !== 200);
+	await procs.tick();
+	await procs.settled();
+	assert.deepEqual(procs.list().map((o) => [o.id, o.live]), [["w2", false]], "the record stays: something was left");
+	w.gone.add(`${priv}/pkg`);
+	const result = await procs.reapCheckout("/tmp/psb-f1c/wt/pkg");
+	assert.equal(result.owner, "w2", "the known owner's root covers the removed folder");
+});
+
+test("T2R-F013 and F006: a subscription that throws is one error line and the registry still starts; a test run reads no table of this machine unless a test gives one", async () => {
+	const { startProcs } = await import("../src/server/procsops.ts");
+	const logs: { event: string; facts: Record<string, unknown> }[] = [], timers: ReturnType<typeof setInterval>[] = [], stops: (() => void)[] = [];
+	const procs = startProcs({
+		dir, stateDir: dir, env: {}, pid: 9000, platform: "darwin", now: () => 1, log: (event, facts) => void logs.push({ event, facts }), run: async () => "{}", leaving: () => false, stops, timers,
+		events: () => { throw new Error("events.subscribe refused"); }, over: { tickMs: 3_600_000 },
+	});
+	for (let i = 0; i < 50 && !logs.some((l) => l.event === "procs-tick-cost"); i++) await new Promise((done) => setImmediate(done));
+	try {
+		assert.equal(logs.filter((l) => l.event === "error").length, 1);
+		assert.match(String(logs.find((l) => l.event === "error")!.facts.text), /events\.subscribe refused/);
+		assert.deepEqual(stops, [], "no subscription to stop");
+		assert.equal(timers.length, 1, "the tick timer is still started");
+		assert.equal(logs.find((l) => l.event === "procs-tick-cost")!.facts.procs, 0, "no ps of this machine in a test run");
+		assert.deepEqual(procs.list(), []);
+	} finally {
+		for (const t of timers) clearInterval(t);
+	}
+});
+
+test("T2R-F002: a reap that a restart cut off is run again by the next start; one that left something stays for `reap`", async () => {
+	const first = world({ reap: () => new Promise(() => {}) });
+	await first.procs.hello({ pid: 100, id: "w1" });
+	await first.procs.hello({ pid: 200, id: "w2" });
+	await first.procs.tick();
+	first.procs.bye("w1");
+	await first.procs.tick(); // the record was saved as ended, and the reap never finishes: the server goes down here
+	assert.deepEqual(first.procs.list().map((o) => [o.id, o.live, o.endedReason]), [["w1", false, "bye"], ["w2", true, undefined]]);
+	const second = world({}, dir);
+	second.w.table = first.w.table.filter((p) => p.pid !== 100).map((p) => (p.pid === 101 ? { ...p, ppid: 1 } : p));
+	await second.procs.start();
+	await second.procs.settled();
+	assert.deepEqual(pids(second.w.reaped), [[101, 102]], "the ended owner's snapshot is reaped after the restart");
+	assert.deepEqual(second.procs.list().map((o) => o.id), ["w2"]);
+	// a reap that left a process is not repeated at start, and `reap --owner` still works
+	const third = world({ reap: async () => ({ termed: 1, killed: 1, skipped: 0, groups: 0, left: [{ pid: 7, comm: "node" }] }) }, dir);
+	await third.procs.hello({ pid: 300, id: "w3" });
+	third.w.table.push(P(301, 300));
+	await third.procs.tick();
+	third.procs.bye("w3");
+	await third.procs.settled();
+	const fourth = world({}, dir);
+	await fourth.procs.start();
+	await fourth.procs.settled();
+	assert.deepEqual(fourth.w.reaped, [], "a record marked as left is not reaped again by a restart");
+	assert.deepEqual(fourth.procs.list().filter((o) => !o.live).map((o) => o.id), ["w3"]);
+});
+
+test("T2R-F003: a slow reap of an ended owner does not delete a newer owner that took the same id", async () => {
+	let release!: () => void;
+	const held = new Promise<void>((done) => (release = done));
+	const { w, procs } = world({ reap: async (refs) => (await held, { termed: refs.length, killed: 0, skipped: 0, groups: 0, left: [] }) });
+	await procs.hello({ pid: 100, id: "w1" });
+	await procs.tick();
+	procs.bye("w1");
+	await procs.hello({ pid: 200, id: "w1" }); // the same id again, a new pi
+	release();
+	await procs.settled();
+	assert.deepEqual(procs.list().map((o) => [o.id, o.pid, o.live]), [["w1", 200, true]], "the new owner is still tracked");
+	assert.ok(JSON.parse(readFileSync(join(dir, "procs", "owners.json"), "utf8")).owners.some((o: { id: string; pid: number }) => o.id === "w1" && o.pid === 200), "and saved");
+	assert.ok(w.table.some((p) => p.pid === 200));
+});
+
+test("T2R-F004: a second hello with the id of a live owner is refused and the live owner's tree is not touched; the id of a dead one is taken over", async () => {
+	const { w, procs } = world();
+	await procs.hello({ pid: 100, id: "sub-7" });
+	await procs.tick();
+	await assert.rejects(procs.hello({ pid: 200, id: "sub-7" }), (error: Error) => error instanceof ProcsRefusal && /in use by pid 100/.test(error.message));
+	await procs.settled();
+	assert.deepEqual(w.reaped, [], "nothing of the live owner was killed");
+	assert.deepEqual(procs.list().map((o) => [o.id, o.pid, o.live]), [["sub-7", 100, true]]);
+	// the same pid says hello again: the same owner, snapshot kept
+	await procs.hello({ pid: 100, id: "sub-7" });
+	assert.equal(procs.list()[0]!.snapshot, 2);
+	// pid 100 is gone: the id is free, the old record is reaped behind the call, and the hello does not wait for it
+	w.table = w.table.filter((p) => p.pid !== 100);
+	await procs.hello({ pid: 300, id: "sub-7" });
+	await procs.settled();
+	assert.deepEqual(procs.list().map((o) => [o.id, o.pid, o.live]), [["sub-7", 300, true]]);
+	assert.deepEqual(pids(w.reaped), [[101, 102]]);
+});
+
+test("T2R-F005: a pane that closes in a linked worktree with no owner gets the cwd rule alone; a live owner or another pane in the worktree, or a main workspace, keeps it off", async () => {
+	const wt = "/tmp/psb-f5/wt";
+	const { w, procs } = world({ cwds: async (pids) => new Map(pids.filter((p) => p === 300 || p === 301).map((p) => [p, { path: `${wt}/pkg` }])) });
+	w.roots.set(wt, "linked");
+	w.workspaces = [{ workspace_id: "ws1", checkout_path: wt }];
+	// a pane with another live pane in the same worktree
+	w.panes = [{ pane_id: "p9", terminal_id: "t9", cwd: `${wt}/x` }];
+	await procs.paneEvent({ event: "pane.closed", data: { pane_id: "p1", workspace_id: "ws1" } });
+	assert.deepEqual(w.reaped, [], "another pane works there");
+	// a live owner in the same worktree
+	w.panes = [];
+	await procs.hello({ pid: 100, id: "w1", cwd: wt });
+	await procs.paneEvent({ event: "pane.closed", data: { pane_id: "p1", workspace_id: "ws1" } });
+	assert.deepEqual(w.reaped, [], "a live owner works there");
+	w.table = w.table.filter((p) => p.pid < 100 || p.pid > 102);
+	procs.bye("w1");
+	await procs.settled();
+	w.reaped.length = 0;
+	w.table.push(P(300, 1), P(301, 1));
+	// a workspace that is not a linked worktree (not in the list) reaps nothing
+	await procs.paneEvent({ event: "pane.closed", data: { pane_id: "p1", workspace_id: "wsMain" } });
+	assert.deepEqual(w.reaped, []);
+	// the pane of the linked worktree closes with nothing else there: its orphans go, the other orphans stay
+	await procs.paneEvent({ event: "pane.exited", data: { pane_id: "p1", workspace_id: "ws1" } });
+	assert.deepEqual(pids(w.reaped), [[300, 301]]);
+	assert.ok(w.table.some((p) => p.pid === 200), "an orphan elsewhere stays");
+	// an owner's own pane is the owner's: no second path
+	w.reaped.length = 0;
+	await procs.hello({ pid: 200, id: "w2", pane: "p2", terminal: "t2" });
+	await procs.paneEvent({ event: "pane.closed", data: { pane_id: "p2", terminal_id: "t2", workspace_id: "ws1" } });
+	await procs.settled();
+	assert.ok(pids(w.reaped).every((r) => !r.includes(300)), "the owner's end is the one reap");
+});
+
+test("T2R-F008: a pid the table does not list is refused even when a start time can be read for it", async () => {
+	const { procs } = world({ startOf: () => "tX" });
+	await assert.rejects(procs.hello({ pid: 999 }), ProcsRefusal);
+});
+
+test("T2R-F011: the adopted orphans of a full snapshot are the ones kept; a corrupt owners.json is said once and set aside, not overwritten", async () => {
+	const { w, procs } = world();
+	await procs.hello({ pid: 100, id: "w1" });
+	await procs.tick();
+	w.table = w.table.filter((p) => p.pid !== 101).concat(P(102, 1, { ppid: 1 }));
+	w.table = w.table.map((p) => (p.pid === 102 ? { ...p, ppid: 1 } : p));
+	for (let i = 0; i < 3; i++) w.table.push(P(500 + i, 100));
+	await procs.tick();
+	assert.ok(JSON.parse(readFileSync(join(dir, "procs", "owners.json"), "utf8")).owners[0].snapshot.some((s: Ref) => s.pid === 102), "an adopted orphan is in the snapshot");
+	// a corrupt file
+	const bad = mkdtempSync(join(tmpdir(), "psb-procs-bad-"));
+	dirs.push(bad);
+	mkdirSync(join(bad, "procs"));
+	writeFileSync(join(bad, "procs", "owners.json"), "{ not json");
+	const second = world({}, bad);
+	await second.procs.start();
+	assert.deepEqual(second.lines("procs-error").map((f) => String(f.text).startsWith("owners.json is not readable")), [true]);
+	assert.equal(readFileSync(join(bad, "procs", "owners.json.bad"), "utf8"), "{ not json");
+	await second.procs.hello({ pid: 100, id: "w9" });
+	assert.equal(readFileSync(join(bad, "procs", "owners.json.bad"), "utf8"), "{ not json", "the first file is kept after the next save");
 });

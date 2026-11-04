@@ -21,7 +21,7 @@ import { DialogForwarder } from "../link/dialogs-out.ts";
 import { openTower } from "./opentower.ts";
 import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
 import { createLog, tailLog } from "./log.ts";
-import { createProcs, type Procs, type ProcsDeps, ProcsRefusal, protectedSet } from "./procs.ts";
+import { procsReply, startProcs, type StartProcs } from "./procsops.ts";
 import { gateRun, type RunInfo } from "./rungate.ts";
 import type { ServerTools } from "./runtools.ts";
 import {
@@ -93,8 +93,8 @@ export interface ServerOptions {
 	herdr?: HeadlessDeps;
 	/** Replaces the tower service's timers and the like, for tests. */
 	towers?: Partial<TowersOptions>;
-	/** Replaces the owner registry's seams (the process table, the kill sequence, the clock of its tick), for tests. */
-	procs?: Partial<ProcsDeps> & { tickMs?: number };
+	/** Replaces the owner registry's seams (the process table, the kill sequence, the tick), for tests. */
+	procs?: StartProcs["over"];
 	touchMs?: number;
 	brokerMs?: number;
 	herdrGoneMs?: number;
@@ -156,8 +156,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	const trace = (name: string, began: number, facts: Record<string, string> = {}) => log.line("phase", { name, ms: now() - began, at: now() - startedAt, ...facts });
 	const timers: ReturnType<typeof setInterval>[] = [], stops: (() => void)[] = [];
 	let link: LinkService | undefined, linkFirst: Promise<void> | undefined;
-	// Assigned where Herdr's seams are known, before the first request is taken.
-	let procs: Procs | undefined;
+	let procs: ReturnType<typeof startProcs> | undefined; // the owner registry (procsops.ts), assigned before the first request is taken
 	// The Allows the dialog hub gave (a gate or an approval closed with a yes) and the asks the towers made for their mains: both are held for the tower service (B6).
 	const allows = createAllows({ now }), asks = createAsks(slot, now);
 
@@ -376,35 +375,10 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			updateRecord(slot, (r) => (r.pid === pid ? { ...r, restarting: { began: when, since: when, reason, by: who }, ...(request.counts === false ? {} : { lastRestart: { at: when, reason, by: who } }) } : undefined));
 			return leaveAfterReply("restarting", mode === "serve" ? SERVE_RESTART_CODE : 0);
 		}
-		const owners = procsCommand(request);
-		if (owners) return owners;
+		const owners = procsReply(procs, request); if (owners) return owners;
 		const tower = towerCommand(request);
 		if (tower) return tower;
 		return { ok: false, error: `unknown command ${String(request.cmd)}` };
-	};
-	/** The owner registry's commands (src/server/procs.ts): a worker's pi says hello, beats, and says bye; `procs-list` and `procs-reap` are the CLI's. */
-	const procsCommand = (request: Request): Promise<Reply> | undefined => {
-		const str = (value: unknown, max = 4096) => (typeof value === "string" && value.length > 0 && value.length <= max ? value : undefined);
-		const refuse = (error: unknown): Reply => ({ ok: false, error: (error as Error).message });
-		if (typeof request.cmd === "string" && request.cmd.startsWith("procs-") && !procs) return Promise.resolve({ ok: false, error: "the server is still starting" });
-		const reg = procs!;
-		switch (request.cmd) {
-			case "procs-hello":
-				return reg.hello({ pid: Number(request.pid), id: str(request.id, 64), started: str(request.started, 64), subagentId: str(request.subagentId), sessionFile: str(request.sessionFile), pane: str(request.pane), terminal: str(request.terminal), cwd: str(request.cwd) }).then((r) => ({ ok: true, ...r }), refuse);
-			case "procs-beat":
-				return Promise.resolve({ ok: true, known: reg.beat(String(request.id)) });
-			case "procs-bye":
-				return Promise.resolve({ ok: true, known: reg.bye(String(request.id)) });
-			case "procs-list":
-				return Promise.resolve({ ok: true, owners: reg.list() });
-			case "procs-reap": {
-				const owner = str(request.owner, 64), checkout = str(request.checkout);
-				if ((owner === undefined) === (checkout === undefined)) return Promise.resolve({ ok: false, error: "procs-reap needs an owner or a checkout, not both" });
-				return (owner ? reg.reapOwner(owner) : reg.reapCheckout(checkout!)).then((r) => ({ ok: true, ...r }), (error: unknown) => (error instanceof ProcsRefusal ? { ok: false, error: error.message, refused: true } : refuse(error)));
-			}
-			default:
-				return undefined;
-		}
 	};
 	/** The tower service's commands (docs/specs/2026-10-26-sb-backend.md, The tower service): `ensure-tower`, `close-tower`, and the opener's and `close-main`'s asks. Behind `towerRuns.enabled`. */
 	const towerCommand = (request: Request): Promise<Reply> | undefined => {
@@ -569,21 +543,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		log.line("herdr-takeover");
 		void towers?.takeover().catch((error: Error) => recordError("towers", error.message));
 	}, () => (log.line("herdr-lost", { at: Date.now() }), towers?.runs.herdrLost())));
-	// The owner registry (procs.ts): workers' pi processes are registered, their descendants noted every tick, and what an ended owner leaves is killed. Its own Herdr subscription, apart from the tower service's.
-	procs = createProcs({
-		dir: slot.dir, now, log: (event, facts) => log.line(event, facts), self: [pid], platform, ...(process.getuid ? { ownUid: process.getuid() } : {}),
-		protect: (table) => protectedSet(table, { run: cfg.run, stateDir: slot.stateDir, agentDir: env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), self: pid }),
-		panes: async () => (await panes(cfg.run)).map((p) => ({ pane_id: p.pane_id, ...(p.terminal_id ? { terminal_id: p.terminal_id } : {}) })),
-		...o.procs,
-	});
-	if (platform !== "win32") {
-		stops.push(cfg.events(["pane.exited", "pane.closed"], (event) => void (event ? procs.paneEvent(event) : procs.tick()).catch((error: Error) => log.line("error", { code: "procs", text: phrase(error.message, 300) }))));
-		void procs.start().catch((error: Error) => log.line("error", { code: "procs", text: phrase(error.message, 300) })).then(() => {
-			// One timer at the rate the first tick's cost allows (10 s, or 30 s after a tick that took over a second).
-			if (leaving || phase === "stopping" || phase === "restarting") return;
-			timers.push(setInterval(() => void procs.tick().catch((error: Error) => log.line("error", { code: "procs", text: phrase(error.message, 300) })), o.procs?.tickMs ?? procs.tickMs()));
-		});
-	}
+	procs = startProcs({ dir: slot.dir, stateDir: slot.stateDir, env, pid, platform, now, log: (event, facts) => log.line(event, facts), run: cfg.run, events: cfg.events, ...(o.procs ? { over: o.procs } : {}), stops, timers, leaving: () => Boolean(leaving) || phase === "stopping" || phase === "restarting" });
 	let downSince: number | undefined;
 	const herdrUp = o.herdrUp ?? (() => herdrListens({ slot, platform }));
 	timers.push(setInterval(() => void herdrUp().then((up) => {

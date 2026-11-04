@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { parseArgs, UsageError } from "../src/server/cli.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { parseArgs, run, UsageError } from "../src/server/cli.ts";
+import { protectedSet, serverPids } from "../src/server/procs.ts";
 import { callControl } from "../src/server/socket.ts";
 import type { Proc } from "../src/procs/table.ts";
 import { ServerWorld, until } from "./server-world.ts";
@@ -43,5 +46,48 @@ test("a worker's hello, bye, and the list go through the socket; the owner is ke
 test("cli: procs takes list (default) or reap with exactly one of --owner and --checkout", () => {
 	assert.equal(parseArgs(["procs"]).flags.sub, "list");
 	assert.deepEqual(parseArgs(["procs", "reap", "--owner", "w1"]).flags, { sub: "reap", owner: "w1" });
-	for (const bad of [["procs", "reap"], ["procs", "reap", "--owner", "a", "--checkout", "/b"], ["procs", "list", "--owner", "a"], ["procs", "kill"]]) assert.throws(() => parseArgs(bad), UsageError, bad.join(" "));
+	for (const bad of [["procs", "reap"], ["procs", "reap", "--owner", "a", "--checkout", "/b"], ["procs", "list", "--owner", "a"], ["procs", "kill"], ["procs", "--owner", "a", "--checkout", "/b"], ["procs", "list", "--checkout", "/b"], ["procs", "list", "--owner", "a", "--checkout", "/b"]]) assert.throws(() => parseArgs(bad), UsageError, bad.join(" "));
+});
+
+async function cli(argv: string[]) {
+	const { by: _by, ...requester } = world.ctx({ version: "0.44.0" });
+	let out = "", err = "";
+	const code = await run(argv, { env: world.env, stateDir: world.stateDir, version: "0.44.0", cli: "/fake/cli.mjs", ctx: { ...requester, env: world.env }, herdrListens: async () => true, out: (t) => void (out += t), err: (t) => void (err += t) });
+	return { code, out, err };
+}
+
+test("T2R-F010 and F001: cli procs exits 1 when a reap leaves a process alive or the server refuses a path, and 0 with the list; a refused path says why", async () => {
+	const table = [P(100, 1), P(101, 100)];
+	const procs = { read: async () => table, startOf: (pid: number) => table.find((p) => p.pid === pid)?.started, cwds: async () => new Map(), markers: async () => new Map([[101, "w1"]]), reap: async (refs: readonly { pid: number }[]) => ({ termed: refs.length, killed: refs.length, skipped: 0, groups: 0, left: [{ pid: 101, comm: "node" }] }) };
+	const running = await world.start({ procs });
+	await running.handle.ready;
+	assert.equal((await ask({ cmd: "procs-hello", pid: 100, id: "w1", started: "t100" })).ok, true);
+	await ask({ cmd: "procs-beat", id: "w1" });
+	const listed = await cli(["procs"]);
+	assert.equal(listed.code, 0, listed.err);
+	assert.deepEqual((JSON.parse(listed.out) as { owners: { id: string }[] }).owners.map((o) => o.id), ["w1"]);
+	assert.deepEqual(await ask({ cmd: "procs-bye", id: "w1" }), { ok: true, known: true });
+	await until(async () => (await ask({ cmd: "procs-list" })).owners instanceof Array && ((await ask({ cmd: "procs-list" })).owners as { id: string; live: boolean }[]).every((o) => !o.live), "the owner to have ended");
+	const left = await cli(["procs", "reap", "--owner", "w1"]);
+	assert.equal(left.code, 1, left.err || "something stayed alive");
+	assert.equal(left.err, "");
+	assert.deepEqual((JSON.parse(left.out) as { left: unknown[] }).left, [{ pid: 101, comm: "node" }]);
+	const root = await cli(["procs", "reap", "--checkout", "/"]);
+	assert.equal(root.code, 1);
+	assert.match(root.err, /in no checkout: reap --checkout takes a linked worktree/);
+	assert.equal(root.out, "");
+});
+
+test("T2R-F007: an sb server's record protects the process with its start time only; a reused pid is not spared", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "psb-prot-"));
+	try {
+		mkdirSync(join(dir, "servers", "ab"), { recursive: true });
+		writeFileSync(join(dir, "server.json"), JSON.stringify({ pid: 4000, started: "Tue Nov  4 03:50:02 2026" }));
+		writeFileSync(join(dir, "servers", "ab", "server.json"), JSON.stringify({ pid: 4001 }));
+		assert.deepEqual(serverPids(dir), [{ pid: 4000, started: "Tue Nov  4 03:50:02 2026" }, { pid: 4001 }]);
+		const protect = await protectedSet([P(4000, 1)], { stateDir: dir, agentDir: dir, self: 9000 });
+		assert.deepEqual(protect.filter((p) => p.why === "sb-server" && p.pid !== 9000), [{ pid: 4000, started: "Tue Nov  4 03:50:02 2026", why: "sb-server", tree: true }, { pid: 4001, why: "sb-server", tree: true }]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

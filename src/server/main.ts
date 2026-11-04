@@ -21,6 +21,7 @@ import { DialogForwarder } from "../link/dialogs-out.ts";
 import { openTower } from "./opentower.ts";
 import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
 import { createLog, tailLog } from "./log.ts";
+import { procsReply, startProcs, type StartProcs } from "./procsops.ts";
 import { gateRun, type RunInfo } from "./rungate.ts";
 import type { ServerTools } from "./runtools.ts";
 import {
@@ -94,6 +95,8 @@ export interface ServerOptions {
 	herdr?: HeadlessDeps;
 	/** Replaces the tower service's timers and the like, for tests. */
 	towers?: Partial<TowersOptions>;
+	/** Replaces the owner registry's seams (the process table, the kill sequence, the tick), for tests. */
+	procs?: StartProcs["over"];
 	touchMs?: number;
 	brokerMs?: number;
 	herdrGoneMs?: number;
@@ -155,6 +158,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	const trace = (name: string, began: number, facts: Record<string, string> = {}) => log.line("phase", { name, ms: now() - began, at: now() - startedAt, ...facts });
 	const timers: ReturnType<typeof setInterval>[] = [], stops: (() => void)[] = [];
 	let link: LinkService | undefined, linkFirst: Promise<void> | undefined;
+	let procs: ReturnType<typeof startProcs> | undefined; // the owner registry (procsops.ts), assigned before the first request is taken
 	// The Allows the dialog hub gave (a gate or an approval closed with a yes) and the asks the towers made for their mains: both are held for the tower service (B6).
 	const allows = createAllows({ now }), asks = createAsks(slot, now);
 
@@ -373,6 +377,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			updateRecord(slot, (r) => (r.pid === pid ? { ...r, restarting: { began: when, since: when, reason, by: who }, ...(request.counts === false ? {} : { lastRestart: { at: when, reason, by: who } }) } : undefined));
 			return leaveAfterReply("restarting", mode === "serve" ? SERVE_RESTART_CODE : 0);
 		}
+		const owners = procsReply(procs, request); if (owners) return owners;
 		const tower = towerCommand(request);
 		if (tower) return tower;
 		return { ok: false, error: `unknown command ${String(request.cmd)}` };
@@ -542,6 +547,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		log.line("herdr-takeover");
 		void towers?.takeover().catch((error: Error) => recordError("towers", error.message));
 	}, () => (log.line("herdr-lost", { at: Date.now() }), towers?.runs.herdrLost())));
+	procs = startProcs({ dir: slot.dir, stateDir: slot.stateDir, env, pid, platform, now, log: (event, facts) => log.line(event, facts), run: cfg.run, events: cfg.events, ...(o.procs ? { over: o.procs } : {}), stops, timers, leaving: () => Boolean(leaving) || phase === "stopping" || phase === "restarting" });
 	let downSince: number | undefined;
 	const herdrUp = o.herdrUp ?? (() => herdrListens({ slot, platform }));
 	timers.push(setInterval(() => void herdrUp().then((up) => {

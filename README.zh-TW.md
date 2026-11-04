@@ -202,6 +202,15 @@ plugin 一安裝或連結就開始清理，沒有試跑，也不會先問：第�
 請先執行 `bash herdr-reaper/run.sh reaper.mjs dry-run` 看它會做什麼，並釘選想保留的工作區（plugin 連結後 `pin` 動作才能用；也可以在連結之前，先在 plugin 的設定目錄放一個帶 `only_under` 的 `config.json`）。
 [運作方式](docs/how-it-works.md#worktree-reaper)（英文）有規則和限制。
 
+## 行程清理
+
+每個 pi 都會載入一個小擴充，在環境變數裡留下標記，所以 worker 的 bash 啟動的東西，就算被 `timeout` 或 `setsid` 搬到自己的行程群組，仍帶著 worker 的 id。
+pi-herdr-agents 的 worker 會向 sb 伺服器登記；worker 結束或它的 pane 關掉時，伺服器收掉它留下的行程（先 SIGTERM，10 秒後 SIGKILL，每一步都用 pid 和啟動時間再確認），並記一行 `procs-reaped`。
+`worktree_remove` 和 bash 的 `git worktree remove`，在還有行程以該 checkout 為工作目錄時會被擋下，並列出每個行程的 pid、程式名稱、CPU 和存活時間，以及收掉它們的指令：`node dist/server/cli.mjs procs reap --checkout <path>`。
+`cli.mjs procs` 列出伺服器認得的 worker。
+重型指令的 slot、Linux cgroup 和失控行程的看門狗留待下一版。
+規則與限制見[運作方式](docs/how-it-works.md#process-hygiene-and-slots)。
+
 ## 延伸閱讀
 
 [運作方式](docs/how-it-works.md)（英文）說明角色、塔台、儀表板、瀏覽器畫面、這個擴充套件會寫入什麼，以及 Claude Code 或 Codex 的 session 怎麼加入網。

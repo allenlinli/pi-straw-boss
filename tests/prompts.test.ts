@@ -16,7 +16,8 @@ import { PROMPT_DIR } from "./fakes.ts";
 // Merge of call timing (D19) and board auto-fill: main 458 (three call_tower points beside the board line), tower 380.
 // Board clearing: main 458 to 484 (clear the board before stopping when work ends or is shelved; `board_set { clear: true }`; Done-when includes it).
 // 2026-11-02 (a main edited prompts itself and stalled its chain): main dispatches work independent of its chain; +14 words, 13 cut from the board and rename lines (the tool states the 16-character limit), main stays 483 of 484.
-const BUDGETS: Record<string, number> = { "main.md": 484, "tower.md": 380, "member.md": 140, "member-no-main.md": 150 };
+// 2026-11-04 (hand-made worktrees scattered under ~/.local/share and hung children on the trust prompt): main names the worktree root; 484 to 500.
+const BUDGETS: Record<string, number> = { "main.md": 500, "tower.md": 380, "member.md": 140, "member-no-main.md": 150 };
 const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir"]);
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 

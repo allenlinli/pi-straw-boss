@@ -24,7 +24,7 @@ import type { Asks } from "./asks.ts";
 import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, LOCAL_TOOLS } from "./towerbrief.ts";
 import { createStanding, type PromptReply, type StandingTimers } from "./standing.ts";
 import { claimGate, proofGate, seatGate, type SeatVerdict } from "./typegate.ts";
-import { addAnswer, addRoute, answeredAsks, ALLY_LEDGER, dropAsk, type Peer, readAnswers, removeAnswer, openedFor, routeOf, spendRoute } from "./allyroute.ts";
+import { addAnswer, addRoute, answeredAsks, ALLY_LEDGER, dropAsk, dropOpened, type Peer, readAnswers, removeAnswer, openedFor, routeOf, spendRoute } from "./allyroute.ts";
 import { type AllyItem, type AllyPort, createRuns, type Runs, type RunsOptions, type ServiceRef, type ServiceStatus } from "./runs.ts";
 import { type ConversationInfo, sessionsRoot } from "./bossconv.ts";
 import { addExpect, clearExpect, lastNote, listRuns, readExpects, readNotes, readTimer } from "./towerrunstore.ts";
@@ -996,6 +996,8 @@ export function createTowers(o: TowersOptions): Towers {
 		if (l.state !== "live" || (!forHead && (!l.open || !l.control))) throw new Error(`The tower of workspace ${workspace} is not registered with pi-intercom yet (${l.state})`);
 		return l;
 	};
+	/** A main that accepted the close has no use for its opened route (a main the boss closes is let go when the next one opens, or after a week). A route file that cannot be written does not undo the close. */
+	const forgetClosed = <T extends { main?: string }>(ws: string, closed: T): T => { try { if (closed.main) dropOpened(slot, ws, closed.main, now()); } catch (cause) { error("ally-route", (cause as Error).message); } return closed; };
 	const answered = answeredAsks(now); // run id → asks it answered: kept out of a route, as the Mac closes an answered ask
 	/** The tools a run calls, done as the workspace's tower identity (runtools.ts). A failure that comes after the run has gone is told to the next run as a notice. */
 	const runToolFor = async (request: Record<string, unknown>) => {
@@ -1005,7 +1007,7 @@ export function createTowers(o: TowersOptions): Towers {
 		const l = need(who.workspace, who.kind === "head"), ws = who.workspace;
 		// What an ally run waits on or opens is its device's: the routes (allyroute.ts) send those sessions' answers to the device's next ally run, never to a local run, and its opened mains have a ledger of their own.
 		const peer: Peer | undefined = who.kind === "ally" && who.device && who.team ? { device: who.device, label: who.deviceLabel ?? who.device.slice(0, 6), short: who.deviceShort ?? who.device.slice(0, 6), team: who.team, teamName: who.teamName ?? who.team.slice(0, 6) } : undefined;
-		const route = (to: string, name: string, kind: "expect" | "opened", ask?: string) => { try { addRoute(slot, ws, { ...peer!, to, name, kind, at: now(), ...(ask ? { ask } : {}) }, now()); } catch (cause) { error("ally-route", (cause as Error).message); } };
+		const route = (to: string, name: string, kind: "expect" | "opened", ask?: string, live?: ReadonlySet<string>) => { try { addRoute(slot, ws, { ...peer!, to, name, kind, at: now(), ...(ask ? { ask } : {}) }, now(), live); } catch (cause) { error("ally-route", (cause as Error).message); } };
 		/** The live main of this tower's workspace named by id or name; throws when there is none, several, or it is no main of this workspace. */
 		const mainOf = async (query: string) => {
 			const net = await l.reach!.read(), named = net.sessions.filter((x) => x.id === query || nameOf(x) === query);
@@ -1015,7 +1017,7 @@ export function createTowers(o: TowersOptions): Towers {
 			return { id: named[0]!.id, name: phrase(nameOf(named[0]!), 40) };
 		};
 		const host = {
-			reach: l.reach!, open: peer ? async (request: Parameters<NonNullable<Live["open"]>>[0]) => { const opened = await l.openAlly!(request); route(opened.main, "opened main", "opened", ((u) => (u.length === 1 ? u[0] : undefined))((who.asks ?? []).filter((a) => !answered.has(who.id, a)))); return opened; } : l.open!, closeMain: l.control?.closeMain as Control["closeMain"], now, boardDir: join(slot.stateDir, "board"), label: l.record.label,
+			reach: l.reach!, open: peer ? async (request: Parameters<NonNullable<Live["open"]>>[0]) => { const opened = await l.openAlly!(request); const live = await l.reach!.read().then((net) => new Set(net.sessions.map((x) => x.id))).catch(() => undefined); route(opened.main, "opened main", "opened", ((u) => (u.length === 1 ? u[0] : undefined))((who.asks ?? []).filter((a) => !answered.has(who.id, a))), live); return opened; } : l.open!, closeMain: (l.control ? async (query: string) => forgetClosed(ws, await l.control!.closeMain(query)) : undefined) as unknown as Control["closeMain"], now, boardDir: join(slot.stateDir, "board"), label: l.record.label,
 			link: async (body: Record<string, unknown>) => ((await o.link?.(body, l.record.id)) ?? { ok: false, code: "no_holder", error: "The link holder is not running in the sb server" }) as { ok: boolean; error?: string },
 			server: o.server ?? { status: () => ({}), logs: () => [], restart: () => Promise.reject(new Error("The server cannot restart itself here")) },
 			expect: (to: string, name: string, text: string) => { if (peer) return route(to, phrase(name, 40), "expect"); try { addExpect(slot, ws, { to, name, at: now(), first: phrase(text, 80) }, now()); } catch (cause) { error("expects", (cause as Error).message); } },
@@ -1092,7 +1094,7 @@ export function createTowers(o: TowersOptions): Towers {
 			return { workspace, id: l.record.id };
 		},
 		openMain: ({ workspace, request, sender, label }) => need(workspace).open!({ request, sender, ...(label ? { label } : {}) }),
-		closeMain: ({ workspace, query }) => need(workspace).control!.closeMain(query),
+		closeMain: async ({ workspace, query }) => forgetClosed(workspace, await need(workspace).control!.closeMain(query)),
 		async takeover() {
 			// A new Herdr server has no tokens and no pane environment: the tabs are looked for (for a minute, since a restore brings them back one by one), and the marks are written again.
 			recoverUntil = now() + (o.recoverMs ?? RECOVER_MS);

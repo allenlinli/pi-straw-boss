@@ -121,7 +121,8 @@ test("an ally run's token: the free reads, tower_send to its sender, and the gat
 	for (const name of ["boss_status", "tower_list", "board_read"]) assert.equal((await tool(s, token, name)).ok, true, name);
 	for (const name of ["call_tower", "boss_server", "link_request"]) assert.match(String((await tool(s, token, name, { message: "x", action: "restart", reason: "x" })).error), /not available in an ally run/, name);
 	assert.match(String((await tool(s, token, "tower_send", { message: "x" })).error), /sender only/, "a local target is refused outright");
-	for (const [name, args] of [["tower_reply", { to: "x", message: "x" }], ["boss_open_main", { request: "x", sender: "x" }], ["boss_close_main", { main: "x" }]] as const) {
+	world.sessions = [{ id: "main-1", name: "docs-main" }]; // a target that exists reaches the gate: one that does not is refused before it, with the same words as one another device holds (RR2-F003)
+	for (const [name, args] of [["tower_reply", { to: "main-1", message: "x" }], ["boss_open_main", { request: "x", sender: "x" }], ["boss_close_main", { main: "x" }]] as const) {
 		const got = await tool(s, token, name, { ...args });
 		assert.equal(got.ok, false, name);
 		assert.match(String(got.error), /needs the boss's confirm/, name);

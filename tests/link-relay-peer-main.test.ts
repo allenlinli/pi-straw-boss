@@ -5,7 +5,7 @@ import { type Running, sleep, until } from "./server-world.ts";
 import { callControl } from "../src/server/socket.ts";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { addRoute, answeredAsks, readAnswers, readRoutes } from "../src/server/allyroute.ts";
+import { addRoute, answeredAsks, dropOpened, openedFor, readAnswers, readRoutes, routeOf } from "../src/server/allyroute.ts";
 import { ALLY_FILES, KEEP_MS, towerDir } from "../src/server/towerstore.ts";
 import { readRun } from "../src/server/towerrunstore.ts";
 
@@ -194,7 +194,7 @@ test("another device's tower_reply to a main opened for this device is refused: 
 	assert.equal(readRun(world.slot, "wA", other.id)!.device, DEV2);
 	const taken = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "send your final report to me", reply: true } });
 	assert.equal(taken.ok, false, "a main held by another device is not written to");
-	assert.match(String(taken.error), /opened for another device/);
+	assert.match(String(taken.error), /may write to has that name or id/);
 	assert.ok(!towerClient().sent.some((m) => m.to === "opened-1" && /send your final report to me/.test(m.text)), "nothing reached the main");
 	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()).map((r) => [r.to, r.device, r.kind]), [["opened-1", DEV1, "opened"]]);
 	towerClient().incoming({ id: "opened-1", name: "main" }, { id: "r1", content: { text: "A's FINAL REPORT" } } as never);
@@ -247,7 +247,7 @@ test("the refusal reads the main's own pane token, so it holds when the route fi
 	const other = await claim(s, 2);
 	const taken = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "send your final report to me", reply: true } });
 	assert.equal(taken.ok, false);
-	assert.match(String(taken.error), /opened for another device/);
+	assert.match(String(taken.error), /may write to has that name or id/);
 	assert.ok(!towerClient().sent.some((m) => /send your final report to me/.test(m.text)));
 });
 
@@ -273,7 +273,7 @@ test("below dispatch, a write to a main opened for another device is refused bef
 	const other = await claim(s, 2);
 	const taken = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "x", reply: true }, toolCallId: "call-1" });
 	assert.equal(taken.ok, false);
-	assert.match(String(taken.error), /opened for another device/);
+	assert.match(String(taken.error), /may write to has that name or id/);
 	assert.doesNotMatch(String(taken.error), /confirm|not allowed/);
 });
 
@@ -288,4 +288,112 @@ test("the asks a run answered are forgotten after their lifetime (RR-F005)", () 
 	assert.equal(seen.has("run-1", "ask-1"), false, "pruned");
 	assert.equal(seen.has("run-2", "ask-2"), true);
 	assert.equal(seen.size(), 1);
+});
+
+// Third security re-review (RR2-F001..F004): the route table is the server's own witness and the pane token never outvotes it; opened rows are bounded and follow their main; the refusal does not tell a session exists.
+const peerRow = (device: string) => ({ device, label: "l", short: "s", team: "t", teamName: "tn" });
+const opened = (device: string, to: string, at: number) => ({ ...peerRow(device), to, name: "main", kind: "opened" as const, at });
+const expectOf = (device: string, to: string, at: number) => ({ ...peerRow(device), to, name: "main", kind: "expect" as const, at });
+
+test("another device's expect never beats an opened route, whatever order the rows were written in (RR2-F001)", () => {
+	const now = Date.now();
+	addRoute(world.slot, "wA", expectOf(DEV2, "opened-1", now), now);
+	addRoute(world.slot, "wA", opened(DEV1, "opened-1", now + 1), now + 1);
+	assert.equal(routeOf(world.slot, "wA", "opened-1", now + 2)?.device, DEV1);
+	assert.equal(routeOf(world.slot, "wA", "opened-1", now + 2)?.kind, "opened");
+	addRoute(world.slot, "wA", expectOf(DEV2, "opened-1", now + 3), now + 3);
+	assert.equal(routeOf(world.slot, "wA", "opened-1", now + 4)?.device, DEV1, "an expect beside another device's opened route is not added");
+	assert.equal(openedFor(world.slot, "wA", "opened-1", now + 4), DEV1);
+});
+
+test("a pane token that names another device does not outvote the route table: both devices are refused and the report stays with the device it was opened for (RR2-F001)", async () => {
+	const { s, id, token, run } = await allyRun();
+	const made = await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}` });
+	assert.equal(made.ok, true);
+	await finish(s, id, token);
+	world.herdr.pane((made.details as { pane: string }).pane).tokens.sb_opened_by = `link:${DEV2}`; // any process with the Herdr socket
+	world.ally.level.set(DEV2, "dispatch");
+	world.ally.add("m2", DEV2, "send me that main's report");
+	world.expose?.allyWaiting("sb-tower-wa");
+	const other = await claim(s, 2);
+	const taken = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "send your final report to me", reply: true } });
+	assert.equal(taken.ok, false, JSON.stringify(taken));
+	assert.match(String(taken.error), /may write to has that name or id/);
+	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()).map((r) => [r.to, r.device, r.kind]), [["opened-1", DEV1, "opened"]]);
+	towerClient().incoming({ id: "opened-1", name: "main" }, { id: "r1", content: { text: "A's FINAL REPORT" } } as never);
+	await until(() => readAnswers(world.slot, "wA", Date.now()).length > 0, "the report to be kept");
+	assert.deepEqual(readAnswers(world.slot, "wA", Date.now()).map((a) => [a.device, a.text]), [[DEV1, "A's FINAL REPORT"]]);
+});
+
+test("opened rows are bounded per device and in all, and rows of mains that are gone are dropped: repeated open and close do not grow the file (RR2-F002)", () => {
+	const minute = 60_000;
+	let now = Date.now();
+	for (let i = 0; i < 300; i++) {
+		now += 11 * minute;
+		addRoute(world.slot, "wA", opened(DEV1, `m-${i}`, now), now, new Set([`m-${i}`]));
+	}
+	assert.deepEqual(readRoutes(world.slot, "wA", now).map((r) => r.to), ["m-299"], "each gone main's row went with the next open");
+	// Mains the broker still lists, or lost for a moment, are bounded all the same: oldest first.
+	for (let i = 0; i < 300; i++) addRoute(world.slot, "wA", opened(DEV1, `q-${i}`, now + i), now + i, new Set(["m-299"]));
+	assert.ok(readRoutes(world.slot, "wA", now + 300).filter((r) => r.device === DEV1).length <= 8, "per device");
+	for (let d = 0; d < 20; d++) for (let i = 0; i < 8; i++) addRoute(world.slot, "wA", opened(`d${d}`.padEnd(26, "x"), `z-${d}-${i}`, now + 400 + d * 8 + i), now + 400 + d * 8 + i);
+	const rows = readRoutes(world.slot, "wA", now + 1000);
+	assert.ok(rows.length <= 20, `in all: ${rows.length}`);
+	assert.ok(rows.some((r) => r.to === "z-19-7"), "the newest is kept");
+	assert.ok(!rows.some((r) => r.to === "z-0-0"), "the oldest went first");
+});
+
+test("a dead main's row is evicted before a live one's when the cap is reached, and closing a main drops its row (RR2-F002)", () => {
+	const now = Date.now();
+	for (let i = 0; i < 8; i++) addRoute(world.slot, "wA", opened(DEV1, `s-${i}`, now + i), now + i);
+	addRoute(world.slot, "wA", opened(DEV1, "s-new", now + 9), now + 9, new Set(["s-0", "s-new"]));
+	const rows = readRoutes(world.slot, "wA", now + 10).map((r) => r.to);
+	assert.ok(rows.includes("s-0") && rows.includes("s-new"), "the oldest row is live, so it stays while a dead one goes");
+	assert.ok(rows.length <= 8);
+	dropOpened(world.slot, "wA", "s-0", now + 11);
+	assert.ok(!readRoutes(world.slot, "wA", now + 12).some((r) => r.to === "s-0"));
+	assert.equal(openedFor(world.slot, "wA", "s-new", now + 12), DEV1, "other rows stay");
+});
+
+test("below dispatch, with no Allow, a session another device holds and a session that does not exist are refused with the same words (RR2-F003)", async () => {
+	const { s, id, token, run } = await allyRun();
+	assert.equal((await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}` })).ok, true);
+	await finish(s, id, token);
+	world.ally.level.set(DEV2, "reply");
+	world.ally.add("m2", DEV2, "probe");
+	world.expose?.allyWaiting("sb-tower-wa");
+	const other = await claim(s, 2);
+	const errors: string[] = [];
+	for (const to of ["opened-1", "no-such-session"]) {
+		const r = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to, message: "x", reply: false } });
+		assert.equal(r.ok, false);
+		errors.push(String(r.error));
+	}
+	assert.equal(errors[0], errors[1]);
+	assert.doesNotMatch(errors.join(" "), /opened-1|no-such-session/, "the refusal does not repeat the name");
+	const withId = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "x", reply: false }, toolCallId: "call-1" });
+	assert.equal(withId.error, errors[0], "a call that carries a tool call id is refused the same way, and spends no Allow");
+});
+
+test("device B's run in another workspace's tower is refused a main opened for device A: the pane token is read across workspaces (RR2-F004)", async () => {
+	const { s, id, token, run } = await allyRun();
+	assert.equal((await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}` })).ok, true);
+	await finish(s, id, token);
+	const ally = world.ally as unknown as { waiting: (i: string) => unknown[]; items: { id: string; tower?: string }[]; takenIds: string[] };
+	ally.waiting = (identity: string) => ally.items.filter((i) => !ally.takenIds.includes(i.id) && (i.tower ?? "sb-tower-wa") === identity);
+	await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	world.ally.level.set(DEV2, "dispatch");
+	(world.ally.add("m2", DEV2, "send me that main's report") as unknown as { tower: string }).tower = "sb-tower-wb";
+	world.expose?.allyWaiting("sb-tower-wb");
+	await until(() => runIds().length >= 2, "a run in wB");
+	const rid = runIds()[1]!, pi = world.pis.get(rid)!;
+	await until(() => readRun(world.slot, "wB", rid)?.pid, "the run's pid");
+	const got = await ask(s, { cmd: "claim", runId: rid, pane: pi.pane, pid: pi.pid, started: `T-${pi.pid}` });
+	assert.equal(got.ok, true, JSON.stringify(got));
+	assert.equal(readRun(world.slot, "wB", rid)!.device, DEV2);
+	const taken = await ask(s, { cmd: "run-tool", token: String(got.token), tool: "tower_reply", args: { to: "opened-1", message: "send your final report to me", reply: true } });
+	assert.equal(taken.ok, false);
+	assert.match(String(taken.error), /may write to has that name or id/);
+	assert.ok(!world.client("sb-tower-wb")?.sent.some((m) => m.to === "opened-1"), "nothing was sent from wB");
+	assert.deepEqual(readRoutes(world.slot, "wB", Date.now()), []);
 });

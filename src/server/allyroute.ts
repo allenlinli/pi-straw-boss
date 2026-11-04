@@ -8,11 +8,13 @@ import { ALLY_FILES, ensureDir, KEEP_MS, towerDir, writeDurable } from "./towers
 //   `ally-routes.json`   the sessions an ally run waits on (a `tower_reply` that expects a reply, one answer) or opened (every report), and for which device,
 //   `ally-answers.json`  what those sessions said, kept until the device's next ally run takes it (the same rule as a link message: a message that arrives during a run waits for the next one),
 //   `ally-opened.json`   the opener's ledger of the mains ally runs opened.
-// 24 hours, as the local files. This file has no pi dependency: it runs in the server's bundle.
+// An `expect` route and an answer live 24 hours, as the local files; an `opened` route lives 7 days after the main's last report and is bounded and dropped with its main (below). This file has no pi dependency: it runs in the server's bundle.
 
 const ROUTES = ALLY_FILES[0], ANSWERS = ALLY_FILES[1];
 export const ALLY_LEDGER = ALLY_FILES[2];
 const MAX_ROUTES = 40, MAX_ANSWERS = 50, MAX_TEXT = 100_000;
+/** The `opened` rows kept per device and in all (the opener holds at most 2 live marked mains per workspace and one per sender), and how long a row of a main the broker no longer lists is kept in case the main is only restarting. */
+const MAX_OPENED_PER_DEVICE = 8, MAX_OPENED = 20, DEAD_GRACE_MS = 10 * 60_000;
 
 /** The sender an ally run serves, as a route and an answer keep it (the ally brief and the header need these). */
 export interface Peer { device: string; label: string; short: string; team: string; teamName: string }
@@ -52,17 +54,33 @@ const write = (slot: Slot, workspace: string, file: string, entries: unknown[]) 
 
 export const readRoutes = (slot: Slot, workspace: string, now: number) => read<Route>(slot, workspace, ROUTES, now).filter((r) => typeof r.to === "string" && typeof r.device === "string");
 /**
- * A route for `row.to` and its device replaces the earlier one, except that an `expect` never replaces an `opened` route: the opened route already relays every message of the main to the device, and losing it would send
- * the main's next reports to a local run (RR-F001). The cap trims `expect` routes only; `opened` ones are bounded by the opener's one main per sender.
+ * A route for `row.to` and its device replaces the earlier one, except that an `expect` never sits beside an `opened` route of the same session, whichever device it is for: the opened route already relays every message
+ * of the main to its device, and another route would take the main's next report (RR-F001, RR2-F001). The cap trims `expect` routes. `opened` rows are bounded per device and in all, the oldest first and rows of mains
+ * that are gone before live ones; with `live` (the ids of the sessions the broker lists), a row of a main that is not listed and has been silent past a short grace is dropped (RR2-F002).
  */
-export function addRoute(slot: Slot, workspace: string, row: Route, now: number): void {
+export function addRoute(slot: Slot, workspace: string, row: Route, now: number, live?: ReadonlySet<string>): void {
 	const was = readRoutes(slot, workspace, now);
-	if (row.kind === "expect" && was.some((r) => r.to === row.to && r.device === row.device && r.kind === "opened")) return;
-	const rest = [...was.filter((r) => !(r.to === row.to && r.device === row.device)), row];
-	write(slot, workspace, ROUTES, [...rest.filter((r) => r.kind === "opened"), ...rest.filter((r) => r.kind !== "opened").slice(-MAX_ROUTES)]);
+	if (row.kind === "expect" && was.some((r) => r.to === row.to && r.kind === "opened")) return;
+	const rest = [...was.filter((r) => !(r.to === row.to && r.device === row.device)), row], dead = (r: Route) => live !== undefined && !live.has(r.to);
+	// Dead rows first, then the oldest; the row being added is never the one to go.
+	const order = (a: Route, b: Route) => Number(dead(b)) - Number(dead(a)) || a.at - b.at;
+	const gone = new Set<Route>(rest.filter((r) => r.kind === "opened" && r !== row && dead(r) && now - r.at > DEAD_GRACE_MS));
+	const trim = (rows: Route[], keep: number) => rows.filter((r) => r !== row).sort(order).slice(0, Math.max(0, rows.length - keep)).forEach((r) => gone.add(r));
+	const kept = () => rest.filter((r) => r.kind === "opened" && !gone.has(r));
+	for (const device of new Set(kept().map((r) => r.device))) trim(kept().filter((r) => r.device === device), MAX_OPENED_PER_DEVICE);
+	trim(kept(), MAX_OPENED);
+	write(slot, workspace, ROUTES, [...kept(), ...rest.filter((r) => r.kind !== "opened").slice(-MAX_ROUTES)]);
 }
-/** The newest route for a session, if an ally run waits on it or opened it. */
-export const routeOf = (slot: Slot, workspace: string, session: string, now: number): Route | undefined => readRoutes(slot, workspace, now).filter((r) => r.to === session).at(-1);
+/** The route for a session, if an ally run waits on it or opened it: the `opened` route first, so another device's `expect` row never outranks it; else the newest. */
+export const routeOf = (slot: Slot, workspace: string, session: string, now: number): Route | undefined => {
+	const rows = readRoutes(slot, workspace, now).filter((r) => r.to === session);
+	return rows.find((r) => r.kind === "opened") ?? rows.at(-1);
+};
+/** A main closed: its `opened` row goes with it. */
+export function dropOpened(slot: Slot, workspace: string, session: string, now: number): void {
+	const rows = readRoutes(slot, workspace, now);
+	if (rows.some((r) => r.to === session && r.kind === "opened")) write(slot, workspace, ROUTES, rows.filter((r) => !(r.to === session && r.kind === "opened")));
+}
 /** The device a session was opened for, while an `opened` route of it lives. */
 export const openedFor = (slot: Slot, workspace: string, session: string, now: number): string | undefined => readRoutes(slot, workspace, now).find((r) => r.to === session && r.kind === "opened")?.device;
 /** The run answered the ask: no later report of an opened main carries it, and an answer that waits for a run no longer names it. */

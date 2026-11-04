@@ -68,16 +68,20 @@ export interface ToolHost {
 	now(): number;
 }
 
+/** The one refusal of an ally `tower_reply` target: it does not say whether the session exists, is ambiguous, or is held for another device, and it does not repeat what the run named (RR2-F003). */
+const NO_TARGET = "tower_reply has no such target: no session of this computer that an ally run may write to has that name or id";
+
 /**
- * A main opened for one device reports to that device: another device's write, with its expected reply, would take the next report (spec 2026-11-04-link-relay.md, Wrong thread). The main's own pane token
- * (`sb_opened_by`, kept while it lives, in any workspace) says who it was opened for; the route table of this workspace is the second witness. The check runs before the gate, so a refusal spends no Allow.
+ * A main opened for one device reports to that device: another device's write, with its expected reply, would take the next report (spec 2026-11-04-link-relay.md, Wrong thread). Two witnesses say who it was opened for:
+ * this workspace's route table, which only the server writes, and the main's own pane token (`sb_opened_by`, kept while it lives, in any workspace). Either one naming another device refuses the write, so a token a local
+ * process can set never outvotes the table (RR2-F001). The check runs before the gate, so a refusal spends no Allow, and it says the same of a session that does not exist.
  */
-async function refuseOpenedForOther(host: ToolHost, query: string): Promise<void> {
+async function refuseTarget(host: ToolHost, query: string): Promise<void> {
 	const net = await host.reach.read(), named = net.sessions.filter((s) => s.id === query || s.name === query);
-	if (named.length !== 1) return;
+	if (named.length !== 1) throw new Error(NO_TARGET);
 	const token = net.ps.find((p) => p.pane_id === named[0]!.herdrLocation?.paneId)?.tokens?.sb_opened_by;
-	const held = typeof token === "string" && token.startsWith("link:") ? token.replace(/^(link:)+/, "") : host.openedFor?.(named[0]!.id);
-	if (held !== undefined && held !== host.who.device) throw new Error(`${clean(named[0]!.name ?? named[0]!.id, 40)} was opened for another device: an ally run does not write to it`);
+	const byToken = typeof token === "string" && token.startsWith("link:") ? token.replace(/^(link:)+/, "") : undefined;
+	for (const held of [byToken, host.openedFor?.(named[0]!.id)]) if (held !== undefined && held !== host.who.device) throw new Error(NO_TARGET);
 }
 
 /** The tools an ally run may call at all; `call_tower`, `boss_server`, and `link_request` are refused by its kind. */
@@ -141,7 +145,7 @@ async function allyTool(host: ToolHost, name: string, args: Record<string, unkno
 	if (name === "tower_reply") {
 		const to = str(args, "to", 200);
 		if (await host.isTower(to)) throw new Error("An ally run may not write to a tower identity of this computer: it would carry a peer's text into a local run");
-		await refuseOpenedForOther(host, to);
+		await refuseTarget(host, to);
 	}
 	// The sender's own device is the one write the allowlist lets through; everything else outside the free reads needs the Allow of the gate.
 	if (gated && name !== "tower_send") {
@@ -251,11 +255,13 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			return reach.towerSend(str(args, "message"), opt(args, "workspace"), args.reply === true);
 		}
 		case "tower_reply": {
-			const to = str(args, "to", 200), message = str(args, "message", 16_384), net = await reach.read();
+			const to = str(args, "to", 200), message = str(args, "message", 16_384);
+			// An ally run's target is checked again after the Allow: the session may have changed in between.
+			if (ally) await refuseTarget(host, to);
+			const net = await reach.read();
 			const named = net.sessions.filter((s) => s.id === to || s.name === to);
 			if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${to}"`);
 			const target = named[0]!, shown = clean(target.name ?? target.id, 40);
-			if (ally) await refuseOpenedForOther(host, target.id);
 			// The server stamps `origin=remote:<device id>` on what an ally run sends to a local session, so the receiver knows a peer's text started it.
 			const result = await reach.post(target.id, message, "tower_reply", "session", args.reply === true, ally && host.who.device ? `remote:${host.who.device}` : undefined);
 			if (result.status !== "sent") throw new Error(`${shown} did not take the message: ${result.status} ${result.code ?? ""} ${result.detail ?? ""}`.trim());

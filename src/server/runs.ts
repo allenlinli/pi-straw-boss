@@ -817,8 +817,8 @@ export function createRuns(o: RunsOptions) {
 		if (!pids.length) {
 			for (const top of typeof byName === "number" && !carried.includes(byName) ? [...carried, byName] : carried) {
 				// A table that was read must still show the listed carrier as the run's (its PID may be another program's by now); only an unreadable table leaves it to Herdr's list.
-				// The by-name pi has no run id in its command line, so it needs a row in the table read (a pid the read does not show may be another program's).
-				if (table && top === byName ? !table.some((p) => p.pid === top) : table && !table.find((p) => p.pid === top)?.carries) continue;
+				// The by-name pi has no run id in its command line, so it needs a row in a table that was read; an unreadable table leaves it alone.
+				if (top === byName ? !table?.some((p) => p.pid === top) : table && !table.find((p) => p.pid === top)?.carries) continue;
 				const hit = table && leafOf(table, top);
 				pids.push(...(hit ? [hit.pid, ...[...hit.via].reverse()] : [top]));
 			}

@@ -89,8 +89,31 @@ test("reap on Linux: two pi by name, the stranger leads the group (recorded pi n
 	assert.deepEqual(world.kills, [], "a pi that is not the run's is not signalled");
 });
 
+const failStart = () => {
+	// The start finds no pi at first (procOf fails, no pid recorded); the pi then shows in the pane as the only one.
+	const seen = { reads: 0 };
+	world.piShape = (_pid, args) => {
+		const pane = world.herdr.pane(world.pis.get(args[args.indexOf("--sb-run") + 1]!)!.pane);
+		Object.defineProperty(pane, "processes", { configurable: true, get: () => (++seen.reads > 1 ? [{ pid: STRANGER, name: "pi", argv: ["pi"], cmdline: "pi" }] : []), set: () => {} });
+		return [];
+	};
+	return seen;
+};
+
+test("reap on Linux: no recorded pid, the pane's sole pi listed by name, the table unreadable: nothing is signalled", async () => {
+	const seen = failStart();
+	const s = await world.start();
+	await s.handle.ready;
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	world.client("sb-tower-wa")!.incoming(from, { id: "m1", content: { text: "one" } });
+	await until(() => seen.reads > 1, "the pane to list the pi");
+	await stop(s);
+	assert.deepEqual(world.kills, [], "a pi found by name alone needs a row in a table that was read");
+});
+
 test("reap on Linux: no recorded pid and the pane's sole pi listed by name: that pi is signalled", async () => {
 	// The start finds no pi at first (procOf fails, no pid recorded); the pi then shows in the pane as the only one, and the reap of the failed start ends it.
+	world.procTable = [{ pid: STRANGER, ppid: 1, name: "pi", carries: false, started: `T-${STRANGER}` }] as never;
 	let reads = 0;
 	world.piShape = (_pid, args) => {
 		const pane = world.herdr.pane(world.pis.get(args[args.indexOf("--sb-run") + 1]!)!.pane);

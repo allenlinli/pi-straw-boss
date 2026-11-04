@@ -68,6 +68,8 @@ test("lineage: the pi is the first process below the listed wrappers that carrie
 	assert.deepEqual(leafOf(table, 10), { pid: 11, started: PI_AT, via: [10] }, "a node that pi started carries the id too, and does not displace pi (WC-F003)");
 	assert.deepEqual(leafOf(table, 11), { pid: 11, started: PI_AT, via: [] }, "a pi Herdr lists itself stays pi, whatever below it carries the id");
 	assert.deepEqual(leafOf([proc(10, 1, "cmd.exe", true, WRAPPER_AT), proc(11, 10, "sh", true, PI_AT), proc(12, 11, "node", true, "2026-10-28T09:39:14.000Z"), proc(13, 12, "bash", true, "2026-10-28T09:39:15.000Z")], 10), { pid: 12, started: "2026-10-28T09:39:14.000Z", via: [10, 11] }, "wrappers are passed through to the first pi");
+	assert.deepEqual(leafOf([proc(10, 1, "sh", true, WRAPPER_AT), proc(11, 10, "pi", false, PI_AT)], 10), { pid: 11, started: PI_AT, via: [10] }, "a pi below a carrying wrapper whose title hid the id is pi (RL-F003)");
+	assert.deepEqual(leafOf([proc(10, 1, "sh", false, WRAPPER_AT), proc(11, 10, "pi", false, PI_AT)], 10), { pid: 10, started: WRAPPER_AT, via: [] }, "a pi below a wrapper that does not carry the id is not taken");
 	assert.deepEqual(leafOf([proc(10, 1, "node.exe", true, PI_AT)], 10), { pid: 10, started: PI_AT, via: [] }, "pi listed itself");
 	assert.equal(leafOf(table, 99), undefined, "the listed process is not in the table");
 	// A ppid outlives its process: a child that started before its "parent" belongs to a PID that was reused.

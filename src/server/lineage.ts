@@ -47,7 +47,8 @@ export function leafOf(table: Proc[], root: number): Lineage | undefined {
 	const seen = new Set<number>([root]);
 	const walk = (path: Proc[]) => {
 		const here = path[path.length - 1]!;
-		if (path.length > 1 && here.carries && (path.length > best.path.length || (path.length === best.path.length && (ms(here.started) < ms(best.proc.started) || here.pid < best.proc.pid && Number.isNaN(ms(here.started)))))) best = { proc: here, path };
+		// A pi below a carrying wrapper may not carry the id itself: its process title hides the arguments from `ps`.
+		if (path.length > 1 && (here.carries || (here.name === "pi" && path.slice(0, -1).some((p) => p.carries))) && (path.length > best.path.length || (path.length === best.path.length && (ms(here.started) < ms(best.proc.started) || here.pid < best.proc.pid && Number.isNaN(ms(here.started)))))) best = { proc: here, path };
 		// Only a wrapper has a pi below it: what a pi started is not pi.
 		if (path.length > MAX_DEPTH || !isWrapper(here.name)) return;
 		for (const kid of byParent.get(here.pid) ?? []) {

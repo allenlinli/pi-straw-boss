@@ -45,11 +45,19 @@ test("Linux: a pi that Herdr lists by name alone (no argv0, a command line of ju
 	assert.equal(readRun(world.slot, "wA", id)?.outcome, undefined, "the run did not crash at its start");
 });
 
-test("Linux: a pi in the foreground that names another run is not taken; the one without a run id in its command line is", async () => {
-	world.piShape = (pid) => [{ pid: 4001, name: "pi", argv: ["pi", "--sb-run", "deadbeef"], cmdline: "pi --sb-run deadbeef" }, { pid, name: "pi", argv: ["pi"], cmdline: "pi" }];
+test("Linux: a pi by name wins over a node process in the same foreground", async () => {
+	world.piShape = (pid) => [{ pid: 4001, name: "node", cmdline: "node helper.js" }, { pid, name: "pi", cmdline: "pi" }];
 	const { s, id } = await wake();
 	assert.equal(await pidRecorded(id), world.pis.get(id)!.pid);
 	assert.equal((await claim(s, id)).ok, true);
+});
+
+test("Linux: two pi by name, no leader, and a node child: the node is not guessed", async () => {
+	world.herdr.shellPids = false;
+	world.piShape = (pid) => [{ pid: 4002, name: "pi", cmdline: "pi" }, { pid, name: "pi", cmdline: "pi" }, { pid: 4005, name: "node", cmdline: "node x.js" }];
+	await wake();
+	await until(() => listRuns(world.slot, "wA").some((r) => r.outcome === "crashed"), "the run to end as crashed");
+	assert.equal(listRuns(world.slot, "wA")[0]!.pid, undefined);
 });
 
 test("Linux: two pi processes by name in the foreground are told apart by the foreground process group's leader", async () => {

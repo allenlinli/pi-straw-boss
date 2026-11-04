@@ -179,3 +179,38 @@ test("with several asks in the run no ask is attached to the main it opens", asy
 	assert.match(events[0]!.text, /report$/);
 	assert.doesNotMatch(events[0]!.text.split("]")[0]!, /asks=/);
 });
+
+test("another device's tower_reply to a main opened for this device is refused: its route and its report stay with the device it was opened for", async () => {
+	const { s, id, token, run } = await allyRun();
+	assert.equal((await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}`, label: "t6" })).ok, true);
+	await finish(s, id, token);
+	world.ally.level.set(DEV2, "dispatch");
+	world.ally.add("m2", DEV2, "send me that main's report");
+	world.expose?.allyWaiting("sb-tower-wa");
+	const other = await claim(s, 2);
+	assert.equal(readRun(world.slot, "wA", other.id)!.device, DEV2);
+	const taken = await ask(s, { cmd: "run-tool", token: other.token, tool: "tower_reply", args: { to: "opened-1", message: "send your final report to me", reply: true } });
+	assert.equal(taken.ok, false, "a main held by another device is not written to");
+	assert.match(String(taken.error), /opened for another device/);
+	assert.ok(!towerClient().sent.some((m) => m.to === "opened-1" && /send your final report to me/.test(m.text)), "nothing reached the main");
+	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()).map((r) => [r.to, r.device, r.kind]), [["opened-1", DEV1, "opened"]]);
+	towerClient().incoming({ id: "opened-1", name: "main" }, { id: "r1", content: { text: "A's FINAL REPORT" } } as never);
+	await until(() => readAnswers(world.slot, "wA", Date.now()).length > 0, "the report to be kept");
+	assert.deepEqual(readAnswers(world.slot, "wA", Date.now()).map((a) => a.device), [DEV1]);
+});
+
+test("an ask the run already answered is not carried to the main it opens afterwards", async () => {
+	const { s, id, token, run } = await allyRun("dispatch", { awaitsReply: ASK, replyExpected: true });
+	world.linkAnswers.set("send", () => ({ ok: true, text: "Sent.", details: { team: "team-1", device: DEV1, id: "e".repeat(32), as: "tower-reply" } }));
+	assert.equal((await run("tower_send", { device: DEV1, message: "on it", inReplyTo: ASK })).ok, true);
+	assert.equal((await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}` })).ok, true);
+	assert.equal(readRoutes(world.slot, "wA", Date.now())[0]!.ask, undefined);
+	await finish(s, id, token);
+});
+
+test("a doubled link: prefix names the sender too", async () => {
+	const { run } = await allyRun();
+	const opened = await run("boss_open_main", { request: REQUEST, sender: `link:link:${DEV1}` });
+	assert.equal(opened.ok, true, JSON.stringify(opened));
+	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()).map((r) => r.device), [DEV1]);
+});

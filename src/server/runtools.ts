@@ -55,6 +55,8 @@ export interface ToolHost {
 	project?: string;
 	/** Whether a session (id or name) is a tower identity of this machine (an ally run may not write to one). */
 	isTower(session: string): Promise<boolean>;
+	/** The device a main was opened for, when an ally run opened it and its route is still live (allyroute.ts); undefined for any other session. */
+	openedFor?(session: string): string | undefined;
 	/** The live main of this tower's workspace named by id or name (a local run asks for it); throws when there is none or it is ambiguous. */
 	mainOf(query: string): Promise<{ id: string; name: string }>;
 	/** The one live main of this tower's workspace that sent the run a `call_tower` expecting an answer (the events the run took); undefined when there is none or there are several. */
@@ -101,7 +103,8 @@ const isSender = (who: RunWho, device: string) => device === who.device || devic
  */
 const peerSender = (who: RunWho, sender: string): PeerSender | undefined => {
 	if (!sender.startsWith("link:") || !who.device) return undefined;
-	const named = sender.slice(5);
+	// The header's `id=` already reads `link:<device id>`: a model that adds the prefix again names the same device.
+	const named = sender.replace(/^(link:)+/, "");
 	return named === who.device || named === who.device.slice(0, 6) ? { id: `link:${who.device}`, label: who.deviceLabel ?? who.device.slice(0, 6), short: who.deviceShort ?? who.device.slice(0, 6) } : undefined;
 };
 
@@ -239,6 +242,9 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			const named = net.sessions.filter((s) => s.id === to || s.name === to);
 			if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${to}"`);
 			const target = named[0]!, shown = clean(target.name ?? target.id, 40);
+			// A main opened for one device reports to that device: another device's write, with its expected reply, would take the next report (spec 2026-11-04-link-relay.md, Wrong thread).
+			const held = ally ? host.openedFor?.(target.id) : undefined;
+			if (held !== undefined && held !== host.who.device) throw new Error(`${shown} was opened for another device: an ally run does not write to it`);
 			// The server stamps `origin=remote:<device id>` on what an ally run sends to a local session, so the receiver knows a peer's text started it.
 			const result = await reach.post(target.id, message, "tower_reply", "session", args.reply === true, ally && host.who.device ? `remote:${host.who.device}` : undefined);
 			if (result.status !== "sent") throw new Error(`${shown} did not take the message: ${result.status} ${result.code ?? ""} ${result.detail ?? ""}`.trim());

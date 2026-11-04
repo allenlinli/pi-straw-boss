@@ -154,7 +154,7 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callT
 			tool("boss_open_main", "Open a new tab in this workspace with a new pi as its main agent and hand it a request that no session owns. Does not ask the boss and does not take focus. Opens at most one main per request; when it fails, tell the sender. The main reports its outcome to the sender and to you; close it with boss_close_main after its done report.",
 				Type.Object({
 					request: Type.String({ description: "The sender's request exactly as it reached you, with every boss decision it quotes kept verbatim." }),
-					sender: Type.String({ description: "The intercom name or session id of the session that made the request; the new main reports back to it. For a request from a teammate's device (an ally run): link: and the device id from the message header." }),
+					sender: Type.String({ description: "The intercom name or session id of the session that made the request; the new main reports back to it. For a request from a teammate's device (an ally run): the message header's id= value as it stands (it reads link:<device id>)." }),
 					label: Type.Optional(Type.String({ description: "A short label for the new tab." })),
 				}),
 				async (input) => {

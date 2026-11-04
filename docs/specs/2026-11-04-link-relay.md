@@ -10,6 +10,10 @@ Root cause. The only server-side way an ally's answer reaches a local session is
 
 **Gap 2, box side.** The box's tower (an ally run for the Mac) called `boss_open_main` for a Link sender. `opener.ts` looks the sender up among the live sessions (`id` or `name`); `link:<device id>` is no session, so it refused, the main was opened for no one, no route was made, and the main's report arrived as a local event at the box tower, which relayed it on its next run (trial 7: the post-reboot report waited for a wake).
 
+## 2. Approach
+
+Gap 1 binds the requester server-side; Gap 2 lets an ally run name its own device as the sender of a main it opens, so the existing route relays each report. Neither gives a peer's text new authority (§3 and §4 list each decision and trust note).
+
 ## 3. Decisions
 
 | # | Decision | Why |
@@ -27,7 +31,7 @@ Each place the change touches a trust decision, and what it decides.
 
 - **Who the main reports for** (`runtools.ts` `peerSender`): the run's claim (`who.device`), never the argument. `link:` + another device's id or short id is refused with "for its own sender only". The matching device must also be a member now (`who.gone` already refuses every tool of a run whose sender left).
 - **Level** (`allyTool`): the open is gated as before. At `reply` and `forward` the boss's Allow for that call id and argument digest is required; the test holds the refusal. At `dispatch` it runs, as it did for a local sender.
-- **Wrong thread**: a route carries the device; the answer is stored for that device and `waiting()` offers it only to a run of that device. A test starts a run of a second device first and checks it never sees the report.
+- **Wrong thread**: a route carries the device; the answer is stored for that device and `waiting()` offers it only to a run of that device. A test starts a run of a second device first and checks it never sees the report. An ally `tower_reply` from another device to a main opened for this device is refused (fail closed: the message is not sent and no route is added), so a newer `expect` route cannot take the main's next report; no spec'd flow writes to another device's main.
 - **Revoked trust**: the report is stored, then `beginAlly` finds the device is no longer a member and hands the answer back, which deletes it; no run starts, nothing is sent. A test checks it.
 - **Requester binding** (`towers.ts` `requester`): from the queue's events taken by this run, header `kind=call_tower reply=expected`, one distinct sender, live main of this workspace by the broker's sessions and Herdr's pane token. A forged header from a non-main, or a main of another workspace, does not bind (`mainOf`).
 - **Egress**: nothing beyond the report. The server sends nothing itself; the ally run's `tower_send` is pinned to the sender, as in `allyTool`.

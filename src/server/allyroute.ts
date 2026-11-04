@@ -55,6 +55,8 @@ export function addRoute(slot: Slot, workspace: string, row: Route, now: number)
 }
 /** The newest route for a session, if an ally run waits on it or opened it. */
 export const routeOf = (slot: Slot, workspace: string, session: string, now: number): Route | undefined => readRoutes(slot, workspace, now).filter((r) => r.to === session).at(-1);
+/** The device a session was opened for, while an `opened` route of it lives. */
+export const openedFor = (slot: Slot, workspace: string, session: string, now: number): string | undefined => readRoutes(slot, workspace, now).find((r) => r.to === session && r.kind === "opened")?.device;
 /** The run answered the ask: no later report of an opened main carries it, and an answer that waits for a run no longer names it. */
 export function dropAsk(slot: Slot, workspace: string, device: string, ask: string, now: number): void {
 	const routes = readRoutes(slot, workspace, now);

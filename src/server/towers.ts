@@ -24,7 +24,7 @@ import type { Asks } from "./asks.ts";
 import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, LOCAL_TOOLS } from "./towerbrief.ts";
 import { createStanding, type PromptReply, type StandingTimers } from "./standing.ts";
 import { claimGate, proofGate, seatGate, type SeatVerdict } from "./typegate.ts";
-import { addAnswer, addRoute, ALLY_LEDGER, dropAsk, type Peer, readAnswers, removeAnswer, routeOf, spendRoute } from "./allyroute.ts";
+import { addAnswer, addRoute, ALLY_LEDGER, dropAsk, type Peer, readAnswers, removeAnswer, openedFor, routeOf, spendRoute } from "./allyroute.ts";
 import { type AllyItem, type AllyPort, createRuns, type Runs, type RunsOptions, type ServiceRef, type ServiceStatus } from "./runs.ts";
 import { type ConversationInfo, sessionsRoot } from "./bossconv.ts";
 import { addExpect, clearExpect, lastNote, listRuns, readExpects, readNotes, readTimer } from "./towerrunstore.ts";
@@ -996,7 +996,7 @@ export function createTowers(o: TowersOptions): Towers {
 		if (l.state !== "live" || (!forHead && (!l.open || !l.control))) throw new Error(`The tower of workspace ${workspace} is not registered with pi-intercom yet (${l.state})`);
 		return l;
 	};
-
+	const answered = new Map<string, Set<string>>(); // run id → asks it answered: kept out of a route, as the Mac closes an answered ask
 	/** The tools a run calls, done as the workspace's tower identity (runtools.ts). A failure that comes after the run has gone is told to the next run as a notice. */
 	const runToolFor = async (request: Record<string, unknown>) => {
 		const who = runs.runOf(request.token);
@@ -1015,7 +1015,7 @@ export function createTowers(o: TowersOptions): Towers {
 			return { id: named[0]!.id, name: phrase(nameOf(named[0]!), 40) };
 		};
 		const host = {
-			reach: l.reach!, open: peer ? async (request: Parameters<NonNullable<Live["open"]>>[0]) => { const opened = await l.openAlly!(request); route(opened.main, "opened main", "opened", who.asks?.length === 1 ? who.asks[0] : undefined); return opened; } : l.open!, closeMain: l.control?.closeMain as Control["closeMain"], now, boardDir: join(slot.stateDir, "board"), label: l.record.label,
+			reach: l.reach!, open: peer ? async (request: Parameters<NonNullable<Live["open"]>>[0]) => { const opened = await l.openAlly!(request); route(opened.main, "opened main", "opened", ((u) => (u.length === 1 ? u[0] : undefined))((who.asks ?? []).filter((a) => !answered.get(who.id)?.has(a)))); return opened; } : l.open!, closeMain: l.control?.closeMain as Control["closeMain"], now, boardDir: join(slot.stateDir, "board"), label: l.record.label,
 			link: async (body: Record<string, unknown>) => ((await o.link?.(body, l.record.id)) ?? { ok: false, code: "no_holder", error: "The link holder is not running in the sb server" }) as { ok: boolean; error?: string },
 			server: o.server ?? { status: () => ({}), logs: () => [], restart: () => Promise.reject(new Error("The server cannot restart itself here")) },
 			expect: (to: string, name: string, text: string) => { if (peer) return route(to, phrase(name, 40), "expect"); try { addExpect(slot, ws, { to, name, at: now(), first: phrase(text, 80) }, now()); } catch (cause) { error("expects", (cause as Error).message); } },
@@ -1023,7 +1023,7 @@ export function createTowers(o: TowersOptions): Towers {
 			allow: (q: { toolCallId: string; tool: string; args: unknown }) => (o.allows ? o.allows.take({ pane: who.pane, ...q, sessions: () => l.client!.listSessions() }) : Promise.resolve({ ok: false as const, reason: "this server holds no Allows" })),
 			allowRequest: (q: { toolCallId: string; lines: string[] }) => (o.allows ? o.allows.takeRequest({ pane: who.pane, ...q, sessions: () => l.client!.listSessions() }) : Promise.resolve({ ok: false as const, reason: "this server holds no Allows" })),
 			asks: o.asks ?? { open: () => { throw new Error("this server keeps no asks"); } },
-			headAsked: (id: string) => asked(slot, now(), ws, id),
+			headAsked: (id: string) => asked(slot, now(), ws, id), openedFor: (session: string) => openedFor(slot, ws, session, now()),
 			...(who.team && o.ally?.project(who.team) ? { project: o.ally.project(who.team)! } : {}),
 			isTower: async (query: string) => {
 				// A tower identity of this server by its id or name, whether or not the broker lists it just now; or any session whose pane is a tower's (a resident tower of the previous build).
@@ -1063,7 +1063,7 @@ export function createTowers(o: TowersOptions): Towers {
 			}
 			const done = await runTool(host, who.kind, name, args, typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {});
 			// The ask a run answered is spent on the asking computer: a report of a main the run opened must not name it again.
-			if (peer && name === "tower_send" && typeof args.inReplyTo === "string") try { dropAsk(slot, ws, peer.device, args.inReplyTo, now()); } catch (cause) { error("ally-route", (cause as Error).message); }
+			if (peer && name === "tower_send" && typeof args.inReplyTo === "string") try { (answered.get(who.id) ?? answered.set(who.id, new Set()).get(who.id)!).add(args.inReplyTo); dropAsk(slot, ws, peer.device, args.inReplyTo, now()); } catch (cause) { error("ally-route", (cause as Error).message); }
 			return done;
 		} catch (cause) {
 			// The run was released while the call was under way (a /new, an end): nobody is left to read the failure, so the next run does.

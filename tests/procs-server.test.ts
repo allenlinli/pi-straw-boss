@@ -12,7 +12,9 @@ import { ServerWorld, until } from "./server-world.ts";
 
 // The registry behind the control socket: procs-hello / bye / list / reap on a server of the world, and the registry file kept across a restart.
 
-const P = (pid: number, ppid: number): Proc => ({ pid, ppid, pgid: pid, uid: 501, started: `t${pid}`, cpu: 0, comm: "/usr/bin/node", zombie: false });
+// The server reaps only its own account's processes (`ownUid` is the real uid), so the fake table is the account of whoever runs the test: 501 is the dev Mac's user, not the Linux runner's.
+const UID = process.getuid?.() ?? 501;
+const P = (pid: number, ppid: number): Proc => ({ pid, ppid, pgid: pid, uid: UID, started: `t${pid}`, cpu: 0, comm: "/usr/bin/node", zombie: false });
 let world: ServerWorld;
 beforeEach(() => void (world = new ServerWorld()));
 afterEach(() => world.close());

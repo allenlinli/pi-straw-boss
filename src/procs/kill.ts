@@ -1,5 +1,5 @@
 import { guardSignal } from "./killguard.ts";
-import { baseName, readTable, refOf, sameProc, type Proc, type Ref } from "./table.ts";
+import { programOf, readTable, refOf, sameProc, type Proc, type Ref } from "./table.ts";
 import { startOf } from "../startof.ts";
 
 // The kill sequence: SIGTERM to each target group and then to each target pid, 10 s later SIGKILL to what is left, then a last look. Every signal is preceded by a check that the pid still has the start time
@@ -101,7 +101,7 @@ export async function killSequence(refs: readonly Ref[], deps: KillDeps): Promis
 		await sleep(settle.stepMs);
 		left = alive(await table());
 	}
-	report.left = left.map((p) => ({ pid: p.pid, comm: baseName(p.comm) }));
+	report.left = left.map((p) => ({ pid: p.pid, comm: programOf(p) }));
 	return report;
 }
 

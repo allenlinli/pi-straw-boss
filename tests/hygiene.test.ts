@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import hygieneDefault, { BEAT_MS, createHygiene, ownerId } from "../src/hygiene.ts";
 import { ageText, cpuText, parseWorktreeList, removeTargets, words } from "../src/procs/guard.ts";
@@ -359,7 +359,8 @@ test("with the real process table: a child that works in the checkout holds the 
 		const ctx = { cwd: root };
 		const first = await pi.fire("tool_call", { toolName: "worktree_remove", input: { target: wt } }, ctx);
 		assert.equal(first?.block, true);
-		assert.match(first.reason, new RegExp(`- pid ${child.pid} node, cpu .*, age .*, no owner marker\\n`));
+		// The program is named by its executable's file, not ps's name for it: on Linux that is the main thread's name, and node 24 calls its own "MainThread".
+		assert.match(first.reason, new RegExp(`- pid ${child.pid} ${basename(process.execPath)}, cpu .*, age .*, no owner marker\\n`));
 		child.kill("SIGKILL");
 		await gone;
 		assert.equal(await pi.fire("tool_call", { toolName: "worktree_remove", input: { target: wt } }, ctx), undefined, "the same call passes once nothing works there");

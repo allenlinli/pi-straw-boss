@@ -1,6 +1,6 @@
 # The head tower as its own entity: one conversation with the boss, work forwarded to the towers
 
-Status: design, not built. Revision 1 (2026-11-04). The boss settled the direction on 2026-11-04 (**Decisions**). The questions the four picks leave open are in **Open decisions for the boss**, each with a recommendation the design already follows.
+Status: design, not built. Revision 2 (2026-11-04). The boss settled the direction on 2026-11-04 (**Decisions**) and answered O1 to O4 the same day, each as recommended (**Open decisions for the boss**).
 Base: pi-straw-boss 0.56.0 (`main` at `6346fa7`), pi 1.4.0, Herdr 0.9.5, Node 22 or newer.
 Related: [2026-10-26-sb-backend.md](2026-10-26-sb-backend.md) (the tower service, local runs, the boss conversation, tower memory), [2026-11-01-zen-view.md](2026-11-01-zen-view.md) (Zen: Z-D12, Z-D15, Z-D16), [2026-10-26-desk-mode.md](2026-10-26-desk-mode.md) (the desk's home base), `docs/how-it-works.md` (**Talking between towers**, **The standing pane**, **Local runs (B5)**, **The boss conversation**, **Sidebar net view**).
 
@@ -370,7 +370,7 @@ Design calls made here within those picks, each with its reason in its section: 
 
 ## Open decisions for the boss
 
-Only what the four picks do not settle. The design follows each recommendation.
+Only what the four picks do not settle. The boss took every recommendation on 2026-11-04 (O1 A 「問你開」, O2 B 「發一則」, O3 A 「從空白開始」, O4 A 「醒來處理」); the table stays as the record of the options.
 
 | # | Question | Options | Recommendation |
 |---|---|---|---|

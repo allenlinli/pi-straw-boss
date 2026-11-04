@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { StubClient } from "./agent-fakes.ts";
 import { fakeClock } from "./fake-clock.ts";
-import { FakeHerdr } from "./fakes.ts";
+import { FakeHerdr, type FakePaneProcesses } from "./fakes.ts";
 import { ServerWorld } from "./server-world.ts";
 import type { Session } from "../src/herdr.ts";
 import type { Towers } from "../src/server/towers.ts";
@@ -78,6 +78,11 @@ export class TowerWorld extends ServerWorld {
 	/** How often the server asked for a process start time. */
 	startCalls = 0;
 	nextPi = 7000;
+	/**
+	 * How Herdr lists the pi it started. mac: `argv0` "pi", name "node" (the program), the command line holds the arguments. linux (Herdr's /proc reader, platform/linux.rs): no `argv0`, `name` is the kernel's comm, which is pi's
+	 * process title "pi", and the title has overwritten argv, so `argv` and `cmdline` are just "pi" and the run id is nowhere in them. A function gives the whole foreground list for the pi's pid.
+	 */
+	piShape: "mac" | "linux" | ((pid: number, args: string[]) => FakePaneProcesses) = "mac";
 	/** Set to make the settings check refuse. */
 	settingsError: Error | undefined;
 	/** While set, the settings check waits for it (a pi started by hand meanwhile). */
@@ -123,7 +128,8 @@ export class TowerWorld extends ServerWorld {
 			const pid = this.nextPi++;
 			this.live.add(pid);
 			this.pis.set(id, { pid, pane: pane.pane_id, args });
-			pane.processes = [{ argv0: "pi", name: "node", pid, cmdline: `node pi ${args.slice(args.indexOf("--") + 1).join(" ")}` }];
+			const shape = this.piShape;
+			pane.processes = typeof shape === "function" ? shape(pid, args) : shape === "linux" ? [{ pid, name: "pi", argv: ["pi"], cmdline: "pi" }] : [{ argv0: "pi", name: "node", pid, cmdline: `node pi ${args.slice(args.indexOf("--") + 1).join(" ")}` }];
 		};
 	}
 	override options(over: Parameters<ServerWorld["options"]>[0] = {}) {

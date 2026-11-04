@@ -710,7 +710,7 @@ export function createRuns(o: RunsOptions) {
 	/** A Herdr agent name is lowercase, up to 32 characters, and unique per run. */
 	const agentName = (s: Slot, workspace: string, id: string, prefix = "tower") => `${prefix}-${s.primary ? "" : `${s.slot8}-`}${workspace.toLowerCase().replace(/[^a-z0-9_-]/g, "")}-${id.slice(0, 8)}`.slice(0, 32).replace(/[-_]+$/, "");
 	/** What Herdr lists in the pane's foreground. On Windows that is one process: the wrapper (`cmd.exe /c pi.cmd`) when pi was started through one. */
-	const paneInfo = async (pane: string): Promise<{ shell_pid?: unknown; foreground_processes?: { pid?: number; argv0?: string; name?: string; cmdline?: string }[] } | undefined> => {
+	const paneInfo = async (pane: string): Promise<{ shell_pid?: unknown; foreground_process_group_id?: unknown; foreground_processes?: { pid?: number; argv0?: string; name?: string; cmdline?: string }[] } | undefined> => {
 		try {
 			return JSON.parse(await o.run(["pane", "process-info", "--pane", pane])).result?.process_info;
 		} catch {
@@ -735,10 +735,18 @@ export function createRuns(o: RunsOptions) {
 		return { programs: programProcs({ foreground_processes: found }), shells: found.filter(isShell), prompt };
 	};
 	const pidsOf = async (pane: string): Promise<number[] | undefined> => (await foreground(pane))?.flatMap((p) => (typeof p.pid === "number" ? [p.pid] : []));
-	/** The process Herdr lists for the run: the one whose command line holds the run id, else the one named pi. It may be a wrapper that started pi (`resolve`). */
+	/**
+	 * The process Herdr lists for the run: the one whose command line holds the run id, else the one that is pi by its program (`argv0` on macOS), else a pi by its name, else the one named node. It may be a wrapper that started pi (`resolve`).
+	 * On Linux Herdr lists pi by `name` alone (the kernel's `comm`: pi's process title) with no `argv0`, and pi's title has overwritten its argv, so the command line is just "pi" and the run id is not in it. A pi found by that name
+	 * only is taken when it is the one such process in the pane's foreground, or the foreground process group's leader among several, and not one that carries another run's id.
+	 */
 	const procOf = async (pane: string, runId?: string): Promise<number | undefined> => {
-		const info = await foreground(pane);
-		const pick = (info ?? []).find((p) => runId && p.cmdline?.includes(runId)) ?? (info ?? []).find((p) => p.argv0 === "pi") ?? (info ?? []).filter((p) => p.name === "node")[0];
+		const all = await paneInfo(pane), info = all?.foreground_processes ?? [];
+		// A pi that names another run in its command line is that run's, not this one's.
+		const named = info.filter((p) => p.name === "pi" && [undefined, runId].includes(/--sb-run (\S+)/.exec(p.cmdline ?? "")?.[1]));
+		const leader = named.find((p) => p.pid === all?.foreground_process_group_id);
+		const byName = named.length === 1 ? named[0] : leader;
+		const pick = info.find((p) => runId && p.cmdline?.includes(runId)) ?? info.find((p) => p.argv0 === "pi") ?? byName ?? info.filter((p) => p.name === "node")[0];
 		return typeof pick?.pid === "number" ? pick.pid : undefined;
 	};
 	/**

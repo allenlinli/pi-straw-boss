@@ -48,7 +48,8 @@ interface Tokens { [name: string]: string }
 export const FAKE_SHELL = 4;
 /** The pid of the shell Herdr started in every fake pane on Windows (process-info `shell_pid`). */
 export const SHELL_PID = 79748;
-interface FakePane { pane_id: string; tab_id: string; workspace_id: string; terminal_id: string; agent?: string; agent_status?: string; reportSeq?: number; standinMessage?: string; agent_session?: { value: string }; label?: string; tokens: Tokens; env?: string[]; cwd?: string; processes?: { argv?: string[]; argv0?: string; name?: string; pid?: number; cmdline?: string }[] }
+export type FakePaneProcesses = { argv?: string[]; argv0?: string; name?: string; pid?: number; cmdline?: string }[];
+interface FakePane { pane_id: string; tab_id: string; workspace_id: string; terminal_id: string; agent?: string; agent_status?: string; reportSeq?: number; standinMessage?: string; agent_session?: { value: string }; label?: string; tokens: Tokens; env?: string[]; cwd?: string; processes?: FakePaneProcesses }
 interface FakeWorkspace { workspace_id: string; label: string; agent_status?: string; focused?: boolean; active_tab_id?: string; tokens: Tokens; worktree?: { checkout_path?: string; is_linked_worktree?: boolean; repo_key?: string } }
 
 /** A tiny Herdr: workspaces, tabs, panes, and the CLI subcommands the extension calls. */

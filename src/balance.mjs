@@ -149,8 +149,9 @@ export async function balanceTab(paneId, { run = herdr, lockRoot = LOCK_ROOT } =
 }
 
 // Herdr's socket (Unix) or named pipe (Windows) is missing or refuses: Herdr itself has exited. Matched by the locale-free
-// `os error N` (2 and 3 not found, 61 and 111 refused); a busy or closing pipe (231, 232) is a live Herdr and keeps the wait.
-const HERDR_GONE = /\b(ENOENT|ECONNREFUSED)\b|os error (2|3|61|111)\b/;
+// `os error N` (2 and 3 not found, 61 and 111 refused), or by the CLI's own `server_not_running` code; a busy or closing pipe (231, 232)
+// is a live Herdr and keeps the wait.
+const HERDR_GONE = /\b(ENOENT|ECONNREFUSED|server_not_running)\b|os error (2|3|61|111)\b/;
 
 /** Whether the pane is gone: Herdr says so on stderr, or Herdr is gone with it. Any other failure counts as open. */
 const paneGone = (paneId, run) =>

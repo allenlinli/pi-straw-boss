@@ -43,7 +43,7 @@ test("findIntercomDir refuses a pi-intercom older than the minimum, one without 
 });
 
 test("findTsx resolves tsx/esm/api from the package's own place, and a place with no tsx above it is a loader LoaderError naming it", () => {
-	assert.match(findTsx(), /tsx[\\/]dist[\\/]esm[\\/]api/);
+	assert.match(findTsx(), /tsx[\\/]dist[\\/]esm[\\/]api[\\/]index\.mjs$/, "the ESM entry: Node 22.22.x cannot tsImport from the CommonJS one");
 	const lonely = join(base, "no", "tsx", "here", "file.mjs");
 	assert.throws(() => findTsx(lonely), (e: unknown) => e instanceof LoaderError && e.code === "loader" && e.message.includes(lonely));
 });
@@ -79,4 +79,14 @@ test("loadIntercom with a counting loader: three modules once, the broker starte
 	await mod.connect();
 	assert.deepEqual([...loads].sort(), ["broker/client.ts", "broker/spawn.ts", "config.ts"], "each module loaded once");
 	assert.equal(started, 3);
+});
+
+test("a load that fails names the Node version in its one error line", async () => {
+	const l = layout();
+	const tsImport = async () => { throw new Error("Cannot find module '/x/index.mjs'\n    at somewhere"); };
+	const mod = await loadIntercom({ env: l.env, root: l.root, tsImport });
+	await assert.rejects(mod.connect(), (e: unknown) => {
+		const m = (e as Error).message;
+		return !m.includes("\n") && m.includes(`Node ${process.version}`) && m.includes("Cannot find module '/x/index.mjs'") && m.includes("broker/client.ts");
+	});
 });

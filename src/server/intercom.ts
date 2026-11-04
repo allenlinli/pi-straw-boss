@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { findIntercom } from "../agent/paths.ts";
 import type { IntercomLike } from "../agent/kit.ts";
@@ -26,14 +26,19 @@ interface ClientModule { IntercomClient: new () => IntercomLike }
 interface SpawnModule { spawnBrokerIfNeeded(command: string, args: string[]): Promise<unknown> }
 interface ConfigModule { loadConfig(): { brokerCommand: string; brokerArgs: string[] } }
 
-/** Where tsx's API is, found from this package (`from`: a file URL or path inside it). Throws a LoaderError naming the place it looked from. */
+/**
+ * Where tsx's API is, found from this package (`from`: a file URL or path inside it): the ESM entry of `tsx/esm/api`, read from tsx's `exports` map. `require.resolve`
+ * would give the CommonJS entry, and on Node 22.22.x a `tsImport` run from that file cannot find its own ESM sibling. Throws a LoaderError naming the place it looked from.
+ */
 export function findTsx(from: string = import.meta.url): string {
 	const place = from.startsWith("file:") ? fileURLToPath(from) : from;
 	try {
-		return createRequire(place).resolve("tsx/esm/api");
-	} catch {
-		throw new LoaderError("loader", `tsx was not found from ${place}: it is a dependency of pi-straw-boss, so reinstall the package`);
-	}
+		const manifest = createRequire(place).resolve("tsx/package.json");
+		const entry = (JSON.parse(readFileSync(manifest, "utf8")) as { exports?: Record<string, { import?: { default?: unknown } }> }).exports?.["./esm/api"]?.import?.default;
+		const file = typeof entry === "string" ? join(dirname(manifest), entry) : undefined;
+		if (file && existsSync(file)) return file;
+	} catch {}
+	throw new LoaderError("loader", `tsx was not found from ${place}: it is a dependency of pi-straw-boss, so reinstall the package`);
 }
 /** The version of the pi-intercom in `dir`. */
 export function intercomVersion(dir: string): string | undefined {
@@ -80,8 +85,13 @@ export async function loadIntercom({ env, root, from, tsImport }: LoadOptions): 
 	let load = tsImport;
 	// SAFETY: each file is one of pi-intercom's modules at the version checked above; the interfaces name only the members the server uses.
 	const needed = async <T>(file: string) => {
-		load ??= ((await import(pathToFileURL(api).href)) as { tsImport: TsImport }).tsImport;
-		return (await load(pathToFileURL(join(dir, file)).href, import.meta.url)) as T;
+		try {
+			load ??= ((await import(pathToFileURL(api).href)) as { tsImport: TsImport }).tsImport;
+			return (await load(pathToFileURL(join(dir, file)).href, import.meta.url)) as T;
+		} catch (error) {
+			// One line, and the Node version in it: a tsx that works on one Node and not another is told apart from a broken install by this.
+			throw new Error(`tsx could not load pi-intercom's ${file} on Node ${process.version}: ${((error as Error).message ?? String(error)).split("\n")[0]}`, { cause: error });
+		}
 	};
 	// Each tsImport registers a loader hook and makes a fresh copy of what it loads (tsx 4), so a connect that loaded again at every retry would leak both while the broker is down:
 	// the three modules are loaded once. A load that failed is not kept, so the next attempt tries again.

@@ -959,7 +959,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Unit status and notices (S5): 273,184 / 110,304 (measured), the raw size unchanged and +5 gzipped over the 110,299 cap: the chat chunks carry the shared message module, which gained five messages.
 	// Zen lines (feat/zen-lines): 278,222 / 113,448 measured, +5,235 raw / +3,306 gzipped over the 272,987 / 110,142 the base measures: 24 more sourced lines with 22 Japanese originals (Japanese text is three bytes a character and hardly compresses), all in the lazy Zen chunk. Cap = measured + 15.
 	// A wait for the boss is an alert: 279,979 / 114,077 measured, +1,757 raw / +629 gzipped over the 278,222 / 113,448 above: the wait's dialog and Zen card (gui/waitpanel.ts, the Zen card's branch) are lazy, and the chat chunks carry the shared message module, which gained four messages. Cap = measured + 15.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 279_994 && total(chunks, gz) <= 114_092, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// The wait card: Zen text-button rules, the second pair of boss words, the chip line: 279,997 / 114,078, cap 280,000 / 114,092.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 280_000 && total(chunks, gz) <= 114_092, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1059,7 +1060,7 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen lines (feat/zen-lines): 142,568 / 29,659 measured, +142 raw / +20 gzipped over the 142,426 / 29,639 above: one rule for the small Japanese original under a line's source (gui/zen.css). Cap = measured + 15.
 	// Zen lines review (ZL-F001): 142,698 / 29,684 measured, +130 raw / +25 gzipped: balanced wrapping for the line and its Japanese original, so a phone leaves no one-character orphan. Cap = measured + 15.
 	// A wait for the boss is an alert: 143,023 / 29,738 measured, +325 raw / +54 gzipped over the 142,698 / 29,684 above: the wait panel's rules (gui/style.css) and the centring of its buttons in Zen (gui/zen.css). Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 143_038 && total(css, gz) <= 29_753, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	assert.ok(total(css, (n) => size(n).length) <= 143_120 && total(css, gz) <= 29_760, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

@@ -246,6 +246,6 @@ test("Zen: a page under 900 px high and one under 600 px wide spend less on air 
 
 test("Zen's wait card buttons are 44 px text buttons with the vermilion underline on keyboard focus, not Standard's pills", () => {
 	const css = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8");
-	assert.match(css, /\.zen-answer \.wait-panel :is\(\.pair-btn\) \{[^}]*min-height: 44px[^}]*text-transform: none/);
+	assert.match(css, /\.zen-skip, \.zen-card \.cmp-link, \.wait-panel \.pair-btn\) \{ text-transform: none; min-height: 44px/);
 	assert.match(css, /\.wait-panel \.pair-btn,[^{]*\):focus-visible \{ outline: none; text-decoration: underline 1px var\(--zen-seal\)/);
 });

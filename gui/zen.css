@@ -114,9 +114,7 @@
 [data-view="zen"] .zen-history .zen-log { min-height: 0; }
 /* The history is open: the item above it (the question, every choice, the send row) stays whole, and the box takes the room that is left, down to 12rem; when the item and that minimum do not fit the page, the card scrolls as one. */
 [data-view="zen"] .zen-card:has(.zen-history:not([hidden])) :is(.zen-answer, .zen-ask, .ask) { flex: none; }
-[data-view="zen"] .zen-answer .wait-panel { justify-content: center; }
-[data-view="zen"] .zen-answer .wait-panel :is(.pair-btn) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; text-transform: none; text-decoration: underline; text-decoration-color: var(--zen-line); text-underline-offset: 6px; }
-[data-view="zen"] .zen-answer .wait-panel .pair-btn:hover:not(:disabled) { background: var(--zen-sunken); } /* a wait for the boss: its two buttons in the card's middle */
+[data-view="zen"] .zen-answer .wait-panel { justify-content: center; } /* a wait for the boss: its two buttons in the card's middle, drawn as the other text buttons of the card */
 [data-view="zen"] .zen-card:has(.zen-history:not([hidden])) .zen-ask .ask > :not(.ask-acts, .ask-note) { flex: none; min-height: 0; overflow: visible; -webkit-mask-image: none; mask-image: none; }
 [data-view="zen"] .zen-card:has(.zen-history:not([hidden])) .zen-history { flex: 1 1 12rem; min-height: 12rem; max-height: min(46vh, 26rem); }
 [data-view="zen"] .zen-history-btn { min-height: 44px; min-width: 44px; }
@@ -136,8 +134,8 @@
 [data-view="zen"] #zen ::placeholder { color: var(--zen-ash); opacity: 1; }
 [data-view="zen"] :is(.ask-send, .cmp-send, .cmp-yes) { min-height: 48px; padding: 0 30px; border: 1px solid var(--zen-line); border-radius: 999px; background: var(--zen-warm); color: var(--zen-paper); font: 400 1.05rem var(--serif); letter-spacing: 0.3em; text-indent: 0.3em; transition: background-color 0.8s var(--zen-ease); }
 [data-view="zen"] :is(.ask-send, .cmp-send, .cmp-yes):hover:not(:disabled) { background: var(--zen-warm-hi); }
-[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: var(--zen-line); text-underline-offset: 6px; }
-[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link):hover:not(:disabled) { background: var(--zen-sunken); }
+[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .wait-panel .pair-btn) { text-transform: none; min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: var(--zen-line); text-underline-offset: 6px; }
+[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .wait-panel .pair-btn):hover:not(:disabled) { background: var(--zen-sunken); }
 [data-view="zen"] .cmp-link { color: var(--zen-paper); text-decoration-color: var(--zen-line); }
 [data-view="zen"] .zen-card :is(.ask-acts, .cmp-acts) { justify-content: center; flex-wrap: wrap; gap: 10px; }
 [data-view="zen"] .zen-card button:disabled, [data-view="zen"] .composer button:disabled { opacity: 0.55; }

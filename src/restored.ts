@@ -2,7 +2,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Entry, FINAL, tracked } from "./orphan.ts";
 import { artifacts, ownFile, readJson } from "./netdata.ts";
-import { type HerdrRun, panes, type Sleep, waitFor } from "./herdr.ts";
+import { type Cut, continueText, cutOf, describe } from "./cut.ts";
+import { type HerdrRun, panes, type Session, type Sleep, waitFor } from "./herdr.ts";
 
 // A subagent that a Herdr restart brought back as a plain pi is closed, and its launcher is asked to resume it.
 //
@@ -15,6 +16,11 @@ import { type HerdrRun, panes, type Sleep, waitFor } from "./herdr.ts";
 // pi-herdr-agents, or write a result for it. It closes the restored pane (a second pi on the same session file must not run beside the resumed one), then hands
 // the launcher one steering custom message that triggers a turn and names the runs with the arguments to resume them by. A message is how the extension drives
 // a model: the same way pi-herdr-agents delivers `subagent_result`, and it reaches a busy launcher at its next step and an idle one at once.
+//
+// A child whose session ends mid-turn (cut.ts: a tool call with no result, a result nobody read, a message nobody answered) is told so, once: a resumed run in its follow-up, which the
+// launcher passes to `subagent_resume`, and a worktree run, whose pane stays, over intercom (never typed, so whatever the boss has in the prompt stays; a draft in the editor does not stop the child from
+// starting its turn, see docs/how-it-works.md), with the launcher's id to send its report to, and only while its intercom status is idle and its transcript still ends in the cut. The launcher's message says which runs
+// were cut and whether the child was told.
 
 export interface Restored {
 	run: HerdrRun;
@@ -24,7 +30,12 @@ export interface Restored {
 	entries(): Entry[];
 	/** Whether this session may act: a tower is driven by the server's queue and never by a message of this kind. */
 	active(): boolean;
-	/** The session entry type that records a run, and the write of one (`{ resumed }`, `{ closing }`, `{ gaveUp }`, or `{ seen, terminal }`). */
+	/** This session as the broker knows it: the one a told worktree run sends its report to (none while it has no intercom id). */
+	launcher(): { id: string; name: string } | undefined;
+	/** The broker's live sessions, and one message to one of them: the way to a restored worktree run that stays in its pane. */
+	sessions(): Promise<Session[]>;
+	send(to: string, message: string): Promise<{ status: string; code?: string; detail?: string }>;
+	/** The session entry type that records a run, and the write of one (`{ resumed }`, `{ closing }`, `{ gaveUp }`, `{ continued }`, or `{ seen, terminal }`). */
 	type: string;
 	remember(data: Record<string, string>): void;
 	/** The platform whose process lists are read (the host's by default). */
@@ -34,9 +45,10 @@ export interface Restored {
 	tell(text: string, level?: "info" | "warning"): void;
 }
 interface Launch { name: string; session: string; surface: string; autoExit?: false }
-interface Found extends Launch { id: string; pane: string; worktree?: { path?: string; branch?: string } }
+/** `cut`: the session ends mid-turn. `told`: a worktree run was told over intercom to continue; `why`: what stopped it when it was not. */
+interface Found extends Launch { id: string; pane: string; worktree?: { path?: string; branch?: string }; cut?: Cut; told?: boolean; why?: string }
 
-const GIVE_UP = 8;
+const GIVE_UP = 8, REACH = 4;
 const CLOSE_MS = 5_000;
 export const FOLLOW_UP = "Herdr restarted while you were working, and your pane came back without your subagent tooling. Read your session so far, finish the task you were given, and report your result.";
 const SCRIPT = /[\\/]subagent-scripts[\\/][^\\/]+\.sh$/;
@@ -71,19 +83,21 @@ export function restored(d: Restored) {
 	// `closing` is written before a pane is closed and `resumed` once the launcher has the request, so a run with the first and not the second was cut off in between.
 	// `unclosed` takes `closing` back, for a run whose pane was found open: the close never took effect.
 	// `seen` is the terminal a run's pane had while the child ran as pi-herdr-agents started it: Herdr gives a restored pane a new terminal, so a pane in another one is proof of a restore.
-	const done = new Set<string>(), closing = new Set<string>(), terminals = new Map<string, string>();
+	// `continued` is written before the child is told, so a child is told at most once, whatever happens to the send.
+	const done = new Set<string>(), closing = new Set<string>(), continued = new Set<string>(), terminals = new Map<string, string>();
 	for (const e of d.entries()) {
 		if (e.type !== "custom" || e.customType !== d.type) continue;
-		const { resumed, nudged, gaveUp, closing: closed, unclosed, seen, terminal } = (e.data ?? {}) as Record<string, unknown>;
+		const { resumed, nudged, gaveUp, closing: closed, unclosed, seen, terminal, continued: told } = (e.data ?? {}) as Record<string, unknown>;
 		for (const key of [resumed, nudged, gaveUp]) if (typeof key === "string") done.add(key);
 		if (typeof closed === "string") closing.add(closed);
+		if (typeof told === "string") continued.add(told);
 		if (typeof unclosed === "string") closing.delete(unclosed);
 		if (typeof seen === "string" && typeof terminal === "string") terminals.set(seen, terminal);
 	}
 	const windows = (d.platform ?? process.platform) === "win32";
 	// A run counts as a miss when no pane of Herdr is the restored one; after GIVE_UP misses it is left alone until the next session start (a reload counts).
 	// A run whose `closing` was taken back (`reopened`) was meant to be closed, so giving up on it is said.
-	const misses = new Map<string, number>(), launches = new Map<string, Launch | undefined>(), reopened = new Set<string>();
+	const misses = new Map<string, number>(), reaches = new Map<string, number>(), launches = new Map<string, Launch | undefined>(), reopened = new Set<string>();
 	let before = new Set<string>(), busy = false, stopped = false;
 	const launchFor = (file: string, id: string) => {
 		if (!launches.has(id)) launches.set(id, launchOf(file, id));
@@ -115,6 +129,37 @@ export function restored(d: Restored) {
 		} catch {
 			return "unknown";
 		}
+	}
+
+	/**
+	 * Tells the restored pi of a worktree run, once, that its turn was cut: `sent`, `wait` (it cannot be reached yet: asked again at the next look, REACH looks at most), or `no` (`why` says).
+	 * The broker's own status must say it is idle, and the transcript is read again just before: a child someone went on with is not told, and its `cut` is dropped.
+	 */
+	async function tellChild(c: Found): Promise<"sent" | "wait" | "no"> {
+		const cut = c.cut;
+		if (!cut) return "no";
+		if (continued.has(c.id)) return "sent";
+		// Its location has to be the current one: an unavailable one keeps the pane id of the registration, which another session may have by now.
+		const to = d.launcher(), list = await d.sessions().catch(() => undefined), kid = list?.find((s) => s.herdrLocation?.status === "current" && s.herdrLocation.paneId === c.pane);
+		if (kid?.status !== "idle" || !to) {
+			const n = (reaches.get(c.id) ?? 0) + 1;
+			reaches.set(c.id, n);
+			if (n < REACH) return "wait";
+			c.why = !to ? "this session has no intercom id to give it for its report" : kid ? `its intercom status is ${kid.status ?? "unknown"}` : list?.some((s) => s.herdrLocation?.paneId === c.pane) ? "its intercom session of the pane has no current Herdr location yet" : "no intercom session of its pane is listed";
+			return "no";
+		}
+		const now = cutOf(c.session);
+		if (now?.at !== cut.at) {
+			c.cut = now;
+			return "no";
+		}
+		if (stopped) return "wait";
+		continued.add(c.id);
+		d.remember({ continued: c.id });
+		const result = await d.send(kid.id, continueText(cut, to));
+		if (result.status === "sent") return "sent";
+		c.why = `the send failed: ${[result.status, result.code, result.detail].filter(Boolean).join(" ")}`;
+		return "no";
 	}
 
 	/** Records the terminal of the pane of each run whose child is seen running as pi-herdr-agents started it: the proof, later, that a pane in another terminal was restored. */
@@ -204,10 +249,19 @@ export function restored(d: Restored) {
 			before = new Set(found.map((c) => c.id));
 			if (stopped) return;
 			const resumable: Found[] = [...recovered], kept: Found[] = [];
-			for (const c of recovered) done.add(c.id);
+			for (const c of recovered) {
+				done.add(c.id);
+				c.cut = cutOf(c.session);
+			}
 			for (const c of ripe) {
 				if (stopped) break;
-				// A managed worktree's pane is the root pane of the retained workspace: it stays, and subagent_resume is no way back for it.
+				c.cut = cutOf(c.session);
+				// A managed worktree's pane is the root pane of the retained workspace: it stays, and subagent_resume is no way back for it. Its restored pi is told over intercom to go on.
+				if (c.worktree && c.cut) {
+					const told = await tellChild(c).catch((error) => (c.why = (error as Error).message, "no" as const));
+					if (told === "wait") continue;
+					c.told = told === "sent";
+				}
 				done.add(c.id);
 				if (c.worktree) {
 					kept.push(c);
@@ -227,7 +281,7 @@ export function restored(d: Restored) {
 			}
 			// A stopped session sends nothing: a closed pane's record says `closing`, and the next session start asks.
 			if (stopped || (!resumable.length && !kept.length)) return;
-			const runs = [...resumable.map((c) => ({ id: c.id, name: c.name, sessionPath: c.session, pane: c.pane, ...(c.autoExit === false ? { autoExit: false } : {}) })), ...kept.map((c) => ({ id: c.id, name: c.name, sessionPath: c.session, pane: c.pane, worktree: c.worktree }))];
+			const runs = [...resumable.map((c) => ({ id: c.id, name: c.name, sessionPath: c.session, pane: c.pane, ...(c.autoExit === false ? { autoExit: false } : {}), ...(c.cut ? { cut: c.cut } : {}) })), ...kept.map((c) => ({ id: c.id, name: c.name, sessionPath: c.session, pane: c.pane, worktree: c.worktree, ...(c.cut ? { cut: c.cut, told: c.told === true } : {}) }))];
 			try {
 				d.resume(message(resumable, kept), { runs });
 				for (const r of runs) d.remember({ resumed: r.id });
@@ -247,10 +301,21 @@ export function restored(d: Restored) {
 export function message(resumable: Found[], kept: Found[]): string {
 	const parts = ["Straw Boss: a Herdr restart brought back subagents that you launched as plain pi sessions, without the subagent extension, so they never report, and pi-herdr-agents does not re-adopt a run after a restart. Their results will not arrive by themselves."];
 	if (resumable.length) {
-		parts.push(`Straw Boss closed the restored pane of each run below. Resume each one now with the subagent_resume tool, one call per run, with the sessionPath and name listed and this message: ${JSON.stringify(FOLLOW_UP)} Each resumed run reports to you as a normal subagent_result; do nothing else for them, and resume a run only once.`, ...resumable.map((c) => `- ${c.name} (run ${c.id}): sessionPath ${c.session}${c.autoExit === false ? ", autoExit false (it was launched with auto-exit off)" : ""}`));
+		parts.push(`Straw Boss closed the restored pane of each run below. Resume each one now with the subagent_resume tool, one call per run, with the sessionPath and name listed and this message: ${JSON.stringify(FOLLOW_UP)}${resumable.some((c) => c.cut) ? " (a run listed as restored mid-turn has a message of its own: pass that one instead)" : ""} Each resumed run reports to you as a normal subagent_result; do nothing else for them, and resume a run only once.`, ...resumable.map((c) => `- ${c.name} (run ${c.id}): sessionPath ${c.session}${c.autoExit === false ? ", autoExit false (it was launched with auto-exit off)" : ""}${c.cut ? `; restored mid-turn: ${describe(c.cut)}. Pass this message for it: ${JSON.stringify(continueText(c.cut))}` : ""}`));
 	}
 	if (kept.length) {
-		parts.push("These runs are managed-worktree runs. subagent_resume does not reattach a worktree run's lifecycle and refuses its session, so do not call it for them, and Straw Boss left their restored panes open: each is the retained workspace's pane. A restored pi is waiting there at its prompt with its session intact. Continue it in that pane (tell the user), or inspect the worktree with worktree_list.", ...kept.map((c) => `- ${c.name} (run ${c.id}): pane ${c.pane}, worktree ${c.worktree?.path ?? "unknown"}, branch ${c.worktree?.branch ?? "unknown"}`));
+		// A run Straw Boss told to continue is working again and reports over intercom; only for the others is the launcher sent to the pane.
+		const told = kept.filter((c) => c.told && c.cut).length;
+		const next = told === kept.length ? "Straw Boss told each of them to continue, and each reports to you over intercom: wait for its report, or inspect the worktree with worktree_list." : `${told ? "Straw Boss told some of them to continue (marked below); wait for their report over intercom. For the others: " : ""}Continue it in that pane (tell the user), or inspect the worktree with worktree_list.`;
+		parts.push(`These runs are managed-worktree runs. subagent_resume does not reattach a worktree run's lifecycle and refuses its session, so do not call it for them, and Straw Boss left their restored panes open: each is the retained workspace's pane. A restored pi is waiting there at its prompt with its session intact. ${next}`, ...kept.map((c) => `- ${c.name} (run ${c.id}): pane ${c.pane}, worktree ${c.worktree?.path ?? "unknown"}, branch ${c.worktree?.branch ?? "unknown"}${c.cut ? midTurn(c) : ""}`));
 	}
 	return parts.join("\n");
+}
+
+/** What the launcher hears of a worktree run whose session ends mid-turn: that it was cut, and whether Straw Boss told the child to continue. */
+function midTurn(c: Found & { cut?: Cut }): string {
+	const cut = c.cut!;
+	return c.told
+		? `; restored mid-turn: ${describe(cut)}. Straw Boss told it, once, to check the state and continue and to send its report to you over intercom, so it is not idle: do not re-run its work or that tool call yourself, and wait for its report over intercom.`
+		: `; restored mid-turn: ${describe(cut)}. Straw Boss could not tell it to continue${c.why ? ` (${c.why})` : ""}: continue it in its pane, and tell it to check the current state before it re-runs anything that changes state.`;
 }

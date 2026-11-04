@@ -151,6 +151,8 @@ for (const failure of [
 	Object.assign(new Error("exit 1"), { code: 1, stderr: "No such file or directory (os error 2)" }),
 	Object.assign(new Error("exit 1"), { code: 1, stderr: "Connection refused (os error 61)" }),
 	Object.assign(new Error("exit 1"), { code: 1, stderr: "The system cannot find the file specified. (os error 2)" }),
+	// Herdr 0.9.5's CLI with no server: exit 1, empty stdout, this JSON on stderr (macOS and Windows).
+	Object.assign(new Error("exit 1"), { code: 1, stderr: '{"id":"cli:pane:get","error":{"code":"server_not_running","message":"no herdr server is running at /tmp/x.sock"}}' }),
 ]) {
 	let calls = 0;
 	await balanceAfterClose("w1", "w:t1", {

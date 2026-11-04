@@ -1,3 +1,4 @@
+import { HEAD_KEY } from "../src/headkey.ts";
 import type { MemoryProposal, MemorySummary, TowerService } from "../src/net.ts";
 import type { Mark } from "../src/netdata.ts";
 import { m } from "./paraglide/messages.js";
@@ -8,6 +9,8 @@ import { waitLine } from "./waits.ts";
 // the queue, the notices in the page's language, the turns of a run that the server wrote, and the buttons that answer. No DOM here, so tests drive it.
 
 type Opts = { locale?: "en" | "zh-TW" };
+/** The path of a tower's buttons below `api/`: `tower/<workspace>`, or `head` for the head tower's stand-in (`api/tower/@head/…` answers 404, since the head has the one route family `api/head/…`). */
+export const towerRoute = (ws: string) => (ws === HEAD_KEY ? "head" : `tower/${encodeURIComponent(ws)}`);
 /** The mark's own word (render.ts `LABEL`). */
 export type Word = (mk: Mark) => string;
 

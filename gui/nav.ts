@@ -2,6 +2,7 @@ import { replay } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { aim } from "./render.ts";
 import type { NetRoute } from "./router.ts";
+import { HEAD_KEY } from "../src/headkey.ts";
 import { locate, type Scene } from "./scene.ts";
 
 /** The location bar under the HUD: the net, the base, the unit, each a link one level up. */
@@ -14,6 +15,7 @@ export function crumbs(scene: Readonly<Scene>) {
 	};
 	const nav = document.getElementById("crumbs")!, { route: r, net, info } = scene;
 	if (r.view === "map") return nav.replaceChildren(part("b", "Straw Net"), part("span", m.all_bases()));
+	if (r.view === "head" || (r.view === "session" && r.ws === HEAD_KEY)) return nav.replaceChildren(part("a", "Straw Net", { view: "map" }), part("b", m.head_tower()));
 	const label = net?.bases.find((b) => b.id === r.ws)?.label ?? r.ws, name = r.view === "session" ? (locate(net, r.key)?.u.name ?? info?.name ?? r.key) : "";
 	// A subagent sits under the session that launched it, and that one under its own launcher.
 	const chain: { key: string; name: string }[] = [];
@@ -28,9 +30,10 @@ export function crumbs(scene: Readonly<Scene>) {
 
 /** Into a base the view zooms out of the base's spot on the map; into a session it slides in; going up it settles back. */
 export function entrance(next: NetRoute, before: NetRoute, from?: DOMRect) {
-	const depth = (r: NetRoute) => ["map", "workspace", "session"].indexOf(r.view);
-	const kind = depth(next) < depth(before) ? "enter-back" : next.view === "workspace" && from ? "enter-zoom" : next.view === "session" && before.view !== "session" ? "enter-slide" : "";
-	const view = document.getElementById({ map: "map", workspace: "ws-view", session: "session-view" }[next.view])!;
+	// The head page is the session view on the head's key.
+	const slot = (r: NetRoute) => (r.view === "head" ? "session" : r.view), depth = (r: NetRoute) => ["map", "workspace", "session"].indexOf(slot(r));
+	const kind = depth(next) < depth(before) ? "enter-back" : next.view === "workspace" && from ? "enter-zoom" : slot(next) === "session" && slot(before) !== "session" ? "enter-slide" : "";
+	const view = document.getElementById({ map: "map", workspace: "ws-view", session: "session-view" }[slot(next)])!;
 	if (!kind) return;
 	if (from) {
 		const box = view.getBoundingClientRect();

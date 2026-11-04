@@ -239,7 +239,7 @@ test("collect shows this tower's net in detail (joined sessions by tab, subagent
 	herdr.workspace("wA").agent_status = "working";
 	herdr.workspace("wB").agent_status = "idle";
 	const snap = await collect({ run: herdr.runFor("wA:p7"), sessions: () => world.broker.sessionList(), workspaceId: "wA" });
-	assert.deepEqual([snap.title, snap.mark, snap.head], ["Alpha", "waiting", true], "the title shows the most urgent state: a subagent waits on a question");
+	assert.deepEqual([snap.title, snap.mark, snap.head], ["Alpha", "waiting", false], "no workspace tower is the head tower; the title shows the most urgent state: a subagent waits on a question");
 	assert.deepEqual(norm(snap.rows.map(({ workspace: _w, id: _i, file: _f, pane: _p, ...r }) => r)), norm([
 		net(0, "unknown", "tab work"),
 		net(1, "working", "Main One", "main", "tool:edit"),
@@ -323,7 +323,7 @@ test("a blocked pane marks its session as waiting, and pi-herdr-agents workers a
 	assert.deepEqual(rows.filter((r) => r.depth === 1).map((r) => [r.text, r.mark]), [["main-1", "waiting"], ["loner", "idle"]], "the main first, then the member that joined at start");
 });
 
-test("sub workspaces hang under their parent as one line each, without their sessions, and do not take the head mark", async () => {
+test("sub workspaces hang under their parent as one line each, without their sessions, and the first workspace is no head tower", async () => {
 	world.herdr.workspaces.unshift({ workspace_id: "wS", label: "Alpha feature", tokens: {}, agent_status: "working", worktree: { is_linked_worktree: true, repo_key: "/r/alpha" } });
 	world.herdr.workspace("wA").worktree = { checkout_path: "/w/alpha", is_linked_worktree: false, repo_key: "/r/alpha" };
 	world.herdr.addTab("wS:t1", "feature", "wS:p1");
@@ -331,7 +331,21 @@ test("sub workspaces hang under their parent as one line each, without their ses
 	sub.status = "thinking";
 	await sub.start();
 	const snap = await collect({ run: world.herdr.runFor("wS:p1"), sessions: () => world.broker.sessionList(), workspaceId: "wA" });
-	assert.deepEqual(norm([snap.head, snap.rows]), norm([true, [net(0, "working", "Alpha feature", "sub workspace")]]));
+	assert.deepEqual(norm([snap.head, snap.rows]), norm([false, [net(0, "working", "Alpha feature", "sub workspace")]]));
+});
+
+test("the tower list names the head tower first when it exists and is joined, and the head workspace is no workspace tower (H2)", async () => {
+	const head = { workspace_id: "wH", label: "Head tower", tokens: { sb_head: "sb-head", tower: "sb-head" } };
+	world.herdr.workspaces.unshift(head);
+	world.herdr.addTab("wH:t1", "crown", "wH:p1");
+	const joined = world.agent({ id: "sb-head", name: "head tower", pane: "wH:p1" });
+	await joined.start();
+	const tower = world.agent({ id: "tower-wB", name: "tower · Beta", pane: "wB:p1" });
+	await tower.start();
+	world.herdr.workspace("wB").tokens.tower = "tower-wB";
+	const snap = await collect({ run: world.herdr.runFor("wA:p7"), sessions: () => world.broker.sessionList(), workspaceId: "wA" });
+	assert.deepEqual(snap.rows.filter((r) => r.group === "towers").map((r) => [r.text, r.kind]), [["Head tower", "head tower"], ["Beta", "tower"]]);
+	assert.equal(snap.head, false);
 });
 
 test("collect and the GUI net read the panes and workspaces from one session.snapshot, with the same result as the two listings, and no listing is run", async () => {
@@ -505,7 +519,7 @@ test("a tower with a UI shows the dashboard once it holds the role, and shutdown
 	const component = tower.components.get(KEY);
 	assert.ok(component, "the widget is set");
 	await until(() => component.render(80)[0]!.includes(`${TOWER_LABEL} Alpha`), "the first reading");
-	assert.match(component.render(80)[0]!, new RegExp(`^╭─ ⠋ ${TOWER_LABEL} Alpha ─+ head tower ─╮$`, "u"));
+	assert.match(component.render(80)[0]!, new RegExp(`^╭─ ⠋ ${TOWER_LABEL} Alpha ─+╮$`, "u"));
 	await tower.stop();
 	assert.equal(tower.components.has(KEY), false);
 	assert.equal(tower.widgets.get(KEY), undefined, "setWidget(key, undefined) removed it");

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { claimGate, giveBackGate, handGate, holdGate, idleShell, type NoReason, proofGate, refusedGate, retryGate, runEndGate, seatGate, settleGate, tableGate, type TypeFacts, typeGate } from "../src/server/typegate.ts";
-import { TOWER_LABEL } from "../src/herdr.ts";
+import { HEAD_LABEL, TOWER_LABEL } from "../src/herdr.ts";
 
 // The gate (src/server/typegate.ts) is the one place that says whether the server may type the tower prompt's command into a standing pane. Each rule is pinned alone here: a case in which only that rule says no
 // (a rule dropped fails its case), and the order in which the rules are asked (a rule moved fails the case that has two of them say no).
@@ -165,6 +165,21 @@ test("seatGate: a pane in a tab labelled with the tower glyph is the tower's own
 	assert.equal(seatGate({ pane, tab: {} }), "stranger");
 	assert.equal(seatGate({ pane: undefined, tab: { label: TOWER_LABEL } }), "absent");
 	assert.equal(seatGate({ pane, tab: undefined }), "absent");
+});
+
+test("seatGate by kind: the head is seated only in a tab with the crown, a tower only in one with the radio tower; each is a stranger in the other's, and a tower is the default", () => {
+	const pane = { pane_id: "w1:p1" };
+	assert.equal(HEAD_LABEL, "\u{f01a5}");
+	assert.notEqual(HEAD_LABEL, TOWER_LABEL);
+	assert.equal(seatGate({ pane, tab: { label: HEAD_LABEL }, kind: "head" }), "ours");
+	assert.equal(seatGate({ pane, tab: { label: TOWER_LABEL }, kind: "head" }), "stranger", "the head is never seated in a radio tower tab");
+	assert.equal(seatGate({ pane, tab: { label: HEAD_LABEL }, kind: "tower" }), "stranger", "a tower is never seated in the crown tab");
+	assert.equal(seatGate({ pane, tab: { label: HEAD_LABEL } }), "stranger", "no kind is a tower");
+	assert.equal(seatGate({ pane, tab: { label: TOWER_LABEL }, kind: "tower" }), "ours");
+	assert.equal(seatGate({ pane, tab: { label: "head" }, kind: "head" }), "stranger", "the word is no proof");
+	assert.equal(seatGate({ pane, tab: {}, kind: "head" }), "stranger");
+	assert.equal(seatGate({ pane: undefined, tab: { label: HEAD_LABEL }, kind: "head" }), "absent");
+	assert.equal(seatGate({ pane, tab: undefined, kind: "head" }), "absent");
 });
 
 test("proofGate: a proof holds for the terminal it was made for; another terminal under the same pane id is a new Herdr; an unknown terminal binds at the first listing; no listing proves nothing", () => {

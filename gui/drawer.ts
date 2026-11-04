@@ -1,6 +1,8 @@
+import { HEAD_KEY } from "../src/headkey.ts";
 import type { Mark } from "../src/netdata.ts";
 import type { Net } from "../src/net.ts";
 import { h } from "./dom.ts";
+import { headDot, seenAt } from "./headpage.ts";
 import { MODAL } from "./hotkeys.ts";
 import { m } from "./paraglide/messages.js";
 import type { Locale } from "./paraglide/runtime.js";
@@ -37,6 +39,8 @@ export function groupUnits(net: Net): Section[] {
 	});
 }
 
+/** The drawer's first row: the head tower, there while the net has one (its page opens before the head exists), with its state in one short word. */
+export const headEntry = (net: Net | undefined, locale?: Locale): { mark: Mark; word: string } | undefined => (net?.head ? { mark: net.head.mark, word: net.head.state === "absent" ? m.head_state_absent({}, locale && { locale }) : shortState(net.head.mark, false, locale) } : undefined);
 /** Whether a row gets the map's Quit here: a main that is idle. A commanding or working one is busy, and a subagent is its launcher's (a finished one is swiped away instead). */
 export const quitable = (r: Pick<Row, "role" | "mark">) => r.role === "main" && r.mark === "idle";
 /** A group's rows with each subagent under the unit before it, as the map hangs them. */
@@ -53,10 +57,16 @@ export function mountDrawer(off: () => boolean = () => false) {
 	// Below the list, stuck to the bottom within a thumb's reach: the HUD's own Dismiss finished (quit.ts: the same click, the same request), there while a finished subagent is, and under it the way back to the map.
 	const home = h("a", { class: "drawer-map" }, m.drawer_map()), sweep = h("button", { type: "button", class: "pair-btn", "data-close": "dismiss-all", hidden: "" }), top = h("div", { class: "drawer-sweep", hidden: "" }, sweep);
 	aim(home, { view: "map" });
-	const panel = h("aside", { class: "drawer", "aria-label": m.drawer_label() }, h("header", null, h("b", null, m.drawer_title()), close), body, h("footer", { class: "drawer-foot" }, top, home)), veil = h("div", { class: "drawer-veil" });
+	const front = html(`<a class="drawer-head"><svg viewBox="0 0 512 512" aria-hidden="true"><use href="#i-crown"/></svg><span class="name"></span><b class="dstate"></b></a>`);
+	front.hidden = true;
+	aim(front, { view: "head" });
+	const panel = h("aside", { class: "drawer", "aria-label": m.drawer_label() }, h("header", null, h("b", null, m.drawer_title()), close), front, body, h("footer", { class: "drawer-foot" }, top, home)), veil = h("div", { class: "drawer-veil" });
 	document.body.append(veil, panel);
-	let latest: Net | undefined, here: string | undefined, open = false, x = 0, width = 0, t: { x0: number; y0: number; mode: "wait" | "drag" | "pass" | "card"; was: boolean; base: number; last: number; at: number; v: number; card?: HTMLElement } | undefined;
+	let latest: Net | undefined, here: string | undefined, atHead = false, open = false, x = 0, width = 0, t: { x0: number; y0: number; mode: "wait" | "drag" | "pass" | "card"; was: boolean; base: number; last: number; at: number; v: number; card?: HTMLElement } | undefined;
 	const draw = () => {
+		const entry = headEntry(latest);
+		front.hidden = !entry;
+		if (entry) (mark(front, entry.mark), text(front, ".name", m.head_tower()), text(front, ".dstate", entry.word), front.classList.toggle("current", atHead), front.toggleAttribute("data-news", headDot(latest?.head, seenAt()) && !atHead));
 		showDismissAll(sweep, latest ?? { bases: [] });
 		top.hidden = sweep.hidden;
 		const fillRow = (el: HTMLElement, r: Row & { subs?: Row[] }) => {
@@ -189,6 +199,7 @@ export function mountDrawer(off: () => boolean = () => false) {
 		/** The route shown, so its unit is marked in the list. */
 		route(r: Route) {
 			here = r.view === "session" ? r.key : undefined;
+			atHead = r.view === "head" || (r.view === "session" && r.ws === HEAD_KEY);
 			home.toggleAttribute("aria-current", r.view === "map");
 			if (open) draw();
 		},

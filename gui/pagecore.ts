@@ -71,7 +71,7 @@ export function createPage(io: PageIo) {
 	// `rules()`: the face the page shows. Zen is on while the device's view is Zen, this page has not left it (Esc or the corner control: `data-zen-away`), and the route is not the settings page, which Zen never covers.
 	const rules = () => rulesOf(io.view.view(), io.root.dataset.zenAway !== undefined || current.view === "settings"), zenOn = () => rules() === RULES.zen;
 	/** What the stream is asked to watch: the companion's session while Zen shows one, else the route's. */
-	const watch = () => (zenOn() && zenKey) || watchOf(current);
+	const watch = () => (zenOn() && zenKey) || watchOf(current, latest?.head?.key);
 	function rewatch() {
 		const next = watch();
 		if (next === watching) return;
@@ -96,6 +96,7 @@ export function createPage(io: PageIo) {
 		latest = pending = net;
 		badge(net);
 		io.link(net.link);
+		if (current.view === "head") rewatch(); // the head page watches the key the net gives, which the first snapshot brings
 		const now = alertsOf(net, Date.now()), r = rules();
 		if (r.announce === "current") return void ((heard = now), io.withZen((z) => z.net(now, net))); // Zen makes no clip and counts nothing: it takes the alerts, and Standard draws this snapshot on leaving
 		if (heard && r.signal) io.signal(arrivals(heard, now)); // what was already waiting when the page opened is no news

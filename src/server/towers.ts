@@ -3,8 +3,7 @@ import { join } from "node:path";
 import { createHeadlessKit, type HeadlessKit, type Incoming, type IntercomLike } from "../agent/kit.ts";
 import { createCloseMain, type Control } from "../closemain.ts";
 import { createDigest } from "../digest.ts";
-import { headReader } from "../headwatch.ts";
-import { createTab, headOf, isStandin, isSub, type Pane, panes, parentOf, type Place, report, type Session, tabs, TOWER_LABEL, towerModel, type Workspace, workspaces } from "../herdr.ts";
+import { createTab, headModel, isHead, isStandin, isSub, type Pane, panes, parentOf, type Place, report, SEAT_LABEL, type ServiceKind, type Session, STANDIN_HEAD, tabs, TOWER_LABEL, towerModel, type Workspace, workspaces } from "../herdr.ts";
 import { type Opened, opener } from "../opener.ts";
 import { netTokens } from "../order.ts";
 import { allyLabel } from "../boardauto.ts";
@@ -16,6 +15,10 @@ import { trustDir } from "../trust/files.ts";
 import type { IntercomModule } from "./intercom.ts";
 import type { Log } from "./log.ts";
 import { secretDir, type Slot, towerId, towerName } from "./record.ts";
+import { createHead, HEAD_ORDER, HEAD_TOKEN, type HeadEnsured } from "./head.ts";
+import { asked, closeAsk, openAsk, openAsks } from "./headasks.ts";
+import { headBrief, headIntake, relayOnlyFromHead, stateWord } from "./headside.ts";
+import { headHost, headTool } from "./headtools.ts";
 import type { Allows } from "./allows.ts";
 import type { Asks } from "./asks.ts";
 import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, LOCAL_TOOLS } from "./towerbrief.ts";
@@ -29,7 +32,7 @@ import { runTool, type ServerTools } from "./runtools.ts";
 import { hasWaitOn, markShown, memoryRequest, memorySection, memorySummary, memoryTool, noteMessage, readMemory } from "./towermemory.ts";
 import { openSeen, type Seen } from "./towerseen.ts";
 import { readTowerRuns } from "./towerruns.ts";
-import { appendEvent, deleteService, listServices, purgeAll, purgeQueues, putLedger, queueLength, readLedger, readService, type ServiceRecord, towerDir, writeService } from "./towerstore.ts";
+import { appendEvent, bindDir, deleteService, HEAD_KEY, headDir, listServices, purgeAll, purgeQueues, putLedger, queueLength, readHeadService, readLedger, readService, type ServiceRecord, towerDir, unbindDir, writeService } from "./towerstore.ts";
 
 // The tower service without runs (docs/specs/2026-10-26-sb-backend.md, The tower service; build step B4), behind `towerRuns.enabled`. The server stands in for a workspace's tower:
 // it makes the tower tab with a standing pane that sits at its shell prompt, registers the tower identity (`sb-tower-<workspace>`, with a cwd of its own) with pi-intercom, writes
@@ -51,7 +54,7 @@ const MADE_WITHIN_MS = 30_000;
 const FORMER_LABEL = "former tower";
 /** What Herdr reports that ends a tower's tab, or moves the head: any of them makes the service look again. */
 const WATCHED = ["workspace.created", "workspace.closed", "workspace.moved", "workspace.reordered", "pane.closed", "tab.closed"];
-const HEAD_EVENTS = new Set(["workspace_created", "workspace_closed", "workspace_moved", "workspace_reordered"]);
+const ORDER_EVENTS = new Set(["workspace_created", "workspace_closed", "workspace_moved", "workspace_reordered"]);
 const phrase = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "");
 
 export interface TowersOptions {
@@ -118,6 +121,14 @@ export interface Towers {
 	owns(id: string): boolean; // the session id is the identity of one of the services: it has no pi and no bridge, so it is ended, not asked to quit
 	/** The runs of the services (runs.ts): claims, the run's requests, the boss's events. */
 	runs: Runs;
+	/** The head tower (head.ts): a service of kind `head` in a workspace of its own, made on first use and kept after; the same machinery as a workspace tower's service. */
+	head: {
+		ensure(): Promise<HeadEnsured>;
+		close(): Promise<{ workspace: string; id: string } | undefined>;
+		status(): TowerRow | undefined;
+		/** The boss's words to the head, from any channel: the head workspace is made when it is missing, and a boss event with `present` wakes a run (or goes into the live one). */
+		event(text: string): Promise<{ workspace: string; id: string }>;
+	};
 	/** The tower prompt in a standing pane (standing.ts): its poll, Ctrl+D, and exit. */
 	prompt(cmd: "prompt-poll" | "prompt-leave" | "prompt-gone", workspace: string, pid: number): Promise<PromptReply | { ok: true }>;
 	/** Messages wait in the link inbox for this tower identity: ally runs are started for them. */
@@ -170,8 +181,16 @@ export function createTowers(o: TowersOptions): Towers {
 	let republishTimer: ReturnType<typeof setTimeout> | undefined;
 	let republishSoon = () => {};
 	const digest = createDigest(run, now);
-	const readHead = headReader({ run, digest, workspaces: () => [...services.values()].filter((l) => l.state !== "waiting" && !l.stopped).map((l) => l.record.workspace) });
+	/** The head tower is a service like a workspace tower's, of its own kind: its seat glyph, tokens, and folder differ (head.ts). */
+	const isHeadL = (l: Live) => l.record.kind === "head";
+	const kindOf = (l: Live): ServiceKind => (isHeadL(l) ? "head" : "tower");
+	const headLive = () => [...services.values()].find((l) => isHeadL(l) && !l.stopped);
+	/** One line in the digest of every tower workspace when the head tower opens or closes: each tower reads it at its next run (digest.ts). A workspace counts when its tower token is set (a service of this server or a resident). */
+	const noteHead = (text: string) => void workspaces(run).then((all) => Promise.all(all.filter((w) => !isSub(w) && !isHead(w) && w.tokens?.tower).map((w) => digest.note(w.workspace_id, text).catch(() => {})))).catch(() => {});
 	let looking: Promise<void> = Promise.resolve();
+	/** What the tower brief says of the head tower, and what the head's brief says of a workspace's tower. */
+	const headState = (): string => ((h) => (h ? stateWord(runs.status(h.record.workspace)?.state, "open") : "not opened"))(headLive());
+	const towerState = (workspace: string, tokens: Record<string, string> | undefined): string => ((l) => stateWord(l && !l.stopped && !isHeadL(l) ? runs.status(workspace)?.state : undefined, tokens?.tower ? "an older tower" : "none"))(services.get(workspace));
 
 	// --- runs ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -182,7 +201,7 @@ export function createTowers(o: TowersOptions): Towers {
 		live: () => l.state === "live" && l.seated && Boolean(l.client?.isConnected()),
 		proven: () => proven(l),
 		cwd: async () => (await panes(run, l.record.workspace).catch(() => [])).find((p) => p.pane_id === l.record.pane)?.cwd ?? l.record.cwd ?? slot.stateDir,
-		towerKey: async () => (await netTokens(run, place(l), "tower", l.record.name, now(), cfg.world)).own.sb_order ?? undefined,
+		towerKey: async () => (isHeadL(l) ? undefined : (await netTokens(run, place(l), "tower", l.record.name, now(), cfg.world)).own.sb_order ?? undefined),
 		yieldPane: () => standing.yieldPane(l.record.workspace),
 		freed: (over) => standing.freed(l.record.workspace, over?.fresh, over?.keepParked),
 		clearDigest: (keys) => digest.drop(l.record.workspace, keys),
@@ -195,7 +214,7 @@ export function createTowers(o: TowersOptions): Towers {
 			return { ...memorySummary(memory), ...(problem ? { problem } : {}) };
 		},
 		// A live run is given a new brief when the memory moved or a run left a note (runs.ts `refreshed`): what a conversation of an hour would otherwise not see.
-		briefVersion: () => `${readMemory(slot, l.record.workspace, now()).memory.rev}:${lastNote(slot, l.record.workspace, "local")?.at ?? ""}`,
+		briefVersion: () => `${readMemory(slot, l.record.workspace, now()).memory.rev}:${lastNote(slot, l.record.workspace, "local")?.at ?? ""}${isHeadL(l) ? `:${openAsks(slot, now()).map((a) => `${a.id}.${a.answers.length}`).join(",")}` : ""}`,
 		liveSessions: async () => (await panes(run).catch(() => [])).flatMap((p) => (p.agent_session?.value ? [p.agent_session.value] : [])),
 		allyLine: (item) => {
 			const mine = { name: allyLabel(l.record.name), id: l.record.id, role: "tower" as const, workspace: allyLabel(l.record.label) };
@@ -225,6 +244,7 @@ export function createTowers(o: TowersOptions): Towers {
 		async brief({ events, woken, run: rec, refresh }) {
 			const ws = l.record.workspace, all = await workspaces(run), target = all.find((w) => w.workspace_id === ws);
 			if (!target || !l.client) throw new Error("the tower's workspace or its intercom connection is gone");
+			if (isHeadL(l)) return headBrief({ slot, run, now, record: () => l.record, sessions: () => l.client!.listSessions(), towerState }, { woken, run: rec });
 			const mains = await gatherMains({ run, now, sessions: () => l.client!.listSessions(), boardDir: join(slot.stateDir, "board"), workspace: target, ledger: readLedger(slot, ws, now()) });
 			const lines = await digest.peek(ws).catch(() => []), note = lastNote(slot, ws, "local"), timer = readTimer(slot, ws);
 			const counts: Record<string, number> = {};
@@ -238,7 +258,7 @@ export function createTowers(o: TowersOptions): Towers {
 				digestKeys: lines.map((x) => x.key),
 				expired: section.expired,
 				text: buildBrief({
-					label: l.record.label, workspace: ws, head: mains.head, woken: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`, counts, identity: l.record.id,
+					label: l.record.label, workspace: ws, head: headState(), woken: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`, counts, identity: l.record.id,
 					...(refresh ? { refreshed: true as const } : {}), ...(talk ? { conversation: talk.line, since: talk.since } : {}),
 					memory: section.text, mains: mains.rows, obligations: [...mains.opened, ...(o.asks?.openOf(ws) ?? []).map((a) => `an ask for the main ${a.forName} is open (sent ${ageOf(now() - a.at)} ago): its answer goes to that main, not to you`), ...readExpects(slot, ws, now()).map((e) => `waiting for a reply from ${e.name} (asked ${ageOf(now() - e.at)} ago): ${e.first}`), ...(timer && timer.at <= now() ? ["your wakeAfter follow-up is due"] : [])], digest: lines.map((x) => x.line),
 					...(note ? { note: { text: note.note, age: ageOf(now() - Date.parse(note.at)) } } : {}),
@@ -279,7 +299,7 @@ export function createTowers(o: TowersOptions): Towers {
 		const rows = notes.map((n) => `- ${ageOf(now() - Date.parse(n.at))} ago${spoke(n.run) ? ` (the boss spoke in this run ${ageOf(now() - Date.parse(spoke(n.run)!))} ago, so what they said is in that run's session, not in yours)` : ""}: that run's own handoff note, not the boss's words: «${phrase(n.note.split("\n")[0], 340).replace(/[«»]/g, "")}»`);
 		return { line, since: rows };
 	};
-	const runs: Runs = createRuns({ slot, run, sleep, now, log, sessions: sessionsRoot(o.env), enabled: o.enabled, max: () => readTowerRuns(slot.stateDir).max, trustDir: trustDir(slot.stateDir), model: () => towerModel(slot.stateDir), ...(allyPort ? { ally: allyPort } : {}), ...o.runs });
+	const runs: Runs = createRuns({ slot, run, sleep, now, log, sessions: sessionsRoot(o.env), enabled: o.enabled, max: () => readTowerRuns(slot.stateDir).max, trustDir: trustDir(slot.stateDir), model: () => towerModel(slot.stateDir), headModel: () => headModel(slot.stateDir), ...(allyPort ? { ally: allyPort } : {}), ...o.runs });
 
 	const standing = createStanding({ run, api: cfg.api, world: cfg.world, sleep, now, log, command: o.promptCommand ?? (() => undefined), timers: o.standing, ...(o.runs?.platform ? { platform: o.runs.platform } : {}), ...(o.runs?.alive ? { alive: o.runs.alive } : {}) });
 	const place = (l: Live): Place => ({ paneId: l.record.pane, tabId: l.record.tab, workspaceId: l.record.workspace });
@@ -303,6 +323,8 @@ export function createTowers(o: TowersOptions): Towers {
 	};
 	const wire = (l: Live, client: IntercomLike) => {
 		client.on("message", (from: Session, message: Incoming) => {
+			// The head tower takes only the answers to its own asks (headgate.ts); the boss's words come through the run hub. Everything else is refused, with a receipt, and nothing is queued or woken.
+			if (isHeadL(l)) return void headIntake({ slot, log, now, record: () => l.record, seen: () => (l.seen ??= openSeen(slot, l.record.workspace, now)), poke: () => runs.poke(l.record.workspace), towerOf: async (id) => [...services.values()].find((x) => x.record.id === id && !isHeadL(x) && !x.stopped)?.record.workspace ?? (await workspaces(run)).find((w) => w.tokens?.tower === id)?.workspace_id }, client, from, message);
 			// Written to disk with a flush, then receipted, then remembered (towerseen.ts). The receipt `queued` goes only after the flush: the broker waits for it, and a sender whose message is not
 			// confirmed retries it, which the dedupe makes safe. No text reaches the log.
 			try {
@@ -317,7 +339,7 @@ export function createTowers(o: TowersOptions): Towers {
 					log.line("tower-ally-answer", { workspace: ws, from: from.id });
 					runs.pokeAllies(l.record.id);
 				} else if (verdict === "new") {
-					const written = appendEvent(slot, l.record, { kind: "intercom", from: { id: from.id, ...(from.name ? { name: from.name } : {}) }, text: message.content.text, at: new Date(now()).toISOString(), messageId: message.id });
+					const written = appendEvent(slot, l.record, { kind: "intercom", from: { id: from.id, ...(from.name ? { name: from.name } : {}) }, text: relayOnlyFromHead(slot, from.id, message.content.text), at: new Date(now()).toISOString(), messageId: message.id });
 					seen.add(from.id, message.id, message.content.text);
 					clearExpect(slot, l.record.workspace, from.id, now());
 					void markAnswered(l, from.id);
@@ -349,16 +371,15 @@ export function createTowers(o: TowersOptions): Towers {
 					kit.s.ownName = l.record.name;
 					l.kit = kit;
 					l.reach = createReach(kit, undefined, { retryCapMs: RUN_SEND_CAP_MS });
-					l.control = createCloseMain(kit, { closeSelf: () => "A tower service closes no mains for itself; ask it to close one.", check: () => undefined });
-					l.control.register();
+					// The head opens and closes no mains: it has no opener and no `close-main` channel (HH1-F006).
+					if (!isHeadL(l)) (l.control = createCloseMain(kit, { closeSelf: () => "A tower service closes no mains for itself; ask it to close one.", check: () => undefined }), l.control.register());
 					// Two openers over the same tower: the local run's, whose ledger the local brief lists, and the ally runs', whose ledger is their own (allyroute.ts).
 					const openerFor = (file?: string) => opener({
 						run, sleep, workspaceId: l.record.workspace, cwd: l.record.cwd ?? slot.stateDir, sessions: () => (l.client ?? client).listSessions(), send: (to, message) => l.reach!.send(to, message),
 						tower: () => ({ id: l.record.id, name: l.record.name }), trustDir: trustDir(slot.stateDir),
 						ledger: { entries: () => readLedger(slot, l.record.workspace, now(), file), put: (row) => { try { putLedger(slot, l.record.workspace, row, now(), file); } catch (cause) { error("ledger", (cause as Error).message); } } },
 					});
-					l.open = openerFor();
-					l.openAlly = openerFor(ALLY_LEDGER);
+					if (!isHeadL(l)) (l.open = openerFor(), l.openAlly = openerFor(ALLY_LEDGER));
 				}
 				l.kit.attach(client);
 				l.client = client;
@@ -400,7 +421,8 @@ export function createTowers(o: TowersOptions): Towers {
 		// A live foreign holder keeps the workspace: this service steps back and waits for it (a hand-over whose reply was lost leaves the resident running and publishing its own token).
 		const foreign = await residentOf(l);
 		if (foreign) return void (await yieldTo(l, foreign));
-		const own: Record<string, string | null> = await netTokens(run, place(l), "tower", l.record.name, now(), cfg.world).then((net) => net.own, () => ({}));
+		// The head's pane is always first in the net view; a tower's key depends on its place in Herdr's order.
+		const own: Record<string, string | null> = isHeadL(l) ? { sb_order: HEAD_ORDER } : await netTokens(run, place(l), "tower", l.record.name, now(), cfg.world).then((net) => net.own, () => ({}));
 		const key = JSON.stringify(own);
 		// Nothing is written for an unchanged key, so the proof (one more listing) is not asked for.
 		if (ifChanged && published.get(l) === key) return;
@@ -408,8 +430,8 @@ export function createTowers(o: TowersOptions): Towers {
 		if (!(await proven(l))) return;
 		let wrote = true;
 		await Promise.all([
-			report(run, "workspace", l.record.workspace, { tower: l.record.id, sb_tower_quit: null }),
-			report(run, "pane", l.record.pane, { sb_role: "tower", ...own }),
+			report(run, "workspace", l.record.workspace, isHeadL(l) ? { [HEAD_TOKEN]: l.record.id } : { tower: l.record.id, sb_tower_quit: null }),
+			report(run, "pane", l.record.pane, { sb_role: isHeadL(l) ? "head" : "tower", ...own }),
 		]).catch((cause: Error) => {
 			wrote = false;
 			// The pane (or its workspace) is gone: the pane a handover replaced, a workspace closed while no server ran. The reconcile loses the service, or finds its tab again within the recovery window; a report to what is not there is no error.
@@ -419,7 +441,7 @@ export function createTowers(o: TowersOptions): Towers {
 		// The key counts as written only once the write went through: a failed one is tried again by the next pass.
 		if (wrote) published.set(l, key);
 		// The panes of its ally runs are keyed after it.
-		await runs.markAllies(l.record.workspace, own.sb_order ?? null);
+		if (!isHeadL(l)) await runs.markAllies(l.record.workspace, own.sb_order ?? null);
 	};
 	const yieldTo = async (l: Live, holder: string) => {
 		if (l.stopped || services.get(l.record.workspace) !== l) return;
@@ -441,7 +463,7 @@ export function createTowers(o: TowersOptions): Towers {
 		const byId = notId ? undefined : ps.find((p) => p.pane_id === l.record.pane);
 		if (byId || !fallback) return byId;
 		const claimed = new Set([...services.values()].filter((x) => x !== l).map((x) => x.record.pane));
-		const candidates = (await tabs(run, l.record.workspace)).filter((t) => t.label === TOWER_LABEL).flatMap((t) => {
+		const candidates = (await tabs(run, l.record.workspace)).filter((t) => t.label === SEAT_LABEL[kindOf(l)]).flatMap((t) => {
 			const inside = ps.filter((p) => p.tab_id === t.tab_id);
 			return inside.length === 1 && !claimed.has(inside[0]!.pane_id) ? [inside[0]!] : [];
 		});
@@ -457,7 +479,7 @@ export function createTowers(o: TowersOptions): Towers {
 		try {
 			const seat = pane ?? (await panes(run, record.workspace)).find((p) => p.pane_id === record.pane);
 			const tab = seat ? (await tabs(run, record.workspace)).find((t) => t.tab_id === seat.tab_id) : undefined;
-			const verdict = seatGate({ pane: seat, tab });
+			const verdict = seatGate({ pane: seat, tab, kind: kindOf(l) });
 			// The proof is for the terminal the pane is in now (`terminal` stays undefined where Herdr lists none).
 			if (verdict === "ours" && seat?.pane_id === record.pane && l.record === record && l.epoch === epoch && !l.stopped) (l.seated = true, l.terminal = seat.terminal_id);
 			return verdict;
@@ -526,17 +548,19 @@ export function createTowers(o: TowersOptions): Towers {
 		// A pane that proved to be a stranger's is not ours to mark or clear, not even as a quit tower's.
 		if (!stranger) try {
 			const [ps, all] = await Promise.all([panes(run, l.record.workspace).catch(() => []), workspaces(run)]);
-			const held = all.find((w) => w.workspace_id === l.record.workspace)?.tokens?.tower;
+			const held = all.find((w) => w.workspace_id === l.record.workspace)?.tokens?.[isHeadL(l) ? HEAD_TOKEN : "tower"];
 			// Another tower's token (a resident tower that took the workspace) is not ours to clear.
 			if (all.some((w) => w.workspace_id === l.record.workspace) && (!held || held === l.record.id)) {
 				const members = ps.filter((p) => ["member", "main"].includes(p.tokens?.sb_role ?? "")).length;
-				await report(run, "workspace", l.record.workspace, { tower: null, sb_tower_quit: String(members) }).catch(() => {});
+				await report(run, "workspace", l.record.workspace, isHeadL(l) ? { [HEAD_TOKEN]: null } : { tower: null, sb_tower_quit: String(members) }).catch(() => {});
 			}
 			if (ps.some((p) => p.pane_id === l.record.pane)) await report(run, "pane", l.record.pane, CLEAR).catch(() => {});
 		} catch (cause) {
 			error("tower-closed", (cause as Error).message);
 		}
-		deleteService(slot, l.record.workspace);
+		deleteService(slot, l.record.workspace, l.record.kind);
+		if (isHeadL(l) && !services.has(l.record.workspace)) unbindDir(slot, l.record.workspace);
+		if (isHeadL(l) && !stopped) noteHead("head tower closed");
 	};
 
 	/** What the old standing pane may lose: its own shell (the process Herdr started there, `shell_pid`) or a process that carries the run's id (its pi or the wrapper that started it). Anything else, an interpreter running the boss's script included, is the boss's own program. Unknown (an unreadable or empty list) is kept. */
@@ -559,7 +583,7 @@ export function createTowers(o: TowersOptions): Towers {
 	const renew = async (l: Live, runId: string): Promise<string | undefined> => {
 		const ws = l.record.workspace, old = l.record, was = l.state;
 		const gone = () => stopped || services.get(ws) !== l;
-		if (l.stopped || gone() || l.renewing) return undefined;
+		if (l.stopped || gone() || l.renewing || isHeadL(l)) return undefined;
 		l.state = "registering";
 		l.renewing = true;
 		let made: Awaited<ReturnType<typeof createTab>> | undefined;
@@ -646,7 +670,8 @@ export function createTowers(o: TowersOptions): Towers {
 				if (seated && l.state === "live") (await publish(l), standing.kick(l.record.workspace), runs.poke(l.record.workspace));
 				continue;
 			}
-			// Herdr kept neither id: the identity registers again with the pane it stands in now, so the broker resolves its place.
+			// Herdr kept neither id: the identity registers again with the pane it stands in now, so the broker resolves its place. The service may have ended while the questions above were asked (a close, a stranger found): its record is not written then.
+			if (l.stopped || services.get(l.record.workspace) !== l) continue;
 			l.record = { ...l.record, pane: found.pane_id, tab: found.tab_id };
 			writeService(slot, l.record);
 			log.line("tower-found", { workspace: l.record.workspace, pane: found.pane_id });
@@ -661,6 +686,8 @@ export function createTowers(o: TowersOptions): Towers {
 
 	/** The session id of a resident tower of an older build that holds the workspace's `tower` token, when it is live. */
 	const residentOf = async (l: Live): Promise<string | undefined> => {
+		// A resident tower of an older build never held the head workspace: there was no head tower then.
+		if (isHeadL(l)) return undefined;
 		// Fails closed: a read that fails (the server's own broker connection is not up yet, Herdr does not answer) leaves a holder possible, and the service waits.
 		const all = await workspaces(run).catch(() => undefined);
 		if (!all) return UNKNOWN;
@@ -673,10 +700,14 @@ export function createTowers(o: TowersOptions): Towers {
 	const adopt = (record: ServiceRecord, fresh = false, seated = false, terminal?: string): Live => {
 		const l: Live = { record, state: "registering", stopped: false, requests: new Map(), seated, ...(seated && terminal ? { terminal } : {}), epoch: 0 };
 		const prior = services.get(record.workspace);
+		// A workspace id is held by one service. A service of another kind under it is a stranger's (Herdr numbered a new workspace as it numbered a lost one): the head's `ensure` ends it first, and nothing else may take its place.
+		if (prior && !prior.stopped && isHeadL(prior) !== isHeadL(l)) throw new Error(`workspace ${record.workspace} is held by the ${isHeadL(prior) ? "head tower" : "tower of another workspace"}'s service`);
 		if (prior && !prior.stopped) return prior;
 		services.set(record.workspace, l);
+		// The head's files are in `head/`, whatever the id of its workspace is. Its runs are the hub's too (runs.ts): they resume one conversation and have the head's tools.
+		if (isHeadL(l)) bindDir(slot, record.workspace, headDir(slot));
 		runs.attach(refOf(l));
-		standing.attach({ workspace: record.workspace, label: () => l.record.label, pane: () => l.record.pane, live: () => l.state === "live" && !l.stopped && Boolean(l.client?.isConnected()), seated: (pane) => holds(l, pane), status: () => runs.status(record.workspace), runWithin: (ms) => runs.startsWithin(record.workspace, ms), paneBusy: () => runs.paneBusy(record.workspace), busyPids: () => runs.busyPids(record.workspace), paneFree: () => runs.retry(record.workspace) }, fresh);
+		standing.attach({ workspace: record.workspace, label: () => l.record.label, ...(isHeadL(l) ? { agent: STANDIN_HEAD } : {}), pane: () => l.record.pane, live: () => l.state === "live" && !l.stopped && Boolean(l.client?.isConnected()), seated: (pane) => holds(l, pane), status: () => runs.status(record.workspace), runWithin: (ms) => runs.startsWithin(record.workspace, ms), paneBusy: () => runs.paneBusy(record.workspace), busyPids: () => runs.busyPids(record.workspace), paneFree: () => runs.retry(record.workspace) }, fresh);
 		l.starting = (async () => {
 			// A resident tower keeps its workspace; the service registers its identity once that session leaves. Two towers never hold one workspace.
 			let waited = false;
@@ -745,6 +776,10 @@ export function createTowers(o: TowersOptions): Towers {
 		purgeQueues(slot, now());
 		const adopted = listServices(slot).map((record) => adopt(record));
 		log.line("towers-active", { services: adopted.length });
+		// The head tower's record is in `head/`, not in `tower/`.
+		// Both records may name one id when Herdr lost its session and numbered anew: the tower holds it, and the head is made again by the next ask.
+		const kept = readHeadService(slot), adoptedHead: Live[] = [];
+		if (kept) try { adoptedHead.push(adopt(kept)); } catch (cause) { error("head-clash", (cause as Error).message); }
 		let connections = 0;
 		// A workspace made, closed, or moved changes every tower's place in the net: the keys are written again soon (events in a burst make one pass), not at the next refresh.
 		// One timer, re-armed by every event (a trailing debounce), and one pass at a time: an event that lands while a pass runs makes one more pass after it, so the newest key is written last.
@@ -775,12 +810,10 @@ export function createTowers(o: TowersOptions): Towers {
 			// Every acknowledgement after the first is a reconnection (Herdr restarted): the recovery window opens here too, since nothing orders this connection against the watch's
 			// takeover, and a tab that is not back yet must not end its service.
 			if (event === null && connections++ > 0) herdrChanged();
-			if (event === null || HEAD_EVENTS.has(event.event)) readHead();
-			if (event && HEAD_EVENTS.has(event.event)) republishSoon();
+			if (event && ORDER_EVENTS.has(event.event)) republishSoon();
 			look();
 		});
 		events = stop;
-		readHead();
 		timers.push(setInterval(() => {
 			if (!o.enabled()) return void retire().catch((cause: Error) => error("retire", cause.message));
 			// A run that was refused because the seat could not be read is woken again here, at the latest.
@@ -797,7 +830,7 @@ export function createTowers(o: TowersOptions): Towers {
 		timers.push(setInterval(() => { if (now() < recoverUntil + poll) look(); }, poll));
 		timers.forEach((t) => t.unref());
 		standing.start();
-		await Promise.race([Promise.all(adopted.map((l) => l.starting)), sleep(o.registerMs ?? REGISTER_WAIT_MS)]);
+		await Promise.race([Promise.all([...adopted, ...adoptedHead].map((l) => l.starting)), sleep(o.registerMs ?? REGISTER_WAIT_MS)]);
 		await look();
 		loadedAll = true;
 	};
@@ -819,16 +852,18 @@ export function createTowers(o: TowersOptions): Towers {
 	};
 	/** The flag is off: the identities leave, our token goes, and `service.json`, the queues and the ledger are purged, so no message text stays on disk with no time limit. */
 	const retire = async () => {
-		const all = await workspaces(run).catch(() => []);
+		const all = await workspaces(run).catch(() => []), heads = [...services.values()].filter(isHeadL);
 		for (const l of [...services.values()]) {
 			services.delete(l.record.workspace);
 			await standing.detach(l.record.workspace);
 			await runs.detach(l.record.workspace, "the tower service is off");
 			await release(l);
-			if (all.find((w) => w.workspace_id === l.record.workspace)?.tokens?.tower === l.record.id) await report(run, "workspace", l.record.workspace, { tower: null }).catch(() => {});
+			const token = isHeadL(l) ? HEAD_TOKEN : "tower";
+			if (all.find((w) => w.workspace_id === l.record.workspace)?.tokens?.[token] === l.record.id) await report(run, "workspace", l.record.workspace, { [token]: null }).catch(() => {});
 			log.line("tower-retired", { workspace: l.record.workspace, id: l.record.id });
 		}
 		const gone = purgeAll(slot);
+		for (const l of heads) unbindDir(slot, l.record.workspace);
 		if (gone) log.line("towers-purged", { files: gone });
 	};
 
@@ -932,15 +967,33 @@ export function createTowers(o: TowersOptions): Towers {
 		// A sub workspace never has a tower: its parent workspace's tower serves it.
 		const target = isSub(asked) ? parentOf(all, asked) : asked;
 		if (!target) throw new Error(`${asked.label} is a sub workspace with no open parent workspace, so it has no tower; open the parent workspace first`);
+		if (isHead(target) || headLive()?.record.workspace === target.workspace_id) throw new Error(`${target.label} is the head tower's workspace: it has no workspace tower, the head tower is its own`);
 		const pending = opening.get(target.workspace_id) ?? openFor(target, target === asked ? pane : undefined, cwd, pid, target === asked ? made : undefined).finally(() => opening.delete(target.workspace_id));
 		opening.set(target.workspace_id, pending);
 		return pending;
 	};
 
-	const need = (workspace: string) => {
+	// --- the head tower ------------------------------------------------------------------------------------------------------------------------------------------------------
+
+	const head = createHead<Live>({
+		slot, run, api: cfg.api, env: o.env, log, sleep, now, registerMs: o.registerMs ?? REGISTER_WAIT_MS, enabled: o.enabled, stopped: () => stopped, activate, live: headLive,
+		holder: (workspace) => { const l = services.get(workspace); return l && !l.stopped ? l : undefined; }, recovering: () => now() < recoverUntil,
+		locate, prove: (l, pane) => prove(l, pane), lose, adopt: (record) => adopt(record, true, true),
+		answer: (l, opened) => ({ ...answer(l, opened), tab: l.record.tab, pane: l.record.pane }),
+	});
+	const ensureHead = async () => {
+		const got = await head.ensure();
+		if (got.opened) noteHead("head tower opened");
+		return got;
+	};
+	const row = (l: Live): TowerRow => ({ workspace: l.record.workspace, label: l.record.label, id: l.record.id, state: l.state, queue: queueLength(slot, l.record.workspace), ...(runs.status(l.record.workspace) ? { service: runs.status(l.record.workspace)! } : {}) });
+
+	const need = (workspace: string, forHead = false) => {
 		const l = services.get(workspace);
 		if (!l || l.stopped) throw new Error(`The sb server stands in for no tower of workspace ${workspace}`);
-		if (l.state !== "live" || !l.open || !l.control) throw new Error(`The tower of workspace ${workspace} is not registered with pi-intercom yet (${l.state})`);
+		// The head opens no tabs (HT-D2) and closes no mains: it forwards to the workspace towers, which do (HH1-F006). Its run's own tools come through here with `forHead`.
+		if (isHeadL(l) && !forHead) throw new Error(`${l.record.label} is the head tower's workspace: it opens and closes no mains, a workspace tower does`);
+		if (l.state !== "live" || (!forHead && (!l.open || !l.control))) throw new Error(`The tower of workspace ${workspace} is not registered with pi-intercom yet (${l.state})`);
 		return l;
 	};
 
@@ -949,12 +1002,12 @@ export function createTowers(o: TowersOptions): Towers {
 		const who = runs.runOf(request.token);
 		if (!who) throw new Error("unknown_token");
 		const name = typeof request.tool === "string" ? request.tool : "", args = (typeof request.args === "object" && request.args !== null ? request.args : {}) as Record<string, unknown>;
-		const l = need(who.workspace), ws = who.workspace;
+		const l = need(who.workspace, who.kind === "head"), ws = who.workspace;
 		// What an ally run waits on or opens is its device's: the routes (allyroute.ts) send those sessions' answers to the device's next ally run, never to a local run, and its opened mains have a ledger of their own.
 		const peer: Peer | undefined = who.kind === "ally" && who.device && who.team ? { device: who.device, label: who.deviceLabel ?? who.device.slice(0, 6), short: who.deviceShort ?? who.device.slice(0, 6), team: who.team, teamName: who.teamName ?? who.team.slice(0, 6) } : undefined;
 		const route = (to: string, name: string, kind: "expect" | "opened") => { try { addRoute(slot, ws, { ...peer!, to, name, kind, at: now() }, now()); } catch (cause) { error("ally-route", (cause as Error).message); } };
 		const host = {
-			reach: l.reach!, open: peer ? async (request: Parameters<NonNullable<Live["open"]>>[0]) => { const opened = await l.openAlly!(request); route(opened.main, "opened main", "opened"); return opened; } : l.open!, closeMain: l.control!.closeMain, now, boardDir: join(slot.stateDir, "board"), label: l.record.label,
+			reach: l.reach!, open: peer ? async (request: Parameters<NonNullable<Live["open"]>>[0]) => { const opened = await l.openAlly!(request); route(opened.main, "opened main", "opened"); return opened; } : l.open!, closeMain: l.control?.closeMain as Control["closeMain"], now, boardDir: join(slot.stateDir, "board"), label: l.record.label,
 			link: async (body: Record<string, unknown>) => ((await o.link?.(body, l.record.id)) ?? { ok: false, code: "no_holder", error: "The link holder is not running in the sb server" }) as { ok: boolean; error?: string },
 			server: o.server ?? { status: () => ({}), logs: () => [], restart: () => Promise.reject(new Error("The server cannot restart itself here")) },
 			expect: (to: string, name: string, text: string) => { if (peer) return route(to, phrase(name, 40), "expect"); try { addExpect(slot, ws, { to, name, at: now(), first: phrase(text, 80) }, now()); } catch (cause) { error("expects", (cause as Error).message); } },
@@ -962,6 +1015,7 @@ export function createTowers(o: TowersOptions): Towers {
 			allow: (q: { toolCallId: string; tool: string; args: unknown }) => (o.allows ? o.allows.take({ pane: who.pane, ...q, sessions: () => l.client!.listSessions() }) : Promise.resolve({ ok: false as const, reason: "this server holds no Allows" })),
 			allowRequest: (q: { toolCallId: string; lines: string[] }) => (o.allows ? o.allows.takeRequest({ pane: who.pane, ...q, sessions: () => l.client!.listSessions() }) : Promise.resolve({ ok: false as const, reason: "this server holds no Allows" })),
 			asks: o.asks ?? { open: () => { throw new Error("this server keeps no asks"); } },
+			headAsked: (id: string) => asked(slot, now(), ws, id),
 			...(who.team && o.ally?.project(who.team) ? { project: o.ally.project(who.team)! } : {}),
 			isTower: async (query: string) => {
 				// A tower identity of this server by its id or name, whether or not the broker lists it just now; or any session whose pane is a tower's (a resident tower of the previous build).
@@ -986,10 +1040,18 @@ export function createTowers(o: TowersOptions): Towers {
 			},
 		};
 		try {
+			if (who.kind === "head") {
+				const head = headHost(host, {
+					ensureTower: async (workspace) => { const got = await ensure({ workspace }); return { id: got.id, opened: got.opened }; },
+					openAsk: (d) => openAsk(slot, now(), d), closeAsk: (id) => closeAsk(slot, id),
+					relay: (turn) => (typeof request.token === "string" && turn !== undefined && runs.bossTaken(request.token, turn) ? `boss:${turn}` : undefined),
+				});
+				return await headTool(head, name, args, { ...(typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {}), ...(typeof request.turn === "string" ? { turn: request.turn } : {}) });
+			}
 			return await runTool(host, who.kind, name, args, typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {});
 		} catch (cause) {
 			// The run was released while the call was under way (a /new, an end): nobody is left to read the failure, so the next run does.
-			if (!runs.runOf(request.token) && who.kind === "local") runs.notice(ws, `${name} failed after your run ended: ${(cause as Error).message}`, `${name}:${phrase((cause as Error).message, 80)}`);
+			if (!runs.runOf(request.token) && (who.kind === "local" || who.kind === "head")) runs.notice(ws, `${name} failed after your run ended: ${(cause as Error).message}`, `${name}:${phrase((cause as Error).message, 80)}`);
 			throw cause;
 		}
 	};
@@ -997,7 +1059,8 @@ export function createTowers(o: TowersOptions): Towers {
 	const api: Towers = {
 		runTool: runToolFor,
 		memory: (workspace, json) => {
-			if (!services.has(workspace)) throw new Error(`The sb server stands in for no tower of workspace ${workspace}`);
+			// The head's constant key reaches head/ whether or not a head service stands (towerstore.ts `HEAD_KEY`).
+			if (workspace !== HEAD_KEY && !services.has(workspace)) throw new Error(`The sb server stands in for no tower of workspace ${workspace}`);
 			return memoryRequest(slot, workspace, now(), json, log);
 		},
 		allyWaiting: (identity) => runs.pokeAllies(identity),
@@ -1028,14 +1091,28 @@ export function createTowers(o: TowersOptions): Towers {
 				log.line("towers-takeover", { services: services.size });
 				await look();
 				for (const l of services.values()) if (l.state === "live") (await publish(l), standing.kick(l.record.workspace));
-				readHead();
 			} finally {
 				await runs.takeoverEnd();
 			}
 		},
 		stateOf: (workspace) => services.get(workspace)?.state,
 		owns: (id) => [...services.values()].some((l) => l.record.id === id),
-		status: () => [...services.values()].map((l) => ({ workspace: l.record.workspace, label: l.record.label, id: l.record.id, state: l.state, queue: queueLength(slot, l.record.workspace), ...(runs.status(l.record.workspace) ? { service: runs.status(l.record.workspace)! } : {}) })),
+		status: () => [...services.values()].filter((l) => !isHeadL(l)).map(row),
+		head: {
+			ensure: ensureHead,
+			event: async (text) => {
+				const got = await ensureHead();
+				return { workspace: got.workspace, id: runs.boss(got.workspace, text, "the boss", { present: true }).id };
+			},
+			close: async () => {
+				const l = headLive();
+				return l ? api.close(l.record.workspace) : undefined;
+			},
+			status: () => {
+				const l = headLive();
+				return l ? row(l) : undefined;
+			},
+		},
 		runs,
 		async prompt(cmd, workspace, pid) {
 			if (cmd === "prompt-poll") return standing.poll(workspace, pid);
@@ -1049,6 +1126,8 @@ export function createTowers(o: TowersOptions): Towers {
 			clearTimeout(republishTimer);
 			events?.();
 			await Promise.all([...services.values()].map((l) => release(l)));
+			// The head's folder is bound for as long as this process stands in for it; the record on disk stays.
+			for (const l of services.values()) if (isHeadL(l)) unbindDir(slot, l.record.workspace);
 		},
 	};
 	o.expose?.(api);

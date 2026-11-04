@@ -18,11 +18,13 @@ import { fillNotices } from "./towernotes.ts";
 import { statusLine } from "./towermodel.ts";
 import { termHold } from "./towerturns.ts";
 import { h } from "./dom.ts";
+import { HEAD_KEY } from "../src/headkey.ts";
+import { fillHeadAsks, fillHeadTitle, remember } from "./headpage.ts";
 
 // The session route's comms: the header, the log (chat.ts, its own chunk), the bars above the composer, the composer, the question panel, and the
 // session's terminal as the other mode. A phone's Info button, in the header, opens the dossier full-screen through `fullScreen`.
 
-const COMMS = () => `<div class="comms-in"><header class="comms-head"><a class="head-back" data-back aria-label="${m.back()}">‹</a><span class="logo"><svg><use href="#i-comms"/></svg></span><div class="head-id"><h2><small>${m.comms()}</small> <span></span></h2><p></p><div class="allies comms-allies" hidden></div></div><div class="modes" role="group"><button type="button" data-mode="chat" aria-pressed="true">${m.comms()}</button><button type="button" data-mode="term" aria-pressed="false">${m.terminal()}</button></div><span class="chan link" data-state="live"><i></i><b>${m.channel_open()}</b></span><button type="button" class="pair-btn head-info">${m.info()}</button><span class="menu head-menu"><button type="button" class="pair-btn menu-btn" popovertarget="head-pop" aria-haspopup="true" aria-label="${m.menu_more()}" title="${m.menu_more()}">⋯</button><div class="menu-pop hud-pop" id="head-pop" popover role="group" aria-label="${m.menu_more()}"><button type="button" class="pair-btn head-main" hidden></button><button type="button" class="quit-btn head-quit" data-close="unit" hidden></button></div></span></header><div class="chat-root"></div><div class="tower-notes"><div class="tower-conv" hidden></div><div class="tower-notices"></div><div class="tower-memory" hidden></div></div><div class="queue-bar" hidden><button type="button" class="queue-fold" aria-expanded="false"><b></b></button></div><div class="queue-list" hidden></div><div class="queue-act" hidden><button type="button" class="cmp-alt">${m.queue_edit()}</button></div><details class="todos" hidden><summary><b></b><span></span></summary><ol></ol></details><details class="monitors" hidden><summary><b></b><span></span></summary><ul></ul></details><div class="ask-root"></div><div class="composer-root"></div><div class="term-root" hidden></div></div>`;
+const COMMS = () => `<div class="comms-in"><header class="comms-head"><a class="head-back" data-back aria-label="${m.back()}">‹</a><span class="logo"><svg><use class="head-icon" href="#i-comms"/></svg></span><div class="head-id"><h2><small class="head-kicker">${m.comms()}</small> <span class="head-title"></span></h2><p class="head-line"></p><div class="allies comms-allies" hidden></div></div><div class="modes" role="group"><button type="button" data-mode="chat" aria-pressed="true">${m.comms()}</button><button type="button" data-mode="term" aria-pressed="false">${m.terminal()}</button></div><span class="chan link" data-state="live"><i></i><b>${m.channel_open()}</b></span><button type="button" class="pair-btn head-info">${m.info()}</button><span class="menu head-menu"><button type="button" class="pair-btn menu-btn" popovertarget="head-pop" aria-haspopup="true" aria-label="${m.menu_more()}" title="${m.menu_more()}">⋯</button><div class="menu-pop hud-pop" id="head-pop" popover role="group" aria-label="${m.menu_more()}"><button type="button" class="pair-btn head-main" hidden></button><button type="button" class="quit-btn head-quit" data-close="unit" hidden></button></div></span></header><div class="chat-root"></div><div class="tower-notes"><p class="head-absent" hidden></p><div class="head-asks" role="group" hidden></div><div class="tower-conv" hidden></div><div class="tower-notices"></div><div class="tower-memory" hidden></div></div><div class="queue-bar" hidden><button type="button" class="queue-fold" aria-expanded="false"><b></b></button></div><div class="queue-list" hidden></div><div class="queue-act" hidden><button type="button" class="cmp-alt">${m.queue_edit()}</button></div><details class="todos" hidden><summary><b></b><span></span></summary><ol></ol></details><details class="monitors" hidden><summary><b></b><span></span></summary><ul></ul></details><div class="ask-root"></div><div class="composer-root"></div><div class="term-root" hidden></div></div>`;
 
 export interface SessionDeps {
 	view: HTMLElement; data(key: string): Data; openTile(tile: Tile, focus?: boolean): void; embedTerminal(key: string, name: string, host: HTMLElement): Promise<() => void>; online(): boolean;
@@ -113,7 +115,8 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 		},
 		/** The header's Comms | Terminal switch, name and channel, then the bars, the live line, and the composer and its question panel, all of the same unit. */
 		draw({ u, hit, mk, state, name }: Subject) {
-			view.querySelector<HTMLElement>(".modes")?.toggleAttribute("hidden", !u?.control);
+			const isHead = hit?.base.id === HEAD_KEY, headUnit = isHead ? scene.net?.head : undefined;
+			view.querySelector<HTMLElement>(".modes")?.toggleAttribute("hidden", !u?.control || headUnit?.state === "absent"); // the head has no terminal before it exists
 			chat?.docs();
 			chat?.runs((u?.service?.localRuns ?? []).filter((r) => r.kind === "conversation"));
 			const head = view.querySelector<HTMLElement>(".comms-head");
@@ -127,23 +130,35 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 				const chan = head.querySelector<HTMLElement>(".chan")!, kind = channelOf(u, state, ally || eventRun);
 				chan.dataset.state = kind === "live" ? "live" : "closed";
 				text(chan, "b", { live: m.channel_open, readonly: m.channel_readonly, closed: m.channel_closed, none: m.no_channel }[kind]());
+				chan.hidden = headUnit?.state === "absent"; // the first message makes the head: "not open" and "channel open" would contradict
 				chan.title = chan.querySelector("b")!.textContent ?? ""; // a phone shows the dot alone
 				// A tower's comms open a main in its base (main.ts opens the same tile the map's "+ Main" does); no other unit has the button.
 				const add = head.querySelector<HTMLButtonElement>(".head-main")!, base = towerBase(hit);
 				add.hidden = !base;
-				head.toggleAttribute("data-tower", Boolean(base)); // a phone puts a tower's + Main and Quit tower behind the `⋯`; any other unit's Quit stays in the row
+				head.toggleAttribute("data-tower", Boolean(base) || isHead); // a phone puts a tower's + Main and Quit tower behind the `⋯`; any other unit's Quit stays in the row
 				if (base) (aimOpening(add, base), (add.title = m.open_main_title({ base: base.label })));
 				aimSession(head.querySelector(".head-quit")!, hit); // the map's Quit for this unit: the same confirmation, request, and refusals (quit.ts)
-				aim(head.querySelector(".head-back")!, { view: "workspace", ws: wsOf(scene) }); // a phone's full-screen comms go back with it: to the page before, or up when the page opened here
+				aim(head.querySelector(".head-back")!, isHead ? { view: "map" } : { view: "workspace", ws: wsOf(scene) }); // a phone's full-screen comms go back with it: to the page before, or up when the page opened here
+				head.toggleAttribute("data-head", isHead);
+				if (headUnit) {
+					// The head tower: the crown, its title and state line, and its own Close (head/close, asked once) in place of a tower's Quit (quit.ts).
+					fillHeadTitle(view, headUnit);
+					const close = head.querySelector<HTMLButtonElement>(".head-quit")!;
+					Object.assign(close.dataset, { close: "head", name: m.head_tower() });
+					[close.textContent, close.hidden] = [m.head_close(), true]; // Close lives in the conversation box's ⋯ (towerconv.ts)
+				}
 			}
+			const asks = view.querySelector<HTMLElement>(".head-asks");
+			if (asks) fillHeadAsks(asks, headUnit, scene.net);
+			if (headUnit?.said) remember(headUnit.said); // the head page shows its newest words: the header's dot is for what comes after
 			drawTodos(view, scene.info?.todos);
 			drawMonitors(view, u?.monitors);
 			drawQueued(view, u?.queued, u?.key, Boolean(u?.service));
 			foldQueue(view, u?.queued?.length ?? 0);
 			const notes = view.querySelector<HTMLElement>(".tower-notices");
-			if (notes) (fillConversation(view.querySelector<HTMLElement>(".tower-conv")!, hit?.base.id ?? wsOf(scene), u?.service), fillNotices(notes, hit?.base.id ?? wsOf(scene), u?.service, u?.key), fillMemory(view.querySelector<HTMLElement>(".tower-memory")!, hit?.base.id ?? wsOf(scene), u?.service?.memory));
+			if (notes) (fillConversation(view.querySelector<HTMLElement>(".tower-conv")!, hit?.base.id ?? wsOf(scene), u?.service, headUnit && headUnit.state !== "absent"), fillNotices(notes, hit?.base.id ?? wsOf(scene), u?.service, u?.key), fillMemory(view.querySelector<HTMLElement>(".tower-memory")!, hit?.base.id ?? wsOf(scene), u?.service?.memory));
 			if (shown === "term" && holdOf(u?.key ?? "") !== held) setMode("term"); // the tower woke or went to stand by: the terminal or its sentence changes
-			(chat?.setLive(...liveOf(u, state, mk)), composer?.update(composerUnit(u, { name, mk, state, online: online(), role: scene.info?.role })));
+			(chat?.setLive(...liveOf(u, state, mk)), composer?.update(composerUnit(u, { name, mk, state, online: online(), role: scene.info?.role, head: isHead })));
 			asker?.update(u?.pending, canAnswer(mk, Boolean(u?.control), online())); // its dialog above the composer, answerable or not
 		},
 	};

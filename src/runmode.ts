@@ -12,6 +12,7 @@ import { HERE_ONLY } from "./link/request.ts";
 import type { ServerLook } from "./server-look.ts";
 import { towerRunsEnabled } from "./server/towerruns.ts";
 import { markRun } from "./runmark.ts";
+import { registerHeadSend } from "./runhead.ts";
 import { refusedForRun } from "./runallow.ts";
 import { startOf as processStart } from "./startof.ts";
 import { ALLY_ENTRY, ENTRY, type Kit } from "./state.ts";
@@ -43,7 +44,7 @@ const POLL_MS = 1000, CLAIM_WAIT_MS = 10_000, LOST_MS = 30_000, TURN_START_MS = 
 /** The boss's words in the run's session are told to the server at most this often: its silence is judged in minutes. */
 const BOSS_SIGN_MS = 15_000;
 /** A run's pane tokens: the tower's standing pane and an ally run's pane. */
-const RUN_PANE_ROLES = new Set(["tower", "ally"]);
+const RUN_PANE_ROLES = new Set(["tower", "ally", "head"]);
 /** A `/reload` makes a new instance of the extension in the same process: the claim stays with the process. */
 const KEPT = Symbol.for("pi-straw-boss.run");
 /** Set once this process really became a resident tower (the server said the pane is no run's, or no server was there to say): only such a process skips the pane-role ask at a /reload, /new, /resume, or /fork. */
@@ -53,7 +54,7 @@ const PANE_ASK = Symbol.for("pi-straw-boss.pane-ask");
 interface PaneAsk { asked: Promise<Found | undefined>; /** The session start that acts on the answer: an earlier one has ended and leaves it alone. */ owner?: symbol; /** That session's handling of the answer, which a quit waits for. */ settled?: Promise<void>; /** The ask ended without an answer: the process stays a plain session. */ plain?: boolean }
 const globalMarks = globalThis as Record<symbol, unknown>;
 interface Peer { device: string; label: string; short: string; team: string; teamName: string }
-interface Claim { token: string; kind: "local" | "ally"; level?: string; peer?: Peer; run: string; workspace: string; identity: string; label: string; brief: string; hand?: boolean }
+interface Claim { token: string; kind: "local" | "ally" | "head"; level?: string; peer?: Peer; run: string; workspace: string; identity: string; label: string; brief: string; hand?: boolean }
 /** A pi without the flag in a standing pane: the server says whether to quit, wait, or take the pane as a run of the boss's own. */
 type Found = { role: "none" | "quit" | "hand"; reason?: string; claim?: Claim };
 interface Event { id: string; kind: string; text: string; from?: { id: string; name?: string }; flag?: string }
@@ -63,6 +64,8 @@ const NO_SUBAGENTS = "A tower run dispatches no subagents: one would outlive the
 const BLOCKED = "In a tower run, answer a local session with tower_reply (or tower_send to a tower): intercom would carry this run's own short-lived id, and the answer would reach a pi that has already exited.";
 /** The tower tools a local run registers (the same descriptions and schemas as a resident tower's, tools.ts), each now a client of the server. */
 const REGISTERED = new Set(["boss_status", "call_tower", "boss_server", "tower_list", "board_read", "tower_send", "boss_open_main", "boss_close_main"]);
+/** What the head tower's run registers through the tower tools' own definitions (docs/specs/2026-11-04-head-tower.md, Tools and limits); its `tower_send` and `tower_memory` are its own below. */
+const HEAD_REGISTERED = new Set(["tower_list", "board_read", "boss_server"]);
 /** What an ally run registers: no `call_tower`, `boss_server`, or `link_request`; the server refuses them by the run's kind as well. */
 const ALLY_REGISTERED = new Set(["boss_status", "tower_list", "board_read", "tower_send", "boss_open_main", "boss_close_main"]);
 /** pi-intercom's custom message: an ally run's context drops it, as a backstop to the blocked tool. */
@@ -93,6 +96,8 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 	let timer: ReturnType<typeof setInterval> | undefined, polling = false, ending = false, closing = false;
 	// The turn a message was sent for has not begun, or one is under way: the run is not idle for the server until it settles.
 	let inTurn = false, triggered: number | undefined, outOfReach: number | undefined;
+	// The server's event a sent message is for, and the one that started the turn under way: only an event's own message starts a turn that carries it (a steer, the boss's typing, or a notice does not).
+	let startedBy: string | undefined, turnStarter: string | undefined;
 	// A quit the server ordered while the turn runs. pi would keep `ctx.shutdown()` itself and honour it at its next idle moment with no way to take it back, so the run holds the order instead: a server that restarted meanwhile (the run claims again) never ordered it, and the run goes on.
 	let quitOrdered = false;
 	let registered = false, bossSign: number | undefined, bossTyped = false, bossTurn = false, signing: Promise<unknown> | undefined;
@@ -208,7 +213,8 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 
 	/** A tower tool of the run: the server does the work as the tower identity and the run only shows what came back. */
 	const tool = async (name: string, args: unknown, toolCallId?: string): Promise<{ text: string; details?: unknown }> => {
-		const answer = await call({ cmd: "run-tool", tool: name, args, ...(toolCallId ? { toolCallId } : {}) });
+		// The event that started this turn is reported with every call (the head's relay=boss, runs.ts `bossTaken`): the server checks it, the model cannot say it.
+		const answer = await call({ cmd: "run-tool", tool: name, args, ...(toolCallId ? { toolCallId } : {}), ...(turnStarter ? { turn: turnStarter } : {}) });
 		return { text: text(answer.text) || "(no text)", ...(answer.details !== undefined ? { details: answer.details } : {}) };
 	};
 	function registerTools() {
@@ -219,7 +225,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 			get(target, key) {
 				if (key === "registerTool") {
 					return (def: Parameters<ExtensionAPI["registerTool"]>[0]) => {
-						if (!(claim!.kind === "ally" ? ALLY_REGISTERED : REGISTERED).has(def.name)) return;
+						if (!(claim!.kind === "ally" ? ALLY_REGISTERED : claim!.kind === "head" ? HEAD_REGISTERED : REGISTERED).has(def.name)) return;
 						target.registerTool({ ...def, execute: async (id: string, params: unknown) => {
 							const done = await tool(def.name, params, id);
 							return { content: [{ type: "text" as const, text: done.text }], details: done.details };
@@ -233,14 +239,15 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		const unused = () => { throw new Error("not available in a tower run"); };
 		// SAFETY: only the registrations of createTools run here (their bodies are replaced above); `s.at` is what addOpenMain builds from.
 		s.at = { workspaceId: claim!.workspace, paneId: env.HERDR_PANE_ID ?? "", tabId: env.HERDR_TAB_ID ?? "" } as Place;
-		const tools = createTools({ ...kit, pi: proxy }, { post: unused, callTower: unused, status: unused, broadcast: unused, towerList: unused, towerSend: unused, read: unused, promote: unused, digest: undefined as never, closeMain: unused, link: undefined as never, server: claim!.kind === "local" ? ({} as never) : undefined, towerCall: true } as never);
+		const tools = createTools({ ...kit, pi: proxy }, { post: unused, callTower: unused, status: unused, broadcast: unused, towerList: unused, towerSend: unused, read: unused, promote: unused, digest: undefined as never, closeMain: unused, link: undefined as never, server: claim!.kind !== "ally" ? ({} as never) : undefined, towerCall: true } as never);
 		tools.addNetTools();
 		tools.addOpenMain();
 		tools.addTowerComms();
 		if (claim!.kind === "local") registerLinkRequest();
-		// The memory of the tower (towermemory.ts) is a local run's: the server refuses the tool to an ally run by its kind as well.
-		if (claim!.kind === "local") pi.registerTool({ name: "tower_memory", label: "tower_memory", description: MEMORY_DESCRIPTION, parameters: memoryParameters(), execute: async (id, params) => ({ content: [{ type: "text", text: (await tool("tower_memory", params, id)).text }], details: undefined }) });
-		pi.registerTool({
+		if (claim!.kind === "head") registerHeadSend(pi, tool);
+		// The memory of the tower (towermemory.ts) is a local run's, and the head's: the server refuses the tool to an ally run by its kind as well.
+		if (claim!.kind !== "ally") pi.registerTool({ name: "tower_memory", label: "tower_memory", description: MEMORY_DESCRIPTION, parameters: memoryParameters(), execute: async (id, params) => ({ content: [{ type: "text", text: (await tool("tower_memory", params, id)).text }], details: undefined }) });
+		if (claim!.kind !== "head") pi.registerTool({
 			name: "tower_reply", label: "tower_reply",
 			description: "Answer one local session (a main or a member) by its intercom name or session id. It goes out under the tower's header, as the tower identity, so the answer reaches the session that asked. In a run this replaces intercom send.",
 			parameters: Type.Object({
@@ -316,6 +323,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		if (!event) return;
 		// Idle and nothing queued are read again at the moment of delivery, after the round trip: a run that got busy meanwhile is offered the event again at its next idle poll.
 		if (!idle() || ctx?.hasPendingMessages()) return;
+		startedBy = event.id;
 		send(eventText(event), { id: event.id, kind: event.kind, ...(event.from ? { from: event.from } : {}) });
 		await call({ cmd: "run-taken", id: event.id }).catch((error: Error) => tell(`Straw Boss: the server did not take note of an event: ${error.message}`, "warning"));
 	};
@@ -386,7 +394,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 
 	// The boss's own words in this session (the keyboard, not an event or a steer of the server's) make them part of the run: the server then keeps it until they leave (docs/how-it-works.md, The boss in a run).
 	pi.on("input", (event) => {
-		if (mode !== "run" || claim?.kind !== "local" || event.source !== "interactive") return;
+		if (mode !== "run" || claim?.kind === "ally" || !claim || event.source !== "interactive") return;
 		// Their words protect the turn from the abort whether or not the server heard them (it may be the very thing that is away): the flag is not undone by a failed request, the rate-limit mark is.
 		bossTyped = true;
 		// The turn their words start is theirs: a hand run holds no guard in it (below). A steer typed in the middle of a turn an event started (pi runs this handler before it queues the words) does not make that turn theirs.
@@ -397,8 +405,8 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		// a tower_done waits for it (below), so it is heard before the model can end the run. A server that did not hear is asked again at their next words.
 		signing = call({ cmd: "run-boss" }).catch(() => void (bossSign = undefined));
 	});
-	pi.on("agent_start", () => void ((inTurn = true), (triggered = undefined)));
-	pi.on("agent_settled", () => void ((inTurn = false), (bossTurn = false), flushQuit()));
+	pi.on("agent_start", () => void ((inTurn = true), (triggered = undefined), (turnStarter = startedBy), (startedBy = undefined)));
+	pi.on("agent_settled", () => void ((inTurn = false), (bossTurn = false), (turnStarter = undefined), flushQuit()));
 	pi.on("tool_call", (event, context) => {
 		if (mode !== "run") return;
 		if (event.toolName === "intercom") return { block: true, reason: BLOCKED };
@@ -407,10 +415,10 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		// A local run is started with `--tools` naming what it may call (runallow.ts), so a tool off the list is not registered at all; this refuses it again for the case an extension turned it back on, and refuses a path of the state folder or a secret folder.
 		// An ally run is held to the path denial alone (not the list) at every trust level. A hand run (the boss's own pi in the standing pane, with the tools the boss chose) is held to the local run's list and the path denial in a turn
 		// the boss did not start: an event of a peer or the board reaches it while the boss is silent. The boss's own turns are not held. An ally run's bash can still name a guarded path in a command (docs/how-it-works.md, Not covered).
-		if (claim?.kind !== "local" && claim?.kind !== "ally") return;
+		if (!claim) return;
 		if (claim.hand && bossTurn) return;
 		const home = cfg.link?.home ?? homedir();
-		const why = refusedForRun(claim.kind === "local", event.toolName, event.input as Record<string, unknown>, { cwd: context.cwd, home, agentDir: env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), stateDir: guiDir });
+		const why = refusedForRun(claim.kind === "head" ? "head" : claim.kind === "local", event.toolName, event.input as Record<string, unknown>, { cwd: context.cwd, home, agentDir: env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), stateDir: guiDir });
 		if (why) return { block: true, reason: why };
 	});
 	// An ally run has no business with pi-intercom: its own id is fresh and no header names it, so a message from it is dropped from the context as a backstop.
@@ -423,7 +431,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		if (mode !== "run" || !claim) return;
 		const sections = event.systemPromptOptions.sections;
 		const head = /head tower: ([^\n;.]+)/.exec(claim.brief)?.[1]?.trim() ?? "none yet";
-		const role = readFileSync(join(cfg.promptDir, claim.kind === "ally" ? "ally-run.md" : "tower-run.md"), "utf8").trim().replace(/\{\{(\w+)\}\}/g, (_, key: string) => ({ workspace: claim!.label, head })[key] ?? "none yet");
+		const role = readFileSync(join(cfg.promptDir, claim.kind === "ally" ? "ally-run.md" : claim.kind === "head" ? "head-run.md" : "tower-run.md"), "utf8").trim().replace(/\{\{(\w+)\}\}/g, (_, key: string) => ({ workspace: claim!.label, head })[key] ?? "none yet");
 		sections[ENTRY] = `${role}\n\n${claim.brief}`;
 	});
 	/** A pane the server owns: this pi quits with the server's reason. */
@@ -437,7 +445,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 	/** The session is a run (the claim is held): its tools, its file, and its poll. */
 	const enterRun = async (context: ExtensionContext) => {
 		mode = "run";
-		markRun(claim?.kind); // balance.ts reads it at the quit
+		markRun(claim?.kind === "head" ? "local" : claim?.kind); // balance.ts reads it at the quit
 		keep();
 		if (!pinPeer()) return void refuseUnpinned();
 		// A session that was an ally run's stays one: the server's run records are pruned, this entry goes with the session when pi resumes it (paneRole asks the server to quit that pi).
@@ -525,7 +533,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		if (event.reason === "reload" || (claim.hand && event.reason !== "quit")) return void (mode = "unknown");
 		if (!closing && event.reason !== "quit") await ask({ cmd: "run-release", token: claim.token, reason: event.reason }).catch(() => {});
 		// A quit that tower_done did not come before is the boss's /quit or the server's own order; the server knows which (a run it is ending ignores this) and ends a run the boss was in as done, not crashed.
-		if (!closing && event.reason === "quit" && claim.kind === "local") await ask({ cmd: "run-done", token: claim.token, left: true }).catch(() => {});
+		if (!closing && event.reason === "quit" && claim.kind !== "ally") await ask({ cmd: "run-done", token: claim.token, left: true }).catch(() => {});
 		(globalThis as Record<symbol, unknown>)[KEPT] = undefined;
 	});
 

@@ -30,7 +30,7 @@ export const linkRequestParameters = () => Type.Object({
 });
 
 /** The tools the agent calls: what a joined session has (status, call_tower, broadcast, rename, promote), and the tower's boss_open_main. */
-export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callTower, status, broadcast, towerList, towerSend, read, promote, digest, closeMain, link, server, towerCall, boardFill }: Pick<Reach, "post" | "callTower" | "status" | "broadcast" | "towerList" | "towerSend" | "read"> & Pick<Membership, "promote"> & { digest: Digest; closeMain: CloseMain; link: Link; server?: ServerLook; towerCall?: boolean; boardFill: BoardFill }) {
+export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callTower, status, broadcast, towerList, towerSend, answerHead, read, promote, digest, closeMain, link, server, towerCall, boardFill }: Pick<Reach, "post" | "callTower" | "status" | "broadcast" | "towerList" | "towerSend" | "answerHead" | "read"> & Pick<Membership, "promote"> & { digest: Digest; closeMain: CloseMain; link: Link; server?: ServerLook; towerCall?: boolean; boardFill: BoardFill }) {
 	// A main says why it calls (required); a tower's call is a blocked one, so it may leave it out and the header says unspecified.
 	const whyType = Type.Union([Type.Literal("milestone"), Type.Literal("shared"), Type.Literal("blocked")], { description: "Why you call: milestone, shared, or blocked. The tower reads it in the header." });
 	const whyField = towerCall || role() === "tower" ? Type.Optional(whyType) : whyType;
@@ -191,9 +191,14 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callT
 					device: Type.Optional(Type.String({ description: "A teammate's device (short id, id, or label) to send over Straw Link. Omit for towers on this computer." })),
 					reply: Type.Optional(Type.Boolean({ description: "Whether you wait for an answer. Default false; true only when you act on it." })),
 					for: Type.Optional(Type.String({ description: "Tower run only, with device and reply: a live main of your workspace (id or name) that asked for this. The device's answer then goes to that main directly; the result says whether the device's build can do that." })),
-					inReplyTo: Type.Optional(Type.String({ description: "Ally run only: the ask id (see your brief and the event header, asks=) of a message you answer. The answer goes to the main that asked." })),
+					inReplyTo: Type.Optional(Type.String({ description: "Ally run only: the ask id (see your brief and the event header, asks=) of a message you answer. The answer goes to the main that asked. With head: the head tower's ask id (H12, the ask= of its message)." })),
+					head: Type.Optional(Type.Boolean({ description: "Answer the head tower: set it with inReplyTo, the ask id (H12) of the head tower's message to you. The message goes to the head tower alone, which tells the boss." })),
 				}),
-				({ message, workspace, device, reply, for: forMain, inReplyTo }) => {
+				({ message, workspace, device, reply, for: forMain, inReplyTo, head }) => {
+					if (head === true) {
+						if (!inReplyTo) throw new Error("head needs inReplyTo, the ask id of the head tower's message you answer");
+						return answerHead(message, inReplyTo).then((r) => ({ text: r.status === "sent" ? "Sent to the head tower." : `The head tower did not take it: ${r.status} ${r.detail ?? ""}`.trim(), details: { status: r.status } }));
+					}
 					if (forMain !== undefined || inReplyTo !== undefined) throw new Error("for and inReplyTo work in a tower run of the sb server (the run tools ask the server)");
 					return device === undefined ? towerSend(message, workspace, reply ?? false) : link.send({ device, text: message, reply: reply ?? false, ...(workspace !== undefined ? { workspace } : {}) });
 				});

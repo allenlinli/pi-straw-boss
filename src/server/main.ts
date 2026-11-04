@@ -32,6 +32,8 @@ import { promptCommand } from "./standing.ts";
 import { UnitReporter, runNotice } from "../link/unitstatus.ts";
 import { readNotes } from "./towerrunstore.ts";
 import { createTowers, type Towers, type TowersOptions } from "./towers.ts";
+import { headCommand } from "./headcmds.ts";
+import { headSeam } from "./headnet.ts";
 import { towerPanel } from "./towerpanel.ts";
 import { runsStopMs } from "./runs.ts";
 import { readTowerRuns } from "./towerruns.ts";
@@ -327,7 +329,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			const verdict = run ? gateRun({ cmd: request.cmd, workspace: request.workspace, body: request.body }, run) : { ok: false as const, error: "unknown_token" };
 			if (!verdict.ok) return { ok: false, error: verdict.error };
 		}
-		if (request.cmd === "status") return { ok: true, ...facts(), uptimeMs: now() - startedAt, ...(own.lastError ? { lastError: own.lastError } : {}), towers: towers?.status() ?? [], link: link?.status() ?? null, ...(guiHost && o.gui !== false ? { gui: guiHost.facts() } : {}) };
+		if (request.cmd === "status") return { ok: true, ...facts(), uptimeMs: now() - startedAt, ...(own.lastError ? { lastError: own.lastError } : {}), towers: towers?.status() ?? [], head: towers?.head.status() ?? null, link: link?.status() ?? null, ...(guiHost && o.gui !== false ? { gui: guiHost.facts() } : {}) };
 		if (phase === "restarting" || (phase === "stopping" && request.cmd !== "run-poll")) return { ok: false, error: "restarting" };
 		if (request.cmd === "link") {
 			// A request of a session to the link holder (service.ts): the answer is the holder's own, in `answer`; `ok` is only whether the server took the request. Only the primary server holds the link.
@@ -398,6 +400,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 				const made = text(claim?.pane) && typeof claim?.at === "number" && Number.isFinite(claim.at) ? { pane: text(claim.pane)!, at: claim.at } : undefined;
 				return workspace ? answer(async (t) => ({ ...(await t.ensure({ workspace, ...(text(request.pane) ? { pane: text(request.pane)! } : {}), ...(text(request.cwd, 4096) ? { cwd: text(request.cwd, 4096)! } : {}), ...(Number.isInteger(request.pid) && (request.pid as number) > 0 ? { pid: request.pid as number } : {}), ...(made ? { made } : {}) })) })) : Promise.resolve({ ok: false, error: "ensure-tower needs a workspace" });
 			}
+			// The boss's `/boss head …` (headcmds.ts): a run token never gets here (rungate.ts).
+			case "head-open": case "head-event": case "head-leave": case "head-new": case "head-close": return answer((t) => headCommand(t, request.cmd, text(request.text, 16_384)));
 			case "close-tower":
 				return workspace ? answer((t) => t.close(workspace)) : Promise.resolve({ ok: false, error: "close-tower needs a workspace" });
 			case "open-main": {
@@ -507,7 +511,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		restart: gui.restart ?? ((reason) => spawnRestart(cliBeside(), reason, "the GUI", serverEnv(env), slot.dir)),
 		failed: (code, text) => recordError(code, text), tailscale: gui.tailscale, bundle: gui.bundle, bindWaitMs: gui.bindWaitMs, ...(gui.lan ? { lan: gui.lan } : {}),
 		// The page's tower units: the service's state and queue in the net, the composer as a boss event, and the notices' buttons (towers is built below, after the GUI host, and may be absent).
-		tower: towerPanel(() => towers),
+		tower: towerPanel(() => towers), head: headSeam(slot, now),
 	});
 	// The tower service (behind `towerRuns.enabled`): it stands in for each workspace's tower, and finds the tabs again when a new Herdr server takes over.
 	// What `boss_server` does for a run (runtools.ts): the server answers it itself, so it can refuse an ally run's token and keep the restart limit.

@@ -797,12 +797,12 @@ export async function describe(ctx: Ctx): Promise<Record<string, unknown>> {
 		await passGate(ctx);
 		startError = readStartError(ctx.slot);
 	}
-	let more: Record<string, unknown> = { towers: [], link: null };
+	let more: Record<string, unknown> = { towers: [], head: null, link: null };
 	if (seen.live && record) {
 		try {
 			const { reply } = await callControl(record.socket, record.secret, { cmd: "status" }, 3000);
 			const { remote, lan } = (reply?.gui ?? {}) as { remote?: unknown; lan?: unknown };
-			if (reply?.ok) more = { uptimeMs: reply.uptimeMs, towers: reply.towers ?? [], link: reply.link ?? null, ...(remote ? { remote } : {}), ...(lan ? { lan } : {}) };
+			if (reply?.ok) more = { uptimeMs: reply.uptimeMs, towers: reply.towers ?? [], head: reply.head ?? null, link: reply.link ?? null, ...(remote ? { remote } : {}), ...(lan ? { lan } : {}) };
 		} catch { /* the server went while it was asked */ }
 	}
 	return {

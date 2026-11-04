@@ -38,9 +38,9 @@ const sessions = [
 
 test("buildNet shows every workspace as a base with its tower, tabs, agents, subagents, and outposts, and leaves out sessions that did not join", () => {
 	const net = buildNet({ sessions, panes, workspaces, children: (p) => (p?.pane_id === "wA:p1" ? [child("lint", "working", { note: "bash" }), child("review", "done", { note: "finished" })] : []) });
-	assert.deepEqual(net.bases.map((b) => [b.label, b.head, b.tower?.name ?? null, b.tower?.mark ?? null]), [
-		["Alpha", true, "tower · Alpha", "idle"],
-		["Beta", false, "tower · Beta", "idle"],
+	assert.deepEqual(net.bases.map((b) => [b.label, b.tower?.name ?? null, b.tower?.mark ?? null]), [
+		["Alpha", "tower · Alpha", "idle"],
+		["Beta", "tower · Beta", "idle"],
 	], "Gamma has no tower and nobody joined, so it is not part of the net");
 	const alpha = net.bases[0]!;
 	assert.deepEqual(alpha.tabs.map((t) => [t.label, t.units.map((u) => [u.name, u.role, u.mark, u.note ?? null])]), [

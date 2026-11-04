@@ -46,6 +46,19 @@ test("keys put the head tower's workspace first, then its tower, its tabs in ord
 	assert.equal(orderKey("member", pane("lost", "wA:t9"), [...ps, pane("lost", "wA:t9")], all, tabsA), undefined, "nor one whose tab is not listed");
 });
 
+test("HH1-F005: the head tower's workspace is no base: while it exists the bases are numbered from 001 wherever it stands, and its own panes get no key from here", () => {
+	const head = { ...ws("wH"), tokens: { sb_head: "sb-head" } };
+	const ps = [pane("A-tower", "wA:t0"), pane("A-main", "wA:t1"), pane("B-tower", "wB:t0"), pane("H-pane", "wH:t0")];
+	const tabsA = ["wA:t0", "wA:t1"].map(tab), tabsB = [tab("wB:t0")];
+	for (const all of [[head, ws("wA"), ws("wB")], [ws("wA"), head, ws("wB")], [ws("wA"), ws("wB"), head]]) {
+		assert.equal(orderKey("tower", ps[0]!, ps, all, tabsA), "001.0", "the first base follows the head");
+		assert.equal(orderKey("main", ps[1]!, ps, all, tabsA), "001.1.001.0.000");
+		assert.equal(orderKey("tower", ps[2]!, ps, all, tabsB), "002.0");
+		assert.equal(orderKey("tower", ps[3]!, ps, all, [tab("wH:t0")]), undefined, "the head workspace has no base key: the head service writes 000.0 itself");
+	}
+	assert.equal(orderKey("tower", ps[0]!, ps, [ws("wA"), ws("wB")], tabsA), "000.0", "with no head workspace the first base is first, as before");
+});
+
 test("segments are fixed-width, so tab ten and slot ten sort after tab two and slot nine as plain strings", () => {
 	const tabs = Array.from({ length: 12 }, (_, i) => tab(`wA:t${i}`));
 	const all = [ws("wA")];

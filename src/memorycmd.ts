@@ -4,6 +4,7 @@
 // and the server refuses `tower-memory` to a run token. Its own words come in English and Traditional Chinese (the page has Paraglide; a pi session has this table); the server's refusals stay as it wrote them.
 
 import { clean } from "./board.ts";
+import { HEAD_KEY } from "./headkey.ts";
 
 export type Lang = "en" | "zh-TW";
 /** Traditional Chinese for a zh-TW, zh-HK, zh-MO, or zh-Hant locale, as the shell names it; English otherwise. */
@@ -118,7 +119,8 @@ export async function runMemoryCommand(args: string, d: MemoryCmdDeps): Promise<
 	if (parsed.op !== "list" && !d.interactive) return d.tell(w.noUi, "error");
 	try {
 		let ws = d.own;
-		if (parsed.workspace) {
+		if (parsed.workspace === "head") ws = HEAD_KEY;
+		else if (parsed.workspace) {
 			const all = await d.workspaces(), found = all.filter((x) => x.workspace_id === parsed.workspace || x.label === parsed.workspace);
 			if (found.length !== 1) throw new Error(w.noMatch(parsed.workspace, all.map((x) => `${x.workspace_id} (${x.label})`).join(", ")));
 			ws = found[0]!.workspace_id;

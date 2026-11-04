@@ -9,6 +9,7 @@ import { createFollow, reach } from "./follow.ts";
 import { mount, parse } from "./markdown.ts";
 import type { Post } from "./composer.ts";
 import { m } from "./paraglide/messages.js";
+import { getLocale } from "./paraglide/runtime.js";
 import { html, ICON, roleName } from "./render.ts";
 import { conversationDivider } from "./towermodel.ts";
 import { bossTurn, eventTurn, heard, senderOf, type Turn } from "./towerturns.ts";
@@ -80,7 +81,7 @@ export interface HistoryEvent { key: string; state?: string; successor?: string;
 /** `post` stands in for the server's input API (composer.ts) in the dev fixture. */
 /** `pic` is the URL of an entry's n-th image. */
 export interface Data { older(before: string): Promise<Page>; latest(): Promise<Page>; entry(id: string): Promise<Item | undefined>; pic?(id: string, n: number): string; post?: Post }
-export interface Who extends Shelf { key: string; name: string; role: string; mark: Mark; note?: string; control?: boolean; agent?: "claude" | "codex"; ended?: boolean; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; service?: TowerService }
+export interface Who extends Shelf { key: string; name: string; role: string; mark: Mark; /** The head tower (its words are named for it). */ head?: boolean; note?: string; control?: boolean; agent?: "claude" | "codex"; ended?: boolean; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; service?: TowerService }
 /** `docFor` opens the document a show_doc path names while its session lists it (doc.ts), or is undefined. */
 export interface ChatDeps { who(): Who; link(name: string): HTMLAnchorElement | undefined; docFor?(path: string): (() => void) | undefined }
 /** `reveal` opens the log at an entry (scrolled into view and lit), or with none at the newest entry. `log` is the scrolling log, a focus target. `docs` shows Open beside on the show_doc cards whose document is listed now. */
@@ -88,7 +89,9 @@ export interface Chat { apply(event: HistoryEvent): void; setLive(text: string, 
 export type ConversationRun = NonNullable<TowerService["localRuns"]>[number];
 
 /** Who an assistant message is from, as its header says: the unit's role, since the page header already names the session. */
-export const speaker = (who: { role: string }) => roleName(who.role);
+/** The chapter divider's reason in the page's language: by the server's code, the raw text only for a code this page does not know. */
+export const chapterWhy = (code?: string, text?: string) => ({ first: m.head_why_first, new: m.head_why_new, size: m.head_why_size, unreadable: m.head_why_unreadable } as Record<string, (() => string) | undefined>)[code ?? ""]?.() ?? text ?? "";
+export const speaker = (who: { role: string; head?: boolean }) => (who.head ? m.head_tower() : roleName(who.role));
 const clock = (at?: string) => (at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
 const size = (n: number) => (n >= 1024 ? `${(n / 1024).toFixed(n >= 10240 ? 0 : 1)} KB` : `${n} B`);
 const NOTICE: Record<string, () => string> = { intercom_message: m.notice_intercom, subagent_result: m.notice_result, subagent_ping: m.notice_ping, subagent_status: m.notice_status, "pi-loop-monitor": m.notice_monitor, "memory-context": m.notice_memory, "doc-review": m.notice_doc_review, "straw-tower": m.notice_tower, "straw-link": m.notice_straw_link };
@@ -201,7 +204,7 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor }: 
 			case "assistant": {
 				const me = who(), body = h("pre", { class: "thought-text" }), more = it.thought ? h("button", { class: "thought", type: "button" }, it.thought < 0 ? m.thought_redacted() : m.thought_chars({ count: it.thought.toLocaleString() })) : null;
 				if (it.thought && it.thought > 0) more?.addEventListener("click", () => fetchBody(more, body, it.id, (full) => full.thoughtText));
-				return h("article", { class: "tx in" }, icon(me.role), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? h("div", { class: "md" }, mount(parse(it.text))) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(it.tools ?? []).flatMap((t) => action(t, it.id))));
+				return h("article", { class: me.head ? "tx in head" : "tx in" }, icon(me.head ? "crown" : me.role), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? h("div", { class: "md" }, mount(parse(it.text))) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(it.tools ?? []).flatMap((t) => action(t, it.id))));
 			}
 			case "bash": return h("article", { class: "tx sys" }, h("details", { class: "act" }, h("summary", { "data-mark": it.exit ? "error" : "done" }, h("b", { class: "badge" }), h("code", null, "shell"), h("span", { class: "sum" }, `! ${it.command}`), it.exit ? h("span", { class: "stop", "data-mark": "error" }, m.exit_code({ code: it.exit })) : null), it.text ? h("pre", { class: "out" }, it.text) : null));
 			case "notice": {
@@ -212,7 +215,8 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor }: 
 				if (turn && turn.kind !== "boss") return notice(it, turnLabel(turn), turn.body, turn.kind === "link" ? { raw: turn.raw } : { crashed: turn.crashed });
 				return notice(it, [NOTICE[it.type ?? ""]?.() ?? it.type ?? m.notice(), " ", (it.from && link(it.from)) || (it.from ?? "")], it.text ?? "");
 			}
-			case "divider": return h("article", { class: "tx rule" }, h("details", null, h("summary", null, it.type === "compaction" ? m.compacted({ tokens: (it.tokens ?? 0).toLocaleString() }) : m.branch_summary()), h("pre", null, it.text ?? "")));
+			case "divider": if (it.type === "chapter") return h("article", { class: "tx rule chapter" }, h("p", null, m.head_chapter({ date: it.at ? new Date(it.at).toLocaleDateString(getLocale(), { year: "numeric", month: "short", day: "numeric" }) : "", why: chapterWhy(it.code, it.text) })));
+				return h("article", { class: "tx rule" }, h("details", null, h("summary", null, it.type === "compaction" ? m.compacted({ tokens: (it.tokens ?? 0).toLocaleString() }) : m.branch_summary()), h("pre", null, it.text ?? "")));
 			default: return h("article", { class: "tx note" }, it.text ?? "", " ", stamp(it));
 		}
 	}

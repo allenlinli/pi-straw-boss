@@ -77,7 +77,7 @@ test("Dismiss on the card posts the dismiss to the memory route by the wait's id
 	assert.equal(link.attrs.get("data-route"), "w/wA/s/sb-tower-wa");
 });
 
-const net = (waits: { id: string; text: string; at: string }[]): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", head: true, tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, service: service(waits), subs: [] }, tabs: [], outposts: [], outside: [] }] });
+const net = (waits: { id: string; text: string; at: string }[]): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, service: service(waits), subs: [] }, tabs: [], outposts: [], outside: [] }] });
 
 test("a wait for the boss that is under a day old is an alert of the tower, raised once, and leaves the queue when the wait is gone; an old one raises none", () => {
 	const first = alertsOf(net([OLD, FRESH]), NOW);

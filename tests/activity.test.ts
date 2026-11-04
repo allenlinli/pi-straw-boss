@@ -6,7 +6,7 @@ import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
 
 const unit = (key: string, mark: Mark, note?: string, subs: Unit[] = []): Unit => ({ id: key, key, control: true, name: `${key}-name`, role: "main", mark, ...(note && { note }), subs });
-const net = (units: Unit[], outposts: Net["bases"][number]["outposts"] = []): Net => ({ bases: [{ id: "wA", label: "Alpha", mark: "idle", head: true, tower: null, tabs: [{ id: "t1", label: "1", units }], outposts, outside: [] }] });
+const net = (units: Unit[], outposts: Net["bases"][number]["outposts"] = []): Net => ({ bases: [{ id: "wA", label: "Alpha", mark: "idle", tower: null, tabs: [{ id: "t1", label: "1", units }], outposts, outside: [] }] });
 const first = (n: Net) => n.bases[0]!.tabs[0]!.units[0]!;
 
 test("the first reading has no events and no start times: its units were there before it", () => {

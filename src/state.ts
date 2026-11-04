@@ -72,8 +72,6 @@ export interface State {
 	queue: Promise<void>;
 	/** Set while this session holds the tower role. */
 	dashboard: ReturnType<typeof startDashboard> | undefined;
-	/** A tower's watch on the head workspace (headwatch.ts); stops with the session. */
-	headWatch: (() => void) | undefined;
 	// The GUI runs in the sb server; `viewer` is the channel of a session outside the net that only reads the sessions (host.ts).
 	viewer: Channel | undefined;
 	/** `remote:<sender device id>` while the run is a Straw Link remote turn: what a message to a local session carries in its header as `origin=`. */
@@ -105,7 +103,7 @@ export function createKit(pi: ExtensionAPI, cfg: Config): Kit {
 		// SAFETY: as `c` above.
 		at: undefined as unknown as Place,
 		mainId: undefined, pinned: undefined, info: {}, ownName: "", openedBy: undefined, restoredOpener: undefined, kids: new Set(),
-		ui: undefined, hasUI: false, saved: {}, file: undefined, restored: false, queue: Promise.resolve(), dashboard: undefined, headWatch: undefined, viewer: undefined, quit: undefined, closing: undefined, remoteOrigin: undefined, boardId: undefined,
+		ui: undefined, hasUI: false, saved: {}, file: undefined, restored: false, queue: Promise.resolve(), dashboard: undefined, viewer: undefined, quit: undefined, closing: undefined, remoteOrigin: undefined, boardId: undefined,
 	};
 	const me = () => env.PI_INTERCOM_SESSION_ID ?? "";
 	const role = (): Role | undefined => {

@@ -1,5 +1,5 @@
 import { subagents } from "./netdata.ts";
-import { ALLY_MARK, ARROW, type HerdrRun, type HerdrTab, type HerdrWorld, isSub, MARK, type Pane, type Place, report, type Workspace, worldOf } from "./herdr.ts";
+import { ALLY_MARK, ARROW, type HerdrRun, type HerdrTab, type HerdrWorld, isHead, isSub, MARK, type Pane, type Place, report, type Workspace, worldOf } from "./herdr.ts";
 
 // Five display tokens for the sidebar plugin and for Herdr's own Agents rows, written next to `sb_role`:
 //  - `sb_order`: a sort key that lays the net out as the head tower's workspace first, then the other workspaces in Herdr's order, in each the tower
@@ -26,12 +26,12 @@ const short = (name: string) => (name.length > NAME_MAX ? `${name.slice(0, NAME_
 
 /**
  * The key of a session that is in the net, or undefined when Herdr cannot place it. Workspaces count among the base ones (a sub workspace is a
- * linked worktree whose sessions hang under their launcher), the head tower's workspace being the first of them; a pane's slot is its place among
- * its tab's panes, so every member has a key of its own.
+ * linked worktree whose sessions hang under their launcher); the head tower's workspace is no base: its pane is keyed `000.0` by the head service wherever the workspace stands, and while it exists the
+ * bases are numbered from 001, so no base ties with it (HH1-F005). A pane's slot is its place among its tab's panes, so every member has a key of its own.
  */
 export function orderKey(role: "tower" | "main" | "member", pane: Pane, ps: Pane[], all: Workspace[], tabList: HerdrTab[]): string | undefined {
-	const base = all.filter((w) => !isSub(w)).findIndex((w) => w.workspace_id === pane.workspace_id);
-	if (base < 0) return undefined;
+	const index = all.filter((w) => !isSub(w) && !isHead(w)).findIndex((w) => w.workspace_id === pane.workspace_id), base = index + (all.some(isHead) ? 1 : 0);
+	if (index < 0) return undefined;
 	if (role === "tower") return `${part(base)}.0`;
 	const tab = tabList.findIndex((t) => t.tab_id === pane.tab_id), slot = ps.filter((p) => p.tab_id === pane.tab_id).findIndex((p) => p.pane_id === pane.pane_id);
 	return tab < 0 || slot < 0 ? undefined : `${part(base)}.1.${part(tab)}.${role === "main" ? 0 : 1}.${part(slot)}`;

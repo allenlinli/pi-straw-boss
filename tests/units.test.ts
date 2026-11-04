@@ -8,7 +8,7 @@ import { activityOf, companionsOf } from "../gui/zenunits.ts";
 
 const unit = (key: string, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark: "idle" as Mark, subs: [], ...o });
 const base = (id: string, tower: { key: string; subs?: Unit[]; mark?: Mark } | null, units: Unit[], outside: Unit[] = [], extra: Unit[] = []) => ({
-	id, label: id, mark: "idle" as Mark, head: true, outposts: [], outside,
+	id, label: id, mark: "idle" as Mark, outposts: [], outside,
 	tower: tower ? { name: tower.key, mark: tower.mark ?? ("idle" as Mark), key: tower.key, control: true, subs: tower.subs ?? [] } : null,
 	tabs: [{ id: "t1", label: "t1", units }, { id: "t2", label: "t2", units: extra }],
 });

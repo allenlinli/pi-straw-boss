@@ -17,7 +17,7 @@
 // The gates other than `typeGate` are pure: the facts come in, the answer goes out, and the caller changes its own state by it. `typeGate`'s facts are not: `gone` takes the stand-in away, `settle` upkeeps the caller's
 // marks, and `read` asks Herdr; they are asked in the gate's order and only when the rules before them passed.
 
-import { TOWER_LABEL } from "../herdr.ts";
+import { SEAT_LABEL, type ServiceKind } from "../herdr.ts";
 
 export const SHELLS = new Set(["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu", "login", "pwsh", "powershell", "cmd"]);
 export const nameOf = (p: { argv0?: string; name?: string }) => String(p.argv0 ?? p.name ?? "").replace(/^-/, "").split(/[\\/]/).pop()!.toLowerCase().replace(/\.exe$/, "");
@@ -40,18 +40,23 @@ export function idleShell(info: ProcessInfo | undefined, fresh = false, groups =
 // --- the seat: is the recorded pane still the tower's -----------------------------------------------------------------------------------------------------------------------
 
 /** What Herdr lists of the recorded pane and of the tab that pane is in; undefined when it lists none. */
-export interface SeatFacts { pane: { pane_id: string } | undefined; tab: { label?: string } | undefined }
+export interface SeatFacts {
+	pane: { pane_id: string } | undefined;
+	tab: { label?: string } | undefined;
+	/** Whose seat it is: a workspace tower's (the default) or the head tower's. Each is proven by its own glyph, so a tower is never seated in the crown tab and the head never in a radio tower tab. */
+	kind?: ServiceKind;
+}
 /** `absent`: the pane or its tab is not listed (a restore that is not done, or a pane that is gone): there is nothing to prove or refute yet. */
 export type SeatVerdict = "ours" | "stranger" | "absent";
 /**
  * A service records the workspace, tab and pane it made; Herdr numbers them with short counters that repeat across Herdr servers. After a Herdr came back (a restore, or a session that was lost) or a server started, the
  * ids alone prove nothing: a lost session's counters can name the boss's own workspace, a plain shell the server would type the tower prompt's command into, mark, and start a run in (VM pass B7, F10). What Herdr
  * keeps of a restored session is its layout and labels, never the tokens or the pane's environment (a new server begins with none), so the proof is the one thing a restore keeps of the tab the service made: its
- * label, the tower glyph (`createTab` gives it, `openFor` gives it to a tab it adopts, and the leftover-tab rule already recognises a tower tab by it). A pane in a tab with another label is a stranger's.
+ * label, the service's own glyph (the radio tower for a tower, the crown for the head tower; `createTab` gives it, `openFor` gives it to a tab it adopts, and the leftover-tab rule already recognises a tower tab by it). A pane in a tab with another label is a stranger's.
  */
 export function seatGate(f: SeatFacts): SeatVerdict {
 	if (!f.pane || !f.tab) return "absent";
-	return f.tab.label === TOWER_LABEL ? "ours" : "stranger";
+	return f.tab.label === SEAT_LABEL[f.kind ?? "tower"] ? "ours" : "stranger";
 }
 
 /**

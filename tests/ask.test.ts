@@ -59,7 +59,7 @@ test("an ask_user question is read for display: question, context, options as pi
 test("a snapshot carries what each waiting unit waits on; others carry nothing", async () => {
 	const waiting = file(asked("c9")), idle = file(asked("c8"));
 	const unit = (key: string, mark: "waiting" | "idle") => ({ id: key, key, control: true, name: key, role: "main" as const, mark, subs: [] });
-	const net: Net = { bases: [{ id: "w", label: "w", mark: "waiting", head: true, tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [unit("a", "waiting"), unit("b", "idle")] }] }] };
+	const net: Net = { bases: [{ id: "w", label: "w", mark: "waiting", tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [unit("a", "waiting"), unit("b", "idle")] }] }] };
 	await withPending(net, (key) => ({ a: waiting, b: idle })[key]);
 	const [a, b] = net.bases[0]!.tabs[0]!.units;
 	assert.deepEqual([a!.pending?.callId, a!.pending?.ask?.question, b!.pending], ["c9", "Pick a color", undefined]);
@@ -67,7 +67,7 @@ test("a snapshot carries what each waiting unit waits on; others carry nothing",
 
 test("an idle unit with a running monitor is commanding, its base working; a finished monitor leaves it idle, and its own waiting or working wins", async () => {
 	const unit = (key: string, mark: "idle" | "working" = "idle", subs: Unit[] = []): Unit => ({ id: key, key, control: true, name: key, role: "main" as const, mark, subs });
-	const net: Net = { bases: [{ id: "w", label: "w", mark: "idle", head: true, tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [unit("a"), unit("b"), unit("c", "working"), unit("d")] }] }] };
+	const net: Net = { bases: [{ id: "w", label: "w", mark: "idle", tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [unit("a"), unit("b"), unit("c", "working"), unit("d")] }] }] };
 	const mon = (status: "running" | "done") => [{ id: "m", what: "npm run dev", status, lines: 0, at: 0 }];
 	const dialog = { id: "q", owner: "x", digest: "0".repeat(64) } as never;
 	await withPending(net, () => undefined, { dialogsOf: (key) => (key === "d" ? [dialog] : undefined), merge: () => ({}) as never, monitorsOf: (key) => mon(key === "b" ? "done" : "running") });
@@ -77,7 +77,7 @@ test("an idle unit with a running monitor is commanding, its base working; a fin
 
 test("a unit whose subagent is commanding by a monitor commands as well; a base with only commanding units is working", async () => {
 	const unit = (key: string, subs: Unit[] = []): Unit => ({ id: key, key, control: true, name: key, role: key === "kid" ? "subagent" : "main", mark: "idle", subs });
-	const net: Net = { bases: [{ id: "w", label: "w", mark: "idle", head: true, tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [unit("boss", [unit("kid")]), unit("quiet", [{ ...unit("old"), mark: "done", ended: true }])] }] }] };
+	const net: Net = { bases: [{ id: "w", label: "w", mark: "idle", tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [unit("boss", [unit("kid")]), unit("quiet", [{ ...unit("old"), mark: "done", ended: true }])] }] }] };
 	await withPending(net, () => undefined, { dialogsOf: () => undefined, merge: () => ({}) as never, monitorsOf: (key) => (key === "kid" ? [{ id: "m", what: "tests", status: "running", lines: 0, at: 0 }] : undefined) });
 	const [boss, quiet] = net.bases[0]!.tabs[0]!.units;
 	assert.deepEqual([boss!.subs[0]!.mark, boss!.mark, quiet!.mark, net.bases[0]!.mark], ["commanding", "commanding", "idle", "working"]);
@@ -176,7 +176,7 @@ test("waitsForSecret: any open call of secret_drop, and a file that cannot be re
 
 test("an ended subagent with a running monitor and its pi alive stops being ended; with no pi alive (no control) it stays ended", async () => {
 	const kid = (key: string, control: boolean): Unit => ({ id: key, key, control, name: key, role: "subagent", mark: "idle", ended: true, subs: [] });
-	const net: Net = { bases: [{ id: "w", label: "w", mark: "idle", head: true, tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [{ id: "m", key: "m", control: true, name: "m", role: "main", mark: "idle", subs: [kid("a", true), kid("b", false), kid("c", true)] }] }] }] };
+	const net: Net = { bases: [{ id: "w", label: "w", mark: "idle", tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [{ id: "m", key: "m", control: true, name: "m", role: "main", mark: "idle", subs: [kid("a", true), kid("b", false), kid("c", true)] }] }] }] };
 	await withPending(net, () => undefined, { dialogsOf: () => undefined, merge: () => ({}) as never, monitorsOf: (key) => [{ id: "m", what: "tests", status: key === "c" ? "done" : "running", lines: 0, at: 0 }] });
 	const [a, b, c] = net.bases[0]!.tabs[0]!.units[0]!.subs;
 	assert.deepEqual([[a!.ended, a!.mark, a!.note], [b!.ended, b!.mark], [c!.ended, c!.mark]], [[undefined, "commanding", "watching a monitor"], [true, "idle"], [true, "idle"]]);
@@ -186,7 +186,7 @@ test("an ended subagent with a running monitor and its pi alive stops being ende
 test("any unit marked done that has a running monitor and a live pi is not done (it commands, and raises no finished notice); when the monitor stops it is done again", async () => {
 	const { alertsOf, arrivals } = await import("../gui/alerts.ts");
 	const unit = (key: string, role: Unit["role"], mark: Unit["mark"]): Unit => ({ id: key, key, control: true, name: key, role, mark, subs: [] });
-	const make = (): Net => ({ bases: [{ id: "w", label: "w", mark: "idle", head: true, tower: null, outposts: [], outside: [unit("o", "outside", "done")], tabs: [{ id: "t", label: "t", units: [unit("m", "main", "done"), unit("k", "subagent", "done")] }] }] });
+	const make = (): Net => ({ bases: [{ id: "w", label: "w", mark: "idle", tower: null, outposts: [], outside: [unit("o", "outside", "done")], tabs: [{ id: "t", label: "t", units: [unit("m", "main", "done"), unit("k", "subagent", "done")] }] }] });
 	const read = async (status: "running" | "done") => {
 		const net = make();
 		await withPending(net, () => undefined, { dialogsOf: () => undefined, merge: () => ({}) as never, monitorsOf: () => [{ id: "x", what: "tests", status, lines: 0, at: 0 }] });

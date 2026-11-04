@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Reply } from "./control.ts";
-import { createTab, type HerdrRun, isStandin, isSub, type Pane, panes, parentOf, report, result, type Session, type Sleep, startPi, tabs, workspaces } from "./herdr.ts";
+import { createTab, type HerdrRun, isHead, isStandin, isSub, type Pane, panes, parentOf, report, result, type Session, type Sleep, startPi, tabs, workspaces } from "./herdr.ts";
 import { assertSettingsSafe } from "./trust/settings.ts";
 import { waitPastTrust } from "./trust/wait.ts";
 
@@ -87,6 +87,7 @@ export async function survey(run: HerdrRun, workspaceId: string, live: Session[]
 	if (!ws) return undefined;
 	const reasons: string[] = [], agents: Session[] = [], out: StashTab[] = [];
 	if (isSub(ws)) reasons.push(`${ws.label} is a sub workspace; stash the base it belongs to`);
+	if (isHead(ws)) reasons.push("the head tower's workspace is not stashed; close the head tower instead");
 	// A sub workspace is neither recorded nor closed: anything running in it would lose the base it reports to.
 	for (const sub of all.filter((w) => isSub(w) && parentOf(all, w)?.workspace_id === workspaceId)) {
 		const ps = await panes(run, sub.workspace_id), busy = ps.filter((p) => p.agent && !isStandin(p)).length;

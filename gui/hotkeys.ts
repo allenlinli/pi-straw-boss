@@ -7,7 +7,7 @@
 // turns it on for the focused element as the key goes down, so mountHotkeys notes which focus a pointer press gave.
 // Zen reads its own rows (zenrows.ts, registered by the Zen chunk) under the same gates.
 
-export type Hotkey = "next" | "zoom" | "history" | "pause" | "prev-companion" | "next-companion" | "palette";
+export type Hotkey = "next" | "zoom" | "history" | "pause" | "talk" | "prev-companion" | "next-companion" | "palette";
 /** Which keymap the page reads: the alert dialogs' (Standard, Geek) or Zen's (faces.ts `keys`). */
 export type Keys = "dialogs" | "zen";
 /** The few fields of a keydown the routing reads. */

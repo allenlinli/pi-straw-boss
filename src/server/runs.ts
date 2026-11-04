@@ -20,7 +20,8 @@ import type { Slot } from "./record.ts";
 import { addNote, clearTimer, listRuns, pruneRuns, readNotes, readTimer, type Outcome, type RunRecord, writeRun, writeTimer } from "./towerrunstore.ts";
 import { appendEvent, dropParked, parkEvent, type QueuedEvent, readQueue, removeEvent, type ServiceRecord, unparkEvent, updateEvent } from "./towerstore.ts";
 import { RUN_CAP_MINUTES } from "./towerbrief.ts";
-import { LOCAL_RUN_TOOLS } from "../runallow.ts";
+import { HEAD_RUN_TOOLS, LOCAL_RUN_TOOLS } from "../runallow.ts";
+import { appendChapter, headResume, recapOf } from "./headchapters.ts";
 import type { RunWho } from "./rungate.ts";
 
 // The runs of the tower service (docs/specs/2026-10-26-sb-backend.md, The wake protocol, Crash and timeout, Queueing and concurrency). An event wakes a run: a new pi started in the tower tab's standing pane
@@ -309,6 +310,8 @@ export interface RunsOptions {
 	/** `<state dir>/trust`, where a pi that waits on a trust question leaves its request. */
 	trustDir?: string;
 	model(): string | undefined;
+	/** The head tower's model (`headModel`, else the tower model); the head's runs use it in place of `model`. */
+	headModel?(): string | undefined;
 	timers?: Partial<Timers>;
 	// Seams for tests: starting pi, the settings check, process liveness, the start time of a process, signals, and run ids.
 	startPi?: (run: HerdrRun, sleep: Sleep, name: string, paneId: string, piArgs: string[], proven?: () => Promise<boolean>) => Promise<unknown>;
@@ -338,7 +341,7 @@ const PRIORITY: Record<string, number> = { boss: 0, notice: 1, timer: 1, interco
 export type ClaimRequest = Record<string, unknown>
 /** The sender an ally run serves, as its claim names it: the run's remote-turn hooks pin the turn to it. */
 export interface Peer { device: string; label: string; short: string; team: string; teamName: string }
-export type ClaimReply = { ok: true; wait: true } | { ok: false; error: string } | { ok: true; token: string; kind: "local" | "ally"; level?: string; peer?: Peer; run: string; workspace: string; identity: string; label: string; brief: string; hand?: true };
+export type ClaimReply = { ok: true; wait: true } | { ok: false; error: string } | { ok: true; token: string; kind: "local" | "ally" | "head"; level?: string; peer?: Peer; run: string; workspace: string; identity: string; label: string; brief: string; hand?: true };
 
 export function createRuns(o: RunsOptions) {
 	const platform = o.platform ?? process.platform, win = platform === "win32";
@@ -358,6 +361,9 @@ export function createRuns(o: RunsOptions) {
 	/** Panes that held a live run when Herdr went away, with when a resumed pi there stops being the old run. */
 	const restored = new Map<string, number>();
 	const error = (code: string, text: string) => log.line("error", { code, text: phrase(text, 300) });
+	/** The head tower's service (kind `head`): its runs resume one conversation in chapters and have the head's tools (docs/specs/2026-11-04-head-tower.md, Runs). */
+	const isHeadSvc = (svc: Svc) => svc.ref.record().kind === "head";
+	const headRun = (a: Active) => a.rec.kind === "local" && isHeadSvc(a.svc);
 
 	// --- events -----------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -371,10 +377,11 @@ export function createRuns(o: RunsOptions) {
 	// --- wake -------------------------------------------------------------------------------------------------------------------------------------------------------
 
 	/** A milestone that expects no reply: a main's notice that something landed, which can wait for others (D19). The header is the code's, read at the very start of the text only. */
-	const holdable = (e: QueuedEvent) => {
+	const holdable = (svc: Svc) => (e: QueuedEvent) => {
 		if (e.kind !== "intercom") return false;
 		const fields = fieldsOf(e.text);
-		return fields?.why === "milestone" && fields.reply === "none";
+		// A tower's answer to one of the head's asks waits for the others like a milestone (the head writes the boss one line for a burst of them).
+		return (fields?.why === "milestone" && fields.reply === "none") || (isHeadSvc(svc) && fields?.["in-reply-to"] !== undefined);
 	};
 	/**
 	 * The wake comes `wake` after an event that cannot wait, and for events that can (`holdable`) `hold` after the first of them, so mains that finish together land in one run. A burst of milestones does not
@@ -386,8 +393,8 @@ export function createRuns(o: RunsOptions) {
 		if (svc.refusedAt !== undefined && now() - svc.refusedAt < t.refuse) return;
 		const waiting = waitingOf(svc);
 		if (!waiting.length) return;
-		const at = now(), first = Math.min(...waiting.filter(holdable).map((e) => Date.parse(e.at)).filter(Number.isFinite), at);
-		const due = waiting.some((e) => !holdable(e)) ? at + t.wake : Math.max(at + t.wake, first + t.hold);
+		const holds = holdable(svc), at = now(), first = Math.min(...waiting.filter(holds).map((e) => Date.parse(e.at)).filter(Number.isFinite), at);
+		const due = waiting.some((e) => !holds(e)) ? at + t.wake : Math.max(at + t.wake, first + t.hold);
 		if (svc.wake && svc.wakeAt! <= due) return;
 		clearTimeout(svc.wake);
 		svc.wakeAt = due;
@@ -406,7 +413,7 @@ export function createRuns(o: RunsOptions) {
 		svc.paneBusy = undefined;
 		svc.paneUnproven = undefined;
 		const id = newId(), woken = now();
-		const rec: RunRecord = { id, workspace: svc.ref.workspace, kind: "local", pane: svc.ref.record().pane, agent: agentName(slot, svc.ref.workspace, id), startedAt: iso(woken), events: [] };
+		const rec: RunRecord = { id, workspace: svc.ref.workspace, kind: "local", pane: svc.ref.record().pane, agent: agentName(slot, svc.ref.workspace, id, isHeadSvc(svc) ? "head" : "tower"), startedAt: iso(woken), events: [] };
 		const active: Active = { rec, svc, commands: [], lastPoll: woken, started: woken, digestKeys: [], offered: new Map() };
 		// The service holds the run before the settings check: a pi the boss starts by hand meanwhile asks `pane-role` and is turned away, not given a run this one overwrites (B5R-F007).
 		svc.run = active;
@@ -438,14 +445,17 @@ export function createRuns(o: RunsOptions) {
 		}
 		if (active.ended) return;
 		// A boss event written at the tower prompt (or the GUI's composer) with no local run live starts the boss conversation: it resumes the boss session when bossconv.ts says it may, else begins a new one.
-		const resume = bossWake(svc) ? await conversationOf(svc) : undefined;
+		// The head tower's runs all resume its one conversation, the boss's word in them or not (headchapters.ts); only a run the boss's word woke is a conversation with the boss in it.
+		const head = isHeadSvc(svc), resume = head ? await headConversationOf(svc, bossWake(svc), rec) : bossWake(svc) ? await conversationOf(svc) : undefined;
 		if (active.ended) return;
-		if (resume) (rec.conversation = resume.info, active.turns = resume.info.turns);
+		if (resume?.info) (rec.conversation = resume.info, active.turns = resume.info.turns);
+		else if (head) active.turns = rec.chapter?.turns ?? 0;
 		byRun.set(id, active);
 		writeRun(slot, rec);
 		log.line("run-start", { workspace: svc.ref.workspace, run: id, kind: "local", ...(resume ? { conversation: resume.file ? "resumed" : "new" } : {}) });
 		ensureWatcher();
-		await launch(active, resume ? `tower · boss · ${svc.ref.record().label}` : `tower run · ${svc.ref.record().label} · ${id.slice(0, 8)}`, resume?.file ? ["--session", resume.file] : []);
+		const name = head ? (rec.conversation ? "head · boss" : `head run · ${id.slice(0, 8)}`) : resume ? `tower · boss · ${svc.ref.record().label}` : `tower run · ${svc.ref.record().label} · ${id.slice(0, 8)}`;
+		await launch(active, name, resume?.file ? ["--session", resume.file] : []);
 	};
 	/** The boss wrote at the tower prompt (or the GUI) a short while ago and no run was live: the run these events wake is their conversation. */
 	const bossWake = (svc: Svc) => svc.bossAt !== undefined && now() - svc.bossAt <= PROMPT_WAKE_MS;
@@ -456,6 +466,19 @@ export function createRuns(o: RunsOptions) {
 		const got = resumable(pointer, { now: now(), root: o.sessions ?? sessionsRoot(), live, ...(win || process.getuid === undefined ? {} : { uid: process.getuid() }) });
 		const base = pointer ? { from: pointer.startedAt, after: pointer.lastAt } : {};
 		return got.ok ? { file: got.file, info: { resumed: true, ...base, turns: pointer!.turns } } : { info: { resumed: false, ...(pointer ? { after: pointer.lastAt } : {}), turns: 0, why: got.why } };
+	};
+	/**
+	 * The head tower's conversation for a run: always the pointer's session unless `headResume` says a chapter begins (over 8 MB, the boss's `/new`, a file that fails the checks). The record gets the chapter (and, when it starts one,
+	 * the recap of the last lines); `info` is the boss-conversation record, kept only for a run the boss's word woke.
+	 */
+	const headConversationOf = async (svc: Svc, boss: boolean, rec: RunRecord): Promise<{ info?: ConversationInfo; file?: string }> => {
+		const ws = svc.ref.workspace, pointer = readPointer(slot, ws);
+		const live = await svc.ref.liveSessions?.().catch(() => [] as string[]) ?? [];
+		const got = headResume(slot, pointer, { now: now(), root: o.sessions ?? sessionsRoot(), live, ...(win || process.getuid === undefined ? {} : { uid: process.getuid() }) });
+		const base = pointer ? { from: pointer.startedAt, after: pointer.lastAt } : {};
+		rec.chapter = got.resumed ? { n: got.n, since: pointer!.startedAt, turns: pointer!.turns, resumed: true } : { n: got.n, since: iso(now()), turns: 0, resumed: false, why: got.why, ...(pointer ? { recap: await recapOf(pointer.file) } : {}) };
+		const info: ConversationInfo = got.resumed ? { resumed: true, ...base, turns: pointer!.turns } : { resumed: false, ...(pointer ? { after: pointer.lastAt } : {}), turns: 0, why: got.why };
+		return { ...(boss ? { info } : {}), ...(got.resumed ? { file: got.file } : {}) };
 	};
 	/** The start notice for a pane Herdr calls busy with no program to name (the GUI translates this exact text, gui/towermodel.ts). */
 	const NOT_AT_SHELL = "The standing pane is not at its own shell: a nested shell or a program runs there. Leave it, then press Retry";
@@ -504,7 +527,7 @@ export function createRuns(o: RunsOptions) {
 					return void (await finish(active, "herdr-restart", "the standing pane is no longer proven to be the tower's"));
 				}
 				// A local run (the boss conversation included, whose resumed session may still have had a shell) names its tools: the tower tools and read-only files, no shell or edit (runallow.ts). An ally run keeps its sender's gate.
-				await start(o.run, o.sleep, rec.agent, rec.pane, ["--name", name, "--sb-run", id, ...extra, ...(rec.kind === "local" ? ["--tools", LOCAL_RUN_TOOLS.join(",")] : []), ...(o.model() ? ["--model", o.model()!] : [])], () => (rec.kind === "ally" ? allyPaneHeld(active) : svc.ref.proven()));
+				await start(o.run, o.sleep, rec.agent, rec.pane, ["--name", name, "--sb-run", id, ...extra, ...(rec.kind === "local" ? ["--tools", (isHeadSvc(svc) ? HEAD_RUN_TOOLS : LOCAL_RUN_TOOLS).join(",")] : []), ...((isHeadSvc(svc) && o.headModel ? o.headModel() : o.model()) ? ["--model", (isHeadSvc(svc) && o.headModel ? o.headModel() : o.model())!] : [])], () => (rec.kind === "ally" ? allyPaneHeld(active) : svc.ref.proven()));
 				started = true;
 				const found = await procOf(rec.pane, id);
 				if (!found) throw new Error("pi's process was not found in the pane");
@@ -1120,7 +1143,7 @@ export function createRuns(o: RunsOptions) {
 		log.line("run-claim", { workspace: a.rec.workspace, run: a.rec.id, ...(hand ? { hand: true } : {}) });
 		const r = svc.ref.record();
 		const peer: Peer | undefined = ally && a.rec.device && a.rec.team ? { device: a.rec.device, label: a.rec.deviceLabel ?? a.rec.device.slice(0, 6), short: a.rec.deviceShort ?? a.rec.device.slice(0, 6), team: a.rec.team, teamName: a.rec.teamName ?? a.rec.team.slice(0, 6) } : undefined;
-		return { ok: true, token: a.token, kind: a.rec.kind, ...(a.rec.level ? { level: a.rec.level } : {}), ...(peer ? { peer } : {}), run: a.rec.id, workspace: a.rec.workspace, identity: r.id, label: r.label, brief: built.text, ...(hand ? { hand } : {}) };
+		return { ok: true, token: a.token, kind: headRun(a) ? "head" : a.rec.kind, ...(a.rec.level ? { level: a.rec.level } : {}), ...(peer ? { peer } : {}), run: a.rec.id, workspace: a.rec.workspace, identity: r.id, label: r.label, brief: built.text, ...(hand ? { hand } : {}) };
 	};
 	const heldReply = (): ClaimReply => ({ ok: true, wait: true });
 
@@ -1285,7 +1308,7 @@ export function createRuns(o: RunsOptions) {
 	}
 	/** The boss wrote in a conversation: its turn count and the pointer's `lastAt` move (the pointer is the run's own once its file is reported). */
 	function bossTurn(a: Active) {
-		if (!a.rec.conversation) return;
+		if (!a.rec.conversation && !headRun(a)) return;
 		settlePointer(a);
 		a.turns = (a.turns ?? 0) + 1;
 		try {
@@ -1299,8 +1322,10 @@ export function createRuns(o: RunsOptions) {
 		const path = underRoot(file, o.sessions ?? sessionsRoot());
 		if (!path) return error("conversation", `${a.rec.id}: the session file is not under pi's sessions folder, so it is not kept as the boss session`);
 		const was = readPointer(slot, a.rec.workspace), same = was?.file === path;
-		const next: BossPointer = { file: path, run: a.rec.id, startedAt: same ? was!.startedAt : iso(now()), lastAt: iso(now()), turns: same ? Math.max(a.turns ?? 0, was!.turns) : a.rec.conversation?.resumed ? 0 : a.turns ?? 0, ...(a.fresh ? { fresh: true as const } : {}) };
+		const next: BossPointer = { file: path, run: a.rec.id, startedAt: same ? was!.startedAt : iso(now()), lastAt: iso(now()), turns: same ? Math.max(a.turns ?? 0, was!.turns) : a.rec.conversation?.resumed || a.rec.chapter?.resumed ? 0 : a.turns ?? 0, ...(a.fresh ? { fresh: true as const } : {}) };
 		a.turns = next.turns;
+		// The head's conversation lists each session file once as a chapter (the history reads them all).
+		if (headRun(a) && !same) try { appendChapter(slot, now(), path, a.rec.chapter?.why ?? "the first conversation"); } catch (cause) { error("conversation", (cause as Error).message); }
 		try { writePointer(slot, a.rec.workspace, next); } catch (cause) { error("conversation", (cause as Error).message); }
 	}
 	/** A reported session file that was not on disk yet is kept as the boss session once it is (every check of `keepPointer` then applies); a file that never appears is no pointer and no error. */
@@ -1353,7 +1378,7 @@ export function createRuns(o: RunsOptions) {
 		if (!a || a.ended) return unknown;
 		// `/new` in a conversation's pi starts the boss over: the next conversation is a new session.
 		// A file pi has not written yet is not the pointer's: the earlier boss session is marked too, and the new one when it is kept.
-		if (a.rec.conversation && req.reason === "new") a.rec.file && !a.pendingFile ? markFresh(a.rec.workspace) : (holdFresh(a), markFresh(a.rec.workspace));
+		if ((a.rec.conversation || headRun(a)) && req.reason === "new") a.rec.file && !a.pendingFile ? markFresh(a.rec.workspace) : (holdFresh(a), markFresh(a.rec.workspace));
 		a.pending = "quit";
 		await finish(a, "quit", phrase(req.reason, 60) || "the session was replaced");
 		return { ok: true as const };
@@ -1483,7 +1508,7 @@ export function createRuns(o: RunsOptions) {
 				if (!standing) terminate(a, "quit");
 				return { id: a.rec.id, workspace: a.rec.workspace, kind: "ally", ...(standing ? { level: standing.level } : { gone: true as const }), ...(a.rec.device ? { device: a.rec.device } : {}), ...(a.rec.deviceLabel ? { deviceLabel: a.rec.deviceLabel } : {}), ...(a.rec.deviceShort ? { deviceShort: a.rec.deviceShort } : {}), ...(a.rec.team ? { team: a.rec.team } : {}), ...(a.rec.teamName ? { teamName: a.rec.teamName } : {}), pane: a.rec.pane, asks: itemsOf(a, true).flatMap((i) => (i.awaitsReply ? [i.awaitsReply] : [])) };
 			}
-			return a && !a.ended ? { id: a.rec.id, workspace: a.rec.workspace, kind: a.rec.kind, ...(a.rec.level ? { level: a.rec.level } : {}), ...(a.rec.device ? { device: a.rec.device } : {}), ...(a.rec.deviceLabel ? { deviceLabel: a.rec.deviceLabel } : {}), ...(a.rec.team ? { team: a.rec.team } : {}), pane: a.rec.pane, asks: itemsOf(a, true).flatMap((i) => (i.awaitsReply ? [i.awaitsReply] : [])) } : undefined;
+			return a && !a.ended ? { id: a.rec.id, workspace: a.rec.workspace, kind: headRun(a) ? "head" : a.rec.kind, ...(a.rec.level ? { level: a.rec.level } : {}), ...(a.rec.device ? { device: a.rec.device } : {}), ...(a.rec.deviceLabel ? { deviceLabel: a.rec.deviceLabel } : {}), ...(a.rec.team ? { team: a.rec.team } : {}), pane: a.rec.pane, asks: itemsOf(a, true).flatMap((i) => (i.awaitsReply ? [i.awaitsReply] : [])) } : undefined;
 		},
 		/** The Herdr the server watched stopped (its socket closed): a pi that dies from now on died with it, and the takeover that follows ends its run. */
 		herdrLost() {
@@ -1611,8 +1636,13 @@ export function createRuns(o: RunsOptions) {
 		 * session yet it is the live run's, else the last local run's, as before.
 		 */
 		file: (workspace: string): string | undefined => {
-			const svc = find(workspace), run = svc?.run, live = run && !run.ended && run.rec.kind === "local" && (run.rec.conversation || run.rec.bossIn !== undefined || run.boss !== undefined) ? run.rec.file : undefined;
+			const svc = find(workspace), run = svc?.run, live = run && !run.ended && run.rec.kind === "local" && (run.rec.conversation || run.rec.bossIn !== undefined || run.boss !== undefined || (svc && isHeadSvc(svc))) ? run.rec.file : undefined;
 			return live ?? readPointer(slot, workspace)?.file ?? svc?.run?.rec.file ?? listRuns(slot, workspace).filter((r) => r.kind === "local" && r.file).at(-1)?.file;
+		},
+		/** Whether `id` is a boss event this run took: the head's relay is stamped only for a turn one of them started (towers.ts), and a starter the run names that is not one is nothing. */
+		bossTaken(token: unknown, id: unknown): boolean {
+			const a = of(token);
+			return Boolean(a && !a.ended && a.rec.kind === "local" && typeof id === "string" && readQueue(slot, a.rec.workspace).some((e) => e.id === id && e.kind === "boss" && e.taken?.run === a.rec.id));
 		},
 		/** The boss messages a local run took, oldest first: the ones a memory proposal may cite (towermemory.ts). A message offered and not confirmed is not one. */
 		bossEvents(token: unknown): { id: string; text: string }[] {
@@ -1629,7 +1659,7 @@ export function createRuns(o: RunsOptions) {
 			if (!a || typeof file !== "string" || file.length > 4096) return;
 			if (a.rec.kind === "ally" && !(typeof session === "string" && /^[\w-]{1,128}$/.test(session) && basename(file).endsWith(`_${session}.jsonl`))) return;
 			a.rec.file = file;
-			if (a.rec.conversation && a.rec.kind === "local") {
+			if ((a.rec.conversation || headRun(a)) && a.rec.kind === "local") {
 				a.pendingFile = onDisk(file) || !mayAppear(file, o.sessions ?? sessionsRoot()) ? undefined : file;
 				a.rec.deferred = a.pendingFile === undefined ? undefined : true;
 				if (a.pendingFile === undefined) keepPointer(a, file);

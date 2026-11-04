@@ -5,7 +5,7 @@
 // Nor does either kind speak as the boss or steer the boss conversation (docs/how-it-works.md, The boss conversation): `tower-event`, `tower-leave`, `tower-new`, `tower-retry`, `tower-deliver`, `tower-drop`, and the prompt's commands are
 // not in any list below, so the default refuses them. A run's only sign of the boss is `run-boss` for its own session, which an ally run's token cannot make and a made-up one is unknown for.
 
-export type Kind = "local" | "ally";
+export type Kind = "local" | "ally" | "head";
 export interface RunInfo { id: string; workspace: string; kind: Kind }
 /** A run as the tower tools see it: its kind, and for an ally run the device it serves, its label and team, the level it was claimed at, its pane, and the ask ids its messages carry. */
 export interface RunWho extends RunInfo { level?: string; device?: string; deviceLabel?: string; deviceShort?: string; team?: string; teamName?: string; pane: string; asks?: string[]; /** An ally run whose sender is no longer a member of its team: the run is being ended, and its tools are refused. */ gone?: true }
@@ -33,6 +33,8 @@ export function gateRun(request: { cmd: string; workspace?: unknown; body?: unkn
 		return no(`an ally run's token may not ask for ${cmd}`);
 	}
 	if (LOCAL_READS.has(cmd)) return { ok: true };
+	// The head opens no mains and sends no link request (HT-D2): its token reads the status and makes its own run's requests, nothing else.
+	if (run.kind === "head") return no(`the head tower's token may not ask for ${cmd}: it forwards to the towers, which open and close mains`);
 	if (LOCAL_ONLY_OWN_WORKSPACE.has(cmd)) return request.workspace === run.workspace ? { ok: true } : no(`a run token may ${cmd} only for its own workspace (${run.workspace})`);
 	if (cmd === "link") {
 		const op = opOf(request.body);

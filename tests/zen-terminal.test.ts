@@ -16,7 +16,7 @@ const { ESC_MS, termStep } = await import("../gui/zenkeys.ts");
 const { termHold } = await import("../gui/towerturns.ts");
 
 const unit = (key: string, mark: Mark, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
-const net = (units: Unit[]): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", head: true, tower: { name: "tower", mark: "idle", key: "t", control: true, subs: [] }, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust: [] }) as Net;
+const net = (units: Unit[]): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", tower: { name: "tower", mark: "idle", key: "t", control: true, subs: [] }, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust: [] }) as Net;
 const select = (): Pending => ({ callId: "c1", tool: "robot_hand", answer: { dialog: "d1", digest: "0".repeat(64), select: { title: "Robot Hand: deploy", choices: [{ label: "Put it in my prompt" }, { label: "No thanks" }] } } });
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 

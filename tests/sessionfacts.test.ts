@@ -7,7 +7,7 @@ import { composerUnit, liveOf } from "../gui/sessionfacts.ts";
 
 const unit = (extra: Partial<Unit> = {}): Unit => ({ id: "u", key: "u", name: "Ada", role: "main", mark: "idle", control: true, subs: [], ...extra });
 const tower = unit({ key: "t", name: "Tower" });
-const net = (...units: Unit[]): Net => ({ bases: [{ id: "w1", label: "Harbor", mark: "idle", head: true, tower, outposts: [], outside: [], tabs: [{ id: "w1:t1", label: "squad", units }] } as unknown as Base] }) as unknown as Net;
+const net = (...units: Unit[]): Net => ({ bases: [{ id: "w1", label: "Harbor", mark: "idle", tower, outposts: [], outside: [], tabs: [{ id: "w1:t1", label: "squad", units }] } as unknown as Base] }) as unknown as Net;
 const ok = () => Promise.resolve({ ok: true, status: 200, body: {} });
 
 test("the composer's unit: control, agent, live, the mark as given, online, and whether a dialog is open", () => {

@@ -3,7 +3,8 @@ import type { LinkSummary } from "./link/holder.ts";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { commanding, type Mark, markOf, type Row, sessionMark, subagents } from "./netdata.ts";
-import { headOf, type HerdrRun, type HerdrWorld, isSub, type Pane, parentOf, type Session, type Workspace, worldOf } from "./herdr.ts";
+import { type HeadChapter, type HeadSeam, type HeadUnit, headUnit, serviceMark } from "./nethead.ts";
+import { type HerdrRun, type HerdrWorld, isHead, isSub, type Pane, parentOf, type Session, type Workspace, worldOf } from "./herdr.ts";
 import { type Pending, type Relayed, withPending } from "./ask.ts";
 import type { Shelf } from "./documents.ts";
 import type { Monitor } from "./monitors.ts";
@@ -49,14 +50,14 @@ export interface TowerService {
 	parked: { id: string; kind: string; from?: string; first: string }[];
 }
 export type TowerView = TowerService & { queue: Queued[]; file?: string; /** The session files of the live ally runs, by run id. */ allyFiles?: Record<string, string>; /** The session files of the recent event runs, by run id. */ eventFiles?: Record<string, string> };
-export interface Base { id: string; label: string; mark: Mark; head: boolean; tower: ({ name: string; mark: Mark; key: string; control: boolean; service?: TowerService; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; subs: Unit[] } & Shelf & Lately) | null; tabs: Tab[]; outposts: Outpost[]; outside: Unit[] }
+export interface Base { id: string; label: string; mark: Mark; tower: ({ name: string; mark: Mark; key: string; control: boolean; service?: TowerService; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; subs: Unit[] } & Shelf & Lately) | null; tabs: Tab[]; outposts: Outpost[]; outside: Unit[] }
 /** `stashed`: the bases put away with /boss stash, waiting to be popped (stash.ts). `trust`: the folders whose agents wait for a trust decision (trust/serve.ts). */
 /** `link`: Straw Link's teammates' bases, the notices it raises, and the confirms waiting for the boss; absent when Straw Link is not set up or says nothing. */
-export interface Net { bases: Base[]; stashed?: Stashed[]; trust?: TrustAsk[]; events?: NetEvent[]; link?: LinkSummary }
+export interface Net { bases: Base[]; /** The head tower (nethead.ts); present when the server runs the tower service. */ head?: HeadUnit; stashed?: Stashed[]; trust?: TrustAsk[]; events?: NetEvent[]; link?: LinkSummary }
 /** What the server may read for a key: the registry entry is the allow list, and paths never come from the browser. */
-export interface Ref { key: string; base: string; name: string; role: string; file?: string; pane?: string }
+export interface Ref { key: string; base: string; name: string; role: string; file?: string; pane?: string; /** The head tower's chapters, oldest first (the last is `file`): the history chains through them (watch.ts). */ chapters?: HeadChapter[] }
 export interface Found extends Ref { live: boolean; successor?: string }
-export interface NetInput { /** The tower service of a workspace, when the sb server runs towers there. */ services?(workspace: string): TowerView | undefined; sessions: Session[]; panes: Pane[]; workspaces: Workspace[]; children(pane: Pane | undefined): Row[]; sessionDir?: string }
+export interface NetInput { /** The tower service of a workspace, when the sb server runs towers there. */ services?(workspace: string): TowerView | undefined; /** The head tower: its key, asks, and chapters. */ head?: HeadSeam; sessions: Session[]; panes: Pane[]; workspaces: Workspace[]; children(pane: Pane | undefined): Row[]; sessionDir?: string }
 
 const agentOf = (pane?: Pane) => (pane?.agent === "claude" || pane?.agent === "codex" ? pane.agent : undefined); // a net sidecar (src/agent) joined it: the page names the agent, and nothing can be typed into it
 const joinedRole = (token?: string): "main" | "member" | undefined => (token === "main" || token === "member" ? token : undefined);
@@ -67,7 +68,7 @@ const RECENT_MS = 10 * 60_000;
  * and so are workspaces with no part in the net (no live tower, nobody joined): a base is a workspace the net reaches. Every unit
  * that has a key is also written to `refs`, the server's allow list, with a file only from pi's `sessionDir`. A base's `outside` lists its other pi panes (D1), except one that is closing on purpose (`sb_closing`, closing.ts: its session has left intercom, its pi is shutting down).
  */
-export function buildNet({ sessions, panes: ps, workspaces: all, children, services, sessionDir = join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "sessions") }: NetInput, refs = new Map<string, Ref>()): Net {
+export function buildNet({ sessions, panes: ps, workspaces: all, children, services, head, sessionDir = join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "sessions") }: NetInput, refs = new Map<string, Ref>()): Net {
 	// Readable: a .jsonl really under pi's sessions directory (symlinks resolved), named for its intercom session (during /new the pane names the
 	// next file first). The registry keeps the resolved path, so the reader and the input check compare like with like.
 	const root = canonical(sessionDir), readable = (file?: string, id?: string, real = file?.endsWith(".jsonl") ? canonical(file) : undefined) => (real && real.startsWith(root + sep) && (!id || basename(real).endsWith(`_${id}.jsonl`)) ? real : undefined);
@@ -80,7 +81,7 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 	});
 	const towerOf = (w: Workspace) => sessions.find((s) => s.id === w.tokens?.tower);
 	// A tower launches subagents too: they hang under it, as a member's hang under the member.
-	const towers = all.filter((w) => !isSub(w)).flatMap((w) => ((t) => (t ? [t] : []))(towerOf(w)));
+	const towers = all.filter((w) => !isSub(w) && !isHead(w)).flatMap((w) => ((t) => (t ? [t] : []))(towerOf(w)));
 	const rowsOf = new Map([...joined, ...towers.map((s) => ({ s, pane: paneOf(s) }))].map(({ s, pane }) => [s.id, children(pane)]));
 	// A sub workspace that already shows as a launched subagent is not an outpost as well.
 	const claimed = new Set([...rowsOf.values()].flat().map((r) => r.workspace));
@@ -90,7 +91,7 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 		const key = keep({ key: r.id ?? `${launcher}/${r.text}`, base, name: r.text, role: "subagent", file: readable(r.file), pane: r.pane });
 		return { id: key, key, control: Boolean(r.pane), name: r.text, role: "subagent", mark: r.mark, note: r.note, subs: [], ...(r.ended && { ended: true }) };
 	});
-	const bases = all.filter((w) => !isSub(w)).flatMap((w): Base[] => {
+	const bases = all.filter((w) => !isSub(w) && !isHead(w)).flatMap((w): Base[] => {
 		const mine = joined.filter((j) => j.base === w.workspace_id && j.tab);
 		const tabs = Object.values(Object.groupBy(mine, (j) => j.tab!.id)).map((group = []): Tab => ({
 			id: group[0]!.tab!.id,
@@ -124,15 +125,15 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 		// An event run whose session file is known is a read-only unit as well (its handoff note stays on the chip): the tower's own comms are the boss conversation, which an event run does not interrupt.
 		const localRuns = (service.localRuns ?? []).map((r) => { const file = r.kind === "event" ? readable(eventFiles?.[r.id]) : undefined; return file ? { ...r, key: keep({ key: `run-${r.id}`, base: w.workspace_id, name: `${r.id.slice(0, 8)}`, role: "run", file }) } : r; });
 		const towerMark = tower ? commanding(sessionMark(tower, towerPane), towerSubs.map((c) => c.mark)) : "unknown";
-		return [{ id: w.workspace_id, label: w.label, mark, head: w === headOf(all), tower: tower && named ? { name: tower.name ?? tower.id, mark: view ? (service.run ? (towerMark === "idle" || towerMark === "unknown" ? (service.conversation?.idle && !service.conversation.closing ? "idle" : "working") : towerMark) : towerMark === "commanding" ? towerMark : "idle") : towerMark, key: named, control: view ? true : towerPane?.agent === "pi", ...(view ? { service: { ...service, allyRuns, ...(localRuns.length ? { localRuns } : {}) } as TowerService, ...(queue?.length ? { queued: queue } : {}) } : {}), subs: towerSubs } : null, tabs, outposts, outside }];
+		return [{ id: w.workspace_id, label: w.label, mark, tower: tower && named ? { name: tower.name ?? tower.id, mark: serviceMark(view ? (service as TowerService) : undefined, towerMark), key: named, control: view ? true : towerPane?.agent === "pi", ...(view ? { service: { ...service, allyRuns, ...(localRuns.length ? { localRuns } : {}) } as TowerService, ...(queue?.length ? { queued: queue } : {}) } : {}), subs: towerSubs } : null, tabs, outposts, outside }];
 	});
-	return { bases };
+	return { bases, ...(head ? headUnit({ all, sessions, ps, services, seam: head, readable: (file) => readable(file), keep }) : {}) };
 }
 
 /** One reading of Herdr and intercom as a net. */
-export async function collectNet({ run, world = worldOf(run), sessions, now = Date.now(), refs, sessionDir, trust, services }: { services?(workspace: string): TowerView | undefined; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; now?: number; refs?: Map<string, Ref>; sessionDir?: string; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }): Promise<Net> {
+export async function collectNet({ run, world = worldOf(run), sessions, now = Date.now(), refs, sessionDir, trust, services, head }: { services?(workspace: string): TowerView | undefined; head?: HeadSeam; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; now?: number; refs?: Map<string, Ref>; sessionDir?: string; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }): Promise<Net> {
 	const [live, { panes: ps, workspaces: all }] = await Promise.all([sessions(), world()]);
-	const net = buildNet({ sessions: live, panes: ps, workspaces: all, children: (pane) => subagents(pane, ps, now), sessionDir, ...(services ? { services } : {}) }, refs), asks = trust?.asks(ps, all) ?? [];
+	const net = buildNet({ sessions: live, panes: ps, workspaces: all, children: (pane) => subagents(pane, ps, now), sessionDir, ...(services ? { services } : {}), ...(head ? { head } : {}) }, refs), asks = trust?.asks(ps, all) ?? [];
 	return asks.length ? { ...net, trust: asks } : net;
 }
 
@@ -140,7 +141,7 @@ export async function collectNet({ run, world = worldOf(run), sessions, now = Da
  * The net as the server reads it: each read also refreshes the registry. A key that left the net (the pane closed, or moved to
  * another session) stays findable for ten minutes, the window finished subagents already use, with the pane's new session as its successor.
  */
-export function netSource(env: { services?(workspace: string): TowerView | undefined; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; sessionDir?: string; hub?: { relayed(sessions: Session[], refs: Map<string, Ref>): Relayed }; stashed?(): Stashed[]; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }) {
+export function netSource(env: { services?(workspace: string): TowerView | undefined; head?: HeadSeam; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; sessionDir?: string; hub?: { relayed(sessions: Session[], refs: Map<string, Ref>): Relayed }; stashed?(): Stashed[]; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }) {
 	let refs = new Map<string, Ref>(), live: Session[] = [];
 	const gone = new Map<string, { ref: Ref; at: number }>(), sessions = async () => (live = await env.sessions()), dismissed = new Set<string>(), ended = new Set<string>();
 	const lately = trackActivity();

@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { basename } from "node:path";
-import { type HerdrRun, isSub, panes, report, result, TOWER_LABEL, workspaces } from "../herdr.ts";
+import { type HerdrRun, isHead, isSub, panes, report, result, TOWER_LABEL, workspaces } from "../herdr.ts";
 import { inside, projectProblem } from "../link/routing.ts";
 import type { Ensured } from "./towers.ts";
 
@@ -38,7 +38,7 @@ export async function openTowerFor(d: OpenTowerDeps, project: string, toWorkspac
 	const problem = projectProblem(root, { home: d.home, agentDir: d.agentDir });
 	if (problem) throw new Error(`${project} cannot be opened: ${problem}`);
 	const [all, here] = await Promise.all([workspaces(d.run), panes(d.run)]);
-	const found = all.find((w) => !isSub(w) && (!toWorkspace || w.label === toWorkspace) && here.some((p) => p.workspace_id === w.workspace_id && p.cwd !== undefined && inside(p.cwd, root)));
+	const found = all.find((w) => !isSub(w) && !isHead(w) && (!toWorkspace || w.label === toWorkspace) && here.some((p) => p.workspace_id === w.workspace_id && p.cwd !== undefined && inside(p.cwd, root)));
 	if (found) {
 		await d.ensure({ workspace: found.workspace_id, cwd: root });
 		return { workspace: found.workspace_id, created: false };

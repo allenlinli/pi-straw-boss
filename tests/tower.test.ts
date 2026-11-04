@@ -221,7 +221,7 @@ test("the tower registers its tab channel as not owner-eligible, writes both tok
 	assert.equal(world.herdr.workspace("wB").tokens.tower, "tower-wB");
 	const prompt = (await resumed.run())["straw-boss"]!;
 	assert.match(prompt, /^You are the tower of Herdr workspace Beta;/);
-	assert.match(prompt, /head tower, the tower of workspace Alpha/);
+	assert.match(prompt, /The head tower \(none yet\) is the boss's own, in no workspace/);
 	assert.equal(resumed.entries.length, 1, "no second role entry on resume");
 });
 
@@ -267,7 +267,7 @@ test("session_shutdown stops the refresh timer and clears this session's tokens,
 	assert.deepEqual(world.herdr.calls, [], "no refresh after shutdown");
 });
 
-test("boss_status names the main agent of each tab, this workspace's tower, and marks the head tower", async () => {
+test("boss_status names the main agent of each tab and this workspace's tower; the head is null until the head tower exists, and no workspace tower is it", async () => {
 	const towerA = world.tower("tower-wA", "wA:t7", "wA:p7");
 	const towerB = world.tower("tower-wB", "wB:t7", "wB:p7");
 	await Promise.all([towerA.start(), towerB.start()]);
@@ -276,11 +276,11 @@ test("boss_status names the main agent of each tab, this workspace's tower, and 
 	const status = (await a.tool("boss_status")).details as Record<string, any>;
 	assert.deepEqual(status.me, { id: "a", role: "main" });
 	assert.deepEqual(status.tabs, [{ id: "wA:t1", label: "work", main: "a", sessions: 2 }]);
-	assert.equal(status.head, "wA");
-	assert.deepEqual([status.tower.id, status.tower.head, status.towers.map((t: any) => [t.id, t.head])], ["tower-wA", true, [["tower-wB", false]]]);
+	assert.equal(status.head, null);
+	assert.deepEqual([status.tower.id, status.tower.head, status.towers.map((t: any) => [t.id, t.head])], ["tower-wA", undefined, [["tower-wB", undefined]]]);
 	assert.equal(((await b.tool("boss_status")).details as any).me.role, "member");
 	const fromB = (await towerB.tool("boss_status")).details as Record<string, any>;
-	assert.deepEqual([fromB.me.role, fromB.tower.head, fromB.towers.map((t: any) => [t.id, t.head])], ["tower", false, [["tower-wA", true]]]);
+	assert.deepEqual([fromB.me.role, fromB.tower.head, fromB.towers.map((t: any) => [t.id, t.head])], ["tower", undefined, [["tower-wA", undefined]]]);
 });
 
 test("call_tower resolves a workspace by id or exact label; towers reach the head tower; ambiguity and self-calls are errors", async () => {

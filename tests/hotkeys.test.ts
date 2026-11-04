@@ -220,9 +220,9 @@ test("H is a Zen row: it acts on a button too, yields to typing and modifiers, a
 	assert.equal(hotkeyOf(press("h"), false, false, "dialogs"), undefined);
 });
 
-test("Zen rows: Enter and Space end the pause, F is not Zen's, and a native control keeps its own Enter and Space however it got the focus", () => {
+test("Zen rows: Space ends the pause and Enter does or, on the circle, talks to the head tower; F is not Zen's, and a native control keeps its own Enter and Space however it got the focus", () => {
 	for (const key of ["Enter", " "]) {
-		assert.equal(hotkeyOf(press(key), false, false, "zen"), "pause", key);
+		assert.equal(hotkeyOf(press(key), false, false, "zen"), key === "Enter" ? "talk" : "pause", key);
 		for (const target of [new El("button"), new El("a"), new El("div", [], { role: "button" })]) for (const mouse of [false, true]) assert.equal(hotkeyOf(press(key, target), false, mouse, "zen"), undefined, `${key} on ${target.tag}`);
 	}
 	assert.equal(hotkeyOf(press("f"), false, false, "zen"), undefined);
@@ -320,7 +320,7 @@ test("mountHotkeys reads the face at each press, and a Zen pause key is taken on
 	assert.equal(down(" ").taken, false, "no pause shown: the key is left alone");
 	keys = "dialogs";
 	assert.equal(down("Enter").taken, false);
-	assert.deepEqual(asked, ["pause", "pause"]);
+	assert.deepEqual(asked, ["talk", "pause"], "Enter is the head tower's talk key where there is no pause to end; Space is the pause's");
 });
 
 test("a Zen Space the layer took has its release taken too, so a button the next card focused is not clicked by it (VC8-F003)", () => {

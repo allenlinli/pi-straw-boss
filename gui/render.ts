@@ -1,6 +1,7 @@
 import type { Mark } from "../src/netdata.ts";
 import type { AllyBase, DeviceUnits } from "../src/link/holder.ts";
 import type { Base, Net, Unit } from "../src/net.ts";
+import type { HeadUnit } from "../src/nethead.ts";
 import { mountCalm } from "./calm.ts";
 import { menuAround, nameMenu } from "./menu.ts";
 import { replay } from "./dom.ts";
@@ -116,7 +117,7 @@ export function sync<T extends { id: string }>(parent: Element, items: T[], make
 }
 
 /** How long ago `since` was, in the page's language: 40s, 12m, 3h, 2d. */
-const ago = (since: number, n = Math.max(0, Date.now() - since) / 1000) => (n < 60 ? m.age_s({ n: String(Math.floor(n)) }) : n < 3600 ? m.age_m({ n: String(Math.floor(n / 60)) }) : n < 86_400 ? m.age_h({ n: String(Math.floor(n / 3600)) }) : m.age_d({ n: String(Math.floor(n / 86_400)) }));
+export const ago = (since: number, n = Math.max(0, Date.now() - since) / 1000) => (n < 60 ? m.age_s({ n: String(Math.floor(n)) }) : n < 3600 ? m.age_m({ n: String(Math.floor(n / 60)) }) : n < 86_400 ? m.age_h({ n: String(Math.floor(n / 3600)) }) : m.age_d({ n: String(Math.floor(n / 86_400)) }));
 /** How long a unit has been in its state, kept current by mountPage's clock; empty while the server has not seen it take that state. */
 const age = (el: HTMLElement, since?: number) => ((since === undefined ? delete el.dataset.since : (el.dataset.since = String(since))), (el.textContent = since === undefined ? "" : ago(since)));
 /** A unit's last steps (activity.ts ticks) as a row of marks along its card's foot, the newest brightest. */
@@ -165,7 +166,7 @@ export function aimOpening(button: HTMLElement, b: Base, tab?: string) {
 	if (button.textContent !== (kind === "main" ? m.open_main() : m.open_member())) button.textContent = kind === "main" ? m.open_main() : m.open_member();
 }
 
-const baseMarkup = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><span class="crown"><svg><use href="#i-crown"/></svg>${m.head_tower()}</span><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${m.outposts()}"></div></section>`);
+const baseMarkup = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${m.outposts()}"></div></section>`);
 /** A phone keeps a base's Quit behind a `⋯` in its header (style.css, "A phone's menus"); above 640 px the menu is `display: contents`, so the button stays where it was. */
 const baseEl = () => {
 	const el = baseMarkup();
@@ -176,7 +177,6 @@ const baseEl = () => {
 const towerLine = (t: NonNullable<Base["tower"]>) => statusLine(t.service, t.mark, (mk) => LABEL[mk]());
 function fillBase(el: HTMLElement, b: Base) {
 	mark(el, b.mark);
-	el.classList.toggle("head", b.head);
 	const tower = el.querySelector<HTMLElement>(".tower")!;
 	tower.classList.toggle("ghost", !b.tower);
 	mark(tower, b.tower?.mark ?? "unknown");
@@ -234,20 +234,36 @@ function fillAlly(el: HTMLElement, a: AllyBase, reported: DeviceUnits[] | undefi
 	});
 }
 
-/** Draws the head tower's wires to every other tower, with a packet travelling along each while one end of it works, in the map's own coordinates. */
+/** The head node above the bases: a crowned tower that opens the head page, faint and dashed while the head is not open, hidden (and no hub) when the net has no head. */
+export function fillHeadNode(el: HTMLElement, head: HeadUnit | undefined) {
+	el.hidden = !head;
+	el.classList.toggle("off", !head);
+	if (!head) return;
+	const open = head.state !== "absent";
+	el.classList.toggle("absent", !open);
+	mark(el, head.mark);
+	const tower = el.querySelector<HTMLElement>(".tower")!;
+	tower.classList.toggle("ghost", !open);
+	mark(tower, head.mark);
+	el.setAttribute("href", "head");
+	text(el, ".head-name", m.head_tower());
+	text(el, ".tstate", open ? statusLine(head.service, head.mark, (mk) => LABEL[mk]()) : m.head_state_absent());
+}
+type Spot = readonly [number, number];
+/** The wires of the head node: one curve from its centre to each base's tower; none without a hub. */
+export const headWires = (hub: Spot | undefined, ends: readonly Spot[]) => (hub ? ends.map(([x2, y2]) => ({ x1: hub[0], y1: hub[1], x2, y2, mid: Math.round((hub[0] + x2) / 2) })) : []);
+
+/** Draws the head tower's wires to every base's tower, with a packet travelling along each while one end of it works, in the map's own coordinates. */
 function wire(map: HTMLElement, svg: SVGSVGElement, dots: HTMLElement, still: boolean) {
 	const towers = [...map.querySelectorAll<HTMLElement>(".base:not(.leaving):not(.ally) .tower")];
-	const head = map.querySelector<HTMLElement>(".base.head:not(.leaving) .tower");
+	const head = map.querySelector<HTMLElement>(".head-node:not(.off) .tower") ?? undefined;
 	const box = map.getBoundingClientRect();
 	const centre = (el: HTMLElement) => {
 		const r = el.getBoundingClientRect();
 		return [Math.round(r.x + r.width / 2 - box.x), Math.round(r.y + r.height / 2 - box.y)] as const;
 	};
 	const ends = !head ? [] : towers.filter((t) => t !== head);
-	const wires = ends.map((t) => {
-		const [[x1, y1], [x2, y2]] = [centre(head!), centre(t)];
-		return { x1, y1, x2, y2, mid: Math.round((x1 + x2) / 2) };
-	});
+	const wires = headWires(head && centre(head), ends.map(centre));
 	const paths = wires.map(({ x1, y1, x2, y2, mid }) => `M${x1} ${y1}C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}`);
 	const sig = paths.join("|");
 	if (svg.dataset.sig !== sig) {
@@ -289,6 +305,7 @@ export function mountPage(): Page {
 		},
 		show(net) {
 			const allies = (net.link?.allies ?? []).map((a) => ({ ...a, id: `ally/${a.id}`, ally: true as const }));
+			fillHeadNode(byId("head-node", HTMLElement), net.head);
 			sync(bases, [...net.bases, ...allies], (item) => ("ally" in item ? allyEl() : baseEl()), (el, item) => ("ally" in item ? fillAlly(el, item, net.link?.units) : fillBase(el, item)));
 			for (const el of bases.children) if (!packed.has(el)) (packed.add(el), pack.observe(el));
 			for (const el of packed) if (!el.isConnected) (packed.delete(el), pack.unobserve(el));

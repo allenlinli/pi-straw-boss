@@ -74,6 +74,9 @@ export class FakeHerdr {
 	/** Socket API calls, and a switch that makes `tab.move` fail as an unreachable socket would. */
 	moves: { tab_id: string; insert_index: number }[] = [];
 	failMove = false;
+	/** The `workspace.move` calls the socket API took (the head workspace goes first), and a switch that makes them fail. */
+	workspaceMoves: { workspace_id: string; insert_index: number }[] = [];
+	failWorkspaceMove = false;
 	/** Makes every `list` call fail, as a Herdr that cannot answer. */
 	failReads = false;
 	/** Pane lists fail while this is set (the workspace and tab lists still answer). */
@@ -170,7 +173,7 @@ export class FakeHerdr {
 	/** Herdr clears a reported agent when the pane's foreground is its idle shell (checked live: the label is gone about a second after the prompt exits). */
 	dropStandin(paneId: string) {
 		const pane = this.pane(paneId);
-		if (pane.agent === "tower") (pane.agent = undefined, pane.agent_status = undefined, pane.standinMessage = undefined);
+		if (pane.agent === "tower" || pane.agent === "head") (pane.agent = undefined, pane.agent_status = undefined, pane.standinMessage = undefined);
 	}
 	private reportAgent(method: string, params: Record<string, unknown>) {
 		this.agentCalls.push({ method, params });
@@ -193,6 +196,16 @@ export class FakeHerdr {
 	}
 	api = async (method: string, params: object) => {
 		if (method === "pane.report_agent" || method === "pane.release_agent") return this.reportAgent(method, params as Record<string, unknown>);
+		if (method === "workspace.move") {
+			if (this.failWorkspaceMove) throw new Error("herdr workspace.move failed: connect ENOENT");
+			const { workspace_id, insert_index } = params as { workspace_id: string; insert_index: number };
+			this.workspaceMoves.push({ workspace_id, insert_index });
+			const ws = this.workspaces.find((w) => w.workspace_id === workspace_id);
+			if (!ws) throw new Error(`herdr workspace.move failed: workspace_not_found workspace ${workspace_id} not found`);
+			const rest = this.workspaces.filter((w) => w !== ws);
+			this.workspaces = [...rest.slice(0, insert_index), ws, ...rest.slice(insert_index)];
+			return;
+		}
 		if (method !== "tab.move") throw new Error(`unexpected herdr api call: ${method}`);
 		if (this.failMove) throw new Error("herdr tab.move failed: connect ENOENT");
 		const { tab_id, insert_index } = params as { tab_id: string; insert_index: number };
@@ -288,7 +301,7 @@ export class FakeHerdr {
 		if (group === "agent" && cmd === "start") {
 			// Herdr starts an agent only in an available shell: a stand-in agent or a running tower prompt (the node process of `cli.mjs prompt`) in the pane keeps it busy.
 			const holder = this.panes.find((p) => p.pane_id === flag("--pane"));
-			if (holder?.agent === "tower" || holder?.processes?.some((proc) => /\bprompt --workspace\b/.test(proc.cmdline ?? ""))) throw new Error(`herdr ${args.join(" ")} failed: agent_pane_busy: agent target pane ${flag("--pane")} is not an available shell`);
+			if (holder?.agent === "tower" || holder?.agent === "head" || holder?.processes?.some((proc) => /\bprompt --workspace\b/.test(proc.cmdline ?? ""))) throw new Error(`herdr ${args.join(" ")} failed: agent_pane_busy: agent target pane ${flag("--pane")} is not an available shell`);
 			if (this.busy-- > 0) throw new Error(`herdr ${args.join(" ")} failed: agent_pane_busy: agent target pane ${flag("--pane")} is not an available shell`);
 			if (!/^[a-z][a-z0-9_-]{0,31}$/.test(args[2]!)) throw new Error(`herdr agent start failed: invalid_agent_name: ${args[2]}`);
 			if (this.panes.some((p) => p.pane_id === this.agentNames.get(args[2]!))) throw new Error(`herdr agent start failed: agent_name_taken: agent name ${args[2]} is already used`);

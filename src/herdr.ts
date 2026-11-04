@@ -51,15 +51,22 @@ export async function result(run: HerdrRun, args: string[], timeoutMs?: number) 
 }
 
 /** The user's `towerModel` from `config.json` in the state directory, read at each tower start; anything unreadable means pi's default model. */
-export function towerModel(stateDir: string): string | undefined {
+export function towerModel(stateDir: string, key: "towerModel" | "headModel" = "towerModel"): string | undefined {
 	let model: unknown;
-	try { model = (JSON.parse(readFileSync(join(stateDir, "config.json"), "utf8")) as { towerModel?: unknown }).towerModel; } catch { /* pi's default */ }
+	try { model = (JSON.parse(readFileSync(join(stateDir, "config.json"), "utf8")) as Record<string, unknown>)[key]; } catch { /* pi's default */ }
 	return typeof model === "string" && model.trim() ? model.trim() : undefined;
 }
+/** The head tower's model: `headModel` in `config.json`, else the tower model, else pi's default; read at each start. */
+export const headModel = (stateDir: string): string | undefined => towerModel(stateDir, "headModel") ?? towerModel(stateDir);
 
 // The tower tab is labelled with the Nerd Font radio tower glyph (md-radio_tower, U+F043B) alone. The role marks (the `sb_mark` token, and the
 // dashboard's rows) are Font Awesome's star (U+F005) for a main agent and person (U+F007) for a member, and `[sub]` for a subagent.
 export const TOWER_LABEL = "\u{f043b}";
+// The head tower's tab is labelled with the Nerd Font crown (md-crown, U+F01A5; checked against Hack Nerd Font's glyph names, which also give U+F043B as md-radio_tower).
+export const HEAD_LABEL = "\u{f01a5}";
+/** The two kinds of tower service: a workspace's tower and the head tower. Each is seated only in a tab with its own glyph (typegate.ts `seatGate`). */
+export type ServiceKind = "tower" | "head";
+export const SEAT_LABEL: Record<ServiceKind, string> = { tower: TOWER_LABEL, head: HEAD_LABEL };
 export const MARK = { main: "\uf005", member: "\uf007" } as const;
 export const ARROW = "[sub]";
 /** The `sb_mark` prefix of an ally run's pane; the device's label follows it. */
@@ -69,16 +76,18 @@ export const ALLY_MARK = "[ally]";
 // The standing pane). Herdr clears a reported agent about a second after the pane's foreground is back at its idle shell prompt, whatever the label, which is why the prompt is a process of its
 // own that stays in the foreground; and it takes the pane back from a real agent that starts in it by itself (checked on Herdr 0.9.5).
 export const STANDIN_AGENT = "tower";
+/** The head tower's standing pane shows its stand-in under this label (docs/specs/2026-11-04-head-tower.md, The head workspace). */
+export const STANDIN_HEAD = "head";
 export const STANDIN_SOURCE = "straw-boss";
-/** Whether the pane shows the stand-in. The label alone: the tokens that name the pane's role lapse after 10 minutes while the prompt goes on. */
-export const isStandin = (pane: Pick<Pane, "agent">) => pane.agent === STANDIN_AGENT;
+/** Whether the pane shows the stand-in, a tower's or the head's. The label alone: the tokens that name the pane's role lapse after 10 minutes while the prompt goes on. */
+export const isStandin = (pane: Pick<Pane, "agent">) => pane.agent === STANDIN_AGENT || pane.agent === STANDIN_HEAD;
 let lastSeq = 0;
 /** A `seq` Herdr takes: above the last one this process sent and in the space of Herdr's own pi integration (the clock in microseconds), since Herdr ignores a report or release whose seq is not above the last one it took. */
 export const nextSeq = (now = Date.now()) => (lastSeq = Math.max(lastSeq + 1, now * 1000));
 /** Reports the stand-in: idle, with a short state as the message. No resume command and no session, so a restart of Herdr never relaunches it. */
-export const reportStandin = (api: HerdrApi, paneId: string, message: string) =>
-	api("pane.report_agent", { pane_id: paneId, source: STANDIN_SOURCE, agent: STANDIN_AGENT, state: "idle", message, seq: nextSeq() });
-export const releaseStandin = (api: HerdrApi, paneId: string) => api("pane.release_agent", { pane_id: paneId, source: STANDIN_SOURCE, agent: STANDIN_AGENT, seq: nextSeq() });
+export const reportStandin = (api: HerdrApi, paneId: string, message: string, agent: string = STANDIN_AGENT) =>
+	api("pane.report_agent", { pane_id: paneId, source: STANDIN_SOURCE, agent, state: "idle", message, seq: nextSeq() });
+export const releaseStandin = (api: HerdrApi, paneId: string, agent: string = STANDIN_AGENT) => api("pane.release_agent", { pane_id: paneId, source: STANDIN_SOURCE, agent, seq: nextSeq() });
 
 export async function place(run: HerdrRun): Promise<Place> {
 	const pane = (await result(run, ["pane", "current"])).pane;
@@ -88,8 +97,11 @@ export async function place(run: HerdrRun): Promise<Place> {
 /** A sub workspace is a linked git worktree that Herdr opened as its own workspace: it is treated like a subagent of its parent. */
 export const isSub = (w: Workspace) => w.worktree?.is_linked_worktree === true;
 export const parentOf = (all: Workspace[], w: Workspace) => all.find((p) => !isSub(p) && p.worktree?.repo_key !== undefined && p.worktree.repo_key === w.worktree?.repo_key);
-/** The head tower's workspace: the first one in list order that is not a sub workspace. */
-export const headOf = (all: Workspace[]) => all.find((w) => !isSub(w));
+/** The head workspace carries the token `sb_head` (the head service writes it, as a tower writes `tower`); a workspace of the boss's with the same label never does. */
+export const isHead = (w: Workspace) => Boolean(w.tokens?.sb_head);
+/** The head tower's workspace: the one that carries `sb_head`; undefined until the head exists. The first workspace in Herdr's list is not the head tower any more (docs/specs/2026-11-04-head-tower.md, What replaces "head tower = first workspace"). */
+export const headTowerOf = (all: Workspace[]) => all.find(isHead);
+export const headOf = headTowerOf;
 
 export const workspaces = async (run: HerdrRun): Promise<Workspace[]> => (await result(run, ["workspace", "list"])).workspaces;
 

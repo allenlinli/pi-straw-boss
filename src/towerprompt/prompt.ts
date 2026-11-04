@@ -180,7 +180,7 @@ export async function runPrompt(o: PromptOptions): Promise<number> {
 		// The title when the label is new (the first look, or a tower renamed), the state line when it changed.
 		if (label !== shownLabel) {
 			shownLabel = label;
-			say(d.title(text.title(label)));
+			say(d.title(polled.answer.head ? text.head : text.title(label), polled.answer.head === true));
 		}
 		const line = `${now.state}\n${now.words}`;
 		if (line !== shown) {

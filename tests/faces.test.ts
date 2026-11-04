@@ -48,7 +48,7 @@ test("every view has a row, and no row has a field another lacks", () => {
 // Z4b: the status strip is the one new place Zen could leak the number of waiting items through (Z-D3).
 test("Zen's status strip counts working and idle units only: what waits changes neither number, and the selector hands out no other field", () => {
 	const unit = (key: string, mark: Mark, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
-	const net = (units: Unit[]): Net => ({ bases: [{ id: "w", label: "w", mark: "idle", head: true, outposts: [], outside: [], tower: null, tabs: [{ id: "t", label: "t", units }] }] });
+	const net = (units: Unit[]): Net => ({ bases: [{ id: "w", label: "w", mark: "idle", outposts: [], outside: [], tower: null, tabs: [{ id: "t", label: "t", units }] }] });
 	const base = [unit("a", "working"), unit("b", "idle")];
 	const seen = new Set<string>();
 	for (const waiting of [0, 1, 2, 5]) {

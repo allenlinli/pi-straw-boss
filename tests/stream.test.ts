@@ -27,7 +27,7 @@ class FakeSource implements Source {
 	}
 }
 
-const net = (label: string): Net => ({ bases: [{ id: label, label, mark: "idle", head: true, tower: null, tabs: [], outposts: [], outside: [] }] });
+const net = (label: string): Net => ({ bases: [{ id: label, label, mark: "idle", tower: null, tabs: [], outposts: [], outside: [] }] });
 
 /** A stream under a fake clock: timers fire only when the test advances time, and every connection is recorded. */
 function setup(random = 0.5) {

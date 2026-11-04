@@ -5,6 +5,7 @@ import type { Data, Page } from "./chat.ts";
 import { demoCard, isCard, stepOf } from "./democard.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
+import { headDemo, headDraft, headHistory, headInput, type HeadState, isHeadState } from "./demo-head.ts";
 import { docHooks } from "./doc.ts";
 import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
@@ -23,17 +24,17 @@ const ask = (n: number): Unit["pending"] => (n % 2 ? { callId: `demo-${n}`, tool
 const doc = (cap: string, display: string, reason: string, revision = 1) => ({ cap, display, kind: display.endsWith(".html") ? ("html" as const) : ("text" as const), reason, revision, onScreen: true });
 const demo = (): Net => ({
 	bases: [
-		{ id: "w1", label: "Harbor API", mark: "working", head: true, tower: { name: "tower · Harbor API", mark: "working", key: "t1", control: true, subs: [unit("t1/triage", "triage-scout", "subagent", "working", "tool:read")] }, outposts: [{ id: "w1-fix", label: "harbor-api-hotfix", mark: "working" }], outside: [unit("o1", "scratch-notes", "outside", "idle")], tabs: [
+		{ id: "w1", label: "Harbor API", mark: "working", tower: { name: "tower · Harbor API", mark: "working", key: "t1", control: true, subs: [unit("t1/triage", "triage-scout", "subagent", "working", "tool:read")] }, outposts: [{ id: "w1-fix", label: "harbor-api-hotfix", mark: "working" }], outside: [unit("o1", "scratch-notes", "outside", "idle")], tabs: [
 			{ id: "w1:t1", label: "billing", units: [{ todo: { done: 2, total: 5, now: "Fixing the ledger rounding order" }, ...unit("a1", "billing-main", "main", "commanding", "watching a monitor", [unit("a1/lint", "lint-sweep", "subagent", "working", "tool:bash"), { ...unit("a1/docs", "docs-writer", "subagent", "done", "finished"), ended: true }]), docs: [doc("plan", "docs/rollout-plan.md", "Rollout plan ready"), doc("review", "docs/ledger-review.html", "Review the ledger fix and pick a window")], queued: [{ text: "Also check the refund path while you are in there.", as: "steer" }, { text: "While you are at it, please also look at how the rounding behaves for credit notes issued across a month end, for refunds split over several payments, and for invoices in a currency with no minor unit, then tell me which of those need their own regression test before we ship the ledger fix.", as: "steer" }, { text: "When done, write a short summary for the changelog.", as: "followUp" }], monitors: [{ id: "3", what: "billing dev server on 5173", status: "running", lines: 48, at: 3, last: "12:04:51 [vite] hmr update /src/ledger.ts" }, { id: "2", what: "ledger integration tests", status: "error", exit: 1, lines: 212, at: 2, ended: 4, last: "✖ rounds half-cent refunds down (expected 10.01, got 10.00)" }] }, unit("a2", "billing-tests", "member", "idle"), { ...unit("a4", "billing-old", "member", "done", "finished"), control: false, ended: true }] },
 			{ id: "w1:t2", label: "ops", units: [{ todo: { done: 1, total: 3, now: "Checking the migration runs before traffic" }, ...unit("a3", "ops-main", "main", "waiting", "waiting on a question"), pending: ask(0) }] },
 		] },
-		{ id: "w2", label: "Lighthouse Web", mark: "working", head: false, tower: { name: "tower · Lighthouse Web", mark: "idle", key: "t2", control: true, subs: [] }, outposts: [], outside: [], tabs: [
+		{ id: "w2", label: "Lighthouse Web", mark: "working", tower: { name: "tower · Lighthouse Web", mark: "idle", key: "t2", control: true, subs: [] }, outposts: [], outside: [], tabs: [
 			{ id: "w2:t1", label: "checkout", units: [{ todo: { done: 3, total: 4, now: "Writing the checkout e2e test" }, ...unit("b1", "checkout-main", "main", "working", "thinking", [unit("b1/e2e", "e2e-runner", "subagent", "working", "thinking")]) }, { ...unit("b2", "claude-checkout", "member", "working", "tool:read"), control: false, agent: "claude" as const }] },
 		] },
-		{ id: "w3", label: "Orchard Data", mark: "idle", head: false, tower: { name: "tower · Orchard Data", mark: "done", key: "t3", control: true, subs: [] }, outposts: [], outside: [], tabs: [
+		{ id: "w3", label: "Orchard Data", mark: "idle", tower: { name: "tower · Orchard Data", mark: "done", key: "t3", control: true, subs: [] }, outposts: [], outside: [], tabs: [
 			{ id: "w3:t1", label: "etl", units: [unit("c1", "etl-main", "main", "idle")] },
 		] },
-		{ id: "w4", label: "Quarry Tools", mark: "idle", head: false, tower: null, outposts: [], outside: [], tabs: [{ id: "w4:t1", label: "quarry", units: [unit("d1", "quarry-scout", "member", "idle")] }] },
+		{ id: "w4", label: "Quarry Tools", mark: "idle", tower: null, outposts: [], outside: [], tabs: [{ id: "w4:t1", label: "quarry", units: [unit("d1", "quarry-scout", "member", "idle")] }] },
 	],
 	// An unattended device of a team: its ally base with the unit-status it sent, and a notice it raised (src/link/unitstatus.ts).
 	link: {
@@ -92,7 +93,7 @@ const PAD_REPLIES: Record<string, { ok: boolean; status: number; body: Record<st
 };
 // `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `long` (one long multi-select question with four described choices and the own-answer box), `idle` (nothing waits: the companion billing-main, the first visit's start), `alone` (nothing waits, a plain visit: the breathing circle and its line). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half. Three more states press a key a moment after the page starts, for pictures: `history` is `item` with the card's 前情 (H) open, `palette` is `idle` with the command palette (⌘K, Ctrl+K off a Mac) open, `pause` is `item` answered at once, so the 3 s breathing pause shows. `?music=<n>` gives the demo a music folder of n invented tracks (1 to 6; none by default, so the ♪ stays hidden); the demo has no audio file, so a track that is switched on says "tap to play" (`localStorage` `sb.zen.music` = 1 switches it on).
 const zenState = (net: Net, extra: string | null) => {
-	const state = extra === "palette" ? "idle" : extra === "history" || extra === "pause" ? "item" : extra;
+	const state = extra === "palette" ? "idle" : extra?.startsWith("head") ? "alone" : extra === "history" || extra === "pause" ? "item" : extra; // head, head-open, head-history: nothing waits (the strip is under the circle)
 	const main = units(net).find((u) => u.key === "a3")!;
 	if (state === "trust") net.trust = [{ id: "tr1", digest: "t".repeat(64), folder: "/work/harbor-api", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy", "release", "triage"], more: 0 }, { kind: "extensions", path: ".pi/extensions", items: ["harbor-hooks.ts"], more: 0 }], agents: [{ pane: "1", base: "Harbor API", role: "member", at: Date.now() - 50 * 60_000 }] }];
 	// Only ops-main waits at first (the idle states: nothing does), so the first item is the one the state names.
@@ -128,12 +129,18 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	}
 	// The demo documents stand in for the server's: the HTML one as a data: page, the text ones from here.
 	[docHooks.src, docHooks.load] = [() => `data:text/html;charset=utf-8,${encodeURIComponent(DEMO_PAGE)}`, async (cap) => ({ text: cap === "plan" ? DEMO_DOC : `# Notes ${cap.slice(5)}\n\nA demo document that arrived on its own.` })];
-	const history = demoHistory();
-	/** The page of the chat that ends before `before` (the end of the history when absent), the way the server pages. */
-	const page = (before?: string): Page => {
+	const demoHistory0 = demoHistory(), history = demoHistory0;
+	// `?head=<state>`: the head tower on the net (demo-head.ts); without it the demo has none.
+	const headParam = new URLSearchParams(location.search).get("head"), headNow: HeadState | undefined = isHeadState(headParam) ? headParam : zen?.startsWith("head") ? "answers" : undefined;
+	if (headNow) net.head = headDemo(headNow);
+	/** The page of the chat that ends before `before` (the end of the history when absent), the way the server pages; the head's key has its own conversation. */
+	const page = (before?: string, key?: string): Page => {
+		const history = key === "sb-head" && headNow ? headHistory(headNow) : demoHistory0;
 		const end = before ? history.findIndex((i) => i.id === before) : history.length, start = Math.max(0, end - 150);
 		return { items: history.slice(start, end), before: start > 0 ? history[start]!.id : undefined };
 	};
+	/** The head is working on a message the boss sent (the strip says so), or is done. */
+	const headWorking = (on: boolean) => net.head && ((net = structuredClone({ ...net, head: { ...net.head, mark: on ? "working" : "idle" } })), current?.send("message", net));
 	class FixtureSource implements Source {
 		fail: () => void = () => {};
 		private listeners = new Map<string, ((data: string) => void)[]>();
@@ -146,9 +153,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 			if (dropped) return;
 			if (watch?.startsWith("w:")) this.timers.push(setTimeout(() => this.send("cards", { a1: "I merged the billing branch and the tests pass.", a3: "Waiting for your answer about the deploy window." }), 250));
 			else if (watch) {
-				this.timers.push(setTimeout(() => this.send("history", { key: watch, state: "live", reset: true, ...page(), ...(watch.startsWith("run-") ? { role: "run", name: watch.slice(4, 12) } : {}), header: { id: watch, cwd: "/work/harbor-api" }, unreadable: 0, todos: [{ id: 1, subject: "Find where the rounding happens", status: "completed" }, { id: 2, subject: "Fix the ledger rounding before tax", status: "in_progress", activeForm: "fixing the ledger rounding" }, { id: 3, subject: "Add a regression test for credit notes", status: "pending" }] }), 250));
+				this.timers.push(setTimeout(() => this.send("history", { key: watch, state: "live", reset: true, ...page(undefined, watch), ...(watch.startsWith("run-") ? { role: "run", name: watch.slice(4, 12) } : {}), header: { id: watch, ...(watch === "sb-head" ? {} : { cwd: "/work/harbor-api" }) }, unreadable: 0, todos: watch === "sb-head" ? undefined : [{ id: 1, subject: "Find where the rounding happens", status: "completed" }, { id: 2, subject: "Fix the ledger rounding before tax", status: "in_progress", activeForm: "fixing the ledger rounding" }, { id: 3, subject: "Add a regression test for credit notes", status: "pending" }] }), 250));
 				// A new reply every few seconds, so the page shows a live chat.
-				this.timers.push(setInterval(() => {
+				if (watch !== "sb-head") this.timers.push(setInterval(() => {
 					const n = ++live, call = `live-c${n}`;
 					this.send("history", { key: watch, reset: false, items: [{ id: `live-a${n}`, kind: "assistant", model: "harbor-1", at: new Date().toISOString(), text: `Live message ${n}`, tools: [{ id: call, name: "bash", summary: "date", args: "{}" }] }, { id: `live-r${n}`, kind: "result", callId: call, name: "bash", text: new Date().toString(), isError: false, bytes: 30 }] });
 				}, 5000));
@@ -188,7 +195,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	// The demo starts with most of half an hour behind it, so the timeline and the cards' clocks have something to show.
 	for (let i = 41; i > 0; i--) ((clock = Date.now() - i * 40_000), i === 41 ? (net = track(net)) : advance());
 	net = track(zenState(net, zen));
-	if (zen === "idle" || zen === "alone") quietUntil = Date.now() + 90_000;
+	if (zen === "idle" || zen === "alone" || zen?.startsWith("head")) quietUntil = Date.now() + (zen.startsWith("head") ? 900_000 : 90_000); // the strip fades over minutes: nothing waits for a quarter of an hour
 	// A visit starts at the breathing circle (Z-D16): `idle` and `palette` start their first visit as if the boss had stepped to billing-main with `]`; a later visit starts at the circle, as the page does.
 	let first = zen === "idle" || zen === "palette";
 	const zenStart = () => (first ? ((first = false), { key: "a1", ws: "w1" }) : undefined);
@@ -228,15 +235,16 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	}
 	// The states that press a key (the Zen layer takes it once it has drawn): H opens the card's context, ⌘K / Ctrl+K the palette, and an answer to the item starts the pause.
 	const press = (init: KeyboardEventInit) => setTimeout(() => window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init })), 2200);
-	if (zen === "history") press({ key: "h" });
+	if (zen === "history" || zen === "head-history") press({ key: "h" });
+	if (zen === "head-open") (press({ key: "Enter" }), setTimeout(() => { const box = document.querySelector<HTMLTextAreaElement>(".zen-head-box"); if (box) (box.value = headDraft(), box.dispatchEvent(new Event("input", { bubbles: true }))); }, 2900));
 	if (zen === "palette") press(/Mac|iPhone|iPad/.test(navigator.platform) ? { key: "k", metaKey: true } : { key: "k", ctrlKey: true });
 	if (zen === "pause") setTimeout(() => document.querySelector<HTMLElement>("#zen .zen-skip")?.click(), 2200);
 	mountToolbar(control);
 	const data = (key: string): Data => ({
-		older: async (before) => page(before),
-		latest: async () => page(),
+		older: async (before) => page(before, key),
+		latest: async () => page(undefined, key),
 		// Input is accepted, and shows in the log a moment later as pi would write it.
-		post: async (action, body) => (action === "keys" && card?.keys(key, body)) || (action === "mirror" && card?.mirror(key, body.on === true)) || (action === "commands" ? { ok: true, status: 200, body: { commands: [{ name: "review", source: "prompt", description: "Review the current diff" }, { name: "boss", source: "extension", description: "Straw Boss: gui, status, join" }, { name: "skill:release", source: "skill", description: "Cut a release" }].filter((c) => c.name.includes(String(body.prefix))) } } : action === "dequeue" ? { ok: true, status: 200, body: { text: "Also check the refund path while you are in there.\n\nWhen done, write a short summary for the changelog." } } : action === "answer" ? answered(key, body) : action === "mirror" ? mirror(key, body.on === true) : action === "keys" && typeof body.key === "string" && body.key in PAD_REPLIES && !body.confirmed ? PAD_REPLIES[body.key]! : (action === "input" && setTimeout(() => current?.send("history", { key, reset: false, items: [{ id: `you-${++live}`, kind: "user", at: new Date().toISOString(), text: String(body.text) }] }), 700), { ok: true, status: 200, body: {} })),
+		post: async (action, body) => (key === "sb-head" && action === "input" && headInput(headNow, String(body.text ?? ""), { send: (type, payload) => current?.send(type, payload), mark: headWorking }, ++live)) || (action === "keys" && card?.keys(key, body)) || (action === "mirror" && card?.mirror(key, body.on === true)) || (action === "commands" ? { ok: true, status: 200, body: { commands: [{ name: "review", source: "prompt", description: "Review the current diff" }, { name: "boss", source: "extension", description: "Straw Boss: gui, status, join" }, { name: "skill:release", source: "skill", description: "Cut a release" }].filter((c) => c.name.includes(String(body.prefix))) } } : action === "dequeue" ? { ok: true, status: 200, body: { text: "Also check the refund path while you are in there.\n\nWhen done, write a short summary for the changelog." } } : action === "answer" ? answered(key, body) : action === "mirror" ? mirror(key, body.on === true) : action === "keys" && typeof body.key === "string" && body.key in PAD_REPLIES && !body.confirmed ? PAD_REPLIES[body.key]! : (action === "input" && setTimeout(() => current?.send("history", { key, reset: false, items: [{ id: `you-${++live}`, kind: "user", at: new Date().toISOString(), text: String(body.text) }] }), 700), { ok: true, status: 200, body: {} })),
 		// Demo images, drawn as SVG: the user's two on the last round, the read result's one, and a broken third index.
 		pic: (id, n) => (n > 1 ? "data:," : `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${n ? 900 : 640}" height="${n ? 1400 : 360}"><rect width="100%" height="100%" fill="${id.startsWith("r") ? "#1f3a5f" : n ? "#3d2a5c" : "#14532d"}"/><text x="50%" y="50%" fill="#fff" font-size="48" text-anchor="middle" font-family="sans-serif">${id} · ${n + 1}</text></svg>`)}`),
 		entry: async (id) => {

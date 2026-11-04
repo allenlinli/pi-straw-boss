@@ -1,5 +1,5 @@
 // The one fake DOM of the answer, session, and Zen paths (the answer panel, the trust panel, the chat, the composer, the session view, the overlay layer, and Zen's layer).
-// Importing this module installs `document` (the `page` below), `localStorage`, `DOMParser`, `HTMLElement`, and the observers before the gui modules are loaded.
+// Importing this module installs `document` (the `page` below), `localStorage`, `DOMParser`, `HTMLElement`, and the observers (Intersection, Resize, Mutation: they never fire) before the gui modules are loaded.
 // Elements keep attributes, classes, data, children, value, disabled, handlers, geometry, and focus; `page` is the document's state a test sets.
 // What a test needs beyond that (a matchMedia, a location, a fetch) it assigns itself; `sessionGlobals()` gives the session view's.
 
@@ -300,7 +300,7 @@ class Watcher {
 }
 const store = new Map<string, string>();
 Object.assign(globalThis, {
-	document: page, DOMParser: Parser, HTMLElement: El, IntersectionObserver: Watcher, ResizeObserver: Watcher,
+	document: page, DOMParser: Parser, HTMLElement: El, IntersectionObserver: Watcher, ResizeObserver: Watcher, MutationObserver: Watcher,
 	localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) },
 });
 export const stored = store;

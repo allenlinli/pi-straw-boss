@@ -239,7 +239,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 				const file = parts.length === 3 && parts[1] === "ca" ? lan.panel.file(parts[2]!) : undefined;
 				return void (file ? res.writeHead(200, { ...HEADERS, "content-type": file.type, "content-disposition": `attachment; filename="${parts[2]}"` }).end(file.bytes) : fail(404));
 			}
-			if (["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "lan"].includes(parts[0]!)) return void control(req, who.origin, parts, who.remote).then(answer, () => answer({ status: 500, body: { error: "internal", reason: "The request could not be handled." } }));
+			if (["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "head", "lan"].includes(parts[0]!)) return void control(req, who.origin, parts, who.remote).then(answer, () => answer({ status: 500, body: { error: "internal", reason: "The request could not be handled." } }));
 			// An entry never changes once written, so its image is cached for a day; the token in the URL keeps it to this page.
 			if (req.method === "GET" && parts[0] === "image") return void image(files, parts.slice(1)).then((p) => (p ? res.writeHead(200, { ...HEADERS, "content-type": p.type, "cache-control": "private, max-age=86400" }).end(p.bytes) : fail(404)), () => fail(404));
 			// Zen's music: the list, and one track with range requests (music.ts). Same token and paired-device checks as the reads around it; the folder's files are the only thing it reads.

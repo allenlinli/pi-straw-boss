@@ -132,6 +132,9 @@ test("zen.css: every rule is under the Zen view, the answer card has no Standard
 	assert.match(zen, /\.zen-opt[^{]*\{ min-width: 44px; min-height: 44px;/);
 	assert.ok(!/\[data-calm\]/.test(zen.replace(/\/\*[\s\S]*?\*\//g, "")), "calm stills nothing in Zen: the circle and the ground keep breathing (Z-D13)");
 	assert.match(zen, /\.zen-stage:has\(\.zen-company\) > \.zen-circle \{[^}]*animation-name: zen-breath-low;/, "the circle breathes behind the companion's log");
+	assert.match(zen, /\.zen-stage:has\(\.zen-company \.zen-rest\) > \.zen-circle \{[^}]*animation: none;[^}]*filter: blur\(\d+px\);[^}]*border-color: transparent;/, "the head's history veils the circle: blurred, its ring gone, so no line crosses the words");
+	assert.match(zen, /\.zen-company:has\(\.zen-rest\) \.zen-log :is\(\.notice, \.act\) \{ border: 0; background: transparent; \}/, "the head's history has no boxes: a tower's answer is quiet type");
+	assert.match(zen, /\.zen-company:has\(\.zen-rest\) \.zen-log \.act code \{[^}]*text-transform: none;/, "and a tool row is no capitals");
 	assert.match(zen, /@keyframes zen-breath-low \{ 0% \{ transform: scale\(0\.72\)[^}]*\} 40% \{ transform: scale\(1\)/);
 	assert.match(zen, /\.zen-drift i:last-child \{[^}]*animation: zen-tide 30s[^;]*, zen-wander 47s/, "the ground's tide is half a minute, and it wanders");
 	assert.match(zen, /@keyframes zen-wander \{ from \{ transform: translate3d\(/, "the wander moves by transform alone");
@@ -253,4 +256,20 @@ test("Zen's wait card buttons are 44 px text buttons with the vermilion underlin
 test("Zen's wait buttons rest as the card's quiet text buttons (no underline) and only keyboard focus draws the vermilion line", () => {
 	const css = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8");
 	assert.match(css, /\.zen-skip, \.zen-card \.cmp-link, \.wait-panel \.pair-btn, [^{]*\) \{ border-color: transparent; background: transparent; color: var\(--zen-ash\); text-decoration-color: transparent/);
+});
+
+test("the head's lines still reach their rest level under reduced motion: style.css stills every animation except theirs, and theirs is a step whose delay the script sets, so no !important shorthand may reset it", () => {
+	assert.match(css, /prefers-reduced-motion: reduce\) \{ \*:not\(\.zen-hl\), \*::before, \*::after \{ animation: none !important;/, "the global rule leaves the head's lines out");
+	const reduced = zen.slice(zen.indexOf("@media (prefers-reduced-motion: reduce) { /* no fade"), zen.indexOf("@media (forced-colors: active) { /* the lines"));
+	assert.match(reduced, /\[data-view="zen"\] \.zen-hl \{ animation: zen-head-step 0\.01s steps\(1\) both; \}/);
+	assert.ok(!/!important/.test(reduced), "an important animation shorthand would set the delay back to 0 over the inline one");
+	assert.match(reduced, /:is\(\[data-bright\], :hover, :focus-within\) \.zen-hl, \[data-view="zen"\] \.zen-hl\[data-held\] \{ animation: none;/, "hover, focus, a tap and a hold are clear at once");
+});
+
+test("the head page's crown plate is gold like the head's node and avatar: its colour and wash come from --gold, not the accent's blue", () => {
+	const plate = css.split("\n").filter((line) => line.startsWith(".comms-head[data-head] .logo {") || line.startsWith(".comms-head[data-head]:not([data-mark=\"commanding\"]) .logo {")).join("\n");
+	assert.match(plate, /\.comms-head\[data-head\] \.logo \{[^}]*color: var\(--gold\)/);
+	assert.match(plate, /\.comms-head\[data-head\] \.logo \{[^}]*background: radial-gradient\([^;]*var\(--gold\)/);
+	assert.match(plate, /\.logo \{[^}]*border-color: color-mix\(in srgb, var\(--gold\)/, "and its border, until the unit is commanding, whose glow is the mark's own");
+	assert.match(css, /\.comms-head\[data-head\] \.logo svg \{[^}]*filter: drop-shadow\([^;]*var\(--gold\)/, "the glow around the crown");
 });

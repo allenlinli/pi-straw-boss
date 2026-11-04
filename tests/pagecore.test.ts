@@ -16,7 +16,7 @@ import { type Choice, mountView, type ViewEnv } from "../gui/view.ts";
 // The page's wiring (gui/pagecore.ts) run with plain fakes for its parts: which presenter a snapshot reaches in each face, the tab icon, the clips, a hidden page, the stream's watch, and the way the face moves (Z3R-F006).
 
 const unit = (key: string, mark: Mark = "idle", o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
-const net = (...units: Unit[]): Net => ({ bases: [{ id: "w", label: "w", mark: "idle" as Mark, head: true, outposts: [], outside: [], tower: null, tabs: [{ id: "t", label: "t", units }] }] });
+const net = (...units: Unit[]): Net => ({ bases: [{ id: "w", label: "w", mark: "idle" as Mark, outposts: [], outside: [], tower: null, tabs: [{ id: "t", label: "t", units }] }] });
 const live: Status = { state: "live", attempt: 0 };
 
 /** The page as main.ts builds it, with every part a recorder. `zenLoaded: false` is a Zen chunk that is not fetched yet (`load()` fetches it). */

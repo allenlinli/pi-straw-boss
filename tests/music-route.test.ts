@@ -34,7 +34,7 @@ after(async () => {
 	await Promise.all(running.map((g) => g.stop()));
 	rmSync(scratch, { recursive: true, force: true });
 });
-const net: Net = { bases: [{ id: "w", label: "a", mark: "idle", head: true, tower: null, tabs: [], outposts: [], outside: [] }] };
+const net: Net = { bases: [{ id: "w", label: "a", mark: "idle", tower: null, tabs: [], outposts: [], outside: [] }] };
 async function serve(options: { music?: string } = {}) {
 	const gui = await startGui({ read: async () => net, dir: bundle, pollMs: 20, pingMs: 50, ...options });
 	running.push(gui);

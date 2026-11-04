@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { contrast, declarations, rulesOf } from "./css-rules.ts";
+import { contrast, declarations, mix, rulesOf } from "./css-rules.ts";
 
 // The Zen ink palette (gui/zen.css, the token block) holds 7 : 1 for text and 3 : 1 for borders and the focus ring on the grounds and on the lofi surfaces the answer card and composer use,
 // computed from the values in the stylesheet. No browser runs here.
@@ -85,4 +85,52 @@ test("the terminal's yellows in Zen are the ochre pair, readable (7 : 1 on the s
 	const sat = declarations(mute?.body ?? "").find(([p]) => p === "filter")?.[1].match(/^saturate\(([\d.]+)\)$/)?.[1];
 	assert.ok(sat && Number(sat) <= 0.5, `the mirror's rows are desaturated (filter: ${sat})`);
 	assert.ok(!/\.c(3|11)\b|\.k(3|11)\b/.test(first.split("\n").filter((l) => /data-view="zen"/.test(l)).join("\n")), "Standard's own classes are not touched from style.css");
+});
+
+// The head tower's strip (docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle). At clear every line is read at 7 : 1; the rest level is below that on purpose, so it is decoration and never the only way
+// to read a line: hover, focus, a tap, the history, and the live region give it whole, and forced colours never fade it.
+test("the strip's lines are 7 : 1 at every clear level, paper for the head and ash for the boss; the rest level is below that and is not the only way to read a line", async () => {
+	const { CLEAR, REST } = await import("../gui/headlines.ts");
+	for (const level of CLEAR) for (const ink of ["paper", "ash"]) for (const ground of ["ground", "ground-2"]) {
+		const c = contrast(mix(tokens[ink]!, level, tokens[ground]!), tokens[ground]!);
+		assert.ok(c >= 7, `--zen-${ink} at ${level} on --zen-${ground}: ${c.toFixed(2)}`);
+	}
+	for (const ink of ["paper", "ash"]) assert.ok(contrast(mix(tokens[ink]!, REST, tokens.ground!), tokens.ground!) < 7, `the rest level (${REST}) of --zen-${ink} is decoration`);
+});
+
+test("the strip's CSS carries the same numbers: the fade ends at the rest level over 3 minutes after 20 s, ranks step the clear level, and hover, focus, a tap, a held line, and forced colours put every line at 1", async () => {
+	const { CLEAR, CLEAR_MS, FADE_MS, REST } = await import("../gui/headlines.ts");
+	const fade = /@keyframes zen-head-fade \{\s*to \{ opacity: ([\d.]+); \}\s*\}/.exec(css);
+	assert.equal(Number(fade?.[1]), REST, "the keyframes end at the rest level");
+	const line = rulesOf(css).find((r) => r.parts.includes('[data-view="zen"] .zen-hl'));
+	assert.ok(line, "the line's rule");
+	const d = declarations(line.body);
+	assert.match(d.find(([p]) => p === "animation")![1], new RegExp(`zen-head-fade ${FADE_MS / 1000}s linear both`));
+	assert.equal(d.find(([p]) => p === "animation-delay")![1], `${CLEAR_MS / 1000}s`, "clear for 20 s before the fade starts");
+	CLEAR.forEach((level, rank) => {
+		const r = rulesOf(css).find((x) => x.parts.includes(`[data-view="zen"] .zen-hl[data-rank="${rank}"]`));
+		assert.equal(declarations(r!.body).find(([p]) => p === "--clear")?.[1], String(level), `rank ${rank}`);
+	});
+	const bright = rulesOf(css).find((r) => r.parts.some((p) => p.includes(".zen-head:is([data-bright], :hover, :focus-within) .zen-hl")));
+	assert.ok(bright, "hover, focus, and a tap");
+	assert.deepEqual(declarations(bright.body).filter(([p]) => p === "animation" || p === "opacity"), [["animation", "none"], ["opacity", "1"]]);
+	const held = rulesOf(css).find((r) => r.parts.includes('[data-view="zen"] .zen-hl[data-held]'));
+	assert.deepEqual(declarations(held!.body).filter(([p]) => p === "animation" || p === "opacity"), [["animation", "none"], ["opacity", "1"]], "a held line stays clear");
+	const forced = css.slice(css.indexOf("@media (forced-colors: active)", css.indexOf(".zen-hl")));
+	assert.match(forced, /\.zen-hl \{[^}]*animation: none; opacity: 1;/, "forced colours: never faded");
+	assert.match(forced, /\.zen-head-hint \{[^}]*border-bottom-color: CanvasText/, "the hairline is a CanvasText border");
+});
+
+test("the strip has no boxes: its hairline and box are a transparent border with one line under them (never `border: none`), and the input is a 44 px target", () => {
+	const mine = rulesOf(css).filter((r) => r.parts.some((p) => /\.zen-(head|hl)/.test(p)));
+	assert.ok(mine.length > 8, "the strip has its rules");
+	for (const r of mine) for (const [p, v] of declarations(r.body)) {
+		assert.ok(!(p === "border" && v === "none"), `${r.selector}: border: none`);
+		assert.ok(!/background(-color)?$/.test(p) || /^(transparent|none)$/.test(v) || /--zen-(glow|tint)/.test(v), `${r.selector}: ${p}: ${v} is a ground for a box`);
+	}
+	for (const cls of [".zen-head-hint", ".zen-head-history", ".zen-rest"]) {
+		const rs = rulesOf(css).filter((x) => x.parts.some((p) => p.includes(cls)));
+		assert.ok(rs.some((r) => declarations(r.body).some(([p, v]) => p === "min-height" && v === "44px")), `${cls}: 44 px`);
+	}
+	assert.ok(!css.split("\n").some((l) => /\.zen-(head|hl)/.test(l) && /color: var\(--zen-seal\)/.test(l) && !/text-decoration|border-bottom-color/.test(l)), "the seal marks only a line under a word, never a text colour");
 });

@@ -31,7 +31,7 @@ const poisoned = (tag: string) => `${tag} ${PATH} ${MAIL} ${TOKEN}`;
 const WS = poisoned("ws"), TAB = poisoned("tab"), NAME = poisoned("nm"), BY = poisoned("by"), TODO = poisoned("todo");
 const OUTSIDE = "OutsideWorkspaceZ", OUTSIDE_NAME = "OutsideTowerNameZ";
 // Work that is not the project's: a tab whose panes are outside it (or have no directory) and a session there. No ally path may name any of these.
-const OUTSIDE_ALL = [OUTSIDE, OUTSIDE_NAME, "OtherClientAcme", "NoCwdTabZ", "OutsideTabZ", "OutsideSessionZ"];
+const OUTSIDE_ALL = [OUTSIDE, OUTSIDE_NAME, "OtherClientAcme", "NoCwdTabZ", "OutsideTabZ", "OutsideSessionZ", "HeadWorkspaceZ", "HeadSessionZ"];
 const leaks = (text: string) => POISON.filter((p) => text.includes(p));
 const raw = (text: string, fields: string[]) => fields.filter((x) => !text.includes(x.slice(0, 40)));
 
@@ -169,6 +169,8 @@ async function allyRunPaths(): Promise<Path[]> {
 	world.herdr.workspaces.find((w) => w.workspace_id === "wA")!.label = WS;
 	world.herdr.workspaces.find((w) => w.workspace_id === "wB")!.label = OUTSIDE;
 	await ask({ cmd: "ensure-tower", workspace: "wA" });
+	// The head tower's workspace: first in Herdr's list, its pane inside the project, its session live, and it carries the tower token too (the strictest case). It is no tower of the project, so no ally path may name it.
+	world.herdr.workspaces.unshift({ workspace_id: "wH", label: "HeadWorkspaceZ", tokens: { sb_head: "sb-head", tower: "sb-head" } } as never);
 	const proj = join(world.stateDir, "proj");
 	mkdirSync(join(proj, "app"), { recursive: true });
 	world.ally.projects.set("team-1", proj);
@@ -180,6 +182,9 @@ async function allyRunPaths(): Promise<Path[]> {
 	// A member in the same tab, and the tower of another workspace: their names are in tower_list and boss_status.
 	herdr.addPane("wA:p72", "wA:t1", "pi").tokens.sb_role = "member";
 	herdr.pane("wA:p72").cwd = join(proj, "app");
+	herdr.addTab("wH:t1", "HeadWorkspaceZ", "wH:p1");
+	herdr.pane("wH:p1").tokens.sb_role = "head";
+	herdr.pane("wH:p1").cwd = join(proj, "app");
 	herdr.workspaces.find((w) => w.workspace_id === "wB")!.tokens.tower = "tower-b";
 	herdr.workspaces.find((w) => w.workspace_id === "wA")!.tokens.tower = "tower-a";
 	// Another tab of the tower's workspace whose pane is outside the project, and one inside it; the other workspace has a pane inside the project of a second team.
@@ -200,6 +205,7 @@ async function allyRunPaths(): Promise<Path[]> {
 		{ id: "tower-a", name: "TowerSessZ", herdrLocation: at("wA:p1", { id: "wA", label: WS }, { id: "wA:t1", label: TAB }) },
 		{ id: "out-1", name: "OutsideSessionZ", herdrLocation: at("wA:p73", { id: "wA", label: WS }, { id: "wA:t2", label: "OutsideTabZ" }) },
 		{ id: "in-1", name: "InProjectSessionZ", herdrLocation: at("wA:p74", { id: "wA", label: WS }, { id: "wA:t3", label: "InProjectTabZ" }) },
+		{ id: "sb-head", name: "HeadSessionZ", herdrLocation: at("wH:p1", { id: "wH", label: "HeadWorkspaceZ" }, { id: "wH:t1", label: "HeadWorkspaceZ" }) },
 		{ id: "tower-b", name: OUTSIDE_NAME, herdrLocation: at("wB:p1", { id: "wB", label: OUTSIDE }, { id: "wB:t1", label: "ops" }) },
 	];
 	const derived = deriveBoard({ name: NAME, todos: [{ id: 1, subject: TODO, status: "in_progress" }], root: proj })!;
@@ -230,14 +236,14 @@ async function allyRunPaths(): Promise<Path[]> {
 	};
 	// The line the run reads for the message it was woken by: the header restates the tower's workspace label.
 	const event = async () => JSON.stringify((await ask({ cmd: "run-poll", token: claimedToken, idle: true })).event);
-	// What the brief is built from, with the fields it does not print yet (opened-by, the ledger's lines, the head's label): a later brief change must not leak them.
+	// What the brief is built from, with the fields it does not print yet (opened-by, the ledger's lines): a later brief change must not leak them.
 	const gather = async (within?: { project: string }) => {
 		const workspace = (await workspaces(world!.herdr.runFor("none"))).find((w) => w.workspace_id === "wA")!;
 		const ledger = [{ key: "k", sender: BY, outcome: "opened" as const, at: 1, opened: { tab: TAB, pane: "wA:p71", main: "main-1", sender: BY } }];
 		return JSON.stringify(await gatherMains({ run: world!.herdr.runFor("none"), now: Date.now, sessions: async () => world!.sessions, boardDir: join(world!.stateDir, "board"), workspace, ledger, ...(within ? { within } : {}) }));
 	};
 	return [
-		{ name: "ally run gatherMains (tab, main, opened-by, ledger lines, head)", out: () => gather({ project: proj }), local: () => gather(), localRaw: [WS, TAB, NAME, BY] },
+		{ name: "ally run gatherMains (tab, main, opened-by, ledger lines)", out: () => gather({ project: proj }), local: () => gather(), localRaw: [TAB, NAME, BY] },
 		{ name: "ally run gatherMains of no project", out: () => gather({ project: undefined as unknown as string }), forbid: [...IN_PROJECT, /head\\*":\\*"wA/] },
 		...["boss_status", "tower_list", "board_read"].map((name) => ({ name: `ally run ${name}`, out: () => tool(allyToken, name), local: () => tool(localToken, name), localRaw: LOCAL_RAW[name]!, ...(name === "tower_list" ? { forbid: ["TowerSessZ"] } : {}), ...(name === "board_read" ? {} : { require: name === "boss_status" ? [IN_PROJECT[0]!] : IN_PROJECT }) })),
 		...["boss_status", "tower_list", "board_read"].flatMap((name) => [

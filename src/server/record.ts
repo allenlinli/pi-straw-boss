@@ -46,6 +46,9 @@ export const serverId = (slot: Slot) => `sb-server-${slot.slot8}`;
 /** A workspace's tower identity: Herdr's workspace ids are short counters, so a secondary server's carry its slot (two Herdr servers on one broker may both have `w1`). */
 export const towerId = (slot: Slot, workspace: string) => (slot.primary ? `sb-tower-${workspace.toLowerCase()}` : `sb-tower-${slot.slot8}-${workspace.toLowerCase()}`);
 export const towerName = (slot: Slot, label: string) => (slot.primary ? `tower · ${label}` : `tower · ${label} · ${slot.slot8}`);
+/** The head tower's identity: one per Herdr server, so a secondary server's carries its slot. */
+export const headId = (slot: Slot) => (slot.primary ? "sb-head" : `sb-head-${slot.slot8}`);
+export const headName = (slot: Slot) => (slot.primary ? "head tower" : `head tower · ${slot.slot8}`);
 
 export type Detach = "wmi" | "wmi-in-job" | "direct";
 export interface Restarting { began: string; since: string; reason: string; by: string }

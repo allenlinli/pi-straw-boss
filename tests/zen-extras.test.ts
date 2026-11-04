@@ -224,14 +224,24 @@ test("the deck shows every line once, in a random order, before any repeats, and
 	assert.equal(deck(0).next(), -1);
 });
 
-test("every line is short, attributed, and sourced in a comment", () => {
-	assert.equal(LINES.length, 14);
+// The words no line may carry (zh, en, ja): the boss wants stillness and the Japanese eye for it without religious vocabulary. Names in `by` are as they are known; 走神 (the mind wandering, in the old lines) is not about gods.
+const BANNED = [/禪|禅/, /佛|仏/, /菩薩|菩提|涅槃|輪廻|輪迴/, /悟/, /經|経/, /神/, /祈/, /法(?!則)/, /\b(?:buddh\w*|zen|dharma|enlighten\w*|pray\w*|prayer|god|gods|divine|holy|sacred|nirvana|sutra|karma|bodhisattva|soul)\b/i];
+
+test("every line is short, attributed, and sourced in a comment; a Japanese original is carried in `ja`", () => {
+	assert.equal(LINES.length, 38);
 	for (const l of LINES) {
 		assert.ok(l.by.length > 0 && l.zh.length > 0 && l.en.length > 0);
 		assert.ok([...l.zh.replace(/[，。、；！？]/g, "")].length <= 16, `short: ${l.zh}`);
+		for (const [lang, t] of [["zh", l.zh], ["en", l.en], ["ja", l.ja ?? ""]] as const) for (const w of BANNED) assert.ok(!w.test(t.replace(/走神/g, "")), `${lang} of "${l.zh}" holds ${w}`);
+		if (l.ja !== undefined) assert.ok(/[\u3040-\u30ff]|[\u4e00-\u9fff]/.test(l.ja) && l.ja.trim() === l.ja && l.ja.length > 0, `a Japanese original: ${l.ja}`);
 	}
 	const source = readFileSync(new URL("../gui/zenlines.ts", import.meta.url), "utf8");
 	assert.equal([...source.matchAll(/^\t\/\/ .*zh: (published|our translation)/gm)].length, LINES.length, "a source and the zh note above each entry");
+	assert.equal([...source.matchAll(/^\t\/\/ .*\bja: /gm)].length, LINES.filter((l) => l.ja).length, "a `ja:` note above each original and above no other");
+	assert.equal(LINES.filter((l) => l.ja).length, 22, "the Japanese lines");
+	assert.equal(new Set(LINES.map((l) => l.zh)).size, LINES.length, "no line twice");
+	assert.equal(LINES.slice(0, 14).filter((l) => l.ja).length, 0, "the first 14 are as they were");
+	assert.ok(LINES.some((l) => l.ja === "古池や蛙飛びこむ水の音"));
 });
 
 test("the line fades to the next every 45 s, stays still under calm or reduced motion, and stops with the layer", () => {
@@ -241,7 +251,7 @@ test("the line fades to the next every 45 s, stays still under calm or reduced m
 	const l = mountLine(c.later, () => still, () => ((n = (n + 1) % 7) / 7), lines);
 	const el = l.el as unknown as El, shown = () => el.textContent;
 	const first = shown();
-	assert.ok(first.length > 0 && el.kids.length === 2, "a line and its source");
+	assert.ok(first.length > 0 && el.kids.length === 3, "a line, its source, and the place of the original");
 	c.advance(LINE_MS - 1);
 	assert.equal(shown(), first);
 	c.advance(1);
@@ -256,6 +266,23 @@ test("the line fades to the next every 45 s, stays still under calm or reduced m
 	still = false;
 	l.stop();
 	assert.equal(c.pending(), 0, "stop cancels the timer");
+});
+
+test("the Japanese original shows under the source when a line has one, in a lang=ja element, and is hidden and empty when it has none", () => {
+	const c = clock(), lines = [{ zh: "古池", en: "pond", by: "芭蕉 / Bashō", ja: "古池や蛙飛びこむ水の音" }, { zh: "吸氣", en: "in", by: "x" }];
+	let n = 0;
+	const l = mountLine(c.later, () => false, () => (n++ === 0 ? 0 : 0.99), lines), el = l.el as unknown as El;
+	const ja = el.all((e) => e.getAttribute("class") === "zen-line-ja")[0]!;
+	assert.equal(el.kids[2], ja, "the third element, after the source");
+	assert.equal(ja.getAttribute("lang"), "ja");
+	const seen = new Map<string, [string, boolean]>();
+	for (let i = 0; i < 6; i++) {
+		seen.set(el.textContent.includes("pond") || el.textContent.includes("古池") ? "with" : "without", [ja.textContent, ja.hidden]);
+		c.advance(LINE_MS + FADE_MS);
+	}
+	assert.deepEqual(seen.get("with"), ["古池や蛙飛びこむ水の音", false], "shown");
+	assert.deepEqual(seen.get("without"), ["", true], "hidden and empty");
+	l.stop();
 });
 
 test("the words: the new keys exist in both languages with the boss's copy, and zen_nothing is gone", () => {

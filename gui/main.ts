@@ -20,7 +20,7 @@ import { mountMenus } from "./menu.ts";
 import { mountNotify } from "./notify.ts";
 import { mountQuit, showDismissAll, showStashed } from "./quit.ts";
 import { hang, mountPage } from "./render.ts";
-import { fillHeadButton, seenAt } from "./headpage.ts";
+import { fillHeadButton, headDot, seenAt } from "./headpage.ts";
 import { settingsAllowed } from "./desk.ts";
 import { createRouter, depthOf, netOf, parseRoute, type Route, type Section } from "./router.ts";
 import { CONNECTING, createStream, type Source, type Status } from "./stream.ts";
@@ -132,6 +132,7 @@ function draw(net: Net, fresh: Alert[], now: Map<string, Alert>) {
 	showStashed(el("stashed"), el("stashed-list"), net);
 	fillHeadButton(el("head-btn"), net.head, seenAt(), core.current.view === "head" || (core.current.view === "session" && core.current.ws === HEAD_KEY));
 	moreActs();
+	el("bar-more").toggleAttribute("data-news", headDot(net.head, seenAt()) && !(core.current.view === "head" || (core.current.view === "session" && core.current.ws === HEAD_KEY)));
 	drawer?.net(net);
 	if (fresh.length || panels) withPanels((p) => p.alerts(fresh, now, net));
 	timeline.net(net);

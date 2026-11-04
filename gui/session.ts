@@ -130,6 +130,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 				const chan = head.querySelector<HTMLElement>(".chan")!, kind = channelOf(u, state, ally || eventRun);
 				chan.dataset.state = kind === "live" ? "live" : "closed";
 				text(chan, "b", { live: m.channel_open, readonly: m.channel_readonly, closed: m.channel_closed, none: m.no_channel }[kind]());
+				chan.hidden = headUnit?.state === "absent"; // the first message makes the head: "not open" and "channel open" would contradict
 				chan.title = chan.querySelector("b")!.textContent ?? ""; // a phone shows the dot alone
 				// A tower's comms open a main in its base (main.ts opens the same tile the map's "+ Main" does); no other unit has the button.
 				const add = head.querySelector<HTMLButtonElement>(".head-main")!, base = towerBase(hit);
@@ -144,7 +145,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 					fillHeadTitle(view, headUnit);
 					const close = head.querySelector<HTMLButtonElement>(".head-quit")!;
 					Object.assign(close.dataset, { close: "head", name: m.head_tower() });
-					[close.textContent, close.hidden] = [m.head_close(), headUnit.state === "absent"];
+					[close.textContent, close.hidden] = [m.head_close(), true]; // Close lives in the conversation box's ⋯ (towerconv.ts)
 				}
 			}
 			const asks = view.querySelector<HTMLElement>(".head-asks");
@@ -155,7 +156,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 			drawQueued(view, u?.queued, u?.key, Boolean(u?.service));
 			foldQueue(view, u?.queued?.length ?? 0);
 			const notes = view.querySelector<HTMLElement>(".tower-notices");
-			if (notes) (fillConversation(view.querySelector<HTMLElement>(".tower-conv")!, hit?.base.id ?? wsOf(scene), u?.service), fillNotices(notes, hit?.base.id ?? wsOf(scene), u?.service, u?.key), fillMemory(view.querySelector<HTMLElement>(".tower-memory")!, hit?.base.id ?? wsOf(scene), u?.service?.memory));
+			if (notes) (fillConversation(view.querySelector<HTMLElement>(".tower-conv")!, hit?.base.id ?? wsOf(scene), u?.service, headUnit && headUnit.state !== "absent"), fillNotices(notes, hit?.base.id ?? wsOf(scene), u?.service, u?.key), fillMemory(view.querySelector<HTMLElement>(".tower-memory")!, hit?.base.id ?? wsOf(scene), u?.service?.memory));
 			if (shown === "term" && holdOf(u?.key ?? "") !== held) setMode("term"); // the tower woke or went to stand by: the terminal or its sentence changes
 			(chat?.setLive(...liveOf(u, state, mk)), composer?.update(composerUnit(u, { name, mk, state, online: online(), role: scene.info?.role, head: isHead })));
 			asker?.update(u?.pending, canAnswer(mk, Boolean(u?.control), online())); // its dialog above the composer, answerable or not

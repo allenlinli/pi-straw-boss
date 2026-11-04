@@ -136,7 +136,7 @@ export function barOf(u: Unit): string | undefined {
 }
 
 /** What the empty box says: a tower is woken (or continued, while the boss conversation is live), any other unit is written to. */
-export const placeholderOf = (unit: Unit) => (unit.wakes ? (unit.held ? m.placeholder_held() : unit.allyLive ? m.placeholder_ally() : unit.eventRun ? m.placeholder_event_run() : unit.conversation ? m.placeholder_conversation() : unit.head ? m.head_wakes() : m.placeholder_wake()) : m.placeholder({ name: unit.name }));
+export const placeholderOf = (unit: Unit) => (unit.wakes ? (unit.held ? m.placeholder_held() : unit.allyLive ? m.placeholder_ally() : unit.eventRun ? m.placeholder_event_run() : unit.head ? m.head_wakes() : unit.conversation ? m.placeholder_conversation() : m.placeholder_wake()) : m.placeholder({ name: unit.name }));
 /** What a tower's service tells the composer: it wakes (never steers), is held, continues a live boss conversation that is not ending, or has only an ally run live. */
 export const wakeOf = (service?: { state: string; run?: unknown; allyRuns: unknown[]; conversation?: { closing?: boolean }; bossIn?: unknown }): Pick<Unit, "wakes" | "held" | "conversation" | "allyLive" | "eventRun"> => ({ eventRun: Boolean(service?.bossIn && !service.conversation), wakes: Boolean(service), held: service?.state === "held", conversation: Boolean(service?.conversation && !service.conversation.closing), allyLive: Boolean(service?.allyRuns.length && !service.run) });
 

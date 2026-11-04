@@ -142,3 +142,30 @@ test("a chapter divider of the head's history is a chapter divider, not a branch
 	assert.match(rules[1]!.textContent, /context compacted/);
 	assert.match(rules[2]!.textContent, /branch summary/);
 });
+
+test("the head's words are named for the head, its chapter divider speaks the page's language, and its composer says what it wakes", async () => {
+	const { speaker, chapterWhy } = await import("../gui/chat.ts");
+	const { placeholderOf } = await import("../gui/composer.ts");
+	assert.equal(speaker({ role: "tower", key: "@head" }), m.head_tower());
+	assert.equal(speaker({ role: "tower", key: "w1" }), m.role_tower());
+	assert.equal(chapterWhy("first"), m.head_why_first());
+	assert.equal(chapterWhy("size"), m.head_why_size());
+	assert.equal(chapterWhy("later-code", "raw reason"), "raw reason", "a code this page does not know shows the text");
+	const unit = { name: "head tower", wakes: true, conversation: true, head: true } as Parameters<typeof placeholderOf>[0];
+	assert.equal(placeholderOf(unit), m.head_wakes(), "a live conversation does not turn the head's line into the tower's");
+});
+
+test("the server's chapter reasons have codes", async () => {
+	const { whyCode } = await import("../src/headhistory.ts");
+	assert.deepEqual(["the first conversation", "the boss asked for a new conversation", "the last one grew past 8 MB", "the last session file is gone"].map(whyCode), ["first", "new", "size", "unreadable"]);
+});
+
+test("the sheet: no self-referencing --c, no head Info, no uppercase chapter line, a news dot on the phone's ⋯ and the drawer row", async () => {
+	const { readFileSync } = await import("node:fs");
+	const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8");
+	assert.doesNotMatch(css, /--c:\s*var\(--c\)/);
+	assert.match(css, /\.comms-head\[data-head\] \.head-info\s*\{\s*display:\s*none/);
+	assert.doesNotMatch(css, /\.tx\.rule\.chapter p \{[^}]*uppercase/);
+	assert.match(css, /\.bar-more\[data-news\]::after/);
+	assert.match(css, /\.drawer-head\[data-news\]/);
+});

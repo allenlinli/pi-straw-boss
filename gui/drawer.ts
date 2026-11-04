@@ -2,6 +2,7 @@ import { HEAD_KEY } from "../src/headkey.ts";
 import type { Mark } from "../src/netdata.ts";
 import type { Net } from "../src/net.ts";
 import { h } from "./dom.ts";
+import { headDot, seenAt } from "./headpage.ts";
 import { MODAL } from "./hotkeys.ts";
 import { m } from "./paraglide/messages.js";
 import type { Locale } from "./paraglide/runtime.js";
@@ -65,7 +66,7 @@ export function mountDrawer(off: () => boolean = () => false) {
 	const draw = () => {
 		const entry = headEntry(latest);
 		front.hidden = !entry;
-		if (entry) (mark(front, entry.mark), text(front, ".name", m.head_tower()), text(front, ".dstate", entry.word), front.classList.toggle("current", atHead));
+		if (entry) (mark(front, entry.mark), text(front, ".name", m.head_tower()), text(front, ".dstate", entry.word), front.classList.toggle("current", atHead), front.toggleAttribute("data-news", headDot(latest?.head, seenAt()) && !atHead));
 		showDismissAll(sweep, latest ?? { bases: [] });
 		top.hidden = sweep.hidden;
 		const fillRow = (el: HTMLElement, r: Row & { subs?: Row[] }) => {

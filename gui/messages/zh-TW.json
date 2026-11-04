@@ -881,5 +881,8 @@
 	"head_chapter": "新的一章・{date}・{why}",
 	"head_asks_label": "交給各塔台的工作",
 	"head_state_absent": "尚未開啟",
-	"head_drawer_row": "主塔台"
+	"head_why_first": "第一次對話",
+	"head_why_new": "你要求開新對話",
+	"head_why_size": "上一章太長了",
+	"head_why_unreadable": "上一章無法接續"
 }

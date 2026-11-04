@@ -28,7 +28,7 @@ export function headDemo(state: HeadState, now = Date.now()): HeadUnit {
 export function headHistory(state: HeadState): Item[] {
 	if (state === "absent") return [];
 	const out: Item[] = [
-		{ id: "chapter-1", kind: "divider", type: "chapter", at: at(0), text: "the first conversation" },
+		{ id: "chapter-1", kind: "divider", type: "chapter", at: at(0), text: "the first conversation", code: "first" },
 		{ id: "h-u1", kind: "user", text: "Ask Harbor API to fix the ledger rounding, and have Lighthouse Web rerun the checkout test.", at: at(2) },
 		{ id: "h-a1", kind: "assistant", model: "head-1", at: at(3), text: "On it. I am handing the rounding fix to the Harbor API tower and the checkout rerun to Lighthouse Web.", ctx: 4000 },
 	];

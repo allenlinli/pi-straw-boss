@@ -256,7 +256,7 @@ export const headWires = (hub: Spot | undefined, ends: readonly Spot[]) => (hub 
 /** Draws the head tower's wires to every base's tower, with a packet travelling along each while one end of it works, in the map's own coordinates. */
 function wire(map: HTMLElement, svg: SVGSVGElement, dots: HTMLElement, still: boolean) {
 	const towers = [...map.querySelectorAll<HTMLElement>(".base:not(.leaving):not(.ally) .tower")];
-	const head = map.querySelector<HTMLElement>(".head-node:not(.off):not(.absent) .tower") ?? undefined;
+	const head = map.querySelector<HTMLElement>(".head-node:not(.off) .tower") ?? undefined;
 	const box = map.getBoundingClientRect();
 	const centre = (el: HTMLElement) => {
 		const r = el.getBoundingClientRect();

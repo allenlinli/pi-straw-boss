@@ -11,13 +11,13 @@ import { conversationFacts, guarded, towerRoute } from "./towermodel.ts";
 // `/boss tower new`: the same server functions. Redrawn only when what it shows changes, so a click never lands on a button that was replaced.
 
 const clock = (at: string) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-export function fillConversation(box: HTMLElement, ws: string, service: TowerService | undefined) {
-	const c = service?.conversation, inRun = !c ? service?.bossIn : undefined, events = (service?.localRuns ?? []).filter((r) => r.kind === "event"), sig = JSON.stringify([ws, c, inRun, events.map((r) => [r.id, r.key, r.outcome, r.note])]);
+export function fillConversation(box: HTMLElement, ws: string, service: TowerService | undefined, closeHead = false) {
+	const c = service?.conversation, inRun = !c ? service?.bossIn : undefined, events = (service?.localRuns ?? []).filter((r) => r.kind === "event"), sig = JSON.stringify([ws, c, inRun, events.map((r) => [r.id, r.key, r.outcome, r.note]), closeHead]);
 	if (box.dataset.sig === sig) return;
 	box.dataset.sig = sig;
 	// A redraw (Leave or New changed the conversation) replaces the `⋯` panel; one the boss has open stays open, with the result it shows, and the focus lands in it again.
 	const open = box.querySelector(".menu-pop")?.matches(":popover-open") === true, kept = open ? [box.querySelector(".tnote-fail")?.textContent, box.querySelector(".conv-done")?.textContent] : [];
-	box.hidden = !c && !inRun && !events.length;
+	box.hidden = !c && !inRun && !events.length && !closeHead;
 	if (box.hidden) return box.replaceChildren();
 	const fail = h("small", { class: "tnote-fail", role: "alert" }), done = h("small", { class: "conv-done", role: "status" }), live = (cls: string, own: HTMLElement) => box.querySelector<HTMLElement>(`.${cls}`) ?? own, say = (text?: string) => ((live("tnote-fail", fail).textContent = text ?? ""), (live("conv-done", done).textContent = ""));
 	[fail.textContent, done.textContent] = [kept[0] ?? "", kept[1] ?? ""];
@@ -47,6 +47,8 @@ export function fillConversation(box: HTMLElement, ws: string, service: TowerSer
 			return h("a", { class: "ally-chip", href: route || "./", "data-route": route, title: tip || m.conv_event_run_open() }, label);
 		})));
 	}
+	// The head tower's Close (head/close, asked once by quit.ts) sits in the same ⋯ menu.
+	if (closeHead) inMenu.push(h("p", { class: "conv-acts" }, h("button", { type: "button", class: "quit-btn head-quit", "data-close": "head", "data-name": m.head_tower(), "data-menu-keep": "" }, m.head_close())));
 	let panel: HTMLElement | undefined;
 	if (inMenu.length) {
 		panel = h("div", { class: "menu-pop hud-pop", popover: "auto", role: "group", "aria-label": m.menu_more() }, ...inMenu);

@@ -21,7 +21,7 @@ export function todosOf(snapshot: unknown): Todo[] | undefined {
 export interface Item {
 	id: string; kind: "user" | "assistant" | "result" | "bash" | "notice" | "divider" | "meta"; at?: string; text?: string; more?: boolean; images?: number; pics?: string[];
 	thought?: number; thoughtText?: string; tools?: Tool[]; model?: string; stop?: string; error?: string; ctx?: number;
-	callId?: string; name?: string; isError?: boolean; bytes?: number; command?: string; exit?: number; type?: string; from?: string; link?: string; tokens?: number; /** A `straw-tower` message: what the sb server sent it as (`details.kind`: boss, intercom, notice, timer, link), or `steer`. */ event?: string;
+	callId?: string; name?: string; isError?: boolean; bytes?: number; command?: string; exit?: number; type?: string; from?: string; link?: string; tokens?: number; /** A `straw-tower` message: what the sb server sent it as (`details.kind`: boss, intercom, notice, timer, link), or `steer`. */ event?: string; /** A chapter divider's reason code: first, new, size, or unreadable. */ code?: string;
 }
 export interface Json { [key: string]: any } // eslint-disable-line @typescript-eslint/no-explicit-any -- session entries are untrusted JSON, read defensively
 

@@ -8,6 +8,8 @@ import type { Hub } from "./watch.ts";
 // newest first. Every other key is one file, paged as the reader pages it.
 
 export interface Page { items: Item[]; before?: string }
+/** The code of a chapter's reason (headchapters.ts words it), for a page that words it itself. */
+export const whyCode = (why: string) => (why.startsWith("the first conv") ? "first" : why.startsWith("the boss asked") ? "new" : /grew/.test(why) ? "size" : "unreadable");
 const CURSOR = /^chapter:(\d{1,9})$/;
 
 /** The reader's page of a file, or of the chapter chain; `held` is a reader already acquired for the newest file (the stream's). */
@@ -31,7 +33,7 @@ export async function pageThrough(hub: Pick<Hub, "readers">, found: Found, befor
 	if (at < 0) return { items: [] };
 	const c = chain[at]!, page = await read(c.file, (r) => r.page(id, limit));
 	if (page.before !== undefined || at === 0) return page;
-	return { items: [{ id: `chapter-${c.n}`, kind: "divider", type: "chapter", at: c.from, text: c.why }, ...page.items], before: `chapter:${chain[at - 1]!.n}` };
+	return { items: [{ id: `chapter-${c.n}`, kind: "divider", type: "chapter", at: c.from, text: c.why, code: whyCode(c.why) }, ...page.items], before: `chapter:${chain[at - 1]!.n}` };
 }
 
 /** The file that holds an entry of this key: the chapter that has it for the head, the key's own file for everything else. */

@@ -1021,5 +1021,8 @@
 	"head_chapter": "New chapter · {date} · {why}",
 	"head_asks_label": "Work handed to the towers",
 	"head_state_absent": "not open",
-	"head_drawer_row": "Head tower"
+	"head_why_first": "the first conversation",
+	"head_why_new": "you asked for a new conversation",
+	"head_why_size": "the last one grew too large",
+	"head_why_unreadable": "the last one could not be resumed"
 }

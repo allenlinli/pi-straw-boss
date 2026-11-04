@@ -537,6 +537,12 @@ test("FR-F003: a herdr CLI child below a worker's pi does not make the hello ref
 	await assert.rejects(procs.hello({ pid: 49, id: "term" }), (e: Error) => e instanceof ProcsRefusal && /above Herdr/.test(e.message), "the real server is still above-refused");
 });
 
+test("GR-F002: with Herdr silent about its panes, a hello above the Herdr server is still refused", async () => {
+	const { w, procs } = world({ protect: async () => [{ pid: 50, started: "t50", why: "herdr" }] });
+	w.table = [P(49, 1, { comm: "/Applications/Terminal" }), P(50, 49, { comm: "/usr/local/bin/herdr" }), P(51, 50, { comm: "zsh" }), P(52, 51)];
+	await assert.rejects(procs.hello({ pid: 49, id: "term" }), (e: Error) => e instanceof ProcsRefusal && /above Herdr/.test(e.message));
+});
+
 test("FR-F006: a hello naming the foreground pi of another pane is refused when it states its own pane", async () => {
 	const { w, procs } = world({
 		protect: async () => [{ pid: 51, why: "pane" }, { pid: 52, why: "pane-foreground", pane: "p1" }, { pid: 62, why: "pane-foreground", pane: "p2" }],

@@ -605,3 +605,13 @@ test("FR-F009: lexer edges: a redirect glued to a target, a heredoc body, pushd"
 	assert.deepEqual(removeTargets("cat <<'EOF' > f\ngit worktree remove wt\nEOF\ngit worktree remove b", "/w"), [{ target: "b", cwd: "/w", via: "git" }]);
 	assert.deepEqual(removeTargets("pushd /x; git worktree remove wt", "/w"), [{ target: "wt", cwd: "/x", via: "git" }]);
 });
+
+test("GR-F001: a here-string, arithmetic shift or unterminated heredoc hides no later line from the guard", () => {
+	const rm = [{ target: "wt", cwd: "/w", via: "git" }];
+	assert.deepEqual(removeTargets('cat <<< "hi"\ngit worktree remove wt', "/w"), rm);
+	assert.deepEqual(removeTargets("cat <<<hi\ngit worktree remove wt", "/w"), rm);
+	assert.deepEqual(removeTargets("cat <<< x; git worktree remove wt", "/w"), rm);
+	assert.deepEqual(removeTargets("echo $((1<<2))\ngit worktree remove wt", "/w"), rm);
+	assert.deepEqual(removeTargets("echo $((1<<2)); git worktree remove wt", "/w"), rm);
+	assert.deepEqual(removeTargets("cat <<EOF\ngit worktree remove wt", "/w"), rm, "no closing line: fail closed");
+});

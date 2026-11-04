@@ -15,6 +15,12 @@ export type Token = { word: string } | { op: string };
  * Splits a command into words and (with `ops`) the operators between commands, honoring single and double quotes and backslashes: an operator character inside quotes is part of a word. An unclosed quote runs to the end.
  * Best effort: expansion and substitution are not evaluated.
  */
+/** Whether index `at` sits inside an unclosed `$((...))`, where `<<` is a shift, not a heredoc. */
+function inArithmetic(text: string, at: number): boolean {
+	const open = text.lastIndexOf("$((", at);
+	return open >= 0 && !text.slice(open, at).includes("))");
+}
+
 export function lex(text: string, ops = true): Token[] {
 	const out: Token[] = [];
 	let word = "", open = false, quote: string | undefined;
@@ -40,15 +46,17 @@ export function lex(text: string, ops = true): Token[] {
 			operator("\n");
 			if (heredoc && c === "\n") {
 				const lines = text.slice(i + 1).split("\n");
-				let used = 0;
+				let used = 0, closed = false;
 				for (const line of lines) {
 					used += line.length + 1;
-					if ((heredoc.tabs ? line.replace(/^\t+/, "") : line) === heredoc.delimiter) break;
+					if ((heredoc.tabs ? line.replace(/^\t+/, "") : line) === heredoc.delimiter) (closed = true, void 0);
+					if (closed) break;
 				}
-				i += used;
+				// An unterminated heredoc hides nothing: its lines are read as commands (fail closed).
+				if (closed) i += used;
 				heredoc = undefined;
 			}
-		} else if (ops && c === "<" && next === "<" && text[i + 2] !== "<" && !heredoc) {
+		} else if (ops && c === "<" && next === "<" && text[i + 2] !== "<" && text[i - 1] !== "<" && !heredoc && !inArithmetic(text, i)) {
 			const m = /^<<(-?)[ \t]*(?:'([^']*)'|"([^"]*)"|([^\s;&|()<>]+))/.exec(text.slice(i));
 			if (m) heredoc = { delimiter: m[2] ?? m[3] ?? m[4] ?? "", tabs: m[1] === "-" };
 			if (!/^\d*[<>&]*$/.test(word)) flush();

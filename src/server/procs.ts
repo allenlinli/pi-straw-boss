@@ -175,16 +175,16 @@ export function createProcs(d: ProcsDeps): Procs {
 		const no = (what: string) => new ProcsRefusal(`procs-hello: pid ${pid} is ${what}, not a pi`);
 		if (SHELLS.has(baseName(proc.comm).replace(/^-/, ""))) throw no("a shell");
 		if (self.includes(pid)) throw no("this server");
-		const named = ((await d.protect?.(table)) ?? []).filter((p) => p.why !== "pane-foreground");
+		const all = (await d.protect?.(table)) ?? [];
+		const named = all.filter((p) => p.why !== "pane-foreground");
 		const hit = named.find((p) => p.pid === pid && (p.started === undefined || p.started === proc.started));
 		if (hit) throw no(`protected (${hit.why})`);
-		const all = (await d.protect?.(table)) ?? [];
 		// The foreground of another pane than the one the hello names is that pane's pi.
 		if (pane && all.some((p) => p.why === "pane-foreground" && p.pid === pid && p.pane !== undefined && p.pane !== pane)) throw no("the foreground of another pane");
 		const below = new Set(descendants(table, [pid]).map((p) => p.pid));
 		const shells = new Set(named.filter((p) => p.why === "pane").map((p) => p.pid));
-		// A `herdr` CLI call below a worker's pi is no Herdr server: only a herdr with a pane's shell below it is.
-		const server = (p: Protect) => p.why === "herdr" && descendants(table, [p.pid]).some((c) => shells.has(c.pid));
+		// A `herdr` CLI call below a worker's pi is no Herdr server: only a herdr with a pane's shell below it is (or any herdr when Herdr listed no pane).
+		const server = (p: Protect) => p.why === "herdr" && (shells.size === 0 || descendants(table, [p.pid]).some((c) => shells.has(c.pid)));
 		if (named.some((p) => (server(p) || p.why === "pane") && below.has(p.pid))) throw no("above Herdr or a pane's shell");
 	}
 	/** The kill set of one owner on a fresh table, and the kill sequence over it. */

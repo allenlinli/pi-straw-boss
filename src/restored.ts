@@ -145,7 +145,7 @@ export function restored(d: Restored) {
 			const n = (reaches.get(c.id) ?? 0) + 1;
 			reaches.set(c.id, n);
 			if (n < REACH) return "wait";
-			c.why = !to ? "this session has no intercom id to give it for its report" : kid ? `its intercom status is ${kid.status ?? "unknown"}` : "no intercom session of its pane is listed";
+			c.why = !to ? "this session has no intercom id to give it for its report" : kid ? `its intercom status is ${kid.status ?? "unknown"}` : list?.some((s) => s.herdrLocation?.paneId === c.pane) ? "its intercom session of the pane has no current Herdr location yet" : "no intercom session of its pane is listed";
 			return "no";
 		}
 		const now = cutOf(c.session);

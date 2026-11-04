@@ -6,7 +6,7 @@ import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 // transcript ending in an assistant tool call with no result (`call`), in a result the model never read (`result`), in a message nobody answered (`prompt`: a user message, or a custom
 // message that starts a turn, such as an intercom message or a monitor's wake), or in a reply that was being written when the process died (`stream`). The restored pi waits at its prompt and does nothing of its own, so the child has to be
 // told to go on. An assistant message that stopped for any other reason ended its turn: an abort is the boss's own stop, a stop or a length limit is an end, and an error is no cut unless its message
-// is the one a restart leaves (claude-bridge's Claude Code process terminated by SIGHUP or SIGTERM, or exited with code 129 or 143). A turn that stands at a question (ask_user_question,
+// is the one a restart leaves (claude-bridge's Claude Code process terminated by SIGHUP, or exited with code 129; a SIGTERM or code 143 is a kill by hand as well, and nothing here shows a restart came after it, so it is no cut). A turn that stands at a question (ask_user_question,
 // caller_ping, an intercom ask) is waiting, not cut. Only `message` entries and the custom messages that start a turn count; a custom entry or a model change says nothing of the turn.
 
 export interface Cut {
@@ -17,11 +17,11 @@ export interface Cut {
 	at: string;
 }
 
-/** What claude-bridge records when the Claude Code process behind it dies of the hangup or the terminate a restart sends. */
-const RESTART = /\bprocess (?:terminated by signal (?:SIGHUP|SIGTERM)|exited with code (?:129|143))\b/i;
+/** What claude-bridge records when the Claude Code process behind it dies of the hangup a restart sends (a terminate is no proof of one: someone may have killed the process). */
+const RESTART = /\bprocess (?:terminated by signal SIGHUP|exited with code 129)\b/i;
 const NAME = /^[\w.:-]{1,64}$/, TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/, MORE = 10;
-/** The custom messages that start a turn in a child (an intercom message, a nested launcher's result, a monitor's wake); others, such as a second-thought notice, only show. */
-const WAKES = new Set(["intercom_message", "subagent_result", "subagent_ping", "pi-loop-monitor"]);
+/** The custom messages that start a turn in a child (an intercom message, a nested launcher's result, a monitor's wake, a second-thought or document-review notice, a robot-hand follow-up); they are followed by an assistant message in real sessions. Others, such as a tower notice, are left out: missing one is a false negative (no nudge), never a wrong send. */
+const WAKES = new Set(["intercom_message", "subagent_result", "subagent_ping", "pi-loop-monitor", "anchorloop-second-thought", "aaaav-second-thought", "doc-review", "robot-hand-follow-up", "robot-hand-herdr"]);
 const QUESTIONS = new Set(["ask_user_question", "caller_ping"]);
 const CHUNK = 64 * 1024, LIMIT = 16 * 1024 * 1024;
 type Block = { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };

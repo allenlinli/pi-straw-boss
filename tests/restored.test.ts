@@ -763,9 +763,9 @@ test("RC-F002: an assistant message the boss aborted (Esc) with a tool call bloc
 	assert.doesNotMatch(state.resumed[0]!.text, /mid-turn/);
 });
 
-test("RC-F003: a reply cut by the hangup a restart sends (SIGHUP, SIGTERM, 129, 143) is a cut, and any other error is not", async () => {
+test("RC-F003: a reply cut by the hangup a restart sends (SIGHUP, 129) is a cut, and any other error, a SIGTERM or a 143 included, is not", async () => {
 	registry();
-	const messages = ["Claude Code process terminated by signal SIGHUP", "Claude Code process terminated by signal SIGTERM", "Claude Code process exited with code 129", "Claude Code process exited with code 143"];
+	const messages = ["Claude Code process terminated by signal SIGHUP", "Claude Code process exited with code 129"];
 	for (const errorMessage of messages) {
 		const { state, polls, art, kidFile } = rig();
 		worktree(art);
@@ -780,7 +780,7 @@ test("RC-F003: a reply cut by the hangup a restart sends (SIGHUP, SIGTERM, 129, 
 	const partial = rig();
 	write(partial.kidFile, asked, reasoned(1, "error", "Claude Code process terminated by signal SIGHUP", { type: "thinking", thinking: "" }, callBlock("bash")));
 	assert.equal(cutOf(partial.kidFile)?.kind, "stream");
-	for (const errorMessage of ["429 rate limit exceeded", "Conversation replaced", "Claude Code process exited with code 1", "terminated by signal SIGHUP in a test"]) {
+	for (const errorMessage of ["429 rate limit exceeded", "Conversation replaced", "Claude Code process exited with code 1", "terminated by signal SIGHUP in a test", "Claude Code process terminated by signal SIGTERM", "Claude Code process exited with code 143"]) {
 		const other = rig();
 		write(other.kidFile, asked, reasoned(1, "error", errorMessage, { type: "text", text: "x" }, callBlock("bash")));
 		assert.equal(cutOf(other.kidFile), undefined, errorMessage);
@@ -801,6 +801,9 @@ test("RC-F005: only a broker session whose Herdr location is current, in the chi
 	only.state.sessions = [{ id: "someone-else", status: "idle", herdrLocation: { status: "unavailable", paneId: "w:p2" } }];
 	await only.polls(8);
 	assert.deepEqual(only.state.sent, []);
+	// RR-F003: a listed but unavailable session is not called unlisted.
+	assert.match(only.state.resumed[0]!.text, /no current Herdr location yet/);
+	assert.doesNotMatch(only.state.resumed[0]!.text, /is listed/);
 });
 
 test("RC-F006: a custom message that starts a turn (intercom, monitor wake) and got no answer is a cut, one that only shows is not", async () => {
@@ -812,7 +815,13 @@ test("RC-F006: a custom message that starts a turn (intercom, monitor wake) and 
 	writeFileSync(kidFile, [header, asked, done(1), custom("pi-loop-monitor", false)].join("\n") + "\n");
 	assert.equal(cutOf(kidFile)?.kind, "prompt", "a monitor's wake is hidden and starts a turn");
 	writeFileSync(kidFile, [header, asked, done(1), custom("anchorloop-second-thought", true)].join("\n") + "\n");
-	assert.equal(cutOf(kidFile), undefined);
+	assert.equal(cutOf(kidFile)?.kind, "prompt", "RR-F002: a second-thought notice starts a turn");
+	for (const type of ["doc-review", "robot-hand-follow-up"]) {
+		writeFileSync(kidFile, [header, asked, done(1), custom(type, true)].join("\n") + "\n");
+		assert.equal(cutOf(kidFile)?.kind, "prompt", type);
+	}
+	writeFileSync(kidFile, [header, asked, done(1), custom("some-notice", true)].join("\n") + "\n");
+	assert.equal(cutOf(kidFile), undefined, "an unknown custom type says nothing");
 	writeFileSync(kidFile, [header, asked, custom("intercom_message", true), done(1)].join("\n") + "\n");
 	assert.equal(cutOf(kidFile), undefined, "answered");
 });

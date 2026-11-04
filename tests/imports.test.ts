@@ -996,7 +996,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head tower H6 (quietForwards, the strip's rest rule, and one word in both languages): 291,348 / 118,456 measured. Cap = measured + 25 / + 20.
 	// Merge of the head tower into main (0.58.0): 293,235 / 119,191 measured, the head's figures plus the wait alert's. Cap = measured + 15 / + 19.
 	// Head polish (after 0.58.0: the key's message, the strip's lift and away swaps in the lazy Zen chunk): 293,458 / 119,242 measured, +223 / +51 over the merge figure. Cap = measured + 15.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 293_473 && total(chunks, gz) <= 119_257, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Head polish review fixes (the key span's aria-hidden, the away guard on the mindfulness swap): 293,529 / 119,276 measured on a fresh build, +71 / +34. Cap = measured + 15 / + 19.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 293_544 && total(chunks, gz) <= 119_295, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1102,7 +1103,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head tower H6 (the Zen history's quiet forward rows, the Chinese line wrap, reduced motion for the head's lines, Geek's flat head plate; the H5 review fixes' history veil and rules since the figure above): 152,861 / 31,315 measured. Cap = measured + 15.
 	// Merge of the head tower into main (0.58.0): 153,316 / 31,385 measured, the head's figures plus the wait alert's Zen buttons. Cap = measured + 14 / + 15.
 	// Head polish (after 0.58.0: the compact head node, the lines' --fade/--lift swap, the away rules for the mindfulness line and the link, the key's rules): 154,415 / 31,676 measured, +1,099 / +291 over the merge figure. Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 154_430 && total(css, gz) <= 31_691, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Head polish review fixes (the phone pill's 44 px hit box): 154,475 / 31,691 measured on a fresh build, +60 / +15. Cap = measured + 15.
+	assert.ok(total(css, (n) => size(n).length) <= 154_490 && total(css, gz) <= 31_706, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

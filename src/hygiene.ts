@@ -7,7 +7,7 @@ import { herdrRun, panes as herdrPanes, result as herdrResult, workspaces as her
 import { type Cwd, readCwds } from "./procs/cwd.ts";
 import { type Holder, parseWorktreeList, refusal, removeTargets } from "./procs/guard.ts";
 import { OWNER_KEY, readOwners, setOwner } from "./procs/marker.ts";
-import { isOrphan, type Proc, readTable } from "./procs/table.ts";
+import { baseName, isOrphan, type Proc, readTable } from "./procs/table.ts";
 import { checkoutOf, physical, under } from "./procs/worktree.ts";
 import { inRun, inStandingRun } from "./runmark.ts";
 import { makeCtx, trusted } from "./server/client.ts";
@@ -26,6 +26,7 @@ import { startOf } from "./startof.ts";
 export const BEAT_MS = 30_000;
 /** A target of a removal: the word, the folder it is read in, and what removes it (`tool`: the `worktree_remove` tool). */
 interface GuardTarget { target: string; cwd: string; via: "git" | "herdr" | "tool" }
+const SHELL_NAMES = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh"]);
 const NOTE = Symbol.for("pi-straw-boss.hygiene.told");
 
 /** What this extension reaches the machine with; replaced in tests. */
@@ -117,7 +118,9 @@ export function createHygiene(deps: HygieneDeps = {}) {
 	 */
 	async function checkoutsOf({ target: word, cwd, via }: GuardTarget, spaces: () => Promise<Workspace[]>): Promise<string[]> {
 		const found = new Set<string>();
-		let target = word;
+		let target = word, gitError: unknown;
+		// A word the shell expands (a variable, a substitution, a glob) names no checkout this guard can read: unresolved is blocked.
+		if (/[$`*?[]/.test(word)) throw new Error(`the target ${JSON.stringify(word)} is not a literal checkout; name the checkout literally (or use worktree_remove)`);
 		if (via === "herdr" && !target) {
 			// `herdr worktree remove` without `--workspace` takes the workspace of the caller.
 			target = env.HERDR_WORKSPACE_ID?.trim() ?? "";
@@ -133,7 +136,8 @@ export function createHygiene(deps: HygieneDeps = {}) {
 			try {
 				listed = parseWorktreeList(await git(cwd, ["worktree", "list", "--porcelain"]));
 			} catch (error) {
-				if (!found.size) throw error;
+				// A caller outside any repository may still name a Herdr workspace (the tool); decided below.
+				if (!found.size) gitError = error;
 			}
 			// The first entry is the main checkout, which git does not remove.
 			for (const w of listed.slice(1)) if (w.branch === target || real(w.path) === real(abs)) found.add(real(w.path));
@@ -149,6 +153,7 @@ export function createHygiene(deps: HygieneDeps = {}) {
 				if (w.workspace_id === target && w.worktree?.is_linked_worktree && w.worktree.checkout_path) found.add(real(w.worktree.checkout_path));
 			}
 		}
+		if (!found.size && gitError) throw gitError;
 		return [...found];
 	}
 
@@ -171,8 +176,10 @@ export function createHygiene(deps: HygieneDeps = {}) {
 	async function idleShellsOf(root: string, spaces: () => Promise<Workspace[]>): Promise<Set<number>> {
 		const shells = new Set<number>();
 		try {
+			const comms = new Map((await table())?.map((p) => [p.pid, baseName(p.comm).replace(/^-/, "")]) ?? []);
 			for (const w of await spaces()) {
-				if (w.worktree?.is_linked_worktree && w.worktree.checkout_path && real(w.worktree.checkout_path) === root) for (const pid of await idleShells(w.workspace_id)) shells.add(pid);
+				// Herdr's pid and process group stay the same when a shell execs a program: only a pid that still runs a shell is idle.
+				if (w.worktree?.is_linked_worktree && w.worktree.checkout_path && real(w.worktree.checkout_path) === root) for (const pid of await idleShells(w.workspace_id)) if (SHELL_NAMES.has(comms.get(pid) ?? "")) shells.add(pid);
 			}
 		} catch {
 			shells.clear();
@@ -184,10 +191,11 @@ export function createHygiene(deps: HygieneDeps = {}) {
 	async function guard(what: string, targets: GuardTarget[]): Promise<string | undefined> {
 		let listing: Promise<Workspace[]> | undefined;
 		const spaces = () => (listing ??= workspacesOf());
-		const roots = new Set<string>();
-		for (const target of targets) for (const root of await checkoutsOf(target, spaces)) roots.add(root);
-		for (const root of roots) {
-			const idle = await idleShellsOf(root, spaces);
+		// A root named only by bare `git worktree remove` keeps its idle shells as holders: git does not close the workspace.
+		const roots = new Map<string, boolean>();
+		for (const target of targets) for (const root of await checkoutsOf(target, spaces)) roots.set(root, (roots.get(root) ?? true) && target.via !== "git");
+		for (const [root, closes] of roots) {
+			const idle = closes ? await idleShellsOf(root, spaces) : new Set<number>();
 			const holders = (await holdersOf(root)).filter((h) => !idle.has(h.proc.pid));
 			if (holders.length) return refusal(what, root, holders, cli(), now());
 		}
@@ -208,7 +216,7 @@ export function createHygiene(deps: HygieneDeps = {}) {
 		/** Everything a hello needs of the session, read while its ctx is live: pi invalidates the ctx of a session that is replaced (reload, new, resume, fork) and a getter of it then throws. */
 		interface Self { cwd: string; file?: string; notify: (text: string) => void; terminal?: Promise<string | undefined> }
 		/** A background step: its failure is its own (a stale session, a server that went away), never an unhandled rejection that would take pi down. */
-		const spawn = (step: Promise<unknown>) => void track(step.catch(() => undefined));
+		const background = (step: Promise<unknown>) => void track(step.catch(() => undefined));
 		/** What this pi says about itself; the server checks the pid against its own table. */
 		const hello = async (self: Self, pane: string | undefined) => {
 			const started = deps.startOf ? deps.startOf(pid) : startOf(pid);
@@ -218,8 +226,8 @@ export function createHygiene(deps: HygieneDeps = {}) {
 			const reply = await call({ cmd: "procs-hello", pid, id, ...(started ? { started } : {}), ...(subagentId ? { subagentId } : {}), ...(self.file ? { sessionFile: self.file } : {}), ...(pane ? { pane } : {}), ...(terminal ? { terminal } : {}), cwd: self.cwd });
 			if (reply?.ok) return void (registered = true);
 			registered = false;
-			// The server turned this pi down (an id in use, a pid it does not know): that does not change on its own, so it is said once and not asked again. No server at all is tried again at the next beat.
-			if (reply && !reply.ok) (refused = true, tell(self.notify, `Straw Boss: the sb server did not register this worker for process hygiene: ${String(reply.error ?? "refused")}. What it starts is not reaped when it ends.`));
+			// The server turned this pi down (an id in use, a pid it does not know): that does not change on its own, so it is said once and not asked again. No server, a restarting one, or any other failed reply is tried again at the next beat.
+			if (reply && !reply.ok && reply.refused === true) (refused = true, tell(self.notify, `Straw Boss: the sb server did not register this worker for process hygiene: ${String(reply.error ?? "refused")}. What it starts is not reaped when it ends.`));
 		};
 
 		pi.on("session_start", (_event, ctx) => {
@@ -234,8 +242,8 @@ export function createHygiene(deps: HygieneDeps = {}) {
 			try { self.file = ctx.sessionManager?.getSessionFile?.(); } catch { /* no session file */ }
 			refused = false;
 			stop?.();
-			spawn(hello(self, pane));
-			stop = every(() => spawn(registered ? call({ cmd: "procs-beat", id }).then((reply) => void (registered = reply?.ok === true && reply.known === true), () => void (registered = false)) : refused ? Promise.resolve() : hello(self, pane)), BEAT_MS);
+			background(hello(self, pane));
+			stop = every(() => background(registered ? call({ cmd: "procs-beat", id }).then((reply) => void (registered = reply?.ok === true && reply.known === true), () => void (registered = false)) : refused ? Promise.resolve() : hello(self, pane)), BEAT_MS);
 		});
 		pi.on("session_shutdown", async (event) => {
 			stop?.();

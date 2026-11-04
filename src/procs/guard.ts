@@ -24,6 +24,8 @@ export function lex(text: string, ops = true): Token[] {
 		open = false;
 	};
 	const operator = (op: string) => (flush(), void out.push({ op }));
+	// A heredoc (`<<EOF`) is data until its delimiter line, not commands: the body is skipped at the next newline.
+	let heredoc: { delimiter: string; tabs: boolean } | undefined;
 	for (let i = 0; i < text.length; i++) {
 		const c = text[i]!, next = text[i + 1];
 		if (quote) {
@@ -34,8 +36,30 @@ export function lex(text: string, ops = true): Token[] {
 		else if (c === "\\" && i + 1 < text.length) {
 			// A backslash before a newline joins the lines.
 			if (text[++i] !== "\n") (word += text[i]!, open = true);
-		} else if (ops && (c === "\n" || c === "\r")) operator("\n");
-		else if (/\s/.test(c)) flush();
+		} else if (ops && (c === "\n" || c === "\r")) {
+			operator("\n");
+			if (heredoc && c === "\n") {
+				const lines = text.slice(i + 1).split("\n");
+				let used = 0;
+				for (const line of lines) {
+					used += line.length + 1;
+					if ((heredoc.tabs ? line.replace(/^\t+/, "") : line) === heredoc.delimiter) break;
+				}
+				i += used;
+				heredoc = undefined;
+			}
+		} else if (ops && c === "<" && next === "<" && text[i + 2] !== "<" && !heredoc) {
+			const m = /^<<(-?)[ \t]*(?:'([^']*)'|"([^"]*)"|([^\s;&|()<>]+))/.exec(text.slice(i));
+			if (m) heredoc = { delimiter: m[2] ?? m[3] ?? m[4] ?? "", tabs: m[1] === "-" };
+			if (!/^\d*[<>&]*$/.test(word)) flush();
+			word += c;
+			open = true;
+		} else if (ops && (c === "<" || c === ">") && !/^\d*[<>&]*$/.test(word)) {
+			// A redirect glued to a word (`wt>/dev/null`) starts a word of its own.
+			flush();
+			word += c;
+			open = true;
+		} else if (/\s/.test(c)) flush();
 		else if (!ops) (word += c, open = true);
 		else if (c === ";") operator(";");
 		else if (c === "&") {
@@ -47,7 +71,7 @@ export function lex(text: string, ops = true): Token[] {
 			if (next === "|") (operator("||"), i++);
 			else operator("|");
 		} else if (c === "(" || c === ")" || c === "`") operator(c);
-		else if (c === "$" && next === "(") (operator("("), i++);
+		else if (c === "$" && next === "(") (operator("$("), i++);
 		else if (c === "#" && !open && !word) {
 			while (i + 1 < text.length && text[i + 1] !== "\n") i++;
 		} else (word += c, open = true);
@@ -78,7 +102,7 @@ export function removeTargets(command: string, cwd: string, depth = 0): RemoveTa
 			else if (/^\d*(?:>>?|<{1,3}|&>>?|>&)$/.test(current[i]!)) i++; // the file of a redirection is not an argument
 		}
 		current = [];
-		if (tokens[0] === "cd" && tokens[1] && tokens[1] !== "-") here = resolve(here, expand(tokens[1]));
+		if ((tokens[0] === "cd" || tokens[0] === "pushd") && tokens[1] && tokens[1] !== "-") here = resolve(here, expand(tokens[1]));
 		// The word after `-c` of a shell (`bash -c "…"`, `sh -lc '…'`) or after `eval` is a command of its own.
 		if (depth < 3) tokens.forEach((token, at) => /\s/.test(token) && (/^-[A-Za-z]*c$/.test(tokens[at - 1] ?? "") || tokens[at - 1] === "eval") && out.push(...removeTargets(token, here, depth + 1)));
 		for (let i = 0; i < tokens.length; i++) {
@@ -112,8 +136,10 @@ export function removeTargets(command: string, cwd: string, depth = 0): RemoveTa
 			current.push(token.word);
 			continue;
 		}
+		// A substitution inside a removal cannot be read here: it becomes an unresolved target, which the guard blocks.
+		if ((token.op === "$(" || (token.op === "`" && !tick)) && current.some((w, k) => w === "remove" && current[k - 1] === "worktree")) current.push("$(");
 		run();
-		if (token.op === "(") saved.push(here);
+		if (token.op === "(" || token.op === "$(") saved.push(here);
 		else if (token.op === ")") here = saved.pop() ?? here;
 		else if (token.op === "`") (tick ? (here = saved.pop() ?? here) : saved.push(here), tick = !tick);
 	}

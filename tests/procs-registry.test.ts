@@ -528,6 +528,25 @@ test("RR-F003: a hello is refused for the Herdr server, a pane's shell, this ser
 	assert.deepEqual(pids(w.reaped), [[53, 54]]);
 });
 
+test("FR-F003: a herdr CLI child below a worker's pi does not make the hello refused; only a Herdr server (one with a pane shell below it) counts", async () => {
+	const { w, procs } = world({
+		protect: async () => [{ pid: 50, started: "t50", why: "herdr" }, { pid: 51, why: "pane" }, { pid: 52, why: "pane-foreground" }, { pid: 53, started: "t53", why: "herdr" }],
+	});
+	w.table = [P(49, 1, { comm: "/Applications/Terminal" }), P(50, 49, { comm: "/usr/local/bin/herdr" }), P(51, 50, { comm: "zsh" }), P(52, 51), P(53, 52, { comm: "herdr" })];
+	assert.deepEqual(await procs.hello({ pid: 52, id: "pi" }), { id: "pi" }, "a herdr CLI child of the worker is no Herdr server");
+	await assert.rejects(procs.hello({ pid: 49, id: "term" }), (e: Error) => e instanceof ProcsRefusal && /above Herdr/.test(e.message), "the real server is still above-refused");
+});
+
+test("FR-F006: a hello naming the foreground pi of another pane is refused when it states its own pane", async () => {
+	const { w, procs } = world({
+		protect: async () => [{ pid: 51, why: "pane" }, { pid: 52, why: "pane-foreground", pane: "p1" }, { pid: 62, why: "pane-foreground", pane: "p2" }],
+	});
+	w.table = [P(50, 1, { comm: "herdr" }), P(51, 50, { comm: "zsh" }), P(52, 51), P(61, 50, { comm: "zsh" }), P(62, 61)];
+	await assert.rejects(procs.hello({ pid: 62, id: "x", pane: "p1" }), (e: Error) => e instanceof ProcsRefusal && /another pane/.test(e.message));
+	assert.deepEqual(await procs.hello({ pid: 52, id: "pi", pane: "p1" }), { id: "pi" });
+	assert.deepEqual(await procs.hello({ pid: 62, id: "pi2", pane: "p2" }), { id: "pi2" });
+});
+
 test("RR-F004: a failed write of owners.json is one log line, not an unhandled rejection that would take the server down", async (t) => {
 	if (process.getuid?.() === 0) return t.skip("root writes anywhere");
 	const { w, procs, lines } = world({}, dir);

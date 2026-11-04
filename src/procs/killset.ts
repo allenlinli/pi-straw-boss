@@ -10,7 +10,7 @@ export interface Owned { id: string; pid: number; started: string; roots: string
 /** Where a process works: the path, and whether that folder is gone. */
 export interface Place { path: string; removed: boolean }
 /** A process that is never signalled: the Herdr server, a live pane's shell or foreground, an sb server, the intercom broker. `tree` spares what it started too. `started` limits it to that process (a reused pid is not spared). */
-export interface Protect { pid: number; started?: string; why: string; tree?: boolean }
+export interface Protect { pid: number; started?: string; why: string; tree?: boolean; /** The pane a `pane-foreground` entry is the foreground of. */ pane?: string }
 
 export interface KillInput {
 	owner: Owned;

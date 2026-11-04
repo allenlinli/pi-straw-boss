@@ -169,7 +169,7 @@ export function createProcs(d: ProcsDeps): Procs {
 	 * A hello is a pi's word about itself, and its snapshot later becomes a kill list: so a pid that is the Herdr server, a pane's shell, this server, an sb server or the intercom broker, a shell, or a process that has
 	 * Herdr or a pane's shell below it (a terminal app, tmux) is refused. A pane's foreground is not on this list: the worker's pi is that.
 	 */
-	async function refuseProtected(pid: number, table: readonly Proc[]): Promise<void> {
+	async function refuseProtected(pid: number, table: readonly Proc[], pane?: string): Promise<void> {
 		const proc = table.find((p) => p.pid === pid && !p.zombie);
 		if (!proc) return;
 		const no = (what: string) => new ProcsRefusal(`procs-hello: pid ${pid} is ${what}, not a pi`);
@@ -178,8 +178,14 @@ export function createProcs(d: ProcsDeps): Procs {
 		const named = ((await d.protect?.(table)) ?? []).filter((p) => p.why !== "pane-foreground");
 		const hit = named.find((p) => p.pid === pid && (p.started === undefined || p.started === proc.started));
 		if (hit) throw no(`protected (${hit.why})`);
+		const all = (await d.protect?.(table)) ?? [];
+		// The foreground of another pane than the one the hello names is that pane's pi.
+		if (pane && all.some((p) => p.why === "pane-foreground" && p.pid === pid && p.pane !== undefined && p.pane !== pane)) throw no("the foreground of another pane");
 		const below = new Set(descendants(table, [pid]).map((p) => p.pid));
-		if (named.some((p) => (p.why === "herdr" || p.why === "pane") && below.has(p.pid))) throw no("above Herdr or a pane's shell");
+		const shells = new Set(named.filter((p) => p.why === "pane").map((p) => p.pid));
+		// A `herdr` CLI call below a worker's pi is no Herdr server: only a herdr with a pane's shell below it is.
+		const server = (p: Protect) => p.why === "herdr" && descendants(table, [p.pid]).some((c) => shells.has(c.pid));
+		if (named.some((p) => (server(p) || p.why === "pane") && below.has(p.pid))) throw no("above Herdr or a pane's shell");
 	}
 	/** The kill set of one owner on a fresh table, and the kill sequence over it. */
 	async function reapSet(subject: OwnerRecord, reason: string, explicit = false): Promise<ReapResult> {
@@ -326,7 +332,7 @@ export function createProcs(d: ProcsDeps): Procs {
 			const table = await read();
 			const started = table ? table.find((p) => p.pid === h.pid && !p.zombie)?.started : probe(h.pid);
 			if (!started || (h.started !== undefined && h.started !== started)) throw new ProcsRefusal("procs-hello: that pid is not a process of this account with that start time");
-			if (table) await refuseProtected(h.pid, table);
+			if (table) await refuseProtected(h.pid, table, h.pane);
 			const known = owners.get(id);
 			if (known && !known.ended && (known.pid !== h.pid || known.started !== started)) {
 				// Another pi under the id of a live one: an id collision (a nested pi inherits its parent's subagent id) must not end the live owner and kill its tree.
@@ -470,7 +476,7 @@ export async function protectedSet(table: readonly Proc[], { run, stateDir, agen
 					const info = (JSON.parse(await run(["pane", "process-info", "--pane", pane.pane_id])) as { result?: { process_info?: { shell_pid?: number; foreground_processes?: { pid?: number }[] } } }).result?.process_info;
 					// The shell and the foreground are told apart: a worker's pi is its pane's foreground, and a hello may not name a shell.
 					if (typeof info?.shell_pid === "number" && info.shell_pid > 1) out.push({ pid: info.shell_pid, why: "pane" });
-					for (const f of info?.foreground_processes ?? []) if (typeof f.pid === "number" && f.pid > 1) out.push({ pid: f.pid, why: "pane-foreground" });
+					for (const f of info?.foreground_processes ?? []) if (typeof f.pid === "number" && f.pid > 1) out.push({ pid: f.pid, why: "pane-foreground", pane: pane.pane_id });
 				} catch { /* the pane closed meanwhile */ }
 			}
 		} catch { /* Herdr does not answer */ }

@@ -279,8 +279,8 @@
 /* Buttons are words: Send at full paper, the rest in ash until a pointer or the keys come to them (the face is the page's, top of this file). */
 [data-view="zen"] :is(.ask-send, .cmp-send, .cmp-yes, .pad-yes, .tcard-go, .zen-term-back) { border-color: transparent; background: transparent; color: var(--zen-paper); }
 [data-view="zen"] :is(.ask-send, .cmp-send, .cmp-yes, .pad-yes, .tcard-go, .zen-term-back):hover:not(:disabled) { background: var(--zen-glow); }
-[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .zen-history-btn, .pad-no, .tcard-mask, .tcard-full) { border-color: transparent; background: transparent; color: var(--zen-ash); text-decoration-color: transparent; transition: color 0.4s var(--zen-ease); }
-[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .zen-history-btn, .pad-no, .tcard-mask, .tcard-full):hover:not(:disabled) { background: transparent; color: var(--zen-paper); }
+[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .wait-panel .pair-btn, .zen-history-btn, .pad-no, .tcard-mask, .tcard-full) { border-color: transparent; background: transparent; color: var(--zen-ash); text-decoration-color: transparent; transition: color 0.4s var(--zen-ease); }
+[data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .wait-panel .pair-btn, .zen-history-btn, .pad-no, .tcard-mask, .tcard-full):hover:not(:disabled) { background: transparent; color: var(--zen-paper); }
 [data-view="zen"] .zen-term-host :is(.pad-yes, .tcard-go) { border-color: transparent; background: transparent; color: var(--zen-paper); } /* the terminal layer's pair is two words too, above its own pill rules (ZVL-F001) */
 [data-view="zen"] .zen-term-host :is(.pad-no, .tcard-mask) { border-color: transparent; background: transparent; color: var(--zen-ash); }
 [data-view="zen"] .zen-term-host :is(.pad-yes, .tcard-go):hover:not(:disabled) { background: var(--zen-glow); }

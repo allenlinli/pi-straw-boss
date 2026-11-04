@@ -33,11 +33,11 @@ export function waitPanel(o: WaitPanelOptions) {
 			return r;
 		}, 0).finally(() => (busy = false));
 	};
-	return { el: h("div", { class: "wait-panel" }, o.text && h("p", { class: "wait-text" }, o.text), reach, dismiss, note), sending: () => busy, /** Dismiss answers only while the stream is live. */ update: (live: boolean) => void (dismiss.disabled = !live || busy) };
+	return { el: h("div", { class: "wait-panel" }, o.text && h("p", { class: "wait-text" }, o.text), reach, dismiss, note), dismiss, sending: () => busy, /** Dismiss answers only while the stream is live. */ update: (live: boolean) => void (dismiss.disabled = !live || busy) };
 }
 
 const panels = new WeakMap<HTMLElement, ReturnType<typeof waitPanel>>();
-/** A wait's dialog in the dock: what it waits for in the answer slot with Dismiss under it, the link to the comms as the act, and none of the tower's old transmission; a wait that is over says so. */
+/** A wait's dialog in the dock: what it waits for in the answer slot, the link to the comms as the act with Later and Dismiss after it in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
 export function waitDialog(el: HTMLElement, a: Alert, close: () => void) {
 	const over = Boolean(a.gone), go = el.querySelector<HTMLElement>(".go")!;
 	el.querySelector<HTMLElement>(".intel")!.hidden = true;
@@ -49,5 +49,8 @@ export function waitDialog(el: HTMLElement, a: Alert, close: () => void) {
 	if (!panel) panels.set(el, (panel = waitPanel({ ws: a.ws, id: a.wait!.id, text: a.wait!.text, done: close })));
 	if (!el.querySelector(".wait-panel")) el.querySelector(".ask-root")!.replaceChildren(panel.el);
 	panel.el.hidden = over;
+	// Handle, Later and Dismiss in one row of the dialog's footer, the quiet one last.
+	el.querySelector("footer")!.insertBefore(panel.dismiss, el.querySelector(".queued"));
+	panel.dismiss.hidden = over;
 	panel.update(!over && document.body.dataset.stale !== "true");
 }

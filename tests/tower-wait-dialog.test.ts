@@ -55,6 +55,15 @@ test("a wait's dialog says what the tower waits for, offers the tower's comms an
 	assert.ok(button(m.wait_dismiss()), "Dismiss");
 });
 
+test("a wait's dialog puts its three actions in one footer row: the act, then Later, then Dismiss as the quiet one", () => {
+	const layer = mount();
+	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
+	layer.stack.show(wait as never);
+	const footer = dock.all((el) => el.tagName === "footer")[0]!;
+	const row = footer.children.filter((el) => el.tagName === "a" || el.tagName === "button").map((el) => el.textContent);
+	assert.deepEqual(row, [m.tower_answer(), m.later(), m.wait_dismiss()]);
+});
+
 test("Dismiss posts to the tower's memory route by the wait's id and closes the dialog once the server took it; a refusal says why and leaves it", async () => {
 	const layer = mount();
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));

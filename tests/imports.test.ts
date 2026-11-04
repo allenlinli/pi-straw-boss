@@ -703,7 +703,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// UT6-F003 (the `withdrawn` dialog state): 4972 measured, +1 (one line in dialogState).
 	// Zen lines (feat/zen-lines) to 5023 (measured, +51 over the 4972 above): the 24 added sourced lines of zenlines.ts, two lines each (a source comment and the entry), and its `ja` field and element.
 	// A wait for the boss is an alert (docs/specs/2026-10-26-sb-backend.md, Tower memory) to 5113 (measured; the budget was 5023; the chip of an ended wait is one line more): gui/waits.ts (the rules: freshness, age, the alerts of a snapshot) and gui/waitpanel.ts (the dialog's and Zen's panel with Dismiss), and the few lines that reach them in alerts.ts, layer.ts, zen.ts, towermodel.ts, and towernotes.ts.
-	assert.ok(page <= 5113, `the page's TypeScript has ${page} lines`);
+	assert.ok(page <= 5116, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).

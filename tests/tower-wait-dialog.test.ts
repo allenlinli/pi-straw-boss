@@ -52,7 +52,7 @@ test("a wait's dialog says what the tower waits for, offers the tower's comms an
 	assert.equal(go.textContent, m.tower_answer());
 	assert.equal(go.getAttribute("href"), "w/w/s/sb-tower-w", "the act: the tower's comms");
 	assert.ok(button(m.later()), "and it can wait");
-	assert.ok(button(m.dismiss()), "Dismiss");
+	assert.ok(button(m.wait_dismiss()), "Dismiss");
 });
 
 test("Dismiss posts to the tower's memory route by the wait's id and closes the dialog once the server took it; a refusal says why and leaves it", async () => {
@@ -60,13 +60,13 @@ test("Dismiss posts to the tower's memory route by the wait's id and closes the 
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
 	layer.stack.show(wait as never);
 	reply = { ok: false, status: 409, body: { error: "refused", reason: "No such wait W2" } };
-	button(m.dismiss())!.click();
+	button(m.wait_dismiss())!.click();
 	await settle();
 	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "drop", id: "W2" }, csrf: "CSRF" }]);
 	assert.match(dock.all((el) => el.getAttribute("role") === "alert").map((e) => e.textContent).join("|"), /No such wait W2/);
 	assert.equal(layer.stack.open.length, 1, "refused: still open");
 	reply = { ok: true, status: 200, body: {} };
-	button(m.dismiss())!.click();
+	button(m.wait_dismiss())!.click();
 	await settle();
 	assert.equal(sent.length, 2);
 	assert.equal(layer.stack.open.length, 0, "taken: closed");
@@ -78,5 +78,6 @@ test("a dialog whose wait is over says so, not that the tower left the net, and 
 	layer.stack.show(wait as never);
 	layer.alerts([], new Map());
 	assert.equal(cls("state")!.textContent, m.tower_wait_over());
-	assert.equal(button(m.dismiss())?.disabled ?? true, true);
+	assert.equal(cls("tag")!.textContent, m.tag_question(), "the chip does not say the tower is GONE");
+	assert.equal(button(m.wait_dismiss())?.disabled ?? true, true);
 });

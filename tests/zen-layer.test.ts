@@ -236,7 +236,7 @@ test("a trust question draws the trust panel with its three choices, answers thr
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 });
 
-test("a wait the tower recorded on the boss is an item with its words, Tell the tower (to its comms), Dismiss (the server drops it), and Not now, and no terminal to open", async () => {
+test("a wait the tower recorded on the boss is an item with its words, Handle (to its comms), Dismiss (the server drops it), and Not now, and no terminal to open", async () => {
 	const sent: { path: string; body: unknown }[] = [];
 	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => ({}) }) });
 	const r = rig();
@@ -246,10 +246,10 @@ test("a wait the tower recorded on the boss is an item with its words, Tell the 
 	r.z.show();
 	await r.settle();
 	assert.ok(r.text().includes("Boss token needed to add the ACL") && r.text().includes("tower"), "what it waits for, and who");
-	for (const label of ["Tell the tower", "Dismiss", "Maybe later"]) assert.ok(r.button(label), label);
+	for (const label of ["Handle", "Dismiss", "Maybe later"]) assert.ok(r.button(label), label);
 	assert.equal(r.button("Open the terminal"), undefined, "a wait is not a pane blocked on a prompt");
 	assert.equal(r.calls.composers.length, 0, "no composer: the act is the tower's comms");
-	r.button("Tell the tower")!.click();
+	r.button("Handle")!.click();
 	assert.deepEqual(r.calls.leave, [{ route: { view: "session", ws: "w", key: "t" } }], "the act: the tower's comms, in Standard");
 	r.button("Dismiss")!.click();
 	await r.settle();

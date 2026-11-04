@@ -79,7 +79,7 @@ export function createPage(io: PageIo) {
 		io.restart();
 	}
 	/** The tab icon carries the count of units waiting on an answer, and every project trust question; Zen shows none. */
-	const badge = (net: Net) => io.icon(rules().count ? waitingOf(unitsOf(net).map((r) => r.unit)).length + (net.trust?.length ?? 0) : 0);
+	const badge = (net: Net) => io.icon(rules().count ? waitingOf(unitsOf(net).map((r) => r.unit)).length + (net.trust?.length ?? 0) + [...alertsOf(net, Date.now()).values()].filter((a) => a.wait).length : 0); // a wait the tower recorded on the boss counts like a trust question: it is an alert that is not a unit
 	/** Shows Zen or Standard to match `zenOn()`: Zen draws the newest snapshot when it comes on, and Standard draws it again on leaving. */
 	function sync() {
 		const on = zenOn();

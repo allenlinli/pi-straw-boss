@@ -59,7 +59,7 @@ test("a wait row says how long it has stood and that it may be out of date after
 	assert.equal(rows[0]!.text, `${m.tower_waits_for_you({ text: OLD.text })} · ${m.tower_wait_age({ age: m.age_d({ n: "2" }) })} · ${m.tower_wait_stale()}`);
 	assert.equal(rows[1]!.text, m.tower_waits_for_you({ text: FRESH.text }), "a fresh wait reads as before");
 	assert.equal(noticeRows(service([OLD]), { locale: "zh-TW" }, NOW)[0]!.text, `等你決定：${OLD.text} · 已等 2 天 · 可能已過時`);
-	assert.match(m.tower_answer(), /tower|塔台/i, "the link says what it does: tell the tower, not answer a question nobody asked");
+	assert.deepEqual([m.tower_answer({}, { locale: "zh-TW" }), m.wait_dismiss({}, { locale: "zh-TW" })], ["去處理", "略過"], "the boss-facing words");
 });
 
 test("Dismiss on the card posts the dismiss to the memory route by the wait's id and the link goes to the tower's comms", async () => {
@@ -69,7 +69,7 @@ test("Dismiss on the card posts the dismiss to the memory route by the wait's id
 	const box = new El("div");
 	fillNotices(box as unknown as HTMLElement, "wA", service([FRESH]), "sb-tower-wa");
 	const buttons = box.find((el) => el.tag === "button");
-	assert.deepEqual(buttons.map((b) => b.textContent), [m.dismiss()]);
+	assert.deepEqual(buttons.map((b) => b.textContent), [m.wait_dismiss()]);
 	(buttons[0] as unknown as { onclick(): void }).onclick();
 	await new Promise((done) => setTimeout(done, 5));
 	assert.deepEqual(sent, [{ path: "api/tower/wA/memory", body: { op: "drop", id: "W2" } }]);

@@ -394,3 +394,10 @@ test("Escape, bubble phase: it closes the top dialog; with none open it goes up 
 	up.core.escape(taken, false);
 	assert.deepEqual([other.prevented, taken.prevented], [0, 0]);
 });
+
+test("the tab icon counts a fresh wait the tower recorded on the boss, like a trust question", () => {
+	const w = world(), n = net(unit("a", "idle"));
+	(n.bases[0] as { tower: unknown }).tower = { ...unit("sb-tower-w", "idle"), service: { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "W1", text: "go?", at: new Date().toISOString() }], proposals: [] } } };
+	w.core.snapshot(n);
+	assert.deepEqual(w.icons, [1]);
+});

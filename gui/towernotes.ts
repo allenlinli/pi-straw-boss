@@ -7,7 +7,7 @@ import { type Act, guarded, noticeRows } from "./towermodel.ts";
 
 // The tower service's notices and parked events with their buttons, drawn in the map's base card and again in the tower's comms, so a held tower shows its Retry wherever the boss looks.
 
-const LABEL: Record<Act, () => string> = { retry: m.tower_notice_retry, deliver: m.tower_deliver, drop: m.tower_drop, answer: m.tower_answer, dismiss: m.dismiss, confirm: m.memory_confirm, reject: m.memory_reject };
+const LABEL: Record<Act, () => string> = { retry: m.tower_notice_retry, deliver: m.tower_deliver, drop: m.tower_drop, answer: m.tower_answer, dismiss: m.wait_dismiss, confirm: m.memory_confirm, reject: m.memory_reject };
 
 /** Redrawn only when the rows change, so a click never lands on a button that was replaced. */
 export function fillNotices(box: HTMLElement, ws: string, service: TowerService | undefined, key?: string) {

@@ -114,7 +114,9 @@
 [data-view="zen"] .zen-history .zen-log { min-height: 0; }
 /* The history is open: the item above it (the question, every choice, the send row) stays whole, and the box takes the room that is left, down to 12rem; when the item and that minimum do not fit the page, the card scrolls as one. */
 [data-view="zen"] .zen-card:has(.zen-history:not([hidden])) :is(.zen-answer, .zen-ask, .ask) { flex: none; }
-[data-view="zen"] .zen-answer .wait-panel { justify-content: center; } /* a wait for the boss: its two buttons in the card's middle */
+[data-view="zen"] .zen-answer .wait-panel { justify-content: center; }
+[data-view="zen"] .zen-answer .wait-panel :is(.pair-btn) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; text-transform: none; text-decoration: underline; text-decoration-color: var(--zen-line); text-underline-offset: 6px; }
+[data-view="zen"] .zen-answer .wait-panel .pair-btn:hover:not(:disabled) { background: var(--zen-sunken); } /* a wait for the boss: its two buttons in the card's middle */
 [data-view="zen"] .zen-card:has(.zen-history:not([hidden])) .zen-ask .ask > :not(.ask-acts, .ask-note) { flex: none; min-height: 0; overflow: visible; -webkit-mask-image: none; mask-image: none; }
 [data-view="zen"] .zen-card:has(.zen-history:not([hidden])) .zen-history { flex: 1 1 12rem; min-height: 12rem; max-height: min(46vh, 26rem); }
 [data-view="zen"] .zen-history-btn { min-height: 44px; min-width: 44px; }
@@ -260,7 +262,7 @@
    The seal marks only where the keyboard is, as a line under a word or a dot's ring, never a ring around a box, so no scroller can cut it. An overlay lets the page
    recede. Borders turn transparent rather than go, so forced colours (below) still draws every one of them. ── */
 [data-view="zen"] .zen-who { font-weight: 400; letter-spacing: 0.14em; }
-[data-view="zen"] #zen :is(.ask-send, .ask-cancel, .cmp-send, .cmp-alt, .cmp-yes, .zen-skip, .zen-history-btn, .cmp-link, .zen-opt, .zen-leave, .tcard-full, .tcard-go, .tcard-mask, .zen-term-back, .pad-yes, .pad-no, .palette-item):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
+[data-view="zen"] #zen :is(.ask-send, .ask-cancel, .cmp-send, .cmp-alt, .cmp-yes, .zen-skip, .zen-history-btn, .cmp-link, .wait-panel .pair-btn, .zen-opt, .zen-leave, .tcard-full, .tcard-go, .tcard-mask, .zen-term-back, .pad-yes, .pad-no, .palette-item):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
 /* The choices: one line each, a dot before it (filled when chosen), the description in ash below; a pointer or the keys light the line, the keys ring the dot in seal. */
 [data-view="zen"] .zen-card .ask-opts { gap: 2px; text-align: left; }
 [data-view="zen"] .zen-card button.ask-opt { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 10px; row-gap: 0; /* the dot spans 9 rows: no gap between the empty ones */ align-items: baseline; padding: 10px 14px; border: 1px solid transparent; border-radius: 14px; background: transparent; color: var(--zen-paper); font: 400 1.05rem/1.5 var(--sans); letter-spacing: 0.04em; text-align: left; transition: background 0.4s var(--zen-ease); }

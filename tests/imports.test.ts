@@ -702,8 +702,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Merge of feat/link-unattended with 0.55.0: 4971 measured (Zen's Z-D16 trim, -133, under the S4b/S5/ut-s6 additions).
 	// UT6-F003 (the `withdrawn` dialog state): 4972 measured, +1 (one line in dialogState).
 	// Zen lines (feat/zen-lines) to 5023 (measured, +51 over the 4972 above): the 24 added sourced lines of zenlines.ts, two lines each (a source comment and the entry), and its `ja` field and element.
-	// A wait for the boss is an alert (docs/specs/2026-10-26-sb-backend.md, Tower memory) to 5112 (measured; the budget was 5023): gui/waits.ts (the rules: freshness, age, the alerts of a snapshot) and gui/waitpanel.ts (the dialog's and Zen's panel with Dismiss), and the few lines that reach them in alerts.ts, layer.ts, zen.ts, towermodel.ts, and towernotes.ts.
-	assert.ok(page <= 5112, `the page's TypeScript has ${page} lines`);
+	// A wait for the boss is an alert (docs/specs/2026-10-26-sb-backend.md, Tower memory) to 5113 (measured; the budget was 5023; the chip of an ended wait is one line more): gui/waits.ts (the rules: freshness, age, the alerts of a snapshot) and gui/waitpanel.ts (the dialog's and Zen's panel with Dismiss), and the few lines that reach them in alerts.ts, layer.ts, zen.ts, towermodel.ts, and towernotes.ts.
+	assert.ok(page <= 5113, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -840,7 +840,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merge with 0.55.0 (Zen Z-D12 to Z-D16 on main): 93,905 / 33,636 (measured), +222 / +45 over the S5 figure. Cap = measured + 15.
 	// UT6-F003 (`withdrawn` state and its two messages): 93,933 / 33,650 (measured), +28 raw / +14 gzipped over the merge figure. Cap = measured + 15.
 	// A wait for the boss is an alert (gui/waits.ts): 94,897 / 33,944 (measured), +964 raw / +294 gzipped over the 93,933 / 33,650 above: the alerts of a snapshot's fresh waits (`waitAlerts`, which `alertsOf` calls on every snapshot), the line of a wait with its age and "may be out of date" (`waitLine`, the tower card's row), and four messages in both languages. The dialog's and Zen's panel (gui/waitpanel.ts) is in the lazy chunks. Cap = measured + 15.
-	assert.ok(eagerBytes <= 94_912 && eagerGz <= 33_959, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// The tab icon counts the waits the tower recorded on the boss (pagecore.ts): 95,004 / 33,983, cap 95,010 / 33,990.
+	assert.ok(eagerBytes <= 95_010 && eagerGz <= 33_990, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).

@@ -21,7 +21,7 @@ export interface WaitPanelOptions {
 	done?(): void;
 }
 export function waitPanel(o: WaitPanelOptions) {
-	const note = h("small", { class: "tnote-fail", role: "alert" }), dismiss = h("button", { type: "button", class: "pair-btn" }, m.dismiss());
+	const note = h("small", { class: "tnote-fail", role: "alert" }), dismiss = h("button", { type: "button", class: "pair-btn" }, m.wait_dismiss());
 	const reach = o.reach && Object.assign(h("button", { type: "button", class: "pair-btn" }, m.tower_answer()), { onclick: o.reach });
 	let busy = false;
 	dismiss.onclick = () => {
@@ -43,6 +43,7 @@ export function waitDialog(el: HTMLElement, a: Alert, close: () => void) {
 	el.querySelector<HTMLElement>(".intel")!.hidden = true;
 	go.textContent = m.tower_answer();
 	aim(go, over ? undefined : { view: "session", ws: a.ws, key: unitOf(a) });
+	text(el, ".tag", m.tag_question()); // the stack tags a gone unit GONE; the tower did not leave, the wait ended
 	text(el, ".state", over ? m.tower_wait_over() : m.memory_wait_boss());
 	let panel = panels.get(el);
 	if (!panel) panels.set(el, (panel = waitPanel({ ws: a.ws, id: a.wait!.id, text: a.wait!.text, done: close })));

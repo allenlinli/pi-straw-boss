@@ -17,7 +17,7 @@ import type { Log } from "./log.ts";
 import { secretDir, type Slot, towerId, towerName } from "./record.ts";
 import { createHead, HEAD_ORDER, HEAD_TOKEN, type HeadEnsured } from "./head.ts";
 import { asked, closeAsk, openAsk, openAsks } from "./headasks.ts";
-import { headBrief, headIntake, stateWord } from "./headside.ts";
+import { headBrief, headIntake, relayOnlyFromHead, stateWord } from "./headside.ts";
 import { headHost, headTool } from "./headtools.ts";
 import type { Allows } from "./allows.ts";
 import type { Asks } from "./asks.ts";
@@ -339,7 +339,7 @@ export function createTowers(o: TowersOptions): Towers {
 					log.line("tower-ally-answer", { workspace: ws, from: from.id });
 					runs.pokeAllies(l.record.id);
 				} else if (verdict === "new") {
-					const written = appendEvent(slot, l.record, { kind: "intercom", from: { id: from.id, ...(from.name ? { name: from.name } : {}) }, text: message.content.text, at: new Date(now()).toISOString(), messageId: message.id });
+					const written = appendEvent(slot, l.record, { kind: "intercom", from: { id: from.id, ...(from.name ? { name: from.name } : {}) }, text: relayOnlyFromHead(slot, from.id, message.content.text), at: new Date(now()).toISOString(), messageId: message.id });
 					seen.add(from.id, message.id, message.content.text);
 					clearExpect(slot, l.record.workspace, from.id, now());
 					void markAnswered(l, from.id);

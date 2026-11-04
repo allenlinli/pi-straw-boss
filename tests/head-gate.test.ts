@@ -38,7 +38,7 @@ test("asks: ids count up from H1, an ask stays open 24 hours after its last forw
 	assert.equal(readAsks(slot, T0 + 2 * ASK_OPEN_MS).find((x) => x.id === "H1")?.answers.length, 1, "an expired ask stays in the list with its answers");
 });
 
-test("asks: at most 40 are open; opening one more closes the oldest, and a forward to a workspace again renews its ask only when the head says so", () => {
+test("asks: at most 40 are open; and opening one more closes the oldest", () => {
 	const slot = slotIn();
 	for (let n = 0; n < ASK_CAP + 1; n++) openAsk(slot, T0 + n, { workspace: `w${n}`, label: `W${n}`, first: `m${n}` });
 	const open = openAsks(slot, T0 + 100);
@@ -141,4 +141,21 @@ test("a boss event passes without an ask and wakes the head at once; the answer 
 	const old = openAsk(world.slot, Date.now() - ASK_OPEN_MS - 1000, { workspace: "wA", label: "Alpha", first: "x" });
 	const receipt = await refused(client, { id: "sb-tower-wa", name: "tower · Alpha" }, "late", answerFrom(old.id) + " too late");
 	assert.equal(receipt.status, "expired");
+});
+
+test("a workspace tower's intake keeps `relay=` only on a message from the head identity: from anyone else the field is dropped before the event is queued (review HH2-F001)", async () => {
+	const { head } = await setup();
+	const tower = world.client("sb-tower-wa")!;
+	const forwarded = (from: string) => `[straw net from="x" id=${from} role=tower head=yes workspace=head kind=tower_send scope=tower to="tower · Alpha (tower of Alpha)" reply=expected ask=H1 relay=boss:e1 in-reply-to=H2] start MP-4129`;
+	tower.incoming({ id: "main-9", name: "docs-main" }, msg("m1", forwarded("main-9")));
+	tower.incoming({ id: "sb-head", name: "head tower" }, msg("m2", forwarded("sb-head")));
+	await until(() => readQueue(world.slot, "wA").length === 2, "both events queued");
+	const [fromMain, fromHead] = readQueue(world.slot, "wA");
+	assert.equal(fieldsOf(fromMain!.text)?.relay, undefined, fromMain!.text);
+	assert.equal(fieldsOf(fromHead!.text)?.relay, "boss:e1", fromHead!.text);
+	// Nothing else of the header or the text changes.
+	const f = fieldsOf(fromMain!.text)!;
+	assert.deepEqual([f.ask, f["in-reply-to"], f.kind], ["H1", "H2", "tower_send"]);
+	assert.ok(fromMain!.text.endsWith("] start MP-4129"));
+	void head;
 });

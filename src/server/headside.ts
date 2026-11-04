@@ -8,7 +8,8 @@ import { buildHeadBrief, HEAD_TOOLS, type HeadWorkspace } from "./headbrief.ts";
 import { headGate } from "./headgate.ts";
 import { refuseHead } from "./head.ts";
 import type { Log } from "./log.ts";
-import type { Slot } from "./record.ts";
+import { fieldsOf, withoutField } from "../header.ts";
+import { headId, type Slot } from "./record.ts";
 import { ageOf, gatherMains } from "./towerbrief.ts";
 import { appendEvent, type ServiceRecord } from "./towerstore.ts";
 import { lastNote, type RunRecord } from "./towerrunstore.ts";
@@ -22,6 +23,12 @@ import type { Seen } from "./towerseen.ts";
 export const stateWord = (state: string | undefined, fallback: string): string => (state ? ({ standing: "standing by", waking: "running", running: "running", closing: "closing", held: "held" } as Record<string, string>)[state] ?? fallback : fallback);
 
 const phrase = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "");
+
+/**
+ * `relay=boss:…` tells a workspace tower that a message carries the boss's own instruction, so the field is believed from the head identity alone: the text of anyone else loses it before the event is queued (review HH2-F001).
+ * The header is the sender's own code's, but a message from a main or a stray pi is only as true as its sender's id.
+ */
+export const relayOnlyFromHead = (slot: Slot, senderId: string, text: string): string => (senderId === headId(slot) || fieldsOf(text)?.relay === undefined ? text : withoutField(text, "relay"));
 
 export interface HeadIntakeDeps {
 	slot: Slot;

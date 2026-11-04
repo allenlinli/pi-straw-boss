@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { allyLabel } from "./boardauto.ts";
 import { sessionMark } from "./netdata.ts";
-import { createHeadReach, headInfo } from "./reachhead.ts";
+import { createHeadReach, headIdOf, headInfo } from "./reachhead.ts";
 import { type Kind, type Party, stamp, type Stamp, type Why, WHYS } from "./header.ts";
-import { headTowerOf, isHead, isSub, type Pane, panes, parentOf, type Session, towerModel, workspaces, type Workspace } from "./herdr.ts";
+import { isHead, isSub, type Pane, panes, parentOf, type Session, towerModel, workspaces, type Workspace } from "./herdr.ts";
 import type { Kit, Scope, SendResult } from "./state.ts";
 import { inside } from "./link/routing.ts";
 import { type Ctx, makeCtx } from "./server/client.ts";
@@ -156,15 +156,15 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 	};
 	type Net = Awaited<ReturnType<typeof read>>;
 	const ROLES = new Set(["tower", "main", "member"]);
-	/** A session as a header names it: its role is the one its pane's token publishes, `session` for a pi that did not join. The head tower's pane says `head`: a tower, and the one `head=yes` is for. */
+	/** A session as a header names it: its role is the one its pane's token publishes, `session` for a pi that did not join. The head tower is a tower, and the one `head=yes` is for. */
 	const partyOf = (x: Session, net: Net): Party => {
-		const token = net.ps.find((p) => p.pane_id === x.herdrLocation?.paneId)?.tokens?.sb_role ?? "";
-		const role = token === "head" ? "tower" : ROLES.has(token) ? (token as Party["role"]) : "session";
+		const token = net.ps.find((p) => p.pane_id === x.herdrLocation?.paneId)?.tokens?.sb_role ?? "", head = x.id === headIdOf(net.all);
+		const role = head ? "tower" : ROLES.has(token) ? (token as Party["role"]) : "session";
 		const workspace = x.herdrLocation?.workspace;
-		return { name: nameOf(x) || x.id, id: x.id, role, ...(token === "head" ? { head: true } : {}), ...(workspace?.label ? { workspace: workspace.label } : {}) };
+		return { name: nameOf(x) || x.id, id: x.id, role, ...(head ? { head: true } : {}), ...(workspace?.label ? { workspace: workspace.label } : {}) };
 	};
 	const selfParty = (net: Net): Party => {
-		const mine = net.sessions.find((x) => x.id === me()), workspace = net.all.find((w) => w.workspace_id === s.at.workspaceId), head = Boolean(workspace && isHead(workspace));
+		const mine = net.sessions.find((x) => x.id === me()), workspace = net.all.find((w) => w.workspace_id === s.at.workspaceId), head = me() === headIdOf(net.all);
 		return { name: nameOf(mine) || s.ownName || me(), id: me(), role: role() ?? "session", ...(head ? { head: true } : {}), ...(head ? { workspace: "head" } : workspace ? { workspace: workspace.label } : {}) };
 	};
 	/** The message under its header, once for the whole audience: every recipient reads the same line, with the others named in it. */
@@ -214,7 +214,7 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 	};
 	const broadcast = async (message: string, scope: Scope, reply = false) => {
 		// The head tower takes only the boss's words and answers to its asks (headgate.ts): a broadcast does not go to it.
-		const net = await read(), headId = headTowerOf(net.all)?.tokens?.sb_head, others = net.sessions.filter((x) => x.id !== me() && x.id !== headId);
+		const net = await read(), headId = headIdOf(net.all), others = net.sessions.filter((x) => x.id !== me() && x.id !== headId);
 		const notes = new Map<string, string>();
 		let targets: Session[];
 		if (scope === "towers") {

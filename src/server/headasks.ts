@@ -66,14 +66,6 @@ export function openAsk(slot: Slot, now: number, d: { workspace: string; label: 
 	save(slot, file);
 	return ask;
 }
-/** Another forward on an open ask of that workspace renews it. */
-export function renewAsk(slot: Slot, now: number, id: string): HeadAsk | undefined {
-	const file = load(slot), ask = file.asks.find((a) => a.id === id);
-	if (!ask || !isOpen(ask, now)) return undefined;
-	ask.last = now;
-	save(slot, file);
-	return ask;
-}
 /** Records an answer on an open ask of `workspace`; undefined when there is no such open ask (another workspace's, expired, closed, or unknown). */
 export function answerAsk(slot: Slot, now: number, d: { id: string; workspace: string; text: string }): HeadAsk | undefined {
 	const file = load(slot), ask = file.asks.find((a) => a.id === d.id);

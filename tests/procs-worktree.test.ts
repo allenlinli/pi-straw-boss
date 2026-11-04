@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkoutOf, rootOfRemoved, under, type Disk } from "../src/procs/worktree.ts";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { checkoutOf, physical, rootOfRemoved, under, type Disk } from "../src/procs/worktree.ts";
 import { OWNER_KEY, ownerOf, parseOwnerRows, readOwners, setOwner } from "../src/procs/marker.ts";
 
 // Which checkout a working folder is in (a linked worktree is a `.git` file that points into `<repo>/.git/worktrees/`), and the owner marker that a process carries in its environment.
@@ -83,4 +86,29 @@ test("setOwner puts the marker in the environment it is given, and nowhere else"
 	setOwner("own-q", env);
 	assert.deepEqual(env, { A: "1", [OWNER_KEY]: "own-q" });
 	assert.throws(() => setOwner("bad id", env), /owner id/);
+});
+
+test("RV-F004: the root is physical: a logical /tmp path finds the /private/tmp root lsof reports; a path that is gone resolves from its nearest folder that is there", () => {
+	const real = (path: string) => (path.startsWith("/tmp/") ? `/private${path}` : path);
+	const private_ = disk({ "/private/tmp/wt/.git": "gitdir: /repo/.git/worktrees/wt\n" });
+	assert.deepEqual(checkoutOf("/tmp/wt/sub", private_, real), { kind: "linked", root: "/private/tmp/wt", gitdir: "/repo/.git/worktrees/wt" });
+	assert.ok(under("/private/tmp/wt/sub", (checkoutOf("/tmp/wt/sub", private_, real) as { root: string }).root), "so it compares with what lsof says");
+	const dir = mkdtempSync(join(tmpdir(), "wtp-"));
+	try {
+		mkdirSync(join(dir, "real", "a"), { recursive: true });
+		symlinkSync(join(dir, "real"), join(dir, "link"));
+		assert.equal(physical(join(dir, "link", "a")), join(realpathSync(dir), "real", "a"));
+		assert.equal(physical(join(dir, "link", "gone", "deeper")), join(realpathSync(dir), "real", "gone", "deeper"), "a removed folder resolves from the part that exists");
+		assert.equal(physical("/no-such-top-folder/x"), "/no-such-top-folder/x");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("RV-F005: the last marker word of a row wins, so an argument that looks like the marker never beats the environment entry", () => {
+	assert.equal(ownerOf(`/bin/sh -c echo ${OWNER_KEY}=victim PATH=/bin ${OWNER_KEY}=real`), "real");
+	assert.equal(ownerOf(`/bin/sh -c echo ${OWNER_KEY}=victim PATH=/bin`), "victim", "argv alone is all ps shows for an Apple binary; the snapshot and cwd rules are the cover there");
+	const map = parseOwnerRows(`  42 /bin/sh -c echo ${OWNER_KEY}=victim PATH=/bin ${OWNER_KEY}=real`, new Set([42]));
+	assert.equal(map.get(42), "real");
+	assert.equal(ownerOf(`${OWNER_KEY}=real ${OWNER_KEY}=${"x".repeat(80)}`), undefined, "the last one decides, and it is not an id");
 });

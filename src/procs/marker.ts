@@ -7,11 +7,14 @@ import { run, type Run } from "./table.ts";
 
 export const OWNER_KEY = "STRAW_BOSS_OWNER";
 const ID = /^[A-Za-z0-9._-]{1,64}$/;
-const WORD = new RegExp(`(?:^|\\s)${OWNER_KEY}=([^\\s]*)(?=\\s|$)`);
+const WORD = new RegExp(`(?:^|\\s)${OWNER_KEY}=([^\\s]*)(?=\\s|$)`, "g");
 
-/** The owner id among the words of one row of environment text, undefined when there is none or it is not an id. */
+/**
+ * The owner id among the words of one row of environment text, undefined when there is none or it is not an id. The last match wins: `ps -E` prints the argument words first and the environment after them,
+ * so a word of the command line that looks like the marker never beats the real entry.
+ */
 export function ownerOf(text: string): string | undefined {
-	const id = WORD.exec(text)?.[1];
+	const id = [...text.matchAll(WORD)].at(-1)?.[1];
 	return id && ID.test(id) ? id : undefined;
 }
 

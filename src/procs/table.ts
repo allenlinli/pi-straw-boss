@@ -55,10 +55,10 @@ export const run: Run = (file, args) => new Promise((resolve, reject) => {
 	execFileExe(file, args, { encoding: "utf8", maxBuffer: 1 << 26, timeout: 15_000, env: { ...process.env, LC_ALL: "C", TZ: "UTC" } }, (error, stdout) => (error && !stdout ? reject(error) : resolve(stdout)));
 });
 
-/** The account's own processes, now. Undefined on a platform without `ps`; a failed `ps` throws (the caller must not decide on a table it did not get). */
-export async function readTable(ask: Run = run, { uid = process.getuid?.(), platform = process.platform }: { uid?: number; platform?: NodeJS.Platform } = {}): Promise<Proc[] | undefined> {
+/** The account's own processes, now (`all`: every account's, which the kill sequence reads so a group with a foreign member is not signalled whole). Undefined on a platform without `ps`; a failed `ps` throws (the caller must not decide on a table it did not get). */
+export async function readTable(ask: Run = run, { uid = process.getuid?.(), platform = process.platform, all = false }: { uid?: number; platform?: NodeJS.Platform; all?: boolean } = {}): Promise<Proc[] | undefined> {
 	if (platform === "win32") return undefined;
-	return parsePs(await ask("ps", PS_ARGS)).filter((p) => uid === undefined || p.uid === uid);
+	return parsePs(await ask("ps", PS_ARGS)).filter((p) => all || uid === undefined || p.uid === uid);
 }
 
 /** Whether the parent is the init process or a subreaper (the user's `systemd --user` on Linux): the process lost its starter. A parent the table does not list is another account's, not a dead one. */

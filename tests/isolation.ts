@@ -15,8 +15,8 @@ import { startOf } from "../src/startof.ts";
 /** The folders go derives its caches and telemetry from (os.UserCacheDir, os.UserConfigDir): isolation points them into the root, and `goEnv` gives go the real ones back. */
 const GO_DIRS = ["APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"] as const;
 
-/** What a test must not inherit from the shell or the pi session that started it. */
-export const INHERITED = /^(TERM|NO_COLOR|FORCE_COLOR|PI_(INTERCOM|SUBAGENT|HERDR_AGENTS)_.*|PI_SESSION_(FILE|ID)|STRAW_BOSS_.*|HERDR_.*|SB_TEST_REAL_SERVER)$/;
+/** What a test must not inherit from the shell or the pi session that started it. STRAW_BOSS_OWNER stays: it is the marker of the owner whose tests these are, so their children carry it (the owner marker, src/procs/marker.ts). */
+export const INHERITED = /^(TERM|NO_COLOR|FORCE_COLOR|PI_(INTERCOM|SUBAGENT|HERDR_AGENTS)_.*|PI_SESSION_(FILE|ID)|STRAW_BOSS_(?!OWNER$).*|HERDR_.*|SB_TEST_REAL_SERVER)$/;
 
 export interface Isolation { root: string; owner: boolean }
 

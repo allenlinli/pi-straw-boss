@@ -118,3 +118,25 @@ test("the ended owner's own pid is not special: a target set never contains it u
 	const d = killSet({ ...base, owner: owner({ snapshot: [refOf(table[1]!)] }), table });
 	assert.deepEqual(pids(d), [101]);
 });
+
+test("RV-F001: the cwd rule does not reach into a root that a live owner also holds, nor one a live pane of a main works in", () => {
+	const table = [P(700, 1)];
+	const places = new Map<number, Place>([[700, { path: `${ROOT}/x`, removed: false }]]);
+	const other = owner({ id: "own-b", pid: 150, started: "t150", roots: [ROOT] });
+	assert.deepEqual(pids(killSet({ ...base, owner: owner(), table, places })), [700], "alone in the root, the rule applies");
+	assert.deepEqual(pids(killSet({ ...base, owner: owner(), table, places, live: [other] })), [], "a live owner holds the same root");
+	assert.deepEqual(pids(killSet({ ...base, owner: owner(), table, places, live: [owner({ id: "own-b", pid: 150, started: "t150", roots: ["/wt"] })] })), [], "a live owner holds a folder above it");
+	assert.deepEqual(pids(killSet({ ...base, owner: owner(), table, places, held: [ROOT] })), [], "an unregistered session works there");
+	assert.deepEqual(pids(killSet({ ...base, owner: owner(), table, places, held: ["/wt/other"] })), [700], "another root does not hold it");
+	const removed = new Map<number, Place>([[700, { path: `${ROOT}/x`, removed: true }]]);
+	assert.deepEqual(pids(killSet({ ...base, owner: owner(), table, places: removed, live: [other] })), [], "also for a removed checkout");
+	// the snapshot and marker rules are the owner's own, whatever others hold
+	assert.deepEqual(pids(killSet({ ...base, owner: owner({ snapshot: [refOf(table[0]!)] }), table, places, live: [other] })), [700]);
+});
+
+test("a live owner under the same id (a new hello) spares the processes that carry the marker: the marker no longer tells the two apart", () => {
+	const table = [P(400, 1)];
+	const markers = new Map([[400, "own-a"]]);
+	assert.deepEqual(pids(killSet({ ...base, owner: owner(), table, markers })), [400]);
+	assert.deepEqual(pids(killSet({ ...base, owner: owner(), table, markers, live: [owner({ pid: 200, started: "t200" })] })), []);
+});

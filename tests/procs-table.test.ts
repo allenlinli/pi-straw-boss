@@ -98,3 +98,23 @@ test("classifyCwd: a deleted link, an absent path, and a path that now has anoth
 	assert.equal(classifyCwd({ path: "/w", inode: "5" }, "5"), "present");
 	assert.equal(classifyCwd({ path: "/w" }, "6"), "present", "no inode to compare (Linux): the path is there");
 });
+
+test("RV-F003: lsof exits 1 with nothing printed when none of a chunk's pids exists: an empty answer for that chunk, the other chunks still answer; any other failure is thrown", async () => {
+	const pids = Array.from({ length: 250 }, (_, i) => i + 5);
+	const calls: string[] = [];
+	const run = async (_file: string, args: string[]) => {
+		calls.push(args.at(-1)!);
+		if (calls.length === 1) throw Object.assign(new Error("Command failed"), { code: 1 });
+		return "p205\nfcwd\ni1\nn/w\n";
+	};
+	const map = await readCwds(pids, { run, platform: "darwin", readlink: () => { throw new Error("not used"); } });
+	assert.equal(calls.length, 2);
+	assert.deepEqual([...map], [[205, { path: "/w", inode: "1" }]]);
+	await assert.rejects(readCwds([5], { run: async () => { throw Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }); }, platform: "darwin" }), /timed out/);
+});
+
+test("readTable keeps every account's rows with `all` (the kill sequence's membership view) and the account's own by default", async () => {
+	const ask = async () => ["  1 0 1 0 Ss Mon Nov  3 08:00:00 2026 0:41.20 /sbin/launchd", "  7 1 7 501 S Mon Nov  3 08:00:00 2026 0:00.00 node"].join("\n");
+	assert.deepEqual((await readTable(ask, { uid: 501, platform: "darwin" }))!.map((p) => p.pid), [7]);
+	assert.deepEqual((await readTable(ask, { uid: 501, platform: "darwin", all: true }))!.map((p) => p.pid), [1, 7]);
+});

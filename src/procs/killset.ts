@@ -25,6 +25,8 @@ export interface KillInput {
 	reapers: readonly number[];
 	/** This process and whatever must outlive it. */
 	self: readonly number[];
+	/** Roots of linked worktrees where a live session works that is not a registered owner (a pane of a main, Claude Code, Codex): the cwd rule does not reach into them. */
+	held?: readonly string[];
 	/** Only this account's processes can be targets; the table is already limited to it, this is the second check. */
 	ownUid?: number;
 }
@@ -33,7 +35,9 @@ export interface Target { proc: Proc; why: Why }
 export interface Spared { proc: Proc; why: string }
 export interface Decision { targets: Target[]; spared: Spared[] }
 
-export function killSet({ owner, live, table, places, markers, protect, reapers, self, ownUid }: KillInput): Decision {
+const overlaps = (a: string, b: string) => under(a, b) || under(b, a);
+
+export function killSet({ owner, live, table, places, markers, protect, reapers, self, held = [], ownUid }: KillInput): Decision {
 	const byPid = new Map(table.map((p) => [p.pid, p]));
 	// The protected set first: what it holds is never reached, neither as a candidate nor through a parent link.
 	const spare = new Map<number, string>();
@@ -61,8 +65,13 @@ export function killSet({ owner, live, table, places, markers, protect, reapers,
 	const liveIds = new Set(live.map((o) => o.id));
 	for (const p of table) {
 		const marker = markers.get(p.pid);
-		if (marker !== undefined && marker !== owner.id && liveIds.has(marker)) hold(p, "live-owner");
+		// Also the owner's own id when a live owner has taken it (a new hello under the same id): the marker no longer tells the two apart.
+		if (marker !== undefined && liveIds.has(marker)) hold(p, "live-owner");
 	}
+	// The cwd rule does not reach into a root that a live owner, or a live session that is not an owner, works in as well: its orphans there are that side's.
+	const others = [...live.flatMap((o) => o.roots), ...held];
+	const roots = owner.roots.filter((root) => !others.some((other) => overlaps(root, other)));
+	const inRoot = (place: Place) => (place.removed ? rootOfRemoved(place.path, roots) !== undefined : roots.some((root) => under(place.path, root)));
 
 	const why = new Map<number, Why>();
 	const add = (p: Proc | undefined, reason: Why) => {
@@ -78,8 +87,7 @@ export function killSet({ owner, live, table, places, markers, protect, reapers,
 	for (const p of table) {
 		const place = places.get(p.pid);
 		if (!place || !isOrphan(p, reapers)) continue;
-		const inRoot = place.removed ? rootOfRemoved(place.path, owner.roots) !== undefined : owner.roots.some((root) => under(place.path, root));
-		if (inRoot) add(p, "cwd");
+		if (inRoot(place)) add(p, "cwd");
 	}
 	// What the targets started and still run, down the parent links, never through a spared process.
 	const kids = new Map<number, Proc[]>();
@@ -102,7 +110,7 @@ export function killSet({ owner, live, table, places, markers, protect, reapers,
 	for (const p of table) {
 		if (markers.get(p.pid) === owner.id) reached.add(p.pid);
 		const place = places.get(p.pid);
-		if (place && isOrphan(p, reapers) && (place.removed ? rootOfRemoved(place.path, owner.roots) !== undefined : owner.roots.some((root) => under(place.path, root)))) reached.add(p.pid);
+		if (place && isOrphan(p, reapers) && inRoot(place)) reached.add(p.pid);
 		if (why.has(p.ppid)) reached.add(p.pid);
 	}
 	const spared = [...spare].filter(([pid]) => reached.has(pid)).sort(([a], [b]) => a - b).map(([pid, reason]) => ({ proc: byPid.get(pid)!, why: reason }));

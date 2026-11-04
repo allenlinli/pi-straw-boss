@@ -1,5 +1,5 @@
-import { readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, isAbsolute, resolve } from "node:path";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join, relative, isAbsolute, resolve } from "node:path";
 
 // Which checkout a working folder belongs to. A linked worktree has a `.git` *file* (`gitdir: <repo>/.git/worktrees/<name>`), a main checkout a `.git` folder, a submodule a `.git` file into `.git/modules/`.
 
@@ -28,9 +28,25 @@ export const realDisk: Disk = {
 	},
 };
 
-/** The nearest `.git` going up from `cwd` decides. */
-export function checkoutOf(cwd: string, disk: Disk = realDisk): Checkout {
-	for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+/**
+ * The physical path: symlinks resolved, as lsof and `process.cwd()` report a working folder (`/tmp` is `/private/tmp` on macOS). A path that is not there is resolved from its nearest folder that is, so a removed
+ * checkout is told apart the same way.
+ */
+export function physical(path: string): string {
+	const abs = resolve(path), tail: string[] = [];
+	for (let dir = abs; ; dir = dirname(dir)) {
+		try {
+			return join(realpathSync(dir), ...tail.reverse());
+		} catch {
+			if (dirname(dir) === dir) return abs;
+			tail.push(basename(dir));
+		}
+	}
+}
+
+/** The nearest `.git` going up from `cwd` decides. The root is physical (`real`), so it compares with what lsof and `git worktree list` say. */
+export function checkoutOf(cwd: string, disk: Disk = realDisk, real: (path: string) => string = physical): Checkout {
+	for (let dir = real(cwd); ; dir = dirname(dir)) {
 		const git = join(dir, ".git"), kind = disk.kind(git);
 		if (kind === "dir") return { kind: "main", root: dir };
 		if (kind === "file") {

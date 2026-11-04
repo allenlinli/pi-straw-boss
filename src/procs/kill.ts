@@ -8,7 +8,7 @@ import { startOf } from "../startof.ts";
 
 export type Signal = "SIGTERM" | "SIGKILL";
 export interface KillDeps {
-	/** A fresh table; a failed read throws (no signal goes out on a table that was not read). */
+	/** A fresh table, of every account's processes (a group is whole only when no foreign member is in it); a failed read throws (no signal goes out on a table that was not read). */
 	read(): Promise<Proc[] | undefined>;
 	/** The start time of the pid now, undefined when it is gone. */
 	probe(pid: number): string | undefined;
@@ -107,4 +107,4 @@ export async function killSequence(refs: readonly Ref[], deps: KillDeps): Promis
 
 /** The sequence with the real table, probe, and guarded signal: what the server runs. */
 export const reap = (refs: readonly Ref[], over: Partial<KillDeps> = {}) =>
-	killSequence(refs, { read: () => readTable(), probe: probeStart, signal: sendSignal, sleep: (ms) => new Promise((done) => setTimeout(done, ms)), ...over });
+	killSequence(refs, { read: () => readTable(undefined, { all: true }), probe: probeStart, signal: sendSignal, sleep: (ms) => new Promise((done) => setTimeout(done, ms)), ...over });

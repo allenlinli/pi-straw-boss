@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -98,4 +98,20 @@ test("reapOwned kills what a run noted and left, only that process's own notes w
 	assert.deepEqual(reapOwned(root, process.pid), [kid.pid]);
 	await gone;
 	assert.deepEqual(leftoverOwned(root, process.pid), []);
+});
+
+test("RV-F006: a group whose leader is gone is refused (its other members are unchecked); a single gone pid still passes", () => {
+	const proc = { [TEST_ROOT]: fakeRoot() };
+	const deps = { proc, startOf: () => "t1" as string | undefined, cwdOf: () => proc[TEST_ROOT] };
+	assert.equal(noteOwned(4244, deps), "t1");
+	deps.startOf = () => undefined;
+	guardSignal(4244, "SIGKILL", deps);
+	assert.throws(() => guardSignal(-4244, "SIGKILL", deps), /group leader is gone/);
+	assert.equal(consumeRefusals(proc[TEST_ROOT], undefined).length, 1);
+});
+
+test("RV-F007: a note that cannot be read (removed between the listing and the read) is not a leftover, and does not throw", () => {
+	const root = fakeRoot();
+	mkdirSync(join(root, KILLS_DIR, "4245"), { recursive: true }); // a read of it fails like a note that was just removed
+	assert.deepEqual(leftoverOwned(root, undefined, () => "t"), []);
 });

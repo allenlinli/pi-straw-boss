@@ -24,7 +24,7 @@ export interface GuardDeps {
 const cwdOfSync = (pid: number): string | undefined => {
 	try {
 		if (process.platform === "linux") return readlinkSync(`/proc/${pid}/cwd`).replace(/ \(deleted\)$/, "");
-		return parseLsofCwd(String(execFileSyncExe("lsof", ["-a", "-d", "cwd", "-Fpfn", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }))).get(pid)?.path;
+		return parseLsofCwd(String(execFileSyncExe("lsof", ["-a", "-d", "cwd", "-Fpfn", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 }))).get(pid)?.path;
 	} catch {
 		return undefined;
 	}
@@ -60,7 +60,8 @@ export function guardSignal(target: number, signal: string, { proc = process.env
 	} catch { /* not noted */ }
 	if (!noted) return refuse(`a test run would send ${what}, a process this test did not start (note it with noteOwned when it does)`, proc);
 	const now = read(pid);
-	if (now === undefined) return; // gone: nothing to hit
+	// A process that is gone passes: its signal is an ESRCH. A group whose leader is gone does not: its other members are unchecked, and a signal to the group would reach them.
+	if (now === undefined) return target < 0 ? refuse(`a test run would send ${what}: the group leader is gone, so the other members of the group are not known to be this test's`, proc) : undefined;
 	if (now !== noted) return refuse(`a test run would send ${what}: the pid is another process now than the one this test started (start time differs)`, proc);
 	const cwd = cwdOf(pid);
 	if (cwd === undefined || !inside(cwd, root)) return refuse(`a test run would send ${what}, a process whose working folder is ${cwd === undefined ? "not readable" : "outside the run's temp root"} (${cwd ?? "?"} vs ${root})`, proc);
@@ -73,7 +74,12 @@ export function leftoverOwned(root: string, by?: number, read: (pid: number) => 
 		names = readdirSync(join(root, KILLS_DIR));
 	} catch { /* none */ }
 	return names.filter((name) => /^\d+$/.test(name)).map(Number).filter((pid) => {
-		const [owner, noted] = readFileSync(join(root, KILLS_DIR, String(pid)), "utf8").split("\n");
+		let owner: string | undefined, noted: string | undefined;
+		try {
+			[owner, noted] = readFileSync(join(root, KILLS_DIR, String(pid)), "utf8").split("\n");
+		} catch {
+			return false; // forgotten between the listing and the read (a child that shares the root)
+		}
 		return (by === undefined || Number(owner) === by) && Boolean(noted?.trim()) && read(pid) === noted!.trim();
 	});
 }

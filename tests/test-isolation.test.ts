@@ -37,7 +37,7 @@ test("the run is isolated: home, the agent folder, and the Herdr socket are belo
 });
 
 test("installIsolation makes the root, points the environment into it, and scrubs the inherited session; a second call in a process that inherited the root reuses it", () => {
-	const env: NodeJS.ProcessEnv = { HOME: "/Users/someone", PI_INTERCOM_SESSION_ID: "x", PI_SUBAGENT_ID: "y", HERDR_PANE_ID: "w1:p1", HERDR_BIN_PATH: "/bin/herdr", STRAW_BOSS_ROLE: "tower", PATH: "/usr/bin", GOCACHE: "/c", STRAW_RELAY_DIR: "/r" };
+	const env: NodeJS.ProcessEnv = { HOME: "/Users/someone", PI_INTERCOM_SESSION_ID: "x", PI_SUBAGENT_ID: "y", HERDR_PANE_ID: "w1:p1", HERDR_BIN_PATH: "/bin/herdr", STRAW_BOSS_ROLE: "tower", STRAW_BOSS_OWNER: "own-a", PATH: "/usr/bin", GOCACHE: "/c", STRAW_RELAY_DIR: "/r" };
 	const made = installIsolation(env);
 	cleanup.push(() => rmSync(made.root, { recursive: true, force: true }));
 	assert.ok(made.owner);
@@ -46,6 +46,7 @@ test("installIsolation makes the root, points the environment into it, and scrub
 	for (const key of ["HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "APPDATA", "XDG_CONFIG_HOME", "HERDR_SOCKET_PATH", "TMPDIR"]) assert.ok(inside(env[key]!, made.root), key);
 	for (const key of ["PI_INTERCOM_SESSION_ID", "PI_SUBAGENT_ID", "HERDR_PANE_ID", "HERDR_BIN_PATH", "STRAW_BOSS_ROLE"]) assert.equal(env[key], undefined, key);
 	assert.equal(env.PATH, "/usr/bin");
+	assert.equal(env.STRAW_BOSS_OWNER, "own-a", "the owner marker is kept: test children carry it (procs plan A)");
 	assert.equal(env.STRAW_RELAY_DIR, "/r", "a checkout the account named is kept");
 	assert.deepEqual(installIsolation(env), { root: made.root, owner: false });
 });

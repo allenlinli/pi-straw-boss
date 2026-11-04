@@ -37,7 +37,14 @@ export async function readCwds(pids: readonly number[], { run: ask = run, platfo
 		return out;
 	}
 	for (let i = 0; i < pids.length; i += CHUNK) {
-		for (const [pid, cwd] of parseLsofCwd(await ask("lsof", ["-a", "-d", "cwd", "-Fpfni", "-p", pids.slice(i, i + CHUNK).join(",")]))) out.set(pid, cwd);
+		let text = "";
+		try {
+			text = await ask("lsof", ["-a", "-d", "cwd", "-Fpfni", "-p", pids.slice(i, i + CHUNK).join(",")]);
+		} catch (error) {
+			// lsof exits 1 with nothing printed when none of the pids of the chunk exists: an empty answer for this chunk, not a failure of the others.
+			if ((error as { code?: unknown }).code !== 1) throw error;
+		}
+		for (const [pid, cwd] of parseLsofCwd(text)) out.set(pid, cwd);
 	}
 	return out;
 }

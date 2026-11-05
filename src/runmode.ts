@@ -432,7 +432,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		if (mode !== "run" || !claim) return;
 		const sections = event.systemPromptOptions.sections;
 		const head = /head tower: ([^\n;.]+)/.exec(claim.brief)?.[1]?.trim() ?? "none yet";
-		const role = promptSet({ promptDir: cfg.promptDir, stateDir: guiDir, env }).read(claim.kind === "ally" ? "ally-run" : claim.kind === "head" ? "head-run" : "tower-run").replace(/\{\{(\w+)\}\}/g, (_, key: string) => ({ workspace: claim!.label, head })[key] ?? "none yet");
+		const role = promptSet({ promptDir: cfg.promptDir, stateDir: guiDir, env, warn: (text) => process.stderr.write(`straw-boss: ${text}\n`) }).read(claim.kind === "ally" ? "ally-run" : claim.kind === "head" ? "head-run" : "tower-run").replace(/\{\{(\w+)\}\}/g, (_, key: string) => ({ workspace: claim!.label, head })[key] ?? "none yet");
 		sections[ENTRY] = `${role}\n\n${claim.brief}`;
 	});
 	/** A pane the server owns: this pi quits with the server's reason. */

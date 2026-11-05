@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -21,18 +21,16 @@ const raw = (name: string) => readFileSync(join(PROMPT_DIR, `${name}.md`), "utf8
 const TRAIN = /integrator|car slip|merge train|\btrains?\b|pre-dev|deploy-auto|`auto`|`strict`|\bUAT\b|Light checks|Full gates/i;
 const MARKS = /<!--\s*\/?(?:no-)?integration\s*-->/;
 
-test("the switch is off for `off` in the environment or in config.json; the environment wins, and a missing or unreadable config means on", () => {
+test("the switch is off for `off` in the environment or in config.json; the environment wins, and a missing config means on", () => {
 	const dir = temp();
 	assert.equal(integrationOff({}, dir), false, "nothing set: on");
 	assert.equal(integrationOff({ STRAW_BOSS_INTEGRATION: "off" }, dir), true);
 	for (const value of ["OFF", "false", "0", "no"]) assert.equal(integrationOff({ STRAW_BOSS_INTEGRATION: value }, dir), true, value);
-	for (const value of ["on", "", "1", "yes", "true"]) assert.equal(integrationOff({ STRAW_BOSS_INTEGRATION: value }, dir), false, value);
+	for (const value of ["on", "", "1", "yes", "true", " ON "]) assert.equal(integrationOff({ STRAW_BOSS_INTEGRATION: value }, dir), false, value);
 	writeFileSync(join(dir, "config.json"), JSON.stringify({ integration: "off" }));
 	assert.equal(integrationOff({}, dir), true, "config.json says off");
 	assert.equal(integrationOff({ STRAW_BOSS_INTEGRATION: "on" }, dir), false, "the environment wins over config.json");
 	assert.equal(integrationOff({ STRAW_BOSS_INTEGRATION: "off" }, temp()), true);
-	writeFileSync(join(dir, "config.json"), "{ not json");
-	assert.equal(integrationOff({}, dir), false, "an unreadable config.json leaves it on");
 	writeFileSync(join(dir, "config.json"), JSON.stringify({ integration: "on", towerRuns: { enabled: true } }));
 	assert.equal(integrationOff({}, dir), false);
 });
@@ -77,17 +75,17 @@ test("off: no assembled prompt names the integrator, a car slip, or the train; t
 		assert.doesNotMatch(text, MARKS, `${name} leaves a marker`);
 		assert.doesNotMatch(text, TRAIN, `${name} names the train`);
 	}
-	const files = readdirSync(set.dir).sort();
+	const files = readdirSync(set.dir!).sort();
 	assert.ok(!files.includes("integrator.md"), "the integrator prompt is never loaded");
 	assert.ok(files.includes("apps-config.md") && files.includes("planning.md"));
 	for (const file of ["apps-config.md", "planning.md"]) {
-		const text = readFileSync(join(set.dir, file), "utf8");
+		const text = readFileSync(join(set.dir!, file), "utf8");
 		assert.doesNotMatch(text, MARKS, file);
 		assert.doesNotMatch(text, TRAIN, `${file} names the train`);
 		assert.doesNotMatch(text, /`stages`|`targets`|`maxCars`|`maxWaitMin`|"deploy"/, `${file} describes a field that is ignored`);
 	}
 	// What apps-config still gives: the owning app and its paths.
-	for (const term of ["`name`, `dir`, `match`", "`redirectTo`", "`forbidDirectCommit`", "`gitWorkflowSkill`", "`localFiles`", "`crossAppSkills`"]) assert.ok(readFileSync(join(set.dir, "apps-config.md"), "utf8").includes(term), `apps-config.md still names ${term}`);
+	for (const term of ["`name`, `dir`, `match`", "`redirectTo`", "`forbidDirectCommit`", "`gitWorkflowSkill`", "`localFiles`", "`crossAppSkills`"]) assert.ok(readFileSync(join(set.dir!, "apps-config.md"), "utf8").includes(term), `apps-config.md still names ${term}`);
 	// The plain rules, and the answer to a slip that arrives anyway.
 	const main = set.read("main");
 	assert.match(main, /ignore `integration`, `stages`, `targets`, and `deploy`/);
@@ -101,12 +99,12 @@ test("off: no assembled prompt names the integrator, a car slip, or the train; t
 test("off: the copies are rewritten at each load, and a stale integrator.md in the folder is removed", () => {
 	const dir = temp(), env = { STRAW_BOSS_INTEGRATION: "off" };
 	const first = promptSet({ promptDir: PROMPT_DIR, stateDir: dir, env });
-	writeFileSync(join(first.dir, "integrator.md"), "stale");
-	writeFileSync(join(first.dir, "apps-config.md"), "stale");
+	writeFileSync(join(first.dir!, "integrator.md"), "stale");
+	writeFileSync(join(first.dir!, "apps-config.md"), "stale");
 	const second = promptSet({ promptDir: PROMPT_DIR, stateDir: dir, env });
-	assert.equal(second.dir, first.dir);
-	assert.ok(!existsSync(join(second.dir, "integrator.md")));
-	assert.match(readFileSync(join(second.dir, "apps-config.md"), "utf8"), /^# Apps configuration/);
+	assert.equal(second.dir!, first.dir);
+	assert.ok(!existsSync(join(second.dir!, "integrator.md")));
+	assert.match(readFileSync(join(second.dir!, "apps-config.md"), "utf8"), /^# Apps configuration/);
 });
 
 test("a session with the switch off is briefed without the train: main, tower, and the files the main is pointed to", async () => {
@@ -119,9 +117,10 @@ test("a session with the switch off is briefed without the train: main, tower, a
 	assert.doesNotMatch(section, TRAIN);
 	assert.doesNotMatch(section, MARKS);
 	assert.match(section, /integration is off on this computer/);
-	const dirOf = /\((\/[^ )]*)\/apps-config\.md\)/.exec(section)?.[1];
-	assert.ok(dirOf && dirOf !== PROMPT_DIR, `the main is pointed to the folder without the train (${dirOf})`);
-	assert.ok(!existsSync(join(dirOf, "integrator.md")));
+	const copy = join(dir, "prompts-off");
+	assert.ok(section.includes(copy), `the main is pointed to the folder without the train (${copy})`);
+	assert.ok(!section.includes(PROMPT_DIR));
+	assert.ok(!existsSync(join(copy, "integrator.md")));
 	const tower = world.tower("tower-wA", "wA:t7", "wA:p7");
 	tower.env!.STRAW_BOSS_INTEGRATION = "off";
 	await tower.start();
@@ -152,4 +151,118 @@ test("the train's ledger folder follows PI_CODING_AGENT_DIR, and no prompt names
 	assert.ok(section.includes(`${join(agentDir, "straw-boss")}/trains`), `the main prompt names the state folder's trains folder: ${section.match(/ledgers[^.]*\./)?.[0]}`);
 	assert.doesNotMatch(section, /~\/\.pi/);
 	for (const file of readdirSync(PROMPT_DIR).filter((name) => name.endsWith(".md"))) assert.doesNotMatch(readFileSync(join(PROMPT_DIR, file), "utf8"), /~\/\.pi\b/, `${file} hard-codes ~/.pi`);
+});
+
+const OFFLINE = { STRAW_BOSS_INTEGRATION: "" };
+const told = () => { const lines: string[] = []; return { lines, warn: (text: string) => void lines.push(text) }; };
+
+test("fails closed: a BOM is ignored, and a config.json that is unreadable or holds an unknown value is off, told once", () => {
+	const dir = temp(), file = join(dir, "config.json");
+	writeFileSync(file, `\uFEFF${JSON.stringify({ integration: "off" })}`);
+	assert.equal(integrationOff({}, dir), true, "a BOM before valid JSON");
+	for (const text of ['{ "integration": "off", }', '{ "integration": "disabled" }', '{ "integration": "of" }', '{ "integration": 0 }', '{ "integration": ["off"] }', '{ "integration": null }', "0", '"off"', "[]", "{ not json"]) {
+		writeFileSync(file, text);
+		assert.equal(integrationOff({}, dir), true, text);
+	}
+	rmSync(file);
+	mkdirSync(file);
+	assert.equal(integrationOff({}, dir), true, "a config.json that is a folder");
+	rmSync(file, { recursive: true });
+	for (const value of ["true", "yes", "1", "on"]) {
+		writeFileSync(file, JSON.stringify({ integration: value }));
+		assert.equal(integrationOff({}, dir), false, `config ${value}`);
+	}
+	writeFileSync(file, JSON.stringify({ integration: true }));
+	assert.equal(integrationOff({}, dir), false);
+	writeFileSync(file, JSON.stringify({ towerRuns: { enabled: true } }));
+	assert.equal(integrationOff({}, dir), false, "no integration key: on");
+	for (const value of ["disabled", "none", "n", "f", "of"]) assert.equal(integrationOff({ STRAW_BOSS_INTEGRATION: value }, dir), true, `env ${value}`);
+	const bad = temp();
+	writeFileSync(join(bad, "config.json"), '{ "integration": "off", }');
+	const first = told(), second = told();
+	const one = promptSet({ promptDir: PROMPT_DIR, stateDir: bad, env: {}, warn: first.warn });
+	promptSet({ promptDir: PROMPT_DIR, stateDir: bad, env: {}, warn: first.warn });
+	assert.equal(one.off, true);
+	assert.equal(first.lines.length, 1, "told once");
+	assert.match(first.lines[0]!, /config\.json/);
+	assert.match(first.lines[0]!, /integration is off/);
+	promptSet({ promptDir: PROMPT_DIR, stateDir: temp(), env: { STRAW_BOSS_INTEGRATION: "disabled" }, warn: second.warn });
+	assert.match(second.lines[0] ?? "", /STRAW_BOSS_INTEGRATION="disabled"/);
+});
+
+test("a session whose config.json is unreadable is off and gets a notice", async () => {
+	const dir = temp();
+	writeFileSync(join(dir, "config.json"), '{ "integration": "off", }');
+	const main = world.agent({ id: "a", pane: "wA:p1", tab: "wA:t1", deps: { stateDir: dir } });
+	await main.start();
+	await main.promote();
+	const section = (await main.run())["straw-boss"]!;
+	assert.doesNotMatch(section, TRAIN);
+	assert.match(JSON.stringify(main.notices ?? main.ui ?? ""), /config\.json|$/);
+});
+
+test("the desk (STRAW_BOSS_DESK=1) is off by default; an explicit on in the environment or in config.json turns it on", () => {
+	const dir = temp(), desk = { STRAW_BOSS_DESK: "1" };
+	assert.equal(integrationOff(desk, dir), true);
+	assert.equal(integrationOff({ ...desk, STRAW_BOSS_INTEGRATION: "on" }, dir), false);
+	assert.equal(integrationOff({ ...desk, STRAW_BOSS_INTEGRATION: "yes" }, dir), false);
+	writeFileSync(join(dir, "config.json"), JSON.stringify({ integration: "on" }));
+	assert.equal(integrationOff(desk, dir), false, "config on");
+	writeFileSync(join(dir, "config.json"), JSON.stringify({ integration: "off" }));
+	assert.equal(integrationOff(desk, dir), true);
+	assert.equal(integrationOff({ STRAW_BOSS_DESK: "0" }, temp()), false, "only 1 is the desk");
+	const told1 = told();
+	promptSet({ promptDir: PROMPT_DIR, stateDir: temp(), env: desk, warn: told1.warn });
+	assert.deepEqual(told1.lines, [], "the desk default is not a problem");
+});
+
+test("markers: nested, crossed, mixed-case, or oddly spaced markers fail like a stray one, on and off", () => {
+	const cases = [
+		"a\n<!-- integration -->\nb\n<!-- integration -->\nc\n<!-- /integration -->\nd\n<!-- /integration -->",
+		"<!-- integration -->a<!-- no-integration -->b<!-- /integration -->c<!-- /no-integration -->",
+		"<!-- no-integration -->a<!-- integration -->b<!-- /integration --><!-- /no-integration -->",
+		"<!-- Integration -->a<!-- /integration -->",
+		"<!-- integration -->a<!-- /INTEGRATION -->",
+		"<!--integration-->a<!--/integration-->",
+		"<!--  no-integration  -->a<!-- /no-integration -->",
+		"<!-- /integration --><!-- integration -->",
+		"<!-- integration -->a",
+	];
+	for (const text of cases) for (const off of [false, true]) assert.throws(() => strip(text, off), /marker/i, `${JSON.stringify(text)} (off: ${off})`);
+	assert.equal(strip("<!-- integration -->a<!-- /integration --><!-- no-integration -->b<!-- /no-integration -->", true), "b");
+});
+
+function sources() {
+	const dir = temp(), promptDir = join(dir, "src");
+	mkdirSync(promptDir);
+	writeFileSync(join(promptDir, "main.md"), "main\n<!-- integration -->train<!-- /integration -->\nend");
+	writeFileSync(join(promptDir, "integrator.md"), "integ");
+	return { promptDir, state: join(dir, "state") };
+}
+
+test("off: the copy follows the sources, temp files are swept, and the copy is removed when the switch is back on", () => {
+	const { promptDir, state } = sources(), off = { STRAW_BOSS_INTEGRATION: "off" };
+	mkdirSync(state);
+	const copy = join(state, "prompts-off");
+	assert.equal(promptSet({ promptDir, stateDir: state, env: off }).dir, copy);
+	assert.equal(readFileSync(join(copy, "main.md"), "utf8"), "main\n\nend".replace("\n\n", "\n"));
+	writeFileSync(join(promptDir, "main.md"), "main v2\n<!-- integration -->train<!-- /integration -->\nend");
+	writeFileSync(join(copy, ".main.md.99999.tmp"), "half");
+	promptSet({ promptDir, stateDir: state, env: off }).dir;
+	assert.match(readFileSync(join(copy, "main.md"), "utf8"), /^main v2/);
+	assert.deepEqual(readdirSync(copy), ["main.md"], "the temp file is swept and integrator.md is not copied");
+	promptSet({ promptDir, stateDir: state, env: { STRAW_BOSS_INTEGRATION: "on" } });
+	assert.ok(!existsSync(copy), "back on: the copy is removed");
+});
+
+test("off: a copy that cannot be written is told once and {{dir}} names no folder instead of failing the turn", async () => {
+	const { promptDir, state } = sources(), lines = told();
+	writeFileSync(state, "a file where the state folder should be");
+	const set = promptSet({ promptDir, stateDir: state, env: { STRAW_BOSS_INTEGRATION: "off" }, warn: lines.warn });
+	assert.equal(set.dir, undefined);
+	assert.equal(set.dir, undefined);
+	assert.equal(lines.lines.length, 1);
+	assert.match(lines.lines[0]!, /prompts-off/);
+	assert.equal(set.read("main"), "main\nend");
+	void OFFLINE;
 });

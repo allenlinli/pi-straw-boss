@@ -100,7 +100,7 @@ test("train stages: apps-config declares stages and their headings, the slip car
 	const cfg = readFileSync(`${PROMPT_DIR}/apps-config.md`, "utf8");
 	for (const term of ["`stages`", "`merge` (the default, always first)", "`uat` (only after `deploy`)", "## Deploy", "## Deploy verify", "## UAT", "each heading of a stage an app declares"]) assert.ok(cfg.includes(term), `apps-config.md names ${term}`);
 	const integrator = readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8");
-	for (const term of ["deploy: <targets or none> | uat: <checkpoints path or none>", "every `deploy` target", "One train at a time per target", "a green job, an accepted request, or a finished monitor is not done", "one `review` block", "as soon as it is ready", "a blank box means accepted", "A comment returns its car", "accepted in UAT", "no UAT page waits", "`Deploy` and `Deploy verify`; `uat`: `UAT`", "only when every car in it has `auth` covering that target", "the next train's `Merge` waits for it too", "still calls `shared` naming the target", "comes with a `deploy` target", "or all of its checkpoints after a revert"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
+	for (const term of ["deploy: <targets or none> | uat: <checkpoints path or none>", "every `deploy` target", "One train at a time per target", "a green job, an accepted request, or a finished monitor is not done", "one `review` block", "once ready", "a blank box means accepted", "A comment returns its car", "accepted in UAT", "no UAT page waits", "`Deploy` and `Deploy verify`; `uat`: `UAT`", "only when every car in it has `auth` covering that target", "the next train's `Merge` waits for it too", "still calls `shared` naming the target", "merge-triggered deploys need no `shared` call", "a held car is not landed", "ask before `Merge`", "comes with a `deploy` target", "or all of its checkpoints after a revert"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower-run.md`, "utf8").includes("a deploy it starts names its target"));
 	for (const file of ["integrator.md", "apps-config.md", "planning.md"]) {
 		const text = readFileSync(`${PROMPT_DIR}/${file}`, "utf8");
@@ -129,7 +129,7 @@ test("merge train: main hands integration cars over with why shared, planning st
 
 test("merge train: the integrator needs no shared call for its own merges, and the tower answers its shared request instead of forwarding it back", () => {
 	const integrator = readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8");
-	assert.ok(integrator.includes("Your own merges, pushes, and deploys need no `shared` call: the slips' auth covers them"));
+	assert.ok(integrator.includes("Your own merges, pushes, and merge-triggered deploys need no `shared` call: the slips' auth covers them"));
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower-run.md`, "utf8").includes("from the integrator itself, answer go or wait"));
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8").includes("the integrator's own: go/wait"));
 });

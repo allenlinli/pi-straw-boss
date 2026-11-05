@@ -411,7 +411,7 @@
 /* Link cards (gui/zendecide.ts): Allow and Deny, Confirm and Reject, and a pair request's number. The panel is a wait panel (its buttons are the card's text buttons above), centred; the tool's arguments are code on a faint tint with no frame; the number is the head strip's hairline field. */
 [data-view="zen"] .zen-decide > * { flex: 1 1 100%; min-width: 0; margin: 0; }
 [data-view="zen"] .zen-decide-acts { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px 8px; }
-[data-view="zen"] .zen-decide .zen-args { max-height: 9rem; overflow: auto; padding: 0; border: 0; background: none; color: var(--zen-ash); font: 400 0.85rem/1.5 ui-monospace, Menlo, Consolas, monospace; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: none; }
+[data-view="zen"] .zen-decide .zen-args { max-height: 9rem; overflow: auto; padding: 0; border: 0; background: none; flex: 0 1 auto; max-width: 100%; margin-inline: auto; color: var(--zen-ash); font: 400 0.85rem/1.5 ui-monospace, Menlo, Consolas, monospace; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: none; }
 [data-view="zen"] .zen-decide .zen-pair-ask { color: var(--zen-ash); font: 400 0.9rem var(--sans); letter-spacing: 0.04em; }
 [data-view="zen"] .zen-decide .zen-pair-number { flex: 0 0 8rem; width: 8rem; max-width: 100%; margin-inline: auto; text-align: center; font-size: 1.4rem; letter-spacing: 0.4em; text-indent: 0.4em; }
 [data-view="zen"] .zen-decide .zen-head-note { text-align: center; }

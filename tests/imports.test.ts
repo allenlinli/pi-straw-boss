@@ -1024,9 +1024,9 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// A wait the boss answered (two messages, the row's line): 296,455 / 121,099 measured, +27 / -10 over the figure below, which the cap keeps in gzip; the raw cap = measured + 15.
 	// Wait panel answers in place (the box, its Esc row, the wait actions, the dialog's and the notice row's panel, the messages): 296,428 / 121,109 measured, +2,873 / +1,799 over the outcome table's figure, all in the lazy chunks. Cap = measured + 15.
 	// Wait review fixes (the folded box, the dialog's title, the input refusal words): 297,054 / 121,362 measured on a fresh build, cap = measured.
-	// Zen link cards review fixes: 305,393 / 124,912 measured, +1,842 / +651 over the figure below, all lazy: the confirm's refusal words, the pair card's own-request check, the sig and the keyed replies, and the messages in both languages. Cap = measured.
+	// Zen link cards review fixes: 305,393 / 124,922 measured, +1,842 / +661 over the figure below, all lazy: the confirm's refusal words, the pair card's own-request check, the sig and the keyed replies, and the messages in both languages. Cap = measured.
 	// Zen link cards: 303,551 / 124,261 measured, +6,497 / +2,899 over the figure above, all lazy: the cards' panels (zendecide.ts), their alerts (cardalerts.ts), the shared actions (asks.ts), the pair list (pairs.ts), and the messages in both languages. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 305_393 && total(chunks, gz) <= 124_912, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 305_393 && total(chunks, gz) <= 124_922, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

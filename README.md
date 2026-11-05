@@ -32,7 +32,7 @@ English | [繁體中文](https://github.com/wayne930242/pi-straw-boss/blob/main/
 
 <p align="center"><img src="docs/gui-zen-music.png" width="49%" alt="The Zen view with a music folder: the ♪ switch and the open track list in the corner"></p>
 
-<p align="center"><img src="docs/gui-zen-link.png" width="49%" alt="The Zen view with a confirm a teammate's tower asked of this computer: who asks, the sentence, the tool's arguments as code on a faint ground, Allow and Deny, and Maybe later below"></p>
+<p align="center"><img src="docs/gui-zen-link.png" width="49%" alt="The Zen view with a confirm a teammate's tower asked of this computer: who asks, the sentence, the tool's arguments in dim type without a box, Allow and Deny, and Maybe later below"></p>
 
 <p align="center"><sub>Zen: one item at a time, the companion session when nothing waits, a breathing circle when there is no session, the corner menu, the context, the command palette, the music, a tower's wait answered on its card, a teammate's confirm answered on its card, and the same on a phone.</sub></p>
 

@@ -32,7 +32,7 @@
 
 <p align="center"><img src="docs/gui-zen-music.png" width="49%" alt="有音樂資料夾時的禪檢視：右上角的 ♪ 開關與打開的曲目清單"></p>
 
-<p align="center"><img src="docs/gui-zen-link.png" width="49%" alt="禪檢視裡隊友的塔台向這台電腦要的確認：誰在問、那句話、工具的參數（淡淡的底上的程式碼）、允許和拒絕，下方是晚點再說"></p>
+<p align="center"><img src="docs/gui-zen-link.png" width="49%" alt="禪檢視裡隊友的塔台向這台電腦要的確認：誰在問、那句話、工具的參數（沒有框的淡色字）、允許和拒絕，下方是晚點再說"></p>
 
 <p align="center"><sub>禪：一次一件待辦、沒東西等時陪著的 session、沒有 session 時的呼吸圓圈、右上角選單、前情、指令面板、音樂、在卡片上回覆塔台的等待、在卡片上回覆隊友的確認，以及同樣的畫面在手機上的樣子。</sub></p>
 

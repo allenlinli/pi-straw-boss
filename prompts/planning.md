@@ -31,15 +31,15 @@ Each anchor is the lightest check that can fail before the change and still reac
 - **human**: the boss operates or judges the delivered result. Use it where the boss's judgment is the real check: UI feel, wording, a business rule.
 - **adversarial-review**: a fresh-context agent challenges the result against the requirement. Use it for read-only work that has no executable checkpoint.
 
-Tasks that share one anchor share one checkpoint. Give each such group one checkpoint todo, `blockedBy` every task it covers, and tell those workers to hand their evidence to it instead of running it themselves. A task whose check is distinct, or plainly cheaper in place, keeps its own.
+Tasks that share one anchor share one checkpoint. Give each such group one checkpoint todo, `blockedBy` every task it covers, and tell those workers to hand it their evidence. A task whose check is distinct, or plainly cheaper in place, keeps its own.
 
-In an app that declares `integration`, the coordinator's anchor before handoff is its review (P0 and P1 clear) plus behaviour tests aimed at its own change, plus the project skill's `Light checks`. Format, lint, build, full type-check, full suites, publish, and similar quality gates run once, by the integrator, on the integrated pre-dev head (its skill's `Full gates`); the skill may name exceptions. The train replaces your merge-time checkpoint, not the fresh reviewer below.
+In an app that declares `integration`, the coordinator's anchor before handoff is its review (P0 and P1 clear) plus behaviour tests aimed at its own change, plus the project skill's `Light checks`. Repo-wide quality gates run once, by the integrator, on the integrated pre-dev head (its skill's `Full gates`); the skill may name exceptions. Where `stages` include `uat`, a `human` anchor is the train's UAT: the slip names its checkpoints file (skill's `UAT`); show the boss nothing yourself. The train replaces your merge-time checkpoint, not the fresh reviewer below.
 
 A change-set that touches a shared contract, authorization or permission data, or a migration gets one fresh-context reviewer after its anchor passes. Other change-sets take the author's own read of the diff against the brief.
 
 ## 4. Start
 
-Dispatch without asking the boss to confirm the plan, and change the graph, an edge, or an anchor the same way: the todos record it. Before offering the boss a design choice, read the owning app's instructions and the UI and architecture rules they name; drop the options they forbid, and quote the rule that settles the design in the brief. Through your question tool, bring the boss only the decisions the plan cannot settle, before the task they block: a requirement that is unclear or contradicts the architecture, and an authorization the work needs, such as a merge to a shared branch or a deploy.
+Dispatch without asking the boss to confirm the plan, and change it the same way: the todos record it. Before offering the boss a design choice, read the owning app's instructions and the UI and architecture rules they name; drop the options they forbid, and quote the rule that settles the design in the brief. Through your question tool, bring the boss only the decisions the plan cannot settle, before the task they block: a requirement that is unclear or contradicts the architecture, and an authorization the work needs, such as a merge to a shared branch or a deploy.
 
 ## 5. Run it
 

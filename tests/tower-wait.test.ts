@@ -62,19 +62,32 @@ test("a wait row says how long it has stood and that it may be out of date after
 	assert.deepEqual([m.tower_answer({}, { locale: "zh-TW" }), m.wait_dismiss({}, { locale: "zh-TW" })], ["去處理", "略過"], "the boss-facing words");
 });
 
-test("Dismiss on the card posts the dismiss to the memory route by the wait's id and the link goes to the tower's comms", async () => {
+test("the wait's row on the card mounts the wait panel: Handle unfolds the answer box that tells the tower, Dismiss posts the dismiss by the wait's id, and the link goes to the tower's comms", async () => {
 	const sent: { path: string; body: Record<string, unknown> }[] = [];
 	Object.assign(globalThis.document, { querySelector: () => ({ content: "CSRF" }) });
-	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => ({}) }) });
+	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => (path.endsWith("/memory") ? { rev: 5, proposals: [], entries: [] } : { accepted: true, woke: true }) }) });
 	const box = new El("div");
 	fillNotices(box as unknown as HTMLElement, "wA", service([FRESH]), "sb-tower-wa");
+	await new Promise((done) => setTimeout(done, 50)); // the panel loads with the first wait row
 	const buttons = box.find((el) => el.tag === "button");
-	assert.deepEqual(buttons.map((b) => b.textContent), [m.wait_dismiss()]);
-	(buttons[0] as unknown as { onclick(): void }).onclick();
+	assert.deepEqual(buttons.map((b) => b.textContent), [m.tower_answer(), m.send(), m.wait_dismiss()]);
+	const [handle, send, dismiss] = buttons as unknown as { onclick(): void; hidden: boolean }[];
+	assert.equal(send!.hidden, true, "Send waits for Handle");
+	dismiss!.onclick();
 	await new Promise((done) => setTimeout(done, 5));
 	assert.deepEqual(sent, [{ path: "api/tower/wA/memory", body: { op: "drop", id: "W2" } }]);
+	handle!.onclick();
+	const text = box.find((el) => el.tag === "textarea")[0]!;
+	text.value = "Yes, deploy";
+	text.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
+	await new Promise((done) => setTimeout(done, 5));
+	assert.deepEqual(sent.at(-1), { path: "api/sessions/sb-tower-wa/input", body: { text: "Yes, deploy", as: "send" } }, "the tower's session input, as the comms' composer sends it");
 	const link = box.find((el) => el.tag === "a")[0]!;
 	assert.equal(link.attrs.get("data-route"), "w/wA/s/sb-tower-wa");
+	assert.equal(link.textContent, m.wait_goto());
+	const again = box.find((el) => el.tag === "textarea")[0]!;
+	fillNotices(box as unknown as HTMLElement, "wA", service([{ ...FRESH, at: iso(NOW - 3 * HOUR) }], 5), "sb-tower-wa"); // the row's age changed: it is redrawn
+	assert.equal(box.find((el) => el.tag === "textarea")[0], again, "the panel, and a draft in it, outlives a redraw");
 });
 
 const net = (waits: { id: string; text: string; at: string }[]): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, service: service(waits), subs: [] }, tabs: [], outposts: [], outside: [] }] });

@@ -1,10 +1,11 @@
 import { type Alert, unitOf } from "./alerts.ts";
 import type { SessionPost } from "./answer.ts";
-import { joined, type WaitActions, waitActions } from "./asks.ts";
+import { joined, outcome, type WaitActions, waitActions } from "./asks.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
 import { aim, text } from "./render.ts";
+import { formatRoute } from "./router.ts";
 import { guarded } from "./towermodel.ts";
 import { towerWhy } from "./towerturns.ts";
 
@@ -21,6 +22,8 @@ export interface WaitPanelOptions {
 	reply?: boolean;
 	/** Zen wraps the request, so the card's outcome (the knock, the low bowl) follows the answer. */
 	send?(reply: Promise<Answer>): Promise<Answer>;
+	/** Offers the tower's comms as a link, beside the other buttons: the one action that navigates (the dialog has its own in its footer). */
+	goto?: boolean;
 	/** The server took the dismissal or the answer. */
 	done?(): void;
 }
@@ -28,10 +31,10 @@ export function waitPanel(o: WaitPanelOptions) {
 	const wrap = o.send ?? ((reply: Promise<Answer>) => reply);
 	const note = h("small", { class: "tnote-fail", role: "alert" }), dismiss = h("button", { type: "button", class: "pair-btn" }, m.wait_dismiss());
 	let busy = false, live = true, open = false;
-	// The answer box is Zen's input (the head strip's classes, zen.css): a hairline that turns vermilion on focus, Enter sends, and the note under it is the refusal.
+	// The answer box: in Zen it takes the head strip's look (`zen-head-*` in zen.css: a hairline that turns vermilion on focus), in Standard and Geek the composer's (`wait-*` in style.css). Enter sends, and the note under it is the refusal.
 	const go = o.reply ? h("button", { type: "button", class: "pair-btn" }, m.tower_answer()) : undefined, send = o.reply ? h("button", { type: "button", class: "pair-btn" }, m.send()) : undefined;
-	const box = o.reply ? (h("textarea", { class: "zen-head-box", rows: "1", maxlength: String(MAX_TEXT), "aria-label": m.zen_wait_placeholder(), placeholder: m.zen_wait_placeholder(), enterkeyhint: "send" }) as HTMLTextAreaElement) : undefined;
-	const why = h("p", { class: "zen-head-note", role: "alert" }), form = box && h("form", { class: "zen-head-form" }, box, why);
+	const box = o.reply ? (h("textarea", { class: "wait-box zen-head-box", rows: "1", maxlength: String(MAX_TEXT), "aria-label": m.zen_wait_placeholder(), placeholder: m.zen_wait_placeholder(), enterkeyhint: "send" }) as HTMLTextAreaElement) : undefined;
+	const why = h("p", { class: "wait-note zen-head-note", role: "alert" }), form = box && h("form", { class: "wait-form zen-head-form" }, box, why);
 	const say = (text: string) => ((why.textContent = text), (why.dataset.tone = text ? "error" : ""));
 	const draw = () => {
 		dismiss.disabled = !live || busy;
@@ -46,7 +49,7 @@ export function waitPanel(o: WaitPanelOptions) {
 		draw();
 		void guarded(dismiss, (t) => (note.textContent = t ?? ""), async () => {
 			const r = await wrap(o.actions.dismiss());
-			if (r.ok) o.done?.();
+			if (outcome(r) === "accepted") o.done?.();
 			return r;
 		}, 0).finally(() => ((busy = false), draw()));
 	};
@@ -60,7 +63,7 @@ export function waitPanel(o: WaitPanelOptions) {
 		let taken = false;
 		try {
 			const r = await wrap(o.actions.tell(text));
-			if (!(taken = r.ok)) say(m.zen_wait_refused({ reason: joined(towerWhy(r) ?? r.body.reason ?? r.body.error ?? String(r.status)) }));
+			if (!(taken = outcome(r) === "accepted")) say(m.zen_wait_refused({ reason: joined(towerWhy(r) ?? r.body.reason ?? r.body.error ?? String(r.status)) }));
 			else o.done?.();
 		} catch {
 			say(m.zen_head_unreachable());
@@ -81,8 +84,9 @@ export function waitPanel(o: WaitPanelOptions) {
 		form.addEventListener("submit", (e) => (e.preventDefault(), void answer()));
 	}
 	draw();
+	const link = o.goto ? h("a", { class: "pair-btn", href: formatRoute(o.actions.goto) || "./", "data-route": formatRoute(o.actions.goto) }, m.wait_goto()) : undefined;
 	return {
-		el: h("div", { class: "wait-panel" }, o.text && h("p", { class: "wait-text" }, o.text), form, go, send, dismiss, note),
+		el: h("div", { class: "wait-panel" }, o.text && h("p", { class: "wait-text" }, o.text), form, go, send, dismiss, link, note),
 		dismiss,
 		sending: () => busy,
 		/** The answer box is unfolded. */
@@ -104,19 +108,19 @@ export function waitPanel(o: WaitPanelOptions) {
 }
 
 const panels = new WeakMap<HTMLElement, ReturnType<typeof waitPanel>>();
-/** A wait's dialog in the dock: what it waits for in the answer slot, the link to the comms as the act with Later and Dismiss after it in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
+/** A wait's dialog in the dock: what it waits for and the answer box in the answer slot, the link to the comms, Later and Dismiss in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
 export function waitDialog(el: HTMLElement, a: Alert, close: () => void, send: SessionPost) {
 	const over = Boolean(a.gone), go = el.querySelector<HTMLElement>(".go")!;
 	el.querySelector<HTMLElement>(".intel")!.hidden = true;
-	go.textContent = m.tower_answer();
+	go.textContent = m.wait_goto(); // the answer box is on the panel; the footer's link is the way to the tower's comms
 	aim(go, over ? undefined : { view: "session", ws: a.ws, key: unitOf(a) });
 	text(el, ".tag", m.tag_question()); // the stack tags a gone unit GONE; the tower did not leave, the wait ended
 	text(el, ".state", over ? m.tower_wait_over() : m.memory_wait_boss());
 	let panel = panels.get(el);
-	if (!panel) panels.set(el, (panel = waitPanel({ actions: waitActions({ ws: a.ws, id: a.wait!.id, tower: unitOf(a) }, send), text: a.wait!.text, done: close })));
+	if (!panel) panels.set(el, (panel = waitPanel({ actions: waitActions({ ws: a.ws, id: a.wait!.id, tower: unitOf(a) }, send), text: a.wait!.text, reply: true, done: close })));
 	if (!el.querySelector(".wait-panel")) el.querySelector(".ask-root")!.replaceChildren(panel.el);
 	panel.el.hidden = over;
-	// Handle, Later and Dismiss in one row of the dialog's footer, the quiet one last.
+	// The comms link, Later and Dismiss in one row of the dialog's footer, the quiet one last.
 	el.querySelector("footer")!.insertBefore(panel.dismiss, el.querySelector(".queued"));
 	panel.dismiss.hidden = over;
 	panel.update(!over && document.body.dataset.stale !== "true");

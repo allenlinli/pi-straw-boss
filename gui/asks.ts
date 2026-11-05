@@ -1,7 +1,7 @@
 import type { SessionPost } from "./answer.ts";
-import type { Answer } from "./post.ts";
+import { type Answer, post } from "./post.ts";
 import type { NetRoute } from "./router.ts";
-import { dismissWait } from "./towermodel.ts";
+import { towerRoute } from "./towermodel.ts";
 
 // What the boss's answers have in common, decided once for every view (docs/specs/2026-11-01-zen-view.md, Answering): how a reply to an answer reads. The routes say it in their own words: a dialog or trust answer has an `outcome`, a message to a tower
 // (the session's `input`) says `accepted: true`, and the tower memory route (a dismissed wait) answers the memory it now holds. A view reads them through `outcome` and acts on one of three: Standard closes its dialog, Zen's model knocks or plays the low bowl.
@@ -30,6 +30,6 @@ export interface WaitActions {
 /** What the boss can do with a wait the tower recorded on them, as plain functions every view draws (waitpanel.ts, towernotes.ts); a view differs only in what it does after `outcome` of the reply. */
 export const waitActions = (w: WaitTarget, send: SessionPost): WaitActions => ({
 	tell: (text) => send("input", { text, as: "send" }),
-	dismiss: () => dismissWait(w.ws, w.id),
+	dismiss: () => post(`${towerRoute(w.ws)}/memory`, { op: "drop", id: w.id }), // the head's waits go to `head/memory`
 	goto: { view: "session", ws: w.ws, key: w.tower },
 });

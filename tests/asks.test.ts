@@ -5,7 +5,6 @@ import type { Answer } from "../gui/post.ts";
 // What a reply to the boss's answer meant (gui/asks.ts): the one table every view reads, over the shapes the server's routes give for the same intent (a dialog answer, a trust answer, a message to a tower, a dismissed wait).
 
 const { joined, outcome, waitActions } = await import("../gui/asks.ts");
-const { dismissWait } = await import("../gui/towermodel.ts");
 const r = (status: number, body: Answer["body"]): Answer => ({ ok: status < 400, status, body });
 
 test("a reply reads as accepted, unknown, or refused by the one table, whichever route it came from", () => {
@@ -39,7 +38,7 @@ test("the wait's actions are plain requests: tell is the tower's session input, 
 	assert.equal(outcome(await acts.tell("Use the staging token")), "accepted");
 	assert.deepEqual(told, [["input", { text: "Use the staging token", as: "send" }]], "through the send the caller gives (answerPost of the tower's key, or the demo's stand-in)");
 	await acts.dismiss();
-	await dismissWait("@head", "W9");
+	await waitActions({ ws: "@head", id: "W9", tower: "sb-head" }, async () => ({ ok: true, status: 200, body: {} })).dismiss();
 	assert.deepEqual(sent, [["api/tower/w/memory", { op: "drop", id: "W2" }], ["api/head/memory", { op: "drop", id: "W9" }]]);
 	assert.deepEqual(acts.goto, { view: "session", ws: "w", key: "sb-tower-w" });
 });

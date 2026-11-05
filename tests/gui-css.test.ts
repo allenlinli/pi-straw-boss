@@ -12,6 +12,15 @@ test("`.slash[hidden]` is display none", () => {
 	assert.match(css, /\.slash\[hidden\]\s*\{\s*display:\s*none/);
 });
 
+test("the wait panel's answer box in Standard and Geek is the composer's box: themed, 44 px, 16 px on a touch screen (no zoom), with its form and its hidden buttons obeying `hidden`", () => {
+	const box = rulesOf(css).find((r) => r.parts.includes(".wait-box"));
+	const decl = declarations(box!.body);
+	assert.ok(decl.some(([p, v]) => p === "min-height" && v === "44px") && decl.some(([p, v]) => p === "background" && v === "var(--sunken)"));
+	assert.match(css, /@media \(pointer: coarse\) \{[^}]*\.wait-box[^}]*\{ font-size: 16px; \}/);
+	assert.match(css, /\.wait-form\[hidden\] \{ display: none; \}/);
+	assert.match(css, /\.wait-panel \.pair-btn\[hidden\] \{ display: none; \}/);
+});
+
 test("the selected pair tab has a fill and a heavier weight, for `.on` and `aria-selected`", () => {
 	const line = rule('.pair-tabs .later[aria-selected="true"]');
 	assert.match(line, /\.pair-tabs \.later\.on/);

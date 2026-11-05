@@ -817,6 +817,7 @@
 	"notice_origin_teammate": "teammate",
 	"tower_waits_for_you": "Waits for you: {text}",
 	"tower_answer": "Handle",
+	"wait_goto": "Open the tower's comms",
 	"wait_dismiss": "Dismiss",
 	"tower_wait_age": "open for {age}",
 	"tower_wait_stale": "may be out of date",

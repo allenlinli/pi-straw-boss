@@ -121,6 +121,8 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 		const real = globalThis.fetch;
 		globalThis.fetch = async (input, init) => {
 			const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+			// The map card's wait row sends the boss's words through the page's own route (no fixture seam there): the tower's session input.
+			if (/api\/sessions\/[^/]+\/input$/.test(url) && decodeURIComponent(url.split("/").at(-2)!) === net.bases[0]!.tower!.key) return new Response(JSON.stringify(waitRefuse ? { error: "standing", reason: "The tower service is standing by." } : { accepted: true, woke: true }), { status: waitRefuse ? 409 : 200, headers: { "content-type": "application/json" } });
 			if (!/api\/tower\/\w+\/memory$/.test(url)) return real(input, init);
 			const memory = net.bases[0]!.tower!.service!.memory!, id = (JSON.parse(String(init?.body)) as { id: string }).id;
 			memory.bossWaits = memory.bossWaits.filter((w) => w.id !== id);

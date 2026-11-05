@@ -382,6 +382,12 @@ body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /
 .tower-notices .tnote .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .tower-notices .tnote .tnote-fail:empty { display: none; }
 .tower-notices .tnote button:disabled { opacity: 0.6; cursor: progress; }
 .wait-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; } .wait-text { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; } .wait-panel .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .wait-panel .tnote-fail:empty { display: none; }
+.wait-panel .pair-btn[hidden] { display: none; } .tower-notices .tnote .wait-panel { flex: 1 1 100%; margin-top: 0; }
+.wait-form { display: grid; gap: 4px; flex: 1 1 100%; margin: 0; min-width: 0; } .wait-form[hidden] { display: none; }
+.wait-box { box-sizing: border-box; width: 100%; min-height: 44px; resize: none; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: 14px/1.4 var(--sans); } /* the answer box: the composer's look */
+@supports (field-sizing: content) { .wait-box { field-sizing: content; max-height: 220px; } }
+.wait-box:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+.wait-note { margin: 0; color: var(--err-soft); font-size: 0.95em; } .wait-note:empty { display: none; }
 /* In the comms the same rows sit between the log and the composer. */
 .tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))):not(:has(> .head-asks:not([hidden]))):not(:has(> .head-absent:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }
 /* The tower's queue on its map card, and the sentence that stands where a standing tower's terminal would be. */
@@ -905,7 +911,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.dock, .dock.wide { top: auto; right: 10px; width: calc(100vw - 20px); } .dock { bottom: calc(10px + env(safe-area-inset-bottom)); } .dock.wide { transform: none; } .dialog .zoom { display: none; } /* not .zoom.view, the base map */
 }
 /* Touch: larger targets, and a 16 px box so the phone does not zoom in on focus. */
-@media (pointer: coarse) { .composer textarea, .ask input, .ask textarea { font-size: 16px; } .composer button, .go, .later, .x, .chat-pill, .pair-btn, .alerts, .ask button, .term-bar button, .doc-acts > .cmp-link, .quit-btn, .d-doc { min-height: 40px; } }
+@media (pointer: coarse) { .composer textarea, .ask input, .ask textarea, .wait-box { font-size: 16px; } .composer button, .go, .later, .x, .chat-pill, .pair-btn, .alerts, .ask button, .term-bar button, .doc-acts > .cmp-link, .quit-btn, .d-doc { min-height: 40px; } }
 /* A phone's keys are as big as a thumb needs, a narrow window with a mouse included. */
 @media (max-width: 640px), (pointer: coarse) { .pad-key, .pad-yes, .pad-no, .tcard-mask, .tcard-go, .tcard-input, .tcard .x, .tcard-full { min-height: 44px; } .pad-digits summary { padding: 14px 0; } .tcard-input { font-size: 16px; } }
 /* A phone's card is a sheet over the page: the dock's full width and its bottom edge, above the composer, clear of the home bar. */

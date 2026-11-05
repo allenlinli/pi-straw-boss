@@ -330,7 +330,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			music?.show();
 			root.hidden = false;
 			view = undefined;
-			apply(model.update(alerts));
+			apply(model.update(alerts, true));
 		},
 		hide() {
 			active = false;

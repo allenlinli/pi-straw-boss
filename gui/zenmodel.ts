@@ -21,7 +21,7 @@ export function companionOf(net: Net | undefined, asked: With | undefined): With
 
 export interface ZenDeps { now(): number; /** The companion's box has text and a real input (tap, drag, wheel, key, or text input) in the last DRAFT_MS. */ typing(): boolean }
 export function createZen({ now, typing }: ZenDeps) {
-	let alerts = new Map<string, Alert>(), screen: Screen = { kind: "companion" }, until = 0, hidden = false, quiet = false;
+	let alerts = new Map<string, Alert>(), screen: Screen = { kind: "companion" }, until = 0, hidden = false, quiet = false, back = false;
 	const seen = new Map<string, number>(), rests = new Map<string, { until: number; q: string }>();
 	let sound: Sound | undefined;
 	const items = () => waitingOf(alerts.values()).filter((a) => a.mark !== "error");
@@ -37,6 +37,7 @@ export function createZen({ now, typing }: ZenDeps) {
 		if (screen.kind === "item" && !screen.outcome) {
 			const cur = alerts.get(screen.item.key), live = cur && rankOf(cur) === 0 && cur.mark !== "error";
 			if (live) screen = { kind: "item", item: cur };
+			else if (back && cur?.mark !== "error") screen = { kind: "companion" }; // the item was on the screen when Zen was left and is gone now (answered in Standard, or closed): no card, no knock, and no line about it
 			else {
 				const elsewhere = cur ? !cur.closed : Boolean(screen.item.trust || screen.item.card); // a trust question or a card (a link confirm, a pair request, a proposal) has no unit to leave: when the server stops listing it, it was settled
 				leave(cur?.mark === "error" ? "error" : elsewhere ? "elsewhere" : undefined, cur?.mark === "error" ? "low" : elsewhere ? "knock" : undefined);
@@ -49,8 +50,8 @@ export function createZen({ now, typing }: ZenDeps) {
 	}
 	const out = () => { settle(); const s = sound; sound = undefined; return { screen, sound: s }; };
 	return {
-		/** A new snapshot's alerts. */
-		update(a: Map<string, Alert>) { alerts = a; for (const x of items()) if (!seen.has(x.key)) seen.set(x.key, now()); for (const k of seen.keys()) if (!a.has(k)) seen.delete(k); return out(); },
+		/** A new snapshot's alerts; `returning`: Zen is shown again after Standard had the page, so an item the screen still held from before and the snapshot no longer has is dropped silently. */
+		update(a: Map<string, Alert>, returning = false) { back = returning; alerts = a; for (const x of items()) if (!seen.has(x.key)) seen.set(x.key, now()); for (const k of seen.keys()) if (!a.has(k)) seen.delete(k); try { return out(); } finally { back = false; } },
 		/** The clock moved, or the typing state changed. */
 		tick: out,
 		/** The accepted answer or cancel of the item with this key: the knock, the outcome for 1.2 s, then the pause. */

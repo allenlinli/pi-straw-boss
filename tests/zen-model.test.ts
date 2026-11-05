@@ -263,3 +263,23 @@ test("an answer's reply that comes after the snapshot that already dropped the i
 	const late = z.accepted("a");
 	assert.deepEqual([late.sound, (late.screen as { outcome?: string }).outcome], [undefined, "answered"]);
 });
+
+test("T1: Zen shown again after Standard had the page: an item still on the screen from before that the snapshot no longer has is dropped with no outcome, no knock, and no pause; one it still has stays", () => {
+	for (const card of [false, true]) {
+		const { z } = rig(), gone = al(card ? "link-dialog\u001fd1" : "a", "waiting", 5, card ? { card: { kind: "dialog", device: "d", dialogId: "x", digest: "f", line: "" } as never, closed: false } : {});
+		assert.equal(z.update(map(gone)).screen.kind, "item");
+		const back = z.update(map(), true);
+		assert.deepEqual(back, { screen: { kind: "companion" }, sound: undefined }, card ? "a card the link closed" : "a unit that was answered");
+		assert.equal(z.due(), undefined, "no outcome and no pause to wait for");
+	}
+	const { z } = rig(), keep = al("a", "waiting", 5);
+	z.update(map(keep));
+	const still = z.update(map(keep), true);
+	assert.equal(still.screen.kind, "item", "an item that still waits is still the screen");
+	assert.equal(still.sound, undefined, "and is not announced a second time");
+	const live = rig(), card = al("link-dialog\u001fd2", "waiting", 5, { card: { kind: "dialog", device: "d", dialogId: "y", digest: "f", line: "" } as never, closed: false });
+	live.z.update(map(card));
+	const settled = live.z.update(map());
+	assert.equal(settled.screen.kind === "item" && settled.screen.outcome, "elsewhere", "a question that is settled while Zen shows is still the knock and the line");
+	assert.equal(settled.sound, "knock");
+});

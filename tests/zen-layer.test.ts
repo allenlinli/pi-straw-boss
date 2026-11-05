@@ -1940,3 +1940,19 @@ test("a question from a box that waits and is not the card on the screen says wh
 	off.feed(linkNet({ alerts: [BOX()] }));
 	assert.deepEqual(off.calls.debug, ["[sb] a question from waydosoft waits and is not on the Zen page: the Zen layer is not shown"], "the layer has not been shown yet");
 });
+
+test("T1: a question that was the card when Zen was left, and was answered and closed while the page showed Standard, is no card when Zen comes back (the model kept the item it had on the screen)", async () => {
+	server();
+	const r = rig();
+	r.feed(linkNet({ alerts: [BOX()] }));
+	r.z.show();
+	await r.settle();
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, "the card");
+	r.z.hide(); // Esc Esc: Standard shows it, and the boss answers it in the ally base's panel
+	r.feed(linkNet()); // the dialog closed: the link no longer lists it
+	r.z.show();
+	await r.settle();
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, `no card for a closed dialog: ${r.text()}`);
+	assert.equal(r.by((el) => el.classes.has("zen-out") && el.textContent !== "").length, 0, "and no line about an answer the boss gave himself in Standard");
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length >= 1, true, "the breathing circle");
+});

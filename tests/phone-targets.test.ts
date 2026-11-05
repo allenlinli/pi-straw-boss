@@ -42,7 +42,7 @@ test("the phone block gives the controls the audit found small a 44 px box", () 
 	assert.equal(size(".modes button", "min-height"), 44);
 	assert.equal(size(".brand", "min-height"), 44);
 	assert.match(body(":is(.act > summary, .notice > summary, .rule summary, .todos summary, .monitors summary, .timeline summary)"), /min-height:\s*44px/);
-	assert.match(body(":is(.head-info, .head-main:not([hidden]), .head-quit:not([hidden]))"), /min-height:\s*44px/);
+	assert.match(body(":is(.head-info, .head-main:not([hidden]), .head-quit:not([hidden]), .ally-asks-btn)"), /min-height:\s*44px/, "the head's buttons and the ally card's question button");
 	assert.match(body(":is(.ask, .term-bar, .doc-acts, .composer) :is(button, .cmp-link)"), /min-height:\s*44px/);
 });
 

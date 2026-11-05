@@ -93,8 +93,8 @@ export class TowerWorld extends ServerWorld {
 	signals: import("../src/server/runs.ts").RunSignal[] = [];
 	runTimers: Partial<Timers> = {};
 	standingTimers: Partial<StandingTimers> = {};
-	/** The clock of a run's wait for the prompt's exit when a test sets one (`standing.ts` `wait`). */
-	standingWait: { now: () => number; sleep: (ms: number) => Promise<void> } | undefined;
+	/** The clock of a run's wait for the prompt's exit and the settle after it (`standing.ts` `wait`). A world's fake prompt never polls or leaves, so by default the wait costs no machine time and a run starts when its wake is acted on; a test of the wait sets a held clock. */
+	standingWait: { now: () => number; sleep: (ms: number) => Promise<void> } | undefined = fakeClock();
 	/**
 	 * The clock of the runs (the age of a run, the idle time, the quit grace) when a test sets one: the watcher still ticks every 20 ms, but it sees only the ages the test gives it, so a tick that comes late under load cannot step over a
 	 * time (the steer is skipped when the first tick that sees a run is already past the cap). Unset, the runs use the server's clock.

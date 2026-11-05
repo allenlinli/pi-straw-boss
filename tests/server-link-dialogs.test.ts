@@ -100,7 +100,7 @@ test("the box's log says how a question went: the forwarder started, who it sees
 	const has = (...parts: string[]) => lines.some((l) => parts.every((p) => l.includes(p)));
 	assert.ok(has("dialog-forwarder", "state=started"), lines.join("\n"));
 	assert.ok(has("dialog-controllers", "count=1", "known=true"), "who the forwarder sees");
-	assert.ok(has("dialog-seen", "dialog=dlg-1", "owner=rpiv"), "the question the hub offered");
+	assert.ok(has("dialog-seen", "dialog=dlg-1", 'owner="main - docs-main"', "package=rpiv"), "the question the hub offered, as the unit the controllers are told asks, and the package that opened it");
 	assert.ok(has("dialog-sent", "kind=dialog-open", "dialog=dlg-1", `to=${alice.id}`, `team=${TEAM_HEX}`), "the controller it was posted to");
 	assert.equal(lines.filter((l) => l.includes("dialog-controllers")).length, 1, "one line until the count changes");
 	assert.ok(!lines.some((l) => l.includes("Which env") || l.includes("staging")), "no word of the question in the log");
@@ -163,4 +163,39 @@ test("a question the box forwarded reaches the controller's page in the snapshot
 	await until(async () => (await snapshot(s)).link?.alerts.some((a) => a.kind === "dialog"), "the dialog in the snapshot");
 	const alerts = (await snapshot(s)).link!.alerts.filter((a) => a.kind === "dialog");
 	assert.deepEqual(alerts, [{ id: `dialog/${dave.id}/dlg-1`, kind: "dialog", level: "warning", team: TEAM_HEX, teamName: "project", data: { device: dave.id, dialogId: "dlg-1", digest, owner: "subagent - scout", dialog, label: "waydosoft", short: dave.shortId, answered: 0 } }]);
+});
+
+/** One open stream of the GUI, kept: every snapshot it is given from now on (what a page that is already open is given), until it is closed. */
+function openStream(s: Running) {
+	const { port, token } = world.record()!.gui!, got: Net[] = [];
+	void s;
+	let buffer = "";
+	const req = get(`http://127.0.0.1:${port}/${token}/events`, (res) => {
+		res.setEncoding("utf8").on("data", (chunk: string) => {
+			buffer += chunk;
+			const blocks = buffer.split("\n\n");
+			buffer = blocks.pop()!;
+			for (const block of blocks) if (block.startsWith("data: {")) got.push(JSON.parse(block.slice(6)) as Net);
+		});
+	});
+	req.on("error", () => {});
+	return { got, close: () => req.destroy() };
+}
+
+test("a page that is already open is pushed the question when the box's dialog-open lands, with no new connection", async () => {
+	const c = controller();
+	const s = await world.start({ link: c.link, gui: { bundle, tailscale: noTailscale, bindWaitMs: 200 } });
+	await s.handle.ready;
+	await until(() => Boolean(world.record()?.gui?.port), "the GUI");
+	const page = openStream(s);
+	try {
+		await until(() => page.got.length > 0, "the page's first snapshot");
+		assert.equal(page.got.some((n) => n.link?.alerts.some((a) => a.kind === "dialog")), false, "nothing asked yet");
+		const digest = questionsDigest(QUESTIONS), dialog = JSON.stringify({ questions: QUESTIONS, cancel: true });
+		const envelope = buildEnvelope({ team: TEAM, epoch: 1, teamKey: teamKey(1), head: stateOf(c.entries, alice).head, from: dave, seq: 1, ts: Date.now(), kind: "dialog-open", to: [alice.id], plaintext: encodePlaintext("dialog-open", { dialogId: "dlg-1", digest, owner: "subagent - scout", dialog }) });
+		await new RelayClient({ url: "http://relay.test", device: dave, fetch: relay.fetch }).postEnvelope(TEAM, envelope);
+		await until(() => page.got.some((n) => n.link?.alerts.some((a) => a.kind === "dialog")), "the dialog pushed to the open page");
+	} finally {
+		page.close();
+	}
 });

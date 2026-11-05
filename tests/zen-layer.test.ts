@@ -33,7 +33,7 @@ const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found:
 function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; /** The companion the visit starts with: the tower `t` unless given; null for none. */ start?: With | null; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean; candidates?: (n: Net | undefined) => { key: string; ws: string }[] } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
-	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], settings: 0, composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[] };
+	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], settings: 0, composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[], debug: [] as string[] };
 	const replies: ((r: Answer) => void)[] = [];
 	let netNow: Net | undefined;
 	const items: Item[] = [{ id: "a1", kind: "assistant", text: "I need a decision." } as Item];
@@ -49,6 +49,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		chat: async () => (root: El, _data: unknown, _deps: unknown) => (calls.logs.push("mounted"), { apply: (e: HistoryEvent) => calls.applied.push(e), setLive() {}, reveal() {} } as unknown as Chat),
 	};
 	const deps = {
+		debug: (line: string) => void calls.debug.push(line),
 		data: () => ({ older: async () => ({ items: [] }), latest: o.latest ?? (async () => ({ items })), entry: async () => undefined }),
 		recent: async () => items,
 		post: (key: string) => (action: string, body: Record<string, unknown>) => (calls.posts.push({ key, action, body }), new Promise<Answer>((resolve) => replies.push(resolve))),
@@ -1871,4 +1872,56 @@ test("F006: Allow with the number of another request does not read as Answered o
 	assert.ok(!r.text().includes("Answered."), "this card's request was not the one paired");
 	assert.ok(r.text().includes("Sam's Pixel"), "it says who was paired");
 	assert.equal(r.button("Allow")!.disabled, false, "this request still waits");
+});
+
+test("a question the box forwarded lands on a page that is already open: the card replaces the circle at the next snapshot, with no reload", async () => {
+	server();
+	const r = rig();
+	r.feed(linkNet());
+	r.z.show();
+	await r.settle();
+	noCard(r);
+	r.feed(linkNet({ alerts: [BOX()] }));
+	await r.settle();
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, r.text());
+	assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, "waydosoft asks you");
+});
+
+test("a question lands on a hidden page that sits in the pause after a card: the card is drawn at once and the page reminds, with no reload (a hidden page kept the pause and the question off the screen)", async () => {
+	server();
+	const r = rig();
+	r.feed(linkNet({ alerts: [FWD()] }));
+	r.z.show();
+	await r.settle();
+	r.feed(linkNet()); // answered elsewhere: the knock, the line for a moment, then the pause
+	await r.advance(1300);
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length >= 1, true, "the pause");
+	page.hidden = true;
+	r.z.visible(false);
+	r.feed(linkNet({ alerts: [{ ...BOX(), id: "dlg-2" }] }));
+	await r.settle();
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, r.text());
+	assert.deepEqual(r.calls.remind, ["link-dialog\u001fdlg-2"], "the system notification that Standard would show");
+});
+
+test("a question from a box that waits and is not the card on the screen says why once in the console, and says no more when it is the card", async () => {
+	server();
+	const r = rig();
+	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
+	r.z.show();
+	await r.settle();
+	const withBox = () => { const n = net([unit("a", "waiting", { since: 5, pending: select() })]); n.link = { allies: [], units: [], alerts: [BOX()], confirms: [] } as never; return n; };
+	r.feed(withBox());
+	r.feed(withBox());
+	assert.deepEqual(r.calls.debug, ["[sb] a question from waydosoft waits and is not on the Zen page: a is on the screen and was waiting first"], "once");
+	const only = () => { const n = net([]); n.link = { allies: [], units: [], alerts: [BOX()], confirms: [] } as never; return n; };
+	r.feed(only()); // the unit is answered: its outcome and the pause come first, and each is said once
+	await r.advance(1300);
+	r.feed(only());
+	await r.advance(3100);
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, "now it is the card");
+	assert.deepEqual(r.calls.debug.slice(1), ["[sb] a question from waydosoft waits and is not on the Zen page: the pause after a card is on"], "and nothing more is said");
+	const off = rig();
+	off.feed(linkNet({ alerts: [BOX()] }));
+	assert.deepEqual(off.calls.debug, ["[sb] a question from waydosoft waits and is not on the Zen page: the Zen layer is not shown"], "the layer has not been shown yet");
 });

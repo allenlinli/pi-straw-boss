@@ -34,10 +34,11 @@ export function dispatcherLookup(d: { paneOf(key: string): string | undefined; l
  */
 const KIND: Record<string, string> = { main: "main", member: "member", subagent: "subagent", ally: "ally run", run: "run" };
 
-/** The unit's name for a controller, or nothing when the unit has none left after the scrub (a name that was all path or token is a bare mark). `found` is what the net's registry holds for the unit's key. */
+/** The unit's name for a controller, or nothing when the unit has none left after the scrub (a name that was all path or token is a bare mark). `found` is what the net's registry holds for the unit's key. A name that begins with its role word already is told as it is. */
 export function unitLabel(found: { name: string; role: string } | undefined): string | undefined {
 	const name = allyLabel(found?.name);
 	if (!found || !/[\p{L}\p{N}]/u.test(name)) return undefined;
 	const kind = KIND[found.role];
-	return kind ? `${kind} - ${name}` : name;
+	// A tab's session is already named `main · <tab>`: the role is not said twice (`main - main · trial11`).
+	return kind && !new RegExp(`^${kind}(?![\\p{L}\\p{N}])`, "iu").test(name) ? `${kind} - ${name}` : name;
 }

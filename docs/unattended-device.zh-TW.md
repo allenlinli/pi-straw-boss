@@ -109,8 +109,8 @@ pi 啟動的資料夾不只有專案：
 | `tower-run` | 某個 ally run 把那則訊息收進它的 session：`run`（run id），加上同樣的 `from`、`team`、`ask`、`id`。 |
 | `dialog-forwarder` 帶 `state` | `server.log`，啟動時：`started`（轉送器在跑，每 15 秒看一次）或 `skipped`，附 `primary`、`leaving`、`phase`（不是預設 Herdr 的 server 不跑轉送器）。 |
 | `dialog-controllers` | `server.log`：轉送器看得到的控制端（`count`：在跑的團隊裡、在 `dispatch`、有人值守的成員數；`known`：讀不到某個名冊時為 false）和 `open`，它手上的問題數。第一次看時寫一行，之後 `count` 或 `known` 變了才寫。`count=0` 就是什麼都沒送出去的原因。 |
-| `dialog-seen` | `server.log`：hub 讓它可以回答、轉送器接手的問題：`dialog`（id）、`unit`（單位的 key）、`owner`（開這個對話框的套件，例如 `rpiv`）。 |
-| `dialog-sent` | `server.log`：一個信封交給了連結的寄件匣：`kind`（`dialog-open` 或 `dialog-close`）、`dialog`、`team`、`to`（控制端的裝置 id）。這是排進佇列，不是送達；送達了，控制端的 `link.log` 會有 `dialog-in`。沒有這一行的問題就是沒送出去。 |
+| `dialog-seen` | `server.log`：hub 讓它可以回答、轉送器接手的問題：`dialog`（id）、`unit`（單位的 key）、`owner`（告訴控制端的標籤，例如 `main - docs`）、`package`（開這個對話框的套件，例如 `rpiv`）。 |
+| `dialog-sent` | `server.log`：一個信封交給了連結的寄件匣：`kind`（`dialog-open` 或 `dialog-close`）、`dialog`、`team`、`to`（控制端的裝置 id；一個裝置一份，即使它在這台裝置的兩個團隊裡）。這是排進佇列，不是送達；送達了，控制端的 `link.log` 會有 `dialog-in`。沒有這一行的問題就是沒送出去。 |
 | `dialog-ended` | `server.log`：問題離開了 hub（`by`：誰結束的，回答被帶走是 `remote`），之前送給了 `sent` 個控制端。 |
 | `dialog-in` | 控制端的 `link.log`：從 `from`（裝置 id）收到 `dialog` 的 `dialog-open`；`fresh` 為 false 表示早就有這個問題（裝置每十分鐘會再送一次）。 |
 | `dialog-pass-stuck` | `server.log`：轉送器的一輪跑了 `ms`（一分鐘）還沒結束，卡在 `step`（`read`、`dispatcher`、`notice`、`post`）；那一輪被放掉，下一次查看另開新的一輪。 |

@@ -194,8 +194,9 @@ export class DialogForwarder {
 				this.full = true;
 				continue;
 			}
-			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, label: this.labelOf(o.key, o.owner), text, sent: new Map(), away: new Set(), claimed: false, since: this.now(), told: false });
-			this.d.log({ event: "dialog-seen", dialog: id, unit: o.key, owner: o.owner });
+			const label = this.labelOf(o.key, o.owner);
+			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, label, text, sent: new Map(), away: new Set(), claimed: false, since: this.now(), told: false });
+			this.d.log({ event: "dialog-seen", dialog: id, unit: o.key, owner: label, package: o.owner });
 		}
 		for (const [id, d] of [...this.open]) {
 			this.at(gen, "dispatcher");
@@ -235,9 +236,9 @@ export class DialogForwarder {
 			// A question no controller can be told of (an unattributed unit, and no admin at `dispatch`) stays open and is never widened to the others; the box's own log says it waits.
 			if (!mine.length && !d.unrouted) {
 				d.unrouted = true;
-				this.d.log({ event: "dialog-unrouted", dialog: id, unit: d.key, owner: d.owner });
+				this.d.log({ event: "dialog-unrouted", dialog: id, unit: d.key, owner: d.label });
 			}
-			for (const c of mine) {
+			for (const c of this.oneEach(d, mine)) {
 				const k = `${c.team}\n${c.device}`;
 				const at = d.sent.get(k), up = this.d.online?.(c.team, c.device) ?? true;
 				if (!up) {
@@ -253,6 +254,19 @@ export class DialogForwarder {
 			}
 		}
 		for (const id of [...this.skipped]) if (!this.d.hub.outcome(id).open) this.skipped.delete(id);
+	}
+	/**
+	 * One controller entry per device: a device that is in two teams of the box is told once, and its answer and its close go the same way. The team it was told on stays while that team lists it, else a team where it is online, else the first.
+	 * A controller on two teams used to get two `dialog-open`s for one question, and the box held two of them to close.
+	 */
+	private oneEach(d: Open, mine: { team: string; device: string }[]): { team: string; device: string }[] {
+		const rank = (c: { team: string; device: string }) => (d.sent.has(`${c.team}\n${c.device}`) ? 0 : (this.d.online?.(c.team, c.device) ?? true) ? 1 : 2);
+		const best = new Map<string, { team: string; device: string }>();
+		for (const c of mine) {
+			const had = best.get(c.device);
+			if (!had || rank(c) < rank(had)) best.set(c.device, c);
+		}
+		return [...best.values()];
 	}
 	/** Keeps a close to post: the oldest is given up when the room is used up. */
 	private hold(k: string, dialogId: string, by: string): void {

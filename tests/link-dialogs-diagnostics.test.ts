@@ -257,13 +257,13 @@ describe("a pass let go does not lose what it had not finished", () => {
 });
 
 describe("the unit that asked", () => {
-	test("a controller is told the unit's name as the question's owner, and the log keeps the package that owns the dialog", async () => {
+	test("a controller is told the unit's name as the question's owner, and the log says the same name, with the package that owns the dialog apart", async () => {
 		const r = rig({ unit: (key) => (key === "unit-7" ? "main - docs" : undefined) });
 		r.h.open("D1", "unit-7");
 		r.h.open("D2", "unit-8");
 		await r.f.poll();
 		assert.deepEqual(r.posts.map((p) => [p.id, p.owner]).sort(), [["D1", "main - docs"], ["D2", "rpiv"]], "a unit with no name is told by its package, as before");
-		assert.deepEqual(lines(r.logs, "dialog-seen").map((e) => [e.dialog, e.owner]), [["D1", "rpiv"], ["D2", "rpiv"]]);
+		assert.deepEqual(lines(r.logs, "dialog-seen").map((e) => [e.dialog, e.owner, e.package]), [["D1", "main - docs", "rpiv"], ["D2", "rpiv", "rpiv"]]);
 	});
 
 	test("the notice of a question unanswered for 30 minutes names the unit", async () => {

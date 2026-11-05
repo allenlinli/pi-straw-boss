@@ -748,7 +748,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Wait review fixes: 5837 (measured, +12): the row's newest snapshot and kept focus, the folded box, the dialog's title and its hidden duplicates, `waitTitle`.
 	// Zen link cards to 6095 (measured, +258): asks.ts takes the link, forwarded-dialog, proposal and LAN actions (+41), cardalerts.ts, pairs.ts, zendecide.ts and demo-link.ts are new, zen.ts takes the cards (+39), and Standard's rows call the shared actions.
 	// Zen link cards review fixes to 6111 (measured, +16): the refusal words and the pair/proposal binding (asks.ts, zendecide.ts, zen.ts, zenmodel.ts, towermemory.ts).
-	assert.ok(page <= 6111, `the page's TypeScript has ${page} lines`);
+	// Link card live (0.59.2) to 6239 (measured, +128): gui/allyasks.ts (87, new: the answer panel on an ally base's card and which card hosts which question), cardalerts.ts (+17, the console line for a card off the page), zenmodel.ts (+10, `why` and the hidden page's pause), render.ts (+13, the lazy load of allyasks.ts), zentypes.ts (+1, the `debug` dep); zen.ts stays at 427.
+	assert.ok(page <= 6239, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -895,7 +896,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Wait review fixes (ZWA-F002, F003, F005, M1, M2): 100,332 / 35,820 measured, +161 / +62 over the figure above: the row's newest snapshot and kept focus (towernotes.ts), the folded box (waitpanel.ts), the dialog's title, the input refusal words. Cap = measured.
 	// Zen link cards review fixes: 100,708 / 36,553 measured, +47 / +41 over the figure below (the confirm's digest and the shared refusal words, asks.ts). Cap = measured.
 	// Zen link cards: 100,661 / 36,512 measured, +329 / +692 over the figure above: the confirm's line (linkmodel.ts), the pair list the page hands to Zen (pagecore.ts), and the shared actions' module (asks.ts, loaded with the first press in the Link notices) now being imported by more lazy chunks, which makes the bundler keep towermodel.ts as a chunk of its own beside the page's. Cap = measured.
-	assert.ok(eagerBytes <= 100_708 && eagerGz <= 36_553, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Link card live (0.59.2): 101,146 / 36,717 measured, +438 / +164 over the figure above: the ally base's lazy load of the answer panel (render.ts: the waiting cards and the load, gui/allyasks.ts itself is a chunk) and one message in both languages. Cap = measured.
+	assert.ok(eagerBytes <= 101_146 && eagerGz <= 36_717, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1027,7 +1029,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Wait review fixes (the folded box, the dialog's title, the input refusal words): 297,054 / 121,362 measured on a fresh build, cap = measured.
 	// Zen link cards review fixes: 305,393 / 124,922 measured, +1,842 / +661 over the figure below, all lazy: the confirm's refusal words, the pair card's own-request check, the sig and the keyed replies, and the messages in both languages. Cap = measured.
 	// Zen link cards: 303,551 / 124,261 measured, +6,497 / +2,899 over the figure above, all lazy: the cards' panels (zendecide.ts), their alerts (cardalerts.ts), the shared actions (asks.ts), the pair list (pairs.ts), and the messages in both languages. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 305_393 && total(chunks, gz) <= 124_922, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Link card live (0.59.2): 308,264 / 126,378 measured, +2,871 / +1,456 over the figure above, all lazy: the answer panel on an ally base's card (gui/allyasks.ts), the Zen model's reasons and the console line, and the message in both languages. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 308_264 && total(chunks, gz) <= 126_378, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1137,7 +1140,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Wait panel answers in place (Zen's two rules for the answer box's width and its hidden buttons, Standard's six for the box, its form and its note): 155,358 / 31,805 measured, +883 / +114 over the review figure. Cap = measured + 15.
 	// Wait panel in the dialog (Handle and Send as the dialog's act, the comms link its secondary one; Zen draws the answer box in zen.css, so Standard's box rules are scoped away from it): 155,600 / 31,845 measured, +242 / +40 over the figure above. Cap = measured + 15.
 	// Zen link cards (zen.css's block for the decision panels): 156,592 / 32,023 measured, +992 / +163 over the figure above. Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 156_607 && total(css, gz) <= 32_038, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Link card live (0.59.2): 157,143 / 32,141 measured, +536 / +103 over the 156,607 / 32,038 above: the questions' button and list on an ally base's card (.ally-asks, the pointer on a row that waits). Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 157_143 && total(css, gz) <= 32_141, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

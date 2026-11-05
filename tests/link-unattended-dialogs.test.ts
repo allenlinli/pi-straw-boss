@@ -150,6 +150,15 @@ describe("dialog forwarding", () => {
 		assert.ok(!events(d).some((e) => JSON.stringify(e).includes("secret title")), "no dialog text in the log");
 	});
 
+	test("the card carries the unit's name whole, the notice restricts it: `main · trial11` is a name on the card and `main _ trial11` in the notification", async () => {
+		const { h, a, f } = await start();
+		h.open("D1", answerable("D1"), "main · trial11");
+		await f.poll();
+		await until(() => a.holder.dialogRequests().length === 1, 3000, "the dialog on alice");
+		assert.equal(a.holder.summary().alerts.find((x) => x.kind === "dialog")!.data.owner, "main · trial11", "the Link row and Zen's card read this");
+		assert.deepEqual(a.notices.filter((n) => n.includes("asks a question")), ["Straw Link: ci-box asks a question (main _ trial11)"]);
+	});
+
 	test("an answer with another digest is refused and leaves the question open for the right one", async () => {
 		const { h, a, f } = await start();
 		h.open("D1");

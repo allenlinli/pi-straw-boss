@@ -1,7 +1,7 @@
 import { HEAD_KEY } from "../src/headkey.ts";
 import type { Net } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
-import { cardAlerts, cardSig } from "./cardalerts.ts";
+import { cardAlerts, cardSig, explainer } from "./cardalerts.ts";
 import { answerPost, canAnswer, trustPost } from "./answer.ts";
 import { forwardedAnswer, outcome, waitActions } from "./asks.ts";
 import { type AnswerPost, mountAsk } from "./ask.ts";
@@ -59,7 +59,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	// A draft holds the screen while the boss is at it: the box has text and he touched the companion (a tap or a drag on the log, a wheel, a key, or text that arrives with no key, as dictation and a suggestion tap do) in the last DRAFT_MS, focused or not. Typing keeps renewing it; walking away from a focused box does not hold the screen.
 	let touched = -Infinity;
 	const typing = () => Boolean((company?.composer && company.composer.box.value !== "") || head.drafting()) && now() - touched < DRAFT_MS; // the head tower's folded-out input holds the screen the same way
-	const model = createZen({ now, typing });
+	const model = createZen({ now, typing }), explain = explainer(deps.debug ?? ((line) => console.debug(line)), (key) => (active ? model.why(key) : "the Zen layer is not shown")); // a question that waits off the page says why in the console
 	const head = mountHead({ now, later, post: (action, body) => answerPost(net?.head?.key ?? HEAD_KEY, deps.post)(action, body), latest: () => deps.data(net?.head?.key ?? HEAD_KEY).latest(), online: deps.online, sound: deps.sound, changed: () => void later(() => apply(model.tick()), 0), rest: (on) => void line?.away(!on), history: () => void openHistory() });
 	const stage = h("div", { class: "zen-stage" }), live = h("p", { class: "zen-live", role: "status", "aria-live": "polite" });
 	const fs = mountFullscreen(deps.fs ?? domFs(later)), menu = mountMenu(deps.menu ?? {}, () => leave()), music = deps.music && mountMusic(deps.music);
@@ -355,7 +355,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			[unitAlerts, net] = [next, whole];
 			alerts = withCards();
 			term.follow(whole);
-			if (active) apply(model.update(alerts));
+			if (active) apply(model.update(alerts)); explain(alerts);
 		},
 		/** The pair requests `lan/pending` lists now (the page polls it: lanwait.ts); a request the server no longer lists is no item. */
 		pairs(list: PairRequest[]) {

@@ -229,3 +229,12 @@ test("due is the soonest moment ahead: a time that has passed is not due again, 
 	z.tick();
 	assert.equal(z.due(), undefined, "nothing ahead");
 });
+
+test("an answer's reply that comes after the snapshot that already dropped the item makes it answered, not answered elsewhere, and rings no second knock", () => {
+	const { z } = rig();
+	z.update(map(al("a", "waiting", 1, { card: { kind: "pair", request: { id: "a", label: "x", peer: "p", age: "" } } })));
+	const gone = z.update(map());
+	assert.deepEqual([gone.sound, (gone.screen as { outcome?: string }).outcome], ["knock", "elsewhere"]);
+	const late = z.accepted();
+	assert.deepEqual([late.sound, (late.screen as { outcome?: string }).outcome], [undefined, "answered"]);
+});

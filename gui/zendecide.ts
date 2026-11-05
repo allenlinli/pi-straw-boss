@@ -18,7 +18,7 @@ function decide(o: DecideOptions, field?: HTMLInputElement): DecidePanel {
 	const note = h("p", { class: "zen-head-note", role: "alert" }), buttons = o.choices.map((c) => Object.assign(h("button", { type: "button", class: "pair-btn" }, c.label) as HTMLButtonElement, { choice: c }));
 	let live = true, busy = false, done = false;
 	const draw = () => buttons.forEach((b) => (b.disabled = !live || busy || done || b.choice.ready?.() === false));
-	const say = (text: string) => ((note.textContent = text), (note.dataset.tone = text ? "error" : ""));
+	const say = (text: string, tone = "error") => ((note.textContent = text), (note.dataset.tone = text ? tone : ""));
 	async function pick(c: Choice) {
 		if (busy || done || !live || c.ready?.() === false) return;
 		busy = true;
@@ -26,7 +26,7 @@ function decide(o: DecideOptions, field?: HTMLInputElement): DecidePanel {
 		draw();
 		try {
 			const r = await o.wrap(c.run());
-			if (outcome(r) === "accepted") done = true; // the server took it: the card leaves by itself, and a second press would only be a second answer
+			if (outcome(r) === "accepted") (done = true), say(m.answered(), "ok"); // the server took it: the card leaves by itself, and a second press would only be a second answer
 			else say(o.words(r) || m.refused({ status: r.status }));
 		} catch {
 			say(m.zen_head_unreachable());
@@ -61,7 +61,7 @@ export function confirmPanel(c: ConfirmView, wrap: DecideOptions["wrap"]): Decid
 /** A memory proposal of a tower run: Confirm (naming the rev the snapshot carried) or Reject. */
 export function proposalPanel(p: { ws: string; proposal: MemoryProposal; rev: number }, wrap: DecideOptions["wrap"]): DecidePanel {
 	const acts = proposalActions({ ws: p.ws, id: p.proposal.id, rev: p.rev });
-	return decide({ choices: [{ label: m.memory_confirm(), run: acts.confirm }, { label: m.memory_reject(), run: acts.reject }], wrap, words: (r) => m.tower_action_failed({ reason: actionWhy(r) ?? reason(r) }) });
+	return decide({ lead: p.proposal.cites ? [h("p", { class: "zen-meta" }, m.memory_cites({ text: p.proposal.cites }))] : [], choices: [{ label: m.memory_confirm(), run: acts.confirm }, { label: m.memory_reject(), run: acts.reject }], wrap, words: (r) => m.tower_action_failed({ reason: actionWhy(r) ?? reason(r) }) });
 }
 
 /** A pair request: the number the phone shows (four digits, which the server matches), Allow, and Deny for this request. The server keeps the budget of wrong numbers. */

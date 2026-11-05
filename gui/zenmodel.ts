@@ -53,7 +53,8 @@ export function createZen({ now, typing }: ZenDeps) {
 		/** The clock moved, or the typing state changed. */
 		tick: out,
 		/** The accepted answer or cancel: the knock, the outcome for 1.2 s, then the pause. */
-		accepted() { if (screen.kind === "item" && !screen.outcome) { quiet = false; leave("answered", "knock"); quiet = true; rests.set(screen.item.key, { until: now() + HOLD_MS, q: questionOf(screen.item) }); } return out(); },
+		accepted() { if (screen.kind === "item" && screen.outcome === "elsewhere") screen = { ...screen, outcome: "answered" }; // the server's snapshot came ahead of its reply: this answer settled it, and the knock already rang
+			else if (screen.kind === "item" && !screen.outcome) { quiet = false; leave("answered", "knock"); quiet = true; rests.set(screen.item.key, { until: now() + HOLD_MS, q: questionOf(screen.item) }); } return out(); },
 		/** An answer that was refused, stale, busy, or unconfirmed: the low bowl, and the card stays; the item's later exit is silent. */
 		refused() { if (screen.kind === "item" && !screen.outcome && !quiet) { sound = "low"; quiet = true; } return out(); },
 		/** Not now: the item rests, and the pause starts. */

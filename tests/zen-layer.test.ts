@@ -1500,6 +1500,7 @@ test("a confirm a teammate's tower asked is a card: who, the sentence, the tool'
 	await r.settle();
 	assert.deepEqual(sent, [{ path: "api/link/confirm-answer", body: { dialogId: "dc1", allow: true } }]);
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
+	assert.ok(r.text().includes("Answered."), "the card says so");
 	assert.ok(r.button("Allow")!.disabled && r.button("Deny")!.disabled, "answered: no second answer from this card");
 	r.feed(linkNet({ confirms: [CONFIRM] })); // the server has not dropped it yet
 	await r.advance(1300);
@@ -1736,4 +1737,18 @@ test("two cards at once show one: nothing on the page counts or hints at the oth
 	r.button("Maybe later")!.click();
 	await r.advance(4000);
 	assert.notEqual(r.by((el) => el.classes.has("zen-who"))[0]?.textContent, first, "the next card follows the pause");
+});
+
+test("a snapshot that drops the confirm before the answer's reply arrives still ends in Answered, with one knock", async () => {
+	const sent = server(() => ({ status: 200, body: {} }));
+	const r = rig();
+	r.feed(linkNet({ confirms: [CONFIRM] }));
+	r.z.show();
+	await r.settle();
+	r.button("Allow")!.click();
+	r.feed(linkNet()); // the server dropped it and the snapshot came ahead of its reply
+	await r.settle();
+	assert.equal(sent.length, 1);
+	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
+	assert.ok(r.text().includes("Answered.") && !r.text().includes("Already answered elsewhere"));
 });

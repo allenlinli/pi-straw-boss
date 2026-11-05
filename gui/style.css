@@ -382,11 +382,11 @@ body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /
 .tower-notices .tnote .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .tower-notices .tnote .tnote-fail:empty { display: none; }
 .tower-notices .tnote button:disabled { opacity: 0.6; cursor: progress; }
 .wait-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; } .wait-text { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; } .wait-panel .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .wait-panel .tnote-fail:empty { display: none; }
-.wait-panel .pair-btn[hidden] { display: none; } .tower-notices .tnote .wait-panel { flex: 1 1 100%; margin-top: 0; }
+.wait-panel .pair-btn[hidden] { display: none; } .dialog[data-wait] .go { background: none; border: 1px solid var(--line); color: var(--text); } .dialog[data-wait] .wait-go { border: 0; background: var(--accent); color: var(--ink); } /* a wait's dialog: Handle (then Send) is the act, the comms link the secondary one */ .tower-notices .tnote .wait-panel { flex: 1 1 100%; margin-top: 0; }
 .wait-form { display: grid; gap: 4px; flex: 1 1 100%; margin: 0; min-width: 0; } .wait-form[hidden] { display: none; }
-.wait-box { box-sizing: border-box; width: 100%; min-height: 44px; resize: none; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: 14px/1.4 var(--sans); } /* the answer box: the composer's look */
-@supports (field-sizing: content) { .wait-box { field-sizing: content; max-height: 220px; } }
-.wait-box:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+html:not([data-view="zen"]) .wait-box { box-sizing: border-box; width: 100%; min-height: 44px; resize: none; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: 14px/1.4 var(--sans); } /* the answer box: the composer's look in Standard and Geek; Zen draws it as its own input (zen.css) */
+@supports (field-sizing: content) { html:not([data-view="zen"]) .wait-box { field-sizing: content; max-height: 220px; } }
+html:not([data-view="zen"]) .wait-box:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
 .wait-note { margin: 0; color: var(--err-soft); font-size: 0.95em; } .wait-note:empty { display: none; }
 /* In the comms the same rows sit between the log and the composer. */
 .tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))):not(:has(> .head-asks:not([hidden]))):not(:has(> .head-absent:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }

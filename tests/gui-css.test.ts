@@ -13,7 +13,9 @@ test("`.slash[hidden]` is display none", () => {
 });
 
 test("the wait panel's answer box in Standard and Geek is the composer's box: themed, 44 px, 16 px on a touch screen (no zoom), with its form and its hidden buttons obeying `hidden`", () => {
-	const box = rulesOf(css).find((r) => r.parts.includes(".wait-box"));
+	const box = rulesOf(css).find((r) => r.parts.includes('html:not([data-view="zen"]) .wait-box'));
+	assert.ok(box, "Standard's box rules leave Zen out: Zen draws the box as its own input, with no frame and no glow");
+	assert.equal(rulesOf(css).filter((r) => r.parts.some((p) => /\.wait-box\b/.test(p) && !p.includes('html:not([data-view="zen"])')) && !r.parts.includes(".composer textarea")).length, 0, "no rule on the box reaches Zen but Zen's own (and the touch screen's 16 px, which Zen's 1 rem already is)");
 	const decl = declarations(box!.body);
 	assert.ok(decl.some(([p, v]) => p === "min-height" && v === "44px") && decl.some(([p, v]) => p === "background" && v === "var(--sunken)"));
 	assert.match(css, /@media \(pointer: coarse\) \{[^}]*\.wait-box[^}]*\{ font-size: 16px; \}/);

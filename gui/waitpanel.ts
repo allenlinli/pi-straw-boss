@@ -32,7 +32,7 @@ export function waitPanel(o: WaitPanelOptions) {
 	const note = h("small", { class: "tnote-fail", role: "alert" }), dismiss = h("button", { type: "button", class: "pair-btn" }, m.wait_dismiss());
 	let busy = false, live = true, open = false;
 	// The answer box: in Zen it takes the head strip's look (`zen-head-*` in zen.css: a hairline that turns vermilion on focus), in Standard and Geek the composer's (`wait-*` in style.css). Enter sends, and the note under it is the refusal.
-	const go = o.reply ? h("button", { type: "button", class: "pair-btn" }, m.tower_answer()) : undefined, send = o.reply ? h("button", { type: "button", class: "pair-btn" }, m.send()) : undefined;
+	const go = o.reply ? h("button", { type: "button", class: "pair-btn wait-go" }, m.tower_answer()) : undefined, send = o.reply ? h("button", { type: "button", class: "pair-btn wait-go" }, m.send()) : undefined; // the dialog makes these its act (style.css)
 	const box = o.reply ? (h("textarea", { class: "wait-box zen-head-box", rows: "1", maxlength: String(MAX_TEXT), "aria-label": m.zen_wait_placeholder(), placeholder: m.zen_wait_placeholder(), enterkeyhint: "send" }) as HTMLTextAreaElement) : undefined;
 	const why = h("p", { class: "wait-note zen-head-note", role: "alert" }), form = box && h("form", { class: "wait-form zen-head-form" }, box, why);
 	const say = (text: string) => ((why.textContent = text), (why.dataset.tone = text ? "error" : ""));
@@ -111,6 +111,7 @@ const panels = new WeakMap<HTMLElement, ReturnType<typeof waitPanel>>();
 /** A wait's dialog in the dock: what it waits for and the answer box in the answer slot, the link to the comms, Later and Dismiss in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
 export function waitDialog(el: HTMLElement, a: Alert, close: () => void, send: SessionPost) {
 	const over = Boolean(a.gone), go = el.querySelector<HTMLElement>(".go")!;
+	el.dataset.wait = ""; // the footer's link is the secondary act here (style.css): the panel's Handle and Send answer
 	el.querySelector<HTMLElement>(".intel")!.hidden = true;
 	go.textContent = m.wait_goto(); // the answer box is on the panel; the footer's link is the way to the tower's comms
 	aim(go, over ? undefined : { view: "session", ws: a.ws, key: unitOf(a) });

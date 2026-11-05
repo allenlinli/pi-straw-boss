@@ -137,7 +137,7 @@ test("a refusal shows under the kept draft and the dialog stays; Send does the s
 	await settle();
 	assert.equal(told.length, 1);
 	assert.equal(box().value, "Use the staging token", "the draft is kept");
-	assert.match(dock.all((el) => el.getAttribute("class") === "wait-note zen-head-note")[0]!.textContent, /did not take it: the tower did not take it\./);
+	assert.match(dock.all((el) => el.getAttribute("class") === "wait-note zen-head-note")[0]!.textContent, /Not sent: the tower did not take it\./);
 	assert.equal(layer.stack.open.length, 1);
 	tellReply = { ok: true, status: 200, body: { accepted: true } };
 	button(m.send())!.click();

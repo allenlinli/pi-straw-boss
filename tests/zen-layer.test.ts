@@ -381,7 +381,7 @@ test("a refusal shows under the kept draft in Zen's refusal style, plays the low
 	await r.reply({ error: "standing", reason: "The tower is not running." }, 409);
 	assert.equal(box.value, "Use the staging token", "the draft is kept");
 	assert.equal(box.disabled, false);
-	assert.match(waitNote(r).textContent, /did not take it/);
+	assert.match(waitNote(r).textContent, /^Not sent: the tower is standing by/);
 	assert.equal(waitNote(r).dataset.tone, "error");
 	assert.deepEqual(r.calls.sound, ["bowl", "low"]);
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, "the card stays");

@@ -736,7 +736,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Merge of the head tower into main (0.58.0): 5699 measured, the head's 5599 plus the wait alert's +100 (waits.ts, waitpanel.ts and their hooks).
 	// The answer outcome table to 5710 (measured, +11): gui/asks.ts (13, new) takes `outcomeOf` out of answer.ts and the faked outcome out of waitpanel.ts.
 	// Wait panel answers in place to 5824 (measured, +114): gui/asks.ts takes `waitActions` and `joined` (35), waitpanel.ts the answer box and the comms link (130), towernotes.ts the wait row's panel (+19), zen.ts the title, the box's Esc row and the card's two hooks (+4), the demo's replies.
-	assert.ok(page <= 5824, `the page's TypeScript has ${page} lines`);
+	// Dialog and card polish (the wait panel's Handle and Send marked as the dialog's act, the refusal words, the demo's refusal reply): 5825 (measured, +1).
+	assert.ok(page <= 5825, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -1117,7 +1118,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head polish (after 0.58.0: the compact head node, the lines' --fade/--lift swap, the away rules for the mindfulness line and the link, the key's rules): 154,415 / 31,676 measured, +1,099 / +291 over the merge figure. Cap = measured + 15.
 	// Head polish review fixes (the phone pill's 44 px hit box): 154,475 / 31,691 measured on a fresh build, +60 / +15. Cap = measured + 15.
 	// Wait panel answers in place (Zen's two rules for the answer box's width and its hidden buttons, Standard's six for the box, its form and its note): 155,358 / 31,805 measured, +883 / +114 over the review figure. Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 155_373 && total(css, gz) <= 31_820, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Wait panel in the dialog (Handle and Send as the dialog's act, the comms link its secondary one; Zen draws the answer box in zen.css, so Standard's box rules are scoped away from it): 155,600 / 31,845 measured, +242 / +40 over the figure above. Cap = measured + 15.
+	assert.ok(total(css, (n) => size(n).length) <= 155_615 && total(css, gz) <= 31_860, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

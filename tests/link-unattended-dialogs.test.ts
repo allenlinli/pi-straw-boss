@@ -128,6 +128,8 @@ describe("dialog forwarding", () => {
 		await until(() => a.holder.dialogRequests().length === 1, 3000, "the dialog on alice");
 		const v = a.holder.dialogRequests()[0]!;
 		assert.deepEqual([v.device, v.dialogId, v.digest, v.owner, v.team], [dave.id, "D1", selectDigest(SELECT), "rpiv", TEAM_HEX]);
+		assert.deepEqual(events(a).filter((e) => e.event === "dialog-in").map((e) => [e.team, e.from, e.dialog, e.fresh]), [[TEAM_HEX, dave.id, "D1", true]], "the controller's log says the question arrived, by ids");
+		assert.ok(!JSON.stringify(events(a)).includes("secret title"), "and no word of it");
 		assert.deepEqual(JSON.parse(v.dialog), { select: SELECT });
 		const alert = a.holder.summary().alerts.find((x) => x.kind === "dialog")!;
 		assert.deepEqual([alert.id, alert.data.device, alert.data.dialogId, alert.data.digest, alert.data.owner, alert.data.label, alert.data.answered], [`dialog/${dave.id}/D1`, dave.id, "D1", selectDigest(SELECT), "rpiv", "ci-box", 0]);

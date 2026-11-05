@@ -1592,6 +1592,28 @@ test("a dialog an unattended device forwarded is the shared question panel; its 
 	noCard(closed);
 });
 
+/** A question the box forwarded exactly as a controller's snapshot carries it (tests/server-link-dialogs.test.ts reads this alert from a real server): an `ask_user_question` questionnaire with its Cancel, told as the unit that asked. */
+const BOX_QUESTIONS = [{ question: "Which env?", header: "Env", multiple: false, options: [{ title: "staging" }, { title: "production" }] }];
+const BOX = () => FWD({ device: "yw4ub3j7mxbzdfs55auv7rosl4", dialogId: "fc9fc519", digest: "a".repeat(64), owner: "subagent - scout", dialog: JSON.stringify({ questions: BOX_QUESTIONS, cancel: true }), label: "waydosoft", short: "n2knna", answered: 0 });
+
+test("a question an unattended box forwarded is the whole page at rest, with no tap: the box's name as the title, the unit that asked in the sentence, the questions, and Send, Cancel and Maybe later", async () => {
+	const sent = server();
+	const r = rig();
+	r.feed(linkNet({ alerts: [BOX()] }));
+	r.z.show();
+	await r.settle();
+	assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, "waydosoft asks you");
+	const card = r.by((el) => el.classes.has("zen-card"))[0]!;
+	assert.ok(card.textContent.includes("waydosoft (n2knna)") && card.textContent.includes("asks a question (subagent - scout)"), card.textContent);
+	assert.ok(card.textContent.includes("Which env?") && card.textContent.includes("staging") && card.textContent.includes("production"));
+	for (const label of ["Send answer", "Cancel", "Maybe later"]) assert.ok(r.button(label), label);
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length, 0, "the circle is not what is shown");
+	r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
+	r.button("Send answer")!.click();
+	await r.settle();
+	assert.deepEqual(sent, [{ path: "api/link/dialog-answer", body: { device: "yw4ub3j7mxbzdfs55auv7rosl4", dialogId: "fc9fc519", digest: "a".repeat(64), answer: { answers: [{ choices: [0] }] } } }]);
+});
+
 test("a pair request is a card with the number field, Allow and Deny; Allow is off until four digits, posts the number alone, and the knock follows; Deny posts the request's id", async () => {
 	const sent = server(() => ({ status: 200, body: { paired: { id: "ab12cd34ef56", label: "Mei's iPhone", peer: "p" } } }));
 	const r = rig();

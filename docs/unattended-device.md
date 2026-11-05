@@ -106,7 +106,7 @@ The project is not the only folder a pi starts in:
 
 ## 6. What a refusal looks like
 
-Everything is in `<pi agent dir>/straw-boss/link/link.log` (JSON lines) and the server's log; texts of dialogs and invites are never in them.
+The holder's events are in `<pi agent dir>/straw-boss/link/link.log` (JSON lines) and the forwarder's and the server's in `<pi agent dir>/straw-boss/server.log` (one `event key=value` line each: every `dialog-*` line below, and the `drop` lines of the forwarder's checks of an answer: `dialog-answer-digest`, `-id`, `-late`, `-not-recipient`, `-here-only`; the holder's own, `dialog-answer-level` and `-sender`, are in `link.log`); texts of dialogs and invites are never in them.
 
 | Log event | Meaning |
 | --- | --- |
@@ -117,6 +117,16 @@ Everything is in `<pi agent dir>/straw-boss/link/link.log` (JSON lines) and the 
 | `tower-open-failed` | A controller's message found no tower and the server could not open one; the controller got a `notice`. |
 | `tower-in` | A `tower` or `tower-reply` message was kept in the inbox: `from` (the sender's device id), `team`, `ask` (the ask id it carries, when it has one), `id` (the message id). |
 | `tower-run` | An ally run took that message into its session: `run` (the run id), and the same `from`, `team`, `ask`, `id`. |
+| `dialog-forwarder` with `state` | `server.log`, at the start: `started` (the forwarder runs and looks every 15 s) or `skipped` with `primary`, `leaving` and `phase` (a server that is not the default Herdr's runs none). |
+| `dialog-controllers` | `server.log`: the controllers the forwarder sees (`count`: attended members at `dispatch` of a running team; `known`: false while a roster cannot be read) and `open`, the questions it holds. One line at the first look and one whenever `count` or `known` changes. `count=0` is why nothing is sent. |
+| `dialog-seen` | `server.log`: a question the hub made answerable and the forwarder took up: `dialog` (id), `unit` (its key), `owner` (the package that opened it, e.g. `rpiv`). |
+| `dialog-sent` | `server.log`: an envelope was handed to the link outbox: `kind` (`dialog-open` or `dialog-close`), `dialog`, `team`, `to` (the controller's device id). It is queued, not delivered; the controller's `link.log` has `dialog-in` when it arrived. A question that never gets one of these was not sent. |
+| `dialog-ended` | `server.log`: the question left the hub (`by`: who closed it, `remote` for an answer carried) after being sent to `sent` controllers. |
+| `dialog-in` | The controller's `link.log`: a `dialog-open` was taken from `from` (a device id) for `dialog`; `fresh` is false for a question it already held (the box sends it again every ten minutes). |
+| `dialog-pass-stuck` | `server.log`: a forwarder pass had not finished after `ms` (a minute) and waits at `step` (`read`, `dispatcher`, `notice`, `post`); it was let go and the next look began a pass of its own. |
+| `dialog-full` | `server.log`: 32 questions are open and a new one is not taken up until one ends. |
+| `dialog-unrouted` | `server.log`: a question nobody can be told of (no admin attended at `dispatch` and no dispatcher); it stays open. |
+| `dialog-post-failed` / `dialog-forward-failed` | `server.log`: a post, or a whole pass, failed; the reason is in the line. |
 | `dialog-oversize` | A question was too big to forward (64 KB); the controller got a `notice`. |
 | `notice` | A notice was sent: `key`, `kind` and unit, never its text. |
 | `drop` with `reason` | A message failed a check (`dialog-answer-level`, `dialog-answer-digest`, `dialog-answer-here-only`, `dialog-answer-not-recipient`, `unit-status-unexpected`, …). |

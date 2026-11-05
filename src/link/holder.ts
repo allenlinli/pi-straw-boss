@@ -1129,6 +1129,7 @@ export class LinkHolder {
 		// Only an attended device shows a question; only an unattended member of the team asks one (the envelope check enforces the kind's sender rule, this keeps the receiver honest on its own).
 		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "dialog-open-unexpected", from: header.from, kind: "dialog-open" });
 		const fresh = this.dialogViews.put({ team: run.team, device: header.from, dialogId: p.dialogId, digest: p.digest, owner: p.owner, dialog: p.dialog, at: this.now() });
+		this.o.store.log({ event: "dialog-in", team: run.team, from: header.from, dialog: p.dialogId, fresh });
 		if (fresh) this.o.notify(`Straw Link: ${sender.label} asks a question (${restrictLabel(p.owner)})`, "warning");
 	}
 	private takeDialogClose(header: Header, p: DialogClose): void {

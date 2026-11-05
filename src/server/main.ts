@@ -18,7 +18,7 @@ import { createAsks } from "./asks.ts";
 import { cliBeside, createGuiHost, spawnRestart } from "./guihost.ts";
 import { type IntercomModule, loadIntercom, LoaderError } from "./intercom.ts";
 import { DialogForwarder } from "../link/dialogs-out.ts";
-import { dispatcherLookup } from "./dispatcher.ts";
+import { dispatcherLookup, unitLabel } from "./dispatcher.ts";
 import { openTower } from "./opentower.ts";
 import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
 import { createLog, tailLog } from "./log.ts";
@@ -563,7 +563,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	// pi-intercom: the server's own session, reconnecting with the sidecar's backoff (1, 2, 5, 10, then 30 s). While it is disconnected its identities are not live.
 	// The link holder (B3): the primary server only, built once the first connection is attached (the kit's channel needs a client). A computer with no team set up gets no channel, election, or files.
 	const dialogsOut = () => (forwarder ??= new DialogForwarder({
-		hub: guiHost!.dialogs().hub, read: guiHost!.dialogs().read, dispatcher: dispatcherLookup({ paneOf: (key) => guiHost!.dialogs().paneOf(key), list: () => panes(cfg.run), allyPanes: () => towers?.runs.allyPanes() ?? [], now }), admin: (team, device) => link?.holder?.isAdmin(team, device) ?? false, controllers: () => link?.holder?.dialogControllers() ?? [], online: (team, device) => link?.holder?.deviceOnline(team, device) ?? false, controllersKnown: () => link?.holder?.controllersKnown() ?? false,
+		hub: guiHost!.dialogs().hub, read: guiHost!.dialogs().read, dispatcher: dispatcherLookup({ paneOf: (key) => guiHost!.dialogs().lookup(key)?.pane, list: () => panes(cfg.run), allyPanes: () => towers?.runs.allyPanes() ?? [], now }), admin: (team, device) => link?.holder?.isAdmin(team, device) ?? false, controllers: () => link?.holder?.dialogControllers() ?? [], online: (team, device) => link?.holder?.deviceOnline(team, device) ?? false, controllersKnown: () => link?.holder?.controllersKnown() ?? false, unit: (key) => unitLabel(guiHost!.dialogs().lookup(key)),
 		post: async (team, device, kind, payload) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, kind, payload); },
 		log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),
 		now, notice: (key, notice, scope) => unitsOut().notify(key, notice, scope),
@@ -664,7 +664,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		dialogsOut().start();
 		// A controller that gained `dispatch` mid-dialog gets it, a dialog unanswered for 30 minutes is told, and each controller's unit-status goes out when it changed or a minute has passed.
 		timers.push(setInterval(() => void Promise.all([dialogsOut().tick(), unitsOut().tick()]), o.unitsMs ?? 15_000));
-	}
+	} else log.line("dialog-forwarder", { state: "skipped", primary: slot.primary, leaving: Boolean(leaving), phase });
 
 	// Ready: `restarting` goes, and the start-error of this attempt (and any before it) with it.
 	if (phase === "starting") {

@@ -221,7 +221,7 @@ receiver or the relay lacks it (amended 2026-10-26 with [2026-10-26-sb-backend.m
 | `presence` | Any member → whole team | label, roster head, workspaces with tower and tab states and labels (with `share: status`) | Ephemeral: the relay keeps only the last per device and never queues it. |
 | `confirm-request` | Receiver of a remote turn at `forward` → the sender's device | dialog id, digest, tool, full arguments (at most 12 000 characters), requesting tower | Shown as an alert in the sender's GUI. |
 | `confirm-answer` | That device → the requester | dialog id, digest, allow or deny, answer id | Taken only from the device the request went to, only with a matching id and digest, once. |
-| `dialog-open` | Unattended device → its controllers | dialog id, digest, owner, the dialog as the GUI hub shows it (select, confirm, `ask_user_question`) | Never a `secret_drop`. |
+| `dialog-open` | Unattended device → its controllers | dialog id, digest, owner, the dialog as the GUI hub shows it (select, confirm, `ask_user_question`) | Never a `secret_drop`. `owner` is a label for the controller to show: the asking unit's scrubbed name with its role (`main - docs`) since 0.59.1, the package that opened the dialog (`rpiv`) before; no receiver acts on it. |
 | `dialog-answer` | A controller at `dispatch` → that device | dialog id, digest, answer, answer id | First valid answer wins, as with the local GUI. |
 | `dialog-close` | Unattended device → its controllers | dialog id, by whom | Closes the alert in every controller's GUI. |
 | `unit-status` | Unattended device → its controllers | each unit's state, its running monitors, its last report (at most 4 KB) | Ephemeral, like presence. |

@@ -19,7 +19,8 @@ export interface RemoteDialog { select?: unknown; questions?: unknown; cancel?: 
 export type RemoteAnswer = { choice: number } | { answers: unknown[] } | { cancel: true };
 
 /** The most dialogs one device keeps open for forwarding, and the answer ids it remembers. */
-const MAX_OPEN = 32, MAX_SEEN = 1024;
+export const MAX_OPEN = 32;
+const MAX_SEEN = 1024;
 
 export interface DialogsOutDeps {
 	hub: Pick<Hub, "onChange" | "answerable" | "outcome" | "send">;
@@ -44,6 +45,11 @@ export interface DialogsOutDeps {
 	dispatcher?(key: string): Promise<{ device: string; team?: string } | undefined>;
 	/** Whether `device` is an admin of `team`'s roster now: an admin is a recipient of every question. Absent: nobody is. */
 	admin?(team: string, device: string): boolean;
+	/**
+	 * What a controller is told asks the question in the unit `key`: the unit's name, scrubbed for leaving the box (known after a `read`). Nothing: the dialog's owner, the package that opened it (`rpiv`), is told instead, which names
+	 * no unit. Absent: the owner.
+	 */
+	unit?(key: string): string | undefined;
 }
 /** A dialog nobody has answered this long is told to the controllers, once. */
 export const UNANSWERED_MS = 30 * 60_000;
@@ -51,9 +57,11 @@ export const UNANSWERED_MS = 30 * 60_000;
 export const REFRESH_MS = 10 * 60_000;
 /** How long an answer that no session confirmed (`unknown`) is trusted to have landed before a dialog that is still open is taken as unanswered. */
 export const UNKNOWN_RECHECK_MS = 15_000;
+/** A pass that has not finished this long is stuck: the next look logs where it waits (`dialog-pass-stuck`), lets it go, and starts a pass of its own, so one call that never returns cannot end forwarding for good. */
+export const PASS_STUCK_MS = 60_000;
 export interface DialogAnswerInput { team: string; from: string; dialogId: string; digest: string; answer: string; answerId: string }
 /** `sent` is where the dialog was last sent, per controller, and when; `claimed` is set while an answer is on its way or has been accepted; `unknownAt` is when an answer no session confirmed was sent. */
-interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Map<string, number>; away: Set<string>; claimed: boolean; unknownAt?: number; since: number; told: boolean; /** The log line that nobody can be told of this question was written. */ unrouted?: boolean; /** Whose unit asked, once it is known (`dispatcher`). */ who?: { device: string; team?: string } }
+interface Open { key: string; target: Parameters<Hub["send"]>[1]; /** The package that owns the dialog (`rpiv`). */ owner: string; /** What the controllers are told asks: the unit's name when the box can say it, else `owner`. */ label: string; text: string; sent: Map<string, number>; away: Set<string>; claimed: boolean; unknownAt?: number; since: number; told: boolean; /** The log line that nobody can be told of this question was written. */ unrouted?: boolean; /** Whose unit asked, once it is known (`dispatcher`). */ who?: { device: string; team?: string } }
 
 export class DialogForwarder {
 	private readonly d: DialogsOutDeps;
@@ -63,11 +71,22 @@ export class DialogForwarder {
 	private off: (() => void) | undefined;
 	private polling: Promise<void> | undefined;
 	private again = false;
+	/** The pass that counts: a pass let go as stuck has an older number and stops at its next turn. */
+	private gen = 0;
+	/** When the pass in flight began, and the call it waits at (`dialog-pass-stuck` names it). */
+	private passAt = 0;
+	private step = "idle";
+	/** What the last `dialog-controllers` line said, so a line is written when it changes and not at every pass. */
+	private counted: string | undefined;
+	/** The room for open questions was used up, and the line that says so was written. */
+	private full = false;
 	constructor(d: DialogsOutDeps) {
 		this.d = d;
 	}
 	start(): void {
-		this.off ??= this.d.hub.onChange(() => void this.poll());
+		if (this.off) return;
+		this.off = this.d.hub.onChange(() => void this.poll());
+		this.d.log({ event: "dialog-forwarder", state: "started" });
 	}
 	stop(): void {
 		this.off?.();
@@ -77,19 +96,30 @@ export class DialogForwarder {
 	tick(): Promise<void> {
 		return this.poll();
 	}
-	/** Looks at the hub now; calls that overlap run once more after the one in flight. */
+	/** Looks at the hub now; calls that overlap run once more after the one in flight, and a pass in flight for `PASS_STUCK_MS` is let go (its next look is a new pass). */
 	poll(): Promise<void> {
-		if (this.polling) return ((this.again = true), this.polling);
-		const run = (async () => {
+		if (this.polling) {
+			if (this.now() - this.passAt < PASS_STUCK_MS) return ((this.again = true), this.polling);
+			this.d.log({ event: "dialog-pass-stuck", step: this.step, ms: this.now() - this.passAt });
+			this.gen++;
+			this.polling = undefined;
+			// What the pass let go marked as sent may never have left (it waited at the post): the controllers get every open question again.
+			for (const d of this.open.values()) d.sent.clear();
+		}
+		const gen = this.gen;
+		const run: Promise<void> = (async () => {
 			do {
 				this.again = false;
+				this.passAt = this.now();
 				try {
-					await this.pass();
+					await this.pass(gen);
 				} catch (error) {
-					this.d.log({ event: "dialog-forward-failed", error: String((error as Error).message).slice(0, 200) });
+					this.d.log({ event: "dialog-forward-failed", step: this.step, error: String((error as Error).message).slice(0, 200) });
 				}
-			} while (this.again);
-		})().finally(() => (this.polling = undefined));
+			} while (this.again && gen === this.gen);
+		})().finally(() => {
+			if (this.polling === run) this.polling = undefined;
+		});
 		return (this.polling = run);
 	}
 	/** Whose unit asked: looked up until it is known, then kept. A lookup that fails leaves it unknown, which is the admins' alone. */
@@ -101,10 +131,26 @@ export class DialogForwarder {
 	private scopeOf(d: Open): Scope {
 		return this.d.dispatcher ? (d.who ? { device: d.who.device, ...(d.who.team !== undefined ? { team: d.who.team } : {}) } : {}) : EVERYONE;
 	}
-	private async pass(): Promise<void> {
+	/** Records where the pass in flight waits (`dialog-pass-stuck` names it); a pass let go as stuck no longer writes it. */
+	private at(gen: number, step: string): void {
+		if (gen === this.gen) this.step = step;
+	}
+	/** One line when the controllers the forwarder sees change in number or in whether the list is complete, so a box with nobody to tell says so once (and the first pass says how it starts). */
+	private count(controllers: number, known: boolean): void {
+		const line = `${controllers}/${known}`;
+		if (line === this.counted) return;
+		this.counted = line;
+		this.d.log({ event: "dialog-controllers", count: controllers, known, open: this.open.size });
+	}
+	private async pass(gen: number): Promise<void> {
 		const to = this.d.controllers();
+		this.count(to.length, this.d.controllersKnown?.() ?? true);
 		if (!to.length && !this.open.size) return;
-		if (to.length) await this.d.read();
+		if (to.length) {
+			this.at(gen, "read");
+			await this.d.read();
+			if (gen !== this.gen) return;
+		}
 		for (const o of to.length ? this.d.hub.answerable() : []) {
 			const id = o.target.answer.dialog;
 			if (this.open.has(id) || this.skipped.has(id)) continue;
@@ -113,19 +159,36 @@ export class DialogForwarder {
 				this.skipped.add(id);
 				this.d.log({ event: "dialog-oversize", dialog: id, bytes: Buffer.byteLength(text) });
 				const unit = { key: o.key } as Open;
+				this.at(gen, "dispatcher");
 				await this.whose(unit);
-				await this.d.notice?.(`oversize/${id}`, { kind: "dialog-oversize", unit: o.key, text: `A question of ${o.owner} was not forwarded: it is ${Buffer.byteLength(text)} bytes, over the ${LIMITS.dialog} the link carries. It waits at the device.` }, this.scopeOf(unit));
+				this.at(gen, "notice");
+				await this.d.notice?.(`oversize/${id}`, { kind: "dialog-oversize", unit: o.key, text: `A question of ${this.labelOf(o.key, o.owner)} was not forwarded: it is ${Buffer.byteLength(text)} bytes, over the ${LIMITS.dialog} the link carries. It waits at the device.` }, this.scopeOf(unit));
+				if (gen !== this.gen) return;
 				continue;
 			}
-			if (this.open.size >= MAX_OPEN) continue;
-			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, text, sent: new Map(), away: new Set(), claimed: false, since: this.now(), told: false });
+			if (this.open.size >= MAX_OPEN) {
+				// The one case where a question is left unforwarded with no line of its own: the line says the room is used up, once until it frees.
+				if (!this.full) this.d.log({ event: "dialog-full", open: this.open.size });
+				this.full = true;
+				continue;
+			}
+			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, label: this.labelOf(o.key, o.owner), text, sent: new Map(), away: new Set(), claimed: false, since: this.now(), told: false });
+			this.d.log({ event: "dialog-seen", dialog: id, unit: o.key, owner: o.owner });
 		}
 		for (const [id, d] of [...this.open]) {
+			this.at(gen, "dispatcher");
 			await this.whose(d);
+			if (gen !== this.gen) return;
 			const state = this.d.hub.outcome(id);
 			if (!state.open) {
 				this.open.delete(id);
-				for (const k of d.sent.keys()) await this.send(k, "dialog-close", { dialogId: id, by: state.by });
+				this.full = false;
+				this.d.log({ event: "dialog-ended", dialog: id, by: state.by, sent: d.sent.size });
+				for (const k of d.sent.keys()) {
+					this.at(gen, "post");
+					await this.send(k, "dialog-close", { dialogId: id, by: state.by });
+					if (gen !== this.gen) return;
+				}
 				continue;
 			}
 			// An answer no session confirmed, and the dialog is still open a while after: it did not land, so the next valid answer may win and the controllers get the question open again.
@@ -140,11 +203,15 @@ export class DialogForwarder {
 			for (const k of this.d.controllersKnown?.() === false ? [] : [...d.sent.keys()]) {
 				if (mine.some((c) => `${c.team}\n${c.device}` === k)) continue;
 				d.sent.delete(k);
+				this.at(gen, "post");
 				await this.send(k, "dialog-close", { dialogId: id, by: "withdrawn" });
+				if (gen !== this.gen) return;
 			}
 			if (!d.told && !d.claimed && to.length && this.now() - d.since >= UNANSWERED_MS) {
 				// Marked told only once the notice reached somebody: with no admin at `dispatch` it is tried again at the next pass (g346-F005).
-				const sent = await this.d.notice?.(`unanswered/${id}`, { kind: "dialog-unanswered", unit: d.key, text: `A question of ${d.owner} has waited ${Math.round((this.now() - d.since) / 60_000)} minutes for an answer.` }, this.scopeOf(d));
+				this.at(gen, "notice");
+				const sent = await this.d.notice?.(`unanswered/${id}`, { kind: "dialog-unanswered", unit: d.key, text: `A question of ${d.label} has waited ${Math.round((this.now() - d.since) / 60_000)} minutes for an answer.` }, this.scopeOf(d));
+				if (gen !== this.gen) return;
 				d.told = sent !== false;
 			}
 			// A question no controller can be told of (an unattributed unit, and no admin at `dispatch`) stays open and is never widened to the others; the box's own log says it waits.
@@ -160,16 +227,24 @@ export class DialogForwarder {
 					if (at !== undefined) continue;
 				} else if (at !== undefined && !d.away.delete(k) && this.now() - at < REFRESH_MS) continue;
 				d.sent.set(k, this.now());
-				if (!(await this.send(k, "dialog-open", { dialogId: id, digest: d.target.answer.digest, owner: d.owner, dialog: d.text }))) d.sent.delete(k);
+				this.at(gen, "post");
+				const posted = await this.send(k, "dialog-open", { dialogId: id, digest: d.target.answer.digest, owner: d.label, dialog: d.text });
+				if (!posted) d.sent.delete(k);
+				if (gen !== this.gen) return;
 			}
 		}
 		for (const id of [...this.skipped]) if (!this.d.hub.outcome(id).open) this.skipped.delete(id);
 	}
 	private now = () => this.d.now?.() ?? Date.now();
+	/** What the controllers are told asks: the unit's name when it is known, else the owner of the dialog. */
+	private labelOf(key: string, owner: string): string {
+		return this.d.unit?.(key) || owner;
+	}
 	private async send(k: string, kind: "dialog-open" | "dialog-close", payload: DialogOpen | DialogClose): Promise<boolean> {
 		const [team, device] = k.split("\n") as [string, string];
 		try {
 			await this.d.post(team, device, kind, payload);
+			this.d.log({ event: "dialog-sent", kind, dialog: payload.dialogId, team, to: device });
 			return true;
 		} catch (error) {
 			this.d.log({ event: "dialog-post-failed", kind, dialog: payload.dialogId, error: String((error as Error).message).slice(0, 200) });

@@ -96,7 +96,7 @@ pi 啟動的資料夾不只有專案：
 
 ## 6. 被拒絕時看起來像什麼
 
-全部都在 `<pi agent dir>/straw-boss/link/link.log`（JSON lines）和 server 的紀錄裡；對話框和邀請的文字從不出現在其中。
+持有者的事件在 `<pi agent dir>/straw-boss/link/link.log`（JSON lines），轉送器和 server 的在 `<pi agent dir>/straw-boss/server.log`（每行 `event key=value`：下表所有 `dialog-*` 行，以及轉送器檢查回答時的 `drop` 行：`dialog-answer-digest`、`-id`、`-late`、`-not-recipient`、`-here-only`；持有者自己檢查的 `dialog-answer-level`、`-sender` 在 `link.log`）；對話框和邀請的文字從不出現在其中。
 
 | 紀錄事件 | 意義 |
 | --- | --- |
@@ -107,6 +107,16 @@ pi 啟動的資料夾不只有專案：
 | `tower-open-failed` | 控制端的訊息找不到塔台，server 也開不了；控制端收到一則 `notice`。 |
 | `tower-in` | 一則 `tower` 或 `tower-reply` 訊息進了收件匣：`from`（寄件裝置 id）、`team`、`ask`（訊息帶的 ask id，沒有就不寫）、`id`（訊息 id）。 |
 | `tower-run` | 某個 ally run 把那則訊息收進它的 session：`run`（run id），加上同樣的 `from`、`team`、`ask`、`id`。 |
+| `dialog-forwarder` 帶 `state` | `server.log`，啟動時：`started`（轉送器在跑，每 15 秒看一次）或 `skipped`，附 `primary`、`leaving`、`phase`（不是預設 Herdr 的 server 不跑轉送器）。 |
+| `dialog-controllers` | `server.log`：轉送器看得到的控制端（`count`：在跑的團隊裡、在 `dispatch`、有人值守的成員數；`known`：讀不到某個名冊時為 false）和 `open`，它手上的問題數。第一次看時寫一行，之後 `count` 或 `known` 變了才寫。`count=0` 就是什麼都沒送出去的原因。 |
+| `dialog-seen` | `server.log`：hub 讓它可以回答、轉送器接手的問題：`dialog`（id）、`unit`（單位的 key）、`owner`（開這個對話框的套件，例如 `rpiv`）。 |
+| `dialog-sent` | `server.log`：一個信封交給了連結的寄件匣：`kind`（`dialog-open` 或 `dialog-close`）、`dialog`、`team`、`to`（控制端的裝置 id）。這是排進佇列，不是送達；送達了，控制端的 `link.log` 會有 `dialog-in`。沒有這一行的問題就是沒送出去。 |
+| `dialog-ended` | `server.log`：問題離開了 hub（`by`：誰結束的，回答被帶走是 `remote`），之前送給了 `sent` 個控制端。 |
+| `dialog-in` | 控制端的 `link.log`：從 `from`（裝置 id）收到 `dialog` 的 `dialog-open`；`fresh` 為 false 表示早就有這個問題（裝置每十分鐘會再送一次）。 |
+| `dialog-pass-stuck` | `server.log`：轉送器的一輪跑了 `ms`（一分鐘）還沒結束，卡在 `step`（`read`、`dispatcher`、`notice`、`post`）；那一輪被放掉，下一次查看另開新的一輪。 |
+| `dialog-full` | `server.log`：已經有 32 個問題開著，新的要等有一個結束才會接手。 |
+| `dialog-unrouted` | `server.log`：沒有人能被告知的問題（沒有有人值守、在 `dispatch` 的管理員，也沒有派出者）；它維持開著。 |
+| `dialog-post-failed` / `dialog-forward-failed` | `server.log`：一次送出，或整輪失敗；原因在那一行。 |
 | `dialog-oversize` | 問題太大無法轉送（64 KB）；控制端收到一則 `notice`。 |
 | `notice` | 送出了一則通知：`key`、`kind` 和單位，絕不含內容。 |
 | `drop` 帶 `reason` | 訊息沒通過某項檢查（`dialog-answer-level`、`dialog-answer-digest`、`dialog-answer-here-only`、`unit-status-unexpected`……）。 |

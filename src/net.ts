@@ -26,7 +26,7 @@ export interface Unit extends Shelf, Lately { queued?: Queued[]; monitors?: Moni
 export interface Tab { id: string; label: string; units: Unit[] }
 export interface Outpost extends Lately { id: string; label: string; mark: Mark }
 /** A run's proposal the boss has not answered; `cites` is the boss message it comes from. */ export interface MemoryProposal { id: string; op: "add" | "retire"; kind: "standing" | "decision"; text: string; target?: string; cites?: string }
-export interface MemorySummary { rev: number; standing: number; decisions: number; waits: number; /** The open waits for the boss, with their text. */ bossWaits: { id: string; text: string; at: string }[]; /** What runs proposed and the boss has neither confirmed nor rejected. */ proposals: MemoryProposal[]; /** The memory file cannot be read: nothing in it can be changed until it is fixed. */ problem?: string }
+export interface MemorySummary { rev: number; standing: number; decisions: number; waits: number; /** The open waits for the boss, with their text; `answered`: when the boss answered it (their message named it) and the tower has not resolved it yet. */ bossWaits: { id: string; text: string; at: string; answered?: string }[]; /** What runs proposed and the boss has neither confirmed nor rejected. */ proposals: MemoryProposal[]; /** The memory file cannot be read: nothing in it can be changed until it is fixed. */ problem?: string }
 /**
  * The sb server's tower service of a workspace (docs/specs/2026-10-26-sb-backend.md, GUI): what the tower unit shows while no pi session is the tower. `queue` and `file` come with the reading and are not part of the
  * snapshot's `service` (the page sees them as the unit's `queued` rows and its comms).

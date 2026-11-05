@@ -12,6 +12,17 @@ test("`.slash[hidden]` is display none", () => {
 	assert.match(css, /\.slash\[hidden\]\s*\{\s*display:\s*none/);
 });
 
+test("the wait panel's answer box in Standard and Geek is the composer's box: themed, 44 px, 16 px on a touch screen (no zoom), with its form and its hidden buttons obeying `hidden`", () => {
+	const box = rulesOf(css).find((r) => r.parts.includes('html:not([data-view="zen"]) .wait-box'));
+	assert.ok(box, "Standard's box rules leave Zen out: Zen draws the box as its own input, with no frame and no glow");
+	assert.equal(rulesOf(css).filter((r) => r.parts.some((p) => /\.wait-box\b/.test(p) && !p.includes('html:not([data-view="zen"])')) && !r.parts.includes(".composer textarea")).length, 0, "no rule on the box reaches Zen but Zen's own (and the touch screen's 16 px, which Zen's 1 rem already is)");
+	const decl = declarations(box!.body);
+	assert.ok(decl.some(([p, v]) => p === "min-height" && v === "44px") && decl.some(([p, v]) => p === "background" && v === "var(--sunken)"));
+	assert.match(css, /@media \(pointer: coarse\) \{[^}]*\.wait-box[^}]*\{ font-size: 16px; \}/);
+	assert.match(css, /\.wait-form\[hidden\] \{ display: none; \}/);
+	assert.match(css, /\.wait-panel \.pair-btn\[hidden\] \{ display: none; \}/);
+});
+
 test("the selected pair tab has a fill and a heavier weight, for `.on` and `aria-selected`", () => {
 	const line = rule('.pair-tabs .later[aria-selected="true"]');
 	assert.match(line, /\.pair-tabs \.later\.on/);
@@ -273,6 +284,14 @@ test("the Whole conversation link's key (\"· H\") is the input hint's quiet ash
 	assert.match(zen, /@media \(pointer: coarse\), \(hover: none\) \{ \[data-view="zen"\] \.zen-head-key \{ display: none; \} \}/, "no key on a touch screen");
 	assert.match(zen, /\.zen-head-history:is\(:hover, :focus-visible\) \.zen-head-key \{ opacity: 1; \}/, "it comes up with the link, as the hint does");
 	for (const file of ["en", "zh-TW"]) assert.equal(JSON.parse(readFileSync(new URL(`../gui/messages/${file}.json`, import.meta.url), "utf8")).zen_head_key, "· H", `${file} has the key's words`);
+});
+
+test("a wait card's answer box is the head strip's input in the card: the same hairline box (vermilion underline on focus) at the card's full width, and its unfolded buttons obey `hidden`", () => {
+	const box = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-box'));
+	assert.ok(declarations(box!.body).some(([p, v]) => p === "border-bottom-color" && v === "var(--zen-line)"), "the box has the hairline, no frame");
+	assert.match(zen, /\.zen-head-box:focus-visible \{ outline: none; border-radius: 0; border-bottom-color: var\(--zen-seal\); \}/, "and the vermilion underline on focus");
+	assert.match(zen, /\.zen-answer \.wait-panel \.zen-head-form \{ flex: 1 1 100%; width: 100%; text-align: left; \}/, "full width under the question");
+	assert.match(zen, /\.wait-panel \.pair-btn\[hidden\] \{ display: none; \}/);
 });
 
 test("the strip's two swaps move: hover, focus, and a tap ease the lines to clear and back over Zen's 0.6 s curve, and the mindfulness line fades out and in; neither restarts the fade's clock", () => {

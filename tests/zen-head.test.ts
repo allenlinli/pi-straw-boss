@@ -8,7 +8,8 @@ import type { Net, TowerService, Unit } from "../src/net.ts";
 import { alertsOf } from "../gui/alerts.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
-import { joined, quietForwards } from "../gui/zenhead.ts";
+import { joined } from "../gui/asks.ts";
+import { quietForwards } from "../gui/zenhead.ts";
 import { hotkeyOf } from "../gui/hotkeys.ts";
 import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 import { El, page } from "./fake-dom.ts";
@@ -368,6 +369,14 @@ test("a wait for the boss keeps the newest line clear and the mindfulness line a
 	r.enter();
 	await r.settle();
 	assert.equal(r.by("zen-hl").at(-1)!.getAttribute("data-held"), null, "he wrote: nothing is held by the old question");
+});
+
+test("a wait the boss already answered holds nothing: the line fades as any other", async () => {
+	const waits = service({ memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "w1", text: "orchard?", at: at(5), answered: at(6) }], proposals: [] } });
+	const r = rig({ head: head({ service: waits }), items: [headLine("a1", "Should I rerun the ETL tonight?", 5)] });
+	await r.start();
+	await r.advance(CLEAR_MS + FADE_MS + 60_000);
+	assert.equal(r.by("zen-hl")[0]!.getAttribute("data-held"), null, "an answered wait does not keep the newest line clear");
 });
 
 test("pointing at the strip or focusing it brightens the lines at once and lets them go 1.5 s after; a touch holds them for 10 s, and a touch elsewhere ends it", async () => {

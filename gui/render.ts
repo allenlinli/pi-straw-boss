@@ -29,6 +29,8 @@ const NOTE: Record<string, () => string> = { thinking: m.note_thinking, "watchin
 /** The agent of a unit that is not a pi session (src/net.ts `Unit.agent`): its badge, and its name in the composer's notice. */
 export const AGENT = { claude: "Claude", codex: "Codex" } as const;
 export const roleName = (role: string) => (Object.hasOwn(ROLE, role) ? ROLE[role]!() : role);
+/** A wait's title, in the page's language: the unit's role and its place, once (the unit's raw name is English and says the same). Zen's card and the dialog share it. */
+export const waitTitle = (role: string, place: string) => `${roleName(role)} · ${place}`;
 /** Marks that ask for the user: a click on such a unit opens its alert instead of its route. */
 export const urgent = (m: Mark) => m === "waiting" || m === "error";
 

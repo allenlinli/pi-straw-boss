@@ -1,7 +1,8 @@
 import { HEAD_KEY } from "../src/headkey.ts";
 import type { Net } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
-import { answerPost, canAnswer, outcomeOf, trustPost } from "./answer.ts";
+import { answerPost, canAnswer, trustPost } from "./answer.ts";
+import { outcome, waitActions } from "./asks.ts";
 import { type AnswerPost, mountAsk } from "./ask.ts";
 import type { Chat, Data, HistoryEvent, Who } from "./chat.ts";
 import { mountComposer } from "./composer.ts";
@@ -10,7 +11,7 @@ import { hasHistory, mountHistory } from "./zenhistory.ts";
 import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
-import { roleName } from "./render.ts";
+import { roleName, waitTitle } from "./render.ts";
 import { composerUnit, liveOf } from "./sessionfacts.ts";
 import { locate } from "./scene.ts";
 import type { Hotkey } from "./hotkeys.ts";
@@ -40,7 +41,7 @@ export type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
 export const DRAFT_MS = 20_000;
 export const real: Mounts = { ask: mountAsk, trust: trustPanel, composer: mountComposer, chat: () => import("./chat.ts").then((c) => c.mountChat) };
 type Composer = ReturnType<typeof mountComposer>;
-interface Card { key: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean; /** The context (session log) expanded on the card, when the unit has one. */ hist?: ReturnType<typeof mountHistory>; /** Expands or collapses the context; false when the card has none. */ toggle(): boolean; /** Collapses it, the focus going back to its link. */ collapse(): void }
+interface Card { key: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean; /** The context (session log) expanded on the card, when the unit has one. */ hist?: ReturnType<typeof mountHistory>; /** Expands or collapses the context; false when the card has none. */ toggle(): boolean; /** Collapses it, the focus going back to its link. */ collapse(): void; /** The wait card's answer box is unfolded. */ replying?(): boolean; /** Folds it with the draft kept, the focus going back to Handle. */ foldReply?(): boolean }
 interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; /** Appends that came while the newest page was in flight: applied again after it, which they may not be in. */ late?: HistoryEvent[]; state?: string }
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
@@ -88,15 +89,17 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		cancel = wait === undefined ? () => {} : later(() => apply(model.tick()), Math.max(0, wait) + 10);
 	}
 	/** An answer's reply: accepted ends the item with the knock; anything else the server refused, or no reply, plays the low bowl and leaves the card. */
-	const tell = (reply: Promise<Answer>) => reply.then((r) => (apply(outcomeOf(r) === "accepted" ? model.accepted() : model.refused()), r), (e: unknown) => (apply(model.refused()), Promise.reject(e)));
+	const tell = (reply: Promise<Answer>) => reply.then((r) => (apply(outcome(r) === "accepted" ? model.accepted() : model.refused()), r), (e: unknown) => (apply(model.refused()), Promise.reject(e)));
 	/** What a card holds was swapped: it fades in over a short moment (opacity only, zen.css) while the box takes its new size at once. */
 	const fade = (el: HTMLElement) => (el.removeAttribute("data-fade"), void el.offsetWidth, el.setAttribute("data-fade", "")); // the read restarts the animation
+	/** The card's title: a project's question, a wait's tower once in the page's language (its raw name is English; the unit's role and place are the title), or the unit's name. */
+	const titleOf = (a: Alert) => (a.trust ? m.trust_title() : a.wait ? waitTitle(a.role, deps.label(a.ws)) : a.name);
 	function makeCard(a: Alert): Card {
 		const trust = a.trust, key = unitOf(a), said = h("p", { class: "zen-said" }), out = h("p", { class: "zen-out", role: "status" });
 		const slot = h("div", { class: "zen-answer" }), skip = h("button", { type: "button", class: "cmp-alt zen-skip" }, m.zen_not_now());
 		const unit = unitOf(a), hist = trust || a.wait ? undefined : mountHistory({ key: unit, chat: mounts.chat, data: deps.data, who: () => locate(net, unit)?.u ?? { key: unit, name: a.name, role: a.role, mark: a.mark }, watch: deps.watch, changed: () => sync() });
 		const ctx = h("button", { type: "button", class: "cmp-link zen-history-btn", "aria-keyshortcuts": "H", "aria-expanded": "false", "aria-controls": hist?.el.getAttribute("id") ?? "" }, m.zen_history());
-		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, trust ? m.trust_title() : a.name), h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, hist?.el, h("div", { class: "zen-acts" }, hist && ctx, skip), out);
+		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, titleOf(a)), a.wait ? null : h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, hist?.el, h("div", { class: "zen-acts" }, hist && ctx, skip), out);
 		const el = h("section", { class: "zen-card", tabindex: "-1" }, inner);
 		const sync = () => {
 			const has = Boolean(hist) && hasHistory(net, unit);
@@ -115,9 +118,10 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		const answer: AnswerPost = (action, body) => tell(to(key)(action, body));
 		const online = deps.online;
 		if (a.wait) {
-			const panel = waitPanel({ ws: a.ws, id: a.wait.id, send: tell, reach: () => deps.leave({ route: { view: "session", ws: a.ws, key } }) });
+			// The answer is typed on the card and goes where Standard's composer sends it: the tower's session `input` (asks.ts `waitActions`); the card never leaves Zen.
+			const panel = waitPanel({ actions: waitActions({ ws: a.ws, id: a.wait.id, tower: key }, to(key)), reply: true, send: tell });
 			slot.replaceChildren(panel.el);
-			return { key: a.key, el, said, out, skip, toggle: () => false, collapse() {}, enter: () => false, cancel: () => false, sending: () => panel.sending(), update: (x, outcome) => (panel.update(online()), say(out, outcome, x)) };
+			return { key: a.key, el, said, out, skip, toggle: () => false, collapse() {}, enter: () => false, cancel: () => false, sending: () => panel.sending(), replying: panel.isOpen, foldReply: () => panel.fold(true), update: (x, outcome) => (panel.update(online()), say(out, outcome, x)) };
 		}
 		if (trust) {
 			const panel = mounts.trust((body) => tell(trustTo(body)));
@@ -161,7 +165,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			card?.hist?.close(); // the card that goes takes its context with it: no mount, fetch, or watch for a card that is gone
 			card = makeCard(s.item);
 			stage.replaceChildren(card.el);
-			live.textContent = m.zen_asks({ name: s.item.trust ? m.trust_title() : s.item.name });
+			live.textContent = m.zen_asks({ name: titleOf(s.item) });
 			card.update(s.item, s.outcome);
 			if (document.hidden || !document.hasFocus()) deps.remind(s.item);
 			else if (idle()) card.enter() || card.el.focus();
@@ -343,11 +347,12 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			const at = document.activeElement as HTMLInputElement | null, inside = Boolean(at && at !== document.body && root.contains(at));
 			const type = inside ? (at!.getAttribute?.("type") ?? at!.type ?? "text") : "", editable = inside && (/^textarea$/i.test(at!.tagName) || (/^input$/i.test(at!.tagName) && !/^(checkbox|radio|range|button|submit|reset|file|color|image)$/i.test(type)));
 			const armed = escAt !== undefined && now() - escAt < ESC_MS;
-			const step = escStep({ menu: menu.isOpen() || palette.isOpen() || Boolean(music?.isOpen()), history: Boolean(card?.hist?.isOpen()) || histOpen, head: head.isOpen(), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), armed, repeat: e.repeat });
+			const step = escStep({ menu: menu.isOpen() || palette.isOpen() || Boolean(music?.isOpen()), history: Boolean(card?.hist?.isOpen()) || histOpen, reply: Boolean(card?.replying?.()) && !card?.sending(), head: head.isOpen(), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), armed, repeat: e.repeat });
 			if (step === "none") return true;
 			if (step !== "hint") clearEsc();
 			if (step === "menu") (menu.close(), palette.close(), music?.close());
 			else if (step === "history") histOpen ? closeHistory() : card!.collapse();
+			else if (step === "reply") card!.foldReply!();
 			else if (step === "head") head.fold(true);
 			else if (step === "blur") at!.blur();
 			else if (step === "item") card!.cancel() || card!.skip.click();

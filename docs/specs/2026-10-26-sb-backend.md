@@ -1264,9 +1264,12 @@ goes around its tools (below, T3R-F005) can also write `memory.json` directly, a
 
 **Waits** are the tower's own notes. `tower_memory { op: "add", kind: "wait", text, for: "boss" | "agent", on?, due? }`:
 
-- `for: "boss"`: the tower needs the boss's decision. It reaches the boss as an alert of the tower while it is under a day old (`FRESH_MS`): the dialog and Zen item say what it waits for and offer **Handle** (the tower's
-  comms), **Dismiss** (the memory route's `drop`, below), and Later, and a system notification says it once while the page is hidden. The tower card and its comms keep a line for it as long as it is open ("waits for you", how long it has
-  stood, "may be out of date" after a day), with the same two buttons; a wait a day old raises no alert. A brief shows an open wait that old with `(open 2d 3h)`, and `prompts/tower-run.md` tells the run to check it and resolve, drop, or restate it.
+- `for: "boss"`: the tower needs the boss's decision. It reaches the boss as an alert of the tower while it is under a day old (`FRESH_MS`): the dialog and Zen item say what it waits for and offer **Handle** (an answer box in place: the words go to the tower's session `input`, the route of the comms' composer; a secondary link opens
+  the comms), **Dismiss** (the memory route's `drop`, below), and Later, and a system notification says it once while the page is hidden. The tower card and its comms keep a line for it as long as it is open ("waits for you", how long it has
+  stood, "may be out of date" after a day), with the same buttons; a wait a day old raises no alert. **Answering** names the wait: the message to the tower (the session's `input`, a boss event) carries `answers: "W3"`, and once the tower took the message the server
+  marks that wait `answered` with the time (the memory route's `answer` op, which the boss's route runs by the id and needs no `rev`; the reply of `input` says `answered: "W3"`, or `answered: false` when the memory no longer has the wait for the boss; a malformed `answers` is a 400 before anything is sent).
+  An answered wait stays in the memory (it expires after 7 days like an open one) for the tower to resolve; the snapshot's `bossWaits` row carries `answered`, so **no view raises it again** (it is no alert, and the Zen item, the dialog, the HUD, the notification and the tab icon all read the alerts), the card's and the comms' line says "Answered, waiting for the tower", and the brief says `answered by the boss at HH:MM, check their message`
+  (`prompts/tower-run.md`). A wait the tower writes anew is a new id and asks again. A brief shows an open wait that old with `(open 2d 3h)`, and `prompts/tower-run.md` tells the run to check it and resolve, drop, or restate it.
 - `for: "agent"` names `on`, a live session (by id or name; the server resolves it). When a message from that session arrives, the server marks
   the wait `answered` and the brief says `answered? message from <name> HH:MM`, but only when the net the server reads (the broker's sessions and
   Herdr's panes) shows a live session with the sender's id in this tower's workspace: the id on a message is the broker's, and pi-intercom
@@ -1501,11 +1504,11 @@ What changes:
   message waiting more than 10 minutes, a server stopped on purpose that an automatic opening found, and a server `lastError`.
 - **Memory** (D22, D23): a panel in the tower's comms that mirrors `/boss memory`: the proposals waiting for the boss first (each with the boss message it cites, **Confirm** and **Reject**), then the
   standing instructions, the decisions, and the waits (open, and resolved or expired within 24 h, struck through). The boss adds, edits, and deletes there, with the caps shown; every change but a reject
-  names the `rev` it read (**Tower memory**). A wait for the boss is an alert (the dialog, the Zen item, the notification) and a notice row on the tower card with a **Handle** link to the composer and **Dismiss**, and so is every pending proposal, with **Confirm** and **Reject**.
+  names the `rev` it read (**Tower memory**). A wait for the boss is an alert (the dialog, the Zen item, the notification) and a notice row on the tower card with **Handle** (the same answer box, in place), a link to the comms, and **Dismiss**, and so is every pending proposal, with **Confirm** and **Reject**.
   zh-TW: 常駐指示, 決定, 等待, 確認, 駁回.
 - **The server** in the settings panel: state, version, uptime, last error, **Restart server**, and **Show log**, on this computer's
   page only (**Seeing and restarting the server**).
-- Net snapshot: `service.memory` is `{ rev, standing, decisions, waits, bossWaits: { id, text, at }[], proposals, problem? }`.
+- Net snapshot: `service.memory` is `{ rev, standing, decisions, waits, bossWaits: { id, text, at, answered? }[], proposals, problem? }`.
 - Net snapshot: `Base.tower` gains `service: { state: "standing" | "waking" | "running" | "closing" | "held", queued: number, run?: { id,
   kind, startedAt }, allyRuns: { device, startedAt }[], lastRun?: { endedAt, outcome } }`. Readers that do not know `service` keep
   working.

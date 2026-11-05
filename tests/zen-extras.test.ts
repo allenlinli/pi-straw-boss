@@ -332,6 +332,11 @@ test("Zen's Esc table: the menu first, then a field with text, an item, an empty
 	assert.equal(escStep({ ...none, field: "text", item: true }), "blur", "text in a field comes before the card");
 	assert.equal(escStep({ ...none, field: "empty", item: true }), "item", "an empty field does not stand in a card's way");
 	assert.equal(escStep({ ...none, item: true, armed: true }), "item", "on a card the pair never forms");
+	assert.equal(escStep({ ...none, reply: true, field: "text", item: true }), "reply", "a wait card's open answer box folds first, the draft kept, and the card stays");
+	assert.equal(escStep({ ...none, reply: true, field: "empty", item: true }), "reply");
+	assert.equal(escStep({ ...none, reply: true, menu: true }), "menu", "an open menu is before it");
+	assert.equal(escStep({ ...none, reply: true, history: true }), "history");
+	assert.equal(escStep({ ...none, reply: true, repeat: true }), "none");
 	assert.equal(escStep({ ...none, field: "empty" }), "blur", "on the companion an empty field is let go of");
 	assert.equal(escStep(none), "hint");
 	assert.equal(escStep({ ...none, armed: true }), "leave");

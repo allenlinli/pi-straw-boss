@@ -236,25 +236,197 @@ test("a trust question draws the trust panel with its three choices, answers thr
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 });
 
-test("a wait the tower recorded on the boss is an item with its words, Handle (to its comms), Dismiss (the server drops it), and Not now, and no terminal to open", async () => {
-	const sent: { path: string; body: unknown }[] = [];
-	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => ({}) }) });
-	const r = rig();
+const waitNet = (r: { now(): number }, text = "Boss token needed to add the ACL") => {
 	const n = net([]);
-	n.bases[0]!.tower!.service = { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "W2", text: "Boss token needed to add the ACL", at: new Date(r.now() - 60_000).toISOString() }], proposals: [] } };
-	r.feed(n);
+	n.bases[0]!.tower!.service = { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "W2", text, at: new Date(r.now() - 60_000).toISOString() }], proposals: [] } };
+	return n;
+};
+/** The wait card's answer box: the textarea inside the card's answer slot, and the note under it. */
+const waitBox = (r: ReturnType<typeof rig>) => r.by((el) => el.tagName === "textarea")[0]!;
+const waitNote = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("zen-head-note"))[0]!;
+const enter = (box: El) => box.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
+
+test("a wait the tower recorded on the boss is an item with its words, Handle, Dismiss, and Not now, and no terminal to open; Dismiss has the server drop it", async () => {
+	const sent: { path: string; body: unknown }[] = [];
+	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => ({ rev: 2, proposals: [], entries: [] }) }) });
+	const r = rig();
+	r.feed(waitNet(r));
 	r.z.show();
 	await r.settle();
 	assert.ok(r.text().includes("Boss token needed to add the ACL") && r.text().includes("tower"), "what it waits for, and who");
 	for (const label of ["Handle", "Dismiss", "Maybe later"]) assert.ok(r.button(label), label);
 	assert.equal(r.button("Open the terminal"), undefined, "a wait is not a pane blocked on a prompt");
-	assert.equal(r.calls.composers.length, 0, "no composer: the act is the tower's comms");
-	r.button("Handle")!.click();
-	assert.deepEqual(r.calls.leave, [{ route: { view: "session", ws: "w", key: "t" } }], "the act: the tower's comms, in Standard");
+	assert.equal(r.calls.composers.length, 0, "no companion composer on the card: the answer box is the card's own");
 	r.button("Dismiss")!.click();
 	await r.settle();
 	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "drop", id: "W2" } }]);
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"], "an accepted answer: the knock");
+});
+
+test("Handle unfolds the answer box right under the question on the same card, focused, and never leaves Zen for Standard", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	const box = waitBox(r), form = r.by((el) => el.tagName === "form" || el.classes.has("zen-head-form"))[0]!;
+	assert.equal(form.hidden, true, "folded until Handle");
+	r.button("Handle")!.click();
+	assert.deepEqual(r.calls.leave, [], "the view does not change");
+	assert.equal(form.hidden, false);
+	assert.equal(page.focused, box, "the box has the focus");
+	const card = r.by((el) => el.classes.has("zen-card"))[0]!, order = card.all(() => true);
+	assert.ok(order.indexOf(r.by((el) => el.classes.has("zen-said"))[0]!) < order.indexOf(box), "the box sits under the question");
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, "the same card");
+	for (const label of ["Dismiss", "Maybe later", "Send"]) assert.ok(r.button(label), `${label} stays`);
+	assert.equal(r.button("Handle")!.hidden, true, "Handle is what is open now");
+});
+
+test("sending posts the boss's words to the tower exactly as Standard's composer does; the card leaves with the knock and Zen returns to the circle", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.click();
+	const box = waitBox(r);
+	box.value = "Use the staging token";
+	enter(box);
+	await r.settle();
+	assert.deepEqual(r.calls.posts, [{ key: "t", action: "input", body: { text: "Use the staging token", as: "send", answers: "W2" } }], "the tower's session `input`, the route Standard's composer sends to, naming the wait it answers");
+	await r.reply({ accepted: true, woke: true }); // the input route's reply has no `outcome`
+	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
+	assert.deepEqual(r.calls.leave, []);
+	await r.advance(1300);
+	await r.advance(1500); // the card dissolves for a moment after the outcome
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length >= 1, true, "the breathing circle");
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, "no card");
+	assert.equal(r.text().includes("Boss token needed"), false);
+});
+
+test("Esc while the answer is on its way does not fold the box, so a refusal lands in an open box with the focus back in it", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.click();
+	const box = waitBox(r);
+	box.value = "Use the staging token";
+	enter(box);
+	await r.settle();
+	assert.equal(r.calls.posts.length, 1, "on its way");
+	r.z.escape({ preventDefault: () => {} });
+	const form = r.by((el) => el.classes.has("zen-head-form"))[0]!;
+	assert.equal(form.hidden, false, "Esc leaves the box as it is while the answer is on its way");
+	await r.reply({ error: "refused", reason: "The tower did not take it." }, 409);
+	assert.equal(form.hidden, false, "the box is open for the refusal");
+	assert.match(waitNote(r).textContent, /^Not sent/);
+	assert.equal(page.focused, box, "and has the focus again");
+});
+
+const answeredNet = (r: { now(): number }, extra: { id: string; text: string }[] = []) => {
+	const n = waitNet(r);
+	const memory = n.bases[0]!.tower!.service!.memory!;
+	memory.bossWaits = [{ ...memory.bossWaits[0]!, answered: new Date(r.now()).toISOString() }, ...extra.map((w) => ({ ...w, at: new Date(r.now() - 30_000).toISOString() }))];
+	return n;
+};
+
+test("once the server marks the wait answered the card does not come back while the tower handles it, however long that takes; a wait the tower writes anew asks as a card", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.click();
+	waitBox(r).value = "Use the staging token";
+	enter(waitBox(r));
+	await r.settle();
+	await r.reply({ accepted: true, woke: true, answered: "W2" });
+	await r.advance(1300);
+	await r.advance(1500);
+	r.feed(answeredNet(r)); // the next snapshot: the wait stays in the tower's memory, answered
+	await r.advance(30_000 + 1000); // past the 30 s hold of an answered card
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, "no card");
+	await r.advance(600_000);
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, "not after ten minutes either");
+	r.feed(answeredNet(r, [{ id: "W3", text: "Which region for the new bucket?" }]));
+	await r.settle();
+	assert.ok(r.text().includes("Which region for the new bucket?"), "a new wait asks");
+});
+
+test("a wait answered on another device while its card is on the page ends the card without the low bowl: it is no longer something the boss has to do", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.feed(answeredNet(r));
+	await r.advance(1500);
+	assert.equal(r.by((el) => el.classes.has("zen-card") && !el.hasAttribute("data-gone")).length, 0, "the card is gone (or going)");
+	assert.equal(r.calls.sound.includes("low"), false);
+});
+
+test("Esc on the open box folds it with the draft kept and does nothing else; Shift+Enter and an empty box send nothing", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.click();
+	const box = waitBox(r);
+	box.value = "half a thought";
+	box.bubble("keydown", { key: "Enter", shiftKey: true, isComposing: false, keyCode: 13 });
+	box.value = "";
+	enter(box);
+	box.value = "half a thought";
+	await r.settle();
+	assert.deepEqual(r.calls.posts, []);
+	let prevented = 0;
+	const took = r.z.escape({ preventDefault: () => void prevented++ });
+	assert.deepEqual([took, prevented], [true, 1]);
+	const form = r.by((el) => el.classes.has("zen-head-form"))[0]!;
+	assert.equal(form.hidden, true, "folded");
+	assert.equal(box.value, "half a thought", "the draft stays");
+	assert.ok(r.by((el) => el.classes.has("zen-card")).length === 1 && r.calls.sound.join() === "bowl", "the card stays; Esc did not skip it");
+	assert.equal(page.focused, r.button("Handle"), "the focus returns to Handle");
+	r.button("Handle")!.click();
+	assert.equal(box.value, "half a thought", "Handle brings the draft back");
+});
+
+test("a refusal shows under the kept draft in Zen's refusal style, plays the low bowl, and the box stays open for another try", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.click();
+	const box = waitBox(r);
+	box.value = "Use the staging token";
+	enter(box);
+	await r.settle();
+	await r.reply({ error: "standing", reason: "The tower is not running." }, 409);
+	assert.equal(box.value, "Use the staging token", "the draft is kept");
+	assert.equal(box.disabled, false);
+	assert.match(waitNote(r).textContent, /^Not sent: the tower is standing by/);
+	assert.equal(waitNote(r).dataset.tone, "error");
+	assert.deepEqual(r.calls.sound, ["bowl", "low"]);
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, "the card stays");
+	enter(box);
+	await r.settle();
+	await r.reply({ accepted: true });
+	assert.deepEqual(r.calls.sound, ["bowl", "low", "knock"], "the second try is taken: the knock after the low bowl");
+});
+
+test("the wait card names the unit once, in the page's language, and the unit's raw English name is not on it", async () => {
+	const { overwriteGetLocale } = await import("../gui/paraglide/runtime.js");
+	for (const [locale, name] of [["en", "tower · Harbor"], ["zh-TW", "塔台 · Harbor"]] as const) {
+		overwriteGetLocale(() => locale);
+		const r = rig();
+		const n = waitNet(r);
+		n.bases[0]!.tower!.name = "tower · Harbor";
+		r.feed(n);
+		r.z.show();
+		await r.settle();
+		const text = r.by((el) => el.classes.has("zen-card"))[0]!.textContent;
+		assert.equal(text.split(name).length - 1, 1, `${locale}: the unit once on the card`);
+		assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, name, `${locale}: the title`);
+		if (locale === "zh-TW") assert.equal(text.includes("tower"), false, "no raw English name");
+	}
+	overwriteGetLocale(() => "en");
 });
 
 test("a trust question's choices are disabled while the link is offline and enabled while it is live", async () => {

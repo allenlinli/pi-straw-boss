@@ -96,6 +96,9 @@ export function towerWhy(r: Pick<Answer, "status" | "body">, o?: Opts): string |
 	if (r.status < 400) return undefined;
 	if (r.body.error === "standing") return m.tower_err_standing({}, o);
 	if (r.body.error === "server_queue") return m.tower_err_server_queue({}, o);
+	if (r.body.error === "too_large") return m.too_long({}, o);
+	if (r.body.error === "control_character") return m.tower_err_control({}, o);
+	if (r.body.error === "not_an_answer") return m.tower_err_not_an_answer({}, o);
 	return actionWhy(r, o);
 }
 

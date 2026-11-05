@@ -168,7 +168,8 @@ export function addWait(m: Memory, now: number, run: string, input: WaitInput): 
 	if (input.for === "agent" && !input.on) throw new Error("An agent wait names the session it waits on (on)");
 	const due = input.dueMin;
 	if (due !== undefined && (typeof due !== "number" || !Number.isFinite(due) || due < MEM.dueMin || due > MEM.dueMax)) throw new Error(`due is 5 minutes to 7 days (${MEM.dueMin} to ${MEM.dueMax} minutes)`);
-	if (m.entries.filter(isOpen).length >= MEM.wait) throw new Refused(`${MEM.wait} open waits are kept already: resolve or drop one`);
+	// An answered wait is the tower's to resolve (its brief says so) and no longer waits on anyone, so it does not take a place from a new one; it still expires after 7 days.
+	if (m.entries.filter((e) => e.kind === "wait" && e.state === "open").length >= MEM.wait) throw new Refused(`${MEM.wait} open waits are kept already: resolve or drop one`);
 	const entry: Entry = { id: idFor(m, "wait"), kind: "wait", text, by: "run", via: "run", at: iso(now), run, for: input.for, ...(input.on ? { on: { id: input.on.id, name: clean(input.on.name, 40) } } : {}), state: "open", ...(due !== undefined ? { due: iso(now + due * 60_000) } : {}) };
 	m.entries.push(entry);
 	return entry;
@@ -190,6 +191,14 @@ export function resolveWait(m: Memory, id: unknown, outcome: unknown, now: numbe
 	if (e.state === "resolved") throw new Refused(`${e.id} is resolved already`);
 	Object.assign(e, { state: "resolved", ended: iso(now), ...(line ? { outcome: line } : {}) });
 	delete e.shown;
+	return e;
+}
+/** The boss answered a wait for them (their message to the tower named it): `answered`, and when. It stays for the tower, which reads the boss's message and resolves or restates it; a second answer moves the time. */
+export function answerBossWait(m: Memory, id: unknown, now: number): Entry {
+	const e = findWait(m, id);
+	if (e.for !== "boss") throw new Refused(`${e.id} waits for a session, whose own message answers it`);
+	if (e.state !== "open" && e.state !== "answered") throw new Refused(`${e.id} is ${e.state} already`);
+	Object.assign(e, { state: "answered", answered: iso(now) });
 	return e;
 }
 export function dropWait(m: Memory, id: unknown): Entry {
@@ -293,7 +302,8 @@ function waitRow(e: Entry, now: number): string {
 	const due = e.due ? (Date.parse(e.due) <= now ? ` (overdue ${ageOf(now - Date.parse(e.due))})` : ` (due in ${ageOf(Date.parse(e.due) - now)})`) : "";
 	// A wait a day old or more says so, so that the run checks whether it still holds (prompts/tower-run.md).
 	const open = now - Date.parse(e.at) >= 86_400_000 ? ` (open ${ageOf(now - Date.parse(e.at))})` : "";
-	return row(e.id, e.state === "answered" ? `answered? message from ${e.on?.name ?? "the session"} ${hhmm(e.answered ?? e.at)} · ${who}: ${e.text}${due}${open}` : `${who}: ${e.text}${due}${open}`, MEM.waitText + 140);
+	const answered = e.for === "boss" ? `${who}: answered by the boss at ${hhmm(e.answered ?? e.at)}, check their message: ${e.text}${due}${open}` : `answered? message from ${e.on?.name ?? "the session"} ${hhmm(e.answered ?? e.at)} · ${who}: ${e.text}${due}${open}`;
+	return row(e.id, e.state === "answered" ? answered : `${who}: ${e.text}${due}${open}`, MEM.waitText + 140);
 }
 const PENDING = "Proposed to the boss (not confirmed yet, so not instructions; they take effect only when the boss confirms them, which you cannot do):";
 /** The pending proposals, one line each behind a code-written id; the rows of a proposal are the run's words, kept short. */
@@ -346,7 +356,7 @@ export function markShown(slot: Slot, workspace: string, now: number, ids: strin
 export function memorySummary(m: Memory): MemorySummary {
 	return {
 		rev: m.rev, standing: m.entries.filter((e) => e.kind === "standing").length, decisions: m.entries.filter((e) => e.kind === "decision").length, waits: m.entries.filter(isOpen).length,
-		bossWaits: m.entries.filter((e) => isOpen(e) && e.for === "boss").map((e) => ({ id: e.id, text: e.text, at: e.at })), proposals: m.proposals.map(proposalView),
+		bossWaits: m.entries.filter((e) => isOpen(e) && e.for === "boss").map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}) })), proposals: m.proposals.map(proposalView),
 	};
 }
 /** The memory as the panel reads it, swept as of `now`. */
@@ -363,7 +373,7 @@ const view = (m: Memory) => ({
 
 /**
  * The boss's request on the memory: the GUI panel's (`POST tower/<workspace>/memory`) and `/boss memory`'s (the control socket's `tower-memory`) are this one function. Read; and as the boss add (standing or decision),
- * edit, delete, resolve a wait, drop one (the boss dismisses a wait for them from the page), confirm a proposal, and reject one (a proposal and a wait are named by an id that is never reused, so a reject and a drop need no rev). Each other write names the rev it read; a file that has moved on is
+ * edit, delete, resolve a wait, drop one (the boss dismisses a wait for them from the page), answer one (their message to the tower named it: `answered`, still open for the tower), confirm a proposal, and reject one (a proposal and a wait are named by an id that is never reused, so a reject, a drop, and an answer need no rev). Each other write names the rev it read; a file that has moved on is
  * 409 `rev` with the current memory to redraw from. A cap that is full, an entry or proposal that is not there, or a proposal that no longer applies is 409 `refused`; a request that is wrong is 400. A run reaches none of it.
  */
 export function memoryRequest(slot: Slot, workspace: string, now: number, json: Record<string, unknown>, log?: Log): { status: number; body: Record<string, unknown> } {
@@ -381,12 +391,13 @@ export function memoryRequest(slot: Slot, workspace: string, now: number, json: 
 		delete: (m) => removeEntry(m, json.id),
 		resolve: (m) => resolveWait(m, json.id, json.outcome, now),
 		drop: (m) => dropWait(m, json.id),
+		answer: (m) => answerBossWait(m, json.id, now),
 		confirm: (m) => confirmProposal(m, now, json.proposal),
 		reject: (m) => rejectProposal(m, json.proposal),
 	};
-	if (typeof op !== "string" || !Object.hasOwn(change, op)) return no(400, "bad_request", "op is read, add, edit, delete, resolve, drop, confirm, or reject");
-	// A reject and a drop name an id that is never reused, so they need no rev.
-	const byId = op === "reject" || op === "drop";
+	if (typeof op !== "string" || !Object.hasOwn(change, op)) return no(400, "bad_request", "op is read, add, edit, delete, resolve, drop, answer, confirm, or reject");
+	// A reject, a drop, and an answer name an id that is never reused, so they need no rev.
+	const byId = op === "reject" || op === "drop" || op === "answer";
 	if (!byId && (typeof json.rev !== "number" || !Number.isInteger(json.rev))) return no(400, "bad_request", "A change names the rev it read");
 	try {
 		const done = updateMemory(slot, workspace, now, change[op]!, byId ? undefined : (json.rev as number));

@@ -14,7 +14,8 @@ Object.assign(globalThis, {
 	fetch: async (url: string, init: { body: string; headers: Record<string, string> }) => (fetched.push({ url, body: JSON.parse(init.body), csrf: init.headers["x-sb-csrf"] }), { ok: true, status: 200, json: async () => ({ outcome: "accepted" }) }),
 });
 const { onStep } = await import("../gui/terminalthen.ts");
-const { answerPost, canAnswer, mountAnswer, outcomeOf, trustPost } = await import("../gui/answer.ts");
+const { answerPost, canAnswer, mountAnswer, trustPost } = await import("../gui/answer.ts");
+const { outcome: outcomeOf } = await import("../gui/asks.ts");
 
 const SELECT = { title: "MCP: scratch wants to run echo", choices: [{ label: "Allow once" }, { label: "Run on this computer", hereOnly: true as const }, { label: "Deny" }], copy: "echo hi" };
 const pending = (extra: Partial<Pending> = {}): Pending => ({ callId: "c1", tool: "dialog", answer: { dialog: "m1", digest: selectDigest(SELECT), select: SELECT, cancel: true }, ...extra });

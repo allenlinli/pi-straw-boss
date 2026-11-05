@@ -744,8 +744,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Wait panel answers in place to 5824 (measured, +114): gui/asks.ts takes `waitActions` and `joined` (35), waitpanel.ts the answer box and the comms link (130), towernotes.ts the wait row's panel (+19), zen.ts the title, the box's Esc row and the card's two hooks (+4), the demo's replies.
 	// Dialog and card polish (the wait panel's Handle and Send marked as the dialog's act, the refusal words, the demo's refusal reply): 5825 (measured, +1).
 	// Wait review fixes: 5837 (measured, +12): the row's newest snapshot and kept focus, the folded box, the dialog's title and its hidden duplicates, `waitTitle`.
-	// Zen link cards to 6094 (measured, +257): asks.ts takes the link, forwarded-dialog, proposal and LAN actions (+41), cardalerts.ts, pairs.ts, zendecide.ts and demo-link.ts are new, zen.ts takes the cards (+39), and Standard's rows call the shared actions.
-	assert.ok(page <= 6094, `the page's TypeScript has ${page} lines`);
+	// Zen link cards to 6095 (measured, +258): asks.ts takes the link, forwarded-dialog, proposal and LAN actions (+41), cardalerts.ts, pairs.ts, zendecide.ts and demo-link.ts are new, zen.ts takes the cards (+39), and Standard's rows call the shared actions.
+	assert.ok(page <= 6095, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).

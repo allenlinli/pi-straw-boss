@@ -1,4 +1,4 @@
-# Straw Link: an unattended box shared by several devs (0.58.4)
+# Straw Link: an unattended box shared by several devs (0.59.0)
 
 Status: built on `feat/link-g346` (base `main` eed4865, 0.58.3). Requests G6, G3 and G4 of 無人塔台規劃's plan for the shared "agent-tower" team (moldplan-center, `.pi/plans/2026-11-03-unattended-tower/infra-dashboard-join-plan.md` §2.4): one unattended box, one team, several devs each at `dispatch` through the signed policy.
 

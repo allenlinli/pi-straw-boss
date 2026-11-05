@@ -56,6 +56,23 @@ test("the reply to an ask goes to the main that asked, as a straw-link message w
 	assert.equal(open.size, 0, "the ask is used");
 });
 
+test("the reply to an ask a tower of another workspace made for the main goes to that main all the same (a tower relaying for a main outside its workspace)", async () => {
+	const b = computer(root, relay, "b", { gateMs: 60, tower: { asks: { take: (q) => (q.ask === ASK && q.device === alice.id ? { main: "main-b", mainName: "api main", tower: "tower-elsewhere", workspace: "Alpha" } : undefined) } } });
+	const a = computer(root, relay, "a", { gateMs: 60 });
+	computers.push(a, b);
+	const main = b.world.agent({ id: "main-b", name: "api main", pane: "wB:p1", tab: "wB:t1", deps: b.deps });
+	b.world.herdr.pane(main.pane).cwd = b.project;
+	await Promise.all([a.tower.start(), b.tower.start(), main.start()]);
+	await main.promote();
+	await until(() => a.server.service.holder?.capsFor(TEAM_HEX, bob.id).includes("tower-reply"), "A to know B takes replies");
+	assert.ok(listening(b, main.id), "the main to be on the link channel");
+	const sent = await a.server.ask({ op: "send", device: "bob-mac", text: "report from the box", reply: false, inReplyTo: ASK }, a.tower.id);
+	assert.equal(sent.ok, true, JSON.stringify(sent));
+	await until(() => main.sent.length === 1, "the main to get the reply", 8000);
+	assert.match(main.sent[0]!.content, /kind=link_reply scope=session .* for=tower-elsewhere\] report from the box$/);
+	assert.equal(b.tower.sent.length, 0, "the tower gets nothing");
+});
+
 test("a reply is not taken by a main it was not offered for, nor by the tower", async () => {
 	const a = computer(root, relay, "a", { gateMs: 60 });
 	const b = computer(root, relay, "b", { gateMs: 60, tower: { asks: { take: () => ({ main: "main-b", mainName: "api main", tower: "tower-b", workspace: "Beta" }) } } });

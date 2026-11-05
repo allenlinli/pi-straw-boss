@@ -12,16 +12,18 @@ const main = (over: Partial<OpenedMain> = {}): OpenedMain => ({ workspace: "wA",
 
 function rig(rows: OpenedMain[], levels: Record<string, string | undefined> = {}) {
 	const closes: string[] = [], forgot: string[] = [], signals: RunSignal[] = [], logs: Record<string, unknown>[] = [];
-	const world = { rows, levels, closeError: undefined as string | undefined, known: true };
+	const world = { rows, levels, closeError: undefined as string | undefined, known: true, paneGone: true, errors: [] as (string | undefined)[], told: true };
 	const revoker = createRevoker({
 		opened: () => world.rows, known: () => world.known,
 		standing: (device) => (world.levels[device] ? { level: world.levels[device]! } : undefined),
 		close: async (workspace, m) => {
 			closes.push(`${workspace}/${m}`);
-			if (world.closeError) throw new Error(world.closeError);
+			const next = world.errors.length ? world.errors.shift() : world.closeError;
+			if (next) throw new Error(next);
 		},
+		paneGone: async () => world.paneGone,
 		forget: (workspace, m) => void (forgot.push(`${workspace}/${m}`), (world.rows = world.rows.filter((x) => !(x.workspace === workspace && x.main === m)))),
-		signal: (s) => void signals.push(s), log: (e) => void logs.push(e),
+		signal: (s) => (signals.push(s), world.told), log: (e) => void logs.push(e),
 	});
 	/** What a sweep does on its second look at a device found short of `dispatch`; a first look only notes it. */
 	const twice = async () => (await revoker.sweep(), await revoker.sweep());
@@ -71,27 +73,61 @@ test("a main that is busy is asked again at every sweep, the admins are told onc
 	assert.deepEqual(r.signals.map((s) => s.kind === "revoked" && s.ended), [false, true]);
 });
 
-test("a main that is gone (no live session, not a main any more, not the tower's to close) is let go without a notice", async () => {
+test("a main that is gone (no live session, not a main any more, not the tower's to close) is let go without a notice, but only after two misses in a row and with its pane absent from Herdr (g346-F002)", async () => {
 	for (const why of ["No live session is named or has the id \"m-1\"", "main is not in this workspace; a tower closes only the mains it opened here", "main is not a main agent", "main was not opened by a tower (the boss opened it), so only the boss closes it"]) {
 		const r = rig([main()], { [DEV]: "reply" });
 		r.world.closeError = why;
 		await r.twice();
+		assert.deepEqual(r.forgot, [], `${why}: one miss forgets nothing`);
+		await r.revoker.sweep();
 		assert.deepEqual(r.forgot, ["wA/m-1"], why);
 		assert.deepEqual(r.signals, [], why);
 	}
+});
+
+test("one miss between working answers does not count: the main is asked again and its route stays (g346-F002)", async () => {
+	const r = rig([main({ pane: "p-1" })], { [DEV]: "reply" });
+	r.world.errors = ["main is working; try again when it is idle", "No live session is named or has the id \"m-1\"", "main is working; try again when it is idle", "No live session is named or has the id \"m-1\""];
+	r.world.closeError = "main is working; try again when it is idle";
+	for (let i = 0; i < 6; i++) await r.revoker.sweep();
+	assert.deepEqual(r.forgot, []);
+	assert.equal(r.closes.length, 5);
+});
+
+test("a main whose pane Herdr still lists is never let go on a miss; the admins are told it still runs, once (g346-F002)", async () => {
+	for (const why of ["No live session is named or has the id \"m-1\"", "main was not opened by a tower (the boss opened it), so only the boss closes it"]) {
+		const r = rig([main({ pane: "p-1" })], { [DEV]: "reply" });
+		r.world.closeError = why;
+		r.world.paneGone = false;
+		for (let i = 0; i < 6; i++) await r.revoker.sweep();
+		assert.deepEqual(r.forgot, [], why);
+		assert.deepEqual(r.signals.map((s) => s.kind === "revoked" && s.ended), [false], why);
+		assert.match(r.signals.map((s) => (s.kind === "revoked" ? s.text : ""))[0]!, new RegExp(why.slice(0, 20)));
+	}
+});
+
+test("a pending notice nobody could be told of is sent again at a later sweep (g346-F005c)", async () => {
+	const r = rig([main()], { [DEV]: "reply" });
+	r.world.closeError = "main is working; try again when it is idle";
+	r.world.told = false;
+	for (let i = 0; i < 3; i++) await r.revoker.sweep();
+	assert.equal(r.signals.length, 2, "asked again each sweep while nobody was told");
+	r.world.told = true;
+	for (let i = 0; i < 3; i++) await r.revoker.sweep();
+	assert.equal(r.signals.length, 3, "once told, never again");
 });
 
 test("sweeps that overlap run once; a lookup that fails is tried again at the next sweep and breaks nothing", async () => {
 	const r = rig([main()], { [DEV]: "reply" });
 	let release!: () => void;
 	const hold = new Promise<void>((resolve) => (release = resolve));
-	const slow = createRevoker({ opened: () => r.world.rows, known: () => true, standing: () => ({ level: "reply" }), close: async () => { r.closes.push("slow"); await hold; }, forget: () => {}, signal: () => {}, log: () => {} });
+	const slow = createRevoker({ opened: () => r.world.rows, known: () => true, standing: () => ({ level: "reply" }), close: async () => { r.closes.push("slow"); await hold; }, forget: () => {}, signal: () => {}, paneGone: async () => true, log: () => {} });
 	await slow.sweep();
 	const a = slow.sweep(), b = slow.sweep();
 	release();
 	await Promise.all([a, b]);
 	assert.deepEqual(r.closes, ["slow"]);
-	const broken = createRevoker({ opened: () => { throw new Error("route file unreadable"); }, known: () => true, standing: () => undefined, close: async () => {}, forget: () => {}, signal: () => {}, log: (e) => void r.logs.push(e) });
+	const broken = createRevoker({ opened: () => { throw new Error("route file unreadable"); }, known: () => true, standing: () => undefined, close: async () => {}, forget: () => {}, signal: () => {}, paneGone: async () => true, log: (e) => void r.logs.push(e) });
 	await broken.sweep();
 	assert.deepEqual(r.logs.map((e) => e.event), ["revoke-failed"]);
 });

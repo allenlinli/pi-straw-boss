@@ -36,7 +36,7 @@ export interface DialogsOutDeps {
 	/** The clock (default `Date.now`), for the unanswered-dialog notice. */
 	now?(): number;
 	/** Tells the controllers `scope` covers (src/link/unitstatus.ts `UnitReporter.notify`); once per key. Absent: no notices. */
-	notice?(key: string, notice: Notice, scope: Scope): void | Promise<void>;
+	notice?(key: string, notice: Notice, scope: Scope): void | boolean | Promise<void | boolean>;
 	/**
 	 * The device (and its team, when known) that dispatched the unit `key` asked from, or nothing when none did; read from Herdr, so it is asked again while it is unknown. Absent: every controller is a recipient,
 	 * as on a box with one controller.
@@ -53,7 +53,7 @@ export const REFRESH_MS = 10 * 60_000;
 export const UNKNOWN_RECHECK_MS = 15_000;
 export interface DialogAnswerInput { team: string; from: string; dialogId: string; digest: string; answer: string; answerId: string }
 /** `sent` is where the dialog was last sent, per controller, and when; `claimed` is set while an answer is on its way or has been accepted; `unknownAt` is when an answer no session confirmed was sent. */
-interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Map<string, number>; away: Set<string>; claimed: boolean; unknownAt?: number; since: number; told: boolean; /** Whose unit asked, once it is known (`dispatcher`). */ who?: { device: string; team?: string } }
+interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Map<string, number>; away: Set<string>; claimed: boolean; unknownAt?: number; since: number; told: boolean; /** The log line that nobody can be told of this question was written. */ unrouted?: boolean; /** Whose unit asked, once it is known (`dispatcher`). */ who?: { device: string; team?: string } }
 
 export class DialogForwarder {
 	private readonly d: DialogsOutDeps;
@@ -143,8 +143,14 @@ export class DialogForwarder {
 				await this.send(k, "dialog-close", { dialogId: id, by: "withdrawn" });
 			}
 			if (!d.told && !d.claimed && to.length && this.now() - d.since >= UNANSWERED_MS) {
-				d.told = true;
-				await this.d.notice?.(`unanswered/${id}`, { kind: "dialog-unanswered", unit: d.key, text: `A question of ${d.owner} has waited ${Math.round((this.now() - d.since) / 60_000)} minutes for an answer.` }, this.scopeOf(d));
+				// Marked told only once the notice reached somebody: with no admin at `dispatch` it is tried again at the next pass (g346-F005).
+				const sent = await this.d.notice?.(`unanswered/${id}`, { kind: "dialog-unanswered", unit: d.key, text: `A question of ${d.owner} has waited ${Math.round((this.now() - d.since) / 60_000)} minutes for an answer.` }, this.scopeOf(d));
+				d.told = sent !== false;
+			}
+			// A question no controller can be told of (an unattributed unit, and no admin at `dispatch`) stays open and is never widened to the others; the box's own log says it waits.
+			if (!mine.length && !d.unrouted) {
+				d.unrouted = true;
+				this.d.log({ event: "dialog-unrouted", dialog: id, unit: d.key, owner: d.owner });
 			}
 			for (const c of mine) {
 				const k = `${c.team}\n${c.device}`;

@@ -307,6 +307,8 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 			return store;
 		},
 		attended,
+		/** How the policy file reads now: a refused one means the box cannot tell who may do what (g346-F003). */
+		policyMode: (): "attended" | "unattended" | "refused" => policy().mode,
 		/** The teams and projects of config.json, read fresh. */
 		config,
 		/** The level this computer gives a device (the policy file's, else `link.trust`, else `reply`): an ally run is claimed at it. */

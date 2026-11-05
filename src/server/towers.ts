@@ -1006,9 +1006,9 @@ export function createTowers(o: TowersOptions): Towers {
 	const forgetClosed = <T extends { main?: string }>(ws: string, closed: T): T => { try { if (closed.main) dropOpened(slot, ws, closed.main, now()); } catch (cause) { error("ally-route", (cause as Error).message); } return closed; };
 	/** The mains ally runs opened end with their controller's dispatch (revoke.ts): asked to quit as `boss_close_main` asks, the admins told through the same notice channel as a run's end. */
 	const revoker = createRevoker({
-		opened: () => (o.ally ? [...services.values()].filter((l) => !l.stopped && l.state === "live" && l.control && !isHeadL(l)).flatMap((l) => readRoutes(slot, l.record.workspace, now()).filter((r) => r.kind === "opened").map((r) => ({ workspace: l.record.workspace, label: l.record.label, main: r.to, name: r.name, device: r.device, deviceLabel: r.label, team: r.team, ...(r.level ? { level: r.level } : {}) }))) : []),
+		opened: () => (o.ally ? [...services.values()].filter((l) => !l.stopped && l.state === "live" && l.control && !isHeadL(l)).flatMap((l) => readRoutes(slot, l.record.workspace, now()).filter((r) => r.kind === "opened").map((r) => ({ workspace: l.record.workspace, label: l.record.label, main: r.to, name: r.name, device: r.device, deviceLabel: r.label, team: r.team, ...(r.level ? { level: r.level } : {}), ...(r.pane ? { pane: r.pane } : {}) }))) : []),
 		known: (team) => o.ally?.known?.(team) ?? true, standing: (device, team) => o.ally?.standing(device, team),
-		close: async (workspace, main) => void (await need(workspace).control!.closeMain(main)),
+		close: async (workspace, main) => void (await need(workspace).control!.closeMain(main)), paneGone: async (workspace, pane) => { if (!pane) return false; try { const net = await need(workspace).reach!.read(); return !net.ps.some((p) => p.pane_id === pane); } catch { return false; } }, // Herdr's listing is the second witness that a main is gone; no pane or a failed read confirms nothing
 		forget: (workspace, main) => void forgetClosed(workspace, { main }), signal: (s) => o.runs?.signal?.(s), log: ({ event, ...rest }) => log.line(String(event), rest as Record<string, string>),
 	});
 	const answered = answeredAsks(now); // run id → asks it answered: kept out of a route, as the Mac closes an answered ask

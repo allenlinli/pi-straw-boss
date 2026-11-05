@@ -7,6 +7,8 @@ export const EVERYONE: Scope = "all";
 
 /** Whether the controller `c` is told what `scope` covers; `admin` says whether a device is an admin of a team's roster now. */
 export function reaches(scope: Scope, c: { team: string; device: string }, admin: (team: string, device: string) => boolean): boolean {
-	if (scope === "all" || admin(c.team, c.device)) return true;
+	if (scope === "all") return true;
+	// An admin is the admin of a team: when the scope names one, the admins of other teams on the box are not told (g346-F001).
+	if (admin(c.team, c.device) && (scope.team === undefined || scope.team === c.team)) return true;
 	return scope.device !== undefined && scope.device === c.device && (scope.team === undefined || scope.team === c.team);
 }

@@ -6,7 +6,7 @@ import type { RunSignal } from "./runs.ts";
 // already ends it when its sender leaves the roster or loses `dispatch` (runs.ts, the watcher's tick).
 
 /** A main an ally run opened for a device, as the route table keeps it. `level` is the level the run had when it opened the main; a row from before the level was kept counts as `dispatch`. */
-export interface OpenedMain { workspace: string; label: string; main: string; name: string; device: string; deviceLabel: string; team: string; level?: string }
+export interface OpenedMain { workspace: string; label: string; main: string; name: string; device: string; deviceLabel: string; team: string; level?: string; /** The main's Herdr pane, when the route kept it: a second witness that it is gone. */ pane?: string }
 export interface RevokerDeps {
 	/** The mains ally runs opened that are on record, in every live service. */
 	opened(): OpenedMain[];
@@ -16,13 +16,19 @@ export interface RevokerDeps {
 	standing(device: string, team: string): { level: string } | undefined;
 	/** Asks the main to quit like `boss_close_main`; resolves once it accepted, rejects with the reason it did not. */
 	close(workspace: string, main: string): Promise<void>;
+	/** Whether Herdr no longer lists `pane` (a read that fails, or a row with no pane, is `false`: not confirmed gone). */
+	paneGone(workspace: string, pane: string | undefined): Promise<boolean>;
 	/** Lets the route go (the main is gone, or has quit). */
 	forget(workspace: string, main: string): void;
-	signal(s: RunSignal): void;
+	/** Tells the admins; resolves `false` when nobody was addressed (no admin is attended at `dispatch`), so the notice is tried again at a later sweep. */
+	signal(s: RunSignal): void | boolean | Promise<boolean | undefined | void>;
 	log(entry: Record<string, unknown>): void;
 }
 
-/** Why a close failed for good: there is nothing there to close (the main is gone, is no main now, or was never a tower's to close), so the route goes. Anything else is a main that may quit later. */
+/**
+ * Why a close may have failed for good: there is nothing there to close (the main is gone, is no main now, or was never a tower's to close). The broker's list misses a main that is reconnecting, and a main can clear its own
+ * `sb_opened_by`, so the route goes only on two sweeps in a row with these AND the main's pane absent from Herdr; a main still there is reported to the admins, not forgotten (g346-F002). Anything else is a main that may quit later.
+ */
 const GONE = /No live session is named|is not in this workspace|is not a main agent|was not opened by a tower/;
 
 export function createRevoker(d: RevokerDeps) {
@@ -30,9 +36,11 @@ export function createRevoker(d: RevokerDeps) {
 	const told = new Set<string>();
 	/** The mains found short of `dispatch` at the last sweep. */
 	let low = new Set<string>();
+	/** The mains whose close was answered "gone" at the last sweeps, and how many sweeps in a row. */
+	let goneSeen = new Map<string, number>();
 	let running: Promise<void> | undefined;
 	const pass = async (): Promise<void> => {
-		const now = new Set<string>();
+		const now = new Set<string>(), gone = new Map<string, number>();
 		for (const row of d.opened()) {
 			if (row.level !== undefined && row.level !== "dispatch") continue;
 			if (!d.known(row.team)) continue;
@@ -46,16 +54,24 @@ export function createRevoker(d: RevokerDeps) {
 			} catch (cause) {
 				const reason = (cause as Error).message;
 				if (GONE.test(reason)) {
-					d.log({ event: "revoke-gone", workspace: row.workspace, main: row.main });
-					d.forget(row.workspace, row.main);
-					continue;
+					const seen = (goneSeen.get(row.main) ?? 0) + 1;
+					gone.set(row.main, seen);
+					if (seen < 2) continue;
+					if (await d.paneGone(row.workspace, row.pane)) {
+						d.log({ event: "revoke-gone", workspace: row.workspace, main: row.main });
+						d.forget(row.workspace, row.main);
+						gone.delete(row.main);
+						continue;
+					}
 				}
 				const key = `${row.main}/pending`;
 				d.log({ event: "revoke-waiting", workspace: row.workspace, main: row.main, why });
 				if (!told.has(key)) {
-					told.add(key);
-					while (told.size > 256) told.delete(told.values().next().value!);
-					d.signal({ kind: "revoked", workspace: row.workspace, label: row.label, ally: true, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main, ended: false, text: `${who} could not be ended yet (${reason}). The box asks again until it quits.` });
+					const sent = await d.signal({ kind: "revoked", workspace: row.workspace, label: row.label, ally: true, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main, ended: false, text: /was not opened by a tower/.test(reason) ? `${who} still runs and cannot be ended by the box (${reason}). Close it by hand.` : `${who} could not be ended yet (${reason}). The box asks again until it quits.` });
+					if (sent !== false) {
+						told.add(key);
+						while (told.size > 256) told.delete(told.values().next().value!);
+					}
 				}
 				continue;
 			}
@@ -64,6 +80,7 @@ export function createRevoker(d: RevokerDeps) {
 			d.signal({ kind: "revoked", workspace: row.workspace, label: row.label, ally: true, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main, ended: true, text: `${who} was ended: ${why}.` });
 		}
 		low = now;
+		goneSeen = gone;
 	};
 	return {
 		/** One look at every opened main; looks that overlap share the one in flight. A failure is logged and the next sweep tries again. */

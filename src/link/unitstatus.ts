@@ -61,11 +61,11 @@ export class UnitReporter {
 			}
 		}
 	}
-	/** Tells the controllers `scope` covers (the dispatcher and the admins; `EVERYONE` for all), once per `key`; nothing is remembered when there was nobody to tell, so the next trigger with the same key still goes out. */
-	async notify(key: string, notice: Notice, scope: Scope): Promise<void> {
-		if (this.told.has(key)) return;
+	/** Tells the controllers `scope` covers (the dispatcher and the admins; `EVERYONE` for all), once per `key`; nothing is remembered when there was nobody to tell, so the next trigger with the same key still goes out. Resolves whether anybody was addressed. */
+	async notify(key: string, notice: Notice, scope: Scope): Promise<boolean> {
+		if (this.told.has(key)) return false;
 		const to = this.d.controllers().filter((c) => reaches(scope, c, this.d.admin ?? (() => false)));
-		if (!to.length) return;
+		if (!to.length) return false;
 		this.told.add(key);
 		while (this.told.size > TOLD_MAX) this.told.delete(this.told.values().next().value!);
 		this.d.log({ event: "notice", key, kind: notice.kind, unit: notice.unit });
@@ -76,6 +76,7 @@ export class UnitReporter {
 				this.d.log({ event: "notice-post-failed", device: c.device, kind: notice.kind, error: String((error as Error).message).slice(0, 200) });
 			}
 		}
+		return true;
 	}
 }
 

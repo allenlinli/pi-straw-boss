@@ -542,7 +542,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		sessions: () => (client ? client.listSessions() : Promise.reject(new Error("pi-intercom is not connected"))),
 		promptCommand: (workspace) => promptCommand(cliBeside(), slot.stateDir, workspace), ...o.towers,
 		// A seam that watches the runs (tests) sees every signal too, and does not take the place of the notice to the controllers.
-		runs: { ...o.towers?.runs, signal: (sig) => { const r = runNotice(sig); void reporter?.notify(r.key, r.notice, r.scope); o.towers?.runs?.signal?.(sig); } },
+		runs: { ...o.towers?.runs, signal: (sig) => { const r = runNotice(sig), sent = reporter?.notify(r.key, r.notice, r.scope); o.towers?.runs?.signal?.(sig); return sent; } },
 	});
 	stops.push(cfg.watch(() => {
 		log.line("herdr-takeover");
@@ -609,7 +609,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 					try {
 						await openTower({ run: cfg.run, towers: () => towers, now, home: o.link?.home ?? homedir(), agentDir: env.PI_CODING_AGENT_DIR ?? join(o.link?.home ?? homedir(), ".pi", "agent") }, project, toWorkspace);
 					} catch (error) {
-						void unitsOut().notify(`tower-open/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: allyLabel(project), text: `Could not open a tower for ${project}: ${(error as Error).message}` }, { device: from });
+						void unitsOut().notify(`tower-open/${from}/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: allyLabel(project), text: `Could not open a tower for ${project}: ${(error as Error).message}` }, { device: from });
 						throw error;
 					}
 				} },

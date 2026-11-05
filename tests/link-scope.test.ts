@@ -25,6 +25,15 @@ test("reaches: everyone, the dispatcher, the admins; a scope with no device is t
 	assert.equal(reaches({ device: "dev1", team: T }, dev1, admin), true);
 });
 
+test("reaches: an admin of another team is not a recipient of a question that names its team (g346-F001)", () => {
+	const U = "u".repeat(16), admins = (team: string, device: string) => (team === T && device === "boss") || (team === U && device === "boss2");
+	const boss2 = { team: U, device: "boss2" }, boss = { team: T, device: "boss" };
+	assert.equal(reaches({ device: "dev1", team: T }, boss2, admins), false, "the admin of team U gets nothing of team T's dispatcher");
+	assert.equal(reaches({ device: "dev1", team: T }, boss, admins), true);
+	assert.equal(reaches({ team: T }, boss2, admins), false, "a unit of team T that no device dispatched: team T's admins");
+	assert.equal(reaches({}, boss2, admins), true, "a scope that names no team (the box's own unit) is every admin's");
+});
+
 function fakeHub() {
 	const offers = new Map<string, Offer>(), sent: { key: string; answer: Answer }[] = [];
 	const hub = {
@@ -125,6 +134,24 @@ describe("dialog forwarding on a shared box", () => {
 		assert.deepEqual(r.notices.map((n) => [n.notice.kind, n.scope]), [["dialog-unanswered", { device: "dev1", team: T }]]);
 	});
 
+	test("a question nobody can be told of is logged once and stays open; its unanswered notice is retried until somebody is told (g346-F005d)", async () => {
+		let admins = false;
+		const told: string[] = [];
+		const r = rig({ admin: (team, device) => admins && admin(team, device), notice: (key) => { if (!admins) return false; told.push(key); } }, {});
+		r.h.open("D1", "U9");
+		await r.f.poll();
+		await r.f.poll();
+		assert.deepEqual(r.posts, [], "nobody is told: never widened to the dispatch controllers");
+		assert.equal(r.logs.filter((e) => e.event === "dialog-unrouted").length, 1, "the box's own log says it waits");
+		r.advance(31 * 60_000);
+		await r.f.poll();
+		assert.deepEqual(told, []);
+		admins = true;
+		await r.f.poll();
+		assert.deepEqual(told, ["unanswered/D1"], "the notice goes once an admin is there");
+		assert.deepEqual(to(r.posts, "D1"), ["boss"]);
+	});
+
 	test("with no dispatcher lookup (an attended computer, an older wiring) every controller gets every question, as before", async () => {
 		const r = rig({ dispatcher: undefined, admin: undefined }, {});
 		r.h.open("D1", "U1");
@@ -159,6 +186,13 @@ describe("notices on a shared box", () => {
 		const b = reporter();
 		await b.rep.notify("run/3", notice, EVERYONE);
 		assert.deepEqual(b.got(), ["boss", "dev1", "dev2"]);
+	});
+	test("notify says whether it told anybody (g346-F005c)", async () => {
+		const none = new UnitReporter({ controllers: () => [{ team: T, device: "dev2" }], units: async () => [], report: () => "", status: async () => {}, notice: async () => {}, now: () => 1, log: () => {}, admin });
+		assert.equal(await none.notify("run/5", notice, {}), false);
+		const some = reporter();
+		assert.equal(await some.rep.notify("run/5", notice, {}), true);
+		assert.equal(await some.rep.notify("run/5", notice, {}), false, "already told");
 	});
 	test("a notice with nobody to reach is not remembered as told", async () => {
 		const only = new UnitReporter({ controllers: () => [{ team: T, device: "dev2" }], units: async () => [], report: () => "", status: async () => {}, notice: async () => {}, now: () => 1, log: () => {}, admin });

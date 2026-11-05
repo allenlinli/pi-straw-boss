@@ -310,7 +310,7 @@ export type RunSignal =
 export interface RunsOptions {
 	slot: Slot;
 	/** Told of the ends and refusals above; absent on a computer that tells nobody. */
-	signal?: (s: RunSignal) => void;
+	signal?: (s: RunSignal) => void | Promise<boolean | undefined>;
 	run: HerdrRun;
 	sleep: Sleep;
 	now: () => number;

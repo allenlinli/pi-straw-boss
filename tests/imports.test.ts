@@ -600,7 +600,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Wait panel answers in place to 406 (measured, +3): `&waitrefuse` makes the tower refuse what the boss sends it, the demo's input and dismissal reply as the server does (`accepted`, the memory it holds), and the map card's wait row (no fixture seam) reaches the tower's session input through the demo's fetch.
 	// Zen link cards to 410 (measured, +2): the fixture installs gui/demo-link.ts (its own file) for the four link states.
 	// Zen head strip rest (0.59.5) to 411 (+1): `?zen=head-rest` presses Esc and, six seconds on, sends the head's unasked report (demo-head.ts `headReport`).
-	assert.ok(demo <= 411, `the demo fixture has ${demo} lines`);
+	// `?ally=ask` to 413 (+2): the ci-box ally base asks a two-question forwarded question (the panel on its card in Standard).
+	assert.ok(demo <= 413, `the demo fixture has ${demo} lines`);
 	// Head tower H5 to 387 (+3 over 384): the strip's `?zen=head|head-open|head-history` states (the quiet net, the Enter and H presses, the draft), and a message to the head answered with its working mark (demo-head.ts holds the words).
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
@@ -753,7 +754,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen link cards review fixes to 6111 (measured, +16): the refusal words and the pair/proposal binding (asks.ts, zendecide.ts, zen.ts, zenmodel.ts, towermemory.ts).
 	// Link card live (0.59.4) to 6239 (measured, +128): gui/allyasks.ts (87, new: the answer panel on an ally base's card and which card hosts which question), cardalerts.ts (+17, the console line for a card off the page), zenmodel.ts (+10, `why` and the hidden page's pause), render.ts (+13, the lazy load of allyasks.ts), zentypes.ts (+1, the `debug` dep); zen.ts stays at 427.
 	// Zen head strip rest (0.59.5) to 6310 (measured, +70): zenhead.ts (`rest`, `wake`, `wakes`, `restable`, and `mountRestTap`), headlines.ts (`HeadLine.reply`), zenkeys.ts (the `rest` row), demo-head.ts (`headReport`), zen.ts and fixture.ts (a few lines each).
-	assert.ok(page <= 6310, `the page's TypeScript has ${page} lines`);
+	// Zen back from Standard and `?ally=ask` to 6311 (measured, +1): zenmodel.ts (`returning`) and the demo fixture's ally question.
+	assert.ok(page <= 6311, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -1036,7 +1038,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen link cards: 303,551 / 124,261 measured, +6,497 / +2,899 over the figure above, all lazy: the cards' panels (zendecide.ts), their alerts (cardalerts.ts), the shared actions (asks.ts), the pair list (pairs.ts), and the messages in both languages. Cap = measured.
 	// Link card live (0.59.4): 308,264 / 126,378 measured, +2,871 / +1,456 over the figure above, all lazy: the answer panel on an ally base's card (gui/allyasks.ts), the Zen model's reasons and the console line, and the message in both languages. Cap = measured.
 	// Zen head strip rest (0.59.5): 309,472 / 126,869 measured, +1,208 / +491 over the figure above, all lazy: `rest`, `wake`, the tap listener, `HeadLine.reply`, and the stylesheet rule. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 309_472 && total(chunks, gz) <= 126_869, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Zen back from Standard (0.59.5, `model.update(alerts, returning)`): 309,557 / 126,847 measured, +85 / -22 over the figure above. The raw cap = measured; the gzip cap stays.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 309_557 && total(chunks, gz) <= 126_869, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1148,7 +1151,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen link cards (zen.css's block for the decision panels): 156,592 / 32,023 measured, +992 / +163 over the figure above. Cap = measured + 15.
 	// Link card live (0.59.4): 157,143 / 32,141 measured, +536 / +103 over the 156,607 / 32,038 above: the questions' button and list on an ally base's card (.ally-asks, the pointer on a row that waits). Cap = measured.
 	// Zen head strip rest (0.59.5): 157,705 / 32,194 measured, +562 / +53 over the figure above: the hiding rule for a rested strip and its reduced-motion line. Cap = measured + 2 gzipped.
-	assert.ok(total(css, (n) => size(n).length) <= 157_705 && total(css, gz) <= 32_196, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// The overview steps aside for an open ally question panel (0.59.5): 157,809 / 32,208 measured, +104 / +14 over the figure above. Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 157_809 && total(css, gz) <= 32_208, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

@@ -341,3 +341,11 @@ test("Zen's link cards (zendecide.ts) are drawn in ink: a centred wait panel, th
 	for (const line of block.split("\n").filter((l) => /^\[data-view|^\s*\[data-view/.test(l))) assert.match(line, /^\s*\[data-view="zen"\]/, "every rule of the block is Zen's");
 	assert.doesNotMatch(block, /\bheight: \d+px|transition: [^;]*(height|width)/, "no size animation (Z-D9)");
 });
+
+test("T2: the map's overview steps aside while a question panel is open on an ally base's card, so the panel's Send answer and Cancel row at the foot of the window is not under it", () => {
+	const hide = rulesOf(css).find((r) => r.parts.includes("body:has(.ally-asks:not([hidden]) .ally-asks-list:not([hidden])) .minimap"));
+	assert.ok(hide, "a rule hides the minimap for an open ally panel");
+	assert.deepEqual(declarations(hide!.body), [["opacity", "0"], ["pointer-events", "none"]], "as it does under a terminal tile: faded out and out of the pointer's way");
+	assert.match(css, /body:has\(\.ally-asks:not\(\[hidden\]\) \.ally-asks-list:not\(\[hidden\]\)\) \.minimap \{ opacity: 0; pointer-events: none; \}/, "an open list in a box that shows: a list left open in a box that has no question is not an open panel");
+	assert.ok(rulesOf(css).some((r) => r.parts.some((p) => p.endsWith(".minimap") && p.includes("body:has(.tile)"))), "the tile's rule, which this one stands beside, is still there");
+});

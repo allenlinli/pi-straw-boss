@@ -139,6 +139,8 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	// `?head=<state>`: the head tower on the net (demo-head.ts); without it the demo has none.
 	const headParam = new URLSearchParams(location.search).get("head"), headNow: HeadState | undefined = isHeadState(headParam) ? headParam : zen?.startsWith("head") ? "answers" : undefined;
 	if (headNow) net.head = headDemo(headNow);
+	// `?ally=ask`: the ci-box ally base hosts a question that waits (two questions with Send answer and Cancel), for the panel on its card in Standard (gui/allyasks.ts).
+	if (new URLSearchParams(location.search).get("ally") === "ask") Object.assign(net.link!.alerts.find((x) => x.id === "dialog/d1/D1")!.data, { answered: undefined, closed: undefined, dialog: JSON.stringify({ cancel: true, questions: [{ question: "Deploy to staging?", header: "Deploy", multiple: false, options: [{ title: "Yes" }, { title: "No" }] }, { question: "Which region?", header: "Region", multiple: false, options: [{ title: "eu-west" }, { title: "us-east" }] }] }) });
 	/** The page of the chat that ends before `before` (the end of the history when absent), the way the server pages; the head's key has its own conversation. */
 	const page = (before?: string, key?: string): Page => {
 		const history = key === "sb-head" && headNow ? headHistory(headNow) : demoHistory0;

@@ -72,15 +72,15 @@ export function mountGestures(stage: HTMLElement, g: { on(): "circle" | "history
 const CONTROLS = 'button, a, input, textarea, select, summary, label, [role="button"], [tabindex]:not([tabindex="-1"])';
 /**
  * A tap or click on the blank space rests the head's strip (docs/specs/2026-11-04-head-tower.md, Resting the strip). `blank` says whether an element is the stage, the page behind it, or the circle, and `on` whether the circle screen is on with nothing open over it.
- * A control, the strip, the end of a drag that selected text, and the press that folded the head's open input (Esc's order: the fold first) are not it. `click`, not `pointerdown`: a swipe, a wheel gesture, and a scroll never rest the strip.
+ * A control, the strip, the end of a drag that selected text, and a press that something else took are not it: the press that folded the head's open input (Esc's order: the fold first), that closed the corner menu or the music list (their veil takes it), or that ended the breathing pause. Those are read at `pointerdown`, before the press has changed anything, since by `click` the menu is shut and the pause is over. `click`, not `pointerdown`, rests: a swipe, a wheel gesture, and a scroll never rest the strip.
  */
 export function mountRestTap(root: HTMLElement, o: { blank(at: Element): boolean; on(): boolean; head: Pick<ReturnType<typeof mountHead>, "el" | "isOpen" | "rest"> }) {
-	let folded = false;
-	root.addEventListener("pointerdown", () => (folded = o.head.isOpen()), true);
+	let taken = false; // the press was something else's: the open input's fold, the menu's or the list's close, the pause's end
+	root.addEventListener("pointerdown", () => (taken = o.head.isOpen() || !o.on()), true);
 	root.addEventListener("click", (e) => {
-		const wasOpen = folded, at = e.target as Element | null, selected = globalThis.getSelection?.();
-		folded = false;
-		if (wasOpen || !at || !o.on() || (selected && !selected.isCollapsed)) return;
+		const wasTaken = taken, at = e.target as Element | null, selected = globalThis.getSelection?.();
+		taken = false;
+		if (wasTaken || !at || !o.on() || (selected && !selected.isCollapsed)) return;
 		if (o.blank(at) && !o.head.el.contains(at) && !at.closest?.(CONTROLS)) o.head.rest();
 	});
 }

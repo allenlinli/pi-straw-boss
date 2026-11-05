@@ -29,7 +29,7 @@ const head = (o: Partial<HeadUnit> = {}): HeadUnit => ({ key: "sb-head", name: "
 const waiting = (): Unit => ({ id: "a", key: "a", control: true, name: "ops-main", role: "main", mark: "waiting" as Mark, since: 5, subs: [], pending: { callId: "c1", tool: "robot_hand", answer: { dialog: "d1", digest: "0".repeat(64), select: { title: "Deploy", choices: [{ label: "Yes" }, { label: "No" }] } } } } as Unit);
 const net = (h?: HeadUnit, units: Unit[] = []): Net => ({ bases: units.length ? [{ id: "w", label: "Harbor", mark: "idle", tower: null, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }] : [], trust: [], ...(h ? { head: h } : {}) }) as Net;
 
-function rig(o: { head?: HeadUnit | null; items?: Item[]; offline?: boolean; reply?: (action: string, body: Record<string, unknown>) => Promise<Answer> } = {}) {
+function rig(o: { head?: HeadUnit | null; items?: Item[]; offline?: boolean; music?: unknown; reply?: (action: string, body: Record<string, unknown>) => Promise<Answer> } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
 	const calls = { sound: [] as string[], leave: [] as unknown[], watch: [] as (string | null)[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], composers: [] as { key: string; box: El }[], logs: [] as string[], applied: [] as HistoryEvent[] };
@@ -61,7 +61,7 @@ function rig(o: { head?: HeadUnit | null; items?: Item[]; offline?: boolean; rep
 	const root = new El("section");
 	page.body.replaceChildren(root);
 	[page.focused, page.hidden, page.focus] = [undefined, false, true];
-	const z = mountZen(root as unknown as HTMLElement, deps as never, mounts as never);
+	const z = mountZen(root as unknown as HTMLElement, (o.music ? { ...deps, music: o.music } : deps) as never, mounts as never);
 	const settle = () => new Promise((done) => setImmediate(done));
 	const advance = async (ms: number) => {
 		t += ms;
@@ -665,6 +665,13 @@ test("a tap does not rest the strip when it is a control's, the strip's own, a s
 	assert.equal(hushed(open), true);
 });
 
+/** A press and its click, as a mouse makes them: the press first (the menu and the music list close on it, at the document), then the click. */
+const pressed = (r: ReturnType<typeof rig>, at: El) => {
+	at.bubble("pointerdown", { pointerType: "mouse" });
+	for (const on of page.on.pointerdown ?? []) on({ target: at });
+	at.bubble("click");
+};
+
 test("a tap on the blank space does nothing on an item, the pause, a companion, the history, or with the palette or menu open", async () => {
 	const item = rig({ items: [headLine("a1", "x", 1)] });
 	await item.start(net(head(), [waiting()]));
@@ -681,6 +688,42 @@ test("a tap on the blank space does nothing on an item, the pause, a companion, 
 	pal.z.palette();
 	stage(pal).bubble("click");
 	assert.equal(hushed(pal), false, "the palette's own backdrop is the palette's");
+	const pause = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)] });
+	await pause.start(net(head(), [waiting()]));
+	await pause.settle();
+	pause.root.all((el) => el.tagName === "button" && el.textContent === "Maybe later")[0]!.click();
+	await pause.settle();
+	assert.equal(pause.root.all((el) => el.getAttribute("role") === "img" && el.getAttribute("aria-label") === m.zen_pause()).length, 1, "the pause is on");
+	pause.z.history({ key: "sb-head", reset: true, items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)] }); // the strip has its lines when the pause ends
+	await pause.settle();
+	pressed(pause, stage(pause));
+	await pause.settle();
+	assert.deepEqual(pause.lines(), ["go", "On it."], "the lines are there to be rested");
+	assert.equal(hushed(pause), false, "the tap that ends the pause is the pause's: the strip is not rested with it");
+	pressed(pause, stage(pause));
+	assert.equal(hushed(pause), true, "the next tap is the blank space's");
+	const menu = await ready();
+	menu.by("zen-menubtn")[0]!.click();
+	pressed(menu, stage(menu));
+	assert.equal(menu.by("zen-menu")[0]!.hidden, true, "the press closed the menu");
+	assert.equal(hushed(menu), false, "the menu's veil takes that press: the strip is not rested with it");
+	pressed(menu, stage(menu));
+	assert.equal(hushed(menu), true, "the next one is the blank space's");
+});
+
+test("a press outside the open music list closes it and does not rest the strip", async () => {
+	const tracks = [{ file: "a.mp3" }, { file: "b.mp3" }];
+	const music = { tracks: async () => tracks, player: async () => ({ start: async () => true, stop() {} }), unlock: async () => true, running: () => true, prefs: { on: () => false, setOn() {}, track: () => null, setTrack() {} }, coarse: () => false };
+	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)], music: music as never });
+	await r.start();
+	await r.settle();
+	r.by("zen-musicmore")[0]!.click();
+	assert.equal(r.by("zen-musicpanel")[0]!.hidden, false, "the list is open");
+	pressed(r, stage(r));
+	assert.equal(r.by("zen-musicpanel")[0]!.hidden, true, "the press closed it");
+	assert.equal(hushed(r), false, "the list's veil takes that press");
+	pressed(r, stage(r));
+	assert.equal(hushed(r), true);
 });
 
 test("an unsolicited head line does not wake a rested strip: a tower's answer and the head's report of it arrive and the strip stays at rest", async () => {

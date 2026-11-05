@@ -295,6 +295,14 @@ test("a wait card's answer box is the head strip's input in the card: the same h
 	assert.match(zen, /\.wait-panel \.pair-btn\[hidden\] \{ display: none; \}/);
 });
 
+test("the folded hint keeps its square corners when focused: the page-wide focus rule (specificity 1,2,0) gives a focused control 8px, which curls the hairline up at both ends", () => {
+	const wide = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] #zen :focus-visible'));
+	assert.match(wide!.body, /border-radius: 8px/, "the rule the hint has to beat");
+	const hint = rulesOf(zen).filter((r) => r.parts.includes('[data-view="zen"] #zen .zen-head-hint:focus-visible'));
+	assert.equal(hint.length, 1, "a focus rule of the hint's own, with the id in it so it outranks the page-wide one");
+	assert.deepEqual(declarations(hint[0]!.body), [["border-radius", "0"]]);
+});
+
 test("the strip's two swaps move: hover, focus, and a tap ease the lines to clear and back over Zen's 0.6 s curve, and the mindfulness line fades out and in; neither restarts the fade's clock", () => {
 	assert.match(zen, /@property --fade \{ syntax: "<number>"; inherits: false; initial-value: 1; \}/);
 	assert.match(zen, /@property --lift \{ syntax: "<number>"; inherits: false; initial-value: 0; \}/, "a registered property is the only thing a transition can ease here: the animation owns --fade");

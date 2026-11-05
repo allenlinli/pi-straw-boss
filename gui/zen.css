@@ -368,6 +368,7 @@
 /* The folded input is a hairline about 16 rem wide with its hint at 0.35; it is one button. Unfolded it is a box that grows to four lines, a line under the words that turns seal for the keys. */
 [data-view="zen"] .zen-head-hint { min-height: 44px; min-width: 44px; width: min(16rem, 100%); padding: 0 6px; border: 1px solid transparent; border-bottom-color: var(--zen-line); border-radius: 0; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--sans); letter-spacing: 0.08em; opacity: 0.35; cursor: text; transition: opacity 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-hint[hidden] { display: none; }
+[data-view="zen"] #zen .zen-head-hint:focus-visible { border-radius: 0; } /* the page-wide focus rule above (1,2,0) gives a focused control 8px, which would curl this hairline up at both ends */
 [data-view="zen"] .zen-head-hint:is(:hover, :focus-visible):not(:disabled) { opacity: 1; }
 [data-view="zen"] .zen-head-hint:disabled { cursor: default; }
 [data-view="zen"] .zen-head-form { width: min(40rem, 90vw); display: grid; gap: 4px; }

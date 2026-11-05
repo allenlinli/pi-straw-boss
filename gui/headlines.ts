@@ -5,7 +5,7 @@ import { bossTurn, eventTurn, heard } from "./towerturns.ts";
 
 // The lines under Zen's circle (docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle). Pure: the head's history items in, its lines out; and the clock of how a line fades, from the moment it is first on screen.
 
-/** `boss`: his words; `head`: the final words of one of its turns; `note`: a forward or a tower's answer, in one short line. `reply`: a head line whose turn answers something the boss sent (a turn that a tower's answer, the server, or a timer started is the head's own, and has none). */
+/** `boss`: his words; `head`: the final words of one of its turns; `note`: a forward or a tower's answer, in one short line. `reply`: a head line whose turn answers something the boss sent. A turn that the server or a timer started is the head's own and has none, and it takes back what the boss sent that the head never answered in words; a tower's answer in between does not (it is part of the answer to him), so the head's first text after it still is the reply. */
 export interface HeadLine { id: string; who: "boss" | "head" | "note"; text: string; at: number; reply?: true }
 
 const one = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -22,7 +22,7 @@ function targetOf(args?: string): string | undefined {
 /** All the lines of a run of history items, oldest first: the boss's turns, the final text of each of the head's turns, a note for each forward, and a note for each tower's answer to an ask. */
 export function headLines(items: readonly Item[]): HeadLine[] {
 	const out: HeadLine[] = [];
-	let reply: HeadLine | undefined, asked = false; // the turn's last text: it is a line when the turn ends. `asked`: the boss sent something the head has not answered yet; a tower's answer in between does not take it back
+	let reply: HeadLine | undefined, asked = false; // the turn's last text: it is a line when the turn ends. `asked`: the boss sent something the head has not answered yet; a tower's answer in between does not take it back, a server notice or a timer does
 	const end = () => (reply && (out.push(asked ? { ...reply, reply: true } : reply), (asked = false)), (reply = undefined));
 	const line = (it: Item, who: HeadLine["who"], text: string, id = it.id) => text && out.push({ id, who, text, at: time(it.at) });
 	for (const it of items) {
@@ -38,6 +38,7 @@ export function headLines(items: readonly Item[]): HeadLine[] {
 		if (it.kind === "user") {
 			end();
 			const first = heard(it.text);
+			if (first && first.kind !== "intercom") asked = false; // the server's or a timer's turn is the head's own: what the boss sent before it is not answered by it
 			if (!first) (line(it, "boss", one(bossTurn(it.text)?.body ?? it.text ?? "")), (asked = true));
 			continue;
 		}
@@ -46,6 +47,7 @@ export function headLines(items: readonly Item[]): HeadLine[] {
 		if (!turn) continue; // a notice that is no event of the server's: it ends nothing
 		end();
 		if (turn.kind === "boss") (line(it, "boss", one(turn.body)), (asked = true));
+		else if (turn.kind === "server" || turn.kind === "timer") asked = false;
 		else if (turn.kind === "intercom") {
 			const fields = fieldsOf(turn.body), ask = fields?.["in-reply-to"];
 			if (fields?.kind === "tower_send" && ask && fields.workspace) line(it, "note", m.head_from_tower({ workspace: fields.workspace }));

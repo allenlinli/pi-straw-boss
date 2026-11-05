@@ -85,6 +85,19 @@ test("a boss message that a tower's answer overtakes is still asked: the head's 
 	assert.equal(lines.find((l) => l.id === "a1")!.reply, true);
 });
 
+test("a timer's or the server's turn is the head's own: a boss message the head did not answer in text is not carried into it (the boss's decision, 2026-11-05, option 2)", () => {
+	const timer: Item = { id: "x1", kind: "user", text: "[your wakeAfter follow-up is due]\nCheck the deploy.", at: at(3) };
+	const server: Item = { id: "x1", kind: "notice", type: "straw-tower", event: "notice", text: "[notice from the sb server]\nrestarted", at: at(3) };
+	for (const start of [timer, server]) {
+		const lines = headLines([bossEvent("u1", "go", 1), said("a1", "", 2, [forward("t1", "MP Center")]), start, said("a2", "Still waiting (unasked).", 4)]);
+		assert.equal(lines.find((l) => l.id === "a2")!.reply, undefined, `${start.id}: after a ${start.kind}`);
+	}
+	const aborted = headLines([bossEvent("u1", "go", 1), timer, said("a2", "Still waiting (unasked).", 4)]);
+	assert.equal(aborted.find((l) => l.id === "a2")!.reply, undefined, "a boss turn with no text at all");
+	const text = headLines([bossEvent("u1", "go", 1), said("a1", "On it.", 2), timer, said("a2", "Still waiting.", 4)]);
+	assert.deepEqual(text.map((l) => [l.id, l.reply]), [["u1", undefined], ["a1", true], ["a2", undefined]]);
+});
+
 test("only the last three lines show (two on a phone); the same lines come back for the same items", () => {
 	const items = [bossEvent("u1", "a", 1), said("a1", "b", 2), bossEvent("u2", "c", 3), said("a2", "d", 4)];
 	const lines = headLines(items);

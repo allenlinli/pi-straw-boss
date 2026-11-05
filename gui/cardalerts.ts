@@ -43,3 +43,20 @@ export function cardAlerts(net: Net, at: number, { pairs = [], pairsAt = at }: C
 	}
 	return out;
 }
+
+/**
+ * A question a box forwarded that waits and is not the card on the screen says why, once, to `say` (the page's console): in the 2026-11-05 trial such a card stayed off a Zen page with nothing to show for it. `why` is the model's reason
+ * for an item (zenmodel.ts), none while it is the card.
+ */
+export function explainer(say: (line: string) => void, why: (key: string) => string | undefined) {
+	const told = new Map<string, string>();
+	return (alerts: Map<string, Alert>) => {
+		for (const [key, a] of alerts) {
+			const reason = a.card?.kind === "dialog" ? why(key) : undefined;
+			if (reason === told.get(key)) continue;
+			if (reason) (told.set(key, reason), say(`[sb] a question from ${a.name} waits and is not on the Zen page: ${reason}`));
+			else told.delete(key);
+		}
+		for (const key of told.keys()) if (!alerts.has(key)) told.delete(key);
+	};
+}

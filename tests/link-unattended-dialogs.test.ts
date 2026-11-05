@@ -150,6 +150,15 @@ describe("dialog forwarding", () => {
 		assert.ok(!events(d).some((e) => JSON.stringify(e).includes("secret title")), "no dialog text in the log");
 	});
 
+	test("the card carries the unit's name whole, the notice restricts it: `main · trial11` is a name on the card and `main _ trial11` in the notification", async () => {
+		const { h, a, f } = await start();
+		h.open("D1", answerable("D1"), "main · trial11");
+		await f.poll();
+		await until(() => a.holder.dialogRequests().length === 1, 3000, "the dialog on alice");
+		assert.equal(a.holder.summary().alerts.find((x) => x.kind === "dialog")!.data.owner, "main · trial11", "the Link row and Zen's card read this");
+		assert.deepEqual(a.notices.filter((n) => n.includes("asks a question")), ["Straw Link: ci-box asks a question (main _ trial11)"]);
+	});
+
 	test("an answer with another digest is refused and leaves the question open for the right one", async () => {
 		const { h, a, f } = await start();
 		h.open("D1");
@@ -205,6 +214,17 @@ describe("dialog forwarding", () => {
 		await until(() => drops(d, "dialog-answer-invalid") === 1, 3000, "invalid dropped");
 		await forge(alice, 51, dave, "dialog-answer", reply("D1", "b".repeat(32), { choice: 0 }));
 		await until(() => h.sent.length === 1, 3000, "a valid one still wins");
+	});
+
+	test("a close that arrives on another team than the one holding the card leaves the card answerable", async () => {
+		const { a } = await start();
+		const h = a.holder as unknown as { dialogViews: { put(v: object): unknown; get(d: string, id: string): { closed?: unknown } | undefined }; takeDialogClose(run: { team: string }, header: { from: string }, p: object): void };
+		h.dialogViews.put({ team: TEAM_HEX, device: dave.id, dialogId: "D1", digest: "d", owner: "o", dialog: "{}", at: Date.now() });
+		h.takeDialogClose({ team: "other-team" }, { from: dave.id }, { dialogId: "D1", by: "withdrawn" });
+		assert.equal(h.dialogViews.get(dave.id, "D1")?.closed, undefined, "a close from a team that does not hold the card is ignored");
+		assert.equal(a.holder.dialogRequests().length, 1);
+		h.takeDialogClose({ team: TEAM_HEX }, { from: dave.id }, { dialogId: "D1", by: "withdrawn" });
+		assert.ok(h.dialogViews.get(dave.id, "D1")?.closed, "the holding team's close ends it");
 	});
 
 	test("a sender at reply is refused", async () => {

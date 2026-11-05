@@ -166,15 +166,40 @@ test("a rest ends early on a new dialog, or when the unit stops waiting and wait
 	}
 });
 
-test("a hidden page keeps the pause until it is shown, then ends it at once", () => {
+test("a hidden page keeps a pause that nothing waits behind until it is shown, then ends it at once", () => {
 	const r = rig();
-	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	r.z.update(map(al("a", "waiting", 1)));
 	r.z.skip();
 	r.z.visible(false);
 	r.at(PAUSE_MS * 5);
-	assert.equal(r.z.tick().screen.kind, "pause");
+	assert.equal(r.z.tick().screen.kind, "pause", "no one is there to breathe, and nothing waits");
 	const s = r.z.visible(true);
-	assert.equal((s.screen as { item: Alert }).item.key, "b");
+	assert.equal(s.screen.kind, "companion", "shown: the pause that would have ended ends at once");
+});
+
+test("a question that waits ends the pause of a hidden page at once, so its card is drawn and the page can remind (trial11: a box's question stayed off a Zen page that sat in a pause)", () => {
+	const r = rig();
+	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	r.z.skip();
+	const s = r.z.visible(false);
+	assert.equal((s.screen as { item: Alert }).item.key, "b", "b was behind a, which rests: the pause ends as the page is hidden");
+	assert.equal(s.sound, "bowl");
+	r.at(PAUSE_MS * 5);
+	assert.equal(r.z.tick().screen.kind, "item", "and the card stays");
+	// A card that ended is a pause too: the next question lands while the page is hidden.
+	const t = rig();
+	t.z.update(map(al("c", "waiting", 1)));
+	t.z.update(map());
+	t.z.visible(false);
+	assert.equal(t.z.tick().screen.kind, "pause");
+	const arrived = t.z.update(map(al("d", "waiting", 5)));
+	assert.deepEqual([(arrived.screen as { item: Alert }).item?.key, arrived.sound], ["d", "bowl"]);
+	// A rested item is not what ends it.
+	const u = rig();
+	u.z.update(map(al("e", "waiting", 1)));
+	u.z.skip();
+	u.z.visible(false);
+	assert.equal(u.z.update(map(al("e", "waiting", 1))).screen.kind, "pause");
 });
 
 test("an item waits while the boss types in the companion's box, and takes the screen when he stops", () => {

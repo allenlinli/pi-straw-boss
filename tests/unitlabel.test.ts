@@ -13,6 +13,17 @@ test("a main, a member, a subagent and an ally run are named with their role; a 
 	assert.equal(unitLabel({ name: "ops", role: "outside" }), "ops");
 });
 
+test("a name that already starts with the role is not given it twice: the tab's `main · trial11` is told as it is, `maintenance` and `mainframe` are other words", () => {
+	assert.equal(unitLabel({ name: "main · trial11", role: "main" }), "main · trial11");
+	assert.equal(unitLabel({ name: "Main trial11", role: "main" }), "Main trial11");
+	assert.equal(unitLabel({ name: "main", role: "main" }), "main");
+	assert.equal(unitLabel({ name: "subagent-scout", role: "subagent" }), "subagent-scout");
+	assert.equal(unitLabel({ name: "ally run Mei", role: "ally" }), "ally run Mei");
+	assert.equal(unitLabel({ name: "maintenance", role: "main" }), "main - maintenance");
+	assert.equal(unitLabel({ name: "mainframe batch", role: "main" }), "main - mainframe batch");
+	assert.equal(unitLabel({ name: "main · trial11", role: "member" }), "member - main · trial11", "another role's word is no reason to drop this one");
+});
+
 test("the separator is ASCII, so the controller's notice (restrictLabel: letters, digits, space, dot, underscore, hyphen) keeps it; the name is restricted there and whole on the card", () => {
 	assert.match(unitLabel({ name: "docs", role: "main" })!, /^[A-Za-z0-9 ._-]+$/);
 });

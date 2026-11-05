@@ -43,7 +43,8 @@ export function createZen({ now, typing }: ZenDeps) {
 			}
 		}
 		if (screen.kind === "item" && screen.outcome && until <= now()) pause();
-		if (screen.kind === "pause" && until <= now() && !hidden) screen = { kind: "companion" };
+		// A pause is for a boss who is there to breathe: a page that is not shown has none, so an item that waits ends it at once (its card is drawn and the page reminds, as on any hidden page). With nothing waiting it is kept until the page is shown.
+		if (screen.kind === "pause" && ((until <= now() && !hidden) || (hidden && next()))) screen = { kind: "companion" };
 		if (screen.kind === "companion" && !typing()) { const n = next(); if (n) take(n); }
 	}
 	const out = () => { settle(); const s = sound; sound = undefined; return { screen, sound: s }; };
@@ -64,6 +65,15 @@ export function createZen({ now, typing }: ZenDeps) {
 		tap() { if (screen.kind === "pause") until = 0; return out(); },
 		/** The page was hidden or shown: a pause that would have ended ends at once when shown. */
 		visible(on: boolean) { hidden = !on; return out(); },
+		/** Why the waiting item `key` is not what the screen shows now (the page's console line), or nothing when it is or is no item. */
+		why(key: string): string | undefined {
+			if (screen.kind === "item" && screen.item.key === key) return undefined;
+			if (!items().some((x) => x.key === key)) return undefined;
+			if (rests.has(key)) return "it was put aside (Maybe later), or just answered";
+			if (screen.kind === "item") return `${screen.item.key} is on the screen and was waiting first`;
+			if (screen.kind === "pause") return hidden ? "a pause holds the page, which is hidden" : "the pause after a card is on";
+			return typing() ? "the boss is typing in the companion's box" : "it is next";
+		},
 		/** The soonest moment ahead at which something may change, for the layer's one timer (a time already past is settled by the call that saw it). */
 		due: () => [until, ...[...rests.values()].map((r) => r.until)].filter((t) => t > now()).sort((a, b) => a - b)[0],
 	};

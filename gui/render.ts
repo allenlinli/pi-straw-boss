@@ -1,5 +1,5 @@
 import type { Mark } from "../src/netdata.ts";
-import type { AllyBase, DeviceUnits } from "../src/link/holder.ts";
+import type { AllyBase, DeviceUnits, LinkSummary } from "../src/link/holder.ts";
 import type { Base, Net, Unit } from "../src/net.ts";
 import type { HeadUnit } from "../src/nethead.ts";
 import { mountCalm } from "./calm.ts";
@@ -211,9 +211,21 @@ function fillBase(el: HTMLElement, b: Base) {
 
 // A teammate's workspace on a bound project (Straw Link, from its last presence), beside the local bases: a card of its own, not openable (its units are
 // another computer's), with the device's label and short id, the team, whether it is online, its tower's state, and its tabs' states. No wire reaches it.
-const allyEl = () => html(`<section class="base ally"><header><div class="tower"><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><span class="crown"><svg><use href="#i-main"/></svg><em class="ally-tag"></em></span><h2></h2><p><span class="tstate"></span></p></div></header><ul class="ally-tabs"></ul><ul class="ally-units"></ul></section>`);
-function fillAlly(el: HTMLElement, a: AllyBase, reported: DeviceUnits[] | undefined) {
-	const state = allyMark(a);
+export const allyEl = () => html(`<section class="base ally"><header><div class="tower"><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><span class="crown"><svg><use href="#i-main"/></svg><em class="ally-tag"></em></span><h2></h2><p><span class="tstate"></span></p></div></header><ul class="ally-tabs"></ul><ul class="ally-units"></ul></section>`);
+// The questions an unattended device forwarded are answered on its card (allyasks.ts, with the question panel): loaded with the first one, so the page's start does not carry it; a load that failed is tried again at the next snapshot.
+let allyAsks: ReturnType<typeof import("./allyasks.ts").mountAllyAsks> | undefined, loadingAsks = false;
+const waitingAsks = new Map<HTMLElement, [AllyBase, LinkSummary]>();
+function fillAsks(el: HTMLElement, a: AllyBase, link: LinkSummary | undefined) {
+	a = { ...a, id: a.id.replace(/^ally\//, "") }; // the map keys a teammate's card `ally/<base id>`; the questions are by the base's id
+	if (allyAsks) return void allyAsks.show(el, a, link);
+	if (!link?.alerts.some((x) => x.kind === "dialog")) return void waitingAsks.delete(el);
+	waitingAsks.set(el, [a, link]);
+	if (loadingAsks) return;
+	loadingAsks = true;
+	void import("./allyasks.ts").then(({ mountAllyAsks }) => ((allyAsks = mountAllyAsks()), waitingAsks.forEach(([ally, l], card) => allyAsks!.show(card, ally, l)), waitingAsks.clear()), () => void (loadingAsks = false));
+}
+export function fillAlly(el: HTMLElement, a: AllyBase, link: LinkSummary | undefined) {
+	const state = allyMark(a), reported: DeviceUnits[] | undefined = link?.units;
 	mark(el, state);
 	el.classList.toggle("offline", !a.online);
 	mark(el.querySelector<HTMLElement>(".tower")!, state);
@@ -234,6 +246,7 @@ function fillAlly(el: HTMLElement, a: AllyBase, reported: DeviceUnits[] | undefi
 		li.querySelector<HTMLElement>("pre")!.title = m.link_unit_report();
 		li.dataset.state = u.state;
 	});
+	fillAsks(el, a, link);
 }
 
 /** The head node on the map's top edge: a small crowned tower that opens the head page, faint and dashed while the head is not open, hidden (and no hub) when the net has no head. */
@@ -309,7 +322,7 @@ export function mountPage(): Page {
 		show(net) {
 			const allies = (net.link?.allies ?? []).map((a) => ({ ...a, id: `ally/${a.id}`, ally: true as const }));
 			fillHeadNode(byId("head-node", HTMLElement), net.head);
-			sync(bases, [...net.bases, ...allies], (item) => ("ally" in item ? allyEl() : baseEl()), (el, item) => ("ally" in item ? fillAlly(el, item, net.link?.units) : fillBase(el, item)));
+			sync(bases, [...net.bases, ...allies], (item) => ("ally" in item ? allyEl() : baseEl()), (el, item) => ("ally" in item ? fillAlly(el, item, net.link) : fillBase(el, item)));
 			for (const el of bases.children) if (!packed.has(el)) (packed.add(el), pack.observe(el));
 			for (const el of packed) if (!el.isConnected) (packed.delete(el), pack.unobserve(el));
 			requestAnimationFrame(layout);

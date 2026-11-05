@@ -114,6 +114,7 @@ test("zen.css: the visual language (Z-D15): no boxes, selection is light with a 
 	assert.match(v, /\.zen-card button\.ask-opt \{ display: grid;[^}]*row-gap: 0;[^}]*border: 1px solid transparent;[^}]*background: transparent;/, "a choice is a line, not a pill");
 	assert.match(v, /\.zen-card button\.ask-opt::before \{ content: "";[^}]*border-radius: 50%;/, "with a dot before it");
 	assert.match(v, /\.ask-opt\[aria-checked="true"\]::before \{ border-color: var\(--zen-paper\); background: var\(--zen-paper\); \}/, "the dot fills when chosen");
+	assert.match(v, /button\.ask-opt:is\(:hover:not\(:disabled\), :focus-visible\) \{ border-color: transparent; background: transparent; color: color-mix\(in srgb, var\(--zen-paper\) 80%, white\);/, "a lit choice is a brighter word, not a filled box (Z-D15)");
 	assert.match(v, /button\.ask-opt:focus-visible::before \{ border-color: var\(--zen-seal\);/, "the keys ring the dot, inside the line");
 	assert.match(v, /#zen :is\([^)]*\.ask-send[^)]*\):focus-visible \{ outline: none; text-decoration: underline 1px var\(--zen-seal\)/, "a button the keys are on is underlined in seal, not ringed");
 	assert.match(v, /:is\(\.zen-card \.ask-own, \.composer textarea, \.tcard-input\) \{ border: 1px solid transparent; border-bottom-color: var\(--zen-line\); border-radius: 0; background: transparent;/, "a text field is one line under the words");

@@ -522,7 +522,7 @@ export class LinkHolder {
 			else if (header.kind === "confirm-request") this.takeConfirmRequest(run, roster, header, opened.message as ConfirmRequest);
 			else if (header.kind === "confirm-answer") this.takeConfirmAnswer(run, roster, header, opened.message as ConfirmAnswer);
 			else if (header.kind === "dialog-open") this.takeDialogOpen(run, roster, header, opened.message as DialogOpen);
-			else if (header.kind === "dialog-close") this.takeDialogClose(header, opened.message as DialogClose);
+			else if (header.kind === "dialog-close") this.takeDialogClose(run, header, opened.message as DialogClose);
 			else if (header.kind === "dialog-answer") this.takeDialogAnswer(run, roster, header, opened.message as DialogAnswer);
 			else if (header.kind === "notice") this.takeNotice(run, roster, header, opened.message as Notice);
 			else store.log({ event: "unhandled-kind", team: run.team, kind: header.kind, from: header.from });
@@ -1132,7 +1132,9 @@ export class LinkHolder {
 		this.o.store.log({ event: "dialog-in", team: run.team, from: header.from, dialog: p.dialogId, fresh });
 		if (fresh) this.o.notify(`Straw Link: ${sender.label} asks a question (${restrictLabel(p.owner)})`, "warning");
 	}
-	private takeDialogClose(header: Header, p: DialogClose): void {
+	private takeDialogClose(run: TeamRun, header: Header, p: DialogClose): void {
+		// Only the team that holds the card may close it: a withdrawal sent on one team can arrive after the open on another.
+		if (this.dialogViews.get(header.from, p.dialogId)?.team !== run.team) return;
 		this.dialogViews.close(header.from, p.dialogId, p.by, this.now());
 	}
 	private takeDialogAnswer(run: TeamRun, roster: RosterState, header: Header, p: DialogAnswer): void {

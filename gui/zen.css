@@ -271,7 +271,7 @@
 [data-view="zen"] .zen-card button.ask-opt::before { content: ""; grid-row: 1 / span 9; align-self: start; justify-self: center; width: 9px; height: 9px; margin-top: 0.55em; border: 1px solid var(--zen-line); border-radius: 50%; box-sizing: border-box; transition: background 0.3s, border-color 0.3s, box-shadow 0.3s; }
 [data-view="zen"] .zen-card button.ask-opt > * { grid-column: 2; }
 [data-view="zen"] .zen-card button.ask-opt small { display: block; font-size: 0.85rem; line-height: 1.5; letter-spacing: 0.03em; }
-[data-view="zen"] .zen-card button.ask-opt:is(:hover:not(:disabled), :focus-visible) { border-color: transparent; background: var(--zen-glow); }
+[data-view="zen"] .zen-card button.ask-opt:is(:hover:not(:disabled), :focus-visible) { border-color: transparent; background: transparent; color: color-mix(in srgb, var(--zen-paper) 80%, white); text-shadow: 0 0 14px color-mix(in srgb, var(--zen-paper) 35%, transparent); } /* a lit line is a brighter word, never a filled box (Z-D15) */
 [data-view="zen"] .zen-card .ask-opt[aria-checked="true"] { border-color: transparent; background: transparent; }
 [data-view="zen"] .zen-card .ask-opt[aria-checked="true"]::before { border-color: var(--zen-paper); background: var(--zen-paper); }
 [data-view="zen"] #zen .zen-card button.ask-opt:focus-visible { outline: none; text-decoration: none; }
@@ -329,6 +329,7 @@
 	[data-view="zen"] :is(.zen-opt, .zen-leave, .ask-opt, .ask-send, .cmp-send, .ask-cancel, .cmp-alt, .zen-skip)[aria-pressed="true"], [data-view="zen"] :is(.ask-opt, .zen-opt)[aria-checked="true"] { border: 1px solid Highlight; }
 	[data-view="zen"] :is(.ask-send, .cmp-send) { border: 1px solid ButtonText; }
 	[data-view="zen"] .zen-card .ask-opt[aria-checked="true"]::before { forced-color-adjust: none; border-color: Highlight; background: Highlight; } /* the chosen dot, which the block's transparent fill would lose (ZVL-F003) */
+	[data-view="zen"] .zen-card button.ask-opt:focus-visible::before { forced-color-adjust: none; border-color: Highlight; }
 }
 
 /* ── The head tower's strip (zenhead.ts; docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle). Under the circle: the last lines of the conversation, the boss's at the right in ash and the head's at the left in paper,

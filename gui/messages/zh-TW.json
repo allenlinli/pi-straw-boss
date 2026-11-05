@@ -622,6 +622,7 @@
 	"link_unit_monitors": "{count} 個監看程序執行中",
 	"link_unit_report": "最後回報",
 	"link_unit_stale": "最近沒有狀態",
+	"ally_asks_button": "{count} 個問題等你回答，在這裡回答",
 	"tower_state_waking": "喚醒中",
 	"tower_state_closing": "收工中",
 	"tower_state_held": "已暫停",

@@ -720,6 +720,21 @@
 	"link_unit_monitors": "{count} monitors running",
 	"link_unit_report": "Last report",
 	"link_unit_stale": "no status lately",
+	"ally_asks_button": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "{count} question waits for you: answer it here",
+				"countPlural=other": "{count} questions wait for you: answer them here"
+			}
+		}
+	],
 	"tower_state_waking": "waking",
 	"tower_state_closing": "closing",
 	"tower_state_held": "held",

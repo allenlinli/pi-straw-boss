@@ -957,7 +957,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.drawer-sweep .pair-btn { min-height: 44px; }
 	/* The session header and the composer: the row of keys is 48 px, the box above it two lines. */
 	.head-back { width: 44px; height: 44px; min-width: 44px; } .modes button { min-height: 44px; }
-	:is(.head-info, .head-main:not([hidden]), .head-quit:not([hidden])) { min-height: 44px; min-width: 44px; }
+	:is(.head-info, .head-main:not([hidden]), .head-quit:not([hidden]), .ally-asks-btn) { min-height: 44px; min-width: 44px; }
 	.composer textarea { min-height: 56px; } .cmp-row { gap: 8px 10px; }
 	.comms-in .ask-acts { position: sticky; bottom: -12px; margin: 0 -14px -12px; padding: 8px 14px 12px; background: color-mix(in srgb, var(--amber) 6%, var(--bg)); } /* Send answer stays in view while a long question scrolls */
 	.composer :is(.cmp-alt, .cmp-send) { min-height: 48px; } .composer .cmp-alt { min-width: 48px; } .composer .cmp-send { min-width: 64px; }
@@ -977,6 +977,12 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .ally-unit b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ally-unit span { color: var(--dim); }
 .ally-unit pre { grid-column: 1 / -1; margin: 0; max-height: 6.5em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dim); font: inherit; }
 .ally-tab[data-state="working"] span { color: var(--accent); } .ally-tab[data-state="blocked"] span { color: var(--amber); }
+/* The questions a device forwarded, answered on its card (gui/allyasks.ts): a button under the rows opens the question panel in place; the rows that wait open it too. */
+.ally-asks { display: grid; gap: 6px; margin-top: 6px; } .ally-asks[hidden], .ally-asks-list[hidden] { display: none; }
+.ally-asks-btn { justify-self: start; padding: 6px 10px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent); background: color-mix(in srgb, var(--amber) 12%, transparent); color: var(--text); font: 600 12px var(--sans); text-align: left; cursor: pointer; }
+.ally-asks-btn::after { content: "\25BE"; margin-left: 8px; } .ally-asks-btn[aria-expanded="true"]::after { content: "\25B4"; }
+.ally-asks-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.base.ally[data-asks] :is(.ally-unit, .ally-tab)[data-state="blocked"] { cursor: pointer; }
 .link-pop { width: min(460px, calc(100vw - 16px)); }
 .link-pop ul { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow: auto; display: grid; gap: 8px; }
 .link-alert { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }

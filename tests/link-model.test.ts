@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { LinkAlert } from "../src/link/holder.ts";
+import type { AllyBase, LinkAlert } from "../src/link/holder.ts";
 import { alertLine, allyMark, countdown, dialogState, hasLinkNews, lastSeen, stateName, unitLine, unitsFor, urgentFirst } from "../gui/linkmodel.ts";
+import { asksOf } from "../gui/allyasks.ts";
 import { dialogStateLine, remoteAnswer, remoteDialog } from "../gui/linkdialogmodel.ts";
 import { m } from "../gui/paraglide/messages.js";
 
@@ -109,4 +110,25 @@ test("a notice of an unattended device reads in words, and its units sit beside 
 	assert.equal(old.stale, true);
 	assert.equal(unitLine(old), `working · 2 monitors running · ${m.link_unit_stale()}`);
 	assert.equal(unitsFor(units, { team: "t", device: "d1", workspace: "moldplan" })[0]!.stale, false);
+});
+
+// An unattended device's question is answered on the card of its ally base (docs/how-it-works.md, Unattended devices): `asksOf` says which card hosts which questions.
+const ally = (over: Partial<AllyBase> = {}): AllyBase => ({ id: "t1/d1/trial11", team: "t1", teamName: "moldplan", device: "d1", short: "n2knna", label: "waydosoft", online: true, workspace: "trial11", tower: "idle", tabs: [], ...over });
+const ask = (id: string, data: LinkAlert["data"] = {}, team = "t1") => ({ ...forwarded({ dialogId: id, ...data }), id: `dialog/d1/${id}`, team });
+
+test("a device's open and waiting questions are hosted by its ally base; a closed one, another device's, and a notice are not", () => {
+	const link = { allies: [ally()], alerts: [ask("A"), ask("B", { answered: 1 }), ask("C", { closed: "remote" }), ask("D", { device: "d2" }), alert("notice", { device: "d1" })], confirms: [], units: [] };
+	assert.deepEqual([...asksOf(link)].map(([id, list]) => [id, list.map((a) => a.data.dialogId)]), [["t1/d1/trial11", ["A", "B"]]]);
+	assert.equal(asksOf(undefined).size, 0);
+	assert.equal(asksOf({ ...link, allies: [] }).size, 0, "no card, no host: the Link notices still carry it");
+});
+
+test("of a device's several bases the one that waits hosts its questions, on the team the question came on; with no match the first", () => {
+	const quiet = ally({ id: "t1/d1/docs", workspace: "docs" }), waiting = ally({ id: "t1/d1/trial11", tower: "blocked" }), tab = ally({ id: "t1/d1/ops", workspace: "ops", tabs: [{ label: "main", state: "blocked" }] }), other = ally({ id: "t2/d1/trial11", team: "t2" });
+	const asks = (allies: AllyBase[], team = "t1") => [...asksOf({ allies, alerts: [ask("A", {}, team)] }).keys()];
+	assert.deepEqual(asks([quiet, waiting]), ["t1/d1/trial11"], "the tower waits");
+	assert.deepEqual(asks([quiet, tab]), ["t1/d1/ops"], "a tab waits");
+	assert.deepEqual(asks([quiet, ally({ id: "t1/d1/x", workspace: "x" })]), ["t1/d1/docs"], "none waits: the first");
+	assert.deepEqual(asks([other, waiting], "t2"), ["t2/d1/trial11"], "the team the question came on comes first, waiting or not");
+	assert.deepEqual(asks([other], "t1"), ["t2/d1/trial11"], "a team it did not come on still hosts it when it is the device's only base");
 });

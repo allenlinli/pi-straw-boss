@@ -26,6 +26,7 @@ export interface TermKit {
 	stream(): string;
 }
 export interface ZenDeps {
+	debug?(line: string): void; // a line for the page's console (default `console.debug`): why a question from a box waits off the screen
 	data(key: string): Data;
 	recent(key: string): Promise<Item[]>;
 	/** The demo fixture's stand-in for the server's session endpoints; unset: the server's. */

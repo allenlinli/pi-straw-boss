@@ -36,7 +36,7 @@ test("the wait's actions are plain requests: tell is the tower's session input, 
 	const told: [string, Record<string, unknown>][] = [];
 	const acts = waitActions({ ws: "w", id: "W2", tower: "sb-tower-w" }, async (action, body) => (told.push([action, body]), { ok: true, status: 200, body: { accepted: true } }));
 	assert.equal(outcome(await acts.tell("Use the staging token")), "accepted");
-	assert.deepEqual(told, [["input", { text: "Use the staging token", as: "send" }]], "through the send the caller gives (answerPost of the tower's key, or the demo's stand-in)");
+	assert.deepEqual(told, [["input", { text: "Use the staging token", as: "send", answers: "W2" }]], "through the send the caller gives (answerPost of the tower's key, or the demo's stand-in); `answers` names the wait, which the server marks answered");
 	await acts.dismiss();
 	await waitActions({ ws: "@head", id: "W9", tower: "sb-head" }, async () => ({ ok: true, status: 200, body: {} })).dismiss();
 	assert.deepEqual(sent, [["api/tower/w/memory", { op: "drop", id: "W2" }], ["api/head/memory", { op: "drop", id: "W9" }]]);

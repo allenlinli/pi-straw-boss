@@ -8,6 +8,16 @@ const no = (status: number, error: string, reason: string): Reply => ({ status, 
 const STANDING = "The head tower is standing by: no run is live, so there is no terminal. Write to it in the composer; that wakes it.";
 const done = (r: { ok: boolean; error?: string }, ok: Reply, refused = "The head tower refused it."): Reply => (r.ok ? ok : no(409, "refused", r.error ?? refused));
 
+/** The wait for the boss a message answers (`answers: "W3"` beside its text): undefined when it names none, a 400 when it is not a wait's id, which is told before anything is sent. */
+export function answersOf(json: Record<string, unknown>): string | Reply | undefined {
+	const named = json.answers;
+	return named === undefined ? undefined : typeof named === "string" && /^W\d+$/.test(named) ? named : no(400, "bad_request", "answers names a wait: W and its number");
+}
+/** The tower took a message that answers a wait: the memory marks it `answered`. `answered` is the wait's id, or false when the memory no longer has it (dropped, resolved, or never for the boss): the message went all the same. */
+export async function markAnswered(tower: TowerPanel, workspace: string, id: string): Promise<{ answered: string | false }> {
+	return { answered: (await tower.memory?.(workspace, { op: "answer", id }))?.status === 200 ? id : false };
+}
+
 /**
  * One request on the head: `scope` is `head` (the buttons, `head/<action>`) or `sessions` on the head's key (`sessions/<key>/<action>`). The reply is the route's own, or undefined for a session action the generic route takes
  * from here (the keys, mirror, focus, and commands of a live run's pane). `text` is control.ts's check of a composer's text.
@@ -16,12 +26,14 @@ export async function headRoutes(tower: TowerPanel | undefined, [scope, key = ""
 	if (!tower?.has(HEAD_KEY)) return no(409, "refused", HEAD_NEEDS_SERVICE);
 	if (scope === "sessions") {
 		if (action === "input") {
-			const typed = text(json.text);
+			const typed = text(json.text), answers = answersOf(json);
 			if (typeof typed !== "string") return typed;
+			if (typeof answers === "object") return answers;
 			// The conversation's two commands, as at a tower's composer: exactly `/quit` leaves it and `/new` starts over.
 			const command = typed.trim() === "/quit" ? "leave" : typed.trim() === "/new" ? "new" : undefined;
 			if (command && tower.conversation) return done(await tower.conversation(HEAD_KEY, command), { status: 200, body: { accepted: true, command } });
-			return done(await tower.event(HEAD_KEY, typed), { status: 200, body: { accepted: true, woke: true } }, "The head tower did not take it.");
+			const sent = await tower.event(HEAD_KEY, typed);
+			return done(sent, { status: 200, body: { accepted: true, woke: true, ...(answers && sent.ok ? await markAnswered(tower, HEAD_KEY, answers) : {}) } }, "The head tower did not take it.");
 		}
 		if (action === "dequeue") return no(409, "server_queue", "These messages wait in the sb server's queue for the head tower's next run; they are taken when it runs.");
 		return ["keys", "mirror", "focus"].includes(action) && !tower.live(HEAD_KEY) ? no(409, "standing", STANDING) : undefined;

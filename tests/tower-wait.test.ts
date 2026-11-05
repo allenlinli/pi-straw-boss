@@ -49,7 +49,7 @@ test("the brief says how long an open wait has stood once it is a day old, so th
 	assert.match(text, /- \[W2\] for boss: api-fix asks: deploy ws01\?$/m, "a fresh wait has no age");
 });
 
-const service = (bossWaits: { id: string; text: string; at: string }[], rev = 4): TowerService => ({ state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev, standing: 0, decisions: 0, waits: bossWaits.length, bossWaits, proposals: [] } });
+const service = (bossWaits: { id: string; text: string; at: string; answered?: string }[], rev = 4): TowerService => ({ state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev, standing: 0, decisions: 0, waits: bossWaits.length, bossWaits, proposals: [] } });
 const OLD = { id: "W1", text: "Boss token needed to add the Tailscale ACL cloud-pub to gx10:443", at: iso(NOW - 2 * DAY) };
 const FRESH = { id: "W2", text: "api-fix asks: deploy ws01?", at: iso(NOW - 20 * 60_000) };
 
@@ -81,7 +81,7 @@ test("the wait's row on the card mounts the wait panel: Handle unfolds the answe
 	text.value = "Yes, deploy";
 	text.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
 	await new Promise((done) => setTimeout(done, 5));
-	assert.deepEqual(sent.at(-1), { path: "api/sessions/sb-tower-wa/input", body: { text: "Yes, deploy", as: "send" } }, "the tower's session input, as the comms' composer sends it");
+	assert.deepEqual(sent.at(-1), { path: "api/sessions/sb-tower-wa/input", body: { text: "Yes, deploy", as: "send", answers: "W2" } }, "the tower's session input, as the comms' composer sends it, naming the wait it answers");
 	const link = box.find((el) => el.tag === "a")[0]!;
 	assert.equal(link.attrs.get("data-route"), "w/wA/s/sb-tower-wa");
 	assert.equal(link.textContent, m.wait_goto());
@@ -90,7 +90,7 @@ test("the wait's row on the card mounts the wait panel: Handle unfolds the answe
 	assert.equal(box.find((el) => el.tag === "textarea")[0], again, "the panel, and a draft in it, outlives a redraw");
 });
 
-const net = (waits: { id: string; text: string; at: string }[]): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, service: service(waits), subs: [] }, tabs: [], outposts: [], outside: [] }] });
+const net = (waits: { id: string; text: string; at: string; answered?: string }[]): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, service: service(waits), subs: [] }, tabs: [], outposts: [], outside: [] }] });
 
 test("a wait for the boss that is under a day old is an alert of the tower, raised once, and leaves the queue when the wait is gone; an old one raises none", () => {
 	const first = alertsOf(net([OLD, FRESH]), NOW);
@@ -103,4 +103,16 @@ test("a wait for the boss that is under a day old is an alert of the tower, rais
 	const next = alertsOf(net([OLD, FRESH]), NOW + 2000);
 	assert.deepEqual(arrivals(first, next).filter((x) => x.wait), [], "and not again at the next snapshot");
 	assert.equal([...alertsOf(net([OLD]), NOW + 4000).keys()].some((k) => k.startsWith("wait\u001f")), false, "dismissed or resolved: gone");
+});
+
+test("an answered wait raises no alert (the tower still has it to resolve), says on its row that the boss answered and the tower has not resolved it, and a wait that changed asks again", () => {
+	const answered = { ...FRESH, answered: iso(NOW - 60_000) };
+	assert.deepEqual([...alertsOf(net([answered]), NOW).keys()].filter((k) => k.startsWith("wait\u001f")), [], "no alert for any view: the dialog, the HUD, Zen, the notification, the tab icon all read this map");
+	assert.deepEqual([...alertsOf(net([answered, { ...OLD, id: "W3", at: iso(NOW - 3_600_000) }]), NOW).keys()].filter((k) => k.startsWith("wait\u001f")), ["wait\u001fw\u001fW3"], "another wait still asks");
+	assert.deepEqual([...alertsOf(net([{ ...FRESH, id: "W5", text: "api-fix asks: deploy ws01 to prod too?" }]), NOW).keys()].filter((k) => k.startsWith("wait\u001f")), ["wait\u001fw\u001fW5"], "a wait the tower wrote anew (a new id) asks");
+	const rows = noticeRows(service([answered]), undefined, NOW);
+	assert.equal(rows[0]!.text, m.tower_wait_answered({ text: FRESH.text }), "the card and the comms say so");
+	assert.deepEqual(rows[0]!.actions, ["answer", "dismiss"], "and the boss may still follow up or dismiss it");
+	assert.equal(noticeRows(service([answered]), { locale: "zh-TW" }, NOW)[0]!.text, `已回覆，等塔台處理：${FRESH.text}`);
+	assert.deepEqual(arrivals(alertsOf(net([FRESH]), NOW), alertsOf(net([answered]), NOW + 1000)).filter((x) => x.wait), [], "answering is not an arrival");
 });

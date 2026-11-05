@@ -122,7 +122,7 @@ test("sending posts the words to the tower's session input as the composer does,
 	box().value = "Use the staging token";
 	enter();
 	await settle();
-	assert.deepEqual(told, [{ key: "sb-tower-w", action: "input", body: { text: "Use the staging token", as: "send" } }]);
+	assert.deepEqual(told, [{ key: "sb-tower-w", action: "input", body: { text: "Use the staging token", as: "send", answers: "W2" } }]);
 	assert.equal(layer.stack.open.length, 0, "taken: closed");
 });
 

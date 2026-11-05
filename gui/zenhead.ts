@@ -103,7 +103,7 @@ export function mountHead(io: HeadIo) {
 
 	function draw() {
 		const keep = lines().slice(-(small() ? SHOWN_SMALL : SHOWN));
-		const waits = Boolean(unit?.service?.memory?.bossWaits.length), held = waits && keep.at(-1)?.who !== "boss";
+		const waits = Boolean(unit?.service?.memory?.bossWaits.some((w) => !w.answered)), held = waits && keep.at(-1)?.who !== "boss";
 		fade.see(keep.map((l) => l.id));
 		for (const [id, li] of shown) if (!keep.some((l) => l.id === id)) (li.remove(), shown.delete(id));
 		keep.forEach((l, i) => {

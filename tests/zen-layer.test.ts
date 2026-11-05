@@ -291,7 +291,7 @@ test("sending posts the boss's words to the tower exactly as Standard's composer
 	box.value = "Use the staging token";
 	enter(box);
 	await r.settle();
-	assert.deepEqual(r.calls.posts, [{ key: "t", action: "input", body: { text: "Use the staging token", as: "send" } }], "the tower's session `input`, the route Standard's composer sends to");
+	assert.deepEqual(r.calls.posts, [{ key: "t", action: "input", body: { text: "Use the staging token", as: "send", answers: "W2" } }], "the tower's session `input`, the route Standard's composer sends to, naming the wait it answers");
 	await r.reply({ accepted: true, woke: true }); // the input route's reply has no `outcome`
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 	assert.deepEqual(r.calls.leave, []);
@@ -300,6 +300,46 @@ test("sending posts the boss's words to the tower exactly as Standard's composer
 	assert.equal(r.by((el) => el.classes.has("zen-circle")).length >= 1, true, "the breathing circle");
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, "no card");
 	assert.equal(r.text().includes("Boss token needed"), false);
+});
+
+const answeredNet = (r: { now(): number }, extra: { id: string; text: string }[] = []) => {
+	const n = waitNet(r);
+	const memory = n.bases[0]!.tower!.service!.memory!;
+	memory.bossWaits = [{ ...memory.bossWaits[0]!, answered: new Date(r.now()).toISOString() }, ...extra.map((w) => ({ ...w, at: new Date(r.now() - 30_000).toISOString() }))];
+	return n;
+};
+
+test("once the server marks the wait answered the card does not come back while the tower handles it, however long that takes; a wait the tower writes anew asks as a card", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.click();
+	waitBox(r).value = "Use the staging token";
+	enter(waitBox(r));
+	await r.settle();
+	await r.reply({ accepted: true, woke: true, answered: "W2" });
+	await r.advance(1300);
+	await r.advance(1500);
+	r.feed(answeredNet(r)); // the next snapshot: the wait stays in the tower's memory, answered
+	await r.advance(30_000 + 1000); // past the 30 s hold of an answered card
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, "no card");
+	await r.advance(600_000);
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, "not after ten minutes either");
+	r.feed(answeredNet(r, [{ id: "W3", text: "Which region for the new bucket?" }]));
+	await r.settle();
+	assert.ok(r.text().includes("Which region for the new bucket?"), "a new wait asks");
+});
+
+test("a wait answered on another device while its card is on the page ends the card without the low bowl: it is no longer something the boss has to do", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.feed(answeredNet(r));
+	await r.advance(1500);
+	assert.equal(r.by((el) => el.classes.has("zen-card") && !el.hasAttribute("data-gone")).length, 0, "the card is gone (or going)");
+	assert.equal(r.calls.sound.includes("low"), false);
 });
 
 test("Esc on the open box folds it with the draft kept and does nothing else; Shift+Enter and an empty box send nothing", async () => {

@@ -224,6 +224,8 @@ test("the model: groups, the chip, the words for where an entry came from, and t
 	assert.equal(memoryMeta(entry("S1", "standing", "a") as never), "your words");
 	assert.equal(memoryMeta(entry("D1", "decision", "a", { via: "proposal" }) as never, { locale: "zh-TW" }), "塔台提議，你確認");
 	assert.match(memoryMeta(entry("W1", "wait", "a", { for: "agent", on: "docs-main", state: "answered" }) as never), /the tower's note · waits for docs-main · answered\? a message came from docs-main/);
+	assert.equal(memoryMeta(entry("W3", "wait", "a", { for: "boss", state: "answered" }) as never), "the tower's note · waits for you · you answered it; the tower has not resolved it yet", "a wait the boss answered says whose move it is");
+	assert.match(memoryMeta(entry("W3", "wait", "a", { for: "boss", state: "answered" }) as never, { locale: "zh-TW" }), /你已回覆，塔台還沒結案/);
 	assert.equal(memoryWhy({ status: 409, body: { error: "rev", reason: "x" } }), m.memory_rev());
 	assert.equal(memoryWhy({ status: 409, body: { error: "refused", reason: "12 standing instructions are kept already" } }), "12 standing instructions are kept already");
 });

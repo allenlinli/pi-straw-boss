@@ -29,7 +29,7 @@ export interface WaitActions {
 }
 /** What the boss can do with a wait the tower recorded on them, as plain functions every view draws (waitpanel.ts, towernotes.ts); a view differs only in what it does after `outcome` of the reply. */
 export const waitActions = (w: WaitTarget, send: SessionPost): WaitActions => ({
-	tell: (text) => send("input", { text, as: "send" }),
+	tell: (text) => send("input", { text, as: "send", answers: w.id }), // `answers`: the server marks this wait answered once the tower took the message, so no view raises it again
 	dismiss: () => post(`${towerRoute(w.ws)}/memory`, { op: "drop", id: w.id }), // the head's waits go to `head/memory`
 	goto: { view: "session", ws: w.ws, key: w.tower },
 });

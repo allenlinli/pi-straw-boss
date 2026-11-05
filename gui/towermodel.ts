@@ -136,7 +136,7 @@ export const memoryChip = (s: MemorySummary, o?: Opts) => (s.proposals.length ? 
 export function memoryMeta(e: MemoryEntry, o?: Opts): string {
 	const from = e.kind === "wait" ? m.memory_by_run_note({}, o) : e.via === "proposal" ? m.memory_by_proposal({}, o) : m.memory_by_boss({}, o);
 	const who = e.kind !== "wait" ? undefined : e.for === "boss" ? m.memory_wait_boss({}, o) : m.memory_wait_agent({ who: e.on ?? "" }, o);
-	const state = e.state === "answered" ? m.memory_wait_answered({ who: e.on ?? "" }, o) : e.state === "resolved" ? m.memory_wait_resolved({ outcome: e.outcome ?? "" }, o) : e.state === "expired" ? m.memory_wait_expired({}, o) : undefined;
+	const state = e.state === "answered" ? (e.for === "boss" ? m.memory_wait_answered_boss({}, o) : m.memory_wait_answered({ who: e.on ?? "" }, o)) : e.state === "resolved" ? m.memory_wait_resolved({ outcome: e.outcome ?? "" }, o) : e.state === "expired" ? m.memory_wait_expired({}, o) : undefined;
 	return [from, who, state].filter(Boolean).join(" · ");
 }
 /** What the memory route refused, in the page's language by the reasons it is known to give; the server's own words otherwise. */

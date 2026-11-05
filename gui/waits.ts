@@ -18,12 +18,12 @@ export function waitAge(at: string, now: number, o?: Opts): string | undefined {
 	const n = age(at, now) / 1000;
 	return !(n >= 3600) ? undefined : n < 86_400 ? m.age_h({ n: String(Math.floor(n / 3600)) }, o) : m.age_d({ n: String(Math.floor(n / 86_400)) }, o);
 }
-/** The wait's line for the card and the comms: what it waits for, how long it has, and that it may be out of date once it is a day old. */
+/** The wait's line for the card and the comms: what it waits for (or that the boss answered it and the tower has not resolved it yet), how long it has, and that it may be out of date once it is a day old. */
 export function waitLine(w: BossWait, now: number, o?: Opts): string {
 	const since = waitAge(w.at, now, o);
-	return [m.tower_waits_for_you({ text: w.text }, o), since && m.tower_wait_age({ age: since }, o), age(w.at, now) >= FRESH_MS && m.tower_wait_stale({}, o)].filter(Boolean).join(" · ");
+	return [(w.answered ? m.tower_wait_answered : m.tower_waits_for_you)({ text: w.text }, o), since && m.tower_wait_age({ age: since }, o), age(w.at, now) >= FRESH_MS && m.tower_wait_stale({}, o)].filter(Boolean).join(" · ");
 }
-/** The alerts of a tower's fresh waits for the boss, each by its own key (a wait's id is never reused), as of `at`. */
+/** The alerts of a tower's fresh waits for the boss that the boss has not answered yet (an answered one is the tower's to resolve: no view raises it again, and a wait that changed is a new one), each by its own key (a wait's id is never reused), as of `at`. */
 export function waitAlerts(ws: string, tower: Base["tower"], at: number): Alert[] {
-	return (tower?.service?.memory?.bossWaits ?? []).filter((w) => age(w.at, at) < FRESH_MS).map((w): Alert => ({ key: `wait\u001f${ws}\u001f${w.id}`, unit: tower!.key, ws, name: tower!.name, role: "tower", mark: "waiting", note: w.text, at, since: Date.parse(w.at), closed: !tower!.control, wait: { id: w.id, text: w.text } }));
+	return (tower?.service?.memory?.bossWaits ?? []).filter((w) => age(w.at, at) < FRESH_MS && !w.answered).map((w): Alert => ({ key: `wait\u001f${ws}\u001f${w.id}`, unit: tower!.key, ws, name: tower!.name, role: "tower", mark: "waiting", note: w.text, at, since: Date.parse(w.at), closed: !tower!.control, wait: { id: w.id, text: w.text } }));
 }

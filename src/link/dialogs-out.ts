@@ -59,6 +59,12 @@ export const REFRESH_MS = 10 * 60_000;
 export const UNKNOWN_RECHECK_MS = 15_000;
 /** A pass that has not finished this long is stuck: the next look logs where it waits (`dialog-pass-stuck`), lets it go, and starts a pass of its own, so one call that never returns cannot end forwarding for good. */
 export const PASS_STUCK_MS = 60_000;
+/** A close that failed to post is tried at this many passes, then given up (the card expires at the controller anyway). */
+export const CLOSE_TRIES = 5;
+/** The most closes held to be posted; the oldest is given up when more come. */
+const MAX_CLOSES = 256;
+/** A `dialog-close` (an end, or a withdrawal) not yet posted to a controller: it is kept apart from the open dialog, which is gone from `open` once it ends, so a pass let go as stuck leaves it for the next to post. */
+interface PendingClose { k: string; dialogId: string; by: string; at: number; tries: number }
 export interface DialogAnswerInput { team: string; from: string; dialogId: string; digest: string; answer: string; answerId: string }
 /** `sent` is where the dialog was last sent, per controller, and when; `claimed` is set while an answer is on its way or has been accepted; `unknownAt` is when an answer no session confirmed was sent. */
 interface Open { key: string; target: Parameters<Hub["send"]>[1]; /** The package that owns the dialog (`rpiv`). */ owner: string; /** What the controllers are told asks: the unit's name when the box can say it, else `owner`. */ label: string; text: string; sent: Map<string, number>; away: Set<string>; claimed: boolean; unknownAt?: number; since: number; told: boolean; /** The log line that nobody can be told of this question was written. */ unrouted?: boolean; /** Whose unit asked, once it is known (`dispatcher`). */ who?: { device: string; team?: string } }
@@ -70,6 +76,12 @@ export class DialogForwarder {
 	private seen = new Set<string>();
 	private off: (() => void) | undefined;
 	private polling: Promise<void> | undefined;
+	/** The closes not posted yet, per controller and dialog, drained by every pass until each is posted. */
+	private closes = new Map<string, PendingClose>();
+	/** The passes let go as stuck that have not returned; at most one is outstanding, so a call that never returns costs one pending pass and not one a minute. */
+	private released = new Set<Promise<void>>();
+	/** The line that a second stuck pass is not let go was written for this stretch. */
+	private hung = false;
 	private again = false;
 	/** The pass that counts: a pass let go as stuck has an older number and stops at its next turn. */
 	private gen = 0;
@@ -100,8 +112,15 @@ export class DialogForwarder {
 	poll(): Promise<void> {
 		if (this.polling) {
 			if (this.now() - this.passAt < PASS_STUCK_MS) return ((this.again = true), this.polling);
+			if (this.released.size) {
+				// A pass let go has not returned: its call may never, and another release would leave one more pending pass behind. The pass in flight is waited on until that one ends.
+				if (!this.hung) this.d.log({ event: "dialog-pass-hung", step: this.step, ms: this.now() - this.passAt });
+				this.hung = true;
+				return ((this.again = true), this.polling);
+			}
 			this.d.log({ event: "dialog-pass-stuck", step: this.step, ms: this.now() - this.passAt });
 			this.gen++;
+			this.released.add(this.polling);
 			this.polling = undefined;
 			// What the pass let go marked as sent may never have left (it waited at the post): the controllers get every open question again.
 			for (const d of this.open.values()) d.sent.clear();
@@ -119,6 +138,8 @@ export class DialogForwarder {
 			} while (this.again && gen === this.gen);
 		})().finally(() => {
 			if (this.polling === run) this.polling = undefined;
+			this.released.delete(run);
+			if (!this.released.size) this.hung = false;
 		});
 		return (this.polling = run);
 	}
@@ -145,6 +166,7 @@ export class DialogForwarder {
 	private async pass(gen: number): Promise<void> {
 		const to = this.d.controllers();
 		this.count(to.length, this.d.controllersKnown?.() ?? true);
+		if (this.closes.size && !(await this.drain(gen))) return;
 		if (!to.length && !this.open.size) return;
 		if (to.length) {
 			this.at(gen, "read");
@@ -184,11 +206,8 @@ export class DialogForwarder {
 				this.open.delete(id);
 				this.full = false;
 				this.d.log({ event: "dialog-ended", dialog: id, by: state.by, sent: d.sent.size });
-				for (const k of d.sent.keys()) {
-					this.at(gen, "post");
-					await this.send(k, "dialog-close", { dialogId: id, by: state.by });
-					if (gen !== this.gen) return;
-				}
+				for (const k of d.sent.keys()) this.hold(k, id, state.by);
+				if (!(await this.drain(gen))) return;
 				continue;
 			}
 			// An answer no session confirmed, and the dialog is still open a while after: it did not land, so the next valid answer may win and the controllers get the question open again.
@@ -203,9 +222,8 @@ export class DialogForwarder {
 			for (const k of this.d.controllersKnown?.() === false ? [] : [...d.sent.keys()]) {
 				if (mine.some((c) => `${c.team}\n${c.device}` === k)) continue;
 				d.sent.delete(k);
-				this.at(gen, "post");
-				await this.send(k, "dialog-close", { dialogId: id, by: "withdrawn" });
-				if (gen !== this.gen) return;
+				this.hold(k, id, "withdrawn");
+				if (!(await this.drain(gen))) return;
 			}
 			if (!d.told && !d.claimed && to.length && this.now() - d.since >= UNANSWERED_MS) {
 				// Marked told only once the notice reached somebody: with no admin at `dispatch` it is tried again at the next pass (g346-F005).
@@ -229,11 +247,40 @@ export class DialogForwarder {
 				d.sent.set(k, this.now());
 				this.at(gen, "post");
 				const posted = await this.send(k, "dialog-open", { dialogId: id, digest: d.target.answer.digest, owner: d.label, dialog: d.text });
-				if (!posted) d.sent.delete(k);
+				// A pass let go no longer owns `sent`: the pass that replaced it has marked what it posted.
 				if (gen !== this.gen) return;
+				if (!posted) d.sent.delete(k);
 			}
 		}
 		for (const id of [...this.skipped]) if (!this.d.hub.outcome(id).open) this.skipped.delete(id);
+	}
+	/** Keeps a close to post: the oldest is given up when the room is used up. */
+	private hold(k: string, dialogId: string, by: string): void {
+		this.closes.set(`${k}\n${dialogId}`, { k, dialogId, by, at: this.now(), tries: 0 });
+		for (const [key, c] of this.closes) {
+			if (this.closes.size <= MAX_CLOSES) break;
+			this.closes.delete(key);
+			this.d.log({ event: "dialog-close-dropped", dialog: c.dialogId, reason: "full" });
+		}
+	}
+	/** Posts the held closes, each removed once posted. One that failed `CLOSE_TRIES` times, or whose card has expired at the controller (`OPEN_STALE_MS`), is given up with a line. False when this pass was let go meanwhile. */
+	private async drain(gen: number): Promise<boolean> {
+		for (const [key, c] of [...this.closes]) {
+			if (this.now() - c.at > OPEN_STALE_MS) {
+				this.closes.delete(key);
+				this.d.log({ event: "dialog-close-dropped", dialog: c.dialogId, reason: "stale" });
+				continue;
+			}
+			this.at(gen, "post");
+			const posted = await this.send(c.k, "dialog-close", { dialogId: c.dialogId, by: c.by });
+			if (posted) this.closes.delete(key);
+			else if (++c.tries >= CLOSE_TRIES) {
+				this.closes.delete(key);
+				this.d.log({ event: "dialog-close-dropped", dialog: c.dialogId, reason: "failed" });
+			}
+			if (gen !== this.gen) return false;
+		}
+		return true;
 	}
 	private now = () => this.d.now?.() ?? Date.now();
 	/** What the controllers are told asks: the unit's name when it is known, else the owner of the dialog. */

@@ -13,7 +13,7 @@ test("a main, a member, a subagent and an ally run are named with their role; a 
 	assert.equal(unitLabel({ name: "ops", role: "outside" }), "ops");
 });
 
-test("the separator is ASCII, so the controller's notice (restrictLabel: letters, digits, space, dot, underscore, hyphen) reads the same as its card", () => {
+test("the separator is ASCII, so the controller's notice (restrictLabel: letters, digits, space, dot, underscore, hyphen) keeps it; the name is restricted there and whole on the card", () => {
 	assert.match(unitLabel({ name: "docs", role: "main" })!, /^[A-Za-z0-9 ._-]+$/);
 });
 

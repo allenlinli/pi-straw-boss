@@ -96,7 +96,7 @@ pi 啟動的資料夾不只有專案：
 
 ## 6. 被拒絕時看起來像什麼
 
-持有者的事件在 `<pi agent dir>/straw-boss/link/link.log`（JSON lines），轉送器和 server 的在 `<pi agent dir>/straw-boss/server.log`（每行 `event key=value`：下表所有 `dialog-*` 行，以及轉送器檢查回答時的 `drop` 行：`dialog-answer-digest`、`-id`、`-late`、`-not-recipient`、`-here-only`；持有者自己檢查的 `dialog-answer-level`、`-sender` 在 `link.log`）；對話框和邀請的文字從不出現在其中。
+持有者的事件在 `<pi agent dir>/straw-boss/link/link.log`（JSON lines），轉送器和 server 的在 `<pi agent dir>/straw-boss/server.log`（每行 `event key=value`：下表所有 `dialog-*` 行，以及轉送器檢查回答時的 `drop` 行：`dialog-answer-unknown`、`-malformed`、`-invalid`、`-digest`、`-id`、`-late`、`-not-recipient`、`-here-only`，以及把回答送進 session 時的 `dialog-answered`（帶 `outcome`）；持有者自己檢查的 `dialog-answer-level`、`-sender` 在 `link.log`）；對話框和邀請的文字從不出現在其中。
 
 | 紀錄事件 | 意義 |
 | --- | --- |
@@ -114,6 +114,8 @@ pi 啟動的資料夾不只有專案：
 | `dialog-ended` | `server.log`：問題離開了 hub（`by`：誰結束的，回答被帶走是 `remote`），之前送給了 `sent` 個控制端。 |
 | `dialog-in` | 控制端的 `link.log`：從 `from`（裝置 id）收到 `dialog` 的 `dialog-open`；`fresh` 為 false 表示早就有這個問題（裝置每十分鐘會再送一次）。 |
 | `dialog-pass-stuck` | `server.log`：轉送器的一輪跑了 `ms`（一分鐘）還沒結束，卡在 `step`（`read`、`dispatcher`、`notice`、`post`）；那一輪被放掉，下一次查看另開新的一輪。 |
+| `dialog-pass-hung` | `server.log`：前一個被放掉的一輪還沒回來，下一輪又卡住了（有個呼叫永遠不回來）。這一輪不會再被放掉，好讓懸著的一輪最多一個；同一段期間只寫一次。 |
+| `dialog-close-dropped` | `server.log`：一則沒送出的 `dialog-close` 被放棄：`reason` 是 `failed`（試了五次）、`stale`（控制端的卡片早已過期）或 `full`（留著的超過 256 則）。 |
 | `dialog-full` | `server.log`：已經有 32 個問題開著，新的要等有一個結束才會接手。 |
 | `dialog-unrouted` | `server.log`：沒有人能被告知的問題（沒有有人值守、在 `dispatch` 的管理員，也沒有派出者）；它維持開著。 |
 | `dialog-post-failed` / `dialog-forward-failed` | `server.log`：一次送出，或整輪失敗；原因在那一行。 |

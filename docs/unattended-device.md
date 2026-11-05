@@ -106,7 +106,7 @@ The project is not the only folder a pi starts in:
 
 ## 6. What a refusal looks like
 
-The holder's events are in `<pi agent dir>/straw-boss/link/link.log` (JSON lines) and the forwarder's and the server's in `<pi agent dir>/straw-boss/server.log` (one `event key=value` line each: every `dialog-*` line below, and the `drop` lines of the forwarder's checks of an answer: `dialog-answer-digest`, `-id`, `-late`, `-not-recipient`, `-here-only`; the holder's own, `dialog-answer-level` and `-sender`, are in `link.log`); texts of dialogs and invites are never in them.
+The holder's events are in `<pi agent dir>/straw-boss/link/link.log` (JSON lines) and the forwarder's and the server's in `<pi agent dir>/straw-boss/server.log` (one `event key=value` line each: every `dialog-*` line below, and the `drop` lines of the forwarder's checks of an answer: `dialog-answer-unknown`, `-malformed`, `-invalid`, `-digest`, `-id`, `-late`, `-not-recipient`, `-here-only`, and `dialog-answered` for an answer carried to a session, with its `outcome`; the holder's own, `dialog-answer-level` and `-sender`, are in `link.log`); texts of dialogs and invites are never in them.
 
 | Log event | Meaning |
 | --- | --- |
@@ -124,6 +124,8 @@ The holder's events are in `<pi agent dir>/straw-boss/link/link.log` (JSON lines
 | `dialog-ended` | `server.log`: the question left the hub (`by`: who closed it, `remote` for an answer carried) after being sent to `sent` controllers. |
 | `dialog-in` | The controller's `link.log`: a `dialog-open` was taken from `from` (a device id) for `dialog`; `fresh` is false for a question it already held (the box sends it again every ten minutes). |
 | `dialog-pass-stuck` | `server.log`: a forwarder pass had not finished after `ms` (a minute) and waits at `step` (`read`, `dispatcher`, `notice`, `post`); it was let go and the next look began a pass of its own. |
+| `dialog-pass-hung` | `server.log`: a second pass is stuck while the one let go before it has not returned (a call that never returns). It is not let go, to keep one pending pass at most; written once until the first returns. |
+| `dialog-close-dropped` | `server.log`: a `dialog-close` that was not posted is given up: `reason` is `failed` (five tries), `stale` (the card had expired at the controller) or `full` (more than 256 held). |
 | `dialog-full` | `server.log`: 32 questions are open and a new one is not taken up until one ends. |
 | `dialog-unrouted` | `server.log`: a question nobody can be told of (no admin attended at `dispatch` and no dispatcher); it stays open. |
 | `dialog-post-failed` / `dialog-forward-failed` | `server.log`: a post, or a whole pass, failed; the reason is in the line. |

@@ -30,7 +30,7 @@ export function dispatcherLookup(d: { paneOf(key: string): string | undefined; l
 
 /**
  * The roles whose name alone does not say what the unit is: `main - docs`, `subagent - scout`. The others (a tower, an outside pi) are their name. The separator is ASCII because the controller's holder writes the label into its notice through
- * `restrictLabel` (letters, digits, space, `.`, `_`, `-`), and the card must read the same.
+ * `restrictLabel` (letters, digits, space, `.`, `_`, `-`; anything else becomes `_`, cut at 40), so the separator survives it. The name does not always: the card shows it whole, the notice restricted.
  */
 const KIND: Record<string, string> = { main: "main", member: "member", subagent: "subagent", ally: "ally run", run: "run" };
 

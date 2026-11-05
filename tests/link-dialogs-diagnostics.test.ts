@@ -148,6 +148,114 @@ describe("a pass that does not settle", () => {
 	});
 });
 
+describe("a pass let go does not lose what it had not finished", () => {
+	const dev = { team: T, device: "dev" };
+	const tick = () => new Promise((resolve) => setImmediate(resolve));
+	/** A post that records itself, except the `n`th call of `kind`, which never returns. */
+	function hangAt(kind: string, n: number) {
+		let seen = 0;
+		const calls: Post[] = [];
+		return { calls, post: (_team: string, device: string, k: "dialog-open" | "dialog-close", payload: DialogOpen | DialogClose) => (k === kind && seen++ === n ? new Promise<void>(() => {}) : Promise.resolve(void calls.push({ to: device, kind: k, id: payload.dialogId }))) };
+	}
+
+	test("a close the released pass had not posted is posted by the pass that replaces it, to every controller", async () => {
+		const h = hangAt("dialog-close", 0), r = rig({ post: h.post }, { list: [boss, dev], known: true });
+		r.h.open("D1");
+		await r.f.poll();
+		r.h.close("D1", "remote");
+		void r.f.poll();
+		await tick(); // the pass reaches the first close
+		r.advance(PASS_STUCK_MS);
+		await r.f.poll();
+		assert.deepEqual(lines(r.logs, "dialog-pass-stuck").map((e) => e.step), ["post"]);
+		assert.deepEqual(h.calls.filter((p) => p.kind === "dialog-close").map((p) => p.to).sort(), ["boss", "dev"], "each controller got the close, though the dialog had left the open list");
+		await r.f.poll();
+		assert.equal(h.calls.filter((p) => p.kind === "dialog-close").length, 2, "and a close that was posted is not posted again");
+	});
+
+	test("a withdrawn close the released pass had not posted is posted by the pass that replaces it", async () => {
+		const h = hangAt("dialog-close", 0), r = rig({ post: h.post }, { list: [boss, dev], known: true });
+		r.h.open("D1");
+		await r.f.poll();
+		r.state.list = [boss];
+		void r.f.poll();
+		await tick();
+		r.advance(PASS_STUCK_MS);
+		await r.f.poll();
+		assert.deepEqual(h.calls.filter((p) => p.kind === "dialog-close").map((p) => p.to), ["dev"]);
+	});
+
+	test("a close that failed is tried again at the next pass, and given up after a few failures", async () => {
+		let fail = 1;
+		const closes: string[] = [];
+		const r = rig({ post: async (_t, device, kind) => { if (kind === "dialog-close") { if (fail > 0) { fail--; throw new Error("holder down"); } closes.push(device); } } });
+		r.h.open("D1");
+		await r.f.poll();
+		r.h.close("D1");
+		await r.f.poll();
+		assert.deepEqual(closes, []);
+		await r.f.poll();
+		assert.deepEqual(closes, ["boss"], "the second pass posted it");
+		await r.f.poll();
+		assert.deepEqual(closes, ["boss"], "once");
+
+		const always = rig({ post: async (_t, _d, kind) => { if (kind === "dialog-close") throw new Error("holder down"); } });
+		always.h.open("D2");
+		await always.f.poll();
+		always.h.close("D2");
+		for (let i = 0; i < 12; i++) await always.f.poll();
+		assert.equal(lines(always.logs, "dialog-post-failed").length, 5, "five tries, then it is given up");
+		assert.deepEqual(lines(always.logs, "dialog-close-dropped").map((e) => [e.dialog, e.reason]), [["D2", "failed"]]);
+	});
+
+	test("a pending close is given up when the card would have expired anyway", async () => {
+		const h = hangAt("dialog-close", 0), r = rig({ post: h.post });
+		r.h.open("D1");
+		await r.f.poll();
+		r.h.close("D1");
+		void r.f.poll();
+		await tick();
+		r.advance(25 * 60_000 + 1);
+		await r.f.poll();
+		assert.deepEqual(h.calls.filter((p) => p.kind === "dialog-close"), [], "past OPEN_STALE_MS the card is gone at the controller, so no close is sent");
+		assert.deepEqual(lines(r.logs, "dialog-close-dropped").map((e) => e.reason), ["stale"]);
+	});
+
+	test("a post that fails after its pass was let go does not erase the replacing pass's mark: the question is not sent twice", async () => {
+		let first = true, reject!: (error: Error) => void;
+		const opens: string[] = [];
+		const r = rig({ post: (_t, device, kind) => (first ? ((first = false), new Promise<void>((_ok, no) => (reject = no))) : Promise.resolve(void (kind === "dialog-open" && opens.push(device)))) });
+		r.h.open("D1");
+		const stale = r.f.poll();
+		await tick();
+		r.advance(PASS_STUCK_MS);
+		await r.f.poll();
+		assert.deepEqual(opens, ["boss"], "the replacing pass posted it");
+		reject(new Error("late failure"));
+		await stale;
+		r.advance(1000);
+		await r.f.poll();
+		assert.deepEqual(opens, ["boss"], "inside the refresh time it is not posted again");
+	});
+
+	test("at most one pass let go is outstanding: a second stuck pass is said once and not let go while the first still hangs", async () => {
+		let reads = 0;
+		const r = rig({ read: () => (++reads <= 2 ? new Promise<void>(() => {}) : Promise.resolve()) });
+		r.h.open("D1");
+		void r.f.poll();
+		r.advance(PASS_STUCK_MS);
+		void r.f.poll(); // lets the first go, starts the second, which hangs too
+		assert.equal(reads, 2);
+		for (let i = 0; i < 5; i++) {
+			r.advance(PASS_STUCK_MS);
+			void r.f.poll();
+		}
+		assert.equal(reads, 2, "no third pass while the first is still outstanding");
+		assert.equal(lines(r.logs, "dialog-pass-stuck").length, 1);
+		assert.deepEqual(lines(r.logs, "dialog-pass-hung").map((e) => e.step), ["read"], "said once");
+	});
+});
+
 describe("the unit that asked", () => {
 	test("a controller is told the unit's name as the question's owner, and the log keeps the package that owns the dialog", async () => {
 		const r = rig({ unit: (key) => (key === "unit-7" ? "main - docs" : undefined) });

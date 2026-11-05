@@ -1008,12 +1008,29 @@ export function createTowers(o: TowersOptions): Towers {
 		// What an ally run waits on or opens is its device's: the routes (allyroute.ts) send those sessions' answers to the device's next ally run, never to a local run, and its opened mains have a ledger of their own.
 		const peer: Peer | undefined = who.kind === "ally" && who.device && who.team ? { device: who.device, label: who.deviceLabel ?? who.device.slice(0, 6), short: who.deviceShort ?? who.device.slice(0, 6), team: who.team, teamName: who.teamName ?? who.team.slice(0, 6) } : undefined;
 		const route = (to: string, name: string, kind: "expect" | "opened", ask?: string, live?: ReadonlySet<string>, panes?: ReadonlySet<string>, pane?: string) => { try { addRoute(slot, ws, { ...peer!, to, name, kind, at: now(), ...(ask ? { ask } : {}), ...(pane ? { pane } : {}) }, now(), live, panes); } catch (cause) { error("ally-route", (cause as Error).message); } };
-		/** The live main of this tower's workspace named by id or name; throws when there is none, several, or it is no main of this workspace. */
+		/**
+		 * The sessions that sent this run a `call_tower` expecting an answer, among the events the run took: the header is the sender's own words, so each is checked against the broker and Herdr's pane token before it binds anything.
+		 * An asker may be a main of any workspace on this computer; that is the only way a main outside this workspace becomes a target.
+		 */
+		const callers = () => {
+			const ids = new Set<string>();
+			for (const e of readQueue(slot, ws)) {
+				if (e.taken?.run !== who.id || e.kind !== "intercom" || !e.from) continue;
+				const fields = fieldsOf(e.text);
+				if (fields?.kind === "call_tower" && fields.reply === "expected") ids.add(e.from.id);
+			}
+			return ids;
+		};
+		/**
+		 * The live main named by id or name that an ask may be made for: a main of this tower's workspace, or a main of another workspace on this computer that called this run (`callers`).
+		 * Throws when there is none, several, or it is neither; no other session is a target.
+		 */
 		const mainOf = async (query: string) => {
 			const net = await l.reach!.read(), named = net.sessions.filter((x) => x.id === query || nameOf(x) === query);
 			if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${query}"`);
 			const pane = net.ps.find((p) => p.pane_id === named[0]!.herdrLocation?.paneId);
-			if (pane?.tokens?.sb_role !== "main" || pane.workspace_id !== ws) throw new Error(`${query} is not a main of workspace ${l.record.label}: an ask for a main names one of its mains`);
+			if (pane?.tokens?.sb_role !== "main") throw new Error(`${query} is not a main of workspace ${l.record.label}: an ask for a main names one of its mains, or a main of another workspace that called this tower`);
+			if (pane.workspace_id !== ws && !callers().has(named[0]!.id)) throw new Error(`${query} is not a main of workspace ${l.record.label}, and it did not call this tower in this run: an ask for a main of another workspace names one that did`);
 			return { id: named[0]!.id, name: phrase(nameOf(named[0]!), 40) };
 		};
 		const host = {
@@ -1042,14 +1059,9 @@ export function createTowers(o: TowersOptions): Towers {
 				},
 			}, margs),
 			mainOf,
-			// Who asked this run for the work it sends a device: the one session that sent it a `call_tower` expecting an answer, if it is a live main of this workspace. A second asker, or one that is no main, leaves it unknown.
+			// Who asked this run for the work it sends a device: the one session that sent it a `call_tower` expecting an answer, if it is a live main (of this workspace or another on this computer). A second asker, or one that is no main, leaves it unknown.
 			requester: async () => {
-				const askers = new Set<string>();
-				for (const e of readQueue(slot, ws)) {
-					if (e.taken?.run !== who.id || e.kind !== "intercom" || !e.from) continue;
-					const fields = fieldsOf(e.text);
-					if (fields?.kind === "call_tower" && fields.reply === "expected") askers.add(e.from.id);
-				}
+				const askers = callers();
 				if (askers.size !== 1) return undefined;
 				return mainOf([...askers][0]!).catch(() => undefined);
 			},

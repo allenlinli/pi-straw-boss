@@ -1347,7 +1347,7 @@ older receiver and refused by a relay that lacks it (**Reality anchor**). So:
   goes as a plain 4-field `tower`.
 
 **Asking.** `tower_send({ device, workspace?, text, reply: true, for })` in a local run. `for` is a live local session (id or name) that
-is a main of the tower's workspace.
+is a main of the tower's workspace, or (0.58.2) a main of another workspace on this computer that sent the run a `call_tower` expecting an answer.
 
 - The server makes an ask id and records `{ ask id, envelope id, device, for: <session id>, expires: 24 h }` in
   `tower/<ws>/awaiting.json`.

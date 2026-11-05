@@ -210,7 +210,7 @@ async function towerSendDevice(host: ToolHost, args: Record<string, unknown>, fo
 			host.asks.open({ ask, envelope: details.id, device: details.device, team: details.team, for: main.id, forName: main.name, workspace: host.who.workspace, tower: host.identity, at: host.now(), expires: host.now() + ASK_KEEP_MS });
 			text += ` The answer will come to ${main.name} directly${forWho === undefined ? " (the main that called you for this; pass for to name another)" : ""}.`;
 		} else text += ` The answer will not come to ${main.name}: it will reach an ally run here, whose brief names the main that asked.`;
-	} else if (!ally && reply) text += " No session is bound to this send. The answer reaches an ally run here, not you or any session; pass for with a main of this workspace to have it delivered there.";
+	} else if (!ally && reply) text += " No session is bound to this send. The answer reaches an ally run here, not you or any session; pass for with a main of this workspace, or one of another workspace that called you in this run, to have it delivered there; if there is none, tell the requester that nobody gets the answer.";
 	return { text, details: { ...(answer.details as object | undefined), ...(main ? { for: main.id } : {}) } };
 }
 

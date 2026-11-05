@@ -3,6 +3,7 @@ import { allyLabel } from "../boardauto.ts";
 import { cutBytes } from "./canon.ts";
 import type { RunSignal } from "../server/runs.ts";
 import { LIMITS, type Notice, type UnitStatus } from "./kinds.ts";
+import { reaches, type Scope } from "./scope.ts";
 
 // What an unattended device tells its dispatch controllers beside the dialogs (docs/specs/2026-10-25-straw-link.md, Unattended devices): a `unit-status` (ephemeral) with each unit's
 // state, its running monitors and its last report, every minute and when it changes, and a `notice` (1 KB) when something went wrong that nobody at the device will see. The
@@ -20,6 +21,8 @@ export interface UnitReporterDeps {
 	report(unit: string, device: string, team: string): string;
 	status(team: string, device: string, units: UnitStatus[]): Promise<void>;
 	notice(team: string, device: string, notice: Notice): Promise<void>;
+	/** Whether `device` is an admin of `team`'s roster now: an admin is told every notice. Absent: nobody is. */
+	admin?(team: string, device: string): boolean;
 	now(): number;
 	log(entry: Record<string, unknown>): void;
 }
@@ -58,10 +61,10 @@ export class UnitReporter {
 			}
 		}
 	}
-	/** Tells every controller, once per `key`; nothing is remembered when there was nobody to tell, so the next trigger with the same key still goes out. */
-	async notify(key: string, notice: Notice): Promise<void> {
+	/** Tells the controllers `scope` covers (the dispatcher and the admins; `EVERYONE` for all), once per `key`; nothing is remembered when there was nobody to tell, so the next trigger with the same key still goes out. */
+	async notify(key: string, notice: Notice, scope: Scope): Promise<void> {
 		if (this.told.has(key)) return;
-		const to = this.d.controllers();
+		const to = this.d.controllers().filter((c) => reaches(scope, c, this.d.admin ?? (() => false)));
 		if (!to.length) return;
 		this.told.add(key);
 		while (this.told.size > TOLD_MAX) this.told.delete(this.told.values().next().value!);
@@ -76,12 +79,13 @@ export class UnitReporter {
 	}
 }
 
-/** The notice a run's end or refusal makes, with the key that tells it once (the run id, or the workspace and the reason for a refusal). */
-export function runNotice(s: RunSignal): { key: string; notice: Notice } {
+/** The notice a run's end or refusal makes, with the key that tells it once (the run id, or the workspace and the reason for a refusal), and who it is for: an ally run's sender, else nobody in particular (the admins). */
+export function runNotice(s: RunSignal): { key: string; notice: Notice; scope: Scope } {
+	const scope: Scope = s.device !== undefined ? { device: s.device, ...(s.team !== undefined ? { team: s.team } : {}) } : {};
 	const who = s.ally ? "An ally run" : "A run";
 	// The key goes into the log, and a refusal's text can carry a path or a line of the project's settings: the key holds a hash of it.
-	if (s.kind === "refused") return { key: `refused/${s.workspace}/${createHash("sha256").update(s.text).digest("hex").slice(0, 16)}`, notice: { kind: "run-refused", unit: allyLabel(s.label), text: s.text } };
+	if (s.kind === "refused") return { key: `refused/${s.workspace}/${createHash("sha256").update(s.text).digest("hex").slice(0, 16)}`, notice: { kind: "run-refused", unit: allyLabel(s.label), text: s.text }, scope };
 	const trust = s.detail?.startsWith("No trust decision");
 	const kind = trust ? "trust-unanswered" : s.outcome === "quit" ? "run-quit" : s.outcome === "timeout" ? "run-timeout" : "run-crashed";
-	return { key: `run/${s.run}`, notice: { kind, unit: allyLabel(s.label), text: `${who} ${s.outcome === "quit" ? "was quit" : s.outcome === "timeout" ? "timed out" : "crashed"}${s.detail ? `: ${s.detail}` : ""}` } };
+	return { key: `run/${s.run}`, notice: { kind, unit: allyLabel(s.label), text: `${who} ${s.outcome === "quit" ? "was quit" : s.outcome === "timeout" ? "timed out" : "crashed"}${s.detail ? `: ${s.detail}` : ""}` }, scope };
 }

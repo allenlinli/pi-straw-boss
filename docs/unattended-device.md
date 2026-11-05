@@ -119,9 +119,11 @@ Everything is in `<pi agent dir>/straw-boss/link/link.log` (JSON lines) and the 
 | `tower-run` | An ally run took that message into its session: `run` (the run id), and the same `from`, `team`, `ask`, `id`. |
 | `dialog-oversize` | A question was too big to forward (64 KB); the controller got a `notice`. |
 | `notice` | A notice was sent: `key`, `kind` and unit, never its text. |
-| `drop` with `reason` | A message failed a check (`dialog-answer-level`, `dialog-answer-digest`, `dialog-answer-here-only`, `unit-status-unexpected`, …). |
+| `drop` with `reason` | A message failed a check (`dialog-answer-level`, `dialog-answer-digest`, `dialog-answer-here-only`, `dialog-answer-not-recipient`, `unit-status-unexpected`, …). |
 
 ## 7. What a controller sees
+
+**On a box several devs share, a controller sees only its own work and the admins see all of it.** A question a unit asks and a run's notice go to the controller that dispatched the unit (the device whose message started the ally run, or for which the run opened the main) and to the team's admins, not to the other controllers at `dispatch`; a unit nobody dispatched (the tower's own run) is the admins' alone. The box refuses an answer to a question from anyone else (`drop` with `dialog-answer-not-recipient`). The policy file has no field for this.
 
 Its page shows the device's bases like an ally's, with each unit's state, its running monitors, and its last report (the last `tower_done` summary or the last `tower_send` text to that
 controller, cut to 4 KB), sent every minute and on a change. Only the units of workspaces inside the team's project are listed, and none when the team shares `presence` only; a device that has sent

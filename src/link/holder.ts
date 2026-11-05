@@ -77,7 +77,8 @@ export interface HolderOptions {
 	/** Told, at each pass of the inbox, that messages wait for a tower identity the sb server runs (src/server/towers.ts): an ally run is woken for them. */
 	served?: (identity: string) => void;
 	/** Opens a tower for the team's project (src/server/opentower.ts): asked only for a `dispatch` sender, on an unattended device, when no tower of the project is open. Absent: nothing is opened. */
-	openTower?: (project: string, toWorkspace?: string) => Promise<void>;
+	/** `from` is the controller whose message found no tower: a failure is told to it and the admins (docs/specs/2026-11-05-link-shared-box.md). */
+	openTower?: (project: string, toWorkspace: string | undefined, from: string) => Promise<void>;
 	/** How often `caps` is sent unchanged (default an hour) and the least time between two (default 15 s). */
 	capsMs?: number;
 	capsMinMs?: number;
@@ -749,7 +750,7 @@ export class LinkHolder {
 		store.log({ event: "tower-open", project, from });
 		const attempt = (async () => {
 			try {
-				await openTower(project, toWorkspace);
+				await openTower(project, toWorkspace, from);
 				store.log({ event: "tower-opened", project });
 			} catch (error) {
 				store.log({ event: "tower-open-failed", project, error: (error as Error).message });
@@ -1034,6 +1035,14 @@ export class LinkHolder {
 	/** The attended members of a running team that this unattended device trusts at `dispatch` now: where its dialogs go. Nothing on an attended device. */
 	dialogControllers(): { team: string; device: string }[] {
 		return this.controllerRead().list;
+	}
+	/** Whether `device` is an admin of `team`'s roster now (an admin is told every question and notice of the box). False for a team that is not running or a roster that cannot be read. */
+	isAdmin(team: string, device: string): boolean {
+		try {
+			return this.loadTeam(team).state.members.get(device)?.role === "admin";
+		} catch {
+			return false;
+		}
 	}
 	/** False while the controller list cannot be trusted to be complete (the holder is not running, or a team's roster could not be read): a caller does not withdraw anything then. */
 	controllersKnown(): boolean {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import type { Offer, Sent } from "../src/dialogs.ts";
 import { DialogForwarder, OPEN_STALE_MS, REFRESH_MS, UNANSWERED_MS, UNKNOWN_RECHECK_MS } from "../src/link/dialogs-out.ts";
+import { EVERYONE } from "../src/link/scope.ts";
 import { runNotice, STATUS_EVERY_MS, UnitReporter, type UnitFacts } from "../src/link/unitstatus.ts";
 import { fakeClock } from "./fake-clock.ts";
 import { buildEnvelope } from "../src/link/envelope.ts";
@@ -384,6 +385,13 @@ describe("dialog forwarding", () => {
 		assert.deepEqual(d.holder.dialogControllers(), [{ team: TEAM_HEX, device: alice.id }]);
 		assert.deepEqual(a.holder.dialogControllers(), []);
 	});
+
+	test("isAdmin reads the roster: alice founded the team, bob and dave were added as members; a device that is no member, and a team that is not running, are no admins", async () => {
+		const { d } = await start();
+		assert.deepEqual([alice.id, bob.id, dave.id, eve.id].map((id) => d.holder.isAdmin(TEAM_HEX, id)), [true, false, false, false]);
+		assert.equal(d.holder.isAdmin(TEAM_HEX, "x".repeat(26)), false);
+		assert.equal(d.holder.isAdmin("0".repeat(16), alice.id), false);
+	});
 });
 
 // unit-status and notice (Unattended devices): the unattended device reports its units to its dispatch controllers every minute and on a change, and tells them what went wrong, once.
@@ -450,7 +458,7 @@ describe("unit-status and notices", () => {
 		assert.ok(!n.key.includes("secret-project") && !n.key.includes("passwd"), n.key);
 		assert.notEqual(n.key, runNotice({ kind: "refused", workspace: "w", label: "moldplan", ally: false, text: `${text}!` }).key);
 		assert.equal(n.key, runNotice({ kind: "refused", workspace: "w", label: "moldplan", ally: false, text }).key, "the same refusal tells once");
-		await reporter.notify(n.key, n.notice);
+		await reporter.notify(n.key, n.notice, EVERYONE);
 		const logged = events(d).filter((e) => e.event === "notice");
 		assert.equal(logged.length, 1);
 		assert.ok(!JSON.stringify(logged).includes("secret-project"));
@@ -460,8 +468,8 @@ describe("unit-status and notices", () => {
 	test("a notice goes once per trigger to the controllers at dispatch, and clears with the day", async () => {
 		const { a, b, reporter } = await start();
 		const n = runNotice({ kind: "ended", run: "r1", workspace: "w", label: "moldplan", ally: true, outcome: "crashed", detail: "pi exited without tower_done" });
-		await reporter.notify(n.key, n.notice);
-		await reporter.notify(n.key, n.notice);
+		await reporter.notify(n.key, n.notice, EVERYONE);
+		await reporter.notify(n.key, n.notice, EVERYONE);
 		await until(() => a.holder.summary().alerts.some((x) => x.kind === "notice"), 3000, "the notice on alice");
 		const alerts = a.holder.summary().alerts.filter((x) => x.kind === "notice");
 		assert.equal(alerts.length, 1);
@@ -475,14 +483,14 @@ describe("unit-status and notices", () => {
 	test("an attended computer sends no status and no notice", async () => {
 		const { a, attended, posted } = await start();
 		await attended.tick();
-		await attended.notify("k", { kind: "run-crashed", unit: "u", text: "t" });
+		await attended.notify("k", { kind: "run-crashed", unit: "u", text: "t" }, EVERYONE);
 		assert.equal(posted.length, 0);
 		assert.equal(a.holder.summary().alerts.some((x) => x.kind === "notice"), false);
 	});
 
 	test("a dialog unanswered for 30 minutes and an oversize one are told once; an answered one is not", async () => {
 		const { clock, d, a, reporter } = await start();
-		const h = fakeHub(), f = new DialogForwarder({ hub: h.hub, read: async () => {}, controllers: () => d.holder.dialogControllers(), post: (t, dev, k, p) => d.holder.sendDialog(t, dev, k, p), log: (e) => d.store.log(e), now: clock.now, notice: (k, n) => reporter.notify(k, n) });
+		const h = fakeHub(), f = new DialogForwarder({ hub: h.hub, read: async () => {}, controllers: () => d.holder.dialogControllers(), post: (t, dev, k, p) => d.holder.sendDialog(t, dev, k, p), log: (e) => d.store.log(e), now: clock.now, notice: (k, n, scope) => reporter.notify(k, n, scope) });
 		d.sink = (x) => f.answer(x);
 		const noticesOnAlice = () => a.holder.summary().alerts.filter((x) => x.kind === "notice");
 		h.open("D1");

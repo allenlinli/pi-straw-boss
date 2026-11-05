@@ -227,6 +227,31 @@ test("tower_done is refused while the run's messages are not all taken, ends the
 	assert.match(String(next.brief), /Handoff note from the last run for this device[^\n]*\nanswered\nwaiting for nobody/);
 });
 
+test("the signal of an ally run's end names the device it served and its team, so the box tells that controller and not the others (G3)", async () => {
+	const { s } = await setup();
+	world.ally.add("m1", DEV1, "poison");
+	world.expose?.allyWaiting("sb-tower-wa");
+	const id = await nthRun();
+	await claimed(s, id);
+	exit(id);
+	await until(() => readRun(world.slot, "wA", id)?.outcome === "crashed", "the crash");
+	const ended = world.signals.find((x) => x.kind === "ended");
+	assert.ok(ended && ended.kind === "ended");
+	assert.deepEqual([ended.ally, ended.device, ended.team], [true, DEV1, "team-1"]);
+});
+
+test("the live ally runs' panes are listed with their device and team, for the box to tell whose unit a pane is (G3)", async () => {
+	const { s } = await setup();
+	world.ally.add("m1", DEV1, "one");
+	world.expose?.allyWaiting("sb-tower-wa");
+	const id = await nthRun();
+	await claimed(s, id);
+	assert.deepEqual(world.expose!.runs.allyPanes(), [{ pane: readRun(world.slot, "wA", id)!.pane, device: DEV1, team: "team-1" }]);
+	exit(id);
+	await until(() => readRun(world.slot, "wA", id)?.outcome === "crashed", "the crash");
+	assert.deepEqual(world.expose!.runs.allyPanes(), [], "an ended run's pane is nobody's");
+});
+
 test("a message that arrives during a run waits for a fresh run of the device", async () => {
 	const { s } = await setup();
 	world.ally.add("m1", DEV1, "one");

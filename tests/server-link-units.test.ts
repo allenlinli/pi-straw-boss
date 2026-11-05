@@ -10,7 +10,8 @@ import { LinkStore } from "../src/link/store.ts";
 import { addNote, readRun } from "../src/server/towerrunstore.ts";
 import { callControl } from "../src/server/socket.ts";
 import { FakeRelay } from "./link/fake-relay.ts";
-import { alice, bob, clientFor, rosterOf, stateOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
+import { roleEntry } from "../src/link/roster.ts";
+import { alice, bob, carol, clientFor, rosterOf, stateOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
 import { TEAM } from "./link/scenario.ts";
 import { type Running, until } from "./server-world.ts";
 import { TowerWorld } from "./tower-world.ts";
@@ -29,24 +30,26 @@ afterEach(() => world.close());
 type Reply = Record<string, unknown> & { ok: boolean };
 const ask = (r: Running, cmd: Record<string, unknown>) => callControl(r.handle.endpoint, world.record()!.secret, cmd as { cmd: string }).then((x) => x.reply as Reply);
 
-function unattended(share: Share) {
+/** `bobAdmin`: bob is an admin of the team (a notice of a run nobody dispatched goes to the admins); `carol`: a second controller at dispatch who is no admin. */
+function unattended(share: Share, o: { bobAdmin?: boolean; carol?: boolean } = {}) {
 	const home = join(world.root, "home"), project = join(home, "project"), elsewhere = join(world.root, "elsewhere");
 	mkdirSync(project, { recursive: true });
 	mkdirSync(elsewhere, { recursive: true });
-	const real = realpathSync(project), store = new LinkStore(join(world.stateDir, "link")), entries = rosterOf();
+	const real = realpathSync(project), store = new LinkStore(join(world.stateDir, "link")), entries = rosterOf(o.carol ? ["carol", "bob"] : ["bob"]);
+	if (o.bobAdmin) entries.push(roleEntry({ state: stateOf(entries, alice), signer: alice, subjectId: bob.id, role: "admin" }));
 	writeDevice(store, alice, "alice-mac");
 	writeTeam(store, entries, alice);
-	relay.addTeam(TEAM, [alice.id, bob.id], entries);
-	const text = JSON.stringify({ unattended: true, trust: { [bob.id]: "dispatch" }, teams: { [TEAM_HEX]: { project: real, share } } });
+	relay.addTeam(TEAM, [alice.id, bob.id, ...(o.carol ? [carol.id] : [])], entries);
+	const text = JSON.stringify({ unattended: true, trust: { [bob.id]: "dispatch", ...(o.carol ? { [carol.id]: "dispatch" } : {}) }, teams: { [TEAM_HEX]: { project: real, share } } });
 	const link = { tickMs: 15, drainMs: 20, presenceMs: 40, relay: clientFor(relay), home, policy: { read: () => text, stat: () => ({ uid: 0, symlink: false }), writable: () => false, uid: 1000 } };
 	return { real, elsewhere, link };
 }
 /** What bob reads of the envelopes alice sent him of `kind` (opened with the team key, without the receive checks: the roster of this test has alice attended). */
-function toBob(kind: string) {
+function toBob(kind: string, who: typeof bob = bob) {
 	const key = stateOf(rosterOf(), bob).keys.get(1)!, out: Record<string, unknown>[] = [];
 	for (const stored of relay.stored) {
 		const { header, nonce, ct } = stored.envelope;
-		if (header.kind !== kind || !stored.to.has(bob.id)) continue;
+		if (header.kind !== kind || !stored.to.has(who.id)) continue;
 		const plain = aeadOpen(key, nonce, ct, encodeHeader(header));
 		const message = plain && decodePlaintext(kind as Kind, plain);
 		if (message) out.push(message as unknown as Record<string, unknown>);
@@ -78,9 +81,8 @@ test("a team that shares presence only gets no unit in the status", async () => 
 	assert.equal(unitsSeen().every((x) => x.length === 0), true);
 });
 
-test("a run that crashes reaches the controllers as a notice through the server's own wiring, and the test seam still hears of it", async () => {
-	const u = unattended("status");
-	const s = await towers(u);
+/** A local run of workspace wA that crashes: the tower's own run, which no controller dispatched. */
+async function crashLocalRun(s: Running) {
 	const tower = world.client("sb-tower-wa")!;
 	tower.incoming({ id: "main-1", name: "docs-main" }, { id: "m1", content: { text: "poison" } });
 	await until(() => world.pis.size >= 1, "a run");
@@ -91,9 +93,35 @@ test("a run that crashes reaches the controllers as a notice through the server'
 	assert.equal(claimed.ok, true, JSON.stringify(claimed));
 	world.live.delete(pi.pid);
 	await until(() => readRun(world.slot, "wA", id)?.outcome === "crashed", "the crash");
+}
+
+test("a run that crashes reaches the admin as a notice through the server's own wiring, and the test seam still hears of it", async () => {
+	const u = unattended("status", { bobAdmin: true });
+	const s = await towers(u);
+	await crashLocalRun(s);
 	await until(() => toBob("notice").length > 0, "the notice at the controller");
 	assert.deepEqual(toBob("notice").map((n) => [n.kind, n.unit]), [["run-crashed", "Alpha"]]);
 	assert.deepEqual(world.signals.map((x) => x.kind), ["ended"], "a seam that watches the runs hears it as well");
+});
+
+test("a run nobody dispatched tells the admin and not a controller who is no admin (G3)", async () => {
+	const u = unattended("status", { bobAdmin: true, carol: true });
+	const s = await towers(u);
+	await crashLocalRun(s);
+	await until(() => toBob("notice").length > 0, "the notice at the admin");
+	// Carol is before bob in the roster, so a notice for her would have been posted before bob's.
+	assert.deepEqual(toBob("notice", carol), [], "carol is at dispatch and is no admin: the tower's own run is not hers");
+	assert.equal(toBob("notice").length, 1);
+});
+
+test("a controller who is no admin is told nothing of a run nobody dispatched, even alone (G3)", async () => {
+	const u = unattended("status");
+	const s = await towers(u);
+	await crashLocalRun(s);
+	// The box keeps posting presence every 40 ms: two more after the crash have gone out by the time the notice would have.
+	const presences = () => relay.stored.filter((x) => x.envelope.header.kind === "presence").length, before = presences();
+	await until(() => presences() >= before + 2, "two more presences");
+	assert.deepEqual(toBob("notice"), []);
 });
 
 test("a unit's report comes from the workspace inside the team's project, not another with the same label", async () => {

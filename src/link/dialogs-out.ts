@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { ANSWER_ID, checkAnswer, type Hub } from "../dialogs.ts";
 import type { Answer } from "../owners.ts";
 import { LIMITS, type DialogClose, type DialogOpen, type Notice } from "./kinds.ts";
+import { EVERYONE, reaches, type Scope } from "./scope.ts";
 
 // Dialogs across devices (docs/specs/2026-10-25-straw-link.md, Unattended devices: Asking back; Message kinds: dialog-open, dialog-answer, dialog-close).
 // An unattended device has no one at its screen, so a question one of its sessions asks is forwarded to the controllers its policy trusts at `dispatch`
@@ -9,6 +10,8 @@ import { LIMITS, type DialogClose, type DialogOpen, type Notice } from "./kinds.
 // sender that is at `dispatch` now, for an open dialog, with the dialog's digest, under an answer id it has not seen; the first valid answer wins. What is
 // forwarded is the dialog the hub already lets a page answer (dialogs.ts `merge`): never a secret_drop, never one that waits in the terminal. The log carries
 // ids and outcomes, never a dialog's text.
+// On a box shared by several devs a question is for the controller that dispatched the unit that asked, and the team's admins (scope.ts, docs/specs/2026-11-05-link-shared-box.md): `dispatcher` says whose unit asked,
+// the others are not sent the question, and the box refuses an answer from one of them.
 
 /** The `dialog` field of a `dialog-open`: what a controller needs to draw the question, as JSON. */
 export interface RemoteDialog { select?: unknown; questions?: unknown; cancel?: true }
@@ -32,8 +35,15 @@ export interface DialogsOutDeps {
 	controllersKnown?(): boolean;
 	/** The clock (default `Date.now`), for the unanswered-dialog notice. */
 	now?(): number;
-	/** Tells the controllers (src/link/unitstatus.ts `UnitReporter.notify`); once per key. Absent: no notices. */
-	notice?(key: string, notice: Notice): void | Promise<void>;
+	/** Tells the controllers `scope` covers (src/link/unitstatus.ts `UnitReporter.notify`); once per key. Absent: no notices. */
+	notice?(key: string, notice: Notice, scope: Scope): void | Promise<void>;
+	/**
+	 * The device (and its team, when known) that dispatched the unit `key` asked from, or nothing when none did; read from Herdr, so it is asked again while it is unknown. Absent: every controller is a recipient,
+	 * as on a box with one controller.
+	 */
+	dispatcher?(key: string): Promise<{ device: string; team?: string } | undefined>;
+	/** Whether `device` is an admin of `team`'s roster now: an admin is a recipient of every question. Absent: nobody is. */
+	admin?(team: string, device: string): boolean;
 }
 /** A dialog nobody has answered this long is told to the controllers, once. */
 export const UNANSWERED_MS = 30 * 60_000;
@@ -43,7 +53,7 @@ export const REFRESH_MS = 10 * 60_000;
 export const UNKNOWN_RECHECK_MS = 15_000;
 export interface DialogAnswerInput { team: string; from: string; dialogId: string; digest: string; answer: string; answerId: string }
 /** `sent` is where the dialog was last sent, per controller, and when; `claimed` is set while an answer is on its way or has been accepted; `unknownAt` is when an answer no session confirmed was sent. */
-interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Map<string, number>; away: Set<string>; claimed: boolean; unknownAt?: number; since: number; told: boolean }
+interface Open { key: string; target: Parameters<Hub["send"]>[1]; owner: string; text: string; sent: Map<string, number>; away: Set<string>; claimed: boolean; unknownAt?: number; since: number; told: boolean; /** Whose unit asked, once it is known (`dispatcher`). */ who?: { device: string; team?: string } }
 
 export class DialogForwarder {
 	private readonly d: DialogsOutDeps;
@@ -82,6 +92,15 @@ export class DialogForwarder {
 		})().finally(() => (this.polling = undefined));
 		return (this.polling = run);
 	}
+	/** Whose unit asked: looked up until it is known, then kept. A lookup that fails leaves it unknown, which is the admins' alone. */
+	private async whose(d: Open): Promise<void> {
+		if (!this.d.dispatcher || d.who) return;
+		d.who = await this.d.dispatcher(d.key).catch(() => undefined);
+	}
+	/** What the question's controllers are: every controller when the box cannot tell whose units are whose, else the dispatcher and the admins. */
+	private scopeOf(d: Open): Scope {
+		return this.d.dispatcher ? (d.who ? { device: d.who.device, ...(d.who.team !== undefined ? { team: d.who.team } : {}) } : {}) : EVERYONE;
+	}
 	private async pass(): Promise<void> {
 		const to = this.d.controllers();
 		if (!to.length && !this.open.size) return;
@@ -93,13 +112,16 @@ export class DialogForwarder {
 			if (Buffer.byteLength(text) > LIMITS.dialog) {
 				this.skipped.add(id);
 				this.d.log({ event: "dialog-oversize", dialog: id, bytes: Buffer.byteLength(text) });
-				await this.d.notice?.(`oversize/${id}`, { kind: "dialog-oversize", unit: o.key, text: `A question of ${o.owner} was not forwarded: it is ${Buffer.byteLength(text)} bytes, over the ${LIMITS.dialog} the link carries. It waits at the device.` });
+				const unit = { key: o.key } as Open;
+				await this.whose(unit);
+				await this.d.notice?.(`oversize/${id}`, { kind: "dialog-oversize", unit: o.key, text: `A question of ${o.owner} was not forwarded: it is ${Buffer.byteLength(text)} bytes, over the ${LIMITS.dialog} the link carries. It waits at the device.` }, this.scopeOf(unit));
 				continue;
 			}
 			if (this.open.size >= MAX_OPEN) continue;
 			this.open.set(id, { key: o.key, target: o.target, owner: o.owner, text, sent: new Map(), away: new Set(), claimed: false, since: this.now(), told: false });
 		}
 		for (const [id, d] of [...this.open]) {
+			await this.whose(d);
 			const state = this.d.hub.outcome(id);
 			if (!state.open) {
 				this.open.delete(id);
@@ -112,17 +134,19 @@ export class DialogForwarder {
 				d.unknownAt = undefined;
 				d.sent.clear();
 			}
-			// A controller that lost `dispatch` is told the question is withdrawn; one that has it again gets it open again below.
+			// The controllers this question is for: its dispatcher and the admins, among those at `dispatch`.
+			const mine = to.filter((c) => reaches(this.scopeOf(d), c, this.d.admin ?? (() => false)));
+			// A controller that lost `dispatch`, or is no longer one this question is for, is told it is withdrawn; one that has it again gets it open again below.
 			for (const k of this.d.controllersKnown?.() === false ? [] : [...d.sent.keys()]) {
-				if (to.some((c) => `${c.team}\n${c.device}` === k)) continue;
+				if (mine.some((c) => `${c.team}\n${c.device}` === k)) continue;
 				d.sent.delete(k);
 				await this.send(k, "dialog-close", { dialogId: id, by: "withdrawn" });
 			}
 			if (!d.told && !d.claimed && to.length && this.now() - d.since >= UNANSWERED_MS) {
 				d.told = true;
-				await this.d.notice?.(`unanswered/${id}`, { kind: "dialog-unanswered", unit: d.key, text: `A question of ${d.owner} has waited ${Math.round((this.now() - d.since) / 60_000)} minutes for an answer.` });
+				await this.d.notice?.(`unanswered/${id}`, { kind: "dialog-unanswered", unit: d.key, text: `A question of ${d.owner} has waited ${Math.round((this.now() - d.since) / 60_000)} minutes for an answer.` }, this.scopeOf(d));
 			}
-			for (const c of to) {
+			for (const c of mine) {
 				const k = `${c.team}\n${c.device}`;
 				const at = d.sent.get(k), up = this.d.online?.(c.team, c.device) ?? true;
 				if (!up) {
@@ -159,6 +183,9 @@ export class DialogForwarder {
 		const drop = (reason: string) => this.d.log({ event: "drop", reason, kind: "dialog-answer", from: a.from, dialog: a.dialogId });
 		const d = this.open.get(a.dialogId);
 		if (!d) return drop("dialog-answer-unknown");
+		// Only a controller the question was sent to may answer it (the dispatcher and the admins): the holder checked that the sender is at `dispatch`, this checks that it is the one this question is for.
+		await this.whose(d);
+		if (!reaches(this.scopeOf(d), { team: a.team, device: a.from }, this.d.admin ?? (() => false))) return drop("dialog-answer-not-recipient");
 		if (d.target.answer.digest !== a.digest) return drop("dialog-answer-digest");
 		if (!ANSWER_ID.test(a.answerId) || this.seen.has(a.answerId)) return drop("dialog-answer-id");
 		this.seen.add(a.answerId);

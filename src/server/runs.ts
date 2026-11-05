@@ -296,8 +296,8 @@ interface Svc {
  * settings check refused. Nothing in it is a secret: the reason is the server's own text, cut by the notice.
  */
 export type RunSignal =
-	| { kind: "ended"; run: string; workspace: string; label: string; ally: boolean; outcome: "crashed" | "timeout" | "quit"; detail?: string }
-	| { kind: "refused"; workspace: string; label: string; ally: boolean; text: string };
+	| { kind: "ended"; run: string; workspace: string; label: string; ally: boolean; outcome: "crashed" | "timeout" | "quit"; detail?: string; /** An ally run's sender and team: the controller that dispatched it. */ device?: string; team?: string }
+	| { kind: "refused"; workspace: string; label: string; ally: boolean; text: string; device?: string; team?: string };
 
 export interface RunsOptions {
 	slot: Slot;
@@ -655,7 +655,7 @@ export function createRuns(o: RunsOptions) {
 			release();
 			svc.refusedAt = now();
 			noticeOf(svc, { id: "settings", level: "error", kind: "settings", text: `A run could not start: ${(cause as Error).message}` });
-			o.signal?.({ kind: "refused", workspace: svc.ref.workspace, label: svc.ref.record().label, ally: true, text: `A run could not start: ${(cause as Error).message}` });
+			o.signal?.({ kind: "refused", workspace: svc.ref.workspace, label: svc.ref.record().label, ally: true, text: `A run could not start: ${(cause as Error).message}`, device, team: first.team });
 			log.line("run-refused", { workspace: svc.ref.workspace, why: "settings", kind: "ally" });
 			return;
 		}
@@ -920,7 +920,7 @@ export function createRuns(o: RunsOptions) {
 		a.rec.outcome = outcome;
 		a.rec.endedAt = iso(now());
 		if (detail) a.rec.detail = phrase(detail, 200);
-		if (outcome === "crashed" || outcome === "timeout" || outcome === "quit") o.signal?.({ kind: "ended", run: a.rec.id, workspace: ws, label: svc.ref.record().label, ally: a.rec.kind === "ally", outcome, ...(detail ? { detail: phrase(detail, 200) } : {}) });
+		if (outcome === "crashed" || outcome === "timeout" || outcome === "quit") o.signal?.({ kind: "ended", run: a.rec.id, workspace: ws, label: svc.ref.record().label, ally: a.rec.kind === "ally", outcome, ...(detail ? { detail: phrase(detail, 200) } : {}), ...(a.rec.kind === "ally" && a.rec.device ? { device: a.rec.device, ...(a.rec.team ? { team: a.rec.team } : {}) } : {}) });
 		try { writeRun(slot, a.rec); pruneRuns(slot, ws); } catch (cause) { error("run-record", (cause as Error).message); }
 		if (a.token) byToken.delete(a.token);
 		byRun.delete(a.rec.id);
@@ -1637,6 +1637,8 @@ export function createRuns(o: RunsOptions) {
 				parked: readQueue(slot, workspace, true).map((e) => ({ id: e.id, kind: e.kind, ...(e.from?.name ?? e.from?.id ? { from: e.from?.name ?? e.from?.id } : {}), first: phrase(e.text.split("\n").find((l) => l.trim()) ?? "", 120) })),
 			};
 		},
+		/** The panes of the live ally runs, with the device each serves and its team: the units a controller dispatched (a question asked in one is that controller's). */
+		allyPanes: (): { pane: string; device: string; team?: string }[] => [...services.values()].flatMap((svc) => [...svc.allies.values()].filter((a) => !a.ended && a.rec.pane && a.rec.device).map((a) => ({ pane: a.rec.pane, device: a.rec.device!, ...(a.rec.team ? { team: a.rec.team } : {}) }))),
 		/** The waiting events of a workspace for the GUI's queue rows. */
 		queue: (workspace: string) => { const s = find(workspace); return s ? waitingOf(s, new Set(s.run?.offered.keys() ?? [])) : []; },
 		/**

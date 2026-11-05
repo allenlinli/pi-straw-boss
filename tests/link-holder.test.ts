@@ -47,7 +47,7 @@ interface Rig {
 	share: "presence" | "status";
 	postWaitMs: number;
 	/** What the open-a-tower seam was asked, and whether it fails; `level` is what config.json (the policy file, unattended) gives alice. */
-	opens: { project: string; toWorkspace: string | undefined }[];
+	opens: { project: string; toWorkspace: string | undefined; from?: string }[];
 	openFails: boolean;
 	level: "reply" | "forward" | "dispatch" | undefined;
 	start(): Promise<void>;
@@ -70,7 +70,7 @@ function rig(name: "a" | "b", o: { entries?: ReturnType<typeof rosterOf>; seed?:
 	const build = (store: LinkStore) => new LinkHolder({
 		store, stateDir, isHolder: () => r.isHolder, config: () => { const c = config(project, r.share)(); if (r.level) c.trust.set(alice.id, r.level); return c; }, net: async () => r.net, relay: clientFor(relay),
 		offer: (tower, id) => void r.offers.push({ tower: tower.id, id }), notify: (text) => void r.notices.push(text), onDisplaced: () => void r.displaced++,
-		...(o.unattended === undefined ? {} : { attended: () => !o.unattended, openTower: async (p: string, w?: string) => { r.opens.push({ project: p, toWorkspace: w }); if (r.openFails) throw new Error("herdr said no"); } }),
+		...(o.unattended === undefined ? {} : { attended: () => !o.unattended, openTower: async (p: string, w: string | undefined, from: string) => { r.opens.push({ project: p, toWorkspace: w, from }); if (r.openFails) throw new Error("herdr said no"); } }),
 		now: () => Date.now() + r.skew, backoff: () => 5, drainMs: 20, presenceMs: 40, offerAgainMs: 60_000, postWaitMs: r.postWaitMs, haltRetryMs: 150,
 	});
 	r.store = first;
@@ -146,7 +146,7 @@ test("an unattended device opens a tower for a dispatch sender whose message fin
 	await Promise.all([a.start(), b.start()]);
 	await send(a, "build it", { reply: true });
 	await until(() => b.opens.length === 1, 3000, "the open");
-	assert.deepEqual(b.opens[0], { project: b.project, toWorkspace: undefined });
+	assert.deepEqual(b.opens[0], { project: b.project, toWorkspace: undefined, from: alice.id }, "the open names the controller whose message found no tower: a failure is told to it");
 	assert.deepEqual(events(b).filter((e) => /^tower-open/.test(String(e.event))).map((e) => e.event), ["tower-open", "tower-opened"]);
 	// The server's tower is there now: the message is served by it, and the open is not asked again.
 	b.net = netOf([["sb-tower-w-b", "w-b", "label-b", b.project]]);

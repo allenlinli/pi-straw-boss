@@ -18,6 +18,7 @@ import { createAsks } from "./asks.ts";
 import { cliBeside, createGuiHost, spawnRestart } from "./guihost.ts";
 import { type IntercomModule, loadIntercom, LoaderError } from "./intercom.ts";
 import { DialogForwarder } from "../link/dialogs-out.ts";
+import { dispatcherLookup } from "./dispatcher.ts";
 import { openTower } from "./opentower.ts";
 import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
 import { createLog, tailLog } from "./log.ts";
@@ -541,7 +542,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		sessions: () => (client ? client.listSessions() : Promise.reject(new Error("pi-intercom is not connected"))),
 		promptCommand: (workspace) => promptCommand(cliBeside(), slot.stateDir, workspace), ...o.towers,
 		// A seam that watches the runs (tests) sees every signal too, and does not take the place of the notice to the controllers.
-		runs: { ...o.towers?.runs, signal: (sig) => { const r = runNotice(sig); void reporter?.notify(r.key, r.notice); o.towers?.runs?.signal?.(sig); } },
+		runs: { ...o.towers?.runs, signal: (sig) => { const r = runNotice(sig); void reporter?.notify(r.key, r.notice, r.scope); o.towers?.runs?.signal?.(sig); } },
 	});
 	stops.push(cfg.watch(() => {
 		log.line("herdr-takeover");
@@ -562,15 +563,15 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	// pi-intercom: the server's own session, reconnecting with the sidecar's backoff (1, 2, 5, 10, then 30 s). While it is disconnected its identities are not live.
 	// The link holder (B3): the primary server only, built once the first connection is attached (the kit's channel needs a client). A computer with no team set up gets no channel, election, or files.
 	const dialogsOut = () => (forwarder ??= new DialogForwarder({
-		...guiHost!.dialogs(), controllers: () => link?.holder?.dialogControllers() ?? [], online: (team, device) => link?.holder?.deviceOnline(team, device) ?? false, controllersKnown: () => link?.holder?.controllersKnown() ?? false,
+		hub: guiHost!.dialogs().hub, read: guiHost!.dialogs().read, dispatcher: dispatcherLookup({ paneOf: (key) => guiHost!.dialogs().paneOf(key), list: () => panes(cfg.run), allyPanes: () => towers?.runs.allyPanes() ?? [], now }), admin: (team, device) => link?.holder?.isAdmin(team, device) ?? false, controllers: () => link?.holder?.dialogControllers() ?? [], online: (team, device) => link?.holder?.deviceOnline(team, device) ?? false, controllersKnown: () => link?.holder?.controllersKnown() ?? false,
 		post: async (team, device, kind, payload) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, kind, payload); },
 		log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),
-		now, notice: (key, notice) => unitsOut().notify(key, notice),
+		now, notice: (key, notice, scope) => unitsOut().notify(key, notice, scope),
 	}));
 	/** `team\nlabel` a unit is told under (scrubbed) → its workspace id, for the report lookup: two workspaces may share a label, and a team reads only its own. */
 	const unitWorkspaces = new Map<string, string>();
 	const unitsOut = () => (reporter ??= new UnitReporter({
-		controllers: () => link?.holder?.dialogControllers() ?? [],
+		controllers: () => link?.holder?.dialogControllers() ?? [], admin: (team, device) => link?.holder?.isAdmin(team, device) ?? false,
 		// Per team: the units whose workspace has a pane inside that team's project, when its policy shares status. Labels and monitor commands leave this computer, so they pass the same scrub as a board's.
 		units: async (team) => {
 			const policy = link?.holder?.policyOf(team), rows = towers?.status() ?? [];
@@ -604,11 +605,11 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			dialogAnswer: (a) => dialogsOut().answer(a),
 			// The tower service takes part in the holder's work (B6): an ask answered by a `tower-reply` is the main's, messages for a tower identity the server runs wake an ally run, and a `forward` answer reaches its run.
 			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false,
-				openTower: async (project, toWorkspace) => {
+				openTower: async (project, toWorkspace, from) => {
 					try {
 						await openTower({ run: cfg.run, towers: () => towers, now, home: o.link?.home ?? homedir(), agentDir: env.PI_CODING_AGENT_DIR ?? join(o.link?.home ?? homedir(), ".pi", "agent") }, project, toWorkspace);
 					} catch (error) {
-						void unitsOut().notify(`tower-open/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: allyLabel(project), text: `Could not open a tower for ${project}: ${(error as Error).message}` });
+						void unitsOut().notify(`tower-open/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: allyLabel(project), text: `Could not open a tower for ${project}: ${(error as Error).message}` }, { device: from });
 						throw error;
 					}
 				} },

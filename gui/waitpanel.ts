@@ -64,7 +64,11 @@ export function waitPanel(o: WaitPanelOptions) {
 		try {
 			const r = await wrap(o.actions.tell(text));
 			if (!(taken = outcome(r) === "accepted")) say(m.zen_wait_refused({ reason: joined(towerWhy(r) ?? r.body.reason ?? r.body.error ?? String(r.status)) }));
-			else o.done?.();
+			else {
+				[box!.value, open] = ["", false]; // the tower has the words: the box folds and empties, so a second Enter cannot send them again
+				draw();
+				o.done?.();
+			}
 		} catch {
 			say(m.zen_head_unreachable());
 		}

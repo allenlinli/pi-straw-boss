@@ -302,6 +302,26 @@ test("sending posts the boss's words to the tower exactly as Standard's composer
 	assert.equal(r.text().includes("Boss token needed"), false);
 });
 
+test("Esc while the answer is on its way does not fold the box, so a refusal lands in an open box with the focus back in it", async () => {
+	const r = rig();
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.click();
+	const box = waitBox(r);
+	box.value = "Use the staging token";
+	enter(box);
+	await r.settle();
+	assert.equal(r.calls.posts.length, 1, "on its way");
+	r.z.escape({ preventDefault: () => {} });
+	const form = r.by((el) => el.classes.has("zen-head-form"))[0]!;
+	assert.equal(form.hidden, false, "Esc leaves the box as it is while the answer is on its way");
+	await r.reply({ error: "refused", reason: "The tower did not take it." }, 409);
+	assert.equal(form.hidden, false, "the box is open for the refusal");
+	assert.match(waitNote(r).textContent, /^Not sent/);
+	assert.equal(page.focused, box, "and has the focus again");
+});
+
 const answeredNet = (r: { now(): number }, extra: { id: string; text: string }[] = []) => {
 	const n = waitNet(r);
 	const memory = n.bases[0]!.tower!.service!.memory!;

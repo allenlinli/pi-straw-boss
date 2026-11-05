@@ -62,6 +62,18 @@ test("a wait row says how long it has stood and that it may be out of date after
 	assert.deepEqual([m.tower_answer({}, { locale: "zh-TW" }), m.wait_dismiss({}, { locale: "zh-TW" })], ["去處理", "略過"], "the boss-facing words");
 });
 
+// The panel's chunk (`kit`) is module state, loaded once per process by the first wait row, so this runs before the others that draw one.
+test("a snapshot drawn while the panel's chunk loads is not overwritten by the older one the load captured", async () => {
+	Object.assign(globalThis.document, { querySelector: () => ({ content: "CSRF" }) });
+	const box = new El("div");
+	fillNotices(box as unknown as HTMLElement, "wA", service([FRESH]), "sb-tower-wa"); // starts the load
+	fillNotices(box as unknown as HTMLElement, "wA", service([]), "sb-tower-wa"); // the wait was dismissed elsewhere: no rows
+	assert.equal(box.children.length, 0, "the newer snapshot has no wait row");
+	await new Promise((done) => setTimeout(done, 50));
+	assert.equal(box.children.length, 0, "the load redraws the newest snapshot, not the one it started with");
+	assert.equal(box.find((el) => el.tag === "textarea").length, 0);
+});
+
 test("the wait's row on the card mounts the wait panel: Handle unfolds the answer box that tells the tower, Dismiss posts the dismiss by the wait's id, and the link goes to the tower's comms", async () => {
 	const sent: { path: string; body: Record<string, unknown> }[] = [];
 	Object.assign(globalThis.document, { querySelector: () => ({ content: "CSRF" }) });
@@ -88,6 +100,43 @@ test("the wait's row on the card mounts the wait panel: Handle unfolds the answe
 	const again = box.find((el) => el.tag === "textarea")[0]!;
 	fillNotices(box as unknown as HTMLElement, "wA", service([{ ...FRESH, at: iso(NOW - 3 * HOUR) }], 5), "sb-tower-wa"); // the row's age changed: it is redrawn
 	assert.equal(box.find((el) => el.tag === "textarea")[0], again, "the panel, and a draft in it, outlives a redraw");
+});
+
+const rowRig = async (ws: string, key: string) => {
+	const sent: { path: string; body: Record<string, unknown> }[] = [];
+	Object.assign(globalThis.document, { querySelector: () => ({ content: "CSRF" }) });
+	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => ({ accepted: true, woke: true, answered: "W2" }) }) });
+	const box = new El("div"), draw = (s: TowerService) => fillNotices(box as unknown as HTMLElement, ws, s, key);
+	draw(service([FRESH]));
+	await new Promise((done) => setTimeout(done, 50));
+	const enter = (el: El) => el.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
+	return { sent, box, draw, enter, handle: box.find((el) => el.tag === "button")[0]!, text: box.find((el) => el.tag === "textarea")[0]!, form: box.find((el) => el.tag === "form")[0]! };
+};
+
+test("once the tower took the words, the row clears and folds its box, so a second Enter sends nothing", async () => {
+	const r = await rowRig("wB", "sb-tower-wb");
+	(r.handle as unknown as { onclick(): void }).onclick();
+	r.text.value = "Yes, deploy";
+	r.enter(r.text);
+	await new Promise((done) => setTimeout(done, 5));
+	assert.equal(r.sent.length, 1);
+	assert.equal(r.text.value, "", "the sent words are gone from the box");
+	assert.equal(r.form.hidden, true, "and the box is folded");
+	assert.equal(r.handle.hidden, false, "Handle is back");
+	r.draw(service([{ ...FRESH, answered: iso(NOW) }])); // the next snapshot: answered
+	r.enter(r.text);
+	await new Promise((done) => setTimeout(done, 5));
+	assert.equal(r.sent.length, 1, "an Enter in the folded, empty box sends nothing");
+});
+
+test("a redraw of the row (its age changed) keeps the focus in the box being typed in", async () => {
+	const r = await rowRig("wC", "sb-tower-wc");
+	(r.handle as unknown as { onclick(): void }).onclick();
+	r.text.value = "Yes, deploy";
+	r.text.focus();
+	r.draw(service([{ ...FRESH, at: iso(NOW - 3 * HOUR) }]));
+	assert.equal(r.box.find((el) => el.tag === "textarea")[0], r.text, "the same box");
+	assert.equal(document.activeElement, r.text, "still focused");
 });
 
 const net = (waits: { id: string; text: string; at: string; answered?: string }[]): Net => ({ bases: [{ id: "w", label: "Harbor", mark: "idle", tower: { name: "tower · Harbor", mark: "idle", key: "t1", control: true, service: service(waits), subs: [] }, tabs: [], outposts: [], outside: [] }] });

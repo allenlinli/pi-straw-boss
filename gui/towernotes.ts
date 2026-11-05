@@ -13,16 +13,19 @@ type Panel = ReturnType<typeof import("./waitpanel.ts").waitPanel>;
 type Kit = { waitPanel: typeof import("./waitpanel.ts").waitPanel; waitActions: typeof import("./asks.ts").waitActions; answerPost: typeof import("./answer.ts").answerPost };
 let kit: Kit | undefined, loading: Promise<Kit> | undefined;
 const load = () => (loading ??= Promise.all([import("./waitpanel.ts"), import("./asks.ts"), import("./answer.ts")]).then(([w, a, r]) => (kit = { waitPanel: w.waitPanel, waitActions: a.waitActions, answerPost: r.answerPost })));
-const panels = new WeakMap<HTMLElement, Map<string, Panel>>();
+const panels = new WeakMap<HTMLElement, Map<string, Panel>>(), newest = new WeakMap<HTMLElement, [string, TowerService | undefined, string | undefined]>();
 
 /** Redrawn only when the rows change, so a click never lands on a button that was replaced; the wait panels outlive a redraw (an answer being typed stays). */
 export function fillNotices(box: HTMLElement, ws: string, service: TowerService | undefined, key?: string) {
+	newest.set(box, [ws, service, key]); // the panel's load redraws this, not the snapshot that started it
 	const rows = noticeRows(service), sig = JSON.stringify([ws, rows]), live = document.body.dataset.stale !== "true";
 	for (const panel of panels.get(box)?.values() ?? []) panel.update(live);
 	if (box.dataset.sig === sig) return;
 	box.dataset.sig = sig;
-	if (!kit && key && rows.some((r) => r.wait)) void load().then(() => ((box.dataset.sig = ""), fillNotices(box, ws, service, key)));
+	if (!kit && key && rows.some((r) => r.wait)) void load().then(() => ((box.dataset.sig = ""), fillNotices(box, ...newest.get(box)!)));
 	const before = panels.get(box) ?? new Map<string, Panel>(), kept = new Map<string, Panel>();
+	const focused = document.activeElement as HTMLElement | null; // a kept panel moves into a new row, which takes the focus off the box being typed in
+	const held = focused && [...before.values()].some((p) => p.el.contains(focused)) ? focused : undefined;
 	box.replaceChildren(...rows.map((r) => {
 		const fail = h("small", { class: "tnote-fail", role: "alert" }), row = h(r.wait ? "div" : "p", { class: `tnote ${r.level}` }, h("span", null, r.text));
 		if (r.wait) {
@@ -45,4 +48,5 @@ export function fillNotices(box: HTMLElement, ws: string, service: TowerService 
 		return row;
 	}));
 	panels.set(box, kept);
+	held?.focus();
 }

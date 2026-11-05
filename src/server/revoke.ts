@@ -64,10 +64,10 @@ export function createRevoker(d: RevokerDeps) {
 						continue;
 					}
 				}
-				const key = `${row.main}/pending`;
+				const manual = /was not opened by a tower/.test(reason), key = `${row.main}/${manual ? "manual" : "pending"}`;
 				d.log({ event: "revoke-waiting", workspace: row.workspace, main: row.main, why });
 				if (!told.has(key)) {
-					const sent = await d.signal({ kind: "revoked", workspace: row.workspace, label: row.label, ally: true, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main, ended: false, text: /was not opened by a tower/.test(reason) ? `${who} still runs and cannot be ended by the box (${reason}). Close it by hand.` : `${who} could not be ended yet (${reason}). The box asks again until it quits.` });
+					const sent = await d.signal({ kind: "revoked", workspace: row.workspace, label: row.label, ally: true, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main, ended: false, ...(manual ? { manual: true } : {}), text: manual ? `${who} still runs and cannot be ended by the box (${reason}). Close it by hand.` : `${who} could not be ended yet (${reason}). The box asks again until it quits.` });
 					if (sent !== false) {
 						told.add(key);
 						while (told.size > 256) told.delete(told.values().next().value!);

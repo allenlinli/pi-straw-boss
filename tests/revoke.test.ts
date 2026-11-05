@@ -155,3 +155,25 @@ test("a device is never taken as gone while the holder cannot tell (not running,
 	await r.revoker.sweep();
 	assert.deepEqual(r.closes, ["wA/m-1"]);
 });
+
+test("the Close it by hand notice is told even when a pending notice was told for that main before (g346b-F001)", async () => {
+	const r = rig([main({ pane: "p-1" })], { [DEV]: "reply" });
+	r.world.closeError = "main is working; try again when it is idle";
+	for (let i = 0; i < 2; i++) await r.revoker.sweep();
+	r.world.closeError = "main was not opened by a tower (the boss opened it), so only the boss closes it";
+	r.world.paneGone = false;
+	for (let i = 0; i < 3; i++) await r.revoker.sweep();
+	const texts = r.signals.map((s) => (s.kind === "revoked" ? s.text : ""));
+	assert.equal(texts.length, 2);
+	assert.match(texts[1]!, /Close it by hand/);
+	const keys = r.signals.map((s) => runNotice(s).key);
+	assert.notEqual(keys[0], keys[1]);
+});
+
+test("a route with no pane is kept after any number of GONE answers (g346b-F003)", async () => {
+	const r = rig([main()], { [DEV]: "reply" });
+	r.world.closeError = "No live session is named or has the id \"m-1\"";
+	r.world.paneGone = false;
+	for (let i = 0; i < 6; i++) await r.revoker.sweep();
+	assert.deepEqual(r.forgot, []);
+});

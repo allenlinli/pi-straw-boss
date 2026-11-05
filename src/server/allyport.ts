@@ -27,14 +27,16 @@ export function allyPort(link: () => LinkService | undefined): AllyPort {
 		known(team) {
 			const service = link();
 			if (!service) return false;
-			const mode = service.policyMode();
+			const { mode, config } = service.policyLook();
 			if (mode === "refused") return false;
-			if (mode === "unattended" && !service.config().teams.has(team)) return service.holder?.active === true;
+			if (mode === "unattended" && !config.teams.has(team)) return service.holder?.active === true;
 			return service.holder?.rosterKnown(team) ?? false;
 		},
 		standing(device, team) {
 			const service = link();
-			if (!service || (service.policyMode() === "unattended" && !service.config().teams.has(team))) return undefined;
+			if (!service) return undefined;
+			const { mode, config } = service.policyLook();
+			if (mode === "unattended" && !config.teams.has(team)) return undefined;
 			return service.holder?.isMember(team, device) ? { level: service.levelOf(device) } : undefined;
 		},
 		project: (team) => link()?.config().teams.get(team)?.project,

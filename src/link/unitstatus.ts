@@ -85,7 +85,7 @@ export function runNotice(s: RunSignal): { key: string; notice: Notice; scope: S
 	const scope: Scope = s.device !== undefined ? { device: s.device, ...(s.team !== undefined ? { team: s.team } : {}) } : {};
 	const who = s.ally ? "An ally run" : "A run";
 	// The key goes into the log, and a refusal's text can carry a path or a line of the project's settings: the key holds a hash of it.
-	if (s.kind === "revoked") return { key: `revoked/${s.main}/${s.ended ? "ended" : "pending"}`, notice: { kind: s.ended ? "main-revoked" : "main-revoke-pending", unit: allyLabel(s.label), text: s.text }, scope };
+	if (s.kind === "revoked") return { key: `revoked/${s.main}/${s.ended ? "ended" : s.manual ? "manual" : "pending"}`, notice: { kind: s.ended ? "main-revoked" : "main-revoke-pending", unit: allyLabel(s.label), text: s.text }, scope };
 	if (s.kind === "refused") return { key: `refused/${s.workspace}/${createHash("sha256").update(s.text).digest("hex").slice(0, 16)}`, notice: { kind: "run-refused", unit: allyLabel(s.label), text: s.text }, scope };
 	const trust = s.detail?.startsWith("No trust decision");
 	const kind = trust ? "trust-unanswered" : s.outcome === "quit" ? "run-quit" : s.outcome === "timeout" ? "run-timeout" : "run-crashed";

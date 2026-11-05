@@ -6,9 +6,10 @@ import { allyPort } from "../src/server/allyport.ts";
 // What the revocation of a controller's runs and mains asks the link (docs/specs/2026-11-05-link-shared-box.md, section 3): whether the box can tell who is in a team, and who is.
 
 const T = "t".repeat(16), DEV = "n".repeat(26);
-function port(world: { mode: "attended" | "unattended" | "refused"; teams: string[]; running: boolean; member: boolean }) {
+function port(world: { mode: "attended" | "unattended" | "refused"; teams: string[]; running: boolean; member: boolean }, reads = { n: 0 }) {
+	const cfg = () => ({ teams: new Map(world.teams.map((t) => [t, {}])) });
 	const service = {
-		policyMode: () => world.mode, config: () => ({ teams: new Map(world.teams.map((t) => [t, {}])) }), levelOf: () => "dispatch",
+		policyMode: () => (reads.n++, world.mode), config: () => (reads.n++, cfg()), policyLook: () => (reads.n++, { mode: world.mode, config: cfg() }), levelOf: () => "dispatch",
 		holder: { active: true, rosterKnown: () => world.running, isMember: () => world.member },
 	} as unknown as LinkService;
 	return allyPort(() => service);
@@ -31,4 +32,13 @@ test("a team the unattended policy dropped is known to be empty, and nobody stan
 
 test("an attended computer asks the holder alone", () => {
 	assert.equal(port({ mode: "attended", teams: [], running: true, member: true }).known?.(T), true);
+});
+
+test("known and standing read the policy once per call, so it cannot flip between two reads (g346b-F002)", () => {
+	const world = { mode: "unattended" as const, teams: [T], running: true, member: true };
+	for (const ask of [(p: ReturnType<typeof port>) => p.known?.(T), (p: ReturnType<typeof port>) => p.standing?.(DEV, T)]) {
+		const reads = { n: 0 };
+		ask(port(world, reads));
+		assert.equal(reads.n, 1);
+	}
 });

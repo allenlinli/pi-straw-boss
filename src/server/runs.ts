@@ -305,7 +305,7 @@ export type RunSignal =
 	| { kind: "ended"; run: string; workspace: string; label: string; ally: boolean; outcome: "crashed" | "timeout" | "quit"; detail?: string; /** An ally run's sender and team: the controller that dispatched it. */ device?: string; team?: string }
 	| { kind: "refused"; workspace: string; label: string; ally: boolean; text: string; device?: string; team?: string }
 	/** A main an ally run opened for `device` was asked to quit because the device left the team or lost `dispatch` (revoke.ts); `ended` says it quit, else it still runs and is asked again. */
-	| { kind: "revoked"; workspace: string; label: string; ally: true; device: string; team?: string; main: string; ended: boolean; text: string };
+	| { kind: "revoked"; workspace: string; label: string; ally: true; device: string; team?: string; main: string; ended: boolean; /** The box cannot end this main (the boss opened it): the admins close it by hand. Its own notice key. */ manual?: boolean; text: string };
 
 export interface RunsOptions {
 	slot: Slot;

@@ -1,8 +1,8 @@
 import type { ConfirmView, LinkAlert, LinkSummary } from "../src/link/holder.ts";
 import { h, nodes } from "./dom.ts";
-import { alertLine, dialogState, urgentFirst } from "./linkmodel.ts";
+import { alertLine, confirmLine, dialogState, urgentFirst } from "./linkmodel.ts";
 import { m } from "./paraglide/messages.js";
-import { post } from "./post.ts";
+import { confirmActions } from "./asks.ts";
 import { byId, hang } from "./render.ts";
 
 // The header's Link button and the notices under it (spec, GUI, Notices): a join request waiting, a roster mismatch or fork, a confirm a teammate's tower
@@ -23,7 +23,7 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 	const answer = (c: ConfirmView, allow: boolean, row: HTMLElement) => {
 		const note = row.querySelector<HTMLElement>(".link-note")!;
 		for (const b of row.querySelectorAll("button")) b.disabled = true;
-		void post("link/confirm-answer", { dialogId: c.dialogId, allow }).then((r) => {
+		void confirmActions(c)[allow ? "allow" : "deny"]().then((r) => {
 			if (!r.ok) note.textContent = r.body.reason ?? m.refused({ status: r.status });
 			for (const b of row.querySelectorAll("button")) b.disabled = false;
 		}, () => {
@@ -36,7 +36,7 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 		const allow = h("button", { type: "button", class: "pair-btn" }, m.link_allow()), deny = h("button", { type: "button", class: "pair-btn" }, m.link_deny());
 		allow.onclick = () => answer(c, true, row);
 		deny.onclick = () => answer(c, false, row);
-		row.append(h("b", null, alertLine({ id: "", kind: "confirm", level: "warning", team: c.team, teamName: "", data: { label: c.fromLabel, short: c.fromShort, tool: c.tool, tower: c.tower } })), h("pre", { class: "link-args" }, c.args), h("div", { class: "devices-acts" }, allow, deny), h("small", { class: "link-note", role: "status" }));
+		row.append(h("b", null, confirmLine(c)), h("pre", { class: "link-args" }, c.args), h("div", { class: "devices-acts" }, allow, deny), h("small", { class: "link-note", role: "status" }));
 		return row;
 	};
 	// The cards of forwarded dialogs (linkdialogs.ts, with the question panel) load when the first one shows, so the page's start does not carry them; until then the notice's line stands in.

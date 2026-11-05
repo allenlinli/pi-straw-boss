@@ -39,9 +39,9 @@ export function fillNotices(box: HTMLElement, ws: string, service: TowerService 
 		}
 		for (const action of r.actions) {
 			const button = h("button", { type: "button", class: "pair-btn" }, LABEL[action]());
-			// A run's proposal is answered at the memory route, by its id (a confirm names the rev the snapshot carried).
-			const [path, body] = r.proposal && (action === "confirm" || action === "reject") ? ["memory", action === "confirm" ? { op: "confirm", proposal: r.proposal, rev: r.rev } : { op: "reject", proposal: r.proposal }] : [action, r.event ? { id: r.event } : {}];
-			button.onclick = () => void guarded(button, (text) => (fail.textContent = text ?? ""), () => post(`${towerRoute(ws)}/${path}`, body));
+			// A run's proposal is answered at the memory route, by its id (a confirm names the rev the snapshot carried): asks.ts `proposalActions`, which Zen's card calls too.
+			const run = async () => (r.proposal && (action === "confirm" || action === "reject") ? (await import("./asks.ts")).proposalActions({ ws, id: r.proposal, rev: r.rev! })[action]() : post(`${towerRoute(ws)}/${action}`, r.event ? { id: r.event } : {}));
+			button.onclick = () => void guarded(button, (text) => (fail.textContent = text ?? ""), run);
 			row.append(button);
 		}
 		row.append(fail);

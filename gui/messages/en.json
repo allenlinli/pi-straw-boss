@@ -1051,5 +1051,7 @@
 	"zen_wait_refused": "Not sent: {reason}",
 	"palette_head_talk": "Talk to the head tower",
 	"palette_head_history": "The head tower's whole conversation",
-	"palette_head_page": "Open the head tower in Standard"
+	"palette_head_page": "Open the head tower in Standard",
+	"zen_link_title": "{label} asks you",
+	"zen_pair_title": "{label} asks to pair"
 }

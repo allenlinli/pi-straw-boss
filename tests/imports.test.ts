@@ -530,7 +530,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Terminal card review fixes (TC-F001 to F008): termcard.ts 123 to 148 (the retry from the button with its backoff, the stopped card's silence, the focus and mask rules), mirror.ts 192 to 193 (`watch` gives `retry`), termwords.ts 18 to 19 (four codes).
 	// Z-D14 (a long lone question is set as text): gui/ask.ts 194 to 196 (LONG_Q and its line).
 	// A wait for the boss is an alert (docs/specs/2026-10-26-sb-backend.md, Tower memory): layer.ts 260 to 261 (a wait's dialog is waitpanel.ts's, one line to hand it over; the skipped transmission read shares an existing line). zen.ts 353 to 360 (a wait's card: its mount and the two places that read the unit's history skip a wait). alerts.ts and overlay.ts 159 to 161 (the import of waits.ts and its one call in `alertsOf`).
-	for (const [name, max] of [["router.ts", 80], ["chat.ts", 339], ["markdown.ts", 180], ["views.ts", 99], ["scene.ts", 55], ["tokens.ts", 24], ["nav.ts", 46], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 165], ["sessionfacts.ts", 10], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 261], ["askkeys.ts", 80], ["composer.ts", 327], ["ask.ts", 196], ["terminalthen.ts", 21], ["answer.ts", 16], ["mirror.ts", 193], ["mirrorconn.ts", 84], ["keywriter.ts", 71], ["termcard.ts", 148], ["confirmbar.ts", 12], ["termwords.ts", 19], ["stepslot.ts", 63], ["zenhost.ts", 59], ["cardmodel.ts", 49], ["keypad.ts", 80], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 386], ["zenquestions.ts", 159], ["zentypes.ts", 70], ["zenterm.ts", 111], ["zenlines.ts", 139], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["zensound.ts", 140], ["zenmusic.ts", 116], ["zenmusicbar.ts", 178], ["prefs.ts", 41], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
+	// Zen link cards: zen.ts 386 to 425 (the cards beside the alerts, their title, sentence and panels, the pair list, and the way out of a card); the panels are zendecide.ts (new), the alerts cardalerts.ts (new).
+	for (const [name, max] of [["router.ts", 80], ["chat.ts", 339], ["markdown.ts", 180], ["views.ts", 99], ["scene.ts", 55], ["tokens.ts", 24], ["nav.ts", 46], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 165], ["sessionfacts.ts", 10], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 261], ["askkeys.ts", 80], ["composer.ts", 327], ["ask.ts", 196], ["terminalthen.ts", 21], ["answer.ts", 16], ["mirror.ts", 193], ["mirrorconn.ts", 84], ["keywriter.ts", 71], ["termcard.ts", 148], ["confirmbar.ts", 12], ["termwords.ts", 19], ["stepslot.ts", 63], ["zenhost.ts", 59], ["cardmodel.ts", 49], ["keypad.ts", 80], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 425], ["zenquestions.ts", 159], ["zentypes.ts", 70], ["zenterm.ts", 111], ["zenlines.ts", 139], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["zensound.ts", 140], ["zenmusic.ts", 116], ["zenmusicbar.ts", 178], ["prefs.ts", 41], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
 	// 0.28.0 to 185 with the answer keys' hooks into gui/ask.ts (the focus on the first option, the textarea). 0.28.0 raised gui/ask.ts from 156 to 175 for the secret panel: the masked field with Show and Hide, Submit, the way back to the terminal, the unsupported-remote notice, and a value that leaves with its one request.
 	// 0.10.0: the page's text comes from Paraglide's messages (gui/messages), which raised chat.ts, views.ts, layer.ts, ask.ts, mirror.ts, and doc.ts by one
 	// line each for the messages import; the strings replaced in place. gui/i18n.ts picks the locale (the menu's choice, the browser's languages with
@@ -565,7 +566,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Unreleased to 157 for the alert ranking: only a unit waiting on the user (or with a dialog pending) is prominent; an error and a failed monitor are notices, and rankOf reads the alert.
 	// Unreleased (project trust) to 162: a trust question as an alert (alerts.ts: `trust` on Alert, the openings this page runs, one alert per folder and digest).
 	// Views-core R1 to 159: the walk over a net's units and the ranking left alerts.ts for gui/units.ts (3 lines), which the page's total takes.
-	assert.ok(overlay <= 161, `the overlay model has ${overlay} lines`);
+	// Zen link cards to 162: the type of Alert's `card` is imported (gui/cardalerts.ts raises the cards for Zen alone).
+	assert.ok(overlay <= 162, `the overlay model has ${overlay} lines`);
 	const demo = sum("gui", ["fixture.ts", "demo-chat.ts", "democard.ts"]);
 	// Unit status and notices (S5) to 374 (measured, +4 over 370): fixture.ts gained the unattended device's ally base with its unit-status, a notice, and an ended dialog card.
 	// 0.5.0 raised it from 160 to 165 for a demo question and a demo secret; 0.6.0 to 170 for a demo robot_hand selector and questionnaire that answer;
@@ -592,7 +594,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Merge of the head tower into main (0.58.0): 403 measured, the wait's `?wait=` states beside the head's `?zen=head*` states.
 	// A wait the boss answered to 408 (measured, +2): the demo's `answerWait` marks the wait answered as the server does, in the dock's and the map card's routes.
 	// Wait panel answers in place to 406 (measured, +3): `&waitrefuse` makes the tower refuse what the boss sends it, the demo's input and dismissal reply as the server does (`accepted`, the memory it holds), and the map card's wait row (no fixture seam) reaches the tower's session input through the demo's fetch.
-	assert.ok(demo <= 408, `the demo fixture has ${demo} lines`);
+	// Zen link cards to 410 (measured, +2): the fixture installs gui/demo-link.ts (its own file) for the four link states.
+	assert.ok(demo <= 410, `the demo fixture has ${demo} lines`);
 	// Head tower H5 to 387 (+3 over 384): the strip's `?zen=head|head-open|head-history` states (the quiet net, the Enter and H presses, the draft), and a message to the head answered with its working mark (demo-head.ts holds the words).
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
@@ -615,7 +618,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// language, one decision at a time, a link for each certificate file, the name offered only while the server answers to it); qr.ts takes the label; lanwait.ts, 23, is the header's notice for a request that waits while the tab is closed.
 	// Settings page (step 5) to 86: `select`, the way the page moves an open Phone section to its Same Wi-Fi tab (the header's waiting-request notice).
 	assert.ok(pairing <= 86, `the pairing tile has ${pairing} lines`);
-	assert.ok(count("gui/lan.ts") <= 253 && count("gui/qr.ts") <= 17 && count("gui/lanwait.ts") <= 23, "the Same Wi-Fi tab, the QR drawing, and the waiting notice stay small");
+	// Zen link cards: lan.ts to 255 and lanwait.ts to 25 for the shared decisions (asks.ts `lanActions`, `lanReading`) and the pending list (pairs.ts), which Zen's pair card reads too.
+	assert.ok(count("gui/lan.ts") <= 255 && count("gui/qr.ts") <= 17 && count("gui/lanwait.ts") <= 25, "the Same Wi-Fi tab, the QR drawing, and the waiting notice stay small");
 	// Unreleased: the answer form's keys (gui/askkeys.ts: arrows, Tab, Enter, and Space between options, questions, own words, and Send, one tab stop per group) have a figure of their own,
 	// and layer.ts went to 249 for the dialog that takes the focus on its first option instead of Open comms (4 lines).
 	// Unreleased: the dialogs' keys (Space opens the next alert, F enlarges the top dialog; gui/hotkeys.ts: the routing and its listeners) have a figure of their own,
@@ -740,7 +744,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Wait panel answers in place to 5824 (measured, +114): gui/asks.ts takes `waitActions` and `joined` (35), waitpanel.ts the answer box and the comms link (130), towernotes.ts the wait row's panel (+19), zen.ts the title, the box's Esc row and the card's two hooks (+4), the demo's replies.
 	// Dialog and card polish (the wait panel's Handle and Send marked as the dialog's act, the refusal words, the demo's refusal reply): 5825 (measured, +1).
 	// Wait review fixes: 5837 (measured, +12): the row's newest snapshot and kept focus, the folded box, the dialog's title and its hidden duplicates, `waitTitle`.
-	assert.ok(page <= 5837, `the page's TypeScript has ${page} lines`);
+	// Zen link cards to 6094 (measured, +257): asks.ts takes the link, forwarded-dialog, proposal and LAN actions (+41), cardalerts.ts, pairs.ts, zendecide.ts and demo-link.ts are new, zen.ts takes the cards (+39), and Standard's rows call the shared actions.
+	assert.ok(page <= 6094, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).

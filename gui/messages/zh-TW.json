@@ -911,5 +911,7 @@
 	"zen_wait_refused": "沒有送出：{reason}",
 	"palette_head_talk": "和主塔台說話",
 	"palette_head_history": "主塔台的全部對話",
-	"palette_head_page": "在標準檢視開啟主塔台"
+	"palette_head_page": "在標準檢視開啟主塔台",
+	"zen_link_title": "{label} 想請你確認",
+	"zen_pair_title": "{label} 想要配對"
 }

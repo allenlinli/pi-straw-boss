@@ -1,5 +1,5 @@
 import type { Mark } from "../src/netdata.ts";
-import type { AllyBase, DeviceUnits, LinkAlert, LinkSummary } from "../src/link/holder.ts";
+import type { AllyBase, ConfirmView, DeviceUnits, LinkAlert, LinkSummary } from "../src/link/holder.ts";
 import { m } from "./paraglide/messages.js";
 
 // What the page says about Straw Link, as plain functions of the holder's reading (src/link/holder.ts `LinkSummary`, `LinkView`): the notice texts,
@@ -23,6 +23,9 @@ export function alertLine(a: LinkAlert): string {
 		case "notice": return m.link_a_notice({ label: text(d.label), short: text(d.short), team, what: text(d.what), unit: text(d.unit), text: text(d.text) });
 	}
 }
+
+/** The line of a confirm a teammate's tower asked of this computer (the header's Link notices and Zen's card say it the same way). */
+export const confirmLine = (c: ConfirmView): string => alertLine({ id: "", kind: "confirm", level: "warning", team: c.team, teamName: "", data: { label: c.fromLabel, short: c.fromShort, tool: c.tool, tower: c.tower } });
 
 /** The alerts that want the boss to act or look now (everything but a quiet inbox note), most urgent first. */
 export const urgentFirst = (alerts: LinkAlert[]): LinkAlert[] => {

@@ -3,6 +3,7 @@ import type { Mark } from "../src/netdata.ts";
 import type { Net, TowerService, Unit } from "../src/net.ts";
 import type { Data, Page } from "./chat.ts";
 import { demoCard, isCard, stepOf } from "./democard.ts";
+import { isLinkState, linkDemo } from "./demo-link.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
 import { headDemo, headDraft, headHistory, headInput, type HeadState, isHeadState } from "./demo-head.ts";
@@ -91,13 +92,13 @@ const PAD_REPLIES: Record<string, { ok: boolean; status: number; body: Record<st
 	esc: { ok: false, status: 409, body: { error: "confirm", confirm: "double-esc", reason: "A second Escape on an idle session runs pi's double-Escape action (tree or fork); confirm to run it." } },
 	tab: { ok: false, status: 409, body: { error: "blocked", reason: "While it waits on a secret or a question only Escape is sent from here; answer the question in its panel or the terminal." } },
 };
-// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `long` (one long multi-select question with four described choices and the own-answer box), `idle` (nothing waits: the companion billing-main, the first visit's start), `alone` (nothing waits, a plain visit: the breathing circle and its line). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half. Three more states press a key a moment after the page starts, for pictures: `history` is `item` with the card's 前情 (H) open, `palette` is `idle` with the command palette (⌘K, Ctrl+K off a Mac) open, `pause` is `item` answered at once, so the 3 s breathing pause shows. `?music=<n>` gives the demo a music folder of n invented tracks (1 to 6; none by default, so the ♪ stays hidden); the demo has no audio file, so a track that is switched on says "tap to play" (`localStorage` `sb.zen.music` = 1 switches it on).
+// `?zen=<state>` starts the page in the Zen view (main.ts) with the net in one state: `item` (ops-main's robot_hand select, the default net), `questions` (its two-question form), `secret` (a secret_drop, read-only), `words` (it waits with no dialog), `trust` (a project trust question, then ops-main), `long` (one long multi-select question with four described choices and the own-answer box), `idle` (nothing waits: the companion billing-main, the first visit's start), `alone` (nothing waits, a plain visit: the breathing circle and its line), `link-confirm`, `link-dialog`, `pair` and `proposal` (the link cards, demo-link.ts; `&refuse` makes the server refuse the answer; the pair number is 4821). `?card=<state>` (democard.ts) opens the terminal card a moment after the page starts, in either view. The idle states make no new waits for a minute and a half. Three more states press a key a moment after the page starts, for pictures: `history` is `item` with the card's 前情 (H) open, `palette` is `idle` with the command palette (⌘K, Ctrl+K off a Mac) open, `pause` is `item` answered at once, so the 3 s breathing pause shows. `?music=<n>` gives the demo a music folder of n invented tracks (1 to 6; none by default, so the ♪ stays hidden); the demo has no audio file, so a track that is switched on says "tap to play" (`localStorage` `sb.zen.music` = 1 switches it on).
 const zenState = (net: Net, extra: string | null) => {
 	const state = extra === "palette" ? "idle" : extra?.startsWith("head") ? "alone" : extra === "history" || extra === "pause" ? "item" : extra; // head, head-open, head-history: nothing waits (the strip is under the circle)
 	const main = units(net).find((u) => u.key === "a3")!;
 	if (state === "trust") net.trust = [{ id: "tr1", digest: "t".repeat(64), folder: "/work/harbor-api", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy", "release", "triage"], more: 0 }, { kind: "extensions", path: ".pi/extensions", items: ["harbor-hooks.ts"], more: 0 }], agents: [{ pane: "1", base: "Harbor API", role: "member", at: Date.now() - 50 * 60_000 }] }];
 	// Only ops-main waits at first (the idle states: nothing does), so the first item is the one the state names.
-	for (const u of units(net)) if (u.key !== "a3" || state === "idle" || state === "alone") if (u.mark === "waiting" || u.pending) [u.mark, u.note, u.pending] = ["working", "thinking", undefined];
+	for (const u of units(net)) if (u.key !== "a3" || state === "idle" || state === "alone" || isLinkState(state ?? null)) if (u.mark === "waiting" || u.pending) [u.mark, u.note, u.pending] = ["working", "thinking", undefined];
 	if (state === "questions" || state === "secret") main.pending = ask(state === "secret" ? 1 : 2);
 	if (state === "words") main.pending = undefined;
 	if (state === "long") main.pending = { callId: "demo-long", tool: "ask_user_question", asks: LONG, answer: { dialog: "dlong", digest: "0".repeat(64), cancel: true as const, questions: LONG } };
@@ -200,7 +201,8 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	// The demo starts with most of half an hour behind it, so the timeline and the cards' clocks have something to show.
 	for (let i = 41; i > 0; i--) ((clock = Date.now() - i * 40_000), i === 41 ? (net = track(net)) : advance());
 	net = track(zenState(net, zen));
-	if (zen === "idle" || zen === "alone" || zen?.startsWith("head")) quietUntil = Date.now() + (zen.startsWith("head") ? 900_000 : 90_000); // the strip fades over minutes: nothing waits for a quarter of an hour
+	if (isLinkState(zen)) linkDemo(zen, { net: () => net, change: (mut) => (mut(net), (net = structuredClone(net)), current?.send("message", net)), service: () => towerService("standing").service! }, new URLSearchParams(location.search).has("refuse")); // the link cards (demo-link.ts); `&refuse`: the server refuses every answer
+	if (zen === "idle" || zen === "alone" || zen?.startsWith("head") || isLinkState(zen)) quietUntil = Date.now() + (zen.startsWith("head") || isLinkState(zen) ? 900_000 : 90_000); // the strip fades over minutes: nothing waits for a quarter of an hour
 	// A visit starts at the breathing circle (Z-D16): `idle` and `palette` start their first visit as if the boss had stepped to billing-main with `]`; a later visit starts at the circle, as the page does.
 	let first = zen === "idle" || zen === "palette";
 	const zenStart = () => (first ? ((first = false), { key: "a1", ws: "w1" }) : undefined);

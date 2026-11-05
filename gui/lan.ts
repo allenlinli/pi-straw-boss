@@ -1,4 +1,6 @@
+import { lanActions, lanReading } from "./asks.ts";
 import { h, nodes } from "./dom.ts";
+import { labelOf, type PairRequest, pairLine, pairsOf } from "./pairs.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
 import { square } from "./qr.ts";
@@ -8,7 +10,7 @@ import { square } from "./qr.ts";
 // certificate and the fingerprint procedure, and the pairing QR with Show a code and the address toggle. It polls `lan/pending` once a second while the tab is open, which is also how the server knows
 // the tile is open. A QR or a code is minted only by a press (or by the tab opening on a running Wi-Fi access), under the tab's surface id, so each one voids the one before it.
 
-interface Pending { id: string; label: string; peer: string; iface?: string; age: string; ageMs?: number }
+type Pending = PairRequest;
 /** A note or an event as the server sends it (src/server/lanhost.ts `Coded`): a code with its params, which this page words itself, and the English text for a code it does not know. */
 interface Coded { code?: string; text: string; params?: Record<string, unknown>; of?: Coded[]; at?: number }
 interface Facts { on?: boolean; addresses?: { address: string; interface?: string }[]; notes?: Coded[]; pending?: Pending[]; events?: Coded[] }
@@ -26,7 +28,7 @@ export interface LanDeps {
 
 const strings = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
 const certOf = (b: Answer["body"]): Cert => ({ name: typeof b.name === "string" ? b.name : null, sha256: String(b.sha256 ?? ""), sha1: String(b.sha1 ?? ""), ...(typeof b.url === "string" ? { url: b.url } : {}), ...(Array.isArray(b.rows) ? { rows: strings(b.rows) } : {}), files: strings(b.files), ended: b.ended === true });
-const pendingOf = (v: unknown): Pending[] => (Array.isArray(v) ? v.map((p) => ({ id: String(p?.id), label: String(p?.label ?? ""), peer: String(p?.peer ?? ""), ...(p?.iface ? { iface: String(p.iface) } : {}), age: String(p?.age ?? ""), ...(typeof p?.ageMs === "number" ? { ageMs: p.ageMs } : {}) })) : []);
+const pendingOf = pairsOf;
 const codedOf = (v: unknown): Coded[] => (Array.isArray(v) ? v.map((c) => ({ text: String(c?.text ?? ""), ...(typeof c?.code === "string" ? { code: c.code } : {}), ...(c?.params && typeof c.params === "object" ? { params: c.params } : {}), ...(Array.isArray(c?.of) ? { of: codedOf(c.of) } : {}), ...(typeof c?.at === "number" ? { at: c.at } : {}) })) : []);
 const factsOf = (b: Answer["body"]): Facts => ({
 	on: b.on === true, addresses: Array.isArray(b.addresses) ? b.addresses.map((a) => ({ address: String(a?.address), ...(a?.interface ? { interface: String(a.interface) } : {}) })) : [], pending: pendingOf(b.pending),
@@ -73,11 +75,7 @@ export function collapse(list: Coded[]): Coded[] {
 	for (const e of list) if (e.code === "refused") (count.set(String(e.params?.peer), (count.get(String(e.params?.peer)) ?? 0) + 1), last.set(String(e.params?.peer), e));
 	return list.flatMap((e) => (e.code !== "refused" ? [e] : last.get(String(e.params?.peer)) !== e ? [] : count.get(String(e.params?.peer))! > 1 ? [{ ...e, code: "refused_n", params: { ...e.params, count: count.get(String(e.params?.peer))! } }] : [e]));
 }
-/** The age of a request in the page's language, from the server's milliseconds (its English text only when it sent none). */
-const ageOf = (p: Pending) => (p.ageMs === undefined ? p.age : p.ageMs < 60_000 ? m.lan_age_s({ n: String(Math.max(1, Math.round(p.ageMs / 1000))) }) : m.lan_age_min({ n: String(Math.round(p.ageMs / 60_000)) }));
 const why = (r: Answer) => String(r.body.reason ?? m.refused({ status: r.status }));
-const peerOf = (p: Pending) => (p.iface ? `${p.peer} (${p.iface})` : p.peer);
-const labelOf = (p: Pending) => p.label || m.device_unknown();
 
 export function lanTab(deps: LanDeps) {
 	const root = h("div", { class: "lan" }), board = h("div", { class: "lan-board" }), main = h("div", { class: "lan-main" }), note = h("div", { class: "lan-note", role: "status" }), news = h("ul", { class: "lan-news", role: "status" });
@@ -96,23 +94,24 @@ export function lanTab(deps: LanDeps) {
 	const allow = h("button", { type: "button", class: "go" }, m.lan_allow()), denyAll = h("button", { type: "button", class: "later" }, m.lan_deny());
 	/** One decision at a time: a double submit (Enter and a click, two Enters) is one request, so it never counts twice toward the three wrong numbers. */
 	let busy = false;
-	const decide = (body: Record<string, unknown>) => {
+	const decisions = lanActions((path, body) => deps.post(path, body)); // the same decisions Zen's card makes (asks.ts)
+	const decide = (run: (d: typeof decisions) => Promise<Answer>) => {
 		if (busy) return Promise.resolve();
 		busy = allow.disabled = denyAll.disabled = true;
-		return deps.post("lan/approve", body).then((r) => {
-			const budget = !r.ok && r.body.error === "no_match" && Number(r.body.denied) > 0;
-			answer.replaceChildren(r.ok || budget ? "" : r.body.error === "no_match" ? m.lan_no_match() : why(r));
-			verdict.replaceChildren(budget ? m.lan_wrong_budget() : "");
+		return run(decisions).then((r) => {
+			const said = lanReading(r);
+			answer.replaceChildren(said.answer);
+			verdict.replaceChildren(said.verdict);
 			if (r.ok) field.value = "";
 			deps.changed();
 			return poll();
 		}, () => answer.replaceChildren(m.no_answer())).finally(() => (busy = allow.disabled = denyAll.disabled = false));
 	};
-	const send = () => /^\d{4}$/.test(field.value) && void decide({ number: field.value });
+	const send = () => /^\d{4}$/.test(field.value) && void decide((d) => d.approve(field.value));
 	field.addEventListener("input", () => (field.value = field.value.replace(/\D/g, "").slice(0, 4)));
 	field.addEventListener("keydown", (e) => (e as KeyboardEvent).key === "Enter" && send());
 	allow.onclick = send;
-	denyAll.onclick = () => void decide({ deny: "all" });
+	denyAll.onclick = () => void decide((d) => d.denyAll());
 	const ask = h("div", { class: "lan-ask" }, h("label", null, m.lan_number_ask()), h("div", { class: "lan-ask-row" }, field, allow, denyAll), answer);
 	const drawn = new Map<string, { li: HTMLElement; span: HTMLElement; text: string }>();
 	function drawPending(list: Pending[]) {
@@ -120,13 +119,13 @@ export function lanTab(deps: LanDeps) {
 		const ids = new Set(list.map((p) => p.id));
 		for (const [id, row] of drawn) if (!ids.has(id)) (row.li.remove(), drawn.delete(id));
 		for (const p of list) {
-			const text = m.lan_pending({ label: labelOf(p), peer: peerOf(p), age: ageOf(p) }), row = drawn.get(p.id);
+			const text = pairLine(p), row = drawn.get(p.id);
 			if (row) {
 				if (row.text !== text) (row.span.replaceChildren(text), row.text = text);
 				continue;
 			}
 			const deny = h("button", { type: "button", class: "later", "aria-label": `${m.lan_deny_one()}: ${labelOf(p)}` }, m.lan_deny_one()), span = h("span", null, text), li = h("li", null, span, deny);
-			deny.onclick = () => void decide({ deny: p.id });
+			deny.onclick = () => void decide((d) => d.deny(p.id));
 			rows.append(li);
 			drawn.set(p.id, { li, span, text });
 		}

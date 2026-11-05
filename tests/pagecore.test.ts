@@ -26,7 +26,7 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 	const view = mountView(env);
 	const w = {
 		view, root, hidden: o.hidden ?? false, zenEl: { hidden: true }, zenLoaded: o.zenLoaded ?? true, waiting: [] as ((z: ZenFace) => void)[],
-		nets: [] as [Map<string, Alert>, Net][], shows: 0, hides: 0, refreshes: 0, icons: [] as number[], signals: [] as string[][], draws: [] as { net: Net; fresh: string[]; now: number }[], maps: [] as Net[],
+		nets: [] as [Map<string, Alert>, Net][], pairLists: [] as string[], shows: 0, hides: 0, refreshes: 0, icons: [] as number[], signals: [] as string[][], draws: [] as { net: Net; fresh: string[]; now: number }[], maps: [] as Net[],
 		navigations: [] as [Route, Route][], layouts: 0, restarts: 0, backs: 0, links: 0, leftSettings: 0, modal: o.modal ?? false, dialogOpen: o.dialogOpen ?? false, chimes: 0, escapes: 0,
 		/** The calls the overlay layer, the focus views, and the router received, in order. */
 		calls: [] as string[],
@@ -35,7 +35,7 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 			w.waiting.splice(0).forEach((call) => call(zen));
 		},
 	};
-	const zen: ZenFace = { key: (hotkey) => { w.calls.push(hotkey === "history" ? "history" : hotkey === "palette" ? "palette" : hotkey === "pause" ? "tap" : `cycle:${hotkey === "next-companion" ? 1 : -1}`); return (hotkey === "history" || hotkey === "pause" ? o.tapTakes : hotkey === "palette" ? o.paletteTakes : o.cycleTakes) ?? false; }, net: (a, n) => w.nets.push([a, n]), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
+	const zen: ZenFace = { key: (hotkey) => { w.calls.push(hotkey === "history" ? "history" : hotkey === "palette" ? "palette" : hotkey === "pause" ? "tap" : `cycle:${hotkey === "next-companion" ? 1 : -1}`); return (hotkey === "history" || hotkey === "pause" ? o.tapTakes : hotkey === "palette" ? o.paletteTakes : o.cycleTakes) ?? false; }, net: (a, n) => w.nets.push([a, n]), pairs: (list) => void w.pairLists.push(list.map((p) => p.id).join(",")), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
 	const panels = {
 		hotkey: (key: string) => (w.calls.push(`hotkey:${key}`), o.hotkeyTakes ?? false),
 		stack: { show: (a: Alert) => void w.calls.push(`show:${a.key}`), close: (how?: string) => (w.calls.push(`close:${how ?? ""}`), w.dialogOpen) },
@@ -400,4 +400,15 @@ test("the tab icon counts a fresh wait the tower recorded on the boss, like a tr
 	(n.bases[0] as { tower: unknown }).tower = { ...unit("sb-tower-w", "idle"), service: { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "W1", text: "go?", at: new Date().toISOString() }], proposals: [] } } };
 	w.core.snapshot(n);
 	assert.deepEqual(w.icons, [1]);
+});
+
+test("the pair requests the page reads go to Zen as they come, and a Zen chunk that loads later is given the last list before the snapshot", () => {
+	const w = world({ stored: "zen", zenLoaded: false });
+	w.core.pairing([{ id: "ab12", label: "Mei's iPhone", peer: "192.168.1.23", age: "" }]);
+	assert.deepEqual(w.pairLists, [], "the chunk is not here: nothing to tell yet");
+	w.core.snapshot(net(unit("a")));
+	w.load();
+	assert.deepEqual(w.pairLists, ["ab12"], "the list is given before the net is");
+	w.core.pairing([]);
+	assert.deepEqual(w.pairLists, ["ab12", ""]);
 });

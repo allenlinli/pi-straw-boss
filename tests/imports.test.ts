@@ -390,7 +390,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Head tower H3 review fixes (HH3-F003): control.ts 399 to 402 (the tower scope refuses the head's key and workspace, and the panel says which they are).
 		// Head tower H4 review fixes 779 to 781: headhistory.ts has `whyCode`, the chapter reason code the divider carries.
 	// A wait the boss answered (feat: the message names it): headroutes.ts 41 to 53 (`answersOf`, `markAnswered`, and the head's composer taking them), control.ts 402 to 403.
-	assert.ok(rest <= 793, `the rest of src has ${rest} lines`);
+	// Wait review fixes (ZWA-F004, F006, F007): headroutes.ts `commandReply` (the conversation's two commands for the tower and the head, refused when they carry `answers`), memorycmd.ts the answered-by-you words, towermemory.ts the cap counting open waits only: 802 (measured, +9).
+	assert.ok(rest <= 802, `the rest of src has ${rest} lines`);
 	// Unreleased (settings check, probe): settings.ts is the lstat gate, the child's program (refuses a link it cannot follow, stats before opening; review SR5), and its runner (160); it no longer walks links. settings.ts 92 (new: the look before pi starts in a folder), raised 92 to 135 for the link walk (every hop of .pi and settings.json, refusing /proc, /dev, /sys; review SP-R001).
 	// Unreleased raised trust/ask.ts from 182 to 183 (RC3-F001): the recorded server's start time is read when the handler registers.
 	// Unreleased raised trust/ask.ts from 183 to 201 (RC4-F001, F002): `warmServerStart` (the early read only for a live server that reads trust requests) and `guiUp` (what the handler's `up` asks) are exported for their tests, and `registerTrust` takes the terminal it answers on.
@@ -738,7 +739,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// The answer outcome table to 5710 (measured, +11): gui/asks.ts (13, new) takes `outcomeOf` out of answer.ts and the faked outcome out of waitpanel.ts.
 	// Wait panel answers in place to 5824 (measured, +114): gui/asks.ts takes `waitActions` and `joined` (35), waitpanel.ts the answer box and the comms link (130), towernotes.ts the wait row's panel (+19), zen.ts the title, the box's Esc row and the card's two hooks (+4), the demo's replies.
 	// Dialog and card polish (the wait panel's Handle and Send marked as the dialog's act, the refusal words, the demo's refusal reply): 5825 (measured, +1).
-	assert.ok(page <= 5825, `the page's TypeScript has ${page} lines`);
+	// Wait review fixes: 5837 (measured, +12): the row's newest snapshot and kept focus, the folded box, the dialog's title and its hidden duplicates, `waitTitle`.
+	assert.ok(page <= 5837, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -882,7 +884,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head polish (after 0.58.0: the head node's title and the key's message): 99,233 / 35,216 measured, +62 / +18 over the merge figure. Cap = measured + 15.
 	// A wait the boss answered raises no alert and its row says so (waits.ts, towermodel.ts's memory meta, one word each way): 100,156 / 35,743 measured, +334 / +89 over the figure below. Cap = measured + 15.
 	// Wait panel answers in place: 99,822 / 35,654 measured, +589 / +438 over the head polish figure: the map card's wait row loads the panel on demand (towernotes.ts: the loader, the panels that outlive a redraw). Cap = measured + 15.
-	assert.ok(eagerBytes <= 100_171 && eagerGz <= 35_758, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Wait review fixes (ZWA-F002, F003, F005, M1, M2): 100,332 / 35,820 measured, +161 / +62 over the figure above: the row's newest snapshot and kept focus (towernotes.ts), the folded box (waitpanel.ts), the dialog's title, the input refusal words. Cap = measured.
+	assert.ok(eagerBytes <= 100_332 && eagerGz <= 35_820, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1011,7 +1014,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The answer outcome table (gui/asks.ts, shared by Zen's card and the wait panel): 293,555 measured, +26 over the head polish figure, the table's chunk. Cap = measured + 15.
 	// A wait the boss answered (two messages, the row's line): 296,455 / 121,099 measured, +27 / -10 over the figure below, which the cap keeps in gzip; the raw cap = measured + 15.
 	// Wait panel answers in place (the box, its Esc row, the wait actions, the dialog's and the notice row's panel, the messages): 296,428 / 121,109 measured, +2,873 / +1,799 over the outcome table's figure, all in the lazy chunks. Cap = measured + 15.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 296_470 && total(chunks, gz) <= 121_124, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Wait review fixes (the folded box, the dialog's title, the input refusal words): 297,054 / 121,362 measured on a fresh build, cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 297_054 && total(chunks, gz) <= 121_362, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

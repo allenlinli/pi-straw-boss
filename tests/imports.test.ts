@@ -392,7 +392,8 @@ test("the TypeScript source stays within its size budgets", () => {
 		// Head tower H4 review fixes 779 to 781: headhistory.ts has `whyCode`, the chapter reason code the divider carries.
 	// A wait the boss answered (feat: the message names it): headroutes.ts 41 to 53 (`answersOf`, `markAnswered`, and the head's composer taking them), control.ts 402 to 403.
 	// Wait review fixes (ZWA-F004, F006, F007): headroutes.ts `commandReply` (the conversation's two commands for the tower and the head, refused when they carry `answers`), memorycmd.ts the answered-by-you words, towermemory.ts the cap counting open waits only: 802 (measured, +9).
-	assert.ok(rest <= 802, `the rest of src has ${rest} lines`);
+	// ending.ts (5, new: ENDING alone, so the page loads it without probe.ts and node:crypto; gui:dev broke on it since 0.54.0) 802 to 807.
+	assert.ok(rest <= 807, `the rest of src has ${rest} lines`);
 	// Unreleased (settings check, probe): settings.ts is the lstat gate, the child's program (refuses a link it cannot follow, stats before opening; review SR5), and its runner (160); it no longer walks links. settings.ts 92 (new: the look before pi starts in a folder), raised 92 to 135 for the link walk (every hop of .pi and settings.json, refusing /proc, /dev, /sys; review SP-R001).
 	// Unreleased raised trust/ask.ts from 182 to 183 (RC3-F001): the recorded server's start time is read when the handler registers.
 	// Unreleased raised trust/ask.ts from 183 to 201 (RC4-F001, F002): `warmServerStart` (the early read only for a live server that reads trust requests) and `guiUp` (what the handler's `up` asks) are exported for their tests, and `registerTrust` takes the terminal it answers on.

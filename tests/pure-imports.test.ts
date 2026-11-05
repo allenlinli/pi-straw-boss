@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -141,4 +141,26 @@ test("src/server/main.ts reaches no value import of pi's packages, and none of t
 	assert.deepEqual(bannedFrom("src/server/main.ts", undefined, reached), []);
 	assert.ok(reached.has("src/link/service.ts") && reached.has("src/link/holder.ts") && reached.has("src/link/election.ts"), "the link holder is in the server's graph");
 	for (const piSide of ["src/tools.ts", "src/pairing.ts", "src/trust/ask.ts", "src/link/runtime.ts", "src/link/hooks.ts", "src/link/approval.ts", "src/index.ts"]) assert.ok(!reached.has(piSide), `${piSide} is loaded by the server`);
+});
+
+// The page loads its modules in the browser: `vite build` shakes an unused `node:` import away, but `vite gui` (gui:dev) loads each module
+// whole, so a page module whose value imports reach a `node:` builtin breaks the dev page (0.54.0 to 0.59.5: termcard.ts and
+// confirmwords.ts took ENDING from src/probe.ts, which loads src/runs.ts and node:crypto).
+test("no page module reaches a node: builtin through its value imports", () => {
+	const pages = readdirSync(join(root, "gui")).filter((name) => name.endsWith(".ts") && !name.endsWith(".d.ts")).map((name) => `gui/${name}`);
+	const hits: string[] = [];
+	for (const entry of pages) {
+		const seen = new Set<string>();
+		const visit = (path: string, chain: string[]) => {
+			if (seen.has(path) || !path.endsWith(".ts")) return;
+			seen.add(path);
+			for (const specifier of valueImports(readFileSync(join(root, path), "utf8"))) {
+				if (specifier.startsWith(".")) visit(relative(root, join(root, dirname(path), specifier)), [...chain, path]);
+				else if (specifier.startsWith("node:")) hits.push(`${[...chain, path].join(" -> ")} -> ${specifier}`);
+			}
+		};
+		visit(entry, []);
+	}
+	assert.ok(pages.length > 50, `the page's modules were read (${pages.length})`);
+	assert.deepEqual([...new Set(hits)], []);
 });

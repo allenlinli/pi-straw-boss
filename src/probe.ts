@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { ENDING } from "./ending.ts";
 import { lineMac, NONCE } from "./runs.ts";
 
 // What Enter would submit from a session's own editor, for the key pad's Enter guard (keys.ts). The bridge (bridge.ts) answers the GUI
@@ -7,8 +8,7 @@ import { lineMac, NONCE } from "./runs.ts";
 // Enter of a one-tap run, runs.ts), it also tells HMAC-SHA-256(nonce, line), so the server can tell the line an answer put there from an edited one; a probe with no nonce, and a draft of any other class, tells nothing of
 // the line, and the text itself never leaves.
 
-/** Commands that end the session or switch its pane to another one: the page asks first, and the server refuses them unconfirmed. */
-export const ENDING = /^\s*\/(quit|exit|new|resume|fork|clone|import|reload)(?=\s|$)/;
+export { ENDING };
 /** `command`: a draft that starts with `/` and is no ending command: with pi's command menu open (tab, backspace), Enter completes it and
  *  runs the result at once, so it may become any command, an ending one included. A `!` draft is one too: Enter runs it as a shell
  *  command, and `up` recalls earlier ones from history. */

@@ -1,4 +1,4 @@
-import { ENDING } from "../src/probe.ts";
+import { ENDING } from "../src/ending.ts";
 import { m } from "./paraglide/messages.js";
 
 // The key pad's confirm (src/keys.ts) names what it asks about by a token and says it in English. The page says it in its own language by the token, and shows the server's words only for a token it does not know.

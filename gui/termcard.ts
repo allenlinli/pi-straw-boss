@@ -1,4 +1,4 @@
-import { ENDING } from "../src/probe.ts";
+import { ENDING } from "../src/ending.ts";
 import { type CardFacts, type CardState, type Kind, NO_MASK, cardState, maskStep, maskToggle, secretPrompt, stepRule, tail } from "./cardmodel.ts";
 import { confirmBar } from "./confirmbar.ts";
 import { h } from "./dom.ts";

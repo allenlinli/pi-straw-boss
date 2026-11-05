@@ -68,6 +68,23 @@ export function mountGestures(stage: HTMLElement, g: { on(): "circle" | "history
 	}, { passive: true });
 }
 
+/** What is a control: a tap on one is its own, never the blank space's. */
+const CONTROLS = 'button, a, input, textarea, select, summary, label, [role="button"], [tabindex]:not([tabindex="-1"])';
+/**
+ * A tap or click on the blank space rests the head's strip (docs/specs/2026-11-04-head-tower.md, Resting the strip). `blank` says whether an element is the stage, the page behind it, or the circle, and `on` whether the circle screen is on with nothing open over it.
+ * A control, the strip, the end of a drag that selected text, and the press that folded the head's open input (Esc's order: the fold first) are not it. `click`, not `pointerdown`: a swipe, a wheel gesture, and a scroll never rest the strip.
+ */
+export function mountRestTap(root: HTMLElement, o: { blank(at: Element): boolean; on(): boolean; head: Pick<ReturnType<typeof mountHead>, "el" | "isOpen" | "rest"> }) {
+	let folded = false;
+	root.addEventListener("pointerdown", () => (folded = o.head.isOpen()), true);
+	root.addEventListener("click", (e) => {
+		const wasOpen = folded, at = e.target as Element | null, selected = globalThis.getSelection?.();
+		folded = false;
+		if (wasOpen || !at || !o.on() || (selected && !selected.isCollapsed)) return;
+		if (o.blank(at) && !o.head.el.contains(at) && !at.closest?.(CONTROLS)) o.head.rest();
+	});
+}
+
 export function mountHead(io: HeadIo) {
 	const small = io.small ?? (() => typeof matchMedia === "function" && matchMedia("(max-width: 600px), (max-height: 560px)").matches);
 	const fade = createFade(io.now), live = h("p", { class: "zen-live zen-head-live", role: "status", "aria-live": "polite" });
@@ -78,9 +95,11 @@ export function mountHead(io: HeadIo) {
 	const el = h("section", { class: "zen-head", role: "group", "aria-label": m.zen_head_label() }, list, working, live, whole, hint, form);
 	[working.hidden, form.hidden, el.hidden] = [true, true, true];
 	let items: Item[] = [], ids = new Set<string>(), seen = false, showing = false, unfolded = false, busy = false, off = false;
+	let hushed = false, hushLines = new Set<string>(), hushWaits = new Set<string>(); // resting (Esc, or a tap on the blank space): the lines are sent away until the head answers him, asks him something, or he calls it back. Page-local: the next visit starts awake.
 	let unit: HeadUnit | undefined, restOn: boolean | undefined, rested = false, kept = 0, stopTimer = () => {}, hover = false, focus = false, touching = false, stopHover = () => {}, stopTouch = () => {}, local = 0;
 	const known = new Set<string>(), shown = new Map<string, HTMLElement>(), pending: { id: string; text: string; seen: number }[] = [];
 	const one = (text: string) => text.replace(/\s+/g, " ").trim();
+	const openWaits = () => new Set(unit?.service?.memory?.bossWaits.filter((w) => !w.answered).map((w) => w.id));
 	const bosses = (text: string) => headLines(items).filter((l) => l.who === "boss" && l.text === text).length;
 
 	/** All the lines: the history's, then what the boss just sent that the stream has not brought back yet. */
@@ -118,8 +137,8 @@ export function mountHead(io: HeadIo) {
 		});
 		// The head's next reply is said once to a reader of the page: the lines that were there when the strip first filled are known and never announced.
 		if (seen) for (const l of keep) if (l.who === "head" && !known.has(l.id)) (known.add(l.id), announce(l.text));
-		working.hidden = unit?.mark !== "working";
-		[rested, kept] = [fade.rested(keep.map((l) => l.id), held), keep.length];
+		working.hidden = unit?.mark !== "working" || hushed;
+		[rested, kept] = [hushed || fade.rested(keep.map((l) => l.id), held), keep.length];
 		settle();
 		stopTimer();
 		const when = fade.restAt(keep.map((l) => l.id), held);
@@ -135,19 +154,45 @@ export function mountHead(io: HeadIo) {
 		for (const it of fresh) ids.add(it.id);
 		for (const id of [...ids]) if (!items.some((it) => it.id === id)) ids.delete(id);
 		if (reset && !seen) (headLines(items).forEach((l) => known.add(l.id)), (seen = true)); // what the first page holds is what was already said
+		if (hushed) wakes();
 		if (showing) draw();
 	}
+
+	/** A resting strip wakes for what the boss is owed and nothing else: a head line that answers something he sent, or a wait for him that was not open when it rested. The head's own reports (a tower's answer, a timer) are not. */
+	function wakes() {
+		if (headLines(items).some((l) => l.reply && !hushLines.has(l.id)) || [...openWaits()].some((id) => !hushWaits.has(id))) wake();
+	}
+	/** Esc, or a tap on the blank space: the lines go and the mindfulness line comes back, whatever a hover, focus, or touch holds clear. False when the strip is not on show with lines to send away. */
+	function rest() {
+		if (!restable()) return false;
+		[hushed, hushLines, hushWaits] = [true, new Set(headLines(items).map((l) => l.id)), openWaits()];
+		el.dataset.hushed = "";
+		bright();
+		draw();
+		return true;
+	}
+	/** The head tower is called back: the lines show again with the age they have. */
+	function wake() {
+		if (!hushed) return false;
+		hushed = false;
+		delete el.dataset.hushed;
+		bright();
+		if (showing) draw();
+		return true;
+	}
+	/** There is something to rest: the strip is on show, awake, with lines that are not already at their rest level. */
+	const restable = () => showing && !off && !hushed && kept > 0 && restOn !== true;
 
 	/** The strip is quiet (the mindfulness line shows, the link fades out) when every line has faded and nothing brings them back: a hover, focus, or tap makes the lines clear, and then one thing is in paper, not two. */
 	function settle() {
 		if (!showing) return;
-		const quiet = rested && !(hover || focus || touching);
+		const quiet = hushed || (rested && !(hover || focus || touching));
 		whole.hidden = !kept;
 		quiet ? (whole.dataset.away = "") : delete whole.dataset.away; // at rest it fades out and keeps its room: nothing moves when the lines come clear
 		if (quiet !== restOn) io.rest((restOn = quiet));
 	}
 	function bright() {
-		el.toggleAttribute("data-bright", hover || focus || touching);
+		el.toggleAttribute("data-bright", !hushed && (hover || focus || touching));
 		settle();
 	}
 	const letGo = (set: () => void) => (stopHover(), (stopHover = io.later(() => (set(), bright()), LET_GO_MS)));
@@ -178,6 +223,7 @@ export function mountHead(io: HeadIo) {
 	}
 	function unfold() {
 		if (!showing || !unit || off) return false;
+		wake(); // calling the head back wakes the strip
 		unfolded = true;
 		draw();
 		box.focus();
@@ -248,6 +294,7 @@ export function mountHead(io: HeadIo) {
 			hint.disabled = off;
 			if (off) fold();
 			mix();
+			if (hushed) wakes();
 			if (showing) draw();
 		},
 		/** The strip is on the stage: its lines start (or carry on) their fade, and the head's newest page is read when no event has filled it. */
@@ -262,6 +309,8 @@ export function mountHead(io: HeadIo) {
 		reset() {
 			stop();
 			fold();
+			[hushed, hushLines, hushWaits] = [false, new Set(), new Set()];
+			delete el.dataset.hushed;
 			box.value = "";
 			say("");
 			pending.length = 0;
@@ -271,6 +320,12 @@ export function mountHead(io: HeadIo) {
 		},
 		unfold,
 		fold,
+		rest,
+		wake,
+		/** The strip is resting (Esc or a tap on the blank space sent its lines away). */
+		hushed: () => hushed,
+		/** The lines are on show and Esc can send them away (zenkeys.ts `rest`). */
+		restable,
 		isOpen: () => unfolded && showing,
 		/** The box holds a draft: the screen is his until DRAFT_MS after his last touch (zen.ts). */
 		drafting: () => unfolded && showing && box.value !== "",

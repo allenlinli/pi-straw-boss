@@ -5,7 +5,7 @@ import { getLocale } from "./paraglide/runtime.js";
 import type { Answer } from "./post.ts";
 
 // The head tower of the demo (`?head=<state>`, docs/specs/2026-11-04-head-tower.md, Demo and pictures): `absent` (not open yet), `talk` (a conversation, no asks), `answers` (work handed to three towers, one answered), `waiting` (it waits for the boss),
-// and `busy` (as `talk`, but it refuses what the boss sends: the strip's refusal). `?zen=head`, `head-open`, and `head-history` show the strip in Zen (fixture.ts); they take `answers` unless `?head=` says another.
+// and `busy` (as `talk`, but it refuses what the boss sends: the strip's refusal). `?zen=head`, `head-open`, `head-history`, and `head-rest` (Esc a moment after the page starts, then an unasked report) show the strip in Zen (fixture.ts); they take `answers` unless `?head=` says another.
 
 export const HEAD_STATES = ["absent", "talk", "answers", "waiting", "busy"] as const;
 export type HeadState = (typeof HEAD_STATES)[number];
@@ -30,8 +30,8 @@ export function headDemo(state: HeadState, now = Date.now()): HeadUnit {
 
 /** The demo's words by page language (the lines are the conversation's own, so the pictures in Traditional Chinese read in it). */
 const WORDS = {
-	en: { first: "the first conversation", u1: "Ask Harbor API to fix the ledger rounding, and have Lighthouse Web rerun the checkout test.", a1: "On it. I am handing the rounding fix to the Harbor API tower and the checkout rerun to Lighthouse Web.", n1: "Answer to H2: Checkout test is green on main.", a2: "Lighthouse Web finished: the checkout test is green on main. Harbor API is still on the rounding fix.", a3: "Should I also ask Orchard Data to rerun the ETL tonight, or wait until the ledger fix lands?", busy: "The head tower is busy with another message.", wait: "Rerun the Orchard ETL tonight?", reply: "Handed to Harbor API. I will say when it answers." },
-	zh: { first: "第一次對話", u1: "請 Harbor API 修掉帳本的進位問題，再請 Lighthouse Web 重跑結帳測試。", a1: "收到。進位問題我交給 Harbor API 塔台，結帳重跑交給 Lighthouse Web。", n1: "H2 的回覆：main 上的結帳測試全綠。", a2: "Lighthouse Web 做完了：main 上的結帳測試全綠。Harbor API 還在修進位問題。", a3: "晚上要不要也請 Orchard Data 重跑 ETL？還是等帳本修好再說？", busy: "主塔台正在處理另一則訊息。", wait: "今晚要重跑 Orchard 的 ETL 嗎？", reply: "已轉給 Harbor API 塔台，它回覆了我再告訴你。" },
+	en: { first: "the first conversation", u1: "Ask Harbor API to fix the ledger rounding, and have Lighthouse Web rerun the checkout test.", a1: "On it. I am handing the rounding fix to the Harbor API tower and the checkout rerun to Lighthouse Web.", n1: "Answer to H2: Checkout test is green on main.", a2: "Lighthouse Web finished: the checkout test is green on main. Harbor API is still on the rounding fix.", a3: "Should I also ask Orchard Data to rerun the ETL tonight, or wait until the ledger fix lands?", busy: "The head tower is busy with another message.", n2: "Answer to H3: The ledger rounding fix is merged.", a4: "Harbor API merged the rounding fix on its own; nothing is needed from you.", wait: "Rerun the Orchard ETL tonight?", reply: "Handed to Harbor API. I will say when it answers." },
+	zh: { first: "第一次對話", u1: "請 Harbor API 修掉帳本的進位問題，再請 Lighthouse Web 重跑結帳測試。", a1: "收到。進位問題我交給 Harbor API 塔台，結帳重跑交給 Lighthouse Web。", n1: "H2 的回覆：main 上的結帳測試全綠。", a2: "Lighthouse Web 做完了：main 上的結帳測試全綠。Harbor API 還在修進位問題。", a3: "晚上要不要也請 Orchard Data 重跑 ETL？還是等帳本修好再說？", busy: "主塔台正在處理另一則訊息。", n2: "H3 的回覆：帳本進位的修正已合併。", a4: "Harbor API 自己把進位修正合併了，不需要你處理。", wait: "今晚要重跑 Orchard 的 ETL 嗎？", reply: "已轉給 Harbor API 塔台，它回覆了我再告訴你。" },
 };
 const words = () => WORDS[getLocale() === "zh-TW" ? "zh" : "en"];
 
@@ -50,6 +50,15 @@ export function headHistory(state: HeadState): Item[] {
 	);
 	if (state === "waiting") out.push({ id: "h-a3", kind: "assistant", model: "head-1", at: at(12), text: w.a3, ctx: 5600 });
 	return out;
+}
+
+/** What the head says by itself, with no message of the boss's behind it (`?zen=head-rest` sends it a few seconds after the page starts): a tower's answer, then the head's report of it. A rested strip stays at rest for it. */
+export function headReport(n: number): Item[] {
+	const w = words();
+	return [
+		{ id: `h-n-r${n}`, kind: "notice", type: "straw-tower", event: "intercom", from: "tower · Harbor API", text: `[intercom from tower · Harbor API (demo-ha)]\n[straw net from="tower · Harbor API" id=demo-ha role=tower workspace="Harbor API" kind=tower_send scope=one to="head tower" reply=none in-reply-to=H3] ${w.n2}`, at: new Date().toISOString() },
+		{ id: `h-a-r${n}`, kind: "assistant", model: "head-1", text: w.a4, at: new Date().toISOString() },
+	];
 }
 
 /** The draft `?zen=head-open` types into the unfolded box. */

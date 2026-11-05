@@ -24,7 +24,7 @@ import type { StepOpen } from "./terminalthen.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 import type { Exit, Mounts, Term, ZenDeps } from "./zentypes.ts";
 import { domFs, mountFullscreen } from "./zenfs.ts";
-import { mountGestures, mountHead, quietForwards } from "./zenhead.ts";
+import { mountGestures, mountHead, mountRestTap, quietForwards } from "./zenhead.ts";
 import { mountLine, stillNow } from "./zenlines.ts";
 import { mountPalette } from "./palette.ts";
 import { entriesOf } from "./paletteentries.ts";
@@ -220,7 +220,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	}
 	const onCircle = () => shown.kind === "companion" && !company && !histOpen;
 	/** The head tower's whole conversation, as a companion on the circle screen; and the way back, to the strip with its input folded. */
-	const openHistory = () => !!net?.head && active && onCircle() && (disposeCompany(), (histOpen = true), drawCompany(), true);
+	const openHistory = () => !!net?.head && active && onCircle() && (head.wake(), disposeCompany(), (histOpen = true), drawCompany(), true); // the whole conversation calls the head tower back
 	const closeHistory = () => histOpen && (disposeCompany(), head.fold(), drawCompany(), true);
 	function drawCompany() {
 		histOpen &&= Boolean(net?.head);
@@ -272,6 +272,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	for (const type of ["pointerdown", "wheel", "touchstart", "keydown", "input"]) root.addEventListener(type, () => (touched = now()), { capture: true, passive: true });
 	const tap = () => shown.kind === "pause" && !term.isOpen() && apply(model.tap());
 	root.addEventListener("pointerdown", (e) => (tap(), head.tapAway(e.target)));
+	mountRestTap(root, { blank: (at) => at === root || stage.contains(at) || ripples.el.contains(at) || Boolean(at.closest?.(".zen-drift")), on: () => active && onCircle() && !term.isOpen() && !palette.isOpen() && !menu.isOpen(), head }); // a tap or click on the blank space rests the head's strip
 	mountGestures(stage, { on: () => (!net?.head || term.isOpen() ? undefined : histOpen ? "history" : onCircle() ? "circle" : undefined), open: openHistory, close: closeHistory }); // the head's history opens by a wheel gesture up or a swipe up, and closes by a gesture down past the log's end
 	/** Leaving: the item's dialog opens over Standard, the companion's session opens, a pause just returns to the page. */
 	function leave() {
@@ -389,13 +390,14 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			const at = document.activeElement as HTMLInputElement | null, inside = Boolean(at && at !== document.body && root.contains(at));
 			const type = inside ? (at!.getAttribute?.("type") ?? at!.type ?? "text") : "", editable = inside && (/^textarea$/i.test(at!.tagName) || (/^input$/i.test(at!.tagName) && !/^(checkbox|radio|range|button|submit|reset|file|color|image)$/i.test(type)));
 			const armed = escAt !== undefined && now() - escAt < ESC_MS;
-			const step = escStep({ menu: menu.isOpen() || palette.isOpen() || Boolean(music?.isOpen()), history: Boolean(card?.hist?.isOpen()) || histOpen, reply: Boolean(card?.replying?.()) && !card?.sending(), head: head.isOpen(), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), armed, repeat: e.repeat });
+			const step = escStep({ menu: menu.isOpen() || palette.isOpen() || Boolean(music?.isOpen()), history: Boolean(card?.hist?.isOpen()) || histOpen, reply: Boolean(card?.replying?.()) && !card?.sending(), head: head.isOpen(), rest: onCircle() && head.restable(), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), armed, repeat: e.repeat });
 			if (step === "none") return true;
 			if (step !== "hint") clearEsc();
 			if (step === "menu") (menu.close(), palette.close(), music?.close());
 			else if (step === "history") histOpen ? closeHistory() : card!.collapse();
 			else if (step === "reply") card!.foldReply!();
 			else if (step === "head") head.fold(true);
+			else if (step === "rest") head.rest();
 			else if (step === "blur") at!.blur();
 			else if (step === "item") card!.cancel() || card!.skip.click();
 			else if (step === "leave") leave();
@@ -411,7 +413,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		},
 		leave,
 		/** H: expands or collapses the shown item's context; false when the screen has none. */
-		toggleHistory: () => active && !term.isOpen() && !menu.isOpen() && (shown.kind === "item" ? Boolean(card?.toggle()) : histOpen ? closeHistory() : openHistory()),
+		toggleHistory: () => active && !term.isOpen() && !menu.isOpen() && (shown.kind === "item" ? Boolean(card?.toggle()) : histOpen ? closeHistory() : (onCircle() && head.wake()) || openHistory()), // on the circle a rested strip is called back first (a second H opens the history)
 		/** Enter on the circle screen (hotkeys `talk`): ends a pause when one runs, else unfolds the head tower's input; false when neither. */
 		talk: () => face.tap() || (active && !term.isOpen() && !palette.isOpen() && !menu.isOpen() && onCircle() && head.unfold()),
 		/** The keymap's Enter and Space (hotkeys.ts): end the pause. False when no pause is shown or the terminal layer has the keys. */

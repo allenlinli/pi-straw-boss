@@ -311,6 +311,20 @@ test("the strip's two swaps move: hover, focus, and a tap ease the lines to clea
 	assert.deepEqual(declarations(link!.body), [["opacity", "0"], ["visibility", "hidden"], ["transition", "opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s"]], "the Whole conversation link fades the same way, so the strip does not jump when the lines come clear");
 });
 
+test("a rested strip sends its lines and working line away the way the mindfulness line goes: faded out, then out of the reading order, and still taking their room; hover and forced colours do not bring them back", () => {
+	const rest = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head[data-hushed] :is(.zen-head-lines, .zen-head-working)'));
+	assert.ok(rest, "the rule is there");
+	assert.deepEqual(declarations(rest!.body), [["opacity", "0"], ["visibility", "hidden"], ["transition", "opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s"]]);
+	assert.ok(!declarations(rest!.body).some(([p]) => p === "display"), "never taken out of the layout: calling the head back moves nothing");
+	const list = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-lines'));
+	assert.equal(declarations(list!.body).find(([p]) => p === "transition")?.[1], "opacity 0.6s var(--zen-ease), visibility 0s", "and they come back over the same 0.6 s");
+	assert.ok(!/visibility: visible/.test(rest!.body), "nothing in the rule undoes the hiding");
+	const forced = zen.slice(zen.indexOf("@media (forced-colors: active) { /* the lines"), zen.indexOf("/* The head's history (zenhead.ts quietForwards)"));
+	assert.ok(!/data-hushed|visibility/.test(forced), "forced colours show the lines they show, and a rested strip hides them: no rule there lifts the hiding");
+	const reduced = zen.slice(zen.indexOf("@media (prefers-reduced-motion: reduce) { /* no fade"), zen.indexOf("@media (forced-colors: active) { /* the lines"));
+	assert.match(reduced, /\.zen-head\[data-hushed\] :is\(\.zen-head-lines, \.zen-head-working\) \{ transition: none; \}/, "under reduced motion the rest is at once");
+});
+
 test("the head page's crown plate is gold like the head's node and avatar: its colour and wash come from --gold, not the accent's blue", () => {
 	const plate = css.split("\n").filter((line) => line.startsWith(".comms-head[data-head] .logo {") || line.startsWith(".comms-head[data-head]:not([data-mark=\"commanding\"]) .logo {")).join("\n");
 	assert.match(plate, /\.comms-head\[data-head\] \.logo \{[^}]*color: var\(--gold\)/);

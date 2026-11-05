@@ -356,6 +356,22 @@ test("Esc's head row (docs/specs/2026-11-04-head-tower.md): after the menu and t
 	assert.equal(escStep({ ...none, head: false, field: "text" }), "blur", "no input unfolded: the rows are as they were");
 });
 
+test("Esc's rest row (docs/specs/2026-11-04-head-tower.md, Resting the strip): after every row that holds something open and an empty field, before the hint and the pair that leaves", async () => {
+	const { escStep } = await import("../gui/zenkeys.ts");
+	const none = { menu: false, field: "none", item: false, armed: false } as const;
+	assert.equal(escStep({ ...none, rest: true }), "rest", "lines are clear under the circle: Esc rests the strip");
+	assert.equal(escStep({ ...none, rest: true, armed: true }), "rest", "and the pair that leaves does not form while there is something to rest");
+	assert.equal(escStep({ ...none, rest: false }), "hint", "a strip already at rest: the rows are as they were");
+	assert.equal(escStep({ ...none, rest: false, armed: true }), "leave");
+	assert.equal(escStep({ ...none, rest: true, menu: true }), "menu", "the menu comes first");
+	assert.equal(escStep({ ...none, rest: true, history: true }), "history");
+	assert.equal(escStep({ ...none, rest: true, head: true }), "head", "an unfolded input folds before the strip rests");
+	assert.equal(escStep({ ...none, rest: true, field: "text" }), "blur", "text in a field is let go of first");
+	assert.equal(escStep({ ...none, rest: true, field: "empty" }), "blur", "so is an empty field");
+	assert.equal(escStep({ ...none, rest: true, item: true }), "item", "an item on the page is not under the circle: its row comes first");
+	assert.equal(escStep({ ...none, rest: true, repeat: true }), "none", "a held key is nothing");
+});
+
 test("an open menu redraws Sound and Volume when another tab changes them; a closed one is left alone", () => {
 	const told: (() => void)[] = [];
 	let sound = false, volume = 60;

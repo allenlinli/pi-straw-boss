@@ -63,6 +63,28 @@ test("chapter dividers, results, other notices, and an intercom message that is 
 	assert.deepEqual(lines.map((l) => l.text), ["one", "first reply", "second reply"]);
 });
 
+test("a head line says whether it answers the boss: a turn the boss asked for does, a turn a tower's answer or the server started does not (docs/specs/2026-11-04-head-tower.md, Resting the strip)", () => {
+	const lines = headLines([
+		bossEvent("u1", "Start MP-4129 for me", 1),
+		said("a1", "Handing it to MP Center.", 2, [forward("t1", "MP Center")]),
+		answer("n1", "MP Center", "H12", "Opened main for MP-4129.", 5),
+		said("a2", "MP Center says main is open.", 6),
+		{ id: "x2", kind: "notice", type: "straw-tower", event: "notice", text: "[notice from the sb server]\nrestarted", at: at(7) },
+		{ id: "x3", kind: "notice", type: "straw-tower", event: "intercom", text: "[intercom from tower (abc123)]\n[straw net from=tower id=abc123 role=tower kind=tower_send scope=one to=x reply=none in-reply-to=H12] done", at: at(8) },
+		said("a3", "Report: all green.", 9),
+		{ id: "u2", kind: "user", text: "and now?", at: at(10) },
+		said("a4", "Waiting on you.", 11),
+	]);
+	const head = Object.fromEntries(lines.filter((l) => l.who === "head").map((l) => [l.id, Boolean(l.reply)]));
+	assert.deepEqual(head, { a1: true, a2: false, a3: false, a4: true });
+	assert.ok(lines.filter((l) => l.who !== "head").every((l) => !l.reply), "only a head line can be a reply");
+});
+
+test("a boss message that a tower's answer overtakes is still asked: the head's next reply answers it", () => {
+	const lines = headLines([bossEvent("u1", "go", 1), answer("n1", "MP Center", "H12", "done", 2), said("a1", "Both.", 3)]);
+	assert.equal(lines.find((l) => l.id === "a1")!.reply, true);
+});
+
 test("only the last three lines show (two on a phone); the same lines come back for the same items", () => {
 	const items = [bossEvent("u1", "a", 1), said("a1", "b", 2), bossEvent("u2", "c", 3), said("a2", "d", 4)];
 	const lines = headLines(items);

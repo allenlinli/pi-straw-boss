@@ -5,8 +5,8 @@ import { bossTurn, eventTurn, heard } from "./towerturns.ts";
 
 // The lines under Zen's circle (docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle). Pure: the head's history items in, its lines out; and the clock of how a line fades, from the moment it is first on screen.
 
-/** `boss`: his words; `head`: the final words of one of its turns; `note`: a forward or a tower's answer, in one short line. */
-export interface HeadLine { id: string; who: "boss" | "head" | "note"; text: string; at: number }
+/** `boss`: his words; `head`: the final words of one of its turns; `note`: a forward or a tower's answer, in one short line. `reply`: a head line whose turn answers something the boss sent (a turn that a tower's answer, the server, or a timer started is the head's own, and has none). */
+export interface HeadLine { id: string; who: "boss" | "head" | "note"; text: string; at: number; reply?: true }
 
 const one = (text: string) => text.replace(/\s+/g, " ").trim();
 const time = (at?: string) => (at ? Date.parse(at) || 0 : 0);
@@ -22,8 +22,8 @@ function targetOf(args?: string): string | undefined {
 /** All the lines of a run of history items, oldest first: the boss's turns, the final text of each of the head's turns, a note for each forward, and a note for each tower's answer to an ask. */
 export function headLines(items: readonly Item[]): HeadLine[] {
 	const out: HeadLine[] = [];
-	let reply: HeadLine | undefined; // the turn's last text: it is a line when the turn ends
-	const end = () => (reply && out.push(reply), (reply = undefined));
+	let reply: HeadLine | undefined, asked = false; // the turn's last text: it is a line when the turn ends. `asked`: the boss sent something the head has not answered yet; a tower's answer in between does not take it back
+	const end = () => (reply && (out.push(asked ? { ...reply, reply: true } : reply), (asked = false)), (reply = undefined));
 	const line = (it: Item, who: HeadLine["who"], text: string, id = it.id) => text && out.push({ id, who, text, at: time(it.at) });
 	for (const it of items) {
 		if (it.kind === "assistant") {
@@ -38,14 +38,14 @@ export function headLines(items: readonly Item[]): HeadLine[] {
 		if (it.kind === "user") {
 			end();
 			const first = heard(it.text);
-			if (!first) line(it, "boss", one(bossTurn(it.text)?.body ?? it.text ?? ""));
+			if (!first) (line(it, "boss", one(bossTurn(it.text)?.body ?? it.text ?? "")), (asked = true));
 			continue;
 		}
 		if (it.kind !== "notice") continue;
 		const turn = eventTurn(it);
 		if (!turn) continue; // a notice that is no event of the server's: it ends nothing
 		end();
-		if (turn.kind === "boss") line(it, "boss", one(turn.body));
+		if (turn.kind === "boss") (line(it, "boss", one(turn.body)), (asked = true));
 		else if (turn.kind === "intercom") {
 			const fields = fieldsOf(turn.body), ask = fields?.["in-reply-to"];
 			if (fields?.kind === "tower_send" && ask && fields.workspace) line(it, "note", m.head_from_tower({ workspace: fields.workspace }));

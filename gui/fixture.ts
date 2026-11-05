@@ -6,7 +6,7 @@ import { demoCard, isCard, stepOf } from "./democard.ts";
 import { isLinkState, linkDemo } from "./demo-link.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
-import { headDemo, headDraft, headHistory, headInput, type HeadState, isHeadState } from "./demo-head.ts";
+import { headDemo, headDraft, headHistory, headInput, headReport, type HeadState, isHeadState } from "./demo-head.ts";
 import { docHooks } from "./doc.ts";
 import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
@@ -244,6 +244,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	const press = (init: KeyboardEventInit) => setTimeout(() => window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init })), 2200);
 	if (zen === "history" || zen === "head-history") press({ key: "h" });
 	if (zen === "head-open") (press({ key: "Enter" }), setTimeout(() => { const box = document.querySelector<HTMLTextAreaElement>(".zen-head-box"); if (box) (box.value = headDraft(), box.dispatchEvent(new Event("input", { bubbles: true }))); }, 2900));
+	if (zen === "head-rest") (press({ key: "Escape" }), setTimeout(() => current?.send("history", { key: "sb-head", reset: false, items: headReport(++live) }), 6000)); // the strip rests, then the head reports by itself: it stays at rest
 	if (zen === "palette") press(/Mac|iPhone|iPad/.test(navigator.platform) ? { key: "k", metaKey: true } : { key: "k", ctrlKey: true });
 	if (zen === "pause") setTimeout(() => document.querySelector<HTMLElement>("#zen .zen-skip")?.click(), 2200);
 	mountToolbar(control);

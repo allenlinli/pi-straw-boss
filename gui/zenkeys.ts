@@ -7,12 +7,13 @@
 //   head     the head tower's input is unfolded under the circle: Esc folds it (the draft stays) and does nothing else.
 //   blur     a field holds the focus and has text in it (any screen), or is focused on the companion's screen, the pause, or the empty state: Esc only lets go of it.
 //   item     an item is on the page and can still be answered: Esc cancels its question when it is cancellable (the card's Cancel), else "Not now" (the next card).
+//   rest     the head tower's lines are clear under the circle: Esc sends them away (the maxim comes back) and does nothing else. After an empty field and an item, so it is the first Esc that nothing above took.
 //   leave    nothing above took the key and the last one that took none was less than ESC_MS ago: back to Standard for this page.
 //   hint     nothing took the key and it is the first: the quiet line "Press Esc again for Standard" shows, and the next such Esc within ESC_MS leaves.
 // A key that repeats (held down) is no second press: it changes nothing.
 
 export const ESC_MS = 600;
-export type EscStep = "menu" | "history" | "reply" | "head" | "blur" | "item" | "leave" | "hint" | "none";
+export type EscStep = "menu" | "history" | "reply" | "head" | "blur" | "item" | "rest" | "leave" | "hint" | "none";
 export interface EscFacts {
 	/** The corner menu is open. */
 	menu: boolean;
@@ -22,6 +23,8 @@ export interface EscFacts {
 	reply?: boolean;
 	/** The head tower's input is unfolded under the circle. */
 	head?: boolean;
+	/** The head tower's lines are on show under the circle and can be sent away (zenhead.ts `restable`). */
+	rest?: boolean;
 	/** The focus is in a text field of the layer: `text` with something typed, `empty` without, `none` elsewhere. */
 	field: "text" | "empty" | "none";
 	/** An item is on the page with no outcome yet (its card can still be cancelled or skipped). */
@@ -41,6 +44,7 @@ export function escStep(f: EscFacts): EscStep {
 	if (f.field === "text") return "blur";
 	if (f.item) return "item";
 	if (f.field === "empty") return "blur";
+	if (f.rest) return "rest";
 	return f.armed ? "leave" : "hint";
 }
 

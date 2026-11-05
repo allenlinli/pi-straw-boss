@@ -1,0 +1,72 @@
+import type { RunSignal } from "./runs.ts";
+
+// Ending what a controller started (docs/specs/2026-11-05-link-shared-box.md, section 3). A main an ally run opened for a device has the full rights of a main on peer text, and it outlives the run that opened it. When
+// that device leaves the team, or no longer has `dispatch`, the box asks the main to quit, as `boss_close_main` does (the main decides: it refuses while a turn runs, a subagent works, or a dialog is open, and the
+// sweep asks again), and tells the team's admins. It acts on a device it has found short of `dispatch` in two sweeps in a row, so one bad read of the policy file or the roster ends nothing. A main opened below `dispatch` (with the boss's Allow for that one call) is not a controller's work and is left alone. An ally run needs none of this: the server
+// already ends it when its sender leaves the roster or loses `dispatch` (runs.ts, the watcher's tick).
+
+/** A main an ally run opened for a device, as the route table keeps it. `level` is the level the run had when it opened the main; a row from before the level was kept counts as `dispatch`. */
+export interface OpenedMain { workspace: string; label: string; main: string; name: string; device: string; deviceLabel: string; team: string; level?: string }
+export interface RevokerDeps {
+	/** The mains ally runs opened that are on record, in every live service. */
+	opened(): OpenedMain[];
+	/** Whether the link holder can tell who is in `team` and at which level right now (it is running, the team runs, its roster reads): a device is never taken as gone while this is false. */
+	known(team: string): boolean;
+	/** What this computer gives the device now; nothing when it is no longer a member of the team. */
+	standing(device: string, team: string): { level: string } | undefined;
+	/** Asks the main to quit like `boss_close_main`; resolves once it accepted, rejects with the reason it did not. */
+	close(workspace: string, main: string): Promise<void>;
+	/** Lets the route go (the main is gone, or has quit). */
+	forget(workspace: string, main: string): void;
+	signal(s: RunSignal): void;
+	log(entry: Record<string, unknown>): void;
+}
+
+/** Why a close failed for good: there is nothing there to close (the main is gone, is no main now, or was never a tower's to close), so the route goes. Anything else is a main that may quit later. */
+const GONE = /No live session is named|is not in this workspace|is not a main agent|was not opened by a tower/;
+
+export function createRevoker(d: RevokerDeps) {
+	/** The notices told, per main and outcome: a main that stays busy is told once. */
+	const told = new Set<string>();
+	/** The mains found short of `dispatch` at the last sweep. */
+	let low = new Set<string>();
+	let running: Promise<void> | undefined;
+	const pass = async (): Promise<void> => {
+		const now = new Set<string>();
+		for (const row of d.opened()) {
+			if (row.level !== undefined && row.level !== "dispatch") continue;
+			if (!d.known(row.team)) continue;
+			const standing = d.standing(row.device, row.team);
+			if (standing?.level === "dispatch") continue;
+			now.add(row.main);
+			if (!low.has(row.main)) continue;
+			const why = standing ? "the device lost dispatch" : "the device left the team", who = `The main "${row.name}" opened for ${row.deviceLabel}`;
+			try {
+				await d.close(row.workspace, row.main);
+			} catch (cause) {
+				const reason = (cause as Error).message;
+				if (GONE.test(reason)) {
+					d.log({ event: "revoke-gone", workspace: row.workspace, main: row.main });
+					d.forget(row.workspace, row.main);
+					continue;
+				}
+				const key = `${row.main}/pending`;
+				d.log({ event: "revoke-waiting", workspace: row.workspace, main: row.main, why });
+				if (!told.has(key)) {
+					told.add(key);
+					while (told.size > 256) told.delete(told.values().next().value!);
+					d.signal({ kind: "revoked", workspace: row.workspace, label: row.label, ally: true, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main, ended: false, text: `${who} could not be ended yet (${reason}). The box asks again until it quits.` });
+				}
+				continue;
+			}
+			d.log({ event: "revoke-ended", workspace: row.workspace, main: row.main, why });
+			d.forget(row.workspace, row.main);
+			d.signal({ kind: "revoked", workspace: row.workspace, label: row.label, ally: true, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main, ended: true, text: `${who} was ended: ${why}.` });
+		}
+		low = now;
+	};
+	return {
+		/** One look at every opened main; looks that overlap share the one in flight. A failure is logged and the next sweep tries again. */
+		sweep: (): Promise<void> => (running ??= pass().catch((cause: Error) => d.log({ event: "revoke-failed", error: cause.message.slice(0, 200) })).finally(() => (running = undefined))),
+	};
+}

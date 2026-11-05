@@ -22,6 +22,7 @@ export function allyPort(link: () => LinkService | undefined): AllyPort {
 		delivered(id, run) {
 			link()?.holder?.delivered(id, run);
 		},
+		known: (team) => link()?.holder?.rosterKnown(team) ?? false,
 		standing(device, team) {
 			const service = link();
 			return service?.holder?.isMember(team, device) ? { level: service.levelOf(device) } : undefined;

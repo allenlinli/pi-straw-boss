@@ -139,6 +139,8 @@ export interface AllyPort {
 	delivered?(id: string, run: string): void;
 	/** The level this computer gives the device, or undefined when the device is no longer a member of the team (its messages are dropped). */
 	standing(device: string, team: string): { level: string } | undefined;
+	/** Whether the holder can tell who is in the team right now (a device is never taken as gone while it cannot; absent: always). */
+	known?(team: string): boolean;
 	/** The project folder the device's team binds on this computer: the workspaces an ally run's sender may see lie inside it. */
 	project(team: string): string | undefined;
 	/** The last messages of the device's thread with this computer's towers (both directions, oldest first), for the brief. */
@@ -221,6 +223,10 @@ interface Active {
 	steeredIdle?: boolean;
 	/** The outcome the run gets when it is gone, if it is not `done`/`crashed` by its own course. */
 	pending?: Outcome;
+	/** Why the server ended the run, said in the notice of its end (the sender left the roster, lost `dispatch`). */
+	why?: string;
+	/** An ally run claimed at `dispatch` was seen with its device short of it at the last tick: the next tick that sees it too ends the run. */
+	lowSeen?: boolean;
 	terminating?: number;
 	escalated?: number;
 	signalled?: boolean;
@@ -297,7 +303,9 @@ interface Svc {
  */
 export type RunSignal =
 	| { kind: "ended"; run: string; workspace: string; label: string; ally: boolean; outcome: "crashed" | "timeout" | "quit"; detail?: string; /** An ally run's sender and team: the controller that dispatched it. */ device?: string; team?: string }
-	| { kind: "refused"; workspace: string; label: string; ally: boolean; text: string; device?: string; team?: string };
+	| { kind: "refused"; workspace: string; label: string; ally: boolean; text: string; device?: string; team?: string }
+	/** A main an ally run opened for `device` was asked to quit because the device left the team or lost `dispatch` (revoke.ts); `ended` says it quit, else it still runs and is asked again. */
+	| { kind: "revoked"; workspace: string; label: string; ally: true; device: string; team?: string; main: string; ended: boolean; text: string };
 
 export interface RunsOptions {
 	slot: Slot;
@@ -1041,7 +1049,7 @@ export function createRuns(o: RunsOptions) {
 					const orphan = a.rec.hand === true && !a.polled && a.pending === undefined && a.closing === undefined;
 					const outcome = a.pending ?? (a.closing !== undefined ? "done" : orphan ? "quit" : "crashed");
 					if (outcome === "crashed" && diedWithHerdr(a)) continue;
-					await finish(a, outcome, outcome === "crashed" ? "pi exited without tower_done" : orphan ? "the pi left before its first poll" : undefined, a.left === true);
+					await finish(a, outcome, outcome === "crashed" ? "pi exited without tower_done" : orphan ? "the pi left before its first poll" : a.why, a.left === true);
 					continue;
 				}
 				if (a.recovering !== undefined) {
@@ -1068,9 +1076,20 @@ export function createRuns(o: RunsOptions) {
 				if (!a.token) continue;
 				if (a.rec.kind === "ally" && !standingOf(a)) {
 					log.line("ally-ended", { workspace: a.rec.workspace, run: a.rec.id, why: "the sender left the roster" });
+					a.why = "the sender left the team";
 					terminate(a, "quit");
 					continue;
 				}
+				// A run claimed at `dispatch` whose device has fallen below it is ended (docs/specs/2026-11-05-link-shared-box.md): its hooks already hold it to the lower level, and the controller who dispatched it is no longer one.
+				// It takes a second tick to see it, and never while the holder cannot tell who is in the team, so a bad read of the policy or the roster ends nothing.
+				const low = a.rec.kind === "ally" && a.rec.level === "dispatch" && o.ally?.known?.(a.rec.team ?? "") !== false && standingOf(a)?.level !== "dispatch";
+				if (low && a.lowSeen) {
+					log.line("ally-ended", { workspace: a.rec.workspace, run: a.rec.id, why: "the sender lost dispatch" });
+					a.why = "the sender lost dispatch";
+					terminate(a, "quit");
+					continue;
+				}
+				a.lowSeen = low;
 				if (now() - a.lastPoll > t.lost) {
 					log.line("run-lost", { run: a.rec.id });
 					terminate(a, "crashed");
@@ -1513,7 +1532,7 @@ export function createRuns(o: RunsOptions) {
 			if (a && !a.ended && a.rec.kind === "ally") {
 				// A sender that left the roster ends the run now, not at the next tick; the level is the lower of the claimed one and the device's now.
 				const standing = standingOf(a);
-				if (!standing) terminate(a, "quit");
+				if (!standing) (a.why ??= "the sender left the team", terminate(a, "quit"));
 				return { id: a.rec.id, workspace: a.rec.workspace, kind: "ally", ...(standing ? { level: standing.level } : { gone: true as const }), ...(a.rec.device ? { device: a.rec.device } : {}), ...(a.rec.deviceLabel ? { deviceLabel: a.rec.deviceLabel } : {}), ...(a.rec.deviceShort ? { deviceShort: a.rec.deviceShort } : {}), ...(a.rec.team ? { team: a.rec.team } : {}), ...(a.rec.teamName ? { teamName: a.rec.teamName } : {}), pane: a.rec.pane, asks: itemsOf(a, true).flatMap((i) => (i.awaitsReply ? [i.awaitsReply] : [])) };
 			}
 			return a && !a.ended ? { id: a.rec.id, workspace: a.rec.workspace, kind: headRun(a) ? "head" : a.rec.kind, ...(a.rec.level ? { level: a.rec.level } : {}), ...(a.rec.device ? { device: a.rec.device } : {}), ...(a.rec.deviceLabel ? { deviceLabel: a.rec.deviceLabel } : {}), ...(a.rec.team ? { team: a.rec.team } : {}), pane: a.rec.pane, asks: itemsOf(a, true).flatMap((i) => (i.awaitsReply ? [i.awaitsReply] : [])) } : undefined;

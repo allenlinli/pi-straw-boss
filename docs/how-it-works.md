@@ -989,6 +989,8 @@ A Straw Link message for a tower the server runs is worked in an **ally run**: a
 
 **`boss_server` and the restart limit.** An ally run's `boss_server` is refused by its kind; for any run the server keeps the limit of one restart a minute itself, so two agents asking at once cannot both pass.
 
+**A controller's work ends with its dispatch (0.58.4).** An ally run claimed at `dispatch` is quit by the watcher when its device has left the team or has fallen below `dispatch` (two ticks in a row, and only while the holder can read the team's roster), with the reason in the end notice. The mains an ally run opened at `dispatch` (the route keeps the run's level; a row without one counts as `dispatch`) are checked every 15 seconds by `revoke.ts` against the roster and the policy, and a main whose device is gone or below `dispatch` is asked to quit like `boss_close_main` does, asked again while it is busy, and let go with its route when it quits; the team's admins are told once that it still runs and once that it ended ([spec](specs/2026-11-05-link-shared-box.md)).
+
 **Crashes and limits** are the local run's (settles idle, 20 minutes, three failures in 10 minutes hold the service), per device.
 
 **The wire.** `caps`, the 5-field `tower`, and `tower-reply` are in `src/link/kinds.ts` and `tests/link/vectors.json` (the Straw Link spec's **Message kinds** table has the rows); straw-relay carries the same two rows and a copy of the vectors, and is redeployed first.

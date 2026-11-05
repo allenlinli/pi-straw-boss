@@ -130,3 +130,7 @@ controller, cut to 4 KB), sent every minute and on a change. Only the units of w
 nothing for 3 minutes shows its last units marked "no status lately". A `notice` (1 KB) arrives in the Link bar for: an ally or main run that crashed, timed out or was quit; a forwarded dialog
 unanswered for 30 minutes (once); a dialog too big to forward; a tower that could not be opened; a run refused by the settings check or by a trust question nobody answered. Clearing a notice
 is local to that page.
+
+## 8. When a controller is removed
+
+Take the controller out of the policy's `trust` (or make it `reply`), or remove it from the team, and the box ends what it started: an ally run claimed at `dispatch` is quit within a few seconds, and each main such a run opened is asked to quit every 15 seconds until it does. A main in the middle of a turn, or with a subagent working, refuses until it is idle; the team's admins get a notice once that it still runs and once that it has ended. A main that was opened with an Allow below `dispatch` is not ended. Nothing is ended while the box cannot read the policy or the team's roster, and a change must be seen twice (up to 30 seconds) before it ends anything. There is no remote stop of one unit yet: a main that never goes idle has to be closed at the box. The credentials of a controller who left badly are a matter for the infra, not for the link.

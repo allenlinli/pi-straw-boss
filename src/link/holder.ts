@@ -935,6 +935,17 @@ export class LinkHolder {
 		}
 		return items.sort((a, b) => a.received - b.received || (a.id < b.id ? -1 : 1));
 	}
+	/** Whether this holder can tell who is in `team` right now: it runs, the team runs and has not died, and its roster reads. A device is taken as gone only while this is true (the revocation of a controller's mains). */
+	rosterKnown(team: string): boolean {
+		const run = this.runs.get(team);
+		if (!this.running || !run || run.dead) return false;
+		try {
+			this.loadTeam(team);
+			return true;
+		} catch {
+			return false;
+		}
+	}
 	/** Whether `device` is a member of `team` on this computer's roster (a run whose sender left is ended). */
 	isMember(team: string, device: string): boolean {
 		try {

@@ -24,7 +24,8 @@ import type { Asks } from "./asks.ts";
 import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, LOCAL_TOOLS } from "./towerbrief.ts";
 import { createStanding, type PromptReply, type StandingTimers } from "./standing.ts";
 import { claimGate, proofGate, seatGate, type SeatVerdict } from "./typegate.ts";
-import { addAnswer, addRoute, answeredAsks, ALLY_LEDGER, dropAsk, dropOpened, type Peer, readAnswers, removeAnswer, openedFor, routeOf, spendRoute } from "./allyroute.ts";
+import { addAnswer, addRoute, answeredAsks, ALLY_LEDGER, dropAsk, dropOpened, type Peer, readAnswers, readRoutes, removeAnswer, openedFor, routeOf, spendRoute } from "./allyroute.ts";
+import { createRevoker } from "./revoke.ts";
 import { type AllyItem, type AllyPort, createRuns, type Runs, type RunsOptions, type ServiceRef, type ServiceStatus } from "./runs.ts";
 import { type ConversationInfo, sessionsRoot } from "./bossconv.ts";
 import { addExpect, clearExpect, lastNote, listRuns, readExpects, readNotes, readTimer } from "./towerrunstore.ts";
@@ -47,7 +48,7 @@ const UNKNOWN = "(unknown)";
 /** A run's request is held 30 s (server-look.ts): the server's resends for a tool stop at about 20 s, so a tool never fails while a copy is still going out. */
 export const RUN_SEND_CAP_MS = 20_000;
 const RETRY_MS = [1000, 2000, 5000, 10_000, 30_000];
-const REPUBLISH_MS = 300, REFRESH_MS = 4 * 60_000, RECOVER_MS = 60_000, RECOVER_POLL_MS = 2000, RESIDENT_MS = 2000, REGISTER_WAIT_MS = 3000, LEAVE_MS = 2000;
+const REPUBLISH_MS = 300, REVOKE_MS = 15_000, REFRESH_MS = 4 * 60_000, RECOVER_MS = 60_000, RECOVER_POLL_MS = 2000, RESIDENT_MS = 2000, REGISTER_WAIT_MS = 3000, LEAVE_MS = 2000;
 /** How old a caller's "I just made this pane" may be and still be believed (the desk step asks within a second or two of making the base). */
 const MADE_WITHIN_MS = 30_000;
 /** What a tab is called once its standing pane was replaced and it kept other panes. */
@@ -75,6 +76,8 @@ export interface TowersOptions {
 	/** How often the minute after a restart looks at the tabs again (2 s); a test shortens it to leave the minute's look out of what it pins. */
 	recoverPollMs?: number;
 	refreshMs?: number;
+	/** How often a controller's opened mains are checked against the roster and the policy (15 s; revoke.ts). */
+	revokeMs?: number;
 	republishMs?: number;
 	residentMs?: number;
 	/** How long `ensure` waits for the identity to register before it answers. */
@@ -278,6 +281,7 @@ export function createTowers(o: TowersOptions): Towers {
 		standing: (device, team) => o.ally!.standing(device, team),
 		project: (team) => o.ally!.project(team),
 		thread: (device) => o.ally!.thread(device),
+		known: (team) => o.ally!.known?.(team) ?? true,
 		waiting: (identity) => {
 			const ws = workspaceOf(identity), answers: AllyItem[] = ws ? readAnswers(slot, ws, now()).map((a) => ({ id: `${LOCAL}${a.id}`, device: a.device, label: a.label, short: a.short, team: a.team, teamName: a.teamName, fromWorkspace: "", replyExpected: false, text: a.text, at: a.at, local: a.from, ...(a.ask ? { awaitsReply: a.ask } : {}) })) : [];
 			return [...o.ally!.waiting(identity), ...answers].sort((a, b) => a.at - b.at);
@@ -826,6 +830,7 @@ export function createTowers(o: TowersOptions): Towers {
 				error("purge", (cause as Error).message);
 			}
 		}, o.refreshMs ?? REFRESH_MS));
+		timers.push(setInterval(() => void revoker.sweep(), o.revokeMs ?? REVOKE_MS));
 		// A service whose tab is not found yet (Herdr is restoring) is looked for until the minute is over; one waiting for a resident looks at it. Both stop themselves.
 		const poll = o.recoverPollMs ?? RECOVER_POLL_MS;
 		timers.push(setInterval(() => { if (now() < recoverUntil + poll) look(); }, poll));
@@ -999,6 +1004,13 @@ export function createTowers(o: TowersOptions): Towers {
 	};
 	/** A main that accepted the close has no use for its opened route (a main the boss closes is let go when the next one opens, or after a week). A route file that cannot be written does not undo the close. */
 	const forgetClosed = <T extends { main?: string }>(ws: string, closed: T): T => { try { if (closed.main) dropOpened(slot, ws, closed.main, now()); } catch (cause) { error("ally-route", (cause as Error).message); } return closed; };
+	/** The mains ally runs opened end with their controller's dispatch (revoke.ts): asked to quit as `boss_close_main` asks, the admins told through the same notice channel as a run's end. */
+	const revoker = createRevoker({
+		opened: () => (o.ally ? [...services.values()].filter((l) => !l.stopped && l.state === "live" && l.control && !isHeadL(l)).flatMap((l) => readRoutes(slot, l.record.workspace, now()).filter((r) => r.kind === "opened").map((r) => ({ workspace: l.record.workspace, label: l.record.label, main: r.to, name: r.name, device: r.device, deviceLabel: r.label, team: r.team, ...(r.level ? { level: r.level } : {}) }))) : []),
+		known: (team) => o.ally?.known?.(team) ?? true, standing: (device, team) => o.ally?.standing(device, team),
+		close: async (workspace, main) => void (await need(workspace).control!.closeMain(main)),
+		forget: (workspace, main) => void forgetClosed(workspace, { main }), signal: (s) => o.runs?.signal?.(s), log: ({ event, ...rest }) => log.line(String(event), rest as Record<string, string>),
+	});
 	const answered = answeredAsks(now); // run id → asks it answered: kept out of a route, as the Mac closes an answered ask
 	/** The tools a run calls, done as the workspace's tower identity (runtools.ts). A failure that comes after the run has gone is told to the next run as a notice. */
 	const runToolFor = async (request: Record<string, unknown>) => {
@@ -1008,7 +1020,7 @@ export function createTowers(o: TowersOptions): Towers {
 		const l = need(who.workspace, who.kind === "head"), ws = who.workspace;
 		// What an ally run waits on or opens is its device's: the routes (allyroute.ts) send those sessions' answers to the device's next ally run, never to a local run, and its opened mains have a ledger of their own.
 		const peer: Peer | undefined = who.kind === "ally" && who.device && who.team ? { device: who.device, label: who.deviceLabel ?? who.device.slice(0, 6), short: who.deviceShort ?? who.device.slice(0, 6), team: who.team, teamName: who.teamName ?? who.team.slice(0, 6) } : undefined;
-		const route = (to: string, name: string, kind: "expect" | "opened", ask?: string, live?: ReadonlySet<string>, panes?: ReadonlySet<string>, pane?: string) => { try { addRoute(slot, ws, { ...peer!, to, name, kind, at: now(), ...(ask ? { ask } : {}), ...(pane ? { pane } : {}) }, now(), live, panes); } catch (cause) { error("ally-route", (cause as Error).message); } };
+		const route = (to: string, name: string, kind: "expect" | "opened", ask?: string, live?: ReadonlySet<string>, panes?: ReadonlySet<string>, pane?: string) => { try { addRoute(slot, ws, { ...peer!, to, name, kind, at: now(), ...(ask ? { ask } : {}), ...(pane ? { pane } : {}), ...(kind === "opened" && who.level ? { level: who.level } : {}) }, now(), live, panes); } catch (cause) { error("ally-route", (cause as Error).message); } };
 		/**
 		 * The sessions that sent this run a `call_tower` expecting an answer, among the events the run took: the header is the sender's own words, so each is checked against the broker and Herdr's pane token before it binds anything.
 		 * An asker may be a main of any workspace on this computer; that is the only way a main outside this workspace becomes a target.

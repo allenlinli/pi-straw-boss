@@ -29,6 +29,8 @@ export interface Route extends Peer {
 	pane?: string;
 	/** An `opened` route: the ask id (of the message the run was answering) that the main's report answers with `inReplyTo`; until the run answers it. */
 	ask?: string;
+	/** An `opened` route: the level the run had when it opened the main. A main opened at `dispatch` is ended when the device loses it (revoke.ts); a row without a level counts as `dispatch`. */
+	level?: string;
 }
 export interface Answer extends Peer {
 	id: string;

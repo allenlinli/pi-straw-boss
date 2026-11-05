@@ -38,6 +38,11 @@ export class FakeAlly implements AllyPort {
 	delivered(id: string, run: string) {
 		this.deliveredTo.push([id, run]);
 	}
+	/** Teams the holder cannot read the roster of just now (a test sets one). */
+	unknown = new Set<string>();
+	known(team: string) {
+		return !this.unknown.has(team);
+	}
 	standing(device: string) {
 		return this.gone.has(device) ? undefined : { level: this.level.get(device) ?? "reply" };
 	}
@@ -108,6 +113,8 @@ export class TowerWorld extends ServerWorld {
 	runMax: number | undefined;
 	/** How often the service writes its tokens again (the server's 4 minutes), when a test wants to see a refresh. */
 	refreshMs: number | undefined;
+	/** How often a controller's opened mains are checked against the roster and the policy (the server's 15 s). */
+	revokeMs: number | undefined;
 	/** The platform the runs are ended for (win32: no signal where it can be avoided, and a pane whose pi was signalled is replaced). */
 	runPlatform: NodeJS.Platform | undefined;
 	/** How often the runs' watcher asked whether a pi lives: once per run per tick, so two more calls mean a whole tick ran since. */
@@ -149,7 +156,7 @@ export class TowerWorld extends ServerWorld {
 			} }),
 			herdr: { run: this.herdr.runFor("none"), events: this.herdr.events, api: this.herdr.api, watch: (cb: () => void, lost?: () => void) => (this.takeovers.push(cb), lost && this.losts.push(lost), () => {}) },
 			towers: {
-				recoverMs: 150, registerMs: 500, residentMs: 20, retryMs: [20], ally: this.ally, ...(this.refreshMs ? { refreshMs: this.refreshMs } : {}), standing: { ...FAST_STANDING, ...this.standingTimers }, ...(this.standingWait ? { standingWait: this.standingWait } : {}), ...(this.serverAllows ? {} : { allows: this.allows }), expose: (t: Towers) => void (this.expose = t),
+				recoverMs: 150, registerMs: 500, residentMs: 20, retryMs: [20], ally: this.ally, ...(this.refreshMs ? { refreshMs: this.refreshMs } : {}), ...(this.revokeMs ? { revokeMs: this.revokeMs } : {}), standing: { ...FAST_STANDING, ...this.standingTimers }, ...(this.standingWait ? { standingWait: this.standingWait } : {}), ...(this.serverAllows ? {} : { allows: this.allows }), expose: (t: Towers) => void (this.expose = t),
 				link: async (body, from) => {
 					const b = body as Record<string, unknown>;
 					this.linkCalls.push({ body: b, from });

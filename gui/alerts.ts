@@ -1,7 +1,9 @@
 import type { Mark } from "../src/netdata.ts";
 import type { Pending } from "../src/ask.ts";
-import type { Base, Net, Unit } from "../src/net.ts";
+import type { ConfirmView } from "../src/link/holder.ts";
+import type { Base, MemoryProposal, Net, Unit } from "../src/net.ts";
 import type { TrustAsk } from "../src/trust/types.ts";
+import type { PairRequest } from "./pairs.ts";
 import { rankOf, unitsOf } from "./units.ts";
 import { type WaitInfo, waitAlerts } from "./waits.ts";
 
@@ -18,7 +20,16 @@ export { rankOf };
  * `unit`: the unit an alert of one of its monitors belongs to (its key is the monitor's own); its comms, terminal, and chat are the unit's.
  * `trust`: a project trust question (src/trust/): the folder's agents wait on it, and its key is the folder and the digest of what was asked. `wait`: a wait the tower recorded on the boss (waits.ts): `unit` is the tower, and the key is the workspace and the wait's id.
  */
-export interface Alert { key: string; unit?: string; ws: string; name: string; role: string; mark: Mark; note?: string; at: number; /** When the unit took its present state (the server's activity reader; a trust question: its earliest agent). */ since?: number; pending?: Pending; gone?: boolean; closed?: boolean; trust?: TrustAsk; wait?: WaitInfo }
+/**
+ * What waits on the boss apart from a unit's own dialog, a trust question and a tower's wait (cardalerts.ts raises them, for Zen alone: Standard has them in the Link button, the Wi-Fi notice and the tower's notices): a confirm a teammate's tower asked (`confirm`), a dialog an unattended
+ * device forwarded (`dialog`, whose question is the alert's `pending`), a pair request, and a memory proposal of a tower run.
+ */
+export type BossCard =
+	| { kind: "confirm"; confirm: ConfirmView }
+	| { kind: "dialog"; device: string; dialogId: string; digest: string; line: string }
+	| { kind: "pair"; request: PairRequest }
+	| { kind: "proposal"; ws: string; tower: string; proposal: MemoryProposal; rev: number };
+export interface Alert { key: string; unit?: string; ws: string; name: string; role: string; mark: Mark; note?: string; at: number; /** When the unit took its present state (the server's activity reader; a trust question: its earliest agent). */ since?: number; pending?: Pending; gone?: boolean; closed?: boolean; trust?: TrustAsk; wait?: WaitInfo; card?: BossCard }
 /** The openings this page runs (deploy.ts): their trust question shows inline in the deploy panel, and is no alert here. */
 export const ownOpenings = new Set<string>();
 /** The unit an alert is about. */

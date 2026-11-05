@@ -38,7 +38,7 @@ export function createZen({ now, typing }: ZenDeps) {
 			const cur = alerts.get(screen.item.key), live = cur && rankOf(cur) === 0 && cur.mark !== "error";
 			if (live) screen = { kind: "item", item: cur };
 			else {
-				const elsewhere = cur ? !cur.closed : Boolean(screen.item.trust); // a trust question has no unit to leave: when it is gone it was settled
+				const elsewhere = cur ? !cur.closed : Boolean(screen.item.trust || screen.item.card); // a trust question or a card (a link confirm, a pair request, a proposal) has no unit to leave: when the server stops listing it, it was settled
 				leave(cur?.mark === "error" ? "error" : elsewhere ? "elsewhere" : undefined, cur?.mark === "error" ? "low" : elsewhere ? "knock" : undefined);
 			}
 		}

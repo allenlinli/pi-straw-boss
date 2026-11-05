@@ -23,8 +23,8 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 		const note = row.querySelector<HTMLElement>(".link-note")!;
 		for (const b of row.querySelectorAll("button")) b.disabled = true;
 		// The shared answer (asks.ts) loads with the first press, so the page's start does not carry it.
-		void import("./asks.ts").then(({ confirmActions }) => confirmActions(c)[allow ? "allow" : "deny"]()).then((r) => {
-			if (!r.ok) note.textContent = r.body.reason ?? m.refused({ status: r.status });
+		void import("./asks.ts").then(async ({ confirmActions, confirmWhy }) => ({ r: await confirmActions(c)[allow ? "allow" : "deny"](), why: confirmWhy })).then(({ r, why }) => {
+			if (!r.ok) note.textContent = why(r);
 			for (const b of row.querySelectorAll("button")) b.disabled = false;
 		}, () => {
 			note.textContent = m.no_answer();

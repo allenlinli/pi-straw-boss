@@ -318,12 +318,11 @@ test("the head page's crown plate is gold like the head's node and avatar: its c
 	assert.match(css, /\.comms-head\[data-head\] \.logo svg \{[^}]*filter: drop-shadow\([^;]*var\(--gold\)/, "the glow around the crown");
 });
 
-test("Zen's link cards (zendecide.ts) are drawn in ink: a centred wait panel, the arguments as code on a faint tint with a transparent border, the number as the strip's hairline field at 44 px, and only inside the Zen scope", () => {
+test("Zen's link cards (zendecide.ts) are drawn in ink: a centred wait panel, the arguments as dim code without a box, the number as the strip's hairline field at 44 px, and only inside the Zen scope", () => {
 	const zen = readFileSync(new URL("../gui/zen.css", import.meta.url), "utf8"), block = zen.slice(zen.indexOf("/* Link cards (gui/zendecide.ts)"));
 	assert.match(block, /\.zen-decide-acts \{ display: flex; justify-content: center; flex-wrap: wrap;/);
-	assert.match(block, /\.zen-decide \.zen-args \{[^}]*border: 1px solid transparent;[^}]*background: var\(--zen-tint\);[^}]*monospace/, "code on a faint tint, no frame");
+	assert.match(block, /\.zen-decide \.zen-args \{[^}]*border: 0;[^}]*background: none;[^}]*color: var\(--zen-ash\);[^}]*monospace/, "type only: dimmer monospace, no box");
 	assert.match(block, /\.zen-decide \.zen-pair-number \{[^}]*text-align: center/);
-	assert.match(block, /forced-colors: active\) \{ \[data-view="zen"\] \.zen-decide \.zen-args \{ border-color: CanvasText; \} \}/);
 	for (const line of block.split("\n").filter((l) => /^\[data-view|^\s*\[data-view/.test(l))) assert.match(line, /^\s*\[data-view="zen"\]/, "every rule of the block is Zen's");
 	assert.doesNotMatch(block, /\bheight: \d+px|transition: [^;]*(height|width)/, "no size animation (Z-D9)");
 });

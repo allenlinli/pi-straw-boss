@@ -43,9 +43,15 @@ export const waitActions = (w: WaitTarget, send: SessionPost): WaitActions => ({
 export const taken = (r: Answer): Answer => (r.ok && r.body.outcome === undefined ? { ...r, body: { ...r.body, outcome: "accepted" } } : r);
 
 /** Allow or Deny for a confirm a teammate's tower asked of this computer (`link/confirm-answer`; the holder checks the request is still open). */
-export const confirmActions = (c: { dialogId: string }) => {
-	const answer = (allow: boolean) => post("link/confirm-answer", { dialogId: c.dialogId, allow }).then(taken);
+export const confirmActions = (c: { dialogId: string; digest: string }) => {
+	const answer = (allow: boolean) => post("link/confirm-answer", { dialogId: c.dialogId, digest: c.digest, allow }).then(taken); // the digest names the request the boss saw: the holder refuses one replaced under the same id
 	return { allow: () => answer(true), deny: () => answer(false) };
+};
+/** A confirm refusal in the page's language: the holder's known refusals have a message each; any other reason is the server's own. */
+export const confirmWhy = (r: Pick<Answer, "status" | "body">): string => {
+	const said = String(r.body.reason ?? r.body.error ?? "");
+	const known: [RegExp, () => string][] = [[/^That request is gone/, m.link_confirm_gone], [/^That team is not running/, m.link_confirm_team_off], [/^That request changed/, m.link_confirm_changed]];
+	return known.find(([re]) => re.test(said))?.[1]() ?? (said || m.refused({ status: r.status }));
 };
 
 /** A dialog an unattended device forwarded: the panel's answer goes to `link/dialog-answer`; the holder checks the device, dialog and digest again (src/link/dialogs-out.ts `answerDialog`), so the panel only says which choice or words. */
@@ -56,15 +62,15 @@ export const forwardedAnswer = (d: ForwardedDialog): AnswerPost => async (_actio
 };
 
 /** Confirm or Reject for a memory proposal a tower run made (the memory route of its workspace; a confirm names the rev the snapshot carried). */
-export const proposalActions = (p: { ws: string; id: string; rev: number }) => ({
-	confirm: () => post(`${towerRoute(p.ws)}/memory`, { op: "confirm", proposal: p.id, rev: p.rev }),
+export const proposalActions = (p: { ws: string; id: string; rev: () => number }) => ({
+	confirm: () => post(`${towerRoute(p.ws)}/memory`, { op: "confirm", proposal: p.id, rev: p.rev() }), // read when pressed: the memory moves while a card is shown, and a stale rev is refused
 	reject: () => post(`${towerRoute(p.ws)}/memory`, { op: "reject", proposal: p.id }),
 });
 
 /** A pair request's decision (`lan/approve`, this computer's page only): the number the phone shows, one request's id, or all. `send` is the page's `post`, or the Wi-Fi tab's own. */
 export const lanActions = (send: (path: string, body: Record<string, unknown>) => Promise<Answer>) => ({
 	approve: (number: string) => send("lan/approve", { number }).then(taken),
-	deny: (id: string) => send("lan/approve", { deny: id }).then(taken),
+	deny: (id: string) => send("lan/approve", { deny: id }).then((r) => (r.ok && r.body.denied === 0 ? { ...r, ok: false, body: { error: "gone", reason: m.lan_request_gone() } } : taken(r))), // the server answers 200 for an id it no longer holds (answered elsewhere, timed out)
 	denyAll: () => send("lan/approve", { deny: "all" }).then(taken),
 });
 /** What a decision's reply says: `answer` under the field (nothing for a success, or when the whole budget was spent), `verdict` for three wrong numbers in a row, which denied every request. */

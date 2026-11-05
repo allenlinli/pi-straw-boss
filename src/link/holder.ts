@@ -998,9 +998,11 @@ export class LinkHolder {
 		return [...this.confirms.values()].filter((c) => now - c.at <= CONFIRM_MAX_MS);
 	}
 	/** This device's boss answers a confirm request: allow or deny goes back to the requesting device, and the request is used up. */
-	async answerConfirm(dialogId: string, allow: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
+	async answerConfirm(dialogId: string, allow: boolean, digest?: string): Promise<{ ok: true } | { ok: false; error: string }> {
 		const c = this.confirms.get(dialogId);
 		if (!c || this.now() - c.at > CONFIRM_MAX_MS) return { ok: false, error: "That request is gone or has timed out" };
+		// A page that names the digest of the request it showed answers only that one: a request replaced under the same id since is shown again, and stays open.
+		if (digest !== undefined && digest !== c.digest) return { ok: false, error: "That request changed; look at it again" };
 		const run = this.runs.get(c.team);
 		if (!run || run.dead || !this.running || !this.device) return { ok: false, error: "That team is not running on this device" };
 		this.confirms.delete(dialogId);

@@ -23,6 +23,8 @@ export interface CardSources {
 	/** When the list was read (the ages are as of then); the snapshot's time when it is not given. */
 	pairsAt?: number;
 }
+/** What a card's answer is bound to besides its key: a confirm's request and a forwarded dialog's question. A change in it is a new question, so the card is made again (Standard's rows are redrawn the same way). */
+export const cardSig = (a: Alert): string => (a.card?.kind === "confirm" ? `${a.card.confirm.digest}\u001f${a.card.confirm.args}` : a.card?.kind === "dialog" ? a.card.digest : "");
 const card = (key: string, name: string, at: number, extra: Partial<Alert>): Alert => ({ key, ws: "", name, role: "none", mark: "waiting", at, ...extra });
 
 export function cardAlerts(net: Net, at: number, { pairs = [], pairsAt = at }: CardSources): Alert[] {

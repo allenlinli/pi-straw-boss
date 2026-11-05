@@ -42,8 +42,8 @@ async function load(p: Panel, answer?: { ok: boolean; status: number; body: Reco
 const change = async (p: Panel, body: Record<string, unknown>) => {
 	p.note = "";
 	p.edit = undefined;
-	// A proposal is rejected by its id (never reused), which needs no rev.
-	const r = await post(`${towerRoute(p.ws)}/memory`, body.op === "reject" ? body : { ...body, rev: p.view?.rev ?? 0 }).catch(() => undefined);
+	// A proposal is answered by the shared action (asks.ts, the call Zen's card makes): a reject names its id alone (never reused), a confirm the rev read now.
+	const r = await (body.op === "confirm" || body.op === "reject" ? import("./asks.ts").then(({ proposalActions }) => proposalActions({ ws: p.ws, id: String(body.proposal), rev: () => p.view?.rev ?? 0 })[body.op as "confirm" | "reject"]()) : post(`${towerRoute(p.ws)}/memory`, { ...body, rev: p.view?.rev ?? 0 })).catch(() => undefined);
 	return load(p, r ?? { ok: false, status: 0, body: { reason: m.unreachable() } });
 };
 

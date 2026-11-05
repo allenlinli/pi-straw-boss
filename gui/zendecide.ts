@@ -1,6 +1,6 @@
 import type { ConfirmView } from "../src/link/holder.ts";
 import type { MemoryProposal } from "../src/net.ts";
-import { confirmActions, lanActions, lanReading, outcome, proposalActions } from "./asks.ts";
+import { confirmActions, confirmWhy, lanActions, lanReading, outcome, proposalActions } from "./asks.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { type PairRequest } from "./pairs.ts";
@@ -52,14 +52,14 @@ function decide(o: DecideOptions, field?: HTMLInputElement): DecidePanel {
 }
 const reason = (r: Answer) => String(r.body.reason ?? r.body.error ?? r.status);
 
-/** A confirm a teammate's tower asked of this computer: the tool's full arguments, and Allow or Deny (`link/confirm-answer`). */
+/** A confirm a teammate's tower asked of this computer: the tool's full arguments, and Allow or Deny (`link/confirm-answer`, naming the digest of this request). */
 export function confirmPanel(c: ConfirmView, wrap: DecideOptions["wrap"]): DecidePanel {
 	const acts = confirmActions(c);
-	return decide({ lead: [h("pre", { class: "link-args zen-args" }, c.args)], choices: [{ label: m.link_allow(), run: acts.allow }, { label: m.link_deny(), run: acts.deny }], wrap, words: reason });
+	return decide({ lead: [h("pre", { class: "link-args zen-args" }, c.args)], choices: [{ label: m.link_allow(), run: acts.allow }, { label: m.link_deny(), run: acts.deny }], wrap, words: confirmWhy });
 }
 
-/** A memory proposal of a tower run: Confirm (naming the rev the snapshot carried) or Reject. */
-export function proposalPanel(p: { ws: string; proposal: MemoryProposal; rev: number }, wrap: DecideOptions["wrap"]): DecidePanel {
+/** A memory proposal of a tower run: Confirm (naming the rev the snapshot holds when it is pressed) or Reject. */
+export function proposalPanel(p: { ws: string; proposal: MemoryProposal; rev: () => number }, wrap: DecideOptions["wrap"]): DecidePanel {
 	const acts = proposalActions({ ws: p.ws, id: p.proposal.id, rev: p.rev });
 	return decide({ lead: p.proposal.cites ? [h("p", { class: "zen-meta" }, m.memory_cites({ text: p.proposal.cites }))] : [], choices: [{ label: m.memory_confirm(), run: acts.confirm }, { label: m.memory_reject(), run: acts.reject }], wrap, words: (r) => m.tower_action_failed({ reason: actionWhy(r) ?? reason(r) }) });
 }
@@ -70,5 +70,10 @@ export function pairPanel(p: PairRequest, wrap: DecideOptions["wrap"], send: (pa
 	const field = h("input", { type: "text", inputmode: "numeric", pattern: "[0-9]{4}", maxlength: "4", autocomplete: "off", spellcheck: "false", class: "zen-head-box zen-pair-number", "aria-label": m.lan_number_ask(), placeholder: "0000" }) as HTMLInputElement;
 	field.addEventListener("input", () => (field.value = field.value.replace(/\D/g, "").slice(0, 4)));
 	const ready = () => /^\d{4}$/.test(field.value);
-	return decide({ lead: [h("label", { class: "zen-pair-ask" }, m.lan_number_ask()), field], choices: [{ label: m.lan_allow(), run: () => acts.approve(field.value), ready }, { label: m.lan_deny_one(), run: () => acts.deny(p.id) }], wrap, words: (r) => { const said = lanReading(r); return [said.answer, said.verdict].filter(Boolean).join(" "); } }, field);
+	// The number decides which phone is paired (it is what authenticates the phone): another request's number pairs that one, and this card's request still waits.
+	const ownRequest = (r: Answer): Answer => {
+		const paired = r.body.paired as { id?: unknown; label?: unknown } | undefined;
+		return r.ok && paired && paired.id !== p.id ? { ...r, ok: false, body: { error: "other_request", reason: m.lan_paired_other({ label: String(paired.label ?? "") }) } } : r;
+	};
+	return decide({ lead: [h("label", { class: "zen-pair-ask" }, m.lan_number_ask()), field], choices: [{ label: m.lan_allow(), run: () => acts.approve(field.value).then(ownRequest), ready }, { label: m.lan_deny_one(), run: () => acts.deny(p.id) }], wrap, words: (r) => { const said = lanReading(r); return [said.answer, said.verdict].filter(Boolean).join(" "); } }, field);
 }

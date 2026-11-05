@@ -60,14 +60,20 @@ const fetched = (reply: (path: string) => { status: number; body: unknown }) => 
 test("a link confirm's Allow and Deny are the confirm-answer route with the dialog's id; a plain success reads as accepted, a refusal keeps the server's reason", async () => {
 	const { confirmActions } = await import("../gui/asks.ts");
 	const sent = fetched((path) => (path.includes("link/confirm-answer") ? { status: 200, body: {} } : { status: 404, body: {} }));
-	const acts = confirmActions({ dialogId: "dc1" });
+	const acts = confirmActions({ dialogId: "dc1", digest: "e".repeat(64) });
 	assert.equal(outcome(await acts.allow()), "accepted");
 	assert.equal(outcome(await acts.deny()), "accepted");
-	assert.deepEqual(sent, [["api/link/confirm-answer", { dialogId: "dc1", allow: true }], ["api/link/confirm-answer", { dialogId: "dc1", allow: false }]]);
+	assert.deepEqual(sent, [["api/link/confirm-answer", { dialogId: "dc1", digest: "e".repeat(64), allow: true }], ["api/link/confirm-answer", { dialogId: "dc1", digest: "e".repeat(64), allow: false }]]);
 	fetched(() => ({ status: 409, body: { error: "link_failed", reason: "That request is gone or has timed out" } }));
 	const refused = await acts.allow();
 	assert.equal(outcome(refused), "refused");
 	assert.equal(refused.body.reason, "That request is gone or has timed out");
+	const { confirmWhy } = await import("../gui/asks.ts");
+	const { m } = await import("../gui/paraglide/messages.js");
+	assert.equal(confirmWhy(refused), m.link_confirm_gone(), "a known refusal is said by the page's message");
+	assert.equal(confirmWhy({ status: 409, body: { reason: "That team is not running on this device" } }), m.link_confirm_team_off());
+	assert.equal(confirmWhy({ status: 409, body: { reason: "That request changed; look at it again" } }), m.link_confirm_changed());
+	assert.equal(confirmWhy({ status: 409, body: { reason: "Something new" } }), "Something new", "an unknown reason is the server's");
 });
 
 test("a forwarded dialog's answer goes to dialog-answer with the device, dialog and digest the holder checks again, and says only which choice or words", async () => {
@@ -88,10 +94,10 @@ test("a forwarded dialog's answer goes to dialog-answer with the device, dialog 
 test("a memory proposal is confirmed with the rev the snapshot carried and rejected by its id, at the tower's memory route (the head's at head/memory)", async () => {
 	const { proposalActions } = await import("../gui/asks.ts");
 	const sent = fetched(() => ({ status: 200, body: { rev: 8, proposals: [], entries: [] } }));
-	const acts = proposalActions({ ws: "w", id: "P1", rev: 7 });
+	const acts = proposalActions({ ws: "w", id: "P1", rev: () => 7 });
 	assert.equal(outcome(await acts.confirm()), "accepted");
 	assert.equal(outcome(await acts.reject()), "accepted");
-	await proposalActions({ ws: "@head", id: "P2", rev: 1 }).reject();
+	await proposalActions({ ws: "@head", id: "P2", rev: () => 1 }).reject();
 	assert.deepEqual(sent, [["api/tower/w/memory", { op: "confirm", proposal: "P1", rev: 7 }], ["api/tower/w/memory", { op: "reject", proposal: "P1" }], ["api/head/memory", { op: "reject", proposal: "P2" }]]);
 });
 
@@ -103,6 +109,8 @@ test("a LAN decision is the approve route: the typed number alone, or one reques
 	await acts.deny("ab12cd34ef56");
 	await acts.denyAll();
 	assert.deepEqual(sent, [["lan/approve", { number: "1234" }], ["lan/approve", { deny: "ab12cd34ef56" }], ["lan/approve", { deny: "all" }]]);
+	const gone = lanActions(async () => ({ ok: true, status: 200, body: { denied: 0 } }));
+	assert.equal(outcome(await gone.deny("ab12cd34ef56")), "refused", "a request the server no longer holds is not an answered one");
 	assert.deepEqual(lanReading({ ok: true, status: 200, body: {} }), { answer: "", verdict: "" });
 	assert.deepEqual(lanReading({ ok: false, status: 404, body: { error: "no_match" } }), { answer: "No request has that number.", verdict: "" });
 	assert.deepEqual(lanReading({ ok: false, status: 404, body: { error: "no_match", denied: 2 } }), { answer: "", verdict: "Three wrong numbers in a row, so every waiting request was denied. Press New code and pair again." });

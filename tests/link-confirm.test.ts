@@ -79,6 +79,20 @@ test("round trip: the request reaches the sender's device with its tool and full
 	assert.equal((await b.holder.answerConfirm("D1", true)).ok, false);
 });
 
+test("an answer that names another digest than the request held is refused and leaves the request open", async () => {
+	world();
+	const [a, b] = [rig("a"), rig("b")];
+	await Promise.all([a.holder.start(), b.holder.start()]);
+	await ask(a);
+	await until(() => b.holder.confirmRequests().length === 1, 3000, "the request on B");
+	const seen = b.holder.confirmRequests()[0]!;
+	const refused = await b.holder.answerConfirm("D1", true, "0".repeat(seen.digest.length));
+	assert.deepEqual(refused, { ok: false, error: "That request changed; look at it again" });
+	assert.equal(b.holder.confirmRequests().length, 1, "still waiting");
+	assert.deepEqual(await b.holder.answerConfirm("D1", true, seen.digest), { ok: true });
+	await until(() => a.got.length === 1, 3000, "the answer on A");
+});
+
 test("a deny comes back as a deny", async () => {
 	world();
 	const [a, b] = [rig("a"), rig("b")];

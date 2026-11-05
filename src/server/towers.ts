@@ -1025,8 +1025,8 @@ export function createTowers(o: TowersOptions): Towers {
 		 * The live main named by id or name that an ask may be made for: a main of this tower's workspace, or a main of another workspace on this computer that called this run (`callers`).
 		 * Throws when there is none, several, or it is neither; no other session is a target.
 		 */
-		const mainOf = async (query: string) => {
-			const net = await l.reach!.read(), named = net.sessions.filter((x) => x.id === query || nameOf(x) === query);
+		const mainOf = async (query: string, byId = false) => {
+			const net = await l.reach!.read(), named = net.sessions.filter((x) => x.id === query || (!byId && nameOf(x) === query));
 			if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${query}"`);
 			const pane = net.ps.find((p) => p.pane_id === named[0]!.herdrLocation?.paneId);
 			if (pane?.tokens?.sb_role !== "main") throw new Error(`${query} is not a main of workspace ${l.record.label}: an ask for a main names one of its mains, or a main of another workspace that called this tower`);
@@ -1063,7 +1063,7 @@ export function createTowers(o: TowersOptions): Towers {
 			requester: async () => {
 				const askers = callers();
 				if (askers.size !== 1) return undefined;
-				return mainOf([...askers][0]!).catch(() => undefined);
+				return mainOf([...askers][0]!, true).catch(() => undefined);
 			},
 		};
 		try {

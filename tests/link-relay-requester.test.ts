@@ -104,7 +104,7 @@ test("the same main twice still counts once; a main that has left the workspace'
 	assert.deepEqual(createAsks(gone.world.slot).openOf("wA"), []);
 });
 
-// A tower relaying for a main of another workspace on this computer (docs/specs/2026-11-05-link-relay-cross.md): the requester is whoever sent THIS tower the call_tower, whatever its workspace.
+// A tower relaying for a main of another workspace on this computer (docs/specs/2026-11-04-link-relay.md §6): the requester is whoever sent THIS tower the call_tower, whatever its workspace.
 
 test("a main of another workspace that called this tower is the run's requester: the ask is recorded under this tower's workspace, for that main", async () => {
 	const { world, send } = await localRun([mine("please have the box run trial 8", "far-main")]);
@@ -158,10 +158,30 @@ test("two askers in different workspaces bind nothing; a far main that left bind
 	assert.deepEqual(createAsks(gone.world.slot).openOf("wA"), []);
 });
 
-test("a far main whose call expected no answer, or whose header is not a call_tower, is no requester and no target", async () => {
+test("a far main whose call expected no answer, or whose header does not open as a call_tower, is no requester and no target", async () => {
 	const notice = await localRun([mine("done", "far-main", false)]);
 	const done = await notice.send({ reply: true });
 	assert.equal(done.ok, true);
 	assert.equal(notice.world.linkCalls.at(-1)!.body.awaitsReply, undefined);
 	assert.equal((await notice.send({ reply: true, for: "beta-main" })).ok, false);
+	// A call_tower that does not open the message, and a tower_send header that expects a reply, are no call.
+	const buried = await localRun([{ from: "far-main", text: `fyi ${mine("please", "far-main").text}` }]);
+	assert.equal((await buried.send({ reply: true, for: "beta-main" })).ok, false);
+	assert.equal((await buried.send({ reply: true })).ok, true);
+	assert.equal(buried.world.linkCalls.at(-1)!.body.awaitsReply, undefined);
+	const other = stamp({ from: party("far-main", "beta-main", "main", "Beta"), kind: "tower_send", scope: "tower", to: [{ id: "sb-tower-wa", name: "tower", role: "tower", workspace: "Alpha" }], reply: true }, "please");
+	const notCall = await localRun([{ from: "far-main", text: other }]);
+	assert.equal((await notCall.send({ reply: true, for: "beta-main" })).ok, false);
+	assert.equal((await notCall.send({ reply: true })).ok, true);
+	assert.equal(notCall.world.linkCalls.at(-1)!.body.awaitsReply, undefined);
+	assert.deepEqual(createAsks(notCall.world.slot).openOf("wA"), []);
+});
+
+test("the requester is looked up by session id only: a main whose name is a departed caller's id is no requester", async () => {
+	const own = await localRun([mine("please", "far-main")]);
+	own.world.sessions = [...own.world.sessions.filter((x) => x.id !== "far-main" && x.id !== "main-2"), { id: "main-2", name: "far-main", herdrLocation: { paneId: "wA:p21", workspace: { id: "wA", label: "Alpha" } } } as never];
+	const done = await own.send({ reply: true });
+	assert.equal(done.ok, true);
+	assert.equal(own.world.linkCalls.at(-1)!.body.awaitsReply, undefined);
+	assert.deepEqual(createAsks(own.world.slot).openOf("wA"), []);
 });

@@ -27,8 +27,7 @@ export function waitPanel(o: WaitPanelOptions) {
 	dismiss.onclick = () => {
 		busy = true;
 		void guarded(dismiss, (t) => (note.textContent = t ?? ""), async () => {
-			// The memory route answers the memory, not an `outcome`: a taken dismissal is an accepted answer to Zen's card.
-			const r = await (o.send ?? ((reply) => reply))(post(`tower/${encodeURIComponent(o.ws)}/memory`, { op: "drop", id: o.id }).then((a) => (a.ok ? { ...a, body: { ...a.body, outcome: "accepted" } } : a)));
+			const r = await (o.send ?? ((reply) => reply))(post(`tower/${encodeURIComponent(o.ws)}/memory`, { op: "drop", id: o.id })); // the memory route answers the memory it now holds, which asks.ts `outcome` reads as accepted
 			if (r.ok) o.done?.();
 			return r;
 		}, 0).finally(() => (busy = false));

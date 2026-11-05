@@ -1,7 +1,8 @@
 import { HEAD_KEY } from "../src/headkey.ts";
 import type { Net } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
-import { answerPost, canAnswer, outcomeOf, trustPost } from "./answer.ts";
+import { answerPost, canAnswer, trustPost } from "./answer.ts";
+import { outcome } from "./asks.ts";
 import { type AnswerPost, mountAsk } from "./ask.ts";
 import type { Chat, Data, HistoryEvent, Who } from "./chat.ts";
 import { mountComposer } from "./composer.ts";
@@ -88,7 +89,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		cancel = wait === undefined ? () => {} : later(() => apply(model.tick()), Math.max(0, wait) + 10);
 	}
 	/** An answer's reply: accepted ends the item with the knock; anything else the server refused, or no reply, plays the low bowl and leaves the card. */
-	const tell = (reply: Promise<Answer>) => reply.then((r) => (apply(outcomeOf(r) === "accepted" ? model.accepted() : model.refused()), r), (e: unknown) => (apply(model.refused()), Promise.reject(e)));
+	const tell = (reply: Promise<Answer>) => reply.then((r) => (apply(outcome(r) === "accepted" ? model.accepted() : model.refused()), r), (e: unknown) => (apply(model.refused()), Promise.reject(e)));
 	/** What a card holds was swapped: it fades in over a short moment (opacity only, zen.css) while the box takes its new size at once. */
 	const fade = (el: HTMLElement) => (el.removeAttribute("data-fade"), void el.offsetWidth, el.setAttribute("data-fade", "")); // the read restarts the animation
 	function makeCard(a: Alert): Card {

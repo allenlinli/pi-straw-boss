@@ -238,7 +238,7 @@ test("a trust question draws the trust panel with its three choices, answers thr
 
 test("a wait the tower recorded on the boss is an item with its words, Handle (to its comms), Dismiss (the server drops it), and Not now, and no terminal to open", async () => {
 	const sent: { path: string; body: unknown }[] = [];
-	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => ({}) }) });
+	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => ({ rev: 2, proposals: [], entries: [] }) }) }); // the memory route answers the memory it now holds
 	const r = rig();
 	const n = net([]);
 	n.bases[0]!.tower!.service = { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "W2", text: "Boss token needed to add the ACL", at: new Date(r.now() - 60_000).toISOString() }], proposals: [] } };

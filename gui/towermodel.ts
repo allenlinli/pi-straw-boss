@@ -2,7 +2,7 @@ import { HEAD_KEY } from "../src/headkey.ts";
 import type { MemoryProposal, MemorySummary, TowerService } from "../src/net.ts";
 import type { Mark } from "../src/netdata.ts";
 import { m } from "./paraglide/messages.js";
-import type { Answer } from "./post.ts";
+import { type Answer, post } from "./post.ts";
 import { waitLine } from "./waits.ts";
 
 // What the page says about the sb server's tower service (src/server/runs.ts `ServiceStatus`, carried on the tower unit as `service`), as plain functions of the reading: the state's word, the last run,
@@ -11,6 +11,8 @@ import { waitLine } from "./waits.ts";
 type Opts = { locale?: "en" | "zh-TW" };
 /** The path of a tower's buttons below `api/`: `tower/<workspace>`, or `head` for the head tower's stand-in (`api/tower/@head/…` answers 404, since the head has the one route family `api/head/…`). */
 export const towerRoute = (ws: string) => (ws === HEAD_KEY ? "head" : `tower/${encodeURIComponent(ws)}`);
+/** Dismiss a wait for the boss: the server drops it from the tower's memory (asks.ts `waitActions` has it with the rest of a wait's actions; the map's notice row is eager, so it lives here). */
+export const dismissWait = (ws: string, id: string): Promise<Answer> => post(`${towerRoute(ws)}/memory`, { op: "drop", id });
 /** The mark's own word (render.ts `LABEL`). */
 export type Word = (mk: Mark) => string;
 

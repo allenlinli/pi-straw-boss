@@ -1,6 +1,7 @@
 import type { Item } from "../src/items.ts";
 import type { HeadUnit } from "../src/nethead.ts";
 import type { HistoryEvent } from "./chat.ts";
+import { joined } from "./asks.ts";
 import { h } from "./dom.ts";
 import { CLEAR_MS, createFade, type HeadLine, headLines, SHOWN, SHOWN_SMALL } from "./headlines.ts";
 import { m } from "./paraglide/messages.js";
@@ -33,7 +34,6 @@ export interface HeadIo {
 }
 
 /** A wheel gesture over the circle screen: the sign of the travel once it passes a notch (24 px), once per gesture (events within 100 ms of each other are one, inertia included). `edge` is true when the gesture began at the end of what scrolls. */
-export const joined = (reason: string) => reason.replace(/^([A-Z])(?=[a-z])/, (c) => c.toLowerCase()); // a plain English reason after "did not take it:" starts in lower case; an acronym or other script stays
 export function wheelGesture() {
 	let last = -Infinity, travel = 0, locked = false, edge = false;
 	return (dy: number, at: number, atEdge: boolean): { dir: -1 | 0 | 1; edge: boolean } => {

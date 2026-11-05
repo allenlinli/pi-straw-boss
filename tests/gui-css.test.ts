@@ -275,6 +275,14 @@ test("the Whole conversation link's key (\"· H\") is the input hint's quiet ash
 	for (const file of ["en", "zh-TW"]) assert.equal(JSON.parse(readFileSync(new URL(`../gui/messages/${file}.json`, import.meta.url), "utf8")).zen_head_key, "· H", `${file} has the key's words`);
 });
 
+test("a wait card's answer box is the head strip's input in the card: the same hairline box (vermilion underline on focus) at the card's full width, and its unfolded buttons obey `hidden`", () => {
+	const box = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-box'));
+	assert.ok(declarations(box!.body).some(([p, v]) => p === "border-bottom-color" && v === "var(--zen-line)"), "the box has the hairline, no frame");
+	assert.match(zen, /\.zen-head-box:focus-visible \{ outline: none; border-radius: 0; border-bottom-color: var\(--zen-seal\); \}/, "and the vermilion underline on focus");
+	assert.match(zen, /\.zen-answer \.wait-panel \.zen-head-form \{ flex: 1 1 100%; width: 100%; text-align: left; \}/, "full width under the question");
+	assert.match(zen, /\.wait-panel \.pair-btn\[hidden\] \{ display: none; \}/);
+});
+
 test("the strip's two swaps move: hover, focus, and a tap ease the lines to clear and back over Zen's 0.6 s curve, and the mindfulness line fades out and in; neither restarts the fade's clock", () => {
 	assert.match(zen, /@property --fade \{ syntax: "<number>"; inherits: false; initial-value: 1; \}/);
 	assert.match(zen, /@property --lift \{ syntax: "<number>"; inherits: false; initial-value: 0; \}/, "a registered property is the only thing a transition can ease here: the animation owns --fade");

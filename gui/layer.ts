@@ -112,7 +112,7 @@ export function mountPanels(deps: PanelDeps) {
 		text(el, ".queued", queue.length ? m.also_queued({ tally: tally(queue) }) : "");
 		el.querySelector<HTMLElement>(".later")!.hidden = rankOf(a) !== 0; // a finished one is read once opened: nothing to keep for later
 		if (a.trust) return fillTrust(el, a);
-		if (a.wait) return waitDialog(el, a, () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()));
+		if (a.wait) return waitDialog(el, a, () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)));
 		if (!intels.has(a.key)) learn(a);
 		tell(el, a);
 		let ask = asks.get(el);

@@ -527,7 +527,7 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Terminal card review fixes (TC-F001 to F008): termcard.ts 123 to 148 (the retry from the button with its backoff, the stopped card's silence, the focus and mask rules), mirror.ts 192 to 193 (`watch` gives `retry`), termwords.ts 18 to 19 (four codes).
 	// Z-D14 (a long lone question is set as text): gui/ask.ts 194 to 196 (LONG_Q and its line).
 	// A wait for the boss is an alert (docs/specs/2026-10-26-sb-backend.md, Tower memory): layer.ts 260 to 261 (a wait's dialog is waitpanel.ts's, one line to hand it over; the skipped transmission read shares an existing line). zen.ts 353 to 360 (a wait's card: its mount and the two places that read the unit's history skip a wait). alerts.ts and overlay.ts 159 to 161 (the import of waits.ts and its one call in `alertsOf`).
-	for (const [name, max] of [["router.ts", 80], ["chat.ts", 339], ["markdown.ts", 180], ["views.ts", 99], ["scene.ts", 55], ["tokens.ts", 24], ["nav.ts", 46], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 165], ["sessionfacts.ts", 10], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 261], ["askkeys.ts", 80], ["composer.ts", 327], ["ask.ts", 196], ["terminalthen.ts", 21], ["answer.ts", 16], ["mirror.ts", 193], ["mirrorconn.ts", 84], ["keywriter.ts", 71], ["termcard.ts", 148], ["confirmbar.ts", 12], ["termwords.ts", 19], ["stepslot.ts", 63], ["zenhost.ts", 59], ["cardmodel.ts", 49], ["keypad.ts", 80], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 382], ["zenquestions.ts", 159], ["zentypes.ts", 70], ["zenterm.ts", 111], ["zenlines.ts", 139], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["zensound.ts", 140], ["zenmusic.ts", 116], ["zenmusicbar.ts", 178], ["prefs.ts", 41], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
+	for (const [name, max] of [["router.ts", 80], ["chat.ts", 339], ["markdown.ts", 180], ["views.ts", 99], ["scene.ts", 55], ["tokens.ts", 24], ["nav.ts", 46], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 165], ["sessionfacts.ts", 10], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 261], ["askkeys.ts", 80], ["composer.ts", 327], ["ask.ts", 196], ["terminalthen.ts", 21], ["answer.ts", 16], ["mirror.ts", 193], ["mirrorconn.ts", 84], ["keywriter.ts", 71], ["termcard.ts", 148], ["confirmbar.ts", 12], ["termwords.ts", 19], ["stepslot.ts", 63], ["zenhost.ts", 59], ["cardmodel.ts", 49], ["keypad.ts", 80], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 386], ["zenquestions.ts", 159], ["zentypes.ts", 70], ["zenterm.ts", 111], ["zenlines.ts", 139], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["zensound.ts", 140], ["zenmusic.ts", 116], ["zenmusicbar.ts", 178], ["prefs.ts", 41], ["tabicon.ts", 10], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
 	// 0.28.0 to 185 with the answer keys' hooks into gui/ask.ts (the focus on the first option, the textarea). 0.28.0 raised gui/ask.ts from 156 to 175 for the secret panel: the masked field with Show and Hide, Submit, the way back to the terminal, the unsupported-remote notice, and a value that leaves with its one request.
 	// 0.10.0: the page's text comes from Paraglide's messages (gui/messages), which raised chat.ts, views.ts, layer.ts, ask.ts, mirror.ts, and doc.ts by one
 	// line each for the messages import; the strings replaced in place. gui/i18n.ts picks the locale (the menu's choice, the browser's languages with
@@ -587,7 +587,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Merge of feat/link-unattended with 0.55.0 (Zen Z-D12 to Z-D16): 379 measured, the unattended device's units, notice and ended card beside Zen's `idle`/`alone`/`long` fixtures.
 	// A wait for the boss (`?wait=fresh|stale|both`) to 395 (measured, +16): the tower's memory summary with the waits, and the stand-in for the memory route's drop.
 	// Merge of the head tower into main (0.58.0): 403 measured, the wait's `?wait=` states beside the head's `?zen=head*` states.
-	assert.ok(demo <= 403, `the demo fixture has ${demo} lines`);
+	// Wait panel answers in place to 404 (measured, +1): `&waitrefuse` makes the tower refuse what the boss sends it, and the demo's input and dismissal reply as the server does (`accepted`, the memory it holds).
+	assert.ok(demo <= 404, `the demo fixture has ${demo} lines`);
 	// Head tower H5 to 387 (+3 over 384): the strip's `?zen=head|head-open|head-history` states (the quiet net, the Enter and H presses, the draft), and a message to the head answered with its working mark (demo-head.ts holds the words).
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
@@ -732,7 +733,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Head tower H6 to 5599 (measured, +21 over 5578): zenhead.ts takes `quietForwards` (a forward row in the history reads as one quiet line) and the strip's `settle` (a bright strip is not at rest), zen.ts one hook on a line it already had, and demo-head.ts the wait's words by language.
 	// Merge of the head tower into main (0.58.0): 5699 measured, the head's 5599 plus the wait alert's +100 (waits.ts, waitpanel.ts and their hooks).
 	// The answer outcome table to 5710 (measured, +11): gui/asks.ts (13, new) takes `outcomeOf` out of answer.ts and the faked outcome out of waitpanel.ts.
-	assert.ok(page <= 5710, `the page's TypeScript has ${page} lines`);
+	// Wait panel answers in place to 5810 (measured, +100): gui/asks.ts takes `waitActions` and `joined` (35), waitpanel.ts the answer box (123), zen.ts the title, the box's Esc row and the card's two hooks (+4), the demo's replies.
+	assert.ok(page <= 5810, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -874,7 +876,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head tower H4 review fixes: 98,083 / 34,866 measured (the chapter reasons, the news dots, the head-named speaker). Cap = measured + 17 / + 14.
 	// Merge of the head tower into main (0.58.0): 99,171 / 35,198 measured, the head's 98,083 / 34,866 plus the wait alert's figures. Cap = measured + 19 / + 17.
 	// Head polish (after 0.58.0: the head node's title and the key's message): 99,233 / 35,216 measured, +62 / +18 over the merge figure. Cap = measured + 15.
-	assert.ok(eagerBytes <= 99_248 && eagerGz <= 35_231, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Wait panel answers in place (dismissWait in towermodel.ts, the notice row's one caller): 99,270 / 35,235 measured, +37 / +19 over the head polish figure. Cap = measured + 15.
+	assert.ok(eagerBytes <= 99_285 && eagerGz <= 35_245, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1001,7 +1004,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head polish (after 0.58.0: the key's message, the strip's lift and away swaps in the lazy Zen chunk): 293,458 / 119,242 measured, +223 / +51 over the merge figure. Cap = measured + 15.
 	// Head polish review fixes (the key span's aria-hidden, the away guard on the mindfulness swap): 293,529 / 119,276 measured on a fresh build, +71 / +34. Cap = measured + 15 / + 19.
 	// The answer outcome table (gui/asks.ts, shared by Zen's card and the wait panel): 293,555 measured, +26 over the head polish figure, the table's chunk. Cap = measured + 15.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 293_570 && total(chunks, gz) <= 119_310, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Wait panel answers in place (the box, its Esc row, the wait actions, the messages): 295,358 / 119,947 measured, +1,803 / +637 over the outcome table's figure, all in the lazy chunks. Cap = measured + 15.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 295_373 && total(chunks, gz) <= 119_962, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1108,7 +1112,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merge of the head tower into main (0.58.0): 153,316 / 31,385 measured, the head's figures plus the wait alert's Zen buttons. Cap = measured + 14 / + 15.
 	// Head polish (after 0.58.0: the compact head node, the lines' --fade/--lift swap, the away rules for the mindfulness line and the link, the key's rules): 154,415 / 31,676 measured, +1,099 / +291 over the merge figure. Cap = measured + 15.
 	// Head polish review fixes (the phone pill's 44 px hit box): 154,475 / 31,691 measured on a fresh build, +60 / +15. Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 154_490 && total(css, gz) <= 31_706, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Wait panel answers in place (two rules for the answer box's width and its hidden buttons): 154,626 / 31,712 measured, +151 / +21 over the review figure. Cap = measured + 15.
+	assert.ok(total(css, (n) => size(n).length) <= 154_641 && total(css, gz) <= 31_727, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

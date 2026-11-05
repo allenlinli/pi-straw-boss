@@ -8,7 +8,8 @@ import type { Net, TowerService, Unit } from "../src/net.ts";
 import { alertsOf } from "../gui/alerts.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
-import { joined, quietForwards } from "../gui/zenhead.ts";
+import { joined } from "../gui/asks.ts";
+import { quietForwards } from "../gui/zenhead.ts";
 import { hotkeyOf } from "../gui/hotkeys.ts";
 import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 import { El, page } from "./fake-dom.ts";

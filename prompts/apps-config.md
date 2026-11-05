@@ -3,9 +3,16 @@
 The project's managed apps live in `.straw-boss/apps.json` at the git root, or in `.claude/straw-boss/apps.json` when the first is absent. Without either file, a repository holding one codebase is its own single app; with several plausible apps, ask which one the request targets.
 
 ```json
+{"apps": [{"name": "api", "dir": "apps/api", "match": ["backend", "rest api"]}]}
+```
+<!-- integration -->
+With a merge train:
+
+```json
 {"integration": {"skill": "integrate", "maxCars": 4, "maxWaitMin": 60},
  "apps": [{"name": "api", "dir": "apps/api", "match": ["backend", "rest api"], "integration": {"base": "develop", "stages": ["merge", "deploy", "uat"], "targets": {"test-env": "auto"}}}]}
 ```
+<!-- /integration -->
 
 | Field | Meaning |
 |---|---|
@@ -15,9 +22,10 @@ The project's managed apps live in `.straw-boss/apps.json` at the git root, or i
 | `gitWorkflowSkill` | The app's own skill for commit, MR, and release steps; the worker follows it. |
 | `localFiles` | Gitignored files a new worktree needs, each with `path` relative to `dir`; copy them before launch. A `sensitive: true` file is copied only under the user's authorization, and an entry without `optional: true` that is missing blocks the launch. |
 | `crossAppSkills` | `withApp` and `skill`: an existing skill that handles this app depending on `withApp`; name it in the brief. |
-| `integration` (top level) | The project's merge train defaults: `skill` is the name of the project skill that holds the concrete checks (a name, as `gitWorkflowSkill` is), `maxCars` (default 4) and `maxWaitMin` (default 60) say when a train departs; the skill may override them. |
-| `integration` (per app) | `base` is the integration branch; `skill` overrides the project's; `stages` lists, in order, what the integrator carries each train through: `merge` (the default, always first), then optionally `deploy`, then `uat` (only after `deploy`); `targets` maps a deploy target to `auto` (every train deploys there with no per-car authorization: the boss's standing word, so only the boss sets it: a main adds or widens an `auto` entry only with the boss's words for it quoted in the commit message) or `strict` (only cars whose slip `auth` names it; the default for an unlisted target). Only an app with this field takes the merge train; an app without it keeps today's flow, and the main merges after its own checks. |
+<!-- integration -->| `integration` (top level) | The project's merge train defaults: `skill` is the name of the project skill that holds the concrete checks (a name, as `gitWorkflowSkill` is), `maxCars` (default 4) and `maxWaitMin` (default 60) say when a train departs; the skill may override them. |<!-- /integration -->
+<!-- integration -->| `integration` (per app) | `base` is the integration branch; `skill` overrides the project's; `stages` lists, in order, what the integrator carries each train through: `merge` (the default, always first), then optionally `deploy`, then `uat` (only after `deploy`); `targets` maps a deploy target to `auto` (every train deploys there with no per-car authorization: the boss's standing word, so only the boss sets it: a main adds or widens an `auto` entry only with the boss's words for it quoted in the commit message) or `strict` (only cars whose slip `auth` names it; the default for an unlisted target). Only an app with this field takes the merge train; an app without it keeps today's flow, and the main merges after its own checks. |<!-- /integration -->
 
+<!-- integration -->
 ## Merge train
 
 Straw-boss states the principle and the contract; the project's skill holds every concrete check. A coordinator's anchor before handoff is its review (P0 and P1 clear) plus behaviour tests aimed at its own change. Format, lint, build, full type-check, full suites, publish, and similar quality gates run once, by the project's integrator, on the integrated pre-dev head. A skill may name exceptions.
@@ -38,3 +46,6 @@ The skill is found by the headings below, exactly as written. Straw-boss reads n
 | `## Load` | integrator | Optional: the project's lock name and load thresholds. |
 
 `Light checks`, `Full gates`, and `Merge` are required, and so is each heading of a stage an app declares. If one is missing, the integrator does not depart and calls the tower with `why=blocked`; it never guesses a section.
+
+A computer can turn the merge train off with `STRAW_BOSS_INTEGRATION=off` in the environment, or `"integration": "off"` in `config.json` of the state folder (the variable wins). Every field above is then ignored, and this file is served without it.
+<!-- /integration -->

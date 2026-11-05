@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
+import { strip } from "../src/trainswitch.ts";
 import { PROMPT_DIR } from "./fakes.ts";
 
 // tower.md was 150 words; the rule for opening a main for unowned work (boss_open_main: no asking the boss, what to pass, once, report a failure) took it to 180.
@@ -17,14 +18,17 @@ import { PROMPT_DIR } from "./fakes.ts";
 // Board clearing: main 458 to 484 (clear the board before stopping when work ends or is shelved; `board_set { clear: true }`; Done-when includes it).
 // 2026-11-02 (a main edited prompts itself and stalled its chain): main dispatches work independent of its chain; +14 words, 13 cut from the board and rename lines (the tool states the 16-character limit), main stays 483 of 484.
 // 2026-11-04 (hand-made worktrees scattered under ~/.local/share and hung children on the trust prompt): main names the worktree root; 484 to 500.
+// 2026-11-05 (merge-train switch, src/trainswitch.ts): the budgets count the text a session gets, markers dropped, with the switch on and with it off. On, main gains the ledger folder ({{state}}/trains): 497 to 500; off it is 481.
 const BUDGETS: Record<string, number> = { "main.md": 500, "tower.md": 380, "member.md": 140, "member-no-main.md": 150 };
-const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir"]);
+const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir", "state"]);
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
 test("every role prompt stays within its word budget", () => {
 	for (const [file, budget] of Object.entries(BUDGETS)) {
-		const count = words(readFileSync(`${PROMPT_DIR}/${file}`, "utf8"));
-		assert.ok(count > 10 && count <= budget, `${file} has ${count} words (budget ${budget})`);
+		for (const off of [false, true]) {
+			const count = words(strip(readFileSync(`${PROMPT_DIR}/${file}`, "utf8"), off));
+			assert.ok(count > 10 && count <= budget, `${file} has ${count} words with integration ${off ? "off" : "on"} (budget ${budget})`);
+		}
 	}
 });
 
@@ -61,7 +65,7 @@ test("the main plans from planning.md: graph, todos with owners and blockedBy, s
 	assert.doesNotMatch(plan, /Start only on their confirmation/);
 	// 2026-11-02 audit (a coordinator offered the boss a page-local design that the app's rules forbade, and a single-loop task opened no anchor loop): +45 words, 20 cut, budget 650 to 670.
 	for (const term of ["its plan is one todo whose `metadata.anchor` names its check", "read the owning app's instructions", "quote the rule that settles the design in the brief"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
-	assert.ok(words(plan) <= 670, `planning.md has ${words(plan)} words (budget 670)`);
+	for (const off of [false, true]) assert.ok(words(strip(plan, off)) <= 670, `planning.md has ${words(strip(plan, off))} words with integration ${off ? "off" : "on"} (budget 670)`);
 });
 
 // D18 and D19 (docs/specs/2026-10-26-sb-backend.md, Decisions): coordination goes through the tower, and a main calls it at three points only. main.md goes from 332 to about 425 words for that rule; the "who owns it" clause of `blocked` takes it to about 445.
@@ -89,8 +93,9 @@ test("merge train: apps-config names the integration fields and the skill headin
 	for (const term of ["`integration`", "`maxCars`", "`maxWaitMin`", "`base`", "## Light checks", "## Train assembly", "## Full gates", "## Merge", "## Post-merge", "## Urgent lane", "## Load", "Format, lint, build, full type-check, full suites, publish"]) assert.ok(cfg.includes(term), `apps-config.md names ${term}`);
 	const integrator = readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8");
 	assert.match(integrator, /^# Integrator/);
-	for (const term of ["`Light checks`, `Full gates`, or `Merge`", "`why=blocked`", "car:", "auth:", "`train/<code>`", "nothing is force pushed", "`maxCars`", "`maxWaitMin`", "`why=milestone`", "(applied to a DB: no|<which>)", "coordinator: <session id>", "apps-config.md beside this file", "~/.pi/agent/straw-boss/trains/<project>/<app>.json", "integ <project>", "never rename again", "reviewer rechecks it (delta brief)"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
-	assert.ok(!integrator.includes("{{dir}}") && !integrator.includes("<state dir>") && !integrator.includes("reserve"), "integrator.md has no placeholder, undefined path, or reserve");
+	for (const term of ["`Light checks`, `Full gates`, or `Merge`", "`why=blocked`", "car:", "auth:", "`train/<code>`", "nothing is force pushed", "`maxCars`", "`maxWaitMin`", "`why=milestone`", "(applied to a DB: no|<which>)", "coordinator: <session id>", "apps-config.md beside this file", "`<project>/<app>.json` in the `trains` folder your role prompt names", "integ <project>", "never rename again", "reviewer rechecks it (delta brief)"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
+	assert.ok(!integrator.includes("{{dir}}") && !integrator.includes("<state dir>") && !integrator.includes("reserve") && !integrator.includes("~/.pi"), "integrator.md has no placeholder, undefined path, hard-coded agent folder, or reserve");
+	assert.match(readFileSync(`${PROMPT_DIR}/main.md`, "utf8"), /ledgers in \{\{state\}\}\/trains/, "the integrator's role prompt names the ledger folder");
 	// Train stages (docs/specs/2026-11-05-train-stages.md): the deploy and UAT stages, with review RV fixes (auth per target across cars, merge waiting on deploy verify, shared for its own deploys), take integrator.md from 600 to 1000; `auto` and `strict` targets in config (boss, 2026-11-05) to 1060; it is read before the first departure, not in the system prompt.
 	assert.ok(words(integrator) <= 1060, `integrator.md has ${words(integrator)} words`);
 });
@@ -123,7 +128,7 @@ test("merge train: main hands integration cars over with why shared, planning st
 		const text = readFileSync(`${PROMPT_DIR}/${file}`, "utf8");
 		for (const term of ["`integration`", "integrator", "boss_open_main", "integrator.md"]) assert.ok(text.includes(term), `${file} names ${term}`);
 	}
-	assert.ok(words(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8")) <= 380);
+	for (const off of [false, true]) assert.ok(words(strip(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8"), off)) <= 380);
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8").includes("finding with evidence"));
 });
 

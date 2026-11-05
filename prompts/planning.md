@@ -26,15 +26,17 @@ For fan-out and orchestrator-worker, create one todo per task. A task is the lar
 
 Each anchor is the lightest check that can fail before the change and still reach what changed:
 
-- **testing**: the default for code changes. Use the smallest test that goes red first. Repo-wide suites, lint, and type checks run once, at the shared checkpoint or before merge, never inside each task. In an `integration` app, see below.
+- **testing**: the default for code changes. Use the smallest test that goes red first. Repo-wide suites, lint, and type checks run once, at the shared checkpoint or before merge, never inside each task.<!-- integration --> In an `integration` app, see below.<!-- /integration -->
 - **pseudo-human**: a browser or computer operates the real interface and records screenshots and measurements.
 - **human**: the boss operates or judges the delivered result. Use it where the boss's judgment is the real check: UI feel, wording, a business rule.
 - **adversarial-review**: a fresh-context agent challenges the result against the requirement. Use it for read-only work that has no executable checkpoint.
 
 Tasks that share one anchor share one checkpoint. Give each such group one checkpoint todo, `blockedBy` every task it covers, and tell those workers to hand it their evidence. A task whose check is distinct, or plainly cheaper in place, keeps its own.
 
+<!-- integration -->
 In an app that declares `integration`, the coordinator's anchor before handoff is its review (P0 and P1 clear) plus behaviour tests aimed at its own change, plus the project skill's `Light checks`. Repo-wide quality gates run once, by the integrator, on the integrated pre-dev head (its skill's `Full gates`); the skill may name exceptions. Where `stages` include `uat`, a `human` anchor is the train's UAT: the slip names its checkpoints file (skill's `UAT`); show the boss nothing yourself. The train replaces your merge-time checkpoint, not the fresh reviewer below.
 
+<!-- /integration -->
 A change-set that touches a shared contract, authorization or permission data, or a migration gets one fresh-context reviewer after its anchor passes. Other change-sets take the author's own read of the diff against the brief.
 
 ## 4. Start

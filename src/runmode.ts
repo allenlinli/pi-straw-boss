@@ -15,6 +15,7 @@ import { markRun } from "./runmark.ts";
 import { registerHeadSend } from "./runhead.ts";
 import { refusedForRun } from "./runallow.ts";
 import { startOf as processStart } from "./startof.ts";
+import { promptSet } from "./trainswitch.ts";
 import { ALLY_ENTRY, ENTRY, type Kit } from "./state.ts";
 import { MEMORY_DESCRIPTION, memoryParameters } from "./memorytool.ts";
 import { createTools, LINK_REQUEST_DESCRIPTION, linkRequestParameters } from "./tools.ts";
@@ -431,7 +432,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		if (mode !== "run" || !claim) return;
 		const sections = event.systemPromptOptions.sections;
 		const head = /head tower: ([^\n;.]+)/.exec(claim.brief)?.[1]?.trim() ?? "none yet";
-		const role = readFileSync(join(cfg.promptDir, claim.kind === "ally" ? "ally-run.md" : claim.kind === "head" ? "head-run.md" : "tower-run.md"), "utf8").trim().replace(/\{\{(\w+)\}\}/g, (_, key: string) => ({ workspace: claim!.label, head })[key] ?? "none yet");
+		const role = promptSet({ promptDir: cfg.promptDir, stateDir: guiDir, env }).read(claim.kind === "ally" ? "ally-run" : claim.kind === "head" ? "head-run" : "tower-run").replace(/\{\{(\w+)\}\}/g, (_, key: string) => ({ workspace: claim!.label, head })[key] ?? "none yet");
 		sections[ENTRY] = `${role}\n\n${claim.brief}`;
 	});
 	/** A pane the server owns: this pi quits with the server's reason. */

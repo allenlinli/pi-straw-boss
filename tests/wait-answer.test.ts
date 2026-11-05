@@ -106,3 +106,30 @@ test("the head's composer takes `answers` the same way, with the head's key", as
 	assert.deepEqual(c.calls, [["event", HEAD_KEY, "Use the staging token"], ["memory", HEAD_KEY, { op: "answer", id: "W1" }]]);
 	assert.equal((await input(c, { answers: "x" }, "sb-head")).status, 400);
 });
+
+test("a command (/quit, /new) typed in a wait's box is refused with its own code and does nothing: it is not an answer, and the wait stays unmarked; without `answers` it is the command as ever", async () => {
+	for (const key of ["sb-tower-wa", "sb-head"]) {
+		const c = control();
+		for (const text of ["/quit", " /new "]) {
+			const r = await input(c, { text, answers: "W3" }, key);
+			assert.deepEqual([r.status, (r.body as { error?: string }).error], [400, "not_an_answer"], `${key} ${text}`);
+		}
+		assert.deepEqual(c.calls, [], "no conversation change, no event, no memory write");
+		assert.deepEqual((await input(c, { text: "/quit" }, key)).body, { accepted: true, command: "leave" }, "the plain command still works");
+	}
+});
+
+test("an answered wait does not count toward the cap of 12 open waits: the boss's reply frees its place while the tower still has it to resolve", () => {
+	const slot = slotIn();
+	for (let i = 0; i < 12; i++) updateMemory(slot, "wA", NOW, (m) => addWait(m, NOW, "r1", { text: `Boss decision ${i}`, for: "boss" }));
+	assert.throws(() => updateMemory(slot, "wA", NOW, (m) => addWait(m, NOW, "r1", { text: "one too many", for: "boss" })), /12 open waits/);
+	memoryRequest(slot, "wA", NOW, { op: "answer", id: "W1" });
+	updateMemory(slot, "wA", NOW, (m) => addWait(m, NOW, "r1", { text: "one more now", for: "boss" }));
+	assert.equal(readMemory(slot, "wA", NOW).memory.entries.filter((e) => e.kind === "wait").length, 13, "the answered one is still there for the tower");
+	assert.throws(() => updateMemory(slot, "wA", NOW, (m) => addWait(m, NOW, "r1", { text: "and again", for: "boss" })), /12 open waits/, "the cap holds for the open ones");
+});
+
+test("both run prompts tell the run what a wait row that says `answered by the boss` asks of it", async () => {
+	const { readFileSync } = await import("node:fs");
+	for (const file of ["tower-run.md", "head-run.md"]) assert.match(readFileSync(new URL(`../prompts/${file}`, import.meta.url), "utf8"), /`answered by the boss`.*resolve the wait, or restate it as a new wait/s, file);
+});

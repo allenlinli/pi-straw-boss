@@ -168,7 +168,8 @@ export function addWait(m: Memory, now: number, run: string, input: WaitInput): 
 	if (input.for === "agent" && !input.on) throw new Error("An agent wait names the session it waits on (on)");
 	const due = input.dueMin;
 	if (due !== undefined && (typeof due !== "number" || !Number.isFinite(due) || due < MEM.dueMin || due > MEM.dueMax)) throw new Error(`due is 5 minutes to 7 days (${MEM.dueMin} to ${MEM.dueMax} minutes)`);
-	if (m.entries.filter(isOpen).length >= MEM.wait) throw new Refused(`${MEM.wait} open waits are kept already: resolve or drop one`);
+	// An answered wait is the tower's to resolve (its brief says so) and no longer waits on anyone, so it does not take a place from a new one; it still expires after 7 days.
+	if (m.entries.filter((e) => e.kind === "wait" && e.state === "open").length >= MEM.wait) throw new Refused(`${MEM.wait} open waits are kept already: resolve or drop one`);
 	const entry: Entry = { id: idFor(m, "wait"), kind: "wait", text, by: "run", via: "run", at: iso(now), run, for: input.for, ...(input.on ? { on: { id: input.on.id, name: clean(input.on.name, 40) } } : {}), state: "open", ...(due !== undefined ? { due: iso(now + due * 60_000) } : {}) };
 	m.entries.push(entry);
 	return entry;

@@ -121,6 +121,12 @@ test("what the server refuses is said in the page's language by its code, or by 
 	assert.equal(towerWhy({ status: 409, body: { error: "refused", reason: "The sb server stands in for no tower of workspace wA" } }), "The sb server runs no tower for this workspace.");
 	assert.equal(towerWhy({ status: 409, body: { error: "refused", reason: "No such parked event" } }, zh), "沒有這則已擱置的事件。");
 	assert.equal(towerWhy({ status: 409, body: { error: "refused", reason: "something new" } }), undefined);
+	// The input route's own refusals (src/control.ts, src/headroutes.ts), by their codes.
+	assert.equal(towerWhy({ status: 413, body: { error: "too_large", reason: "The text is longer than 16 KB." } }), "The text is longer than 16 KB; shorten it.");
+	assert.equal(towerWhy({ status: 400, body: { error: "control_character", reason: "Control characters cannot be typed from the browser." } }), "Control characters cannot be typed from the browser.");
+	assert.equal(towerWhy({ status: 400, body: { error: "not_an_answer", reason: "A command is not an answer to a wait; type it in the tower's comms." } }), "A command is not an answer to a wait; type it in the tower's comms.");
+	assert.equal(towerWhy({ status: 400, body: { error: "not_an_answer", reason: "x" } }, zh), "指令不是對等待事項的回覆，請到塔台的對話裡輸入。");
+	assert.equal(towerWhy({ status: 400, body: { error: "control_character", reason: "x" } }, zh), "瀏覽器不能輸入控制字元。");
 	assert.equal(towerWhy({ status: 500, body: {} }), undefined);
 	// The map's buttons know only the reasons the service gives; the codes of a send are the session view's.
 	assert.equal(actionWhy({ status: 409, body: { error: "refused", reason: "No such parked event" } }), "No such parked event.");

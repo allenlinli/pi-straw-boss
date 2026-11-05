@@ -16,7 +16,7 @@ import { upload } from "./upload.ts";
 import { ENDING } from "./probe.ts";
 import { qr } from "./qr.ts";
 import { parseOpen } from "./bossopen.ts";
-import { answersOf, headRoutes, markAnswered } from "./headroutes.ts";
+import { answersOf, commandReply, headRoutes, markAnswered } from "./headroutes.ts";
 
 // Typing into a session from the page, through Herdr's own input path only, as if typed in the terminal:
 //   POST /<token>/api/sessions/<key>/input {text, as: "send" | "followUp", confirmed?, answers?}   the text, then Enter (or Alt+Enter while it works); to a tower, a boss event, and `answers: "W3"` names the wait for the boss it answers (the memory marks it answered once the tower took the message)
@@ -233,11 +233,8 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 				if (typeof text !== "string") return text;
 				if (typeof answers === "object") return answers;
 				// The conversation's two commands, as at the tower prompt: exactly `/quit` leaves it and `/new` starts over (the Leave and New buttons post to tower/<ws>/leave and /new).
-				const command = text.trim() === "/quit" ? "leave" : text.trim() === "/new" ? "new" : undefined;
-				if (command && tower.conversation) {
-					const said = await tower.conversation(ws, command);
-					return said.ok ? { status: 200, body: { accepted: true, command } } : no(409, "refused", said.error ?? "The tower refused it.");
-				}
+				const command = await commandReply(tower, ws, text, answers, "The tower refused it.");
+				if (command) return command;
 				const done = await tower.event(ws, text);
 				return done.ok ? { status: 200, body: { accepted: true, woke: true, ...(answers ? await markAnswered(tower, ws, answers) : {}) } } : no(409, "refused", done.error ?? "The tower did not take it.");
 			}

@@ -61,6 +61,24 @@ test("a wait's dialog says what the tower waits for, offers Handle, the tower's 
 	assert.ok(button(m.wait_dismiss()), "Dismiss");
 });
 
+test("a wait's dialog is titled with the role and the place once, in the page's language, as Zen's card is: the raw English name, the header's place, and the role under the title are not drawn again", async () => {
+	const { overwriteGetLocale } = await import("../gui/paraglide/runtime.js");
+	try {
+		for (const [locale, title] of [["en", "tower · w"], ["zh-TW", "塔台 · w"]] as const) {
+			overwriteGetLocale(() => locale);
+			const layer = mount();
+			layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
+			layer.stack.show(wait as never);
+			assert.equal(dock.all((el) => el.tagName === "h3")[0]!.textContent, title, locale);
+			assert.equal(cls("where")!.hidden, true, `${locale}: the place is in the title`);
+			assert.equal(cls("role")!.hidden, true, `${locale}: and so is the role`);
+			if (locale === "zh-TW") assert.equal(dock.all(() => true).some((el) => el.textContent === wait.name), false, "no raw English name");
+		}
+	} finally {
+		overwriteGetLocale(() => "en");
+	}
+});
+
 test("a wait's dialog puts the comms link, Later and Dismiss in one footer row, the quiet one last", () => {
 	const layer = mount();
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));

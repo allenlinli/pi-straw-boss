@@ -644,6 +644,8 @@
 	"tower_err_server_queue": "這些訊息在 sb server 的佇列裡，等塔台下一個 run 取走；run 啟動時就會被取走。",
 	"tower_err_no_event": "沒有這則已擱置的事件。",
 	"tower_err_no_tower": "sb server 沒有替這個工作區執行塔台。",
+	"tower_err_control": "瀏覽器不能輸入控制字元。",
+	"tower_err_not_an_answer": "指令不是對等待事項的回覆，請到塔台的對話裡輸入。",
 	"tower_term_standing": "塔台正在待命，沒有終端機。run 被喚醒時才會開一個；請在「通訊」裡寫給它來喚醒。",
 	"tower_term_held": "塔台因反覆當機而暫停，沒有終端機。請重試，或在「通訊」裡寫給它。",
 	"placeholder_held": "反覆當機後暫停中・送出訊息就會喚醒",

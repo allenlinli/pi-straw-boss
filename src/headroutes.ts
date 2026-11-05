@@ -13,6 +13,16 @@ export function answersOf(json: Record<string, unknown>): string | Reply | undef
 	const named = json.answers;
 	return named === undefined ? undefined : typeof named === "string" && /^W\d+$/.test(named) ? named : no(400, "bad_request", "answers names a wait: W and its number");
 }
+/**
+ * The conversation's two commands, as at a tower's composer: exactly `/quit` leaves it and `/new` starts over; undefined when the text is neither, or the panel has no conversation (it is a message then). Sent with `answers`
+ * it is refused (`not_an_answer`): the wait's box is for words to the tower, and a command typed there would change the conversation and read as the answer, which marks nothing.
+ */
+export async function commandReply(tower: TowerPanel, key: string, typed: string, answers: string | undefined, refused: string): Promise<Reply | undefined> {
+	const command = typed.trim() === "/quit" ? "leave" : typed.trim() === "/new" ? "new" : undefined;
+	if (!command || !tower.conversation) return undefined;
+	if (answers) return no(400, "not_an_answer", "A command is not an answer to a wait; type it in the tower's comms.");
+	return done(await tower.conversation(key, command), { status: 200, body: { accepted: true, command } }, refused);
+}
 /** The tower took a message that answers a wait: the memory marks it `answered`. `answered` is the wait's id, or false when the memory no longer has it (dropped, resolved, or never for the boss): the message went all the same. */
 export async function markAnswered(tower: TowerPanel, workspace: string, id: string): Promise<{ answered: string | false }> {
 	return { answered: (await tower.memory?.(workspace, { op: "answer", id }))?.status === 200 ? id : false };
@@ -29,9 +39,8 @@ export async function headRoutes(tower: TowerPanel | undefined, [scope, key = ""
 			const typed = text(json.text), answers = answersOf(json);
 			if (typeof typed !== "string") return typed;
 			if (typeof answers === "object") return answers;
-			// The conversation's two commands, as at a tower's composer: exactly `/quit` leaves it and `/new` starts over.
-			const command = typed.trim() === "/quit" ? "leave" : typed.trim() === "/new" ? "new" : undefined;
-			if (command && tower.conversation) return done(await tower.conversation(HEAD_KEY, command), { status: 200, body: { accepted: true, command } });
+			const command = await commandReply(tower, HEAD_KEY, typed, answers, "The head tower refused it.");
+			if (command) return command;
 			const sent = await tower.event(HEAD_KEY, typed);
 			return done(sent, { status: 200, body: { accepted: true, woke: true, ...(answers && sent.ok ? await markAnswered(tower, HEAD_KEY, answers) : {}) } }, "The head tower did not take it.");
 		}

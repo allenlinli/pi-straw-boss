@@ -4,7 +4,7 @@ import { joined, outcome, type WaitActions, waitActions } from "./asks.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
-import { aim, text } from "./render.ts";
+import { aim, text, waitTitle } from "./render.ts";
 import { formatRoute } from "./router.ts";
 import { guarded } from "./towermodel.ts";
 import { towerWhy } from "./towerturns.ts";
@@ -113,10 +113,12 @@ export function waitPanel(o: WaitPanelOptions) {
 
 const panels = new WeakMap<HTMLElement, ReturnType<typeof waitPanel>>();
 /** A wait's dialog in the dock: what it waits for and the answer box in the answer slot, the link to the comms, Later and Dismiss in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
-export function waitDialog(el: HTMLElement, a: Alert, close: () => void, send: SessionPost) {
+export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () => void, send: SessionPost) {
 	const over = Boolean(a.gone), go = el.querySelector<HTMLElement>(".go")!;
 	el.dataset.wait = ""; // the footer's link is the secondary act here (style.css): the panel's Handle and Send answer
 	el.querySelector<HTMLElement>(".intel")!.hidden = true;
+	text(el, "h3", waitTitle(a.role, place)); // the title says the role and the place once, so the header's place and the role under the title would repeat it
+	for (const dup of [".where", ".role"]) el.querySelector<HTMLElement>(dup)!.hidden = true;
 	go.textContent = m.wait_goto(); // the answer box is on the panel; the footer's link is the way to the tower's comms
 	aim(go, over ? undefined : { view: "session", ws: a.ws, key: unitOf(a) });
 	text(el, ".tag", m.tag_question()); // the stack tags a gone unit GONE; the tower did not leave, the wait ended

@@ -11,7 +11,7 @@ import { hasHistory, mountHistory } from "./zenhistory.ts";
 import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
-import { roleName } from "./render.ts";
+import { roleName, waitTitle } from "./render.ts";
 import { composerUnit, liveOf } from "./sessionfacts.ts";
 import { locate } from "./scene.ts";
 import type { Hotkey } from "./hotkeys.ts";
@@ -93,7 +93,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	/** What a card holds was swapped: it fades in over a short moment (opacity only, zen.css) while the box takes its new size at once. */
 	const fade = (el: HTMLElement) => (el.removeAttribute("data-fade"), void el.offsetWidth, el.setAttribute("data-fade", "")); // the read restarts the animation
 	/** The card's title: a project's question, a wait's tower once in the page's language (its raw name is English; the unit's role and place are the title), or the unit's name. */
-	const titleOf = (a: Alert) => (a.trust ? m.trust_title() : a.wait ? `${roleName(a.role)} · ${deps.label(a.ws)}` : a.name);
+	const titleOf = (a: Alert) => (a.trust ? m.trust_title() : a.wait ? waitTitle(a.role, deps.label(a.ws)) : a.name);
 	function makeCard(a: Alert): Card {
 		const trust = a.trust, key = unitOf(a), said = h("p", { class: "zen-said" }), out = h("p", { class: "zen-out", role: "status" });
 		const slot = h("div", { class: "zen-answer" }), skip = h("button", { type: "button", class: "cmp-alt zen-skip" }, m.zen_not_now());

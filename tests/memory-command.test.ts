@@ -252,3 +252,17 @@ test("the CLI cleans the stored text again before it prints it: escapes and line
 	await h.run("confirm P1");
 	assert.doesNotMatch(h.last().text, /\u001b|\r|\n/);
 });
+
+test("a wait for the boss that their own message answered reads as answered by them, not as a guess; one for a session still reads \"answered?\"", async () => {
+	const h = harness();
+	updateMemory(h.slot, "wA", NOW, (m) => (addWait(m, NOW, "r1", { text: "api-fix asks: deploy ws01?", for: "boss" }), addWait(m, NOW, "r1", { text: "api-fix to reply", for: "agent", on: { id: "main-1", name: "api-fix" } })));
+	memoryRequest(h.slot, "wA", NOW, { op: "answer", id: "W1" });
+	memoryRequest(h.slot, "wA", NOW, { op: "answer", id: "W2" }); // refused: a session's own message answers that one
+	updateMemory(h.slot, "wA", NOW, (m) => void Object.assign(m.entries.find((e) => e.id === "W2")!, { state: "answered", answered: new Date(NOW).toISOString() }));
+	await h.run("list");
+	assert.match(h.last().text, /W1 {2}for you: api-fix asks: deploy ws01\? \(you answered it; the tower has not resolved it yet\)/);
+	assert.match(h.last().text, /W2 {2}for api-fix: api-fix to reply \(answered\?\)/);
+	await h.run("list", { ...h.deps, lang: "zh-TW" });
+	assert.match(h.last().text, /W1 {2}等你: api-fix asks: deploy ws01\?（你已回覆，塔台還沒結案）/);
+	assert.match(h.last().text, /W2 {2}等 api-fix: api-fix to reply（可能已回覆）/);
+});

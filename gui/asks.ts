@@ -44,7 +44,7 @@ export const taken = (r: Answer): Answer => (r.ok && r.body.outcome === undefine
 
 /** Allow or Deny for a confirm a teammate's tower asked of this computer (`link/confirm-answer`; the holder checks the request is still open). */
 export const confirmActions = (c: { dialogId: string; digest: string }) => {
-	const answer = (allow: boolean) => post("link/confirm-answer", { dialogId: c.dialogId, digest: c.digest, allow }).then(taken); // the digest names the request the boss saw: the holder refuses one replaced under the same id
+	const answer = (allow: boolean) => post("link/confirm-answer", { dialogId: c.dialogId, digest: c.digest, allow }).then(taken); // the digest names the request the boss saw: the holder refuses it when the held request carries another digest (the route requires it); it is the sender's digest, so it does not vouch for the arguments
 	return { allow: () => answer(true), deny: () => answer(false) };
 };
 /** A confirm refusal in the page's language: the holder's known refusals have a message each; any other reason is the server's own. */

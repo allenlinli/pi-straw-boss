@@ -408,7 +408,7 @@
 /* The head's history (zenhead.ts quietForwards): a forward row reads as one quiet line, not as an action card's name. */
 [data-view="zen"] .zen-log details.act.quiet > summary .sum { color: var(--zen-ash); font-style: italic; }
 [data-view="zen"] .zen-hl { text-wrap: pretty; line-break: strict; } /* a clamped Chinese line does not end on one orphan character (as ZL-F001 did for the mindfulness line) */
-/* Link cards (gui/zendecide.ts): Allow and Deny, Confirm and Reject, and a pair request's number. The panel is a wait panel (its buttons are the card's text buttons above), centred; the tool's arguments are code on a faint tint with no frame; the number is the head strip's hairline field. */
+/* Link cards (gui/zendecide.ts): Allow and Deny, Confirm and Reject, and a pair request's number. The panel is a wait panel (its buttons are the card's text buttons above), centred; the tool's arguments are dim monospace type with no box or frame; the number is the head strip's hairline field. */
 [data-view="zen"] .zen-decide > * { flex: 1 1 100%; min-width: 0; margin: 0; }
 [data-view="zen"] .zen-decide-acts { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px 8px; }
 [data-view="zen"] .zen-decide .zen-args { max-height: 9rem; overflow: auto; padding: 0; border: 0; background: none; flex: 0 1 auto; max-width: 100%; margin-inline: auto; color: var(--zen-ash); font: 400 0.85rem/1.5 ui-monospace, Menlo, Consolas, monospace; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: none; }

@@ -70,6 +70,21 @@ test("a request without from or body is refused, a send from a session that is n
 	assert.equal(((await ask(record.socket, record.secret, "someone", { op: "gui", name: "state" })).answer as { ok: boolean }).ok, true);
 });
 
+test("the GUI's confirm-answer needs the digest of the request the page showed: without a string digest it is refused before the holder is asked", async () => {
+	team();
+	const s = await sw.start({ link: linkDeps() });
+	await s.handle.ready;
+	const record = sw.record()!;
+	await until(() => holderOf()?.session === record.intercomId, "the holder record");
+	writeFileSync(join(sw.stateDir, "gui.json"), JSON.stringify({ ownerSession: "someone" }));
+	const gui = async (args: unknown) => (await ask(record.socket, record.secret, "someone", { op: "gui", name: "confirm-answer", args })).answer;
+	await until(async () => ((await ask(record.socket, record.secret, "someone", { op: "gui", name: "state" })).answer as { ok: boolean }).ok, "an active holder");
+	assert.deepEqual(await gui({ dialogId: "d", allow: true }), { ok: false, error: "Look at the request again" });
+	assert.deepEqual(await gui({ dialogId: "d", allow: true, digest: 7 }), { ok: false, error: "Look at the request again" });
+	assert.deepEqual(await gui({ dialogId: "d", digest: "x" }), { ok: false, error: "Allow or deny" });
+	assert.deepEqual(await gui({ dialogId: "d", allow: true, digest: "x" }), { ok: false, error: "That request is gone or has timed out" }, "with a digest the holder is asked");
+});
+
 test("a computer with no team set up gets no channel, no election, and no link files; its `link` request says there is no holder", async () => {
 	const s = await sw.start({ link: linkDeps() });
 	await s.handle.ready;

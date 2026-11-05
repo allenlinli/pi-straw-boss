@@ -814,7 +814,7 @@ test("Straw Link's team settings: this computer's page asks the holder by name (
 	const state = await phone.post("link/state", {});
 	assert.equal(state.status, 200);
 	assert.deepEqual((state.body as { view: { prefill: Record<string, unknown> } }).view.prefill, { kind: "join", reason: "r", session: "s" }, "a pending invite text is not shown to a paired device");
-	assert.equal((await phone.post("link/confirm-answer", { dialogId: "d", allow: true })).status, 200);
+	assert.equal((await phone.post("link/confirm-answer", { dialogId: "d", digest: "e".repeat(64), allow: true })).status, 200);
 	assert.equal((await phone.post("link/dialog-answer", { device: "d1", dialogId: "D1", digest: "good", answer: { choice: 0 } })).status, 200, "a paired phone answers a forwarded dialog like a forwarded confirm");
 	const wrong = await phone.post("link/dialog-answer", { device: "d1", dialogId: "D1", digest: "stale", answer: { choice: 0 } });
 	assert.deepEqual([wrong.status, wrong.body.error, wrong.body.reason], [409, "link_failed", "The question changed; look at it again"], "the holder's refusal of another digest reaches the page");

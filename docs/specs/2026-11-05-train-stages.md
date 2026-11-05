@@ -17,10 +17,10 @@ The merge train took format, lint, build and full suites off each coordinator. D
 |---|---|
 | D1 | One integrator per project carries a train through all its stages; no separate deploy or UAT main. Its name stays `integ <project>`. |
 | D2 | A deploy target may be any target, a live one included, as long as the slip's `auth` quotes the boss's words for that target, or the config marks it `auto` (D2b). |
+| D2b | (Boss, 2026-11-05, after review) Config decides per target whether a train deploys there automatically: `integration.targets` maps a target to `auto` (every train, no per-car authorization; the config is the boss's standing word, so only the boss sets it; a test environment usually is) or `strict` (default: only cars whose `auth` names it; else the integrator asks the boss). |
 | D3 | Straw Boss states the flow only and names no environment (no "staging" or "production"; a test guards it). UAT judges the train's deployed result; where and how it is captured, and by whom, is the project skill's `UAT`. Extra gates for a live target (such as a confirmation per target) live in the project skill's `Deploy`. |
 | D4 | The UAT page opens as soon as it is ready; it does not wait for the boss's presence. |
 | D5 | (Project-side, moldplan-center) a ticket with a `human` anchor is closed only after UAT accepts it. In Straw Boss terms: a `uat` car is reported to its coordinator only after acceptance. |
-| D2b | (Boss, 2026-11-05, after review) Config decides per target whether a train deploys there automatically: `integration.targets` maps a target to `auto` (every train, no per-car authorization; the config is the boss's standing word, so only the boss sets it; a test environment usually is) or `strict` (default: only cars whose `auth` names it; else the integrator asks the boss). |
 | D6 | Prompts first, as phase 1 was; moldplan-center pilots it; code comes after the pilot. |
 
 ## Contract
@@ -42,7 +42,7 @@ The merge train took format, lint, build and full suites off each coordinator. D
 | File | Change |
 |---|---|
 | `prompts/integrator.md` | Stages, slip line, Deploy and UAT sections, ledger fields, idle condition; the urgent lane names a P0 defect in a live target instead of a production fix (D3). Budget 600 to 1000 words; it is read on demand, not in the system prompt. |
-| `prompts/apps-config.md` | `stages` field and the three headings. |
+| `prompts/apps-config.md` | `stages` and `targets` fields and the three headings; an `auto` entry is added or widened only with the boss's words quoted in the commit message. |
 | `prompts/tower-run.md` | The integrator's own `shared` request: a deploy it starts names its target, and the tower checks that target for a clash. |
 | `prompts/planning.md` | A `human` anchor in a `uat` app is the train's UAT: the slip names its checkpoints file. Budget unchanged (670): the gate list and two clauses were cut. |
 

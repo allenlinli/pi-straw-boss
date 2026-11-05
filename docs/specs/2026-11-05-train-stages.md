@@ -31,16 +31,17 @@ The merge train took format, lint, build and full suites off each coordinator. D
 ## Flow
 
 1. Merge stage: unchanged (`Train assembly`, train review, `Full gates`, `Merge`, `Post-merge`).
-2. Deploy stage: `Deploy` per target in the skill's order, one train at a time per target; `Deploy verify` per target. Done is the target running the train's own version; a green job, an accepted request, or a finished monitor is not done. A failed target is rolled back as the skill says and its car goes back as a red car does.
-3. UAT stage: `UAT` captures every checkpoint of the train's `uat` cars on the deployed result; one page with one `review` block per train, opened at once. A later train may deploy meanwhile; the captures are the record. A comment returns the car with comments, captures, and version; `UAT` says whether it is reverted first; the fix returns as a new car and only its commented checkpoints are captured again.
+2. Deploy stage: `Deploy` per target in the skill's order. A target takes the train only when every car in it has `auth` covering that target, since a deploy ships every car (review RV-F001). One train at a time per target; where merging deploys a target, the next train's `Merge` waits for this train's `Deploy verify` on it. A deploy the integrator starts itself, not one its merge triggers, still calls `shared` naming the target so the tower can check for a clash. `Deploy verify` per target. Done is the target running the train's own version; a green job, an accepted request, or a finished monitor is not done. A failed target is rolled back as the skill says and its car goes back as a red car does.
+3. UAT stage: `UAT` captures every checkpoint of the train's `uat` cars on the deployed result; one page with one `review` block per train, opened at once. A later train may deploy meanwhile; the captures are the record. A comment returns the car with comments, captures, and version; `UAT` says whether it is reverted first; a revert on the base goes as its own train through review, gates, merge and deploy; the fix returns as a new car and its commented checkpoints are captured again, or all of them after a revert. A `uat` car must name a `deploy` target.
 4. A car with no stage left is reported landed (a `uat` car: also accepted in UAT); its coordinator closes the ticket. The integrator reports idle only when no stage runs and no UAT page waits.
 
 ## Prompt changes
 
 | File | Change |
 |---|---|
-| `prompts/integrator.md` | Stages, slip line, Deploy and UAT sections, ledger fields, idle condition; the urgent lane names a P0 defect in a live target instead of a production fix (D3). Budget 600 to 920 words; it is read on demand, not in the system prompt. |
+| `prompts/integrator.md` | Stages, slip line, Deploy and UAT sections, ledger fields, idle condition; the urgent lane names a P0 defect in a live target instead of a production fix (D3). Budget 600 to 1000 words; it is read on demand, not in the system prompt. |
 | `prompts/apps-config.md` | `stages` field and the three headings. |
+| `prompts/tower-run.md` | The integrator's own `shared` request: a deploy it starts names its target, and the tower checks that target for a clash. |
 | `prompts/planning.md` | A `human` anchor in a `uat` app is the train's UAT: the slip names its checkpoints file. Budget unchanged (670): the gate list and two clauses were cut. |
 
-`main.md`, `tower.md`, and `tower-run.md` are unchanged: the slip still travels as `why=shared` and goes to the one integrator.
+`main.md` and `tower.md` are unchanged: the slip still travels as `why=shared` and goes to the one integrator.

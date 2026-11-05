@@ -91,8 +91,8 @@ test("merge train: apps-config names the integration fields and the skill headin
 	assert.match(integrator, /^# Integrator/);
 	for (const term of ["`Light checks`, `Full gates`, or `Merge`", "`why=blocked`", "car:", "auth:", "`train/<code>`", "nothing is force pushed", "`maxCars`", "`maxWaitMin`", "`why=milestone`", "(applied to a DB: no|<which>)", "coordinator: <session id>", "apps-config.md beside this file", "~/.pi/agent/straw-boss/trains/<project>/<app>.json", "integ <project>", "never rename again", "reviewer rechecks it (delta brief)"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
 	assert.ok(!integrator.includes("{{dir}}") && !integrator.includes("<state dir>") && !integrator.includes("reserve"), "integrator.md has no placeholder, undefined path, or reserve");
-	// Train stages (docs/specs/2026-11-05-train-stages.md): the deploy and UAT stages take integrator.md from 600 to 920; it is read before the first departure, not in the system prompt.
-	assert.ok(words(integrator) <= 920, `integrator.md has ${words(integrator)} words`);
+	// Train stages (docs/specs/2026-11-05-train-stages.md): the deploy and UAT stages, with review RV fixes (auth per target across cars, merge waiting on deploy verify, shared for its own deploys), take integrator.md from 600 to 1000; it is read before the first departure, not in the system prompt.
+	assert.ok(words(integrator) <= 1000, `integrator.md has ${words(integrator)} words`);
 });
 
 // Train stages (docs/specs/2026-11-05-train-stages.md, boss form 2026-11-05): one integrator carries a train through merge, deploy, and UAT; Straw Boss names the flow, never an environment.
@@ -100,11 +100,17 @@ test("train stages: apps-config declares stages and their headings, the slip car
 	const cfg = readFileSync(`${PROMPT_DIR}/apps-config.md`, "utf8");
 	for (const term of ["`stages`", "`merge` (the default, always first)", "`uat` (only after `deploy`)", "## Deploy", "## Deploy verify", "## UAT", "each heading of a stage an app declares"]) assert.ok(cfg.includes(term), `apps-config.md names ${term}`);
 	const integrator = readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8");
-	for (const term of ["deploy: <targets or none> | uat: <checkpoints path or none>", "every `deploy` target", "One train at a time per target", "a green job, an accepted request, or a finished monitor is not done", "one `review` block", "as soon as it is ready", "a blank box means accepted", "A comment returns its car", "accepted in UAT", "no UAT page waits", "`Deploy` and `Deploy verify`; `uat`: `UAT`"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
+	for (const term of ["deploy: <targets or none> | uat: <checkpoints path or none>", "every `deploy` target", "One train at a time per target", "a green job, an accepted request, or a finished monitor is not done", "one `review` block", "as soon as it is ready", "a blank box means accepted", "A comment returns its car", "accepted in UAT", "no UAT page waits", "`Deploy` and `Deploy verify`; `uat`: `UAT`", "only when every car in it has `auth` covering that target", "the next train's `Merge` waits for it too", "still calls `shared` naming the target", "comes with a `deploy` target", "or all of its checkpoints after a revert"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
+	assert.ok(readFileSync(`${PROMPT_DIR}/tower-run.md`, "utf8").includes("a deploy it starts names its target"));
 	for (const file of ["integrator.md", "apps-config.md", "planning.md"]) {
 		const text = readFileSync(`${PROMPT_DIR}/${file}`, "utf8");
 		assert.ok(!/\b(staging|production|prod)\b/i.test(text), `${file} names no environment`);
 	}
+	// The docs state the same contract and drift silently otherwise (review RV-F009).
+	const docs = readFileSync(new URL("../docs/how-it-works.md", import.meta.url), "utf8");
+	const spec = readFileSync(new URL("../docs/specs/2026-11-05-train-stages.md", import.meta.url), "utf8");
+	for (const term of ["## Deploy", "## Deploy verify", "## UAT", "`integration.stages`", "every car's `auth` covers that target"]) assert.ok(docs.includes(term), `how-it-works.md names ${term}`);
+	for (const term of ["deploy: <targets or none> | uat: <checkpoints path or none>", "## Deploy", "## Deploy verify", "## UAT", "every car in it has `auth` covering that target"]) assert.ok(spec.includes(term), `the spec names ${term}`);
 	assert.ok(readFileSync(`${PROMPT_DIR}/planning.md`, "utf8").includes("a `human` anchor is the train's UAT"));
 });
 

@@ -40,3 +40,15 @@ Each place the change touches a trust decision, and what it decides.
 ## 5. Tests
 
 `tests/link-relay-requester.test.ts` (Gap 1), `tests/link-relay-peer-main.test.ts` (Gap 2 and the refusals).
+
+## 6. A requester outside the tower's workspace (0.58.2)
+
+Found in box trial 8 (both ends 0.58.1): `無人塔台規劃`, a main of workspace Agent Root, called MP Center's tower with `call_tower` (reply expected) to brief the box. MP Center's tower sent to the box, but 0.58.1 binds only a main of the tower's own workspace, so no ask was recorded; the box's report reached an ally run on the Mac and never reached the requester. The tower had said beforehand that it could not bind `for` to a main outside its workspace.
+
+| # | Decision | Why |
+| --- | --- | --- |
+| 7 | The requester, and an explicit `for`, may be a live main of any workspace on this computer, provided it sent THIS tower a `call_tower` with `reply=expected` among the events the current run took. A main of the tower's own workspace needs no call for `for`, as before. | The asker is the one party that already put its request in this tower's hands; the delivery (`holder.ts` `takeReply`, `runtime.ts` `takes`) goes to a session id and never compared workspaces. The ask stays in the tower's own workspace file. |
+| 8 | `for` naming a session that did not call this tower in this run is refused when it is outside the tower's workspace, and so is any session that is no main (checked with Herdr's `sb_role` pane token, not the header). With 0 or 2+ askers nothing is guessed; the tool says no session is bound and `tower-run.md` tells the tower to say so to the requester. | The header text is the sender's own words; only an event the server queued for this run from that session id counts. No arbitrary local session becomes a target. |
+| 9 | Unchanged: single use, 24 hours, bound to the device asked, dropped with a revoked device, `reply: true` needed for any `for`. | The ask machinery (`asks.ts`) is not touched. |
+
+Tests: `tests/link-relay-requester.test.ts` (far main binds implicitly and by `for`; a far main that never called, a far member, two askers across workspaces, a far main that left, a call that expected no answer), `tests/link-reply-main.test.ts` (the answer reaches a main whose tower is in another workspace).

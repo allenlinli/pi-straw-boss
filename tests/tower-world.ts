@@ -57,7 +57,7 @@ export class FakeAlly implements AllyPort {
 export const FAST_RUNS: Partial<Timers> = { wake: 40, claim: 3000, watch: 20, idleSteer: 60_000, idleEnd: 300_000, steerAt: 600_000, quitAt: 1_200_000, quitGrace: 200, signal: 100, lost: 60_000, refuse: 150, loop: 60_000, restored: 400, stopGrace: 300 };
 
 /** Short timers for the standing pane: a look every 30 ms, a prompt counts as there for 400 ms after its poll, a typed command is waited for 250 ms and then for twice as long, up to 1 s. A test overrides what it is about. */
-export const FAST_STANDING: Partial<StandingTimers> = { intervalMs: 30, presentMs: 400, launchMs: 250, launchMaxMs: 1000, leaveMs: 400, refreshMs: 60_000 };
+export const FAST_STANDING: Partial<StandingTimers> = { intervalMs: 30, presentMs: 400, launchMs: 250, launchMaxMs: 1000, leaveMs: 400, exitMs: 400, settleMs: 20, refreshMs: 60_000 };
 
 export class TowerWorld extends ServerWorld {
 	herdr = new FakeHerdr();
@@ -93,6 +93,8 @@ export class TowerWorld extends ServerWorld {
 	signals: import("../src/server/runs.ts").RunSignal[] = [];
 	runTimers: Partial<Timers> = {};
 	standingTimers: Partial<StandingTimers> = {};
+	/** The clock of a run's wait for the prompt's exit and the settle after it (`standing.ts` `wait`). A world's fake prompt never polls or leaves, so by default the wait costs no machine time and a run starts when its wake is acted on; a test of the wait sets a held clock. */
+	standingWait: { now: () => number; sleep: (ms: number) => Promise<void> } | undefined = fakeClock();
 	/**
 	 * The clock of the runs (the age of a run, the idle time, the quit grace) when a test sets one: the watcher still ticks every 20 ms, but it sees only the ages the test gives it, so a tick that comes late under load cannot step over a
 	 * time (the steer is skipped when the first tick that sees a run is already past the cap). Unset, the runs use the server's clock.
@@ -142,7 +144,7 @@ export class TowerWorld extends ServerWorld {
 			} }),
 			herdr: { run: this.herdr.runFor("none"), events: this.herdr.events, api: this.herdr.api, watch: (cb: () => void, lost?: () => void) => (this.takeovers.push(cb), lost && this.losts.push(lost), () => {}) },
 			towers: {
-				recoverMs: 150, registerMs: 500, residentMs: 20, retryMs: [20], ally: this.ally, ...(this.refreshMs ? { refreshMs: this.refreshMs } : {}), standing: { ...FAST_STANDING, ...this.standingTimers }, ...(this.serverAllows ? {} : { allows: this.allows }), expose: (t: Towers) => void (this.expose = t),
+				recoverMs: 150, registerMs: 500, residentMs: 20, retryMs: [20], ally: this.ally, ...(this.refreshMs ? { refreshMs: this.refreshMs } : {}), standing: { ...FAST_STANDING, ...this.standingTimers }, ...(this.standingWait ? { standingWait: this.standingWait } : {}), ...(this.serverAllows ? {} : { allows: this.allows }), expose: (t: Towers) => void (this.expose = t),
 				link: async (body, from) => {
 					const b = body as Record<string, unknown>;
 					this.linkCalls.push({ body: b, from });

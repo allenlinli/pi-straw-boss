@@ -890,7 +890,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// A wait the boss answered raises no alert and its row says so (waits.ts, towermodel.ts's memory meta, one word each way): 100,156 / 35,743 measured, +334 / +89 over the figure below. Cap = measured + 15.
 	// Wait panel answers in place: 99,822 / 35,654 measured, +589 / +438 over the head polish figure: the map card's wait row loads the panel on demand (towernotes.ts: the loader, the panels that outlive a redraw). Cap = measured + 15.
 	// Wait review fixes (ZWA-F002, F003, F005, M1, M2): 100,332 / 35,820 measured, +161 / +62 over the figure above: the row's newest snapshot and kept focus (towernotes.ts), the folded box (waitpanel.ts), the dialog's title, the input refusal words. Cap = measured.
-	assert.ok(eagerBytes <= 100_332 && eagerGz <= 35_820, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Zen link cards: 100,651 / 36,505 measured, +319 / +685 over the figure above: the confirm's line (linkmodel.ts), the pair list the page hands to Zen (pagecore.ts), and the shared actions' module (asks.ts, loaded with the first press in the Link notices) now being imported by more lazy chunks, which makes the bundler keep towermodel.ts as a chunk of its own beside the page's. Cap = measured.
+	assert.ok(eagerBytes <= 100_651 && eagerGz <= 36_505, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1020,7 +1021,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// A wait the boss answered (two messages, the row's line): 296,455 / 121,099 measured, +27 / -10 over the figure below, which the cap keeps in gzip; the raw cap = measured + 15.
 	// Wait panel answers in place (the box, its Esc row, the wait actions, the dialog's and the notice row's panel, the messages): 296,428 / 121,109 measured, +2,873 / +1,799 over the outcome table's figure, all in the lazy chunks. Cap = measured + 15.
 	// Wait review fixes (the folded box, the dialog's title, the input refusal words): 297,054 / 121,362 measured on a fresh build, cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 297_054 && total(chunks, gz) <= 121_362, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Zen link cards: 303,551 / 124,254 measured, +6,497 / +2,892 over the figure above, all lazy: the cards' panels (zendecide.ts), their alerts (cardalerts.ts), the shared actions (asks.ts), the pair list (pairs.ts), and the messages in both languages. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 303_551 && total(chunks, gz) <= 124_254, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1129,7 +1131,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head polish review fixes (the phone pill's 44 px hit box): 154,475 / 31,691 measured on a fresh build, +60 / +15. Cap = measured + 15.
 	// Wait panel answers in place (Zen's two rules for the answer box's width and its hidden buttons, Standard's six for the box, its form and its note): 155,358 / 31,805 measured, +883 / +114 over the review figure. Cap = measured + 15.
 	// Wait panel in the dialog (Handle and Send as the dialog's act, the comms link its secondary one; Zen draws the answer box in zen.css, so Standard's box rules are scoped away from it): 155,600 / 31,845 measured, +242 / +40 over the figure above. Cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 155_615 && total(css, gz) <= 31_860, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Zen link cards (zen.css's block for the decision panels): 156,592 / 32,023 measured, +992 / +163 over the figure above. Cap = measured + 15.
+	assert.ok(total(css, (n) => size(n).length) <= 156_607 && total(css, gz) <= 32_038, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

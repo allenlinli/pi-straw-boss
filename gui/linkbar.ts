@@ -2,7 +2,6 @@ import type { ConfirmView, LinkAlert, LinkSummary } from "../src/link/holder.ts"
 import { h, nodes } from "./dom.ts";
 import { alertLine, confirmLine, dialogState, urgentFirst } from "./linkmodel.ts";
 import { m } from "./paraglide/messages.js";
-import { confirmActions } from "./asks.ts";
 import { byId, hang } from "./render.ts";
 
 // The header's Link button and the notices under it (spec, GUI, Notices): a join request waiting, a roster mismatch or fork, a confirm a teammate's tower
@@ -23,7 +22,8 @@ export function mountLinkBar(open: () => void, news: (count: number) => void) {
 	const answer = (c: ConfirmView, allow: boolean, row: HTMLElement) => {
 		const note = row.querySelector<HTMLElement>(".link-note")!;
 		for (const b of row.querySelectorAll("button")) b.disabled = true;
-		void confirmActions(c)[allow ? "allow" : "deny"]().then((r) => {
+		// The shared answer (asks.ts) loads with the first press, so the page's start does not carry it.
+		void import("./asks.ts").then(({ confirmActions }) => confirmActions(c)[allow ? "allow" : "deny"]()).then((r) => {
 			if (!r.ok) note.textContent = r.body.reason ?? m.refused({ status: r.status });
 			for (const b of row.querySelectorAll("button")) b.disabled = false;
 		}, () => {

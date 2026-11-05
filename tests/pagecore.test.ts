@@ -281,7 +281,8 @@ test("a click on a system notification: Zen changes nothing (it tells its item i
 	std.core.notified(alert("a"));
 	std.core.notified(alert("trust\u001f/p", { ws: "", trust: {} as never }));
 	std.core.notified(alert("w\u001fmonitor:1:2", { unit: "m", mark: "error" }));
-	assert.deepEqual(std.calls, ['go:{"view":"session","ws":"w","key":"a"}', "show:trust\u001f/p", 'go:{"view":"session","ws":"w","key":"m"}'], "a monitor's alert opens its unit");
+	std.core.notified(alert("link-confirm\u001fdc1", { ws: "", card: { kind: "pair", request: { id: "x", label: "", peer: "", age: "" } } })); // a Zen card, a notification clicked after leaving Zen: no dialog and no session of its own
+	assert.deepEqual(std.calls, ['go:{"view":"session","ws":"w","key":"a"}', "show:trust\u001f/p", 'go:{"view":"session","ws":"w","key":"m"}'], "a monitor's alert opens its unit; a card opens nothing");
 	const zen = world({ stored: "zen" });
 	zen.core.notified(alert("a"));
 	zen.core.notified(alert("t", { trust: {} as never }));

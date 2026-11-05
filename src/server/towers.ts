@@ -282,6 +282,7 @@ export function createTowers(o: TowersOptions): Towers {
 			const ws = workspaceOf(identity), answers: AllyItem[] = ws ? readAnswers(slot, ws, now()).map((a) => ({ id: `${LOCAL}${a.id}`, device: a.device, label: a.label, short: a.short, team: a.team, teamName: a.teamName, fromWorkspace: "", replyExpected: false, text: a.text, at: a.at, local: a.from, ...(a.ask ? { awaitsReply: a.ask } : {}) })) : [];
 			return [...o.ally!.waiting(identity), ...answers].sort((a, b) => a.at - b.at);
 		},
+		delivered: (id, run) => { if (!id.startsWith(LOCAL)) o.ally!.delivered?.(id, run); },
 		taken: async (id, identity) => {
 			const ws = workspaceOf(identity);
 			if (!id.startsWith(LOCAL)) return o.ally!.taken(id, identity);

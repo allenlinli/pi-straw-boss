@@ -115,6 +115,8 @@ Everything is in `<pi agent dir>/straw-boss/link/link.log` (JSON lines) and the 
 | `join-file-retry` | The relay failed for a passing reason; the file stays and the next try is `waitMs` away. |
 | `join-file-stuck` | The file could not be removed; reported once for that file. |
 | `tower-open-failed` | A controller's message found no tower and the server could not open one; the controller got a `notice`. |
+| `tower-in` | A `tower` or `tower-reply` message was kept in the inbox: `from` (the sender's device id), `team`, `ask` (the ask id it carries, when it has one), `id` (the message id). |
+| `tower-run` | An ally run took that message into its session: `run` (the run id), and the same `from`, `team`, `ask`, `id`. |
 | `dialog-oversize` | A question was too big to forward (64 KB); the controller got a `notice`. |
 | `notice` | A notice was sent: `key`, `kind` and unit, never its text. |
 | `drop` with `reason` | A message failed a check (`dialog-answer-level`, `dialog-answer-digest`, `dialog-answer-here-only`, `unit-status-unexpected`, …). |

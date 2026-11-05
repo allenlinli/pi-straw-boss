@@ -19,6 +19,9 @@ export function allyPort(link: () => LinkService | undefined): AllyPort {
 		async taken(id, identity) {
 			await link()?.holder?.taken(id, identity);
 		},
+		delivered(id, run) {
+			link()?.holder?.delivered(id, run);
+		},
 		standing(device, team) {
 			const service = link();
 			return service?.holder?.isMember(team, device) ? { level: service.levelOf(device) } : undefined;

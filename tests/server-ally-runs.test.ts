@@ -185,6 +185,22 @@ test("the run's events are its device's messages, up to 5 oldest first, with the
 	assert.equal((await poll(s, token)).event, undefined, "nothing else is offered to this run");
 });
 
+test("the holder is told which run took each message, when the run takes it and not before (G6)", async () => {
+	const { s } = await setup();
+	world.ally.add("m1", DEV1, "one");
+	world.ally.add("m2", DEV1, "two");
+	world.expose?.allyWaiting("sb-tower-wa");
+	const id = await nthRun();
+	const token = String((await claimed(s, id)).token);
+	assert.deepEqual(world.ally.deliveredTo, [], "a message the run was admitted for is not logged against it yet");
+	const first = (await poll(s, token)).event as { id: string };
+	assert.deepEqual(world.ally.deliveredTo, [], "offered is not taken");
+	assert.equal((await taken(s, token, first.id)).ok, true);
+	assert.deepEqual(world.ally.deliveredTo, [["m1", id]]);
+	await drain(s, token);
+	assert.deepEqual(world.ally.deliveredTo, [["m1", id], ["m2", id]]);
+});
+
 test("tower_done is refused while the run's messages are not all taken, ends the run once pi has exited, and then the messages leave the inbox, the pane closes, and the note is the device's", async () => {
 	const { s } = await setup();
 	world.ally.add("m1", DEV1, "one");

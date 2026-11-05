@@ -33,6 +33,11 @@ export class FakeAlly implements AllyPort {
 		await this.takenGate;
 		this.takenIds.push(id);
 	}
+	/** What the server told the holder an ally run took: [message id, run id]. */
+	deliveredTo: [string, string][] = [];
+	delivered(id: string, run: string) {
+		this.deliveredTo.push([id, run]);
+	}
 	standing(device: string) {
 		return this.gone.has(device) ? undefined : { level: this.level.get(device) ?? "reply" };
 	}

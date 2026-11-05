@@ -105,6 +105,8 @@ pi 啟動的資料夾不只有專案：
 | `join-file-retry` | 中繼站暫時失敗；檔案留著，下一次嘗試在 `waitMs` 之後。 |
 | `join-file-stuck` | 檔案刪不掉；同一個檔只報告一次。 |
 | `tower-open-failed` | 控制端的訊息找不到塔台，server 也開不了；控制端收到一則 `notice`。 |
+| `tower-in` | 一則 `tower` 或 `tower-reply` 訊息進了收件匣：`from`（寄件裝置 id）、`team`、`ask`（訊息帶的 ask id，沒有就不寫）、`id`（訊息 id）。 |
+| `tower-run` | 某個 ally run 把那則訊息收進它的 session：`run`（run id），加上同樣的 `from`、`team`、`ask`、`id`。 |
 | `dialog-oversize` | 問題太大無法轉送（64 KB）；控制端收到一則 `notice`。 |
 | `notice` | 送出了一則通知：`key`、`kind` 和單位，絕不含內容。 |
 | `drop` 帶 `reason` | 訊息沒通過某項檢查（`dialog-answer-level`、`dialog-answer-digest`、`dialog-answer-here-only`、`unit-status-unexpected`……）。 |

@@ -135,6 +135,8 @@ export interface AllyPort {
 	waiting(identity: string): AllyItem[];
 	/** The message is in a run's session (or dropped): it leaves the inbox. */
 	taken(id: string, identity: string): Promise<void>;
+	/** The ally run `run` took the message into its session (the holder's `link.log` names the run beside the sender, never the text). */
+	delivered?(id: string, run: string): void;
 	/** The level this computer gives the device, or undefined when the device is no longer a member of the team (its messages are dropped). */
 	standing(device: string, team: string): { level: string } | undefined;
 	/** The project folder the device's team binds on this computer: the workspaces an ally run's sender may see lie inside it. */
@@ -1269,6 +1271,7 @@ export function createRuns(o: RunsOptions) {
 		a.offered.delete(event.id);
 		a.rec.events.push(event.id);
 		writeRun(slot, a.rec);
+		if (a.rec.kind === "ally") o.ally?.delivered?.(event.id, a.rec.id);
 		if (event.kind === "boss") bossTurn(a);
 		return { ok: true as const };
 	}

@@ -554,7 +554,13 @@ export class LinkHolder {
 			...(message.awaitsReply !== undefined ? { awaitsReply: message.awaitsReply } : {}),
 		};
 		this.o.store.putInbox(item);
+		this.o.store.log({ event: "tower-in", kind: "tower", team: run.team, from: header.from, id: item.id, ...(message.awaitsReply !== undefined ? { ask: message.awaitsReply } : {}) });
 		this.thread(header.from, { dir: "in", at: item.received, id: item.id, kind: "tower", ...(message.awaitsReply !== undefined ? { awaitsReply: message.awaitsReply } : {}), text: message.text });
+	}
+	/** An ally run took the inbox message `id` into its session: one `link.log` line names the run, the sender, the team and the ask, never the text (docs/specs/2026-11-05-link-shared-box.md, Audit). */
+	delivered(id: string, run: string): void {
+		const item = this.o.store.readInbox(id);
+		if (item) this.o.store.log({ event: "tower-run", run, team: item.team, from: item.from, id, ...(item.awaitsReply !== undefined ? { ask: item.awaitsReply } : {}) });
 	}
 	/** A row of a device's thread, under the lock; a store that cannot write it does not lose the message. */
 	private thread(device: string, row: ThreadRow): void {
@@ -577,6 +583,7 @@ export class LinkHolder {
 			...(taken ? { reply: { ask: message.inReplyTo, main: taken.main, mainName: taken.mainName, tower: taken.tower } } : {}),
 		};
 		this.o.store.putInbox(item);
+		this.o.store.log({ event: "tower-in", kind: "tower-reply", team: run.team, from: header.from, id: item.id, ask: message.inReplyTo });
 		this.thread(header.from, { dir: "in", at: item.received, id: item.id, kind: "tower-reply", inReplyTo: message.inReplyTo, text: message.text });
 	}
 

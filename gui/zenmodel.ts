@@ -38,7 +38,7 @@ export function createZen({ now, typing }: ZenDeps) {
 			const cur = alerts.get(screen.item.key), live = cur && rankOf(cur) === 0 && cur.mark !== "error";
 			if (live) screen = { kind: "item", item: cur };
 			else {
-				const elsewhere = cur ? !cur.closed : Boolean(screen.item.trust); // a trust question has no unit to leave: when it is gone it was settled
+				const elsewhere = cur ? !cur.closed : Boolean(screen.item.trust || screen.item.card); // a trust question or a card (a link confirm, a pair request, a proposal) has no unit to leave: when the server stops listing it, it was settled
 				leave(cur?.mark === "error" ? "error" : elsewhere ? "elsewhere" : undefined, cur?.mark === "error" ? "low" : elsewhere ? "knock" : undefined);
 			}
 		}
@@ -52,10 +52,12 @@ export function createZen({ now, typing }: ZenDeps) {
 		update(a: Map<string, Alert>) { alerts = a; for (const x of items()) if (!seen.has(x.key)) seen.set(x.key, now()); for (const k of seen.keys()) if (!a.has(k)) seen.delete(k); return out(); },
 		/** The clock moved, or the typing state changed. */
 		tick: out,
-		/** The accepted answer or cancel: the knock, the outcome for 1.2 s, then the pause. */
-		accepted() { if (screen.kind === "item" && !screen.outcome) { quiet = false; leave("answered", "knock"); quiet = true; rests.set(screen.item.key, { until: now() + HOLD_MS, q: questionOf(screen.item) }); } return out(); },
-		/** An answer that was refused, stale, busy, or unconfirmed: the low bowl, and the card stays; the item's later exit is silent. */
-		refused() { if (screen.kind === "item" && !screen.outcome && !quiet) { sound = "low"; quiet = true; } return out(); },
+		/** The accepted answer or cancel of the item with this key: the knock, the outcome for 1.2 s, then the pause. */
+		accepted(key: string) { if (screen.kind !== "item" || screen.item.key !== key) return out(); // a reply that comes after the boss moved on belongs to an item that is no longer on screen
+			if (screen.outcome === "elsewhere") screen = { ...screen, outcome: "answered" }; // the server's snapshot came ahead of its reply: this answer settled it, and the knock already rang
+			else if (!screen.outcome) { quiet = false; leave("answered", "knock"); quiet = true; rests.set(screen.item.key, { until: now() + HOLD_MS, q: questionOf(screen.item) }); } return out(); },
+		/** An answer of the item with this key that was refused, stale, busy, or unconfirmed: the low bowl, and the card stays; the item's later exit is silent. */
+		refused(key: string) { if (screen.kind === "item" && screen.item.key === key && !screen.outcome && !quiet) { sound = "low"; quiet = true; } return out(); },
 		/** Not now: the item rests, and the pause starts. */
 		skip() { if (screen.kind === "item") { rests.set(screen.item.key, { until: now() + REST_MS, q: questionOf(screen.item) }); pause(); } return out(); },
 		/** A tap, Enter, or Space during the pause. */

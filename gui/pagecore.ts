@@ -8,6 +8,7 @@ import { CONNECTING, type Status } from "./stream.ts";
 import type { StepOpen } from "./terminalthen.ts";
 import { unitsOf, waitingOf } from "./units.ts";
 import { enterZen, type PageView } from "./view.ts";
+import type { PairRequest } from "./pairs.ts";
 import { mountFace } from "./viewface.ts";
 import type { Exit, Term } from "./zentypes.ts";
 
@@ -16,7 +17,7 @@ import type { Exit, Term } from "./zentypes.ts";
 /** An Escape keydown, as far as the page reads it. */
 export interface Esc { key: string; defaultPrevented: boolean; isComposing: boolean; preventDefault(): void; stopPropagation(): void }
 /** The Zen layer, as the page drives it. `escape` says whether it took the key. `key`: a Zen key of the keymap (hotkeys.ts), true when the layer did it. */
-export interface ZenFace { key(hotkey: Hotkey): boolean; net(alerts: Map<string, Alert>, net: Net): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
+export interface ZenFace { key(hotkey: Hotkey): boolean; net(alerts: Map<string, Alert>, net: Net): void; /** The pair requests the server lists now (lanwait.ts); Zen shows one as a card. */ pairs(list: PairRequest[]): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
 /** The overlay layer (the dialogs and tiles), as the page drives it. */
 interface PanelsFace { /** A page key for the dialogs (layer.ts); false when it had nothing to do. */ hotkey(key: "next" | "zoom"): boolean; stack: { show(a: Alert): void; close(how?: "go"): boolean }; /** A step an answer left, as the dock's terminal card. */ step(s: StepOpen, net?: Net): void }
 /** The focus views (the base, the session's comms and dossier). */
@@ -67,7 +68,7 @@ export interface PageIo {
 
 export function createPage(io: PageIo) {
 	let current: Route = { view: "map" }, latest: Net | undefined, pending: Net | undefined, shown: Net | undefined, status: Status = CONNECTING;
-	let known: Map<string, Alert> | undefined, heard: Map<string, Alert> | undefined, zenKey: string | null = null, watching: string | null = null;
+	let known: Map<string, Alert> | undefined, heard: Map<string, Alert> | undefined, zenKey: string | null = null, watching: string | null = null, pairList: PairRequest[] = [];
 	// `rules()`: the face the page shows. Zen is on while the device's view is Zen, this page has not left it (Esc or the corner control: `data-zen-away`), and the route is not the settings page, which Zen never covers.
 	const rules = () => rulesOf(io.view.view(), io.root.dataset.zenAway !== undefined || current.view === "settings"), zenOn = () => rules() === RULES.zen;
 	/** What the stream is asked to watch: the companion's session while Zen shows one, else the route's. */
@@ -84,7 +85,7 @@ export function createPage(io: PageIo) {
 	function sync() {
 		const on = zenOn();
 		io.zenEl.hidden = !on;
-		if (on) io.withZen((z) => zenOn() && (latest && z.net(alertsOf(latest, Date.now()), latest), z.show()));
+		if (on) io.withZen((z) => zenOn() && (z.pairs(pairList), latest && z.net(alertsOf(latest, Date.now()), latest), z.show()));
 		else io.zen()?.hide();
 		latest && badge(latest);
 		rewatch();
@@ -161,10 +162,15 @@ export function createPage(io: PageIo) {
 			route && io.go(route);
 			wake();
 		},
+		/** The pair requests waiting at this computer (lanwait.ts reads them for the page); Zen draws one as a card, and Standard has its header notice. */
+		pairing(list: PairRequest[]) {
+			pairList = list;
+			if (zenOn()) io.withZen((z) => z.pairs(list)); // a Zen that is not on is given the list when it comes on (`sync`)
+		},
 		/** The header's Zen button: the mark that this page left Zen goes and the view is read again. */
 		enterZen: () => enterZen(io.view, io.root),
 		/** A click on a system notification: Zen tells its one item itself; a trust question or a wait for the boss opens its dialog, any other alert its session. */
-		notified: (a: Alert) => rules().announce === "current" || (a.trust || a.wait ? openAlert(a) : openSession(a.ws, unitOf(a))),
+		notified: (a: Alert) => rules().announce === "current" || Boolean(a.card) || (a.trust || a.wait ? openAlert(a) : openSession(a.ws, unitOf(a))), // a card (Zen's) has no dialog or session in Standard: the click only brings the page forward
 		/** The chime for new link notices: Zen makes no sound of its own accord. */
 		news: linkChime(() => !rules().chime, io.chime),
 		/** The keymap the page reads (hotkeys.ts), and whether a modal holds the keyboard. */

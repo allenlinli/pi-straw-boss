@@ -1,11 +1,11 @@
 import type { Pending } from "../src/ask.ts";
 import type { LinkAlert } from "../src/link/holder.ts";
-import { type AnswerPost, mountAsk } from "./ask.ts";
+import { forwardedAnswer } from "./asks.ts";
+import { mountAsk } from "./ask.ts";
 import { h } from "./dom.ts";
-import { dialogStateLine, remoteAnswer, remoteDialog } from "./linkdialogmodel.ts";
+import { dialogStateLine, remoteDialog } from "./linkdialogmodel.ts";
 import { alertLine, dialogState } from "./linkmodel.ts";
 import { m } from "./paraglide/messages.js";
-import { post } from "./post.ts";
 
 // The cards of the dialogs an unattended device forwarded (spec, Unattended devices: Asking back), in the Link notices. Loaded when the first one shows, with the
 // shared question panel (ask.ts): select, confirm, and several questions are answered as anywhere else, and the answer goes to `link/dialog-answer`.
@@ -18,11 +18,7 @@ export function mountDialogCards() {
 	const make = (a: LinkAlert): Card => {
 		const device = String(a.data.device), dialogId = String(a.data.dialogId), digest = String(a.data.digest);
 		const row = h("li", { class: "link-alert", "data-kind": "dialog" }), line = h("b", null), root = h("div", { class: "link-dialog" }), status = h("small", { class: "link-note", role: "status" });
-		// The holder checks the dialog and digest again (answerDialog); the panel only says which choice or words.
-		const send: AnswerPost = async (_action, body) => {
-			const r = await post("link/dialog-answer", { device, dialogId, digest, answer: remoteAnswer(body) });
-			return r.ok ? { ok: true, status: 200, body: { outcome: "accepted" } } : { ok: false, status: r.status, body: { reason: m.link_dialog_error({ reason: r.body.reason ?? m.refused({ status: r.status }) }) } };
-		};
+		const send = forwardedAnswer({ device, dialogId, digest }); // the holder checks the dialog and digest again (answerDialog); the panel only says which choice or words
 		row.append(line, root, status);
 		return { row, line, status, ask: mountAsk(root, send, true), digest };
 	};

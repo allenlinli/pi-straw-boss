@@ -616,6 +616,30 @@ test("RVL7-F011: the header notice for a waiting request reads without counting 
 	doc.querySelector = () => null;
 });
 
+test("the waiting-request poll hands its list to the page for Zen's pair card, even while the Wi-Fi tab is open; a failed read hands nothing", async () => {
+	const { mountLanWait } = await import("../gui/lanwait.ts");
+	let ok = true;
+	const lists: unknown[] = [];
+	Object.assign(g, { fetch: async () => (ok ? { ok: true, status: 200, json: async () => ({ pending: [{ id: "ab12", label: "Mei's iPhone", peer: "192.168.1.23", ageMs: 5000 }] }) } : { ok: false, status: 500, json: async () => ({}) }) });
+	doc.querySelector = () => new El("div") as never;
+	Object.assign(doc, { hidden: false });
+	const timer = mountLanWait(new El("button") as never, () => {}, 60_000, (list: unknown) => void lists.push(list));
+	try {
+		await new Promise<void>((r) => setImmediate(r));
+		await new Promise<void>((r) => setImmediate(r));
+		assert.deepEqual([...lists], [[{ id: "ab12", label: "Mei's iPhone", peer: "192.168.1.23", age: "", ageMs: 5000 }]]);
+	} finally {
+		clearInterval(timer);
+	}
+	ok = false;
+	const failing = mountLanWait(new El("button") as never, () => {}, 60_000, (list: unknown) => void lists.push(list));
+	await new Promise<void>((r) => setImmediate(r));
+	await new Promise<void>((r) => setImmediate(r));
+	clearInterval(failing);
+	assert.equal(lists.length, 1, "a failed read says nothing: the card stays until the server lists otherwise");
+	doc.querySelector = () => null;
+});
+
 test("RVL7 integration: firewall notes show in the page's language with the commands verbatim, only the notes that block Wi-Fi access are errors, and refused events from one peer are one line", async () => {
 	const command = 'New-NetFirewallRule -DisplayName "Straw Boss Wi-Fi (TCP 8445)" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8445 -RemoteAddress LocalSubnet -Profile Private';
 	const notes = [

@@ -279,7 +279,7 @@ mountHotkeys(core.hotkey, core.modal, window, core.keys); // the keymap (hotkeys
 // The gear is a link to the settings page; on the page it leaves it, as Escape does.
 el("prefs").addEventListener("click", (event) => core.current.view === "settings" && (event.preventDefault(), leaveSettings()));
 // A pair request waits while the Same Wi-Fi tab is not open: a header notice that opens the settings page on that tab (this computer's page only).
-if (phoneOk) void import("./lanwait.ts").then(({ mountLanWait }) => mountLanWait(el("lan-wait") as HTMLButtonElement, () => openSection("wifi")));
+if (phoneOk) void import("./lanwait.ts").then(({ mountLanWait }) => mountLanWait(el("lan-wait") as HTMLButtonElement, () => openSection("wifi"), undefined, core.pairing));
 // The phone's quick-switch drawer (drawer.ts, swipe.ts): its own chunk, fetched where there is a touch screen or a narrow window, now or once the window narrows.
 let drawer: Drawer | undefined;
 const touchy = matchMedia("(pointer: coarse), (max-width: 640px)");

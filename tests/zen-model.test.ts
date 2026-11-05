@@ -50,7 +50,7 @@ test("the order: since, then first seen, then key; a trust question by its earli
 test("an item without since takes the time this page first saw it", () => {
 	const { z, at } = rig();
 	z.update(map(al("late", "waiting", 5_000_000)));
-	z.accepted();
+	z.accepted("late");
 	at(OUTCOME_MS);
 	z.tick();
 	at(PAUSE_MS);
@@ -69,7 +69,7 @@ test("a current item is not replaced by an older arrival, which makes no sound a
 
 test("the five exits: one sound at most, then the pause", () => {
 	const exits: [string, (z: ReturnType<typeof rig>) => unknown, string | undefined, string | undefined][] = [
-		["accepted", (r) => r.z.accepted(), "knock", "answered"],
+		["accepted", (r) => r.z.accepted("a"), "knock", "answered"],
 		["stopped waiting", (r) => r.z.update(map(al("a", "working", 1))), "knock", "elsewhere"],
 		["unit gone", (r) => r.z.update(map()), undefined, undefined],
 		["pane closed", (r) => r.z.update(map(al("a", "idle", 1, { closed: true }))), undefined, undefined],
@@ -93,9 +93,9 @@ test("the five exits: one sound at most, then the pause", () => {
 test("an error outcome keeps the card with the low bowl; the exit after it is silent", () => {
 	const r = rig();
 	r.z.update(map(al("a", "waiting", 1)));
-	const bad = r.z.refused();
+	const bad = r.z.refused("a");
 	assert.deepEqual([bad.screen.kind, bad.sound], ["item", "low"]);
-	assert.equal(r.z.refused().sound, undefined, "one sound per thing the boss did");
+	assert.equal(r.z.refused("a").sound, undefined, "one sound per thing the boss did");
 	const gone = r.z.update(map(al("a", "working", 1)));
 	assert.deepEqual([gone.screen.kind, gone.sound], ["item", undefined]);
 	assert.equal((gone.screen as { outcome?: string }).outcome, "elsewhere");
@@ -104,14 +104,14 @@ test("an error outcome keeps the card with the low bowl; the exit after it is si
 test("a refusal then an accepted retry still knocks", () => {
 	const r = rig();
 	r.z.update(map(al("a", "waiting", 1)));
-	r.z.refused();
-	assert.equal(r.z.accepted().sound, "knock");
+	r.z.refused("a");
+	assert.equal(r.z.accepted("a").sound, "knock");
 });
 
 test("the pause lasts 3 s, then the next item takes the screen with the bowl", () => {
 	const r = rig();
 	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
-	r.z.accepted();
+	r.z.accepted("a");
 	r.at(OUTCOME_MS);
 	assert.equal(r.z.tick().screen.kind, "pause");
 	r.at(PAUSE_MS - 1);
@@ -124,7 +124,7 @@ test("the pause lasts 3 s, then the next item takes the screen with the bowl", (
 test("after an accepted answer the item stays down while its snapshot lingers, then the next comes", () => {
 	const r = rig();
 	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
-	r.z.accepted();
+	r.z.accepted("a");
 	r.at(OUTCOME_MS);
 	r.z.tick();
 	r.at(PAUSE_MS);
@@ -228,4 +228,13 @@ test("due is the soonest moment ahead: a time that has passed is not due again, 
 	at(REST_MS);
 	z.tick();
 	assert.equal(z.due(), undefined, "nothing ahead");
+});
+
+test("an answer's reply that comes after the snapshot that already dropped the item makes it answered, not answered elsewhere, and rings no second knock", () => {
+	const { z } = rig();
+	z.update(map(al("a", "waiting", 1, { card: { kind: "pair", request: { id: "a", label: "x", peer: "p", age: "" } } })));
+	const gone = z.update(map());
+	assert.deepEqual([gone.sound, (gone.screen as { outcome?: string }).outcome], ["knock", "elsewhere"]);
+	const late = z.accepted("a");
+	assert.deepEqual([late.sound, (late.screen as { outcome?: string }).outcome], [undefined, "answered"]);
 });

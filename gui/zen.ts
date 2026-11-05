@@ -1,12 +1,17 @@
 import { HEAD_KEY } from "../src/headkey.ts";
 import type { Net } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
+import { cardAlerts, cardSig } from "./cardalerts.ts";
 import { answerPost, canAnswer, trustPost } from "./answer.ts";
-import { outcome, waitActions } from "./asks.ts";
+import { forwardedAnswer, outcome, waitActions } from "./asks.ts";
 import { type AnswerPost, mountAsk } from "./ask.ts";
 import type { Chat, Data, HistoryEvent, Who } from "./chat.ts";
 import { mountComposer } from "./composer.ts";
 import { h } from "./dom.ts";
+import { confirmLine } from "./linkmodel.ts";
+import { type PairRequest, pairLine } from "./pairs.ts";
+import { proposalText } from "./towermodel.ts";
+import { confirmPanel, pairPanel, proposalPanel } from "./zendecide.ts";
 import { hasHistory, mountHistory } from "./zenhistory.ts";
 import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
@@ -41,12 +46,15 @@ export type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
 export const DRAFT_MS = 20_000;
 export const real: Mounts = { ask: mountAsk, trust: trustPanel, composer: mountComposer, chat: () => import("./chat.ts").then((c) => c.mountChat) };
 type Composer = ReturnType<typeof mountComposer>;
-interface Card { key: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean; /** The context (session log) expanded on the card, when the unit has one. */ hist?: ReturnType<typeof mountHistory>; /** Expands or collapses the context; false when the card has none. */ toggle(): boolean; /** Collapses it, the focus going back to its link. */ collapse(): void; /** The wait card's answer box is unfolded. */ replying?(): boolean; /** Folds it with the draft kept, the focus going back to Handle. */ foldReply?(): boolean }
+interface Card { key: string; /** What the card's answer is bound to (cardalerts.ts `cardSig`): another one is another question, and the card is made again. */ sig: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean; /** The context (session log) expanded on the card, when the unit has one. */ hist?: ReturnType<typeof mountHistory>; /** Expands or collapses the context; false when the card has none. */ toggle(): boolean; /** Collapses it, the focus going back to its link. */ collapse(): void; /** The wait card's answer box is unfolded. */ replying?(): boolean; /** Folds it with the draft kept, the focus going back to Handle. */ foldReply?(): boolean }
 interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; /** Appends that came while the newest page was in flight: applied again after it, which they may not be in. */ late?: HistoryEvent[]; state?: string }
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
-	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined, histOpen = false; // picked: this visit's companion (its start, or the one stepped to); none is the circle. histOpen: the head tower's whole conversation, as a companion, on the circle screen (zenhead.ts)
+	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), unitAlerts = new Map<string, Alert>(), pairList: PairRequest[] = [], pairsAt = 0, shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined, histOpen = false; // picked: this visit's companion (its start, or the one stepped to); none is the circle. histOpen: the head tower's whole conversation, as a companion, on the circle screen (zenhead.ts)
+	/** The alerts Standard raises, and beside them the cards (cardalerts.ts): the Link confirms and forwarded dialogs and the towers' proposals from the snapshot, the pair requests from the page's poll. A pair request is this computer's to decide (the server refuses a paired device `lan/*`), so a paired device is given none. */
+	const remote = deps.remote ?? globalThis.location?.hostname !== "127.0.0.1";
+	const withCards = () => new Map([...unitAlerts, ...(net ? cardAlerts(net, now(), { pairs: remote ? [] : pairList, pairsAt }) : []).map((a) => [a.key, a] as const)]);
 	const to = (key: string) => answerPost(key, deps.post), trustTo: TrustPost = trustPost(deps.trust);
 	// A draft holds the screen while the boss is at it: the box has text and he touched the companion (a tap or a drag on the log, a wheel, a key, or text that arrives with no key, as dictation and a suggestion tap do) in the last DRAFT_MS, focused or not. Typing keeps renewing it; walking away from a focused box does not hold the screen.
 	let touched = -Infinity;
@@ -73,7 +81,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	/** What the stage draws changed: the sound goes out, the screen follows, and the one timer is set for the next moment the model may change. */
 	function apply(o: { screen: Screen; sound?: Sound }) {
 		if (!active) return;
-		const gone = view === "item" && (o.screen.kind !== "item" || o.screen.item.key !== card?.key) ? card?.el : undefined; // a card that leaves, or is swapped for another, dissolves
+		const gone = view === "item" && (o.screen.kind !== "item" || o.screen.item.key !== card?.key || cardSig(o.screen.item) !== card?.sig) ? card?.el : undefined; // a card that leaves, or is swapped for another, dissolves
 		shown = o.screen;
 		if (o.sound) deps.sound(o.sound);
 		if (shown.kind === "item") drawItem(shown);
@@ -89,17 +97,20 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		cancel = wait === undefined ? () => {} : later(() => apply(model.tick()), Math.max(0, wait) + 10);
 	}
 	/** An answer's reply: accepted ends the item with the knock; anything else the server refused, or no reply, plays the low bowl and leaves the card. */
-	const tell = (reply: Promise<Answer>) => reply.then((r) => (apply(outcome(r) === "accepted" ? model.accepted() : model.refused()), r), (e: unknown) => (apply(model.refused()), Promise.reject(e)));
+	const tell = (key: string, reply: Promise<Answer>) => reply.then((r) => (apply(outcome(r) === "accepted" ? model.accepted(key) : model.refused(key)), r), (e: unknown) => (apply(model.refused(key)), Promise.reject(e))); // `key`: the item the answer was given on, so a late reply never settles another card
 	/** What a card holds was swapped: it fades in over a short moment (opacity only, zen.css) while the box takes its new size at once. */
 	const fade = (el: HTMLElement) => (el.removeAttribute("data-fade"), void el.offsetWidth, el.setAttribute("data-fade", "")); // the read restarts the animation
 	/** The card's title: a project's question, a wait's tower once in the page's language (its raw name is English; the unit's role and place are the title), or the unit's name. */
-	const titleOf = (a: Alert) => (a.trust ? m.trust_title() : a.wait ? waitTitle(a.role, deps.label(a.ws)) : a.name);
+	const cardTitle = (a: Alert) => (a.card?.kind === "pair" ? m.zen_pair_title({ label: a.name }) : a.card?.kind === "proposal" ? waitTitle(a.role, deps.label(a.ws)) : m.zen_link_title({ label: a.name })); // a proposal is the tower's, named once like its waits
+	const titleOf = (a: Alert) => (a.trust ? m.trust_title() : a.wait ? waitTitle(a.role, deps.label(a.ws)) : a.card ? cardTitle(a) : a.name);
+	/** What a card asks, in the page's language: the long sentence of the Link notice, the request's line, or the run's proposal with the message it comes from. */
+	const cardSaid = (c: NonNullable<Alert["card"]>) => (c.kind === "confirm" ? confirmLine(c.confirm) : c.kind === "dialog" ? c.line : c.kind === "pair" ? pairLine(c.request) : proposalText(c.proposal));
 	function makeCard(a: Alert): Card {
 		const trust = a.trust, key = unitOf(a), said = h("p", { class: "zen-said" }), out = h("p", { class: "zen-out", role: "status" });
 		const slot = h("div", { class: "zen-answer" }), skip = h("button", { type: "button", class: "cmp-alt zen-skip" }, m.zen_not_now());
-		const unit = unitOf(a), hist = trust || a.wait ? undefined : mountHistory({ key: unit, chat: mounts.chat, data: deps.data, who: () => locate(net, unit)?.u ?? { key: unit, name: a.name, role: a.role, mark: a.mark }, watch: deps.watch, changed: () => sync() });
+		const unit = unitOf(a), hist = trust || a.wait || a.card ? undefined : mountHistory({ key: unit, chat: mounts.chat, data: deps.data, who: () => locate(net, unit)?.u ?? { key: unit, name: a.name, role: a.role, mark: a.mark }, watch: deps.watch, changed: () => sync() });
 		const ctx = h("button", { type: "button", class: "cmp-link zen-history-btn", "aria-keyshortcuts": "H", "aria-expanded": "false", "aria-controls": hist?.el.getAttribute("id") ?? "" }, m.zen_history());
-		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, titleOf(a)), a.wait ? null : h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, hist?.el, h("div", { class: "zen-acts" }, hist && ctx, skip), out);
+		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, titleOf(a)), a.wait || a.card ? null : h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, hist?.el, h("div", { class: "zen-acts" }, hist && ctx, skip), out);
 		const el = h("section", { class: "zen-card", tabindex: "-1" }, inner);
 		const sync = () => {
 			const has = Boolean(hist) && hasHistory(net, unit);
@@ -114,19 +125,39 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		ctx.hidden = true;
 		skip.onclick = () => apply(model.skip());
 		if (a.wait) said.textContent = a.wait.text; // a wait for the boss says what it waits for, not what the tower last said
+		else if (a.card) said.textContent = cardSaid(a.card);
 		else if (!trust) void deps.recent(key).then((items) => (said.textContent = intel(items).said ?? ""), () => {});
-		const answer: AnswerPost = (action, body) => tell(to(key)(action, body));
+		const answer: AnswerPost = (action, body) => tell(a.key, to(key)(action, body));
 		const online = deps.online;
 		if (a.wait) {
 			// The answer is typed on the card and goes where Standard's composer sends it: the tower's session `input` (asks.ts `waitActions`); the card never leaves Zen.
-			const panel = waitPanel({ actions: waitActions({ ws: a.ws, id: a.wait.id, tower: key }, to(key)), reply: true, send: tell });
+			const panel = waitPanel({ actions: waitActions({ ws: a.ws, id: a.wait.id, tower: key }, to(key)), reply: true, send: (reply) => tell(a.key, reply) });
 			slot.replaceChildren(panel.el);
-			return { key: a.key, el, said, out, skip, toggle: () => false, collapse() {}, enter: () => false, cancel: () => false, sending: () => panel.sending(), replying: panel.isOpen, foldReply: () => panel.fold(true), update: (x, outcome) => (panel.update(online()), say(out, outcome, x)) };
+			return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: () => false, cancel: () => false, sending: () => panel.sending(), replying: panel.isOpen, foldReply: () => panel.fold(true), update: (x, outcome) => (panel.update(online()), say(out, outcome, x)) };
+		}
+		if (a.card) {
+			// A question outside a unit's dialog (cardalerts.ts): each answers through the shared action of asks.ts, the call Standard's row makes, and the server's list decides when it is over.
+			const c = a.card;
+			if (c.kind === "dialog") {
+				const send = forwardedAnswer(c), cast: AnswerPost = (action, body) => tell(a.key, send(action, body));
+				let ask: ReturnType<typeof mountAsk> | undefined, hold: HTMLElement | undefined;
+				return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()), update(x, outcome) {
+					if (!ask) (slot.replaceChildren((hold = h("div", { class: "zen-ask" }))), (ask = mounts.ask(hold, cast, true)));
+					ask.update(x.pending, canAnswer(x.mark, online())); // a forwarded dialog's panel starts afresh for another dialog under the same alert
+					syncQuestions(hold!, { later });
+					say(out, outcome, x);
+				} };
+			}
+			const wrap = (reply: Promise<Answer>) => tell(a.key, reply);
+			let rev = c.kind === "proposal" ? c.rev : 0; // the memory moves while the card is shown: a Confirm names the rev of the newest snapshot
+			const panel = c.kind === "confirm" ? confirmPanel(c.confirm, wrap) : c.kind === "pair" ? pairPanel(c.request, wrap) : proposalPanel({ ...c, rev: () => rev }, wrap);
+			slot.replaceChildren(panel.el);
+			return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: panel.enter, cancel: () => false, sending: panel.sending, update: (x, outcome) => (panel.update(online()), x.card?.kind === "proposal" && (rev = x.card.rev), x.card?.kind === "pair" && (said.textContent = cardSaid(x.card)), say(out, outcome, x)) };
 		}
 		if (trust) {
-			const panel = mounts.trust((body) => tell(trustTo(body)));
+			const panel = mounts.trust((body) => tell(a.key, trustTo(body)));
 			slot.replaceChildren(panel);
-			return { key: a.key, el, said, out, skip, toggle: () => false, collapse() {}, enter: () => false, cancel: () => false, sending: () => panel.sending(), update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
+			return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: () => false, cancel: () => false, sending: () => panel.sending(), update: (x, outcome) => (panel.update(x.trust, online()), say(out, outcome, x)) };
 		}
 		let ask: ReturnType<typeof mountAsk> | undefined, hold: HTMLElement | undefined, noted = false, shown: string | undefined; // `shown`: which dialog the slot holds ("" for the words)
 		const words = () => {
@@ -141,7 +172,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			return mounts.ask(hold, answer, deps.remote, { key, show: () => openTerm(key, true) }, undefined, m.zen_open_terminal); // the unit waits on this dialog now: its next work ends the step
 		};
 		return {
-			key: a.key, el, said, out, skip, hist, toggle, collapse: () => hist?.close(ctx), enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
+			key: a.key, sig: cardSig(a), el, said, out, skip, hist, toggle, collapse: () => hist?.close(ctx), enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
 			update(x, outcome) {
 				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, canAnswer(x.mark, online())), syncQuestions(hold!, { later })); // several questions: one focused, the rest faded (zenquestions.ts)
 				else if (!noted) (ask = undefined, words());
@@ -161,11 +192,11 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	/** The free-focus rule: the item takes the focus only when the page has it, the boss is not typing somewhere else, and neither the terminal layer nor the palette is on. */
 	const idle = () => !term.isOpen() && !palette.isOpen() && document.hasFocus() && (!document.activeElement || document.activeElement === document.body || root.contains(document.activeElement));
 	function drawItem(s: Extract<Screen, { kind: "item" }>) {
-		if (card?.key !== s.item.key || view !== "item") {
+		if (card?.key !== s.item.key || card.sig !== cardSig(s.item) || view !== "item") {
 			card?.hist?.close(); // the card that goes takes its context with it: no mount, fetch, or watch for a card that is gone
 			card = makeCard(s.item);
 			stage.replaceChildren(card.el);
-			live.textContent = m.zen_asks({ name: titleOf(s.item) });
+			live.textContent = m.zen_asks({ name: s.item.card && s.item.card.kind !== "proposal" ? s.item.name : titleOf(s.item) });
 			card.update(s.item, s.outcome);
 			if (document.hidden || !document.hasFocus()) deps.remind(s.item);
 			else if (idle()) card.enter() || card.el.focus();
@@ -244,7 +275,10 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	mountGestures(stage, { on: () => (!net?.head || term.isOpen() ? undefined : histOpen ? "history" : onCircle() ? "circle" : undefined), open: openHistory, close: closeHistory }); // the head's history opens by a wheel gesture up or a swipe up, and closes by a gesture down past the log's end
 	/** Leaving: the item's dialog opens over Standard, the companion's session opens, a pause just returns to the page. */
 	function leave() {
-		deps.leave(shown.kind === "item" ? { item: alerts.get(shown.item.key) ?? shown.item } : shown.kind === "companion" && company ? { route: { view: "session", ws: company.ws, key: company.key } } : {});
+		const item = shown.kind === "item" ? (alerts.get(shown.item.key) ?? shown.item) : undefined;
+		// Standard has no dialog for a card: a proposal is answered among its tower's notices, the others at the Link button, the Wi-Fi notice or the Link notices on the page itself.
+		if (item?.card) return deps.leave(item.card.kind === "proposal" ? { route: { view: "session", ws: item.card.ws, key: item.card.tower } } : {});
+		deps.leave(item ? { item } : shown.kind === "companion" && company ? { route: { view: "session", ws: company.ws, key: company.key } } : {});
 	}
 	/** What the palette lists now: the page's actions that make sense for what is on the screen, then the corner menu's preferences. */
 	function paletteEntries() {
@@ -318,9 +352,16 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		},
 		/** A snapshot: its alerts (rank 0 are the items) and the net. */
 		net(next: Map<string, Alert>, whole: Net) {
-			[alerts, net] = [next, whole];
+			[unitAlerts, net] = [next, whole];
+			alerts = withCards();
 			term.follow(whole);
-			if (active) apply(model.update(next));
+			if (active) apply(model.update(alerts));
+		},
+		/** The pair requests `lan/pending` lists now (the page polls it: lanwait.ts); a request the server no longer lists is no item. */
+		pairs(list: PairRequest[]) {
+			[pairList, pairsAt] = [list, now()];
+			alerts = withCards();
+			if (active) apply(model.update(alerts));
 		},
 		history(e: HistoryEvent) {
 			card?.hist?.apply(e);

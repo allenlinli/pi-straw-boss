@@ -355,7 +355,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			[unitAlerts, net] = [next, whole];
 			alerts = withCards();
 			term.follow(whole);
-			if (active) apply(model.update(alerts)); explain(alerts);
+			if (active) apply(model.update(alerts));
+			explain(alerts);
 		},
 		/** The pair requests `lan/pending` lists now (the page polls it: lanwait.ts); a request the server no longer lists is no item. */
 		pairs(list: PairRequest[]) {

@@ -728,6 +728,21 @@ test("a hidden page's pause ends when the page is shown; a tap ends the pause", 
 	assert.equal(tap.by((el) => el.getAttribute("role") === "img").length, 0, "a tap skips it");
 });
 
+test("a question that arrives while the page is hidden and the pause of the last card is on draws its card at once, one that reuses the answered id too (LCL-F002)", async () => {
+	for (const id of ["d9", "d1"]) {
+		const r = rig();
+		r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
+		r.z.show();
+		await r.settle();
+		r.button("Maybe later")!.click();
+		r.z.visible(false);
+		r.feed(net([unit("b", "waiting", { since: 9, pending: select({ dialog: id }) })]));
+		await r.settle();
+		assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, `${id}: the pause is over, the circle is gone`);
+		assert.ok(r.by((el) => el.getAttribute("role") === "radio").length, `${id}: the card is drawn`);
+	}
+});
+
 test("a reminder goes out only for the item that takes the screen while the page is hidden or unfocused, never for the ones behind it", async () => {
 	const r = rig();
 	page.hidden = true;

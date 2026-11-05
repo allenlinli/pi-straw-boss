@@ -216,6 +216,17 @@ describe("dialog forwarding", () => {
 		await until(() => h.sent.length === 1, 3000, "a valid one still wins");
 	});
 
+	test("a close that arrives on another team than the one holding the card leaves the card answerable", async () => {
+		const { a } = await start();
+		const h = a.holder as unknown as { dialogViews: { put(v: object): unknown; get(d: string, id: string): { closed?: unknown } | undefined }; takeDialogClose(run: { team: string }, header: { from: string }, p: object): void };
+		h.dialogViews.put({ team: TEAM_HEX, device: dave.id, dialogId: "D1", digest: "d", owner: "o", dialog: "{}", at: Date.now() });
+		h.takeDialogClose({ team: "other-team" }, { from: dave.id }, { dialogId: "D1", by: "withdrawn" });
+		assert.equal(h.dialogViews.get(dave.id, "D1")?.closed, undefined, "a close from a team that does not hold the card is ignored");
+		assert.equal(a.holder.dialogRequests().length, 1);
+		h.takeDialogClose({ team: TEAM_HEX }, { from: dave.id }, { dialogId: "D1", by: "withdrawn" });
+		assert.ok(h.dialogViews.get(dave.id, "D1")?.closed, "the holding team's close ends it");
+	});
+
 	test("a sender at reply is refused", async () => {
 		const { h, d, f } = await start();
 		h.open("D1");

@@ -114,8 +114,8 @@ test("show hands a card the questions of its own device out of the Link summary,
 	const asks = mountAllyAsks(), mine = card().el, other = card().el;
 	const base = { team: "t1", teamName: "moldplan", device: "d1", short: "n2knna", label: "waydosoft", online: true, tower: "blocked", tabs: [] };
 	const link = { allies: [{ ...base, id: "t1/d1/trial11", workspace: "trial11" }, { ...base, id: "t1/d2/other", device: "d2", workspace: "other" }], alerts: [ask("A")], confirms: [], units: [] };
-	asks.show(mine as unknown as HTMLElement, { id: "t1/d1/trial11" }, link);
-	asks.show(other as unknown as HTMLElement, { id: "t1/d2/other" }, link);
+	asks.show(mine as unknown as HTMLElement, { id: "d1/trial11" }, link);
+	asks.show(other as unknown as HTMLElement, { id: "d2/other" }, link);
 	assert.deepEqual([mine.dataset.asks, other.dataset.asks], ["1", undefined]);
 });
 
@@ -125,11 +125,29 @@ test("the map draws a question on the card of its device's base, keyed ally/<id>
 	const sent = server();
 	const base = { team: "t1", teamName: "moldplan", device: "d1", short: "n2knna", label: "waydosoft", online: true, workspace: "trial11", tower: "blocked", tabs: [{ label: "main", state: "blocked" }] };
 	const link = { allies: [{ ...base, id: "t1/d1/trial11" }, { ...base, id: "t1/d2/other", device: "d2", workspace: "other" }], alerts: [ask("A")], confirms: [], units: [] };
+	const card = (a: (typeof link.allies)[number], id: string) => ({ ...a, id, teams: [{ team: a.team, teamName: a.teamName }] });
 	const mine = allyEl(), other = allyEl();
-	fillAlly(mine, { ...link.allies[0]!, id: "ally/t1/d1/trial11" } as never, link as never);
-	fillAlly(other, { ...link.allies[1]!, id: "ally/t1/d2/other" } as never, link as never);
+	fillAlly(mine, card(link.allies[0]!, "ally/d1/trial11") as never, link as never);
+	fillAlly(other, card(link.allies[1]!, "ally/d2/other") as never, link as never);
 	await new Promise((done) => setTimeout(done, 20)); // the panel's chunk loads on the first question
-	fillAlly(mine, { ...link.allies[0]!, id: "ally/t1/d1/trial11" } as never, link as never);
+	fillAlly(mine, card(link.allies[0]!, "ally/d1/trial11") as never, link as never);
 	assert.deepEqual([(mine as unknown as El).dataset.asks, (other as unknown as El).dataset.asks], ["1", undefined]);
+	void sent;
+});
+
+// A device in two teams is one card, and what it hosts is answered on the team the question came on: the row says which team that is.
+test("a device in two teams hosts one card, the question names the team it came on, and the answer goes with that question's own digest and device", async () => {
+	const { mergeAllies } = await import("../gui/linkmodel.ts");
+	const sent = server();
+	const base = { device: "d1", short: "n2knna", label: "waydosoft", online: true, workspace: "trial11", tower: "blocked", tabs: [] };
+	const link = { allies: [{ ...base, id: "t1/d1/trial11", team: "t1", teamName: "moldplan" }, { ...base, id: "t2/d1/trial11", team: "t2", teamName: "agent-tower-team" }], alerts: [{ ...ask("B"), id: "dialog/d1/B2", team: "t2", teamName: "agent-tower-team" }], confirms: [], units: [] };
+	const cards = mergeAllies(link.allies);
+	assert.equal(cards.length, 1);
+	const asks = mountAllyAsks(), el = card().el;
+	asks.show(el as unknown as HTMLElement, cards[0]!, link);
+	assert.equal(el.dataset.asks, "1", "one card, one host");
+	const row = el.all((x) => x.classes.has("link-alert"))[0]!;
+	assert.ok(row.dump().includes("agent-tower-team"), "the row names the team the question came on");
+	assert.ok(!row.dump().includes("moldplan"), "and not the other");
 	void sent;
 });

@@ -1,5 +1,5 @@
 import type { Mark } from "../src/netdata.ts";
-import type { AllyBase, DeviceUnits, LinkSummary } from "../src/link/holder.ts";
+import type { DeviceUnits, LinkSummary } from "../src/link/holder.ts";
 import type { Base, Net, Unit } from "../src/net.ts";
 import type { HeadUnit } from "../src/nethead.ts";
 import { mountCalm } from "./calm.ts";
@@ -7,7 +7,7 @@ import { menuAround, nameMenu } from "./menu.ts";
 import { replay } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { closed } from "./scene.ts";
-import { allyMark, stateName, unitCards, type UnitCard } from "./linkmodel.ts";
+import { allyMark, mergeAllies, stateName, unitCards, type AllyCard, type UnitCard } from "./linkmodel.ts";
 import { fillAllies } from "./towerallies.ts";
 import { fillNotices } from "./towernotes.ts";
 import { queueChip, statusLine } from "./towermodel.ts";
@@ -211,12 +211,12 @@ function fillBase(el: HTMLElement, b: Base) {
 
 // A teammate's workspace on a bound project (Straw Link, from its last presence), beside the local bases: a card of its own, not openable (its units are
 // another computer's), with the device's label and short id, the team, whether it is online, its tower's state, and its tabs' states. No wire reaches it.
-export const allyEl = () => html(`<section class="base ally"><header><div class="tower"><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><span class="crown"><svg><use href="#i-main"/></svg><em class="ally-tag"></em></span><h2></h2><p><span class="tstate"></span></p></div></header><ul class="ally-tabs"></ul><ul class="ally-units"></ul></section>`);
+export const allyEl = () => html(`<section class="base ally"><header><div class="tower"><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><span class="crown"><svg><use href="#i-main"/></svg><em class="ally-tag"></em></span><h2></h2><p><span class="tstate"></span></p><p class="ally-teams" hidden></p></div></header><ul class="ally-tabs"></ul><ul class="ally-units"></ul></section>`);
 // The questions an unattended device forwarded are answered on its card (allyasks.ts, with the question panel): loaded with the first one, so the page's start does not carry it; a load that failed is tried again at the next snapshot.
 let allyAsks: ReturnType<typeof import("./allyasks.ts").mountAllyAsks> | undefined, loadingAsks = false;
-const waitingAsks = new Map<HTMLElement, [AllyBase, LinkSummary]>();
-function fillAsks(el: HTMLElement, a: AllyBase, link: LinkSummary | undefined) {
-	a = { ...a, id: a.id.replace(/^ally\//, "") }; // the map keys a teammate's card `ally/<base id>`; the questions are by the base's id
+const waitingAsks = new Map<HTMLElement, [AllyCard, LinkSummary]>();
+function fillAsks(el: HTMLElement, a: AllyCard, link: LinkSummary | undefined) {
+	a = { ...a, id: a.id.replace(/^ally\//, "") }; // the map keys a teammate's card `ally/<card id>`; the questions are by the card's id
 	if (allyAsks) return void allyAsks.show(el, a, link);
 	if (!link?.alerts.some((x) => x.kind === "dialog")) return void waitingAsks.delete(el);
 	waitingAsks.set(el, [a, link]);
@@ -235,18 +235,22 @@ function fillUnits(el: HTMLElement, cards: UnitCard[], named: boolean) {
 	loadingUnits = true;
 	void import("./allyunits.ts").then(({ fillAllyUnits }) => ((drawUnits = fillAllyUnits), waitingUnits.forEach(([c, n], card) => fillAllyUnits(card.querySelector(".ally-units")!, c, n)), waitingUnits.clear()), () => void (loadingUnits = false));
 }
-/** When each unit of the ally bases was last seen running (`team/device/unit` to the time of that status): a run after a crash notice ends the crash (linkmodel.ts `unitCards`). Kept for the page's life. */
+/** When each unit of the ally bases was last seen running (`device/unit` to the time of that status): a run after a crash notice ends the crash (linkmodel.ts `unitCards`). Kept for the page's life. */
 const unitsSeen = new Map<string, number>();
-export function fillAlly(el: HTMLElement, a: AllyBase, link: LinkSummary | undefined) {
+/** Draws the card of one device (`mergeAllies`): the same device in several teams is this one card, which names its teams on a quiet line under the title and keeps the questions and the crash notices of each in the team's own words. */
+export function fillAlly(el: HTMLElement, a: AllyCard, link: LinkSummary | undefined) {
 	const state = allyMark(a), reported: DeviceUnits[] | undefined = link?.units;
 	mark(el, state);
 	el.classList.toggle("offline", !a.online);
 	mark(el.querySelector<HTMLElement>(".tower")!, state);
-	text(el, ".ally-tag", m.ally_tag({ team: a.teamName }));
+	const many = a.teams.length > 1, line = el.querySelector<HTMLElement>(".ally-teams")!;
+	text(el, ".ally-tag", many ? m.ally_tag_many() : m.ally_tag({ team: a.teams[0]?.teamName ?? "" }));
+	line.hidden = !many;
+	line.textContent = many ? m.ally_teams({ teams: a.teams.map((t) => t.teamName).join(m.ally_teams_sep()) }) : "";
 	text(el, "h2", a.workspace ?? a.label);
 	// What an unattended device says about its units (unit-status) is drawn by allyunits.ts, and the units are the card's only state: the subtitle then names the base and whether it is there, not what its tower does (the two come from messages of their own cadence and could disagree).
 	// While an unattended box says none (an older box, a team that shares presence only, the minute after this server restarted) the card says how many units are online in one line and never lists the box's mains and workers; a teammate's own computer lists its tabs.
-	const cards = unitCards(reported, link?.alerts, a, Date.now(), unitsSeen);
+	const cards = unitCards(reported, link?.alerts, { device: a.device, workspace: a.workspace, teams: a.teams.map((t) => t.team) }, Date.now(), unitsSeen);
 	text(el, ".tstate", `${a.workspace ? `${a.label} · ` : ""}${a.short}${!a.online ? ` · ${m.link_offline()}` : cards.length ? "" : ` · ${stateName(a.tower)}`}`);
 	const rows: { id: string; label: string; state: string; says?: string }[] = cards.length ? [] : a.unattended ? (a.online && a.tabs.length ? [{ id: "online", label: "", state: a.tower, says: m.link_unit_summary({ count: a.tabs.length }) }] : []) : a.tabs.map((t, i) => ({ id: `${i}`, ...t }));
 	sync(el.querySelector(".ally-tabs")!, rows, () => html(`<li class="ally-tab"><b></b><span></span></li>`), (li, t) => {
@@ -330,7 +334,7 @@ export function mountPage(): Page {
 			for (const [id, value] of [["s-bases", String(net.bases.length)], ["s-agents", count()], ["s-working", count("working")], ["s-commanding", count("commanding")], ["s-waiting", count("waiting")]] as const) byId(id, HTMLElement).textContent = value;
 		},
 		show(net) {
-			const allies = (net.link?.allies ?? []).map((a) => ({ ...a, id: `ally/${a.id}`, ally: true as const }));
+			const allies = mergeAllies(net.link?.allies ?? []).map((a) => ({ ...a, id: `ally/${a.id}`, ally: true as const }));
 			fillHeadNode(byId("head-node", HTMLElement), net.head);
 			sync(bases, [...net.bases, ...allies], (item) => ("ally" in item ? allyEl() : baseEl()), (el, item) => ("ally" in item ? fillAlly(el, item, net.link) : fillBase(el, item)));
 			for (const el of bases.children) if (!packed.has(el)) (packed.add(el), pack.observe(el));

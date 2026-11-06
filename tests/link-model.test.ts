@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AllyBase, LinkAlert } from "../src/link/holder.ts";
-import { alertLine, allyMark, countdown, CRASH_FRESH_MS, dialogState, hasLinkNews, lastSeen, reportPeek, stateName, unitCards, unitsFor, unitWord, urgentFirst } from "../gui/linkmodel.ts";
+import { alertLine, allyMark, countdown, mergeAllies, CRASH_FRESH_MS, dialogState, hasLinkNews, lastSeen, reportPeek, stateName, unitCards, unitsFor, unitWord, urgentFirst } from "../gui/linkmodel.ts";
 import { asksOf } from "../gui/allyasks.ts";
 import { dialogStateLine, remoteAnswer, remoteDialog } from "../gui/linkdialogmodel.ts";
 import { m } from "../gui/paraglide/messages.js";
@@ -100,16 +100,16 @@ test("the panel's answer goes to the holder as one of its three shapes, whatever
 test("a notice of an unattended device reads in words, and its units sit beside its ally bases", () => {
 	assert.equal(alertLine(alert("notice", { label: "ci-box", short: "def456", what: "run-crashed", unit: "moldplan", text: "An ally run crashed: <b>x</b>" })), "ci-box (def456), unattended, in team moldplan — run-crashed, moldplan: An ally run crashed: <b>x</b>");
 	const units = [{ team: "t", device: "d1", at: 1000, units: [{ unit: "moldplan", state: "running", monitors: ["a", "b"], report: "done" }, { unit: "other", state: "standing", monitors: [], report: "" }] }];
-	assert.deepEqual(unitsFor(units, { team: "t", device: "d1", workspace: "moldplan" }).map((u) => u.unit), ["moldplan"]);
-	assert.equal(unitsFor(units, { team: "t", device: "d1", workspace: null }).length, 2, "a device with no workspace in its presence shows all");
-	assert.equal(unitsFor(units, { team: "t", device: "d2", workspace: null }).length, 0);
+	assert.deepEqual(unitsFor(units, { teams: ["t"], device: "d1", workspace: "moldplan" }).map((u) => u.unit), ["moldplan"]);
+	assert.equal(unitsFor(units, { teams: ["t"], device: "d1", workspace: null }).length, 2, "a device with no workspace in its presence shows all");
+	assert.equal(unitsFor(units, { teams: ["t"], device: "d2", workspace: null }).length, 0);
 	// A device that sent no status lately: its last units, said to be stale, with the time it was last heard.
-	const old = unitsFor([{ ...units[0]!, stale: true }], { team: "t", device: "d1", workspace: "moldplan" })[0]!;
+	const old = unitsFor([{ ...units[0]!, stale: true }], { teams: ["t"], device: "d1", workspace: "moldplan" })[0]!;
 	assert.deepEqual([old.stale, old.at], [true, 1000]);
-	assert.equal(unitsFor(units, { team: "t", device: "d1", workspace: "moldplan" })[0]!.stale, false);
+	assert.equal(unitsFor(units, { teams: ["t"], device: "d1", workspace: "moldplan" })[0]!.stale, false);
 });
 
-const ME = { team: "t", device: "d1", workspace: "moldplan" as string | null };
+const ME = { teams: ["t"], device: "d1", workspace: "moldplan" as string | null };
 const status = (state: string, extra: object = {}) => [{ team: "t", device: "d1", at: 5_000, units: [{ unit: "moldplan", state, monitors: ["tail -f a.log", "npm run watch"], report: "# Done\nShipped." }], ...extra }];
 const crashNotice = (at: number, over: Record<string, string | number> = {}) => ({ id: "notice/1", kind: "notice" as const, level: "warning" as const, team: "t", teamName: "moldplan", data: { device: "d1", label: "ci-box", short: "9f3a1c", what: "run-crashed", unit: "moldplan", text: "An ally run crashed: exit 1", at, ...over } });
 
@@ -196,17 +196,77 @@ const ask = (id: string, data: LinkAlert["data"] = {}, team = "t1") => ({ ...for
 
 test("a device's open and waiting questions are hosted by its ally base; a closed one, another device's, and a notice are not", () => {
 	const link = { allies: [ally()], alerts: [ask("A"), ask("B", { answered: 1 }), ask("C", { closed: "remote" }), ask("D", { device: "d2" }), alert("notice", { device: "d1" })], confirms: [], units: [] };
-	assert.deepEqual([...asksOf(link)].map(([id, list]) => [id, list.map((a) => a.data.dialogId)]), [["t1/d1/trial11", ["A", "B"]]]);
+	assert.deepEqual([...asksOf(link)].map(([id, list]) => [id, list.map((a) => a.data.dialogId)]), [["d1/trial11", ["A", "B"]]]);
 	assert.equal(asksOf(undefined).size, 0);
 	assert.equal(asksOf({ ...link, allies: [] }).size, 0, "no card, no host: the Link notices still carry it");
 });
 
-test("of a device's several bases the one that waits hosts its questions, on the team the question came on; with no match the first", () => {
-	const quiet = ally({ id: "t1/d1/docs", workspace: "docs" }), waiting = ally({ id: "t1/d1/trial11", tower: "blocked" }), tab = ally({ id: "t1/d1/ops", workspace: "ops", tabs: [{ label: "main", state: "blocked" }] }), other = ally({ id: "t2/d1/trial11", team: "t2" });
+test("of a device's several cards the one that waits hosts its questions, whatever team a question came on; with no match the first", () => {
+	const quiet = ally({ id: "t1/d1/docs", workspace: "docs" }), waiting = ally({ id: "t1/d1/trial11", tower: "blocked" }), tab = ally({ id: "t1/d1/ops", workspace: "ops", tabs: [{ label: "main", state: "blocked" }] }), other = ally({ id: "t2/d1/trial11", team: "t2", teamName: "mates" });
 	const asks = (allies: AllyBase[], team = "t1") => [...asksOf({ allies, alerts: [ask("A", {}, team)] }).keys()];
-	assert.deepEqual(asks([quiet, waiting]), ["t1/d1/trial11"], "the tower waits");
-	assert.deepEqual(asks([quiet, tab]), ["t1/d1/ops"], "a tab waits");
-	assert.deepEqual(asks([quiet, ally({ id: "t1/d1/x", workspace: "x" })]), ["t1/d1/docs"], "none waits: the first");
-	assert.deepEqual(asks([other, waiting], "t2"), ["t2/d1/trial11"], "the team the question came on comes first, waiting or not");
-	assert.deepEqual(asks([other], "t1"), ["t2/d1/trial11"], "a team it did not come on still hosts it when it is the device's only base");
+	assert.deepEqual(asks([quiet, waiting]), ["d1/trial11"], "the tower waits");
+	assert.deepEqual(asks([quiet, tab]), ["d1/ops"], "a tab waits");
+	assert.deepEqual(asks([quiet, ally({ id: "t1/d1/x", workspace: "x" })]), ["d1/docs"], "none waits: the first");
+	assert.deepEqual(asks([other, waiting], "t2"), ["d1/trial11"], "one card per device and workspace: both teams' bases are the one card, and it waits");
+	assert.deepEqual(asks([other], "t1"), ["d1/trial11"], "a team it did not come on still hosts it when it is the device's only base");
+});
+
+// One card per device (and per workspace of it), however many teams it is in: the card names its teams, and its state is the device's.
+const two = (over: Partial<AllyBase> = {}): AllyBase[] => [ally({ id: "t1/d1/trial11", ...over }), ally({ id: "t2/d1/trial11", team: "t2", teamName: "agent-tower-team", ...over })];
+
+test("a device that is in two teams is one card that lists both, in the order the teams came; one team is a card with that one team", () => {
+	const [card, ...rest] = mergeAllies(two());
+	assert.equal(rest.length, 0);
+	assert.equal(card!.id, "d1/trial11");
+	assert.deepEqual(card!.teams, [{ team: "t1", teamName: "moldplan" }, { team: "t2", teamName: "agent-tower-team" }]);
+	assert.deepEqual(mergeAllies([ally()]).map((c) => c.teams), [[{ team: "t1", teamName: "moldplan" }]]);
+	assert.deepEqual(mergeAllies([]), []);
+	assert.equal(mergeAllies([...two(), ally({ id: "t1/d2/x", device: "d2", workspace: "x" })]).length, 2, "another device is another card");
+	assert.equal(mergeAllies([...two(), ally({ id: "t1/d1/docs", workspace: "docs" })]).length, 2, "a device's workspaces are cards of their own, as before");
+	assert.equal(mergeAllies([ally(), ally()]).length, 1, "the same team twice is listed once");
+	assert.deepEqual(mergeAllies([ally(), ally()])[0]!.teams.length, 1);
+});
+
+test("the merged card's presence: online when any team hears the device, the most urgent tower state, the flag of an unattended box", () => {
+	const [a, b] = two();
+	assert.equal(mergeAllies([{ ...a!, online: false, tower: "unknown" }, b!])[0]!.online, true, "one team's presence is enough");
+	assert.equal(mergeAllies([{ ...a!, online: false }, { ...b!, online: false }])[0]!.online, false);
+	assert.equal(mergeAllies([{ ...a!, tower: "idle" }, { ...b!, tower: "working" }])[0]!.tower, "working");
+	assert.equal(mergeAllies([{ ...a!, tower: "working" }, { ...b!, tower: "blocked" }])[0]!.tower, "blocked", "a question that waits outranks work");
+	assert.equal(mergeAllies([{ ...a!, tower: "blocked", online: false }, { ...b!, tower: "idle" }])[0]!.tower, "idle", "an offline team's last word does not outrank an online one");
+	assert.equal(mergeAllies([{ ...a!, unattended: true }, b!])[0]!.unattended, true);
+	assert.deepEqual(mergeAllies([{ ...a!, tabs: [] }, { ...b!, tower: "working", tabs: [{ label: "main", state: "working" }] }])[0]!.tabs, [{ label: "main", state: "working" }], "the tabs are the ones of the state that was taken");
+});
+
+test("a team that shows no workspace of the device adds its team to the device's cards and no card of its own", () => {
+	const named = ally({ id: "t1/d1/trial11" }), bare = ally({ id: "t2/d1", team: "t2", teamName: "agent-tower-team", workspace: null, tower: "unknown", tabs: [] });
+	const cards = mergeAllies([named, bare]);
+	assert.deepEqual(cards.map((c) => c.id), ["d1/trial11"]);
+	assert.deepEqual(cards[0]!.teams.map((t) => t.team), ["t1", "t2"]);
+	assert.deepEqual(mergeAllies([bare]).map((c) => [c.id, c.workspace]), [["d1", null]], "with no workspace anywhere, the device's one card");
+});
+
+test("a device's unit status is the freshest of its teams', stale only when every team's is", () => {
+	const row = (team: string, at: number, state: string, extra: object = {}) => ({ team, device: "d1", at, units: [{ unit: "moldplan", state, monitors: [], report: `from ${team}` }], ...extra });
+	const both = { teams: ["t1", "t2"], device: "d1", workspace: "moldplan" as string | null };
+	const pick = (rows: ReturnType<typeof row>[], who = both) => unitsFor(rows, who).map((u) => [u.state, u.at, u.stale, u.report]);
+	assert.deepEqual(pick([row("t1", 1_000, "running"), row("t2", 9_000, "standing")]), [["standing", 9_000, false, "from t2"]], "the later status wins");
+	assert.deepEqual(pick([row("t2", 9_000, "standing"), row("t1", 1_000, "running")]), [["standing", 9_000, false, "from t2"]], "whatever the order");
+	assert.deepEqual(pick([row("t1", 1_000, "running"), row("t2", 9_000, "standing", { stale: true })]), [["standing", 9_000, true, "from t2"]], "the freshest stale one is stale");
+	assert.deepEqual(pick([row("t1", 9_000, "running"), row("t2", 1_000, "standing", { stale: true })]), [["running", 9_000, false, "from t1"]], "an old stale status does not hide a fresh one");
+	assert.deepEqual(pick([row("t3", 9_000, "standing"), row("t1", 1_000, "running")]), [["running", 1_000, false, "from t1"]], "a status of a team the card is not in is not the card's");
+	assert.deepEqual(pick([row("t1", 1_000, "running")], { ...both, teams: ["t1"] }), [["running", 1_000, false, "from t1"]]);
+});
+
+test("a crash notice of either team tells on the merged card, the latest one once; a run seen after it ends it", () => {
+	const now = 10_000_000, rows = [{ team: "t1", device: "d1", at: now - 5_000, units: [{ unit: "moldplan", state: "standing", monitors: [], report: "" }] }, { team: "t2", device: "d1", at: now - 20_000, units: [{ unit: "moldplan", state: "standing", monitors: [], report: "" }] }];
+	const both = { teams: ["t1", "t2"], device: "d1", workspace: "moldplan" as string | null };
+	const t1 = crashNotice(now - 60_000, { text: "in t1" }), t2 = { ...crashNotice(now - 30_000, { text: "in t2" }), team: "t2", id: "notice/2" };
+	const [one] = unitCards(rows, [t1, t2], both, now);
+	assert.equal(unitCards(rows, [t1, t2], both, now).length, 1, "one unit, one card");
+	assert.deepEqual([one!.tone, one!.crash!.text], ["crashed", "in t2"], "the latest of the two teams' notices");
+	assert.equal(unitCards(rows, [t2], { ...both, teams: ["t1"] }, now)[0]!.tone, "idle", "a notice of a team the card is not in does not");
+	const seen = new Map<string, number>();
+	unitCards([{ ...rows[0]!, at: now - 10_000, units: [{ unit: "moldplan", state: "running", monitors: [], report: "" }] }], [], both, now - 10_000, seen);
+	assert.equal(unitCards(rows, [t1], both, now, seen)[0]!.tone, "idle", "the page's memory of a run is the device's, not a team's");
 });

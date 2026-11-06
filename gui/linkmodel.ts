@@ -77,9 +77,32 @@ export function dialogState(a: Pick<LinkAlert, "data">): DialogState {
 	return closed === "local" ? "done-local" : closed === "cancel" ? "cancelled" : closed === "withdrawn" ? "withdrawn" : "expired";
 }
 
-/** The units an unattended device reported that belong to an ally base: those of its workspace, or all of them for a device whose presence names no workspace yet. */
-export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">) {
-	const mine = (units ?? []).find((u) => u.team === a.team && u.device === a.device);
+/**
+ * One ally card as the map draws it: a device (and one workspace of it), however many teams it is in. A device is the same machine in each team, so the card is one, with `teams` naming them (in the order the teams came) and the
+ * state of the device: online when any team hears it, the most urgent tower state of the online ones (a question that waits, then work), and the tabs of the state that was taken. The team-scoped parts of the card (a forwarded question,
+ * the notice behind a crash) keep their team in their own words.
+ */
+export interface AllyCard extends Omit<AllyBase, "team" | "teamName"> { teams: { team: string; teamName: string }[] }
+const URGENCY: Record<string, number> = { blocked: 3, working: 2, idle: 1 };
+/** A team that shows no workspace of a device gives its team to the device's cards and has none of its own; with no workspace anywhere, the device has the one card. */
+export function mergeAllies(allies: AllyBase[]): AllyCard[] {
+	const devices = new Map<string, AllyBase[]>();
+	for (const a of allies) devices.set(a.device, [...(devices.get(a.device) ?? []), a]);
+	return [...devices].flatMap(([device, bases]) => {
+		const teams: AllyCard["teams"] = [];
+		for (const b of bases) if (!teams.some((t) => t.team === b.team)) teams.push({ team: b.team, teamName: b.teamName });
+		const named = bases.filter((b) => b.workspace !== null), workspaces = named.length ? [...new Set(named.map((b) => b.workspace))] : [null];
+		return workspaces.map((workspace): AllyCard => {
+			const mine = bases.filter((b) => b.workspace === workspace);
+			const best = [...mine].sort((p, q) => Number(q.online) - Number(p.online) || (q.online ? (URGENCY[q.tower] ?? 0) - (URGENCY[p.tower] ?? 0) : 0))[0]!;
+			return { id: workspace === null ? device : `${device}/${workspace}`, device, short: best.short, label: best.label, online: bases.some((b) => b.online), ...(bases.some((b) => b.unattended) ? { unattended: true as const } : {}), workspace, tower: best.tower, tabs: best.tabs, teams };
+		});
+	});
+}
+
+/** The units an unattended device reported that belong to an ally card: those of its workspace, or all of them for a device whose presence names no workspace yet. The device reports to each of its teams alike, so the status is the freshest of the card's teams'. */
+export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyCard, "device" | "workspace"> & { teams: string[] }) {
+	const mine = (units ?? []).filter((u) => u.device === a.device && a.teams.includes(u.team)).sort((p, q) => q.at - p.at)[0];
 	return mine ? mine.units.filter((u) => a.workspace === null || u.unit === a.workspace).map((u) => ({ ...u, at: mine.at, stale: mine.stale === true })) : [];
 }
 
@@ -105,14 +128,14 @@ export function unitWord(state: string): { tone: UnitTone; word: string } {
 
 /**
  * The cards of an ally base's units: its state word and when it was heard, the monitors, the last report, and why it stopped when a notice told of it lately and the unit is not running.
- * `seen` is the page's memory of when each unit was last seen running (`team/device/unit` to the time of that status): a run after the notice ends it, so a unit that was re-run and stands by again is not told as crashed again.
+ * `seen` is the page's memory of when each unit was last seen running (`device/unit` to the time of that status): a run after the notice ends it, so a unit that was re-run and stands by again is not told as crashed again.
  * A page without that memory (just loaded) has the 30-minute rule alone.
  */
-export function unitCards(units: DeviceUnits[] | undefined, alerts: LinkAlert[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">, now: number, seen: Map<string, number> = new Map()): UnitCard[] {
+export function unitCards(units: DeviceUnits[] | undefined, alerts: LinkAlert[] | undefined, a: Parameters<typeof unitsFor>[1], now: number, seen: Map<string, number> = new Map()): UnitCard[] {
 	return unitsFor(units, a).map((u) => {
-		const base = unitWord(u.state), key = `${a.team}/${a.device}/${u.unit}`;
+		const base = unitWord(u.state), key = `${a.device}/${u.unit}`;
 		if (base.tone === "working") seen.set(key, Math.max(seen.get(key) ?? 0, u.at));
-		const crash = alerts?.filter((x) => x.kind === "notice" && CRASH_KINDS.includes(String(x.data.what)) && x.team === a.team && x.data.device === a.device && x.data.unit === u.unit && Number(x.data.at) > 0).map((x) => ({ at: Number(x.data.at), text: String(x.data.text ?? ""), trust: x.data.what === "trust-unanswered" })).sort((p, q) => q.at - p.at)[0];
+		const crash = alerts?.filter((x) => x.kind === "notice" && CRASH_KINDS.includes(String(x.data.what)) && a.teams.includes(x.team) && x.data.device === a.device && x.data.unit === u.unit && Number(x.data.at) > 0).map((x) => ({ at: Number(x.data.at), text: String(x.data.text ?? ""), trust: x.data.what === "trust-unanswered" })).sort((p, q) => q.at - p.at)[0];
 		const told = crash !== undefined && base.tone !== "working" && now - crash.at < CRASH_FRESH_MS && crash.at > (seen.get(key) ?? 0) ? { at: crash.at, text: crash.text, ...(crash.trust ? { trust: true as const } : {}) } : undefined;
 		const state = !told ? base : base.tone === "crashed" ? base : told.trust ? { tone: "waiting" as const, word: m.link_unit_trust() } : { tone: "crashed" as const, word: m.link_unit_crashed() };
 		return { unit: u.unit, state: u.state, ...state, ...(told ? { crash: told } : {}), at: u.at, stale: u.stale, monitors: u.monitors, report: u.report };

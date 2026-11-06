@@ -1,26 +1,26 @@
-import type { AllyBase, LinkAlert, LinkSummary } from "../src/link/holder.ts";
+import type { LinkAlert, LinkSummary } from "../src/link/holder.ts";
 import { h } from "./dom.ts";
 import { mountDialogCards } from "./linkdialogs.ts";
-import { dialogState } from "./linkmodel.ts";
+import { type AllyCard, dialogState, mergeAllies } from "./linkmodel.ts";
 import { m } from "./paraglide/messages.js";
 
 // The questions an unattended device forwarded, answered on the card of its ally base (docs/how-it-works.md, Unattended devices: Asking back): under the card's rows a button says how many wait, and the card's waiting rows
 // do the same; it opens the shared question panel (linkdialogs.ts), the one the Link notices and Zen's card draw, which answers through `link/dialog-answer`. The map draws a card on every snapshot, so the panel is made once per
 // card and only updated; what was picked and typed stays across snapshots.
 
-/** An ally base that waits on a question: its tower or one of its tabs is blocked. */
-const waits = (a: Pick<AllyBase, "tower" | "tabs">) => a.tower === "blocked" || a.tabs.some((t) => t.state === "blocked");
+/** An ally card that waits on a question: its tower or one of its tabs is blocked. */
+const waits = (a: Pick<AllyCard, "tower" | "tabs">) => a.tower === "blocked" || a.tabs.some((t) => t.state === "blocked");
 /**
- * The forwarded questions each ally base hosts on its card, by the base's id: the dialogs of its device that still ask or are answered and not yet closed. A question names a device, not a workspace, so a device with several bases gives
- * them to the one that waits (else the first), on the team the question came on before any other team of the device. A question with no base of its device stays in the Link notices alone.
+ * The forwarded questions each ally card hosts, by the card's id (`mergeAllies`): the dialogs of its device that still ask or are answered and not yet closed. A question names a device, not a workspace, so a device with several cards
+ * gives them to the one that waits (else the first); the device's teams are one card, so the team a question came on does not pick it, and the question's own row says that team. A question with no card of its device stays in the Link notices alone.
  */
 export function asksOf(link: Pick<LinkSummary, "allies" | "alerts"> | undefined): Map<string, LinkAlert[]> {
 	const out = new Map<string, LinkAlert[]>();
+	const cards = mergeAllies(link?.allies ?? []);
 	for (const a of link?.alerts ?? []) {
 		const state = a.kind === "dialog" ? dialogState(a) : undefined;
 		if (state !== "open" && state !== "sent") continue;
-		const mine = (link?.allies ?? []).filter((x) => x.device === a.data.device), here = mine.filter((x) => x.team === a.team);
-		const host = (here.length ? here : mine).find(waits) ?? (here.length ? here : mine)[0];
+		const mine = cards.filter((x) => x.device === a.data.device), host = mine.find(waits) ?? mine[0];
 		if (host) out.set(host.id, [...(out.get(host.id) ?? []), a]);
 	}
 	return out;
@@ -82,6 +82,6 @@ export function mountAllyAsks() {
 		toggle,
 		fill,
 		/** Draws the questions the card of `ally` hosts out of the Link summary (`asksOf`). */
-		show: (card: HTMLElement, ally: Pick<AllyBase, "id">, link: LinkSummary | undefined) => fill(card, asksOf(link).get(ally.id) ?? []),
+		show: (card: HTMLElement, ally: Pick<AllyCard, "id">, link: LinkSummary | undefined) => fill(card, asksOf(link).get(ally.id) ?? []),
 	};
 }

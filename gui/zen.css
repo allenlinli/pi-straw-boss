@@ -75,6 +75,11 @@
 /* The line after a first Esc that nothing took: quiet, at the foot of the page, gone with the 600 ms window. */
 [data-view="zen"] .zen-esc { position: fixed; z-index: 3; left: 50%; bottom: max(28px, calc(env(safe-area-inset-bottom) + 16px)); translate: -50% 0; width: max-content; max-width: min(24rem, 90vw); margin: 0; text-align: center; font-size: 0.9rem; color: var(--zen-ash); opacity: 0; transition: opacity 0.4s var(--zen-ease); pointer-events: none; }
 [data-view="zen"] .zen-esc[data-on] { opacity: 1; }
+/* The line while a new build waits for the breath (zen.ts `upgrade`): quiet, at the foot of the page, above the terminal layer, and gone with the reload. While it shows, the page keeps its foot (`--zen-foot`, set by the layer's `data-update`) clear of the card, the head's input, and the terminal layer, so it never lies over anything. It takes no focus and no pointer. */
+[data-view="zen"] #zen[data-update] { --zen-foot: 3rem; padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--zen-foot)); }
+[data-view="zen"] #zen[data-update] .zen-term { padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--zen-foot)); }
+[data-view="zen"] .zen-update { position: fixed; z-index: 5; left: 50%; bottom: max(8px, env(safe-area-inset-bottom)); translate: -50% 0; width: max-content; max-width: min(30rem, 92vw); margin: 0; text-align: center; font-size: 0.8rem; letter-spacing: 0.06em; color: var(--zen-ash); animation: zen-fade 0.8s var(--zen-ease) both; pointer-events: none; }
+[data-view="zen"] .zen-update:empty { display: none; }
 /* The status strip (working and idle units; nothing about what waits) and the command palette (palette.ts; ink tokens only, 44 px rows). */
 [data-view="zen"] .zen-strip { position: fixed; z-index: 2; top: max(18px, calc(env(safe-area-inset-top) + 8px)); left: 50%; translate: -50% 0; width: max-content; max-width: calc(100vw - 140px); margin: 0; font-size: 0.85rem; letter-spacing: 0.08em; color: var(--zen-ash); pointer-events: none; }
 [data-view="zen"] .zen-strip[hidden] { display: none; }
@@ -142,9 +147,10 @@
 [data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .wait-panel .pair-btn):hover:not(:disabled) { background: var(--zen-sunken); }
 [data-view="zen"] .cmp-link { color: var(--zen-paper); text-decoration-color: var(--zen-line); }
 [data-view="zen"] .zen-card :is(.ask-acts, .cmp-acts) { justify-content: center; flex-wrap: wrap; gap: 10px; }
+[data-view="zen"] .zen-card .ask-acts > :last-child { margin-left: 0; } /* Standard pushes the last control right (style.css); a lone line (a secret_drop's "answer in the terminal", a read-only dialog's Open the terminal) would stand at the right edge of a centred row */
 [data-view="zen"] .zen-card button:disabled, [data-view="zen"] .composer button:disabled { opacity: 0.55; }
 /* A dialog on the card (ask.ts): the room is the page's, and the send row is never given up for it. The card's inner box is a column no taller than the page, down to the panel; what lies above the send row (the questions, a select's options) gives way and scrolls inside the room that is left, with a soft edge. */
-[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { display: flex; flex-direction: column; max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))); box-sizing: border-box; }
+[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { display: flex; flex-direction: column; max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)) - var(--zen-foot, 0px)); box-sizing: border-box; }
 [data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in > * { flex: none; }
 [data-view="zen"] .zen-card:has(.zen-ask) :is(.zen-answer, .zen-ask, .ask) { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; gap: 8px; }
 [data-view="zen"] .zen-ask .ask > :not(.ask-acts, .ask-note) { flex: 0 1 auto; min-height: 5rem; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding-block: 10px; -webkit-mask-image: var(--zen-edge); mask-image: var(--zen-edge); }
@@ -172,9 +178,16 @@
 [data-view="zen"] .zen-company > header { min-height: 44px; padding: 24px 100px 0 0; box-sizing: content-box; } /* the strip (centred at the top) has the line above the name, and the corner buttons the room to its right */
 [data-view="zen"] .zen-company .zen-who { font-size: 1.3rem; text-align: left; }
 [data-view="zen"] .zen-company .zen-meta { text-align: left; }
+[data-view="zen"] .zen-company .zen-head-cue { grid-row: auto; justify-items: start; } /* Z-D20: no card takes this screen by itself; the cue under the name says how many wait, and a tap on it takes one. It keeps its room, so the log never moves when a card comes or goes */
+[data-view="zen"] .zen-company .zen-head-cue-btn { padding-left: 0; text-align: left; }
+[data-view="zen"] .zen-company .zen-head-cue { margin-right: -100px; } /* ZNI-F010: under the corner buttons, the cue runs the whole width, so 「好。」 is not left alone on a second line at 390 px */
+[data-view="zen"] .zen-head-cue-btn { text-wrap: balance; }
+[data-view="zen"] .zen-company-note { margin: 0; color: var(--zen-ash); font-size: 0.95rem; letter-spacing: 0.08em; text-align: left; } /* Z-D20: the session ended or lost control; it says so quietly and stays */
+[data-view="zen"] .zen-company-note:empty { display: none; }
+[data-view="zen"] .zen-company .zen-company-rest { margin-top: 4px; padding-left: 0; }
 [data-view="zen"] .zen-log { position: relative; min-height: 0; display: grid; overflow: hidden; } /* the log's jump-to-latest pill sits at the log's foot, above the composer (Standard's chat root is its own positioned box) */
 [data-view="zen"] .zen-log .chat-scroll, [data-view="zen"] .zen-log .chat-root { min-height: 0; }
-/* Scrolling the log only scrolls it: at its ends nothing chains to the page (no pull-to-refresh, no history swipe), and a finger moves it up and down only (zen.ts keeps the draft's hold, zenmodel.ts). */
+/* Scrolling the log only scrolls it: at its ends nothing chains to the page (no pull-to-refresh, no history swipe), and a finger moves it up and down only. */
 [data-view="zen"] .zen-log .chat-scroll { overscroll-behavior: contain; touch-action: pan-y; }
 [data-view="zen"] .zen-card { overscroll-behavior: contain; }
 [data-view="zen"] #zen { overscroll-behavior: none; }
@@ -195,7 +208,10 @@
 [data-view="zen"] .zen-company .cmp-send { border-color: transparent; background: transparent; }
 /* The terminal layer (zenterm.ts): the page's own terminal on ink, over the whole page, with the way back in the corner where the menu was. The mirror, the key pad, and the keyboard are Standard's; only the colours are the tokens above. */
 [data-view="zen"] .zen-term { position: fixed; inset: 0; z-index: 4; display: grid; grid-template: auto minmax(0, 1fr) / minmax(0, 1fr); gap: 8px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--zen-ground); color: var(--zen-paper); animation: zen-fade 0.5s var(--zen-ease) both; }
-[data-view="zen"] .zen-term-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+[data-view="zen"] .zen-term-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; min-height: 44px; }
+[data-view="zen"] .zen-term-note { order: 3; flex: 1 0 100%; margin: 0; color: var(--zen-ash); font-size: 0.95rem; letter-spacing: 0.08em; } /* Z-D20: the step is over and the layer stays; the line says it is fine to go back, and asks for nothing */
+[data-view="zen"] .zen-term-note:empty { display: none; }
+[data-view="zen"] .zen-term[data-done] .tcard { opacity: 0.55; }
 [data-view="zen"] .zen-term-bar .zen-who { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.3rem; }
 [data-view="zen"] .zen-term-back { flex: none; min-width: 44px; min-height: 44px; padding: 0 20px; border: 1px solid var(--zen-line); border-radius: 22px; background: var(--zen-warm); color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; cursor: pointer; transition: background-color 0.6s var(--zen-ease); }
 [data-view="zen"] .zen-term-back:hover { background: var(--zen-warm-hi); }
@@ -315,7 +331,7 @@
 [data-view="zen"] :is(.zen-opt, .zen-leave):hover { background: transparent; color: var(--zen-paper); }
 [data-view="zen"] .zen-opt:is([aria-pressed="true"], [aria-checked="true"]) { border-color: transparent; background: transparent; color: var(--zen-paper); }
 [data-view="zen"] .zen-opt:is([aria-pressed="true"], [aria-checked="true"])::before { content: "● "; font-size: 0.6em; vertical-align: 0.25em; }
-@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-music-btn, .zen-musicmore, .zen-opt, .zen-esc) { transition: none; } [data-view="zen"] .zen-card-in > *, [data-view="zen"] .zen-card [data-fade] { animation: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-music-btn, .zen-musicmore, .zen-opt, .zen-esc) { transition: none; } [data-view="zen"] .zen-card-in > *, [data-view="zen"] .zen-card [data-fade] { animation: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } [data-view="zen"] .zen-update { animation: none; } }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .tcard { animation: none; } }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .palette { animation: none; } }
 @media (forced-colors: active) { [data-view="zen"] .tcard :is(.tcard-cmd, .tcard-input) { border: 1px solid CanvasText; } }
@@ -357,7 +373,7 @@
 [data-view="zen"] .zen-hl[data-held] { --lift: 1; }
 [data-view="zen"] .zen-head-working { margin: 0; color: var(--zen-ash); font-size: 0.9rem; letter-spacing: 0.08em; }
 [data-view="zen"] .zen-head-working[hidden] { display: none; }
-[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 6px; cursor: pointer; transition: color 0.4s var(--zen-ease); }
+[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 6px; cursor: pointer; transition: color 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-history[hidden] { display: none; }
 [data-view="zen"] .zen-head-meta { display: grid; grid-template-rows: minmax(44px, auto) minmax(44px, auto); justify-items: center; } /* two rows in every state, the link's above the cue's, each keeping its room when it is away: the circle and the lines never move when a card comes or goes, the lines come up, or the link fades (Z-D19) */
 [data-view="zen"] .zen-head-meta > * { grid-column: 1; }
@@ -370,8 +386,8 @@
 [data-view="zen"] .zen-head-history:is(:hover, :focus-visible) .zen-head-key { opacity: 1; }
 @media (pointer: coarse), (hover: none) { [data-view="zen"] .zen-head-key { display: none; } } /* a touch screen has no keyboard to name */
 [data-view="zen"] .zen-head-history[data-away] { opacity: 0; visibility: hidden; transition: opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s; } /* at rest the link fades out and keeps its room, as the mindfulness line does: a hover moves nothing */
-[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn):hover { color: var(--zen-paper); }
-[data-view="zen"] #zen :is(.zen-head-history, .zen-rest, .zen-head-cue-btn, .zen-head-hint):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
+[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn):hover { color: var(--zen-paper); }
+[data-view="zen"] #zen :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn, .zen-head-hint):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
 /* The folded input is a hairline about 16 rem wide with its hint at 0.35; it is one button. Unfolded it is a box that grows to four lines, a line under the words that turns seal for the keys. */
 [data-view="zen"] .zen-head-hint { min-height: 44px; min-width: 44px; width: min(16rem, 100%); padding: 0 6px; border: 1px solid transparent; border-bottom-color: var(--zen-line); border-radius: 0; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--sans); letter-spacing: 0.08em; opacity: 0.35; cursor: text; transition: opacity 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-hint[hidden] { display: none; }
@@ -406,14 +422,14 @@
 @media (prefers-reduced-motion: reduce) { /* no fade: clear for its 20 s, then at the rest level at once; hover and a tap still clear it at once */
 	/* style.css stills every animation under reduced motion except this one (`*:not(.zen-hl)`): a step has no motion, and without it the lines would stay clear for ever */
 	[data-view="zen"] .zen-hl { animation: zen-head-step 0.01s steps(1) both; transition: none; }
-	[data-view="zen"] .zen-head-hint, [data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { transition: none; }
+	[data-view="zen"] .zen-head-hint, [data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn) { transition: none; }
 	[data-view="zen"] :is(.zen-head-lines, .zen-head-cue), [data-view="zen"] .zen-head[data-hushed] :is(.zen-head-lines, .zen-head-working) { transition: none; } /* resting is at once */
 }
 @media (forced-colors: active) { /* the lines are not faded and show in the system's colours; the hairline and the box are CanvasText */
 	[data-view="zen"] .zen-hl { animation: none; opacity: 1; color: CanvasText; }
 	[data-view="zen"] .zen-head-hint { opacity: 1; border-bottom-color: CanvasText; color: CanvasText; }
 	[data-view="zen"] .zen-head-box { border-bottom-color: CanvasText; color: CanvasText; }
-	[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { color: LinkText; }
+	[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn) { color: LinkText; }
 	[data-view="zen"] .zen-head-key { color: inherit; opacity: 1; }
 }
 /* The head's history (zenhead.ts quietForwards): a forward row reads as one quiet line, not as an action card's name. */

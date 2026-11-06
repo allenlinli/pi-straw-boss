@@ -56,7 +56,7 @@ export function wire(el: HTMLElement, groups: Group[], send: () => HTMLButtonEle
 	el.addEventListener("focusin", landed);
 	el.addEventListener("click", landed);
 	let spaced = false;
-	/** The form saw this Space go down. A release it did not see pressed (the Zen card was inert then, zen.ts `inert`) is swallowed too (zbf-rr-F001). */
+	/** The form saw this Space go down. A Space that went down before the focus came to the form (the form saw no press) is swallowed on its release too (zbf-rr-F001). */
 	let pressed = false;
 	el.addEventListener("keydown", (e) => {
 		if (e.key === " ") pressed = true;

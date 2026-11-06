@@ -6,6 +6,7 @@ import { createPrefs, KEYS } from "./prefs.ts";
 // The server's default is not the device's to write: it comes in the page's `<meta name="sb-view">` (read here before the first paint, so a following page shows it with
 // no flash), in each stream's `hello`, and in a `view` event (main.ts hands them to `setServer`), and is never stored on the device. `data-view` goes on <html> as the first
 // thing main.ts does, before any render, and the browser's theme-color follows it, so an installed app's bar matches.
+// A page that is showing Zen is never switched out of it by a change of the server's default (Z-D20, 「永遠不要打斷」): the new default applies at its next load, and at once to a page on Auto that is not in Zen.
 
 export type Choice = "auto" | "standard" | "geek" | "zen";
 export type View = "standard" | "geek" | "zen";
@@ -46,10 +47,12 @@ export function domEnv(): ViewEnv {
 export function mountView(env: ViewEnv = domEnv()) {
 	const listeners: ((view: View, cause: Cause) => void)[] = [], serverListeners: ((server: Choice) => void)[] = [], standard = env.meta?.content ?? "";
 	const prefs = createPrefs(env.storage), read = () => choiceOf(prefs.get("view")); // storage refused: the OS decides
-	let choice = read(), server = choiceOf(env.server?.content), shown: View | undefined;
+	let choice = read(), server = choiceOf(env.server?.content), shown: View | undefined, held = false; // held: the server's default moved away from Zen under a page that is showing it, which stays until it leaves Zen (`release`) or picks a view; a visit to the settings page is neither (ZNR-F004)
+	const now = () => (held ? "zen" : resolve(choice, env.media.matches, server));
 	/** A `pick` tells the listeners every time, even when the view it resolves to is the one shown (a Zen page that was left comes back); a `follow` only when the view changed. */
 	function apply(cause?: Cause) {
-		const view = resolve(choice, env.media.matches, server), face = view === "zen" && env.root.dataset.zenAway !== undefined ? "standard" : view; // a page that left Zen (main.ts) shows Standard
+		if (held && cause === "pick") held = false; // the boss picked a view: Auto follows the server again
+		const view = now(), face = view === "zen" && env.root.dataset.zenAway !== undefined ? "standard" : view; // a page that left Zen (main.ts) shows Standard
 		env.root.dataset.view = face;
 		if (env.meta) env.meta.content = face === "standard" ? standard : THEME[face];
 		const told = cause === "pick" || (cause === "follow" && shown !== undefined && shown !== view);
@@ -60,13 +63,14 @@ export function mountView(env: ViewEnv = domEnv()) {
 	env.media.addEventListener("change", () => apply("follow"));
 	return {
 		choice: () => choice,
-		view: () => resolve(choice, env.media.matches, server),
+		view: now,
 		/** The server's default, as the page last heard it. */
 		server: () => server,
-		/** The server named a default (hello, a `view` event): a page that follows it switches at once, one with a choice of its own stays; nothing is stored. */
+		/** The server named a default (hello, a `view` event): a page that follows it switches at once unless it is showing Zen (that waits for its next load), one with a choice of its own stays; nothing is stored. */
 		setServer(next: unknown) {
 			const value = choiceOf(typeof next === "string" ? next : undefined);
 			if (value === server) return;
+			held ||= choice === "auto" && now() === "zen" && env.root.dataset.zenAway === undefined && resolve(choice, env.media.matches, value) !== "zen";
 			server = value;
 			for (const fn of serverListeners) fn(server);
 			apply("follow");
@@ -77,6 +81,8 @@ export function mountView(env: ViewEnv = domEnv()) {
 			prefs.set("view", next); // storage refused: the choice holds until the page closes
 			apply("pick");
 		},
+		/** The page left Zen itself (Esc Esc, the corner control, an item's or a session's exit: viewface.ts): Auto follows the server again. The settings page is not that: the hold stays through it, and Zen shows on leaving it. */
+		release() { held = false; },
 		/** Draws the view again (the page left Zen or came back, viewface.ts) without reading the storage, and tells no one. */
 		refresh: () => apply(),
 		/** Another tab of this device chose: read the stored value again. */

@@ -15,7 +15,7 @@ type Phase = "connecting" | "live" | "hidden" | "paused" | "refused";
 interface Reply { ok: boolean; status: number; body: Record<string, unknown> }
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "billing-main", escape, run }: { command?: string; name?: string; escape?: boolean; run?: string } = {}) {
+function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "billing-main", escape, run, enter }: { command?: string; name?: string; escape?: boolean; run?: string; /** Zen's card: Enter acts on the primary control (Z-D20). */ enter?: boolean } = {}) {
 	mock.timers.reset();
 	mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });
 	page.fine = true;
@@ -31,6 +31,7 @@ function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "bil
 		held: () => hold,
 		over: (why) => void overs.push(why),
 		...(escape === undefined ? {} : { escape }),
+		...(enter === undefined ? {} : { enter }),
 	});
 	const el = card.el as unknown as El;
 	const at = (c: string) => el.byClass(c)!;
@@ -658,4 +659,49 @@ test("the auto-mask moves the focus only from the page's body or from inside the
 		r.rows(PW);
 		assert.equal(page.focus, r.input(), "from inside the card it goes to the line");
 	} finally { r.done(); }
+});
+
+test("Z-D20: Zen's card (enter): Run takes the focus once it can act, the confirm's Send takes it (never Cancel) and Enter on it confirms, a held Enter and one that began before it confirm nothing, and a typed key moves the focus to Cancel (ZNI-F001); Standard's card keeps its focus on Cancel", async () => {
+	const std = rig("prompt");
+	try {
+		std.press();
+		await std.reply(409, { error: "confirm", confirm: "reload", reason: "r" });
+		assert.equal(page.focus, std.ask().no, "Standard: Cancel");
+	} finally { std.done(); }
+	const p = rig("prompt", { enter: true, escape: false });
+	try {
+		assert.equal(page.focus, p.go(), "Run is the primary control: Enter presses it");
+		assert.equal(p.go().fire("keydown", { key: "Enter", repeat: true }), true, "a held Enter on it is not a press");
+		p.press();
+		await p.reply(409, { error: "confirm", confirm: "reload", reason: "r" });
+		const { yes, no } = p.ask();
+		assert.equal(page.focus, yes, "Zen: the confirm's Send has the focus");
+		assert.notEqual(page.focus, no);
+		assert.equal(yes!.fire("keydown", { key: "Enter", repeat: true, timeStamp: Infinity }), true, "a held Enter is ignored");
+		assert.equal(yes!.fire("keydown", { key: "Enter", timeStamp: -1 }), true, "so is one that began before the confirm");
+		assert.equal(p.posts.length, 1);
+		p.tick(200);
+		assert.equal(yes!.fire("keydown", { key: "Enter", timeStamp: Infinity }), false, "a fresh Enter is the button's");
+		p.click(yes!);
+		assert.deepEqual(p.posts.at(-1)!.body, { key: "enter", stream: "st", confirmed: "reload" });
+		await p.reply(200, { accepted: true });
+		assert.deepEqual(p.overs, ["taken"]);
+	} finally { p.done(); }
+	const t = rig("prompt", { enter: true, escape: false });
+	try {
+		t.press();
+		await t.reply(409, { error: "confirm", confirm: "reload", reason: "r" });
+		const { yes, no } = t.ask();
+		assert.equal(yes!.fire("keydown", { key: "a", timeStamp: Infinity }), true, "a key typed while the confirm shows is kept from Send");
+		assert.equal(page.focus, no, "the focus went to Cancel");
+		t.tick(200);
+		assert.equal(yes!.fire("keydown", { key: "Enter", timeStamp: Infinity }), true, "and the Enter that ends the typing is kept from it");
+		assert.equal(t.posts.length, 1, "nothing was confirmed");
+	} finally { t.done(); }
+	const q = rig("pane", { enter: true, escape: false });
+	try {
+		q.rows(["$ "]);
+		q.card.focus();
+		assert.equal(page.focus, q.input(), "a pane's card: the line takes the focus, and Enter in it is Send Enter");
+	} finally { q.done(); }
 });

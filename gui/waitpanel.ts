@@ -32,7 +32,7 @@ export interface WaitPanelOptions {
 export function waitPanel(o: WaitPanelOptions) {
 	const wrap = o.send ?? ((reply: Promise<Answer>) => reply);
 	const note = h("small", { class: "tnote-fail", role: "alert" }), stale = o.report ? h("small", { class: "tnote-fail", role: "status" }) : undefined, dismiss = h("button", { type: "button", class: "pair-btn" }, m.wait_dismiss());
-	let busy = false, live = true, open = false;
+	let busy = false, live = true, open = false, over = false; // over: the question ended (Zen's card says so itself): the buttons are off and nothing says offline
 	// The answer box: in Zen it takes the head strip's look (`zen-head-*` in zen.css: a hairline that turns vermilion on focus), in Standard and Geek the composer's (`wait-*` in style.css). Enter sends, and the note under it is the refusal.
 	const go = o.reply ? h("button", { type: "button", class: "pair-btn wait-go" }, m.tower_answer()) : undefined, send = o.reply ? h("button", { type: "button", class: "pair-btn wait-go" }, m.send()) : undefined; // the dialog makes these its act (style.css)
 	const box = o.reply ? (h("textarea", { class: "wait-box zen-head-box", rows: "1", maxlength: String(MAX_TEXT), "aria-label": m.zen_wait_placeholder(), placeholder: m.zen_wait_placeholder(), enterkeyhint: "send" }) as HTMLTextAreaElement) : undefined;
@@ -53,8 +53,8 @@ export function waitPanel(o: WaitPanelOptions) {
 		if (stale) stale.textContent = live ? "" : m.wait_stream_stale(); // a disabled button says why; a status, not an alert: the page banner already says offline, and every card would announce it
 		if (!go || !send || !box || !form) return;
 		[go.hidden, send.hidden, form.hidden] = [open, !open, !open];
-		[box.disabled, send.disabled] = [!live || busy, !live || busy];
-		if (!live && open) say(m.link_offline());
+		[box.disabled, send.disabled, go.disabled] = [!live || busy, !live || busy, over]; // Handle is off for a card whose question ended only: an offline page keeps it, as Standard does, and says so in the box
+		if (!live && open && !over) say(m.link_offline());
 		else if (why.textContent === m.link_offline()) say("");
 	};
 	dismiss.onclick = () => {
@@ -118,9 +118,14 @@ export function waitPanel(o: WaitPanelOptions) {
 			if (focus) go?.focus();
 			return true;
 		},
-		/** Dismiss and the answer work only while the stream is live. */
-		update(on: boolean) {
-			live = on;
+		/** The primary control takes the focus when the card is taken: the answer box when it is open, else Handle (Z-D20); false when the panel has neither. */
+		enter() {
+			const to = open && box && !box.disabled ? box : go && !go.hidden ? go : undefined;
+			return Boolean(to && (to.focus(), true));
+		},
+		/** Dismiss and the answer work only while the stream is live; `ended`: they are off because the question ended, not because the page is offline (Zen's card). */
+		update(on: boolean, ended = false) {
+			[live, over] = [on, ended];
 			draw();
 		},
 	};

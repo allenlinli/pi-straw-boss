@@ -6,13 +6,17 @@ import type { TermKit } from "./zentypes.ts";
 // What the Zen terminal layer's host holds (zenterm.ts is the layer around it): in card mode the terminal card, in full mode the page's own terminal, or, for a tower with no run live, the sentence that stands for one.
 
 type Mode = "card" | "full";
+/** How a step ended: its Enter was taken, the unit worked again (an armed terminal), or the pane is gone. */
+export type Done = "taken" | "working" | "gone";
 /** `kind`: what ends the step (`plain`: a terminal opened to look at, which only the boss ends). `drawn`: what the host holds now. `held`: the sentence for a tower with no run live. */
-export interface Open { name: string; key: string; kind: StepKind | "plain"; mode: Mode; command?: string; run?: string; asker?: string; kit?: TermKit; card?: ReturnType<typeof termCard>; drawn?: "card" | "full" | "hold"; held?: string; layer: HTMLElement; host: HTMLElement; hint: HTMLElement; back: HTMLElement; off?: () => void }
+export interface Open { name: string; key: string; kind: StepKind | "plain"; mode: Mode; /** The step is over (`done`): the layer stays, with a quiet line in its bar, until the boss goes back (Z-D20, never interrupted). */ done?: Done; command?: string; run?: string; asker?: string; kit?: TermKit; card?: ReturnType<typeof termCard>; drawn?: "card" | "full" | "hold"; held?: string; layer: HTMLElement; host: HTMLElement; hint: HTMLElement; note: HTMLElement; back: HTMLElement; off?: () => void }
 export interface Layer {
 	/** Whether `c` is the layer on show. */
 	live(c: Open): boolean;
-	/** A step event: the layer ends if the step's rule says so. */
+	/** A step event: when the step's rule says it is over, the layer says so and stays (`done`). */
 	step(c: Open, e: StepEvent): void;
+	/** The card's own step is over (its Enter was taken, or its pane is gone). */
+	done(c: Open, why: Done): void;
 	close(): void;
 }
 
@@ -36,9 +40,10 @@ export function draw(c: Open, on: Layer) {
 			post: kit.post(key),
 			stream: kit.stream,
 			held: () => c.held,
-			over: (why) => on.live(c) && (why === "full" ? toFull(c, on) : why !== "closed" && on.close()),
+			over: (why) => on.live(c) && (why === "full" ? toFull(c, on) : why !== "closed" && on.done(c, why)),
 			escape: false,
 			close: false,
+			enter: true,
 		}));
 		[c.off, c.drawn] = [card.stop, "card"];
 		c.host.replaceChildren(card.el);

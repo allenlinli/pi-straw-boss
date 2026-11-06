@@ -945,5 +945,12 @@
 	"palette_head_history": "主塔台的全部對話",
 	"palette_head_page": "在標準檢視開啟主塔台",
 	"zen_link_title": "{label} 想問你",
-	"zen_pair_title": "{label} 想要配對"
+	"zen_pair_title": "{label} 想要配對",
+	"zen_gone": "這個單位已離開",
+	"zen_term_sent": "指令已送出，可以回到禪",
+	"zen_company_ended": "已結束",
+	"zen_company_lost": "已失去控制",
+	"zen_term_working": "單位繼續工作了，可以回到禪",
+	"zen_term_gone": "這個窗格已關閉，可以回到禪",
+	"zen_update": "有新版本，回到呼吸時會更新"
 }

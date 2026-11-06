@@ -9,7 +9,7 @@ import type { Cause, PageView, View } from "./view.ts";
 //   follow   Auto followed the server's default or the screen: it shows at once, except that a Zen arriving while the settings page is open waits there (away) until the page is left.
 //   leave    Esc, the corner control, an item's or session's exit: this page shows Standard, the device's choice stays.
 //   back     the header's Zen button: Zen shows again.
-//   route    the page opened or left the settings route: a Zen device's page stays Standard on it, and shows Zen on leaving it.
+//   route    the page opened or left the settings route: a Zen device's page stays Standard on it, and shows Zen on leaving it, a page that the server's default moved away from while it showed Zen (view.ts `held`) included.
 
 export type Move = { on: "pick" } | { on: "follow" } | { on: "leave" } | { on: "back" } | { on: "route"; settings: boolean };
 export interface Face {
@@ -42,7 +42,7 @@ export function faceAfter(move: Move, resolved: View, at: Face): Next {
 
 /** The page's hooks, as plain parts so a test can stand in for it. */
 export interface FaceDeps {
-	view: Pick<PageView, "view" | "refresh" | "onChange">;
+	view: Pick<PageView, "view" | "refresh" | "release" | "onChange">;
 	root: { dataset: Record<string, string | undefined> };
 	/** The route is the settings page now. */
 	settings(): boolean;
@@ -56,6 +56,7 @@ export function mountFace(d: FaceDeps) {
 	const at = (): Face => ({ away: d.root.dataset.zenAway !== undefined, settings: d.settings() });
 	function move(m: Move) {
 		const before = at(), next = faceAfter(m, d.view.view(), before);
+		if (m.on === "leave") d.view.release(); // a page held in Zen that leaves it lets Auto follow the server again; the settings route does not (R3, ZNR-F004)
 		if (next.away) d.root.dataset.zenAway = "";
 		else delete d.root.dataset.zenAway;
 		d.view.refresh();

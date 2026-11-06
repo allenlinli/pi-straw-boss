@@ -49,7 +49,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		trust: (body: Record<string, unknown>) => (calls.trust.push(body), new Promise<Answer>((resolve) => replies.push(resolve))),
 		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => !o.offline,
 		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), terminals: async () => ({ embed: (key: string) => (calls.embeds.push(key), () => {}), watch: () => ({ conn: {}, stop() {} }), post: () => async () => ({ ok: true, status: 200, body: {} }), stream: () => "st" }), watch: (k: string | null) => void calls.watch.push(k),
-		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, start: () => o.start ?? { key: "t", ws: "w" }, // a session for company: a card still takes the screen by itself; on the breathing circle it waits for Enter (Z-D19, zen-layer.test.ts)
+		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, start: () => o.start, // a visit starts at the breathing circle; a card waits for Enter there (Z-D20)
 		
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
@@ -95,6 +95,8 @@ test("the card has a Context link that names its key; nothing of the log is fetc
 	r.feed(waiting());
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await r.settle();
 	assert.ok(link(r), "the link");
 	assert.equal(link(r)!.textContent, m.zen_history());
 	assert.match(link(r)!.textContent, /H/);
@@ -107,6 +109,8 @@ test("tapping it mounts the log, watches the unit, and shows the history; tappin
 	const r = rig();
 	r.feed(waiting());
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
 	await r.settle();
 	link(r)!.click();
 	await r.settle();
@@ -134,6 +138,8 @@ test("opening it scrolls the box into view, and closing it does not (Z7-F002)", 
 		r.feed(waiting());
 		r.z.show();
 		await r.settle();
+		r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+		await r.settle();
 		link(r)!.click();
 		await r.settle();
 		assert.deepEqual(seen, [{ block: "nearest" }]);
@@ -150,6 +156,8 @@ test("a new snapshot while it is open keeps the watch", async () => {
 	r.feed(waiting());
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await r.settle();
 	link(r)!.click();
 	await r.settle();
 	const n = r.calls.watch.length;
@@ -164,6 +172,8 @@ test("the answer stays possible while the history is open", async () => {
 	r.feed(waiting());
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await r.settle();
 	link(r)!.click();
 	await r.settle();
 	r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
@@ -175,6 +185,8 @@ test("Esc collapses the history first; the next Esc is the card's own", async ()
 	const r = rig();
 	r.feed(waiting());
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
 	await r.settle();
 	link(r)!.click();
 	await r.settle();
@@ -191,6 +203,8 @@ test("H toggles it through toggleHistory(); false when the card has no link", as
 	r.feed(waiting());
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await r.settle();
 	assert.equal(r.z.toggleHistory(), true);
 	await r.settle();
 	assert.equal(link(r)!.getAttribute("aria-expanded"), "true");
@@ -200,6 +214,8 @@ test("H toggles it through toggleHistory(); false when the card has no link", as
 	none.feed(net([], [TRUST]));
 	none.z.show();
 	await none.settle();
+	none.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await none.settle();
 	assert.equal(none.z.toggleHistory(), false);
 });
 
@@ -208,15 +224,21 @@ test("no link for a trust question or a tower with no run; an outside pi pane ha
 	tower.feed({ bases: [{ id: "w", label: "Harbor", mark: "waiting", tower: { name: "tower", mark: "waiting", key: "t", control: true, subs: [], since: 5, pending: select({ cancel: true }) }, tabs: [], outposts: [], outside: [] }], trust: [] } as unknown as Net);
 	tower.z.show();
 	await tower.settle();
+	tower.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await tower.settle();
 	assert.equal(link(tower), undefined, "a tower with no run");
 	const trust = rig();
 	trust.feed(net([], [TRUST]));
 	trust.z.show();
 	await trust.settle();
+	trust.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await trust.settle();
 	assert.equal(link(trust), undefined);
 	const outside = rig();
 	outside.feed(waiting({ role: "outside" }));
 	outside.z.show();
+	await outside.settle();
+	outside.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
 	await outside.settle();
 	assert.ok(link(outside), "an outside pane");
 });
@@ -226,6 +248,8 @@ test("a card that leaves while its context is open or loading mounts and fetches
 	r.feed(waiting());
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await r.settle();
 	link(r)!.click(); // open, the chunk not yet arrived
 	r.feed(net([]));
 	await r.settle();
@@ -234,6 +258,8 @@ test("a card that leaves while its context is open or loading mounts and fetches
 	const swap = rig();
 	swap.feed(waiting());
 	swap.z.show();
+	await swap.settle();
+	swap.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
 	await swap.settle();
 	link(swap)!.click();
 	swap.feed(net([unit("b", "waiting", { name: "b", since: 6, pending: select({ cancel: true }) })]));
@@ -245,6 +271,8 @@ test("Esc collapses the history before a field with text, which keeps its text (
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: questions() })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
 	await r.settle();
 	link(r)!.click();
 	await r.settle();
@@ -264,6 +292,8 @@ test("H does nothing while the corner menu or the terminal layer is open (Z4D-F0
 	r.feed(waiting());
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await r.settle();
 	const menu = r.by((el) => el.getAttribute("class") === "zen-menubtn")[0]!;
 	menu.click();
 	assert.equal(r.by((el) => el.getAttribute("class") === "zen-menu")[0]!.hidden, false, "the menu is open");
@@ -276,6 +306,8 @@ test("H does nothing while the corner menu or the terminal layer is open (Z4D-F0
 	term.feed(waiting());
 	term.z.show();
 	await term.settle();
+	term.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
+	await term.settle();
 	term.z.terminal({ key: "a" } as never);
 	await term.settle();
 	await term.settle();
@@ -287,6 +319,8 @@ test("closing the context from inside it returns the focus to its link (Z4D-F006
 	const r = rig();
 	r.feed(waiting());
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
 	await r.settle();
 	link(r)!.click();
 	await r.settle();
@@ -306,11 +340,13 @@ test("closing the context from inside it returns the focus to its link (Z4D-F006
 	assert.equal(page.focused, link(r), "H");
 });
 
-test("a card that leaves for another, while its unit stays in the net, closes its context (Z4D-F004)", async () => {
+test("a card whose question ended keeps the context the boss reads until he closes the card, and closing it closes the context (Z4D-F004, Z-D20: nothing replaces a card)", async () => {
 	const r = rig();
 	const both = (a: Mark) => net([unit("a", a, { name: "a", since: 5, ...(a === "waiting" ? { pending: select({ cancel: true }) } : {}) }), unit("b", "waiting", { name: "b", since: 6, pending: select({ cancel: true, dialog: "d2" }) })]);
 	r.feed(both("waiting"));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
 	await r.settle();
 	link(r)!.click();
 	await r.settle();
@@ -318,7 +354,11 @@ test("a card that leaves for another, while its unit stays in the net, closes it
 	assert.equal(region.hidden, false);
 	r.feed(both("idle"));
 	await r.advance(5000);
-	assert.equal(region.hidden, true, "the old card's context is closed");
+	assert.equal(region.hidden, false, "the card stays while its question is over, and so does the log the boss is reading");
+	assert.equal(r.calls.watch.at(-1), "a");
+	r.z.key("talk"); // Enter closes the card that ended
+	await r.advance(5000);
+	assert.equal(region.hidden, true, "the closed card's context is closed");
 	assert.equal(r.calls.watch.at(-1), null);
 });
 
@@ -326,6 +366,8 @@ test("the link points at the region it opens (Z4D-F006)", async () => {
 	const r = rig();
 	r.feed(waiting());
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
 	await r.settle();
 	const id = link(r)!.getAttribute("aria-controls");
 	assert.ok(id);
@@ -337,6 +379,8 @@ test("history that arrives while the page is fetched is applied again after it (
 	const r = rig({ latest: () => new Promise((done) => (release = done)) });
 	r.feed(waiting());
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D20: a card never comes by itself, even beside a session for company)
 	await r.settle();
 	link(r)!.click();
 	await r.settle();

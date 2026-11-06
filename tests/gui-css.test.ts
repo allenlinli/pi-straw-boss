@@ -438,3 +438,36 @@ test("the drawer's current row keeps its chevron's strip clear of a Quit button:
 	assert.ok(pad >= inset + 12 + 6, `padding-right ${pad}px must clear the chevron (inset ${inset}px, a glyph up to 12px wide, a 6px gap)`);
 	assert.doesNotMatch(css.split("\n").filter((l) => l.includes(".quit-btn:not([hidden]))")).join("\n"), /-webkit-/);
 });
+
+test("ZNI-F010: under the corner buttons the cue runs the companion's whole width and balances its lines, so the second clause is not left as one word; the quiet notes and the way back keep a 44 px target", () => {
+	assert.match(zenRule(".zen-company .zen-head-cue").map((r) => r.body).join(";"), /margin-right:\s*-100px/);
+	assert.match(zen, /\[data-view="zen"\] \.zen-head-cue-btn \{ text-wrap: balance; \}/);
+	const quiet = rulesOf(zen).find((r) => r.parts.some((p) => p.includes(".zen-company-rest")) && /min-height: 44px/.test(r.body));
+	assert.ok(quiet, "Back to the breath on a session that is over is a 44 px target, like the head history's");
+	assert.ok(zenRule(".zen-company-note:empty").some((r) => /display:\s*none/.test(r.body)), "no note, no room");
+	assert.ok(zenRule(".zen-term-note:empty").some((r) => /display:\s*none/.test(r.body)));
+	assert.ok(!/-webkit-text-wrap/.test(zen));
+});
+
+test("ZNR (secret_drop card): the lone line of a card's answer row (「請在終端機中回答。」, a read-only dialog's Open the terminal) is centred in Zen, not pushed right by Standard's `margin-left: auto`", () => {
+	const std = rulesOf(css).find((r) => r.parts.includes(".ask-acts > :last-child"));
+	assert.ok(std && /margin-left:\s*auto/.test(std.body), "Standard keeps pushing its last control right");
+	const own = zenRule('.ask-acts > :last-child').filter((r) => r.parts.some((p) => p.startsWith('[data-view="zen"] .zen-card ')));
+	assert.ok(own.some((r) => /(?<!-)margin-left:\s*0\b/.test(r.body)), "Zen's card says margin-left: 0 for it, scoped under the view and the card so it outranks Standard's rule");
+	assert.ok(!/-webkit-margin/.test(zen));
+});
+
+test("ZNR upgrade: the line that says a new build waits for the breath is fixed at the foot of Zen's page, quiet, takes no pointer, is gone when empty, and holds still with reduced motion", () => {
+	const line = zenRule(".zen-update").filter((r) => r.parts.includes('[data-view="zen"] .zen-update'));
+	const decl = line.flatMap((r) => declarations(r.body));
+	for (const [p, v] of [["position", "fixed"], ["pointer-events", "none"], ["color", "var(--zen-ash)"]]) assert.ok(decl.some(([a, b]) => a === p && b === v), `${p}: ${v}`);
+	assert.ok(zenRule(".zen-update:empty").some((r) => /display:\s*none/.test(r.body)), "no words, no room");
+	const foot = rulesOf(zen).filter((r) => r.parts.some((p) => p.startsWith('[data-view="zen"] #zen[data-update]')));
+	assert.ok(foot.some((r) => r.parts.includes('[data-view="zen"] #zen[data-update]') && /--zen-foot:\s*3rem/.test(r.body) && /padding-bottom:\s*calc\([^;]*var\(--zen-foot\)/.test(r.body)), "while a new build waits the page keeps its foot, so the line lies over nothing");
+	assert.ok(foot.some((r) => r.parts.some((p) => p.endsWith(".zen-term")) && /padding-bottom:[^;]*var\(--zen-foot\)/.test(r.body)), "and so does the terminal layer");
+	assert.match(zenRule(".zen-card:has(.zen-ask) .zen-card-in").map((r) => r.body).join(";"), /max-height:\s*calc\([^;]*var\(--zen-foot, 0px\)\)/, "a dialog card gives the foot up too");
+	const z = (n: string) => Number(/z-index:\s*(\d+)/.exec(zenRule(n).map((r) => r.body).join(";"))?.[1]);
+	assert.ok(z(".zen-update") > z(".zen-term"), "above the terminal layer, whose own foot is kept clear");
+	assert.match(zen, /@media \(prefers-reduced-motion: reduce\) \{[^\n]*\.zen-update \{ animation: none; \}/, "reduced motion: no fade");
+	assert.ok(!/-webkit-translate|-webkit-animation/.test(zen.split("\n").filter((l) => l.includes("zen-update")).join("\n")));
+});

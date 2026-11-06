@@ -13,6 +13,17 @@ class El {
 	disabled = false;
 	focused = false;
 	onclick: ((e: { isTrusted: boolean }) => void) | null = null;
+	handlers: Record<string, ((e: Record<string, unknown>) => void)[]> = {};
+	addEventListener(type: string, on: (e: Record<string, unknown>) => void) {
+		(this.handlers[type] ??= []).push(on);
+	}
+	/** A key on this button as a browser takes it: the page's handlers first; an Enter they leave alone is the button's click. Returns whether the key was prevented. */
+	press(init: { key: string; repeat?: boolean; timeStamp?: number }, type = "keydown") {
+		let prevented = false;
+		for (const on of this.handlers[type] ?? []) on({ ...init, preventDefault: () => (prevented = true) });
+		if (!prevented && type === "keydown" && (init.key === "Enter" || init.key === " ")) this.onclick?.({ isTrusted: true });
+		return prevented;
+	}
 	setAttribute(name: string, value: string) {
 		this.attrs.set(name, value);
 		if (name.startsWith("data-")) this.dataset[name.slice(5)] = value;
@@ -37,10 +48,10 @@ Object.assign(globalThis, { document: { createElement: () => new El() } });
 const mod = await import("../gui/keypad.ts");
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function pad(state: "live" | "hidden" | "off" = "live") {
+function pad(state: "live" | "hidden" | "off" = "live", enter = false) {
 	const heard: string[] = [], posts: Record<string, unknown>[] = [], replies: ((r: { ok: boolean; status: number; body: Record<string, unknown> }) => void)[] = [];
 	const s = { state };
-	const p = mod.keypad({ name: "billing", state: () => s.state, stream: () => "st", taken: () => void heard.push("taken"), post: (action, body) => (assert.equal(action, "keys"), posts.push(body), new Promise((resolve) => replies.push(resolve))) });
+	const p = mod.keypad({ name: "billing", enterConfirms: () => enter, state: () => s.state, stream: () => "st", taken: () => void heard.push("taken"), post: (action, body) => (assert.equal(action, "keys"), posts.push(body), new Promise((resolve) => replies.push(resolve))) });
 	const el = p.el as unknown as El;
 	const key = (k: string) => el.all().find((b) => b.dataset.key === k)!;
 	const reply = async (status: number, body: Record<string, unknown> = {}) => (replies.shift()!({ ok: status < 300, status, body }), await tick());
@@ -188,4 +199,64 @@ test("an Enter confirmed through the pad's inline button is taken when the serve
 	assert.deepEqual(heard, [], "the confirmed Enter is on its way");
 	await reply(200, { accepted: true });
 	assert.deepEqual(heard, ["taken"]);
+});
+
+test("Z-D20: in Zen the confirm's Send takes the focus and Enter on it confirms; a repeating Enter and one that began before the bar confirm nothing; Standard keeps the focus on Cancel", async () => {
+	const standard = pad();
+	standard.press("enter");
+	await standard.reply(409, { error: "confirm", confirm: "reload", reason: "x" });
+	assert.ok(standard.el.all().find((x) => x.attrs.get("class") === "pad-no")!.focused && !standard.el.all().find((x) => x.attrs.get("class") === "pad-yes")!.focused, "Standard: Cancel has the focus");
+	const { press, posts, reply, el } = pad("live", true);
+	press("enter");
+	await reply(409, { error: "confirm", confirm: "reload", reason: "Enter would run /reload." });
+	const yes = el.all().find((x) => x.attrs.get("class") === "pad-yes")!, no = el.all().find((x) => x.attrs.get("class") === "pad-no")!;
+	assert.ok(yes.focused && !no.focused, "Zen: the one that sends has the focus");
+	assert.equal(yes.press({ key: "Enter", repeat: true, timeStamp: Infinity }), true, "a held Enter is ignored");
+	assert.equal(yes.press({ key: "Enter", timeStamp: -1 }), true, "so is an Enter whose keydown began before the confirm showed");
+	assert.equal(yes.press({ key: " " }, "keyup"), true, "a space's release does not click it (Firefox)");
+	assert.equal(posts.length, 1, "nothing was confirmed");
+	assert.equal(yes.press({ key: "Enter", timeStamp: Infinity }), false, "a fresh Enter is the button's");
+	assert.deepEqual(posts.at(-1), { key: "enter", stream: "st", confirmed: "reload" });
+	await reply(200, { accepted: true });
+});
+
+test("ZNI-F001: in Zen a key typed while the confirm shows is not sent past it: the focus goes to Cancel, and the Enter that ends the typing confirms nothing (double Ctrl+C, then abc and Enter)", async () => {
+	const { posts, reply, el, p } = pad("live", true);
+	p.type({ key: "c", ctrlKey: true, code: "KeyC", altKey: false, shiftKey: false, metaKey: false, isComposing: false, repeat: false } as KeyboardEvent);
+	await reply(409, { error: "confirm", confirm: "double-ctrl-c", reason: "A second Ctrl+C exits pi." });
+	const yes = el.all().find((x) => x.attrs.get("class") === "pad-yes")!, no = el.all().find((x) => x.attrs.get("class") === "pad-no")!;
+	assert.ok(yes.focused && !no.focused);
+	no.focused = false;
+	for (const k of ["a", " ", "c"]) assert.equal(yes.press({ key: k, timeStamp: Infinity }), true, `${k} is typing: kept from the button`);
+	assert.ok(no.focused, "the focus went to Cancel");
+	assert.equal(yes.press({ key: "Enter", timeStamp: Infinity }), true, "an Enter the bar still sees is kept from Send");
+	assert.equal(posts.length, 1, "nothing was confirmed");
+	for (const k of ["Tab", "Shift", "Escape", "Control"]) assert.equal(el.all().find((x) => x.attrs.get("class") === "pad-yes")!.press({ key: k, timeStamp: Infinity }), false, `${k} is not typing`);
+});
+
+test("ZNR-F007: in Zen the confirm's Send waits 400 ms: the second tap of a double Enter, 100 ms after the bar showed, confirms nothing; an Enter at 500 ms does; Standard has no Enter to confirm with", async () => {
+	let clock = 5_000;
+	const real = Object.getOwnPropertyDescriptor(performance, "now");
+	Object.defineProperty(performance, "now", { value: () => clock, configurable: true, writable: true }); // the fake clock the bar's birth and the key's time stamp are read on
+	try {
+		for (const dwell of [100, 399]) {
+			const { posts, reply, el, press } = pad("live", true);
+			press("enter");
+			await reply(409, { error: "confirm", confirm: "unread", reason: "pi has not shown you its screen." });
+			const yes = el.all().find((x) => x.attrs.get("class") === "pad-yes")!;
+			assert.equal(yes.press({ key: "Enter", timeStamp: clock + dwell }), true, `an Enter ${dwell} ms after the bar showed is kept from Send`);
+			assert.equal(posts.length, 1, "nothing was confirmed");
+			assert.equal(yes.press({ key: "Enter", timeStamp: clock + 500 }), false, "one at 500 ms is the button's");
+			assert.deepEqual(posts.at(-1), { key: "enter", stream: "st", confirmed: "unread" });
+			await reply(200, { accepted: true });
+			clock += 1_000;
+		}
+		const std = pad("live", false);
+		std.press("enter");
+		await std.reply(409, { error: "confirm", confirm: "unread", reason: "x" });
+		assert.equal(std.el.all().find((x) => x.attrs.get("class") === "pad-yes")!.handlers.keydown, undefined, "Standard's bar listens for no key: its Send is a click");
+	} finally {
+		if (real) Object.defineProperty(performance, "now", real);
+		else delete (performance as { now?: unknown }).now;
+	}
 });

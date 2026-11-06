@@ -117,9 +117,13 @@ const shown = async (n = item()) => {
 	r.feed(n);
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // Enter takes the card: a card never comes by itself (Z-D20)
+	await r.settle();
 	return r;
 };
 const sinkOf = (r: ReturnType<typeof rig>) => r.calls.sinks.at(-1)!;
+/** The quiet line in the layer's bar after the step is over (Z-D20: the layer never closes itself). */
+const noteOf = (r: ReturnType<typeof rig>) => r.layer()?.all((el) => el.getAttribute("class") === "zen-term-note")[0]?.textContent;
 
 test("termStep: the terminal's keyboard keeps Esc for itself; outside it the first Esc shows the hint, a second within the window returns, a held key does nothing", () => {
 	assert.equal(termStep({ typing: true, armed: false }), "pass");
@@ -222,13 +226,15 @@ test("Esc with the layer closed is Zen's own again: an item's Esc cancels or ski
 	assert.equal(r.text().includes(m.zen_term_esc_hint()), false, "the terminal's hint is not Zen's");
 });
 
-test("a pane that closes or whose grant ends returns to Zen by itself; a session's terminal that ends does not", async () => {
+test("a pane that closes or whose grant ends does not return to Zen by itself: the layer stays and says in its bar that the boss can go back; a session's terminal that ends says nothing (Z-D20)", async () => {
 	const r = await shown();
 	r.z.terminal({ key: "grant:g1" });
 	await r.settle();
 	r.calls.embeds[0]!.end!();
 	await r.settle();
-	assert.deepEqual([r.layer(), r.calls.off, r.calls.leave], [undefined, ["grant:g1"], []]);
+	assert.deepEqual([Boolean(r.layer()), r.calls.off, r.calls.leave, noteOf(r)], [true, [], [], m.zen_term_gone()]);
+	r.back()!.click();
+	assert.deepEqual([r.layer(), r.calls.off], [undefined, ["grant:g1"]], "only the boss's Back to Zen ends it");
 	const s = await shown();
 	s.z.terminal({ key: "a" });
 	await s.settle();
@@ -247,23 +253,29 @@ test("a terminal opened to look at (no step) is the boss's to end: no mark seque
 	assert.ok(r.layer(), "the tool's result, an intercom, a wake, even the boss's own Enter: this terminal was not opened for a step");
 });
 
-test("a terminal opened for a unit that waits at once (a blocked prompt) returns at its first working: `armed` says the wait is the terminal step", async () => {
+test("a terminal opened for a unit that waits at once (a blocked prompt) stays at its first working and says so in its bar: `armed` says the wait is the terminal step (Z-D20)", async () => {
 	const r = await shown(net([unit("a", "waiting", { name: "ops-main", since: 5 })]));
 	r.z.terminal({ key: "a", armed: true });
 	await r.settle();
+	assert.equal(noteOf(r), "", "nothing to say while the unit still waits");
 	r.feed(net([unit("a", "working", { name: "ops-main" })]));
 	await r.settle();
-	assert.equal(r.layer(), undefined);
+	assert.ok(r.layer(), "the layer is the boss's: it is not closed by the unit's work");
+	assert.equal(noteOf(r), m.zen_term_working());
+	r.feed(idle());
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 9 })]));
+	assert.ok(r.layer(), "and no later mark closes it");
 });
 
-test("the card under the layer does not take the focus from the terminal when a snapshot gives Zen a new card", async () => {
+test("the card under the layer is never replaced by a new card, and the keyboard stays with the terminal (Z-D20)", async () => {
 	const r = await shown();
 	r.z.terminal({ key: "a" });
 	await r.settle();
 	sinkOf(r).focus();
 	r.feed(net([unit("a", "idle", { name: "ops-main" }), unit("b", "waiting", { name: "next", since: 6, pending: select() })]));
-	for (let i = 0; i < 8; i++) await r.advance(1000); // the old card's "elsewhere", the pause, then the next card
-	assert.ok(r.root.dump().includes("next"), "the next item's card is drawn under the layer");
+	for (let i = 0; i < 8; i++) await r.advance(1000); // the old card's question ended: it stays, and the next question waits for Enter
+	assert.ok(!r.root.dump().includes("next"), "the next item's card is not drawn under the layer");
+	assert.ok(r.root.dump().includes(m.zen_rest()), "the card that was there stays, settled, under the layer");
 	assert.equal(page.activeElement, sinkOf(r), "and the keyboard stays with the terminal");
 });
 
@@ -293,13 +305,15 @@ test("an Open terminal button (a unit blocked on a terminal prompt, a dialog sho
 	await words.settle();
 	assert.deepEqual([words.calls.leave, words.calls.embeds.map((e) => e.key), Boolean(words.layer())], [[], ["a"], true]);
 	words.feed(net([unit("a", "working", { name: "ops-main" })]));
-	assert.equal(words.layer(), undefined, "the wait was the terminal step: it ended with the unit working");
+	assert.ok(words.layer(), "the wait was the terminal step: it ended with the unit working, and the layer stays for the boss (Z-D20)");
+	assert.equal(noteOf(words), m.zen_term_working());
 	const ro = await shown(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: readonly() })]));
 	ro.root.all((el) => el.tagName === "button" && el.textContent === m.zen_open_terminal())[0]!.click();
 	await ro.settle();
 	assert.deepEqual([ro.calls.leave, ro.calls.embeds.map((e) => e.key)], [[], ["a"]]);
 	ro.feed(net([unit("a", "working", { name: "ops-main" })]));
-	assert.equal(ro.layer(), undefined, "a read-only dialog's button is armed too: its unit waits on that dialog now, and its next work ends the step");
+	assert.ok(ro.layer(), "a read-only dialog's button is armed too: its unit waits on that dialog now, and its next work ends the step, which the bar says; the layer stays");
+	assert.equal(noteOf(ro), m.zen_term_working());
 });
 
 test("a terminal asked for while Zen is not shown is not drawn", async () => {
@@ -401,7 +415,7 @@ test("a pane's step is named for the unit that asked, not 'Herdr pane', and a ne
 	assert.deepEqual([r.calls.stops, r.calls.watches.map((x) => x.key), r.root.all((e) => (e.getAttribute("class") ?? "").includes("zen-term")).filter((e) => e.tagName === "section").length], [["grant:g1"], ["grant:g1", "grant:g2"], 1], "one layer, the old connection let go");
 });
 
-test("a prompt's card ends when its own Enter is taken and by no mark sequence; its mirror ending stays and says why; a pane's ends when the pane is gone", async () => {
+test("a prompt's card is over when its own Enter is taken and by no mark sequence, and the layer stays with the line and the card put out; its mirror ending stays and says why; a pane's is over when the pane is gone (Z-D20: never closed by itself)", async () => {
 	const r = await shown();
 	r.z.step(step());
 	await r.settle();
@@ -411,7 +425,11 @@ test("a prompt's card ends when its own Enter is taken and by no mark sequence; 
 	assert.ok(r.layer(), "the session left its pane: the boss reads why");
 	r.calls.watches[0]!.w.taken();
 	await r.settle();
-	assert.deepEqual([r.layer(), r.calls.stops, r.calls.leave], [undefined, ["a"], []], "its own Enter, taken");
+	assert.equal(noteOf(r), m.zen_term_sent(), "its own Enter, taken: the bar says so");
+	assert.deepEqual([Boolean(r.layer()), r.calls.stops, r.calls.leave], [true, [], []], "and the layer stays");
+	assert.equal(cardOf(r)!.getAttribute("inert"), "", "the card is put out: another Run would only send another Enter");
+	r.back()!.click();
+	assert.deepEqual([r.layer(), r.calls.stops], [undefined, ["a"]], "the boss's Back to Zen ends it");
 	const p = await shown();
 	p.z.step(step({ kind: "pane", key: "grant:g1" }));
 	await p.settle();
@@ -419,7 +437,22 @@ test("a prompt's card ends when its own Enter is taken and by no mark sequence; 
 	assert.ok(p.layer(), "an Enter taken does not end a pane's card: a password is followed by more prompts");
 	p.calls.watches[0]!.w.end();
 	await p.settle();
-	assert.deepEqual([p.layer(), p.calls.stops], [undefined, ["grant:g1"]], "the pane closed");
+	assert.deepEqual([Boolean(p.layer()), p.calls.stops, noteOf(p)], [true, [], m.zen_term_gone()], "the pane closed: the layer stays and says so");
+});
+
+test("ZNR-F003: the card of a step that is over no longer says the command waits: it says it was sent, as the bar does", async () => {
+	const r = await shown();
+	r.z.step(step());
+	await r.settle();
+	const card = () => cardOf(r)!;
+	assert.ok(card().textContent.includes(m.card_waits({ name: "ops-main" })), "before the Enter: the command waits");
+	r.calls.watches[0]!.w.taken();
+	await r.settle();
+	assert.equal(noteOf(r), m.zen_term_sent());
+	assert.equal(card().textContent.includes(m.card_waits({ name: "ops-main" })), false, "the put-out card does not say the command waits");
+	assert.ok(card().textContent.includes(m.card_sent()), "it says what the bar says: sent");
+	const wait = card().all((el) => el.getAttribute("class") === "tcard-wait")[0]!;
+	assert.equal(wait.hidden, true, "the waiting line is not drawn at all");
 });
 
 test("Esc in card mode is the layer's two-press, there being no terminal to keep it; Back to Zen returns", async () => {
@@ -453,11 +486,12 @@ test("the card's Full terminal link turns the layer to full mode in place: the f
 	r.feed(net([unit("a", "working", { name: "ops-main" })]));
 	r.feed(idle());
 	assert.ok(r.layer(), "no mark returns a prompt's full terminal either");
+	assert.equal(noteOf(r), "");
 	r.calls.embeds[0]!.end!();
 	assert.ok(r.layer(), "nor does the session's mirror ending");
 	r.calls.embeds[0]!.taken!();
 	await r.settle();
-	assert.deepEqual([r.layer(), r.calls.off], [undefined, ["a"]], "an Enter from the pad or sink, taken");
+	assert.deepEqual([Boolean(r.layer()), r.calls.off, noteOf(r)], [true, [], m.zen_term_sent()], "an Enter from the pad or sink, taken: the bar says so and the layer stays");
 	const p = await shown();
 	p.z.step(step({ kind: "pane", key: "grant:g1" }));
 	await p.settle();
@@ -466,11 +500,13 @@ test("the card's Full terminal link turns the layer to full mode in place: the f
 	p.calls.embeds[0]!.taken!();
 	assert.ok(p.layer(), "a pane's full terminal is not over by an Enter");
 	p.calls.embeds[0]!.end!();
-	assert.equal(p.layer(), undefined, "the pane is gone");
+	assert.ok(p.layer(), "the pane is gone: the layer stays");
+	assert.equal(noteOf(p), m.zen_term_gone());
+	p.back()!.click();
 	assert.deepEqual([p.calls.attaches, p.calls.detaches], [["grant:g1"], ["grant:g1"]]);
 });
 
-test("an Open the terminal button's full terminal is armed: the unit's first work ends it, and the card's own kind is not changed by it", async () => {
+test("an Open the terminal button's full terminal is armed: the unit's first work is the step's end, which the bar says; the layer stays, and the card's own kind is not changed by it", async () => {
 	const r = await shown(net([unit("a", "waiting", { name: "ops-main", since: 5 })]));
 	r.z.terminal({ key: "a", armed: true });
 	await r.settle();
@@ -479,7 +515,8 @@ test("an Open the terminal button's full terminal is armed: the unit's first wor
 	r.feed(idle());
 	assert.ok(r.layer());
 	r.feed(net([unit("a", "working", { name: "ops-main" })]));
-	assert.equal(r.layer(), undefined);
+	assert.ok(r.layer());
+	assert.equal(noteOf(r), m.zen_term_working());
 });
 
 test("a held tower's card shows the sentence and attaches nothing until a run is live, and stands by again with the sentence", async () => {

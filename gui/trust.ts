@@ -63,7 +63,13 @@ export function trustPanel(send: TrustPost, accepted?: () => void) {
 		return h("div", { class: "trust-group" }, h("b", null, g.path), g.unreadable ? h("small", null, m.trust_unreadable()) : h("ul", null, ...g.items.slice(0, SHOWN).map((i) => h("li", null, i)), rest > 0 && h("li", { class: "trust-more" }, m.trust_more({ count: rest }))));
 	}));
 	return Object.assign(root, {
-		sending: () => sending, update(q: Question | undefined, live = true) {
+		sending: () => sending,
+		/** The first choice, Trust, takes the focus when the card is taken (Zen's Enter acts on it); false while the choices are off. */
+		enter() {
+			const to = buttons[0]!;
+			return !to.disabled && (to.focus(), true);
+		},
+		update(q: Question | undefined, live = true) {
 			ready = live;
 			if (q && (q.id !== current?.id || q.digest !== current.digest)) (folder.replaceChildren(q.folder), drawFound(q), (done = false), changed ? (changed = false) : say("", "")); // the notice that the folder changed stays beside the new question
 			current = q ?? current;

@@ -26,13 +26,15 @@ export interface CardDeps {
 	escape?: boolean;
 	/** A × in the header (Standard); Zen's layer has its own way back. */
 	close?: boolean;
+	/** Zen's card (Z-D20): Enter acts on the primary control. The focus goes to Run, and to the confirm's yes (never held or repeated Enter: confirmbar.ts), not to Cancel. */
+	enter?: boolean;
 }
 const OK: CardState[] = ["live", "secret", "running", "refused"], WORDS: Partial<Record<CardState, () => string>> = { connecting: m.connecting, secret: m.card_secret, sending: m.card_sending, stale: m.card_stale, paused: m.paused_hidden, hidden: m.mirror_hidden };
 let ids = 0;
 
-export function termCard({ step, watch, post, stream, held, over: owner, escape = true, close = true }: CardDeps) {
+export function termCard({ step, watch, post, stream, held, over: owner, escape = true, close = true, enter = false }: CardDeps) {
 	const pane = step.kind === "pane", id = `tcard-${++ids}`, fine = () => Boolean(globalThis.matchMedia?.("(pointer: fine)").matches);
-	let stopped = false, tries = 0, nextAt = 0, retrying: ReturnType<typeof setTimeout> | undefined;
+	let stopped = false, tries = 0, nextAt = 0, retrying: ReturnType<typeof setTimeout> | undefined, focused = false;
 	// A card that is gone says nothing more: a late reply to what it sent must not close the card or layer that took its place.
 	const over: CardDeps["over"] = (why) => stopped || owner(why);
 	let name = step.name, mask = NO_MASK, ended = false, refusal = "", confirm: { token: string; said: string } | undefined, sent = false, after: string[] | undefined, kept = "", shown = "";
@@ -65,8 +67,8 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 	}
 	function onTaken() {
 		kept = "";
-		if (stepRule(step.kind, { type: "taken" }) === "close") return over("taken");
 		[sent, after] = [true, tail(conn.rows)];
+		if (stepRule(step.kind, { type: "taken" }) === "close") return (draw(), over("taken")); // drawn before the owner hears of it: Zen's layer keeps the card after its step, and it says what was sent, not that the command waits (ZNR-F003)
 		mask = input.value ? { on: mask.on, hand: false } : NO_MASK; // a hand mask is for the prompt it answered; characters typed meanwhile stay hidden
 		draw();
 	}
@@ -74,7 +76,7 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 	const state = () => cardState({ kind: step.kind, phase: retrying ? "connecting" : conn.phase, stale: conn.stale(), rows: conn.rows, held: held(), ended, sending: busy(), refused: Boolean(refusal), confirm: confirm?.token, after } satisfies CardFacts);
 	/** The server's confirm in the page's words by its token (Enter's only), and the server's own for a token it does not know. */
 	const sentence = ({ token, said }: { token: string; said: string }) => (token === "command" ? m.card_confirm_command({ name }) : token === "unread" ? m.card_confirm_unread({ name }) : ENDING.test(`/${token}`) ? m.card_confirm_ending({ command: token }) : said);
-	const ask = () => confirmBar(status, sentence(confirm!), m.card_confirm_yes(), () => (writer.confirm("enter", confirm!.token), (confirm = undefined), draw()), () => ((confirm = undefined), draw(), focus()));
+	const ask = () => confirmBar(status, sentence(confirm!), m.card_confirm_yes(), () => (writer.confirm("enter", confirm!.token), (confirm = undefined), draw()), () => ((confirm = undefined), draw(), focus()), { enter });
 	function draw() {
 		if (!link && !held()) attach();
 		const s = state(), secret = pane && conn.phase === "live" && secretPrompt(conn.rows);
@@ -84,12 +86,17 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 		if (next.on && !mask.on && !next.hand && fine() && (!at || at === document.body || el.contains(at))) input.focus();
 		mask = next;
 		title.textContent = m.terminal_title({ name });
-		wait.textContent = m.card_waits({ name });
+		wait.textContent = sent ? "" : m.card_waits({ name });
+		wait.hidden = sent;
 		tailEl.textContent = s === "connecting" ? "" : tail(conn.rows, step.command).join("\n");
 		input.type = mask.on ? "password" : "text";
 		maskBtn.setAttribute("aria-pressed", String(mask.on));
 		go.textContent = s === "sending" ? m.card_sending() : pane ? m.send_enter() : m.card_run();
 		go.disabled = !OK.includes(s) || s === "confirm";
+		if (enter && !pane && !go.disabled && !focused && fine()) {
+			focused = true; // the card's primary control takes the focus once, when it can act (Zen's Enter presses it)
+			if (!at || at === document.body || el.contains(at)) go.focus();
+		}
 		el.dataset.state = s;
 		el.classList.toggle("stale", s === "stale");
 		const words = s === "held" ? held() : s === "refused" ? refusal || conn.why : s === "ended" ? conn.why : (WORDS[s]?.() ?? (sent ? m.card_sent() : ""));
@@ -126,7 +133,7 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 	full.onclick = () => over("full");
 	el.addEventListener("keydown", (e) => escape && e.key === "Escape" && !e.isComposing && (e.preventDefault(), over("closed")));
 	function focus() {
-		const target = confirm ? status.querySelector<HTMLElement>(".pad-no") : !fine() ? title : pane ? input : el;
+		const target = confirm ? status.querySelector<HTMLElement>(enter ? ".pad-yes" : ".pad-no") : !fine() ? title : pane ? input : enter && !go.disabled ? go : el;
 		target?.focus({ preventScroll: true });
 	}
 	draw();

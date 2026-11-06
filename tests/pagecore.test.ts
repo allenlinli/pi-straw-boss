@@ -25,7 +25,7 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 	const env: ViewEnv = { root, meta: null, server: null, media: { matches: false, addEventListener: () => {} }, storage: { getItem: () => store, setItem: () => {} } };
 	const view = mountView(env);
 	const w = {
-		view, root, hidden: o.hidden ?? false, zenEl: { hidden: true }, zenLoaded: o.zenLoaded ?? true, waiting: [] as ((z: ZenFace) => void)[],
+		view, root, hidden: o.hidden ?? false, zenEl: { hidden: true }, held: undefined as (() => void) | undefined, zenLoaded: o.zenLoaded ?? true, waiting: [] as ((z: ZenFace) => void)[],
 		nets: [] as [Map<string, Alert>, Net][], pairLists: [] as string[], shows: 0, hides: 0, refreshes: 0, icons: [] as number[], signals: [] as string[][], draws: [] as { net: Net; fresh: string[]; now: number }[], maps: [] as Net[],
 		navigations: [] as [Route, Route][], layouts: 0, restarts: 0, backs: 0, links: 0, leftSettings: 0, modal: o.modal ?? false, dialogOpen: o.dialogOpen ?? false, chimes: 0, escapes: 0,
 		/** The calls the overlay layer, the focus views, and the router received, in order. */
@@ -35,7 +35,7 @@ function world(o: { stored?: Choice; away?: boolean; route?: Route; hidden?: boo
 			w.waiting.splice(0).forEach((call) => call(zen));
 		},
 	};
-	const zen: ZenFace = { key: (hotkey) => { w.calls.push(hotkey === "history" ? "history" : hotkey === "palette" ? "palette" : hotkey === "pause" ? "tap" : `cycle:${hotkey === "next-companion" ? 1 : -1}`); return (hotkey === "history" || hotkey === "pause" ? o.tapTakes : hotkey === "palette" ? o.paletteTakes : o.cycleTakes) ?? false; }, net: (a, n) => w.nets.push([a, n]), pairs: (list) => void w.pairLists.push(list.map((p) => p.id).join(",")), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`) };
+	const zen: ZenFace = { key: (hotkey) => { w.calls.push(hotkey === "history" ? "history" : hotkey === "palette" ? "palette" : hotkey === "pause" ? "tap" : `cycle:${hotkey === "next-companion" ? 1 : -1}`); return (hotkey === "history" || hotkey === "pause" ? o.tapTakes : hotkey === "palette" ? o.paletteTakes : o.cycleTakes) ?? false; }, net: (a, n) => w.nets.push([a, n]), pairs: (list) => void w.pairLists.push(list.map((p) => p.id).join(",")), show: () => void w.shows++, hide: () => void w.hides++, refresh: () => void w.refreshes++, escape: () => (w.escapes++, o.zenTakesEscape ?? false), terminal: (t) => void w.calls.push(`zenterm:${JSON.stringify(t)}`), step: (s) => void w.calls.push(`zenstep:${JSON.stringify(s)}`), upgrade: (go) => (w.calls.push("zenupgrade"), void (w.held = go)) };
 	const panels = {
 		hotkey: (key: string) => (w.calls.push(`hotkey:${key}`), o.hotkeyTakes ?? false),
 		stack: { show: (a: Alert) => void w.calls.push(`show:${a.key}`), close: (how?: string) => (w.calls.push(`close:${how ?? ""}`), w.dialogOpen) },
@@ -412,4 +412,32 @@ test("the pair requests the page reads go to Zen as they come, and a Zen chunk t
 	assert.deepEqual(w.pairLists, ["ab12"], "the list is given before the net is");
 	w.core.pairing([]);
 	assert.deepEqual(w.pairLists, ["ab12", ""]);
+});
+
+test("ZNR upgrade: a new build reloads Standard and Geek at once; a page showing Zen hands the reload to the Zen layer, which holds it for the breath; a Zen that is not shown or not loaded reloads at once", () => {
+	for (const stored of ["standard", "geek"] as const) {
+		const w = world({ stored });
+		let reloads = 0;
+		w.core.upgrade(() => void reloads++);
+		assert.deepEqual([reloads, w.calls.includes("zenupgrade")], [1, false], `${stored}: at once, Zen not asked`);
+	}
+	const zen = world({ stored: "zen" });
+	let reloads = 0;
+	zen.core.snapshot(net(unit("a", "waiting")));
+	zen.core.upgrade(() => void reloads++);
+	assert.deepEqual([reloads, zen.calls.includes("zenupgrade")], [0, true], "Zen shown: the layer decides when");
+	zen.held!();
+	assert.equal(reloads, 1, "and the go it was given is the page's reload");
+	const left = world({ stored: "zen", away: true });
+	let leftReloads = 0;
+	left.core.upgrade(() => void leftReloads++);
+	assert.deepEqual([leftReloads, left.calls.includes("zenupgrade")], [1, false], "a page that left Zen shows Standard: at once");
+	const settings = world({ stored: "zen", route: { view: "settings" } });
+	let settingsReloads = 0;
+	settings.core.upgrade(() => void settingsReloads++);
+	assert.equal(settingsReloads, 1, "the settings page is Standard's");
+	const loading = world({ stored: "zen", zenLoaded: false });
+	let loadingReloads = 0;
+	loading.core.upgrade(() => void loadingReloads++);
+	assert.equal(loadingReloads, 1, "Zen's chunk not even fetched: nothing to interrupt");
 });

@@ -16,7 +16,7 @@ import { El, page } from "./fake-dom.ts";
 
 // The strip under Zen's circle, as the page drives it (docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle): the last lines of the head's conversation fading, the folded input that unfolds on a click or
 // Enter, what a send and a refusal do, the draft that holds the screen, the history as a companion, and the keys. The layer is the real one on the fake document; the log and the composer are stand-ins that record.
-const { mountZen, real, DRAFT_MS } = await import("../gui/zen.ts");
+const { mountZen, real } = await import("../gui/zen.ts");
 const { CLEAR_MS, FADE_MS } = await import("../gui/headlines.ts");
 const { entriesOf } = await import("../gui/paletteentries.ts");
 const { m } = await import("../gui/paraglide/messages.js");
@@ -316,8 +316,10 @@ test("an item takes the screen from the strip on Enter (Z-D19) and the stream st
 	assert.equal(r.calls.watch.at(-1), null, "nothing watches the head now");
 	r.z.history({ key: "sb-head", reset: true, items: [headLine("a1", "old words", 1), bossLine("u2", "more", 4), headLine("a2", "new words", 5)] });
 	assert.equal(r.root.textContent.includes("new words"), false, "the reply changes nothing on the card");
-	r.feed(net(head()));
-	await r.advance(5000); // the item is gone: the outcome, the pause, the circle
+	r.feed(net(head())); // the question ended: the card stays until the boss closes it (Z-D20)
+	await r.advance(5000);
+	assert.equal(r.by("zen-card").length, 1, "the card stays");
+	assert.equal(r.press("Enter"), true, "Enter closes it: the pause, then the circle");
 	await r.advance(5000);
 	assert.equal(r.calls.watch.at(-1), "sb-head", "back at the circle the stream watches the head again");
 	assert.ok(r.lines().includes("new words"));
@@ -332,7 +334,7 @@ test("a card does not interrupt the boss writing to the head: it waits for Enter
 	r.typed("writing to the head");
 	r.root.bubble("keydown", { key: "x" });
 	r.feed(net(head(), [waiting()]));
-	await r.advance(DRAFT_MS * 3);
+	await r.advance(60_000 * 3);
 	assert.equal(r.by("zen-card").length, 0, "the item waits");
 	assert.equal(r.box().value, "writing to the head", "the draft stays");
 	assert.equal(cueOf(r), "1 card waits for Enter. No rush, when you're ready.");
@@ -509,6 +511,60 @@ test("the link shows only while the lines are clear; the history closes by Esc, 
 		assert.equal(hushed(x), true, "at rest: the way back is to the breath");
 		assert.equal(x.calls.leave.length, 0, "and Zen was not left");
 		assert.equal(x.calls.watch.at(-1), "sb-head");
+	}
+});
+
+test("ZNR-F002: a snapshot without the head while the whole conversation is open does not make it a session that ended or lost control: no note, no second way back, its own Back to the breath and H still close it, and the head's return continues it", async () => {
+	const r = rig({ items: [headLine("a1", "something", 1)] });
+	await r.start();
+	r.z.key("history");
+	r.z.key("history");
+	await r.settle();
+	assert.equal(open(r), true);
+	for (const next of [net(undefined), net(head())]) {
+		r.feed(next);
+		await r.settle();
+		assert.equal(open(r), true, "the conversation stays open");
+		assert.equal(r.by("zen-company-note")[0]!.textContent, "", "no 已結束 and no 已失去控制 for the head");
+		assert.equal(r.by("zen-company-rest").length, 0, "no session's way back beside the head's own");
+		assert.equal(r.by("zen-rest").length, 1, "the one way back is the head's Back to the breath");
+		assert.equal(r.by("zen-who")[0]!.textContent, "Head tower");
+	}
+	r.feed(net(undefined));
+	await r.settle();
+	r.by("zen-rest")[0]!.click();
+	await r.settle();
+	assert.equal(open(r), false, "Back to the breath works while the head is away");
+	const h = rig({ items: [headLine("a1", "something", 1)] });
+	await h.start();
+	h.z.key("history");
+	h.z.key("history");
+	await h.settle();
+	h.feed(net(undefined));
+	await h.settle();
+	assert.equal(h.z.key("history"), true, "H closes it too");
+	await h.settle();
+	assert.equal(open(h), false);
+	assert.equal(h.calls.leave.length, 0, "and Zen was not left");
+});
+
+test("ZNR upgrade: the head's whole conversation, and its unfolded input, hold a new build's reload with the quiet line; Back to the breath lets it load", async () => {
+	for (const [name, begin, end] of [
+		["the whole conversation", async (r: ReturnType<typeof rig>) => (r.z.key("history"), await r.settle(), assert.equal(open(r), true)), async (r: ReturnType<typeof rig>) => (r.by("zen-rest")[0]!.click(), await r.settle())],
+		["the unfolded input", async (r: ReturnType<typeof rig>) => (r.unfold(), await r.settle()), async (r: ReturnType<typeof rig>) => (r.esc(), await r.settle())],
+	] as const) {
+		const r = rig({ items: [] });
+		await r.start();
+		await begin(r);
+		let reloads = 0;
+		r.z.upgrade(() => void reloads++);
+		assert.equal(reloads, 0, `${name}: not reloaded under the boss`);
+		assert.equal(r.by("zen-update")[0]!.textContent, m.zen_update(), `${name}: the quiet line`);
+		for (let i = 0; i < 6; i++) await r.advance(500);
+		assert.equal(reloads, 0, `${name}: still held`);
+		await end(r);
+		for (let i = 0; i < 6; i++) await r.advance(500);
+		assert.equal(reloads, 1, `${name}: back on the breath it loads`);
 	}
 });
 
@@ -871,6 +927,7 @@ test("the strip is the page's own for this visit: Zen hiding puts it back at res
 	assert.equal(r.by("zen-card").length, 1);
 	r.feed(net(head()));
 	await r.settle();
+	r.z.key("talk"); // the card whose question ended: Enter closes it (Z-D20)
 	await r.advance(5000);
 	assert.equal(hushed(r), true, "the strip is back at rest after the item");
 	r.wake();
@@ -879,6 +936,7 @@ test("the strip is the page's own for this visit: Zen hiding puts it back at res
 	r.z.key("talk");
 	r.feed(net(head()));
 	await r.settle();
+	r.z.key("talk");
 	await r.advance(5000);
 	assert.equal(hushed(r), false, "and called up it stays up");
 });
@@ -1032,4 +1090,44 @@ test("only the visit's first history is what was already said: a snapshot after 
 	r.z.history({ key: "sb-head", reset: true, items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)] }); // a reset that came later: a1 answers u1, which is new
 	await r.settle();
 	assert.equal(hushed(r), false);
+});
+
+test("Z-D20 (box trial C, 10:38): the head's whole conversation open on the circle (the link, H, a wheel or swipe up) is a session for company, and no card takes its screen: not on the next snapshot, not a minute later; the cue under the name counts it and Enter takes it", async () => {
+	const r = rig({ items: [headLine("a1", "something", 1)] });
+	await r.start(net(head(), [waiting()]));
+	assert.equal(cueOf(r), "1 card waits for Enter. No rush, when you're ready.", "queued on the circle");
+	r.by("zen-head-history")[0]!.click(); // the whole conversation opens: Zen is no longer on the breathing circle
+	await r.settle();
+	assert.equal(r.by("zen-company").length, 1, "the head's history is the screen");
+	r.feed(net(head(), [waiting()])); // the next snapshot
+	await r.advance(60_000);
+	assert.equal(r.by("zen-card").length, 0, "no card took the screen");
+	assert.equal(r.by("zen-company").length, 1, "the history is still the screen");
+	assert.deepEqual(r.calls.sound, [], "no bowl");
+	assert.equal(cueOf(r), "1 card waits for Enter. No rush, when you're ready.", "the cue is under the name, on the history's screen");
+	assert.ok(r.by("zen-company")[0]!.all((el) => el.classes.has("zen-head-cue-btn")).length === 1, "inside the history");
+	assert.equal(r.press("Enter", r.root), true, "Enter, off a field, takes it");
+	await r.settle();
+	assert.equal(r.by("zen-card").length, 1);
+	assert.deepEqual(r.calls.sound, ["bowl"]);
+	const typing = rig({ items: [headLine("a1", "something", 1)] });
+	await typing.start(net(head(), [waiting()]));
+	typing.by("zen-head-history")[0]!.click();
+	await typing.settle();
+	const box = typing.by("zen-company")[0]!.all((el) => el.tagName === "textarea")[0]!;
+	assert.equal(typing.press("Enter", box), false, "Enter in the history's box is the box's");
+	assert.equal(typing.by("zen-card").length, 0);
+});
+
+test("Z-D20 (box trial C, 10:38): a card that resolves while it queues behind the head's open history never renders or sounds", async () => {
+	const r = rig({ items: [headLine("a1", "something", 1)] });
+	await r.start(net(head(), [waiting()]));
+	r.by("zen-head-history")[0]!.click();
+	await r.settle();
+	r.feed(net(head(), [])); // answered in the terminal
+	await r.advance(60_000);
+	assert.equal(r.by("zen-card").length, 0);
+	assert.deepEqual(r.calls.sound, []);
+	assert.equal(r.by("zen-company").length, 1, "the history stays the screen");
+	assert.equal(cueOf(r), "", "and the cue is gone");
 });

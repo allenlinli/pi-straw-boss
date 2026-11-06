@@ -34,7 +34,7 @@ export function allyDemo(link: LinkSummary, name: string | null, now = Date.now(
 	if (scene === "crashed") link.alerts.find((a) => a.kind === "notice")!.data.text = "An ally run crashed: pi exited without tower_done (exit 1). The last output was: Error: connect ECONNREFUSED 10.0.2.7:5432 while applying migration 0042";
 	if (scene === "trust") (Object.assign(unit, { state: "standing", monitors: [], report: "" }), Object.assign(link.alerts.find((a) => a.kind === "notice")!.data, { what: "trust-unanswered", text: "An ally run crashed: No trust decision for /work/harbor-api after 10 minutes; the run was ended" }));
 	if (scene === "held") (Object.assign(unit, { state: "held", monitors: [], report: "Three runs in 10 minutes ended in a crash; the tower stopped waking this unit." }), link.alerts.find((a) => a.kind === "notice")!.data.at = now - 6 * 60_000);
-	if (scene === "closing") Object.assign(unit, { state: "closing", report: "Handing over: the last report is written." });
+	if (scene === "closing") (Object.assign(unit, { state: "closing", report: "Handing over: the last report is written." }), link.alerts.forEach((a) => a.kind === "notice" && (a.data.at = now - 3 * 3600_000)));
 	if (scene === "rerun") {
 		// A crash ten minutes ago, the unit running now; a few seconds on it stands by again, and the old notice no longer says it crashed.
 		Object.assign(unit, { state: "running", report: "Re-ran the migration on staging: applied." });

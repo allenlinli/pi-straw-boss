@@ -357,3 +357,13 @@ test("T2: the map's overview steps aside while a question panel is open on an al
 	assert.match(css, /body:has\(\.ally-asks:not\(\[hidden\]\) \.ally-asks-list:not\(\[hidden\]\)\) \.minimap \{ opacity: 0; pointer-events: none; \}/, "an open list in a box that shows: a list left open in a box that has no question is not an open panel");
 	assert.ok(rulesOf(css).some((r) => r.parts.some((p) => p.endsWith(".minimap") && p.includes("body:has(.tile)"))), "the tile's rule, which this one stands beside, is still there");
 });
+
+test("the divider above a session's composer sits under the log, above the docked strips (queue, todos, monitors), and a strip never ends on it", () => {
+	const rules = rulesOf(css), on = (part: string) => rules.filter((r) => r.parts.includes(part)).flatMap((r) => declarations(r.body));
+	assert.ok(on(".comms-in > .chat-root").some(([p, v]) => p === "border-bottom" && v === "1px solid var(--line)"), "the log's foot carries the hairline: what scrolls ends here, what is docked starts under it");
+	assert.ok(on(".comms-in .composer").some(([p, v]) => p === "border-top" && v === "0"), "the composer has no hairline of its own, or it would meet the last strip's border");
+	assert.ok(on(".comms-in > .chat-root").some(([p, v]) => p === "margin-bottom" && v === "var(--dock-gap, 0px)") && on(".comms-in .composer").some(([p, v]) => p === "margin-top" && v === "var(--dock-gap, 0px)"), "a clear gap under the divider and above the composer");
+	const gap = rules.find((r) => r.parts.some((p) => /^\.comms-in:has\(> :is\(.*\.todos, \.monitors\)/.test(p)));
+	assert.ok(gap && declarations(gap.body).some(([p, v]) => p === "--dock-gap" && /^\d+px$/.test(v)), "the gap exists only while a strip shows, so a composer alone keeps the divider on its top edge");
+	assert.match(gap!.parts.join(), /\.queue-bar.*\.queue-list.*\.queue-act.*\.todos.*\.monitors/, "every docked strip counts");
+});

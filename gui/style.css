@@ -606,6 +606,9 @@ a.tower:hover::before { border-color: var(--c); }
 .lit.flip::after { animation-name: out-b; }
 /* The composer under the log: the box, Send (and Follow-up and Stop while it works), and one line for what happened or why not. */
 .composer { position: relative; display: grid; gap: 8px; padding: 12px 18px 14px; border-top: 1px solid var(--line); background: var(--panel); }
+/* The divider separates what scrolls (the log) from what stays docked (the queue, todos, monitors, and the composer), so it sits under the log, above the docked strips, and a strip never ends on it: the strips get a gap under it and above the composer's own edge. */
+.comms-in > .chat-root { border-bottom: 1px solid var(--line); } .comms-in .composer { border-top: 0; }
+.comms-in:has(> :is(.queue-bar, .queue-list, .queue-act, .todos, .monitors):not([hidden])) { --dock-gap: 6px; } .comms-in > .chat-root { margin-bottom: var(--dock-gap, 0px); } .comms-in .composer { margin-top: var(--dock-gap, 0px); }
 .cmp-row, .cmp-acts, .cmp-foot, .cmp-note { display: flex; gap: 8px; align-items: center; }
 .cmp-row { align-items: flex-end; gap: 10px; }
 .composer textarea { flex: 1; min-width: 0; resize: none; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: 14px/1.4 var(--sans); }

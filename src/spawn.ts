@@ -27,6 +27,7 @@ import { createTab, type HerdrCall, type HerdrRun, isHead, isSub, type Pane, pan
 // Before anything is created for a new pi, the folder's .pi/settings.json is looked at (trust/settings.ts: pi reads it whole at startup, before any extension can stop it); a refusal answers 409 `settings_unsafe` with the facts in `settings`, at the `create` step.
 // An open may carry `deploy`, an id the page makes; POST /<token>/api/open/progress {id} then answers how far that open has got (deploy.ts), and a refused open names its failed `step`.
 // An open/base with a `deploy` id is recorded durably (openings.ts, <state>/openings.json: workspace, tab, pane, folder, and where the first message stands): a repeat with the same id, after a server restart too, finds the workspace it made and answers with it (no second workspace).
+// A repeat's record counts only while its workspace, its pane, and its folder (as the pane reports it; a pane with no folder counts when the workspace's label is the recorded one too) are as recorded; else it is a new open.
 // A first message is typed once: a repeat types it only when the first open never began to (`delivery` of the record was `pending`), and never when it was being typed or was typed (`sent`, `unknown` in the reply).
 
 /** The join wait of an open (`joinWaitMs` of open/base asks for another, within the bounds): a slow computer, Windows especially, needs more than a minute. */
@@ -228,12 +229,14 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 	 * A pi that has not joined fails the repeat and leaves the workspace and the record, since this request did not make them: the next repeat waits again.
 	 */
 	async function reopened(d: Deploy, id: string, dir: string, prompt: string | undefined, joinWaitMs: number): Promise<Reply | undefined> {
-		openings.prune(new Set((await workspaces(run)).map((w) => w.workspace_id)));
+		const open = await workspaces(run);
+		openings.prune(new Set(open.map((w) => w.workspace_id)));
 		const had = openings.get(id);
 		if (!had) return;
 		const pane = had.dir === dir ? (await panes(run, had.workspace)).find((p) => p.pane_id === had.pane) : undefined;
-		// A pane that reports no folder (Herdr's `cwd` is optional, and a Windows pane may not know it yet) is not a mismatch: the folder of the record is the request's and the pane is in its live workspace. A folder that is reported and differs is.
-		if (!pane || (pane.cwd && (await pick(pane.cwd)) !== had.dir)) return void openings.drop(id);
+		// A pane that reports no folder (Herdr's `cwd` is optional, and a Windows pane may not know it yet) counts only when everything else still agrees: the workspace id and the pane id (found above) and the workspace's label, as recorded. Anything weaker is a new open: a wrong workspace is worse than a duplicate. A folder that is reported and differs is stale.
+		const same = pane && (pane.cwd ? (await pick(pane.cwd)) === had.dir : open.find((w) => w.workspace_id === had.workspace)?.label === had.label);
+		if (!pane || !same) return void openings.drop(id);
 		d.go("start");
 		d.pane = pane.pane_id;
 		await awaitJoin(d, pane.pane_id, joinWaitMs);
@@ -252,7 +255,7 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 		await assertSettingsSafe([dir]);
 		const created = await result(run, ["workspace", "create", "--cwd", dir, "--label", label, "--no-focus", "--env", "STRAW_BOSS_ROLE=member"]);
 		const workspaceId: string = created.workspace.workspace_id, paneId: string = created.root_pane.pane_id;
-		const record = { workspace: workspaceId, tab: created.tab.tab_id as string, pane: paneId, dir };
+		const record = { workspace: workspaceId, tab: created.tab.tab_id as string, pane: paneId, dir, label: (created.workspace.label as string | undefined) ?? label };
 		let delivery: Delivery = prompt ? "pending" : "none";
 		// Created by this request a moment ago, with nothing in it but the member attempt: a base is never left empty.
 		const failed = await orClose(["workspace", "close", workspaceId], async () => {

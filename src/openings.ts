@@ -8,7 +8,7 @@ import { writeJson } from "./server/record.ts";
 
 /** Where the first message stands: `none` (the open had none), `pending` (never attempted), `sending` (being typed: it may have arrived), `sent`. */
 export type Delivery = "none" | "pending" | "sending" | "sent";
-export interface Opening { workspace: string; tab: string; pane: string; dir: string; delivery: Delivery }
+export interface Opening { workspace: string; tab: string; pane: string; dir: string; label: string; delivery: Delivery }
 const KEPT = 64, str = (v: unknown): v is string => typeof v === "string" && v.length > 0, DELIVERY = ["none", "pending", "sending", "sent"];
 
 export function createOpenings(file?: string) {
@@ -17,7 +17,7 @@ export function createOpenings(file?: string) {
 		const saved = file ? JSON.parse(readFileSync(file, "utf8")) : undefined;
 		if (saved && typeof saved === "object") {
 			for (const [id, o] of Object.entries(saved as Record<string, Partial<Opening>>)) {
-				if (str(o?.workspace) && str(o.tab) && str(o.pane) && str(o.dir) && DELIVERY.includes(o.delivery as string)) kept.set(id, { workspace: o.workspace, tab: o.tab, pane: o.pane, dir: o.dir, delivery: o.delivery as Delivery });
+				if (str(o?.workspace) && str(o.tab) && str(o.pane) && str(o.dir) && str(o.label) && DELIVERY.includes(o.delivery as string)) kept.set(id, { workspace: o.workspace, tab: o.tab, pane: o.pane, dir: o.dir, label: o.label, delivery: o.delivery as Delivery });
 			}
 		}
 	} catch {} // no file or one that does not read: nothing is known, as for a first start

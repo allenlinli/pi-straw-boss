@@ -37,7 +37,7 @@ type Made = { workspace: { workspace_id: string }; tab: { tab_id: string }; root
 /** What an old server left: a workspace in `where` and its record in `delivery`, its pi not started (the caller makes it join). */
 async function left(record: string, id: string, delivery: Opening["delivery"], where = dir) {
 	const ws = JSON.parse(await world.herdr.runFor("wA:p1")(["workspace", "create", "--cwd", where, "--label", "beta"])).result as Made;
-	createOpenings(record).set(id, { workspace: ws.workspace.workspace_id, tab: ws.tab.tab_id, pane: ws.root_pane.pane_id, dir, delivery });
+	createOpenings(record).set(id, { workspace: ws.workspace.workspace_id, tab: ws.tab.tab_id, pane: ws.root_pane.pane_id, dir, label: "beta", delivery });
 	return ws;
 }
 const prompts = () => {
@@ -183,9 +183,9 @@ test("a record whose pane is gone is not answered with another pane of the works
 	assert.notEqual(body(again).workspace, first.workspace);
 });
 
-// OBS2-F003: policy. A pane that reports no folder (Pane.cwd is optional; a Windows Herdr may not know it yet) is not a mismatch: the record's folder equals the request's, and its pane is in
-// its live workspace, which is as much as can be known. Only a folder that is reported and differs makes the record stale.
-test("a recorded pane that reports no folder is still the open's: the repeat finds it and makes no second workspace", async () => {
+// OBS2-F003, as the sb owner decided it: a pane that reports no folder (Pane.cwd is optional; a Windows Herdr may not know it yet) counts only when the workspace id, the pane id and the
+// workspace's recorded label all still match; anything weaker is a new open, since a wrong workspace is worse than a duplicate.
+test("a recorded pane that reports no folder is still the open's when its workspace, pane and label match: the repeat makes no second workspace", async () => {
 	world.herdr.onAgentStart = joins;
 	const record = file(), first = (await server(record).open({ deploy: "deploy-seam-f3n" })).body as { workspace: string; pane: string };
 	delete world.herdr.panes.find((p) => p.pane_id === first.pane)!.cwd;
@@ -193,10 +193,34 @@ test("a recorded pane that reports no folder is still the open's: the repeat fin
 	assert.equal(again.status, 200, JSON.stringify(again.body));
 	assert.equal(made(), 1);
 	assert.deepEqual([body(again).workspace, body(again).pane], [first.workspace, first.pane]);
-	assert.ok(createOpenings(record).get("deploy-seam-f3n"), "the record stays");
+	assert.equal(createOpenings(record).get("deploy-seam-f3n")?.label, "beta", "the label is recorded");
 });
 
-test("a pane with no folder does not keep a record whose workspace is gone", async () => {
+test("a pane that reports no folder is not the open's when the workspace's label is another one: a new open, and the record is replaced", async () => {
+	world.herdr.onAgentStart = joins;
+	const record = file(), first = (await server(record).open({ deploy: "deploy-seam-f3p" })).body as { workspace: string; pane: string };
+	delete world.herdr.panes.find((p) => p.pane_id === first.pane)!.cwd;
+	world.herdr.workspaces.find((w) => w.workspace_id === first.workspace)!.label = "someone else's";
+	const again = await server(record).open({ deploy: "deploy-seam-f3p" });
+	assert.equal(again.status, 200, JSON.stringify(again.body));
+	assert.equal(made(), 2, "a duplicate rather than a workspace that may be another's");
+	assert.notEqual(body(again).workspace, first.workspace);
+	assert.equal(createOpenings(record).get("deploy-seam-f3p")?.workspace, body(again).workspace);
+});
+
+test("a pane that reports no folder is not the open's when the recorded pane is another than the one in the workspace", async () => {
+	world.herdr.onAgentStart = joins;
+	const record = file(), first = (await server(record).open({ deploy: "deploy-seam-f3q" })).body as { workspace: string; pane: string };
+	const pane = world.herdr.panes.find((p) => p.pane_id === first.pane)!;
+	delete pane.cwd;
+	pane.pane_id = `${first.workspace}:p999`; // the workspace id stands, the pane's does not
+	const again = await server(record).open({ deploy: "deploy-seam-f3q" });
+	assert.equal(again.status, 200, JSON.stringify(again.body));
+	assert.equal(made(), 2);
+	assert.notEqual(body(again).workspace, first.workspace);
+});
+
+test("a pane that reports no folder does not keep a record whose workspace is gone", async () => {
 	world.herdr.onAgentStart = joins;
 	const record = file(), first = (await server(record).open({ deploy: "deploy-seam-f3o" })).body as { workspace: string; pane: string };
 	delete world.herdr.panes.find((p) => p.pane_id === first.pane)!.cwd;
@@ -366,7 +390,7 @@ test("a record that cannot be written when the message goes to be typed fails th
 
 test("a repeat whose record cannot be written for the message fails without a path and leaves the workspace and its record", async () => {
 	const ws = await left(file(), "deploy-seam-n2b", "pending"), typed = prompts(), f = flaky((o) => o.delivery === "sending");
-	f.inner.set("deploy-seam-n2b", { workspace: ws.workspace.workspace_id, tab: ws.tab.tab_id, pane: ws.root_pane.pane_id, dir, delivery: "pending" });
+	f.inner.set("deploy-seam-n2b", { workspace: ws.workspace.workspace_id, tab: ws.tab.tab_id, pane: ws.root_pane.pane_id, dir, label: "beta", delivery: "pending" });
 	joins(ws.root_pane);
 	const s = server(file(), undefined, { call: typed.call }, f.store), answer = await s.open({ deploy: "deploy-seam-n2b", prompt: "hello" });
 	assert.deepEqual([answer.status, body(answer).error, body(answer).step], [502, "open_failed", "deliver"]);
@@ -387,7 +411,7 @@ test("when the record cannot be written and cannot be dropped, the reply is the 
 });
 
 test("the record file is mode 600, and the last 64 ids are kept", () => {
-	const record = file(), openings = createOpenings(record), opening = (n: number): Opening => ({ workspace: `w${n}`, tab: `w${n}:t1`, pane: `w${n}:p1`, dir, delivery: "none" });
+	const record = file(), openings = createOpenings(record), opening = (n: number): Opening => ({ workspace: `w${n}`, tab: `w${n}:t1`, pane: `w${n}:p1`, dir, label: "beta", delivery: "none" });
 	for (let n = 0; n < 65; n++) openings.set(`id-${n}`, opening(n));
 	if (process.platform !== "win32") assert.equal(statSync(record).mode & 0o777, 0o600);
 	assert.equal(Object.keys(JSON.parse(readFileSync(record, "utf8"))).length, 64);

@@ -1052,7 +1052,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Blocking first review fixes (ZBF-F001 to F006): 311,064 / 127,396 measured, +615 / +274 over the figure above, all lazy: the inert window, the parked card, the exhaustive rank, and the wheel as a touch. Cap = measured.
 	// Blocking first re-review (zbf-rr-F001, a Space release the form never saw pressed): 311,127 / 127,385 measured, +63 / -11 over the figure above. The raw cap = measured; the gzip cap stays.
 	// Wait panel buttons (0.60.1): 311,776 / 127,731 measured, +649 / +346 over the figure above, all lazy: waitpanel.ts (the confirmation, the stale note, the folded panel) and the session view's `here` flag. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 311_776 && total(chunks, gz) <= 127_731, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Composer divider and queued label (0.60.1, CSS only): raw unchanged, 127,754 gzipped measured, +23: the chunks' hashed names of the rebuilt stylesheet. Gzip cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 311_776 && total(chunks, gz) <= 127_754, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1167,7 +1168,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The overview steps aside for an open ally question panel (0.59.5): 157,809 / 32,208 measured, +104 / +14 over the figure above. Cap = measured.
 	// Zen head rest review fixes (ZHR-F004): 157,875 / 32,219 measured, +66 / +11 over the figure above: the folded hint's focus rule keeps its corners square. Cap = measured.
 	// Wait panel buttons (0.60.1): 158,209 / 32,276 measured, +334 / +57 over the figure above: `a.pair-btn` and the confirmation lines. Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 158_209 && total(css, gz) <= 32_276, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Composer divider and queued label (0.60.1): 158,525 / 32,343 measured, +316 / +67 over the figure above: the divider under the log, the dock gap while a strip shows, the label's nowrap. Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 158_525 && total(css, gz) <= 32_343, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

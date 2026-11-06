@@ -365,3 +365,19 @@ test("a link drawn as a pair button (`a.pair-btn`, the wait panel's comms link) 
 	assert.ok(decl.some(([p, v]) => p === "display" && v === "inline-flex") && decl.some(([p, v]) => p === "align-items" && v === "center") && decl.some(([p, v]) => p === "text-decoration" && v === "none"));
 	assert.doesNotMatch(r!.body, /-webkit-/);
 });
+
+test("the divider above a session's composer sits under the log, above the docked strips (queue, todos, monitors), and a strip never ends on it", () => {
+	const rules = rulesOf(css), on = (part: string) => rules.filter((r) => r.parts.includes(part)).flatMap((r) => declarations(r.body));
+	assert.ok(on(".comms-in > .chat-root").some(([p, v]) => p === "border-bottom" && v === "1px solid var(--line)"), "the log's foot carries the hairline: what scrolls ends here, what is docked starts under it");
+	assert.ok(on(".comms-in .composer").some(([p, v]) => p === "border-top" && v === "0"), "the composer has no hairline of its own, or it would meet the last strip's border");
+	assert.ok(on(".comms-in > .chat-root").some(([p, v]) => p === "margin-bottom" && v === "var(--dock-gap, 0px)") && on(".comms-in .composer").some(([p, v]) => p === "margin-top" && v === "var(--dock-gap, 0px)"), "a clear gap under the divider and above the composer");
+	const gap = rules.find((r) => r.parts.some((p) => /^\.comms-in:has\(> :is\(.*\.todos, \.monitors\)/.test(p)));
+	assert.ok(gap && declarations(gap.body).some(([p, v]) => p === "--dock-gap" && /^\d+px$/.test(v)), "the gap exists only while a strip shows, so a composer alone keeps the divider on its top edge");
+	assert.match(gap!.parts.join(), /\.queue-bar.*\.queue-list.*\.queue-act.*\.todos.*\.monitors/, "every docked strip counts");
+});
+
+test("a queued row's label (排隊中・插話, Queued · steer) never breaks inside, while the message beside it breaks where it must", () => {
+	const rules = rulesOf(css), on = (part: string) => rules.filter((r) => r.parts.includes(part)).flatMap((r) => declarations(r.body));
+	assert.ok(on(".queue-list b").some(([p, v]) => p === "white-space" && v === "nowrap"), "the label is one piece");
+	assert.ok(on(".queue-list p").some(([p, v]) => p === "overflow-wrap" && v === "anywhere"), "a long path or URL breaks anywhere instead of pulling the label apart");
+});

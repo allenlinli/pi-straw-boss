@@ -87,6 +87,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		reload = undefined;
 		stopPoll();
 		update.textContent = "";
+		root.removeAttribute("data-update");
 		go?.();
 	}
 	function recheck() {
@@ -483,6 +484,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			if (document.hidden || resting()) return go();
 			reload = go;
 			update.textContent = m.zen_update();
+			root.setAttribute("data-update", ""); // the page keeps its foot clear for the line (zen.css)
 			stopPoll();
 			stopPoll = later(recheck, UPGRADE_MS);
 		},

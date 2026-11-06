@@ -462,6 +462,12 @@ test("ZNR upgrade: the line that says a new build waits for the breath is fixed 
 	const decl = line.flatMap((r) => declarations(r.body));
 	for (const [p, v] of [["position", "fixed"], ["pointer-events", "none"], ["color", "var(--zen-ash)"]]) assert.ok(decl.some(([a, b]) => a === p && b === v), `${p}: ${v}`);
 	assert.ok(zenRule(".zen-update:empty").some((r) => /display:\s*none/.test(r.body)), "no words, no room");
+	const foot = rulesOf(zen).filter((r) => r.parts.some((p) => p.startsWith('[data-view="zen"] #zen[data-update]')));
+	assert.ok(foot.some((r) => r.parts.includes('[data-view="zen"] #zen[data-update]') && /--zen-foot:\s*3rem/.test(r.body) && /padding-bottom:\s*calc\([^;]*var\(--zen-foot\)/.test(r.body)), "while a new build waits the page keeps its foot, so the line lies over nothing");
+	assert.ok(foot.some((r) => r.parts.some((p) => p.endsWith(".zen-term")) && /padding-bottom:[^;]*var\(--zen-foot\)/.test(r.body)), "and so does the terminal layer");
+	assert.match(zenRule(".zen-card:has(.zen-ask) .zen-card-in").map((r) => r.body).join(";"), /max-height:\s*calc\([^;]*var\(--zen-foot, 0px\)\)/, "a dialog card gives the foot up too");
+	const z = (n: string) => Number(/z-index:\s*(\d+)/.exec(zenRule(n).map((r) => r.body).join(";"))?.[1]);
+	assert.ok(z(".zen-update") > z(".zen-term"), "above the terminal layer, whose own foot is kept clear");
 	assert.match(zen, /@media \(prefers-reduced-motion: reduce\) \{[^\n]*\.zen-update \{ animation: none; \}/, "reduced motion: no fade");
 	assert.ok(!/-webkit-translate|-webkit-animation/.test(zen.split("\n").filter((l) => l.includes("zen-update")).join("\n")));
 });

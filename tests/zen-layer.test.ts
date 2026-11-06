@@ -2790,12 +2790,14 @@ test("ZNR upgrade: a card, the terminal layer, a session for company, the palett
 		r.z.upgrade(go);
 		assert.equal(go.reloads, 0, `${name}: the page is not reloaded under the boss`);
 		assert.equal(updateLine(r), UPDATE(), `${name}: one quiet line says a new version waits`);
+		assert.equal(r.root.getAttribute("data-update"), "", `${name}: the page keeps its foot clear for it`);
 		await pass(r, 30_000);
 		assert.equal(go.reloads, 0, `${name}: however long it stays`);
 		r.z.upgrade(go); // a second hello of the same build
 		assert.equal(updateLine(r), UPDATE(), `${name}: still one line`);
 		await end(r);
 		assert.equal(go.reloads, 1, `${name}: back on the breath, the new version loads, once`);
+		assert.equal(r.root.getAttribute("data-update"), null, `${name}: and the foot is the page's again`);
 		await pass(r, 60_000);
 		assert.equal(go.reloads, 1, `${name}: and only once`);
 	}

@@ -364,6 +364,9 @@
 [data-view="zen"] .zen-hl[data-rank="0"] { --clear: 1; }
 [data-view="zen"] .zen-hl[data-rank="1"] { --clear: 0.95; }
 [data-view="zen"] .zen-hl[data-rank="2"] { --clear: 0.9; }
+[data-view="zen"] .zen-hl[data-rank]:not([data-rank="0"], [data-rank="1"], [data-rank="2"]) { --clear: 0.9; } /* the older lines of a strip that fills the page stay at the lowest clear level that holds 7 : 1; their own age fades them further */
+/* While the strip is quiet (resting, or every line faded) it shows its last three lines, two on a phone or a window 560 px tall or less (headlines.ts SHOWN): the page keeps more (FILL) for the awake strip below. */
+[data-view="zen"] .zen-head:not([data-fill]) .zen-hl[data-rank]:not([data-rank="0"], [data-rank="1"], [data-rank="2"]) { display: none; }
 [data-view="zen"] .zen-hl[data-who="boss"] { justify-self: end; max-width: 85%; text-align: right; color: var(--zen-ash); }
 [data-view="zen"] .zen-hl[data-who="head"] { justify-self: start; max-width: 90%; text-align: left; color: var(--zen-paper); font-family: var(--serif); letter-spacing: 0.06em; }
 [data-view="zen"] .zen-hl[data-who="note"] { justify-self: start; text-align: left; color: var(--zen-ash); font-size: 0.85rem; }
@@ -371,6 +374,17 @@
 @keyframes zen-head-step { to { --fade: 0.16; } }
 [data-view="zen"] .zen-head:is([data-bright], :hover, :focus-within) .zen-hl { --lift: 1; }
 [data-view="zen"] .zen-hl[data-held] { --lift: 1; }
+/* The awake strip fills the page (docs/specs/2026-11-04-head-tower.md, Zen: the strip fills the page; zenhead.ts sets `data-fill` while the strip is awake and its lines have not all faded, or the input has the focus; a hover or a tap only lifts the lines). The line's room goes to the lines, and the circle keeps its size only so far as the lines leave it room: it gives way from its size (`--orb`) to a floor of 18 vh (80 px at the least, 160 px at the most) before a line is dropped, and never below 80 px. The lines are laid out newest-first from the strip's foot (`--rank` is set by draw), whole lines only: a line that does not fit wraps into a column the strip clips away, so the oldest are the ones missing and none is cut in half (the 2 px above the lines are the slack that lets all of them fit when the strip is exactly as tall as they are: a line's height is a fraction of a pixel). The circle's shrink factor is large so that it alone gives way until it reaches its floor; the strip loses a hundredth of a pixel to it at most. The quiet strip above is not touched. */
+[data-view="zen"] .zen-stage:has(.zen-head[data-fill]:not([hidden])) { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+[data-view="zen"] .zen-stage:has(.zen-head[data-fill]:not([hidden])) > .zen-circle { flex: 0 100000 var(--orb); width: auto; height: auto; min-height: min(var(--orb), clamp(80px, 18vh, 160px)); }
+[data-view="zen"] .zen-stage:has(.zen-head[data-fill]:not([hidden])) > .zen-line { flex: none; height: 0; } /* away: it fades out where it stood, and its room is the lines' */
+[data-view="zen"] .zen-head[data-fill] { display: flex; flex-direction: column; align-items: center; flex: 0 1 auto; min-height: 0; }
+[data-view="zen"] .zen-head[data-fill][hidden] { display: none; }
+[data-view="zen"] .zen-head[data-fill] > * { flex: none; }
+[data-view="zen"] .zen-head[data-fill] > .zen-head-lines { flex: 1 1 auto; min-height: 3.2rem; padding-top: 2px; display: flex; flex-flow: column-reverse wrap; align-content: flex-start; overflow: hidden; }
+[data-view="zen"] .zen-head[data-fill] .zen-hl { order: var(--rank, 0); flex: none; box-sizing: border-box; width: 100%; max-width: none; }
+[data-view="zen"] .zen-head[data-fill] .zen-hl[data-who="boss"] { padding-left: 15%; } /* the quiet strip's 85 % and 90 %, kept as padding so every line is as wide as the strip and a wrapped column starts beyond its edge */
+[data-view="zen"] .zen-head[data-fill] .zen-hl[data-who="head"] { padding-right: 10%; }
 [data-view="zen"] .zen-head-working { margin: 0; color: var(--zen-ash); font-size: 0.9rem; letter-spacing: 0.08em; }
 [data-view="zen"] .zen-head-working[hidden] { display: none; }
 [data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 6px; cursor: pointer; transition: color 0.4s var(--zen-ease); }
@@ -415,9 +429,11 @@
 	[data-view="zen"] .zen-head { width: 100%; }
 	[data-view="zen"] .zen-hl { font-size: 0.95rem; }
 	[data-view="zen"] .zen-head-form { width: 100%; }
+	[data-view="zen"] .zen-head:not([data-fill]) .zen-hl[data-rank="2"] { display: none; }
 }
 @media (max-height: 560px) {
 	[data-view="zen"] .zen-stage:has(.zen-head) { gap: 10px; --orb: min(30vmin, 200px); }
+	[data-view="zen"] .zen-stage:has(.zen-head[data-fill]:not([hidden])) { gap: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { /* no fade: clear for its 20 s, then at the rest level at once; hover and a tap still clear it at once */
 	/* style.css stills every animation under reduced motion except this one (`*:not(.zen-hl)`): a step has no motion, and without it the lines would stay clear for ever */

@@ -17,7 +17,8 @@ import { El, page } from "./fake-dom.ts";
 // The strip under Zen's circle, as the page drives it (docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle): the last lines of the head's conversation fading, the folded input that unfolds on a click or
 // Enter, what a send and a refusal do, the draft that holds the screen, the history as a companion, and the keys. The layer is the real one on the fake document; the log and the composer are stand-ins that record.
 const { mountZen, real } = await import("../gui/zen.ts");
-const { CLEAR_MS, FADE_MS } = await import("../gui/headlines.ts");
+const { CLEAR_MS, FADE_MS, FILL } = await import("../gui/headlines.ts");
+const { LET_GO_MS } = await import("../gui/zenhead.ts");
 const { entriesOf } = await import("../gui/paletteentries.ts");
 const { m } = await import("../gui/paraglide/messages.js");
 
@@ -129,15 +130,75 @@ test("under the circle stand the mindfulness line and the folded input with its 
 	assert.equal(r.calls.watch.at(-1), "sb-head", "the stream watches the head while the strip shows");
 });
 
-test("the last three lines show, the newest last, and the whole text is in the line (the page clamps it); the mindfulness line stays away while any is clear", async () => {
+test("the strip keeps the lines in order, the newest last, and the whole text is in the line (the page clamps it, and shows as many as fit: three while quiet, zen.css); the mindfulness line stays away while any is clear", async () => {
 	const r = rig({ items: [bossLine("u1", "first", 1), headLine("a1", "second", 2), bossLine("u2", "third", 3), headLine("a2", "fourth\nwith a second line", 4)] });
 	await r.start();
 	await r.settle();
 	assert.equal(r.wake(), true, "a visit starts at rest: H calls the lines up");
-	assert.deepEqual(r.lines(), ["second", "third", "fourth with a second line"]);
-	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-who")), ["head", "boss", "head"]);
-	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-rank")), ["2", "1", "0"], "rank 0 is the newest");
+	assert.deepEqual(r.lines(), ["first", "second", "third", "fourth with a second line"]);
+	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-who")), ["boss", "head", "boss", "head"]);
+	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-rank")), ["3", "2", "1", "0"], "rank 0 is the newest");
 	assert.equal(r.away(), true, "one thing is in paper at a time (Z-D15)");
+});
+
+test("the page keeps FILL lines, not three: a long conversation hands the awake strip the oldest lines it has room for, and each line carries its rank for the page's newest-first layout (--rank)", async () => {
+	const long: Item[] = Array.from({ length: 30 }, (_, i) => (i % 2 ? headLine(`a${i}`, `reply ${i}`, i + 1) : bossLine(`u${i}`, `question ${i}`, i + 1)));
+	const r = rig({ items: long });
+	await r.start();
+	await r.settle();
+	r.wake();
+	assert.equal(FILL, 24);
+	assert.deepEqual(r.lines(), long.slice(-FILL).map((_, i) => (i + 30 - FILL) % 2 ? `reply ${i + 30 - FILL}` : `question ${i + 30 - FILL}`), "the newest 24, oldest first");
+	assert.deepEqual(r.by("zen-hl").map((el) => el.style["--rank"]), Array.from({ length: FILL }, (_, i) => String(FILL - 1 - i)), "the rank is what `order` sorts by: newest first from the strip's foot");
+	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-rank")), Array.from({ length: FILL }, (_, i) => String(FILL - 1 - i)));
+});
+
+test("a later page that carries older head lines than the strip first held reads none of them out: only the newest three are news, as before the strip kept 24", async () => {
+	const turn = (i: number): Item[] => [bossLine(`u${i}`, `ask ${i}`, i * 2), headLine(`a${i}`, `answer ${i}`, i * 2 + 1)];
+	const r = rig({ items: [3, 4, 5].flatMap(turn) });
+	await r.start();
+	await r.settle();
+	const live = () => r.by("zen-head-live")[0]!.textContent;
+	r.put([0, 1, 2, 3, 4, 5].flatMap(turn));
+	await r.settle();
+	assert.equal(r.by("zen-hl").length, 12, "the older turns are on the page");
+	assert.equal(live(), "", "nothing read out: the newer lines were known, and the older ones are history");
+	r.put([0, 1, 2, 3, 4, 5, 6].flatMap(turn));
+	await r.settle();
+	assert.equal(live(), "answer 6", "a new reply still is");
+});
+
+test("the strip fills the page while the boss has it awake (data-fill): not at rest, not once every line has faded, back with the open input (a hover only sends the mindfulness line away), gone with Esc and with the next visit (Z-D21)", async () => {
+	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
+	const fill = () => r.strip()!.dataset.fill !== undefined;
+	await r.start();
+	await r.settle();
+	assert.equal(fill(), false, "a visit starts at rest: the page is as it was");
+	assert.equal(r.away(), false);
+	r.wake();
+	assert.equal(fill(), true, "called back: the lines take the mindfulness line's room and the circle's spare height");
+	assert.equal(r.away(), true, "the two are never both on: fill is the mindfulness line's absence");
+	assert.equal(r.esc(), true);
+	assert.equal(fill(), false, "Esc rests the strip, and the page goes back as it was");
+	assert.equal(r.away(), false);
+	r.wake();
+	assert.equal(fill(), true);
+	await r.advance(CLEAR_MS + FADE_MS + 20);
+	assert.equal(fill(), false, "every line faded: the mindfulness line is back and the page with it");
+	assert.equal(r.away(), false);
+	r.strip()!.bubble("pointerenter", { pointerType: "mouse" });
+	assert.equal(fill(), false, "a hover lifts the faded lines but never moves the page under the pointer (ZHF-F001)");
+	assert.equal(r.strip()!.dataset.bright !== undefined, true);
+	r.strip()!.bubble("pointerleave", { pointerType: "mouse" });
+	await r.advance(LET_GO_MS + 20);
+	assert.equal(fill(), false, "and nothing moves when the pointer goes either");
+	r.strip()!.bubble("pointerdown", { pointerType: "touch" });
+	assert.equal(fill(), false, "a tap lifts the lines but does not fill either");
+	r.wake();
+	r.unfold();
+	assert.equal(fill(), true, "the open input holds the lines clear, and the room");
+	r.z.hide();
+	assert.equal(fill(), false, "the next visit starts at rest, as the page does");
 });
 
 test("a line is clear for 20 s from the moment it is first on screen, then fades over 3 minutes; the mindfulness line comes back only when every line has", async () => {
@@ -156,6 +217,21 @@ test("a line is clear for 20 s from the moment it is first on screen, then fades
 	assert.equal(r.away(), true, "a new line starts clear, whatever the time of its item");
 	const [, , fresh] = r.by("zen-hl");
 	assert.equal(fresh!.style.animationDelay, `${CLEAR_MS / 1000}s`);
+});
+
+test("when fill turns on after the lines faded, every line carries on from its age, not from the stale delay it had when it was hidden (ZHF-F002)", async () => {
+	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
+	await r.start();
+	await r.settle();
+	r.wake();
+	await r.advance(CLEAR_MS + FADE_MS + 20);
+	assert.equal(r.strip()!.dataset.fill, undefined);
+	r.put([bossLine("u1", "go", 1), headLine("a1", "ok", 2), bossLine("u2", "and again", 3), headLine("a2", "a new one", 4)]);
+	await r.settle();
+	assert.notEqual(r.strip()!.dataset.fill, undefined);
+	const [old1, old2] = r.by("zen-hl").map((el) => el.style.animationDelay);
+	assert.notEqual(old1, `${CLEAR_MS / 1000}s`, "the old line's delay is its age's");
+	assert.notEqual(old2, `${CLEAR_MS / 1000}s`);
 });
 
 test("a click on the hint unfolds the input, focused; Enter on the circle does the same when no control has the focus, and nothing else on the keyboard does", async () => {
@@ -1130,4 +1206,60 @@ test("Z-D20 (box trial C, 10:38): a card that resolves while it queues behind th
 	assert.deepEqual(r.calls.sound, []);
 	assert.equal(r.by("zen-company").length, 1, "the history stays the screen");
 	assert.equal(cueOf(r), "", "and the cue is gone");
+});
+
+test("a press on a control in the strip fills nothing until its click, so the page does not move under the pointer; a focus from the keyboard still wakes and fills (ZHR-F001)", async () => {
+	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
+	const fill = () => r.strip()!.dataset.fill !== undefined;
+	await r.start();
+	await r.settle();
+	assert.equal(fill(), false);
+	// a fresh visit (resting): Chromium focuses the hint on mousedown, before mouseup
+	r.hint().bubble("pointerdown", { pointerType: "mouse" });
+	r.hint().focus();
+	assert.equal(fill(), false, "the press's focus does not fill");
+	assert.equal(r.strip()!.dataset.hushed !== undefined, true, "and does not wake the strip");
+	r.hint().bubble("pointerup", { pointerType: "mouse" });
+	r.hint().click();
+	assert.equal(fill(), true, "the click wakes it and opens the input");
+	r.z.hide();
+	// all lines faded, awake: the same press does not fill
+	await r.start();
+	await r.settle();
+	r.wake();
+	await r.advance(CLEAR_MS + FADE_MS + 20);
+	assert.equal(fill(), false);
+	r.hint().bubble("pointerdown", { pointerType: "mouse" });
+	r.hint().focus();
+	assert.equal(fill(), false, "aged strip: the press's focus does not fill");
+	r.hint().bubble("pointerup", { pointerType: "mouse" });
+	r.hint().click();
+	assert.equal(fill(), true);
+	r.z.hide();
+	// the keyboard: Tab onto the hint
+	await r.start();
+	await r.settle();
+	r.hint().focus();
+	assert.equal(fill(), true, "a focus without a press (Tab) wakes the strip and fills");
+	r.z.hide();
+	// a press in the strip released outside it (a drag onto the circle): the press is over, so a later Tab still wakes (ZHR2-F001)
+	await r.start();
+	await r.settle();
+	r.hint().bubble("pointerdown", { pointerType: "mouse" });
+	for (const on of page.on.pointerup ?? []) on({ target: page.body });
+	r.hint().focus();
+	assert.equal(fill(), true, "a release outside the strip ends the press: the Tab after it wakes and fills");
+});
+
+test("once every line has rested the strip stops redrawing: no timer re-arms and the hint's text is not rewritten (ZHR-F003)", async () => {
+	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
+	await r.start();
+	await r.settle();
+	r.wake();
+	await r.advance(CLEAR_MS + FADE_MS + 20);
+	let writes = 0;
+	const hint = r.hint(), was = hint.replaceChildren.bind(hint);
+	hint.replaceChildren = (...k: never[]) => (writes++, was(...k));
+	await r.advance(1000);
+	assert.equal(writes, 0, "the hint keeps its text node");
 });

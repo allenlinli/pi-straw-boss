@@ -202,8 +202,8 @@ function forward(kind: "history" | "cards", raw: string) {
 }
 
 // The build the server wrote into this page: a stream from another build (a newer pi-straw-boss took the server over) reloads the page,
-// whose lazy chunks that server no longer has.
-const build = document.querySelector<HTMLMetaElement>('meta[name="sb-build"]')?.content;
+// whose lazy chunks that server no longer has. Standard and Geek reload at once; a page showing Zen waits for the breath (core.upgrade).
+const build = document.querySelector<HTMLMetaElement>('meta[name="sb-build"]')?.content ?? (__LIVE__ ? undefined : "demo"); // the demo's own hello says "demo" (fixture.ts), and `&upgrade=<ms>` announces another
 const rebuilt = (raw: string) => Boolean(build && build !== (JSON.parse(raw) as { build?: string }).build);
 /** The server's default view from a `hello` (its `view`) or a `view` event (the value itself); anything else is left. */
 function serverView(raw: string, bare = false) {
@@ -235,7 +235,7 @@ const open = () => {
 	source.listen("history", (d) => forward("history", d));
 	source.listen("cards", (d) => forward("cards", d));
 	// The stream's name (terminal tiles attach to it) and their frames go to the overlay layer, which parses them.
-	source.listen("hello", (d) => (rebuilt(d) ? location.reload() : ((hello = d), serverView(d), panels?.terminal.hello())));
+	source.listen("hello", (d) => (rebuilt(d) ? core.upgrade(() => location.reload()) : ((hello = d), serverView(d), panels?.terminal.hello())));
 	// The server's default view changed (`/boss gui view`): a page that follows the server switches without a reload. A hello says it too, so a stream that missed the event heals when it reconnects.
 	source.listen("view", (d) => serverView(d, true));
 	source.listen("mirror", (d) => panels?.terminal.frame(d));

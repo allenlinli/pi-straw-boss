@@ -448,3 +448,20 @@ test("ZNI-F010: under the corner buttons the cue runs the companion's whole widt
 	assert.ok(zenRule(".zen-term-note:empty").some((r) => /display:\s*none/.test(r.body)));
 	assert.ok(!/-webkit-text-wrap/.test(zen));
 });
+
+test("ZNR (secret_drop card): the lone line of a card's answer row (「請在終端機中回答。」, a read-only dialog's Open the terminal) is centred in Zen, not pushed right by Standard's `margin-left: auto`", () => {
+	const std = rulesOf(css).find((r) => r.parts.includes(".ask-acts > :last-child"));
+	assert.ok(std && /margin-left:\s*auto/.test(std.body), "Standard keeps pushing its last control right");
+	const own = zenRule('.ask-acts > :last-child').filter((r) => r.parts.some((p) => p.startsWith('[data-view="zen"] .zen-card ')));
+	assert.ok(own.some((r) => /(?<!-)margin-left:\s*0\b/.test(r.body)), "Zen's card says margin-left: 0 for it, scoped under the view and the card so it outranks Standard's rule");
+	assert.ok(!/-webkit-margin/.test(zen));
+});
+
+test("ZNR upgrade: the line that says a new build waits for the breath is fixed at the foot of Zen's page, quiet, takes no pointer, is gone when empty, and holds still with reduced motion", () => {
+	const line = zenRule(".zen-update").filter((r) => r.parts.includes('[data-view="zen"] .zen-update'));
+	const decl = line.flatMap((r) => declarations(r.body));
+	for (const [p, v] of [["position", "fixed"], ["pointer-events", "none"], ["color", "var(--zen-ash)"]]) assert.ok(decl.some(([a, b]) => a === p && b === v), `${p}: ${v}`);
+	assert.ok(zenRule(".zen-update:empty").some((r) => /display:\s*none/.test(r.body)), "no words, no room");
+	assert.match(zen, /@media \(prefers-reduced-motion: reduce\) \{[^\n]*\.zen-update \{ animation: none; \}/, "reduced motion: no fade");
+	assert.ok(!/-webkit-translate|-webkit-animation/.test(zen.split("\n").filter((l) => l.includes("zen-update")).join("\n")));
+});

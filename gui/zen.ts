@@ -47,6 +47,7 @@ type Composer = ReturnType<typeof mountComposer>;
 interface Card { key: string; /** What the card's answer is bound to (cardalerts.ts `cardSig`): another one is another question, and the card is made again. */ sig: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean; /** The question ended while the card was shown (`elsewhere`, `gone`, `error`): it stays until the boss closes it. */ ended?: boolean; /** The context (session log) expanded on the card, when the unit has one. */ hist?: ReturnType<typeof mountHistory>; /** Expands or collapses the context; false when the card has none. */ toggle(): boolean; /** Collapses it, the focus going back to its link. */ collapse(): void; /** The wait card's answer box is unfolded. */ replying?(): boolean; /** Folds it with the draft kept, the focus going back to Handle. */ foldReply?(): boolean }
 interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; /** The header, and the quiet line in it once the session ended or lost control: the screen stays, with its input off, until the boss leaves (Z-D20). */ header: HTMLElement; note: HTMLElement; over?: "ended" | "lost"; /** The way back to the breath, made when the session is over. */ leave?: HTMLButtonElement; /** The cue that says how many cards wait for Enter (zenhead.ts), under the name: a card never takes this screen by itself. */ cue: ReturnType<typeof mountCue>; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; /** Appends that came while the newest page was in flight: applied again after it, which they may not be in. */ late?: HistoryEvent[]; state?: string }
 
+const UPGRADE_MS = 1000; // how often a waiting new build looks for the breath
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
 	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), unitAlerts = new Map<string, Alert>(), pairList: PairRequest[] = [], pairsAt = 0, shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined, histOpen = false; // picked: this visit's companion (its start, or the one stepped to); none is the circle. histOpen: the head tower's whole conversation, as a companion, on the circle screen (zenhead.ts)
@@ -66,17 +67,33 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const fs = mountFullscreen(deps.fs ?? domFs(later)), menu = mountMenu(deps.menu ?? {}, () => leave()), music = deps.music && mountMusic(deps.music);
 	const ripples = mountRipples(root, deps.ripple ?? domRipples(now)); // ink-water ripples under the pointer, on a canvas behind the content
 	const esc = h("p", { class: "zen-esc", role: "status", "aria-live": "polite" }); // the quiet line after a first Esc that nothing took
+	const update = h("p", { class: "zen-update", role: "status", "aria-live": "polite" }); // the quiet line while a new build waits for the breath (`upgrade`)
 	const clearEsc = () => (stopEsc(), (stopEsc = () => {}), (escAt = undefined), delete esc.dataset.on, (esc.textContent = ""));
 	const corner = h("div", { class: "zen-corner" }, fs.button, ...(music ? [music.el] : []), menu.el);
 	const strip = h("p", { class: "zen-strip" }); // how many units work and how many are idle (the core's selector): nothing about what waits
 	strip.hidden = true;
 	const palette = mountPalette({ entries: () => paletteEntries(), inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)), closed: () => refocus() });
-	root.replaceChildren(h("div", { class: "zen-drift", "aria-hidden": "true" }, h("i", null), h("i", null)), ripples.el, corner, ...(fs.hint ? [fs.hint] : []), live, esc, stage, strip, palette.el);
+	root.replaceChildren(h("div", { class: "zen-drift", "aria-hidden": "true" }, h("i", null), h("i", null)), ripples.el, corner, ...(fs.hint ? [fs.hint] : []), live, esc, update, stage, strip, palette.el);
 	// The terminal layer (zenterm.ts) lies over all of it: what is under takes no focus while it is on, and the item's card gets it back on return.
 	const term = mountZenTerm(root, { terminals: deps.terminals, now, later, inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)), closed: () => refocus() });
 	const openTerm = (key: string, armed?: boolean) => term.terminal({ key, armed }, net);
 	const circle = (words?: string) => h("div", { class: "zen-circle", ...(words ? { role: "img", "aria-label": words } : { "aria-hidden": "true" }) }, h("i", null), h("i", null), h("i", null)); // the ink washes inside the ring
 	const stopLine = () => (line?.stop(), (line = undefined), head.stop());
+	// A new build (the server was taken over by a newer pi-straw-boss) is the page's to load, but never under the boss (Z-D20, 「永遠不要打斷」): it waits, with one quiet line, until Zen is back on the breathing circle with nothing open, and at once while the page is hidden or Zen is not shown.
+	let reload: (() => void) | undefined, stopPoll = () => {};
+	const resting = () => !active || (shown.kind === "companion" && onCircle() && !term.isOpen() && !palette.isOpen() && !menu.isOpen() && !music?.isOpen() && !head.isOpen()); // the pause after a card is not the breath yet
+	function flush() {
+		const go = reload;
+		reload = undefined;
+		stopPoll();
+		update.textContent = "";
+		go?.();
+	}
+	function recheck() {
+		if (!reload) return;
+		if (document.hidden || resting()) return flush();
+		stopPoll = later(recheck, UPGRADE_MS);
+	}
 	/** Ink dissolving: the card that was on the page stays a moment longer, fading and blurring out, while the next thing begins. */
 	const fading = new Map<HTMLElement, () => void>(), reminded = new Set<string>(); // reminded: the cards that wait for Enter and were notified of while the page was away
 	const dissolve = (el: HTMLElement) => (el.dataset.gone = "", el.setAttribute("inert", ""), stage.append(el), void fading.set(el, later(() => (fading.delete(el), el.remove()), 1400)));
@@ -199,7 +216,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	};
 	/** The free-focus rule: the item takes the focus only when the page has it, the boss is not typing somewhere else, and neither the terminal layer nor the palette is on. */
 	const idle = () => !term.isOpen() && !palette.isOpen() && document.hasFocus() && (!document.activeElement || document.activeElement === document.body || root.contains(document.activeElement));
-	/** The card of the screen's item: made when it is taken, then followed. A card that ended (`elsewhere`, `error`) stays, its answers off, its one button Back to the breath (the model holds it until the boss closes it: Z-D20), and the focus goes there if it was in the card. */
+	/** The card of the screen's item: made when it is taken, then followed. A card that ended (`elsewhere`, `gone`, `error`) stays, its answers off, its one button Back to the breath (the model holds it until the boss closes it: Z-D20), and the focus goes there if it was in the card. */
 	function drawItem(s: Extract<Screen, { kind: "item" }>) {
 		if (card?.key !== s.item.key || card.sig !== cardSig(s.item) || view !== "item") {
 			card?.hist?.close(); // the card that goes takes its context with it: no mount, fetch, or watch for a card that is gone
@@ -238,8 +255,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const openHistory = () => !!net?.head && active && onCircle() && (disposeCompany(), (histOpen = true), drawCompany(), true);
 	const closeHistory = () => histOpen && (disposeCompany(), head.fold(), head.hush(), drawCompany(), true); // the way back is to the breath: the strip is at rest
 	function drawCompany() {
-		histOpen &&= Boolean(net?.head);
-		const live = histOpen ? { key: net!.head!.key, ws: HEAD_KEY } : companionOf(net, company ?? picked), c = live ?? (company && !histOpen ? { key: company.key, ws: company.ws } : undefined); // a session on the screen that ended or lost control stays (Z-D20): it is not taken from the boss
+		const live = histOpen ? { key: net?.head?.key ?? company?.key ?? HEAD_KEY, ws: HEAD_KEY } : companionOf(net, company ?? picked), c = live ?? (company && company.ws !== HEAD_KEY ? { key: company.key, ws: company.ws } : undefined); // a session on the screen that ended or lost control stays (Z-D20): it is not taken from the boss. The head's conversation is none of those: a snapshot without the head (an older server) leaves it open, its composer off, and its Back to the breath works (ZNR-F002)
 		if (!c) {
 			[company, view] = [undefined, "companion"];
 			deps.watch(net?.head?.key ?? null); // the strip's lines come from the head's stream
@@ -258,10 +274,11 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (live) company!.where.textContent = u && !histOpen ? deps.label(u.base.id) : "";
 		company!.cue.set(model.queued().length); // a card never takes this screen by itself: the cue says how many wait, and a tap on it takes one
 		markOver(company!, over);
-		if (u || over) {
+		if (u || over || histOpen) {
 			const facts = composerUnit(u?.u, { name: u?.u.name ?? company!.name.textContent ?? c.key, mk: u?.u.mark ?? "unknown", state: company!.state, online: deps.online(), head: histOpen });
 			if (u) company!.chat?.setLive(...liveOf(u.u, company!.state, u.u.mark));
-			company!.composer?.update(over ? { ...facts, live: over === "lost" && facts.live, control: false } : facts); // a session that is over takes no more words: the composer's own line says why
+			company!.composer?.update(over ? { ...facts, live: over === "lost" && facts.live, control: false } : facts); // a session that is over takes no more words: Send is off and the composer's own line says why
+			if (company!.composer) company!.composer.box.readOnly = Boolean(over); // the box keeps its draft but takes no typing: a session that lost control is off, not just unsendable (R2, ZNR)
 		}
 	}
 	/** The session for company ended or lost control (Z-D20, never interrupted): the screen stays with a quiet line and the way back to the breath; the composer is off (its own words say why). */
@@ -385,6 +402,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			disposeCompany();
 			view = undefined;
 			deps.watch(null);
+			flush(); // Zen is not shown: nothing here is interrupted, and Standard loads a new build at once
 		},
 		/** A snapshot: its alerts (rank 0 are the items) and the net. */
 		net(next: Map<string, Alert>, whole: Net) {
@@ -413,7 +431,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		},
 		/** The stream's state changed: a card answers only while it is live. */
 		refresh: () => active && apply(model.tick()),
-		visible: (on: boolean) => (ripples.visible(on), music?.visible(on), active ? apply(model.visible(on)) : void model.visible(on)),
+		visible: (on: boolean) => (ripples.visible(on), music?.visible(on), active ? apply(model.visible(on)) : void model.visible(on), on || flush()),
 		/**
 		 * Escape (zenkeys.ts has the table): it closes the menu, lets go of a field, cancels the question on the page (else "Not now"), or, when nothing above took it, is the first of the two that
 		 * leave. True when the key was Zen's, which is always while Zen shows: the page never goes up a route from here.
@@ -460,6 +478,14 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		/** A step an accepted answer left: the layer's terminal card (zenterm.ts). */
 		step: (s: StepOpen) => void (active && term.step(s, net)),
 		companion: () => (company ? { key: company.key, ws: company.ws } : undefined),
+		/** The server's build changed: `go` (the page's reload) runs at once on the breathing circle with nothing open or on a hidden page; else it waits, with a quiet line, and runs when Zen is back on the breath. */
+		upgrade(go: () => void) {
+			if (document.hidden || resting()) return go();
+			reload = go;
+			update.textContent = m.zen_update();
+			stopPoll();
+			stopPoll = later(recheck, UPGRADE_MS);
+		},
 	};
 	/** A Zen key of the keymap (hotkeys.ts), done: the page hands every one of them to this one call. False when it had nothing to do (the key stays the browser's). */
 	const key = (hotkey: Hotkey) => (hotkey === "pause" ? face.tap() : hotkey === "talk" ? face.talk() : hotkey === "history" ? face.toggleHistory() : hotkey === "palette" ? face.palette() : face.cycle(hotkey === "next-companion" ? 1 : -1));

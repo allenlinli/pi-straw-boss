@@ -233,3 +233,30 @@ test("ZNI-F001: in Zen a key typed while the confirm shows is not sent past it: 
 	assert.equal(posts.length, 1, "nothing was confirmed");
 	for (const k of ["Tab", "Shift", "Escape", "Control"]) assert.equal(el.all().find((x) => x.attrs.get("class") === "pad-yes")!.press({ key: k, timeStamp: Infinity }), false, `${k} is not typing`);
 });
+
+test("ZNR-F007: in Zen the confirm's Send waits 400 ms: the second tap of a double Enter, 100 ms after the bar showed, confirms nothing; an Enter at 500 ms does; Standard has no Enter to confirm with", async () => {
+	let clock = 5_000;
+	const real = Object.getOwnPropertyDescriptor(performance, "now");
+	Object.defineProperty(performance, "now", { value: () => clock, configurable: true, writable: true }); // the fake clock the bar's birth and the key's time stamp are read on
+	try {
+		for (const dwell of [100, 399]) {
+			const { posts, reply, el, press } = pad("live", true);
+			press("enter");
+			await reply(409, { error: "confirm", confirm: "unread", reason: "pi has not shown you its screen." });
+			const yes = el.all().find((x) => x.attrs.get("class") === "pad-yes")!;
+			assert.equal(yes.press({ key: "Enter", timeStamp: clock + dwell }), true, `an Enter ${dwell} ms after the bar showed is kept from Send`);
+			assert.equal(posts.length, 1, "nothing was confirmed");
+			assert.equal(yes.press({ key: "Enter", timeStamp: clock + 500 }), false, "one at 500 ms is the button's");
+			assert.deepEqual(posts.at(-1), { key: "enter", stream: "st", confirmed: "unread" });
+			await reply(200, { accepted: true });
+			clock += 1_000;
+		}
+		const std = pad("live", false);
+		std.press("enter");
+		await std.reply(409, { error: "confirm", confirm: "unread", reason: "x" });
+		assert.equal(std.el.all().find((x) => x.attrs.get("class") === "pad-yes")!.handlers.keydown, undefined, "Standard's bar listens for no key: its Send is a click");
+	} finally {
+		if (real) Object.defineProperty(performance, "now", real);
+		else delete (performance as { now?: unknown }).now;
+	}
+});

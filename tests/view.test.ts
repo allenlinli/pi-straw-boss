@@ -340,6 +340,10 @@ test("Z-D20 R3: a change of the server's default never switches a page that is s
 	view.setServer("standard");
 	w.env.root.dataset.zenAway = ""; // the boss left Zen (main.ts)
 	view.refresh();
+	assert.equal(w.env.root.dataset.view, "standard", "a page that is away shows Standard, held or not");
+	assert.equal(view.view(), "zen", "but a visit to the settings page (the same mark) does not release the hold (ZNR-F004)");
+	view.release(); // the boss left Zen (viewface.ts `leave`)
+	view.refresh();
 	assert.equal(w.env.root.dataset.view, "standard", "once it left Zen, Auto follows the server again");
 	assert.equal(view.view(), "standard");
 	const next = mountView(world(null, false, { server: "standard" }).env);

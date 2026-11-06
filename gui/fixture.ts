@@ -159,7 +159,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 			current = this;
 			// A dropped server answers a connection with an error, as a stopped one would.
 			if (dropped) this.timers.push(setTimeout(() => this.fail(), 300));
-			else this.timers.push(setTimeout(() => this.send("hello", { stream: "demo" }), 100), setTimeout(() => this.send("message", net), 150), setInterval(() => this.send("ping", ""), 15_000));
+			else this.timers.push(setTimeout(() => this.send("hello", { stream: "demo", build: "demo" }), 100), setTimeout(() => this.send("message", net), 150), setInterval(() => this.send("ping", ""), 15_000));
 			if (dropped) return;
 			if (watch?.startsWith("w:")) this.timers.push(setTimeout(() => this.send("cards", { a1: "I merged the billing branch and the tests pass.", a3: "Waiting for your answer about the deploy window." }), 250));
 			else if (watch) {
@@ -211,6 +211,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	// A box's question arrives `&box=<ms>` on, in any state (6000 for `blocking`, where a tower's wait is the card): a card never takes the screen by itself, so it queues behind whatever is shown (Z-D18, Z-D20).
 	const boxAt = new URLSearchParams(location.search).get("box") ?? (zen === "blocking" ? "6000" : null);
 	if (boxAt !== null) setTimeout(() => linkDemo("link-dialog", linkIo, false), Number(boxAt));
+	// `&upgrade=<ms>` (any state): a new build is announced that long after the page starts, once for the browser session (a reload does not hear it again): a Zen page waits for the breath with a quiet line, Standard and Geek reload at once (main.ts `upgrade`).
+	const upgradeAt = new URLSearchParams(location.search).get("upgrade");
+	if (upgradeAt !== null && !sessionStorage.getItem("sb.demo.upgraded")) setTimeout(() => (sessionStorage.setItem("sb.demo.upgraded", "1"), current?.send("hello", { stream: "demo", build: "demo-next" })), Number(upgradeAt));
 	// `?zen=settled`: the card's question is answered elsewhere `&settle=<ms>` on (6000 by default): the card stays, says so, and waits for the boss to close it (Z-D20).
 	if (zen === "settled") (quietUntil = Date.now() + 900_000, setTimeout(() => linkIo.change((n) => { if (new URLSearchParams(location.search).has("left")) return void n.bases.forEach((b) => b.tabs.forEach((t) => (t.units = t.units.filter((x) => x.key !== "a3")))); const u = units(n).find((x) => x.key === "a3")!; [u.mark, u.note, u.pending] = ["working", "thinking", undefined]; }), Number(new URLSearchParams(location.search).get("settle") ?? 6000)));
 	// `?zen=idle&end=<ms>` ends the companion's session that long on, `&lost=<ms>` takes its control: Zen keeps the screen (Z-D20).

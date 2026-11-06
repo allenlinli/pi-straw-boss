@@ -136,6 +136,32 @@ test("the settings route: a Zen device's page is Standard on it, and shows Zen o
 	assert.deepEqual([g.root.dataset.view, g.away()], ["geek", false]);
 });
 
+test("ZNR-F004: a page held in Zen (the server's default moved away under it) that opens the settings page shows Zen again on leaving it; leaving Zen itself, or picking a view, still lets Auto follow the server", () => {
+	const held = () => {
+		const p = page("auto", "zen", { away: false, settings: false });
+		p.view.setServer("standard"); // held: the page shows Zen, the default is Standard
+		assert.deepEqual([p.view.view(), p.zenOn()], ["zen", true]);
+		return p;
+	};
+	const p = held();
+	p.world.settings = true;
+	p.face.route(true);
+	assert.deepEqual([p.root.dataset.view, p.away(), p.zenOn()], ["standard", true, false], "the settings page is Standard");
+	p.world.settings = false;
+	p.face.route(false);
+	assert.deepEqual([p.root.dataset.view, p.away(), p.zenOn()], ["zen", false, true], "leaving it shows Zen, as the route row says");
+	p.face.leave();
+	assert.deepEqual([p.view.view(), p.root.dataset.view], ["standard", "standard"], "leaving Zen lets Auto follow the server again");
+	const q = held();
+	q.pick("auto");
+	assert.deepEqual([q.view.view(), q.root.dataset.view], ["standard", "standard"], "a pick lets it follow, too");
+	const r = held();
+	r.world.settings = true;
+	r.face.route(true);
+	r.pick("auto");
+	assert.deepEqual([r.view.view(), r.root.dataset.view], ["standard", "standard"], "a pick on the settings page too");
+});
+
 test("another page of this device choosing (a storage event) is a pick; the OS's contrast follows only a page whose choice is Auto", () => {
 	const p = page("standard", "auto", { away: false, settings: false });
 	p.view.reread();

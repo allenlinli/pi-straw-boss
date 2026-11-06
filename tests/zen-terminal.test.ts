@@ -440,6 +440,21 @@ test("a prompt's card is over when its own Enter is taken and by no mark sequenc
 	assert.deepEqual([Boolean(p.layer()), p.calls.stops, noteOf(p)], [true, [], m.zen_term_gone()], "the pane closed: the layer stays and says so");
 });
 
+test("ZNR-F003: the card of a step that is over no longer says the command waits: it says it was sent, as the bar does", async () => {
+	const r = await shown();
+	r.z.step(step());
+	await r.settle();
+	const card = () => cardOf(r)!;
+	assert.ok(card().textContent.includes(m.card_waits({ name: "ops-main" })), "before the Enter: the command waits");
+	r.calls.watches[0]!.w.taken();
+	await r.settle();
+	assert.equal(noteOf(r), m.zen_term_sent());
+	assert.equal(card().textContent.includes(m.card_waits({ name: "ops-main" })), false, "the put-out card does not say the command waits");
+	assert.ok(card().textContent.includes(m.card_sent()), "it says what the bar says: sent");
+	const wait = card().all((el) => el.getAttribute("class") === "tcard-wait")[0]!;
+	assert.equal(wait.hidden, true, "the waiting line is not drawn at all");
+});
+
 test("Esc in card mode is the layer's two-press, there being no terminal to keep it; Back to Zen returns", async () => {
 	const r = await shown();
 	r.z.step(step());

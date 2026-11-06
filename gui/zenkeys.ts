@@ -6,7 +6,7 @@
 //   reply    the wait card's answer box is unfolded: Esc folds it (the draft stays) and does nothing else.
 //   head     the head tower's input is unfolded under the circle: Esc folds it (the draft stays) and does nothing else.
 //   blur     a field holds the focus and has text in it (any screen), or is focused on the companion's screen, the pause, or the empty state: Esc only lets go of it.
-//   close    a card whose question ended (answered elsewhere, or the unit failed) is on the page: Esc closes it, as Enter and its button do (Z-D20: it stays until the boss closes it).
+//   close    a card whose question ended (answered elsewhere, the unit left, or the unit failed) is on the page: Esc closes it, as Enter and its button do (Z-D20: it stays until the boss closes it).
 //   over     the session for company ended or lost control and stays on the screen: Esc leaves it for the breath (Z-D20: nothing takes it from the boss but the boss).
 //   item     an item is on the page and can still be answered: Esc cancels its question when it is cancellable (the card's Cancel), else "Not now" (the next card).
 //   rest     the head tower's lines are clear under the circle: Esc sends them away (the maxim comes back) and does nothing else. After an empty field and an item, so it is the first Esc that nothing above took.

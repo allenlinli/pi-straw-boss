@@ -17,13 +17,13 @@ import type { Exit, Term } from "./zentypes.ts";
 /** An Escape keydown, as far as the page reads it. */
 export interface Esc { key: string; defaultPrevented: boolean; isComposing: boolean; preventDefault(): void; stopPropagation(): void }
 /** The Zen layer, as the page drives it. `escape` says whether it took the key. `key`: a Zen key of the keymap (hotkeys.ts), true when the layer did it. */
-export interface ZenFace { key(hotkey: Hotkey): boolean; net(alerts: Map<string, Alert>, net: Net): void; /** The pair requests the server lists now (lanwait.ts); Zen shows one as a card. */ pairs(list: PairRequest[]): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void }
+export interface ZenFace { key(hotkey: Hotkey): boolean; net(alerts: Map<string, Alert>, net: Net): void; /** The pair requests the server lists now (lanwait.ts); Zen shows one as a card. */ pairs(list: PairRequest[]): void; show(): void; hide(): void; refresh(): void; escape(e: Esc): boolean; /** A terminal in the layer's own screen (zenterm.ts). */ terminal(t: Term): void; /** A step an answer left, as the layer's terminal card. */ step(s: StepOpen): void; /** The server's build changed: `go` (the page's reload) runs when the layer is on the breathing circle with nothing open, or at once while hidden (zen.ts). */ upgrade(go: () => void): void }
 /** The overlay layer (the dialogs and tiles), as the page drives it. */
 interface PanelsFace { /** A page key for the dialogs (layer.ts); false when it had nothing to do. */ hotkey(key: "next" | "zoom"): boolean; stack: { show(a: Alert): void; close(how?: "go"): boolean }; /** A step an answer left, as the dock's terminal card. */ step(s: StepOpen, net?: Net): void }
 /** The focus views (the base, the session's comms and dossier). */
 interface FocusFace { terminal(key: string): void }
 export interface PageIo {
-	view: Pick<PageView, "view" | "refresh" | "onChange" | "reread">;
+	view: Pick<PageView, "view" | "refresh" | "release" | "onChange" | "reread">;
 	/** `<html>`: `data-zen-away` is on it while this page has left Zen. */
 	root: { dataset: Record<string, string | undefined> };
 	/** The Zen layer's box. */
@@ -161,6 +161,11 @@ export function createPage(io: PageIo) {
 			item && openAlert(item);
 			route && io.go(route);
 			wake();
+		},
+		/** The server's build changed (a newer pi-straw-boss took it over): the page loads the new one, but never under a Zen page in use (Z-D20): Zen waits for the breath with a quiet line, Standard, Geek, and a Zen that is not shown or not loaded reload at once. */
+		upgrade(go: () => void) {
+			const z = zenOn() ? io.zen() : undefined;
+			z ? z.upgrade(go) : go();
 		},
 		/** The pair requests waiting at this computer (lanwait.ts reads them for the page); Zen draws one as a card, and Standard has its header notice. */
 		pairing(list: PairRequest[]) {

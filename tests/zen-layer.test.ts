@@ -1039,6 +1039,22 @@ test("Z-D20 R2: a session for company that ended or lost control stays with its 
 	}
 });
 
+test("ZNR (R2 'input off'): a session that lost control keeps its draft but its box is read-only, its Send off; the box takes typing again when control returns", async () => {
+	const r = rig({ start: { key: "m", ws: "w" } });
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	const box = r.calls.composers.at(-1)!.box as unknown as { readOnly?: boolean };
+	assert.equal(Boolean(box.readOnly), false, "a live session takes typing");
+	r.feed(net([unit("m", "working", { control: false })]));
+	await r.settle();
+	assert.equal(box.readOnly, true, "control lost: the box is read-only, the draft stays");
+	assert.deepEqual((r.calls.composers.at(-1)!.updates.at(-1) as { control: boolean }).control, false, "and its Send is off (the composer's own words say why)");
+	r.feed(net([unit("m", "working")]));
+	await r.settle();
+	assert.equal(box.readOnly, false, "control back: the box takes typing again");
+});
+
 test("Z-D20 R2: the boss leaves a session that ended by Back to the breath, by Esc, or by the circle (]), and by nothing else", async () => {
 	const ended = async () => {
 		const r = rig({ start: { key: "m", ws: "w" }, z4b: true });
@@ -2740,4 +2756,100 @@ test("ZNI-F009: a keystroke in the companion's box schedules nothing: no timer, 
 	const box = r.calls.composers[0]!.box, before = r.pending().length;
 	box.bubble("input", {});
 	assert.equal(r.pending().length, before, "nothing is scheduled by typing");
+});
+
+// Zen never reloads under the boss (boss ruling 2026-11-06, the page-reload-on-upgrade disposition of ZNR): when the server's build changes, a page showing Zen waits with one quiet line until it is back on the breathing circle with nothing open, or hidden.
+const UPDATE = () => m.zen_update();
+/** Time passing as a clock does: the fake timers run what is due at the end of one jump, so a poll that sets itself again is walked in steps. */
+const pass = async (r: ReturnType<typeof rig>, ms: number) => { for (let left = ms; left > 0; left -= 500) await r.advance(Math.min(500, left)); };
+const updateLine = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("zen-update"))[0]?.textContent ?? "";
+const upgraded = () => { const go = Object.assign(() => void go.reloads++, { reloads: 0 }); return go; };
+test("ZNR upgrade: on the breathing circle with nothing open a new build loads at once, with no line", async () => {
+	const r = rig({ start: null, z4b: true });
+	r.feed(net([unit("m", "idle")]));
+	r.z.show();
+	await r.settle();
+	const go = upgraded();
+	r.z.upgrade(go);
+	assert.equal(go.reloads, 1, "the circle is the place to reload");
+	assert.equal(updateLine(r), "", "and nothing was said");
+});
+
+test("ZNR upgrade: a card, the terminal layer, a session for company, the palette, or the corner menu holds the reload with one quiet line; it loads when Zen is back on the breath with nothing open", async () => {
+	const open: [string, (r: ReturnType<typeof rig>) => Promise<unknown>, (r: ReturnType<typeof rig>) => Promise<unknown>][] = [
+		["a card", async (r) => (r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })])), r.z.show(), await r.settle(), r.z.key("talk"), await r.settle()), async (r) => (r.button("Maybe later")!.click(), await pass(r, 4_000))],
+		["the terminal layer", async (r) => (r.feed(net([unit("a", "idle", { name: "ops-main" })])), r.z.show(), await r.settle(), r.z.terminal({ key: "a" }), await r.settle()), async (r) => (r.button(m.zen_back_title())!.click(), await pass(r, 2_000))],
+		["a session for company", async (r) => (r.feed(net([unit("m", "working")])), r.z.show(), await r.settle()), async (r) => (r.z.cycle(1), await pass(r, 2_000))],
+		["the palette", async (r) => (r.feed(net([unit("m", "idle")])), r.z.show(), await r.settle(), r.z.palette()), async (r) => (r.z.palette(), await pass(r, 2_000))],
+		["the corner menu", async (r) => (r.feed(net([unit("m", "idle")])), r.z.show(), await r.settle(), r.by((el) => el.classes.has("zen-menubtn"))[0]!.click()), async (r) => (r.z.escape({ preventDefault() {} }), await pass(r, 2_000))],
+	];
+	for (const [name, begin, end] of open) {
+		const r = rig({ start: name === "a session for company" ? { key: "m", ws: "w" } : null, z4b: true });
+		await begin(r);
+		const go = upgraded();
+		r.z.upgrade(go);
+		assert.equal(go.reloads, 0, `${name}: the page is not reloaded under the boss`);
+		assert.equal(updateLine(r), UPDATE(), `${name}: one quiet line says a new version waits`);
+		await pass(r, 30_000);
+		assert.equal(go.reloads, 0, `${name}: however long it stays`);
+		r.z.upgrade(go); // a second hello of the same build
+		assert.equal(updateLine(r), UPDATE(), `${name}: still one line`);
+		await end(r);
+		assert.equal(go.reloads, 1, `${name}: back on the breath, the new version loads, once`);
+		await pass(r, 60_000);
+		assert.equal(go.reloads, 1, `${name}: and only once`);
+	}
+});
+
+test("ZNR upgrade: a hidden page loads the new version at once, held or not; Zen being hidden (Standard shown) does too", async () => {
+	const held = rig({ start: null });
+	held.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]));
+	held.z.show();
+	await held.settle();
+	held.z.key("talk");
+	await held.settle();
+	const go = upgraded();
+	held.z.upgrade(go);
+	assert.equal(go.reloads, 0);
+	page.hidden = true;
+	held.z.visible(false);
+	assert.equal(go.reloads, 1, "the page went hidden: nobody is being interrupted");
+	const hid = rig({ start: null });
+	hid.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]));
+	hid.z.show();
+	await hid.settle();
+	hid.z.key("talk");
+	await hid.settle();
+	const second = upgraded();
+	hid.z.upgrade(second);
+	hid.z.hide();
+	assert.equal(second.reloads, 1, "Zen left for Standard: Standard reloads at once");
+	const away = rig({ start: null });
+	away.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]));
+	away.z.show();
+	await away.settle();
+	away.z.key("talk");
+	await away.settle();
+	page.hidden = true;
+	const third = upgraded();
+	away.z.upgrade(third);
+	assert.equal(third.reloads, 1, "a hello that arrives on a hidden page loads it at once");
+	page.hidden = false;
+});
+
+test("ZNR upgrade: the pause after an answer is not the breath yet: the line shows on it, and the page loads when the circle is back", async () => {
+	const r = rig({ start: null });
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]));
+	r.z.show();
+	await r.settle();
+	r.z.key("talk");
+	await r.settle();
+	const go = upgraded();
+	r.z.upgrade(go);
+	r.button("Maybe later")!.click();
+	await r.advance(100);
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length > 0 && go.reloads === 0, true, "the pause's circle is on, and nothing reloaded");
+	assert.equal(updateLine(r), UPDATE(), "the line is there on the pause");
+	await pass(r, 4_000);
+	assert.equal(go.reloads, 1);
 });

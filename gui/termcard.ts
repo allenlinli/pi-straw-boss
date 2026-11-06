@@ -67,8 +67,8 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 	}
 	function onTaken() {
 		kept = "";
-		if (stepRule(step.kind, { type: "taken" }) === "close") return over("taken");
 		[sent, after] = [true, tail(conn.rows)];
+		if (stepRule(step.kind, { type: "taken" }) === "close") return (draw(), over("taken")); // drawn before the owner hears of it: Zen's layer keeps the card after its step, and it says what was sent, not that the command waits (ZNR-F003)
 		mask = input.value ? { on: mask.on, hand: false } : NO_MASK; // a hand mask is for the prompt it answered; characters typed meanwhile stay hidden
 		draw();
 	}
@@ -86,7 +86,8 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 		if (next.on && !mask.on && !next.hand && fine() && (!at || at === document.body || el.contains(at))) input.focus();
 		mask = next;
 		title.textContent = m.terminal_title({ name });
-		wait.textContent = m.card_waits({ name });
+		wait.textContent = sent ? "" : m.card_waits({ name });
+		wait.hidden = sent;
 		tailEl.textContent = s === "connecting" ? "" : tail(conn.rows, step.command).join("\n");
 		input.type = mask.on ? "password" : "text";
 		maskBtn.setAttribute("aria-pressed", String(mask.on));

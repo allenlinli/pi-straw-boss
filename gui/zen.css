@@ -75,6 +75,9 @@
 /* The line after a first Esc that nothing took: quiet, at the foot of the page, gone with the 600 ms window. */
 [data-view="zen"] .zen-esc { position: fixed; z-index: 3; left: 50%; bottom: max(28px, calc(env(safe-area-inset-bottom) + 16px)); translate: -50% 0; width: max-content; max-width: min(24rem, 90vw); margin: 0; text-align: center; font-size: 0.9rem; color: var(--zen-ash); opacity: 0; transition: opacity 0.4s var(--zen-ease); pointer-events: none; }
 [data-view="zen"] .zen-esc[data-on] { opacity: 1; }
+/* The line while a new build waits for the breath (zen.ts `upgrade`): quiet, at the very foot of the page under the Esc hint, and gone with the reload. It takes no room and no pointer. */
+[data-view="zen"] .zen-update { position: fixed; z-index: 3; left: 50%; bottom: max(6px, env(safe-area-inset-bottom)); translate: -50% 0; width: max-content; max-width: min(26rem, 92vw); margin: 0; text-align: center; font-size: 0.8rem; letter-spacing: 0.06em; color: var(--zen-ash); animation: zen-fade 0.8s var(--zen-ease) both; pointer-events: none; }
+[data-view="zen"] .zen-update:empty { display: none; }
 /* The status strip (working and idle units; nothing about what waits) and the command palette (palette.ts; ink tokens only, 44 px rows). */
 [data-view="zen"] .zen-strip { position: fixed; z-index: 2; top: max(18px, calc(env(safe-area-inset-top) + 8px)); left: 50%; translate: -50% 0; width: max-content; max-width: calc(100vw - 140px); margin: 0; font-size: 0.85rem; letter-spacing: 0.08em; color: var(--zen-ash); pointer-events: none; }
 [data-view="zen"] .zen-strip[hidden] { display: none; }
@@ -142,6 +145,7 @@
 [data-view="zen"] :is(.ask-cancel, .cmp-alt, .zen-skip, .zen-card .cmp-link, .wait-panel .pair-btn):hover:not(:disabled) { background: var(--zen-sunken); }
 [data-view="zen"] .cmp-link { color: var(--zen-paper); text-decoration-color: var(--zen-line); }
 [data-view="zen"] .zen-card :is(.ask-acts, .cmp-acts) { justify-content: center; flex-wrap: wrap; gap: 10px; }
+[data-view="zen"] .zen-card .ask-acts > :last-child { margin-left: 0; } /* Standard pushes the last control right (style.css); a lone line (a secret_drop's "answer in the terminal", a read-only dialog's Open the terminal) would stand at the right edge of a centred row */
 [data-view="zen"] .zen-card button:disabled, [data-view="zen"] .composer button:disabled { opacity: 0.55; }
 /* A dialog on the card (ask.ts): the room is the page's, and the send row is never given up for it. The card's inner box is a column no taller than the page, down to the panel; what lies above the send row (the questions, a select's options) gives way and scrolls inside the room that is left, with a soft edge. */
 [data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { display: flex; flex-direction: column; max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))); box-sizing: border-box; }
@@ -325,7 +329,7 @@
 [data-view="zen"] :is(.zen-opt, .zen-leave):hover { background: transparent; color: var(--zen-paper); }
 [data-view="zen"] .zen-opt:is([aria-pressed="true"], [aria-checked="true"]) { border-color: transparent; background: transparent; color: var(--zen-paper); }
 [data-view="zen"] .zen-opt:is([aria-pressed="true"], [aria-checked="true"])::before { content: "● "; font-size: 0.6em; vertical-align: 0.25em; }
-@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-music-btn, .zen-musicmore, .zen-opt, .zen-esc) { transition: none; } [data-view="zen"] .zen-card-in > *, [data-view="zen"] .zen-card [data-fade] { animation: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { [data-view="zen"] .zen-ripples { display: none; } [data-view="zen"] .zen-card[data-gone] { display: none; } [data-view="zen"] .zen-line, [data-view="zen"] :is(.zen-fs, .zen-menubtn, .zen-music-btn, .zen-musicmore, .zen-opt, .zen-esc) { transition: none; } [data-view="zen"] .zen-card-in > *, [data-view="zen"] .zen-card [data-fade] { animation: none; } [data-view="zen"] .zen-qs > .ask-one { transition: none; animation: none; } [data-view="zen"] .zen-drift i:last-child { opacity: 0; } [data-view="zen"] .zen-update { animation: none; } }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .tcard { animation: none; } }
 @media (prefers-reduced-motion: reduce) { [data-view="zen"] .palette { animation: none; } }
 @media (forced-colors: active) { [data-view="zen"] .tcard :is(.tcard-cmd, .tcard-input) { border: 1px solid CanvasText; } }

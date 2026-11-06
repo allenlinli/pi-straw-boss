@@ -514,6 +514,60 @@ test("the link shows only while the lines are clear; the history closes by Esc, 
 	}
 });
 
+test("ZNR-F002: a snapshot without the head while the whole conversation is open does not make it a session that ended or lost control: no note, no second way back, its own Back to the breath and H still close it, and the head's return continues it", async () => {
+	const r = rig({ items: [headLine("a1", "something", 1)] });
+	await r.start();
+	r.z.key("history");
+	r.z.key("history");
+	await r.settle();
+	assert.equal(open(r), true);
+	for (const next of [net(undefined), net(head())]) {
+		r.feed(next);
+		await r.settle();
+		assert.equal(open(r), true, "the conversation stays open");
+		assert.equal(r.by("zen-company-note")[0]!.textContent, "", "no 已結束 and no 已失去控制 for the head");
+		assert.equal(r.by("zen-company-rest").length, 0, "no session's way back beside the head's own");
+		assert.equal(r.by("zen-rest").length, 1, "the one way back is the head's Back to the breath");
+		assert.equal(r.by("zen-who")[0]!.textContent, "Head tower");
+	}
+	r.feed(net(undefined));
+	await r.settle();
+	r.by("zen-rest")[0]!.click();
+	await r.settle();
+	assert.equal(open(r), false, "Back to the breath works while the head is away");
+	const h = rig({ items: [headLine("a1", "something", 1)] });
+	await h.start();
+	h.z.key("history");
+	h.z.key("history");
+	await h.settle();
+	h.feed(net(undefined));
+	await h.settle();
+	assert.equal(h.z.key("history"), true, "H closes it too");
+	await h.settle();
+	assert.equal(open(h), false);
+	assert.equal(h.calls.leave.length, 0, "and Zen was not left");
+});
+
+test("ZNR upgrade: the head's whole conversation, and its unfolded input, hold a new build's reload with the quiet line; Back to the breath lets it load", async () => {
+	for (const [name, begin, end] of [
+		["the whole conversation", async (r: ReturnType<typeof rig>) => (r.z.key("history"), await r.settle(), assert.equal(open(r), true)), async (r: ReturnType<typeof rig>) => (r.by("zen-rest")[0]!.click(), await r.settle())],
+		["the unfolded input", async (r: ReturnType<typeof rig>) => (r.unfold(), await r.settle()), async (r: ReturnType<typeof rig>) => (r.esc(), await r.settle())],
+	] as const) {
+		const r = rig({ items: [] });
+		await r.start();
+		await begin(r);
+		let reloads = 0;
+		r.z.upgrade(() => void reloads++);
+		assert.equal(reloads, 0, `${name}: not reloaded under the boss`);
+		assert.equal(r.by("zen-update")[0]!.textContent, m.zen_update(), `${name}: the quiet line`);
+		for (let i = 0; i < 6; i++) await r.advance(500);
+		assert.equal(reloads, 0, `${name}: still held`);
+		await end(r);
+		for (let i = 0; i < 6; i++) await r.advance(500);
+		assert.equal(reloads, 1, `${name}: back on the breath it loads`);
+	}
+});
+
 test("the history is not a step of [ and ]: the ring still wraps at the circle", async () => {
 	const r = rig({ items: [headLine("a1", "something", 1)] });
 	await r.start();

@@ -291,7 +291,15 @@ test("the guard does not wait for a pane whose session is another than the recor
 	await until(() => member.tokens.sb_role === "main", "crowned at once");
 });
 
-test("a restored main whose claim times out still opens no tower once the owner confirms it later", async () => {
+/** `tabMs`: how long Herdr takes to answer `tab create`, as on a loaded machine. */
+async function claimTimesOutOpensNoTower(tabMs = 0) {
+	if (tabMs) {
+		const answer = world.herdr.runFor.bind(world.herdr);
+		world.herdr.runFor = (self: string) => {
+			const run = answer(self);
+			return async (args: string[]) => (args[0] === "tab" && args[1] === "create" && (await new Promise<void>((resolve) => setTimeout(resolve, tabMs))), run(args));
+		};
+	}
 	world.herdr.addTab("wA:t1", "work", "wA:p1");
 	world.herdr.addPane("wA:p2", "wA:t1");
 	const fast = { autoTower: true, couple: false, sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, Math.min(ms, 2))) };
@@ -299,9 +307,11 @@ test("a restored main whose claim times out still opens no tower once the owner 
 	first.file = FILES.main;
 	await first.start();
 	await first.promote();
+	// The first main opens its own tower in the background, after a settings check that reads files: its tab lands when Herdr answers, not when `promote` returns. Wait for it, so that the restart clears it from
+	// Herdr's call log; a tab that landed after the restart would be counted below as the restored main's tower.
+	await until(() => world.herdr.commands("tab", "create").length === 1, "the first main's own tower tab", 15_000);
 	await first.stop("quit");
-	world.herdr.commands("tab", "create").length = 0;
-	world.herdr.restart();
+	world.herdr.restart(); // clears the call log
 	world.broker.dropClaims = true;
 	const member = await pi({ id: "member-2", pane: "wA:p2", deps: fast }, FILES.member); // the owner of the tab channel
 	const back = await pi({ id: "main-2", pane: "wA:p1", deps: fast }, FILES.main);
@@ -312,7 +322,10 @@ test("a restored main whose claim times out still opens no tower once the owner 
 	await world.quiet();
 	assert.equal(back.tokens.sb_role, "main");
 	assert.equal(world.herdr.commands("tab", "create").length, 0, "the restored main opens no tower, though its claim timed out first");
-});
+}
+
+test("a restored main whose claim times out still opens no tower once the owner confirms it later", () => claimTimesOutOpensNoTower());
+test("a restored main whose claim times out still opens no tower when Herdr was slow to open the first main's own tower tab", () => claimTimesOutOpensNoTower(100));
 
 // A main the tower opened for a request is closable by that tower (closemain.ts) only while its pane carries `sb_opened_by`, which the main writes from the opener it
 // saved in the session, and only for the same pi in the same pane after a /reload. A Herdr restore is a plain startup, so the record has to carry the opener too.

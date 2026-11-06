@@ -124,7 +124,7 @@ export function createGuiHost(o: GuiHostOptions) {
 	/** Set while the boss's rotation runs: the GUI commands wait for it, and the start it makes says why its token is new. */
 	let rotating: Promise<unknown> | undefined;
 	// Built once for this process: pi-intercom has no unregister, so a channel the hub registered stays, and the same hub serves the GUI again after a stop.
-	const deploys = createDeploys(), trust = createTrustServe({ dir: trustDir(slot.stateDir), herdr: slot.herdr, world: () => cfg.world(), opening: deploys.openingOf });
+	const deploys = createDeploys(), openings = createOpenings(join(slot.stateDir, "openings.json")), trust = createTrustServe({ dir: trustDir(slot.stateDir), herdr: slot.herdr, world: () => cfg.world(), opening: deploys.openingOf });
 	const live = async (session: string) => (await o.sessions()).some((x) => x.id === session);
 
 	/** The hub, built when the server starts and kept for the process: it tracks the gates for the tower service whether or not a page listens (dialogs.ts `track`). */
@@ -240,7 +240,7 @@ export function createGuiHost(o: GuiHostOptions) {
 			onSaveFailed: (reason) => log.line("error", { code: "paired", text: phrase(reason, 200) }),
 			onRemote: async () => void (await switchRemote(running, true, dir, ts), (remoteNote = undefined), log.line("remote-on", { how: "page" })),
 			onRemoteOff: async () => void (await switchRemote(running, false, dir, ts), (remoteNote = undefined), log.line("remote-off", { why: "page" })),
-			spawn: createSpawn({ run: cfg.run, sleep: cfg.sleep, call: cfg.call, deploys, trustDir: trustDir(slot.stateDir), openings: createOpenings(join(slot.stateDir, "openings.json")), live, sessionAt: async (pane) => (await sessions()).find((x) => x.herdrLocation?.paneId === pane)?.id }),
+			spawn: createSpawn({ run: cfg.run, sleep: cfg.sleep, call: cfg.call, deploys, trustDir: trustDir(slot.stateDir), openings, note: (event, facts) => log.line(event, facts), live, sessionAt: async (pane) => (await sessions()).find((x) => x.herdrLocation?.paneId === pane)?.id }),
 			close: createCloser({
 				run: cfg.run, sleep: cfg.sleep, me: () => id, sessions, ask: async (key, keepPane, ifStashable) => hub?.close(key, keepPane, ifStashable), check: async (key) => hub?.stashCheck(key), stateDir: slot.stateDir,
 				// The tower the server runs has no pi to ask: the unit the net shows for it (a service, not a waiting one) is closed by ending the service.

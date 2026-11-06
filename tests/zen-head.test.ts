@@ -301,12 +301,16 @@ test("with no tower service the folded line says so and does not unfold; before 
 	assert.equal(none.strip()!.hidden, true, "no snapshot yet: the strip is not drawn");
 });
 
-test("an item takes the screen from the strip as today and the stream stops watching the head; what the head says meanwhile changes nothing until the circle is back, where the new line starts clear", async () => {
+test("an item takes the screen from the strip on Enter (Z-D19) and the stream stops watching the head; what the head says meanwhile changes nothing until the circle is back, where the new line starts clear", async () => {
 	const r = rig({ items: [headLine("a1", "old words", 1)] });
 	await r.start();
 	await r.advance(CLEAR_MS + FADE_MS + 20);
 	assert.equal(r.away(), false, "at rest");
 	r.feed(net(head(), [waiting()]));
+	await r.settle();
+	assert.equal(r.by("zen-card").length, 0, "the item waits: it does not take the screen by itself");
+	assert.equal(r.by("zen-head").length, 1, "the strip stays");
+	assert.equal(r.press("Enter"), true, "Enter takes it, not the head's input");
 	await r.settle();
 	assert.equal(r.by("zen-head").length, 0, "the card replaced the strip");
 	assert.equal(r.calls.watch.at(-1), null, "nothing watches the head now");
@@ -321,28 +325,24 @@ test("an item takes the screen from the strip as today and the stream stops watc
 	assert.ok(r.by("zen-hl")[0]!.style.animationDelay.startsWith("-"), "an old line carries on from where it was: its animation starts with a negative delay");
 });
 
-test("a draft in the box holds the screen against an item for DRAFT_MS after the last touch; sending or emptying the box lets it in", async () => {
+test("a card does not interrupt the boss writing to the head: it waits for Enter however long the draft is; the draft is kept, and the cue says one waits", async () => {
 	const r = rig();
 	await r.start();
 	r.unfold();
 	r.typed("writing to the head");
 	r.root.bubble("keydown", { key: "x" });
 	r.feed(net(head(), [waiting()]));
-	await r.advance(DRAFT_MS - 1000);
-	assert.equal(r.by("zen-card").length, 0, "the item waits while he writes");
-	await r.advance(2000);
-	assert.equal(r.by("zen-card").length, 1, "20 s after his last touch it takes the screen");
-	const s = rig();
-	await s.start();
-	s.unfold();
-	s.typed("short");
-	s.root.bubble("keydown", { key: "x" });
-	s.feed(net(head(), [waiting()]));
-	await s.advance(1000);
-	assert.equal(s.by("zen-card").length, 0);
-	s.typed("");
-	await s.advance(1000);
-	assert.equal(s.by("zen-card").length, 1, "an emptied box lets it in");
+	await r.advance(DRAFT_MS * 3);
+	assert.equal(r.by("zen-card").length, 0, "the item waits");
+	assert.equal(r.box().value, "writing to the head", "the draft stays");
+	assert.equal(cueOf(r), "1 card waits for Enter. No rush, when you're ready.");
+	await r.enter();
+	assert.equal(r.box().value, "", "Enter in the box is the box's: it sent the message");
+	assert.equal(r.by("zen-card").length, 0);
+	const quiet = rig({ items: [headLine("a0", "from before", 1)] });
+	await quiet.start();
+	await quiet.settle();
+	assert.equal(quiet.by("zen-head-live")[0]!.textContent, "", "the lines that were already there are not announced");
 });
 
 test("while the head runs the lines say it is on it, with no spinner, and the live region says its next reply once", async () => {
@@ -363,14 +363,17 @@ test("while the head runs the lines say it is on it, with no spinner, and the li
 	assert.equal(quiet.by("zen-head-live")[0]!.textContent, "", "the lines that were already there are not announced");
 });
 
-test("a wait for the boss keeps the newest line clear and the mindfulness line away until he writes", async () => {
+test("a wait for the boss, once he has called the lines up, keeps the newest line clear and the mindfulness line away until he writes", async () => {
 	const waits = service({ memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "w1", text: "orchard?", at: at(5) }], proposals: [] } });
 	const r = rig({ head: head({ service: waits }), items: [headLine("a1", "Should I rerun the ETL tonight?", 5)] });
 	await r.start();
+	assert.equal(hushed(r), true, "a wait is a card in the cue (Z-D19): it does not wake the strip");
+	assert.equal(cueOf(r), "1 card waits for Enter. No rush, when you're ready.");
+	r.unfold();
+	assert.equal(cueOf(r), "", "called up: the wait is in front of him, not a card to count");
 	await r.advance(CLEAR_MS + FADE_MS + 60_000);
 	assert.equal(r.away(), true, "held: the mindfulness line stays away");
 	assert.equal(r.by("zen-hl")[0]!.getAttribute("data-held"), "", "and the newest line is marked held, which the page keeps clear");
-	r.unfold();
 	r.typed("tonight, yes");
 	r.enter();
 	await r.settle();
@@ -685,6 +688,7 @@ test("a tap on the blank space does nothing on an item, the pause, a companion, 
 	const item = rig({ items: [headLine("a1", "x", 1)] });
 	await item.start(net(head(), [waiting()]));
 	await item.settle();
+	item.z.key("talk"); // Enter takes the card (Z-D19)
 	assert.equal(item.by("zen-card").length, 1);
 	stage(item).bubble("click");
 	assert.equal(item.by("zen-head").length, 0);
@@ -703,6 +707,7 @@ test("a tap on the blank space does nothing on an item, the pause, a companion, 
 	pause.wake(); // the boss called the lines up, then an item came and was answered
 	pause.feed(net(head(), [waiting()]));
 	await pause.settle();
+	pause.z.key("talk"); // Enter takes the card (Z-D19)
 	pause.root.all((el) => el.tagName === "button" && el.textContent === "Maybe later")[0]!.click();
 	await pause.settle();
 	assert.equal(pause.root.all((el) => el.getAttribute("role") === "img" && el.getAttribute("aria-label") === m.zen_pause()).length, 1, "the pause is on");
@@ -779,18 +784,25 @@ test("a reply to the message he just sent from this strip wakes it (Esc while th
 	assert.equal(hushed(r), false);
 });
 
-test("a wait or question for the boss wakes the strip, once: one that was already open when it rested does not, a new one does", async () => {
+test("a wait or question for the boss never wakes the strip (Z-D19: it is a card, counted in the cue, and Enter calls it up); a reply to something he sent still does", async () => {
 	const wait = (id: string, answered?: string) => ({ id, text: "orchard?", at: at(5), ...(answered ? { answered } : {}) });
 	const mem = (...bossWaits: ReturnType<typeof wait>[]) => service({ memory: { rev: 1, standing: 0, decisions: 0, waits: bossWaits.length, bossWaits, proposals: [] } });
 	const r = await ready([headLine("a1", "Should I rerun the ETL tonight?", 5)], { head: head({ service: mem(wait("w1")) }) });
 	r.esc();
-	assert.equal(hushed(r), true, "Esc rests even a held line: it is his call");
-	r.feed(net(head({ service: mem(wait("w1")) })));
-	assert.equal(hushed(r), true, "the wait he rested on is not news");
+	assert.equal(hushed(r), true);
+	assert.equal(cueOf(r), "1 card waits for Enter. No rush, when you're ready.");
 	r.feed(net(head({ service: mem(wait("w1", at(6))) })));
-	assert.equal(hushed(r), true, "answering it wakes nothing");
+	assert.equal(hushed(r), true);
+	assert.equal(cueOf(r), "", "answering it clears the cue");
 	r.feed(net(head({ service: mem(wait("w1", at(6)), wait("w2")) })));
-	assert.equal(hushed(r), false, "a new question for the boss wakes it");
+	assert.equal(hushed(r), true, "a new question for the boss does not wake it either");
+	assert.equal(cueOf(r), "1 card waits for Enter. No rush, when you're ready.");
+	r.feed(net(head({ service: mem(wait("w1", at(6)), wait("w2"), wait("w3")) })));
+	assert.equal(cueOf(r), "2 cards wait for Enter. No rush, when you're ready.");
+	assert.equal(r.press("Enter"), true, "Enter calls it up: the lines, with the input open");
+	assert.equal(hushed(r), false);
+	assert.equal(r.form().hidden, false);
+	assert.equal(cueOf(r), "", "he is looking at it now");
 });
 
 test("Enter calls the head back: the strip wakes and the input unfolds, focused", async () => {
@@ -855,6 +867,7 @@ test("the strip is the page's own for this visit: Zen hiding puts it back at res
 	assert.equal(hushed(r), true, "every visit starts at rest (Z-D16, and the boss's 2026-11-06 ruling)");
 	r.feed(net(head(), [waiting()]));
 	await r.settle();
+	r.z.key("talk"); // Enter takes the card (Z-D19)
 	assert.equal(r.by("zen-card").length, 1);
 	r.feed(net(head()));
 	await r.settle();
@@ -863,6 +876,7 @@ test("the strip is the page's own for this visit: Zen hiding puts it back at res
 	r.wake();
 	r.feed(net(head(), [waiting()]));
 	await r.settle();
+	r.z.key("talk");
 	r.feed(net(head()));
 	await r.settle();
 	await r.advance(5000);
@@ -870,6 +884,8 @@ test("the strip is the page's own for this visit: Zen hiding puts it back at res
 });
 
 // Rest is the default (boss ruling 2026-11-06: 「我覺得應該預設是呼吸，這是主塔台不是嗎？主塔台應該是 click input field 再顯示 session 吧」): a visit starts at the breath and the input line; the head's lines come up when the boss calls them.
+/** The cue above the input (Z-D19): empty when it is away. */
+const cueOf = (r: ReturnType<typeof rig>) => (r.by("zen-head-cue")[0]!.dataset.away === undefined ? r.by("zen-head-cue-btn")[0]!.textContent : "");
 const waitOf = (id: string, answered?: string) => ({ id, text: "orchard?", at: at(5), ...(answered ? { answered } : {}) });
 const memOf = (...bossWaits: ReturnType<typeof waitOf>[]) => service({ memory: { rev: 1, standing: 0, decisions: 0, waits: bossWaits.length, bossWaits, proposals: [] } });
 const talk = [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)];
@@ -968,26 +984,28 @@ test("a head line that arrives at rest, and an old reply the page already holds,
 	assert.equal(hushed(r), false, "the reply to what he sent surfaces");
 });
 
-test("a wait for the boss surfaces at once, even on the first draw of a visit; with none open the strip stays at rest", async () => {
+test("a wait for the boss that is open when the visit starts does not wake the strip: it is in the cue, and Enter opens it; an answered one counts for nothing", async () => {
 	const waiting = rig({ items: [headLine("a1", "Should I rerun the ETL tonight?", 5)], head: head({ service: memOf(waitOf("w1")) }) });
 	await waiting.start();
 	await waiting.settle();
-	assert.equal(hushed(waiting), false, "it is for the boss, and nothing else on Zen shows it");
+	assert.equal(hushed(waiting), true);
+	assert.equal(waiting.away(), false, "the maxim, not the question");
+	assert.equal(cueOf(waiting), "1 card waits for Enter. No rush, when you're ready.");
+	waiting.press("Enter");
+	assert.equal(hushed(waiting), false, "Enter opens it");
 	assert.equal(waiting.away(), true);
 	const answered = rig({ items: [headLine("a1", "Done.", 5)], head: head({ service: memOf(waitOf("w1", at(6))) }) });
 	await answered.start();
 	await answered.settle();
-	assert.equal(hushed(answered), true, "an answered wait is not news");
+	assert.equal(cueOf(answered), "");
 });
 
-test("the snapshots a visit starts with are all history: a stream's reset that follows the newest page, with a reply in it, wakes nothing; a line added after them does", async () => {
+test("only the visit's first history is what was already said: a snapshot after it that carries a reply to the boss wakes the strip", async () => {
 	const r = rig({ items: [headLine("a0", "Ready.", 0)] }); // the newest page the strip reads
 	await r.start();
 	await r.settle();
-	r.z.history({ key: "sb-head", reset: true, items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)] }); // the stream's own snapshot: a1 answers u1
-	await r.settle();
 	assert.equal(hushed(r), true);
-	r.z.history({ key: "sb-head", items: [bossLine("u2", "and the tests?", 3), headLine("a2", "Tests pass.", 4)] });
+	r.z.history({ key: "sb-head", reset: true, items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)] }); // a reset that came later: a1 answers u1, which is new
 	await r.settle();
-	assert.equal(hushed(r), false, "a reply added after the snapshots is news");
+	assert.equal(hushed(r), false);
 });

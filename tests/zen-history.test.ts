@@ -49,7 +49,8 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		trust: (body: Record<string, unknown>) => (calls.trust.push(body), new Promise<Answer>((resolve) => replies.push(resolve))),
 		label: (ws: string) => (ws === "w" ? "Harbor" : ws), online: () => !o.offline,
 		remind: (a: { key: string }) => void calls.remind.push(a.key), sound: (s: string) => void calls.sound.push(s), leave: (e: Exit) => void calls.leave.push(e), terminals: async () => ({ embed: (key: string) => (calls.embeds.push(key), () => {}), watch: () => ({ conn: {}, stop() {} }), post: () => async () => ({ ok: true, status: 200, body: {} }), stream: () => "st" }), watch: (k: string | null) => void calls.watch.push(k),
-		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, start: () => o.start,
+		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, start: () => o.start ?? { key: "t", ws: "w" }, // a session for company: a card still takes the screen by itself; on the breathing circle it waits for Enter (Z-D19, zen-layer.test.ts)
+		
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
 		later: (fn: () => void, ms: number) => {

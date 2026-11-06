@@ -319,6 +319,18 @@ test("the strip's two swaps move: hover, focus, and a tap ease the lines to clea
 	assert.deepEqual(declarations(link!.body), [["opacity", "0"], ["visibility", "hidden"], ["transition", "opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s"]], "the Whole conversation link fades the same way, so the strip does not jump when the lines come clear");
 });
 
+test("the cue that says a card waits for Enter (Z-D19) shares the link's row so the strip is no taller, keeps its room when there is none, is a 44 px control, and moves not at all under reduced motion", () => {
+	const away = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-cue[data-away]'));
+	assert.deepEqual(declarations(away!.body), [["opacity", "0"], ["visibility", "hidden"], ["transition", "opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s"]], "with no card it fades away and keeps its room: the circle and the lines never move when a card comes or goes");
+	const meta = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-meta > *'));
+	assert.deepEqual(declarations(meta!.body), [["grid-column", "1"], ["grid-row", "1"]], "the link and the cue are in one cell");
+	assert.ok(rulesOf(zen).some((r) => r.parts.includes('[data-view="zen"] .zen-head:not([data-hushed]) .zen-head-cue:not([data-away])') && /grid-row: 2/.test(r.body)), "with the lines up the cue takes the row under the link");
+	assert.ok(rulesOf(zen).some((r) => r.parts.some((x) => /zen-head-cue-btn/.test(x)) && /min-height: 44px/.test(r.body)), "a tap target of 44 px: a phone has no Enter");
+	assert.ok(!/vermilion|--zen-seal/.test(rulesOf(zen).filter((r) => r.parts.includes('[data-view="zen"] .zen-head-cue') || r.parts.includes('[data-view="zen"] .zen-head-cue-btn')).map((r) => r.body).join("")), "vermilion is for the focus alone");
+	const reduced = zen.slice(zen.indexOf("@media (prefers-reduced-motion: reduce) { /* no fade"), zen.indexOf("@media (forced-colors: active) { /* the lines"));
+	assert.match(reduced, /\.zen-head-cue\)/, "under reduced motion the cue comes and goes at once");
+});
+
 test("a rested strip sends its lines and working line away the way the mindfulness line goes: faded out, then out of the reading order, and still taking their room; hover and forced colours do not bring them back", () => {
 	const rest = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head[data-hushed] :is(.zen-head-lines, .zen-head-working)'));
 	assert.ok(rest, "the rule is there");

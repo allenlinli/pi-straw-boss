@@ -31,6 +31,10 @@ export interface HeadIo {
 	history(): void;
 	/** Whether the page is a phone or a window 560 px tall or less: two lines, not three. */
 	small?(): boolean;
+	/** How many cards wait for Enter in Zen (Z-D19). */
+	cards(): number;
+	/** Enter, or a tap on the cue: the next card takes the screen; with none, the head tower is called back. */
+	take(): void;
 }
 
 /** A wheel gesture over the circle screen: the sign of the travel once it passes a notch (24 px), once per gesture (events within 100 ms of each other are one, inertia included). `edge` is true when the gesture began at the end of what scrolls. */
@@ -91,13 +95,14 @@ export function mountHead(io: HeadIo) {
 	const live = h("p", { class: "zen-live zen-head-live", role: "status", "aria-live": "polite" });
 	const list = h("ol", { class: "zen-head-lines" }), working = h("p", { class: "zen-head-working" }, m.zen_head_working()), whole = h("button", { type: "button", class: "zen-head-history", "aria-keyshortcuts": "H" }, `${m.zen_head_history()} `, h("span", { class: "zen-head-key", "aria-hidden": "true" }, m.zen_head_key()));
 	const hint = h("button", { type: "button", class: "zen-head-hint" }, m.zen_head_hint());
+	const cueBtn = h("button", { type: "button", class: "zen-head-cue-btn" }), cue = h("p", { class: "zen-head-cue", role: "status", "aria-live": "polite" }, cueBtn); // the one line that says a card waits for Enter (Z-D19); it keeps its room so nothing moves when a card comes or goes
 	const box = h("textarea", { class: "zen-head-box", rows: "1", maxlength: "20000", "aria-label": m.zen_head_placeholder(), placeholder: m.zen_head_placeholder(), enterkeyhint: "send" }) as HTMLTextAreaElement;
 	const note = h("p", { class: "zen-head-note", role: "alert" }), form = h("form", { class: "zen-head-form" }, box, note);
-	const el = h("section", { class: "zen-head", role: "group", "aria-label": m.zen_head_label() }, list, working, live, whole, hint, form);
+	const el = h("section", { class: "zen-head", role: "group", "aria-label": m.zen_head_label() }, list, working, live, h("div", { class: "zen-head-meta" }, whole, cue), hint, form);
 	[working.hidden, form.hidden, el.hidden] = [true, true, true];
 	el.dataset.hushed = "";
 	let items: Item[] = [], ids = new Set<string>(), seen = false, showing = false, unfolded = false, busy = false, off = false;
-	let hushed = true, hushLines = new Set<string>(), hushWaits = new Set<string>(), first = true; // resting: the lines are sent away until the head answers him, asks him something, or he calls it back (a click or focus on the input, Enter, H). Every visit starts at rest, and Esc, a tap on the blank space, or the input losing the focus rests again. Page-local. `first`: until a line is added to the history in this visit, the snapshots it gets are what was already said.
+	let hushed = true, hushLines = new Set<string>(), first = true; // resting: the lines are sent away until the head answers him or he calls it back (a click or focus on the input, Enter, H; a wait for him is a card in the cue, Z-D19). Every visit starts at rest, and Esc, a tap on the blank space, or the input losing the focus rests again. Page-local. `first`: the visit's first history is what was already said.
 	let unit: HeadUnit | undefined, restOn: boolean | undefined, rested = false, kept = 0, stopTimer = () => {}, hover = false, focus = false, touching = false, stopHover = () => {}, stopTouch = () => {}, local = 0;
 	const known = new Set<string>(), shown = new Map<string, HTMLElement>(), pending: { id: string; text: string; seen: number }[] = [];
 	const one = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -145,6 +150,11 @@ export function mountHead(io: HeadIo) {
 		stopTimer();
 		const when = fade.restAt(keep.map((l) => l.id), held);
 		stopTimer = when === undefined ? () => {} : io.later(draw, Math.max(0, when - io.now()) + 10);
+		const cards = io.cards(), news = cards + (hushed ? openWaits().size : 0); // a wait for the boss counts as a card while the strip rests; once he has called the lines up, it is in front of him
+		cueBtn.textContent = news === 0 ? "" : news === 1 ? m.zen_cue_one({ n: news }) : m.zen_cue_many({ n: news });
+		cueBtn.disabled = news === 0;
+		news === 0 ? (cue.dataset.away = "") : delete cue.dataset.away;
+		if (!off) hint.textContent = cards > 0 ? m.zen_head_hint_click() : m.zen_head_hint(); // Enter takes a card first while one waits
 		hint.hidden = unfolded && !off;
 		form.hidden = !unfolded || off;
 	}
@@ -157,18 +167,18 @@ export function mountHead(io: HeadIo) {
 		for (const id of [...ids]) if (!items.some((it) => it.id === id)) ids.delete(id);
 		if (reset && !seen) (headLines(items).forEach((l) => known.add(l.id)), (seen = true)); // what the first page holds is what was already said
 		if (reset && first && hushed) headLines(items).forEach((l) => hushLines.add(l.id)); // and a reply in it is not news to this visit
-		if (!reset) first = false; // snapshots (a stream's reset, the newest page) are what exists: only a line that is added to them can be news to the visit
+		first = false;
 		if (hushed) wakes();
 		if (showing) draw();
 	}
 
-	/** A resting strip wakes for what the boss is owed and nothing else: a head line that answers something he sent, or a wait for him that was not open when it rested. The head's own reports (a tower's answer, a timer) are not. */
+	/** A resting strip wakes for a reply to something the boss sent, and for nothing else: not the head's own reports (a tower's answer, a timer), and not a wait for him (Z-D19: that is a card, counted in the cue; Enter calls it up). */
 	function wakes() {
-		if (headLines(items).some((l) => l.reply && !hushLines.has(l.id)) || [...openWaits()].some((id) => !hushWaits.has(id))) wake(false);
+		if (headLines(items).some((l) => l.reply && !hushLines.has(l.id))) wake(false);
 	}
 	/** The lines go and the mindfulness line comes back, whatever a hover, focus, or touch holds clear; what is there now is not news. */
 	function hush() {
-		[hushed, hushLines, hushWaits, first] = [true, new Set(headLines(items).map((l) => l.id)), openWaits(), false]; // a snapshot after a rest the boss made can carry a reply he is owed
+		[hushed, hushLines, first] = [true, new Set(headLines(items).map((l) => l.id)), false]; // a snapshot after a rest the boss made can carry a reply he is owed
 		el.dataset.hushed = "";
 		bright();
 		if (showing) draw();
@@ -291,6 +301,7 @@ export function mountHead(io: HeadIo) {
 	box.addEventListener("input", () => (say(""), grow(), io.changed()));
 	form.addEventListener("submit", (e) => (e.preventDefault(), void send()));
 	hint.onclick = () => void unfold();
+	cueBtn.onclick = () => io.take();
 	whole.onclick = () => io.history();
 	// A blur with an empty box folds; with a draft it stays. The hint's own blur is not the box's: a click on the folded hint focuses it, and unfolding hides it, which Chrome reports as a focusout of the hint just before the box takes the focus.
 	// The strip rests again when the focus leaves it (the input folded or never opened): a window that lost the focus is not the boss leaving, and a move to another control inside the strip is not either.
@@ -308,7 +319,7 @@ export function mountHead(io: HeadIo) {
 			unit = next;
 			off = ready && !next;
 			el.hidden = !ready;
-			hint.textContent = off ? m.zen_head_off() : m.zen_head_hint();
+			if (off) hint.textContent = m.zen_head_off();
 			hint.disabled = off;
 			if (off) fold();
 			mix();
@@ -327,7 +338,7 @@ export function mountHead(io: HeadIo) {
 		reset() {
 			stop();
 			fold();
-			[hushed, hushLines, hushWaits, first] = [true, new Set(headLines(items).map((l) => l.id)), new Set(), true]; // the next visit starts at rest, and what is in memory now is not news to it
+			[hushed, hushLines, first] = [true, new Set(headLines(items).map((l) => l.id)), true]; // the next visit starts at rest, and what is in memory now is not news to it
 			el.dataset.hushed = "";
 			box.value = "";
 			say("");

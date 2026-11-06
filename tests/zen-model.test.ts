@@ -9,10 +9,11 @@ import { blocks, createZen, OUTCOME_MS, PAUSE_MS, REST_MS, type Screen } from ".
 const al = (key: string, mark: Mark, since?: number, extra: Partial<Alert> = {}): Alert => ({ key, ws: "w", name: key, role: "main", mark, at: 0, since, ...extra });
 const map = (...a: Alert[]) => new Map(a.map((x) => [x.key, x]));
 const dlg = (digest: string) => ({ callId: "c", tool: "ask_user", answer: { dialog: "d", digest } });
-function rig(typing = false) {
-	let t = 1_000_000, typed = typing, touch = false;
-	const z = createZen({ now: () => t, typing: () => typed, touched: () => touch });
-	return { z, at: (ms: number) => (t += ms), type: (on: boolean) => (typed = on), touch: (on: boolean) => (touch = on), now: () => t };
+/** `breathing`: Zen rests on the breathing circle, where a card waits for Enter (Z-D19); the default is a session for company, where it still takes the screen. */
+function rig(typing = false, breathing = false) {
+	let t = 1_000_000, typed = typing, breath = breathing;
+	const z = createZen({ now: () => t, typing: () => typed, breathing: () => breath });
+	return { z, at: (ms: number) => (t += ms), type: (on: boolean) => (typed = on), breathe: (on: boolean) => (breath = on), now: () => t };
 }
 const unit = (key: string, mark: Mark, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
 const net = (units: Unit[], trust: Net["trust"] = []): Net => ({ bases: [{ id: "w", label: "w", mark: "idle", tower: { name: "tower", mark: "idle", key: "t", control: true, subs: [{ ...unit("sub", "waiting", { role: "subagent", since: 5 }) }] }, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust });
@@ -293,20 +294,20 @@ const PAIR = (since = 1) => al("pair\u001fp1", "waiting", since, { ws: "", role:
 const PROPOSAL = (since = 1) => al("proposal\u001fw\u001fP1", "waiting", since, { unit: "t", role: "tower", card: { kind: "proposal", ws: "w", tower: "t", proposal: {} as never, rev: 1 } });
 const keyOf = (r: { screen: Screen }) => (r.screen.kind === "item" ? r.screen.item.key : r.screen.kind);
 
-test("Z-D18: a question that blocks an agent takes the screen from an untouched tower wait, with the bowl, and the wait goes back in line", () => {
+test("Z-D19 (replaces Z-D18's preemption): a question that blocks an agent does not take the screen from a tower wait; it comes next, with the bowl, once the wait is done", () => {
 	const { z, at } = rig();
 	assert.equal(keyOf(z.update(map(WAIT()))), WAIT().key);
 	const r = z.update(map(WAIT(), BOX()));
-	assert.deepEqual([keyOf(r), r.sound], [BOX().key, "bowl"]);
-	z.accepted(BOX().key);
+	assert.deepEqual([keyOf(r), r.sound], [WAIT().key, undefined]);
+	z.accepted(WAIT().key);
 	at(OUTCOME_MS);
 	assert.equal(z.tick().screen.kind, "pause");
 	at(PAUSE_MS);
-	const back = z.update(map(WAIT())); // the box dialog is gone: answered
-	assert.deepEqual([keyOf(back), back.sound], [WAIT().key, "bowl"], "the wait comes back by itself, not put aside for ten minutes");
+	const next = z.update(map(WAIT(), BOX()));
+	assert.deepEqual([keyOf(next), next.sound], [BOX().key, "bowl"]);
 });
 
-test("Z-D18: every kind that blocks an agent preempts every kind that blocks none", () => {
+test("Z-D18: every kind that blocks an agent comes before every kind that blocks none, on the breathing circle by Enter and with a session for company by itself", () => {
 	const blocking: [string, Alert][] = [
 		["a waiting unit", al("u", "waiting", 100)],
 		["a unit with a dialog", al("d", "working", 100, { pending: dlg("x") as never })],
@@ -316,19 +317,22 @@ test("Z-D18: every kind that blocks an agent preempts every kind that blocks non
 	];
 	const lower: [string, Alert][] = [["a tower wait", WAIT()], ["a pair request", PAIR()], ["a memory proposal", PROPOSAL()]];
 	for (const [bn, b] of blocking) for (const [ln, l] of lower) {
-		const { z } = rig();
-		assert.equal(keyOf(z.update(map(l))), l.key, ln);
-		assert.equal(keyOf(z.update(map(l, b))), b.key, `${bn} takes the screen from ${ln}`);
+		const { z } = rig(false, true);
+		assert.equal(keyOf(z.update(map(l, b))), "companion", `${bn}: waits for Enter`);
+		assert.deepEqual(z.queued().map((a) => a.key), [b.key, l.key], `${bn} is before ${ln}, however old the other is`);
+		assert.equal(keyOf(z.take()), b.key);
+		const company = rig();
+		assert.equal(keyOf(company.z.update(map(l, b))), b.key, `${bn} comes before ${ln}`);
 	}
 });
 
-test("Z-D18: a teammate's confirm is blocking: it keeps the screen against an older wait and takes it from an untouched one", () => {
+test("Z-D18: a teammate's confirm is blocking: it keeps the screen against an older wait, and comes before it", () => {
 	const a = rig();
 	assert.equal(keyOf(a.z.update(map(CONFIRM(100)))), CONFIRM().key);
 	assert.equal(keyOf(a.z.update(map(CONFIRM(100), WAIT(1)))), CONFIRM().key);
-	const b = rig();
-	b.z.update(map(WAIT(1)));
-	assert.equal(keyOf(b.z.update(map(WAIT(1), CONFIRM(100)))), CONFIRM().key);
+	const b = rig(false, true);
+	b.z.update(map(WAIT(1), CONFIRM(100)));
+	assert.equal(keyOf(b.z.take()), CONFIRM().key);
 });
 
 test("Z-D18: a lower item never preempts a blocking one, however old it is", () => {
@@ -340,16 +344,16 @@ test("Z-D18: a lower item never preempts a blocking one, however old it is", () 
 	}
 });
 
-test("Z-D18: a touched card is not interrupted, and gives the screen up when the boss lets go of it", () => {
-	const { z, touch, at } = rig();
+test("Z-D19: a card on the screen is never interrupted: a blocking question that arrives behind a lower one waits for it", () => {
+	const { z, at } = rig();
 	z.update(map(WAIT()));
-	touch(true);
 	const r = z.update(map(WAIT(), BOX()));
-	assert.deepEqual([keyOf(r), r.sound, z.deferred()], [WAIT().key, undefined, true], "typing, a pick, a fold: the card stays");
-	assert.equal(keyOf(z.tick()), WAIT().key);
-	touch(false);
-	at(500);
-	assert.deepEqual([keyOf(z.tick()), z.deferred()], [BOX().key, false]);
+	assert.deepEqual([keyOf(r), r.sound], [WAIT().key, undefined], "Z-D18's preemption is gone");
+	at(60_000);
+	assert.equal(keyOf(z.tick()), WAIT().key, "however long it has been on the screen");
+	z.skip();
+	at(PAUSE_MS);
+	assert.equal(keyOf(z.tick()), BOX().key, "it comes next, after the pause");
 });
 
 test("Z-D18: a card whose answer was just accepted is not preempted; the blocking question follows the pause", () => {
@@ -386,21 +390,20 @@ test("Z-D18: from the companion, blocking questions come oldest first and before
 	assert.equal(keyOf(z.update(all)), WAIT().key);
 });
 
-test("Z-D18: with a wait on the screen, two blocking questions arriving together take it oldest first", () => {
-	const { z } = rig();
+test("Z-D18: with a wait on the screen, two blocking questions arriving together wait for it, then come oldest first", () => {
+	const { z, at } = rig();
 	z.update(map(WAIT(1)));
-	assert.equal(keyOf(z.update(map(WAIT(1), BOX(60, "late"), BOX(50, "early")))), BOX(50, "early").key);
+	assert.equal(keyOf(z.update(map(WAIT(1), BOX(60, "late"), BOX(50, "early")))), WAIT().key);
+	z.skip();
+	at(PAUSE_MS);
+	assert.equal(keyOf(z.tick()), BOX(50, "early").key);
 });
 
-test("Z-D18: a question that waits behind a card being answered says so in why(), and the card that yielded is no resting item", () => {
-	const { z, touch } = rig();
+test("Z-D18/Z-D19: a question that waits behind the card on the screen says so in why()", () => {
+	const { z } = rig();
 	z.update(map(WAIT()));
-	touch(true);
 	z.update(map(WAIT(), BOX()));
-	assert.match(z.why(BOX().key) ?? "", /being answered/);
-	touch(false);
-	z.tick();
-	assert.match(z.why(WAIT().key) ?? "", /is on the screen and was waiting first/, "behind the question now, not put aside");
+	assert.match(z.why(BOX().key) ?? "", /is on the screen/);
 });
 
 test("Z-D18: every kind of card has a rank, and a kind nobody ranked blocks (a question that waits is not buried)", () => {
@@ -409,4 +412,67 @@ test("Z-D18: every kind of card has a rank, and a kind nobody ranked blocks (a q
 	assert.equal(blocks({ ...al("k", "waiting"), card: { kind: "from-the-future" } as never }), true, "unknown at run time: blocking");
 	assert.equal(blocks(WAIT()), false);
 	assert.equal(blocks(al("u", "waiting")), true);
+});
+
+// Z-D19 (boss 2026-11-06: 「如果 user 還在呼吸，下一張卡片也可以先 hold on，除非 user enter 願意去接卡片」, then 「全部都等 Enter」): on the breathing circle no card takes the screen.
+test("Z-D19: on the breathing circle no card takes the screen, whatever its kind; they queue, blocking first, and a snapshot changes nothing", () => {
+	const { z, at } = rig(false, true);
+	for (const all of [map(BOX()), map(WAIT(1), PAIR(2), PROPOSAL(3), BOX(60, "late"), BOX(50, "early")), map(CONFIRM())]) {
+		const r = z.update(all);
+		assert.deepEqual([r.screen.kind, r.sound], ["companion", undefined], "no card, no bowl");
+		at(60_000);
+		assert.equal(z.tick().screen.kind, "companion", "and it stays so");
+	}
+	z.update(map(WAIT(1), PAIR(2), PROPOSAL(3), BOX(60, "late"), BOX(50, "early")));
+	assert.deepEqual(z.queued().map((a) => a.key), [BOX(50, "early"), BOX(60, "late"), WAIT(1), PAIR(2), PROPOSAL(3)].map((a) => a.key), "the queue is the cards that wait, blocking first, the one that has waited longest first");
+	assert.match(z.why(BOX(50, "early").key) ?? "", /waits for Enter/);
+});
+
+test("Z-D19: Enter takes the next card, blocking first and oldest first, with the bowl; one card at a time; the answer returns to the breath and the next waits for Enter again", () => {
+	const { z, at } = rig(false, true);
+	z.update(map(WAIT(1), BOX(60, "late"), BOX(50, "early")));
+	const first = z.take();
+	assert.deepEqual([keyOf(first), first.sound], [BOX(50, "early").key, "bowl"]);
+	assert.deepEqual(z.queued(), [], "none waits for Enter while a card is on the screen");
+	assert.equal(keyOf(z.take()), BOX(50, "early").key, "a second Enter changes nothing");
+	z.accepted(BOX(50, "early").key);
+	at(OUTCOME_MS);
+	assert.equal(z.tick().screen.kind, "pause");
+	at(PAUSE_MS);
+	assert.equal(z.tick().screen.kind, "companion", "back to the breath");
+	assert.deepEqual(z.queued().map((a) => a.key), [BOX(60, "late").key, WAIT(1).key], "the rest still wait");
+	assert.equal(keyOf(z.take()), BOX(60, "late").key, "the next one waits for Enter, not for the pause");
+});
+
+test("Z-D19: Enter during the pause takes the next card at once; with none waiting it changes nothing", () => {
+	const { z, at } = rig(false, true);
+	z.update(map(BOX(50, "a"), BOX(60, "b")));
+	z.take();
+	z.accepted(BOX(50, "a").key);
+	at(OUTCOME_MS);
+	assert.equal(z.tick().screen.kind, "pause");
+	assert.equal(keyOf(z.take()), BOX(60, "b").key);
+	const none = rig(false, true);
+	none.z.update(new Map());
+	assert.deepEqual([none.z.take().screen.kind, none.z.queued()], ["companion", []]);
+});
+
+test("Z-D19: a card put aside (Maybe later) is not in the queue until its rest ends; a skipped card does not come back by itself", () => {
+	const { z, at } = rig(false, true);
+	z.update(map(WAIT(1), PAIR(2)));
+	z.take();
+	z.skip();
+	at(PAUSE_MS);
+	z.tick();
+	assert.deepEqual(z.queued().map((a) => a.key), [PAIR(2).key], "the one put aside is not counted");
+	at(REST_MS);
+	assert.equal(z.tick().screen.kind, "companion", "no card takes the screen when its rest ends");
+	assert.equal(z.queued().length, 2);
+});
+
+test("Z-D19: with a session for company (not the breathing circle) a card still takes the screen, and a draft in its box still holds it", () => {
+	const { z } = rig(true, false);
+	assert.equal(z.update(map(BOX())).screen.kind, "companion", "a draft holds the screen");
+	const open = rig(false, false);
+	assert.equal(keyOf(open.z.update(map(BOX()))), BOX().key);
 });

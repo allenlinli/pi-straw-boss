@@ -22,7 +22,8 @@ import { PROMPT_DIR } from "./fakes.ts";
 // 2026-11-06 (seam bindings, docs/specs/2026-11-06-seam-bindings.md): with the train on, main.md carries the `## Seam bindings` block for pi-anchorloop's `integrating` and `deploying` skills, 500 to 680 (off it stays 481);
 // tower.md 380 to 390 for "the integrator answers the coordinator itself" (off it stays 371). A role that has its own on-budget is listed in ON_BUDGETS.
 const BUDGETS: Record<string, number> = { "main.md": 500, "tower.md": 380, "member.md": 140, "member-no-main.md": 150 };
-const ON_BUDGETS: Record<string, number> = { "main.md": 680, "tower.md": 390 };
+// Its review fixes (SB-F001, F003, F005: the Approval line quotes words already given and asks only when they are missing, the tower reports nothing back on a forwarded slip): main.md 680 to 700, tower.md 390 to 395, integrator.md 320 to 340 (SB-F002 and F006: the deploy gate before `Merge`, a subagent briefed for one step).
+const ON_BUDGETS: Record<string, number> = { "main.md": 700, "tower.md": 395 };
 const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir", "state"]);
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
@@ -102,7 +103,7 @@ test("merge train: apps-config names the integration fields and points to the sk
 	// The procedure (slip block, checks, departure, assembly, review, red handling, urgent lane, deploy, UAT) moved to pi-anchorloop's `integrating` and `deploying` skills (docs/specs/2026-11-06-seam-bindings.md maps every old line):
 	// integrator.md went from 1200 to 289 words, and a rule that is back here is duplication.
 	for (const gone of ["tested-on", "`train/<code>`", "nothing is force pushed", "`maxCars`", "fix-forward", "One train at a time per target", "a blank box means accepted", "(applied to a DB: no|<which>)"]) assert.ok(!integrator.includes(gone), `integrator.md no longer repeats ${gone}`);
-	assert.ok(words(integrator) <= 320, `integrator.md has ${words(integrator)} words`);
+	assert.ok(words(integrator) <= 340, `integrator.md has ${words(integrator)} words`);
 });
 
 // Train stages (docs/specs/2026-11-05-train-stages.md, boss form 2026-11-05): one integrator carries a train through merge, deploy, and UAT; Straw Boss names the flow, never an environment.
@@ -133,7 +134,7 @@ test("merge train: main hands integration cars over with why shared, planning st
 		const text = readFileSync(`${PROMPT_DIR}/${file}`, "utf8");
 		for (const term of ["`integration`", "integrator", "boss_open_main", "integrator.md"]) assert.ok(text.includes(term), `${file} names ${term}`);
 	}
-	for (const off of [false, true]) assert.ok(words(strip(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8"), off)) <= (off ? 380 : 390));
+	for (const off of [false, true]) assert.ok(words(strip(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8"), off)) <= (off ? 380 : 395));
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8").includes("finding with evidence"));
 });
 
@@ -165,5 +166,13 @@ test("seam bindings: main.md binds all six seams of pi-anchorloop's integrating 
 	assert.ok(!off.includes("Seam bindings") && !off.includes("pi-anchorloop") && !off.includes("train-<code>"), "with the train off no binding is left");
 	// The block is the last text of the integration part: nothing of the always-on text may follow it inside the markers.
 	assert.match(raw, /## Seam bindings\n(?:- .*\n){6}<!-- \/integration -->/);
+	// Review SB-F001/F003: the coordinator quotes words already given and asks only when they are missing (an overnight train must not stall on a question); the integrator asks for a strict target not every car's auth names.
+	const approval = lines.find((line) => line.startsWith("- Approval:"))!;
+	assert.ok(approval.includes("lacking them, it asks") && approval.includes("not every car's `auth` names") && !approval.includes("no car names"), "Approval asks only when the words are missing");
+	// SB-F002/F006: the deploy gate before Merge reaches the integrator before it merges, and a subagent is briefed for one step.
+	const integ = readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8");
+	assert.ok(integ.includes("deploy steps 2 and 3 gate `Merge`") && integ.includes("never the skill"), "integrator.md gates Merge on the deploy steps and keeps the skill from subagents");
+	// SB-F004: only the headings `integrating` requires stop a departure.
+	assert.ok(readFileSync(`${PROMPT_DIR}/apps-config.md`, "utf8").includes("When a required one is missing"), "apps-config.md requires only the required headings");
 	for (const file of ["tower.md", "tower-run.md", "planning.md", "integrator.md", "apps-config.md"]) assert.ok(!readFileSync(`${PROMPT_DIR}/${file}`, "utf8").includes("## Seam bindings"), `${file} holds no second block`);
 });

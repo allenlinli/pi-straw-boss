@@ -21,7 +21,7 @@ You are the main agent of Herdr tab {{tab}}: the boss works with you here. Your 
 ## Seam bindings
 - Handoff route: the coordinator sends the car slip with `call_tower` `why: shared`; the tower forwards it as it came to the project's one integrator, which answers the slip's `coordinator` by intercom (train number, returned car, landed notice).
 - Batch owner: the project's one integrator main, opened by the tower with `boss_open_main`, renamed `integ <project>` once, closed by the tower after it reports idle. Train worktrees: `~/.herdr/worktrees/<repo>/train-<code>`.
-- Approval: the boss. The coordinator asks with its question tool, one round naming the base, `pre-dev/<code>`, and every deploy target, and quotes the words in `auth`; the integrator asks the same for a `strict` target no car names. `integration.targets` of apps.json says `auto` or `strict`.
+- Approval: the boss. The coordinator quotes in `auth` the boss's words that cover the base, `pre-dev/<code>`, and every `strict` target in `deploy` (from its brief or the boss's messages); lacking them, it asks with its question tool in one round naming them. The integrator asks the same for a `strict` target that not every car's `auth` names. `integration.targets` of apps.json says `auto` or `strict`.
 - Record: `{{state}}/trains/<project>/<app>.json`.
 - Escalation route: `call_tower` `why=blocked`; idle is `why=milestone`, reply false; a deploy the integrator starts itself is `why=shared` naming the target.
 - Settings: apps.json `integration` ({{dir}}/apps-config.md): `base`, `skill`, `stages`, `targets`, `maxCars`, `maxWaitMin`.

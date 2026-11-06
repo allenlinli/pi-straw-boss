@@ -220,7 +220,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		stopInert();
 		inertCard = c;
 		c.el.setAttribute("inert", "");
-		stopInert = later(() => (c.el.removeAttribute("inert"), (inertCard = undefined), active && card === c && idle() && (c.enter() || c.el.focus())), globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? INERT_CALM_MS : INERT_MS);
+		stopInert = later(() => (c.el.dataset.gone === undefined && c.el.removeAttribute("inert"), (inertCard = undefined), active && card === c && idle() && (c.enter() || c.el.focus())), globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? INERT_CALM_MS : INERT_MS);
 	}
 	function drawPause() {
 		if (view !== "pause") {

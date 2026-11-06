@@ -1290,11 +1290,11 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 .ask-state, .ask-none { font-size: 12px; color: var(--dim); } .ask-none { opacity: 0.75; }
 .ask-tower[data-state="waiting"] .ask-state { color: var(--gold); } .ask-tower[data-state="answered"] .ask-state { color: var(--ok); }
 .ask-said { margin: -6px 0 4px; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
-/* What acts on the head's conversation sits in one row above the composer; the composer's own top border moves up to it. */
-.head-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 18px 0; border-top: 1px solid var(--line); background: var(--panel); } .head-acts[hidden] { display: none; }
+/* What acts on the head's conversation sits in one row above the composer (the divider under the log is the chat root's). */
+.head-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 18px 0; background: var(--panel); } .head-acts[hidden] { display: none; }
 .head-acts .head-close { margin-left: auto; } .head-acts :is(.tnote-fail, .conv-done) { flex: 1 1 100%; font-size: 12px; } .head-acts .conv-done { color: var(--dim); } .head-acts .tnote-fail { color: var(--err-soft); } .head-acts :is(.tnote-fail, .conv-done):empty { display: none; }
 .head-acts button:disabled { opacity: 0.6; cursor: progress; } .head-acts :is(.pair-btn, .quit-btn) { padding: 0 12px; font-size: 12px; letter-spacing: 0; text-transform: none; }
-.head-acts:not([hidden]) + .composer-root .composer { border-top: 0; padding-top: 8px; }
+.head-acts:not([hidden]) + .composer-root .composer { padding-top: 8px; }
 @media (max-width: 640px) { .head-acts { padding: 6px 10px 0; } }
 .tx.skip[hidden] { display: none; }
 .head-absent { margin: 0 0 8px; color: var(--dim); font-size: 13px; }

@@ -10,6 +10,7 @@ import { fileOf, slotOf } from "../src/server/record.ts";
 import { callControl } from "../src/server/socket.ts";
 import { fakeClock } from "./fake-clock.ts";
 import { HEAD_KEY, headDir, listServices, readQueue, readService, towerDir } from "../src/server/towerstore.ts";
+import { addWait, updateMemory } from "../src/server/towermemory.ts";
 
 // The head service (docs/specs/2026-11-04-head-tower.md, H1; src/server/head.ts): a tower service of its own kind in a Herdr workspace the server makes on first use, with its state in `head/`.
 // A fake Herdr and fake pi-intercom clients, as the tower service's tests have (tests/server-towers.test.ts). No run is started: runs, the gate, and forwards are H2.
@@ -84,6 +85,20 @@ test("ensure makes the head workspace: its folder, a label by locale, the crown 
 	assert.deepEqual({ workspace: record.workspace, id: record.id, name: record.name, pane: record.pane, tab: record.tab, label: record.label, kind: record.kind }, { workspace: got.workspace, id: "sb-head", name: "head tower", pane: got.pane, tab: got.tab, label: "Head tower", kind: "head" });
 	assert.deepEqual(listServices(world.slot), [], "head/ is no workspace tower's folder: the tower listing does not find it");
 	assert.equal(head().status()?.state, "live");
+});
+
+test("the head's snapshot summary leaves out a boss wait the boss no longer sees (past its due, or a day old with none) (docs/specs/2026-11-06-head-page-minimal.md)", async () => {
+	await started();
+	const got = await head().ensure();
+	const now = Date.now();
+	const waits = (workspace: string) => updateMemory(world.slot, workspace, now, (m) => {
+		addWait(m, now - 30 * 3_600_000, "r1", { text: "a day old, no due", for: "boss" });
+		addWait(m, now, "r1", { text: "fresh", for: "boss" });
+	});
+	waits(HEAD_KEY);
+	const shown = () => world.expose!.runs.view(got.workspace)?.memory?.bossWaits.map((w) => w.text);
+	assert.deepEqual(shown(), ["fresh"], "the head's summary");
+	assert.equal(readFileSync(join(headDir(world.slot), "memory.json"), "utf8").includes("a day old, no due"), true, "the file keeps it (the server drops it after 7 days)");
 });
 
 test("the label is 主塔台 when the server's locale says zh_TW, zh_HK, zh_MO, or zh-Hant (LC_ALL first), else Head tower", async () => {

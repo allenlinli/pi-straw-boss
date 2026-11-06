@@ -33,9 +33,9 @@ export type Role = "tower" | "main" | "member";
 export type Scope = "tab" | "workspace" | "towers" | "all";
 /**
  * `run` is the CLI for every command; left out, Herdr's listings, `pane current`, and `report-metadata` go over the socket instead (`socketRun`) and `world` is one `session.snapshot`. `world` is the dashboard's and the GUI's reading of panes and workspaces.
- * `integrationMs` is how long after its start a session checks that Herdr's pi integration is in place (integration.ts); `adoptMs` is how often a session looks after the sb server; `ask` is how it reaches the server's GUI (host.ts; the control socket by default, through the look); `startRead` is where the recorded server's start time is read from (handover.ts; the process's own cache by default).
+ * `integrationMs` is how long after its start a session checks that Herdr's pi integration is in place (integration.ts); `joinRetryMs` is the waits between a session's asks when its start could not place it or join the net (the last one repeats; session.ts); `adoptMs` is how often a session looks after the sb server; `ask` is how it reaches the server's GUI (host.ts; the control socket by default, through the look); `startRead` is where the recorded server's start time is read from (handover.ts; the process's own cache by default).
  */
-export interface Deps { run?: HerdrRun; world?: HerdrWorld; api?: HerdrApi; call?: HerdrCall; copy?: (text: string) => Promise<void>; env?: NodeJS.ProcessEnv; sleep?: Sleep; promptDir?: string; openUrl?: (url: string) => Promise<void>; watch?: HerdrWatch; stateDir?: string; autoTower?: boolean; nudgeMs?: number; version?: string; guardMs?: number; couple?: boolean; events?: HerdrEvents; detectMs?: number; now?: () => number; later?: (pid: number, args: string[]) => void; adoptMs?: number; restoreMs?: number; integrationMs?: number; link?: LinkDeps; server?: ServerLookDeps | null; ask?: Ask; startRead?: StartRead; runSide?: RunSideDeps; face?: FaceSeams }
+export interface Deps { run?: HerdrRun; world?: HerdrWorld; api?: HerdrApi; call?: HerdrCall; copy?: (text: string) => Promise<void>; env?: NodeJS.ProcessEnv; sleep?: Sleep; promptDir?: string; openUrl?: (url: string) => Promise<void>; watch?: HerdrWatch; stateDir?: string; autoTower?: boolean; nudgeMs?: number; version?: string; guardMs?: number; couple?: boolean; events?: HerdrEvents; detectMs?: number; now?: () => number; later?: (pid: number, args: string[]) => void; adoptMs?: number; restoreMs?: number; integrationMs?: number; joinRetryMs?: number[]; link?: LinkDeps; server?: ServerLookDeps | null; ask?: Ask; startRead?: StartRead; runSide?: RunSideDeps; face?: FaceSeams }
 /** The dependencies with their defaults filled in; `server` (how a session looks after the sb server, server-look.ts) is null in a session that does not: a test world, a net sidecar. */
 export type Config = Required<Omit<Deps, "stateDir" | "link" | "server" | "ask" | "startRead" | "runSide" | "face">> & Pick<Deps, "stateDir" | "link" | "server" | "ask" | "startRead" | "runSide" | "face">;
 
@@ -47,6 +47,8 @@ export interface State {
 	holdsTower: boolean;
 	/** Why this session cannot join: it sits in a sub workspace, or Herdr could not say whether it does. */
 	barred: string | undefined;
+	/** While the sub workspace check has no definitive answer: asks Herdr again (or joins the one in flight) and settles `barred`. A caller that needs the net waits for it first (membership.ts). */
+	recheck: (() => Promise<void>) | undefined;
 	/** Set at shutdown: a refresh still in flight must not write tokens after they are cleared. */
 	stopped: boolean;
 	// Where it is and what the tab's net says. `c` and `at` are set by the join (or the tower's start) before anything reads them.
@@ -97,7 +99,7 @@ export interface Kit {
 export function createKit(pi: ExtensionAPI, cfg: Config): Kit {
 	const { env } = cfg;
 	const s: State = {
-		isTower: env.STRAW_BOSS_ROLE === "tower", joined: false, isMain: false, holdsTower: false, barred: undefined, stopped: false,
+		isTower: env.STRAW_BOSS_ROLE === "tower", joined: false, isMain: false, holdsTower: false, barred: undefined, recheck: undefined, stopped: false,
 		// SAFETY: `c` and `at` are set by the join (or the tower's start) before any module reads them; the GUI's `sessions()` tests `c` for undefined.
 		c: undefined as unknown as Channel,
 		// SAFETY: as `c` above.

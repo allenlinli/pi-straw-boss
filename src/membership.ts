@@ -10,6 +10,7 @@ import { type Channel, ENTRY, type Kit, REGISTER } from "./state.ts";
 const NAMESPACE = /^[a-z0-9][a-z0-9._/-]{0,63}$/;
 export const CONNECT_MS = 15_000;
 const CLAIM_MS = 5000;
+const fatal = (message: string) => Object.assign(new Error(message), { final: true }); // a join error that waiting cannot fix: session.ts does not retry it
 type Event = { type: string; fromSessionId?: string; owner?: { sessionId: string }; payload?: { type?: string; force?: boolean } };
 /** What membership calls on the other modules; `register` adds the tools a joined session has. */
 interface Parts { presence: Presence; election: Election; guard: Guard; briefing: Briefing; roles: Roles; openTower: Reach["openTower"]; register(): void; onMain?(): void; control(): { register(): void } }
@@ -25,10 +26,10 @@ export function createMembership({ pi, cfg, s, me, tell }: Kit, { presence, elec
 	const connect = (eligible: boolean) => {
 		const namespace = `straw-boss/tab/${Buffer.from(s.at.tabId).toString("hex")}`;
 		if (channels.has(namespace)) return void use(channels.get(namespace)!);
-		if (!NAMESPACE.test(namespace)) throw new Error(`Tab id ${s.at.tabId} is too long for an intercom namespace (limit 24 characters)`);
+		if (!NAMESPACE.test(namespace)) throw fatal(`Tab id ${s.at.tabId} is too long for an intercom namespace (limit 24 characters)`);
 		let mine: Channel | undefined;
 		pi.events.emit(REGISTER, { namespace, ownerEligible: eligible, onReady: (channel: Channel) => { mine = channel; channels.set(namespace, channel); use(channel); }, onEvent: (event: Event) => mine && onEvent(mine, event) });
-		if (!mine) throw new Error("pi-intercom is not loaded (Straw Boss needs pi-intercom >= 0.17.1)");
+		if (!mine) throw fatal("pi-intercom is not loaded (Straw Boss needs pi-intercom >= 0.17.1)");
 	};
 	// A tab this session left stays registered, and if the session owns that channel it still decides that tab's claims (or its members could
 	// never promote); nothing else that channel says concerns the session's role.
@@ -89,12 +90,13 @@ export function createMembership({ pi, cfg, s, me, tell }: Kit, { presence, elec
 	// A session that has just started connects to the broker a moment after session_start.
 	const connected = async (channel = s.c) => {
 		if (await waitFor(sleep, () => channel.snapshot().connected && channel.snapshot().supported, CONNECT_MS)) return;
-		throw new Error(channel.snapshot().connected ? "The intercom broker lacks extension-bus-v1" : "pi-intercom is not connected");
+		throw channel.snapshot().connected ? fatal("The intercom broker lacks extension-bus-v1") : new Error("pi-intercom is not connected");
 	};
 	// Every joinable session joins at start as a member (owner-eligible, so the tab channel always has an owner). One join at a time.
 	const joinNet = () =>
 		(joining ??= (async () => {
 			if (s.joined) return;
+			await s.recheck?.(); // a session whose sub workspace check failed (or is still running) asks Herdr again, or shares the ask in flight, before it is refused
 			if (s.barred) throw new Error(s.barred);
 			s.at = await place(run);
 			connect(true);

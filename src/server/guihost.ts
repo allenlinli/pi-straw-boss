@@ -19,6 +19,7 @@ import type { HeadSeam } from "../nethead.ts";
 import type { TowerEnd } from "./towerpanel.ts";
 import { identity, type Run, switchRemote, tailscale } from "../remote.ts";
 import { createLanDevices } from "../devices.ts";
+import { createOpenings } from "../openings.ts";
 import { createSpawn } from "../spawn.ts";
 import { popBase, stashedList } from "../stash.ts";
 import { trustDir } from "../trust/files.ts";
@@ -239,7 +240,7 @@ export function createGuiHost(o: GuiHostOptions) {
 			onSaveFailed: (reason) => log.line("error", { code: "paired", text: phrase(reason, 200) }),
 			onRemote: async () => void (await switchRemote(running, true, dir, ts), (remoteNote = undefined), log.line("remote-on", { how: "page" })),
 			onRemoteOff: async () => void (await switchRemote(running, false, dir, ts), (remoteNote = undefined), log.line("remote-off", { why: "page" })),
-			spawn: createSpawn({ run: cfg.run, sleep: cfg.sleep, call: cfg.call, deploys, trustDir: trustDir(slot.stateDir), live, sessionAt: async (pane) => (await sessions()).find((x) => x.herdrLocation?.paneId === pane)?.id }),
+			spawn: createSpawn({ run: cfg.run, sleep: cfg.sleep, call: cfg.call, deploys, trustDir: trustDir(slot.stateDir), openings: createOpenings(join(slot.stateDir, "openings.json")), live, sessionAt: async (pane) => (await sessions()).find((x) => x.herdrLocation?.paneId === pane)?.id }),
 			close: createCloser({
 				run: cfg.run, sleep: cfg.sleep, me: () => id, sessions, ask: async (key, keepPane, ifStashable) => hub?.close(key, keepPane, ifStashable), check: async (key) => hub?.stashCheck(key), stateDir: slot.stateDir,
 				// The tower the server runs has no pi to ask: the unit the net shows for it (a service, not a waiting one) is closed by ending the service.

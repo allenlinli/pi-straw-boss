@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { checkText, type Reply } from "./control.ts";
 import { createDeploys, type Deploy, type StepId } from "./deploy.ts";
+import { createOpenings, type Openings } from "./openings.ts";
 import { clean, cleanGroup } from "./trust/found.ts";
 import { assertSettingsSafe, type SettingsRefusal, SettingsRefused } from "./trust/settings.ts";
 import { waitPastTrust } from "./trust/wait.ts";
@@ -24,11 +25,12 @@ import { createTab, type HerdrCall, type HerdrRun, isHead, isSub, type Pane, pan
 // A new pi that waits on a project trust question (trust/ask.ts) has not joined: the join wait stops counting while its pane has one, the deploy shows a `trust` step with the question, and ten minutes without an answer fail the opening.
 // Before anything is created for a new pi, the folder's .pi/settings.json is looked at (trust/settings.ts: pi reads it whole at startup, before any extension can stop it); a refusal answers 409 `settings_unsafe` with the facts in `settings`, at the `create` step.
 // An open may carry `deploy`, an id the page makes; POST /<token>/api/open/progress {id} then answers how far that open has got (deploy.ts), and a refused open names its failed `step`.
+// An open/base with a `deploy` id is recorded durably (openings.ts, <state>/openings.json): a repeat with the same id, after a server restart too, finds the workspace it made and answers with it (no second workspace, and the first message is not typed again).
 
 const MAX_DIRS = 500, JOIN_WAIT_MS = 60_000, MAX_LABEL = 64;
 
 /** `live` says whether a session is still on the net, so a tower token its tower left behind does not count; `sessionAt` names the session in a pane, so the page can go to it. */
-export interface SpawnDeps { run: HerdrRun; sleep: Sleep; call?: HerdrCall; live(sessionId: string): Promise<boolean>; sessionAt?(paneId: string): Promise<string | undefined>; home?: string; hidden?: Hidden; deploys?: ReturnType<typeof createDeploys>; trustDir?: string }
+export interface SpawnDeps { run: HerdrRun; sleep: Sleep; call?: HerdrCall; live(sessionId: string): Promise<boolean>; sessionAt?(paneId: string): Promise<string | undefined>; home?: string; hidden?: Hidden; deploys?: ReturnType<typeof createDeploys>; trustDir?: string; openings?: Openings }
 
 const no = (status: number, error: string, reason: string): Reply => ({ status, body: { error, reason } });
 const OUTSIDE = no(400, "not_allowed", "Only folders in your home folder, outside hidden folders, can be picked.");
@@ -83,7 +85,7 @@ export async function makeDir(parent: unknown, name: unknown, home = homedir(), 
 	return real ? { status: 200, body: { path: real, created: made } } : no(409, "not_a_folder", `${clean} exists here and is not a folder you can pick.`);
 }
 
-export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(), hidden = platformHidden, deploys = createDeploys(), trustDir }: SpawnDeps) {
+export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(), hidden = platformHidden, deploys = createDeploys(), trustDir, openings = createOpenings() }: SpawnDeps) {
 	const pick = (path: unknown) => pickable(path, home, hidden);
 	let busy = false;
 	const opened = async (workspace: string, tab: string, pane: string): Promise<Reply> => ({ status: 200, body: { workspace, tab, pane, ...(sessionAt && { session: await sessionAt(pane) }) } });
@@ -122,16 +124,19 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 	};
 
 	/** Starts pi in a fresh pane and waits until it has joined the net (as `role`, or as anything when none is named), then types the first message. */
-	async function boot(d: Deploy, paneId: string, name: string, prompt: string | undefined, role?: string): Promise<Reply | undefined> {
-		d.go("start");
-		d.pane = paneId; // before pi starts: its trust question can be there before `agent start` returns
-		await startPi(run, sleep, `${role ?? "member"}-${randomUUID().slice(0, 8)}`, paneId, ["--name", name]);
+	async function awaitJoin(d: Deploy, paneId: string, role?: string) {
 		d.go("join");
 		const joined = await waitPastTrust(sleep, async () => {
 			const r = (await panes(run)).find((p) => p.pane_id === paneId)?.tokens?.sb_role;
 			return role ? r === role : r === "member" || r === "main";
 		}, JOIN_WAIT_MS, 500, trustDir ? { dir: trustDir, pane: paneId, on: (r) => d.hold(r && { id: r.id, digest: r.digest, folder: clean(r.cwd), found: r.found.map(cleanGroup) }) } : undefined);
 		if (!joined) throw new Error(`The pi in pane ${paneId} did not join the net${role ? ` as the ${role} of its tab` : ""} within ${JOIN_WAIT_MS / 1000} s`);
+	}
+	async function boot(d: Deploy, paneId: string, name: string, prompt: string | undefined, role?: string): Promise<Reply | undefined> {
+		d.go("start");
+		d.pane = paneId; // before pi starts: its trust question can be there before `agent start` returns
+		await startPi(run, sleep, `${role ?? "member"}-${randomUUID().slice(0, 8)}`, paneId, ["--name", name]);
+		await awaitJoin(d, paneId, role);
 		if (!prompt) return;
 		d.go("deliver");
 		if (!call) return no(503, "unavailable", "The agent opened, but this server cannot type into it; send the first message from its comms.");
@@ -190,13 +195,34 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 		return failed ?? opened(ws.workspace_id, created.tabId, created.paneId);
 	}
 
-	async function openBase(d: Deploy, dir: string, label: string, prompt?: string): Promise<Reply> {
+	/**
+	 * What an earlier open with this id made, when that workspace is still there: its pane, once its pi has joined (the wait is the same, so a repeat that comes while the first
+	 * open's pi is still starting waits for it). The first message is not typed again: the first open may have sent it.
+	 */
+	async function reopened(d: Deploy, id: string): Promise<Reply | undefined> {
+		const had = openings.get(id);
+		if (!had) return;
+		const here = (await workspaces(run)).some((w) => w.workspace_id === had.workspace) ? await panes(run, had.workspace) : [];
+		const pane = here.find((p) => p.pane_id === had.pane) ?? here[0];
+		if (!pane) return void openings.drop(id); // the base was closed since: a repeat is a new open
+		d.go("start");
+		await awaitJoin(d, pane.pane_id);
+		return opened(had.workspace, pane.tab_id, pane.pane_id);
+	}
+
+	async function openBase(d: Deploy, dir: string, label: string, prompt: string | undefined, id: string | undefined): Promise<Reply> {
 		d.go("create");
+		const again = id && (await reopened(d, id));
+		if (again) return again;
 		await assertSettingsSafe([dir]);
 		const created = await result(run, ["workspace", "create", "--cwd", dir, "--label", label, "--no-focus", "--env", "STRAW_BOSS_ROLE=member"]);
 		const workspaceId: string = created.workspace.workspace_id, paneId: string = created.root_pane.pane_id;
 		// Created by this request a moment ago, with nothing in it but the member attempt: a base is never left empty.
-		const failed = await orClose(["workspace", "close", workspaceId], () => boot(d, paneId, `member · ${basename(dir) || dir}`, prompt));
+		const failed = await orClose(["workspace", "close", workspaceId], async () => {
+			if (id) openings.set(id, { workspace: workspaceId, tab: created.tab.tab_id, pane: paneId }); // before pi starts: a restart in the join wait leaves the id known
+			return boot(d, paneId, `member · ${basename(dir) || dir}`, prompt);
+		}).catch((error) => (id && openings.drop(id), Promise.reject(error)));
+		if (failed && id) openings.drop(id); // the workspace is closed with the failure: a repeat opens a new one
 		return failed ?? opened(workspaceId, created.tab.tab_id, paneId);
 	}
 
@@ -241,7 +267,7 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 		busy = true;
 		const d = deploys.begin(json.deploy as string | undefined, ["create", "start", "join", ...(prompt ? ["deliver" as StepId] : [])]);
 		try {
-			const done = await (kind === "main" ? openMain(d, json.workspace, dir!, prompt) : kind === "member" ? openMember(d, json.workspace, json.tab, dir, prompt) : openBase(d, dir!, label, prompt));
+			const done = await (kind === "main" ? openMain(d, json.workspace, dir!, prompt) : kind === "member" ? openMember(d, json.workspace, json.tab, dir, prompt) : openBase(d, dir!, label, prompt, json.deploy as string | undefined));
 			return failed(d, done);
 		} catch (error) {
 			// A folder pi must not start in (trust/settings.ts) is refused before anything is created; the page words it in its own language from `settings`.

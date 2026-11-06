@@ -250,7 +250,7 @@ export function fillAlly(el: HTMLElement, a: AllyCard, link: LinkSummary | undef
 	text(el, "h2", a.workspace ?? a.label);
 	// What an unattended device says about its units (unit-status) is drawn by allyunits.ts, and the units are the card's only state: the subtitle then names the base and whether it is there, not what its tower does (the two come from messages of their own cadence and could disagree).
 	// While an unattended box says none (an older box, a team that shares presence only, the minute after this server restarted) the card says how many units are online in one line and never lists the box's mains and workers; a teammate's own computer lists its tabs.
-	const cards = unitCards(reported, link?.alerts, { device: a.device, workspace: a.workspace, teams: a.teams.map((t) => t.team) }, Date.now(), unitsSeen);
+	const cards = unitCards(reported, link?.alerts, { device: a.device, workspace: a.workspace, spare: a.spare, teams: a.teams.map((t) => t.team) }, Date.now(), unitsSeen);
 	text(el, ".tstate", `${a.workspace ? `${a.label} · ` : ""}${a.short}${!a.online ? ` · ${m.link_offline()}` : cards.length ? "" : ` · ${stateName(a.tower)}`}`);
 	const rows: { id: string; label: string; state: string; says?: string }[] = cards.length ? [] : a.unattended ? (a.online && a.tabs.length ? [{ id: "online", label: "", state: a.tower, says: m.link_unit_summary({ count: a.tabs.length }) }] : []) : a.tabs.map((t, i) => ({ id: `${i}`, ...t }));
 	sync(el.querySelector(".ally-tabs")!, rows, () => html(`<li class="ally-tab"><b></b><span></span></li>`), (li, t) => {

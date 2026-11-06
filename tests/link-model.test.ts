@@ -314,3 +314,19 @@ test("the card's label does not move with the tower state, and a team that canno
 	const on = mergeAllies([mate("t1", null, { online: true, tower: "unknown", tabs: [] }), mate("t2", "W2", { online: false, tower: "blocked" })])[0]!;
 	assert.deepEqual([on.online, on.tower], [true, "unknown"], "the stale blocked of the offline team is not the card's");
 });
+
+test("AOR-F001: a card whose own teams cannot hear the device shows unknown with no tabs, never another workspace's state", () => {
+	const cards = mergeAllies([mate("t1", "W1", { tower: "working", tabs: [{ id: "a", title: "a-of-W1" } as never] }), mate("t2", "W2", { online: false, tower: "blocked", tabs: [{ id: "b", title: "b-of-W2" } as never] })]);
+	const w2 = cards.find((c) => c.workspace === "W2")!;
+	assert.deepEqual([w2.online, w2.tower, w2.tabs], [true, "unknown", []]);
+	assert.equal(cards.find((c) => c.workspace === "W1")!.tower, "working");
+	const dark = mergeAllies([mate("t2", "W2", { online: false, tower: "blocked" })])[0]!;
+	assert.deepEqual([dark.online, dark.tower], [false, "blocked"], "a device nobody hears keeps its last state");
+});
+
+test("AOR-F002: units of a team that lists no workspace, matching none of the device's named workspaces, stay on the device's first card", () => {
+	const cards = mergeAllies([mate("t1", "W1"), mate("t2", "W2"), mate("t3", null)]);
+	const rows = [rowOf("t1", 3, "W1"), rowOf("t2", 3, "W2"), rowOf("t3", 3, "X", "W2")];
+	assert.deepEqual(cards.map((c) => unitsFor(rows, { ...whoOf(c), spare: c.spare }).map((u) => u.unit)), [["W1", "X"], ["W2"]]);
+	assert.deepEqual(unitsFor(rows, whoOf(mergeAllies([mate("t3", null)])[0]!)).map((u) => u.unit), ["X", "W2"], "no workspace anywhere: all of them");
+});

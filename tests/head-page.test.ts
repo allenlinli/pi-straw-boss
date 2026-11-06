@@ -259,6 +259,13 @@ test("the head's marks: the map node and the chat avatar carry the crown in the 
 	assert.match(css, /\.comms-head\[data-head\] \.head-menu \{ display: none; \}/);
 });
 
+test("the session view mounts its chat as a page, so the head's page hides its tool cards, and Zen's two logs of a chat do not", async () => {
+	const { readFileSync } = await import("node:fs");
+	const src = (f: string) => readFileSync(new URL(`../gui/${f}`, import.meta.url), "utf8");
+	assert.match(src("session.ts"), /mountChat\([^;]*\{[^}]*\bpage: true\b[^}]*\}\)/, "the session view passes page: true");
+	for (const f of ["zen.ts", "zenhistory.ts"]) for (const call of src(f).match(/mountChat\([^;]*?\}\)/g) ?? []) assert.doesNotMatch(call, /\bpage\b/, `${f} mounts its log without page`);
+});
+
 test("the head's page leaves out its tool calls, shell lines, and the sb server's notices and timers, and keeps its words, the boss's lines, and a tower's answer; a workspace tower's page and Zen's companion log of the head show all of them", async () => {
 	const { mountChat } = await import("../gui/chat.ts");
 	Object.assign(document, { createDocumentFragment: () => new El("#fragment"), createTextNode: (t: string) => t });

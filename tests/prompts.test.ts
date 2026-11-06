@@ -97,7 +97,8 @@ test("merge train: apps-config names the integration fields and the skill headin
 	assert.ok(!integrator.includes("{{dir}}") && !integrator.includes("<state dir>") && !integrator.includes("reserve") && !integrator.includes("~/.pi"), "integrator.md has no placeholder, undefined path, hard-coded agent folder, or reserve");
 	assert.match(readFileSync(`${PROMPT_DIR}/main.md`, "utf8"), /ledgers in \{\{state\}\}\/trains/, "the integrator's role prompt names the ledger folder");
 	// Train stages (docs/specs/2026-11-05-train-stages.md): the deploy and UAT stages, with review RV fixes (auth per target across cars, merge waiting on deploy verify, shared for its own deploys), take integrator.md from 600 to 1000; `auto` and `strict` targets in config (boss, 2026-11-05) to 1060; it is read before the first departure, not in the system prompt.
-	assert.ok(words(integrator) <= 1060, `integrator.md has ${words(integrator)} words`);
+	// The fix-forward car (integ FE2, boss-assigned 2026-11-06: an urgent car that fixes a red integration branch may come with the author's read only; the train's reviewer gives it its first full-depth review) to 1140.
+	assert.ok(words(integrator) <= 1140, `integrator.md has ${words(integrator)} words`);
 });
 
 // Train stages (docs/specs/2026-11-05-train-stages.md, boss form 2026-11-05): one integrator carries a train through merge, deploy, and UAT; Straw Boss names the flow, never an environment.

@@ -172,6 +172,8 @@
 [data-view="zen"] .zen-company > header { min-height: 44px; padding: 24px 100px 0 0; box-sizing: content-box; } /* the strip (centred at the top) has the line above the name, and the corner buttons the room to its right */
 [data-view="zen"] .zen-company .zen-who { font-size: 1.3rem; text-align: left; }
 [data-view="zen"] .zen-company .zen-meta { text-align: left; }
+[data-view="zen"] .zen-company .zen-head-cue { grid-row: auto; justify-items: start; } /* Z-D20: no card takes this screen by itself; the cue under the name says how many wait, and a tap on it takes one. It keeps its room, so the log never moves when a card comes or goes */
+[data-view="zen"] .zen-company .zen-head-cue-btn { padding-left: 0; text-align: left; }
 [data-view="zen"] .zen-log { position: relative; min-height: 0; display: grid; overflow: hidden; } /* the log's jump-to-latest pill sits at the log's foot, above the composer (Standard's chat root is its own positioned box) */
 [data-view="zen"] .zen-log .chat-scroll, [data-view="zen"] .zen-log .chat-root { min-height: 0; }
 /* Scrolling the log only scrolls it: at its ends nothing chains to the page (no pull-to-refresh, no history swipe), and a finger moves it up and down only (zen.ts keeps the draft's hold, zenmodel.ts). */

@@ -71,22 +71,24 @@ test("Standard's alerts are unchanged: alertsOf carries none of these, so the do
 
 test("the model takes them as items, and one the server no longer lists was settled elsewhere: the knock and the line", () => {
 	let t = NOW;
-	const z = createZen({ now: () => t, typing: () => false, breathing: () => false });
+	const z = createZen({ now: () => t });
 	const withCard = new Map(cardAlerts(net({ confirms: [CONFIRM] }), t, {}).map((a) => [a.key, a]));
-	const r = z.update(withCard);
-	assert.equal(r.screen.kind, "item");
+	z.update(withCard);
+	assert.equal(z.take().screen.kind, "item");
 	const gone = z.update(new Map());
 	assert.deepEqual([gone.sound, (gone.screen as { outcome?: string }).outcome], ["knock", "elsewhere"]);
 });
 
 test("a rest ends early when the question behind a card changes: another forwarded dialog under the same alert id", () => {
 	let t = NOW;
-	const z = createZen({ now: () => t, typing: () => false, breathing: () => false });
+	const z = createZen({ now: () => t });
 	const first = new Map(cardAlerts(net({ alerts: [dialog()] }), t, {}).map((a) => [a.key, a]));
-	assert.equal(z.update(first).screen.kind, "item");
+	z.update(first);
+	assert.equal(z.take().screen.kind, "item");
 	z.skip();
 	t += 3000;
 	assert.equal(z.update(first).screen.kind, "companion", "resting");
 	const other = new Map(cardAlerts(net({ alerts: [dialog({ dialogId: "dd2", digest: "a".repeat(64) })] }), t, {}).map((a) => [a.key, a]));
-	assert.equal(z.update(other).screen.kind, "item", "a new question is not the one put aside");
+	z.update(other);
+	assert.equal(z.take().screen.kind, "item", "a new question is not the one put aside");
 });

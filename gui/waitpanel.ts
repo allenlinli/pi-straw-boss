@@ -118,6 +118,11 @@ export function waitPanel(o: WaitPanelOptions) {
 			if (focus) go?.focus();
 			return true;
 		},
+		/** The primary control takes the focus when the card is taken: the answer box when it is open, else Handle (Z-D20); false when the panel has neither. */
+		enter() {
+			const to = open && box && !box.disabled ? box : go && !go.hidden ? go : undefined;
+			return Boolean(to && (to.focus(), true));
+		},
 		/** Dismiss and the answer work only while the stream is live. */
 		update(on: boolean) {
 			live = on;

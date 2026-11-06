@@ -39,6 +39,7 @@ export function draw(c: Open, on: Layer) {
 			over: (why) => on.live(c) && (why === "full" ? toFull(c, on) : why !== "closed" && on.close()),
 			escape: false,
 			close: false,
+			enter: true,
 		}));
 		[c.off, c.drawn] = [card.stop, "card"];
 		c.host.replaceChildren(card.el);

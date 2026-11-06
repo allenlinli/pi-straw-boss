@@ -12,7 +12,7 @@ import { actionWhy } from "./towermodel.ts";
 
 interface Choice { label: string; run(): Promise<Answer>; /** Whether the choice can be made now (the pair card needs its four digits). */ ready?(): boolean }
 interface DecideOptions { lead?: HTMLElement[]; choices: Choice[]; wrap(reply: Promise<Answer>): Promise<Answer>; words(r: Answer): string }
-export interface DecidePanel { el: HTMLElement; sending(): boolean; update(live: boolean): void; /** The control that should take the focus when the card does (the pair card's field); none: the card takes it, so Enter cannot allow what the boss has not read. */ enter(): boolean }
+export interface DecidePanel { el: HTMLElement; sending(): boolean; update(live: boolean): void; /** The panel's primary control takes the focus when the card is taken (the pair card's number field, else the first button: Allow, Confirm), so Enter acts on it (Z-D20); false when none can. */ enter(): boolean }
 
 function decide(o: DecideOptions, field?: HTMLInputElement): DecidePanel {
 	const note = h("p", { class: "zen-head-note", role: "alert" }), buttons = o.choices.map((c) => Object.assign(h("button", { type: "button", class: "pair-btn" }, c.label) as HTMLButtonElement, { choice: c }));
@@ -47,7 +47,7 @@ function decide(o: DecideOptions, field?: HTMLInputElement): DecidePanel {
 		el: h("div", { class: "wait-panel zen-decide" }, ...(o.lead ?? []), h("div", { class: "zen-decide-acts" }, ...buttons), note),
 		sending: () => busy,
 		update: (on) => ((live = on), draw()),
-		enter: () => (field && !field.disabled ? (field.focus(), true) : false),
+		enter: () => { const first = field && !field.disabled ? field : buttons.find((b) => !b.disabled); return Boolean(first && (first.focus(), true)); },
 	};
 }
 const reason = (r: Answer) => String(r.body.reason ?? r.body.error ?? r.status);

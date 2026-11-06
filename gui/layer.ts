@@ -228,7 +228,7 @@ export function mountPanels(deps: PanelDeps) {
 	});
 	// fit() needs only the work's width, so it watches a gauge as wide and no height: the work's height changes inside the map's packing report.
 	new ResizeObserver(fit).observe(work.appendChild(Object.assign(document.createElement("i"), { className: "gauge" })));
-	const terminal = mountTerminals({ tiles, post: to, stream: deps.stream, pad: keypad });
+	const terminal = mountTerminals({ tiles, post: to, stream: deps.stream, pad: (t) => keypad({ ...t, enterConfirms: () => document.documentElement.dataset.view === "zen" }) }); // in Zen Enter confirms the pad's confirm (confirmbar.ts)
 	const kit = { embed: terminal.embed, watch: terminal.watch, post: to, stream: terminal.id };
 	const slot = mountStepSlot({ dock, kit, showTerminal: deps.showTerminal, openPane: (key, name) => terminal.open(key, name, true) }); // the terminal card (stepslot.ts)
 	return {

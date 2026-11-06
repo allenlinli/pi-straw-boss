@@ -27,7 +27,7 @@ const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator
 const spoken = (key: string) => key.split("+").map((part) => (part.length === 1 ? part.toUpperCase() : part[0]!.toUpperCase() + part.slice(1))).join("+");
 
 /** The pad of one terminal tile; `update` follows the mirror's state. */
-export function keypad({ name, state, post, stream, blip, taken }: { name: string; state(): TermState; post: Post; stream(): string; blip?(): void; taken?(): void }) {
+export function keypad({ name, state, post, stream, blip, taken, enterConfirms }: { name: string; state(): TermState; post: Post; stream(): string; blip?(): void; taken?(): void; /** Zen's pad: Enter confirms the server's confirm (confirmbar.ts); the others keep it on Cancel. Read when the confirm shows. */ enterConfirms?(): boolean }) {
 	const buttons: HTMLButtonElement[] = [], note = h("p", { class: "pad-note", role: "status" });
 	const writer = keywriter({ post, stream, busy: () => update(), clear: () => say(""), ask: (w, reason, token) => ask(w.key, reason, token), error: (text) => say(text, "error"), taken: (w) => "key" in w && w.key === "enter" && taken?.() });
 	const button = ([key, label, spoken]: [string, string, () => string]) => {
@@ -41,7 +41,7 @@ export function keypad({ name, state, post, stream, blip, taken }: { name: strin
 	const say = (text: string, tone = "") => ((note.dataset.tone = tone), note.replaceChildren(text));
 	/** The server's confirm, inline: its reason (in the page's words by its token), then the same key again with the token it named, or nothing. */
 	const ask = (key: string, reason: string, token: string) =>
-		confirmBar(note, confirmReason(token, reason), key === "enter" ? m.send_enter() : key === "esc" ? m.send_escape() : m.send_key({ key: spoken(key) }), () => writer.confirm(key, token), () => say(""));
+		confirmBar(note, confirmReason(token, reason), key === "enter" ? m.send_enter() : key === "esc" ? m.send_escape() : m.send_key({ key: spoken(key) }), () => writer.confirm(key, token), () => say(""), { enter: enterConfirms?.() });
 	/** A Ctrl or Alt chord as the server names it, or undefined for one that stays the browser's. */
 	const chord = (e: KeyboardEvent) => {
 		if (e.ctrlKey === e.altKey || e.shiftKey) return undefined; // both, or with Shift: the browser's or the system's

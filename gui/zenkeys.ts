@@ -6,6 +6,7 @@
 //   reply    the wait card's answer box is unfolded: Esc folds it (the draft stays) and does nothing else.
 //   head     the head tower's input is unfolded under the circle: Esc folds it (the draft stays) and does nothing else.
 //   blur     a field holds the focus and has text in it (any screen), or is focused on the companion's screen, the pause, or the empty state: Esc only lets go of it.
+//   close    a card whose question ended (answered elsewhere, or the unit failed) is on the page: Esc closes it, as Enter and its button do (Z-D20: it stays until the boss closes it).
 //   item     an item is on the page and can still be answered: Esc cancels its question when it is cancellable (the card's Cancel), else "Not now" (the next card).
 //   rest     the head tower's lines are clear under the circle: Esc sends them away (the maxim comes back) and does nothing else. After an empty field and an item, so it is the first Esc that nothing above took.
 //   leave    nothing above took the key and the last one that took none was less than ESC_MS ago: back to Standard for this page.
@@ -13,7 +14,7 @@
 // A key that repeats (held down) is no second press: it changes nothing.
 
 export const ESC_MS = 600;
-export type EscStep = "menu" | "history" | "reply" | "head" | "blur" | "item" | "rest" | "leave" | "hint" | "none";
+export type EscStep = "menu" | "history" | "reply" | "head" | "blur" | "close" | "item" | "rest" | "leave" | "hint" | "none";
 export interface EscFacts {
 	/** The corner menu is open. */
 	menu: boolean;
@@ -29,6 +30,8 @@ export interface EscFacts {
 	field: "text" | "empty" | "none";
 	/** An item is on the page with no outcome yet (its card can still be cancelled or skipped). */
 	item: boolean;
+	/** The card on the page is one whose question ended and that waits to be closed. */
+	ended?: boolean;
 	/** An Esc that nothing took came less than ESC_MS ago. */
 	armed: boolean;
 	/** The key is held down and repeats. */
@@ -42,6 +45,7 @@ export function escStep(f: EscFacts): EscStep {
 	if (f.reply) return "reply";
 	if (f.head) return "head";
 	if (f.field === "text") return "blur";
+	if (f.ended) return "close";
 	if (f.item) return "item";
 	if (f.field === "empty") return "blur";
 	if (f.rest) return "rest";

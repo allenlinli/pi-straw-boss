@@ -117,6 +117,8 @@ const shown = async (n = item()) => {
 	r.feed(n);
 	r.z.show();
 	await r.settle();
+	r.z.key("talk"); // Enter takes the card: a card never comes by itself (Z-D20)
+	await r.settle();
 	return r;
 };
 const sinkOf = (r: ReturnType<typeof rig>) => r.calls.sinks.at(-1)!;
@@ -256,14 +258,15 @@ test("a terminal opened for a unit that waits at once (a blocked prompt) returns
 	assert.equal(r.layer(), undefined);
 });
 
-test("the card under the layer does not take the focus from the terminal when a snapshot gives Zen a new card", async () => {
+test("the card under the layer is never replaced by a new card, and the keyboard stays with the terminal (Z-D20)", async () => {
 	const r = await shown();
 	r.z.terminal({ key: "a" });
 	await r.settle();
 	sinkOf(r).focus();
 	r.feed(net([unit("a", "idle", { name: "ops-main" }), unit("b", "waiting", { name: "next", since: 6, pending: select() })]));
-	for (let i = 0; i < 8; i++) await r.advance(1000); // the old card's "elsewhere", the pause, then the next card
-	assert.ok(r.root.dump().includes("next"), "the next item's card is drawn under the layer");
+	for (let i = 0; i < 8; i++) await r.advance(1000); // the old card's question ended: it stays, and the next question waits for Enter
+	assert.ok(!r.root.dump().includes("next"), "the next item's card is not drawn under the layer");
+	assert.ok(r.root.dump().includes(m.zen_rest()), "the card that was there stays, settled, under the layer");
 	assert.equal(page.activeElement, sinkOf(r), "and the keyboard stays with the terminal");
 });
 

@@ -89,16 +89,31 @@ export function mountRestTap(root: HTMLElement, o: { blank(at: Element): boolean
 	});
 }
 
+/** The one line that says how many cards wait for Enter (Z-D19): a button of 44 px that takes the next one, so a phone has the way. It keeps its room when none waits (`data-away`), so nothing moves when a card comes or goes; its words are written only when they change (a polite live region says them again otherwise). */
+export function mountCue(take: () => void) {
+	const btn = h("button", { type: "button", class: "zen-head-cue-btn" }), el = h("p", { class: "zen-head-cue", role: "status", "aria-live": "polite" }, btn);
+	btn.onclick = take;
+	return {
+		el, btn,
+		set(n: number) {
+			const said = n === 0 ? "" : n === 1 ? m.zen_cue_one({ n }) : m.zen_cue_many({ n });
+			if (btn.textContent !== said) btn.textContent = said;
+			btn.disabled = n === 0;
+			n === 0 ? (el.dataset.away = "") : delete el.dataset.away;
+		},
+	};
+}
+
 export function mountHead(io: HeadIo) {
 	const small = io.small ?? (() => typeof matchMedia === "function" && matchMedia("(max-width: 600px), (max-height: 560px)").matches);
 	let fade = createFade(io.now);
 	const live = h("p", { class: "zen-live zen-head-live", role: "status", "aria-live": "polite" });
 	const list = h("ol", { class: "zen-head-lines" }), working = h("p", { class: "zen-head-working" }, m.zen_head_working()), whole = h("button", { type: "button", class: "zen-head-history", "aria-keyshortcuts": "H" }, `${m.zen_head_history()} `, h("span", { class: "zen-head-key", "aria-hidden": "true" }, m.zen_head_key()));
 	const hint = h("button", { type: "button", class: "zen-head-hint" }, m.zen_head_hint());
-	const cueBtn = h("button", { type: "button", class: "zen-head-cue-btn" }), cue = h("p", { class: "zen-head-cue", role: "status", "aria-live": "polite" }, cueBtn); // the one line that says a card waits for Enter (Z-D19); it keeps its room so nothing moves when a card comes or goes
+	const cue = mountCue(() => io.take()); // the one line that says a card waits for Enter (Z-D19)
 	const box = h("textarea", { class: "zen-head-box", rows: "1", maxlength: "20000", "aria-label": m.zen_head_placeholder(), placeholder: m.zen_head_placeholder(), enterkeyhint: "send" }) as HTMLTextAreaElement;
 	const note = h("p", { class: "zen-head-note", role: "alert" }), form = h("form", { class: "zen-head-form" }, box, note);
-	const el = h("section", { class: "zen-head", role: "group", "aria-label": m.zen_head_label() }, list, working, live, h("div", { class: "zen-head-meta" }, whole, cue), hint, form);
+	const el = h("section", { class: "zen-head", role: "group", "aria-label": m.zen_head_label() }, list, working, live, h("div", { class: "zen-head-meta" }, whole, cue.el), hint, form);
 	[working.hidden, form.hidden, el.hidden] = [true, true, true];
 	el.dataset.hushed = "";
 	let items: Item[] = [], ids = new Set<string>(), seen = false, showing = false, unfolded = false, busy = false, off = false;
@@ -151,10 +166,7 @@ export function mountHead(io: HeadIo) {
 		const when = fade.restAt(keep.map((l) => l.id), held);
 		stopTimer = when === undefined ? () => {} : io.later(draw, Math.max(0, when - io.now()) + 10);
 		const cards = io.cards(), news = cards + (hushed ? openWaits().size : 0); // a wait for the boss counts as a card while the strip rests; once he has called the lines up, it is in front of him
-		const said = news === 0 ? "" : news === 1 ? m.zen_cue_one({ n: news }) : m.zen_cue_many({ n: news });
-		if (cueBtn.textContent !== said) cueBtn.textContent = said; // a polite live region: the same words written again may be read out again
-		cueBtn.disabled = news === 0;
-		news === 0 ? (cue.dataset.away = "") : delete cue.dataset.away;
+		cue.set(news);
 		if (!off) hint.textContent = cards > 0 ? m.zen_head_hint_click() : m.zen_head_hint(); // Enter takes a card first while one waits
 		hint.hidden = unfolded && !off;
 		form.hidden = !unfolded || off;
@@ -302,7 +314,6 @@ export function mountHead(io: HeadIo) {
 	box.addEventListener("input", () => (say(""), grow(), io.changed()));
 	form.addEventListener("submit", (e) => (e.preventDefault(), void send()));
 	hint.onclick = () => void unfold();
-	cueBtn.onclick = () => io.take();
 	whole.onclick = () => io.history();
 	// A blur with an empty box folds; with a draft it stays. The hint's own blur is not the box's: a click on the folded hint focuses it, and unfolding hides it, which Chrome reports as a focusout of the hint just before the box takes the focus.
 	// The strip rests again when the focus leaves it (the input folded or never opened): a window that lost the focus is not the boss leaving, and a move to another control inside the strip is not either.
@@ -359,8 +370,6 @@ export function mountHead(io: HeadIo) {
 		/** The lines are on show and Esc can send them away (zenkeys.ts `rest`). */
 		restable,
 		isOpen: () => unfolded && showing,
-		/** The box holds a draft: the screen is his until DRAFT_MS after his last touch (zen.ts). */
-		drafting: () => unfolded && showing && box.value !== "",
 		/** Nothing is clear and nothing is held. */
 		rested: () => restOn ?? true,
 		/** A press somewhere on the page: a tap elsewhere ends the touch that holds the lines clear. */

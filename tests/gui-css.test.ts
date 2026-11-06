@@ -367,3 +367,9 @@ test("the divider above a session's composer sits under the log, above the docke
 	assert.ok(gap && declarations(gap.body).some(([p, v]) => p === "--dock-gap" && /^\d+px$/.test(v)), "the gap exists only while a strip shows, so a composer alone keeps the divider on its top edge");
 	assert.match(gap!.parts.join(), /\.queue-bar.*\.queue-list.*\.queue-act.*\.todos.*\.monitors/, "every docked strip counts");
 });
+
+test("a queued row's label (排隊中・插話, Queued · steer) never breaks inside, while the message beside it breaks where it must", () => {
+	const rules = rulesOf(css), on = (part: string) => rules.filter((r) => r.parts.includes(part)).flatMap((r) => declarations(r.body));
+	assert.ok(on(".queue-list b").some(([p, v]) => p === "white-space" && v === "nowrap"), "the label is one piece");
+	assert.ok(on(".queue-list p").some(([p, v]) => p === "overflow-wrap" && v === "anywhere"), "a long path or URL breaks anywhere instead of pulling the label apart");
+});

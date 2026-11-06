@@ -342,7 +342,7 @@ test("the host owns the openings and the one-at-a-time lock: built beside deploy
 		assert.ok(at > 0 && at < begin, `${make} is built before begin, once per host`);
 		assert.equal(source.indexOf(make, begin), -1, `${make} is not built again inside begin`);
 	}
-	assert.match(source.slice(begin), /createSpawn\(\{[^\n]*\block\b[^\n]*openings/);
+	assert.match(source.slice(begin), /createSpawn\(\{[^\n]*\block,[^\n]*openings,/);
 });
 
 // F005: a repeat's own failure.

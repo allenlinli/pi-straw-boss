@@ -936,8 +936,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The ally base's unit card (0.60.2, with its review fixes): 105,934 / 38,425 measured, +2,112 / +824 over main's 103,822 / 37,601: `unitCards`, `unitWord` and `reportPeek` (linkmodel.ts), the summary line and the attended rows (render.ts), the card's CSS, the lazy load of gui/allyunits.ts (a chunk, with the Markdown it makes when a fold opens), and fifteen messages in both languages. Cap = measured.
 	// Merge of the ally card with the Zen rest and the drawer fix (0.60.2): cap = measured on the merged main.
 	// Never interrupted, Enter acts (Z-D20): 105,934 / 38,426 measured, +0 / +1 gzip over the figure above, on the Z-D20 build. Cap = measured.
-	// Z-D20 second round (ZNI review, R1 to R3): 106,082 / 38,470 measured, +148 / +44 over the figure above: view.ts's `held` (R3). Cap = measured.
-	assert.ok(eagerBytes <= 106_082 && eagerGz <= 38_470, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Z-D20 second round (ZNI review, R1 to R3): 106,082 / 38,475 measured, +148 / +49 over the figure above: view.ts's `held` (R3). Cap = measured.
+	assert.ok(eagerBytes <= 106_082 && eagerGz <= 38_475, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1086,8 +1086,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The ally base's unit card (0.60.2, with its review fixes): 316,518 / 129,644 measured, +3,717 / +1,639 over main's 312,801 / 128,005: the lazy chunk gui/allyunits.ts (3.2 kB, loaded with the first unit a device reported) and the chunks that now share its imports. Cap = measured.
 	// Merge of the ally card with the Zen rest and the drawer fix (0.60.2): cap = measured on the merged main.
 	// Never interrupted, Enter acts (Z-D20): 317,959 / 130,053 measured, +622 / +229 over the figure above: the cue as one function for the strip and the companion, the primary control of each card, the ended card and its Esc row, and the confirm bar's fresh-Enter guard, less the inert card, the swap and the draft hold. Cap = measured.
-	// Z-D20 second round (ZNI review, R1 to R3): 319,856 / 130,717 measured, +1,897 / +664 over the figure above: the over session's note and way back, the layer's step note and the card put out, the read-only card's Enter control, the ended wait and pair cards, the typing rule of the confirm bar, and six messages in both languages, less the composer's tick and the head's `changed`. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 319_856 && total(chunks, gz) <= 130_717, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Z-D20 second round (ZNI review, R1 to R3): 319,871 / 130,725 measured, +1,912 / +672 over the figure above: the over session's note and way back, the layer's step note and the card put out, the read-only card's Enter control, the ended wait and pair cards, the typing rule of the confirm bar, and six messages in both languages, less the composer's tick and the head's `changed`. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 319_871 && total(chunks, gz) <= 130_725, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

@@ -168,7 +168,7 @@ test("a later page that carries older head lines than the strip first held reads
 	assert.equal(live(), "answer 6", "a new reply still is");
 });
 
-test("the strip fills the page exactly while the mindfulness line is away (data-fill): not at rest, not once every line has faded, back with a hover or the open input, gone with Esc and with the next visit (Z-D21)", async () => {
+test("the strip fills the page exactly while the mindfulness line is away (data-fill): not at rest, not once every line has faded, back with the open input (a hover only sends the mindfulness line away), gone with Esc and with the next visit (Z-D21)", async () => {
 	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
 	const fill = () => r.strip()!.dataset.fill !== undefined;
 	await r.start();
@@ -1206,4 +1206,52 @@ test("Z-D20 (box trial C, 10:38): a card that resolves while it queues behind th
 	assert.deepEqual(r.calls.sound, []);
 	assert.equal(r.by("zen-company").length, 1, "the history stays the screen");
 	assert.equal(cueOf(r), "", "and the cue is gone");
+});
+
+test("a press on a control in the strip fills nothing until its click, so the page does not move under the pointer; a focus from the keyboard still wakes and fills (ZHR-F001)", async () => {
+	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
+	const fill = () => r.strip()!.dataset.fill !== undefined;
+	await r.start();
+	await r.settle();
+	assert.equal(fill(), false);
+	// a fresh visit (resting): Chromium focuses the hint on mousedown, before mouseup
+	r.hint().bubble("pointerdown", { pointerType: "mouse" });
+	r.hint().focus();
+	assert.equal(fill(), false, "the press's focus does not fill");
+	assert.equal(r.strip()!.dataset.hushed !== undefined, true, "and does not wake the strip");
+	r.hint().bubble("pointerup", { pointerType: "mouse" });
+	r.hint().click();
+	assert.equal(fill(), true, "the click wakes it and opens the input");
+	r.z.hide();
+	// all lines faded, awake: the same press does not fill
+	await r.start();
+	await r.settle();
+	r.wake();
+	await r.advance(CLEAR_MS + FADE_MS + 20);
+	assert.equal(fill(), false);
+	r.hint().bubble("pointerdown", { pointerType: "mouse" });
+	r.hint().focus();
+	assert.equal(fill(), false, "aged strip: the press's focus does not fill");
+	r.hint().bubble("pointerup", { pointerType: "mouse" });
+	r.hint().click();
+	assert.equal(fill(), true);
+	r.z.hide();
+	// the keyboard: Tab onto the hint
+	await r.start();
+	await r.settle();
+	r.hint().focus();
+	assert.equal(fill(), true, "a focus without a press (Tab) wakes the strip and fills");
+});
+
+test("once every line has rested the strip stops redrawing: no timer re-arms and the hint's text is not rewritten (ZHR-F003)", async () => {
+	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
+	await r.start();
+	await r.settle();
+	r.wake();
+	await r.advance(CLEAR_MS + FADE_MS + 20);
+	let writes = 0;
+	const hint = r.hint(), was = hint.replaceChildren.bind(hint);
+	hint.replaceChildren = (...k: never[]) => (writes++, was(...k));
+	await r.advance(1000);
+	assert.equal(writes, 0, "the hint keeps its text node");
 });

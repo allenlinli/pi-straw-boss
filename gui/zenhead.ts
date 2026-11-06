@@ -160,10 +160,11 @@ export function mountHead(io: HeadIo) {
 		settle();
 		stopTimer();
 		const when = fade.restAt(keep.map((l) => l.id), held);
-		stopTimer = when === undefined ? () => {} : io.later(draw, Math.max(0, when - io.now()) + 10);
+		stopTimer = when === undefined || when <= io.now() ? () => {} : io.later(draw, Math.max(0, when - io.now()) + 10);
 		const cards = io.cards(), news = cards + (hushed ? openWaits().size : 0); // a wait for the boss counts as a card while the strip rests; once he has called the lines up, it is in front of him
 		cue.set(news);
-		if (!off) hint.textContent = cards > 0 ? m.zen_head_hint_click() : m.zen_head_hint(); // Enter takes a card first while one waits
+		const say = cards > 0 ? m.zen_head_hint_click() : m.zen_head_hint();
+		if (!off && hint.textContent !== say) hint.textContent = say; // not rewritten when unchanged: a press on the hint keeps its text node (WebKit drops the click otherwise) // Enter takes a card first while one waits
 		hint.hidden = unfolded && !off;
 		form.hidden = !unfolded || off;
 	}
@@ -232,9 +233,19 @@ export function mountHead(io: HeadIo) {
 	const letGo = (set: () => void) => (stopHover(), (stopHover = io.later(() => (set(), bright()), LET_GO_MS)));
 	el.addEventListener("pointerenter", (e: PointerEvent) => e.pointerType !== "touch" && (stopHover(), (hover = true), bright()));
 	el.addEventListener("pointerleave", (e: PointerEvent) => e.pointerType !== "touch" && letGo(() => (hover = false)));
-	el.addEventListener("focusin", () => (stopHover(), (focus = true), bright()));
+	// A press focuses a button before its mouseup (Chromium): that focus must not fill the strip, or the hint jumps from under the pointer and the click misses. The click wakes it; a focus the keyboard brings (Tab) still does. The input's own focus counts always.
+	let pressing = false;
+	const lift = () => (pressing = false);
+	el.addEventListener("pointerdown", () => (pressing = true), true);
+	for (const type of ["pointerup", "pointercancel", "click", "keydown"]) el.addEventListener(type, lift, true);
+	el.addEventListener("focusin", (e: FocusEvent) => {
+		if (pressing && e.target !== box) return;
+		stopHover();
+		focus = true;
+		bright();
+	});
 	el.addEventListener("focusout", () => letGo(() => (focus = false)));
-	el.addEventListener("focusin", (e: FocusEvent) => e.target === hint && wake()); // the folded input is the field: a focus on it calls the head back, as a click does
+	el.addEventListener("focusin", (e: FocusEvent) => e.target === hint && !pressing && wake()); // the folded input is the field: a focus on it calls the head back, as a click does
 	el.addEventListener("pointerdown", (e: PointerEvent) => {
 		if (e.pointerType !== "touch") return;
 		stopTouch();

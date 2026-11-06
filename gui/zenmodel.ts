@@ -84,6 +84,8 @@ export function createZen({ now, typing, breathing }: ZenDeps) {
 		take() { if (screen.kind !== "item") { const n = next(); if (n) take(n); } return out(); },
 		/** The cards that wait for Enter, in the order they come (the cue above the head strip's input says how many). */
 		queued,
+		/** The keys of every card the server lists as waiting, the one on the screen and the ones set aside included (what a reminder is counted against, so one card is reminded once). */
+		listed: () => items().map((x) => x.key),
 		/** A tap, Enter, or Space during the pause. */
 		tap() { if (screen.kind === "pause") until = 0; return out(); },
 		/** The page was hidden or shown: a pause that would have ended ends at once when shown. */

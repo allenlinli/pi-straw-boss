@@ -151,7 +151,8 @@ export function mountHead(io: HeadIo) {
 		const when = fade.restAt(keep.map((l) => l.id), held);
 		stopTimer = when === undefined ? () => {} : io.later(draw, Math.max(0, when - io.now()) + 10);
 		const cards = io.cards(), news = cards + (hushed ? openWaits().size : 0); // a wait for the boss counts as a card while the strip rests; once he has called the lines up, it is in front of him
-		cueBtn.textContent = news === 0 ? "" : news === 1 ? m.zen_cue_one({ n: news }) : m.zen_cue_many({ n: news });
+		const said = news === 0 ? "" : news === 1 ? m.zen_cue_one({ n: news }) : m.zen_cue_many({ n: news });
+		if (cueBtn.textContent !== said) cueBtn.textContent = said; // a polite live region: the same words written again may be read out again
 		cueBtn.disabled = news === 0;
 		news === 0 ? (cue.dataset.away = "") : delete cue.dataset.away;
 		if (!off) hint.textContent = cards > 0 ? m.zen_head_hint_click() : m.zen_head_hint(); // Enter takes a card first while one waits

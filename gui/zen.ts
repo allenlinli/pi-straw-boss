@@ -99,7 +99,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (a) strip.textContent = m.zen_strip(a);
 		// A card that waits for Enter (Z-D19) makes no sound and no motion; a page nobody is looking at gets its system notification, once for each.
 		const waiting = model.queued(), nobody = document.hidden || !document.hasFocus();
-		for (const k of reminded) if (!waiting.some((x) => x.key === k)) reminded.delete(k);
+		for (const k of reminded) if (!model.listed().includes(k)) reminded.delete(k); // against what the server lists, not `waiting`: that is empty while a card is on the screen, which forgot every reminder the moment Enter took one
 		if (nobody) for (const x of waiting) if (!reminded.has(x.key)) (reminded.add(x.key), deps.remind(x));
 		cancel();
 		const due = model.due(), wait = shown.kind === "companion" && typing() ? 500 : due === undefined ? undefined : due - now();

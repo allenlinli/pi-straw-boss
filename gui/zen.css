@@ -337,7 +337,8 @@
    its delay set from the line's age, and never stopped: a hover, focus, a tap, or a held line only eases --lift to 1 over 0.6 s, so the clock keeps running and opacity = fade + (1 - fade) * lift); forced colours put it at 1. Rank 0 is the newest; the clear levels hold 7 : 1 (tests/zen-contrast.test.ts). ── */
 [data-view="zen"] .zen-head { display: grid; justify-items: center; gap: 8px; width: min(40rem, 100%); padding-bottom: clamp(8px, 4vh, 40px); } /* the hairline stands clear of the page's foot */
 [data-view="zen"] .zen-head[hidden] { display: none; }
-[data-view="zen"] .zen-stage:has(.zen-head) { grid-template-rows: none; grid-auto-rows: max-content; align-content: center; } /* the circle, its line, and the strip are one group in the middle of the page, not the circle in all the room that is left */
+[data-view="zen"] .zen-stage:has(.zen-head) { --orb: min(48vmin, 320px); grid-template-rows: minmax(80px, var(--orb)) max-content max-content; grid-auto-rows: max-content; align-content: center; padding-top: 40px; } /* the circle, its line, and the strip are one group in the middle of the page, not the circle in all the room that is left; the circle gives way (to 80 px) when the group is taller than the page, and the 40 px under the page's top keep it clear of the working-and-idle line at the top (Z-D19 fix) */
+[data-view="zen"] .zen-stage:has(.zen-head) > .zen-circle { width: auto; height: 100%; }
 [data-view="zen"] .zen-head-lines { display: grid; gap: 8px; width: 100%; margin: 0; padding: 0; list-style: none; transition: opacity 0.6s var(--zen-ease), visibility 0s; }
 /* Resting (zenhead.ts `rest`; Esc or a tap on the blank space): the lines and the working line go, keeping their room as the mindfulness line does when they are clear, so nothing moves when the head is called back. Hover, focus, and touch lift nothing here, and forced colours do not show them either. */
 [data-view="zen"] .zen-head[data-hushed] :is(.zen-head-lines, .zen-head-working) { opacity: 0; visibility: hidden; transition: opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s; }
@@ -358,11 +359,10 @@
 [data-view="zen"] .zen-head-working[hidden] { display: none; }
 [data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 6px; cursor: pointer; transition: color 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-history[hidden] { display: none; }
-[data-view="zen"] .zen-head-meta { display: grid; justify-items: center; } /* the link and the cue share one row (at rest the link is away, so the cue has its place and the strip is no taller); with the lines up and a card waiting, the cue takes the row under the link */
-[data-view="zen"] .zen-head-meta > * { grid-column: 1; grid-row: 1; }
-[data-view="zen"] .zen-head:not([data-hushed]) .zen-head-cue:not([data-away]) { grid-row: 2; }
-[data-view="zen"] .zen-head:not([data-hushed]) .zen-head-cue[data-away] { display: none; }
-[data-view="zen"] .zen-head-cue { margin: 0; display: grid; justify-items: center; transition: opacity 0.6s var(--zen-ease), visibility 0s; } /* Z-D19: the one line that says a card waits for Enter; it keeps its room at rest, so the circle and the lines never move when a card comes or goes */
+[data-view="zen"] .zen-head-meta { display: grid; grid-template-rows: minmax(44px, auto) minmax(44px, auto); justify-items: center; } /* two rows in every state, the link's above the cue's, each keeping its room when it is away: the circle and the lines never move when a card comes or goes, the lines come up, or the link fades (Z-D19) */
+[data-view="zen"] .zen-head-meta > * { grid-column: 1; }
+[data-view="zen"] .zen-head-history { grid-row: 1; }
+[data-view="zen"] .zen-head-cue { grid-row: 2; margin: 0; display: grid; justify-items: center; transition: opacity 0.6s var(--zen-ease), visibility 0s; } /* Z-D19: the one line that says a card waits for Enter; it keeps its room, so the circle and the lines never move when a card comes or goes */
 [data-view="zen"] .zen-head-cue[data-away] { opacity: 0; visibility: hidden; transition: opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s; }
 [data-view="zen"] .zen-head-cue-btn { transition: color 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-history { transition: color 0.4s var(--zen-ease), opacity 0.6s var(--zen-ease), visibility 0s; }
@@ -401,8 +401,7 @@
 	[data-view="zen"] .zen-head-form { width: 100%; }
 }
 @media (max-height: 560px) {
-	[data-view="zen"] .zen-stage:has(.zen-head) { gap: 10px; }
-	[data-view="zen"] .zen-stage:has(.zen-head) > .zen-circle { width: min(30vmin, 200px); }
+	[data-view="zen"] .zen-stage:has(.zen-head) { gap: 10px; --orb: min(30vmin, 200px); }
 }
 @media (prefers-reduced-motion: reduce) { /* no fade: clear for its 20 s, then at the rest level at once; hover and a tap still clear it at once */
 	/* style.css stills every animation under reduced motion except this one (`*:not(.zen-hl)`): a step has no motion, and without it the lines would stay clear for ever */

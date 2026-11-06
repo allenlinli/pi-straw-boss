@@ -2070,6 +2070,52 @@ test("Z-D19: a page nobody is looking at gets one system reminder for each card 
 	assert.equal(r.calls.remind.length, 2, "not again");
 });
 
+const WAIT_KEY = `wait\u001fw\u001fW2`;
+
+test("Z-D19 (ZD19-F002): a card is reminded once for as long as the server lists it: a card on the screen, Maybe later, and a page hidden again do not make the page remind about the one that waited all along", async () => {
+	server();
+	const r = rig({ start: null });
+	r.feed(waitAndBox(r, true));
+	page.hidden = true;
+	r.z.visible(false);
+	r.z.show();
+	await r.settle();
+	assert.deepEqual(r.calls.remind.sort(), [BOX_KEY, WAIT_KEY].sort(), "one for each while nobody looks");
+	page.hidden = false;
+	r.z.visible(true);
+	assert.equal(enterKey(r), true);
+	assert.deepEqual(whoIs(r), ["waydosoft asks you"], "the box's question took the screen: nothing is queued now");
+	r.feed(waitAndBox(r, true)); // a snapshot while a card is on the screen
+	r.button("Maybe later")!.click();
+	page.hidden = true;
+	r.z.visible(false);
+	await r.advance(PAUSE + 100);
+	r.feed(waitAndBox(r, true));
+	assert.deepEqual(r.calls.remind.sort(), [BOX_KEY, WAIT_KEY].sort(), "the wait is not reminded a second time, nor the card put aside");
+	r.feed(net([])); // the server stopped listing both
+	r.feed(waitAndBox(r, true)); // and they come back as new
+	assert.equal(r.calls.remind.length, 4, "a card that left and came back is a new card");
+	page.hidden = false;
+});
+
+test("Z-D19 (ZD19-F005): a visible page that has lost the focus is a page nobody is looking at: the reminder goes out, once", async () => {
+	server();
+	const r = rig({ start: null });
+	page.focus = false;
+	r.feed(waitAndBox(r, true));
+	r.z.show();
+	await r.settle();
+	assert.equal(page.hidden, false, "the page is in front");
+	assert.deepEqual(r.calls.remind.sort(), [BOX_KEY, WAIT_KEY].sort(), "but nobody has it in focus");
+	await r.advance(60_000);
+	assert.equal(r.calls.remind.length, 2, "once");
+	const looked = rig({ start: null });
+	looked.feed(waitAndBox(looked, true));
+	looked.z.show();
+	await looked.settle();
+	assert.deepEqual(looked.calls.remind, [], "with the focus there, none");
+});
+
 test("Z-D19: with a session for company a card still takes the screen by itself; Z-D18's preemption is gone, so a question that arrives behind a card waits for it", async () => {
 	server();
 	const r = rig();
@@ -2080,7 +2126,7 @@ test("Z-D19: with a session for company a card still takes the screen by itself;
 	r.feed(waitAndBox(r, true));
 	await r.advance(60_000);
 	assert.ok(r.text().includes("Boss token needed") && !r.text().includes("waydosoft asks you"), "never interrupted, untouched or not");
-	assert.equal(r.calls.debug.length >= 0, true);
+	assert.deepEqual(r.calls.debug, [`[sb] a question from waydosoft waits and is not on the Zen page: ${WAIT_KEY} is on the screen`], "the console says once why the question is not on the page");
 	r.button("Maybe later")!.click();
 	await r.advance(PAUSE + 100);
 	assert.deepEqual(whoIs(r), ["waydosoft asks you"], "the question follows the pause");

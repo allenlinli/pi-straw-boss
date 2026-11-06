@@ -319,16 +319,32 @@ test("the strip's two swaps move: hover, focus, and a tap ease the lines to clea
 	assert.deepEqual(declarations(link!.body), [["opacity", "0"], ["visibility", "hidden"], ["transition", "opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s"]], "the Whole conversation link fades the same way, so the strip does not jump when the lines come clear");
 });
 
-test("the cue that says a card waits for Enter (Z-D19) shares the link's row so the strip is no taller, keeps its room when there is none, is a 44 px control, and moves not at all under reduced motion", () => {
+test("the cue that says a card waits for Enter (Z-D19) has a row of its own under the link in every state, keeps its room when there is none, is a 44 px control, and moves not at all under reduced motion", () => {
 	const away = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-cue[data-away]'));
 	assert.deepEqual(declarations(away!.body), [["opacity", "0"], ["visibility", "hidden"], ["transition", "opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s"]], "with no card it fades away and keeps its room: the circle and the lines never move when a card comes or goes");
-	const meta = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-meta > *'));
-	assert.deepEqual(declarations(meta!.body), [["grid-column", "1"], ["grid-row", "1"]], "the link and the cue are in one cell");
-	assert.ok(rulesOf(zen).some((r) => r.parts.includes('[data-view="zen"] .zen-head:not([data-hushed]) .zen-head-cue:not([data-away])') && /grid-row: 2/.test(r.body)), "with the lines up the cue takes the row under the link");
+	const meta = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-meta'));
+	assert.deepEqual(declarations(meta!.body).filter(([k]) => k === "grid-template-rows"), [["grid-template-rows", "minmax(44px, auto) minmax(44px, auto)"]], "two rows of at least 44 px in every state, so the link's row and the cue's are both kept whether the lines are up or at rest");
+	const cells = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-meta > *'));
+	assert.deepEqual(declarations(cells!.body), [["grid-column", "1"]]);
+	assert.ok(rulesOf(zen).some((r) => r.parts.includes('[data-view="zen"] .zen-head-history') && /grid-row: 1/.test(r.body)), "the link is in the first row");
+	assert.ok(rulesOf(zen).some((r) => r.parts.includes('[data-view="zen"] .zen-head-cue') && /grid-row: 2/.test(r.body)), "the cue is in the second, lines up or at rest");
+	assert.ok(!rulesOf(zen).some((r) => r.parts.some((x) => /zen-head-cue/.test(x)) && /display:\s*none/.test(r.body)), "the cue is never taken out of the layout: a card that comes would add its row (ZD19-F001)");
 	assert.ok(rulesOf(zen).some((r) => r.parts.some((x) => /zen-head-cue-btn/.test(x)) && /min-height: 44px/.test(r.body)), "a tap target of 44 px: a phone has no Enter");
 	assert.ok(!/vermilion|--zen-seal/.test(rulesOf(zen).filter((r) => r.parts.includes('[data-view="zen"] .zen-head-cue') || r.parts.includes('[data-view="zen"] .zen-head-cue-btn')).map((r) => r.body).join("")), "vermilion is for the focus alone");
 	const reduced = zen.slice(zen.indexOf("@media (prefers-reduced-motion: reduce) { /* no fade"), zen.indexOf("@media (forced-colors: active) { /* the lines"));
 	assert.match(reduced, /\.zen-head-cue\)/, "under reduced motion the cue comes and goes at once");
+});
+
+test("the circle gives way when the circle, its line, and the strip are taller than the page, and the group starts under the working-and-idle line, so the two never overlap (Z-D19 fix)", () => {
+	const stage = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-stage:has(.zen-head)'));
+	const d = Object.fromEntries(declarations(stage!.body));
+	assert.equal(d["grid-template-rows"], "minmax(80px, var(--orb)) max-content max-content", "the circle's row takes what is left, from 80 px up to its size");
+	assert.equal(d["--orb"], "min(48vmin, 320px)", "its size is what it was");
+	assert.equal(d["padding-top"], "40px", "the working-and-idle line is at 18 to 40 px: the circle starts below it");
+	const circle = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-stage:has(.zen-head) > .zen-circle'));
+	assert.deepEqual(declarations(circle!.body), [["width", "auto"], ["height", "100%"]], "the circle follows its row's height, and its width follows it");
+	const short = zen.slice(zen.indexOf("@media (max-height: 560px) {"), zen.indexOf("@media (prefers-reduced-motion: reduce) { /* no fade"));
+	assert.match(short, /\.zen-stage:has\(\.zen-head\) \{ gap: 10px; --orb: min\(30vmin, 200px\); \}/, "a short window has the smaller circle by the same row");
 });
 
 test("a rested strip sends its lines and working line away the way the mindfulness line goes: faded out, then out of the reading order, and still taking their room; hover and forced colours do not bring them back", () => {

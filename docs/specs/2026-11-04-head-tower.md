@@ -249,7 +249,7 @@ Added 2026-11-06 (pi-straw-boss 0.60.2). **Boss ruling 2026-11-06**, on seeing t
 - **The whole conversation closes to the breath**: Esc, H, *Back to the breath*, or a gesture down from the history now returns to the circle with the strip at rest (it used to return to the lines), and opening the history no longer wakes the strip.
 - **Standard and Geek** are unchanged. Zen's rules hold: one focus, no boxes, vermilion for the focus only, the breathing circle every visit.
 - **Demo.** `?zen=head` shows the rest; `?zen=head-open` (Enter) the lines and the input; `?zen=head-history` presses H twice; `?zen=head-rest` no longer presses Esc (it is at rest from the start) and the unasked report arrives six seconds on.
-- **Tests.** `tests/zen-head.test.ts`: a visit starts at rest; each call (click, focus, Enter, H) with a clear clock; H with no lines opens the history; the focus leaving rests and the draft, the inside move, and the window blur do not; an old reply, an unsolicited line, and the next visit's memory do not wake it, a reply to his message and an open wait do; only the visit's first history is what was already said, a later snapshot with a reply to him is news; a wait never wakes it and counts in the cue; the history closes to rest.
+- **Tests.** `tests/zen-head.test.ts`: a visit starts at rest; each call (click, focus, Enter, H) with a clear clock; H with no lines opens the history; the focus leaving rests and the draft, the inside move, and the window blur do not; an old reply, an unsolicited line, and the next visit's memory do not wake it, a reply to his message does; only the visit's first history is what was already said, a later snapshot with a reply to him is news; a wait never wakes it and counts in the cue; the history closes to rest.
 
 ### Fading
 
@@ -361,7 +361,7 @@ Each step is one reviewable change with its tests, in dependency order. One rele
 
 ## Demo and pictures
 
-- `docs/gui-head.png` (the head page, desktop), `docs/gui-zen-head.png` (the strip, one line clear, input folded), `docs/gui-zen-head-open.png` (input unfolded, hovered lines), `docs/gui-phone-zen-head.png` (phone, 390 × 844), and `docs/gui-comms.png` again if the map's head node changes it. Both READMEs, with alt text in each language.
+- `docs/gui-head.png` (the head page, desktop), `docs/gui-zen-head.png` (the default rest: the breathing circle, its line, the cue for one waiting card, input folded), `docs/gui-zen-head-open.png` (input unfolded, hovered lines), `docs/gui-phone-zen-head.png` (phone, 390 × 844), and `docs/gui-comms.png` again if the map's head node changes it. Both READMEs, with alt text in each language.
 
 ## Docs to change
 

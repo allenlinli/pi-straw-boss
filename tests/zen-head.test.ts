@@ -984,6 +984,30 @@ test("a head line that arrives at rest, and an old reply the page already holds,
 	assert.equal(hushed(r), false, "the reply to what he sent surfaces");
 });
 
+test("the cue is a polite status, and its words are written only when they change: a polite live region that is written again with the same words may be read out again (ZD19-F003)", async () => {
+	const r = rig({ items: talk });
+	await r.start();
+	const cue = r.by("zen-head-cue")[0]!, btn = r.by("zen-head-cue-btn")[0]!;
+	assert.equal(cue.getAttribute("role"), "status");
+	assert.equal(cue.getAttribute("aria-live"), "polite", "said when the boss is free, never over what he is doing");
+	const writes: string[] = [], own = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(btn), "textContent")!;
+	Object.defineProperty(btn, "textContent", { get: () => own.get!.call(btn), set: (v: string) => (writes.push(v), own.set!.call(btn, v)), configurable: true });
+	await r.settle();
+	assert.deepEqual(writes, [], "no card, no words, nothing written");
+	r.feed(net(head(), [waiting()]));
+	assert.deepEqual(writes, ["1 card waits for Enter. No rush, when you're ready."]);
+	for (let i = 0; i < 5; i++) {
+		r.feed(net(head(), [waiting()])); // every snapshot draws the strip again
+		r.hint().focus();
+		r.hint().bubble("pointerenter", { pointerType: "mouse" });
+		await r.advance(CLEAR_MS + FADE_MS);
+	}
+	assert.equal(writes.length, 1, "drawn over and over, written once");
+	r.feed(net(head(), [waiting(), { ...waiting(), id: "b", key: "b" }]));
+	assert.equal(writes.length, 2, "a second card changes the words, and they are written");
+	assert.equal(cueOf(r), "2 cards wait for Enter. No rush, when you're ready.");
+});
+
 test("a wait for the boss that is open when the visit starts does not wake the strip: it is in the cue, and Enter opens it; an answered one counts for nothing", async () => {
 	const waiting = rig({ items: [headLine("a1", "Should I rerun the ETL tonight?", 5)], head: head({ service: memOf(waitOf("w1")) }) });
 	await waiting.start();

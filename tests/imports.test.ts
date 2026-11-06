@@ -949,7 +949,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// One ally card per device (0.60.3): 107,394 / 38,889 measured, +1,219 / +366 over main's 106,175 / 38,523: `mergeAllies` and the cards' teams (linkmodel.ts), the teams line and the merged map cards (render.ts), the card's CSS line, and three messages in both languages. Cap = measured.
 	// One ally card per device, review fixes (AOC-F001 to F004): 107,703 / 38,995 measured, +309 / +106 over the figure above: `mergeAllies` per workspace (the card's own teams, a stable label and state), `unitsFor` as the union over the teams, and the asks' team rule. Cap = measured.
 	// Re-review fixes (AOR-F001/F002): 107,892 / 39,063 measured, +189 / +68 over the figure above: a card's state from its own online bases (`unknown` with no tabs otherwise) and the `spare` units of no-workspace teams (linkmodel.ts), render.ts passing `spare`. Cap = measured.
-	assert.ok(eagerBytes <= 107_892 && eagerGz <= 39_063, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Merged with the head's fill (0.60.3, #117): 107,892 / 39,065 measured, +0 / +2: the two branches' eager modules compress together slightly worse. Cap = measured.
+	assert.ok(eagerBytes <= 107_892 && eagerGz <= 39_065, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1106,7 +1107,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Re-review fixes (AOR-F001/F002): 320,843 / 131,051 measured, raw unchanged and +5 gzipped over the 131,046 cap (the shared message module compresses 5 bytes worse). Cap = measured.
 	// Merged with the ally card and the ZHF fixes (0.60.3): 320,889 / 131,054 measured on the merged build. Cap = measured.
 	// ZHR fixes (press focus, rest timer): 321,105 / 131,091 measured, +216 / +37 over the figure above. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 321_105 && total(chunks, gz) <= 131_091, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Merged with the one ally card per device (0.60.3, #116 and #117 together): 321,154 / 131,109 measured, +49 / +18. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 321_154 && total(chunks, gz) <= 131_109, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

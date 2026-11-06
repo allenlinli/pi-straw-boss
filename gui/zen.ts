@@ -237,9 +237,9 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		histOpen = false;
 	}
 	const onCircle = () => shown.kind === "companion" && !company && !histOpen;
-	/** The head tower's whole conversation, as a companion on the circle screen; and the way back, to the strip with its input folded. */
-	const openHistory = () => !!net?.head && active && onCircle() && (head.wake(), disposeCompany(), (histOpen = true), drawCompany(), true); // the whole conversation calls the head tower back
-	const closeHistory = () => histOpen && (disposeCompany(), head.fold(), drawCompany(), true);
+	/** The head tower's whole conversation, as a companion on the circle screen; and the way back, to the breath: the strip at rest, its input folded. */
+	const openHistory = () => !!net?.head && active && onCircle() && (disposeCompany(), (histOpen = true), drawCompany(), true);
+	const closeHistory = () => histOpen && (disposeCompany(), head.fold(), head.hush(), drawCompany(), true); // the way back is to the breath: the strip is at rest
 	function drawCompany() {
 		histOpen &&= Boolean(net?.head);
 		const c = histOpen ? { key: net!.head!.key, ws: HEAD_KEY } : companionOf(net, company ?? picked);
@@ -434,7 +434,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		},
 		leave,
 		/** H: expands or collapses the shown item's context; false when the screen has none. */
-		toggleHistory: () => active && !term.isOpen() && !menu.isOpen() && (shown.kind === "item" ? Boolean(card?.toggle()) : histOpen ? closeHistory() : (onCircle() && head.wake()) || openHistory()), // on the circle a rested strip is called back first (a second H opens the history)
+		toggleHistory: () => active && !term.isOpen() && !menu.isOpen() && (shown.kind === "item" ? Boolean(card?.toggle()) : histOpen ? closeHistory() : (onCircle() && head.recall()) || openHistory()), // on the circle a rested strip is called back first (a second H opens the history)
 		/** Enter on the circle screen (hotkeys `talk`): ends a pause when one runs, else unfolds the head tower's input; false when neither. */
 		talk: () => face.tap() || (active && !term.isOpen() && !palette.isOpen() && !menu.isOpen() && onCircle() && head.unfold()),
 		/** The keymap's Enter and Space (hotkeys.ts): end the pause. False when no pause is shown or the terminal layer has the keys. */

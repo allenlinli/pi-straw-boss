@@ -97,6 +97,8 @@ function rig(o: { head?: HeadUnit | null; items?: Item[]; offline?: boolean; mus
 		typed: (text: string) => { r.box().value = text; r.box().bubble("input"); },
 		enter: (extra: object = {}) => r.box().bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13, ...extra }),
 		unfold: () => r.hint().click(),
+		/** H on a strip at rest: the lines come back (and nothing else when there are none: H then opens the history). */
+		wake: () => (r.strip()?.dataset.hushed !== undefined && r.lines().length > 0 ? r.z.key("history") : false),
 		esc: () => z.escape({ preventDefault() {} }),
 	};
 	return r;
@@ -131,6 +133,7 @@ test("the last three lines show, the newest last, and the whole text is in the l
 	const r = rig({ items: [bossLine("u1", "first", 1), headLine("a1", "second", 2), bossLine("u2", "third", 3), headLine("a2", "fourth\nwith a second line", 4)] });
 	await r.start();
 	await r.settle();
+	assert.equal(r.wake(), true, "a visit starts at rest: H calls the lines up");
 	assert.deepEqual(r.lines(), ["second", "third", "fourth with a second line"]);
 	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-who")), ["head", "boss", "head"]);
 	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-rank")), ["2", "1", "0"], "rank 0 is the newest");
@@ -141,6 +144,7 @@ test("a line is clear for 20 s from the moment it is first on screen, then fades
 	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
 	await r.start();
 	await r.settle();
+	r.wake();
 	const delays = () => r.by("zen-hl").map((el) => el.style.animationDelay);
 	assert.deepEqual(delays(), [`${CLEAR_MS / 1000}s`, `${CLEAR_MS / 1000}s`], "clear for 20 s, then the one CSS animation of opacity; no timer repaints");
 	await r.advance(CLEAR_MS + FADE_MS - 1);
@@ -344,6 +348,8 @@ test("a draft in the box holds the screen against an item for DRAFT_MS after the
 test("while the head runs the lines say it is on it, with no spinner, and the live region says its next reply once", async () => {
 	const r = rig({ head: head({ mark: "working" }) });
 	await r.start();
+	assert.equal(r.by("zen-head-working")[0]!.hidden, true, "at rest the strip says nothing");
+	r.unfold();
 	assert.equal(r.by("zen-head-working")[0]!.hidden, false);
 	assert.equal(r.by("zen-head-working")[0]!.textContent, "The head tower is on it…");
 	r.feed(net(head()));
@@ -383,7 +389,8 @@ test("pointing at the strip or focusing it brightens the lines at once and lets 
 	const r = rig({ items: [headLine("a1", "fading", 1)] });
 	await r.start();
 	await r.settle();
-	const strip = r.strip()!;
+	r.wake();
+	const strip = r.strip()!, link = r.by("zen-head-history")[0]!;
 	strip.bubble("pointerenter", { pointerType: "mouse" });
 	assert.equal(strip.getAttribute("data-bright"), "");
 	strip.bubble("pointerleave", { pointerType: "mouse" });
@@ -391,9 +398,9 @@ test("pointing at the strip or focusing it brightens the lines at once and lets 
 	assert.equal(strip.getAttribute("data-bright"), "", "still bright 1.4 s after");
 	await r.advance(200);
 	assert.equal(strip.getAttribute("data-bright"), null, "back on its curve");
-	r.hint().bubble("focusin");
+	link.bubble("focusin");
 	assert.equal(strip.getAttribute("data-bright"), "", "focus anywhere in the strip");
-	r.hint().bubble("focusout");
+	link.bubble("focusout");
 	await r.advance(1600);
 	assert.equal(strip.getAttribute("data-bright"), null);
 	strip.bubble("pointerdown", { pointerType: "touch" });
@@ -411,6 +418,7 @@ test("lines at rest that a hover, a focus, or a tap makes clear are not at rest:
 	const r = rig({ items: [headLine("a1", "fading", 1)] });
 	await r.start();
 	await r.settle();
+	r.wake();
 	await r.advance(CLEAR_MS + FADE_MS + 20);
 	const strip = r.strip()!, link = () => r.by("zen-head-history")[0]!, gone = () => link().dataset.away !== undefined && link().hidden === false;
 	assert.equal(r.away(), false, "at rest");
@@ -425,9 +433,9 @@ test("lines at rest that a hover, a focus, or a tap makes clear are not at rest:
 	assert.equal(r.away(), false, "let go: the breath's line is back");
 	assert.equal(gone(), true, "faded out, its room kept");
 	assert.deepEqual(delays(), before, "the lines' animation ran on under the hover, so a hover let go sets no new delay: a changed delay on a running animation would move its clock");
-	r.hint().bubble("focusin");
+	link().bubble("focusin");
 	assert.equal(r.away(), true, "focus in the strip brightens the lines too");
-	r.hint().bubble("focusout");
+	link().bubble("focusout");
 	await r.advance(1600);
 	strip.bubble("pointerdown", { pointerType: "touch" });
 	assert.equal(r.away(), true, "a tap");
@@ -443,7 +451,7 @@ test("the history opens by a wheel gesture up past 24 px, a swipe up over 40 px,
 	const ways: [string, (r: ReturnType<typeof rig>) => void][] = [
 		["wheel", (r) => stage(r).bubble("wheel", { deltaY: -30, deltaMode: 0, timeStamp: 10 })],
 		["swipe", (r) => (stage(r).bubble("touchstart", { touches: [{ clientY: 400 }], timeStamp: 10 }), stage(r).bubble("touchend", { changedTouches: [{ clientY: 340 }], timeStamp: 200 }))],
-		["H", (r) => assert.equal(r.z.key("history"), true)],
+		["H", (r) => (assert.equal(r.z.key("history"), true), assert.equal(open(r), false, "the first H calls the lines up"), assert.equal(r.z.key("history"), true))],
 		["link", (r) => r.by("zen-head-history")[0]!.click()],
 	];
 	for (const [name, go] of ways) {
@@ -472,6 +480,7 @@ test("the link shows only while the lines are clear; the history closes by Esc, 
 	const r = rig({ items: [headLine("a1", "something", 1)] });
 	await r.start();
 	await r.settle();
+	r.wake();
 	assert.equal(r.by("zen-head-history")[0]!.dataset.away, undefined, "shown while a line is clear");
 	await r.advance(CLEAR_MS + FADE_MS + 20);
 	assert.equal(r.by("zen-head-history")[0]!.dataset.away, "", "faded out at rest, its room kept: the wheel, swipe, and H still open it");
@@ -494,6 +503,7 @@ test("the link shows only while the lines are clear; the history closes by Esc, 
 		assert.equal(open(x), false);
 		assert.equal(x.by("zen-head-hint").length, 1, "the strip is back");
 		assert.equal(x.form().hidden, true, "with the input folded");
+		assert.equal(hushed(x), true, "at rest: the way back is to the breath");
 		assert.equal(x.calls.leave.length, 0, "and Zen was not left");
 		assert.equal(x.calls.watch.at(-1), "sb-head");
 	}
@@ -502,6 +512,7 @@ test("the link shows only while the lines are clear; the history closes by Esc, 
 test("the history is not a step of [ and ]: the ring still wraps at the circle", async () => {
 	const r = rig({ items: [headLine("a1", "something", 1)] });
 	await r.start();
+	r.wake();
 	r.z.key("history");
 	await r.settle();
 	assert.equal(open(r), true);
@@ -572,6 +583,7 @@ const ready = async (items: Item[] = [bossLine("u1", "go", 1), headLine("a1", "O
 	const r = rig({ items, ...o });
 	await r.start();
 	await r.settle();
+	r.wake(); // a visit starts at rest: these tests begin with the lines up
 	return r;
 };
 
@@ -603,7 +615,6 @@ test("after the rest, the Esc rows are as they were: the first says \"press agai
 test("a strip with nothing to rest (no lines, or every line already at its rest level) does not take Esc: the hint comes first", async () => {
 	const empty = await ready([]);
 	empty.esc();
-	assert.equal(hushed(empty), false);
 	assert.equal(empty.by("zen-esc")[0]!.textContent, "Press Esc again for Standard");
 	const faded = await ready();
 	await faded.advance(CLEAR_MS + FADE_MS + 20);
@@ -659,10 +670,8 @@ test("a tap does not rest the strip when it is a control's, the strip's own, a s
 	open.box().blur();
 	stage(open).bubble("click");
 	assert.equal(open.form().hidden, true, "the press folded the empty input");
-	assert.equal(hushed(open), false, "that tap was the fold's, as Esc's first is: the strip rests on the next");
-	stage(open).bubble("pointerdown", { pointerType: "mouse" });
-	stage(open).bubble("click");
-	assert.equal(hushed(open), true);
+	assert.equal(hushed(open), true, "and the input losing the focus rested the strip with it: the click adds nothing, and nothing wakes it again");
+	assert.equal(open.by("zen-esc")[0]?.textContent, "", "the click was not a second rest to answer for");
 });
 
 /** A press and its click, as a mouse makes them: the press first (the menu and the music list close on it, at the document), then the click. */
@@ -689,7 +698,10 @@ test("a tap on the blank space does nothing on an item, the pause, a companion, 
 	stage(pal).bubble("click");
 	assert.equal(hushed(pal), false, "the palette's own backdrop is the palette's");
 	const pause = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)] });
-	await pause.start(net(head(), [waiting()]));
+	await pause.start(net(head()));
+	await pause.settle();
+	pause.wake(); // the boss called the lines up, then an item came and was answered
+	pause.feed(net(head(), [waiting()]));
 	await pause.settle();
 	pause.root.all((el) => el.tagName === "button" && el.textContent === "Maybe later")[0]!.click();
 	await pause.settle();
@@ -699,7 +711,7 @@ test("a tap on the blank space does nothing on an item, the pause, a companion, 
 	pressed(pause, stage(pause));
 	await pause.settle();
 	assert.deepEqual(pause.lines(), ["go", "On it."], "the lines are there to be rested");
-	assert.equal(hushed(pause), false, "the tap that ends the pause is the pause's: the strip is not rested with it");
+	assert.equal(hushed(pause), false, "the item and the pause keep the strip as it was, and the tap that ends the pause is the pause's: the strip is not rested with it");
 	pressed(pause, stage(pause));
 	assert.equal(hushed(pause), true, "the next tap is the blank space's");
 	const menu = await ready();
@@ -717,6 +729,7 @@ test("a press outside the open music list closes it and does not rest the strip"
 	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)], music: music as never });
 	await r.start();
 	await r.settle();
+	r.wake();
 	r.by("zen-musicmore")[0]!.click();
 	assert.equal(r.by("zen-musicpanel")[0]!.hidden, false, "the list is open");
 	pressed(r, stage(r));
@@ -827,20 +840,19 @@ test("a hover, a focus, or a touch does not bring a rested strip's lines back; r
 	r.strip()!.bubble("pointerenter", { pointerType: "mouse" });
 	assert.equal(hushed(r), true);
 	assert.equal(r.away(), false, "the maxim stays under a pointer");
-	r.hint().bubble("focusin");
+	r.by("zen-head-history")[0]!.bubble("focusin");
 	r.strip()!.bubble("pointerdown", { pointerType: "touch" });
 	assert.equal(hushed(r), true);
 	assert.equal(r.away(), false);
 });
 
-test("the rest is the page's own for this visit: Zen hiding ends it, and an item that comes and goes keeps it", async () => {
+test("the strip is the page's own for this visit: Zen hiding puts it back at rest, and an item that comes and goes keeps it as it was", async () => {
 	const r = await ready();
-	r.esc();
+	assert.equal(hushed(r), false, "called up");
 	r.z.hide();
 	r.z.show();
 	await r.settle();
-	assert.equal(hushed(r), false, "every visit starts with the strip as it is (Z-D16)");
-	r.esc();
+	assert.equal(hushed(r), true, "every visit starts at rest (Z-D16, and the boss's 2026-11-06 ruling)");
 	r.feed(net(head(), [waiting()]));
 	await r.settle();
 	assert.equal(r.by("zen-card").length, 1);
@@ -848,4 +860,134 @@ test("the rest is the page's own for this visit: Zen hiding ends it, and an item
 	await r.settle();
 	await r.advance(5000);
 	assert.equal(hushed(r), true, "the strip is back at rest after the item");
+	r.wake();
+	r.feed(net(head(), [waiting()]));
+	await r.settle();
+	r.feed(net(head()));
+	await r.settle();
+	await r.advance(5000);
+	assert.equal(hushed(r), false, "and called up it stays up");
+});
+
+// Rest is the default (boss ruling 2026-11-06: 「我覺得應該預設是呼吸，這是主塔台不是嗎？主塔台應該是 click input field 再顯示 session 吧」): a visit starts at the breath and the input line; the head's lines come up when the boss calls them.
+const waitOf = (id: string, answered?: string) => ({ id, text: "orchard?", at: at(5), ...(answered ? { answered } : {}) });
+const memOf = (...bossWaits: ReturnType<typeof waitOf>[]) => service({ memory: { rev: 1, standing: 0, decisions: 0, waits: bossWaits.length, bossWaits, proposals: [] } });
+const talk = [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)];
+
+test("a visit starts at rest: the head's lines are sent away, the mindfulness line shows, and the folded input is there; nothing else on the strip is on show", async () => {
+	const r = rig({ items: talk, head: head({ mark: "working" }) });
+	await r.start();
+	await r.settle();
+	assert.equal(hushed(r), true);
+	assert.equal(r.away(), false, "the maxim, not the lines, is under the circle");
+	assert.equal(r.hint().hidden, false);
+	assert.equal(r.form().hidden, true);
+	assert.equal(r.by("zen-head-working")[0]!.hidden, true, "not even the on-it line");
+	assert.equal(r.by("zen-head-history")[0]!.dataset.away, "");
+	assert.equal(r.lines().length, 2, "the lines are kept for the wake and the history");
+	await r.advance(60_000);
+	assert.equal(hushed(r), true, "time wakes nothing");
+});
+
+test("what calls the lines up: a click on the folded input, a focus on it, Enter, and H; the lines come up clear even when the visit has run a while", async () => {
+	for (const call of [(r: ReturnType<typeof rig>) => r.unfold(), (r: ReturnType<typeof rig>) => r.hint().focus(), (r: ReturnType<typeof rig>) => r.press("Enter"), (r: ReturnType<typeof rig>) => r.press("h")]) {
+		const r = rig({ items: talk });
+		await r.start();
+		await r.settle();
+		await r.advance(CLEAR_MS + FADE_MS + 20);
+		assert.equal(hushed(r), true);
+		call(r);
+		await r.settle();
+		assert.equal(hushed(r), false);
+		assert.equal(r.away(), true, "the lines are in paper, the maxim steps aside");
+		assert.deepEqual(r.by("zen-hl").map((el) => el.style.animationDelay), [`${CLEAR_MS / 1000}s`, `${CLEAR_MS / 1000}s`], "the boss asked for them: clear for the whole of 20 s again, not as faded as the minutes since the page began");
+	}
+});
+
+test("H with no lines to call up opens the whole conversation at once", async () => {
+	const r = rig({ items: [] });
+	await r.start();
+	await r.settle();
+	assert.equal(r.z.key("history"), true);
+	await r.settle();
+	assert.equal(open(r), true);
+});
+
+test("the strip rests again when the focus leaves it: an empty box that loses the focus, the hint that loses it, and Esc twice; a draft, a move inside the strip, and a window that lost the focus do not", async () => {
+	const r = await ready();
+	r.unfold();
+	assert.equal(hushed(r), false);
+	r.box().blur();
+	assert.equal(r.form().hidden, true);
+	assert.equal(hushed(r), true, "an empty box that loses the focus: the boss left");
+	r.hint().focus();
+	assert.equal(hushed(r), false, "a focus on the folded input calls the lines up");
+	r.hint().blur();
+	assert.equal(hushed(r), true, "and its loss rests them");
+	const draft = await ready();
+	draft.unfold();
+	draft.typed("kept");
+	draft.box().blur();
+	assert.equal(hushed(draft), false, "a draft stays up");
+	const inside = await ready();
+	inside.unfold();
+	inside.box().bubble("focusout", { relatedTarget: inside.by("zen-head-history")[0] });
+	assert.equal(inside.form().hidden, true, "folded");
+	assert.equal(hushed(inside), false, "the focus went to a control of the strip: not leaving it");
+	const away = await ready();
+	away.unfold();
+	page.focus = false;
+	away.box().blur();
+	page.focus = true;
+	assert.equal(away.form().hidden, true);
+	assert.equal(hushed(away), false, "a window that lost the focus is not the boss leaving");
+});
+
+test("a head line that arrives at rest, and an old reply the page already holds, wake nothing; a reply to what the boss sends in this visit does", async () => {
+	const old = [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)]; // a1 answers u1
+	const r = rig({ items: old });
+	await r.start();
+	await r.settle();
+	assert.equal(hushed(r), true, "the history's reply is not news to this visit");
+	r.put([...old, tower("n1", 5), headLine("a2", "Main is open (unasked).", 6)]);
+	await r.settle();
+	assert.equal(hushed(r), true, "an unsolicited line stays away");
+	r.z.hide();
+	r.z.show();
+	await r.settle();
+	assert.equal(hushed(r), true, "nor does the next visit wake for what the last one held");
+	r.unfold();
+	r.typed("and the tests?");
+	await r.enter();
+	await r.settle();
+	r.esc();
+	r.esc();
+	assert.equal(hushed(r), true);
+	r.z.history({ key: "sb-head", items: [bossLine("u2", "and the tests?", 7), headLine("a3", "Tests pass.", 8)] });
+	await r.settle();
+	assert.equal(hushed(r), false, "the reply to what he sent surfaces");
+});
+
+test("a wait for the boss surfaces at once, even on the first draw of a visit; with none open the strip stays at rest", async () => {
+	const waiting = rig({ items: [headLine("a1", "Should I rerun the ETL tonight?", 5)], head: head({ service: memOf(waitOf("w1")) }) });
+	await waiting.start();
+	await waiting.settle();
+	assert.equal(hushed(waiting), false, "it is for the boss, and nothing else on Zen shows it");
+	assert.equal(waiting.away(), true);
+	const answered = rig({ items: [headLine("a1", "Done.", 5)], head: head({ service: memOf(waitOf("w1", at(6))) }) });
+	await answered.start();
+	await answered.settle();
+	assert.equal(hushed(answered), true, "an answered wait is not news");
+});
+
+test("the snapshots a visit starts with are all history: a stream's reset that follows the newest page, with a reply in it, wakes nothing; a line added after them does", async () => {
+	const r = rig({ items: [headLine("a0", "Ready.", 0)] }); // the newest page the strip reads
+	await r.start();
+	await r.settle();
+	r.z.history({ key: "sb-head", reset: true, items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)] }); // the stream's own snapshot: a1 answers u1
+	await r.settle();
+	assert.equal(hushed(r), true);
+	r.z.history({ key: "sb-head", items: [bossLine("u2", "and the tests?", 3), headLine("a2", "Tests pass.", 4)] });
+	await r.settle();
+	assert.equal(hushed(r), false, "a reply added after the snapshots is news");
 });

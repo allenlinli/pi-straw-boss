@@ -246,9 +246,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	}
 	// The states that press a key (the Zen layer takes it once it has drawn): H opens the card's context, ⌘K / Ctrl+K the palette, and an answer to the item starts the pause.
 	const press = (init: KeyboardEventInit) => setTimeout(() => window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init })), 2200);
-	if (zen === "history" || zen === "head-history") press({ key: "h" });
+	if (zen === "history" || zen === "head-history") (press({ key: "h" }), zen === "head-history" && press({ key: "h" })); // head-history: the first H calls the strip's lines up, the second opens the whole conversation
 	if (zen === "head-open") (press({ key: "Enter" }), setTimeout(() => { const box = document.querySelector<HTMLTextAreaElement>(".zen-head-box"); if (box) (box.value = headDraft(), box.dispatchEvent(new Event("input", { bubbles: true }))); }, 2900));
-	if (zen === "head-rest") (press({ key: "Escape" }), setTimeout(() => current?.send("history", { key: "sb-head", reset: false, items: headReport(++live) }), 6000)); // the strip rests, then the head reports by itself: it stays at rest
+	if (zen === "head-rest") (setTimeout(() => current?.send("history", { key: "sb-head", reset: false, items: headReport(++live) }), 6000)); // the strip is at rest from the start, then the head reports by itself: it stays at rest
 	if (zen === "palette") press(/Mac|iPhone|iPad/.test(navigator.platform) ? { key: "k", metaKey: true } : { key: "k", ctrlKey: true });
 	if (zen === "pause") setTimeout(() => document.querySelector<HTMLElement>("#zen .zen-skip")?.click(), 2200);
 	mountToolbar(control);

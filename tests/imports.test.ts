@@ -765,7 +765,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Blocking first review fixes (ZBF-F001 to F006) to 6368 (measured, +24): zen.ts (the inert window, the parked card), zenmodel.ts (`blocks` as a switch), and zentouch.ts (a touch is a tap in the last 20 s; no fold, text, or pick).
 	// Wait panel buttons (0.60.1) to 6403 (measured, +35): waitpanel.ts (`report`: the folded panel and the stale note; the confirmation is the host's, one line) and towernotes.ts (no comms link on the head page or on a tower's own comms, the flash under the rows).
 	// The head page, minimal (docs/specs/2026-11-06-head-page-minimal.md) to 6504 (measured, +101 over main's 6403): gui/headacts.ts (33, new), headpage.ts (the broadcast rows replace the chips), demo-head.ts (five broadcasts, the lapsed wait, the hidden items), chat.ts and session.ts.
-	assert.ok(page <= 6504, `the page's TypeScript has ${page} lines`);
+	// Zen head strip at rest (0.60.2) to 6524 (measured, +20 over 6504): zenhead.ts (the rest at the start and at the focus's leaving, the recall, the visit's snapshots), zen.ts (the history closes to the rest); the fixture and the demo's words are net zero.
+	assert.ok(page <= 6524, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -1057,7 +1058,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Blocking first re-review (zbf-rr-F001, a Space release the form never saw pressed): 311,127 / 127,385 measured, +63 / -11 over the figure above. The raw cap = measured; the gzip cap stays.
 	// Wait panel buttons (0.60.1): 311,702 / 127,709 measured, +575 / +324 over the figure above, all lazy: waitpanel.ts (`report`: the folded panel and the stale note) and the session view's `here` flag. Cap = measured.
 	// The head page, minimal (0.60.1): 312,801 / 127,984 measured, +1,099 / +275 over main's 311,702 / 127,709: the head-only branches of the log and the broadcast rows' lazy parts. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 312_801 && total(chunks, gz) <= 127_984, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Zen head strip at rest (0.60.2): 313,211 / 128,096 measured, +410 / +112 over the figure above: zenhead.ts (the Zen chunk). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 313_211 && total(chunks, gz) <= 128_096, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

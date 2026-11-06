@@ -47,3 +47,7 @@ The merge train took format, lint, build and full suites off each coordinator. D
 | `prompts/planning.md` | A `human` anchor in a `uat` app is the train's UAT: the slip names its checkpoints file. Budget unchanged (670): the gate list and two clauses were cut. |
 
 `main.md` and `tower.md` are unchanged: the slip still travels as `why=shared` and goes to the one integrator.
+
+## 2026-11-06 note
+
+The Deploy and UAT stage procedure in this record moved to pi-anchorloop's `deploying` skill (playbooks `deploy`, `rollback`, and the UAT stage); `integrator.md` now points to it. The stage fields, the slip line, and the `auto`/`strict` rule stay as written here. See `docs/specs/2026-11-06-seam-bindings.md`.

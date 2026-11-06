@@ -84,6 +84,7 @@ pi install npm:pi-straw-boss
 - pi 要跑在 [Herdr](https://herdr.dev) 0.9.4 以上。
 - Herdr 的 pi 整合（`herdr integration install pi`）：沒有它，Herdr 不會替窗格標出 pi session，該 session 就無法加入網；每個 session 啟動 20 秒後若發現缺少，會警告一次。
 - [pi-intercom](https://www.npmjs.com/package/pi-intercom) 0.18.1 以上：網的頻道、訊息，以及 GUI 轉送對話框，都是透過它，sb server 的連線也是；版本較舊或沒裝時，sb server 起不來（`start-error.json` 與 `boss_server status` 會說明）。
+- [pi-anchorloop](https://www.npmjs.com/package/pi-anchorloop) 2.10.0 以上：合併列車（merge train）的流程就是它的 `integrating`（合併）與 `deploying`（部署、UAT）兩個 skill，Straw Boss 的提示詞只綁定這兩個 skill 留給宿主決定的地方（[運作方式](docs/how-it-works.md#merge-train)，英文）。沒裝時，遇到車單（car slip）的主智慧體或整合員會回報 `blocked` 並點名 pi-anchorloop，什麼都不合併；關閉合併列車時不會用到它。
 - Windows 支援是實驗性的：擴充套件在 Windows 上透過 Herdr 的 named pipe 連線，側邊欄 plugin 用 `PATH` 上的 `node` 執行，worktree reaper 只支援 macOS 和 Linux，專案信任（project trust）的轉送則要求 pi 的 agent 資料夾位在你的使用者設定檔（user profile）之內，否則 pi 照舊在終端機裡詢問（[差異在哪](docs/how-it-works.md#windows)，英文）。
 
 ### 支援的套件

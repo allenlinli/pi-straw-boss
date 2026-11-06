@@ -96,6 +96,27 @@ test("off: no assembled prompt names the integrator, a car slip, or the train; t
 	assert.equal(set.read("main").includes(PROMPT_DIR), false);
 });
 
+// docs/specs/2026-11-06-seam-bindings.md: the `## Seam bindings` block of main.md sits inside the integration markers, so anchorloop's defaults apply (it asks the boss before a merge or a deploy) when the train is off.
+const SEAMS = ["Handoff route", "Batch owner", "Approval", "Record", "Escalation route", "Settings"];
+test("the seam bindings: a main gets all six with the train on, none with it off, and the ledger path takes the state folder", async () => {
+	const dir = temp();
+	assert.match(strip(raw("main"), false), /## Seam bindings\n/);
+	assert.doesNotMatch(strip(raw("main"), true), /Seam bindings|seam|anchorloop/i);
+	const on = world.agent({ id: "a", pane: "wA:p1", tab: "wA:t1", env: { STRAW_BOSS_INTEGRATION: "on" }, deps: { stateDir: dir } });
+	await on.start();
+	await on.promote();
+	const section = (await on.run())["straw-boss"]!;
+	const block = section.slice(section.indexOf("## Seam bindings"));
+	assert.ok(block.startsWith("## Seam bindings"), "the on section carries the block");
+	for (const seam of SEAMS) assert.match(block, new RegExp(`^- ${seam}:`, "m"), `${seam} is bound`);
+	assert.ok(block.includes(`${join(dir, "trains")}/<project>/<app>.json`) || block.includes(`${dir}/trains/<project>/<app>.json`), "Record names the state folder's trains");
+	assert.doesNotMatch(block, MARKS);
+	const off = world.agent({ id: "b", pane: "wA:p2", tab: "wA:t2", env: { STRAW_BOSS_INTEGRATION: "off" }, deps: { stateDir: dir } });
+	await off.start();
+	await off.promote();
+	assert.doesNotMatch((await off.run())["straw-boss"]!, /Seam bindings|Handoff route|Batch owner|Escalation route/);
+});
+
 test("off: the copies are rewritten at each load, and a stale integrator.md in the folder is removed", () => {
 	const dir = temp(), env = { STRAW_BOSS_INTEGRATION: "off" };
 	const first = promptSet({ promptDir: PROMPT_DIR, stateDir: dir, env });

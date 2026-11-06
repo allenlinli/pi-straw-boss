@@ -95,6 +95,7 @@ export function createMembership({ pi, cfg, s, me, tell }: Kit, { presence, elec
 	const joinNet = () =>
 		(joining ??= (async () => {
 			if (s.joined) return;
+			await s.recheck?.(); // a session whose sub workspace check failed (or is still running) asks Herdr again, or shares the ask in flight, before it is refused
 			if (s.barred) throw new Error(s.barred);
 			s.at = await place(run);
 			connect(true);

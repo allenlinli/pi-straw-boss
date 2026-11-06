@@ -577,7 +577,7 @@ export class Agent {
 		if (!options.noIntercom) events.on("intercom:outbox-request", (request) => world.broker.outbox(this, request as { requestId: string; to: string; message: string }));
 		world.broker.connect(this);
 		// The extension's waits are real in production; here they are capped so timeouts take milliseconds.
-		createStrawBoss({ run: world.herdr.runFor(this.pane), api: world.herdr.api, watch: world.watch, env, sleep: (ms) => sleep(Math.min(ms, 2)), promptDir: PROMPT_DIR, stateDir: world.stateDir, autoTower: false, ask: (request, options) => world.ask(request, options), later: (_pid, args) => void world.herdr.runFor(this.pane)(args), events: world.herdr.events, ...options.deps })(pi);
+		createStrawBoss({ run: world.herdr.runFor(this.pane), api: world.herdr.api, watch: world.watch, env, sleep: (ms) => sleep(Math.min(ms, 2)), promptDir: PROMPT_DIR, stateDir: world.stateDir, autoTower: false, joinRetryMs: [60_000], ask: (request, options) => world.ask(request, options), later: (_pid, args) => void world.herdr.runFor(this.pane)(args), events: world.herdr.events, ...options.deps })(pi);
 	}
 
 	private dialog(kind: "select" | "confirm", title: string, second: unknown, opts?: { signal?: AbortSignal; timeout?: number }): Promise<unknown> {

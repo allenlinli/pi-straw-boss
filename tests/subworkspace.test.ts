@@ -41,7 +41,7 @@ test("a sub workspace session that had joined before does not rejoin on resume",
 	assert.deepEqual(s.tokens, {});
 });
 
-test("when Herdr cannot say whether the workspace is a sub workspace the session is barred and says why", async () => {
+test("when Herdr cannot say whether the workspace is a sub workspace the session stays off the net for now and says why (tests/join-retry.test.ts: it asks again)", async () => {
 	const runFor = world.herdr.runFor.bind(world.herdr);
 	world.herdr.runFor = (self: string) => async (args: string[]) => {
 		if (args[0] === "workspace") throw new Error("herdr workspace list failed: socket closed");
@@ -50,7 +50,7 @@ test("when Herdr cannot say whether the workspace is a sub workspace the session
 	const b = world.agent({ id: "b", pane: "wA:p2", tab: "wA:t1" });
 	await b.start();
 	assert.deepEqual([...b.tools.keys()], []);
-	assert.ok(b.notices.some((n) => n.level === "error" && /could not tell whether this is a sub workspace: .*socket closed/.test(n.text)), JSON.stringify(b.notices));
+	assert.ok(b.notices.some((n) => n.level === "warning" && /could not tell whether this is a sub workspace: .*socket closed/.test(n.text)), JSON.stringify(b.notices));
 	assert.deepEqual(await b.run(), {});
 });
 

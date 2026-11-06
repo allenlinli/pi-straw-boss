@@ -22,6 +22,7 @@ const RESUME = "straw-boss-resume";
 const KID_MARK_MS = [3_000, 15_000];
 const SUBAGENT_TOOLS = ["subagent", "subagent_resume"];
 const CHECKING = "Straw Boss is still asking Herdr whether this is a sub workspace; try again in a moment";
+const UNPLACED = (why: string) => `Straw Boss could not tell whether this is a sub workspace: ${why}; it asks again`;
 
 /** What the session does at its start, around each run, and at its end. */
 export function registerSession(kit: Kit, { runMode, briefing, roles, presence, membership, guard, host, reach, digest, control, integration, startTower }: { runMode: RunMode; briefing: Briefing; roles: Roles; presence: Presence; membership: Membership; guard: Guard; host: ReturnType<typeof createHost>; reach: Reach; digest: Digest; control: Control; integration: IntegrationWatch; startTower(): Promise<void> }) {
@@ -31,26 +32,29 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 	// What the tower learns at its next run (digest.ts); a line that cannot be written is not worth failing anything for.
 	const note = (text: string) => void digest.note(s.at.workspaceId, text).catch(() => {});
 	// Watches for subagents this session launched whose result can no longer reach it (orphan.ts), and the watch on the Herdr server.
-	let nudges: ReturnType<typeof orphans> | undefined, restores: ReturnType<typeof restored> | undefined, nudgeTimer: ReturnType<typeof setInterval> | undefined, unwatch: (() => void) | undefined;
+	let nudges: ReturnType<typeof orphans> | undefined, restores: ReturnType<typeof restored> | undefined, nudgeTimer: ReturnType<typeof setInterval> | undefined, unwatch: (() => void) | undefined, retryTimer: ReturnType<typeof setTimeout> | undefined;
 	const stopWatching = () => {
 		clearInterval(nudgeTimer);
+		clearTimeout(retryTimer);
 		nudges?.stop();
 		restores?.stop();
 		unwatch?.();
 		unwatch = undefined;
 	};
-	// A session in a sub workspace (a linked git worktree) acts like a subagent: it never joins. Failing to tell bars it too.
+	// A session in a sub workspace (a linked git worktree) acts like a subagent: it never joins. Only a definitive answer bars it for good;
+	// a Herdr that could not answer (it is slow under load) leaves the session unplaced, and the check is asked again (`begin`).
 	let placed: Place | undefined; // where Herdr says this session runs, as the sub workspace check found it
-	const barReason = async () => {
+	type Verdict = { bar?: { text: string; level: "info" } } | { failed: string };
+	const barReason = async (): Promise<Verdict> => {
 		try {
 			const here = (placed = await place(run)), { workspaceId } = here;
 			if (!here.terminalId) tell("Straw Boss: this Herdr reports no terminal_id for the pane, so a main of this session cannot come back after a Herdr restore (roles.ts)", "warning");
 			const all = await workspaces(run);
 			const sub = all.find((w) => w.workspace_id === workspaceId);
-			if (sub && isHead(sub)) return { text: "This is the head tower's workspace, so a session typed here cannot join the net; the head tower is its own", level: "info" as const };
-			return sub && isSub(sub) ? { text: `${sub.label} is a sub workspace, so this session cannot join the net; the main agent of its parent workspace represents it`, level: "info" as const } : undefined;
+			if (sub && isHead(sub)) return { bar: { text: "This is the head tower's workspace, so a session typed here cannot join the net; the head tower is its own", level: "info" } };
+			return sub && isSub(sub) ? { bar: { text: `${sub.label} is a sub workspace, so this session cannot join the net; the main agent of its parent workspace represents it`, level: "info" } } : {};
 		} catch (error) {
-			return { text: `Straw Boss could not tell whether this is a sub workspace: ${(error as Error).message}`, level: "error" as const };
+			return { failed: (error as Error).message };
 		}
 	};
 	// A tab the tower opened for a request starts its pi with this role: it promotes itself as soon as it has joined (opener.ts).
@@ -89,55 +93,87 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		restores = restored({ run, sleep: cfg.sleep, file: () => log.getSessionFile(), entries: () => log.getEntries(), active: () => !s.isTower, launcher: () => (me() ? { id: me(), name: who() } : undefined), sessions: host.sessions, send: reach.send, type: ENTRY, remember: (data) => pi.appendEntry(ENTRY, data), resume: (text, details) => pi.sendMessage({ customType: RESUME, content: text, display: true, details }, { triggerTurn: true, deliverAs: "steer" }), tell });
 		nudgeTimer = setInterval(() => void Promise.allSettled([nudges?.poll(), restores?.poll()]), cfg.nudgeMs).unref();
 		// Starting runs in the background: pi awaits session_start handlers in turn, and pi-intercom connects in its own, after this one.
-		let starting: Promise<void> | undefined;
 		if (s.isTower) {
 			unwatch = cfg.watch(presence.restore);
-			starting = startTower();
-		} else {
-			// Asking Herdr whether this is a sub workspace waits in the background too: on a loaded machine a Herdr call takes seconds, and pi-intercom
-			// connects only after this handler returns. Until the answer comes the session counts as barred, so nothing joins (membership.ts) or promotes early.
-			s.barred = CHECKING;
-			checked = barReason().then((bar) => {
-				if (start !== started) return false; // a /new or /resume started another session meanwhile, which asks again
-				s.barred = bar?.text;
-				if (bar) tell(bar.text, bar.level);
-				return !bar;
-			});
-			let keepRestored = false;
-			starting = checked.then(async (joinable) => {
-				if (!joinable) return;
-				if (!s.stopped) unwatch = cfg.watch(presence.restore); // a shutdown that came while Herdr was asked about the workspace has stopped nothing yet
-				// What the record says is read before joining: the guard may promote this session at once, which writes its record anew (roles.ts).
-				// A main a Herdr restore resumed in its own pane and tab takes the role back; a tab that has a live main already keeps it.
-				const resumed = Boolean(placed) && roles.held(placed!) === "main";
-				// The tower that opened it may close it again, as before the restore; the record names the opener, and the promotion below writes it into the new record.
-				s.restoredOpener = roles.openerOf(resumed ? placed : undefined);
-				// A pi started in the shell of a main that quit is no restore, and the record must not claim the next one.
-				if (!resumed && event.reason === "startup" && placed && roles.sameShell(placed)) roles.forget();
-				s.restored = resumed; // consumed by the promotion that makes this session the tab's main (membership.ts), also when the guard makes it
-				await membership.joinNet();
-				note(`${who()} joined tab ${s.info.tab}`);
-				const claimed = await claimOpened();
-				if (!claimed && event.reason !== "startup" && s.saved.openedBy && s.saved.openedPane === s.at.paneId) s.openedBy = s.saved.openedBy; // only the same pi in the tower's pane (/reload, /fork): `pi --session` anywhere is the boss's main
-				if (s.openedBy) {
-					control.register(); // the tower that opened this main may ask it to close (closemain.ts), also after a reload
-					if (s.isMain) roles.remember("main"); // the guard may have crowned it during the join, before the opener was known: the record names it for a Herdr restore (roles.ts)
-					await presence.publish(); // sb_opened_by was cleared at shutdown
-				}
-				if (!claimed && !resumed) return;
-				const taken = await membership.promote(false).catch((error) => {
-					if (resumed) keepRestored = true; // the owner may still confirm after the claim timed out, and that refresh must not open a tower
-					throw error;
-				});
-				if (!taken.promoted) {
-					tell(taken.text, claimed ? "warning" : "info");
-					if (resumed) roles.forget(); // another main holds the tab, and this session stays a member: its record would claim the next restore
-				} else if (!claimed) await membership.adoptOpener(); // a no-op when the refresh that made it the main did so already (membership.ts)
-			}).finally(() => {
-				if (start === started && !keepRestored) [s.restored, s.restoredOpener] = [false, undefined]; // the promotion consumes it when it makes this session the main; one found main already, or a join that failed, does not
-			});
+			startTower().catch((error: Error) => tell(`Straw Boss: ${error.message}`, "error"));
+			return;
 		}
-		starting?.catch((error: Error) => tell(`Straw Boss: ${error.message}`, "error"));
+		// Asking Herdr whether this is a sub workspace waits in the background too: on a loaded machine a Herdr call takes seconds, and pi-intercom
+		// connects only after this handler returns. Until the answer comes the session counts as barred, so nothing joins (membership.ts) or promotes early.
+		s.barred = CHECKING;
+		let keepRestored = false, failed = false, told = false, retries = 0, proceeding: Promise<void> | undefined, asking: Promise<boolean> | undefined;
+		// A step that failed for want of Herdr or intercom is asked again after 1 s, 2 s, 5 s, then every 15 s; no timer outlives a shutdown or a newer start.
+		const retryLater = (again: () => unknown) => {
+			clearTimeout(retryTimer);
+			retryTimer = setTimeout(() => void (start === started && !s.stopped && again()), cfg.joinRetryMs[Math.min(retries++, cfg.joinRetryMs.length - 1)]).unref();
+		};
+		// What a joinable session does once it is placed: join, and the opener and restore bookkeeping that goes with it. Once per start, whoever got the answer first.
+		const proceed = async () => {
+			if (!s.stopped && !unwatch) unwatch = cfg.watch(presence.restore); // a shutdown that came while Herdr was asked about the workspace has stopped nothing yet
+			// What the record says is read before joining: the guard may promote this session at once, which writes its record anew (roles.ts).
+			// A main a Herdr restore resumed in its own pane and tab takes the role back; a tab that has a live main already keeps it.
+			const resumed = Boolean(placed) && roles.held(placed!) === "main";
+			// The tower that opened it may close it again, as before the restore; the record names the opener, and the promotion below writes it into the new record.
+			s.restoredOpener = roles.openerOf(resumed ? placed : undefined);
+			// A pi started in the shell of a main that quit is no restore, and the record must not claim the next one.
+			if (!resumed && event.reason === "startup" && placed && roles.sameShell(placed)) roles.forget();
+			s.restored = resumed; // consumed by the promotion that makes this session the tab's main (membership.ts), also when the guard makes it
+			await membership.joinNet().catch((error) => {
+				throw Object.assign(error as Error, { joining: true });
+			});
+			note(`${who()} joined tab ${s.info.tab}`);
+			if (failed) tell(`Straw Boss: joined the net (tab ${s.info.tab}) after ${retries} ${retries === 1 ? "retry" : "retries"}`, "info");
+			const claimed = await claimOpened();
+			if (!claimed && event.reason !== "startup" && s.saved.openedBy && s.saved.openedPane === s.at.paneId) s.openedBy = s.saved.openedBy; // only the same pi in the tower's pane (/reload, /fork): `pi --session` anywhere is the boss's main
+			if (s.openedBy) {
+				control.register(); // the tower that opened this main may ask it to close (closemain.ts), also after a reload
+				if (s.isMain) roles.remember("main"); // the guard may have crowned it during the join, before the opener was known: the record names it for a Herdr restore (roles.ts)
+				await presence.publish(); // sb_opened_by was cleared at shutdown
+			}
+			if (!claimed && !resumed) return;
+			const taken = await membership.promote(false).catch((error) => {
+				if (resumed) keepRestored = true; // the owner may still confirm after the claim timed out, and that refresh must not open a tower
+				throw error;
+			});
+			if (!taken.promoted) {
+				tell(taken.text, claimed ? "warning" : "info");
+				if (resumed) roles.forget(); // another main holds the tab, and this session stays a member: its record would claim the next restore
+			} else if (!claimed) await membership.adoptOpener(); // a no-op when the refresh that made it the main did so already (membership.ts)
+		};
+		const proceedOnce = () =>
+			(proceeding ??= proceed()
+				.catch((error: Error & { joining?: boolean }) => {
+					// A join that failed is told once and asked again by timer: the channel's connection and owner events (membership.ts) may never come, and a failed look at the pane has no channel to report one.
+					if (!error.joining) return tell(`Straw Boss: ${error.message}`, "error");
+					[proceeding, failed] = [undefined, true];
+					retryLater(proceedOnce);
+					if (!told) (told = true, tell(`Straw Boss: ${error.message}`, "error"));
+				})
+				.finally(() => {
+					if (start === started && !keepRestored) [s.restored, s.restoredOpener] = [false, undefined]; // the promotion consumes it when it makes this session the main; one found main already, or a join that failed, does not
+				}));
+		// Only a definitive answer settles `barred`; whoever asks while an ask is in flight shares it, so each ask is handled once.
+		const answer = () =>
+			(asking ??= barReason()
+				.then((verdict) => {
+					if (start !== started) return false; // a /new or /resume started another session meanwhile, which asks again
+					if ("failed" in verdict) {
+						s.barred = UNPLACED(verdict.failed);
+						failed = true;
+						if (!told) (told = true, tell(s.barred, "warning"));
+						retryLater(answer);
+						return false;
+					}
+					clearTimeout(retryTimer);
+					s.recheck = undefined;
+					s.barred = verdict.bar?.text;
+					if (verdict.bar) return (tell(verdict.bar.text, verdict.bar.level), false);
+					void proceedOnce();
+					return true;
+				})
+				.finally(() => (asking = undefined)));
+		s.recheck = async () => void (await answer());
+		checked = answer();
 	};
 	pi.on("session_start", async (event, ctx) => {
 		// The run mode's own handler ran before this one (registered first, and pi awaits them in turn): a run or a pane it quits has no net to join. A pi still waiting for the server's pane-role answer
@@ -163,6 +199,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 	pi.on("tool_call", async (event) => {
 		if (!SUBAGENT_TOOLS.includes(event.toolName) || runMode.active()) return;
 		await checked; // a subagent launched while session start still asks Herdr about the workspace waits for the answer
+		await s.recheck?.(); // a Herdr that could not answer then is asked again now, not at the next timer
 		if (s.barred) return;
 		if (s.isTower) return { block: true, reason: "A tower dispatches no subagents. Open a main for this work with boss_open_main, or route it to the main that owns it." };
 		try {

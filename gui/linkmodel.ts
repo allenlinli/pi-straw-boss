@@ -80,7 +80,56 @@ export function dialogState(a: Pick<LinkAlert, "data">): DialogState {
 /** The units an unattended device reported that belong to an ally base: those of its workspace, or all of them for a device whose presence names no workspace yet. */
 export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">) {
 	const mine = (units ?? []).find((u) => u.team === a.team && u.device === a.device);
-	return mine ? mine.units.filter((u) => a.workspace === null || u.unit === a.workspace).map((u) => ({ ...u, stale: mine.stale === true })) : [];
+	return mine ? mine.units.filter((u) => a.workspace === null || u.unit === a.workspace).map((u) => ({ ...u, at: mine.at, stale: mine.stale === true })) : [];
 }
-/** One unit's line under an ally base: its state, how many monitors run. The report is shown apart, as text. */
-export const unitLine = (u: { state: string; monitors: string[]; stale?: boolean }): string => [stateName(u.state), ...(u.monitors.length ? [m.link_unit_monitors({ count: String(u.monitors.length) })] : []), ...(u.stale ? [m.link_unit_stale()] : [])].join(" · ");
+
+/** How long a crash notice still makes a unit that is not running read as crashed: the wire carries no outcome, so an old crash says nothing of the unit now. */
+export const CRASH_FRESH_MS = 30 * 60_000;
+/** The notices that say a run ended without its work (src/link/unitstatus.ts): a crash, or a trust question nobody answered. */
+const CRASH_KINDS = ["run-crashed", "trust-unanswered"];
+export type UnitTone = "working" | "idle" | "waiting" | "crashed" | "other";
+/** One unit of an ally base as its card draws it. `word` is the state in words, `crash` the notice that says why it stopped (`trust`: a trust question nobody answered, which the box's settings fix, not its code). */
+export interface UnitCard { unit: string; state: string; tone: UnitTone; word: string; at: number; stale: boolean; monitors: string[]; report: string; crash?: { at: number; text: string; trust?: true } }
+
+/** A unit's state word: the tower service's states (standing, waking, running, closing, held) and the marks a plain unit has; one the page does not know is shown as it is. A held unit was paused after repeated crashes: trouble. */
+export function unitWord(state: string): { tone: UnitTone; word: string } {
+	switch (state) {
+		case "standing": case "idle": case "done": return { tone: "idle", word: m.mark_standing() };
+		case "running": case "working": case "waking": case "commanding": return { tone: "working", word: m.link_unit_running() };
+		case "blocked": return { tone: "waiting", word: m.mark_waiting() };
+		case "held": return { tone: "crashed", word: m.link_unit_held() };
+		case "closing": return { tone: "other", word: m.tower_state_closing() };
+		default: return { tone: "other", word: stateName(state) };
+	}
+}
+
+/**
+ * The cards of an ally base's units: its state word and when it was heard, the monitors, the last report, and why it stopped when a notice told of it lately and the unit is not running.
+ * `seen` is the page's memory of when each unit was last seen running (`team/device/unit` to the time of that status): a run after the notice ends it, so a unit that was re-run and stands by again is not told as crashed again.
+ * A page without that memory (just loaded) has the 30-minute rule alone.
+ */
+export function unitCards(units: DeviceUnits[] | undefined, alerts: LinkAlert[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">, now: number, seen: Map<string, number> = new Map()): UnitCard[] {
+	return unitsFor(units, a).map((u) => {
+		const base = unitWord(u.state), key = `${a.team}/${a.device}/${u.unit}`;
+		if (base.tone === "working") seen.set(key, Math.max(seen.get(key) ?? 0, u.at));
+		const crash = alerts?.filter((x) => x.kind === "notice" && CRASH_KINDS.includes(String(x.data.what)) && x.team === a.team && x.data.device === a.device && x.data.unit === u.unit && Number(x.data.at) > 0).map((x) => ({ at: Number(x.data.at), text: String(x.data.text ?? ""), trust: x.data.what === "trust-unanswered" })).sort((p, q) => q.at - p.at)[0];
+		const told = crash !== undefined && base.tone !== "working" && now - crash.at < CRASH_FRESH_MS && crash.at > (seen.get(key) ?? 0) ? { at: crash.at, text: crash.text, ...(crash.trust ? { trust: true as const } : {}) } : undefined;
+		const state = !told ? base : base.tone === "crashed" ? base : told.trust ? { tone: "waiting" as const, word: m.link_unit_trust() } : { tone: "crashed" as const, word: m.link_unit_crashed() };
+		return { unit: u.unit, state: u.state, ...state, ...(told ? { crash: told } : {}), at: u.at, stale: u.stale, monitors: u.monitors, report: u.report };
+	});
+}
+
+/** Markdown marks that are markup: a pair that opens after a space, a bracket or a quote (or at the start) with a non-space after it, and closes before a space, closing punctuation, or a sentence's end; so `rounding_mode`, `a*b`, `__init__.py`, `2 * 3` keep their characters. */
+const PAIR = /(^|[\s(["'])(\*\*|__|~~|\*|_)(?=\S)(.+?)(?<=\S)\2(?=$|[\s,;:!?)\]"']|\.(?:$|\s))/g;
+
+/** The first line of a report with its Markdown marks (heading, list and quote bullets, paired emphasis, code ticks) taken off, for the folded row; characters that are the text's own (identifiers, paths, a multiplication) stay. */
+export function reportPeek(report: string): string {
+	const line = report.split("\n").map((l) => l.trim()).find((l) => l && !/^(`{3,}|~{3,}|[-*_]{3,}$)/.test(l)) ?? "";
+	let out = line.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)+/, "").replace(/(`+)(.+?)\1/g, "$2");
+	for (let i = 0; i < 4; i++) {
+		const next = out.replace(PAIR, "$1$3");
+		if (next === out) break;
+		out = next;
+	}
+	return out.trim();
+}

@@ -42,7 +42,7 @@ export function mountAllyAsks() {
 		btn.onclick = () => toggle(card);
 		card.addEventListener("click", (event) => {
 			const row = (event.target as Element | null)?.closest?.(WAITING_ROWS);
-			if (row && card.contains(row) && card.dataset.asks) toggle(card);
+			if (row && card.contains(row) && card.dataset.asks && !(event.target as Element).closest("details")) toggle(card); // a fold inside the row (its report, a crash) opens itself
 		});
 		card.append(box);
 		return x;

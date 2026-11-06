@@ -167,6 +167,7 @@ test("B3R-F001: a notice is stored and logged on the label character set, cut at
 	assert.equal(out.length, 300);
 	assert.match(out, /^[\x20-\x7e]+$/);
 	assert.equal(restrictNotice("Straw Link: team ab12cd stopped (reason; x)\nline\u00e9"), "Straw Link: team ab12cd stopped (reason; x)_line_", "our punctuation stays, control and non-ASCII go");
+	assert.equal(restrictNotice("asks (main \u00b7 trial13, \u2022 \u2024 \u22c5 \u30fb \u00b7\u00e9)"), "asks (main \u00b7 trial13, _ _ _ _ \u00b7_)", "the middle dot of a unit's name stays; every other dot, bullet and letter beyond ASCII goes");
 });
 
 test("B3R-F002: the server's home is opts.home ?? homedir(), not HOME or USERPROFILE of the injected env", async () => {

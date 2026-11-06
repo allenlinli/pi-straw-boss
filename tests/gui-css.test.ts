@@ -421,6 +421,14 @@ test("a queued row's label (排隊中・插話, Queued · steer) never breaks in
 	assert.ok(on(".queue-list p").some(([p, v]) => p === "overflow-wrap" && v === "anywhere"), "a long path or URL breaks anywhere instead of pulling the label apart");
 });
 
+test("an ally card's unit is flat in Geek: a stale one is not dimmed (its pill and its words say it), and the card's unit rules sit once, before the Geek block", () => {
+	assert.match(css, /\[data-view="geek"\] :is\([^)]*\.ally-unit\.stale[^)]*\) \{ opacity: 1; \}/);
+	assert.match(css, /\[data-view="geek"\] \.ally-unit \{ background: none; \}/, "and not tinted");
+	assert.match(css, /^\.ally-unit \{[^}]*grid-template-columns: minmax\(0, 1fr\)/m, "a long monospace line (a monitor, a report's first line) cannot widen the unit past its card");
+	assert.equal([...css.matchAll(/^\.ally-unit \{/gm)].length, 1);
+	assert.ok(css.indexOf(".ally-unit {") < css.indexOf('[data-view="geek"] {'));
+});
+
 test("the drawer's current row keeps its chevron's strip clear of a Quit button: the card's right padding is the chevron's inset plus a glyph (Geek's wider one) and a gap", () => {
 	const rules = rulesOf(css), body = (part: string) => rules.filter((r) => r.parts.includes(part)).flatMap((r) => declarations(r.body));
 	const px = (v?: string) => Number(/^(\d+(?:\.\d+)?)px$/.exec(v ?? "")?.[1] ?? NaN);

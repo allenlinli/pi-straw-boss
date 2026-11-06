@@ -7,7 +7,7 @@ import { menuAround, nameMenu } from "./menu.ts";
 import { replay } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { closed } from "./scene.ts";
-import { allyMark, stateName, unitLine, unitsFor } from "./linkmodel.ts";
+import { allyMark, stateName, unitCards, type UnitCard } from "./linkmodel.ts";
 import { fillAllies } from "./towerallies.ts";
 import { fillNotices } from "./towernotes.ts";
 import { queueChip, statusLine } from "./towermodel.ts";
@@ -224,6 +224,19 @@ function fillAsks(el: HTMLElement, a: AllyBase, link: LinkSummary | undefined) {
 	loadingAsks = true;
 	void import("./allyasks.ts").then(({ mountAllyAsks }) => ((allyAsks = mountAllyAsks()), waitingAsks.forEach(([ally, l], card) => allyAsks!.show(card, ally, l)), waitingAsks.clear()), () => void (loadingAsks = false));
 }
+// The units an unattended device reported are drawn by allyunits.ts, loaded with the first unit (a computer with no such device never fetches it); a card that waits for the load is drawn from its latest reading, and a load that failed is tried again at the next snapshot.
+let drawUnits: typeof import("./allyunits.ts").fillAllyUnits | undefined, loadingUnits = false;
+const waitingUnits = new Map<HTMLElement, [UnitCard[], boolean]>();
+function fillUnits(el: HTMLElement, cards: UnitCard[], named: boolean) {
+	if (drawUnits) return void drawUnits(el.querySelector(".ally-units")!, cards, named);
+	if (!cards.length) return void waitingUnits.delete(el);
+	waitingUnits.set(el, [cards, named]);
+	if (loadingUnits) return;
+	loadingUnits = true;
+	void import("./allyunits.ts").then(({ fillAllyUnits }) => ((drawUnits = fillAllyUnits), waitingUnits.forEach(([c, n], card) => fillAllyUnits(card.querySelector(".ally-units")!, c, n)), waitingUnits.clear()), () => void (loadingUnits = false));
+}
+/** When each unit of the ally bases was last seen running (`team/device/unit` to the time of that status): a run after a crash notice ends the crash (linkmodel.ts `unitCards`). Kept for the page's life. */
+const unitsSeen = new Map<string, number>();
 export function fillAlly(el: HTMLElement, a: AllyBase, link: LinkSummary | undefined) {
 	const state = allyMark(a), reported: DeviceUnits[] | undefined = link?.units;
 	mark(el, state);
@@ -231,21 +244,18 @@ export function fillAlly(el: HTMLElement, a: AllyBase, link: LinkSummary | undef
 	mark(el.querySelector<HTMLElement>(".tower")!, state);
 	text(el, ".ally-tag", m.ally_tag({ team: a.teamName }));
 	text(el, "h2", a.workspace ?? a.label);
-	text(el, ".tstate", `${a.workspace ? `${a.label} · ` : ""}${a.short} · ${a.online ? stateName(a.tower) : m.link_offline()}`);
-	sync(el.querySelector(".ally-tabs")!, a.tabs.map((t, i) => ({ id: `${i}`, ...t })), () => html(`<li class="ally-tab"><b></b><span></span></li>`), (li, t) => {
-		text(li, "b", t.label);
-		text(li, "span", a.online ? stateName(t.state) : "");
-		li.dataset.state = t.state;
+	// What an unattended device says about its units (unit-status) is drawn by allyunits.ts, and the units are the card's only state: the subtitle then names the base and whether it is there, not what its tower does (the two come from messages of their own cadence and could disagree).
+	// While an unattended box says none (an older box, a team that shares presence only, the minute after this server restarted) the card says how many units are online in one line and never lists the box's mains and workers; a teammate's own computer lists its tabs.
+	const cards = unitCards(reported, link?.alerts, a, Date.now(), unitsSeen);
+	text(el, ".tstate", `${a.workspace ? `${a.label} · ` : ""}${a.short}${!a.online ? ` · ${m.link_offline()}` : cards.length ? "" : ` · ${stateName(a.tower)}`}`);
+	const rows: { id: string; label: string; state: string; says?: string }[] = cards.length ? [] : a.unattended ? (a.online && a.tabs.length ? [{ id: "online", label: "", state: a.tower, says: m.link_unit_summary({ count: a.tabs.length }) }] : []) : a.tabs.map((t, i) => ({ id: `${i}`, ...t }));
+	sync(el.querySelector(".ally-tabs")!, rows, () => html(`<li class="ally-tab"><b></b><span></span></li>`), (li, t) => {
+		text(li, "b", t.says ?? t.label);
+		text(li, "span", t.says !== undefined || !a.online ? "" : stateName(t.state));
+		li.dataset.state = t.state; // a state that waits makes a row a way into the question panel, a unit's or the summary line's too
 	});
-	// What an unattended device says about its units (unit-status): state, monitors, and its last report, all as text.
-	sync(el.querySelector(".ally-units")!, unitsFor(reported, a).map((u) => ({ id: u.unit, ...u })), () => html(`<li class="ally-unit"><b></b><span></span><pre></pre></li>`), (li, u) => {
-		text(li, "b", u.unit);
-		text(li, "span", unitLine(u));
-		text(li, "pre", u.report);
-		li.querySelector<HTMLElement>("pre")!.hidden = !u.report;
-		li.querySelector<HTMLElement>("pre")!.title = m.link_unit_report();
-		li.dataset.state = u.state;
-	});
+	el.classList.toggle("has-units", cards.length > 0);
+	fillUnits(el, cards, a.workspace === null);
 	fillAsks(el, a, link);
 }
 

@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { allyLabel } from "../boardauto.ts";
 import { cleanText, clean, BOARD, forAllies, purge, readEntries, wireId, type Entry } from "../board.ts";
 import { MAX_BODY_BYTES } from "./wire.ts";
-import { restrictLabel } from "./text.ts";
+import { restrictLabel, restrictOwner } from "./text.ts";
 import { createHash, randomBytes } from "node:crypto";
 import type { Session } from "../herdr.ts";
 import type { LinkConfig, Share } from "./config.ts";
@@ -103,11 +103,12 @@ const OPEN_BACKOFF_MS = 60_000;
 const SERVED_RUN = /^tower run · /;
 export interface LinkAlert { id: string; kind: AlertKind; level: "info" | "warning" | "error"; team: string; teamName: string; data: Record<string, string | number> }
 /** A teammate's workspace as the map shows it beside the local bases (spec, GUI). */
-export interface AllyBase { id: string; team: string; teamName: string; device: string; short: string; label: string; online: boolean; workspace: string | null; tower: string; tabs: { label: string; state: string }[] }
+/** `unattended`: the device is an unattended box (the roster says so): its card says how many units are online, not its mains; absent for a teammate's computer, whose mains and workers the card lists. */
+export interface AllyBase { id: string; team: string; teamName: string; device: string; short: string; label: string; online: boolean; unattended?: true; workspace: string | null; tower: string; tabs: { label: string; state: string }[] }
 /** The compact reading the net snapshot carries: it changes only when something worth redrawing does. */
 /** What an unattended device last said about its units (`unit-status`, kept in memory): shown beside its ally bases while it keeps saying it. */
-/** `stale` is set when the device has sent no status for `UNITS_FRESH_MS`: what is shown is its last one. */
-export interface DeviceUnits { team: string; device: string; units: UnitStatus[]; stale?: true }
+/** `at` is when this computer took the status (epoch ms), for the card's clock; `stale` is set when the device has sent no status for `UNITS_FRESH_MS`: what is shown is its last one. */
+export interface DeviceUnits { team: string; device: string; units: UnitStatus[]; at: number; stale?: true }
 export interface LinkSummary { allies: AllyBase[]; alerts: LinkAlert[]; confirms: ConfirmView[]; units: DeviceUnits[] }
 /** Units a peer's `unit-status` may carry that are kept; how long one counts as current; how many notices are kept, and for how long. */
 const UNITS_MAX = 32, UNITS_FRESH_MS = 3 * 60_000, UNITS_GONE_MS = 30 * 60_000, NOTICES_KEPT = 20, NOTICE_KEEP_MS = 24 * 3600_000;
@@ -127,7 +128,7 @@ const HEAD_DIFF_MS = 2 * 60_000, DOWN_MS = 2 * 60_000, HELD_MS = 10 * 60_000;
 /** A reply for a main that the main has not taken this long after the first offer (an older build never connects to the channel) goes to an ally run, which is told who asked. */
 const REPLY_OFFER_MS = 5 * 60_000;
 
-export interface AllyDevice { id: string; short: string; label: string; online: boolean; ageMs: number | null; roster: number | null; workspaces: WorkspaceState[] }
+export interface AllyDevice { id: string; short: string; label: string; online: boolean; unattended?: true; ageMs: number | null; roster: number | null; workspaces: WorkspaceState[] }
 export interface AllyTeam { team: string; name: string; devices: AllyDevice[] }
 /** An ally's board as a tower reads it: text from the sender, cut and cleaned again; the device's label is the roster's. */
 export interface AllyBoardEntry { id: string; workspace: string; tab: string; main: string; now: string; items: { t: string; done: boolean }[]; updatedSecondsAgo?: number }
@@ -1130,7 +1131,7 @@ export class LinkHolder {
 		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "dialog-open-unexpected", from: header.from, kind: "dialog-open" });
 		const fresh = this.dialogViews.put({ team: run.team, device: header.from, dialogId: p.dialogId, digest: p.digest, owner: p.owner, dialog: p.dialog, at: this.now() });
 		this.o.store.log({ event: "dialog-in", team: run.team, from: header.from, dialog: p.dialogId, fresh });
-		if (fresh) this.o.notify(`Straw Link: ${sender.label} asks a question (${restrictLabel(p.owner)})`, "warning");
+		if (fresh) this.o.notify(`Straw Link: ${sender.label} asks a question (${restrictOwner(p.owner)})`, "warning");
 	}
 	private takeDialogClose(run: TeamRun, header: Header, p: DialogClose): void {
 		// Only the team that holds the card may close it: a withdrawal sent on one team can arrive after the open on another.
@@ -1223,7 +1224,7 @@ export class LinkHolder {
 			}
 			const devices = [...roster.members].filter(([id]) => id !== this.device!.keys.id).slice(0, MAX_LISTED_DEVICES).map(([id, m]): AllyDevice => {
 				const seen = run.presences.get(id), age = seen ? this.now() - seen.at : null;
-				return { id, short: shortId(id), label: m.label ?? shortId(id), online: age !== null && age <= PRESENCE_ONLINE_MS, ageMs: age, roster: seen?.presence.headSeq ?? null, workspaces: seen?.presence.workspaces ?? [] };
+				return { id, short: shortId(id), label: m.label ?? shortId(id), online: age !== null && age <= PRESENCE_ONLINE_MS, ...(m.attended ? {} : { unattended: true as const }), ageMs: age, roster: seen?.presence.headSeq ?? null, workspaces: seen?.presence.workspaces ?? [] };
 			});
 			return [{ team: run.team, name: policies.get(run.team)?.name ?? run.team.slice(0, 6), devices }];
 		});
@@ -1355,7 +1356,7 @@ export class LinkHolder {
 		for (const c of this.confirmRequests()) out.push({ id: `confirm/${c.dialogId}`, kind: "confirm", level: "warning", team: c.team, teamName: name(c.team), data: { label: c.fromLabel, short: c.fromShort, tool: restrictLabel(c.tool) } });
 		for (const v of this.dialogRequests(true)) out.push({ id: `dialog/${v.device}/${v.dialogId}`, kind: "dialog", level: v.closed ? "info" : "warning", team: v.team, teamName: name(v.team), data: { device: v.device, dialogId: v.dialogId, digest: v.digest, owner: v.owner, dialog: v.dialog, label: this.memberLabel(v.team, v.device), short: shortId(v.device), answered: v.answered ? 1 : 0, ...(v.closed ? { closed: v.closed.by } : {}) } });
 		this.notices = this.notices.filter((n) => now - n.at < NOTICE_KEEP_MS);
-		for (const n of this.notices) out.push({ id: `notice/${n.id}`, kind: "notice", level: "warning", team: n.team, teamName: name(n.team), data: { device: n.device, label: this.memberLabel(n.team, n.device), short: shortId(n.device), what: n.kind, unit: n.unit, text: n.text } });
+		for (const n of this.notices) out.push({ id: `notice/${n.id}`, kind: "notice", level: "warning", team: n.team, teamName: name(n.team), data: { device: n.device, label: this.memberLabel(n.team, n.device), short: shortId(n.device), what: n.kind, unit: n.unit, text: n.text, at: n.at } });
 		for (const team of this.o.store.teamIds()) {
 			const why = this.stopped.has(team) ? (this.o.store.readStopped(team)?.reason ?? "stopped") : this.o.store.readStopped(team)?.reason;
 			const run = this.runs.get(team);
@@ -1387,14 +1388,14 @@ export class LinkHolder {
 		const now = this.now(), out: DeviceUnits[] = [];
 		for (const run of this.runs.values()) {
 			if (run.dead) continue;
-			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_GONE_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
+			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_GONE_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units, at: seen.at, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
 		}
 		return out;
 	}
 	/** The compact reading for the net snapshot: ally bases from presence, the notices, and the confirms waiting. */
 	summary(): LinkSummary {
 		const allies = this.list().flatMap((t) => t.devices.flatMap((d): AllyBase[] => {
-			const base = { team: t.team, teamName: t.name, device: d.id, short: d.short, label: d.label, online: d.online };
+			const base = { team: t.team, teamName: t.name, device: d.id, short: d.short, label: d.label, online: d.online, ...(d.unattended ? { unattended: true as const } : {}) };
 			if (d.workspaces.length === 0) return [{ ...base, id: `${t.team}/${d.id}`, workspace: null, tower: "unknown", tabs: [] }];
 			return d.workspaces.map((w) => ({ ...base, id: `${t.team}/${d.id}/${w.label}`, workspace: w.label, tower: w.tower, tabs: w.tabs.map((x) => ({ label: x.label, state: x.state })) }));
 		}));

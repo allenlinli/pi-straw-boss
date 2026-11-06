@@ -717,9 +717,50 @@
 	"link_a_dialog": "{label} ({short}) in team {team} asks a question ({owner}).",
 	"link_a_notice": "{label} ({short}), unattended, in team {team} — {what}, {unit}: {text}",
 	"link_notice_clear": "Clear",
-	"link_unit_monitors": "{count} monitors running",
+	"link_unit_monitors": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "{count} monitor",
+				"countPlural=other": "{count} monitors"
+			}
+		}
+	],
 	"link_unit_report": "Last report",
 	"link_unit_stale": "no status lately",
+	"link_unit_running": "running",
+	"link_unit_crashed": "crashed",
+	"link_unit_ago": " ago",
+	"link_unit_updated_pre": "updated ",
+	"link_unit_updated_post": " ago",
+	"link_unit_heard": "When this unit last reported",
+	"link_unit_crash": "What happened",
+	"link_unit_stale_title": "The box has sent no status for 3 minutes; this is its last one",
+	"link_unit_held": "held after crashes",
+	"link_unit_trust": "needs trust",
+	"link_unit_trust_why": "Why it stopped",
+	"link_unit_trust_hint": "Add the project to the box's trust.json",
+	"link_unit_summary": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "{count} unit online",
+				"countPlural=other": "{count} units online"
+			}
+		}
+	],
 	"ally_asks_button": [
 		{
 			"declarations": [

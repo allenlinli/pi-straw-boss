@@ -46,6 +46,10 @@ test("the phone block gives the controls the audit found small a 44 px box", () 
 	assert.match(body(":is(.ask, .term-bar, .doc-acts, .composer) :is(button, .cmp-link)"), /min-height:\s*44px/);
 });
 
+test("the folds of an ally card's unit (its report, a crash's notice) are 44 px tall on a phone", () => {
+	assert.equal(size(".ally-unit summary", "min-height"), 44);
+});
+
 test("the map's head pill stays 36 px to look at but its ::before reaches 44 px on a phone, inside the map's 36 px top band", () => {
 	const pill = topRule(".head-node"), band = topRule(".map:has(> .head-node:not([hidden]))");
 	assert.match(pill, /height:\s*36px/, "the pill keeps its look");

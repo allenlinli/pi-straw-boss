@@ -24,7 +24,7 @@ test("a name that already starts with the role is not given it twice: the tab's 
 	assert.equal(unitLabel({ name: "main · trial11", role: "member" }), "member - main · trial11", "another role's word is no reason to drop this one");
 });
 
-test("the separator is ASCII, so the controller's notice (restrictLabel: letters, digits, space, dot, underscore, hyphen) keeps it; the name is restricted there and whole on the card", () => {
+test("the separator is ASCII, so the controller's notice (restrictOwner: letters, digits, space, dot, underscore, hyphen, and the middle dot) keeps it; the name is restricted there and whole on the card", () => {
 	assert.match(unitLabel({ name: "docs", role: "main" })!, /^[A-Za-z0-9 ._-]+$/);
 });
 

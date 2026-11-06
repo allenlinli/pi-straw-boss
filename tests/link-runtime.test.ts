@@ -13,9 +13,10 @@ import { ASK_MS, type Link, MESSAGE_TYPE, remoteTowers } from "../src/link/runti
 import { chunks, Reassembler } from "../src/link/wire.ts";
 import { FakeRelay } from "./link/fake-relay.ts";
 import { alice, bob, clientFor, rosterOf, stateOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
+import { addEntry } from "../src/link/roster.ts";
 import { linkServer } from "./link/service-world.ts";
 import { Agent, type Registration, until, World } from "./fakes.ts";
-import { teamKey, TEAM } from "./link/scenario.ts";
+import { det, DEVICES, LABELS, teamKey, TEAM, view } from "./link/scenario.ts";
 
 // Straw Link between pi sessions and the sb server (docs/specs/2026-10-26-sb-backend.md, B3): the link holder runs in the server (src/link/service.ts), a tower asks it
 // for tower_send with `device`, tower_list's remote towers, and the rest, and takes the inbox messages it offers on the `straw-boss/link` channel when idle, entering its
@@ -473,4 +474,24 @@ test("under an unattended policy the teams come from the policy file and config.
 	assert.deepEqual(team && { project: team.project, share: team.share, name: team.name }, { project: other, share: "status", name: "other-project" });
 	await named.server.service.start();
 	await until(() => relay.opened.some((o) => o.device === alice.id), "the team's stream");
+});
+
+// Through the server's own `note` (src/link/service.ts): the notice a controller's holder raises for a box's question, as the boss's notifications and `status().notices` carry it.
+test("a box's question reads `main · trial13` in the controller's notice after the service's own ASCII filter, and the rest of the name is filtered", async () => {
+	const dave = DEVICES.dave, entries = rosterOf();
+	entries.push(addEntry({ state: view(entries), signer: alice, record: dave, label: LABELS.dave, attended: false, ...det("add-dave") }));
+	const a = computer("a", { entries });
+	relay.addTeam(TEAM, [alice.id, bob.id, dave.id], entries);
+	await a.tower("tower-a").start();
+	await holding(a);
+	const ask = async (seq: number, owner: string) => {
+		const envelope = buildEnvelope({ team: TEAM, epoch: 1, teamKey: teamKey(1), head: stateOf(entries, alice).head, from: dave, seq, ts: Date.now(), kind: "dialog-open", to: [alice.id], plaintext: encodePlaintext("dialog-open", { dialogId: `D${seq}`, digest: "0".repeat(64), owner, dialog: "{}" }) });
+		await new RelayClient({ url: "http://relay.test", device: dave, fetch: relay.fetch }).postEnvelope(TEAM, envelope);
+	};
+	await ask(1, "main \u00b7 trial13");
+	await ask(2, "Mei's \u2022 Mac");
+	await until(() => a.server.notices.filter((n) => /asks a question/.test(n.text)).length === 2, "both notices");
+	const told = a.server.notices.filter((n) => /asks a question/.test(n.text)).map((n) => n.text);
+	assert.deepEqual(told, ["Straw Link: ci-box asks a question (main \u00b7 trial13)", "Straw Link: ci-box asks a question (Mei_s _ Mac)"]);
+	assert.ok(a.server.service.status().notices.some((n) => n.text === told[0]), "and the status keeps it as told");
 });

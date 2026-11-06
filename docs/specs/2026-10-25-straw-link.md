@@ -414,7 +414,11 @@ Checked on 2026-10-25 with Herdr 0.9.5 and pi 1.4.0, in an isolated `HOME` with 
   controllers at `dispatch` as `dialog-open`; the first valid `dialog-answer` is taken, as the local GUI takes an answer, and `dialog-close` closes it in
   every controller's GUI. `secret_drop` stays terminal-only, as everywhere, so on an unattended device it waits until it times out.
 - **What a controller sees.** Its GUI shows the device's bases like an ally's, plus `unit-status`: each unit's state, its running
-  monitors, and its last report.
+  monitors, and its last report. In Standard and Geek the ally base's card is that status and nothing of the box's own mains or workers (0.60.2, `gui/allyunits.ts`):
+  per unit a state word (standing by, running, crashed) with how long ago the box said it, the monitors on one line, and the last report folded to its first line and
+  opened as Markdown. A unit is *crashed* while a `run-crashed` or `trust-unanswered` notice for it is less than 30 minutes old and it is not running again (the wire carries no outcome, so
+  an older crash says nothing of the unit now); the notice's text is behind a fold of its own. A device silent for 3 minutes keeps its last units marked "no status lately", and after 30 they are gone; the card's tabs
+  from presence stand in only while no unit is reported. The holder's summary carries when it took each status (`DeviceUnits.at`) and each notice's time (`data.at`) for the card's clock.
 - **Reports.** The tower sends results to the controller that dispatched the work with `tower_send`. A failed turn, or a dialog unanswered
   for more than 30 minutes, sends a `notice`.
 

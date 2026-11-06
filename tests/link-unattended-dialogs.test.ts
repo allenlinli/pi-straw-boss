@@ -150,13 +150,19 @@ describe("dialog forwarding", () => {
 		assert.ok(!events(d).some((e) => JSON.stringify(e).includes("secret title")), "no dialog text in the log");
 	});
 
-	test("the card carries the unit's name whole, the notice restricts it: `main · trial11` is a name on the card and `main _ trial11` in the notification", async () => {
+	test("the card and the notice read the unit's separator alike: `main · trial11` on the card and in the notification, while the rest of the name is restricted there", async () => {
 		const { h, a, f } = await start();
 		h.open("D1", answerable("D1"), "main · trial11");
 		await f.poll();
 		await until(() => a.holder.dialogRequests().length === 1, 3000, "the dialog on alice");
 		assert.equal(a.holder.summary().alerts.find((x) => x.kind === "dialog")!.data.owner, "main · trial11", "the Link row and Zen's card read this");
-		assert.deepEqual(a.notices.filter((n) => n.includes("asks a question")), ["Straw Link: ci-box asks a question (main _ trial11)"]);
+		assert.deepEqual(a.notices.filter((n) => n.includes("asks a question")), ["Straw Link: ci-box asks a question (main · trial11)"]);
+	});
+
+	test("the summary marks the bases of an unattended box and no teammate's: the card lists a teammate's mains and counts a box's units", async () => {
+		const { a } = await start();
+		const allies = a.holder.summary().allies, flag = (who: "bob" | "dave" | "eve") => allies.find((x) => x.device === DEVICES[who].id)?.unattended;
+		assert.deepEqual([flag("bob"), flag("dave"), flag("eve")], [undefined, true, true]);
 	});
 
 	test("an answer with another digest is refused and leaves the question open for the right one", async () => {
@@ -435,7 +441,9 @@ describe("unit-status and notices", () => {
 		const { clock, a, b, reporter, posted, set } = await start();
 		await reporter.tick();
 		await until(() => a.holder.summary().units.length === 1, 3000, "the status on alice");
-		assert.deepEqual(a.holder.summary().units[0], { team: TEAM_HEX, device: dave.id, units: [{ unit: "moldplan", state: "live", monitors: [], report: "Deployed v1.2" }] });
+		const first = a.holder.summary().units[0]!;
+		assert.ok(Math.abs(first.at - (Date.now() + skew)) < 10_000, "when alice took it, for the card's clock");
+		assert.deepEqual(first, { team: TEAM_HEX, device: dave.id, at: first.at, units: [{ unit: "moldplan", state: "live", monitors: [], report: "Deployed v1.2" }] });
 		assert.equal(b.holder.summary().units.length, 0, "bob is at reply: no status");
 		await reporter.tick();
 		clock.advance(STATUS_EVERY_MS - 1);
@@ -465,8 +473,10 @@ describe("unit-status and notices", () => {
 		await reporter.tick();
 		await until(() => a.holder.summary().units.length === 1, 3000, "the status on alice");
 		assert.equal(a.holder.summary().units[0]!.stale, undefined, "fresh");
+		const heard = a.holder.summary().units[0]!.at;
 		skew = 4 * 60_000;
 		assert.equal(a.holder.summary().units[0]!.stale, true);
+		assert.equal(a.holder.summary().units[0]!.at, heard, "the card says how long ago it was heard");
 		assert.equal(a.holder.summary().units[0]!.units[0]!.unit, "moldplan", "its last units are still there");
 		skew = 31 * 60_000;
 		assert.equal(a.holder.summary().units.length, 0);
@@ -496,6 +506,7 @@ describe("unit-status and notices", () => {
 		const alerts = a.holder.summary().alerts.filter((x) => x.kind === "notice");
 		assert.equal(alerts.length, 1);
 		assert.deepEqual([alerts[0]!.data.what, alerts[0]!.data.unit, alerts[0]!.data.text, alerts[0]!.data.label], ["run-crashed", "moldplan", "An ally run crashed: pi exited without tower_done", "ci-box"]);
+		assert.equal(typeof alerts[0]!.data.at, "number", "the card tells how long ago a crash was");
 		assert.equal(b.holder.summary().alerts.some((x) => x.kind === "notice"), false);
 		const trust = runNotice({ kind: "ended", run: "r2", workspace: "w", label: "moldplan", ally: false, outcome: "crashed", detail: "No trust decision for /p within 10 minutes" });
 		assert.equal(trust.notice.kind, "trust-unanswered");

@@ -154,12 +154,10 @@ test("an id used again for another folder opens a new base there", async () => {
 	world.herdr.onAgentStart = joins;
 	const record = file();
 	await server(record).open({ deploy: "deploy-seam-f2b" });
-	const s = server(record);
 	const again = await createSpawn({ run: world.herdr.runFor("wA:p1"), sleep: async () => {}, live: async () => true, home, openings: createOpenings(record) })(["open", "base"], { dir: join(home, "other"), label: "", deploy: "deploy-seam-f2b" });
 	assert.equal(again.status, 200, JSON.stringify(again.body));
 	assert.equal(made(), 2);
 	assert.equal(createOpenings(record).get("deploy-seam-f2b")?.dir, join(home, "other"));
-	assert.ok(s);
 });
 
 test("a record whose pane is gone, with the workspace still there, is stale: no fallback to another pane", async () => {
@@ -170,6 +168,41 @@ test("a record whose pane is gone, with the workspace still there, is stale: no 
 	assert.equal(again.status, 200, JSON.stringify(again.body));
 	assert.equal(made(), 2);
 	assert.notEqual(body(again).pane, first.pane);
+});
+
+// OBS2-F004: the workspace still holds another pane in the same folder; it is not the open's pane, so it is not taken for it.
+test("a record whose pane is gone is not answered with another pane of the workspace in the same folder", async () => {
+	world.herdr.onAgentStart = joins;
+	const record = file(), first = (await server(record).open({ deploy: "deploy-seam-f2f" })).body as { workspace: string; pane: string };
+	const shell = (JSON.parse(await world.herdr.runFor("wA:p1")(["pane", "split", first.pane, "--direction", "right", "--cwd", dir])).result as { pane: { pane_id: string } }).pane.pane_id;
+	world.herdr.panes = world.herdr.panes.filter((p) => p.pane_id !== first.pane);
+	const again = await server(record).open({ deploy: "deploy-seam-f2f" });
+	assert.equal(again.status, 200, JSON.stringify(again.body));
+	assert.equal(made(), 2, "a base of its own");
+	assert.notEqual(body(again).pane, shell, "not the shell beside the pane that went");
+	assert.notEqual(body(again).workspace, first.workspace);
+});
+
+// OBS2-F003: policy. A pane that reports no folder (Pane.cwd is optional; a Windows Herdr may not know it yet) is not a mismatch: the record's folder equals the request's, and its pane is in
+// its live workspace, which is as much as can be known. Only a folder that is reported and differs makes the record stale.
+test("a recorded pane that reports no folder is still the open's: the repeat finds it and makes no second workspace", async () => {
+	world.herdr.onAgentStart = joins;
+	const record = file(), first = (await server(record).open({ deploy: "deploy-seam-f3n" })).body as { workspace: string; pane: string };
+	delete world.herdr.panes.find((p) => p.pane_id === first.pane)!.cwd;
+	const again = await server(record).open({ deploy: "deploy-seam-f3n" });
+	assert.equal(again.status, 200, JSON.stringify(again.body));
+	assert.equal(made(), 1);
+	assert.deepEqual([body(again).workspace, body(again).pane], [first.workspace, first.pane]);
+	assert.ok(createOpenings(record).get("deploy-seam-f3n"), "the record stays");
+});
+
+test("a pane with no folder does not keep a record whose workspace is gone", async () => {
+	world.herdr.onAgentStart = joins;
+	const record = file(), first = (await server(record).open({ deploy: "deploy-seam-f3o" })).body as { workspace: string; pane: string };
+	delete world.herdr.panes.find((p) => p.pane_id === first.pane)!.cwd;
+	world.herdr.workspaces = world.herdr.workspaces.filter((w) => w.workspace_id !== first.workspace);
+	assert.equal((await server(record).open({ deploy: "deploy-seam-f3o" })).status, 200);
+	assert.equal(made(), 2, "the workspace is gone: a new open");
 });
 
 test("opening a base forgets the records whose workspace is gone", async () => {
@@ -244,6 +277,50 @@ test("a server that cannot type leaves the message pending: a repeat on one that
 	assert.deepEqual(typed.sent, ["hello"]);
 });
 
+// OBS2-F001: a GUI restart inside the process makes a second spawn over the host's openings and deploys; they share the one-at-a-time lock the host owns (guihost.ts), so the retry is told 429
+// and types nothing while the old open is in its join.
+test("a retry on a restarted listener (a second spawn of the host) does not type the first message twice, and is told busy", async () => {
+	const record = file(), openings = createOpenings(record), deploys = createDeploys(), lock = { busy: false }, typed = prompts();
+	let retry: Promise<{ status: number; body: unknown }> | undefined, again: ReturnType<typeof server> | undefined, slept = 0, joined = false;
+	// The old open's join wait: the retry comes at 1 s, and the pi joins only once the retry has answered (it answers at once when the lock is shared; without one it waits for this pi, so a
+	// short real timer lets the join go on and the test shows the double typing instead of hanging).
+	const sleep = async (ms: number) => {
+		slept += ms;
+		if (slept >= 1000 && !retry) retry = again!.open({ deploy: "deploy-seam-n1", prompt: "first message" });
+		if (slept >= 3000 && !joined) {
+			joined = true;
+			await Promise.race([retry, new Promise((done) => setTimeout(done, 250).unref())]);
+			joins(world.herdr.panes.at(-1)!);
+		}
+		await Promise.resolve();
+	};
+	const old = server(record, undefined, { call: typed.call, deploys, lock, sleep }, openings);
+	again = server(record, undefined, { call: typed.call, deploys, lock }, openings);
+	const first = await old.open({ deploy: "deploy-seam-n1", prompt: "first message" });
+	const second = await retry!;
+	assert.equal(first.status, 200, JSON.stringify(first.body));
+	assert.equal(second.status, 429, JSON.stringify(second.body));
+	assert.deepEqual(typed.sent, ["first message"], "typed once");
+	assert.equal(made(), 1);
+	assert.equal(openings.get("deploy-seam-n1")?.delivery, "sent");
+	assert.equal(lock.busy, false, "the lock is free again");
+	const later = await again.open({ deploy: "deploy-seam-n1", prompt: "first message" });
+	assert.equal(body(later).delivery, "sent", "and a retry after it finished is answered from the record");
+	assert.deepEqual(typed.sent, ["first message"]);
+});
+
+// OBS2-F005 (and OBS-F008): the host builds the stores and the lock once, not per GUI start (`begin` runs for every start: gui-stop then gui, a token rotation, a moved port).
+test("the host owns the openings and the one-at-a-time lock: built beside deploys, passed to every spawn, not made inside begin", () => {
+	const source = readFileSync(new URL("../src/server/guihost.ts", import.meta.url), "utf8"), begin = source.indexOf("const begin = async");
+	assert.ok(begin > 0);
+	for (const make of ["createOpenings(", "createDeploys(", "lock = {"]) {
+		const at = source.indexOf(make);
+		assert.ok(at > 0 && at < begin, `${make} is built before begin, once per host`);
+		assert.equal(source.indexOf(make, begin), -1, `${make} is not built again inside begin`);
+	}
+	assert.match(source.slice(begin), /createSpawn\(\{[^\n]*\block\b[^\n]*openings/);
+});
+
 // F005: a repeat's own failure.
 test("a repeat whose pi never joins fails at the join step and leaves the workspace and the record", async () => {
 	const record = file(), ws = await left(record, "deploy-seam-f5", "none");
@@ -264,6 +341,40 @@ test("a record that cannot be written fails the open, closes the workspace, and 
 	assert.equal(world.herdr.commands("workspace", "close").length, 1, "the workspace is closed");
 	assert.equal(world.herdr.workspaces.length, before, "nothing is left in Herdr");
 	assert.match(s.notes.join("\n"), /opening-record-failed.*isafile/, "the detail goes to the log");
+});
+
+// OBS2-F002: every write of the record names no path, whichever step it is at; the cause goes to the log.
+/** Records of its own that fail a `set` whose opening `fails`, with the cause a file system gives (a path in it). */
+function flaky(fails: (opening: Opening) => boolean) {
+	const inner = createOpenings();
+	const store = { ...inner, set(id: string, opening: Opening) {
+		if (fails(opening)) throw new Error("EACCES: permission denied, open '/secret/state/openings.json.tmp'");
+		inner.set(id, opening);
+	} };
+	return { inner, store: store as Openings };
+}
+test("a record that cannot be written when the message goes to be typed fails the open without a path, closes the workspace, and types nothing", async () => {
+	world.herdr.onAgentStart = joins;
+	const typed = prompts(), s = server(file(), undefined, { call: typed.call }, flaky((o) => o.delivery === "sending").store);
+	const answer = await s.open({ deploy: "deploy-seam-n2", prompt: "hello" });
+	assert.deepEqual([answer.status, body(answer).error, body(answer).step], [502, "open_failed", "deliver"]);
+	assert.doesNotMatch(String(body(answer).reason), /secret|EACCES|openings\.json/);
+	assert.match(s.notes.join("\n"), /opening-record-failed.*\/secret\/state\/openings\.json\.tmp/);
+	assert.deepEqual(typed.sent, [], "nothing typed");
+	assert.equal(world.herdr.commands("workspace", "close").length, 1);
+});
+
+test("a repeat whose record cannot be written for the message fails without a path and leaves the workspace and its record", async () => {
+	const ws = await left(file(), "deploy-seam-n2b", "pending"), typed = prompts(), f = flaky((o) => o.delivery === "sending");
+	f.inner.set("deploy-seam-n2b", { workspace: ws.workspace.workspace_id, tab: ws.tab.tab_id, pane: ws.root_pane.pane_id, dir, delivery: "pending" });
+	joins(ws.root_pane);
+	const s = server(file(), undefined, { call: typed.call }, f.store), answer = await s.open({ deploy: "deploy-seam-n2b", prompt: "hello" });
+	assert.deepEqual([answer.status, body(answer).error, body(answer).step], [502, "open_failed", "deliver"]);
+	assert.doesNotMatch(String(body(answer).reason), /secret|EACCES|openings\.json/);
+	assert.match(s.notes.join("\n"), /opening-record-failed/);
+	assert.deepEqual(typed.sent, []);
+	assert.equal(world.herdr.commands("workspace", "close").length, 0, "the repeat made no workspace and closes none");
+	assert.equal(f.inner.get("deploy-seam-n2b")?.delivery, "pending");
 });
 
 test("when the record cannot be written and cannot be dropped, the reply is the first failure", async () => {

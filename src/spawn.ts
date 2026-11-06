@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { checkText, type Reply } from "./control.ts";
 import { createDeploys, type Delivery as Said, type Deploy, type StepId } from "./deploy.ts";
-import { createOpenings, type Delivery, type Openings } from "./openings.ts";
+import { createOpenings, type Delivery, type Opening, type Openings } from "./openings.ts";
 import { clean, cleanGroup } from "./trust/found.ts";
 import { assertSettingsSafe, type SettingsRefusal, SettingsRefused } from "./trust/settings.ts";
 import { waitPastTrust } from "./trust/wait.ts";
@@ -19,9 +19,10 @@ import { createTab, type HerdrCall, type HerdrRun, isHead, isSub, type Pane, pan
 //   POST /<token>/api/dirs {path?, workspace?, tab?}              the folders in `path`, or in the squad's or the base's own folder, or in home
 //   POST /<token>/api/dirs/new {path, name}                        a new folder `name` in the pickable folder `path` (an existing one of that name is answered as it is)
 //   POST /<token>/api/dirs/places {}                              home, its Desktop and Documents when they are pickable, and the folders the open bases work in
-//   POST /<token>/api/open/base {dir, label, prompt?, joinWaitMs?} a new workspace in `dir` whose first tab holds a member (`joinWaitMs`: how long to wait for its pi to join, 10 s to 5 min, default 60 s)
-//   POST /<token>/api/open/member {workspace, tab?, dir?, prompt?} a member split into `tab` (in `dir`, else that tab's folder), or in a new tab in `dir`; no tower
-//   POST /<token>/api/open/main {workspace, dir, prompt?}         a new tab in the base whose pi becomes its main; the base has a tower
+//   POST /<token>/api/open/base {dir, label, prompt?, deploy?, joinWaitMs?} a new workspace in `dir` whose first tab holds a member (`joinWaitMs`: how long to wait for its pi to join, 10 s to 5 min, default 60 s)
+//   POST /<token>/api/open/member {workspace, tab?, dir?, prompt?, deploy?} a member split into `tab` (in `dir`, else that tab's folder), or in a new tab in `dir`; no tower
+//   POST /<token>/api/open/main {workspace, dir, prompt?, deploy?}  a new tab in the base whose pi becomes its main; the base has a tower
+//   Each open answers {workspace, tab, pane, session?, delivery?}: `delivery` is there when the open had a first message: `sent`, `unknown` (a repeat found it begun and cannot tell whether it arrived), or `not_sent` (a repeat found one never typed and carries none); the progress (deploy.ts) carries it too.
 // A new pi that waits on a project trust question (trust/ask.ts) has not joined: the join wait stops counting while its pane has one, the deploy shows a `trust` step with the question, and ten minutes without an answer fail the opening.
 // Before anything is created for a new pi, the folder's .pi/settings.json is looked at (trust/settings.ts: pi reads it whole at startup, before any extension can stop it); a refusal answers 409 `settings_unsafe` with the facts in `settings`, at the `create` step.
 // An open may carry `deploy`, an id the page makes; POST /<token>/api/open/progress {id} then answers how far that open has got (deploy.ts), and a refused open names its failed `step`.
@@ -33,7 +34,8 @@ export const JOIN_WAIT_MS = 60_000, MIN_JOIN_WAIT_MS = 10_000, MAX_JOIN_WAIT_MS 
 const MAX_DIRS = 500, MAX_LABEL = 64;
 
 /** `live` says whether a session is still on the net, so a tower token its tower left behind does not count; `sessionAt` names the session in a pane, so the page can go to it. */
-export interface SpawnDeps { run: HerdrRun; sleep: Sleep; call?: HerdrCall; live(sessionId: string): Promise<boolean>; sessionAt?(paneId: string): Promise<string | undefined>; home?: string; hidden?: Hidden; deploys?: ReturnType<typeof createDeploys>; trustDir?: string; openings?: Openings; note?(event: string, facts: Record<string, string>): void }
+/** `lock` is the one-open-at-a-time flag: the host owns it, as it owns `deploys` and `openings`, so the spawns of one host (a GUI that stops and starts in the process) never open at once. */
+export interface SpawnDeps { lock?: { busy: boolean }; run: HerdrRun; sleep: Sleep; call?: HerdrCall; live(sessionId: string): Promise<boolean>; sessionAt?(paneId: string): Promise<string | undefined>; home?: string; hidden?: Hidden; deploys?: ReturnType<typeof createDeploys>; trustDir?: string; openings?: Openings; note?(event: string, facts: Record<string, string>): void }
 
 const no = (status: number, error: string, reason: string): Reply => ({ status, body: { error, reason } });
 const OUTSIDE = no(400, "not_allowed", "Only folders in your home folder, outside hidden folders, can be picked.");
@@ -88,9 +90,17 @@ export async function makeDir(parent: unknown, name: unknown, home = homedir(), 
 	return real ? { status: 200, body: { path: real, created: made } } : no(409, "not_a_folder", `${clean} exists here and is not a folder you can pick.`);
 }
 
-export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(), hidden = platformHidden, deploys = createDeploys(), trustDir, openings = createOpenings(), note }: SpawnDeps) {
+export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(), hidden = platformHidden, deploys = createDeploys(), trustDir, openings = createOpenings(), note, lock = { busy: false } }: SpawnDeps) {
 	const pick = (path: unknown) => pickable(path, home, hidden);
-	let busy = false;
+	/** Records an opening; a file system's cause (it has the path) goes to the log, and the reply says only that the record could not be kept. */
+	const keep = (id: string, opening: Opening) => {
+		try {
+			openings.set(id, opening);
+		} catch (error) {
+			note?.("opening-record-failed", { text: (error as Error).message.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").slice(0, 300) });
+			throw new Error("The opening could not be recorded, so it was not kept.");
+		}
+	};
 	const opened = async (workspace: string, tab: string, pane: string, delivery?: Said): Promise<Reply> => ({ status: 200, body: { workspace, tab, pane, ...(delivery && { delivery }), ...(sessionAt && { session: await sessionAt(pane) }) } });
 	/** What an open/base says of its first message: `sent` (typed by this call, or an earlier one that finished), `unknown` (an earlier one began to type it and the server cannot tell whether it arrived; not typed again), `not_sent` (the earlier one had a message and this call has none to type). */
 	const delivered = (d: Deploy, state: Delivery, asked: boolean): Said | undefined => {
@@ -222,13 +232,14 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 		const had = openings.get(id);
 		if (!had) return;
 		const pane = had.dir === dir ? (await panes(run, had.workspace)).find((p) => p.pane_id === had.pane) : undefined;
-		if (!pane || (await pick(pane.cwd)) !== had.dir) return void openings.drop(id);
+		// A pane that reports no folder (Herdr's `cwd` is optional, and a Windows pane may not know it yet) is not a mismatch: the folder of the record is the request's and the pane is in its live workspace. A folder that is reported and differs is.
+		if (!pane || (pane.cwd && (await pick(pane.cwd)) !== had.dir)) return void openings.drop(id);
 		d.go("start");
 		d.pane = pane.pane_id;
 		await awaitJoin(d, pane.pane_id, joinWaitMs);
 		let delivery: Delivery = had.delivery;
 		if (prompt && (delivery === "none" || delivery === "pending")) {
-			const failed = await deliver(d, pane.pane_id, prompt, (state) => void openings.set(id, { ...had, delivery: (delivery = state) }));
+			const failed = await deliver(d, pane.pane_id, prompt, (state) => void keep(id, { ...had, delivery: (delivery = state) }));
 			if (failed) return failed;
 		} else if (prompt) d.go("deliver"); // typed, or maybe typed, by the open before: the step is over, and the reply says which
 		return opened(had.workspace, pane.tab_id, pane.pane_id, delivered(d, delivery, Boolean(prompt)));
@@ -246,15 +257,9 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 		// Created by this request a moment ago, with nothing in it but the member attempt: a base is never left empty.
 		const failed = await orClose(["workspace", "close", workspaceId], async () => {
 			if (id) {
-				// Before pi starts: a restart in the join wait leaves the id known.
-				try {
-					openings.set(id, { ...record, delivery });
-				} catch (error) {
-					note?.("opening-record-failed", { text: (error as Error).message.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").slice(0, 300) });
-					throw new Error("The opening could not be recorded, so it was not kept.");
-				}
+				keep(id, { ...record, delivery }); // before pi starts: a restart in the join wait leaves the id known
 			}
-			return boot(d, paneId, `member · ${basename(dir) || dir}`, prompt, undefined, joinWaitMs, id ? (state) => void openings.set(id, { ...record, delivery: (delivery = state) }) : (state) => void (delivery = state));
+			return boot(d, paneId, `member · ${basename(dir) || dir}`, prompt, undefined, joinWaitMs, id ? (state) => void keep(id, { ...record, delivery: (delivery = state) }) : (state) => void (delivery = state));
 		}).catch((error) => {
 			if (id) try { openings.drop(id); } catch {} // the workspace is closed with the throw: the id is free again, and the failure that is reported is the first
 			return Promise.reject(error);
@@ -306,8 +311,8 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 			if (typeof ms !== "number" || !Number.isInteger(ms) || ms < MIN_JOIN_WAIT_MS || ms > MAX_JOIN_WAIT_MS) return no(400, "bad_request", `joinWaitMs is a whole number of milliseconds from ${MIN_JOIN_WAIT_MS} to ${MAX_JOIN_WAIT_MS}.`);
 			joinWaitMs = ms;
 		}
-		if (busy) return no(429, "busy", "Another opening is still on its way.");
-		busy = true;
+		if (lock.busy) return no(429, "busy", "Another opening is still on its way.");
+		lock.busy = true;
 		const d = deploys.begin(json.deploy as string | undefined, ["create", "start", "join", ...(prompt ? ["deliver" as StepId] : [])]);
 		try {
 			const done = await (kind === "main" ? openMain(d, json.workspace, dir!, prompt) : kind === "member" ? openMember(d, json.workspace, json.tab, dir, prompt) : openBase(d, dir!, label, prompt, json.deploy as string | undefined, joinWaitMs));
@@ -317,7 +322,7 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 			if (error instanceof SettingsRefused) return failed(d, { status: 409, body: { error: "settings_unsafe", reason: error.message, settings: error.refusal } });
 			return failed(d, no(502, "open_failed", (error as Error).message));
 		} finally {
-			busy = false;
+			lock.busy = false;
 		}
 	};
 	// Windows could not say which folders are hidden: nothing is listed or opened on a guess.

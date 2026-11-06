@@ -235,6 +235,8 @@ function fillUnits(el: HTMLElement, cards: UnitCard[], named: boolean) {
 	loadingUnits = true;
 	void import("./allyunits.ts").then(({ fillAllyUnits }) => ((drawUnits = fillAllyUnits), waitingUnits.forEach(([c, n], card) => fillAllyUnits(card.querySelector(".ally-units")!, c, n)), waitingUnits.clear()), () => void (loadingUnits = false));
 }
+/** When each unit of the ally bases was last seen running (`team/device/unit` to the time of that status): a run after a crash notice ends the crash (linkmodel.ts `unitCards`). Kept for the page's life. */
+const unitsSeen = new Map<string, number>();
 export function fillAlly(el: HTMLElement, a: AllyBase, link: LinkSummary | undefined) {
 	const state = allyMark(a), reported: DeviceUnits[] | undefined = link?.units;
 	mark(el, state);
@@ -242,13 +244,13 @@ export function fillAlly(el: HTMLElement, a: AllyBase, link: LinkSummary | undef
 	mark(el.querySelector<HTMLElement>(".tower")!, state);
 	text(el, ".ally-tag", m.ally_tag({ team: a.teamName }));
 	text(el, "h2", a.workspace ?? a.label);
-	text(el, ".tstate", `${a.workspace ? `${a.label} · ` : ""}${a.short} · ${a.online ? stateName(a.tower) : m.link_offline()}`);
-	// What an unattended device says about its units (unit-status) is drawn by allyunits.ts. While it says none, the tabs it shares with its presence stand in; once it does they are not listed, the units are what the card is for.
-	const cards = unitCards(reported, link?.alerts, a, Date.now());
-	sync(el.querySelector(".ally-tabs")!, (cards.length ? [] : a.tabs).map((t, i) => ({ id: `${i}`, ...t })), () => html(`<li class="ally-tab"><b></b><span></span></li>`), (li, t) => {
-		text(li, "b", t.label);
-		text(li, "span", a.online ? stateName(t.state) : "");
-		li.dataset.state = t.state;
+	// What an unattended device says about its units (unit-status) is drawn by allyunits.ts, and the units are the card's only state: the subtitle then names the base and whether it is there, not what its tower does (the two come from messages of their own cadence and could disagree).
+	// While it says none (an older box, a team that shares presence only, the minute after this server restarted) the card says how many units are online in one line; the box's own mains and workers are never listed.
+	const cards = unitCards(reported, link?.alerts, a, Date.now(), unitsSeen);
+	text(el, ".tstate", `${a.workspace ? `${a.label} · ` : ""}${a.short}${!a.online ? ` · ${m.link_offline()}` : cards.length ? "" : ` · ${stateName(a.tower)}`}`);
+	sync(el.querySelector(".ally-tabs")!, cards.length || !a.online || !a.tabs.length ? [] : [{ id: "online", count: a.tabs.length }], () => html(`<li class="ally-tab"><b></b></li>`), (li, x) => {
+		text(li, "b", m.link_unit_summary({ count: x.count }));
+		li.dataset.state = a.tower; // a question that waits makes the row a way into the panel, as a unit's row is
 	});
 	el.classList.toggle("has-units", cards.length > 0);
 	fillUnits(el, cards, a.workspace === null);

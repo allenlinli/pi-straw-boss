@@ -1,9 +1,9 @@
 import type { LinkSummary } from "../src/link/holder.ts";
 
-// The demo's states of an unattended device's ally base (`?ally=idle|crashed|stale|long|gone|units`), for the card of its units (gui/render.ts `fillAlly`): the fixture's own is a unit at work with two monitors,
+// The demo's states of an unattended device's ally base (`?ally=idle|crashed|trust|held|closing|rerun|stale|long|gone|units`), for the card of its units (gui/render.ts `fillAlly`): the fixture's own is a unit at work with two monitors,
 // and every state is a change to that one. The times are relative to the page's load, so the card's clock reads as it would live.
 
-export const ALLY_SCENES = ["idle", "crashed", "stale", "long", "gone", "units"] as const;
+export const ALLY_SCENES = ["idle", "crashed", "trust", "held", "closing", "rerun", "stale", "long", "gone", "units"] as const;
 export type AllyScene = (typeof ALLY_SCENES)[number];
 export const isAllyScene = (s: string | null): s is AllyScene => ALLY_SCENES.includes(s as AllyScene);
 
@@ -23,8 +23,8 @@ ok  ledger/credit     (187 ms)
 
 Next: waiting for the review of the ledger fix. Nothing else is queued, and no question is open. If the review asks for changes I will take them on the same branch and run the smoke tests again before I report.`;
 
-/** Turns the demo's link summary into the scene `name` (`?ally=`; anything else: the unit at work as the fixture has it, with its clock set to now; it has the fixture's ally base `t/d1/Harbor API` and its unit-status). */
-export function allyDemo(link: LinkSummary, name: string | null, now = Date.now()): void {
+/** Turns the demo's link summary into the scene `name` (`?ally=`; anything else: the unit at work as the fixture has it, with its clock set to now; it has the fixture's ally base `t/d1/Harbor API` and its unit-status). `later` changes the summary after a while and sends it (the `rerun` scene needs the page to see the unit run first). `gone` is also the card of a box that reports no units: its summary line. */
+export function allyDemo(link: LinkSummary, name: string | null, now = Date.now(), later: (ms: number, change: (link: LinkSummary) => void) => void = () => {}): void {
 	const scene = isAllyScene(name) ? name : undefined;
 	const d1 = link.units[0]!, unit = d1.units[0]!;
 	d1.at = now - 40_000;
@@ -32,6 +32,15 @@ export function allyDemo(link: LinkSummary, name: string | null, now = Date.now(
 	if (scene === "idle") (Object.assign(unit, { state: "standing", monitors: [], report: "Nothing queued.\nThe ledger fix is merged and staging is on v1.2." }), link.alerts.forEach((a) => a.kind === "notice" && (a.data.at = now - 3 * 3600_000))); // the fixture's old crash notice is three hours old: it says nothing of the unit now
 	if (scene === "crashed") Object.assign(unit, { state: "standing", monitors: [], report: "Applying migration 0042 on staging." });
 	if (scene === "crashed") link.alerts.find((a) => a.kind === "notice")!.data.text = "An ally run crashed: pi exited without tower_done (exit 1). The last output was: Error: connect ECONNREFUSED 10.0.2.7:5432 while applying migration 0042";
+	if (scene === "trust") (Object.assign(unit, { state: "standing", monitors: [], report: "" }), Object.assign(link.alerts.find((a) => a.kind === "notice")!.data, { what: "trust-unanswered", text: "An ally run crashed: No trust decision for /work/harbor-api after 10 minutes; the run was ended" }));
+	if (scene === "held") (Object.assign(unit, { state: "held", monitors: [], report: "Three runs in 10 minutes ended in a crash; the tower stopped waking this unit." }), link.alerts.find((a) => a.kind === "notice")!.data.at = now - 6 * 60_000);
+	if (scene === "closing") Object.assign(unit, { state: "closing", report: "Handing over: the last report is written." });
+	if (scene === "rerun") {
+		// A crash ten minutes ago, the unit running now; a few seconds on it stands by again, and the old notice no longer says it crashed.
+		Object.assign(unit, { state: "running", report: "Re-ran the migration on staging: applied." });
+		link.alerts.find((a) => a.kind === "notice")!.data.at = now - 10 * 60_000;
+		later(6_000, (l) => Object.assign(l.units[0]!.units[0]!, { state: "standing", monitors: [], report: "Re-ran the migration on staging: applied, smoke tests green." }));
+	}
 	if (scene === "stale") (Object.assign(d1, { at: now - 8 * 60_000, stale: true as const }), Object.assign(unit, { state: "running" }));
 	if (scene === "long") unit.report = LONG;
 	if (scene === "gone") link.units = [];

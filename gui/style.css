@@ -1001,6 +1001,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .ally-unit summary::before { content: "\25B8"; flex: none; color: var(--dim); } .ally-unit details[open] > summary::before { content: "\25BE"; }
 .ally-unit summary b { flex: none; font-weight: 600; } .au-peek { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); } .ally-unit details[open] .au-peek { display: none; }
 .au-crash summary b { color: var(--err); } .au-crash summary .au-time { margin-left: auto; }
+.au-crash[data-trust] summary b { color: var(--amber); } .au-hint { margin: 0 0 4px; color: var(--amber); font-size: 12px; }
 .au-crash pre { margin: 2px 0 4px; max-height: 10em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); font: 12px/1.45 var(--mono); }
 .au-md { max-height: min(24em, 60vh); overflow: auto; padding: 2px 0 4px; font-size: 13px; }
 .ally-tab[data-state="working"] span { color: var(--accent); } .ally-tab[data-state="blocked"] span { color: var(--amber); }

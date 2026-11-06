@@ -118,7 +118,10 @@ test("a unit's state is said in the three words the card is for (standing by, ru
 	assert.deepEqual(unitWord("idle"), { tone: "idle", word: m.mark_standing() });
 	for (const s of ["running", "working", "waking", "commanding"]) assert.deepEqual(unitWord(s), { tone: "working", word: m.link_unit_running() }, s);
 	assert.deepEqual(unitWord("blocked"), { tone: "waiting", word: m.mark_waiting() });
-	assert.deepEqual(unitWord("held"), { tone: "other", word: "held" });
+	assert.deepEqual(unitWord("held"), { tone: "crashed", word: m.link_unit_held() }, "held is paused after repeated crashes: trouble, in its own words");
+	assert.deepEqual(unitWord("closing"), { tone: "other", word: m.tower_state_closing() });
+	assert.deepEqual(unitWord("waking"), { tone: "working", word: m.link_unit_running() });
+	assert.deepEqual(unitWord("reticulating"), { tone: "other", word: "reticulating" }, "a state the page does not know is shown as it is");
 });
 
 test("a unit's card carries its word, when it was heard, its monitors and its report; a stale device's units say so", () => {
@@ -133,10 +136,16 @@ test("a crash notice for the unit makes it read crashed while it is not running 
 	const now = 10 * 60_000;
 	const [u] = unitCards(status("standing"), [crashNotice(now - 4 * 60_000)], ME, now);
 	assert.deepEqual([u!.tone, u!.word, u!.crash], ["crashed", m.link_unit_crashed(), { at: now - 4 * 60_000, text: "An ally run crashed: exit 1" }]);
-	assert.equal(unitCards(status("standing"), [crashNotice(now - 4 * 60_000, { what: "trust-unanswered" })], ME, now)[0]!.tone, "crashed", "a trust question nobody answered ends the run as a crash does");
+	const trust = unitCards(status("standing"), [crashNotice(now - 4 * 60_000, { what: "trust-unanswered", text: "An ally run crashed: No trust decision for /work/p" })], ME, now)[0]!;
+	assert.deepEqual([trust.tone, trust.word, trust.crash], ["waiting", m.link_unit_trust(), { at: now - 4 * 60_000, text: "An ally run crashed: No trust decision for /work/p", trust: true }], "a trust question nobody answered is not a crash: the box needs a setting, so it reads amber and says what to do");
+	assert.equal(unitCards(status("running"), [crashNotice(now - 4 * 60_000, { what: "trust-unanswered" })], ME, now)[0]!.tone, "working", "and it follows the same rules as a crash");
+	assert.equal(unitCards(status("standing"), [crashNotice(now - CRASH_FRESH_MS - 1, { what: "trust-unanswered" })], ME, now)[0]!.tone, "idle");
 	assert.equal(unitCards(status("running"), [crashNotice(now - 4 * 60_000)], ME, now)[0]!.tone, "working", "running again: the unit is not crashed");
 	assert.equal(unitCards(status("standing"), [crashNotice(now - 4 * 60_000)], ME, now)[0]!.crash!.at, now - 4 * 60_000);
-	assert.equal(unitCards(status("standing"), [crashNotice(now - CRASH_FRESH_MS - 1)], ME, now)[0]!.tone, "idle", "an old crash says nothing of the unit now");
+	const late = 2 * CRASH_FRESH_MS;
+	assert.equal(unitCards(status("standing"), [crashNotice(late - CRASH_FRESH_MS + 1)], ME, late)[0]!.tone, "crashed", "the last moment of the window: still a crash");
+	assert.equal(unitCards(status("standing"), [crashNotice(late - CRASH_FRESH_MS)], ME, late)[0]!.tone, "idle", "an old crash (with a real time) says nothing of the unit now");
+	assert.equal(unitCards(status("standing"), [crashNotice(late - CRASH_FRESH_MS - 1)], ME, late)[0]!.tone, "idle");
 	assert.equal(unitCards(status("standing"), [crashNotice(1, { at: 0 })], ME, now)[0]!.tone, "idle", "a notice with no time (a peer's older box) is not read as a crash");
 	const others = [crashNotice(now - 1000, { unit: "other" }), crashNotice(now - 1000, { device: "d2" }), { ...crashNotice(now - 1000), team: "t2" }, crashNotice(now - 1000, { what: "run-quit" }), crashNotice(now - 1000, { what: "run-timeout" })];
 	others.forEach((n, i) => assert.equal(unitCards(status("standing"), [n], ME, now)[0]!.tone, "idle", `a notice of another unit, device, team or kind (${i})`));
@@ -144,11 +153,39 @@ test("a crash notice for the unit makes it read crashed while it is not running 
 	assert.equal(later.crash!.text, "newer", "the latest crash is the one told");
 });
 
+test("ALLY-F002: a unit seen running after the crash is not crashed again once it stands by; a run before the crash does not clear it", () => {
+	const seen = new Map<string, number>(), t0 = 10 * 60_000, at = (when: number, state: string) => status(state).map((d) => ({ ...d, at: when }));
+	const crash = crashNotice(t0);
+	assert.equal(unitCards(at(t0 - 60_000, "running"), [], ME, t0 - 60_000, seen)[0]!.tone, "working", "it ran before it crashed");
+	assert.equal(unitCards(at(t0 + 60_000, "standing"), [crash], ME, t0 + 60_000, seen)[0]!.tone, "crashed", "the earlier run does not clear the crash");
+	assert.equal(unitCards(at(t0 + 5 * 60_000, "running"), [crash], ME, t0 + 5 * 60_000, seen)[0]!.tone, "working", "the boss re-ran it");
+	const after = unitCards(at(t0 + 10 * 60_000, "standing"), [crash], ME, t0 + 10 * 60_000, seen)[0]!;
+	assert.deepEqual([after.tone, after.crash], ["idle", undefined], "it ran after the crash and stands by again: the old notice says nothing of it now");
+	assert.equal(unitCards(at(t0 + 10 * 60_000, "standing"), [crash, crashNotice(t0 + 8 * 60_000, { text: "again" })], ME, t0 + 10 * 60_000, seen)[0]!.crash!.text, "again", "a crash after that run counts");
+	assert.equal(unitCards(at(t0 + 10 * 60_000, "standing"), [crash], { ...ME, workspace: null }, t0 + 10 * 60_000, new Map())[0]!.tone, "crashed", "with nothing seen (a reload) the 30-minute rule stands alone");
+});
+
+test("ALLY-F007: a held unit reads in its own word in the trouble colour; a closing one is said in words, not as the box sends it", () => {
+	const [held] = unitCards(status("held"), [], ME, 6_000);
+	assert.deepEqual([held!.tone, held!.word, held!.crash], ["crashed", m.link_unit_held(), undefined]);
+	const [withNotice] = unitCards(status("held"), [crashNotice(5_000)], ME, 6_000);
+	assert.deepEqual([withNotice!.tone, withNotice!.word, withNotice!.crash!.at], ["crashed", m.link_unit_held(), 5_000], "its crash notice stays behind the fold, and the word stays 'held'");
+	assert.equal(unitCards(status("closing"), [], ME, 6_000)[0]!.word, m.tower_state_closing());
+});
+
 test("the folded report is its first line without Markdown marks", () => {
 	assert.equal(reportPeek("## Staging deploy: v1.2\n\nDeployed **v1.2**"), "Staging deploy: v1.2");
 	assert.equal(reportPeek("\n\n- Migration `0042` applied\n- next"), "Migration 0042 applied");
 	assert.equal(reportPeek("```\n$ npm test\n```"), "$ npm test");
 	assert.equal(reportPeek("> 1. quoted _item_"), "quoted item");
+	assert.equal(reportPeek("**Deployed** to _staging_ with ~~no~~ trouble"), "Deployed to staging with no trouble", "marks that are markup go, nested and in the middle of a line");
+	assert.equal(reportPeek("__Done__ *and* **_both_**"), "Done and both");
+	assert.equal(reportPeek("Set ledger.rounding_mode to half_up"), "Set ledger.rounding_mode to half_up", "an identifier's underscores are its own");
+	assert.equal(reportPeek("Edited ~/projects/app/src/__init__.py and ~/b"), "Edited ~/projects/app/src/__init__.py and ~/b", "a path's ~ and __ are its own");
+	assert.equal(reportPeek("2 * 3 = 6 and a*b*c"), "2 * 3 = 6 and a*b*c", "a lone or intraword * is not emphasis");
+	assert.equal(reportPeek("merged MP_4219 and MP_4220"), "merged MP_4219 and MP_4220");
+	assert.equal(reportPeek("run `rounding_mode` and `a*b`"), "run rounding_mode and a*b", "code ticks go, what is inside stays");
+	assert.equal(reportPeek("an **unclosed mark"), "an **unclosed mark");
 	assert.equal(reportPeek("   "), "");
 	assert.equal(reportPeek(""), "");
 });

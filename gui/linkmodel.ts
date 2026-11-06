@@ -85,34 +85,51 @@ export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyBase, "te
 
 /** How long a crash notice still makes a unit that is not running read as crashed: the wire carries no outcome, so an old crash says nothing of the unit now. */
 export const CRASH_FRESH_MS = 30 * 60_000;
-/** The notices that say a run died (src/link/unitstatus.ts): a crash, or a trust question nobody answered, which ends the run as a crash does. */
+/** The notices that say a run ended without its work (src/link/unitstatus.ts): a crash, or a trust question nobody answered. */
 const CRASH_KINDS = ["run-crashed", "trust-unanswered"];
 export type UnitTone = "working" | "idle" | "waiting" | "crashed" | "other";
-/** One unit of an ally base as its card draws it. `word` is the state in words, `crash` the notice that says it died. */
-export interface UnitCard { unit: string; state: string; tone: UnitTone; word: string; at: number; stale: boolean; monitors: string[]; report: string; crash?: { at: number; text: string } }
+/** One unit of an ally base as its card draws it. `word` is the state in words, `crash` the notice that says why it stopped (`trust`: a trust question nobody answered, which the box's settings fix, not its code). */
+export interface UnitCard { unit: string; state: string; tone: UnitTone; word: string; at: number; stale: boolean; monitors: string[]; report: string; crash?: { at: number; text: string; trust?: true } }
 
-/** A unit's state word: the tower service's states (standing, waking, running, closing, held) and the marks a plain unit has; one the page does not know is shown as it is. */
+/** A unit's state word: the tower service's states (standing, waking, running, closing, held) and the marks a plain unit has; one the page does not know is shown as it is. A held unit was paused after repeated crashes: trouble. */
 export function unitWord(state: string): { tone: UnitTone; word: string } {
 	switch (state) {
 		case "standing": case "idle": case "done": return { tone: "idle", word: m.mark_standing() };
 		case "running": case "working": case "waking": case "commanding": return { tone: "working", word: m.link_unit_running() };
 		case "blocked": return { tone: "waiting", word: m.mark_waiting() };
+		case "held": return { tone: "crashed", word: m.link_unit_held() };
+		case "closing": return { tone: "other", word: m.tower_state_closing() };
 		default: return { tone: "other", word: stateName(state) };
 	}
 }
 
-/** The cards of an ally base's units: its state word and when it was heard, the monitors, the last report, and a crash a notice told of lately while the unit is not running again. */
-export function unitCards(units: DeviceUnits[] | undefined, alerts: LinkAlert[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">, now: number): UnitCard[] {
+/**
+ * The cards of an ally base's units: its state word and when it was heard, the monitors, the last report, and why it stopped when a notice told of it lately and the unit is not running.
+ * `seen` is the page's memory of when each unit was last seen running (`team/device/unit` to the time of that status): a run after the notice ends it, so a unit that was re-run and stands by again is not told as crashed again.
+ * A page without that memory (just loaded) has the 30-minute rule alone.
+ */
+export function unitCards(units: DeviceUnits[] | undefined, alerts: LinkAlert[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">, now: number, seen: Map<string, number> = new Map()): UnitCard[] {
 	return unitsFor(units, a).map((u) => {
-		const base = unitWord(u.state);
-		const crash = alerts?.filter((x) => x.kind === "notice" && CRASH_KINDS.includes(String(x.data.what)) && x.team === a.team && x.data.device === a.device && x.data.unit === u.unit && Number(x.data.at) > 0).map((x) => ({ at: Number(x.data.at), text: String(x.data.text ?? "") })).sort((p, q) => q.at - p.at)[0];
-		const crashed = crash !== undefined && base.tone !== "working" && now - crash.at < CRASH_FRESH_MS;
-		return { unit: u.unit, state: u.state, ...(crashed ? { tone: "crashed" as const, word: m.link_unit_crashed(), crash } : base), at: u.at, stale: u.stale, monitors: u.monitors, report: u.report };
+		const base = unitWord(u.state), key = `${a.team}/${a.device}/${u.unit}`;
+		if (base.tone === "working") seen.set(key, Math.max(seen.get(key) ?? 0, u.at));
+		const crash = alerts?.filter((x) => x.kind === "notice" && CRASH_KINDS.includes(String(x.data.what)) && x.team === a.team && x.data.device === a.device && x.data.unit === u.unit && Number(x.data.at) > 0).map((x) => ({ at: Number(x.data.at), text: String(x.data.text ?? ""), trust: x.data.what === "trust-unanswered" })).sort((p, q) => q.at - p.at)[0];
+		const told = crash !== undefined && base.tone !== "working" && now - crash.at < CRASH_FRESH_MS && crash.at > (seen.get(key) ?? 0) ? { at: crash.at, text: crash.text, ...(crash.trust ? { trust: true as const } : {}) } : undefined;
+		const state = !told ? base : base.tone === "crashed" ? base : told.trust ? { tone: "waiting" as const, word: m.link_unit_trust() } : { tone: "crashed" as const, word: m.link_unit_crashed() };
+		return { unit: u.unit, state: u.state, ...state, ...(told ? { crash: told } : {}), at: u.at, stale: u.stale, monitors: u.monitors, report: u.report };
 	});
 }
 
-/** The first line of a report with its Markdown marks (heading, list and quote bullets, emphasis, code ticks) taken off, for the folded row. */
+/** Markdown marks that are markup: a pair that opens after a space, a bracket or a quote (or at the start) with a non-space after it, and closes before a space, closing punctuation, or a sentence's end; so `rounding_mode`, `a*b`, `__init__.py`, `2 * 3` keep their characters. */
+const PAIR = /(^|[\s(["'])(\*\*|__|~~|\*|_)(?=\S)(.+?)(?<=\S)\2(?=$|[\s,;:!?)\]"']|\.(?:$|\s))/g;
+
+/** The first line of a report with its Markdown marks (heading, list and quote bullets, paired emphasis, code ticks) taken off, for the folded row; characters that are the text's own (identifiers, paths, a multiplication) stay. */
 export function reportPeek(report: string): string {
 	const line = report.split("\n").map((l) => l.trim()).find((l) => l && !/^(`{3,}|~{3,}|[-*_]{3,}$)/.test(l)) ?? "";
-	return line.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)+/, "").replace(/[*_`~]+/g, "").trim();
+	let out = line.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)+/, "").replace(/(`+)(.+?)\1/g, "$2");
+	for (let i = 0; i < 4; i++) {
+		const next = out.replace(PAIR, "$1$3");
+		if (next === out) break;
+		out = next;
+	}
+	return out.trim();
 }

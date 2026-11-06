@@ -742,6 +742,25 @@
 	"link_unit_heard": "When this unit last reported",
 	"link_unit_crash": "What happened",
 	"link_unit_stale_title": "The box has sent no status for 3 minutes; this is its last one",
+	"link_unit_held": "held after crashes",
+	"link_unit_trust": "needs trust",
+	"link_unit_trust_why": "Why it stopped",
+	"link_unit_trust_hint": "Add the project to the box's trust.json",
+	"link_unit_summary": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "{count} unit online",
+				"countPlural=other": "{count} units online"
+			}
+		}
+	],
 	"ally_asks_button": [
 		{
 			"declarations": [

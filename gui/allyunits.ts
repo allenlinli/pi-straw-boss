@@ -7,7 +7,7 @@ import { ago, html, sync, text } from "./render.ts";
 // through the page's Markdown, which parses no HTML). The report's Markdown is made when the fold first opens, in a chunk of its own, and again while it is open when the report changes.
 
 type Row = UnitCard & { id: string; named: boolean };
-const make = () => html(`<li class="ally-unit"><div class="au-head"><i class="au-dot"></i><b class="au-word"></b><span class="au-name"></span><span class="au-time" hidden><span class="au-pre"></span><span class="age"></span><span class="au-ago"></span></span><em class="au-stale" hidden></em></div><p class="au-mons" hidden><b></b><span></span></p><details class="au-crash" hidden><summary><b></b><span class="au-time"><span class="age"></span><span class="au-ago"></span></span></summary><pre></pre></details><details class="au-report" hidden><summary><b class="au-label"></b><span class="au-peek"></span></summary><div class="md au-md"></div></details></li>`);
+const make = () => html(`<li class="ally-unit"><div class="au-head"><i class="au-dot"></i><b class="au-word"></b><span class="au-name"></span><span class="au-time" hidden><span class="au-pre"></span><span class="age"></span><span class="au-ago"></span></span><em class="au-stale" hidden></em></div><p class="au-mons" hidden><b></b><span></span></p><details class="au-crash" hidden><summary><b></b><span class="au-time"><span class="age"></span><span class="au-ago"></span></span></summary><pre></pre><p class="au-hint" hidden></p></details><details class="au-report" hidden><summary><b class="au-label"></b><span class="au-peek"></span></summary><div class="md au-md"></div></details></li>`);
 
 type Markdown = typeof import("./markdown.ts");
 let markdown: Markdown | undefined;
@@ -56,10 +56,14 @@ export function fillAllyUnits(list: Element, cards: UnitCard[], named: boolean) 
 		}
 		const crash = li.querySelector<HTMLDetailsElement>(".au-crash")!;
 		crash.hidden = !u.crash;
+		crash.toggleAttribute("data-trust", u.crash?.trust === true);
 		if (u.crash) {
-			text(crash, "summary > b", m.link_unit_crash());
+			text(crash, "summary > b", u.crash.trust ? m.link_unit_trust_why() : m.link_unit_crash());
 			clock(crash.querySelector<HTMLElement>("summary > .au-time")!, u.crash.at);
 			text(crash, "pre", u.crash.text);
+			const hint = crash.querySelector<HTMLElement>(".au-hint")!;
+			hint.hidden = !u.crash.trust;
+			hint.textContent = u.crash.trust ? m.link_unit_trust_hint() : "";
 		}
 		const fold = li.querySelector<HTMLDetailsElement>(".au-report")!;
 		fold.hidden = !u.report;

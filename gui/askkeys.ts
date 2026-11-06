@@ -56,7 +56,10 @@ export function wire(el: HTMLElement, groups: Group[], send: () => HTMLButtonEle
 	el.addEventListener("focusin", landed);
 	el.addEventListener("click", landed);
 	let spaced = false;
+	/** The form saw this Space go down. A release it did not see pressed (the Zen card was inert then, zen.ts `inert`) is swallowed too (zbf-rr-F001). */
+	let pressed = false;
 	el.addEventListener("keydown", (e) => {
+		if (e.key === " ") pressed = true;
 		const at = where(e.target);
 		if (!at || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
 		const box = e.target as HTMLInputElement | HTMLTextAreaElement;
@@ -74,6 +77,10 @@ export function wire(el: HTMLElement, groups: Group[], send: () => HTMLButtonEle
 		const to = move.to === "send" ? send() : move.to.part === "opt" ? g!.opts[move.to.o ?? chosen(g!)] : move.to.part === "own" ? g!.own : g!.note;
 		if (to && !to.disabled) (el.dispatchEvent(new CustomEvent("ask-reveal", { detail: to })), to.focus());
 	});
-	el.addEventListener("keyup", (e) => spaced && e.key === " " && ((spaced = false), e.preventDefault())); // Firefox clicks on Space's release, whichever control has the focus then
+	el.addEventListener("keyup", (e) => {
+		if (e.key !== " ") return;
+		if (spaced || !pressed) e.preventDefault(); // Firefox clicks on Space's release, whichever control has the focus then
+		spaced = pressed = false;
+	});
 	return () => groups[0]?.opts[chosen(groups[0])];
 }

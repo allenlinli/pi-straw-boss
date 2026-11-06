@@ -416,7 +416,7 @@ test("the own-words box: Enter goes on like Enter on an option, Shift+Enter is a
 	assert.equal(page.activeElement, ops, "Tab out of an earlier question's last box goes to the next question");
 });
 
-test("keys that carry Ctrl, Alt, or ⌘, a held Enter, and keys outside the form are left alone; Space's release is swallowed once it moved the focus", () => {
+test("keys that carry Ctrl, Alt, or ⌘, a held Enter, and keys outside the form are left alone; Space's release is swallowed once it moved the focus or when the form never saw its press", () => {
 	const panel = mount();
 	panel.update(asking(four), true);
 	const a1 = on(choices()[0]!);
@@ -434,7 +434,11 @@ test("keys that carry Ctrl, Alt, or ⌘, a held Enter, and keys outside the form
 	assert.equal(up.taken, true, "the release of the Space that moved on does not click anything");
 	const again = { key: " ", taken: false, preventDefault() { this.taken = true; } };
 	for (const on of (root.kids[0] as El).handlers.keyup ?? []) on(again);
-	assert.equal(again.taken, false);
+	assert.equal(again.taken, true, "a release whose press the form never saw (it went to the page while the Zen card was inert) clicks nothing either: Firefox would pick the choice the focus just landed on (zbf-rr-F001)");
+	assert.equal(press(on(field("Your own answer")[0]!), " ").taken, false, "a space typed in the box is the box's");
+	const typed = { key: " ", taken: false, preventDefault() { this.taken = true; } };
+	for (const on of (root.kids[0] as El).handlers.keyup ?? []) on(typed);
+	assert.equal(typed.taken, false, "the release of a Space the form saw and left alone stays the browser's");
 });
 
 /** A page whose post copies the body the way a real post turns it into JSON, before the panel can touch it again. */

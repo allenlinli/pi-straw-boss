@@ -42,6 +42,14 @@ test("questions queue ahead of notices (an error, a finish), oldest first in eac
 	assert.deepEqual(page.queued, ["q2", "done0", "done1", "e1"], "a repeated arrival keeps its place");
 });
 
+test("Zen's blocking-first order is Zen's alone: Standard's queue keeps a tower's wait and a unit's question in the order they arrived", () => {
+	const { page, stack } = harness();
+	stack.arrive({ ...alert("wait\u001fw\u001fW1", "waiting", 1), wait: { id: "W1", text: "Boss token needed" } });
+	stack.arrive(alert("box-unit", "waiting", 2));
+	stack.arrive(alert("older-unit", "waiting", 0));
+	assert.deepEqual(page.queued, ["older-unit", "wait\u001fw\u001fW1", "box-unit"], "oldest first, whatever the kind");
+});
+
 test("closing reveals the dialog beneath; with none beneath, the next queued question; plain state changes wait for the user", () => {
 	const { page, stack } = harness();
 	stack.show(alert("a", "waiting", 1));

@@ -40,3 +40,7 @@ Word budgets (tests/prompts.test.ts) stay unchanged: main.md 484, tower.md 380, 
 ## Not built (phase 2)
 
 `boss_open_main` with an integrator role and a pane token, a separate quota, `{{dir}}` in the tower prompts, an `integrator:` field in `board_read`, and a machine-wide heavy-gate semaphore. Until then single-integrator rests on the tower's prompt and the integrator's name.
+
+## 2026-11-06 note: the procedure moved to pi-anchorloop
+
+The generic train procedure (receiving a car, departure, assembly, review, gates, red handling, urgent lane, deploy, UAT) now lives in pi-anchorloop 2.10.0's `integrating` and `deploying` skills. Straw Boss keeps the contract fields in `apps.json`, the role of the integrator, and a `## Seam bindings` block in `main.md` that binds the skills' six seams. Decisions Q1 to Q8 above still hold; their wording about the integrator's prompt describes the 0.59 text, and `docs/specs/2026-11-06-seam-bindings.md` maps it to the skills. Same note, `docs/specs/2026-11-05-train-stages.md`.

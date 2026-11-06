@@ -19,15 +19,19 @@ import { PROMPT_DIR } from "./fakes.ts";
 // 2026-11-02 (a main edited prompts itself and stalled its chain): main dispatches work independent of its chain; +14 words, 13 cut from the board and rename lines (the tool states the 16-character limit), main stays 483 of 484.
 // 2026-11-04 (hand-made worktrees scattered under ~/.local/share and hung children on the trust prompt): main names the worktree root; 484 to 500.
 // 2026-11-05 (merge-train switch, src/trainswitch.ts): the budgets count the text a session gets, markers dropped, with the switch on and with it off. On, main gains the ledger folder ({{state}}/trains): 497 to 500; off it is 481.
+// 2026-11-06 (seam bindings, docs/specs/2026-11-06-seam-bindings.md): with the train on, main.md carries the `## Seam bindings` block for pi-anchorloop's `integrating` and `deploying` skills, 500 to 680 (off it stays 481);
+// tower.md 380 to 390 for "the integrator answers the coordinator itself" (off it stays 371). A role that has its own on-budget is listed in ON_BUDGETS.
 const BUDGETS: Record<string, number> = { "main.md": 500, "tower.md": 380, "member.md": 140, "member-no-main.md": 150 };
+// Its review fixes (SB-F001, F003, F005: the Approval line quotes words already given and asks only when they are missing, the tower reports nothing back on a forwarded slip): main.md 680 to 700, tower.md 390 to 395, integrator.md 320 to 340 (SB-F002 and F006: the deploy gate before `Merge`, a subagent briefed for one step).
+const ON_BUDGETS: Record<string, number> = { "main.md": 700, "tower.md": 395 };
 const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir", "state"]);
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
 test("every role prompt stays within its word budget", () => {
 	for (const [file, budget] of Object.entries(BUDGETS)) {
 		for (const off of [false, true]) {
-			const count = words(strip(readFileSync(`${PROMPT_DIR}/${file}`, "utf8"), off));
-			assert.ok(count > 10 && count <= budget, `${file} has ${count} words with integration ${off ? "off" : "on"} (budget ${budget})`);
+			const count = words(strip(readFileSync(`${PROMPT_DIR}/${file}`, "utf8"), off)), limit = off ? budget : (ON_BUDGETS[file] ?? budget);
+			assert.ok(count > 10 && count <= limit, `${file} has ${count} words with integration ${off ? "off" : "on"} (budget ${limit})`);
 		}
 	}
 });
@@ -88,34 +92,35 @@ test("D19: the tower run reads why= from the header: milestone updates obligatio
 });
 
 // Merge train, phase 1 (docs/specs/2026-10-30-merge-train.md): prompt-only. Budgets are unchanged; the new text displaced other words.
-test("merge train: apps-config names the integration fields and the skill headings; the integrator refuses to depart without the three required ones", () => {
+test("merge train: apps-config names the integration fields and points to the skill contract; the integrator follows the anchorloop skills and keeps only what is Straw Boss's", () => {
 	const cfg = readFileSync(`${PROMPT_DIR}/apps-config.md`, "utf8");
-	for (const term of ["`integration`", "`maxCars`", "`maxWaitMin`", "`base`", "## Light checks", "## Train assembly", "## Full gates", "## Merge", "## Post-merge", "## Urgent lane", "## Load", "Format, lint, build, full type-check, full suites, publish"]) assert.ok(cfg.includes(term), `apps-config.md names ${term}`);
+	for (const term of ["`integration`", "`maxCars`", "`maxWaitMin`", "`base`", "`integrating`'s Project skill contract", "## Light checks", "## Load", "`why=blocked`"]) assert.ok(cfg.includes(term), `apps-config.md names ${term}`);
 	const integrator = readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8");
 	assert.match(integrator, /^# Integrator/);
-	for (const term of ["`Light checks`, `Full gates`, or `Merge`", "`why=blocked`", "car:", "auth:", "`train/<code>`", "nothing is force pushed", "`maxCars`", "`maxWaitMin`", "`why=milestone`", "(applied to a DB: no|<which>)", "coordinator: <session id>", "apps-config.md beside this file", "`<project>/<app>.json` in the `trains` folder your role prompt names", "integ <project>", "never rename again", "reviewer rechecks it (delta brief)"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
+	for (const term of ["`integrating` skill (merge)", "`deploying` skill (deploy, UAT)", "Seam bindings in your role prompt", "naming pi-anchorloop", "`why=blocked`", "`why=milestone`", "apps-config.md beside this file", "`<project>/<app>.json` in the `trains` folder your role prompt names", "integ <project>", "never rename again", "`coordinator` is a session id", "`reviewer` role", "`show_doc`"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
 	assert.ok(!integrator.includes("{{dir}}") && !integrator.includes("<state dir>") && !integrator.includes("reserve") && !integrator.includes("~/.pi"), "integrator.md has no placeholder, undefined path, hard-coded agent folder, or reserve");
-	assert.match(readFileSync(`${PROMPT_DIR}/main.md`, "utf8"), /ledgers in \{\{state\}\}\/trains/, "the integrator's role prompt names the ledger folder");
-	// Train stages (docs/specs/2026-11-05-train-stages.md): the deploy and UAT stages, with review RV fixes (auth per target across cars, merge waiting on deploy verify, shared for its own deploys), take integrator.md from 600 to 1000; `auto` and `strict` targets in config (boss, 2026-11-05) to 1060; it is read before the first departure, not in the system prompt.
-	// The fix-forward car (integ FE2, boss-assigned 2026-11-06: an urgent car that fixes a red integration branch may come with the author's read only; the train's reviewer gives it its first full-depth review) to 1140; its review fixes (FF-F001 to F004: the integrator checks the red pipeline, the reviewer checks scope, the Departure exception, a full review per new SHA) to 1200.
-	assert.ok(words(integrator) <= 1200, `integrator.md has ${words(integrator)} words`);
+	assert.match(readFileSync(`${PROMPT_DIR}/main.md`, "utf8"), /Record: `\{\{state\}\}\/trains\/<project>\/<app>\.json`/, "the role prompt names the ledger file");
+	// The procedure (slip block, checks, departure, assembly, review, red handling, urgent lane, deploy, UAT) moved to pi-anchorloop's `integrating` and `deploying` skills (docs/specs/2026-11-06-seam-bindings.md maps every old line):
+	// integrator.md went from 1200 to 289 words, and a rule that is back here is duplication.
+	for (const gone of ["tested-on", "`train/<code>`", "nothing is force pushed", "`maxCars`", "fix-forward", "One train at a time per target", "a blank box means accepted", "(applied to a DB: no|<which>)"]) assert.ok(!integrator.includes(gone), `integrator.md no longer repeats ${gone}`);
+	assert.ok(words(integrator) <= 340, `integrator.md has ${words(integrator)} words`);
 });
 
 // Train stages (docs/specs/2026-11-05-train-stages.md, boss form 2026-11-05): one integrator carries a train through merge, deploy, and UAT; Straw Boss names the flow, never an environment.
-test("train stages: apps-config declares stages and their headings, the slip carries deploy targets and UAT checkpoints, and the integrator verifies the running version and opens one UAT page per train", () => {
+test("train stages: apps-config declares stages and targets, the integrator verifies and announces through the bound seams, and the docs name the stage headings", () => {
 	const cfg = readFileSync(`${PROMPT_DIR}/apps-config.md`, "utf8");
-	for (const term of ["`stages`", "`merge` (the default, always first)", "`uat` (only after `deploy`)", "## Deploy", "## Deploy verify", "## UAT", "each heading of a stage an app declares", "`targets` maps a deploy target to `auto`", "only the boss sets it"]) assert.ok(cfg.includes(term), `apps-config.md names ${term}`);
+	for (const term of ["`stages`", "`merge` (the default, always first)", "`uat` (only after `deploy`)", "`targets` maps a deploy target to `auto`", "only the boss sets it"]) assert.ok(cfg.includes(term), `apps-config.md names ${term}`);
 	const integrator = readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8");
-	for (const term of ["deploy: <targets or none> | uat: <checkpoints path or none>", "every `strict` target in `deploy`", "One train at a time per target", "a green job, an accepted request, or a finished monitor is not done", "one `review` block", "once ready", "a blank box means accepted", "A comment returns its car", "accepted in UAT", "no UAT page waits", "`Deploy` and `Deploy verify`; `uat`: `UAT`", "`integration.targets` (unlisted: `strict`)", "an `auto` target takes every train", "only when every car in it has `auth` naming it", "the next train's `Merge` waits for it too", "still calls `shared` naming the target", "merge-triggered deploys need no `shared` call", "a held car is not landed", "ask before `Merge`", "comes with a target (`deploy` or an `auto` one)", "or all of its checkpoints after a revert"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
+	for (const term of ["accepted in UAT", "no UAT page waits", "merge-triggered deploys need no `shared` call", "calls `shared` naming the target", "landed in <version>, your commit is <sha>"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower-run.md`, "utf8").includes("a deploy it starts names its target"));
-	for (const file of ["integrator.md", "apps-config.md", "planning.md"]) {
+	for (const file of ["integrator.md", "apps-config.md", "planning.md", "main.md"]) {
 		const text = readFileSync(`${PROMPT_DIR}/${file}`, "utf8");
 		assert.ok(!/\b(staging|production|prod)\b/i.test(text), `${file} names no environment`);
 	}
 	// The docs state the same contract and drift silently otherwise (review RV-F009).
 	const docs = readFileSync(new URL("../docs/how-it-works.md", import.meta.url), "utf8");
 	const spec = readFileSync(new URL("../docs/specs/2026-11-05-train-stages.md", import.meta.url), "utf8");
-	for (const term of ["## Deploy", "## Deploy verify", "## UAT", "`integration.stages`", "`auto` target"]) assert.ok(docs.includes(term), `how-it-works.md names ${term}`);
+	for (const term of ["## Deploy", "## Deploy verify", "## UAT", "`integration.stages`", "`auto` target", "Seam bindings"]) assert.ok(docs.includes(term), `how-it-works.md names ${term}`);
 	for (const term of ["deploy: <targets or none> | uat: <checkpoints path or none>", "## Deploy", "## Deploy verify", "## UAT", "`auto` or `strict`"]) assert.ok(spec.includes(term), `the spec names ${term}`);
 	assert.ok(readFileSync(`${PROMPT_DIR}/planning.md`, "utf8").includes("a `human` anchor is the train's UAT"));
 });
@@ -124,12 +129,12 @@ test("merge train: main hands integration cars over with why shared, planning st
 	const main = readFileSync(`${PROMPT_DIR}/main.md`, "utf8");
 	for (const term of ["`integration`", "{{dir}}/integrator.md", "never merge to its base or claim a pre-dev branch, unless you are the project's integrator", "`why: shared`", "waits for the integrator's train answer", "the done report still goes to whoever asked", "paths outside the project"]) assert.ok(main.includes(term), `main.md names ${term}`);
 	const plan = readFileSync(`${PROMPT_DIR}/planning.md`, "utf8");
-	for (const term of ["`Light checks`", "once, by the integrator", "may name exceptions"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
+	for (const term of ["`Light checks`", "once, by the integrator", "`integrating`'s Principle"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
 	for (const file of ["tower.md", "tower-run.md"]) {
 		const text = readFileSync(`${PROMPT_DIR}/${file}`, "utf8");
 		for (const term of ["`integration`", "integrator", "boss_open_main", "integrator.md"]) assert.ok(text.includes(term), `${file} names ${term}`);
 	}
-	for (const off of [false, true]) assert.ok(words(strip(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8"), off)) <= 380);
+	for (const off of [false, true]) assert.ok(words(strip(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8"), off)) <= (off ? 380 : 395));
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8").includes("finding with evidence"));
 });
 
@@ -144,4 +149,30 @@ test("merge train: the integrator needs no shared call for its own merges, and t
 test("the main dispatches work independent of its chain to a subagent in parallel", () => {
 	const main = readFileSync(`${PROMPT_DIR}/main.md`, "utf8");
 	for (const term of ["Dispatch work independent of your chain to a subagent in parallel", "binds a single loop, not you"]) assert.ok(main.includes(term), `main.md names ${term}`);
+});
+
+// docs/specs/2026-11-06-seam-bindings.md: pi-anchorloop's `integrating` and `deploying` leave six seams open (references/seams.md) and read one `## Seam bindings` block from the session's instructions.
+// The block lives in main.md, the system prompt of every main (a coordinator and the integrator alike, so a session holds one block), inside the integration markers; the tower runs no skill and holds none.
+const SEAMS = ["Handoff route", "Batch owner", "Approval", "Record", "Escalation route", "Settings"];
+test("seam bindings: main.md binds all six seams of pi-anchorloop's integrating skill, in one block that only the train-on prompt carries", () => {
+	const raw = readFileSync(`${PROMPT_DIR}/main.md`, "utf8"), on = strip(raw, false), off = strip(raw, true);
+	assert.equal(raw.match(/^## Seam bindings$/gm)?.length, 1, "main.md holds one Seam bindings heading");
+	const block = on.slice(on.indexOf("## Seam bindings")), lines = block.split("\n").filter((line) => line.startsWith("- "));
+	assert.deepEqual(lines.map((line) => line.slice(2, line.indexOf(":"))), SEAMS, "one line per seam, in the order of seams.md");
+	for (const [seam, mechanism] of [["Handoff route", "`call_tower` `why: shared`"], ["Batch owner", "~/.herdr/worktrees/<repo>/train-<code>"], ["Approval", "the boss"], ["Record", "{{state}}/trains/<project>/<app>.json"], ["Escalation route", "`why=blocked`"], ["Settings", "apps.json `integration`"]]) {
+		assert.ok(lines.find((line) => line.startsWith(`- ${seam}:`))?.includes(mechanism!), `${seam} names ${mechanism}`);
+	}
+	assert.ok(on.includes("`integrating` and `deploying` skills") && on.includes("naming pi-anchorloop"), "main.md names the skills and blocks without them");
+	assert.ok(!off.includes("Seam bindings") && !off.includes("pi-anchorloop") && !off.includes("train-<code>"), "with the train off no binding is left");
+	// The block is the last text of the integration part: nothing of the always-on text may follow it inside the markers.
+	assert.match(raw, /## Seam bindings\n(?:- .*\n){6}<!-- \/integration -->/);
+	// Review SB-F001/F003: the coordinator quotes words already given and asks only when they are missing (an overnight train must not stall on a question); the integrator asks for a strict target not every car's auth names.
+	const approval = lines.find((line) => line.startsWith("- Approval:"))!;
+	assert.ok(approval.includes("lacking them, it asks") && approval.includes("not every car's `auth` names") && !approval.includes("no car names"), "Approval asks only when the words are missing");
+	// SB-F002 is fixed upstream (pi-anchorloop 2.10.1, train step 4 gates `Merge` on the deploy steps), which the README requires; SB-F006: a subagent is briefed for one step.
+	assert.ok(readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8").includes("never the skill"), "integrator.md keeps the skill from subagents");
+	for (const readme of ["README.md", "README.zh-TW.md"]) assert.ok(readFileSync(readme, "utf8").includes("pi-anchorloop) 2.10.1"), `${readme} requires pi-anchorloop 2.10.1, whose train step 4 gates Merge on the deploy steps`);
+	// SB-F004: only the headings `integrating` requires stop a departure.
+	assert.ok(readFileSync(`${PROMPT_DIR}/apps-config.md`, "utf8").includes("When a required one is missing"), "apps-config.md requires only the required headings");
+	for (const file of ["tower.md", "tower-run.md", "planning.md", "integrator.md", "apps-config.md"]) assert.ok(!readFileSync(`${PROMPT_DIR}/${file}`, "utf8").includes("## Seam bindings"), `${file} holds no second block`);
 });

@@ -28,24 +28,7 @@ With a merge train:
 <!-- integration -->
 ## Merge train
 
-Straw-boss states the principle and the contract; the project's skill holds every concrete check. A coordinator's anchor before handoff is its review (P0 and P1 clear) plus behaviour tests aimed at its own change. Format, lint, build, full type-check, full suites, publish, and similar quality gates run once, by the project's integrator, on the integrated pre-dev head. A skill may name exceptions.
-
-The skill is found by the headings below, exactly as written. Straw-boss reads no other part of it.
-
-| Heading | Read by | Holds |
-|---|---|---|
-| `## Light checks` | coordinator | The checks to run before handoff and how to report them. |
-| `## Train assembly` | integrator | Project steps after the cars are merged and before the gates (for example migration reordering and snapshots). |
-| `## Full gates` | integrator | The heavy checks, which depend on the clock (run at low load), and which failures may be rerun as flakes. |
-| `## Merge` | integrator | How the train enters the base branch. |
-| `## Post-merge` | integrator | What to watch after the merge, how to confirm the release, who closes tickets. |
-| `## Deploy` | integrator | Stage `deploy`: how the train reaches each target, in what order, what a target needs beyond the slip's auth, and how a failed one is rolled back. |
-| `## Deploy verify` | integrator | Stage `deploy`: what shows a target runs the train's own version. |
-| `## UAT` | coordinator, integrator | Stage `uat`: which cars carry checkpoints, where and how the deployed result is captured and by whom, and whether a car the boss comments on is reverted before its fix. |
-| `## Urgent lane` | integrator | Optional: when a car may jump the queue, and whether it may interrupt a running gate. |
-| `## Load` | integrator | Optional: the project's lock name and load thresholds. |
-
-`Light checks`, `Full gates`, and `Merge` are required, and so is each heading of a stage an app declares. If one is missing, the integrator does not depart and calls the tower with `why=blocked`; it never guesses a section.
+The procedure is pi-anchorloop's `integrating` and `deploying` skills, which Straw Boss binds in the Seam bindings of the main prompt; this file holds only the `apps.json` fields. The project's skill (`integration.skill`) holds every concrete check, found by the headings of `integrating`'s Project skill contract (`## Light checks` to `## Load`), exactly as written; Straw Boss reads no other part of it. When a required one is missing (`integrating` says which), the integrator does not depart and calls the tower with `why=blocked`.
 
 A computer can turn the merge train off with `STRAW_BOSS_INTEGRATION=off` in the environment, or `"integration": "off"` in `config.json` of the state folder (the variable wins). Every field above is then ignored, and this file is served without it.
 <!-- /integration -->

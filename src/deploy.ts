@@ -11,13 +11,15 @@ export type StepId = "create" | "start" | "join" | "deliver" | "trust";
 export interface TrustPrompt { id: string; digest: string; folder: string; found: TrustGroup[] }
 export type StepState = "pending" | "active" | "done" | "failed";
 /** `ms` is how long the step has run (an active one) or ran (a finished one), by the server's clock. */
-export interface Progress { steps: { id: StepId; state: StepState; ms: number }[]; finished: boolean; failed?: { step: StepId; reason: string; settings?: SettingsRefusal }; trust?: TrustPrompt }
+export interface Progress { steps: { id: StepId; state: StepState; ms: number }[]; finished: boolean; failed?: { step: StepId; reason: string; settings?: SettingsRefusal }; trust?: TrustPrompt; delivery?: Delivery }
+/** What an open/base says of its first message once it is over: `sent`, `unknown` (an earlier open began to type it; not typed again), or `not_sent` (see spawn.ts). */
+export type Delivery = "sent" | "unknown" | "not_sent"
 
 const KEPT = 16, ID = /^[\w-]{8,64}$/;
 
 export function createDeploy(given: StepId[], now: () => number = Date.now) {
 	const plan = [...given], state = new Map<StepId, StepState>(plan.map((id) => [id, "pending"])), began = new Map<StepId, number>(), took = new Map<StepId, number>();
-	let active: StepId | undefined, finished = false, failed: Progress["failed"], asking: TrustPrompt | undefined, held: StepId | undefined, pane: string | undefined;
+	let active: StepId | undefined, finished = false, failed: Progress["failed"], asking: TrustPrompt | undefined, held: StepId | undefined, pane: string | undefined, delivery: Delivery | undefined;
 	const end = (to: StepState) => {
 		if (!active) return;
 		took.set(active, now() - began.get(active)!);
@@ -56,6 +58,10 @@ export function createDeploy(given: StepId[], now: () => number = Date.now) {
 		set pane(next: string | undefined) {
 			pane = next;
 		},
+		/** What the open says of its first message (shown in the progress once it is over). */
+		set delivery(next: Delivery | undefined) {
+			delivery = next;
+		},
 		/**
 		 * A trust question holds the opening (`ask` given): `trust` is inserted before the running step, which waits until the question is gone, and runs meanwhile.
 		 * Without `ask` the question is over (answered, or its pi ended) and the held step runs again.
@@ -74,7 +80,7 @@ export function createDeploy(given: StepId[], now: () => number = Date.now) {
 			}
 		},
 		view(): Progress {
-			return { steps: plan.map((id) => ({ id, state: state.get(id)!, ms: id === active ? now() - began.get(id)! : (took.get(id) ?? 0) })), finished, ...(failed && { failed }), ...(asking && active === "trust" && { trust: asking }) };
+			return { steps: plan.map((id) => ({ id, state: state.get(id)!, ms: id === active ? now() - began.get(id)! : (took.get(id) ?? 0) })), finished, ...(finished && delivery && { delivery }), ...(failed && { failed }), ...(asking && active === "trust" && { trust: asking }) };
 		},
 	};
 }

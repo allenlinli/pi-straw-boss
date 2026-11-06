@@ -400,3 +400,13 @@ test("an ally card's unit is flat in Geek: a stale one is not dimmed (its pill a
 	assert.equal([...css.matchAll(/^\.ally-unit \{/gm)].length, 1);
 	assert.ok(css.indexOf(".ally-unit {") < css.indexOf('[data-view="geek"] {'));
 });
+
+test("the drawer's current row keeps its chevron's strip clear of a Quit button: the card's right padding is the chevron's inset plus a glyph (Geek's wider one) and a gap", () => {
+	const rules = rulesOf(css), body = (part: string) => rules.filter((r) => r.parts.includes(part)).flatMap((r) => declarations(r.body));
+	const px = (v?: string) => Number(/^(\d+(?:\.\d+)?)px$/.exec(v ?? "")?.[1] ?? NaN);
+	const chevron = body(".drawer .unit.current > .card > .hit::after"), inset = px(chevron.find(([p]) => p === "right")?.[1]);
+	assert.ok(chevron.some(([p, v]) => p === "position" && v === "absolute") && inset > 0, "the chevron is drawn over the whole card at `right: <px>`, so its strip is the card's to reserve");
+	const pad = px(body(".drawer .unit.current > .card:has(> .quit-btn:not([hidden]))").find(([p]) => p === "padding-right")?.[1]);
+	assert.ok(pad >= inset + 12 + 6, `padding-right ${pad}px must clear the chevron (inset ${inset}px, a glyph up to 12px wide, a 6px gap)`);
+	assert.doesNotMatch(css.split("\n").filter((l) => l.includes(".quit-btn:not([hidden]))")).join("\n"), /-webkit-/);
+});

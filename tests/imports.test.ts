@@ -942,7 +942,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Never interrupted, Enter acts (Z-D20): 105,934 / 38,426 measured, +0 / +1 gzip over the figure above, on the Z-D20 build. Cap = measured.
 	// Z-D20 second round (ZNI review, R1 to R3): 106,082 / 38,475 measured, +148 / +49 over the figure above: view.ts's `held` (R3). Cap = measured.
 	// Z-D20 third round (review ZNR, `upgrade`): 106,175 / 38,523 measured, +93 / +48 over the figure above: pagecore.ts's `upgrade` and main.ts's one call, view.ts's `release`, the demo's `build`. Cap = measured.
-	assert.ok(eagerBytes <= 106_175 && eagerGz <= 38_523, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// One ally card per device (0.60.3): 107,394 / 38,889 measured, +1,219 / +366 over main's 106,175 / 38,523: `mergeAllies` and the cards' teams (linkmodel.ts), the teams line and the merged map cards (render.ts), the card's CSS line, and three messages in both languages. Cap = measured.
+	assert.ok(eagerBytes <= 107_394 && eagerGz <= 38_889, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1093,7 +1094,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Never interrupted, Enter acts (Z-D20): 317,959 / 130,053 measured, +622 / +229 over the figure above: the cue as one function for the strip and the companion, the primary control of each card, the ended card and its Esc row, and the confirm bar's fresh-Enter guard, less the inert card, the swap and the draft hold. Cap = measured.
 	// Z-D20 second round (ZNI review, R1 to R3): 319,871 / 130,725 measured, +1,912 / +672 over the figure above: the over session's note and way back, the layer's step note and the card put out, the read-only card's Enter control, the ended wait and pair cards, the typing rule of the confirm bar, and six messages in both languages, less the composer's tick and the head's `changed`. Cap = measured.
 	// Z-D20 third round (review ZNR, boss rulings): 320,812 / 131,019 measured, +941 / +294 over the figure above: `upgrade` and its line (zen.ts), the head's conversation kept without a head, the read-only box, the knock and the low bowl, the same call gaining its dialog, the confirm's dwell, the card that says it was sent, and one message in both languages. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 320_812 && total(chunks, gz) <= 131_019, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// One ally card per device (0.60.3): 320,780 / 131,021 measured, -32 / +2 gzip against the third-round figure above: the shared imports of the answer panel (gui/allyasks.ts now merges the cards with `mergeAllies`) split the chunks a little differently. Cap = measured (raw stays at the old cap).
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 320_812 && total(chunks, gz) <= 131_021, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1219,7 +1221,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Never interrupted, Enter acts (Z-D20): 163,131 / 33,164 measured, +155 / +36 over the figure above: the cue under the companion's name (two rules in zen.css). Cap = measured.
 	// Z-D20 second round (ZNI review, R1 to R3): 163,830 / 33,251 measured, +699 / +87 over 163,131 / 33,164: the terminal bar's quiet note and the dimmed card, the over session's note and its way back, and the cue's full width and balanced lines. Cap = measured.
 	// Z-D20 third round (review ZNR): 164,554 / 33,367 measured, +724 / +116 over the figure above: the quiet line and the page's foot while a new build waits (`.zen-update`, `#zen[data-update]`, the card's and the layer's room), and the centred lone line of an answer row. Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 164_554 && total(css, gz) <= 33_367, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// One ally card per device (0.60.3): 164,649 / 33,387 measured, +95 / +20 over the figure above: the quiet teams line under the card's title (`.base.ally .ally-teams`). Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 164_649 && total(css, gz) <= 33_387, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

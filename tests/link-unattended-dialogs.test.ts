@@ -435,7 +435,9 @@ describe("unit-status and notices", () => {
 		const { clock, a, b, reporter, posted, set } = await start();
 		await reporter.tick();
 		await until(() => a.holder.summary().units.length === 1, 3000, "the status on alice");
-		assert.deepEqual(a.holder.summary().units[0], { team: TEAM_HEX, device: dave.id, units: [{ unit: "moldplan", state: "live", monitors: [], report: "Deployed v1.2" }] });
+		const first = a.holder.summary().units[0]!;
+		assert.ok(Math.abs(first.at - (Date.now() + skew)) < 10_000, "when alice took it, for the card's clock");
+		assert.deepEqual(first, { team: TEAM_HEX, device: dave.id, at: first.at, units: [{ unit: "moldplan", state: "live", monitors: [], report: "Deployed v1.2" }] });
 		assert.equal(b.holder.summary().units.length, 0, "bob is at reply: no status");
 		await reporter.tick();
 		clock.advance(STATUS_EVERY_MS - 1);
@@ -465,8 +467,10 @@ describe("unit-status and notices", () => {
 		await reporter.tick();
 		await until(() => a.holder.summary().units.length === 1, 3000, "the status on alice");
 		assert.equal(a.holder.summary().units[0]!.stale, undefined, "fresh");
+		const heard = a.holder.summary().units[0]!.at;
 		skew = 4 * 60_000;
 		assert.equal(a.holder.summary().units[0]!.stale, true);
+		assert.equal(a.holder.summary().units[0]!.at, heard, "the card says how long ago it was heard");
 		assert.equal(a.holder.summary().units[0]!.units[0]!.unit, "moldplan", "its last units are still there");
 		skew = 31 * 60_000;
 		assert.equal(a.holder.summary().units.length, 0);
@@ -496,6 +500,7 @@ describe("unit-status and notices", () => {
 		const alerts = a.holder.summary().alerts.filter((x) => x.kind === "notice");
 		assert.equal(alerts.length, 1);
 		assert.deepEqual([alerts[0]!.data.what, alerts[0]!.data.unit, alerts[0]!.data.text, alerts[0]!.data.label], ["run-crashed", "moldplan", "An ally run crashed: pi exited without tower_done", "ci-box"]);
+		assert.equal(typeof alerts[0]!.data.at, "number", "the card tells how long ago a crash was");
 		assert.equal(b.holder.summary().alerts.some((x) => x.kind === "notice"), false);
 		const trust = runNotice({ kind: "ended", run: "r2", workspace: "w", label: "moldplan", ally: false, outcome: "crashed", detail: "No trust decision for /p within 10 minutes" });
 		assert.equal(trust.notice.kind, "trust-unanswered");

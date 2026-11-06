@@ -3,6 +3,7 @@ import type { Mark } from "../src/netdata.ts";
 import type { Net, TowerService, Unit } from "../src/net.ts";
 import type { Data, Page } from "./chat.ts";
 import { demoCard, isCard, stepOf } from "./democard.ts";
+import { allyDemo } from "./demo-ally.ts";
 import { isLinkState, linkDemo } from "./demo-link.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
@@ -43,7 +44,7 @@ const demo = (): Net => ({
 		alerts: [{ id: "notice/1", kind: "notice", level: "warning", team: "t", teamName: "moldplan", data: { device: "d1", label: "ci-box", short: "9f3a1c", what: "run-crashed", unit: "Harbor API", text: "An ally run crashed: pi exited without tower_done" } },
 			{ id: "dialog/d1/D1", kind: "dialog", level: "info", team: "t", teamName: "moldplan", data: { device: "d1", dialogId: "D1", digest: "0".repeat(64), owner: "rpiv", dialog: JSON.stringify({ select: { title: "Deploy to staging?", choices: [{ label: "Yes" }, { label: "No" }] } }), label: "ci-box", short: "9f3a1c", answered: 1, closed: "remote" } }],
 		confirms: [],
-		units: [{ team: "t", device: "d1", units: [{ unit: "Harbor API", state: "working", monitors: ["tail -f deploy.log", "npm run watch"], report: "Deployed v1.2 to staging.\nMigration 0042 applied; smoke tests green.\nNext: waiting for the review of the ledger fix." }] }],
+		units: [{ team: "t", device: "d1", at: 0, units: [{ unit: "Harbor API", state: "working", monitors: ["tail -f deploy.log", "npm run watch"], report: "Deployed v1.2 to staging.\nMigration 0042 applied; smoke tests green.\nNext: waiting for the review of the ledger fix." }] }],
 	},
 	stashed: [{ name: "Juniper Lab", label: "Juniper Lab", at: "2026-10-22T09:00:00.000Z" }, { name: "night run", label: "Harbor API", at: "2026-10-22T08:00:00.000Z" }],
 });
@@ -139,6 +140,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	// `?head=<state>`: the head tower on the net (demo-head.ts); without it the demo has none.
 	const headParam = new URLSearchParams(location.search).get("head"), headNow: HeadState | undefined = isHeadState(headParam) ? headParam : zen?.startsWith("head") ? "answers" : undefined;
 	if (headNow) net.head = headDemo(headNow);
+	allyDemo(net.link!, new URLSearchParams(location.search).get("ally")); // `?ally=idle|crashed|stale|long|gone|units`: the states of the ci-box ally base's unit card (demo-ally.ts)
 	// `?ally=ask`: the ci-box ally base hosts a question that waits (two questions with Send answer and Cancel), for the panel on its card in Standard (gui/allyasks.ts).
 	if (new URLSearchParams(location.search).get("ally") === "ask") Object.assign(net.link!.alerts.find((x) => x.id === "dialog/d1/D1")!.data, { answered: undefined, closed: undefined, dialog: JSON.stringify({ cancel: true, questions: [{ question: "Deploy to staging?", header: "Deploy", multiple: false, options: [{ title: "Yes" }, { title: "No" }] }, { question: "Which region?", header: "Region", multiple: false, options: [{ title: "eu-west" }, { title: "us-east" }] }] }) });
 	/** The page of the chat that ends before `before` (the end of the history when absent), the way the server pages; the head's key has its own conversation. */

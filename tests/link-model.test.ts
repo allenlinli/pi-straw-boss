@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AllyBase, LinkAlert } from "../src/link/holder.ts";
-import { alertLine, allyMark, countdown, dialogState, hasLinkNews, lastSeen, stateName, unitLine, unitsFor, urgentFirst } from "../gui/linkmodel.ts";
+import { alertLine, allyMark, countdown, CRASH_FRESH_MS, dialogState, hasLinkNews, lastSeen, reportPeek, stateName, unitCards, unitsFor, unitWord, urgentFirst } from "../gui/linkmodel.ts";
 import { asksOf } from "../gui/allyasks.ts";
 import { dialogStateLine, remoteAnswer, remoteDialog } from "../gui/linkdialogmodel.ts";
 import { m } from "../gui/paraglide/messages.js";
@@ -99,17 +99,58 @@ test("the panel's answer goes to the holder as one of its three shapes, whatever
 
 test("a notice of an unattended device reads in words, and its units sit beside its ally bases", () => {
 	assert.equal(alertLine(alert("notice", { label: "ci-box", short: "def456", what: "run-crashed", unit: "moldplan", text: "An ally run crashed: <b>x</b>" })), "ci-box (def456), unattended, in team moldplan — run-crashed, moldplan: An ally run crashed: <b>x</b>");
-	const units = [{ team: "t", device: "d1", units: [{ unit: "moldplan", state: "working", monitors: ["a", "b"], report: "done" }, { unit: "other", state: "idle", monitors: [], report: "" }] }];
+	const units = [{ team: "t", device: "d1", at: 1000, units: [{ unit: "moldplan", state: "running", monitors: ["a", "b"], report: "done" }, { unit: "other", state: "standing", monitors: [], report: "" }] }];
 	assert.deepEqual(unitsFor(units, { team: "t", device: "d1", workspace: "moldplan" }).map((u) => u.unit), ["moldplan"]);
 	assert.equal(unitsFor(units, { team: "t", device: "d1", workspace: null }).length, 2, "a device with no workspace in its presence shows all");
 	assert.equal(unitsFor(units, { team: "t", device: "d2", workspace: null }).length, 0);
-	assert.equal(unitLine(units[0]!.units[0]!), "working · 2 monitors running");
-	assert.equal(unitLine(units[0]!.units[1]!), "idle");
-	// A device that sent no status lately: its last units, said to be stale.
+	// A device that sent no status lately: its last units, said to be stale, with the time it was last heard.
 	const old = unitsFor([{ ...units[0]!, stale: true }], { team: "t", device: "d1", workspace: "moldplan" })[0]!;
-	assert.equal(old.stale, true);
-	assert.equal(unitLine(old), `working · 2 monitors running · ${m.link_unit_stale()}`);
+	assert.deepEqual([old.stale, old.at], [true, 1000]);
 	assert.equal(unitsFor(units, { team: "t", device: "d1", workspace: "moldplan" })[0]!.stale, false);
+});
+
+const ME = { team: "t", device: "d1", workspace: "moldplan" as string | null };
+const status = (state: string, extra: object = {}) => [{ team: "t", device: "d1", at: 5_000, units: [{ unit: "moldplan", state, monitors: ["tail -f a.log", "npm run watch"], report: "# Done\nShipped." }], ...extra }];
+const crashNotice = (at: number, over: Record<string, string | number> = {}) => ({ id: "notice/1", kind: "notice" as const, level: "warning" as const, team: "t", teamName: "moldplan", data: { device: "d1", label: "ci-box", short: "9f3a1c", what: "run-crashed", unit: "moldplan", text: "An ally run crashed: exit 1", at, ...over } });
+
+test("a unit's state is said in the three words the card is for (standing by, running, crashed), and a state the page does not know as it is", () => {
+	assert.deepEqual(unitWord("standing"), { tone: "idle", word: m.mark_standing() });
+	assert.deepEqual(unitWord("idle"), { tone: "idle", word: m.mark_standing() });
+	for (const s of ["running", "working", "waking", "commanding"]) assert.deepEqual(unitWord(s), { tone: "working", word: m.link_unit_running() }, s);
+	assert.deepEqual(unitWord("blocked"), { tone: "waiting", word: m.mark_waiting() });
+	assert.deepEqual(unitWord("held"), { tone: "other", word: "held" });
+});
+
+test("a unit's card carries its word, when it was heard, its monitors and its report; a stale device's units say so", () => {
+	const [u] = unitCards(status("running"), [], ME, 6_000);
+	assert.deepEqual([u!.unit, u!.tone, u!.word, u!.at, u!.stale, u!.monitors, u!.report, u!.crash], ["moldplan", "working", m.link_unit_running(), 5_000, false, ["tail -f a.log", "npm run watch"], "# Done\nShipped.", undefined]);
+	assert.equal(unitCards(status("running", { stale: true }), [], ME, 6_000)[0]!.stale, true);
+	assert.deepEqual(unitCards(undefined, [], ME, 0), []);
+	assert.deepEqual(unitCards(status("running"), [], { ...ME, device: "d2" }, 0), [], "another device's units are not this card's");
+});
+
+test("a crash notice for the unit makes it read crashed while it is not running again and the crash is lately, and carries the notice's text", () => {
+	const now = 10 * 60_000;
+	const [u] = unitCards(status("standing"), [crashNotice(now - 4 * 60_000)], ME, now);
+	assert.deepEqual([u!.tone, u!.word, u!.crash], ["crashed", m.link_unit_crashed(), { at: now - 4 * 60_000, text: "An ally run crashed: exit 1" }]);
+	assert.equal(unitCards(status("standing"), [crashNotice(now - 4 * 60_000, { what: "trust-unanswered" })], ME, now)[0]!.tone, "crashed", "a trust question nobody answered ends the run as a crash does");
+	assert.equal(unitCards(status("running"), [crashNotice(now - 4 * 60_000)], ME, now)[0]!.tone, "working", "running again: the unit is not crashed");
+	assert.equal(unitCards(status("standing"), [crashNotice(now - 4 * 60_000)], ME, now)[0]!.crash!.at, now - 4 * 60_000);
+	assert.equal(unitCards(status("standing"), [crashNotice(now - CRASH_FRESH_MS - 1)], ME, now)[0]!.tone, "idle", "an old crash says nothing of the unit now");
+	assert.equal(unitCards(status("standing"), [crashNotice(1, { at: 0 })], ME, now)[0]!.tone, "idle", "a notice with no time (a peer's older box) is not read as a crash");
+	const others = [crashNotice(now - 1000, { unit: "other" }), crashNotice(now - 1000, { device: "d2" }), { ...crashNotice(now - 1000), team: "t2" }, crashNotice(now - 1000, { what: "run-quit" }), crashNotice(now - 1000, { what: "run-timeout" })];
+	others.forEach((n, i) => assert.equal(unitCards(status("standing"), [n], ME, now)[0]!.tone, "idle", `a notice of another unit, device, team or kind (${i})`));
+	const later = unitCards(status("standing"), [crashNotice(now - 9 * 60_000, { text: "older" }), crashNotice(now - 2 * 60_000, { text: "newer" })], ME, now)[0]!;
+	assert.equal(later.crash!.text, "newer", "the latest crash is the one told");
+});
+
+test("the folded report is its first line without Markdown marks", () => {
+	assert.equal(reportPeek("## Staging deploy: v1.2\n\nDeployed **v1.2**"), "Staging deploy: v1.2");
+	assert.equal(reportPeek("\n\n- Migration `0042` applied\n- next"), "Migration 0042 applied");
+	assert.equal(reportPeek("```\n$ npm test\n```"), "$ npm test");
+	assert.equal(reportPeek("> 1. quoted _item_"), "quoted item");
+	assert.equal(reportPeek("   "), "");
+	assert.equal(reportPeek(""), "");
 });
 
 // An unattended device's question is answered on the card of its ally base (docs/how-it-works.md, Unattended devices): `asksOf` says which card hosts which questions.

@@ -57,6 +57,18 @@ test("a row of the card that waits opens the panel too; a row that does not chan
 	assert.equal(el.dataset.asking, undefined, "with no question a waiting row opens nothing");
 });
 
+test("a press on a fold inside a waiting row (its report, a crash's notice) opens the fold and not the panel", () => {
+	const asks = mountAllyAsks(), { el, row } = card();
+	const fold = new El("details"), summary = new El("summary");
+	fold.append(summary);
+	row.append(fold);
+	asks.fill(el as unknown as HTMLElement, [ask("A")]);
+	summary.click();
+	assert.equal(el.dataset.asking, undefined, "the fold's own press");
+	row.click();
+	assert.notEqual(el.dataset.asking, undefined, "the row's own press still opens it");
+});
+
 test("an answer in place goes to link/dialog-answer with the device, the dialog and its digest, as the Link notices and Zen send it", async () => {
 	const sent = server(), asks = mountAllyAsks(), { el } = card();
 	asks.fill(el as unknown as HTMLElement, [ask("A")]);

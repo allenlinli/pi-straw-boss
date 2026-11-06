@@ -106,8 +106,8 @@ export interface LinkAlert { id: string; kind: AlertKind; level: "info" | "warni
 export interface AllyBase { id: string; team: string; teamName: string; device: string; short: string; label: string; online: boolean; workspace: string | null; tower: string; tabs: { label: string; state: string }[] }
 /** The compact reading the net snapshot carries: it changes only when something worth redrawing does. */
 /** What an unattended device last said about its units (`unit-status`, kept in memory): shown beside its ally bases while it keeps saying it. */
-/** `stale` is set when the device has sent no status for `UNITS_FRESH_MS`: what is shown is its last one. */
-export interface DeviceUnits { team: string; device: string; units: UnitStatus[]; stale?: true }
+/** `at` is when this computer took the status (epoch ms), for the card's clock; `stale` is set when the device has sent no status for `UNITS_FRESH_MS`: what is shown is its last one. */
+export interface DeviceUnits { team: string; device: string; units: UnitStatus[]; at: number; stale?: true }
 export interface LinkSummary { allies: AllyBase[]; alerts: LinkAlert[]; confirms: ConfirmView[]; units: DeviceUnits[] }
 /** Units a peer's `unit-status` may carry that are kept; how long one counts as current; how many notices are kept, and for how long. */
 const UNITS_MAX = 32, UNITS_FRESH_MS = 3 * 60_000, UNITS_GONE_MS = 30 * 60_000, NOTICES_KEPT = 20, NOTICE_KEEP_MS = 24 * 3600_000;
@@ -1355,7 +1355,7 @@ export class LinkHolder {
 		for (const c of this.confirmRequests()) out.push({ id: `confirm/${c.dialogId}`, kind: "confirm", level: "warning", team: c.team, teamName: name(c.team), data: { label: c.fromLabel, short: c.fromShort, tool: restrictLabel(c.tool) } });
 		for (const v of this.dialogRequests(true)) out.push({ id: `dialog/${v.device}/${v.dialogId}`, kind: "dialog", level: v.closed ? "info" : "warning", team: v.team, teamName: name(v.team), data: { device: v.device, dialogId: v.dialogId, digest: v.digest, owner: v.owner, dialog: v.dialog, label: this.memberLabel(v.team, v.device), short: shortId(v.device), answered: v.answered ? 1 : 0, ...(v.closed ? { closed: v.closed.by } : {}) } });
 		this.notices = this.notices.filter((n) => now - n.at < NOTICE_KEEP_MS);
-		for (const n of this.notices) out.push({ id: `notice/${n.id}`, kind: "notice", level: "warning", team: n.team, teamName: name(n.team), data: { device: n.device, label: this.memberLabel(n.team, n.device), short: shortId(n.device), what: n.kind, unit: n.unit, text: n.text } });
+		for (const n of this.notices) out.push({ id: `notice/${n.id}`, kind: "notice", level: "warning", team: n.team, teamName: name(n.team), data: { device: n.device, label: this.memberLabel(n.team, n.device), short: shortId(n.device), what: n.kind, unit: n.unit, text: n.text, at: n.at } });
 		for (const team of this.o.store.teamIds()) {
 			const why = this.stopped.has(team) ? (this.o.store.readStopped(team)?.reason ?? "stopped") : this.o.store.readStopped(team)?.reason;
 			const run = this.runs.get(team);
@@ -1387,7 +1387,7 @@ export class LinkHolder {
 		const now = this.now(), out: DeviceUnits[] = [];
 		for (const run of this.runs.values()) {
 			if (run.dead) continue;
-			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_GONE_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
+			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_GONE_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units, at: seen.at, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
 		}
 		return out;
 	}

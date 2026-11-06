@@ -45,10 +45,16 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 	// a Herdr that could not answer (it is slow under load) leaves the session unplaced, and the check is asked again (`begin`).
 	let placed: Place | undefined; // where Herdr says this session runs, as the sub workspace check found it
 	type Verdict = { bar?: { text: string; level: "info" } } | { failed: string };
-	const barReason = async (): Promise<Verdict> => {
+	type Once = (what: string, text: string, level: "info" | "warning" | "error") => void;
+	/** `tell`, each `what` once per start: a check that is asked again does not repeat its warning. */
+	const onceOf = (): Once => {
+		const seen = new Set<string>();
+		return (what, text, level) => void (seen.has(what) || (seen.add(what), tell(text, level)));
+	};
+	const barReason = async (once: Once): Promise<Verdict> => {
 		try {
 			const here = (placed = await place(run)), { workspaceId } = here;
-			if (!here.terminalId) tell("Straw Boss: this Herdr reports no terminal_id for the pane, so a main of this session cannot come back after a Herdr restore (roles.ts)", "warning");
+			if (!here.terminalId) once("terminal", "Straw Boss: this Herdr reports no terminal_id for the pane, so a main of this session cannot come back after a Herdr restore (roles.ts)", "warning");
 			const all = await workspaces(run);
 			const sub = all.find((w) => w.workspace_id === workspaceId);
 			if (sub && isHead(sub)) return { bar: { text: "This is the head tower's workspace, so a session typed here cannot join the net; the head tower is its own", level: "info" } };
@@ -94,30 +100,40 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		nudgeTimer = setInterval(() => void Promise.allSettled([nudges?.poll(), restores?.poll()]), cfg.nudgeMs).unref();
 		// Starting runs in the background: pi awaits session_start handlers in turn, and pi-intercom connects in its own, after this one.
 		if (s.isTower) {
+			s.barred = s.recheck = undefined; // what an earlier start of this process left (a member's unplaced check) is not a tower's: it dispatches no subagents, and a bar would let its call through
 			unwatch = cfg.watch(presence.restore);
 			startTower().catch((error: Error) => tell(`Straw Boss: ${error.message}`, "error"));
 			return;
 		}
 		// Asking Herdr whether this is a sub workspace waits in the background too: on a loaded machine a Herdr call takes seconds, and pi-intercom
-		// connects only after this handler returns. Until the answer comes the session counts as barred, so nothing joins (membership.ts) or promotes early.
+		// connects only after this handler returns. Until the answer comes the session counts as barred: a join waits for the answer first (`s.recheck`, membership.ts), and a promotion needs the join, so nothing joins or promotes early.
 		s.barred = CHECKING;
-		let keepRestored = false, failed = false, told = false, retries = 0, proceeding: Promise<void> | undefined, asking: Promise<boolean> | undefined;
+		const once = onceOf();
+		let keepRestored = false, failed = false, retries = 0, decided: { resumed: boolean; opener: string | undefined } | undefined, proceeding: Promise<void> | undefined, asking: Promise<boolean> | undefined;
+		// This start is the one in progress: a newer start or a shutdown ends it, and what it still has in flight must neither tell, retry, nor join.
+		const live = () => start === started && !s.stopped;
 		// A step that failed for want of Herdr or intercom is asked again after 1 s, 2 s, 5 s, then every 15 s; no timer outlives a shutdown or a newer start.
+		// `retryTimer` is shared by the starts, so only a live start calls this: an ended start's late failure would clear the newer start's timer.
 		const retryLater = (again: () => unknown) => {
 			clearTimeout(retryTimer);
-			retryTimer = setTimeout(() => void (start === started && !s.stopped && again()), cfg.joinRetryMs[Math.min(retries++, cfg.joinRetryMs.length - 1)]).unref();
+			retryTimer = setTimeout(() => void (live() && again()), cfg.joinRetryMs[Math.min(retries++, cfg.joinRetryMs.length - 1)]).unref();
 		};
 		// What a joinable session does once it is placed: join, and the opener and restore bookkeeping that goes with it. Once per start, whoever got the answer first.
 		const proceed = async () => {
 			if (!s.stopped && !unwatch) unwatch = cfg.watch(presence.restore); // a shutdown that came while Herdr was asked about the workspace has stopped nothing yet
-			// What the record says is read before joining: the guard may promote this session at once, which writes its record anew (roles.ts).
-			// A main a Herdr restore resumed in its own pane and tab takes the role back; a tab that has a live main already keeps it.
-			const resumed = Boolean(placed) && roles.held(placed!) === "main";
-			// The tower that opened it may close it again, as before the restore; the record names the opener, and the promotion below writes it into the new record.
-			s.restoredOpener = roles.openerOf(resumed ? placed : undefined);
-			// A pi started in the shell of a main that quit is no restore, and the record must not claim the next one.
-			if (!resumed && event.reason === "startup" && placed && roles.sameShell(placed)) roles.forget();
-			s.restored = resumed; // consumed by the promotion that makes this session the tab's main (membership.ts), also when the guard makes it
+			// What the record says is read once, before the first join: the guard may promote this session at once, which writes its record anew (roles.ts), and a retry must not take that record for a restore's.
+			decided ??= (() => {
+				// A main a Herdr restore resumed in its own pane and tab takes the role back; a tab that has a live main already keeps it.
+				const resumed = Boolean(placed) && roles.held(placed!) === "main";
+				// The tower that opened it may close it again, as before the restore; the record names the opener, and the promotion below writes it into the new record.
+				const opener = roles.openerOf(resumed ? placed : undefined);
+				// A pi started in the shell of a main that quit is no restore, and the record must not claim the next one.
+				if (!resumed && event.reason === "startup" && placed && roles.sameShell(placed)) roles.forget();
+				return { resumed, opener };
+			})();
+			const { resumed } = decided;
+			s.restoredOpener = decided.opener;
+			s.restored = resumed; // consumed by the promotion that makes this session the tab's main (membership.ts), also when the guard makes it; each attempt sets it again, the one that failed having reset it
 			await membership.joinNet().catch((error) => {
 				throw Object.assign(error as Error, { joining: true });
 			});
@@ -142,25 +158,27 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		};
 		const proceedOnce = () =>
 			(proceeding ??= proceed()
-				.catch((error: Error & { joining?: boolean }) => {
-					// A join that failed is told once and asked again by timer: the channel's connection and owner events (membership.ts) may never come, and a failed look at the pane has no channel to report one.
+				.catch((error: Error & { joining?: boolean; final?: boolean }) => {
+					if (!live()) return; // an ended start tells nothing to the session that replaced it, and arms nothing
 					if (!error.joining) return tell(`Straw Boss: ${error.message}`, "error");
+					// A join that failed is told once and asked again by timer: the channel's connection and owner events (membership.ts) may never come, and a failed look at the pane has no channel to report one.
+					once("join", `Straw Boss: ${error.message}`, "error");
+					if (error.final) return; // what waiting cannot fix (membership.ts `fatal`) is told and left; /boss tries once more when the boss asks
 					[proceeding, failed] = [undefined, true];
 					retryLater(proceedOnce);
-					if (!told) (told = true, tell(`Straw Boss: ${error.message}`, "error"));
 				})
 				.finally(() => {
 					if (start === started && !keepRestored) [s.restored, s.restoredOpener] = [false, undefined]; // the promotion consumes it when it makes this session the main; one found main already, or a join that failed, does not
 				}));
 		// Only a definitive answer settles `barred`; whoever asks while an ask is in flight shares it, so each ask is handled once.
 		const answer = () =>
-			(asking ??= barReason()
+			(asking ??= barReason(once)
 				.then((verdict) => {
-					if (start !== started) return false; // a /new or /resume started another session meanwhile, which asks again
+					if (!live()) return false; // a /new or /resume started another session meanwhile, which asks again; a shutdown joins nothing
 					if ("failed" in verdict) {
 						s.barred = UNPLACED(verdict.failed);
 						failed = true;
-						if (!told) (told = true, tell(s.barred, "warning"));
+						once("check", s.barred, "warning");
 						retryLater(answer);
 						return false;
 					}

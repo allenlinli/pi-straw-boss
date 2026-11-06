@@ -1100,7 +1100,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Z-D20 third round (review ZNR, boss rulings): 320,812 / 131,019 measured, +941 / +294 over the figure above: `upgrade` and its line (zen.ts), the head's conversation kept without a head, the read-only box, the knock and the low bowl, the same call gaining its dialog, the confirm's dwell, the card that says it was sent, and one message in both languages. Cap = measured.
 	// One ally card per device (0.60.3): 320,780 / 131,021 measured, -32 / +2 gzip against the third-round figure above: the shared imports of the answer panel (gui/allyasks.ts now merges the cards with `mergeAllies`) split the chunks a little differently. Cap = measured (raw stays at the old cap).
 	// One ally card per device, review fixes (AOC-F001 to F004): 320,843 / 131,046 measured, +63 / +25 over the figure above (allyasks.ts's team rule). Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 320_843 && total(chunks, gz) <= 131_046, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Re-review fixes (AOR-F001/F002): 320,843 / 131,051 measured, raw unchanged and +5 gzipped over the 131,046 cap (the shared message module compresses 5 bytes worse). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 320_843 && total(chunks, gz) <= 131_051, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

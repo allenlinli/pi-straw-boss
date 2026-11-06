@@ -946,7 +946,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Z-D20 third round (review ZNR, `upgrade`): 106,175 / 38,523 measured, +93 / +48 over the figure above: pagecore.ts's `upgrade` and main.ts's one call, view.ts's `release`, the demo's `build`. Cap = measured.
 	// One ally card per device (0.60.3): 107,394 / 38,889 measured, +1,219 / +366 over main's 106,175 / 38,523: `mergeAllies` and the cards' teams (linkmodel.ts), the teams line and the merged map cards (render.ts), the card's CSS line, and three messages in both languages. Cap = measured.
 	// One ally card per device, review fixes (AOC-F001 to F004): 107,703 / 38,995 measured, +309 / +106 over the figure above: `mergeAllies` per workspace (the card's own teams, a stable label and state), `unitsFor` as the union over the teams, and the asks' team rule. Cap = measured.
-	assert.ok(eagerBytes <= 107_703 && eagerGz <= 38_995, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Re-review fixes (AOR-F001/F002): 107,892 / 39,063 measured, +189 / +68 over the figure above: a card's state from its own online bases (`unknown` with no tabs otherwise) and the `spare` units of no-workspace teams (linkmodel.ts), render.ts passing `spare`. Cap = measured.
+	assert.ok(eagerBytes <= 107_892 && eagerGz <= 39_063, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).

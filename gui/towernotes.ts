@@ -48,7 +48,7 @@ export function fillNotices(box: HTMLElement, ws: string, service: TowerService 
 		const fail = h("small", { class: "tnote-fail", role: "alert" }), row = h(r.wait ? "div" : "p", { class: `tnote ${r.level}` }, h("span", null, r.text));
 		if (r.wait) {
 			if (kit && key) {
-				const id = `${ws}\u001f${r.wait}`, panel = before.get(id) ?? kit.waitPanel({ actions: kit.waitActions({ ws, id: r.wait, tower: key }, kit.answerPost(key)), reply: true, goto: !here && ws !== HEAD_KEY, done: (said) => flash(box, said) });
+				const id = `${ws}\u001f${r.wait}`, panel = before.get(id) ?? kit.waitPanel({ actions: kit.waitActions({ ws, id: r.wait, tower: key }, kit.answerPost(key)), reply: true, report: true, goto: !here && ws !== HEAD_KEY, done: (said) => flash(box, said) });
 				panel.update(live);
 				kept.set(id, panel);
 				row.append(panel.el);

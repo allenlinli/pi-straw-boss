@@ -376,6 +376,17 @@ test("the divider above a session's composer sits under the log, above the docke
 	assert.match(gap!.parts.join(), /\.queue-bar.*\.queue-list.*\.queue-act.*\.todos.*\.monitors/, "every docked strip counts");
 });
 
+test("the tower's notes (a bordered card) get their own 6 px under the divider, and none while a strip's dock gap already gives it", () => {
+	const rules = rulesOf(css), strips = ".queue-bar, .queue-list, .queue-act, .todos, .monitors";
+	const own = rules.filter((r) => r.parts.includes(".comms-in > .tower-notes")).flatMap((r) => declarations(r.body));
+	assert.ok(own.some(([p, v]) => p === "margin-top" && v === "6px"), "no strip: the notes sit 6 px under the divider (the card's border is never the divider's)");
+	const withStrip = rules.find((r) => r.parts.includes(`.comms-in:has(> :is(${strips}):not([hidden])) > .tower-notes`));
+	assert.ok(withStrip && declarations(withStrip.body).some(([p, v]) => p === "margin-top" && v === "0"), "a strip shows: the log's dock gap is the one gap");
+	const gap = rules.find((r) => r.parts.includes(`.comms-in:has(> :is(${strips}):not([hidden]))`));
+	assert.ok(gap, "the strip list that turns the dock gap on is the one the notes' reset follows");
+	assert.match(css, /\.tower-notes:has\(> \.tower-notices:empty\)[^{]*\{ display: none; \}/, "an empty notes box hides by display, which is why the divider cannot look for it with :not([hidden])");
+});
+
 test("a queued row's label (排隊中・插話, Queued · steer) never breaks inside, while the message beside it breaks where it must", () => {
 	const rules = rulesOf(css), on = (part: string) => rules.filter((r) => r.parts.includes(part)).flatMap((r) => declarations(r.body));
 	assert.ok(on(".queue-list b").some(([p, v]) => p === "white-space" && v === "nowrap"), "the label is one piece");

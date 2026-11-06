@@ -383,7 +383,7 @@ body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /
 .tower-notices .tnote .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .tower-notices .tnote .tnote-fail:empty { display: none; }
 .tower-notices .tnote button:disabled { opacity: 0.6; cursor: progress; }
 .wait-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; } .wait-text { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; } .wait-panel .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .wait-panel .tnote-fail:empty { display: none; }
-.wait-panel .tnote-ok { flex: 1 1 100%; color: var(--ok); font-size: 0.95em; } .wait-panel .tnote-ok:empty { display: none; } .tnote:has(.wait-panel[data-gone]) > span { display: none; }
+.tnote:has(.wait-panel[data-gone]) > span { display: none; }
 .tower-notices .tnote-flash { margin: 0; color: var(--ok); font-size: 0.85em; }
 .wait-panel .pair-btn[hidden] { display: none; } .dialog[data-wait] .go { background: none; border: 1px solid var(--line); color: var(--text); } .dialog[data-wait] .wait-go { border: 0; background: var(--accent); color: var(--ink); } /* a wait's dialog: Handle (then Send) is the act, the comms link the secondary one */ .tower-notices .tnote .wait-panel { flex: 1 1 100%; margin-top: 0; }
 .wait-form { display: grid; gap: 4px; flex: 1 1 100%; margin: 0; min-width: 0; } .wait-form[hidden] { display: none; }
@@ -612,6 +612,7 @@ a.tower:hover::before { border-color: var(--c); }
 /* The divider separates what scrolls (the log) from what stays docked (the queue, todos, monitors, and the composer), so it sits under the log, above the docked strips, and a strip never ends on it: the strips get a gap under it and above the composer's own edge. */
 .comms-in > .chat-root { border-bottom: 1px solid var(--line); } .comms-in .composer { border-top: 0; }
 .comms-in:has(> :is(.queue-bar, .queue-list, .queue-act, .todos, .monitors):not([hidden])) { --dock-gap: 6px; } .comms-in > .chat-root { margin-bottom: var(--dock-gap, 0px); } .comms-in .composer { margin-top: var(--dock-gap, 0px); }
+.comms-in > .tower-notes { margin-top: 6px; } .comms-in:has(> :is(.queue-bar, .queue-list, .queue-act, .todos, .monitors):not([hidden])) > .tower-notes { margin-top: 0; } /* the notes' own 6 px under the divider (they hide by display, so a gap from the strips' rule cannot see them); with a strip the log's margin is that gap */
 .cmp-row, .cmp-acts, .cmp-foot, .cmp-note { display: flex; gap: 8px; align-items: center; }
 .cmp-row { align-items: flex-end; gap: 10px; }
 .composer textarea { flex: 1; min-width: 0; resize: none; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: 14px/1.4 var(--sans); }

@@ -24,12 +24,14 @@ export interface WaitPanelOptions {
 	send?(reply: Promise<Answer>): Promise<Answer>;
 	/** Offers the tower's comms as a link, beside the other buttons: the one action that navigates (the dialog has its own in its footer). */
 	goto?: boolean;
-	/** The server took the dismissal or the answer. */
+	/** The server took the dismissal or the answer; `said` is what happened in words, for a host that shows it beside the panel. */
 	done?(said: string): void;
+	/** Says what happened (the towers' notes): a dismissal folds the panel until the next snapshot drops the row, and a stale stream says why the buttons are off. The dialog closes on `done` and Zen's card has its own outcome, so neither sets it. */
+	report?: boolean;
 }
 export function waitPanel(o: WaitPanelOptions) {
 	const wrap = o.send ?? ((reply: Promise<Answer>) => reply);
-	const note = h("small", { class: "tnote-fail", role: "alert" }), ok = h("small", { class: "tnote-ok", role: "status" }), dismiss = h("button", { type: "button", class: "pair-btn" }, m.wait_dismiss());
+	const note = h("small", { class: "tnote-fail", role: "alert" }), stale = o.report ? h("small", { class: "tnote-fail", role: "status" }) : undefined, dismiss = h("button", { type: "button", class: "pair-btn" }, m.wait_dismiss());
 	let busy = false, live = true, open = false;
 	// The answer box: in Zen it takes the head strip's look (`zen-head-*` in zen.css: a hairline that turns vermilion on focus), in Standard and Geek the composer's (`wait-*` in style.css). Enter sends, and the note under it is the refusal.
 	const go = o.reply ? h("button", { type: "button", class: "pair-btn wait-go" }, m.tower_answer()) : undefined, send = o.reply ? h("button", { type: "button", class: "pair-btn wait-go" }, m.send()) : undefined; // the dialog makes these its act (style.css)
@@ -37,24 +39,18 @@ export function waitPanel(o: WaitPanelOptions) {
 	const why = h("p", { class: "wait-note zen-head-note", role: "alert" }), form = box && h("form", { class: "wait-form zen-head-form" }, box, why);
 	const say = (text: string) => ((why.textContent = text), (why.dataset.tone = text ? "error" : ""));
 	const link = o.goto ? h("a", { class: "pair-btn", href: formatRoute(o.actions.goto) || "./", "data-route": formatRoute(o.actions.goto) }, m.wait_goto()) : undefined;
-	const panel = h("div", { class: "wait-panel" }, o.text && h("p", { class: "wait-text" }, o.text), form, go, send, dismiss, link, note, ok);
-	// A dismissal that went through folds the whole panel away to its confirmation, until the next snapshot drops the row; an answer keeps Handle (the wait stays on the card, marked answered) and says so until the boss touches the panel again.
+	const panel = h("div", { class: "wait-panel" }, o.text && h("p", { class: "wait-text" }, o.text), form, go, send, dismiss, link, note, stale);
+	// A dismissal that went through folds the whole panel away (a reporting panel), until the next snapshot drops the row; the host says it in words (`done`). An answer keeps Handle: the wait stays on the card, marked answered.
 	let gone = false;
-	const settled = (text: string, fold: boolean) => {
-		ok.textContent = text;
-		note.textContent = "";
-		if (fold) {
-			gone = true;
-			panel.dataset.gone = "";
-			for (const el of [dismiss, go, send, form, link]) if (el) el.hidden = true;
-		}
-		o.done?.(text);
+	const fold = () => {
+		gone = true;
+		panel.dataset.gone = "";
+		for (const el of [dismiss, go, send, form, link]) if (el) el.hidden = true;
 	};
 	const draw = () => {
 		if (gone) return;
 		dismiss.disabled = !live || busy;
-		if (!live) note.textContent = m.wait_stream_stale(); // a disabled button says why
-		else if (note.textContent === m.wait_stream_stale()) note.textContent = "";
+		if (stale) stale.textContent = live ? "" : m.wait_stream_stale(); // a disabled button says why; a status, not an alert: the page banner already says offline, and every card would announce it
 		if (!go || !send || !box || !form) return;
 		[go.hidden, send.hidden, form.hidden] = [open, !open, !open];
 		[box.disabled, send.disabled] = [!live || busy, !live || busy];
@@ -66,7 +62,10 @@ export function waitPanel(o: WaitPanelOptions) {
 		draw();
 		void guarded(dismiss, (t) => (note.textContent = t ?? ""), async () => {
 			const r = await wrap(o.actions.dismiss());
-			if (outcome(r) === "accepted") settled(m.wait_dismissed(), true);
+			if (outcome(r) === "accepted") {
+				if (o.report) fold();
+				o.done?.(m.wait_dismissed());
+			}
 			return r;
 		}, 0).finally(() => ((busy = false), draw()));
 	};
@@ -76,17 +75,15 @@ export function waitPanel(o: WaitPanelOptions) {
 		if (new TextEncoder().encode(text).length > MAX_TEXT) return say(m.too_long());
 		[busy, open] = [true, true];
 		say("");
-		ok.textContent = "";
 		draw();
 		let taken = false;
 		try {
 			const r = await wrap(o.actions.tell(text));
 			if (!(taken = outcome(r) === "accepted")) say(m.zen_wait_refused({ reason: joined(towerWhy(r) ?? r.body.reason ?? r.body.error ?? String(r.status)) }));
 			else {
-				box!.value = ""; // the tower has the words: the box empties, so a second Enter cannot send them again
-				settled(m.wait_sent(), false);
-				open = false;
+				[box!.value, open] = ["", false]; // the tower has the words: the box folds and empties, so a second Enter cannot send them again
 				draw();
+				o.done?.(m.wait_sent());
 			}
 		} catch {
 			say(m.zen_head_unreachable());
@@ -96,7 +93,7 @@ export function waitPanel(o: WaitPanelOptions) {
 		if (!taken) box!.focus();
 	}
 	if (go && send && box && form) {
-		go.onclick = () => ((open = true), (ok.textContent = ""), draw(), box.focus());
+		go.onclick = () => ((open = true), draw(), box.focus());
 		send.onclick = () => void answer();
 		box.addEventListener("keydown", (e: KeyboardEvent) => {
 			if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;

@@ -10,6 +10,8 @@ export type Sound = "bowl" | "knock" | "low";
 export type Outcome = "answered" | "elsewhere" | "gone" | "error";
 export type Screen = { kind: "item"; item: Alert; outcome?: Outcome } | { kind: "pause" } | { kind: "companion" };
 export const REST_MS = 10 * 60_000, OUTCOME_MS = 1200, HOLD_MS = 30_000, PAUSE_MS = 3000;
+/** The same tool call that had no relayed dialog when the card was taken and has one now (the relay is a step behind Herdr's `blocked`, src/ask.ts): the same question, now answerable, not another one. */
+const gained = (was: Alert, now: Alert) => was.key === now.key && was.pending?.callId !== undefined && was.pending.callId === now.pending?.callId && !was.pending.answer && Boolean(now.pending.answer) && cardSig(was) === cardSig(now);
 /** What changes an item's question: its dialog (and digest), else its tool call; a trust question has its digest in its key, a Link confirm its request. An item that changes it is another question: a rest ends, and a card on the screen is settled, not swapped. */
 const questionOf = (a: Alert) => `${a.key}|${a.pending?.answer ? `${a.pending.answer.dialog}:${a.pending.answer.digest}` : (a.pending?.callId ?? "")}|${cardSig(a)}`;
 
@@ -38,7 +40,7 @@ export function companionOf(net: Net | undefined, asked: With | undefined): With
 
 export interface ZenDeps { now(): number }
 export function createZen({ now }: ZenDeps) {
-	let alerts = new Map<string, Alert>(), screen: Screen = { kind: "companion" }, until = 0, hidden = false, quiet = false, back = false;
+	let alerts = new Map<string, Alert>(), screen: Screen = { kind: "companion" }, until = 0, hidden = false, quiet = false, knocked = false, back = false;
 	const seen = new Map<string, number>(), rests = new Map<string, { until: number; q: string }>();
 	let sound: Sound | undefined;
 	const items = () => waitingOf(alerts.values()).filter((a) => a.mark !== "error");
@@ -47,16 +49,16 @@ export function createZen({ now }: ZenDeps) {
 	const next = () => eligible()[0];
 	/** The cards that wait for the boss to take them: the eligible ones but the one on the screen (a card that is shown, even one that has just ended, is not counted behind itself). */
 	const queued = () => eligible().filter((a) => screen.kind !== "item" || a.key !== screen.item.key);
-	const take = (item: Alert) => ((screen = { kind: "item", item }), (quiet = false), (sound = "bowl"));
+	const take = (item: Alert) => ((screen = { kind: "item", item }), (quiet = knocked = false), (sound = "bowl"));
 	const pause = () => ((screen = { kind: "pause" }), (until = now() + PAUSE_MS));
 	/** The card on the screen is settled: it stays (`outcome`), and only the boss's answer, Not now, or Esc takes it away. `answered` runs for 1.2 s, the others until closed (`until` 0: no timer). */
-	const settled = (outcome: Outcome, snd: Sound | undefined) => ((screen = { ...(screen as Extract<Screen, { kind: "item" }>), outcome }), (until = outcome === "answered" ? now() + OUTCOME_MS : 0), snd && !quiet && ((sound = snd), (quiet = true))); // one sound per card: a snapshot that drops it and lists it again (a Link reconnect) does not ring again (ZNI-F002)
+	const settled = (outcome: Outcome, snd: Sound | undefined) => ((screen = { ...(screen as Extract<Screen, { kind: "item" }>), outcome }), (until = outcome === "answered" ? now() + OUTCOME_MS : 0), snd && !quiet && !(snd === "knock" && knocked) && ((sound = snd), snd === "knock" ? (knocked = true) : (quiet = true))); // one knock per card: a snapshot that drops it and lists it again (a Link reconnect) does not ring again (ZNI-F002); the low bowl is a new thing (a refusal, a failure) and still rings after a knock (ZNR-F001)
 	/** Everything time and data change: the end of an outcome, a rest, or the pause, and a card on the screen whose question ended. Nothing here puts a card on the screen: the boss takes it. */
 	function settle() {
 		const open = new Map(items().map((x) => [x.key, x] as const));
 		for (const [k, r] of rests) if (r.until <= now() || !open.has(k) || questionOf(open.get(k)!) !== r.q) rests.delete(k);
 		if (screen.kind === "item") {
-			const cur = alerts.get(screen.item.key), live = Boolean(cur && rankOf(cur) === 0 && cur.mark !== "error" && questionOf(cur) === questionOf(screen.item)); // the same question, still asked
+			const cur = alerts.get(screen.item.key), live = Boolean(cur && rankOf(cur) === 0 && cur.mark !== "error" && (questionOf(cur) === questionOf(screen.item) || gained(screen.item, cur))); // the same question, still asked
 			if (screen.outcome === "answered") { if (until <= now()) pause(); }
 			else if (live && screen.outcome !== "error") screen = { kind: "item", item: cur! }; // a held card whose question is listed again (a snapshot that missed it) is live again
 			else if (back) screen = { kind: "companion" }; // the item was on the screen when Zen was left and has ended since (answered in Standard, or closed): no card, no knock, and no line about it
@@ -78,10 +80,10 @@ export function createZen({ now }: ZenDeps) {
 		/** The accepted answer or cancel of the item with this key: the knock, the outcome for 1.2 s, then the pause. */
 		accepted(key: string) { if (screen.kind !== "item" || screen.item.key !== key) return out(); // a reply that comes after the boss moved on belongs to an item that is no longer on screen
 			if (screen.outcome === "elsewhere" || screen.outcome === "gone") settled("answered", undefined); // the server's snapshot came ahead of its reply: this answer settled it, and the knock already rang
-			else if (!screen.outcome) { quiet = false; settled("answered", "knock"); quiet = true; rests.set(screen.item.key, { until: now() + HOLD_MS, q: questionOf(screen.item) }); } return out(); },
+			else if (!screen.outcome) { quiet = knocked = false; settled("answered", "knock"); quiet = true; rests.set(screen.item.key, { until: now() + HOLD_MS, q: questionOf(screen.item) }); } return out(); },
 		/** An answer of the item with this key that was refused, stale, busy, or unconfirmed: the low bowl, and the card stays; the item's later exit is silent. */
 		refused(key: string) { if (screen.kind === "item" && screen.item.key === key && !screen.outcome && !quiet) { sound = "low"; quiet = true; } return out(); },
-		/** Not now, or closing a card that ended (`elsewhere`, `error`): the pause starts. A card that is still asked rests; one that ended does not, so the unit's next question (or the same one, listed again) is in the queue. */
+		/** Not now, or closing a card that ended (`elsewhere`, `gone`, `error`): the pause starts. A card that is still asked rests; one that ended does not, so the unit's next question (or the same one, listed again) is in the queue. */
 		skip() { if (screen.kind === "item" && screen.outcome !== "answered") { if (!screen.outcome) rests.set(screen.item.key, { until: now() + REST_MS, q: questionOf(screen.item) }); pause(); } return out(); },
 		/** Enter, or a tap on the cue (Z-D19): the next card takes the screen, the pause ending with it. False (no change) when none waits or one is on the screen. */
 		take() { if (screen.kind !== "item") { const n = next(); if (n) take(n); } return out(); },

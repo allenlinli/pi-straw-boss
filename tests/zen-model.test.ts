@@ -645,3 +645,62 @@ test("ZNI-F007: a unit that left or closed is held as gone, not as answered else
 		assert.equal(held(z.accepted("a")), "answered", `${name}: the boss's own answer still counts`);
 	}
 });
+
+test("ZNR-F001: one knock per card, but a refused answer and a unit failure after the card was revived still play the low bowl", () => {
+	// a unit card: the unit works again (knock), the same question is listed again (revived), then the boss's answer is refused
+	const a = rig();
+	a.z.update(map(ASK("d1")));
+	a.z.take();
+	assert.equal(a.z.update(map(al("a", "working", 1))).sound, "knock");
+	assert.deepEqual([held(a.z.update(map(ASK("d1")))), a.z.refused("a").sound], [undefined, "low"], "revived, then refused: the low bowl");
+	assert.equal(a.z.refused("a").sound, undefined, "once");
+	// ...or the unit fails after the revival
+	const c = rig();
+	c.z.update(map(ASK("d1")));
+	c.z.take();
+	c.z.update(map(al("a", "working", 1)));
+	c.z.update(map(ASK("d1")));
+	assert.equal(c.z.update(map(al("a", "error", 1))).sound, "low", "the failure after a revival: the low bowl");
+	// a link-dialog card: gap (knock), revive, refused
+	const d = rig(), box = BOX();
+	d.z.update(map(box));
+	d.z.take();
+	assert.equal(d.z.update(map()).sound, "knock");
+	d.z.update(map(box));
+	assert.equal(d.z.refused(box.key).sound, "low");
+	// the boss's own answer after a flap still knocks
+	const e = rig();
+	e.z.update(map(ASK("d1")));
+	e.z.take();
+	e.z.update(map(al("a", "working", 1)));
+	e.z.update(map(ASK("d1")));
+	assert.equal(e.z.accepted("a").sound, "knock", "the boss's own answer is its own knock");
+	// and still one knock for the flaps themselves
+	const f = rig(), box2 = BOX();
+	f.z.update(map(box2));
+	f.z.take();
+	assert.deepEqual([f.z.update(map()).sound, f.z.update(map(box2)).sound, f.z.update(map()).sound], ["knock", undefined, undefined]);
+});
+
+test("ZNR-F005: a card taken before the relay, whose tool call then gains its relayed answer, is the same question: it becomes answerable, with no ended words and no knock", () => {
+	const callOnly = () => al("a", "waiting", 1, { pending: { callId: "c1", tool: "ask_user" } as never });
+	const withAnswer = (callId = "c1", digest = "d1") => al("a", "waiting", 1, { pending: { callId, tool: "ask_user", answer: { dialog: "d", digest } } as never });
+	const { z } = rig();
+	z.update(map(callOnly()));
+	z.take();
+	const r = z.update(map(withAnswer()));
+	assert.deepEqual([r.screen.kind, held(r), r.sound], ["item", undefined, undefined], "same call, now answerable: the same card, live");
+	assert.equal((r.screen as { item: Alert }).item.pending?.answer?.digest, "d1", "the card shows the question with its answer path");
+	assert.deepEqual(z.queued(), [], "and the cue does not count it twice");
+	// another call is another question: the old card is settled
+	const o = rig();
+	o.z.update(map(callOnly()));
+	o.z.take();
+	const w = o.z.update(map(withAnswer("c2")));
+	assert.deepEqual([held(w), w.sound], ["elsewhere", "knock"]);
+	// a card that already had an answer that changes is still another question
+	const p = rig();
+	p.z.update(map(withAnswer()));
+	p.z.take();
+	assert.equal(held(p.z.update(map(withAnswer("c1", "d2")))), "elsewhere");
+});

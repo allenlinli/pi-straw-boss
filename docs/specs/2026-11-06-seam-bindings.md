@@ -7,7 +7,7 @@ Status: implemented on `feat/seam-bindings` (from `47b91ba`), for 0.60.0, not re
 - Two skills, `integrating` and `deploying`, hold the generic train procedure.
 - anchorloop names only generic seams; Straw Boss's session prompt binds them ("sb's session prompt binds the seams").
 - With the train off, the bindings drop out through the existing `<!-- integration -->` markers (`src/trainswitch.ts`) and anchorloop's defaults apply: the session asks the boss before a merge or a deploy.
-- The README states that pi-anchorloop is required (2.10.0 or newer).
+- The README states that pi-anchorloop is required (2.10.1 or newer).
 
 ## Where the block lives
 

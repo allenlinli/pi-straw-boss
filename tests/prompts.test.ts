@@ -169,9 +169,9 @@ test("seam bindings: main.md binds all six seams of pi-anchorloop's integrating 
 	// Review SB-F001/F003: the coordinator quotes words already given and asks only when they are missing (an overnight train must not stall on a question); the integrator asks for a strict target not every car's auth names.
 	const approval = lines.find((line) => line.startsWith("- Approval:"))!;
 	assert.ok(approval.includes("lacking them, it asks") && approval.includes("not every car's `auth` names") && !approval.includes("no car names"), "Approval asks only when the words are missing");
-	// SB-F002/F006: the deploy gate before Merge reaches the integrator before it merges, and a subagent is briefed for one step.
-	const integ = readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8");
-	assert.ok(integ.includes("deploy steps 2 and 3 gate `Merge`") && integ.includes("never the skill"), "integrator.md gates Merge on the deploy steps and keeps the skill from subagents");
+	// SB-F002 is fixed upstream (pi-anchorloop 2.10.1, train step 4 gates `Merge` on the deploy steps), which the README requires; SB-F006: a subagent is briefed for one step.
+	assert.ok(readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8").includes("never the skill"), "integrator.md keeps the skill from subagents");
+	for (const readme of ["README.md", "README.zh-TW.md"]) assert.ok(readFileSync(readme, "utf8").includes("pi-anchorloop) 2.10.1"), `${readme} requires pi-anchorloop 2.10.1, whose train step 4 gates Merge on the deploy steps`);
 	// SB-F004: only the headings `integrating` requires stop a departure.
 	assert.ok(readFileSync(`${PROMPT_DIR}/apps-config.md`, "utf8").includes("When a required one is missing"), "apps-config.md requires only the required headings");
 	for (const file of ["tower.md", "tower-run.md", "planning.md", "integrator.md", "apps-config.md"]) assert.ok(!readFileSync(`${PROMPT_DIR}/${file}`, "utf8").includes("## Seam bindings"), `${file} holds no second block`);

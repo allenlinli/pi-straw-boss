@@ -57,8 +57,10 @@ export function headLines(items: readonly Item[]): HeadLine[] {
 	return out;
 }
 
-/** Lines shown under the circle, and on a phone or a window 560 px tall or less. */
+/** Lines shown under the circle while the strip is quiet (zen.css hides the older ones), and on a phone or a window 560 px tall or less. */
 export const SHOWN = 3, SHOWN_SMALL = 2;
+/** Lines the strip keeps on the page: while it is awake the lines take all the height the circle leaves (zen.css `data-fill`), and the page shows as many whole ones as fit. */
+export const FILL = 24;
 /** A line is clear for `CLEAR_MS`, then fades over `FADE_MS` to `REST`, almost gone and still there. By rank (0 the newest) the clear level steps down a little, so the newest is the one focus; every level holds Zen's 7 : 1 (tests/zen-contrast.test.ts). */
 export const CLEAR_MS = 20_000, FADE_MS = 180_000, REST = 0.16, CLEAR = [1, 0.95, 0.9] as const;
 /** Opacity of a line of rank `rank` that was first on screen `age` ms ago. */

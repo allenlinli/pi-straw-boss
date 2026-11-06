@@ -3,7 +3,7 @@ import type { HeadUnit } from "../src/nethead.ts";
 import type { HistoryEvent } from "./chat.ts";
 import { joined } from "./asks.ts";
 import { h } from "./dom.ts";
-import { CLEAR_MS, createFade, type HeadLine, headLines, SHOWN, SHOWN_SMALL } from "./headlines.ts";
+import { CLEAR_MS, createFade, FILL, type HeadLine, headLines, SHOWN } from "./headlines.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
 
@@ -27,8 +27,6 @@ export interface HeadIo {
 	rest(on: boolean): void;
 	/** The Whole conversation link: the head's history opens. */
 	history(): void;
-	/** Whether the page is a phone or a window 560 px tall or less: two lines, not three. */
-	small?(): boolean;
 	/** How many cards wait for Enter in Zen (Z-D19). */
 	cards(): number;
 	/** Enter, or a tap on the cue: the next card takes the screen; with none, the head tower is called back. */
@@ -103,7 +101,6 @@ export function mountCue(take: () => void) {
 }
 
 export function mountHead(io: HeadIo) {
-	const small = io.small ?? (() => typeof matchMedia === "function" && matchMedia("(max-width: 600px), (max-height: 560px)").matches);
 	let fade = createFade(io.now);
 	const live = h("p", { class: "zen-live zen-head-live", role: "status", "aria-live": "polite" });
 	const list = h("ol", { class: "zen-head-lines" }), working = h("p", { class: "zen-head-working" }, m.zen_head_working()), whole = h("button", { type: "button", class: "zen-head-history", "aria-keyshortcuts": "H" }, `${m.zen_head_history()} `, h("span", { class: "zen-head-key", "aria-hidden": "true" }, m.zen_head_key()));
@@ -141,7 +138,7 @@ export function mountHead(io: HeadIo) {
 	const announce = (text: string) => ((live.textContent = ""), (live.textContent = text));
 
 	function draw() {
-		const keep = lines().slice(-(small() ? SHOWN_SMALL : SHOWN));
+		const keep = lines().slice(-FILL); // how many show is the page's: three (two on a phone) while quiet, the whole height the circle leaves while awake (zen.css)
 		const waits = Boolean(unit?.service?.memory?.bossWaits.some((w) => !w.answered)), held = waits && keep.at(-1)?.who !== "boss";
 		fade.see(keep.map((l) => l.id));
 		for (const [id, li] of shown) if (!keep.some((l) => l.id === id)) (li.remove(), shown.delete(id));
@@ -152,11 +149,12 @@ export function mountHead(io: HeadIo) {
 			if (li.textContent !== l.text) li.textContent = l.text;
 			li.setAttribute("data-who", l.who);
 			li.setAttribute("data-rank", String(rank));
+			li.style.setProperty("--rank", String(rank)); // the awake strip lays its lines out newest-first from its foot (zen.css `order`), so the ones that do not fit are the oldest and none is cut in half
 			li.toggleAttribute("data-held", held && rank === 0);
 			if (list.children[i] !== li) list.insertBefore(li, list.children[i] ?? null);
 		});
 		// The head's next reply is said once to a reader of the page: the lines that were there when the strip first filled are known and never announced.
-		if (seen) for (const l of keep) if (l.who === "head" && !known.has(l.id)) (known.add(l.id), announce(l.text));
+		if (seen) for (const l of keep.slice(-SHOWN)) if (l.who === "head" && !known.has(l.id)) (known.add(l.id), announce(l.text)); // the newest three, as before the strip kept more: an older line a later page brings is not news
 		working.hidden = unit?.mark !== "working" || hushed;
 		[rested, kept] = [hushed || fade.rested(keep.map((l) => l.id), held), keep.length];
 		settle();
@@ -222,6 +220,7 @@ export function mountHead(io: HeadIo) {
 		whole.hidden = !kept;
 		quiet ? (whole.dataset.away = "") : delete whole.dataset.away; // at rest it fades out and keeps its room: nothing moves when the lines come clear
 		if (quiet !== restOn) io.rest((restOn = quiet));
+		el.toggleAttribute("data-fill", !quiet); // exactly while the mindfulness line is away: the lines take its room and the circle's spare height (zen.css)
 	}
 	function bright() {
 		el.toggleAttribute("data-bright", !hushed && (hover || focus || touching));
@@ -348,6 +347,7 @@ export function mountHead(io: HeadIo) {
 			fold();
 			[hushed, hushLines, first] = [true, new Set(headLines(items).map((l) => l.id)), true]; // the next visit starts at rest, and what is in memory now is not news to it
 			el.dataset.hushed = "";
+			delete el.dataset.fill;
 			box.value = "";
 			say("");
 			pending.length = 0;

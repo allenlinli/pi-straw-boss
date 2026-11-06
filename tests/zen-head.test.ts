@@ -17,7 +17,8 @@ import { El, page } from "./fake-dom.ts";
 // The strip under Zen's circle, as the page drives it (docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle): the last lines of the head's conversation fading, the folded input that unfolds on a click or
 // Enter, what a send and a refusal do, the draft that holds the screen, the history as a companion, and the keys. The layer is the real one on the fake document; the log and the composer are stand-ins that record.
 const { mountZen, real } = await import("../gui/zen.ts");
-const { CLEAR_MS, FADE_MS } = await import("../gui/headlines.ts");
+const { CLEAR_MS, FADE_MS, FILL } = await import("../gui/headlines.ts");
+const { LET_GO_MS } = await import("../gui/zenhead.ts");
 const { entriesOf } = await import("../gui/paletteentries.ts");
 const { m } = await import("../gui/paraglide/messages.js");
 
@@ -129,15 +130,73 @@ test("under the circle stand the mindfulness line and the folded input with its 
 	assert.equal(r.calls.watch.at(-1), "sb-head", "the stream watches the head while the strip shows");
 });
 
-test("the last three lines show, the newest last, and the whole text is in the line (the page clamps it); the mindfulness line stays away while any is clear", async () => {
+test("the strip keeps the lines in order, the newest last, and the whole text is in the line (the page clamps it, and shows as many as fit: three while quiet, zen.css); the mindfulness line stays away while any is clear", async () => {
 	const r = rig({ items: [bossLine("u1", "first", 1), headLine("a1", "second", 2), bossLine("u2", "third", 3), headLine("a2", "fourth\nwith a second line", 4)] });
 	await r.start();
 	await r.settle();
 	assert.equal(r.wake(), true, "a visit starts at rest: H calls the lines up");
-	assert.deepEqual(r.lines(), ["second", "third", "fourth with a second line"]);
-	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-who")), ["head", "boss", "head"]);
-	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-rank")), ["2", "1", "0"], "rank 0 is the newest");
+	assert.deepEqual(r.lines(), ["first", "second", "third", "fourth with a second line"]);
+	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-who")), ["boss", "head", "boss", "head"]);
+	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-rank")), ["3", "2", "1", "0"], "rank 0 is the newest");
 	assert.equal(r.away(), true, "one thing is in paper at a time (Z-D15)");
+});
+
+test("the page keeps FILL lines, not three: a long conversation hands the awake strip the oldest lines it has room for, and each line carries its rank for the page's newest-first layout (--rank)", async () => {
+	const long: Item[] = Array.from({ length: 30 }, (_, i) => (i % 2 ? headLine(`a${i}`, `reply ${i}`, i + 1) : bossLine(`u${i}`, `question ${i}`, i + 1)));
+	const r = rig({ items: long });
+	await r.start();
+	await r.settle();
+	r.wake();
+	assert.equal(FILL, 24);
+	assert.deepEqual(r.lines(), long.slice(-FILL).map((_, i) => (i + 30 - FILL) % 2 ? `reply ${i + 30 - FILL}` : `question ${i + 30 - FILL}`), "the newest 24, oldest first");
+	assert.deepEqual(r.by("zen-hl").map((el) => el.style["--rank"]), Array.from({ length: FILL }, (_, i) => String(FILL - 1 - i)), "the rank is what `order` sorts by: newest first from the strip's foot");
+	assert.deepEqual(r.by("zen-hl").map((el) => el.getAttribute("data-rank")), Array.from({ length: FILL }, (_, i) => String(FILL - 1 - i)));
+});
+
+test("a later page that carries older head lines than the strip first held reads none of them out: only the newest three are news, as before the strip kept 24", async () => {
+	const turn = (i: number): Item[] => [bossLine(`u${i}`, `ask ${i}`, i * 2), headLine(`a${i}`, `answer ${i}`, i * 2 + 1)];
+	const r = rig({ items: [3, 4, 5].flatMap(turn) });
+	await r.start();
+	await r.settle();
+	const live = () => r.by("zen-head-live")[0]!.textContent;
+	r.put([0, 1, 2, 3, 4, 5].flatMap(turn));
+	await r.settle();
+	assert.equal(r.by("zen-hl").length, 12, "the older turns are on the page");
+	assert.equal(live(), "", "nothing read out: the newer lines were known, and the older ones are history");
+	r.put([0, 1, 2, 3, 4, 5, 6].flatMap(turn));
+	await r.settle();
+	assert.equal(live(), "answer 6", "a new reply still is");
+});
+
+test("the strip fills the page exactly while the mindfulness line is away (data-fill): not at rest, not once every line has faded, back with a hover or the open input, gone with Esc and with the next visit (Z-D21)", async () => {
+	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
+	const fill = () => r.strip()!.dataset.fill !== undefined;
+	await r.start();
+	await r.settle();
+	assert.equal(fill(), false, "a visit starts at rest: the page is as it was");
+	assert.equal(r.away(), false);
+	r.wake();
+	assert.equal(fill(), true, "called back: the lines take the mindfulness line's room and the circle's spare height");
+	assert.equal(r.away(), true, "the two are never both on: fill is the mindfulness line's absence");
+	assert.equal(r.esc(), true);
+	assert.equal(fill(), false, "Esc rests the strip, and the page goes back as it was");
+	assert.equal(r.away(), false);
+	r.wake();
+	assert.equal(fill(), true);
+	await r.advance(CLEAR_MS + FADE_MS + 20);
+	assert.equal(fill(), false, "every line faded: the mindfulness line is back and the page with it");
+	assert.equal(r.away(), false);
+	r.strip()!.bubble("pointerenter", { pointerType: "mouse" });
+	assert.equal(fill(), true, "a hover brings the faded lines clear, and they get their room");
+	assert.equal(r.away(), true);
+	r.strip()!.bubble("pointerleave", { pointerType: "mouse" });
+	await r.advance(LET_GO_MS + 20);
+	assert.equal(fill(), false, "and lets it go when the pointer has been away");
+	r.wake();
+	r.unfold();
+	assert.equal(fill(), true, "the open input holds the lines clear, and the room");
+	r.z.hide();
+	assert.equal(fill(), false, "the next visit starts at rest, as the page does");
 });
 
 test("a line is clear for 20 s from the moment it is first on screen, then fades over 3 minutes; the mindfulness line comes back only when every line has", async () => {

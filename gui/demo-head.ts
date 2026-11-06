@@ -67,12 +67,24 @@ const WORDS = {
 };
 const words = () => WORDS[getLocale() === "zh-TW" ? "zh" : "en"];
 
+/** Earlier exchanges for `&talk=<n>` (the strip with a long history, as a morning of work leaves it): the boss's question and the head's answer, cycling through these. */
+const EARLIER = {
+	en: [["Is the staging deploy of Harbor API done yet?", "Yes. It went out ten minutes ago and the health check is green."], ["Which towers are idle?", "Lighthouse Web and Orchard Data. Quarry Tools has no tower open."], ["Ask Orchard Data to rebuild the nightly report and tell me when it is ready, and if the numbers differ from yesterday's by more than a few percent, say why before you send it on.", "Sent. It will answer here; I will check the totals against yesterday's before I pass it on."], ["Thanks.", "Anytime."]],
+	zh: [["Harbor API 的 staging 部署好了嗎？", "好了，十分鐘前上去的，健康檢查是綠的。"], ["哪些塔台現在是閒的？", "Lighthouse Web 和 Orchard Data。Quarry Tools 沒有開塔台。"], ["請 Orchard Data 重建夜間報表，好了再跟我說；如果數字跟昨天差超過幾個百分點，先講原因再轉給我。", "已轉給它，它回覆後我會先對過昨天的總數再轉達。"], ["謝謝。", "不客氣。"]],
+} as const;
+/** How many earlier exchanges `?talk=<n>` asks for. */
+const talk = () => Math.max(0, Math.min(40, Number(new URLSearchParams(typeof location === "undefined" ? "" : location.search).get("talk")) || 0));
+
 /** The head's conversation: a chapter divider first, then the boss's words, the head's forwards, and the towers' answers. */
 export function headHistory(state: HeadState): Item[] {
 	if (state === "absent") return [];
 	const w = words();
 	const out: Item[] = [
 		{ id: "chapter-1", kind: "divider", type: "chapter", at: at(0), text: w.first, code: "first" },
+		...Array.from({ length: talk() }, (_, i) => {
+			const [q, a] = EARLIER[getLocale() === "zh-TW" ? "zh" : "en"][i % 4]!;
+			return [{ id: `h-eu${i}`, kind: "user" as const, text: q, at: at(0.5 + i * 0.01) }, { id: `h-ea${i}`, kind: "assistant" as const, model: "head-1", at: at(0.505 + i * 0.01), text: a, ctx: 1000 }];
+		}).flat(),
 		{ id: "h-u1", kind: "user", text: w.u1, at: at(2) },
 		{ id: "h-a1", kind: "assistant", model: "head-1", at: at(3), text: w.a1, ctx: 4000, tools: ["Harbor API", "Lighthouse Web"].map((to, i) => ({ id: `h-t${i}`, name: "tower_send", summary: `(workspace: ${to})`, args: JSON.stringify({ workspace: to, message: w.u1 }) })) },
 	];

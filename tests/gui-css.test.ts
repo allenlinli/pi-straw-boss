@@ -471,3 +471,57 @@ test("ZNR upgrade: the line that says a new build waits for the breath is fixed 
 	assert.match(zen, /@media \(prefers-reduced-motion: reduce\) \{[^\n]*\.zen-update \{ animation: none; \}/, "reduced motion: no fade");
 	assert.ok(!/-webkit-translate|-webkit-animation/.test(zen.split("\n").filter((l) => l.includes("zen-update")).join("\n")));
 });
+
+// Zen's awake strip fills the page (docs/specs/2026-11-04-head-tower.md, Zen: the strip fills the page; `data-fill`, set by zenhead.ts). No browser runs here: the numbers the layout stands on are asserted in the rules, and the page was measured in a browser (docs/releases/0.60.3.md).
+const fillSel = '[data-view="zen"] .zen-stage:has(.zen-head[data-fill]:not([hidden]))';
+const decls = (...selectors: string[]) => Object.fromEntries(rulesOf(zen).filter((r) => selectors.some((s) => r.parts.includes(s))).flatMap((r) => declarations(r.body)));
+
+test("Z-D21 (fill): while the strip is awake the stage is a column that centres what it holds; the circle gives way first and alone, from its size to a floor of 18 vh clamped to 80 to 160 px, never below 80; the mindfulness line keeps no room", () => {
+	const stage = Object.fromEntries(declarations(rulesOf(zen).find((r) => r.parts.includes(fillSel))!.body)); // the first rule: a short window's own gap is below
+	assert.deepEqual([stage.display, stage["flex-direction"], stage["align-items"], stage["justify-content"], stage.gap], ["flex", "column", "center", "center", "14px"], "the group stays in the middle of the page while it is shorter than the page");
+	const circle = decls(`${fillSel} > .zen-circle`);
+	assert.equal(circle.flex, "0 100000 var(--orb)", "its size is the strip's `--orb` (as before); its shrink factor is so large against the strip's that it alone gives way until it is at its floor");
+	assert.equal(circle["min-height"], "min(var(--orb), clamp(80px, 18vh, 160px))", "the floor: 18 vh, never under 80 px (the old floor), never over 160 px, never over its own size");
+	assert.deepEqual([circle.width, circle.height], ["auto", "auto"], "the old grid row's `height: 100%` is a flex-basis now, and the width follows the height (aspect-ratio)");
+	assert.ok(/(^|[^\d])80px/.test(circle["min-height"]!), "the 80 px floor is still in the rule");
+	const line = decls(`${fillSel} > .zen-line`);
+	assert.deepEqual([line.flex, line.height], ["none", "0"], "the mindfulness line, away, takes no room: it fades out where it stood");
+	assert.ok(decls('[data-view="zen"] .zen-line[data-away]').visibility === "hidden", "and it is still out of the reading order");
+});
+
+test("Z-D21 (fill): the strip takes the rest of the height; its lines are a column that shows whole lines only, newest from the foot, and the oldest are the ones missing; the cue row, the input, and the hint keep their size", () => {
+	const strip = decls('[data-view="zen"] .zen-head[data-fill]');
+	assert.deepEqual([strip.display, strip["flex-direction"], strip.flex, strip["min-height"]], ["flex", "column", "0 1 auto", "0"], "it gives way (after the circle) down to its fixed parts");
+	assert.equal(decls('[data-view="zen"] .zen-head[data-fill][hidden]').display, "none", "a strip that is hidden (no snapshot yet, or no head) stays hidden whatever else it carries");
+	assert.equal(decls('[data-view="zen"] .zen-head[data-fill] > *').flex, "none", "each fixed part (the working line, the link and cue row, the hint, the input) keeps its size");
+	const lines = decls('[data-view="zen"] .zen-head[data-fill] > .zen-head-lines');
+	assert.equal(lines.flex, "1 1 auto");
+	assert.equal(lines["min-height"], "3.2rem", "one clamped line (2 × 1.6 rem of 16 px, the line-height the lines have) at the least, the newest");
+	assert.deepEqual([lines.display, lines["flex-flow"], lines["align-content"], lines.overflow], ["flex", "column-reverse wrap", "flex-start", "hidden"], "a line that does not fit wraps into a second column the box clips away: whole lines, no half one");
+	const line = decls('[data-view="zen"] .zen-head[data-fill] .zen-hl');
+	assert.deepEqual([line.order, line.flex, line["box-sizing"], line.width, line["max-width"]], ["var(--rank, 0)", "none", "border-box", "100%", "none"], "sorted by rank, newest first from the foot, each as wide as the strip so a wrapped column starts beyond its edge");
+	assert.equal(decls('[data-view="zen"] .zen-head[data-fill] .zen-hl[data-who="boss"]')["padding-left"], "15%", "the quiet strip's 85 % for the boss's lines, kept as padding");
+	assert.equal(decls('[data-view="zen"] .zen-head[data-fill] .zen-hl[data-who="head"]')["padding-right"], "10%", "and its 90 % for the head's");
+	const meta = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-head-meta'));
+	assert.match(meta!.body, /grid-template-rows: minmax\(44px, auto\) minmax\(44px, auto\)/, "the cue row is reserved in the awake strip too (it is a child of the strip, which never takes it out)");
+	assert.ok(!rulesOf(zen).some((r) => r.parts.some((p) => p.includes("[data-fill]") && /zen-head-(cue|meta|form|hint|box)/.test(p))), "no fill rule touches the cue row, the input, or the hint: they are the strip's own, as at rest");
+	const stage = rulesOf(zen).find((r) => r.parts.includes('[data-view="zen"] .zen-stage:has(.zen-head)'));
+	assert.equal(declarations(stage!.body).find(([p]) => p === "padding-top")?.[1], "40px", "12 px under the header at the least: the 40 px the stage keeps under its top still stand in the awake layout");
+});
+
+test("Z-D21 (fill): the quiet strip is as it was: three lines, two on a phone or a window 560 px tall or less (headlines.ts SHOWN), the older ones kept by the page but not drawn; the older lines of the awake strip hold the lowest clear level", async () => {
+	const { CLEAR, SHOWN, SHOWN_SMALL } = await import("../gui/headlines.ts");
+	const hide = rulesOf(zen).filter((r) => r.parts.some((p) => p.startsWith('[data-view="zen"] .zen-head:not([data-fill]) .zen-hl')));
+	assert.equal(hide.length, 2, "one rule for the lines beyond the third, one in the small media for the third");
+	const [beyond, third] = hide;
+	assert.ok(/display: none/.test(beyond!.body) && /display: none/.test(third!.body));
+	const ranks = [...beyond!.parts[0]!.matchAll(/data-rank="(\d+)"/g)].map((x) => Number(x[1]));
+	assert.deepEqual(ranks, [...Array(SHOWN).keys()], `the rule spares ranks 0 to ${SHOWN - 1}: SHOWN lines`);
+	assert.ok(third!.parts[0]!.includes(`[data-rank="${SHOWN_SMALL}"]`), `and on a small page rank ${SHOWN_SMALL} goes too: SHOWN_SMALL lines`);
+	const phone = zen.slice(zen.indexOf("@media (max-width: 600px), (max-height: 560px) {"));
+	assert.ok(phone.slice(0, phone.indexOf("\n}\n")).includes('.zen-head:not([data-fill]) .zen-hl[data-rank="2"] { display: none; }'), "that rule is inside the phone / short window media block");
+	const deep = rulesOf(zen).find((r) => r.parts.some((p) => p.includes('.zen-hl[data-rank]:not([data-rank="0"], [data-rank="1"], [data-rank="2"])')) && /--clear/.test(r.body));
+	assert.equal(declarations(deep!.body).find(([p]) => p === "--clear")?.[1], String(CLEAR.at(-1)), "ranks 3 and up are as clear as rank 2, the lowest level that holds 7 : 1 (zen-contrast.test.ts)");
+	const short = zen.slice(zen.indexOf("@media (max-height: 560px) {", zen.indexOf("@media (max-width: 600px), (max-height: 560px) {")), zen.indexOf("@media (prefers-reduced-motion: reduce) { /* no fade"));
+	assert.match(short, /\.zen-stage:has\(\.zen-head\[data-fill\]:not\(\[hidden\]\)\) \{ gap: 10px; \}/, "a short window keeps its 10 px gap in the awake layout too");
+});

@@ -18,7 +18,8 @@ export class El {
 		ownKeys: () => [...this.attrs.keys()].filter((name) => name.startsWith("data-")).map((name) => name.slice(5).replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())),
 		getOwnPropertyDescriptor: (_, key) => (typeof key === "string" && this.attrs.has(dataName(key)) ? { value: this.attrs.get(dataName(key)), enumerable: true, configurable: true, writable: true } : undefined),
 	});
-	style: Record<string, string> = {};
+	/** The inline style: properties set by name, and `setProperty` for a custom property (a plain assignment of `--x` does nothing in the DOM). */
+	style: Record<string, string> & { setProperty(name: string, value: string): void } = Object.defineProperty({} as Record<string, string>, "setProperty", { value(this: Record<string, string>, name: string, value: string) { this[name] = value; } }) as never;
 	handlers: Record<string, ((e: any) => void)[]> = {};
 	onclick: (() => void) | null = null;
 	oninput: (() => void) | null = null;

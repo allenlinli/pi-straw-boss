@@ -127,7 +127,7 @@ test("ALLY-F003: a trust question nobody answered reads 'Why it stopped' with th
 });
 
 // The card itself (gui/render.ts `fillAlly`): the box's own mains and workers are never listed, and the card says one state, the units'.
-const ally = (over: object = {}) => ({ id: "ally/t/d1", team: "t", teamName: "moldplan", device: "d1", short: "9f3a1c", label: "ci-box", online: true, workspace: null, tower: "working", tabs: [{ label: "main \u00b7 trial13", state: "working" }, { label: "worker \u00b7 scout", state: "idle" }], ...over });
+const ally = (over: object = {}) => ({ id: "ally/t/d1", team: "t", teamName: "moldplan", device: "d1", short: "9f3a1c", label: "ci-box", online: true, unattended: true, workspace: null, tower: "working", tabs: [{ label: "main \u00b7 trial13", state: "working" }, { label: "worker \u00b7 scout", state: "idle" }], ...over });
 const link = (units: object[] = []) => ({ allies: [], alerts: [], confirms: [], units: units.length ? [{ team: "t", device: "d1", at: Date.now() - 5_000, units }] : [] });
 const unit = (name: string, state = "standing") => ({ unit: name, state, monitors: [], report: "" });
 async function drawn(a: object, l: object) {
@@ -138,7 +138,7 @@ async function drawn(a: object, l: object) {
 	return el;
 }
 
-test("ALLY-F005/F009: a card that has units lists no tab of the box; one without says how many units are online in one line, never their names", async () => {
+test("ALLY-F005/F009: a card that has units lists no tab of the box; an unattended box without them says how many units are online in one line, never their names", async () => {
 	const withUnits = await drawn(ally(), link([unit("Quarry Tools"), unit("Lighthouse Web")]));
 	assert.equal(withUnits.querySelectorAll(".ally-tab").length, 0, "the units are the card's content, the box's mains are not listed beside them");
 	await until(() => withUnits.querySelectorAll(".ally-unit").length === 2, "the units");
@@ -152,6 +152,20 @@ test("ALLY-F005/F009: a card that has units lists no tab of the box; one without
 	assert.equal((await drawn(ally({ tabs: [] }), link())).querySelectorAll(".ally-tab").length, 0, "nothing online, nothing said");
 	assert.equal((await drawn(ally({ online: false }), link())).querySelectorAll(".ally-tab").length, 0, "an offline box says nothing about units");
 	assert.equal((await drawn(ally({ tower: "blocked" }), link())).querySelectorAll(".ally-tab")[0]!.dataset.state, "blocked", "a question that waits keeps the line a way into the panel");
+});
+
+test("a teammate's own computer (attended) lists its mains and workers as before, with their states, and never says 'units online'; an offline one lists them without states", async () => {
+	const mate = await drawn(ally({ unattended: undefined, label: "Mei's Mac" }), link());
+	const rows = mate.querySelectorAll(".ally-tab");
+	assert.deepEqual(rows.map((r) => r.querySelector("b")!.textContent), ["main \u00b7 trial13", "worker \u00b7 scout"], "each tab is a row");
+	assert.deepEqual(rows.map((r) => r.querySelector("span")!.textContent), [m.mark_working(), m.mark_idle()], "with its state");
+	assert.ok(!mate.dump().includes(m.link_unit_summary({ count: 2 })));
+	assert.equal(one(mate, ".tstate").textContent, `9f3a1c \u00b7 ${m.mark_working()}`, "and the subtitle names the tower's state, as before");
+	const off = await drawn(ally({ unattended: undefined, online: false }), link());
+	assert.deepEqual(off.querySelectorAll(".ally-tab").map((r) => r.querySelector("span")!.textContent), ["", ""]);
+	assert.equal((await drawn(ally({ unattended: undefined, tower: "blocked" }), link())).querySelectorAll(".ally-tab")[0]!.dataset.state, "working", "a row carries its own tab's state");
+	const old = await drawn(ally({ unattended: undefined }), link([unit("x")]));
+	assert.equal(old.querySelectorAll(".ally-tab").length, 0, "(a base that did report units shows them and no tabs, attended or not)");
 });
 
 test("ALLY-F008: once the card shows units, its subtitle names the box and whether it is there and not what its tower does; without units it says that too", async () => {

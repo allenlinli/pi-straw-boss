@@ -1,9 +1,9 @@
 import type { LinkSummary } from "../src/link/holder.ts";
 
-// The demo's states of an unattended device's ally base (`?ally=idle|crashed|trust|held|closing|rerun|stale|long|gone|units`), for the card of its units (gui/render.ts `fillAlly`): the fixture's own is a unit at work with two monitors,
+// The demo's states of an unattended device's ally base (`?ally=idle|crashed|trust|held|closing|rerun|stale|long|gone|mate|units`), for the card of its units (gui/render.ts `fillAlly`): the fixture's own is a unit at work with two monitors,
 // and every state is a change to that one. The times are relative to the page's load, so the card's clock reads as it would live.
 
-export const ALLY_SCENES = ["idle", "crashed", "trust", "held", "closing", "rerun", "stale", "long", "gone", "units"] as const;
+export const ALLY_SCENES = ["idle", "crashed", "trust", "held", "closing", "rerun", "stale", "long", "gone", "mate", "units"] as const;
 export type AllyScene = (typeof ALLY_SCENES)[number];
 export const isAllyScene = (s: string | null): s is AllyScene => ALLY_SCENES.includes(s as AllyScene);
 
@@ -23,7 +23,7 @@ ok  ledger/credit     (187 ms)
 
 Next: waiting for the review of the ledger fix. Nothing else is queued, and no question is open. If the review asks for changes I will take them on the same branch and run the smoke tests again before I report.`;
 
-/** Turns the demo's link summary into the scene `name` (`?ally=`; anything else: the unit at work as the fixture has it, with its clock set to now; it has the fixture's ally base `t/d1/Harbor API` and its unit-status). `later` changes the summary after a while and sends it (the `rerun` scene needs the page to see the unit run first). `gone` is also the card of a box that reports no units: its summary line. */
+/** Turns the demo's link summary into the scene `name` (`?ally=`; anything else: the unit at work as the fixture has it, with its clock set to now; it has the fixture's ally base `t/d1/Harbor API` and its unit-status). `later` changes the summary after a while and sends it (the `rerun` scene needs the page to see the unit run first). `gone` is also the card of an unattended box that reports no units (its summary line); `mate` adds a teammate's own computer beside it, which lists its mains. */
 export function allyDemo(link: LinkSummary, name: string | null, now = Date.now(), later: (ms: number, change: (link: LinkSummary) => void) => void = () => {}): void {
 	const scene = isAllyScene(name) ? name : undefined;
 	const d1 = link.units[0]!, unit = d1.units[0]!;
@@ -44,8 +44,12 @@ export function allyDemo(link: LinkSummary, name: string | null, now = Date.now(
 	if (scene === "stale") (Object.assign(d1, { at: now - 8 * 60_000, stale: true as const }), Object.assign(unit, { state: "running" }));
 	if (scene === "long") unit.report = LONG;
 	if (scene === "gone") link.units = [];
+	if (scene === "mate") {
+		link.units = [];
+		link.allies.push({ id: "t/d3", team: "t", teamName: "moldplan", device: "d3", short: "c40d9e", label: "Mei's Mac", online: true, workspace: null, tower: "working", tabs: [{ label: "main \u00b7 docs", state: "working" }, { label: "worker \u00b7 scout", state: "idle" }] });
+	}
 	if (scene === "units") {
-		link.allies.push({ id: "t/d2", team: "t", teamName: "moldplan", device: "d2", short: "b71e04", label: "build-mac", online: true, workspace: null, tower: "unknown", tabs: [{ label: "tower", state: "idle" }] });
+		link.allies.push({ id: "t/d2", team: "t", teamName: "moldplan", device: "d2", short: "b71e04", label: "build-mac", online: true, unattended: true, workspace: null, tower: "unknown", tabs: [{ label: "tower", state: "idle" }] });
 		link.units.push({ team: "t", device: "d2", at: now - 15_000, units: [
 			{ unit: "Quarry Tools", state: "running", monitors: ["cargo watch -x test"], report: "Running the nightly suite: 212 of 480 done." },
 			{ unit: "Lighthouse Web", state: "standing", monitors: [], report: "Idle since the 14:10 build; nothing queued." },

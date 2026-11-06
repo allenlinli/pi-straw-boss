@@ -245,12 +245,14 @@ export function fillAlly(el: HTMLElement, a: AllyBase, link: LinkSummary | undef
 	text(el, ".ally-tag", m.ally_tag({ team: a.teamName }));
 	text(el, "h2", a.workspace ?? a.label);
 	// What an unattended device says about its units (unit-status) is drawn by allyunits.ts, and the units are the card's only state: the subtitle then names the base and whether it is there, not what its tower does (the two come from messages of their own cadence and could disagree).
-	// While it says none (an older box, a team that shares presence only, the minute after this server restarted) the card says how many units are online in one line; the box's own mains and workers are never listed.
+	// While an unattended box says none (an older box, a team that shares presence only, the minute after this server restarted) the card says how many units are online in one line and never lists the box's mains and workers; a teammate's own computer lists its tabs.
 	const cards = unitCards(reported, link?.alerts, a, Date.now(), unitsSeen);
 	text(el, ".tstate", `${a.workspace ? `${a.label} · ` : ""}${a.short}${!a.online ? ` · ${m.link_offline()}` : cards.length ? "" : ` · ${stateName(a.tower)}`}`);
-	sync(el.querySelector(".ally-tabs")!, cards.length || !a.online || !a.tabs.length ? [] : [{ id: "online", count: a.tabs.length }], () => html(`<li class="ally-tab"><b></b></li>`), (li, x) => {
-		text(li, "b", m.link_unit_summary({ count: x.count }));
-		li.dataset.state = a.tower; // a question that waits makes the row a way into the panel, as a unit's row is
+	const rows: { id: string; label: string; state: string; says?: string }[] = cards.length ? [] : a.unattended ? (a.online && a.tabs.length ? [{ id: "online", label: "", state: a.tower, says: m.link_unit_summary({ count: a.tabs.length }) }] : []) : a.tabs.map((t, i) => ({ id: `${i}`, ...t }));
+	sync(el.querySelector(".ally-tabs")!, rows, () => html(`<li class="ally-tab"><b></b><span></span></li>`), (li, t) => {
+		text(li, "b", t.says ?? t.label);
+		text(li, "span", t.says !== undefined || !a.online ? "" : stateName(t.state));
+		li.dataset.state = t.state; // a state that waits makes a row a way into the question panel, a unit's or the summary line's too
 	});
 	el.classList.toggle("has-units", cards.length > 0);
 	fillUnits(el, cards, a.workspace === null);

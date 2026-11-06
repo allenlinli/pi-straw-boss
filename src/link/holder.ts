@@ -103,7 +103,8 @@ const OPEN_BACKOFF_MS = 60_000;
 const SERVED_RUN = /^tower run · /;
 export interface LinkAlert { id: string; kind: AlertKind; level: "info" | "warning" | "error"; team: string; teamName: string; data: Record<string, string | number> }
 /** A teammate's workspace as the map shows it beside the local bases (spec, GUI). */
-export interface AllyBase { id: string; team: string; teamName: string; device: string; short: string; label: string; online: boolean; workspace: string | null; tower: string; tabs: { label: string; state: string }[] }
+/** `unattended`: the device is an unattended box (the roster says so): its card says how many units are online, not its mains; absent for a teammate's computer, whose mains and workers the card lists. */
+export interface AllyBase { id: string; team: string; teamName: string; device: string; short: string; label: string; online: boolean; unattended?: true; workspace: string | null; tower: string; tabs: { label: string; state: string }[] }
 /** The compact reading the net snapshot carries: it changes only when something worth redrawing does. */
 /** What an unattended device last said about its units (`unit-status`, kept in memory): shown beside its ally bases while it keeps saying it. */
 /** `at` is when this computer took the status (epoch ms), for the card's clock; `stale` is set when the device has sent no status for `UNITS_FRESH_MS`: what is shown is its last one. */
@@ -127,7 +128,7 @@ const HEAD_DIFF_MS = 2 * 60_000, DOWN_MS = 2 * 60_000, HELD_MS = 10 * 60_000;
 /** A reply for a main that the main has not taken this long after the first offer (an older build never connects to the channel) goes to an ally run, which is told who asked. */
 const REPLY_OFFER_MS = 5 * 60_000;
 
-export interface AllyDevice { id: string; short: string; label: string; online: boolean; ageMs: number | null; roster: number | null; workspaces: WorkspaceState[] }
+export interface AllyDevice { id: string; short: string; label: string; online: boolean; unattended?: true; ageMs: number | null; roster: number | null; workspaces: WorkspaceState[] }
 export interface AllyTeam { team: string; name: string; devices: AllyDevice[] }
 /** An ally's board as a tower reads it: text from the sender, cut and cleaned again; the device's label is the roster's. */
 export interface AllyBoardEntry { id: string; workspace: string; tab: string; main: string; now: string; items: { t: string; done: boolean }[]; updatedSecondsAgo?: number }
@@ -1223,7 +1224,7 @@ export class LinkHolder {
 			}
 			const devices = [...roster.members].filter(([id]) => id !== this.device!.keys.id).slice(0, MAX_LISTED_DEVICES).map(([id, m]): AllyDevice => {
 				const seen = run.presences.get(id), age = seen ? this.now() - seen.at : null;
-				return { id, short: shortId(id), label: m.label ?? shortId(id), online: age !== null && age <= PRESENCE_ONLINE_MS, ageMs: age, roster: seen?.presence.headSeq ?? null, workspaces: seen?.presence.workspaces ?? [] };
+				return { id, short: shortId(id), label: m.label ?? shortId(id), online: age !== null && age <= PRESENCE_ONLINE_MS, ...(m.attended ? {} : { unattended: true as const }), ageMs: age, roster: seen?.presence.headSeq ?? null, workspaces: seen?.presence.workspaces ?? [] };
 			});
 			return [{ team: run.team, name: policies.get(run.team)?.name ?? run.team.slice(0, 6), devices }];
 		});
@@ -1394,7 +1395,7 @@ export class LinkHolder {
 	/** The compact reading for the net snapshot: ally bases from presence, the notices, and the confirms waiting. */
 	summary(): LinkSummary {
 		const allies = this.list().flatMap((t) => t.devices.flatMap((d): AllyBase[] => {
-			const base = { team: t.team, teamName: t.name, device: d.id, short: d.short, label: d.label, online: d.online };
+			const base = { team: t.team, teamName: t.name, device: d.id, short: d.short, label: d.label, online: d.online, ...(d.unattended ? { unattended: true as const } : {}) };
 			if (d.workspaces.length === 0) return [{ ...base, id: `${t.team}/${d.id}`, workspace: null, tower: "unknown", tabs: [] }];
 			return d.workspaces.map((w) => ({ ...base, id: `${t.team}/${d.id}/${w.label}`, workspace: w.label, tower: w.tower, tabs: w.tabs.map((x) => ({ label: x.label, state: x.state })) }));
 		}));

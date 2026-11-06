@@ -159,6 +159,12 @@ describe("dialog forwarding", () => {
 		assert.deepEqual(a.notices.filter((n) => n.includes("asks a question")), ["Straw Link: ci-box asks a question (main · trial11)"]);
 	});
 
+	test("the summary marks the bases of an unattended box and no teammate's: the card lists a teammate's mains and counts a box's units", async () => {
+		const { a } = await start();
+		const allies = a.holder.summary().allies, flag = (who: "bob" | "dave" | "eve") => allies.find((x) => x.device === DEVICES[who].id)?.unattended;
+		assert.deepEqual([flag("bob"), flag("dave"), flag("eve")], [undefined, true, true]);
+	});
+
 	test("an answer with another digest is refused and leaves the question open for the right one", async () => {
 		const { h, a, f } = await start();
 		h.open("D1");

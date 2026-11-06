@@ -77,10 +77,49 @@ export function dialogState(a: Pick<LinkAlert, "data">): DialogState {
 	return closed === "local" ? "done-local" : closed === "cancel" ? "cancelled" : closed === "withdrawn" ? "withdrawn" : "expired";
 }
 
-/** The units an unattended device reported that belong to an ally base: those of its workspace, or all of them for a device whose presence names no workspace yet. */
-export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">) {
-	const mine = (units ?? []).find((u) => u.team === a.team && u.device === a.device);
-	return mine ? mine.units.filter((u) => a.workspace === null || u.unit === a.workspace).map((u) => ({ ...u, at: mine.at, stale: mine.stale === true })) : [];
+/**
+ * One ally card as the map draws it: a device (and one workspace of it), however many teams it is in. A device is the same machine in each team, so the card is one, with `teams` naming them (in the order the teams came) and the
+ * state of the device: online when any team hears it, the most urgent tower state of the online ones (a question that waits, then work), and the tabs of the state that was taken. The team-scoped parts of the card (a forwarded question,
+ * the notice behind a crash) keep their team in their own words.
+ */
+export interface AllyCard extends Omit<AllyBase, "team" | "teamName"> { teams: { team: string; teamName: string }[]; /** On the device's first card when a team shows no workspace of it: that team's units matching none of the device's named workspaces belong to this card. */ spare?: { teams: string[]; named: string[] } }
+const URGENCY: Record<string, number> = { blocked: 3, working: 2, idle: 1 };
+/**
+ * A card's teams are the teams whose presence lists its workspace, plus every team that shows no workspace of the device (presence is per team project, so another team's workspace is not this card's); with no workspace anywhere,
+ * the device has the one card of all its teams. The label is the first team's by id (not by tower state, which moves), the state is taken from the online bases of the card (its own teams and the no-workspace teams); when none is online but the device is heard, it is `unknown` with no tabs, so a team
+ * that cannot hear the device never puts its stale state, or another workspace's tabs, on a card. The units of a no-workspace team that match no named workspace go to the device's first card.
+ */
+export function mergeAllies(allies: AllyBase[]): AllyCard[] {
+	const devices = new Map<string, AllyBase[]>();
+	for (const a of allies) devices.set(a.device, [...(devices.get(a.device) ?? []), a]);
+	const teamsOf = (bases: AllyBase[]): AllyCard["teams"] => {
+		const teams: AllyCard["teams"] = [];
+		for (const b of bases) if (!teams.some((t) => t.team === b.team)) teams.push({ team: b.team, teamName: b.teamName });
+		return teams;
+	};
+	return [...devices].flatMap(([device, bases]) => {
+		const named = bases.filter((b) => b.workspace !== null), workspaces = named.length ? [...new Set(named.map((b) => b.workspace))] : [null];
+		const first = [...bases].sort((p, q) => (p.team < q.team ? -1 : p.team > q.team ? 1 : 0))[0]!;
+		return workspaces.map((workspace, i): AllyCard => {
+			const mine = bases.filter((b) => b.workspace === workspace), shared = named.length ? bases.filter((b) => b.workspace === null) : [];
+			const live = [...mine, ...shared].filter((b) => b.online), heard = live.length > 0 || !bases.some((b) => b.online), pool = live.length ? live : mine;
+			const best = heard ? [...pool].sort((p, q) => (URGENCY[q.tower] ?? 0) - (URGENCY[p.tower] ?? 0))[0]! : { tower: "unknown", tabs: [] };
+			const spare = i === 0 && shared.length ? { spare: { teams: teamsOf(shared).map((t) => t.team), named: workspaces as string[] } } : {};
+			return { id: workspace === null ? device : `${device}/${workspace}`, device, short: first.short, label: first.label, online: bases.some((b) => b.online), ...(bases.some((b) => b.unattended) ? { unattended: true as const } : {}), workspace, tower: best.tower, tabs: best.tabs, teams: teamsOf([...mine, ...shared]), ...spare };
+		});
+	});
+}
+
+/**
+ * The units an unattended device reported that belong to an ally card: those of its workspace, or all of them for a device whose presence names no workspace yet. A box reports each team only the units of that team's project
+ * (src/link/unitstatus.ts), so the card's units are the union over its teams, one entry per unit name from its freshest row, with that row's `at` and `stale`, in the order of the card's teams (so it does not move with who reported last).
+ */
+export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyCard, "device" | "workspace" | "spare"> & { teams: string[] }) {
+	const rows = (units ?? []).filter((u) => u.device === a.device && a.teams.includes(u.team)).sort((p, q) => a.teams.indexOf(p.team) - a.teams.indexOf(q.team));
+	const out = new Map<string, ReturnType<typeof tag>>();
+	const tag = (u: DeviceUnits["units"][number], row: DeviceUnits) => ({ ...u, at: row.at, stale: row.stale === true });
+	for (const row of rows) for (const u of row.units) if (a.workspace === null || u.unit === a.workspace || (a.spare?.teams.includes(row.team) && !a.spare.named.includes(u.unit))) { const had = out.get(u.unit); if (!had || row.at > had.at) out.set(u.unit, tag(u, row)); }
+	return [...out.values()];
 }
 
 /** How long a crash notice still makes a unit that is not running read as crashed: the wire carries no outcome, so an old crash says nothing of the unit now. */
@@ -105,14 +144,14 @@ export function unitWord(state: string): { tone: UnitTone; word: string } {
 
 /**
  * The cards of an ally base's units: its state word and when it was heard, the monitors, the last report, and why it stopped when a notice told of it lately and the unit is not running.
- * `seen` is the page's memory of when each unit was last seen running (`team/device/unit` to the time of that status): a run after the notice ends it, so a unit that was re-run and stands by again is not told as crashed again.
+ * `seen` is the page's memory of when each unit was last seen running (`device/unit` to the time of that status): a run after the notice ends it, so a unit that was re-run and stands by again is not told as crashed again.
  * A page without that memory (just loaded) has the 30-minute rule alone.
  */
-export function unitCards(units: DeviceUnits[] | undefined, alerts: LinkAlert[] | undefined, a: Pick<AllyBase, "team" | "device" | "workspace">, now: number, seen: Map<string, number> = new Map()): UnitCard[] {
+export function unitCards(units: DeviceUnits[] | undefined, alerts: LinkAlert[] | undefined, a: Parameters<typeof unitsFor>[1], now: number, seen: Map<string, number> = new Map()): UnitCard[] {
 	return unitsFor(units, a).map((u) => {
-		const base = unitWord(u.state), key = `${a.team}/${a.device}/${u.unit}`;
+		const base = unitWord(u.state), key = `${a.device}/${u.unit}`;
 		if (base.tone === "working") seen.set(key, Math.max(seen.get(key) ?? 0, u.at));
-		const crash = alerts?.filter((x) => x.kind === "notice" && CRASH_KINDS.includes(String(x.data.what)) && x.team === a.team && x.data.device === a.device && x.data.unit === u.unit && Number(x.data.at) > 0).map((x) => ({ at: Number(x.data.at), text: String(x.data.text ?? ""), trust: x.data.what === "trust-unanswered" })).sort((p, q) => q.at - p.at)[0];
+		const crash = alerts?.filter((x) => x.kind === "notice" && CRASH_KINDS.includes(String(x.data.what)) && a.teams.includes(x.team) && x.data.device === a.device && x.data.unit === u.unit && Number(x.data.at) > 0).map((x) => ({ at: Number(x.data.at), text: String(x.data.text ?? ""), trust: x.data.what === "trust-unanswered" })).sort((p, q) => q.at - p.at)[0];
 		const told = crash !== undefined && base.tone !== "working" && now - crash.at < CRASH_FRESH_MS && crash.at > (seen.get(key) ?? 0) ? { at: crash.at, text: crash.text, ...(crash.trust ? { trust: true as const } : {}) } : undefined;
 		const state = !told ? base : base.tone === "crashed" ? base : told.trust ? { tone: "waiting" as const, word: m.link_unit_trust() } : { tone: "crashed" as const, word: m.link_unit_crashed() };
 		return { unit: u.unit, state: u.state, ...state, ...(told ? { crash: told } : {}), at: u.at, stale: u.stale, monitors: u.monitors, report: u.report };

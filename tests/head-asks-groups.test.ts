@@ -41,13 +41,14 @@ test("an asks.json from before the field reads: asks without a group are grouped
 
 test("a row's state: answered when it has an answer, waiting while open, silent once 24 h pass (or the cap closed it) with none; its text is the newest answer's first line", () => {
 	const slot = slotIn();
-	const a = send(slot, T0, "wA", "ping"), b = send(slot, T0, "wB", "ping"), c = send(slot, T0, "wC", "ping");
+	const a = send(slot, T0, "wA", "ping");
+	send(slot, T0, "wB", "ping");
+	send(slot, T0, "wC", "ping");
 	answerAsk(slot, T0 + HOUR, { id: a.id, workspace: "wA", text: "[straw net kind=x] first\nsecond" });
 	answerAsk(slot, T0 + 2 * HOUR, { id: a.id, workspace: "wA", text: "newer" });
 	const at = (now: number) => headSeam(slot, () => now).asks().map((r) => [r.id, r.state, r.answers, r.last, r.group]);
 	assert.deepEqual(at(T0 + 3 * HOUR), [["H1", "answered", 2, "newer", "H1"], ["H2", "waiting", 0, undefined, "H1"], ["H3", "waiting", 0, undefined, "H1"]]);
 	assert.deepEqual(at(T0 + ASK_OPEN_MS + HOUR).map((r) => r[1]), ["answered", "silent", "silent"], "24 h without an answer is silent, never answered");
-	void b; void c;
 });
 
 test("the rows carry when the broadcast began and when anything last happened, and the snapshot cuts between groups, never inside one", () => {

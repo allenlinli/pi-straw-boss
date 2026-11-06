@@ -24,7 +24,10 @@ export function restrictOwner(text: string): string {
 	return cut || "?";
 }
 
-/** A notice's text on printable ASCII (anything else becomes `_`), cut at `max` characters: a notice reaches agents through `boss_server`; peer fields in it are already label-restricted, so no byte of it is a peer's to choose. */
+/**
+ * A notice's text on printable ASCII and the middle dot U+00B7 (anything else becomes `_`), cut at `max` characters: a notice reaches agents through `boss_server`; peer fields in it are already label-restricted, so no byte of it is a peer's to choose.
+ * The dot is the one non-ASCII character `restrictOwner` lets through, so the unit that asked reads `main · trial13` here as on the card; no other character is added.
+ */
 export function restrictNotice(text: string, max = 300): string {
-	return text.replace(/[^\x20-\x7e]+/g, "_").slice(0, max);
+	return text.replace(/[^\x20-\x7e\u00b7]+/g, "_").slice(0, max);
 }

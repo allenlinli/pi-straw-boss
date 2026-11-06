@@ -220,7 +220,10 @@ export function mountHead(io: HeadIo) {
 		whole.hidden = !kept;
 		quiet ? (whole.dataset.away = "") : delete whole.dataset.away; // at rest it fades out and keeps its room: nothing moves when the lines come clear
 		if (quiet !== restOn) io.rest((restOn = quiet));
-		el.toggleAttribute("data-fill", !quiet); // exactly while the mindfulness line is away: the lines take its room and the circle's spare height (zen.css)
+		const fill = !hushed && !(rested && !focus); // the boss's own state, never the pointer's: a hover or tap lifts the lines (--lift) but must not move the page under it
+		const was = el.hasAttribute("data-fill");
+		el.toggleAttribute("data-fill", fill); // the lines take the mindfulness line's room and the circle's spare height (zen.css)
+		if (fill && !was) restart(); // lines hidden while quiet lost their animation: they start again at their age
 	}
 	function bright() {
 		el.toggleAttribute("data-bright", !hushed && (hover || focus || touching));

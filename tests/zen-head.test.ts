@@ -187,11 +187,13 @@ test("the strip fills the page exactly while the mindfulness line is away (data-
 	assert.equal(fill(), false, "every line faded: the mindfulness line is back and the page with it");
 	assert.equal(r.away(), false);
 	r.strip()!.bubble("pointerenter", { pointerType: "mouse" });
-	assert.equal(fill(), true, "a hover brings the faded lines clear, and they get their room");
-	assert.equal(r.away(), true);
+	assert.equal(fill(), false, "a hover lifts the faded lines but never moves the page under the pointer (ZHF-F001)");
+	assert.equal(r.strip()!.dataset.bright !== undefined, true);
 	r.strip()!.bubble("pointerleave", { pointerType: "mouse" });
 	await r.advance(LET_GO_MS + 20);
-	assert.equal(fill(), false, "and lets it go when the pointer has been away");
+	assert.equal(fill(), false, "and nothing moves when the pointer goes either");
+	r.strip()!.bubble("pointerdown", { pointerType: "touch" });
+	assert.equal(fill(), false, "a tap lifts the lines but does not fill either");
 	r.wake();
 	r.unfold();
 	assert.equal(fill(), true, "the open input holds the lines clear, and the room");
@@ -215,6 +217,21 @@ test("a line is clear for 20 s from the moment it is first on screen, then fades
 	assert.equal(r.away(), true, "a new line starts clear, whatever the time of its item");
 	const [, , fresh] = r.by("zen-hl");
 	assert.equal(fresh!.style.animationDelay, `${CLEAR_MS / 1000}s`);
+});
+
+test("when fill turns on after the lines faded, every line carries on from its age, not from the stale delay it had when it was hidden (ZHF-F002)", async () => {
+	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
+	await r.start();
+	await r.settle();
+	r.wake();
+	await r.advance(CLEAR_MS + FADE_MS + 20);
+	assert.equal(r.strip()!.dataset.fill, undefined);
+	r.put([bossLine("u1", "go", 1), headLine("a1", "ok", 2), bossLine("u2", "and again", 3), headLine("a2", "a new one", 4)]);
+	await r.settle();
+	assert.notEqual(r.strip()!.dataset.fill, undefined);
+	const [old1, old2] = r.by("zen-hl").map((el) => el.style.animationDelay);
+	assert.notEqual(old1, `${CLEAR_MS / 1000}s`, "the old line's delay is its age's");
+	assert.notEqual(old2, `${CLEAR_MS / 1000}s`);
 });
 
 test("a click on the hint unfolds the input, focused; Enter on the circle does the same when no control has the focus, and nothing else on the keyboard does", async () => {

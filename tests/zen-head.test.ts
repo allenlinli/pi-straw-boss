@@ -168,7 +168,7 @@ test("a later page that carries older head lines than the strip first held reads
 	assert.equal(live(), "answer 6", "a new reply still is");
 });
 
-test("the strip fills the page exactly while the mindfulness line is away (data-fill): not at rest, not once every line has faded, back with the open input (a hover only sends the mindfulness line away), gone with Esc and with the next visit (Z-D21)", async () => {
+test("the strip fills the page while the boss has it awake (data-fill): not at rest, not once every line has faded, back with the open input (a hover only sends the mindfulness line away), gone with Esc and with the next visit (Z-D21)", async () => {
 	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "ok", 2)] });
 	const fill = () => r.strip()!.dataset.fill !== undefined;
 	await r.start();
@@ -1241,6 +1241,14 @@ test("a press on a control in the strip fills nothing until its click, so the pa
 	await r.settle();
 	r.hint().focus();
 	assert.equal(fill(), true, "a focus without a press (Tab) wakes the strip and fills");
+	r.z.hide();
+	// a press in the strip released outside it (a drag onto the circle): the press is over, so a later Tab still wakes (ZHR2-F001)
+	await r.start();
+	await r.settle();
+	r.hint().bubble("pointerdown", { pointerType: "mouse" });
+	for (const on of page.on.pointerup ?? []) on({ target: page.body });
+	r.hint().focus();
+	assert.equal(fill(), true, "a release outside the strip ends the press: the Tab after it wakes and fills");
 });
 
 test("once every line has rested the strip stops redrawing: no timer re-arms and the hint's text is not rewritten (ZHR-F003)", async () => {

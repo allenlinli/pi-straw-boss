@@ -3,7 +3,8 @@ import { test } from "node:test";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
 import { type Alert, alertsOf, ownOpenings } from "../gui/alerts.ts";
-import { createZen, OUTCOME_MS, PAUSE_MS, REST_MS, type Screen } from "../gui/zenmodel.ts";
+import type { BossCard } from "../gui/cardalerts.ts";
+import { blocks, createZen, OUTCOME_MS, PAUSE_MS, REST_MS, type Screen } from "../gui/zenmodel.ts";
 
 const al = (key: string, mark: Mark, since?: number, extra: Partial<Alert> = {}): Alert => ({ key, ws: "w", name: key, role: "main", mark, at: 0, since, ...extra });
 const map = (...a: Alert[]) => new Map(a.map((x) => [x.key, x]));
@@ -400,4 +401,12 @@ test("Z-D18: a question that waits behind a card being answered says so in why()
 	touch(false);
 	z.tick();
 	assert.match(z.why(WAIT().key) ?? "", /is on the screen and was waiting first/, "behind the question now, not put aside");
+});
+
+test("Z-D18: every kind of card has a rank, and a kind nobody ranked blocks (a question that waits is not buried)", () => {
+	const ranked: Record<BossCard["kind"], boolean> = { dialog: true, confirm: true, pair: false, proposal: false }; // a new kind in BossCard fails the type check here until it is ranked in `blocks`
+	for (const [kind, rank] of Object.entries(ranked)) assert.equal(blocks({ ...al("k", "waiting"), card: { kind } as never }), rank, kind);
+	assert.equal(blocks({ ...al("k", "waiting"), card: { kind: "from-the-future" } as never }), true, "unknown at run time: blocking");
+	assert.equal(blocks(WAIT()), false);
+	assert.equal(blocks(al("u", "waiting")), true);
 });

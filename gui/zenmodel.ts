@@ -13,9 +13,18 @@ const questionOf = (a: Alert) => `${a.key}|${a.pending?.answer ? `${a.pending.an
 
 /**
  * Whether an item blocks an agent that cannot go on until the boss answers (Z-D18, docs/specs/2026-11-01-zen-view.md, Blocking first): a unit that waits or has a dialog, a trust question, a question a box forwarded, a teammate's confirm. A tower's wait, a pair request, and a memory
- * proposal block no one: they rank below, and an untouched one yields the screen to a blocking question.
+ * proposal block no one: they rank below, and an untouched one yields the screen to a blocking question. A kind of card nobody ranked fails the type check (`unranked`), and one that is unknown at run time blocks: a question that waits is not buried.
  */
-export const blocks = (a: Alert) => !a.wait && (!a.card || a.card.kind === "dialog" || a.card.kind === "confirm");
+const unranked = (_kind: never): true => true;
+export function blocks(a: Alert): boolean {
+	if (a.wait) return false;
+	const kind = a.card?.kind;
+	switch (kind) {
+		case undefined: case "dialog": case "confirm": return true;
+		case "pair": case "proposal": return false;
+		default: return unranked(kind);
+	}
+}
 
 /** A session Zen keeps company with: its key and its base. */
 export interface With { key: string; ws: string }

@@ -82,7 +82,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		await settle();
 	};
 	return {
-		z, root, calls, advance, settle, items, now: () => t,
+		z, root, calls, advance, settle, items, now: () => t, pending: () => timers.map((e) => e.at - t),
 		feed: (n: Net) => ((netNow = n), z.net(alertsOf(n, t), n)),
 		reply: async (body: Record<string, unknown>, status = 200) => (replies.shift()!({ ok: status < 400, status, body }), await settle()),
 		button: (text: string) => root.all((el) => el.tagName === "button" && el.textContent === text)[0],
@@ -1968,6 +1968,7 @@ const waitAndBox = (r: { now(): number }, box: boolean) => {
 const escape = (r: ReturnType<typeof rig>) => r.z.escape({ preventDefault() {} });
 const whoIs = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("zen-card") && el.getAttribute("data-gone") === null).map((c) => c.all((el) => el.classes.has("zen-who"))[0]?.textContent);
 const BOX_KEY = `link-dialog\u001fdlg-1`;
+const OUTCOME = 1200, PAUSE = 3000;
 
 test("Z-D18: a question a box forwarded takes the screen from an untouched tower wait with the bowl, and the wait comes back after the answer, not put aside", async () => {
 	const sent = server();
@@ -2066,4 +2067,183 @@ test("Z-D18: a question that is the screen is not replaced by a wait, however ol
 	assert.deepEqual(whoIs(r), ["waydosoft asks you"], "the question first, though the wait is older");
 	assert.ok(!r.text().includes("Boss token needed"));
 	assert.equal(r.by((el) => /\b\d+\b.*(more|waiting|queued)/i.test(el.textContent) && el.classes.has("zen-card")).length, 0);
+});
+
+// --- Z-D18 review fixes (ZBF-F001 to F006) ---------------------------------------------------------------------------------------------------------------------------------------------------------
+
+const liveCard = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("zen-card") && el.getAttribute("data-gone") === null)[0]!;
+const inertAt = (el: El | undefined) => { for (let e = el; e; e = e.parent) if (e.hasAttribute("inert")) return true; return false; };
+const within = (el: El | undefined, of: El) => { for (let e = el; e; e = e.parent) if (e === of) return true; return false; };
+
+test("ZBF-F001: the card that preempts is inert while the old card dissolves, so a tap or a key aimed at the old card cannot land on the new one; it is live, and takes the focus, when the dissolve has ended", async () => {
+	server();
+	const r = rig();
+	r.feed(waitAndBox(r, false));
+	r.z.show();
+	await r.settle();
+	const handle = r.button("Handle")!;
+	handle.focus(); // the boss's keyboard is on the old card
+	r.feed(waitAndBox(r, true));
+	assert.equal(r.by((el) => el.getAttribute("data-gone") !== null).length, 1, "the old card is still drawn, dissolving");
+	assert.equal(inertAt(liveCard(r)), true, "the question is drawn, and nothing on it answers yet: no pointer, no key");
+	assert.equal(within(page.focused as El | undefined, liveCard(r)), false, "and it took no focus");
+	escape(r); // Esc aimed at the old card's Maybe later
+	assert.deepEqual(whoIs(r), ["waydosoft asks you"], "does not put the question aside");
+	await r.advance(1200);
+	assert.equal(inertAt(liveCard(r)), true, "the old card is still fading: 1.3 s");
+	await r.advance(200);
+	assert.equal(inertAt(liveCard(r)), false, "the dissolve ended");
+	assert.equal(page.focused, r.by((el) => el.getAttribute("role") === "radio")[0], "now the first choice has the focus");
+	assert.equal(r.calls.posts.length, 0, "nothing was answered");
+	escape(r);
+	assert.equal(r.by((el) => el.getAttribute("data-gone") !== null).length, 0);
+});
+
+test("ZBF-F001: under reduced motion the old card is gone at once, and the new one is live after a shorter moment (half a second)", async () => {
+	server();
+	Object.assign(globalThis, { matchMedia: (q: string) => ({ matches: /reduce/.test(q) }) });
+	try {
+		const r = rig();
+		r.feed(waitAndBox(r, false));
+		r.z.show();
+		await r.settle();
+		r.feed(waitAndBox(r, true));
+		assert.equal(inertAt(liveCard(r)), true);
+		await r.advance(400);
+		assert.equal(inertAt(liveCard(r)), true);
+		await r.advance(150);
+		assert.equal(inertAt(liveCard(r)), false);
+	} finally {
+		Object.assign(globalThis, { matchMedia: () => ({ matches: false }) });
+	}
+});
+
+test("ZBF-F001: a card that is not a preempt (the first one, the next one after the pause) is live at once", async () => {
+	server();
+	const r = rig();
+	r.feed(waitAndBox(r, false));
+	r.z.show();
+	await r.settle();
+	assert.equal(inertAt(liveCard(r)), false);
+	assert.ok(page.focused, "and has the focus as before");
+});
+
+test("ZBF-F002: an open reply box and a draft hold the screen only while the boss typed, tapped, or scrolled in the last 20 s; after that the question takes the screen and the wait comes back with its draft and its box open", async () => {
+	server();
+	const r = rig();
+	r.feed(waitAndBox(r, false));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.bubble("pointerdown", {});
+	r.button("Handle")!.click();
+	const box = waitBox(r);
+	box.value = "Use the staging";
+	box.bubble("input", {});
+	r.feed(waitAndBox(r, true));
+	await wait(r, DRAFT_MS - 1000);
+	assert.ok(r.text().includes("Boss token needed") && !r.text().includes("waydosoft asks you"), "within 20 s of the last input: the wait stays");
+	assert.deepEqual(r.calls.sound, ["bowl"]);
+	await wait(r, 2000);
+	assert.deepEqual(whoIs(r), ["waydosoft asks you"], "the box is open and holds a draft, and 20 s have passed: the question takes the screen");
+	assert.deepEqual(r.calls.sound, ["bowl", "bowl"]);
+	r.by((el) => el.getAttribute("role") === "radio")[0]!.click();
+	r.button("Send answer")!.click();
+	await r.settle();
+	r.feed(waitAndBox(r, false)); // the box's dialog closed
+	await wait(r, OUTCOME + PAUSE + 600);
+	assert.ok(r.text().includes("Boss token needed"), "the wait is back in line, by itself");
+	assert.equal(waitBox(r), box, "the same box");
+	assert.equal(box.value, "Use the staging", "with the draft kept");
+	assert.equal(box.parent!.hidden, false, "and the box open");
+	assert.deepEqual(r.calls.sound.slice(-1), ["bowl"]);
+});
+
+test("ZBF-F002: a wait card whose draft is gone with its answer, or whose wait was answered elsewhere while it yielded, comes back as none", async () => {
+	server();
+	const r = rig();
+	r.feed(waitAndBox(r, false));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.bubble("pointerdown", {});
+	r.button("Handle")!.click();
+	waitBox(r).value = "an old draft";
+	r.feed(waitAndBox(r, true));
+	await wait(r, DRAFT_MS + 1000);
+	assert.deepEqual(whoIs(r), ["waydosoft asks you"]);
+	const n = waitNet(r, "A different wait");
+	n.bases[0]!.tower!.service!.memory!.bossWaits[0]!.id = "W9"; // the wait the draft was for is gone: another wait stands
+	r.feed(n);
+	await wait(r, OUTCOME + PAUSE + 600);
+	assert.ok(r.text().includes("A different wait"));
+	assert.equal(waitBox(r).value, "", "a draft is not carried to another wait");
+});
+
+test("ZBF-F002: on a hidden page the question that takes the screen after the 20 s reminds once", async () => {
+	server();
+	const r = rig();
+	r.feed(waitAndBox(r, false));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.bubble("pointerdown", {});
+	r.button("Handle")!.click();
+	waitBox(r).value = "x";
+	page.hidden = true;
+	r.z.visible(false);
+	r.feed(waitAndBox(r, true));
+	await wait(r, DRAFT_MS - 2000);
+	assert.deepEqual(r.calls.remind, [], "the wait holds the screen, and the page reminds for nothing");
+	await wait(r, 4000);
+	assert.ok(r.text().includes("waydosoft asks you"));
+	assert.deepEqual(r.calls.remind, [BOX_KEY], "once, for the question");
+	await wait(r, 5000);
+	assert.deepEqual(r.calls.remind, [BOX_KEY]);
+});
+
+test("ZBF-F003: Zen left and shown again does not read the old card: a question that waited behind an open box takes the screen at once, with no flash of the wait", async () => {
+	server();
+	const r = rig();
+	r.feed(waitAndBox(r, false));
+	r.z.show();
+	await r.settle();
+	r.button("Handle")!.bubble("pointerdown", {});
+	r.button("Handle")!.click();
+	r.feed(waitAndBox(r, true));
+	await r.advance(500);
+	assert.ok(r.text().includes("Boss token needed"), "held by the open box");
+	r.z.hide();
+	await wait(r, DRAFT_MS + 1000);
+	r.z.show();
+	assert.deepEqual(whoIs(r), ["waydosoft asks you"], "at once, not after a 500 ms look");
+	assert.ok(!r.text().includes("Boss token needed"));
+});
+
+test("ZBF-F005: a wheel on the card is a touch: a boss scrolling a long proposal keeps the card", async () => {
+	server();
+	const r = rig();
+	r.feed(waitAndBox(r, false));
+	r.z.show();
+	await r.settle();
+	r.by((el) => el.classes.has("zen-said"))[0]!.bubble("wheel", {});
+	r.feed(waitAndBox(r, true));
+	await wait(r, DRAFT_MS - 2000);
+	assert.ok(!r.text().includes("waydosoft asks you"));
+	await wait(r, 3000);
+	assert.ok(r.text().includes("waydosoft asks you"));
+});
+
+test("ZBF-F006: the 500 ms look stops when no blocking question waits, and when Zen is left", async () => {
+	server();
+	const r = rig();
+	r.feed(waitAndBox(r, false));
+	r.z.show();
+	await r.settle();
+	r.by((el) => el.classes.has("zen-said"))[0]!.bubble("pointerdown", {});
+	r.feed(waitAndBox(r, true));
+	assert.ok(r.pending().some((ms) => ms <= 600), "a question waits behind a touched card: the layer looks again soon");
+	r.feed(waitAndBox(r, false)); // it was answered elsewhere
+	assert.ok(r.pending().every((ms) => ms > 600), "nothing waits: no more looks");
+	r.feed(waitAndBox(r, true));
+	assert.ok(r.pending().some((ms) => ms <= 600));
+	r.z.hide();
+	assert.ok(r.pending().every((ms) => ms > 600), "Zen left: no more looks");
 });

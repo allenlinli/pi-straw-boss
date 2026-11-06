@@ -13,6 +13,17 @@ export function restrictLabel(text: string): string {
 	return cut || "?";
 }
 
+const OUTSIDE_OWNER = /[^A-Za-z0-9 ._\u00b7-]/g;
+
+/**
+ * `restrictLabel` for the unit that asked a question (`main · trial13`): the label character set plus U+00B7, the separator a tab's own session name carries (`unitLabel` in `src/server/dispatcher.ts`), so the notice reads the card's and the Link row's text.
+ * A middle dot forms no field, quote, or word of its own, and no other dot, bullet, or space is let through.
+ */
+export function restrictOwner(text: string): string {
+	const cut = text.replace(OUTSIDE_OWNER, "_").trim().slice(0, FIELD_MAX).trim();
+	return cut || "?";
+}
+
 /** A notice's text on printable ASCII (anything else becomes `_`), cut at `max` characters: a notice reaches agents through `boss_server`; peer fields in it are already label-restricted, so no byte of it is a peer's to choose. */
 export function restrictNotice(text: string, max = 300): string {
 	return text.replace(/[^\x20-\x7e]+/g, "_").slice(0, max);

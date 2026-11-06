@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { allyLabel } from "../boardauto.ts";
 import { cleanText, clean, BOARD, forAllies, purge, readEntries, wireId, type Entry } from "../board.ts";
 import { MAX_BODY_BYTES } from "./wire.ts";
-import { restrictLabel } from "./text.ts";
+import { restrictLabel, restrictOwner } from "./text.ts";
 import { createHash, randomBytes } from "node:crypto";
 import type { Session } from "../herdr.ts";
 import type { LinkConfig, Share } from "./config.ts";
@@ -1130,7 +1130,7 @@ export class LinkHolder {
 		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "dialog-open-unexpected", from: header.from, kind: "dialog-open" });
 		const fresh = this.dialogViews.put({ team: run.team, device: header.from, dialogId: p.dialogId, digest: p.digest, owner: p.owner, dialog: p.dialog, at: this.now() });
 		this.o.store.log({ event: "dialog-in", team: run.team, from: header.from, dialog: p.dialogId, fresh });
-		if (fresh) this.o.notify(`Straw Link: ${sender.label} asks a question (${restrictLabel(p.owner)})`, "warning");
+		if (fresh) this.o.notify(`Straw Link: ${sender.label} asks a question (${restrictOwner(p.owner)})`, "warning");
 	}
 	private takeDialogClose(run: TeamRun, header: Header, p: DialogClose): void {
 		// Only the team that holds the card may close it: a withdrawal sent on one team can arrive after the open on another.

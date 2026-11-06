@@ -23,7 +23,7 @@ A coordinator's anchor before handoff is its review (P0 and P1 clear) plus behav
 
 - `apps.json`: top level `"integration": {"skill", "maxCars", "maxWaitMin"}`; per app `"integration": {"base", "skill"?}`. An app without it keeps today's flow.
 - Skill headings, exactly: `## Light checks`, `## Train assembly`, `## Full gates`, `## Merge`, `## Post-merge`, optional `## Urgent lane`, `## Load`. Missing `Light checks`, `Full gates`, or `Merge`: the integrator does not depart and calls the tower with `why=blocked`.
-- Car slip: car, tickets, branch, head SHA, tested-on base SHA; review with P0=0 P1=0 and a report path; light result; migrations (`<names or none> (applied to a DB: no|<which>)`; an applied one returns the car); lane; the boss's authorization quoted; the coordinator. A missing field returns the slip.
+- Car slip: car, tickets, branch, head SHA, tested-on base SHA; review with P0=0 P1=0 and a report path (2026-11-06: an urgent fix-forward car of a red integration branch may carry the author's read instead; the train's reviewer gives it its first full-depth review and checks it holds only the fix); light result; migrations (`<names or none> (applied to a DB: no|<which>)`; an applied one returns the car); lane; the boss's authorization quoted; the coordinator. A missing field returns the slip.
 
 ## Prompt changes
 

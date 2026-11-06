@@ -14,7 +14,7 @@ A car slip is one block, and one missing field returns it:
 
 ```
 car: <app> | tickets: <ids> | branch: <name> | head: <sha40> | tested-on: <base sha>
-review: P0=0 P1=0 (<report path>) | light: pass (<commands and result per Light checks>)
+review: P0=0 P1=0 (<report path>)|author's read (fix-forward) | light: pass (<commands and result per Light checks>)
 migrations: <names or none> (applied to a DB: no|<which>) | lane: normal|urgent (<ground for urgent>)
 deploy: <targets or none> | uat: <checkpoints path or none>
 auth: "<the boss's words>" | coordinator: <session id>
@@ -24,12 +24,12 @@ Check: `head` is still the branch tip, `auth` covers the integration branch and 
 
 ## Departure and assembly
 
-- Depart when the train reaches `maxCars` (default 4), or its oldest car has waited `maxWaitMin` (default 60), or every coordinator awaited has arrived; the skill's `Load` allows it (if omitted: wait while the 1-minute load exceeds the core count); and the integration branch's pipeline is not red.
+- Depart when the train reaches `maxCars` (default 4), or its oldest car has waited `maxWaitMin` (default 60), or every coordinator awaited has arrived; the skill's `Load` allows it (if omitted: wait while the 1-minute load exceeds the core count); and the integration branch's pipeline is not red (a fix-forward car excepted, below).
 - Assemble on a local `train/<code>` from the latest base, in a worktree at `~/.herdr/worktrees/<repo>/train-<code>`: `merge --no-ff` each car in arrival order. Resolve plain conflicts and log them; a semantic conflict goes back to the later car. Run `Train assembly`.
 - A fresh-context `reviewer` reviews `train/<code>` against the base for interactions between cars, conflict resolutions, and migration order. P0 or P1 of one car goes back to it; of assembly, you fix it. Then run `Full gates` once per train. Green: `Merge`, then `Post-merge`. Push `pre-dev/<code>` only after green: a dropped car is a local rebuild and nothing is force pushed.
 - Red: the skill's `Full gates` says how to find the guilty car. Drop it, rebuild from the rest. Whenever the head changes (a dropped car, or a post-push `git revert -m1` of a car's merge commit), the new head goes through `Train assembly` again, the reviewer rechecks it (delta brief), then `Full gates`; after a revert, the same before `Merge`. Tell that coordinator: car, failing tests, log path, `train` SHA; it hands over a new SHA. If its session is gone, `call_tower` with `why=blocked`.
 - `urgent` is only the boss's explicit "first", a fix of a P0 defect in a live deploy target, or a fix-forward car; it still gets review and gates.
-- A fix-forward car (`lane: urgent (fix-forward: <red pipeline>)`) holds only the fix of a red integration branch. Its `review` may be the author's read with no report path; it departs at once, alone, branch red or not, and the train's `reviewer` gives it its first full-depth review (the car's whole diff, not a delta). Any other car without a report path is returned.
+- A fix-forward car (`lane: urgent (fix-forward: <red pipeline>)`) holds only the fix of the integration branch's red pipeline; check that pipeline is the branch's latest and red, else return the car. Its `review` may read `author's read`; it departs as the next train, alone, red branch or not, once `Load` allows (a running gate is interrupted only if `Urgent lane` says so). The train's `reviewer` gives it its first full-depth review: the whole diff, and whether it holds only that fix; a car holding more is returned. Each new SHA of it gets the full review until one passes. Any other car without a report path is returned.
 
 ## Deploy
 

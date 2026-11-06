@@ -914,7 +914,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen link cards: 100,661 / 36,512 measured, +329 / +692 over the figure above: the confirm's line (linkmodel.ts), the pair list the page hands to Zen (pagecore.ts), and the shared actions' module (asks.ts, loaded with the first press in the Link notices) now being imported by more lazy chunks, which makes the bundler keep towermodel.ts as a chunk of its own beside the page's. Cap = measured.
 	// Link card live (0.59.4): 101,146 / 36,717 measured, +438 / +164 over the figure above: the ally base's lazy load of the answer panel (render.ts: the waiting cards and the load, gui/allyasks.ts itself is a chunk) and one message in both languages. Cap = measured.
 	// Wait panel buttons (0.60.1): 101,439 / 36,812 measured, +293 / +95 over the figure above: three messages in both languages, the folded panel's CSS, and the session view's `here` flag. Cap = measured.
-	assert.ok(eagerBytes <= 101_439 && eagerGz <= 36_812, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// The head page, minimal (0.60.1): 103,723 / 37,553 measured, +2,284 / +741 over the figure above: the broadcast rows (headpage.ts), the actions row (headacts.ts), the head-only branches of the log, the session view and the memory footer, the messages in both languages, and the rows' CSS. Cap = measured.
+	assert.ok(eagerBytes <= 103_723 && eagerGz <= 37_553, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1055,7 +1056,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Blocking first re-review (zbf-rr-F001, a Space release the form never saw pressed): 311,127 / 127,385 measured, +63 / -11 over the figure above. The raw cap = measured; the gzip cap stays.
 	// Wait panel buttons (0.60.1): 311,776 / 127,731 measured, +649 / +346 over the figure above, all lazy: waitpanel.ts (the confirmation, the stale note, the folded panel) and the session view's `here` flag. Cap = measured.
 	// Composer divider and queued label (0.60.1, CSS only): raw unchanged, 127,754 gzipped measured, +23: the chunks' hashed names of the rebuilt stylesheet. Gzip cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 311_776 && total(chunks, gz) <= 127_754, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// The head page, minimal (0.60.1): 312,841 / 127,982 measured, +1,065 / +228 over the figure above: the head-only branches of the log and the broadcast rows' lazy parts. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 312_841 && total(chunks, gz) <= 127_982, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1171,7 +1173,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Zen head rest review fixes (ZHR-F004): 157,875 / 32,219 measured, +66 / +11 over the figure above: the folded hint's focus rule keeps its corners square. Cap = measured.
 	// Wait panel buttons (0.60.1): 158,209 / 32,276 measured, +334 / +57 over the figure above: `a.pair-btn` and the confirmation lines. Cap = measured.
 	// Composer divider and queued label (0.60.1): 158,525 / 32,343 measured, +316 / +67 over the figure above: the divider under the log, the dock gap while a strip shows, the label's nowrap. Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 158_525 && total(css, gz) <= 32_343, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// The head page, minimal (0.60.1): 160,071 / 32,639 measured, +1,546 / +296 over the figure above: the broadcast rows, the actions row, and the hidden entry's rule; the chips' rules are gone. Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 160_071 && total(css, gz) <= 32_639, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

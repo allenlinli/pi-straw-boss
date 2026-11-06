@@ -71,7 +71,7 @@ test("Standard's alerts are unchanged: alertsOf carries none of these, so the do
 
 test("the model takes them as items, and one the server no longer lists was settled elsewhere: the knock and the line", () => {
 	let t = NOW;
-	const z = createZen({ now: () => t, typing: () => false });
+	const z = createZen({ now: () => t, typing: () => false, touched: () => false });
 	const withCard = new Map(cardAlerts(net({ confirms: [CONFIRM] }), t, {}).map((a) => [a.key, a]));
 	const r = z.update(withCard);
 	assert.equal(r.screen.kind, "item");
@@ -81,7 +81,7 @@ test("the model takes them as items, and one the server no longer lists was sett
 
 test("a rest ends early when the question behind a card changes: another forwarded dialog under the same alert id", () => {
 	let t = NOW;
-	const z = createZen({ now: () => t, typing: () => false });
+	const z = createZen({ now: () => t, typing: () => false, touched: () => false });
 	const first = new Map(cardAlerts(net({ alerts: [dialog()] }), t, {}).map((a) => [a.key, a]));
 	assert.equal(z.update(first).screen.kind, "item");
 	z.skip();

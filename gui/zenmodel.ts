@@ -11,6 +11,12 @@ export const REST_MS = 10 * 60_000, OUTCOME_MS = 1200, HOLD_MS = 30_000, PAUSE_M
 /** What changes a resting item's question: its dialog (and digest), else its tool call; a trust question has its digest in its key. */
 const questionOf = (a: Alert) => `${a.key}|${a.pending?.answer ? `${a.pending.answer.dialog}:${a.pending.answer.digest}` : (a.pending?.callId ?? "")}`;
 
+/**
+ * Whether an item blocks an agent that cannot go on until the boss answers (Z-D18, docs/specs/2026-11-01-zen-view.md, Blocking first): a unit that waits or has a dialog, a trust question, a question a box forwarded, a teammate's confirm. A tower's wait, a pair request, and a memory
+ * proposal block no one: they rank below, and an untouched one yields the screen to a blocking question.
+ */
+export const blocks = (a: Alert) => !a.wait && (!a.card || a.card.kind === "dialog" || a.card.kind === "confirm");
+
 /** A session Zen keeps company with: its key and its base. */
 export interface With { key: string; ws: string }
 /** The session for company: the asked one while the net lists it live with control; else none, and the breathing circle shows (Z-D12: no tower stands in). */
@@ -19,14 +25,16 @@ export function companionOf(net: Net | undefined, asked: With | undefined): With
 	return asked && ws !== undefined ? { key: asked.key, ws } : undefined;
 }
 
-export interface ZenDeps { now(): number; /** The companion's box has text and a real input (tap, drag, wheel, key, or text input) in the last DRAFT_MS. */ typing(): boolean }
-export function createZen({ now, typing }: ZenDeps) {
+export interface ZenDeps { now(): number; /** The companion's box has text and a real input (tap, drag, wheel, key, or text input) in the last DRAFT_MS. */ typing(): boolean; /** The card on the screen is being answered (zentouch.ts): a blocking question does not take the screen from it. */ touched(): boolean }
+export function createZen({ now, typing, touched }: ZenDeps) {
 	let alerts = new Map<string, Alert>(), screen: Screen = { kind: "companion" }, until = 0, hidden = false, quiet = false, back = false;
 	const seen = new Map<string, number>(), rests = new Map<string, { until: number; q: string }>();
 	let sound: Sound | undefined;
 	const items = () => waitingOf(alerts.values()).filter((a) => a.mark !== "error");
 	const age = (a: Alert) => a.since ?? seen.get(a.key) ?? now();
-	const next = () => items().filter((a) => !rests.has(a.key)).sort((a, b) => age(a) - age(b) || (a.key < b.key ? -1 : 1))[0];
+	const next = () => items().filter((a) => !rests.has(a.key)).sort((a, b) => Number(blocks(b)) - Number(blocks(a)) || age(a) - age(b) || (a.key < b.key ? -1 : 1))[0]; // blocking first, then the one that has waited longest
+	/** The blocking question waiting for a lower card on the screen to be let go of. */
+	const yielding = () => { const n = screen.kind === "item" && !screen.outcome && !blocks(screen.item) ? next() : undefined; return n && blocks(n) ? n : undefined; };
 	const take = (item: Alert) => ((screen = { kind: "item", item }), (quiet = false), (sound = "bowl"));
 	const pause = () => ((screen = { kind: "pause" }), (until = now() + PAUSE_MS));
 	const leave = (outcome: Outcome | undefined, snd: Sound | undefined) => (outcome ? ((screen = { ...(screen as Extract<Screen, { kind: "item" }>), outcome }), (until = now() + OUTCOME_MS), snd && !quiet && (sound = snd)) : pause());
@@ -44,6 +52,8 @@ export function createZen({ now, typing }: ZenDeps) {
 			}
 		}
 		if (screen.kind === "item" && screen.outcome && until <= now()) pause();
+		const urgent = yielding(); // a card that blocks no one and is not being answered gives up the screen; it stays eligible, in its place by age, and is no Later
+		if (urgent && !touched()) take(urgent);
 		// A pause is for a boss who is there to breathe: a page that is not shown has none, so an item that waits ends it at once (its card is drawn and the page reminds, as on any hidden page). With nothing waiting it is kept until the page is shown.
 		if (screen.kind === "pause" && ((until <= now() && !hidden) || (hidden && next()))) screen = { kind: "companion" };
 		if (screen.kind === "companion" && !typing()) { const n = next(); if (n) take(n); }
@@ -71,10 +81,13 @@ export function createZen({ now, typing }: ZenDeps) {
 			if (screen.kind === "item" && screen.item.key === key) return undefined;
 			if (!items().some((x) => x.key === key)) return undefined;
 			if (rests.has(key)) return "it was put aside (Maybe later), or just answered";
+			if (yielding()?.key === key) return "the card on the screen is being answered";
 			if (screen.kind === "item") return `${screen.item.key} is on the screen and was waiting first`;
 			if (screen.kind === "pause") return hidden ? "a pause holds the page, which is hidden" : "the pause after a card is on";
 			return typing() ? "the boss is typing in the companion's box" : "it is next";
 		},
+		/** A blocking question waits behind a card the boss is answering: the layer looks again soon, as it does at a draft. */
+		deferred: () => Boolean(yielding()),
 		/** The soonest moment ahead at which something may change, for the layer's one timer (a time already past is settled by the call that saw it). */
 		due: () => [until, ...[...rests.values()].map((r) => r.until)].filter((t) => t > now()).sort((a, b) => a - b)[0],
 	};

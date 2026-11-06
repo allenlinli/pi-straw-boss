@@ -3,15 +3,15 @@ import { test } from "node:test";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
 import { type Alert, alertsOf, ownOpenings } from "../gui/alerts.ts";
-import { createZen, OUTCOME_MS, PAUSE_MS, REST_MS } from "../gui/zenmodel.ts";
+import { createZen, OUTCOME_MS, PAUSE_MS, REST_MS, type Screen } from "../gui/zenmodel.ts";
 
 const al = (key: string, mark: Mark, since?: number, extra: Partial<Alert> = {}): Alert => ({ key, ws: "w", name: key, role: "main", mark, at: 0, since, ...extra });
 const map = (...a: Alert[]) => new Map(a.map((x) => [x.key, x]));
 const dlg = (digest: string) => ({ callId: "c", tool: "ask_user", answer: { dialog: "d", digest } });
 function rig(typing = false) {
-	let t = 1_000_000, typed = typing;
-	const z = createZen({ now: () => t, typing: () => typed });
-	return { z, at: (ms: number) => (t += ms), type: (on: boolean) => (typed = on), now: () => t };
+	let t = 1_000_000, typed = typing, touch = false;
+	const z = createZen({ now: () => t, typing: () => typed, touched: () => touch });
+	return { z, at: (ms: number) => (t += ms), type: (on: boolean) => (typed = on), touch: (on: boolean) => (touch = on), now: () => t };
 }
 const unit = (key: string, mark: Mark, o: Partial<Unit> = {}): Unit => ({ id: key, key, control: true, name: key, role: "main", mark, subs: [], ...o });
 const net = (units: Unit[], trust: Net["trust"] = []): Net => ({ bases: [{ id: "w", label: "w", mark: "idle", tower: { name: "tower", mark: "idle", key: "t", control: true, subs: [{ ...unit("sub", "waiting", { role: "subagent", since: 5 }) }] }, tabs: [{ id: "t1", label: "t", units }], outposts: [], outside: [] }], trust });
@@ -282,4 +282,122 @@ test("T1: Zen shown again after Standard had the page: an item still on the scre
 	const settled = live.z.update(map());
 	assert.equal(settled.screen.kind === "item" && settled.screen.outcome, "elsewhere", "a question that is settled while Zen shows is still the knock and the line");
 	assert.equal(settled.sound, "knock");
+});
+
+// Z-D18 (docs/specs/2026-11-01-zen-view.md, Blocking first): a question that blocks an agent outranks a tower wait or a notice-type card, and takes the screen from one the boss has not touched.
+const WAIT = (since = 1) => al(`wait\u001fw\u001fW1`, "waiting", since, { unit: "t", role: "tower", wait: { id: "W1", text: "Boss token needed" } });
+const BOX = (since = 100, id = "d1") => al(`link-dialog\u001f${id}`, "waiting", since, { ws: "", role: "none", pending: dlg(id) as never, card: { kind: "dialog", device: "dev", dialogId: id, digest: id, line: "asks" } });
+const CONFIRM = (since = 1) => al("link-confirm\u001fc1", "waiting", since, { ws: "", role: "none", card: { kind: "confirm", confirm: {} as never } });
+const PAIR = (since = 1) => al("pair\u001fp1", "waiting", since, { ws: "", role: "none", card: { kind: "pair", request: {} as never } });
+const PROPOSAL = (since = 1) => al("proposal\u001fw\u001fP1", "waiting", since, { unit: "t", role: "tower", card: { kind: "proposal", ws: "w", tower: "t", proposal: {} as never, rev: 1 } });
+const keyOf = (r: { screen: Screen }) => (r.screen.kind === "item" ? r.screen.item.key : r.screen.kind);
+
+test("Z-D18: a question that blocks an agent takes the screen from an untouched tower wait, with the bowl, and the wait goes back in line", () => {
+	const { z, at } = rig();
+	assert.equal(keyOf(z.update(map(WAIT()))), WAIT().key);
+	const r = z.update(map(WAIT(), BOX()));
+	assert.deepEqual([keyOf(r), r.sound], [BOX().key, "bowl"]);
+	z.accepted(BOX().key);
+	at(OUTCOME_MS);
+	assert.equal(z.tick().screen.kind, "pause");
+	at(PAUSE_MS);
+	const back = z.update(map(WAIT())); // the box dialog is gone: answered
+	assert.deepEqual([keyOf(back), back.sound], [WAIT().key, "bowl"], "the wait comes back by itself, not put aside for ten minutes");
+});
+
+test("Z-D18: every kind that blocks an agent preempts every kind that blocks none", () => {
+	const blocking: [string, Alert][] = [
+		["a waiting unit", al("u", "waiting", 100)],
+		["a unit with a dialog", al("d", "working", 100, { pending: dlg("x") as never })],
+		["a trust question", al("trust\u001f/x\u001fg", "waiting", 100, { ws: "", trust: { id: "t", digest: "g", folder: "/x", found: [], agents: [] } as never })],
+		["a question a box forwarded", BOX()],
+		["a teammate's confirm (its tool call waits up to ten minutes)", CONFIRM(100)],
+	];
+	const lower: [string, Alert][] = [["a tower wait", WAIT()], ["a pair request", PAIR()], ["a memory proposal", PROPOSAL()]];
+	for (const [bn, b] of blocking) for (const [ln, l] of lower) {
+		const { z } = rig();
+		assert.equal(keyOf(z.update(map(l))), l.key, ln);
+		assert.equal(keyOf(z.update(map(l, b))), b.key, `${bn} takes the screen from ${ln}`);
+	}
+});
+
+test("Z-D18: a teammate's confirm is blocking: it keeps the screen against an older wait and takes it from an untouched one", () => {
+	const a = rig();
+	assert.equal(keyOf(a.z.update(map(CONFIRM(100)))), CONFIRM().key);
+	assert.equal(keyOf(a.z.update(map(CONFIRM(100), WAIT(1)))), CONFIRM().key);
+	const b = rig();
+	b.z.update(map(WAIT(1)));
+	assert.equal(keyOf(b.z.update(map(WAIT(1), CONFIRM(100)))), CONFIRM().key);
+});
+
+test("Z-D18: a lower item never preempts a blocking one, however old it is", () => {
+	for (const l of [WAIT(1), PAIR(1), PROPOSAL(1)]) {
+		const { z } = rig();
+		assert.equal(keyOf(z.update(map(BOX()))), BOX().key);
+		const r = z.update(map(BOX(), l));
+		assert.deepEqual([keyOf(r), r.sound], [BOX().key, undefined], l.key);
+	}
+});
+
+test("Z-D18: a touched card is not interrupted, and gives the screen up when the boss lets go of it", () => {
+	const { z, touch, at } = rig();
+	z.update(map(WAIT()));
+	touch(true);
+	const r = z.update(map(WAIT(), BOX()));
+	assert.deepEqual([keyOf(r), r.sound, z.deferred()], [WAIT().key, undefined, true], "typing, a pick, a fold: the card stays");
+	assert.equal(keyOf(z.tick()), WAIT().key);
+	touch(false);
+	at(500);
+	assert.deepEqual([keyOf(z.tick()), z.deferred()], [BOX().key, false]);
+});
+
+test("Z-D18: a card whose answer was just accepted is not preempted; the blocking question follows the pause", () => {
+	const { z, at } = rig();
+	z.update(map(WAIT()));
+	z.accepted(WAIT().key);
+	assert.equal(keyOf(z.update(map(WAIT(), BOX()))), WAIT().key, "the outcome is on the screen");
+	at(OUTCOME_MS);
+	assert.equal(z.tick().screen.kind, "pause");
+	at(PAUSE_MS);
+	assert.equal(keyOf(z.tick()), BOX().key, "the wait is held for 30 s, so the question comes first either way");
+});
+
+test("Z-D18: a question that arrives during a pause waits for the pause, like any arrival", () => {
+	const { z, at } = rig();
+	z.update(map(PAIR()));
+	z.skip();
+	assert.equal(z.tick().screen.kind, "pause");
+	at(1000);
+	assert.equal(keyOf(z.update(map(PAIR(), BOX()))), "pause");
+	at(PAUSE_MS);
+	assert.equal(keyOf(z.tick()), BOX().key);
+});
+
+test("Z-D18: from the companion, blocking questions come oldest first and before an older wait; then the lower ones, oldest first", () => {
+	const { z, at } = rig();
+	const all = map(WAIT(1), BOX(60, "late"), BOX(50, "early"), PAIR(2));
+	assert.equal(keyOf(z.update(all)), BOX(50, "early").key);
+	z.skip();
+	at(PAUSE_MS);
+	assert.equal(keyOf(z.update(all)), BOX(60, "late").key);
+	z.skip();
+	at(PAUSE_MS);
+	assert.equal(keyOf(z.update(all)), WAIT().key);
+});
+
+test("Z-D18: with a wait on the screen, two blocking questions arriving together take it oldest first", () => {
+	const { z } = rig();
+	z.update(map(WAIT(1)));
+	assert.equal(keyOf(z.update(map(WAIT(1), BOX(60, "late"), BOX(50, "early")))), BOX(50, "early").key);
+});
+
+test("Z-D18: a question that waits behind a card being answered says so in why(), and the card that yielded is no resting item", () => {
+	const { z, touch } = rig();
+	z.update(map(WAIT()));
+	touch(true);
+	z.update(map(WAIT(), BOX()));
+	assert.match(z.why(BOX().key) ?? "", /being answered/);
+	touch(false);
+	z.tick();
+	assert.match(z.why(WAIT().key) ?? "", /is on the screen and was waiting first/, "behind the question now, not put aside");
 });

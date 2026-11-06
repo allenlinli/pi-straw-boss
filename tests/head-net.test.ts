@@ -65,7 +65,7 @@ test("a secondary slot's key is the seam's: the registry and the unit carry it",
 });
 
 test("the head service is the unit's: state, queue rows, the asks and `said` from the seam; the head workspace is no base and the registry holds its pane and the newest chapter's file", () => {
-	const asks = [{ id: "H1", workspace: "wA", label: "Alpha", at: 1000, open: true, last: "landed" }];
+	const asks = [{ id: "H1", group: "H1", workspace: "wA", label: "Alpha", since: 900, at: 1000, first: "go", state: "answered" as const, answers: 1, last: "landed" }];
 	const { net, refs } = headWorld(
 		(w) => (w === "wH" ? view({ state: "waking", queued: 1, queue: [{ text: "boss: ship it", as: "followUp" }], file: TWO }) : undefined),
 		seam({ asks: () => asks, said: (f) => (f === ONE || f === TWO ? 4242 : undefined), chapters: () => [{ n: 1, file: ONE, from: "2026-11-01T00:00:00Z", to: "2026-11-03T00:00:00Z", why: "the first conversation" }, { n: 2, file: TWO, from: "2026-11-03T00:00:00Z", why: "the last one grew past 8 MB" }] }),
@@ -119,7 +119,7 @@ test("netSource reads the head seam with the net: the key is findable, and Base.
 	assert.ok(net.bases.every((b) => !("head" in b)));
 });
 
-test("the server's seam: the head's key by slot, its newest asks with the open ones marked, its chapters, and the time of the newest assistant text, read again only when the file changed", () => {
+test("the server's seam: the head's key by slot, its newest asks with their state, its chapters, and the time of the newest assistant text, read again only when the file changed", () => {
 	const dir = mkdtempSync(join(tmpdir(), "psb-head-seam-")), slot = slotOf(dir, { HOME: dir }), T0 = Date.parse("2026-11-04T08:00:00Z");
 	try {
 		const seam = headSeam(slot, () => T0 + 60_000);
@@ -127,7 +127,7 @@ test("the server's seam: the head's key by slot, its newest asks with the open o
 		const a = openAsk(slot, T0, { workspace: "wA", label: "Alpha", first: "do it" });
 		openAsk(slot, T0 + 1, { workspace: "wB", label: "Beta", first: "and this" });
 		answerAsk(slot, T0 + 30_000, { id: a.id, workspace: "wA", text: "landed\nmore" });
-		assert.deepEqual(seam.asks().map((r) => [r.id, r.workspace, r.open, r.last]), [["H1", "wA", true, "landed"], ["H2", "wB", true, undefined]]);
+		assert.deepEqual(seam.asks().map((r) => [r.id, r.workspace, r.state, r.last]), [["H1", "wA", "answered", "landed"], ["H2", "wB", "waiting", undefined]]);
 		assert.equal(seam.asks()[0]!.at, T0 + 30_000, "the time of its last forward or answer");
 		const conversation = join(SESSIONS, "2026_head.jsonl");
 		appendChapter(slot, T0, conversation, "the first conversation");

@@ -1,4 +1,5 @@
 import type { Base, TowerService } from "../src/net.ts";
+import { WAIT_FRESH_MS } from "../src/waitlapse.ts";
 import type { Alert } from "./alerts.ts";
 import { m } from "./paraglide/messages.js";
 
@@ -10,7 +11,7 @@ type Opts = { locale?: "en" | "zh-TW" };
 export interface WaitInfo { id: string; text: string }
 type BossWait = NonNullable<TowerService["memory"]>["bossWaits"][number];
 /** A wait older than this raises no alert (the boss was told long ago, and a page that opens would buzz at it every time); it stays on the card and in the memory, marked as possibly out of date. */
-export const FRESH_MS = 86_400_000;
+export const FRESH_MS = WAIT_FRESH_MS;
 const age = (at: string, now: number) => now - Date.parse(at);
 
 /** How long a wait has stood in the page's language (hours, then days); nothing under an hour or when the time cannot be read. */

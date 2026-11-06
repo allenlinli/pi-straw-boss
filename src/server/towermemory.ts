@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { clean } from "../board.ts";
 import type { MemorySummary } from "../net.ts";
+import { lapsedWait } from "../waitlapse.ts";
 import type { Log } from "./log.ts";
 import type { Slot } from "./record.ts";
 import { ageOf } from "./towerbrief.ts";
@@ -352,11 +353,17 @@ export function markShown(slot: Slot, workspace: string, now: number, ids: strin
 	updateMemory(slot, workspace, now, (m) => void m.entries.forEach((e) => ids.includes(e.id) && e.state === "expired" && (e.shown = true)));
 }
 
-/** What the net snapshot carries: counts, the rev the panel compares with its own, the waits for the boss with their text, and the proposals waiting for the boss. */
-export function memorySummary(m: Memory): MemorySummary {
+/** Whether an open wait is past what the boss should still be asked: it has a `due` and that has passed, or it has none and it is a day old (the page's FRESH window). Anything else is not a wait, so never lapsed. */
+export const lapsed = (e: Entry, now: number): boolean => isOpen(e) && lapsedWait(e, now);
+
+/**
+ * What the net snapshot carries: counts, the rev the panel compares with its own, the waits for the boss with their text, and the proposals waiting for the boss. With `now` (the head's summary, docs/specs/2026-11-06-head-page-minimal.md)
+ * the lapsed waits are left out of `bossWaits`, so the page, the Zen strip, and the alerts stop showing them; the file keeps them until they expire, and the count `waits` is of all that are open.
+ */
+export function memorySummary(m: Memory, now?: number): MemorySummary {
 	return {
 		rev: m.rev, standing: m.entries.filter((e) => e.kind === "standing").length, decisions: m.entries.filter((e) => e.kind === "decision").length, waits: m.entries.filter(isOpen).length,
-		bossWaits: m.entries.filter((e) => isOpen(e) && e.for === "boss").map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}) })), proposals: m.proposals.map(proposalView),
+		bossWaits: m.entries.filter((e) => isOpen(e) && e.for === "boss" && (now === undefined || !lapsed(e, now))).map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}) })), proposals: m.proposals.map(proposalView),
 	};
 }
 /** The memory as the panel reads it, swept as of `now`. */

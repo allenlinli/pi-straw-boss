@@ -192,6 +192,8 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor }: 
 		if (t.kind === "intercom") return intercomLabel(t.from);
 		return [t.kind === "server" ? m.notice_server() : m.notice_timer()];
 	};
+	/** An entry the head's page does not show (docs/specs/2026-11-06-head-page-minimal.md): it keeps its place in the log, hidden. */
+	const skipped = () => h("article", { class: "tx skip", hidden: "" });
 	function render(it: Item): HTMLElement {
 		switch (it.kind) {
 			case "user": {
@@ -202,16 +204,19 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor }: 
 				return you(it, boss ? boss.body : (it.text ?? ""), boss?.crashed, boss ? (it.text ?? "") : "");
 			}
 			case "assistant": {
-				const me = who(), body = h("pre", { class: "thought-text" }), more = it.thought ? h("button", { class: "thought", type: "button" }, it.thought < 0 ? m.thought_redacted() : m.thought_chars({ count: it.thought.toLocaleString() })) : null;
+				const me = who();
+				if (me.head && !it.text && !it.thought && !it.error && !it.stop) return skipped(); // the head's page shows its words: an entry of tool calls alone is not content there
+				const body = h("pre", { class: "thought-text" }), more = it.thought ? h("button", { class: "thought", type: "button" }, it.thought < 0 ? m.thought_redacted() : m.thought_chars({ count: it.thought.toLocaleString() })) : null;
 				if (it.thought && it.thought > 0) more?.addEventListener("click", () => fetchBody(more, body, it.id, (full) => full.thoughtText));
-				return h("article", { class: me.head ? "tx in head" : "tx in" }, icon(me.head ? "crown" : me.role), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? h("div", { class: "md" }, mount(parse(it.text))) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(it.tools ?? []).flatMap((t) => action(t, it.id))));
+				return h("article", { class: me.head ? "tx in head" : "tx in" }, icon(me.head ? "crown" : me.role), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? h("div", { class: "md" }, mount(parse(it.text))) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(me.head ? [] : it.tools ?? []).flatMap((t) => action(t, it.id))));
 			}
-			case "bash": return h("article", { class: "tx sys" }, h("details", { class: "act" }, h("summary", { "data-mark": it.exit ? "error" : "done" }, h("b", { class: "badge" }), h("code", null, "shell"), h("span", { class: "sum" }, `! ${it.command}`), it.exit ? h("span", { class: "stop", "data-mark": "error" }, m.exit_code({ code: it.exit })) : null), it.text ? h("pre", { class: "out" }, it.text) : null));
+			case "bash": if (who().head) return skipped(); return h("article", { class: "tx sys" }, h("details", { class: "act" }, h("summary", { "data-mark": it.exit ? "error" : "done" }, h("b", { class: "badge" }), h("code", null, "shell"), h("span", { class: "sum" }, `! ${it.command}`), it.exit ? h("span", { class: "stop", "data-mark": "error" }, m.exit_code({ code: it.exit })) : null), it.text ? h("pre", { class: "out" }, it.text) : null));
 			case "notice": {
 				// A run's event is read by what the server sent it as, not by its text (towerturns.ts `eventTurn`); a message to an ally run or a main carries the verified header, folded.
 				// The boss's own message is a YOU bubble only in a run of a tower the sb server runs: that is the one writer of `kind: "boss"` (runmode.ts), so anywhere else the same entry is a message another party wrote into a session, and shows as one.
 				const turn = eventTurn(it);
 				if (turn?.kind === "boss" && who().service) return you(it, turn.body, turn.crashed, it.text ?? "");
+				if (who().head && (turn?.kind === "server" || turn?.kind === "timer")) return skipped(); // the sb server's own markers are protocol, not something the boss reads
 				if (turn && turn.kind !== "boss") return notice(it, turnLabel(turn), turn.body, turn.kind === "link" ? { raw: turn.raw } : { crashed: turn.crashed });
 				return notice(it, [NOTICE[it.type ?? ""]?.() ?? it.type ?? m.notice(), " ", (it.from && link(it.from)) || (it.from ?? "")], it.text ?? "");
 			}

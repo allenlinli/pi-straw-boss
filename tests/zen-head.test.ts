@@ -530,7 +530,7 @@ test("the head page is one palette step away: its entry leaves Zen for the head 
 });
 
 test("nothing in the strip counts anything: no number for the asks, the queue, or the unread", async () => {
-	const busy = head({ asks: [{ id: "H3", workspace: "w1", label: "Harbor", at: 1, open: true }, { id: "H2", workspace: "w2", label: "Lighthouse", at: 1, open: true }], service: service({ queued: 4 }), queued: [{ id: "q1" }, { id: "q2" }] as never, said: Date.now() });
+	const busy = head({ asks: [{ id: "H3", group: "H2", workspace: "w1", label: "Harbor", since: 1, at: 1, first: "go", state: "waiting", answers: 0 }, { id: "H2", group: "H2", workspace: "w2", label: "Lighthouse", since: 1, at: 1, first: "go", state: "waiting", answers: 0 }], service: service({ queued: 4 }), queued: [{ id: "q1" }, { id: "q2" }] as never, said: Date.now() });
 	const r = rig({ head: busy, items: [headLine("a1", "Handed over.", 1)] });
 	await r.start();
 	await r.settle();

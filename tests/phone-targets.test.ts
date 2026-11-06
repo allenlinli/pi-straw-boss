@@ -158,3 +158,11 @@ test("the settings page's controls are 44 px on a phone: the rows, the sections'
 	assert.match(css, /\.lan, \.lan-main, \.lan-board, \.lan-pair, \.pair, \.devices \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 	assert.match(topRule(".lan"), /overflow-wrap:\s*anywhere/);
 });
+
+test("the head page's rows are tap targets of 44 px: each broadcast's row, the older fold, a tower's line and its link, and the buttons beside the composer (the shared phone rule covers `.pair-btn` and `.quit-btn`)", () => {
+	const rule = (selector: string) => css.split("\n").flatMap((l) => (l.startsWith(`${selector} {`) ? [l] : [])).join(" ");
+	for (const selector of [".ask-group > summary, .ask-older > summary", ".ask-line", "a.ask-name"]) assert.match(rule(selector) || css.split("\n").find((l) => l.includes(`${selector} {`)) || "", /min-height:\s*44px/, selector);
+	const shared = rules.find(([s]) => s.startsWith(":is(.pair-btn, .alerts"))!;
+	assert.ok(shared[0].includes(".pair-btn") && shared[0].includes(".quit-btn") && /min-height:\s*44px/.test(shared[1]), "End and New are `.pair-btn`, Close is `.quit-btn`");
+	assert.match(css, /\.head-acts \{[^}]*flex-wrap:\s*wrap/, "the row wraps instead of cutting a button off a 360 px screen");
+});

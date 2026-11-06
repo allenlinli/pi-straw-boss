@@ -1,14 +1,14 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { type Json, parse, toItem } from "../items.ts";
 import type { HeadAskRow, HeadSeam } from "../nethead.ts";
-import { readAsks, openAsks } from "./headasks.ts";
+import { groupsOf, openAsks, readAsks } from "./headasks.ts";
 import { readChapters } from "./headchapters.ts";
 import { headId, type Slot } from "./record.ts";
 
 // What the net needs of the server to show the head tower (docs/specs/2026-11-04-head-tower.md, The GUI channel, Snapshot): its key, its asks, its chapters, and when it last said something.
 
-/** The most asks the snapshot carries: the newest ones (the page shows chips for the open and the recently answered). */
-const ASKS = 20;
+/** The most asks the snapshot carries: the newest whole broadcasts (the page folds a group into one row, so a group is never cut). */
+const ASKS = 60;
 /** How far from the end of a conversation file the newest assistant text is looked for. */
 const TAIL = 65_536;
 
@@ -40,8 +40,17 @@ export function headSeam(slot: Slot, now: () => number): HeadSeam {
 	return {
 		key: headId(slot),
 		asks: (): HeadAskRow[] => {
-			const open = new Set(openAsks(slot, now()).map((a) => a.id));
-			return readAsks(slot, now()).slice(-ASKS).map((a) => ({ id: a.id, workspace: a.workspace, label: a.label, at: a.last, open: open.has(a.id), ...(a.answers.at(-1) ? { last: a.answers.at(-1)!.first } : {}) }));
+			const open = new Set(openAsks(slot, now()).map((a) => a.id)), all = readAsks(slot, now()), groups = groupsOf(all), kept = new Set<string>();
+			// The newest groups, whole, while they fit (the newest one always does).
+			let used = 0;
+			const sizes = new Map<string, number>();
+			for (const a of all) sizes.set(groups.get(a.id)!, (sizes.get(groups.get(a.id)!) ?? 0) + 1);
+			for (const g of [...new Set(all.map((a) => groups.get(a.id)!))].reverse()) {
+				if (used && used + sizes.get(g)! > ASKS) break;
+				used += sizes.get(g)!;
+				kept.add(g);
+			}
+			return all.filter((a) => kept.has(groups.get(a.id)!)).map((a) => ({ id: a.id, group: groups.get(a.id)!, workspace: a.workspace, label: a.label, since: a.at, at: a.last, first: a.first, state: a.answers.length ? "answered" : open.has(a.id) ? "waiting" : "silent", answers: a.answers.length, ...(a.answers.at(-1) ? { last: a.answers.at(-1)!.first } : {}) }));
 		},
 		chapters: () => readChapters(slot),
 		said: (file) => {

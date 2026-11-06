@@ -24,6 +24,8 @@ export interface HeadBriefInput {
 	workspaces: HeadWorkspace[];
 	asks: HeadAskLine[];
 	memory?: string;
+	/** The ids of the open waits that are lapsed (towermemory.ts `lapsed`): the page no longer shows them to the boss, so the run closes or renews them. */
+	lapsed?: string[];
 	note?: { text: string; age: string };
 	/** The tools the run has, one line each. */
 	tools: string[];
@@ -65,10 +67,11 @@ export function buildHeadBrief(i: HeadBriefInput): string {
 	const workspaces = ["Workspaces now:", ...(wsLines.length ? rowsWithin(wsLines, CAPS.workspaces) : ["- none open: ask the boss to open the project's workspace"])].join("\n");
 	const askLines = i.asks.map((a) => `- ${a.id} ${a.label}, ${a.age}: ${cut(one(a.first), 120)}${a.answer ? ` → ${cut(one(a.answer), 100)}` : ""}`);
 	const asks = askLines.length ? ["Open asks:", ...rowsWithin(askLines, CAPS.asks)].join("\n") : "";
+	const lapsed = i.lapsed?.length ? `Lapsed waits (the boss no longer sees them on the page): ${i.lapsed.join(", ")}. Resolve each with tower_memory resolve, or ask the boss again with a new due.` : "";
 	const note = i.note ? [`Handoff note from the last run (${i.note.age} ago):`, cut(i.note.text, CAPS.note)].join("\n") : "";
 	const tools = cut(["Tools:", ...i.tools, "Call tower_done with a handoff note when nothing is left for you."].join("\n"), 3600);
 	const limits = [...i.flags, i.boss ? "The boss is in this run: stay and answer them; it ends when they leave or are silent for 10 minutes." : "A run woken by a tower's answer ends after 20 minutes; with the boss away, tell him in one line and call tower_done."].join("\n");
-	const parts: Record<string, string> = { recap, workspaces, asks, memory: i.memory ?? "", note };
+	const parts: Record<string, string> = { recap, workspaces, asks, memory: i.memory ?? "", lapsed, note };
 	const size = () => [who, ...Object.values(parts), tools, limits].filter(Boolean).join("\n\n").length;
 	const MORE = (n: number) => `(+${n} more)`;
 	const pass = (name: string, floor: number, marker: (n: number) => string, none: string) => {
@@ -80,7 +83,7 @@ export function buildHeadBrief(i: HeadBriefInput): string {
 	pass("workspaces", 0, MORE, "Workspaces now: left out to fit the brief; call tower_list.");
 	pass("asks", 0, MORE, "Open asks: left out to fit the brief.");
 	pass("memory", 0, memoryMarker, memoryNone);
-	return cut([who, parts.recap, parts.workspaces, parts.asks, parts.memory, parts.note, tools, limits].filter(Boolean).join("\n\n"), BRIEF_MAX);
+	return cut([who, parts.recap, parts.workspaces, parts.asks, parts.memory, parts.lapsed, parts.note, tools, limits].filter(Boolean).join("\n\n"), BRIEF_MAX);
 }
 
 /** The tools of a head run, one line each (the fixed text of the brief). */

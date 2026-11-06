@@ -5,8 +5,11 @@ import type { Queued, Ref, TowerService, TowerView } from "./net.ts";
 
 // The head tower in the net snapshot (docs/specs/2026-11-04-head-tower.md, The GUI channel): the head unit the page draws, and the registry entry that makes the session key `sb-head` findable before the head exists.
 
-/** One of the head's asks as the page shows it (headasks.ts): the time is the ask's last forward or answer, `last` the first line of the newest answer. */
-export interface HeadAskRow { id: string; workspace: string; label: string; at: number; open: boolean; last?: string }
+/**
+ * One of the head's asks as the page shows it (headasks.ts, docs/specs/2026-11-06-head-page-minimal.md): `group` the id of the first ask of its broadcast, `since` when it was opened, `at` its last forward or answer, `first` the
+ * first line of the message, `state` `answered` when it has an answer (never otherwise), else `waiting` while it is open, else `silent`; `answers` counts them and `last` is the first line of the newest.
+ */
+export interface HeadAskRow { id: string; group: string; workspace: string; label: string; since: number; at: number; first: string; state: "waiting" | "answered" | "silent"; answers: number; last?: string }
 /** One chapter of the head's conversation (server/headchapters.ts): its pi session file and why it began. */
 export interface HeadChapter { n: number; file: string; from: string; to?: string; why: string }
 /** What the net needs of the server to show the head: its key (the identity), its asks and chapters, and the time of its newest assistant text in a conversation file. */

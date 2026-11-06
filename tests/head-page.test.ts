@@ -8,7 +8,8 @@ import { El, sessionGlobals, stored } from "./fake-dom.ts";
 // and the head found by the session view as the unit it is. In both languages. The pictures of every state are taken by hand from the demo (`?head=`).
 
 sessionGlobals();
-const { askChips, fillHeadAsks, fillHeadButton, fillHeadTitle, headDot, headLine, remember, seenAt, SEEN } = await import("../gui/headpage.ts");
+const { askGroups, fillHeadAsks, fillHeadButton, fillHeadTitle, groupLine, headDot, headLine, headMemory, remember, seenAt, SEEN } = await import("../gui/headpage.ts");
+const { fillHeadActs } = await import("../gui/headacts.ts");
 const { locate } = await import("../gui/scene.ts");
 const { towerRoute } = await import("../gui/towermodel.ts");
 const { formatRoute, parseRoute } = await import("../gui/router.ts");
@@ -16,7 +17,7 @@ const { m } = await import("../gui/paraglide/messages.js");
 const zh = { locale: "zh-TW" } as const;
 
 const NOW = Date.parse("2026-11-04T10:00:00Z");
-const ask = (over: Partial<HeadAskRow> = {}): HeadAskRow => ({ id: "H1", workspace: "wA", label: "MP Center", at: NOW - 12 * 60_000, open: true, ...over });
+const ask = (over: Partial<HeadAskRow> = {}): HeadAskRow => ({ id: "H1", group: "H1", workspace: "wA", label: "MP Center", since: NOW - 12 * 60_000, at: NOW - 12 * 60_000, first: "I am up", state: "waiting", answers: 0, ...over });
 const svc = (over: Partial<TowerService> = {}): TowerService => ({ state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], ...over });
 const head = (over: Partial<HeadUnit> = {}): HeadUnit => ({ key: "sb-head", name: "head tower", mark: "idle", state: "standing", service: svc(), asks: [], ...over });
 const btn = () => {
@@ -60,36 +61,97 @@ test("the header's button is there while the net has a head, carries its state, 
 	assert.doesNotMatch((b as unknown as El).dump(), /\d/, "a dot, never a number");
 });
 
-test("an ask is a chip: the workspace, how long ago, and open or answered; it links to that tower's comms when the net knows the tower, in both languages", () => {
-	const net = { bases: [{ id: "wA", label: "MP Center", mark: "idle", tower: { key: "sb-tower-wa", name: "tower · MP Center" }, tabs: [], outposts: [], outside: [] }] } as unknown as Net;
-	const chips = askChips([ask(), ask({ id: "H2", workspace: "wB", label: "Beta", open: false, at: NOW - 3 * 3600_000, last: "landed" })], NOW, net);
-	assert.deepEqual(chips.map((c) => [c.id, c.text, c.open, c.route]), [
-		["H1", "MP Center · 12m · open", true, "w/wA/s/sb-tower-wa"],
-		["H2", "Beta · 3h · answered", false, undefined],
+const HOUR = 3_600_000;
+const towers = (...ids: string[]) => ({ bases: ids.filter((id) => id !== "wX").map((id) => ({ id, label: id, mark: "idle", tower: { key: `sb-tower-${id}`, name: `tower · ${id}` }, tabs: [], outposts: [], outside: [] })) }) as unknown as Net;
+/** Five broadcasts of four workspaces, the way the demo has them (wX has no tower): the newest two are recent, the others older than a day. */
+const five = (): HeadAskRow[] => ["I am up", "Going out", "Continue, I am studying", "Back", "Going to sleep"].flatMap((first, g) => ["wA", "wB", "wC", "wX"].map((workspace, i): HeadAskRow => {
+	const since = NOW - (g < 2 ? (g + 1) * HOUR : (30 + g * 3) * HOUR), n = g * 4 + i + 1, answered = i === 0 && g !== 3;
+	return { id: `H${n}`, group: `H${g * 4 + 1}`, workspace, label: `Label ${workspace}`, since, at: answered ? since + 10 * 60_000 : since, first, state: answered ? "answered" : g < 2 ? "waiting" : "silent", answers: answered ? 1 : 0, ...(answered ? { last: `${workspace} is on it: ${first}` } : {}) };
+}));
+
+test("the asks are broadcasts: one group per `group`, newest first, its towers the distinct workspaces, a tower the net does not have has no route, and a group quiet for a day is older", () => {
+	const { recent, older } = askGroups(five(), NOW, towers("wA", "wB", "wC"));
+	assert.deepEqual(recent.map((g) => [g.id, g.first, g.towers.length, g.replied]), [["H1", "I am up", 4, 1], ["H5", "Going out", 4, 1]]);
+	assert.deepEqual(older.map((g) => g.id), ["H9", "H13", "H17"], "newest first among the older too");
+	assert.deepEqual(recent[0]!.towers.map((t) => [t.workspace, t.state, t.said, t.route]), [
+		["wA", "answered", "wA is on it: I am up", "w/wA/s/sb-tower-wA"], ["wB", "waiting", undefined, "w/wB/s/sb-tower-wB"], ["wC", "waiting", undefined, "w/wC/s/sb-tower-wC"], ["wX", "waiting", undefined, undefined],
 	]);
-	assert.equal(chips[1]!.title, "landed", "the first line of the answer is the tooltip");
-	assert.deepEqual(askChips([ask()], NOW, net, zh).map((c) => c.text), ["MP Center・12m・交辦中"]);
-	assert.deepEqual(askChips([ask({ open: false })], NOW, net, zh).map((c) => c.text), ["MP Center・12m・已回覆"]);
-	assert.deepEqual(askChips([], NOW, net), []);
+	// a workspace asked twice in one broadcast shows its best state and its newest answer; an old ask with no `group` is its own
+	const twice = askGroups([ask({ id: "H1", group: "H1", state: "silent", at: NOW - 5 * HOUR, since: NOW - 5 * HOUR }), ask({ id: "H2", group: "H1", state: "answered", answers: 1, last: "late", since: NOW - 4 * HOUR, at: NOW - HOUR }), { ...ask({ id: "H3" }), group: undefined as never }], NOW, towers("wA")).recent;
+	assert.deepEqual(twice.map((g) => [g.id, g.towers.length, g.towers[0]!.state, g.towers[0]!.said, g.since]), [["H3", 1, "waiting", undefined, NOW - 12 * 60_000], ["H1", 1, "answered", "late", NOW - 5 * HOUR]]);
+	assert.deepEqual(askGroups([], NOW, undefined), { recent: [], older: [] });
 });
 
-test("the asks fill under the conversation box: a chip each, links where the tower is known, redrawn only when they change, hidden with none", () => {
-	const net = { bases: [{ id: "wA", label: "MP Center", mark: "idle", tower: { key: "sb-tower-wa", name: "t" }, tabs: [], outposts: [], outside: [] }] } as unknown as Net;
-	const box = new El("div");
-	const el = box as unknown as HTMLElement;
+test("a group's line reads `→ N towers · age ago · k/N replied` in both languages, and the state words never say answered without an answer", () => {
+	const g = askGroups(five(), NOW, towers("wA")).recent[0]!;
+	assert.equal(groupLine(g, NOW), "→ 4 towers · 1h ago · 1/4 replied");
+	assert.equal(groupLine(g, NOW, zh), "→ 4 個塔台・1 小時前・回覆 1/4");
+	assert.equal(groupLine(askGroups([ask()], NOW, undefined).recent[0]!, NOW), "→ 1 tower · 12m ago · 0/1 replied");
+	assert.deepEqual([m.head_ask_waiting({}, zh), m.head_ask_answered({}, zh), m.head_ask_silent({}, zh), m.head_ask_no_tower({}, zh), m.head_older({ count: 3 }, zh)], ["等回覆", "已回覆", "沒回應", "沒有塔台", "更早（3）"]);
+});
+
+test("the asks fill under the conversation box: a row per broadcast that unfolds to each tower's answer as visible text, links where the tower is known, `no tower` muted where not, the older ones in one fold", () => {
+	const net = towers("wA", "wB", "wC"), box = new El("div"), el = box as unknown as HTMLElement;
 	fillHeadAsks(el, head({ asks: [] }), net, NOW);
 	assert.equal(box.hidden, true);
-	fillHeadAsks(el, head({ asks: [ask(), ask({ id: "H2", workspace: "wB", label: "Beta", open: false })] }), net, NOW);
+	fillHeadAsks(el, head({ asks: five() }), net, NOW);
 	assert.equal(box.hidden, false);
-	const chips = box.querySelectorAll(".head-ask");
-	assert.deepEqual(chips.map((c) => [c.tagName, c.dataset.open, c.textContent]), [["a", "true", "MP Center · 12m · open"], ["span", "false", "Beta · 12m · answered"]]);
-	assert.equal(chips[0]!.getAttribute("data-route"), "w/wA/s/sb-tower-wa");
-	const first = chips[0];
-	fillHeadAsks(el, head({ asks: [ask(), ask({ id: "H2", workspace: "wB", label: "Beta", open: false })] }), net, NOW + 20_000);
-	assert.equal(box.querySelectorAll(".head-ask")[0], first, "the same asks leave the chips as they are, so a click never lands on a replaced one");
+	const rows = box.children;
+	assert.deepEqual(rows.map((r) => r.classes.has("ask-group") ? "group" : r.classes.has("ask-older") ? "older" : "?"), ["group", "group", "older"]);
+	assert.equal(rows[0]!.find((x) => x.tag === "summary")[0]!.textContent, "I am up→ 4 towers · 1h ago · 1/4 replied");
+	assert.equal(rows[2]!.find((x) => x.tag === "summary")[0]!.textContent, "Older (3)");
+	assert.equal(rows[2]!.find((x) => x.classes.has("ask-group")).length, 3, "the older groups are rows of their own inside the fold");
+	const lines = rows[0]!.find((x) => x.classes.has("ask-tower"));
+	assert.deepEqual(lines.map((l) => [l.find((x) => x.classes.has("ask-name"))[0]!.tag, l.find((x) => x.classes.has("ask-state"))[0]!.textContent, l.find((x) => x.classes.has("ask-said"))[0]?.textContent, l.find((x) => x.classes.has("ask-none"))[0]?.textContent]), [
+		["a", "answered", "wA is on it: I am up", undefined], ["a", "waiting", undefined, undefined], ["a", "waiting", undefined, undefined], ["b", "waiting", undefined, "no tower"],
+	]);
+	assert.equal(lines[0]!.find((x) => x.tag === "a")[0]!.getAttribute("data-route"), "w/wA/s/sb-tower-wA");
+	assert.ok(!box.dump().includes("title="), "an answer is text on the page, not a tooltip");
+	// the same asks leave the rows as they are; one the boss unfolded stays unfolded across a redraw
+	const first = box.children[0];
+	fillHeadAsks(el, head({ asks: five() }), net, NOW + 20_000);
+	assert.equal(box.children[0], first, "so a click never lands on a replaced row");
+	first!.setAttribute("open", "");
+	first!.dispatchEvent({ type: "toggle" });
+	fillHeadAsks(el, head({ asks: five() }), net, NOW + 120_000);
+	assert.equal(box.children[0]!.hasAttribute("open"), true);
+	assert.equal(box.children[1]!.hasAttribute("open"), false);
 	fillHeadAsks(el, undefined, net, NOW);
 	assert.equal(box.hidden, true);
 	assert.equal(box.kids.length, 0);
+});
+
+test("the head's memory footer is there for a standing instruction, a decision, a pending proposal, or an unreadable file; not for nothing and not for waits alone", () => {
+	const mem = (over: Record<string, unknown> = {}) => ({ rev: 1, standing: 0, decisions: 0, waits: 0, bossWaits: [], proposals: [], ...over }) as never;
+	assert.equal(headMemory(undefined), undefined);
+	assert.equal(headMemory(mem()), undefined, "0 · 0 · 0");
+	assert.equal(headMemory(mem({ waits: 2, bossWaits: [{ id: "W1", text: "x", at: "2026-11-06T00:00:00Z" }] })), undefined, "waits alone");
+	for (const over of [{ standing: 1 }, { decisions: 2 }, { proposals: [{ id: "P1" }] }, { problem: "unreadable" }]) assert.ok(headMemory(mem(over)), JSON.stringify(over));
+});
+
+test("the head's conversation actions are one row: End and New while a conversation is live (End not while it is closing), Close always once the head exists, none before; the result of a click stays", async () => {
+	const posted: string[] = [], real = globalThis.fetch;
+	globalThis.fetch = (async (url: string) => (posted.push(String(url)), { ok: true, status: 200, json: async () => ({}) })) as never;
+	const box = new El("div"), el = box as unknown as HTMLElement, live = { conversation: { since: "2026-11-06T08:00:00Z", resumed: true, turns: 1, idle: false, idleMs: 600_000, capAt: 1 } } as unknown as TowerService;
+	const labels = () => box.find((x) => x.tag === "button").map((b) => b.textContent);
+	fillHeadActs(el, undefined, false);
+	assert.equal(box.hidden, true);
+	assert.deepEqual(labels(), []);
+	fillHeadActs(el, svc(), true);
+	assert.deepEqual([box.hidden, labels()], [false, ["Close"]], "nothing live: only Close");
+	fillHeadActs(el, live, true);
+	assert.deepEqual(labels(), ["End conversation", "New conversation", "Close"]);
+	assert.equal(box.find((x) => x.tag === "button" && x.getAttribute("data-close") === "head").length, 1, "Close is the one quit.ts asks about once");
+	assert.equal(box.find((x) => x.classes.has("menu-pop") || x.classes.has("menu-btn")).length, 0, "no ⋯ popover");
+	const end = box.find((x) => x.tag === "button")[0]!;
+	end.click();
+	await new Promise((done) => setTimeout(done, 20));
+	assert.deepEqual(posted, ["api/head/leave"], "End is the head's own route, the pi twin of /boss tower leave");
+	assert.equal(box.find((x) => x.classes.has("conv-done"))[0]!.textContent, m.conv_left(), "what it said");
+	fillHeadActs(el, { ...live, conversation: { ...live.conversation!, closing: true } }, true);
+	assert.deepEqual(labels(), ["New conversation", "Close"]);
+	assert.equal(box.find((x) => x.classes.has("conv-done"))[0]!.textContent, m.conv_left(), "and it stays across the redraw it caused");
+	globalThis.fetch = real;
 });
 
 test("the header says Head tower with its state, or that the first message opens it; the title is the same in zh-TW", () => {
@@ -183,11 +245,34 @@ test("the head's marks: the map node and the chat avatar carry the crown in the 
 	assert.match(css, /\.comms-head\[data-head\] \.head-menu \{ display: none; \}/);
 });
 
-test("Close the head tower sits in the same row as Leave and New", async () => {
-	const { fillConversation } = await import("../gui/towerconv.ts");
-	const box = new El("div"), service = { state: "idle", allyRuns: [], localRuns: [], conversation: { began: "2026-11-04T09:00:00Z", turns: 1, cap: "2026-11-04T11:00:00Z", idle: 600 } } as unknown as Parameters<typeof fillConversation>[2];
-	fillConversation(box as unknown as HTMLElement, "head", service, true);
-	const rows = box.find((el) => el.classes.has("conv-acts"));
-	assert.equal(rows.length, 1, "one row of buttons");
-	assert.ok(rows[0]!.find((el) => el.classes.has("head-quit")).length === 1, "Close is in it");
+test("the head's page leaves out its tool calls, shell lines, and the sb server's notices and timers, and keeps its words, the boss's lines, and a tower's answer; a workspace tower's page shows all of them", async () => {
+	const { mountChat } = await import("../gui/chat.ts");
+	Object.assign(document, { createDocumentFragment: () => new El("#fragment"), createTextNode: (t: string) => t });
+	const items = [
+		{ id: "u1", kind: "user", text: "tell everyone I am up", at: "2026-11-06T08:00:00Z" },
+		{ id: "a1", kind: "assistant", model: "m", at: "2026-11-06T08:00:01Z", text: "Handing it out.", tools: [{ id: "t1", name: "tower_send", summary: "(workspace: wA)", args: "{}" }] },
+		{ id: "a2", kind: "assistant", model: "m", at: "2026-11-06T08:00:02Z", tools: [{ id: "t2", name: "tower_done", summary: "(note: 11/06 morning)", args: "{}" }] },
+		{ id: "n1", kind: "notice", type: "straw-tower", event: "notice", at: "2026-11-06T08:00:03Z", text: "[notice from the sb server]\nThe run has been open for 40 minutes." },
+		{ id: "n2", kind: "notice", type: "straw-tower", event: "timer", at: "2026-11-06T08:00:04Z", text: "[your wakeAfter follow-up is due]\nCheck." },
+		{ id: "n3", kind: "notice", type: "straw-tower", event: "intercom", from: "tower · Alpha", at: "2026-11-06T08:00:05Z", text: "[intercom from tower · Alpha (a1)]\nDone." },
+		{ id: "b1", kind: "bash", command: "ls", exit: 0, at: "2026-11-06T08:00:06Z", text: "x" },
+	] as never[];
+	const draw = (head: boolean) => {
+		const root = new El("div"), data = { older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined };
+		const chat = mountChat(root as unknown as HTMLElement, data, { who: () => ({ key: "k", name: "n", role: "tower", mark: "idle" as const, service: { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [] }, ...(head ? { head: true } : {}) }), link: () => undefined });
+		chat.apply({ key: "k", reset: true, items });
+		return root;
+	};
+	const shown = (root: El) => root.find((el) => el.tag === "article" && !el.hasAttribute("hidden")).map((a) => a.textContent);
+	const head = draw(true);
+	assert.equal(head.find((el) => el.classes.has("act")).length, 0, "no tool card, no shell card");
+	const text = shown(head).join("\n");
+	assert.match(text, /tell everyone I am up/);
+	assert.match(text, /Handing it out\./, "the head's prose stays when its entry also made a call");
+	assert.match(text, /Done\./, "a tower's answer stays");
+	assert.doesNotMatch(text, /sb server|follow-up|tower_done|tower_send|open for 40/);
+	assert.equal(head.find((el) => el.classes.has("skip")).length, 4, "tool-only entry, two server notices, shell line: hidden, in their place");
+	const tower = draw(false);
+	assert.equal(tower.find((el) => el.classes.has("act")).length, 3, "a workspace tower's page is as it was");
+	assert.match(shown(tower).join("\n"), /open for 40 minutes/);
 });

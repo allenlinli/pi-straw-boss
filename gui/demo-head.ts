@@ -1,6 +1,7 @@
 import type { Item } from "../src/items.ts";
 import type { TowerService } from "../src/net.ts";
-import type { HeadUnit } from "../src/nethead.ts";
+import type { HeadAskRow, HeadUnit } from "../src/nethead.ts";
+import { lapsedWait } from "../src/waitlapse.ts";
 import { getLocale } from "./paraglide/runtime.js";
 import type { Answer } from "./post.ts";
 
@@ -13,25 +14,54 @@ export const isHeadState = (s: string | null): s is HeadState => HEAD_STATES.inc
 
 const T0 = Date.UTC(2026, 10, 4, 9, 0, 0), at = (min: number) => new Date(T0 + min * 60_000).toISOString();
 
-/** The head unit of the net in one state; none of its times is older than the page, so the asks read "12m" and "3m". */
+const HOUR = 3_600_000;
+/** The five broadcasts of the demo's asks (newest first): when each went out, and which towers answered what (the fourth workspace, Quarry Tools, has no tower). */
+const BROADCASTS = [
+	{ ago: 2 * HOUR, key: "b1", replies: { w1: "a1", w3: "a3" } },
+	{ ago: 5 * HOUR, key: "b2", replies: { w2: "a2" } },
+	{ ago: 29 * HOUR, key: "b3", replies: { w1: "a1", w2: "a2", w3: "a3" } },
+	{ ago: 40 * HOUR, key: "b4", replies: {} },
+	{ ago: 55 * HOUR, key: "b5", replies: { w2: "a2" } },
+] as const;
+const WORKSPACES = [["w1", "Harbor API"], ["w2", "Lighthouse Web"], ["w3", "Orchard Data"], ["w4", "Quarry Tools"]] as const;
+
+/** The head's asks for the page: five broadcasts to four workspaces, in the rows the server writes (src/server/headnet.ts): a state that says answered only with an answer, and silent after a day without one. */
+export function headAsks(now: number): HeadAskRow[] {
+	const w = words();
+	return [...BROADCASTS].reverse().flatMap((b, g) => {
+		const first = w.broadcasts[b.key], id0 = g * 4 + 1, since = now - b.ago;
+		return WORKSPACES.map(([workspace, label], i): HeadAskRow => {
+			const said = (b.replies as Record<string, string>)[workspace], answered = said !== undefined, state = answered ? "answered" : b.ago < 24 * HOUR ? "waiting" : "silent";
+			return { id: `H${id0 + i}`, group: `H${id0}`, workspace, label, since, at: answered ? since + 20 * 60_000 : since, first, state, answers: answered ? 1 : 0, ...(answered ? { last: w.answers[said as "a1" | "a2" | "a3"] } : {}) };
+		});
+	});
+}
+
+/** The head's waits for the boss as the demo's memory holds them (`due`, when it has one, is what the server filters by): one past its due and one still fresh. */
+const demoWaits = (began: string, now: number) => [
+	{ id: "w0", text: words().wait_old, at: new Date(now - 30 * HOUR).toISOString(), due: new Date(now - 20 * HOUR).toISOString() },
+	{ id: "w1", text: words().wait, at: began, due: new Date(now + 6 * HOUR).toISOString() },
+];
+
+/** The head unit of the net in one state; none of its times is older than the page, so the asks read "2h" and "5h". */
 export function headDemo(state: HeadState, now = Date.now()): HeadUnit {
 	if (state === "absent") return { key: "sb-head", name: "head tower", mark: "idle", state: "absent", asks: [] };
 	const began = new Date(now - 50 * 60_000).toISOString(), idle = state === "waiting";
+	// What the server's summary of the head does (towermemory.ts `memorySummary`): the waits past their due are left out. The footer shows for a standing instruction or a decision (`answers`), not for waits alone (`waiting`).
+	const waits = state === "waiting" ? demoWaits(began, now) : [];
 	const service: TowerService = {
 		state: "running", queued: 0, notices: [], parked: [], allyRuns: [], run: { id: "h1", kind: "local", startedAt: began },
 		conversation: { since: began, resumed: true, turns: 9, idle, ...(idle ? { idleAt: now + 8 * 60_000 } : {}), idleMs: 600_000, capAt: now + 3 * 3600_000 },
-		...(state === "waiting" ? { memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [{ id: "w1", text: words().wait, at: began }], proposals: [] } } : {}),
+		localRuns: [{ id: "e1", kind: "event", startedAt: new Date(now - 4 * HOUR).toISOString(), outcome: "done", note: "reported the answer" }, { id: "e2", kind: "event", startedAt: new Date(now - 3 * HOUR).toISOString(), outcome: "done" }],
+		...(state === "waiting" ? { memory: { rev: 1, standing: 0, decisions: 0, waits: waits.length, bossWaits: waits.filter((x) => !lapsedWait(x, now)).map(({ id, text, at }) => ({ id, text, at })), proposals: [] } } : state === "answers" ? { memory: { rev: 2, standing: 1, decisions: 2, waits: 0, bossWaits: [], proposals: [] } } : {}),
 	};
-	const asks = state === "answers"
-		? [{ id: "H3", workspace: "w1", label: "Harbor API", at: now - 12 * 60_000, open: true }, { id: "H2", workspace: "w2", label: "Lighthouse Web", at: now - 3 * 60_000, open: false, last: "Checkout test is green on main." }, { id: "H1", workspace: "w3", label: "Orchard Data", at: now - 95 * 60_000, open: false, last: "ETL rerun done, 0 rows lost." }]
-		: [];
-	return { key: "sb-head", name: "head tower", mark: "idle", state: "running", service, asks, said: now - 60_000 };
+	return { key: "sb-head", name: "head tower", mark: "idle", state: "running", service, asks: state === "answers" || state === "waiting" ? headAsks(now) : [], said: now - 60_000 };
 }
 
 /** The demo's words by page language (the lines are the conversation's own, so the pictures in Traditional Chinese read in it). */
 const WORDS = {
-	en: { first: "the first conversation", u1: "Ask Harbor API to fix the ledger rounding, and have Lighthouse Web rerun the checkout test.", a1: "On it. I am handing the rounding fix to the Harbor API tower and the checkout rerun to Lighthouse Web.", n1: "Answer to H2: Checkout test is green on main.", a2: "Lighthouse Web finished: the checkout test is green on main. Harbor API is still on the rounding fix.", a3: "Should I also ask Orchard Data to rerun the ETL tonight, or wait until the ledger fix lands?", busy: "The head tower is busy with another message.", n2: "Answer to H3: The ledger rounding fix is merged.", a4: "Harbor API merged the rounding fix on its own; nothing is needed from you.", wait: "Rerun the Orchard ETL tonight?", reply: "Handed to Harbor API. I will say when it answers." },
-	zh: { first: "第一次對話", u1: "請 Harbor API 修掉帳本的進位問題，再請 Lighthouse Web 重跑結帳測試。", a1: "收到。進位問題我交給 Harbor API 塔台，結帳重跑交給 Lighthouse Web。", n1: "H2 的回覆：main 上的結帳測試全綠。", a2: "Lighthouse Web 做完了：main 上的結帳測試全綠。Harbor API 還在修進位問題。", a3: "晚上要不要也請 Orchard Data 重跑 ETL？還是等帳本修好再說？", busy: "主塔台正在處理另一則訊息。", n2: "H3 的回覆：帳本進位的修正已合併。", a4: "Harbor API 自己把進位修正合併了，不需要你處理。", wait: "今晚要重跑 Orchard 的 ETL 嗎？", reply: "已轉給 Harbor API 塔台，它回覆了我再告訴你。" },
+	en: { first: "the first conversation", u1: "Ask Harbor API to fix the ledger rounding, and have Lighthouse Web rerun the checkout test.", a1: "On it. I am handing the rounding fix to the Harbor API tower and the checkout rerun to Lighthouse Web.", n1: "Answer to H2: Checkout test is green on main.", a2: "Lighthouse Web finished: the checkout test is green on main. Harbor API is still on the rounding fix.", a3: "Should I also ask Orchard Data to rerun the ETL tonight, or wait until the ledger fix lands?", busy: "The head tower is busy with another message.", n2: "Answer to H3: The ledger rounding fix is merged.", a4: "Harbor API merged the rounding fix on its own; nothing is needed from you.", wait: "Rerun the Orchard ETL tonight?", reply: "Handed to Harbor API. I will say when it answers." , wait_old: "Roll the ledger fix out tonight, or wait for Friday?", broadcasts: { b1: "I'm up, tell me what needs me", b2: "Going out for lunch, keep the builds going", b3: "Continue, I'm studying", b4: "I'm back", b5: "Going to sleep, only wake me for blockers" }, answers: { a1: "Nothing needs you; the rounding fix is in review.", a2: "Checkout test is green on main.", a3: "ETL rerun done, 0 rows lost." } },
+	zh: { first: "第一次對話", u1: "請 Harbor API 修掉帳本的進位問題，再請 Lighthouse Web 重跑結帳測試。", a1: "收到。進位問題我交給 Harbor API 塔台，結帳重跑交給 Lighthouse Web。", n1: "H2 的回覆：main 上的結帳測試全綠。", a2: "Lighthouse Web 做完了：main 上的結帳測試全綠。Harbor API 還在修進位問題。", a3: "晚上要不要也請 Orchard Data 重跑 ETL？還是等帳本修好再說？", busy: "主塔台正在處理另一則訊息。", n2: "H3 的回覆：帳本進位的修正已合併。", a4: "Harbor API 自己把進位修正合併了，不需要你處理。", wait: "今晚要重跑 Orchard 的 ETL 嗎？", reply: "已轉給 Harbor API 塔台，它回覆了我再告訴你。" , wait_old: "帳本修正今晚上線，還是等到週五？", broadcasts: { b1: "我起床了，告訴我有什麼要我處理", b2: "我出門吃午餐，繼續跑建置", b3: "繼續，我在讀書", b4: "我回來了", b5: "我要睡了，只有卡住才叫醒我" }, answers: { a1: "沒有事要你處理，進位修正在審查中。", a2: "main 上的結帳測試全綠。", a3: "ETL 重跑完成，沒有漏資料。" } },
 };
 const words = () => WORDS[getLocale() === "zh-TW" ? "zh" : "en"];
 
@@ -44,6 +74,11 @@ export function headHistory(state: HeadState): Item[] {
 		{ id: "h-u1", kind: "user", text: w.u1, at: at(2) },
 		{ id: "h-a1", kind: "assistant", model: "head-1", at: at(3), text: w.a1, ctx: 4000, tools: ["Harbor API", "Lighthouse Web"].map((to, i) => ({ id: `h-t${i}`, name: "tower_send", summary: `(workspace: ${to})`, args: JSON.stringify({ workspace: to, message: w.u1 }) })) },
 	];
+	// What the head page leaves out (docs/specs/2026-11-06-head-page-minimal.md): the sb server's notice and a turn of one tool call alone.
+	if (state === "answers" || state === "waiting") out.push(
+		{ id: "h-n0", kind: "notice", type: "straw-tower", event: "notice", text: "[notice from the sb server]\nThe run has been open for 40 minutes.", at: at(5) },
+		{ id: "h-done", kind: "assistant", model: "head-1", at: at(6), ctx: 4400, tools: [{ id: "h-td", name: "tower_done", summary: "(note: 11/06 morning: boss woke…)", args: JSON.stringify({ note: "11/06 morning: boss woke" }) }] },
+	);
 	if (state === "answers" || state === "waiting") out.push(
 		{ id: "h-n1", kind: "notice", type: "straw-tower", event: "intercom", from: "tower · Lighthouse Web", text: `[intercom from tower · Lighthouse Web (demo-lh)]\n[straw net from="tower · Lighthouse Web" id=demo-lh role=tower workspace="Lighthouse Web" kind=tower_send scope=one to="head tower" reply=none in-reply-to=H2] ${w.n1}`, at: at(9) },
 		{ id: "h-a2", kind: "assistant", model: "head-1", at: at(10), text: w.a2, ctx: 5200 },

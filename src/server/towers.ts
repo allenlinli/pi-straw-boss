@@ -214,7 +214,7 @@ export function createTowers(o: TowersOptions): Towers {
 		shown: (ids) => { try { markShown(slot, l.record.workspace, now(), ids); } catch (cause) { error("memory", (cause as Error).message); } },
 		memory: () => {
 			const { memory, problem } = readMemory(slot, l.record.workspace, now());
-			return { ...memorySummary(memory), ...(problem ? { problem } : {}) };
+			return { ...memorySummary(memory, isHeadL(l) ? now() : undefined), ...(problem ? { problem } : {}) };
 		},
 		// A live run is given a new brief when the memory moved or a run left a note (runs.ts `refreshed`): what a conversation of an hour would otherwise not see.
 		briefVersion: () => `${readMemory(slot, l.record.workspace, now()).memory.rev}:${lastNote(slot, l.record.workspace, "local")?.at ?? ""}${isHeadL(l) ? `:${openAsks(slot, now()).map((a) => `${a.id}.${a.answers.length}`).join(",")}` : ""}`,

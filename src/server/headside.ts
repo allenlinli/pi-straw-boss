@@ -13,7 +13,7 @@ import { headId, type Slot } from "./record.ts";
 import { ageOf, gatherMains } from "./towerbrief.ts";
 import { appendEvent, type ServiceRecord } from "./towerstore.ts";
 import { lastNote, type RunRecord } from "./towerrunstore.ts";
-import { memorySection, readMemory } from "./towermemory.ts";
+import { lapsed, memorySection, readMemory } from "./towermemory.ts";
 import type { Seen } from "./towerseen.ts";
 
 // The head tower's two seams into the tower service (docs/specs/2026-11-04-head-tower.md, Who reaches it, Runs): what reaches its identity through intercom (the gate), and the brief of its runs. The service
@@ -102,7 +102,7 @@ export async function headBrief(d: HeadBriefDeps, input: { woken: number; run: R
 			identity: d.record().id, woken: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`, boss: Boolean(input.run.conversation), chapter,
 			workspaces: rows,
 			asks: openAsks(d.slot, d.now()).map((a) => ({ id: a.id, label: phrase(a.label, 60), age: ageOf(d.now() - a.at), first: a.first, ...(a.answers.at(-1) ? { answer: a.answers.at(-1)!.first } : {}) })),
-			memory: section.text, ...(note ? { note: { text: note.note, age: ageOf(d.now() - Date.parse(note.at)) } } : {}), tools: HEAD_TOOLS, flags: [],
+			memory: section.text, lapsed: kept.memory.entries.filter((e) => lapsed(e, d.now())).map((e) => e.id), ...(note ? { note: { text: note.note, age: ageOf(d.now() - Date.parse(note.at)) } } : {}), tools: HEAD_TOOLS, flags: [],
 		}),
 	};
 }

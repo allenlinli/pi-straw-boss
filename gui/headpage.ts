@@ -1,8 +1,8 @@
-import type { Net } from "../src/net.ts";
+import type { MemorySummary, Net } from "../src/net.ts";
 import type { HeadAskRow, HeadUnit } from "../src/nethead.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
-import { ago, LABEL } from "./render.ts";
+import { LABEL } from "./render.ts";
 import { formatRoute } from "./router.ts";
 import { statusLine } from "./towermodel.ts";
 
@@ -45,6 +45,9 @@ export function fillHeadButton(button: HTMLElement, head: HeadUnit | undefined, 
 	if (dot) dot.hidden = here || !headDot(head, seen);
 }
 
+/** The head's memory as its footer shows it: only when it holds a standing instruction, a decision, or a pending proposal (or cannot be read); waits alone, or nothing, leave no footer. */
+export const headMemory = (memory: MemorySummary | undefined) => (memory && (memory.standing || memory.decisions || memory.proposals.length || memory.problem) ? memory : undefined);
+
 /** The state line under the title: the service's own word as a workspace tower's, or that the head is not open. */
 export const headLine = (head: HeadUnit, o?: Opts) => (head.state === "absent" ? m.head_state_absent({}, o) : statusLine(head.service, head.mark, (mk) => LABEL[mk](), o));
 /** The page header: the crown where the comms logo is, the title, the state line, and the one line a head that is not open shows. */
@@ -58,20 +61,50 @@ export function fillHeadTitle(root: HTMLElement, head: HeadUnit) {
 	if (absent) (absent.hidden = head.state !== "absent", set(".head-absent", m.head_absent()));
 }
 
-export interface Chip { id: string; text: string; open: boolean; route?: string; title?: string }
-/** The head's asks as chips, newest first as the server keeps them: `MP Center · 12m · open`, or `answered`; a chip links to that tower's comms when the net knows the tower. */
-export function askChips(asks: HeadAskRow[], now: number, net: Net | undefined, o?: Opts): Chip[] {
-	return asks.map((a) => {
-		const key = net?.bases.find((b) => b.id === a.workspace)?.tower?.key, args = { workspace: a.label, age: ago(a.at, Math.max(0, now - a.at) / 1000) };
-		return { id: a.id, text: (a.open ? m.head_ask : m.head_ask_done)(args, o), open: a.open, ...(key ? { route: formatRoute({ view: "session", ws: a.workspace, key }) } : {}), ...(a.last ? { title: a.last } : {}) };
-	});
+/** One tower's line in a broadcast: the newest word it gave (visible text, not a tooltip) and the route to its comms when the net knows the tower. */
+export interface AskTower { workspace: string; label: string; state: HeadAskRow["state"]; said?: string; route?: string }
+/** One broadcast as a row: the first words of the message, the towers it went to, when it began and when anything last happened. */
+export interface AskGroup { id: string; first: string; towers: AskTower[]; replied: number; since: number; active: number }
+const DAY = 86_400_000, RANK = { answered: 2, waiting: 1, silent: 0 } as const;
+
+/**
+ * The asks as broadcasts (docs/specs/2026-11-06-head-page-minimal.md): one group per `group` the server wrote, newest first; its towers are the distinct workspaces (a workspace asked twice shows its best state and its newest answer).
+ * A group with no activity for 24 hours is `older`.
+ */
+export function askGroups(asks: HeadAskRow[], now: number, net: Net | undefined): { recent: AskGroup[]; older: AskGroup[] } {
+	const by = new Map<string, HeadAskRow[]>();
+	for (const a of asks) by.set(a.group ?? a.id, [...(by.get(a.group ?? a.id) ?? []), a]);
+	const groups = [...by].map(([id, rows]): AskGroup => {
+		const list = [...new Set(rows.map((a) => a.workspace))].map((workspace): AskTower => {
+			const mine = rows.filter((a) => a.workspace === workspace), best = mine.reduce((x, y) => (RANK[y.state] > RANK[x.state] ? y : x)), said = mine.filter((a) => a.last).sort((x, y) => y.at - x.at)[0]?.last, key = net?.bases.find((b) => b.id === workspace)?.tower?.key;
+			return { workspace, label: mine.at(-1)!.label, state: best.state, ...(said ? { said } : {}), ...(key ? { route: formatRoute({ view: "session", ws: workspace, key }) } : {}) };
+		});
+		return { id, first: rows[0]!.first, towers: list, replied: list.filter((t) => t.state === "answered").length, since: Math.min(...rows.map((a) => a.since)), active: Math.max(...rows.map((a) => a.at)) };
+	}).sort((a, b) => b.since - a.since);
+	return { recent: groups.filter((g) => now - g.active < DAY), older: groups.filter((g) => now - g.active >= DAY) };
 }
-/** The chips under the conversation box; redrawn only when they change, so a click never lands on a chip that was replaced. */
+/** A group's row line: `first → 4 towers · 2h ago · 1/4 replied`. */
+export function groupLine(g: AskGroup, now: number, o?: Opts) {
+	const n = Math.max(0, now - g.since) / 1000, age = n < 60 ? m.age_s({ n: String(Math.floor(n)) }, o) : n < 3600 ? m.age_m({ n: String(Math.floor(n / 60)) }, o) : n < 86_400 ? m.age_h({ n: String(Math.floor(n / 3600)) }, o) : m.age_d({ n: String(Math.floor(n / 86_400)) }, o);
+	return (g.towers.length === 1 ? m.head_group_one : m.head_group)({ count: g.towers.length, age, replied: g.replied }, o);
+}
+const STATE: Record<HeadAskRow["state"], (o?: Opts) => string> = { waiting: (o) => m.head_ask_waiting({}, o), answered: (o) => m.head_ask_answered({}, o), silent: (o) => m.head_ask_silent({}, o) };
+/** A tower's state word and, for a workspace the net has no tower of, that there is none. */
+export const towerState = (t: AskTower, o?: Opts) => STATE[t.state](o);
+
+const opened = new WeakMap<HTMLElement, Set<string>>();
+/** The broadcasts under the conversation box; redrawn only when they change, so a click never lands on a row that was replaced, and a row the boss unfolded stays unfolded across a redraw. */
 export function fillHeadAsks(box: HTMLElement, head: HeadUnit | undefined, net: Net | undefined, now = Date.now()) {
-	const chips = head ? askChips(head.asks, now, net) : [], sig = JSON.stringify(chips);
-	box.hidden = !chips.length;
+	const { recent, older } = head ? askGroups(head.asks, now, net) : { recent: [], older: [] }, lines = new Map([...recent, ...older].map((g) => [g.id, groupLine(g, now)])), sig = JSON.stringify([recent, older, [...lines]]);
+	box.hidden = !recent.length && !older.length;
 	if (box.dataset.sig === sig) return;
 	box.dataset.sig = sig;
+	const keep = opened.get(box) ?? opened.set(box, new Set()).get(box)!;
 	box.setAttribute("aria-label", m.head_asks_label());
-	box.replaceChildren(...chips.map((c) => h(c.route ? "a" : "span", { class: "head-ask", "data-open": String(c.open), ...(c.route ? { href: c.route || "./", "data-route": c.route } : {}), ...(c.title ? { title: c.title } : {}) }, c.text)));
+	const unfold = (el: HTMLElement, id: string) => (keep.has(id) && el.setAttribute("open", ""), el.addEventListener("toggle", () => void (el.hasAttribute("open") ? keep.add(id) : keep.delete(id))), el);
+	const tower = (t: AskTower) => h("li", { class: "ask-tower", "data-state": t.state },
+		h("span", { class: "ask-line" }, t.route ? h("a", { class: "ask-name", href: t.route || "./", "data-route": t.route }, t.label) : h("b", { class: "ask-name" }, t.label), h("span", { class: "ask-state" }, towerState(t)), ...(t.route ? [] : [h("span", { class: "ask-none" }, m.head_ask_no_tower())])),
+		...(t.said ? [h("p", { class: "ask-said" }, t.said)] : []));
+	const group = (g: AskGroup) => unfold(h("details", { class: "ask-group", "data-id": g.id }, h("summary", null, h("span", { class: "ask-first" }, g.first), h("span", { class: "ask-meta" }, lines.get(g.id)!)), h("ul", { class: "ask-towers" }, ...g.towers.map(tower))), g.id);
+	box.replaceChildren(...recent.map(group), ...(older.length ? [unfold(h("details", { class: "ask-older", "data-id": "older" }, h("summary", null, m.head_older({ count: older.length })), ...older.map(group)), "older")] : []));
 }

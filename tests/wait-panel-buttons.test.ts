@@ -13,11 +13,11 @@ const { m } = await import("../gui/paraglide/messages.js");
 const WAIT = { id: "W1", text: "Decide the release", at: new Date().toISOString() };
 const service = (): TowerService => ({ state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [WAIT], proposals: [] } });
 let status = 200;
-const rig = async (ws: string, key: string) => {
+const rig = async (ws: string, key: string, here = false) => {
 	Object.assign(globalThis.document, { querySelector: () => ({ content: "CSRF" }), body: { dataset: {} } });
 	Object.assign(globalThis, { fetch: async () => ({ ok: status < 400, status, json: async () => (status < 400 ? { rev: 2, proposals: [], entries: [], accepted: true } : { error: "gone", reason: "No such wait" }) }) });
 	const box = new El("div");
-	fillNotices(box as unknown as HTMLElement, ws, service(), key);
+	fillNotices(box as unknown as HTMLElement, ws, service(), key, here);
 	await new Promise((done) => setTimeout(done, 50));
 	return { box, buttons: () => box.find((el) => el.tag === "button") as unknown as { textContent: string; onclick(): void; hidden: boolean; disabled: boolean }[], text: () => box.find((el) => el.tag === "small").map((el) => el.textContent) };
 };
@@ -27,6 +27,11 @@ test("the head tower's page draws no link to the tower's comms, a workspace towe
 	assert.equal((await rig(HEAD_KEY, "sb-head")).box.find((el) => el.tag === "a").length, 0);
 	const ws = await rig("wA", "sb-tower-wa");
 	assert.equal(ws.box.find((el) => el.tag === "a").length, 1);
+});
+
+test("a workspace tower's own comms page draws no link to those comms; its card elsewhere does", async () => {
+	assert.equal((await rig("wA", "sb-tower-wa", true)).box.find((el) => el.tag === "a").length, 0);
+	assert.equal((await rig("wA", "sb-tower-wa")).box.find((el) => el.tag === "a").length, 1);
 });
 
 test("a dismissal the server took folds the panel and says so; one it refused says why and keeps the buttons", async () => {

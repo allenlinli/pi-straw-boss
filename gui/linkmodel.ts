@@ -84,26 +84,41 @@ export function dialogState(a: Pick<LinkAlert, "data">): DialogState {
  */
 export interface AllyCard extends Omit<AllyBase, "team" | "teamName"> { teams: { team: string; teamName: string }[] }
 const URGENCY: Record<string, number> = { blocked: 3, working: 2, idle: 1 };
-/** A team that shows no workspace of a device gives its team to the device's cards and has none of its own; with no workspace anywhere, the device has the one card. */
+/**
+ * A card's teams are the teams whose presence lists its workspace, plus every team that shows no workspace of the device (presence is per team project, so another team's workspace is not this card's); with no workspace anywhere,
+ * the device has the one card of all its teams. The label is the first team's by id (not by tower state, which moves), the state is taken from the online bases of the card, or of the device when none of the card's is online, so a team
+ * that cannot hear the device does not put its stale state on an online card.
+ */
 export function mergeAllies(allies: AllyBase[]): AllyCard[] {
 	const devices = new Map<string, AllyBase[]>();
 	for (const a of allies) devices.set(a.device, [...(devices.get(a.device) ?? []), a]);
-	return [...devices].flatMap(([device, bases]) => {
+	const teamsOf = (bases: AllyBase[]): AllyCard["teams"] => {
 		const teams: AllyCard["teams"] = [];
 		for (const b of bases) if (!teams.some((t) => t.team === b.team)) teams.push({ team: b.team, teamName: b.teamName });
+		return teams;
+	};
+	return [...devices].flatMap(([device, bases]) => {
 		const named = bases.filter((b) => b.workspace !== null), workspaces = named.length ? [...new Set(named.map((b) => b.workspace))] : [null];
+		const first = [...bases].sort((p, q) => (p.team < q.team ? -1 : p.team > q.team ? 1 : 0))[0]!;
 		return workspaces.map((workspace): AllyCard => {
-			const mine = bases.filter((b) => b.workspace === workspace);
-			const best = [...mine].sort((p, q) => Number(q.online) - Number(p.online) || (q.online ? (URGENCY[q.tower] ?? 0) - (URGENCY[p.tower] ?? 0) : 0))[0]!;
-			return { id: workspace === null ? device : `${device}/${workspace}`, device, short: best.short, label: best.label, online: bases.some((b) => b.online), ...(bases.some((b) => b.unattended) ? { unattended: true as const } : {}), workspace, tower: best.tower, tabs: best.tabs, teams };
+			const mine = bases.filter((b) => b.workspace === workspace), shared = named.length ? bases.filter((b) => b.workspace === null) : [];
+			const live = mine.filter((b) => b.online), pool = live.length ? live : bases.some((b) => b.online) ? bases.filter((b) => b.online) : mine;
+			const best = [...pool].sort((p, q) => (URGENCY[q.tower] ?? 0) - (URGENCY[p.tower] ?? 0))[0]!;
+			return { id: workspace === null ? device : `${device}/${workspace}`, device, short: first.short, label: first.label, online: bases.some((b) => b.online), ...(bases.some((b) => b.unattended) ? { unattended: true as const } : {}), workspace, tower: best.tower, tabs: best.tabs, teams: teamsOf([...mine, ...shared]) };
 		});
 	});
 }
 
-/** The units an unattended device reported that belong to an ally card: those of its workspace, or all of them for a device whose presence names no workspace yet. The device reports to each of its teams alike, so the status is the freshest of the card's teams'. */
+/**
+ * The units an unattended device reported that belong to an ally card: those of its workspace, or all of them for a device whose presence names no workspace yet. A box reports each team only the units of that team's project
+ * (src/link/unitstatus.ts), so the card's units are the union over its teams, one entry per unit name from its freshest row, with that row's `at` and `stale`, in the order of the card's teams (so it does not move with who reported last).
+ */
 export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyCard, "device" | "workspace"> & { teams: string[] }) {
-	const mine = (units ?? []).filter((u) => u.device === a.device && a.teams.includes(u.team)).sort((p, q) => q.at - p.at)[0];
-	return mine ? mine.units.filter((u) => a.workspace === null || u.unit === a.workspace).map((u) => ({ ...u, at: mine.at, stale: mine.stale === true })) : [];
+	const rows = (units ?? []).filter((u) => u.device === a.device && a.teams.includes(u.team)).sort((p, q) => a.teams.indexOf(p.team) - a.teams.indexOf(q.team));
+	const out = new Map<string, ReturnType<typeof tag>>();
+	const tag = (u: DeviceUnits["units"][number], row: DeviceUnits) => ({ ...u, at: row.at, stale: row.stale === true });
+	for (const row of rows) for (const u of row.units) if (a.workspace === null || u.unit === a.workspace) { const had = out.get(u.unit); if (!had || row.at > had.at) out.set(u.unit, tag(u, row)); }
+	return [...out.values()];
 }
 
 /** How long a crash notice still makes a unit that is not running read as crashed: the wire carries no outcome, so an old crash says nothing of the unit now. */

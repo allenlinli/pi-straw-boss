@@ -23,7 +23,7 @@ ok  ledger/credit     (187 ms)
 
 Next: waiting for the review of the ledger fix. Nothing else is queued, and no question is open. If the review asks for changes I will take them on the same branch and run the smoke tests again before I report.`;
 
-/** Turns the demo's link summary into the scene `name` (`?ally=`; anything else: the unit at work as the fixture has it, with its clock set to now; it has the fixture's ally base `t/d1/Harbor API` and its unit-status). `later` changes the summary after a while and sends it (the `rerun` scene needs the page to see the unit run first). `gone` is also the card of an unattended box that reports no units (its summary line); `mate` adds a teammate's own computer beside it, which lists its mains. `teams` goes last and puts every device of the demo's team in a second team too (`agent-tower-team`): one card each, naming both teams (gui/linkmodel.ts `mergeAllies`). */
+/** Turns the demo's link summary into the scene `name` (`?ally=`; anything else: the unit at work as the fixture has it, with its clock set to now; it has the fixture's ally base `t/d1/Harbor API` and its unit-status). `later` changes the summary after a while and sends it (the `rerun` scene needs the page to see the unit run first). `gone` is also the card of an unattended box that reports no units (its summary line); `mate` adds a teammate's own computer beside it, which lists its mains. `teams` goes last and puts every device of the demo's team in a second team too (`agent-tower-team`): one card each, naming both teams (gui/linkmodel.ts `mergeAllies`), the second team reporting a different set of units (a card with no workspace lists the union; with `units`, Quarry Tools is the first team's alone and Night Builds the second's). */
 export function allyDemo(link: LinkSummary, name: string | null, now = Date.now(), later: (ms: number, change: (link: LinkSummary) => void) => void = () => {}): void {
 	const scenes = new Set((name ?? "").split(",").filter(isAllyScene)), scene = (x: AllyScene) => scenes.has(x);
 	const d1 = link.units[0]!, unit = d1.units[0]!;
@@ -59,7 +59,7 @@ export function allyDemo(link: LinkSummary, name: string | null, now = Date.now(
 	if (scene("teams")) {
 		const second = { team: "t2", teamName: "agent-tower-team" };
 		link.allies.push(...link.allies.filter((a) => a.team === "t").map((a) => ({ ...structuredClone(a), ...second, id: a.id.replace(/^t\//, "t2/") })));
-		link.units.push(...link.units.filter((u) => u.team === "t").map((u) => ({ ...structuredClone(u), team: "t2" })));
+		link.units.push(...link.units.filter((u) => u.team === "t").map((u) => ({ ...structuredClone(u), team: "t2", units: [...(u.units.length > 1 ? u.units.slice(1) : u.units), { unit: "Night Builds", state: "standing", monitors: [], report: "Nothing queued until 02:00." }].map((x) => structuredClone(x)) }))); // a team reports only the units of its own project: the second team's set differs, and a card lists both
 		link.alerts.push(...link.alerts.filter((a) => a.kind === "notice" && a.team === "t").map((a) => ({ ...structuredClone(a), ...second, id: `${a.id}/t2` })));
 	}
 }

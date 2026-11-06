@@ -151,3 +151,13 @@ test("a device in two teams hosts one card, the question names the team it came 
 	assert.ok(!row.dump().includes("moldplan"), "and not the other");
 	void sent;
 });
+
+test("a question prefers a card of the team it came on, and falls back to the device's other cards", async () => {
+	const { asksOf } = await import("../gui/allyasks.ts");
+	const base = { device: "d1", short: "n2knna", label: "waydosoft", online: true, tower: "idle", tabs: [] };
+	const allies = [{ ...base, id: "t1/d1/W1", team: "t1", teamName: "moldplan", workspace: "W1" }, { ...base, id: "t2/d1/W2", team: "t2", teamName: "agent-tower-team", workspace: "W2" }];
+	const dialog = (team: string) => ({ ...ask("B"), id: "dialog/d1/B", team, teamName: team });
+	assert.deepEqual([...asksOf({ allies, alerts: [dialog("t2")] } as never).keys()], ["d1/W2"]);
+	assert.deepEqual([...asksOf({ allies, alerts: [dialog("t1")] } as never).keys()], ["d1/W1"]);
+	assert.deepEqual([...asksOf({ allies, alerts: [dialog("t9")] } as never).keys()], ["d1/W1"], "a team with no card: the device's first");
+});

@@ -12,7 +12,7 @@ import { m } from "./paraglide/messages.js";
 const waits = (a: Pick<AllyCard, "tower" | "tabs">) => a.tower === "blocked" || a.tabs.some((t) => t.state === "blocked");
 /**
  * The forwarded questions each ally card hosts, by the card's id (`mergeAllies`): the dialogs of its device that still ask or are answered and not yet closed. A question names a device, not a workspace, so a device with several cards
- * gives them to the one that waits (else the first); the device's teams are one card, so the team a question came on does not pick it, and the question's own row says that team. A question with no card of its device stays in the Link notices alone.
+ * gives them to the one that waits (else the first), among the cards of the team the question came on when it has any (a card is of the teams whose presence lists its workspace), and the question's own row says that team. A question with no card of its device stays in the Link notices alone.
  */
 export function asksOf(link: Pick<LinkSummary, "allies" | "alerts"> | undefined): Map<string, LinkAlert[]> {
 	const out = new Map<string, LinkAlert[]>();
@@ -20,7 +20,7 @@ export function asksOf(link: Pick<LinkSummary, "allies" | "alerts"> | undefined)
 	for (const a of link?.alerts ?? []) {
 		const state = a.kind === "dialog" ? dialogState(a) : undefined;
 		if (state !== "open" && state !== "sent") continue;
-		const mine = cards.filter((x) => x.device === a.data.device), host = mine.find(waits) ?? mine[0];
+		const ofDevice = cards.filter((x) => x.device === a.data.device), ofTeam = ofDevice.filter((x) => x.teams.some((t) => t.team === a.team)), mine = ofTeam.length ? ofTeam : ofDevice, host = mine.find(waits) ?? mine[0];
 		if (host) out.set(host.id, [...(out.get(host.id) ?? []), a]);
 	}
 	return out;

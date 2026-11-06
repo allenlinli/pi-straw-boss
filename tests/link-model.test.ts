@@ -246,13 +246,13 @@ test("a team that shows no workspace of the device adds its team to the device's
 	assert.deepEqual(mergeAllies([bare]).map((c) => [c.id, c.workspace]), [["d1", null]], "with no workspace anywhere, the device's one card");
 });
 
-test("a device's unit status is the freshest of its teams', stale only when every team's is", () => {
+test("a device's unit status: each unit from its freshest row, stale per unit", () => {
 	const row = (team: string, at: number, state: string, extra: object = {}) => ({ team, device: "d1", at, units: [{ unit: "moldplan", state, monitors: [], report: `from ${team}` }], ...extra });
 	const both = { teams: ["t1", "t2"], device: "d1", workspace: "moldplan" as string | null };
 	const pick = (rows: ReturnType<typeof row>[], who = both) => unitsFor(rows, who).map((u) => [u.state, u.at, u.stale, u.report]);
-	assert.deepEqual(pick([row("t1", 1_000, "running"), row("t2", 9_000, "standing")]), [["standing", 9_000, false, "from t2"]], "the later status wins");
+	assert.deepEqual(pick([row("t1", 1_000, "running"), row("t2", 9_000, "standing")]), [["standing", 9_000, false, "from t2"]], "the same unit: the later status wins");
 	assert.deepEqual(pick([row("t2", 9_000, "standing"), row("t1", 1_000, "running")]), [["standing", 9_000, false, "from t2"]], "whatever the order");
-	assert.deepEqual(pick([row("t1", 1_000, "running"), row("t2", 9_000, "standing", { stale: true })]), [["standing", 9_000, true, "from t2"]], "the freshest stale one is stale");
+	assert.deepEqual(pick([row("t1", 1_000, "running"), row("t2", 9_000, "standing", { stale: true })]), [["standing", 9_000, true, "from t2"]], "the freshest row's stale");
 	assert.deepEqual(pick([row("t1", 9_000, "running"), row("t2", 1_000, "standing", { stale: true })]), [["running", 9_000, false, "from t1"]], "an old stale status does not hide a fresh one");
 	assert.deepEqual(pick([row("t3", 9_000, "standing"), row("t1", 1_000, "running")]), [["running", 1_000, false, "from t1"]], "a status of a team the card is not in is not the card's");
 	assert.deepEqual(pick([row("t1", 1_000, "running")], { ...both, teams: ["t1"] }), [["running", 1_000, false, "from t1"]]);
@@ -269,4 +269,48 @@ test("a crash notice of either team tells on the merged card, the latest one onc
 	const seen = new Map<string, number>();
 	unitCards([{ ...rows[0]!, at: now - 10_000, units: [{ unit: "moldplan", state: "running", monitors: [], report: "" }] }], [], both, now - 10_000, seen);
 	assert.equal(unitCards(rows, [t1], both, now, seen)[0]!.tone, "idle", "the page's memory of a run is the device's, not a team's");
+});
+
+// A box reports each team only the units of that team's project (src/link/unitstatus.ts), and presence is per team project too (AOC-F001..F003).
+const unit = (name: string, state = "standing") => ({ unit: name, state, monitors: [], report: "" });
+const rowOf = (team: string, at: number, ...names: string[]) => ({ team, device: "d1", at, units: names.map((n) => unit(n)) });
+const mate = (team: string, workspace: string | null, over: Partial<AllyBase> = {}) => ally({ id: `${team}/d1${workspace ? `/${workspace}` : ""}`, team, teamName: team === "t1" ? "moldplan" : "agent-tower-team", workspace, ...over });
+const whoOf = (c: ReturnType<typeof mergeAllies>[number]) => ({ device: c.device, workspace: c.workspace, teams: c.teams.map((t) => t.team) });
+
+test("two teams that report different units: each workspace's card keeps its own, whichever team reported last", () => {
+	const cards = mergeAllies([mate("t1", "W1"), mate("t2", "W2")]);
+	assert.deepEqual(cards.map((c) => [c.id, c.teams.map((t) => t.team)]), [["d1/W1", ["t1"]], ["d1/W2", ["t2"]]], "a card is of the teams whose presence lists its workspace");
+	for (const rows of [[rowOf("t1", 1_000, "W1"), rowOf("t2", 2_000, "W2")], [rowOf("t1", 3_000, "W1"), rowOf("t2", 2_000, "W2")]])
+		assert.deepEqual(cards.map((c) => unitsFor(rows, whoOf(c)).map((u) => u.unit)), [["W1"], ["W2"]]);
+});
+
+test("a card with no workspace lists the union of its teams' units, one entry per unit from its freshest row, and does not flip", () => {
+	const [card] = mergeAllies([mate("t1", null), mate("t2", null)]);
+	const rows = (t1At: number, t2At: number) => [{ ...rowOf("t1", t1At, "A", "S"), units: [unit("A"), unit("S", "running")] }, { ...rowOf("t2", t2At, "B", "S"), units: [unit("B"), unit("S", "standing")] }];
+	for (const [a, b] of [[1_000, 2_000], [3_000, 2_000]]) assert.deepEqual(unitsFor(rows(a, b), whoOf(card!)).map((u) => u.unit), ["A", "S", "B"], "the same set and order whoever reported last");
+	const s = (a: number, b: number) => unitsFor(rows(a, b), whoOf(card!)).find((u) => u.unit === "S")!;
+	assert.deepEqual([s(1_000, 2_000).state, s(1_000, 2_000).at], ["standing", 2_000]);
+	assert.deepEqual([s(3_000, 2_000).state, s(3_000, 2_000).at], ["running", 3_000]);
+	assert.equal(unitsFor([{ ...rowOf("t1", 9_000, "A"), stale: true }, rowOf("t2", 1_000, "B")], whoOf(card!)).map((u) => [u.unit, u.stale]).join(), "A,true,B,false", "stale is per unit's row");
+});
+
+test("a team with no workspace of the device is on every card of it; a team with another workspace is not", () => {
+	const cards = mergeAllies([mate("t1", "W1"), mate("t2", "W2"), mate("t3", null)]);
+	assert.deepEqual(cards.map((c) => c.teams.map((t) => t.team)), [["t1", "t3"], ["t2", "t3"]]);
+});
+
+test("a crash notice goes only to the cards of the team it came on", () => {
+	const now = 10_000_000, cards = mergeAllies([mate("t1", "W1"), mate("t2", "W2")]);
+	const rows = [{ ...rowOf("t1", now - 1_000, "W1") }, { ...rowOf("t2", now - 1_000, "W2") }];
+	const n = (team: string, unitName: string) => ({ ...crashNotice(now - 60_000), team, data: { ...crashNotice(now - 60_000).data, unit: unitName } });
+	assert.deepEqual(cards.map((c) => unitCards(rows, [n("t2", "W1")], whoOf(c), now).map((u) => u.tone)), [["idle"], ["idle"]], "t2's notice for a unit named W1 is not W1's card's");
+	assert.deepEqual(cards.map((c) => unitCards(rows, [n("t1", "W1")], whoOf(c), now).map((u) => u.tone)), [["crashed"], ["idle"]]);
+});
+
+test("the card's label does not move with the tower state, and a team that cannot hear the device does not put its state on an online card", () => {
+	const label = (a: string, b: string) => mergeAllies([mate("t1", "W", { label: "tower-01", tower: a }), mate("t2", "W", { label: "box-B", tower: b })])[0]!.label;
+	assert.deepEqual([label("idle", "working"), label("working", "idle")], ["tower-01", "tower-01"]);
+	assert.equal(mergeAllies([mate("t2", "W", { label: "box-B" }), mate("t1", "W", { label: "tower-01" })])[0]!.label, "tower-01", "the first team by id, not by order");
+	const on = mergeAllies([mate("t1", null, { online: true, tower: "unknown", tabs: [] }), mate("t2", "W2", { online: false, tower: "blocked" })])[0]!;
+	assert.deepEqual([on.online, on.tower], [true, "unknown"], "the stale blocked of the offline team is not the card's");
 });

@@ -127,15 +127,19 @@ test("ALLY-F003: a trust question nobody answered reads 'Why it stopped' with th
 });
 
 // The card itself (gui/render.ts `fillAlly`): the box's own mains and workers are never listed, and the card says one state, the units'.
-const ally = (over: object = {}) => ({ id: "ally/t/d1", team: "t", teamName: "moldplan", device: "d1", short: "9f3a1c", label: "ci-box", online: true, unattended: true, workspace: null, tower: "working", tabs: [{ label: "main \u00b7 trial13", state: "working" }, { label: "worker \u00b7 scout", state: "idle" }], ...over });
+const ally = (over: object = {}) => ({ id: "ally/d1", teams: [{ team: "t", teamName: "moldplan" }], device: "d1", short: "9f3a1c", label: "ci-box", online: true, unattended: true, workspace: null, tower: "working", tabs: [{ label: "main \u00b7 trial13", state: "working" }, { label: "worker \u00b7 scout", state: "idle" }], ...over });
 const link = (units: object[] = []) => ({ allies: [], alerts: [], confirms: [], units: units.length ? [{ team: "t", device: "d1", at: Date.now() - 5_000, units }] : [] });
 const unit = (name: string, state = "standing") => ({ unit: name, state, monitors: [], report: "" });
 async function drawn(a: object, l: object) {
-	const { allyEl, fillAlly } = await import("../gui/render.ts");
+	const { allyEl } = await import("../gui/render.ts");
 	const el = allyEl() as unknown as El;
 	page.body.replaceChildren(el);
-	fillAlly(el as unknown as HTMLElement, a as never, l as never);
+	await fillAllyOn(el, a, l);
 	return el;
+}
+async function fillAllyOn(el: El, a: object, l: object) {
+	const { fillAlly } = await import("../gui/render.ts");
+	fillAlly(el as unknown as HTMLElement, a as never, l as never);
 }
 
 test("ALLY-F005/F009: a card that has units lists no tab of the box; an unattended box without them says how many units are online in one line, never their names", async () => {
@@ -173,4 +177,61 @@ test("ALLY-F008: once the card shows units, its subtitle names the box and wheth
 	assert.equal(one(withUnits, ".tstate").textContent, "ci-box \u00b7 9f3a1c", "the unit's own word is the card's only state");
 	assert.equal(one(await drawn(ally({ workspace: "Harbor API", online: false }), link([unit("Harbor API")])), ".tstate").textContent, `ci-box \u00b7 9f3a1c \u00b7 ${m.link_offline()}`);
 	assert.equal(one(await drawn(ally(), link()), ".tstate").textContent, `9f3a1c \u00b7 ${m.mark_working()}`, "with no units the tower's state stands in");
+});
+
+// One card per device, however many teams it is in (docs/how-it-works.md, Unattended devices): the card names its teams on a quiet line, one status block, the device's.
+const TEAMS = [{ team: "t", teamName: "moldplan" }, { team: "t2", teamName: "agent-tower-team" }];
+const teamsLine = (el: El) => el.querySelector(".ally-teams")!;
+
+test("a card of a device in two teams names both on a quiet line of its own, and the crown does not pick one of them; one team says nothing more than its crown", async () => {
+	const two = await drawn(ally({ teams: TEAMS }), link([unit("Quarry Tools")]));
+	assert.equal(teamsLine(two).hidden, false);
+	assert.equal(teamsLine(two).textContent, m.ally_teams({ teams: `moldplan${m.ally_teams_sep()}agent-tower-team` }));
+	assert.equal(one(two, ".ally-tag").textContent, m.ally_tag_many(), "the crown says teammate and no team");
+	assert.ok(!one(two, ".ally-tag").textContent!.includes("moldplan"));
+	const solo = await drawn(ally(), link([unit("Quarry Tools")]));
+	assert.equal(teamsLine(solo).hidden, true, "one team: no line");
+	assert.equal(one(solo, ".ally-tag").textContent, m.ally_tag({ team: "moldplan" }), "and the crown names it, as before");
+	const back = await drawn(ally({ teams: TEAMS }), link());
+	assert.equal(teamsLine(back).hidden, false);
+	await fillAllyOn(back, ally(), link());
+	assert.equal(teamsLine(back).hidden, true, "a card drawn again for one team loses the line");
+});
+
+test("the two-team card has one status block: the freshest unit status of either team, the unit once", async () => {
+	const rows = [{ team: "t", device: "d1", at: Date.now() - 90_000, units: [{ unit: "Quarry Tools", state: "running", monitors: [], report: "old" }] }, { team: "t2", device: "d1", at: Date.now() - 5_000, units: [{ unit: "Quarry Tools", state: "standing", monitors: [], report: "new" }] }];
+	const el = await drawn(ally({ teams: TEAMS }), { ...link(), units: rows });
+	await until(() => el.querySelectorAll(".ally-unit").length === 1, "one unit");
+	assert.equal(el.querySelectorAll(".ally-unit").length, 1);
+	assert.equal(one(el, ".ally-unit").dataset.tone, "idle", "the later status, from the second team");
+	assert.equal(one(el, ".au-peek").textContent, "new");
+});
+
+test("a crash told in either team shows once on the merged card", async () => {
+	const at = Date.now() - 2 * 60_000;
+	const note = (team: string, id: string) => ({ id, kind: "notice", level: "warning", team, teamName: team, data: { device: "d1", label: "ci-box", short: "9f3a1c", what: "run-crashed", unit: "Quarry Tools", at, text: `crashed in ${team}` } });
+	const rows = [{ team: "t", device: "d1", at: Date.now() - 5_000, units: [{ unit: "Quarry Tools", state: "standing", monitors: [], report: "" }] }];
+	const el = await drawn(ally({ teams: TEAMS }), { ...link(), units: rows, alerts: [note("t2", "notice/2")] });
+	await until(() => el.querySelectorAll(".ally-unit").length === 1, "the unit");
+	assert.equal(one(el, ".ally-unit").dataset.tone, "crashed", "the notice of the second team tells on a card that lists it");
+	assert.equal(el.querySelectorAll(".au-crash").length, 1);
+});
+
+test("the demo's teams scene puts the ci-box, a teammate's computer and their units in a second team, and every other scene is unchanged", async () => {
+	const { allyDemo } = await import("../gui/demo-ally.ts");
+	const { mergeAllies } = await import("../gui/linkmodel.ts");
+	const fresh = () => ({ allies: [{ id: "t/d1/Harbor API", team: "t", teamName: "moldplan", device: "d1", short: "9f3a1c", label: "ci-box", online: true, unattended: true as const, workspace: "Harbor API", tower: "working", tabs: [] }], alerts: [{ id: "notice/1", kind: "notice" as const, level: "warning" as const, team: "t", teamName: "moldplan", data: { device: "d1", unit: "Harbor API", what: "run-crashed", text: "x" } }], confirms: [], units: [{ team: "t", device: "d1", at: 0, units: [{ unit: "Harbor API", state: "working", monitors: [], report: "r" }] }] });
+	const plain = fresh();
+	allyDemo(plain, "crashed", 1_000_000);
+	assert.deepEqual(mergeAllies(plain.allies).map((c) => c.teams.length), [1], "without it one team, as before");
+	const link = fresh();
+	allyDemo(link, "mate,teams", 1_000_000);
+	const cards = mergeAllies(link.allies);
+	assert.deepEqual(cards.map((c) => [c.device, c.teams.map((t) => t.teamName)]), [["d1", ["moldplan", "agent-tower-team"]], ["d3", ["moldplan", "agent-tower-team"]]], "one card per device, both teams on each");
+	assert.equal(link.units.filter((u) => u.device === "d1").length, 0, "(mate says the box reports no units)");
+	const withUnits = fresh();
+	allyDemo(withUnits, "crashed,teams", 1_000_000);
+	assert.deepEqual(withUnits.units.map((u) => u.team), ["t", "t2"]);
+	assert.equal(withUnits.alerts.filter((a) => a.kind === "notice").length, 2, "the box's notice reaches both teams");
+	assert.equal(new Set(withUnits.alerts.map((a) => a.id)).size, withUnits.alerts.length, "with ids of their own");
 });

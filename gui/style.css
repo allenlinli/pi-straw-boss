@@ -977,6 +977,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .base.ally { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 42%), linear-gradient(180deg, var(--surface-1), var(--surface-0)); }
 .base.ally .crown { display: inline-flex; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); text-transform: none; letter-spacing: 0.04em; }
 .base.ally.offline { opacity: 0.55; }
+.base.ally .ally-teams { margin: 2px 0 0; font-size: 11px; white-space: normal; overflow-wrap: anywhere; } /* a device in several teams: one card, its teams on a quiet line (gui/render.ts `fillAlly`) */
 .ally-tabs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .ally-tab { display: flex; justify-content: space-between; gap: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }
 .ally-tab b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

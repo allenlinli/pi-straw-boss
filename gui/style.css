@@ -81,6 +81,7 @@ svg { display: block; }
 .tally dd { font-size: 20px; }
 .stats [data-mark] dd, .tally [data-mark] dd, .count b { color: var(--c); }
 .pair-btn { padding: 6px 10px; white-space: nowrap; border-radius: 12px; border: 1px solid var(--line); background: none; color: var(--dim); font: 600 12px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
+a.pair-btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; } /* a link centers its text in the same box a button gives */
 /* Reminder and sound switches: a lit dot when on, amber while notifications still wait to be allowed, red when the browser blocks them. */
 .tog { display: inline-flex; align-items: center; gap: 6px; } .tog::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
 .tog[data-state="on"] { color: var(--text); border-color: color-mix(in srgb, var(--accent) 35%, var(--bg)); } .tog[data-state="on"]::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
@@ -382,6 +383,8 @@ body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /
 .tower-notices .tnote .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .tower-notices .tnote .tnote-fail:empty { display: none; }
 .tower-notices .tnote button:disabled { opacity: 0.6; cursor: progress; }
 .wait-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; } .wait-text { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; } .wait-panel .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .wait-panel .tnote-fail:empty { display: none; }
+.wait-panel .tnote-ok { flex: 1 1 100%; color: var(--ok); font-size: 0.95em; } .wait-panel .tnote-ok:empty { display: none; } .tnote:has(.wait-panel[data-gone]) > span { display: none; }
+.tower-notices .tnote-flash { margin: 0; color: var(--ok); font-size: 0.85em; }
 .wait-panel .pair-btn[hidden] { display: none; } .dialog[data-wait] .go { background: none; border: 1px solid var(--line); color: var(--text); } .dialog[data-wait] .wait-go { border: 0; background: var(--accent); color: var(--ink); } /* a wait's dialog: Handle (then Send) is the act, the comms link the secondary one */ .tower-notices .tnote .wait-panel { flex: 1 1 100%; margin-top: 0; }
 .wait-form { display: grid; gap: 4px; flex: 1 1 100%; margin: 0; min-width: 0; } .wait-form[hidden] { display: none; }
 html:not([data-view="zen"]) .wait-box { box-sizing: border-box; width: 100%; min-height: 44px; resize: none; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: 14px/1.4 var(--sans); } /* the answer box: the composer's look in Standard and Geek; Zen draws it as its own input (zen.css) */

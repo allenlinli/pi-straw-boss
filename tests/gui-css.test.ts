@@ -357,3 +357,11 @@ test("T2: the map's overview steps aside while a question panel is open on an al
 	assert.match(css, /body:has\(\.ally-asks:not\(\[hidden\]\) \.ally-asks-list:not\(\[hidden\]\)\) \.minimap \{ opacity: 0; pointer-events: none; \}/, "an open list in a box that shows: a list left open in a box that has no question is not an open panel");
 	assert.ok(rulesOf(css).some((r) => r.parts.some((p) => p.endsWith(".minimap") && p.includes("body:has(.tile)"))), "the tile's rule, which this one stands beside, is still there");
 });
+
+test("a link drawn as a pair button (`a.pair-btn`, the wait panel's comms link) sits in the same box as the buttons: centred, no underline, unprefixed", () => {
+	const r = rulesOf(css).find((x) => x.parts.includes("a.pair-btn"));
+	assert.ok(r, "a rule for the link form of .pair-btn");
+	const decl = declarations(r!.body);
+	assert.ok(decl.some(([p, v]) => p === "display" && v === "inline-flex") && decl.some(([p, v]) => p === "align-items" && v === "center") && decl.some(([p, v]) => p === "text-decoration" && v === "none"));
+	assert.doesNotMatch(r!.body, /-webkit-/);
+});

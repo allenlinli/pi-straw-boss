@@ -337,7 +337,8 @@
    its delay set from the line's age, and never stopped: a hover, focus, a tap, or a held line only eases --lift to 1 over 0.6 s, so the clock keeps running and opacity = fade + (1 - fade) * lift); forced colours put it at 1. Rank 0 is the newest; the clear levels hold 7 : 1 (tests/zen-contrast.test.ts). ── */
 [data-view="zen"] .zen-head { display: grid; justify-items: center; gap: 8px; width: min(40rem, 100%); padding-bottom: clamp(8px, 4vh, 40px); } /* the hairline stands clear of the page's foot */
 [data-view="zen"] .zen-head[hidden] { display: none; }
-[data-view="zen"] .zen-stage:has(.zen-head) { grid-template-rows: none; grid-auto-rows: max-content; align-content: center; } /* the circle, its line, and the strip are one group in the middle of the page, not the circle in all the room that is left */
+[data-view="zen"] .zen-stage:has(.zen-head) { --orb: min(48vmin, 320px); grid-template-rows: minmax(80px, var(--orb)) max-content max-content; grid-auto-rows: max-content; align-content: center; padding-top: 40px; } /* the circle, its line, and the strip are one group in the middle of the page, not the circle in all the room that is left; the circle gives way (to 80 px) when the group is taller than the page, and the 40 px under the page's top keep it clear of the working-and-idle line at the top (Z-D19 fix) */
+[data-view="zen"] .zen-stage:has(.zen-head) > .zen-circle { width: auto; height: 100%; }
 [data-view="zen"] .zen-head-lines { display: grid; gap: 8px; width: 100%; margin: 0; padding: 0; list-style: none; transition: opacity 0.6s var(--zen-ease), visibility 0s; }
 /* Resting (zenhead.ts `rest`; Esc or a tap on the blank space): the lines and the working line go, keeping their room as the mindfulness line does when they are clear, so nothing moves when the head is called back. Hover, focus, and touch lift nothing here, and forced colours do not show them either. */
 [data-view="zen"] .zen-head[data-hushed] :is(.zen-head-lines, .zen-head-working) { opacity: 0; visibility: hidden; transition: opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s; }
@@ -356,15 +357,21 @@
 [data-view="zen"] .zen-hl[data-held] { --lift: 1; }
 [data-view="zen"] .zen-head-working { margin: 0; color: var(--zen-ash); font-size: 0.9rem; letter-spacing: 0.08em; }
 [data-view="zen"] .zen-head-working[hidden] { display: none; }
-[data-view="zen"] :is(.zen-head-history, .zen-rest) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 6px; cursor: pointer; transition: color 0.4s var(--zen-ease); }
+[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 6px; cursor: pointer; transition: color 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-history[hidden] { display: none; }
+[data-view="zen"] .zen-head-meta { display: grid; grid-template-rows: minmax(44px, auto) minmax(44px, auto); justify-items: center; } /* two rows in every state, the link's above the cue's, each keeping its room when it is away: the circle and the lines never move when a card comes or goes, the lines come up, or the link fades (Z-D19) */
+[data-view="zen"] .zen-head-meta > * { grid-column: 1; }
+[data-view="zen"] .zen-head-history { grid-row: 1; }
+[data-view="zen"] .zen-head-cue { grid-row: 2; margin: 0; display: grid; justify-items: center; transition: opacity 0.6s var(--zen-ease), visibility 0s; } /* Z-D19: the one line that says a card waits for Enter; it keeps its room, so the circle and the lines never move when a card comes or goes */
+[data-view="zen"] .zen-head-cue[data-away] { opacity: 0; visibility: hidden; transition: opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s; }
+[data-view="zen"] .zen-head-cue-btn { transition: color 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-history { transition: color 0.4s var(--zen-ease), opacity 0.6s var(--zen-ease), visibility 0s; }
 [data-view="zen"] .zen-head-key { color: var(--zen-ash); opacity: 0.35; transition: opacity 0.4s var(--zen-ease); } /* the key is named as the folded input names Enter: the same ash at the same 0.35, and it comes up with the link */
 [data-view="zen"] .zen-head-history:is(:hover, :focus-visible) .zen-head-key { opacity: 1; }
 @media (pointer: coarse), (hover: none) { [data-view="zen"] .zen-head-key { display: none; } } /* a touch screen has no keyboard to name */
 [data-view="zen"] .zen-head-history[data-away] { opacity: 0; visibility: hidden; transition: opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s; } /* at rest the link fades out and keeps its room, as the mindfulness line does: a hover moves nothing */
-[data-view="zen"] :is(.zen-head-history, .zen-rest):hover { color: var(--zen-paper); }
-[data-view="zen"] #zen :is(.zen-head-history, .zen-rest, .zen-head-hint):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
+[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn):hover { color: var(--zen-paper); }
+[data-view="zen"] #zen :is(.zen-head-history, .zen-rest, .zen-head-cue-btn, .zen-head-hint):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
 /* The folded input is a hairline about 16 rem wide with its hint at 0.35; it is one button. Unfolded it is a box that grows to four lines, a line under the words that turns seal for the keys. */
 [data-view="zen"] .zen-head-hint { min-height: 44px; min-width: 44px; width: min(16rem, 100%); padding: 0 6px; border: 1px solid transparent; border-bottom-color: var(--zen-line); border-radius: 0; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--sans); letter-spacing: 0.08em; opacity: 0.35; cursor: text; transition: opacity 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-hint[hidden] { display: none; }
@@ -394,20 +401,19 @@
 	[data-view="zen"] .zen-head-form { width: 100%; }
 }
 @media (max-height: 560px) {
-	[data-view="zen"] .zen-stage:has(.zen-head) { gap: 10px; }
-	[data-view="zen"] .zen-stage:has(.zen-head) > .zen-circle { width: min(30vmin, 200px); }
+	[data-view="zen"] .zen-stage:has(.zen-head) { gap: 10px; --orb: min(30vmin, 200px); }
 }
 @media (prefers-reduced-motion: reduce) { /* no fade: clear for its 20 s, then at the rest level at once; hover and a tap still clear it at once */
 	/* style.css stills every animation under reduced motion except this one (`*:not(.zen-hl)`): a step has no motion, and without it the lines would stay clear for ever */
 	[data-view="zen"] .zen-hl { animation: zen-head-step 0.01s steps(1) both; transition: none; }
-	[data-view="zen"] .zen-head-hint, [data-view="zen"] :is(.zen-head-history, .zen-rest) { transition: none; }
-	[data-view="zen"] .zen-head-lines, [data-view="zen"] .zen-head[data-hushed] :is(.zen-head-lines, .zen-head-working) { transition: none; } /* resting is at once */
+	[data-view="zen"] .zen-head-hint, [data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { transition: none; }
+	[data-view="zen"] :is(.zen-head-lines, .zen-head-cue), [data-view="zen"] .zen-head[data-hushed] :is(.zen-head-lines, .zen-head-working) { transition: none; } /* resting is at once */
 }
 @media (forced-colors: active) { /* the lines are not faded and show in the system's colours; the hairline and the box are CanvasText */
 	[data-view="zen"] .zen-hl { animation: none; opacity: 1; color: CanvasText; }
 	[data-view="zen"] .zen-head-hint { opacity: 1; border-bottom-color: CanvasText; color: CanvasText; }
 	[data-view="zen"] .zen-head-box { border-bottom-color: CanvasText; color: CanvasText; }
-	[data-view="zen"] :is(.zen-head-history, .zen-rest) { color: LinkText; }
+	[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { color: LinkText; }
 	[data-view="zen"] .zen-head-key { color: inherit; opacity: 1; }
 }
 /* The head's history (zenhead.ts quietForwards): a forward row reads as one quiet line, not as an action card's name. */

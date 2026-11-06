@@ -6,7 +6,7 @@ import { getLocale } from "./paraglide/runtime.js";
 import type { Answer } from "./post.ts";
 
 // The head tower of the demo (`?head=<state>`, docs/specs/2026-11-04-head-tower.md, Demo and pictures): `absent` (not open yet), `talk` (a conversation, no asks), `answers` (work handed to three towers, one answered), `waiting` (it waits for the boss),
-// and `busy` (as `talk`, but it refuses what the boss sends: the strip's refusal). `?zen=head`, `head-open`, `head-history`, and `head-rest` (Esc a moment after the page starts, then an unasked report) show the strip in Zen (fixture.ts); they take `answers` unless `?head=` says another.
+// and `busy` (as `talk`, but it refuses what the boss sends: the strip's refusal). `?zen=head`, `head-open`, `head-history`, and `head-rest` (an unasked report six seconds after the page starts: the strip is at rest, as every visit begins, and stays so) show the strip in Zen (fixture.ts); they take `answers` unless `?head=` says another.
 
 export const HEAD_STATES = ["absent", "talk", "answers", "waiting", "busy"] as const;
 export type HeadState = (typeof HEAD_STATES)[number];

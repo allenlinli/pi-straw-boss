@@ -607,7 +607,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen head strip rest (0.59.5) to 411 (+1): `?zen=head-rest` presses Esc and, six seconds on, sends the head's unasked report (demo-head.ts `headReport`).
 	// `?ally=ask` to 413 (+2): the ci-box ally base asks a two-question forwarded question (the panel on its card in Standard).
 	// `?zen=blocking` to 415 (+2): a tower's wait is the card and a box's question arrives `&box=<ms>` later (Z-D18); the link demo's io is one const.
-	assert.ok(demo <= 415, `the demo fixture has ${demo} lines`);
+	// Zen cards wait for Enter (Z-D19) to 418 (measured, +3): the card states press Enter, `&queued` leaves them waiting, and `?ally=report` sends an ally report and a notice while Zen rests.
+	assert.ok(demo <= 418, `the demo fixture has ${demo} lines`);
 	// Head tower H5 to 387 (+3 over 384): the strip's `?zen=head|head-open|head-history` states (the quiet net, the Enter and H presses, the draft), and a message to the head answered with its working mark (demo-head.ts holds the words).
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
@@ -766,7 +767,9 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Blocking first review fixes (ZBF-F001 to F006) to 6368 (measured, +24): zen.ts (the inert window, the parked card), zenmodel.ts (`blocks` as a switch), and zentouch.ts (a touch is a tap in the last 20 s; no fold, text, or pick).
 	// Wait panel buttons (0.60.1) to 6403 (measured, +35): waitpanel.ts (`report`: the folded panel and the stale note; the confirmation is the host's, one line) and towernotes.ts (no comms link on the head page or on a tower's own comms, the flash under the rows).
 	// The head page, minimal (docs/specs/2026-11-06-head-page-minimal.md) to 6504 (measured, +101 over main's 6403): gui/headacts.ts (33, new), headpage.ts (the broadcast rows replace the chips), demo-head.ts (five broadcasts, the lapsed wait, the hidden items), chat.ts and session.ts.
-	assert.ok(page <= 6504, `the page's TypeScript has ${page} lines`);
+	// Zen head strip at rest (0.60.2) to 6524 (measured, +20 over 6504): zenhead.ts (the rest at the start and at the focus's leaving, the recall, the visit's snapshots), zen.ts (the history closes to the rest); the fixture and the demo's words are net zero.
+	// Zen head fix (ZD19-F001 to F005) to 6526 (measured, +2): the model's `listed()` (what a reminder is counted against) and the cue's words written only when they change (zenhead.ts).
+	assert.ok(page <= 6526, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -917,7 +920,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Link card live (0.59.4): 101,146 / 36,717 measured, +438 / +164 over the figure above: the ally base's lazy load of the answer panel (render.ts: the waiting cards and the load, gui/allyasks.ts itself is a chunk) and one message in both languages. Cap = measured.
 	// Wait panel buttons (0.60.1): 101,449 / 36,813 measured, +303 / +96 over the figure above: three messages in both languages, the folded panel's CSS, and the session view's `here` flag. Cap = measured.
 	// The head page, minimal (0.60.1): 103,822 / 37,601 measured, +2,373 / +788 over main's 101,449 / 36,813: the broadcast rows (headpage.ts), the actions row (headacts.ts), the head-only branches of the log, the session view and the memory footer, the messages in both languages, and the rows' CSS. Cap = measured.
-	assert.ok(eagerBytes <= 103_822 && eagerGz <= 37_601, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Merge of the Zen rest and the drawer fix (0.60.2): 103,822 / 37,603 measured, +0 / +2 gzip over the figure above: no eager file changed, the merged bundle compresses 2 bytes worse. Cap = measured.
+	assert.ok(eagerBytes <= 103_822 && eagerGz <= 37_603, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1059,7 +1063,11 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Wait panel buttons (0.60.1): 311,702 / 127,709 measured, +575 / +324 over the figure above, all lazy: waitpanel.ts (`report`: the folded panel and the stale note) and the session view's `here` flag. Cap = measured.
 	// The head page, minimal (0.60.1): 312,801 / 127,984 measured, +1,099 / +275 over main's 311,702 / 127,709: the head-only branches of the log and the broadcast rows' lazy parts. Cap = measured.
 	// The drawer's Quit clear of the current row's chevron (0.60.2): 312,801 / 128,005 measured, +0 / +21 over the figure above: one stylesheet rule. The gzip cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 312_801 && total(chunks, gz) <= 128_005, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Zen head strip at rest (0.60.2): 313,211 / 128,096 measured, +410 / +112 over the figure above: zenhead.ts (the Zen chunk). Cap = measured.
+	// Zen cards wait for Enter (Z-D19): 313,559 / 128,173 measured, +348 / +77 over the figure above: the cue (zenhead.ts), the queue and `take` (zenmodel.ts, zen.ts) less the touched window, the parked card and zentouch.ts. Cap = measured.
+	// Zen head fix (ZD19-F001 to F005): 313,615 / 128,187 measured, +56 / +14 over the figure above: `listed()`, the cue's write guard. Cap = measured.
+	// Merge with the drawer fix (0.60.2): 313,615 / 128,208 measured, +0 / +21 gzip: the drawer rule's +21 above, now on the Zen figure. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 313_615 && total(chunks, gz) <= 128_208, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1177,7 +1185,10 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Composer divider and queued label (0.60.1): 158,570 / 32,349 measured, +361 / +73 over the figure above: the divider under the log, the dock gap while a strip shows, the notes' 6 px under the divider, the label's nowrap. Cap = measured.
 	// The head page, minimal (0.60.1): 160,116 / 32,645 measured, +1,546 / +296 over main's 158,570 / 32,349: the broadcast rows, the actions row, and the hidden entry's rule; the chips' rules are gone. Cap = measured.
 	// The drawer's Quit clear of the current row's chevron (0.60.2): 160,193 / 32,653 measured, +77 / +8 over the figure above: the one padding rule. Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 160_193 && total(css, gz) <= 32_653, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Zen cards wait for Enter (Z-D19): 160,839 / 32,735 measured, +723 / +90 over the figure above: the cue's rules (the shared row with the link, the away state, reduced motion). Cap = measured.
+	// Zen head fix (ZD19-F001 to F005): 160,890 / 32,773 measured, +51 / +38 over the figure above: the cue's own row in every state, the circle's row that gives way, and the room under the top line. Cap = measured.
+	// Merge with the drawer fix (0.60.2): 160,967 / 32,781 measured, +77 / +8: the drawer's one padding rule, now on the Zen figure. Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 160_967 && total(css, gz) <= 32_781, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

@@ -143,7 +143,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	if (new URLSearchParams(location.search).get("ally") === "ask") Object.assign(net.link!.alerts.find((x) => x.id === "dialog/d1/D1")!.data, { answered: undefined, closed: undefined, dialog: JSON.stringify({ cancel: true, questions: [{ question: "Deploy to staging?", header: "Deploy", multiple: false, options: [{ title: "Yes" }, { title: "No" }] }, { question: "Which region?", header: "Region", multiple: false, options: [{ title: "eu-west" }, { title: "us-east" }] }] }) });
 	/** The page of the chat that ends before `before` (the end of the history when absent), the way the server pages; the head's key has its own conversation. */
 	const page = (before?: string, key?: string): Page => {
-		const history = key === "sb-head" && headNow ? headHistory(headNow) : demoHistory0;
+		const history = (key === "sb-head" || key === "@head") && headNow ? headHistory(headNow) : demoHistory0;
 		const end = before ? history.findIndex((i) => i.id === before) : history.length, start = Math.max(0, end - 150);
 		return { items: history.slice(start, end), before: start > 0 ? history[start]!.id : undefined };
 	};
@@ -205,6 +205,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	net = track(zenState(net, zen));
 	const linkIo = { net: () => net, change: (mut: (n: Net) => void) => (mut(net), (net = structuredClone(net)), current?.send("message", net)), service: () => towerService("standing").service! };
 	if (isLinkState(zen)) linkDemo(zen, linkIo, new URLSearchParams(location.search).has("refuse")); // the link cards (demo-link.ts); `&refuse`: the server refuses every answer
+	if (new URLSearchParams(location.search).get("ally") === "report") setTimeout(() => linkIo.change((n) => (n.link!.units[0]!.units.push({ unit: "billing", state: "waiting", monitors: [], report: "Needs a decision on the invoice export." } as never), n.link!.alerts.push({ id: "notice/2", kind: "notice", level: "warning", team: "t", teamName: "moldplan", data: { device: "d1", label: "ci-box", short: "9f3a1c", what: "run-crashed", unit: "billing", text: "An ally run crashed: out of memory" } } as never))), 4000); // `?ally=report`: an ally base's report and a notice arrive four seconds on: Zen takes no notice of them (#93)
 	if (zen === "blocking") setTimeout(() => linkDemo("link-dialog", linkIo, false), Number(new URLSearchParams(location.search).get("box") ?? 6000)); // a tower's wait is the card, and a box's question arrives `&box=<ms>` on (Z-D18)
 	if (zen === "idle" || zen === "alone" || zen === "blocking" || zen?.startsWith("head") || isLinkState(zen)) quietUntil = Date.now() + (zen.startsWith("head") || zen === "blocking" || isLinkState(zen) ? 900_000 : 90_000); // the strip fades over minutes: nothing waits for a quarter of an hour
 	// A visit starts at the breathing circle (Z-D16): `idle` and `palette` start their first visit as if the boss had stepped to billing-main with `]`; a later visit starts at the circle, as the page does.
@@ -246,9 +247,11 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	}
 	// The states that press a key (the Zen layer takes it once it has drawn): H opens the card's context, ⌘K / Ctrl+K the palette, and an answer to the item starts the pause.
 	const press = (init: KeyboardEventInit) => setTimeout(() => window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init })), 2200);
-	if (zen === "history" || zen === "head-history") press({ key: "h" });
+	if (zen === "history" || zen === "head-history") (press({ key: "h" }), zen === "head-history" && press({ key: "h" })); // head-history: the first H calls the strip's lines up, the second opens the whole conversation
 	if (zen === "head-open") (press({ key: "Enter" }), setTimeout(() => { const box = document.querySelector<HTMLTextAreaElement>(".zen-head-box"); if (box) (box.value = headDraft(), box.dispatchEvent(new Event("input", { bubbles: true }))); }, 2900));
-	if (zen === "head-rest") (press({ key: "Escape" }), setTimeout(() => current?.send("history", { key: "sb-head", reset: false, items: headReport(++live) }), 6000)); // the strip rests, then the head reports by itself: it stays at rest
+	if (zen === "head-rest") (setTimeout(() => current?.send("history", { key: "sb-head", reset: false, items: headReport(++live) }), 6000)); // the strip is at rest from the start, then the head reports by itself: it stays at rest
+	// A card waits for Enter on the breathing circle (Z-D19): the card states press it, so the demo opens on the card its name says; `&queued` leaves the cards waiting, the cue above the input counting them.
+	if ((["item", "questions", "secret", "words", "trust", "long", "history", "pause", "blocking"].includes(zen ?? "") || isLinkState(zen)) && !new URLSearchParams(location.search).has("queued")) setTimeout(() => window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })), 2000);
 	if (zen === "palette") press(/Mac|iPhone|iPad/.test(navigator.platform) ? { key: "k", metaKey: true } : { key: "k", ctrlKey: true });
 	if (zen === "pause") setTimeout(() => document.querySelector<HTMLElement>("#zen .zen-skip")?.click(), 2200);
 	mountToolbar(control);

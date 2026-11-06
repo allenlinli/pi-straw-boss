@@ -59,7 +59,8 @@ function rig() {
 		recent: async () => [],
 		post: () => () => new Promise(() => {}), label: (ws: string) => ws, online: () => true,
 		remind: () => {}, sound: () => {}, leave: (e: unknown) => void calls.leave.push(e), watch: () => {},
-		remote: false, now: () => t, start: () => undefined,
+		remote: false, now: () => t, start: () => ({ key: "t", ws: "w" }), // a session for company: a card still takes the screen by itself (on the breathing circle it waits for Enter, Z-D19)
+		
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} },
 		still: () => false, random: () => 0,
 		terminals: () => new Promise<typeof kit>((done) => {

@@ -34,7 +34,6 @@ import { waitPanel } from "./waitpanel.ts";
 import { mountMenu } from "./zenmenu.ts";
 import { mountMusic } from "./zenmusicbar.ts";
 import { syncQuestions } from "./zenquestions.ts";
-import { watchTouch } from "./zentouch.ts";
 import { domRipples, mountRipples } from "./zenripple.ts";
 import { companionOf, createZen, type Outcome, type Screen, type Sound, type With } from "./zenmodel.ts";
 
@@ -45,16 +44,16 @@ import { companionOf, createZen, type Outcome, type Screen, type Sound, type Wit
 export type { Exit, Mounts, ZenDeps } from "./zentypes.ts";
 /** How long a draft in the companion's box keeps holding the screen after the last touch of the companion (a waiting item takes it after that). */
 export const DRAFT_MS = 20_000;
-/** How long a card that took the screen from another is inert: the old card's dissolve (`zen-ink-out` in zen.css, 1.3 s), or half a second under reduced motion, where it is gone at once. A tap or a key aimed at the old card is over by then (ZBF-F001). */
+/** How long a card that replaces another is inert: the old card's dissolve (`zen-ink-out` in zen.css, 1.3 s), or half a second under reduced motion, where it is gone at once. A tap or a key aimed at the old card is over by then (ZBF-F001). */
 const INERT_MS = 1300, INERT_CALM_MS = 500;
 export const real: Mounts = { ask: mountAsk, trust: trustPanel, composer: mountComposer, chat: () => import("./chat.ts").then((c) => c.mountChat) };
 type Composer = ReturnType<typeof mountComposer>;
-interface Card { key: string; /** What the card's answer is bound to (cardalerts.ts `cardSig`): another one is another question, and the card is made again. */ sig: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean; /** Whether the boss is answering it (zentouch.ts), made with the card and kept while it is parked. */ touch?(): boolean; /** The context (session log) expanded on the card, when the unit has one. */ hist?: ReturnType<typeof mountHistory>; /** Expands or collapses the context; false when the card has none. */ toggle(): boolean; /** Collapses it, the focus going back to its link. */ collapse(): void; /** The wait card's answer box is unfolded. */ replying?(): boolean; /** Folds it with the draft kept, the focus going back to Handle. */ foldReply?(): boolean }
+interface Card { key: string; /** What the card's answer is bound to (cardalerts.ts `cardSig`): another one is another question, and the card is made again. */ sig: string; el: HTMLElement; said: HTMLElement; out: HTMLElement; skip: HTMLButtonElement; update(a: Alert, outcome?: Outcome): void; enter(): boolean; /** Presses the question's Cancel when it has one. */ cancel(): boolean; /** Whether the card's answer is on its way. */ sending(): boolean; /** The context (session log) expanded on the card, when the unit has one. */ hist?: ReturnType<typeof mountHistory>; /** Expands or collapses the context; false when the card has none. */ toggle(): boolean; /** Collapses it, the focus going back to its link. */ collapse(): void; /** The wait card's answer box is unfolded. */ replying?(): boolean; /** Folds it with the draft kept, the focus going back to Handle. */ foldReply?(): boolean }
 interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; /** Appends that came while the newest page was in flight: applied again after it, which they may not be in. */ late?: HistoryEvent[]; state?: string }
 
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
-	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), unitAlerts = new Map<string, Alert>(), pairList: PairRequest[] = [], pairsAt = 0, shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined, histOpen = false, touchedCard = () => false, inertCard: Card | undefined, stopInert = () => {}; // picked: this visit's companion (its start, or the one stepped to); none is the circle. histOpen: the head tower's whole conversation, as a companion, on the circle screen (zenhead.ts)
+	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), unitAlerts = new Map<string, Alert>(), pairList: PairRequest[] = [], pairsAt = 0, shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined, histOpen = false, inertCard: Card | undefined, stopInert = () => {}; // picked: this visit's companion (its start, or the one stepped to); none is the circle. histOpen: the head tower's whole conversation, as a companion, on the circle screen (zenhead.ts)
 	/** The alerts Standard raises, and beside them the cards (cardalerts.ts): the Link confirms and forwarded dialogs and the towers' proposals from the snapshot, the pair requests from the page's poll. A pair request is this computer's to decide (the server refuses a paired device `lan/*`), so a paired device is given none. */
 	const remote = deps.remote ?? globalThis.location?.hostname !== "127.0.0.1";
 	const withCards = () => new Map([...unitAlerts, ...(net ? cardAlerts(net, now(), { pairs: remote ? [] : pairList, pairsAt }) : []).map((a) => [a.key, a] as const)]);
@@ -62,8 +61,10 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	// A draft holds the screen while the boss is at it: the box has text and he touched the companion (a tap or a drag on the log, a wheel, a key, or text that arrives with no key, as dictation and a suggestion tap do) in the last DRAFT_MS, focused or not. Typing keeps renewing it; walking away from a focused box does not hold the screen.
 	let touched = -Infinity;
 	const typing = () => Boolean((company?.composer && company.composer.box.value !== "") || head.drafting()) && now() - touched < DRAFT_MS; // the head tower's folded-out input holds the screen the same way
-	const model = createZen({ now, typing, touched: () => touchedCard() }), explain = explainer(deps.debug ?? ((line) => console.debug(line)), (key) => (active ? model.why(key) : "the Zen layer is not shown")); // a question that waits off the page says why in the console
-	const head = mountHead({ now, later, post: (action, body) => answerPost(net?.head?.key ?? HEAD_KEY, deps.post)(action, body), latest: () => deps.data(net?.head?.key ?? HEAD_KEY).latest(), online: deps.online, sound: deps.sound, changed: () => void later(() => apply(model.tick()), 0), rest: (on) => void line?.away(!on), history: () => void openHistory() });
+	const model = createZen({ now, typing, breathing: () => !companionOf(net, company ?? picked) && !histOpen }), explain = explainer(deps.debug ?? ((line) => console.debug(line)), (key) => (active ? model.why(key) : "the Zen layer is not shown")); // a question that waits off the page says why in the console
+	const head = mountHead({ now, later, post: (action, body) => answerPost(net?.head?.key ?? HEAD_KEY, deps.post)(action, body), latest: () => deps.data(net?.head?.key ?? HEAD_KEY).latest(), online: deps.online, sound: deps.sound, changed: () => void later(() => apply(model.tick()), 0), rest: (on) => void line?.away(!on), history: () => void openHistory(), cards: () => model.queued().length, take: () => void enter() });
+	/** Enter, or a tap on the cue (Z-D19): the next card takes the screen; with none waiting, the head tower is called back (its input unfolds). */
+	const enter = () => (model.queued().length ? (apply(model.take()), true) : head.unfold());
 	const stage = h("div", { class: "zen-stage" }), live = h("p", { class: "zen-live", role: "status", "aria-live": "polite" });
 	const fs = mountFullscreen(deps.fs ?? domFs(later)), menu = mountMenu(deps.menu ?? {}, () => leave()), music = deps.music && mountMusic(deps.music);
 	const ripples = mountRipples(root, deps.ripple ?? domRipples(now)); // ink-water ripples under the pointer, on a canvas behind the content
@@ -80,26 +81,28 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const circle = (words?: string) => h("div", { class: "zen-circle", ...(words ? { role: "img", "aria-label": words } : { "aria-hidden": "true" }) }, h("i", null), h("i", null), h("i", null)); // the ink washes inside the ring
 	const stopLine = () => (line?.stop(), (line = undefined), head.stop());
 	/** Ink dissolving: the card that was on the page stays a moment longer, fading and blurring out, while the next thing begins. */
-	const fading = new Map<HTMLElement, () => void>(), parked = new Map<string, Card>(); // parked: a card a blocking question took the screen from, with its draft and its box as they were; it is shown again, not made again, when it returns
+	const fading = new Map<HTMLElement, () => void>(), reminded = new Set<string>(); // reminded: the cards that wait for Enter and were notified of while the page was away
 	const dissolve = (el: HTMLElement) => (el.dataset.gone = "", el.setAttribute("inert", ""), stage.append(el), void fading.set(el, later(() => (fading.delete(el), el.remove()), 1400)));
 	/** What the stage draws changed: the sound goes out, the screen follows, and the one timer is set for the next moment the model may change. */
 	function apply(o: { screen: Screen; sound?: Sound }) {
 		if (!active) return;
-		const was = card, before = shown, gone = view === "item" && (o.screen.kind !== "item" || o.screen.item.key !== card?.key || cardSig(o.screen.item) !== card?.sig) ? card?.el : undefined; // a card that leaves, or is swapped for another, dissolves
+		const gone = view === "item" && (o.screen.kind !== "item" || o.screen.item.key !== card?.key || cardSig(o.screen.item) !== card?.sig) ? card?.el : undefined; // a card that leaves, or is swapped for another, dissolves
 		shown = o.screen;
 		if (o.sound) deps.sound(o.sound);
 		if (shown.kind === "item") drawItem(shown, Boolean(gone));
-		else (card?.hist?.close(), card = undefined, touchedCard = () => false, shown.kind === "pause" ? drawPause() : drawCompany());
-		if (was && gone && shown.kind === "item" && before.kind === "item" && !before.outcome && before.item.key !== shown.item.key && alerts.has(before.item.key)) parked.set(was.key, was); // it yielded and still waits
-		for (const [k, c] of parked) if (alerts.get(k) === undefined || cardSig(alerts.get(k)!) !== c.sig) parked.delete(k);
+		else (card?.hist?.close(), card = undefined, shown.kind === "pause" ? drawPause() : drawCompany());
 		if (gone) dissolve(gone);
 		if (shown.kind !== "item") live.textContent = "";
 		if (shown.kind !== "companion") (disposeCompany(), deps.watch(shown.kind === "item" && card?.hist?.isOpen() ? card.hist.key : null), stopLine());
 		const a = shown.kind === "item" ? undefined : deps.activity?.(); // the strip: working and idle units, never an item card's neighbour
 		strip.hidden = !a || a.working + a.idle === 0;
 		if (a) strip.textContent = m.zen_strip(a);
+		// A card that waits for Enter (Z-D19) makes no sound and no motion; a page nobody is looking at gets its system notification, once for each.
+		const waiting = model.queued(), nobody = document.hidden || !document.hasFocus();
+		for (const k of reminded) if (!model.listed().includes(k)) reminded.delete(k); // against what the server lists, not `waiting`: that is empty while a card is on the screen, which forgot every reminder the moment Enter took one
+		if (nobody) for (const x of waiting) if (!reminded.has(x.key)) (reminded.add(x.key), deps.remind(x));
 		cancel();
-		const due = model.due(), wait = (shown.kind === "companion" && typing()) || model.deferred() ? 500 : due === undefined ? undefined : due - now();
+		const due = model.due(), wait = shown.kind === "companion" && typing() ? 500 : due === undefined ? undefined : due - now();
 		cancel = wait === undefined ? () => {} : later(() => apply(model.tick()), Math.max(0, wait) + 10);
 	}
 	/** An answer's reply: accepted ends the item with the knock; anything else the server refused, or no reply, plays the low bowl and leaves the card. */
@@ -197,14 +200,11 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	};
 	/** The free-focus rule: the item takes the focus only when the page has it, the boss is not typing somewhere else, and neither the terminal layer nor the palette is on. */
 	const idle = () => !term.isOpen() && !palette.isOpen() && document.hasFocus() && (!document.activeElement || document.activeElement === document.body || root.contains(document.activeElement));
-	/** `swap`: the card takes the screen from another one that is still fading out. Until that is over it is inert, and takes no focus, so a tap or a key aimed at the old card answers nothing on this one (ZBF-F001). */
+	/** `swap`: the card replaces another one that is still fading out (the unit asked another question). Until that is over it is inert, and takes no focus, so a tap or a key aimed at the old card answers nothing on this one (ZBF-F001). */
 	function drawItem(s: Extract<Screen, { kind: "item" }>, swap = false) {
 		if (card?.key !== s.item.key || card.sig !== cardSig(s.item) || view !== "item") {
 			card?.hist?.close(); // the card that goes takes its context with it: no mount, fetch, or watch for a card that is gone
-			const back = parked.get(s.item.key), c = (card = back?.sig === cardSig(s.item) ? back : makeCard(s.item));
-			parked.delete(s.item.key);
-			if (back === c) (fading.get(c.el)?.(), fading.delete(c.el), delete c.el.dataset.gone, c.el.removeAttribute("inert"));
-			touchedCard = c.touch ??= watchTouch(c.el, { now, hold: DRAFT_MS, busy: () => c.sending() }); // a blocking question does not take the screen from a card the boss touched in the last 20 s
+			const c = (card = makeCard(s.item));
 			stage.replaceChildren(card.el);
 			live.textContent = m.zen_asks({ name: s.item.card && s.item.card.kind !== "proposal" ? s.item.name : titleOf(s.item) });
 			card.update(s.item, s.outcome);
@@ -237,9 +237,9 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		histOpen = false;
 	}
 	const onCircle = () => shown.kind === "companion" && !company && !histOpen;
-	/** The head tower's whole conversation, as a companion on the circle screen; and the way back, to the strip with its input folded. */
-	const openHistory = () => !!net?.head && active && onCircle() && (head.wake(), disposeCompany(), (histOpen = true), drawCompany(), true); // the whole conversation calls the head tower back
-	const closeHistory = () => histOpen && (disposeCompany(), head.fold(), drawCompany(), true);
+	/** The head tower's whole conversation, as a companion on the circle screen; and the way back, to the breath: the strip at rest, its input folded. */
+	const openHistory = () => !!net?.head && active && onCircle() && (disposeCompany(), (histOpen = true), drawCompany(), true);
+	const closeHistory = () => histOpen && (disposeCompany(), head.fold(), head.hush(), drawCompany(), true); // the way back is to the breath: the strip is at rest
 	function drawCompany() {
 		histOpen &&= Boolean(net?.head);
 		const c = histOpen ? { key: net!.head!.key, ws: HEAD_KEY } : companionOf(net, company ?? picked);
@@ -358,8 +358,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			cancel();
 			clearEsc();
 			stopInert();
-			[inertCard, touchedCard] = [undefined, () => false];
-			parked.clear();
+			inertCard = undefined;
+			reminded.clear();
 			card?.hist?.close();
 			card = undefined;
 			stopLine();
@@ -434,9 +434,9 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		},
 		leave,
 		/** H: expands or collapses the shown item's context; false when the screen has none. */
-		toggleHistory: () => active && !term.isOpen() && !menu.isOpen() && (shown.kind === "item" ? Boolean(card?.toggle()) : histOpen ? closeHistory() : (onCircle() && head.wake()) || openHistory()), // on the circle a rested strip is called back first (a second H opens the history)
-		/** Enter on the circle screen (hotkeys `talk`): ends a pause when one runs, else unfolds the head tower's input; false when neither. */
-		talk: () => face.tap() || (active && !term.isOpen() && !palette.isOpen() && !menu.isOpen() && onCircle() && head.unfold()),
+		toggleHistory: () => active && !term.isOpen() && !menu.isOpen() && (shown.kind === "item" ? Boolean(card?.toggle()) : histOpen ? closeHistory() : (onCircle() && head.recall()) || openHistory()), // on the circle a rested strip is called back first (a second H opens the history)
+		/** Enter on the circle screen (hotkeys `talk`): ends a pause when one runs, else takes the next card that waits (Z-D19), else unfolds the head tower's input; false when none. */
+		talk: () => face.tap() || (active && !term.isOpen() && !palette.isOpen() && !menu.isOpen() && onCircle() && enter()),
 		/** The keymap's Enter and Space (hotkeys.ts): end the pause. False when no pause is shown or the terminal layer has the keys. */
 		tap: () => (shown.kind === "pause" && !term.isOpen() ? (tap(), true) : false),
 		/** A terminal in Zen's own layer (zenterm.ts): a session's, or a pane an answer opened. */

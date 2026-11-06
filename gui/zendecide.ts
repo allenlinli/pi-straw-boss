@@ -17,7 +17,7 @@ export interface DecidePanel { el: HTMLElement; sending(): boolean; update(live:
 function decide(o: DecideOptions, field?: HTMLInputElement): DecidePanel {
 	const note = h("p", { class: "zen-head-note", role: "alert" }), buttons = o.choices.map((c) => Object.assign(h("button", { type: "button", class: "pair-btn" }, c.label) as HTMLButtonElement, { choice: c }));
 	let live = true, busy = false, done = false;
-	const draw = () => buttons.forEach((b) => (b.disabled = !live || busy || done || b.choice.ready?.() === false));
+	const draw = () => (buttons.forEach((b) => (b.disabled = !live || busy || done || b.choice.ready?.() === false)), field && (field.disabled = !live)); // a card whose question ended takes no number either (ZNI-F004)
 	const say = (text: string, tone = "error") => ((note.textContent = text), (note.dataset.tone = text ? tone : ""));
 	async function pick(c: Choice) {
 		if (busy || done || !live || c.ready?.() === false) return;

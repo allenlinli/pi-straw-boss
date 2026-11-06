@@ -10,6 +10,7 @@ import { activityOf, companionsOf } from "../gui/zenunits.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
 import type { With } from "../gui/zenmodel.ts";
+import { m } from "../gui/paraglide/messages.js";
 
 // The Zen layer (gui/zen.ts) as the page drives it: the net's snapshots go in, the card, the pause, or the companion comes out, and every answer goes through the same panels
 // and routes as Standard (ask.ts, trust.ts, the composer), which are the real ones here on a fake document. The composer and the log are stand-ins that record what they are given.
@@ -1003,8 +1004,69 @@ test("no tower stands in (Z-D12): nothing to start with, or a start session that
 	assert.equal(ended.calls.composers.at(-1)!.key, "m");
 	ended.feed(net([unit("m", "done", { ended: true })]));
 	await ended.settle();
-	assert.equal(ended.by((el) => el.getAttribute("class") === "zen-line").length, 1, "an ended companion gives the circle at the next snapshot");
-	assert.equal(ended.calls.watch.at(-1), null, "and not the tower");
+	assert.equal(ended.by((el) => el.getAttribute("class") === "zen-line").length, 0, "an ended companion no longer gives the circle by itself (Z-D20): it stays on the screen");
+	assert.equal(ended.calls.watch.at(-1), "m", "and the tower does not stand in");
+	assert.equal(ended.z.key("talk"), false, "no card to take, no circle to call the head back from");
+});
+
+// Z-D20 R2 (boss 2026-11-06, 「永遠不要打斷」): the session for company that ends or loses control stays on the screen with a quiet line and its input off, until the boss leaves it (Esc, Back to the breath, or the circle).
+const noteOfCompany = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("zen-company-note"))[0]?.textContent;
+const companyLeft = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("zen-company-rest") && !el.hidden)[0];
+test("Z-D20 R2: a session for company that ended or lost control stays with its log, a quiet note, and its composer off; a snapshot that has it again clears the note", async () => {
+	for (const [name, gone, said] of [["ended", net([unit("m", "done", { ended: true })]), m.zen_company_ended], ["gone from the net", net([]), m.zen_company_ended], ["lost control", net([unit("m", "working", { control: false })]), m.zen_company_lost]] as const) {
+		const r = rig({ start: { key: "m", ws: "w" } });
+		r.feed(net([unit("m", "working")]));
+		r.z.show();
+		await r.settle();
+		assert.equal(noteOfCompany(r), "", name);
+		const composers = r.calls.composers.length;
+		r.feed(gone);
+		await r.settle();
+		assert.equal(r.calls.composers.length, composers, `${name}: the same composer, not a new screen`);
+		assert.equal(r.by((el) => el.classes.has("zen-line")).length, 0, `${name}: no circle took its place`);
+		assert.equal(noteOfCompany(r), said(), name);
+		assert.ok(companyLeft(r), `${name}: the way back to the breath`);
+		const facts = r.calls.composers.at(-1)!.updates.at(-1) as { live: boolean; control: boolean };
+		assert.ok(!facts.live || !facts.control, `${name}: the composer is told it cannot send (its own words say why)`);
+		await r.advance(10 * 60_000);
+		assert.equal(noteOfCompany(r), said(), `${name}: ten minutes later it is still there`);
+		if (name === "lost control") {
+			r.feed(net([unit("m", "working")]));
+			await r.settle();
+			assert.equal(noteOfCompany(r), "", "the session is back: the note goes");
+			assert.ok(!companyLeft(r));
+		}
+	}
+});
+
+test("Z-D20 R2: the boss leaves a session that ended by Back to the breath, by Esc, or by the circle (]), and by nothing else", async () => {
+	const ended = async () => {
+		const r = rig({ start: { key: "m", ws: "w" }, z4b: true });
+		r.feed(net([unit("m", "working")]));
+		r.z.show();
+		await r.settle();
+		r.feed(net([unit("m", "done", { ended: true })]));
+		await r.settle();
+		return r;
+	};
+	const circle = (r: ReturnType<typeof rig>) => r.by((el) => el.getAttribute("class") === "zen-line").length === 1;
+	const a = await ended();
+	companyLeft(a)!.click();
+	await a.settle();
+	assert.ok(circle(a), "Back to the breath");
+	const b = await ended();
+	assert.equal(escape(b), true);
+	await b.settle();
+	assert.ok(circle(b), "Esc is one press: nothing is left to hint at");
+	const c = await ended();
+	assert.equal(c.z.cycle(1), true);
+	await c.settle();
+	assert.ok(!companyLeft(c) || noteOfCompany(c) === "", "] steps on to another session or the circle");
+	const d = await ended();
+	d.z.key("talk");
+	d.feed(net([unit("m", "done", { ended: true })]));
+	await d.advance(60_000);
+	assert.equal(noteOfCompany(d), m.zen_company_ended(), "nothing else ever takes it from the boss: not time, not a snapshot, not Enter");
 });
 
 test("the companion always has its log: the newest page is fetched and applied as a reset when no history event came, and not when one did (Z3R-F001)", async () => {
@@ -2523,10 +2585,10 @@ test("Z-D20: a card whose unit failed stays with the error line and the low bowl
 	await gap.settle();
 	gap.feed(net([]));
 	await gap.settle();
-	assert.ok(gap.text().includes("Already answered elsewhere"), "a unit missing from a snapshot: the card says so");
+	assert.ok(gap.text().includes("This unit has left"), "a unit missing from a snapshot: the card says so");
 	gap.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select() })]));
 	await gap.settle();
-	assert.ok(!gap.text().includes("Already answered elsewhere") && gap.by((el) => el.getAttribute("role") === "radio").every((o) => !o.disabled) && gap.button("Maybe later"), "the question is listed again: the card is live again");
+	assert.ok(!gap.text().includes("This unit has left") && gap.by((el) => el.getAttribute("role") === "radio").every((o) => !o.disabled) && gap.button("Maybe later"), "the question is listed again: the card is live again");
 	assert.deepEqual(gap.calls.sound, ["bowl"], "a unit that left the net rings nothing");
 });
 
@@ -2574,4 +2636,108 @@ test("Z-D20 (box trial C, 10:38): a card that resolves while it queues never ren
 		}
 		assert.equal(r.by((el) => el.getAttribute("data-gone") !== null).length, 0, "nothing faded in or out");
 	}
+});
+
+// Review ZNI (fix/zen-never-interrupt, 2026-11-06): F003 the focus of a revived card, F004 an ended wait or pair card, F005 a read-only card's Enter control, F007 the words of an ended card, F009 no redraw per keystroke.
+test("ZNI-F003: a card that ended and is listed again is live again with the focus back on its primary control, not on the button that was Back to the breath and is Maybe later now", async () => {
+	server();
+	const r = rig({ start: null });
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]));
+	r.z.show();
+	await r.settle();
+	r.z.key("talk");
+	await r.settle();
+	const first = r.by((el) => el.getAttribute("role") === "radio")[0];
+	assert.equal(page.focused, first);
+	r.feed(net([]));
+	await r.settle();
+	assert.equal(page.focused, r.button("Back to the breath"), "ended: Enter closes");
+	r.feed(net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]));
+	await r.settle();
+	assert.ok(r.button("Maybe later"), "live again");
+	assert.equal(page.focused, r.by((el) => el.getAttribute("role") === "radio")[0], "the focus is on the first choice again");
+	assert.notEqual(page.focused, r.button("Maybe later"));
+});
+
+test("ZNI-F004: a wait card whose question ended turns Handle off and does not say offline; a pair card's number field goes off; when the palette closes over it the focus is on its one button, where Enter closes it", async () => {
+	server();
+	const w = rig({ start: null });
+	w.feed(waitNet(w));
+	w.z.show();
+	await w.settle();
+	w.z.key("talk");
+	await w.settle();
+	assert.equal(page.focused, w.button("Handle"));
+	assert.equal(w.z.palette(), true, "the palette opens over the card");
+	w.feed(net([])); // the wait was answered elsewhere
+	await w.settle();
+	assert.ok(w.button("Handle")!.disabled, "Handle is off");
+	assert.ok(!w.text().includes("offline"), "an ended card does not say the page is offline");
+	assert.equal(w.z.palette(), true, "the palette closes");
+	assert.equal(page.focused, w.button("Back to the breath"), "the card's one button has the focus");
+	assert.equal(w.z.key("talk"), true, "Enter closes the card");
+	await w.settle();
+	assert.equal(cards(w), 0);
+	const p = rig({ start: null });
+	p.feed(linkNet());
+	p.z.pairs([PAIR]);
+	p.z.show();
+	await p.settle();
+	p.z.key("talk");
+	await p.settle();
+	const field = () => p.by((el) => el.classes.has("zen-pair-number"))[0]!;
+	assert.ok(!field().disabled);
+	assert.equal(p.z.palette(), true);
+	p.z.pairs([]);
+	await p.settle();
+	assert.ok(field().disabled, "the number field is off");
+	assert.equal(p.z.palette(), true);
+	assert.equal(page.focused, p.button("Back to the breath"), "the focus is on the card's one button");
+});
+
+test("ZNI-F005: a read-only dialog's card has an Enter control: Open the terminal, or, for a secret_drop with none, Maybe later; Enter presses it", async () => {
+	server();
+	const ro = rig({ start: null });
+	ro.feed(net([unit("a", "waiting", { since: 5, pending: readonly() })]));
+	ro.z.show();
+	await ro.settle();
+	ro.z.key("talk");
+	await ro.settle();
+	assert.equal(page.focused, ro.button("Open the terminal"), "the read-only panel's own button");
+	const sd = rig({ start: null });
+	sd.feed(net([unit("a", "waiting", { since: 5, pending: secret() })]));
+	sd.z.show();
+	await sd.settle();
+	sd.z.key("talk");
+	await sd.settle();
+	assert.equal(page.focused, sd.button("Maybe later"), "a secret_drop has no control of its own: Maybe later takes the focus");
+	page.focused = undefined;
+	assert.equal(sd.z.key("talk"), true);
+	assert.equal(page.focused, sd.button("Maybe later"), "Enter on the card with the focus lost goes there too");
+});
+
+test("ZNI-F007: a unit that left the net or closed says so, not that it was answered elsewhere; a unit that went on says the question was answered elsewhere", async () => {
+	server();
+	for (const [name, next, said, not] of [["left", net([]), "This unit has left", "Already answered elsewhere"], ["works again", net([unit("a", "working", { since: 5 })]), "Already answered elsewhere", "This unit has left"]] as const) {
+		const r = rig({ start: null });
+		r.feed(net([unit("a", "waiting", { since: 5, pending: select() })]));
+		r.z.show();
+		await r.settle();
+		r.z.key("talk");
+		await r.settle();
+		r.feed(next);
+		await r.settle();
+		assert.ok(r.text().includes(said) && !r.text().includes(not), name);
+		assert.ok(r.button("Back to the breath"), `${name}: closed by the boss`);
+	}
+});
+
+test("ZNI-F009: a keystroke in the companion's box schedules nothing: no timer, no redraw", async () => {
+	const r = rig();
+	r.feed(net([unit("t", "working")]));
+	r.z.show();
+	await r.settle();
+	const box = r.calls.composers[0]!.box, before = r.pending().length;
+	box.bubble("input", {});
+	assert.equal(r.pending().length, before, "nothing is scheduled by typing");
 });

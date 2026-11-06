@@ -23,8 +23,6 @@ export interface HeadIo {
 	latest(): Promise<{ items: Item[] }>;
 	online(): boolean;
 	sound(s: "low"): void;
-	/** The box filled or emptied, or a send began or ended: the model looks again at what holds the screen. */
-	changed(): void;
 	/** The strip is at rest (every line faded, nothing held) or not: the mindfulness line shows only at rest. */
 	rest(on: boolean): void;
 	/** The Whole conversation link: the head's history opens. */
@@ -288,7 +286,6 @@ export function mountHead(io: HeadIo) {
 		const mine = { id: `local-${++local}`, text, seen: bosses(one(text)) };
 		pending.push(mine);
 		draw();
-		io.changed();
 		const refuse = (why: string) => {
 			if (pending.includes(mine)) pending.splice(pending.indexOf(mine), 1);
 			box.value = box.value ? `${text}\n${box.value}` : text;
@@ -304,14 +301,13 @@ export function mountHead(io: HeadIo) {
 		}
 		busy = false;
 		if (showing) draw();
-		io.changed();
 	}
 	box.addEventListener("keydown", (e: KeyboardEvent) => {
 		if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
 		e.preventDefault();
 		void send();
 	});
-	box.addEventListener("input", () => (say(""), grow(), io.changed()));
+	box.addEventListener("input", () => (say(""), grow()));
 	form.addEventListener("submit", (e) => (e.preventDefault(), void send()));
 	hint.onclick = () => void unfold();
 	whole.onclick = () => io.history();

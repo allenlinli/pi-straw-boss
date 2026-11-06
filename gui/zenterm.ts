@@ -6,11 +6,11 @@ import { locate } from "./scene.ts";
 import type { StepOpen } from "./terminalthen.ts";
 import { termHold } from "./towerturns.ts";
 import { ESC_MS, termStep } from "./zenkeys.ts";
-import { draw, type Layer, type Open } from "./zenhost.ts";
+import { type Done, draw, type Layer, type Open } from "./zenhost.ts";
 import type { Term, TermKit } from "./zentypes.ts";
 
 // The terminal step inside Zen (docs/specs/2026-11-01-zen-view.md, A terminal in Zen; 2026-11-02-terminal-card.md): one layer over the screen that was there, holding the terminal card an accepted answer leaves or the full terminal (zenhost.ts); this file gives
-// them ink and a host. It ends by the button, by Esc Esc with the focus outside the terminal, or by its step's rule (cardmodel.ts `stepRule`): a prompt's own Enter taken, a pane gone, an armed terminal's unit at work; a mark alone never ends a prompt's.
+// them ink and a host. It is never closed by anything but the boss (Z-D20, 「永遠不要打斷」): the button, or Esc Esc with the focus outside the terminal. When its step is over by its rule (cardmodel.ts `stepRule`: a prompt's own Enter taken, a pane gone, an armed terminal's unit at work; a mark alone never ends a prompt's) the layer stays and says so in its bar.
 
 export interface ZenTermDeps {
 	/** The page's terminals, behind the overlay chunk (fetched on the first call). */
@@ -27,6 +27,15 @@ const isPane = (key: string) => key.startsWith("grant:");
 export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
 	let cur: Open | undefined, escAt: number | undefined, stopEsc = () => {};
 	const clearEsc = () => (stopEsc(), (stopEsc = () => {}), (escAt = undefined), cur && (delete cur.hint.dataset.on, (cur.hint.textContent = "")));
+	const SAID: Record<Done, () => string> = { taken: m.zen_term_sent, working: m.zen_term_working, gone: m.zen_term_gone };
+	/** The step is over: a quiet line in the bar, and a card in the layer is put out (its Enter would only send another); the layer stays for the boss to leave. */
+	function finish(c: Open, why: Done) {
+		if (c !== cur || c.done) return;
+		c.done = why;
+		c.note.textContent = SAID[why]();
+		c.layer.dataset.done = why;
+		if (c.card) (c.card.el.contains(document.activeElement) && c.back.focus(), c.card.el.setAttribute("inert", "")); // the keyboard is not left on a button that went inert
+	}
 	/** The layer goes and its terminal is let go; whether Zen is told is the caller's. */
 	function drop() {
 		if (!cur) return false;
@@ -43,8 +52,8 @@ export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
 		deps.inert(false);
 		deps.closed();
 	}
-	/** What the host's content asks of the layer. A step's rule (cardmodel.ts) ends the layer when the step is over. */
-	const on: Layer = { live: (c) => c === cur, close, step: (c: Open, e: StepEvent) => void (c === cur && c.kind !== "plain" && stepRule(c.kind, e) === "close" && close()) };
+	/** What the host's content asks of the layer. A step's rule (cardmodel.ts) says when the step is over; the layer then says so and stays. */
+	const on: Layer = { live: (c) => c === cur, close, done: finish, step: (c: Open, e: StepEvent) => void (c === cur && c.kind !== "plain" && stepRule(c.kind, e) === "close" && finish(c, e.type === "taken" ? "taken" : e.type === "mark" ? "working" : "gone")) };
 	/** A snapshot reached the layer: the unit's name, a tower's held sentence, and an armed terminal's first work. */
 	function follow(net: Net | undefined) {
 		const c = cur;
@@ -67,8 +76,9 @@ export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
 	}
 	const fresh = (key: string, name: string, kind: Open["kind"], mode: Open["mode"], extra: Partial<Open> = {}): Open => {
 		const back = h("button", { type: "button", class: "zen-term-back" }, m.zen_back_title()), host = h("div", { class: "zen-term-host" }), hint = h("p", { class: "zen-term-esc", role: "status", "aria-live": "polite" });
-		const layer = h("section", { class: "zen-term", "data-mode": mode, "aria-label": m.terminal_title({ name }) }, h("header", { class: "zen-term-bar" }, h("h2", { class: "zen-who" }, name), back), host, hint);
-		return { name, key, kind, mode, layer, host, hint, back, ...extra };
+		const note = h("p", { class: "zen-term-note", role: "status", "aria-live": "polite" }); // the quiet line after the step is over
+		const layer = h("section", { class: "zen-term", "data-mode": mode, "aria-label": m.terminal_title({ name }) }, h("header", { class: "zen-term-bar" }, h("h2", { class: "zen-who" }, name), back, note), host, hint);
+		return { name, key, kind, mode, layer, host, hint, note, back, ...extra };
 	};
 	return {
 		isOpen: () => cur !== undefined,

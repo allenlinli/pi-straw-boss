@@ -78,8 +78,8 @@ test("the five exits: one sound at most; the boss's answer shows 1.2 s and then 
 	const exits: [string, (z: ReturnType<typeof rig>) => unknown, string | undefined, string][] = [
 		["accepted", (r) => r.z.accepted("a"), "knock", "answered"],
 		["stopped waiting", (r) => r.z.update(map(al("a", "working", 1))), "knock", "elsewhere"],
-		["unit gone", (r) => r.z.update(map()), undefined, "elsewhere"],
-		["pane closed", (r) => r.z.update(map(al("a", "idle", 1, { closed: true }))), undefined, "elsewhere"],
+		["unit gone", (r) => r.z.update(map()), undefined, "gone"],
+		["pane closed", (r) => r.z.update(map(al("a", "idle", 1, { closed: true }))), undefined, "gone"],
 		["failed", (r) => r.z.update(map(al("a", "error", 1))), "low", "error"],
 	];
 	for (const [name, act, sound, outcome] of exits) {
@@ -567,8 +567,8 @@ test("Z-D20: the unit's next question never replaces the card on the screen: the
 test("Z-D20: every way the card's question can end under the boss keeps the card: stopped waiting, gone, closed, a rank change; an error is the low bowl; none pulls the screen to the pause", () => {
 	const ways: [string, ReturnType<typeof map>, string | undefined, string][] = [
 		["the unit works again", map(al("a", "working", 1)), "knock", "elsewhere"],
-		["the unit is gone from the snapshot", map(), undefined, "elsewhere"],
-		["its pane closed", map(al("a", "idle", 1, { closed: true })), undefined, "elsewhere"],
+		["the unit is gone from the snapshot", map(), undefined, "gone"],
+		["its pane closed", map(al("a", "idle", 1, { closed: true })), undefined, "gone"],
 		["it failed", map(al("a", "error", 1)), "low", "error"],
 	];
 	for (const [name, next, sound, outcome] of ways) {
@@ -622,4 +622,26 @@ test("Z-D20: the cue counts the cards behind the one on the screen, and not that
 	z.take();
 	assert.deepEqual(z.queued().map((x) => x.key), ["b", "c"]);
 	assert.deepEqual(z.listed(), ["a", "b", "c"], "the page's reminders are counted against all of them");
+});
+
+test("ZNI-F002: the knock rings once for a card, however many times a snapshot drops it and lists it again", () => {
+	const { z } = rig(), box = BOX();
+	z.update(map(box));
+	z.take();
+	const sounds = [z.update(map()).sound, z.update(map(box)).sound, z.update(map()).sound, z.update(map(box)).sound, z.update(map()).sound];
+	assert.deepEqual(sounds, ["knock", undefined, undefined, undefined, undefined]);
+	const pair = rig(), req = PAIR();
+	pair.z.update(map(req));
+	pair.z.take();
+	assert.deepEqual([pair.z.update(map()).sound, pair.z.update(map(req)).sound, pair.z.update(map()).sound], ["knock", undefined, undefined]);
+});
+
+test("ZNI-F007: a unit that left or closed is held as gone, not as answered elsewhere; a unit that works again is answered elsewhere; a reply that comes after settles either as answered", () => {
+	for (const [name, next, outcome] of [["left", map(), "gone"], ["closed", map(al("a", "idle", 1, { closed: true })), "gone"], ["works again", map(al("a", "working", 1)), "elsewhere"]] as const) {
+		const { z } = rig();
+		z.update(map(al("a", "waiting", 1)));
+		z.take();
+		assert.equal(held(z.update(next)), outcome, name);
+		assert.equal(held(z.accepted("a")), "answered", `${name}: the boss's own answer still counts`);
+	}
 });

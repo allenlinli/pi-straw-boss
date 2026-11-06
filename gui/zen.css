@@ -174,9 +174,14 @@
 [data-view="zen"] .zen-company .zen-meta { text-align: left; }
 [data-view="zen"] .zen-company .zen-head-cue { grid-row: auto; justify-items: start; } /* Z-D20: no card takes this screen by itself; the cue under the name says how many wait, and a tap on it takes one. It keeps its room, so the log never moves when a card comes or goes */
 [data-view="zen"] .zen-company .zen-head-cue-btn { padding-left: 0; text-align: left; }
+[data-view="zen"] .zen-company .zen-head-cue { margin-right: -100px; } /* ZNI-F010: under the corner buttons, the cue runs the whole width, so 「好。」 is not left alone on a second line at 390 px */
+[data-view="zen"] .zen-head-cue-btn { text-wrap: balance; }
+[data-view="zen"] .zen-company-note { margin: 0; color: var(--zen-ash); font-size: 0.95rem; letter-spacing: 0.08em; text-align: left; } /* Z-D20: the session ended or lost control; it says so quietly and stays */
+[data-view="zen"] .zen-company-note:empty { display: none; }
+[data-view="zen"] .zen-company .zen-company-rest { margin-top: 4px; padding-left: 0; }
 [data-view="zen"] .zen-log { position: relative; min-height: 0; display: grid; overflow: hidden; } /* the log's jump-to-latest pill sits at the log's foot, above the composer (Standard's chat root is its own positioned box) */
 [data-view="zen"] .zen-log .chat-scroll, [data-view="zen"] .zen-log .chat-root { min-height: 0; }
-/* Scrolling the log only scrolls it: at its ends nothing chains to the page (no pull-to-refresh, no history swipe), and a finger moves it up and down only (zen.ts keeps the draft's hold, zenmodel.ts). */
+/* Scrolling the log only scrolls it: at its ends nothing chains to the page (no pull-to-refresh, no history swipe), and a finger moves it up and down only. */
 [data-view="zen"] .zen-log .chat-scroll { overscroll-behavior: contain; touch-action: pan-y; }
 [data-view="zen"] .zen-card { overscroll-behavior: contain; }
 [data-view="zen"] #zen { overscroll-behavior: none; }
@@ -197,7 +202,10 @@
 [data-view="zen"] .zen-company .cmp-send { border-color: transparent; background: transparent; }
 /* The terminal layer (zenterm.ts): the page's own terminal on ink, over the whole page, with the way back in the corner where the menu was. The mirror, the key pad, and the keyboard are Standard's; only the colours are the tokens above. */
 [data-view="zen"] .zen-term { position: fixed; inset: 0; z-index: 4; display: grid; grid-template: auto minmax(0, 1fr) / minmax(0, 1fr); gap: 8px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--zen-ground); color: var(--zen-paper); animation: zen-fade 0.5s var(--zen-ease) both; }
-[data-view="zen"] .zen-term-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+[data-view="zen"] .zen-term-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; min-height: 44px; }
+[data-view="zen"] .zen-term-note { order: 3; flex: 1 0 100%; margin: 0; color: var(--zen-ash); font-size: 0.95rem; letter-spacing: 0.08em; } /* Z-D20: the step is over and the layer stays; the line says it is fine to go back, and asks for nothing */
+[data-view="zen"] .zen-term-note:empty { display: none; }
+[data-view="zen"] .zen-term[data-done] .tcard { opacity: 0.55; }
 [data-view="zen"] .zen-term-bar .zen-who { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.3rem; }
 [data-view="zen"] .zen-term-back { flex: none; min-width: 44px; min-height: 44px; padding: 0 20px; border: 1px solid var(--zen-line); border-radius: 22px; background: var(--zen-warm); color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; cursor: pointer; transition: background-color 0.6s var(--zen-ease); }
 [data-view="zen"] .zen-term-back:hover { background: var(--zen-warm-hi); }
@@ -359,7 +367,7 @@
 [data-view="zen"] .zen-hl[data-held] { --lift: 1; }
 [data-view="zen"] .zen-head-working { margin: 0; color: var(--zen-ash); font-size: 0.9rem; letter-spacing: 0.08em; }
 [data-view="zen"] .zen-head-working[hidden] { display: none; }
-[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 6px; cursor: pointer; transition: color 0.4s var(--zen-ease); }
+[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn) { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--serif); letter-spacing: 0.12em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 6px; cursor: pointer; transition: color 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-history[hidden] { display: none; }
 [data-view="zen"] .zen-head-meta { display: grid; grid-template-rows: minmax(44px, auto) minmax(44px, auto); justify-items: center; } /* two rows in every state, the link's above the cue's, each keeping its room when it is away: the circle and the lines never move when a card comes or goes, the lines come up, or the link fades (Z-D19) */
 [data-view="zen"] .zen-head-meta > * { grid-column: 1; }
@@ -372,8 +380,8 @@
 [data-view="zen"] .zen-head-history:is(:hover, :focus-visible) .zen-head-key { opacity: 1; }
 @media (pointer: coarse), (hover: none) { [data-view="zen"] .zen-head-key { display: none; } } /* a touch screen has no keyboard to name */
 [data-view="zen"] .zen-head-history[data-away] { opacity: 0; visibility: hidden; transition: opacity 0.6s var(--zen-ease), visibility 0s linear 0.6s; } /* at rest the link fades out and keeps its room, as the mindfulness line does: a hover moves nothing */
-[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn):hover { color: var(--zen-paper); }
-[data-view="zen"] #zen :is(.zen-head-history, .zen-rest, .zen-head-cue-btn, .zen-head-hint):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
+[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn):hover { color: var(--zen-paper); }
+[data-view="zen"] #zen :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn, .zen-head-hint):focus-visible { outline: none; text-decoration: underline 1px var(--zen-seal); text-decoration-skip-ink: none; text-underline-offset: 7px; }
 /* The folded input is a hairline about 16 rem wide with its hint at 0.35; it is one button. Unfolded it is a box that grows to four lines, a line under the words that turns seal for the keys. */
 [data-view="zen"] .zen-head-hint { min-height: 44px; min-width: 44px; width: min(16rem, 100%); padding: 0 6px; border: 1px solid transparent; border-bottom-color: var(--zen-line); border-radius: 0; background: transparent; color: var(--zen-ash); font: 400 0.9rem var(--sans); letter-spacing: 0.08em; opacity: 0.35; cursor: text; transition: opacity 0.4s var(--zen-ease); }
 [data-view="zen"] .zen-head-hint[hidden] { display: none; }
@@ -408,14 +416,14 @@
 @media (prefers-reduced-motion: reduce) { /* no fade: clear for its 20 s, then at the rest level at once; hover and a tap still clear it at once */
 	/* style.css stills every animation under reduced motion except this one (`*:not(.zen-hl)`): a step has no motion, and without it the lines would stay clear for ever */
 	[data-view="zen"] .zen-hl { animation: zen-head-step 0.01s steps(1) both; transition: none; }
-	[data-view="zen"] .zen-head-hint, [data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { transition: none; }
+	[data-view="zen"] .zen-head-hint, [data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn) { transition: none; }
 	[data-view="zen"] :is(.zen-head-lines, .zen-head-cue), [data-view="zen"] .zen-head[data-hushed] :is(.zen-head-lines, .zen-head-working) { transition: none; } /* resting is at once */
 }
 @media (forced-colors: active) { /* the lines are not faded and show in the system's colours; the hairline and the box are CanvasText */
 	[data-view="zen"] .zen-hl { animation: none; opacity: 1; color: CanvasText; }
 	[data-view="zen"] .zen-head-hint { opacity: 1; border-bottom-color: CanvasText; color: CanvasText; }
 	[data-view="zen"] .zen-head-box { border-bottom-color: CanvasText; color: CanvasText; }
-	[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-head-cue-btn) { color: LinkText; }
+	[data-view="zen"] :is(.zen-head-history, .zen-rest, .zen-company-rest, .zen-head-cue-btn) { color: LinkText; }
 	[data-view="zen"] .zen-head-key { color: inherit; opacity: 1; }
 }
 /* The head's history (zenhead.ts quietForwards): a forward row reads as one quiet line, not as an action card's name. */

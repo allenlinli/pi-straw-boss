@@ -320,3 +320,35 @@ test("a listener that draws the view again meets no second change: the new view 
 	assert.equal(calls, 1);
 	assert.equal(w.env.root.dataset.view, "zen");
 });
+
+test("Z-D20 R3: a change of the server's default never switches a page that is showing Zen out of it; it applies to a page on Auto that is not in Zen, and to the next load", () => {
+	const w = world(null, false, { server: "zen" });
+	const view = mountView(w.env);
+	const seen: string[] = [], servers: string[] = [];
+	view.onChange((v: string) => seen.push(v));
+	view.onServer((s: string) => servers.push(s));
+	assert.equal(w.env.root.dataset.view, "zen");
+	view.setServer("standard");
+	view.setServer("geek");
+	assert.equal(w.env.root.dataset.view, "zen", "the page showing Zen stays in it");
+	assert.equal(view.view(), "zen");
+	assert.deepEqual(seen, [], "and nobody is told to leave");
+	assert.deepEqual([view.server(), servers], ["geek", ["standard", "geek"]], "the settings still know the server's default for the Follow label");
+	assert.deepEqual(w.written, []);
+	view.setServer("zen");
+	assert.equal(w.env.root.dataset.view, "zen", "the default that comes back changes nothing");
+	view.setServer("standard");
+	w.env.root.dataset.zenAway = ""; // the boss left Zen (main.ts)
+	view.refresh();
+	assert.equal(w.env.root.dataset.view, "standard", "once it left Zen, Auto follows the server again");
+	assert.equal(view.view(), "standard");
+	const next = mountView(world(null, false, { server: "standard" }).env);
+	assert.equal(next.view(), "standard", "the next load reads the new default");
+	const away = world(null, false, { server: "zen" });
+	away.env.root.dataset.zenAway = "";
+	const left = mountView(away.env);
+	left.setServer("geek");
+	assert.equal(left.view(), "geek", "a page on Auto that is not in Zen follows at once");
+	const own = world("zen", false, { server: "auto" });
+	assert.equal(mountView(own.env).view(), "zen", "a device's own Zen is not the server's to move");
+});

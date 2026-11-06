@@ -88,7 +88,7 @@ test("Auto follows the server's default at once from Zen's menu and the settings
 			assert.equal(set.world.settings, want === "zen" ? false : settings);
 		}
 	}
-	// A server default that changes while the settings page is open: Zen waits (away) until the page is left; the others show.
+	// A server default that changes while the settings page is open: Zen waits (away) until the page is left; the others show. One that changes under a page showing Zen never moves it out (R3).
 	const open = page("auto", "standard", { away: false, settings: true });
 	open.view.setServer("zen");
 	assert.deepEqual([open.away(), open.root.dataset.view, open.world.settings, open.zenOn()], [true, "standard", true, false], "a followed Zen does not cover the settings page");
@@ -96,7 +96,7 @@ test("Auto follows the server's default at once from Zen's menu and the settings
 	open.face.route(false);
 	assert.deepEqual([open.away(), open.root.dataset.view, open.zenOn()], [false, "zen", true], "leaving it shows Zen");
 	open.view.setServer("geek");
-	assert.deepEqual([open.root.dataset.view, open.away(), open.zenOn()], ["geek", false, false], "and the next default shows at once");
+	assert.deepEqual([open.root.dataset.view, open.away(), open.zenOn()], ["zen", false, true], "a page that is showing Zen stays in it when the server's default moves (Z-D20, never interrupted): it applies at the next load");
 	const own = page("standard", "auto", { away: false, settings: true });
 	own.view.setServer("zen");
 	assert.deepEqual([own.root.dataset.view, own.away()], ["standard", false], "a device with a choice of its own ignores the server");

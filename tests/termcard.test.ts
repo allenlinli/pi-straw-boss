@@ -661,7 +661,7 @@ test("the auto-mask moves the focus only from the page's body or from inside the
 	} finally { r.done(); }
 });
 
-test("Z-D20: Zen's card (enter): Run takes the focus once it can act, the confirm's Send takes it (never Cancel) and Enter on it confirms, a held Enter, one that began before it, and Space confirm nothing; Standard's card keeps its focus on Cancel", async () => {
+test("Z-D20: Zen's card (enter): Run takes the focus once it can act, the confirm's Send takes it (never Cancel) and Enter on it confirms, a held Enter and one that began before it confirm nothing, and a typed key moves the focus to Cancel (ZNI-F001); Standard's card keeps its focus on Cancel", async () => {
 	const std = rig("prompt");
 	try {
 		std.press();
@@ -679,7 +679,6 @@ test("Z-D20: Zen's card (enter): Run takes the focus once it can act, the confir
 		assert.notEqual(page.focus, no);
 		assert.equal(yes!.fire("keydown", { key: "Enter", repeat: true, timeStamp: Infinity }), true, "a held Enter is ignored");
 		assert.equal(yes!.fire("keydown", { key: "Enter", timeStamp: -1 }), true, "so is one that began before the confirm");
-		assert.equal(yes!.fire("keydown", { key: " " }), true, "Space sends nothing");
 		assert.equal(p.posts.length, 1);
 		p.tick(200);
 		assert.equal(yes!.fire("keydown", { key: "Enter", timeStamp: Infinity }), false, "a fresh Enter is the button's");
@@ -688,6 +687,17 @@ test("Z-D20: Zen's card (enter): Run takes the focus once it can act, the confir
 		await p.reply(200, { accepted: true });
 		assert.deepEqual(p.overs, ["taken"]);
 	} finally { p.done(); }
+	const t = rig("prompt", { enter: true, escape: false });
+	try {
+		t.press();
+		await t.reply(409, { error: "confirm", confirm: "reload", reason: "r" });
+		const { yes, no } = t.ask();
+		assert.equal(yes!.fire("keydown", { key: "a", timeStamp: Infinity }), true, "a key typed while the confirm shows is kept from Send");
+		assert.equal(page.focus, no, "the focus went to Cancel");
+		t.tick(200);
+		assert.equal(yes!.fire("keydown", { key: "Enter", timeStamp: Infinity }), true, "and the Enter that ends the typing is kept from it");
+		assert.equal(t.posts.length, 1, "nothing was confirmed");
+	} finally { t.done(); }
 	const q = rig("pane", { enter: true, escape: false });
 	try {
 		q.rows(["$ "]);

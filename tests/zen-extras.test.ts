@@ -390,3 +390,13 @@ test("an open menu redraws Sound and Volume when another tab changes them; a clo
 	told.forEach((f) => f());
 	assert.equal(on.getAttribute("aria-pressed"), "true", "closed: not redrawn (the next open does)");
 });
+
+test("ZNI: the words of the second round exist in both languages: a unit that left, the company that ended or lost control, and the terminal's step notes", () => {
+	const read = (f: string) => JSON.parse(readFileSync(new URL(`../gui/messages/${f}.json`, import.meta.url), "utf8")) as Record<string, string>;
+	const zh = read("zh-TW"), en = read("en");
+	const want: Record<string, [string, string]> = {
+		zen_gone: ["這個單位已離開", "This unit has left"], zen_company_ended: ["已結束", "Ended"], zen_company_lost: ["已失去控制", "Lost control"],
+		zen_term_sent: ["指令已送出，可以回到禪", "Command sent. You can go back to Zen."], zen_term_working: ["單位繼續工作了，可以回到禪", "The unit is working again. You can go back to Zen."], zen_term_gone: ["這個窗格已關閉，可以回到禪", "This pane has closed. You can go back to Zen."],
+	};
+	for (const [key, [a, b]] of Object.entries(want)) assert.deepEqual([zh[key], en[key]], [a, b], key);
+});

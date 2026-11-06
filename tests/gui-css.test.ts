@@ -438,3 +438,13 @@ test("the drawer's current row keeps its chevron's strip clear of a Quit button:
 	assert.ok(pad >= inset + 12 + 6, `padding-right ${pad}px must clear the chevron (inset ${inset}px, a glyph up to 12px wide, a 6px gap)`);
 	assert.doesNotMatch(css.split("\n").filter((l) => l.includes(".quit-btn:not([hidden]))")).join("\n"), /-webkit-/);
 });
+
+test("ZNI-F010: under the corner buttons the cue runs the companion's whole width and balances its lines, so the second clause is not left as one word; the quiet notes and the way back keep a 44 px target", () => {
+	assert.match(zenRule(".zen-company .zen-head-cue").map((r) => r.body).join(";"), /margin-right:\s*-100px/);
+	assert.match(zen, /\[data-view="zen"\] \.zen-head-cue-btn \{ text-wrap: balance; \}/);
+	const quiet = rulesOf(zen).find((r) => r.parts.some((p) => p.includes(".zen-company-rest")) && /min-height: 44px/.test(r.body));
+	assert.ok(quiet, "Back to the breath on a session that is over is a 44 px target, like the head history's");
+	assert.ok(zenRule(".zen-company-note:empty").some((r) => /display:\s*none/.test(r.body)), "no note, no room");
+	assert.ok(zenRule(".zen-term-note:empty").some((r) => /display:\s*none/.test(r.body)));
+	assert.ok(!/-webkit-text-wrap/.test(zen));
+});

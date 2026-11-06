@@ -1127,5 +1127,11 @@
 	"palette_head_history": "The head tower's whole conversation",
 	"palette_head_page": "Open the head tower in Standard",
 	"zen_link_title": "{label} asks you",
-	"zen_pair_title": "{label} asks to pair"
+	"zen_pair_title": "{label} asks to pair",
+	"zen_gone": "This unit has left",
+	"zen_term_sent": "Command sent. You can go back to Zen.",
+	"zen_company_ended": "Ended",
+	"zen_company_lost": "Lost control",
+	"zen_term_working": "The unit is working again. You can go back to Zen.",
+	"zen_term_gone": "This pane has closed. You can go back to Zen."
 }

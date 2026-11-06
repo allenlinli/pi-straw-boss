@@ -272,7 +272,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (over && !co.leave) {
 			co.leave = h("button", { type: "button", class: "zen-company-rest" }, m.zen_rest()) as HTMLButtonElement;
 			co.leave.onclick = () => rest();
-			co.header.append(co.leave);
+			co.header.insertBefore(co.leave, co.cue.el); // right under the note; the cue's room stays under it
 		}
 		if (co.leave) co.leave.hidden = !over;
 	}

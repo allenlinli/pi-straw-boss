@@ -8,7 +8,8 @@ import { HEAD_CHAPTER_MAX, readChapters } from "../src/server/headchapters.ts";
 import { openAsk } from "../src/server/headasks.ts";
 import { readNotes, readRun } from "../src/server/towerrunstore.ts";
 import { callControl } from "../src/server/socket.ts";
-import { headDir } from "../src/server/towerstore.ts";
+import { HEAD_KEY, headDir } from "../src/server/towerstore.ts";
+import { addWait, updateMemory } from "../src/server/towermemory.ts";
 import { type Running, until } from "./server-world.ts";
 import { TowerWorld } from "./tower-world.ts";
 
@@ -125,6 +126,26 @@ test("every run resumes the one conversation: the next boss message, and a run w
 	assert.equal((await ask(s, { cmd: "run-done", token: c.token, note: "told the boss Alpha landed it" })).ok, true, "an event run ends with its note");
 	assert.equal(readPointer(world.slot, ws)!.file.endsWith("2026-11-04_aaa.jsonl"), true, "and the pointer stays");
 	assert.equal(readNotes(world.slot, ws).at(-1)!.note, "told the boss Alpha landed it");
+});
+
+test("HM-F004: the head's real brief names the waits for the boss that lapsed, not a wait for an agent and not a fresh one; with none it has no such line", async () => {
+	const { s, ws } = await setup();
+	const now = Date.now();
+	updateMemory(world.slot, HEAD_KEY, now, (m) => {
+		addWait(m, now - 30 * 3_600_000, "r1", { text: "a day old, no due", for: "boss" });
+		addWait(m, now - 2 * 3_600_000, "r1", { text: "for an agent, past its due", for: "agent", on: { id: "s1", name: "main" }, dueMin: 60 });
+		addWait(m, now, "r1", { text: "fresh", for: "boss" });
+	});
+	const first = await talk(s, ws, 1, sessionFile("2026-11-06_lapsed.jsonl"));
+	assert.match(first.brief, /Lapsed waits \(the boss no longer sees them on the page\): W1\. Resolve each/);
+	assert.doesNotMatch(first.brief, /Lapsed waits[^\n]*W2/, "an agent's wait is not the boss's");
+	assert.doesNotMatch(first.brief, /Lapsed waits[^\n]*W3/);
+	updateMemory(world.slot, HEAD_KEY, now, (m) => void (m.entries.find((e) => e.id === "W1")!.state = "resolved"));
+	await ask(s, { cmd: "run-done", token: first.token, note: "x", left: true });
+	exit(first.id);
+	await until(() => readRun(world.slot, ws, first.id)?.outcome === "done", "the conversation to end");
+	const second = await talk(s, ws, 2, sessionFile("2026-11-06_lapsed.jsonl"));
+	assert.doesNotMatch(second.brief, /Lapsed waits/);
 });
 
 test("a session over 8 MB is not resumed: a new chapter starts, its brief says why with the last note and the last lines between the boss and the head, and the chapter list gets the new file", async () => {

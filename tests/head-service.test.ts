@@ -101,6 +101,18 @@ test("the head's snapshot summary leaves out a boss wait the boss no longer sees
 	assert.equal(readFileSync(join(headDir(world.slot), "memory.json"), "utf8").includes("a day old, no due"), true, "the file keeps it (the server drops it after 7 days)");
 });
 
+test("HM-F005: a workspace tower's summary keeps a boss wait a day old with no due: only the head's leaves it out", async () => {
+	const s = await started();
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	const now = Date.now();
+	updateMemory(world.slot, "wA", now, (m) => {
+		addWait(m, now - 30 * 3_600_000, "r1", { text: "a day old, no due", for: "boss" });
+		addWait(m, now - 3_600_000, "r1", { text: "due long ago", for: "boss", dueMin: 5 });
+	});
+	assert.deepEqual(world.expose!.runs.view("wA")?.memory?.bossWaits.map((w) => w.text), ["a day old, no due", "due long ago"], "a workspace tower shows what it showed");
+	assert.equal(world.expose!.runs.view("wA")?.memory?.waits, 2);
+});
+
 test("the label is 主塔台 when the server's locale says zh_TW, zh_HK, zh_MO, or zh-Hant (LC_ALL first), else Head tower", async () => {
 	world.env.LC_ALL = "zh_TW.UTF-8";
 	await started();

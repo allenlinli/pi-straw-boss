@@ -54,7 +54,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 			return sub && linkTo({ view: "session", ws: locate(scene.net, sub.key)?.base.id ?? wsOf(scene), key: sub.key }, name);
 		};
 		const opener = (path: string, card = docFor(locate(scene.net, key)?.u.docs, scene.info?.header?.cwd, path)) => card && (() => openTile(docTile(who().name, card)));
-		chat = mountChat(view.querySelector(".chat-root")!, data(key), { who, link, docFor: opener });
+		chat = mountChat(view.querySelector(".chat-root")!, data(key), { who, link, docFor: opener, page: true });
 		const send = answerPost(key, () => data(key).post);
 		[composer, asker] = [mountComposer(view.querySelector(".composer-root")!, key, send), mountAnswer(view.querySelector(".ask-root")!, { key, post: send, show: () => setMode("term") })];
 		mountQueueEdit(view, () => composer?.takeQueue() ?? Promise.resolve());

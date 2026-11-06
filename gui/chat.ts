@@ -83,7 +83,7 @@ export interface HistoryEvent { key: string; state?: string; successor?: string;
 export interface Data { older(before: string): Promise<Page>; latest(): Promise<Page>; entry(id: string): Promise<Item | undefined>; pic?(id: string, n: number): string; post?: Post }
 export interface Who extends Shelf { key: string; name: string; role: string; mark: Mark; /** The head tower (its words are named for it). */ head?: boolean; note?: string; control?: boolean; agent?: "claude" | "codex"; ended?: boolean; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; service?: TowerService }
 /** `docFor` opens the document a show_doc path names while its session lists it (doc.ts), or is undefined. */
-export interface ChatDeps { who(): Who; link(name: string): HTMLAnchorElement | undefined; docFor?(path: string): (() => void) | undefined }
+export interface ChatDeps { who(): Who; link(name: string): HTMLAnchorElement | undefined; docFor?(path: string): (() => void) | undefined; /** The session route's log: for the head it shows the words only (docs/specs/2026-11-06-head-page-minimal.md). Zen's companion log leaves it out and shows the head's cards as before. */ page?: boolean }
 /** `reveal` opens the log at an entry (scrolled into view and lit), or with none at the newest entry. `log` is the scrolling log, a focus target. `docs` shows Open beside on the show_doc cards whose document is listed now. */
 export interface Chat { apply(event: HistoryEvent): void; setLive(text: string, mark: Mark): void; reveal(at?: string): void; docs(): void; /** The boss conversation's runs (src/server/runs.ts `LocalRunRow`): a divider opens each in the log, with how it ended once it has. */ runs(rows: ConversationRun[]): void; log: HTMLElement }
 export type ConversationRun = NonNullable<TowerService["localRuns"]>[number];
@@ -112,7 +112,7 @@ function plain(text: string) {
 	return [...out, text.slice(at)];
 }
 
-export function mountChat(root: HTMLElement, data: Data, { who, link, docFor }: ChatDeps): Chat {
+export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, page }: ChatDeps): Chat {
 	const model = createChat(), els = new Map<string, HTMLElement>(), opens = new Set<{ paths: string[]; button: HTMLButtonElement; shown?: boolean }>(); // a card the log dropped leaves it
 	const docs = () => opens.forEach((o) => (o.button.isConnected ? ((o.shown = true), (o.button.hidden = !o.paths.some((p) => docFor?.(p)))) : o.shown && opens.delete(o)));
 	const list = h("div", { class: "chat-list" }), top = h("div", { class: "chat-top" }), live = h("div", { class: "chat-live" }), foot = h("div", { class: "chat-end" }), pill = h("button", { class: "chat-pill", type: "button", hidden: "" }), empty = h("p", { class: "chat-empty" }, m.no_transmissions());
@@ -192,6 +192,8 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor }: 
 		if (t.kind === "intercom") return intercomLabel(t.from);
 		return [t.kind === "server" ? m.notice_server() : m.notice_timer()];
 	};
+	/** Whether the log being drawn is the head's own page (not Zen's log, not another tower's). */
+	const bare = () => page === true && who().head === true;
 	/** An entry the head's page does not show (docs/specs/2026-11-06-head-page-minimal.md): it keeps its place in the log, hidden. */
 	const skipped = () => h("article", { class: "tx skip", hidden: "" });
 	function render(it: Item): HTMLElement {
@@ -205,18 +207,18 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor }: 
 			}
 			case "assistant": {
 				const me = who();
-				if (me.head && !it.text && !it.thought && !it.error && !it.stop) return skipped(); // the head's page shows its words: an entry of tool calls alone is not content there
+				if (bare() && !it.text && !it.thought && !it.error && !it.stop) return skipped(); // the head's page shows its words: an entry of tool calls alone is not content there
 				const body = h("pre", { class: "thought-text" }), more = it.thought ? h("button", { class: "thought", type: "button" }, it.thought < 0 ? m.thought_redacted() : m.thought_chars({ count: it.thought.toLocaleString() })) : null;
 				if (it.thought && it.thought > 0) more?.addEventListener("click", () => fetchBody(more, body, it.id, (full) => full.thoughtText));
-				return h("article", { class: me.head ? "tx in head" : "tx in" }, icon(me.head ? "crown" : me.role), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? h("div", { class: "md" }, mount(parse(it.text))) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(me.head ? [] : it.tools ?? []).flatMap((t) => action(t, it.id))));
+				return h("article", { class: me.head ? "tx in head" : "tx in" }, icon(me.head ? "crown" : me.role), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? h("div", { class: "md" }, mount(parse(it.text))) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(bare() ? [] : it.tools ?? []).flatMap((t) => action(t, it.id))));
 			}
-			case "bash": if (who().head) return skipped(); return h("article", { class: "tx sys" }, h("details", { class: "act" }, h("summary", { "data-mark": it.exit ? "error" : "done" }, h("b", { class: "badge" }), h("code", null, "shell"), h("span", { class: "sum" }, `! ${it.command}`), it.exit ? h("span", { class: "stop", "data-mark": "error" }, m.exit_code({ code: it.exit })) : null), it.text ? h("pre", { class: "out" }, it.text) : null));
+			case "bash": if (bare()) return skipped(); return h("article", { class: "tx sys" }, h("details", { class: "act" }, h("summary", { "data-mark": it.exit ? "error" : "done" }, h("b", { class: "badge" }), h("code", null, "shell"), h("span", { class: "sum" }, `! ${it.command}`), it.exit ? h("span", { class: "stop", "data-mark": "error" }, m.exit_code({ code: it.exit })) : null), it.text ? h("pre", { class: "out" }, it.text) : null));
 			case "notice": {
 				// A run's event is read by what the server sent it as, not by its text (towerturns.ts `eventTurn`); a message to an ally run or a main carries the verified header, folded.
 				// The boss's own message is a YOU bubble only in a run of a tower the sb server runs: that is the one writer of `kind: "boss"` (runmode.ts), so anywhere else the same entry is a message another party wrote into a session, and shows as one.
 				const turn = eventTurn(it);
 				if (turn?.kind === "boss" && who().service) return you(it, turn.body, turn.crashed, it.text ?? "");
-				if (who().head && (turn?.kind === "server" || turn?.kind === "timer")) return skipped(); // the sb server's own markers are protocol, not something the boss reads
+				if (bare() && (turn?.kind === "server" || turn?.kind === "timer")) return skipped(); // the sb server's own markers are protocol, not something the boss reads
 				if (turn && turn.kind !== "boss") return notice(it, turnLabel(turn), turn.body, turn.kind === "link" ? { raw: turn.raw } : { crashed: turn.crashed });
 				return notice(it, [NOTICE[it.type ?? ""]?.() ?? it.type ?? m.notice(), " ", (it.from && link(it.from)) || (it.from ?? "")], it.text ?? "");
 			}

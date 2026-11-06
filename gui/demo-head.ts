@@ -25,6 +25,8 @@ const BROADCASTS = [
 ] as const;
 const WORKSPACES = [["w1", "Harbor API"], ["w2", "Lighthouse Web"], ["w3", "Orchard Data"], ["w4", "Quarry Tools"]] as const;
 
+/** The head words its message to each tower after the boss's quote, so the first lines of one broadcast differ (the boss's own file does: docs/specs/2026-11-06-head-page-minimal.md, Asks). */
+const TAILS = ["Pass it to your mains.", "No reply needed.", "Check your mains for processes.", "Report when it is done."] as const;
 /** The head's asks for the page: five broadcasts to four workspaces, in the rows the server writes (src/server/headnet.ts): a state that says answered only with an answer, and silent after a day without one. */
 export function headAsks(now: number): HeadAskRow[] {
 	const w = words();
@@ -32,7 +34,7 @@ export function headAsks(now: number): HeadAskRow[] {
 		const first = w.broadcasts[b.key], id0 = g * 4 + 1, since = now - b.ago;
 		return WORKSPACES.map(([workspace, label], i): HeadAskRow => {
 			const said = (b.replies as Record<string, string>)[workspace], answered = said !== undefined, state = answered ? "answered" : b.ago < 24 * HOUR ? "waiting" : "silent";
-			return { id: `H${id0 + i}`, group: `H${id0}`, workspace, label, since, at: answered ? since + 20 * 60_000 : since, first, state, answers: answered ? 1 : 0, ...(answered ? { last: w.answers[said as "a1" | "a2" | "a3"] } : {}) };
+			return { id: `H${id0 + i}`, group: `H${id0}`, workspace, label, since, at: answered ? since + 20 * 60_000 : since, first: `${first} ${TAILS[i]}`, state, answers: answered ? 1 : 0, ...(answered ? { last: w.answers[said as "a1" | "a2" | "a3"] } : {}) };
 		});
 	});
 }

@@ -358,12 +358,13 @@ export const lapsed = (e: Entry, now: number): boolean => isOpen(e) && lapsedWai
 
 /**
  * What the net snapshot carries: counts, the rev the panel compares with its own, the waits for the boss with their text, and the proposals waiting for the boss. With `now` (the head's summary, docs/specs/2026-11-06-head-page-minimal.md)
- * the lapsed waits are left out of `bossWaits`, so the page, the Zen strip, and the alerts stop showing them; the file keeps them until they expire, and the count `waits` is of all that are open.
+ * the lapsed waits for the boss are left out of `bossWaits` and of the count `waits`, so the page, the Zen strip, the alerts, and the footer stop showing them; the file keeps them until they expire.
  */
 export function memorySummary(m: Memory, now?: number): MemorySummary {
+	const shown = (e: Entry) => isOpen(e) && !(now !== undefined && e.for === "boss" && lapsed(e, now));
 	return {
-		rev: m.rev, standing: m.entries.filter((e) => e.kind === "standing").length, decisions: m.entries.filter((e) => e.kind === "decision").length, waits: m.entries.filter(isOpen).length,
-		bossWaits: m.entries.filter((e) => isOpen(e) && e.for === "boss" && (now === undefined || !lapsed(e, now))).map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}) })), proposals: m.proposals.map(proposalView),
+		rev: m.rev, standing: m.entries.filter((e) => e.kind === "standing").length, decisions: m.entries.filter((e) => e.kind === "decision").length, waits: m.entries.filter(shown).length,
+		bossWaits: m.entries.filter((e) => shown(e) && e.for === "boss").map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}) })), proposals: m.proposals.map(proposalView),
 	};
 }
 /** The memory as the panel reads it, swept as of `now`. */

@@ -15,7 +15,7 @@ import { HEAD_KEY, towerDir } from "../src/server/towerstore.ts";
 
 const slotIn = () => ({ dir: mkdtempSync(join(tmpdir(), "psb-hag-")) }) as Slot;
 const T0 = Date.parse("2026-11-06T08:00:00Z"), MIN = 60_000, HOUR = 3_600_000;
-const send = (slot: Slot, at: number, workspace: string, first: string) => openAsk(slot, at, { workspace, label: workspace.toUpperCase(), first });
+const send = (slot: Slot, at: number, workspace: string, first: string, relay?: string) => openAsk(slot, at, { workspace, label: workspace.toUpperCase(), first, ...(relay ? { relay } : {}) });
 
 test("a broadcast is one group: asks with the same first line within 60 s of the newest member share the id of the first; other text, or a later start, is a group of its own", () => {
 	const slot = slotIn();
@@ -26,6 +26,52 @@ test("a broadcast is one group: asks with the same first line within 60 s of the
 	const e = send(slot, T0 + 80_000 + GROUP_MS, "wE", "I am up"); // c was 130 s ago
 	assert.deepEqual([a, b, c, d, e].map((x) => x.group), ["H1", "H1", "H1", "H4", "H5"]);
 	assert.deepEqual(readAsks(slot, T0).map((x) => x.group), ["H1", "H1", "H1", "H4", "H5"], "the group is in the file");
+});
+
+/** The shape of the boss's own asks.json (20 asks, 6 broadcasts): the head tailors each message to its tower, so the first lines differ after a few words, and every ask after the first broadcast carries the relay of the one boss instruction. */
+const LIVE: [string, string, string | undefined, number][] = [
+	["wJ", "Boss (going to sleep now): work until four.", undefined, 0], ["w1ZN", "Boss (going to sleep now): work until four.", undefined, 6], ["w15X", "Boss (going to sleep now): work until four.", undefined, 13], ["wJQ", "Boss (going to sleep now): work until four.", undefined, 19],
+	["w1ZN", "Boss: 「電腦重開了，請說明」. The Mac was restarted. Check for processes, servers, ports.", "boss:531e", 0], ["w15X", "Boss: 「電腦重開了，請說明」. The Mac was restarted. Check your mains for processes.", "boss:531e", 102], ["wJQ", "Boss: 「電腦重開了，請說明」. The Mac was restarted. Pass to your mains.", "boss:531e", 207], ["wJ", "Boss: 「電腦重開了，請說明」. The Mac was restarted.", "boss:531e", 220],
+	["wJQ", "Boss: 「我先出門」. The boss is away.", "boss:c36b", 0], ["wJ", "Boss: 「我先出門」. The boss is away. Keep going.", "boss:c36b", 7], ["w15X", "Boss: 「我先出門」. The boss is away. Keep going, report later.", "boss:c36b", 114],
+	["wJ", "Boss: 「我回來了」. The boss is back. No reply needed.", "boss:efec", 0], ["wJQ", "Boss: 「我回來了」. The boss is back. Resume asking the boss.", "boss:efec", 8], ["w15X", "Boss: 「我回來了」. The boss is back. Resume asking the boss.", "boss:efec", 14],
+	["wJ", "Boss: 「繼續工作」. Mean it.", "boss:5630", 0], ["wJQ", "Boss: 「繼續工作」. Mean it, then report.", "boss:5630", 91], ["w15X", "Boss: 「繼續工作」. Mean it.", "boss:5630", 106],
+	["wJQ", "Boss: 「我起床了」. Resume work; pass to your mains.", "boss:e987", 0], ["wJ", "Boss: 「我起床了」. Resume work. No reply needed.", "boss:e987", 13], ["w15X", "Boss: 「我起床了」. Resume work; pass to your mains.", "boss:e987", 102],
+];
+
+test("HM-F001: asks of one boss instruction are one group by `relay`, whatever the head wrote to each tower; an ask with no relay still groups by its first line (the shape of the boss's own file: 20 asks, 6 broadcasts)", () => {
+	const slot = slotIn();
+	mkdirSync(towerDir(slot, HEAD_KEY), { recursive: true });
+	let n = 0, base = T0;
+	const asks = LIVE.map(([workspace, first, relay, ms], i) => {
+		if (i && LIVE[i - 1]![2] !== relay) base += 20 * MIN;
+		return { id: `H${++n}`, workspace, label: workspace, at: base + ms, last: base + ms, first, ...(relay ? { relay } : {}), answers: [] };
+	});
+	writeFileSync(join(towerDir(slot, HEAD_KEY), "asks.json"), JSON.stringify({ next: 21, asks }));
+	const rows = headSeam(slot, () => base + HOUR).asks();
+	const groups = new Map<string, string[]>();
+	for (const r of rows) groups.set(r.group, [...(groups.get(r.group) ?? []), r.id]);
+	assert.deepEqual([...groups.values()].map((ids) => `${ids[0]}-${ids.at(-1)}`), ["H1-H4", "H5-H8", "H9-H11", "H12-H14", "H15-H17", "H18-H20"], "6 rows for 6 broadcasts");
+});
+
+test("HM-F001: a new ask joins by relay (differing text), not by first line alone; two instructions with one text a few seconds apart stay two rows; relay and first line never mix", () => {
+	const slot = slotIn();
+	const a = send(slot, T0, "wA", "Boss: 「我回來了」. No reply needed.", "boss:e1");
+	const b = send(slot, T0 + 8_000, "wB", "Boss: 「我回來了」. Resume asking the boss.", "boss:e1");
+	const c = send(slot, T0 + 9_000, "wC", "Boss: 「我回來了」. No reply needed.", "boss:e2"); // the same words, another instruction
+	const d = send(slot, T0 + 9_500, "wD", "Boss: 「我回來了」. No reply needed.", "boss:e2");
+	const e = send(slot, T0 + 10_000, "wE", "Boss: 「我回來了」. No reply needed."); // no relay: never joins a relayed one by its text
+	const f = send(slot, T0 + 11_000, "wF", "Boss: 「我回來了」. No reply needed.");
+	const g = send(slot, T0 + 2 * HOUR, "wG", "Boss: 「我回來了」. Resume asking the boss.", "boss:e1"); // a relay joins however late: the instruction is the key
+	assert.deepEqual([a, b, c, d, e, f, g].map((x) => x.group), ["H1", "H1", "H3", "H3", "H5", "H5", "H1"]);
+	assert.deepEqual([...new Set(headSeam(slot, () => T0 + 3 * HOUR).asks().map((r) => r.group))], ["H1", "H3", "H5"]);
+});
+
+test("HM-F003: a prior ask that is in the future (clock skew) is not a member of an unrelayed broadcast", () => {
+	const slot = slotIn();
+	const a = send(slot, T0 + 30_000, "wA", "note");
+	const b = send(slot, T0, "wB", "note"); // the clock went back: 30 s before a, a negative age
+	const c = send(slot, T0 + 20_000, "wC", "note");
+	assert.deepEqual([a, b, c].map((x) => x.group), ["H1", "H2", "H2"], "the negative age starts a group; the next, 20 s after b, joins b");
 });
 
 test("an asks.json from before the field reads: asks without a group are grouped by the same rule, and a new ask joins an old group", () => {
@@ -70,7 +116,8 @@ test("the head's summary leaves out a boss wait past its due, or with no due one
 	const ids = (s: ReturnType<typeof memorySummary>) => s.bossWaits.map((w) => w.text);
 	assert.deepEqual(ids(memorySummary(m)), ["due", "not yet due", "no due, a day old", "no due, fresh"], "a workspace tower shows what it showed");
 	assert.deepEqual(ids(memorySummary(m, T0)), ["not yet due", "no due, fresh"]);
-	assert.equal(memorySummary(m, T0).waits, 5, "the count of open waits is as it was");
+	assert.equal(memorySummary(m, T0).waits, 3, "HM-F007: the head's count leaves out the lapsed waits for the boss (2), as the page does; the wait for an agent still counts");
+	assert.equal(memorySummary(m).waits, 5, "a workspace tower counts every open wait");
 	assert.deepEqual(m.entries.filter((e) => lapsed(e, T0)).map((e) => e.text), ["due", "no due, a day old", "for an agent"]);
 	assert.equal(m.entries.length, 5, "nothing is dropped: the server keeps it 7 days");
 	const brief = memorySection(m, T0).text;

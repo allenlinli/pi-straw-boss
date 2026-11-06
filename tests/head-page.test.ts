@@ -8,7 +8,7 @@ import { El, sessionGlobals, stored } from "./fake-dom.ts";
 // and the head found by the session view as the unit it is. In both languages. The pictures of every state are taken by hand from the demo (`?head=`).
 
 sessionGlobals();
-const { askGroups, fillHeadAsks, fillHeadButton, fillHeadTitle, groupLine, headDot, headLine, headMemory, remember, seenAt, SEEN } = await import("../gui/headpage.ts");
+const { askGroups, fillHeadAsks, fillHeadButton, fillHeadTitle, groupLine, headDot, headLine, headMemory, remember, seenAt, SEEN, towerState } = await import("../gui/headpage.ts");
 const { fillHeadActs } = await import("../gui/headacts.ts");
 const { locate } = await import("../gui/scene.ts");
 const { towerRoute } = await import("../gui/towermodel.ts");
@@ -102,9 +102,10 @@ test("the asks fill under the conversation box: a row per broadcast that unfolds
 	assert.equal(rows[2]!.find((x) => x.tag === "summary")[0]!.textContent, "Older (3)");
 	assert.equal(rows[2]!.find((x) => x.classes.has("ask-group")).length, 3, "the older groups are rows of their own inside the fold");
 	const lines = rows[0]!.find((x) => x.classes.has("ask-tower"));
-	assert.deepEqual(lines.map((l) => [l.find((x) => x.classes.has("ask-name"))[0]!.tag, l.find((x) => x.classes.has("ask-state"))[0]!.textContent, l.find((x) => x.classes.has("ask-said"))[0]?.textContent, l.find((x) => x.classes.has("ask-none"))[0]?.textContent]), [
-		["a", "answered", "wA is on it: I am up", undefined], ["a", "waiting", undefined, undefined], ["a", "waiting", undefined, undefined], ["b", "waiting", undefined, "no tower"],
+	assert.deepEqual(lines.map((l) => [l.find((x) => x.classes.has("ask-name"))[0]!.tag, l.find((x) => x.classes.has("ask-state"))[0]?.textContent, l.find((x) => x.classes.has("ask-said"))[0]?.textContent, l.find((x) => x.classes.has("ask-none"))[0]?.textContent]), [
+		["a", "answered", "wA is on it: I am up", undefined], ["a", "waiting", undefined, undefined], ["a", "waiting", undefined, undefined], ["b", undefined, undefined, "no tower"],
 	]);
+	assert.deepEqual(lines.map((l) => l.getAttribute("data-state")), ["answered", "waiting", "waiting", "none"], "a tower the net lost is not gold and not waiting: nothing will answer it");
 	assert.equal(lines[0]!.find((x) => x.tag === "a")[0]!.getAttribute("data-route"), "w/wA/s/sb-tower-wA");
 	assert.ok(!box.dump().includes("title="), "an answer is text on the page, not a tooltip");
 	// the same asks leave the rows as they are; one the boss unfolded stays unfolded across a redraw
@@ -119,6 +120,19 @@ test("the asks fill under the conversation box: a row per broadcast that unfolds
 	fillHeadAsks(el, undefined, net, NOW);
 	assert.equal(box.hidden, true);
 	assert.equal(box.kids.length, 0);
+});
+
+test("HM-F002: a row with no tower and no answer says only `no tower` (muted, never waiting, never silent); one that answered before the tower left keeps its answer and says both; the group line still counts every tower asked", () => {
+	const net = towers("wA"), box = new El("div"), el = box as unknown as HTMLElement;
+	const rows = [ask({ id: "H1", group: "H1", workspace: "wA" }), ask({ id: "H2", group: "H1", workspace: "wX", label: "Gone" }), ask({ id: "H3", group: "H1", workspace: "wY", label: "Left", state: "answered", answers: 1, last: "did it" }), ask({ id: "H4", group: "H1", workspace: "wZ", label: "Quiet", state: "silent" })];
+	fillHeadAsks(el, head({ asks: rows }), net, NOW);
+	const lines = box.children[0]!.find((x) => x.classes.has("ask-tower"));
+	assert.deepEqual(lines.map((l) => [l.find((x) => x.classes.has("ask-name"))[0]!.textContent, l.find((x) => x.classes.has("ask-state"))[0]?.textContent, l.find((x) => x.classes.has("ask-none"))[0]?.textContent, l.getAttribute("data-state")]), [
+		["MP Center", "waiting", undefined, "waiting"], ["Gone", undefined, "no tower", "none"], ["Left", "answered", "no tower", "answered"], ["Quiet", undefined, "no tower", "none"],
+	]);
+	assert.doesNotMatch(lines[1]!.textContent, /waiting|no answer/);
+	assert.match(box.children[0]!.find((x) => x.tag === "summary")[0]!.textContent, /→ 4 towers · 12m ago · 1\/4 replied/);
+	assert.equal(towerState({ workspace: "wX", label: "Gone", state: "waiting" }, zh), "沒有塔台");
 });
 
 test("the head's memory footer is there for a standing instruction, a decision, a pending proposal, or an unreadable file; not for nothing and not for waits alone", () => {
@@ -245,7 +259,7 @@ test("the head's marks: the map node and the chat avatar carry the crown in the 
 	assert.match(css, /\.comms-head\[data-head\] \.head-menu \{ display: none; \}/);
 });
 
-test("the head's page leaves out its tool calls, shell lines, and the sb server's notices and timers, and keeps its words, the boss's lines, and a tower's answer; a workspace tower's page shows all of them", async () => {
+test("the head's page leaves out its tool calls, shell lines, and the sb server's notices and timers, and keeps its words, the boss's lines, and a tower's answer; a workspace tower's page and Zen's companion log of the head show all of them", async () => {
 	const { mountChat } = await import("../gui/chat.ts");
 	Object.assign(document, { createDocumentFragment: () => new El("#fragment"), createTextNode: (t: string) => t });
 	const items = [
@@ -257,9 +271,9 @@ test("the head's page leaves out its tool calls, shell lines, and the sb server'
 		{ id: "n3", kind: "notice", type: "straw-tower", event: "intercom", from: "tower · Alpha", at: "2026-11-06T08:00:05Z", text: "[intercom from tower · Alpha (a1)]\nDone." },
 		{ id: "b1", kind: "bash", command: "ls", exit: 0, at: "2026-11-06T08:00:06Z", text: "x" },
 	] as never[];
-	const draw = (head: boolean) => {
+	const draw = (head: boolean, page = true) => {
 		const root = new El("div"), data = { older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined };
-		const chat = mountChat(root as unknown as HTMLElement, data, { who: () => ({ key: "k", name: "n", role: "tower", mark: "idle" as const, service: { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [] }, ...(head ? { head: true } : {}) }), link: () => undefined });
+		const chat = mountChat(root as unknown as HTMLElement, data, { who: () => ({ key: "k", name: "n", role: "tower", mark: "idle" as const, service: { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [] }, ...(head ? { head: true } : {}) }), link: () => undefined, page });
 		chat.apply({ key: "k", reset: true, items });
 		return root;
 	};
@@ -275,4 +289,9 @@ test("the head's page leaves out its tool calls, shell lines, and the sb server'
 	const tower = draw(false);
 	assert.equal(tower.find((el) => el.classes.has("act")).length, 3, "a workspace tower's page is as it was");
 	assert.match(shown(tower).join("\n"), /open for 40 minutes/);
+	// HM-F006: Zen's companion log mounts the same chat for the head without `page`, and draws what it drew on main
+	const zen = draw(true, false);
+	assert.equal(zen.find((el) => el.classes.has("act")).length, 3, "Zen's head history keeps the tool cards and the shell line");
+	assert.equal(zen.find((el) => el.classes.has("skip")).length, 0, "nothing is hidden there");
+	assert.match(shown(zen).join("\n"), /open for 40 minutes/);
 });

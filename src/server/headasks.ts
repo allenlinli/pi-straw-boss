@@ -12,7 +12,7 @@ export const ASK_CAP = 40;
 /** Closed and expired asks stay in the file for the brief and the page; the oldest beyond this go. */
 const ASK_KEEP = 100;
 const FIRST = 120;
-/** Asks with the same first line, each within this long of the newest member before it, are one broadcast: the head has no broadcast tool, so one boss instruction is several `tower_send` calls with one message. */
+/** The head has no broadcast tool, so one boss instruction is several `tower_send` calls: asks with one `relay` are one broadcast; asks with none (before the relay existed, the head's own notes) are one when they have the same first line, each within this long of the newest member before it. */
 export const GROUP_MS = 60_000;
 
 export interface HeadAnswer { at: number; first: string }
@@ -55,13 +55,17 @@ function save(slot: Slot, file: File): void {
 }
 const isOpen = (a: HeadAsk, now: number) => !a.closed && now - a.last < ASK_OPEN_MS;
 
-/** The group of each ask by id, oldest first: the recorded one, else (an ask from before the field) the group of the newest earlier ask with the same first line within `GROUP_MS`, else its own id. */
+/**
+ * The group of each ask by id, oldest first: the recorded one, else (an ask from before the field) by the broadcast it belongs to. An ask with a `relay` joins the newest earlier ask of the same relay (one boss instruction is one `relay`, however the head tailored its text per tower);
+ * an ask without one (a file from before the relay, the head's own notes) joins the newest earlier unrelayed ask with the same first line that is 0 to `GROUP_MS` before it (a prior `at` in the future, from clock skew, is no member); otherwise it is its own group.
+ */
 export function groupsOf(asks: HeadAsk[]): Map<string, string> {
-	const out = new Map<string, string>(), newest = new Map<string, { group: string; at: number }>();
+	const out = new Map<string, string>(), byRelay = new Map<string, string>(), byFirst = new Map<string, { group: string; at: number }>();
 	for (const a of asks) {
-		const near = newest.get(a.first), group = a.group ?? (near && a.at - near.at < GROUP_MS ? near.group : a.id);
+		const near = byFirst.get(a.first), group = a.group ?? (a.relay ? byRelay.get(a.relay) : near && a.at - near.at >= 0 && a.at - near.at < GROUP_MS ? near.group : undefined) ?? a.id;
 		out.set(a.id, group);
-		newest.set(a.first, { group, at: a.at });
+		if (a.relay) byRelay.set(a.relay, group);
+		else byFirst.set(a.first, { group, at: a.at });
 	}
 	return out;
 }
@@ -73,8 +77,8 @@ export const openAsks = (slot: Slot, now: number): HeadAsk[] => load(slot).asks.
 
 /** Opens an ask for a forward; the 41st open ask closes the oldest open one. */
 export function openAsk(slot: Slot, now: number, d: { workspace: string; label: string; first: string; relay?: string }): HeadAsk {
-	const file = load(slot), id = `H${file.next}`, first = line(d.first), groups = groupsOf(file.asks), prior = file.asks.findLast((a) => a.first === first && now - a.at < GROUP_MS);
-	const ask: HeadAsk = { id, workspace: d.workspace, label: d.label, at: now, last: now, first, group: prior ? groups.get(prior.id)! : id, ...(d.relay ? { relay: d.relay } : {}), answers: [] };
+	const file = load(slot), id = `H${file.next}`, ask: HeadAsk = { id, workspace: d.workspace, label: d.label, at: now, last: now, first: line(d.first), ...(d.relay ? { relay: d.relay } : {}), answers: [] };
+	ask.group = groupsOf([...file.asks, ask]).get(id)!;
 	file.next++;
 	file.asks.push(ask);
 	const open = file.asks.filter((a) => isOpen(a, now));

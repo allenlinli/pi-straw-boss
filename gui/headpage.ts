@@ -89,8 +89,10 @@ export function groupLine(g: AskGroup, now: number, o?: Opts) {
 	return (g.towers.length === 1 ? m.head_group_one : m.head_group)({ count: g.towers.length, age, replied: g.replied }, o);
 }
 const STATE: Record<HeadAskRow["state"], (o?: Opts) => string> = { waiting: (o) => m.head_ask_waiting({}, o), answered: (o) => m.head_ask_answered({}, o), silent: (o) => m.head_ask_silent({}, o) };
-/** A tower's state word and, for a workspace the net has no tower of, that there is none. */
-export const towerState = (t: AskTower, o?: Opts) => STATE[t.state](o);
+/** Whether nothing can come of this row: the net has no tower of the workspace and it never answered, so waiting is a word it cannot keep. */
+export const gone = (t: AskTower) => !t.route && t.state !== "answered";
+/** A tower's state word; for a workspace the net has no tower of and that never answered, that there is none (muted, no wait). */
+export const towerState = (t: AskTower, o?: Opts) => (gone(t) ? m.head_ask_no_tower({}, o) : STATE[t.state](o));
 
 const opened = new WeakMap<HTMLElement, Set<string>>();
 /** The broadcasts under the conversation box; redrawn only when they change, so a click never lands on a row that was replaced, and a row the boss unfolded stays unfolded across a redraw. */
@@ -102,8 +104,8 @@ export function fillHeadAsks(box: HTMLElement, head: HeadUnit | undefined, net: 
 	const keep = opened.get(box) ?? opened.set(box, new Set()).get(box)!;
 	box.setAttribute("aria-label", m.head_asks_label());
 	const unfold = (el: HTMLElement, id: string) => (keep.has(id) && el.setAttribute("open", ""), el.addEventListener("toggle", () => void (el.hasAttribute("open") ? keep.add(id) : keep.delete(id))), el);
-	const tower = (t: AskTower) => h("li", { class: "ask-tower", "data-state": t.state },
-		h("span", { class: "ask-line" }, t.route ? h("a", { class: "ask-name", href: t.route || "./", "data-route": t.route }, t.label) : h("b", { class: "ask-name" }, t.label), h("span", { class: "ask-state" }, towerState(t)), ...(t.route ? [] : [h("span", { class: "ask-none" }, m.head_ask_no_tower())])),
+	const tower = (t: AskTower) => h("li", { class: "ask-tower", "data-state": gone(t) ? "none" : t.state },
+		h("span", { class: "ask-line" }, t.route ? h("a", { class: "ask-name", href: t.route || "./", "data-route": t.route }, t.label) : h("b", { class: "ask-name" }, t.label), h("span", { class: gone(t) ? "ask-none" : "ask-state" }, towerState(t)), ...(t.route || gone(t) ? [] : [h("span", { class: "ask-none" }, m.head_ask_no_tower())])),
 		...(t.said ? [h("p", { class: "ask-said" }, t.said)] : []));
 	const group = (g: AskGroup) => unfold(h("details", { class: "ask-group", "data-id": g.id }, h("summary", null, h("span", { class: "ask-first" }, g.first), h("span", { class: "ask-meta" }, lines.get(g.id)!)), h("ul", { class: "ask-towers" }, ...g.towers.map(tower))), g.id);
 	box.replaceChildren(...recent.map(group), ...(older.length ? [unfold(h("details", { class: "ask-older", "data-id": "older" }, h("summary", null, m.head_older({ count: older.length })), ...older.map(group)), "older")] : []));

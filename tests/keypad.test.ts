@@ -44,7 +44,7 @@ class El {
 		return this.kids.flatMap((k) => (k instanceof El ? [k, ...k.all()] : []));
 	}
 }
-Object.assign(globalThis, { document: { createElement: () => new El() } });
+Object.assign(globalThis, { document: { createElement: () => new El() }, getSelection: () => ({ isCollapsed: true }) }); // off a Mac (CI's Linux) a Ctrl+C asks the page whether text is selected
 const mod = await import("../gui/keypad.ts");
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 

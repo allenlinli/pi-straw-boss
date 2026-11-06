@@ -136,16 +136,16 @@ test("a first message that did not arrive keeps the workspace and its id: a repe
 // F002: Herdr reuses the ids of closed workspaces.
 test("a record is not taken for a workspace of the same id in another folder, and the stale record goes", async () => {
 	world.herdr.onAgentStart = joins;
-	const record = file(), first = (await server(record).open({ deploy: "deploy-seam-f2" })).body as { workspace: string };
+	const record = file(), first = (await server(record).open({ deploy: "deploy-seam-f2" })).body as { workspace: string; pane: string };
 	world.herdr.workspaces = world.herdr.workspaces.filter((w) => w.workspace_id !== first.workspace);
 	world.herdr.panes = world.herdr.panes.filter((p) => p.workspace_id !== first.workspace);
 	const other = JSON.parse(await world.herdr.runFor("wA:p1")(["workspace", "create", "--cwd", join(home, "other"), "--label", "other"])).result as Made;
 	world.herdr.workspaces.find((w) => w.workspace_id === other.workspace.workspace_id)!.workspace_id = first.workspace; // Herdr hands the id out again
-	for (const p of world.herdr.panes) if (p.workspace_id === other.workspace.workspace_id) p.workspace_id = first.workspace;
-	joins(other.root_pane);
+	for (const p of world.herdr.panes) if (p.workspace_id === other.workspace.workspace_id) (p.workspace_id = first.workspace, (p.pane_id = first.pane)); // and the pane's id too
+	joins({ pane_id: first.pane });
 	const again = await server(record).open({ deploy: "deploy-seam-f2" });
 	assert.equal(again.status, 200, JSON.stringify(again.body));
-	assert.notEqual(body(again).pane, other.root_pane.pane_id, "not the other folder's pane");
+	assert.notEqual(world.herdr.panes.find((p) => p.pane_id === body(again).pane)?.cwd, join(home, "other"), "not the other folder's pane");
 	assert.equal(made(), 3, "beta got a base of its own");
 	assert.equal(world.herdr.panes.find((p) => p.pane_id === body(again).pane)?.cwd, dir);
 });

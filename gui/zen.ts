@@ -18,6 +18,7 @@ import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
 import type { Answer } from "./post.ts";
 import { roleName, waitTitle } from "./render.ts";
 import { composerUnit } from "./sessionfacts.ts";
+import { can } from "./boxmodel.ts";
 import { locate } from "./scene.ts";
 import type { Hotkey } from "./hotkeys.ts";
 import type { StepOpen } from "./terminalthen.ts";
@@ -158,7 +159,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		else if (a.card) said.textContent = cardSaid(a.card);
 		else if (!trust) void deps.recent(key).then((items) => (said.textContent = intel(items).said ?? ""), () => {});
 		const answer: AnswerPost = (action, body) => tell(a.key, to(key)(action, body));
-		const online = deps.online;
+		const online = () => deps.online() && can(locate(net, key)?.base, "input"); // a remote base whose box is unreachable or ended takes no typing, key or answer
+		const why = () => (can(locate(net, key)?.base, "input") ? undefined : m.box_answer_blocked());
 		if (a.wait) {
 			// The card's buttons press at the memory route and its reply box goes where Standard's composer sends it: the tower's session `input` (asks.ts `waitActions`); the card never leaves Zen, and an ending press plays the card's outcome through `send`.
 			const entry = (x: Alert): BossWait => x.wait!.entry ?? { id: x.wait!.id, text: x.wait!.text, at: new Date(x.since ?? x.at).toISOString() };
@@ -175,7 +177,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 				let ask: ReturnType<typeof mountAsk> | undefined, hold: HTMLElement | undefined;
 				return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: () => Boolean(ask?.enter()), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()), update(x, outcome) {
 					if (!ask) (slot.replaceChildren((hold = h("div", { class: "zen-ask" }))), (ask = mounts.ask(hold, cast, true)));
-					ask.update(x.pending, canAnswer(x.mark, online() && !endedOf(outcome))); // a forwarded dialog's panel starts afresh for another dialog under the same alert
+					ask.update(x.pending, canAnswer(x.mark, online() && !endedOf(outcome)), why()); // a forwarded dialog's panel starts afresh for another dialog under the same alert
 					syncQuestions(hold!, { later });
 					say(out, outcome, x);
 				} };
@@ -206,7 +208,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		return {
 			key: a.key, sig: cardSig(a), el, said, out, skip, hist, toggle, collapse: () => hist?.close(ctx), enter: () => Boolean(ask?.enter()) || focusOn(ask ? hold?.querySelector<HTMLElement>(".ask-acts .cmp-link") : openBtn) || (Boolean(ask) && !hold?.querySelector(".ask-send") && focusOn(skip)), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),
 			update(x, outcome) {
-				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, canAnswer(x.mark, online() && !endedOf(outcome))), syncQuestions(hold!, { later })); // several questions: one focused, the rest faded (zenquestions.ts)
+				if (x.pending) (noted = false, (ask ??= dialog()).update(x.pending, canAnswer(x.mark, online() && !endedOf(outcome)), why()), syncQuestions(hold!, { later })); // several questions: one focused, the rest faded (zenquestions.ts)
 				else if (!noted) (ask = undefined, words());
 				if (openBtn) openBtn.disabled = endedOf(outcome);
 				say(out, outcome, x);
@@ -280,7 +282,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		company!.cue.set(model.queued().length); // a card never takes this screen by itself: the cue says how many wait, and a tap on it takes one
 		markOver(company!, over);
 		if (u || over || histOpen) {
-			const facts = composerUnit(u?.u, { name: u?.u.name ?? company!.name.textContent ?? c.key, mk: u?.u.mark ?? "unknown", state: company!.state, online: deps.online(), head: histOpen });
+			const facts = composerUnit(u?.u, { name: u?.u.name ?? company!.name.textContent ?? c.key, mk: u?.u.mark ?? "unknown", state: company!.state, online: deps.online() && can(u?.base, "input"), away: !can(u?.base, "input"), head: histOpen });
 			company!.composer?.update(over ? { ...facts, live: over === "lost" && facts.live, control: false, activity: undefined } : facts); // a session that is over takes no more words: Send is off and the composer's own line says why
 			if (company!.composer) company!.composer.box.readOnly = Boolean(over); // the box keeps its draft but takes no typing: a session that lost control is off, not just unsendable (R2, ZNR)
 		}

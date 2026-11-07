@@ -3274,3 +3274,41 @@ test("Z-D22 (ZCR-F005): a new build waiting while the chain runs does not reload
 	await pass(r, PAUSE + 4_000);
 	assert.equal(go.reloads, 1, "the breath loads it, once");
 });
+
+const REMOTE = (state: "live" | "unreachable" | "ended"): NonNullable<Net["bases"][number]["box"]> => ({ device: "dev1", short: "a1b2c3", label: "agent-tower-01", team: "moldplan", scope: "team", can: ["input", "answer", "keys"], state, ...(state === "unreachable" ? { seen: 1 } : {}) });
+const onBox = (n: Net, state: "live" | "unreachable" | "ended"): Net => ({ ...n, bases: n.bases.map((b) => ({ ...b, box: REMOTE(state) })) });
+
+test("a unit of an unreachable or ended remote base takes no answer in Zen: its choices and Send are off with the reason shown; a live box and a local base answer as before", async () => {
+	for (const [state, off] of [["unreachable", true], ["ended", true], ["live", false], [undefined, false]] as const) {
+		const r = rig();
+		const base = net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]);
+		r.feed(state ? onBox(base, state) : base);
+		r.z.show();
+		await r.settle();
+		r.z.key("talk");
+		await r.settle();
+		const radios = r.by((el) => el.getAttribute("role") === "radio");
+		assert.ok(radios.length > 0, String(state));
+		assert.ok(radios.every((x) => x.disabled === off), `${state}: choices ${off ? "off" : "on"}`);
+		assert.equal(r.text().includes(m.box_answer_blocked()), off, `${state}: the reason is shown only when the box is the cause`);
+	}
+});
+
+test("a box going unreachable turns a card that was answerable off at the next snapshot, and its return turns it on", async () => {
+	const r = rig();
+	const base = net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]);
+	r.feed(onBox(base, "live"));
+	r.z.show();
+	await r.settle();
+	r.z.key("talk");
+	await r.settle();
+	const radios = () => r.by((el) => el.getAttribute("role") === "radio");
+	assert.ok(radios().every((x) => !x.disabled));
+	r.feed(onBox(base, "unreachable"));
+	await r.settle();
+	assert.ok(radios().every((x) => x.disabled), "unreachable");
+	r.feed(onBox(base, "live"));
+	await r.settle();
+	assert.ok(radios().every((x) => !x.disabled), "and back");
+	assert.ok(!r.text().includes(m.box_answer_blocked()));
+});

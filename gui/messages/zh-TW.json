@@ -1070,5 +1070,7 @@
   "box_runs_more": "顯示更多",
   "box_run_aria": "開啟先前的執行 {name}",
   "box_ally": "這台機器的狀態卡",
-  "box_blocked": "現在連不上這台機器；連上之後才能傳送。"
+  "box_blocked": "現在連不上這台機器；連上之後才能傳送。",
+  "box_keys_blocked": "現在連不上這台機器；連上之後才能送按鍵。",
+  "box_answer_blocked": "現在連不上這台機器；連上之後才能回答。"
 }

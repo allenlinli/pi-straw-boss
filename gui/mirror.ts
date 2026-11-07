@@ -87,7 +87,7 @@ interface Term { key: string; conn: Conn; stop(): void; box: HTMLElement; scroll
 /** The key pad under a mirror (keypad.ts): its element, and `update` when what the pad may do changes. */
 export interface Pad { el: HTMLElement; update(): void; type?(e: KeyboardEvent): boolean; key?(key: string): void; text?(typed: string): void; paste?(pasted: string): void }
 /** The terminal tiles of this page: `stream()` is the newest `hello` as it came (JSON); `pad` puts the key pad under a mirror. */
-export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(tile: Tile, focus?: boolean): void }; post(key: string): Post; stream(): string; pad?(t: { name: string; state(): TermState; post: Post; stream(): string; blip(): void; taken(): void }): Pad }) {
+export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(tile: Tile, focus?: boolean): void }; post(key: string): Post; stream(): string; pad?(t: { key: string; name: string; state(): TermState; post: Post; stream(): string; blip(): void; taken(): void }): Pad }) {
 	const open = new Map<string, Term>();
 	const conns = mountConns({ post, stream });
 	/** The sink carries what the pad may do, so a layer that owns Esc (Zen's) can tell a terminal that takes it from a dead one. */
@@ -155,11 +155,13 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 		const { conn } = t;
 		if (conn.rows.length) applyFrame(t.box, { key, rows: conn.rows.length, set: conn.rows.map((row, i) => [i, row]) });
 		if (conn.phase !== "connecting") say(t);
-		t.pad = pad?.({ name, state: conn.state, post: conn.post, stream: conns.id, blip: () => replay(t.scroll, "blip"), taken: () => conns.taken(conn) });
+		t.pad = pad?.({ key, name, state: conn.state, post: conn.post, stream: conns.id, blip: () => replay(t.scroll, "blip"), taken: () => conns.taken(conn) });
 		sync(t);
 		return (t.tile = { id: `term:${key}`, title: m.terminal_title({ name }), icon: "comms", body: () => h("div", { class: "term-tile" }, h("div", { class: "term-bar" }, t.state, t.typing, t.kb, t.fit), t.scroll, t.sink, t.pad?.el), closed: () => (t.sink.blur(), t.stop(), open.delete(key)) });
 	};
 	return {
+		/** Every pad follows the facts it reads again (a remote base's box went unreachable or came back). */
+		refresh: () => open.forEach((t) => t.pad?.update()),
 		/** Opens (or brings forward) the tile of a terminal, a session's or a pane an answer opened (key `grant:<id>`), the user's own act, so it takes focus; a mirror that ended tries again. `keys`: the keyboard goes to it (a desktop's; a phone has the pad under it, and its Keyboard button). */
 		open(key: string, name: string, keys = false) {
 			const t = open.get(key);

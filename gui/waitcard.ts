@@ -257,7 +257,7 @@ const cards = new WeakMap<HTMLElement, ReturnType<typeof waitCard>>();
 /** The dock's dialog of a wait takes the focus on its card's primary button (else its first option); false when it has none. */
 export const enterWait = (el: HTMLElement) => cards.get(el)?.enter() ?? false;
 /** A wait's dialog in the dock: the card in the answer slot, the link to the comms, Later and Skip in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
-export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () => void, send: SessionPost, more: { remote?: boolean; secretOpen?(): boolean; /** The workspace of the raiser's unit, found by its key (a head wait's alert is on the head's base, not the raiser's). */ where?(key: string): string | undefined } = {}) {
+export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () => void, send: SessionPost, more: { remote?: boolean; /** The tower is a remote base's and its box takes no input now: the card answers nothing. */ away?: boolean; secretOpen?(): boolean; /** The workspace of the raiser's unit, found by its key (a head wait's alert is on the head's base, not the raiser's). */ where?(key: string): string | undefined } = {}) {
 	const over = Boolean(a.gone), go = el.querySelector<HTMLElement>(".go")!;
 	el.dataset.wait = ""; // the footer's link is the secondary act here (style.css): the card's buttons answer
 	el.querySelector<HTMLElement>(".intel")!.hidden = true;
@@ -273,6 +273,6 @@ export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () =
 	if (!el.querySelector(".wait-card")) el.querySelector(".ask-root")!.replaceChildren(card.el);
 	// The comms link, Later and Skip in one row of the dialog's footer, the quiet one last.
 	el.querySelector("footer")!.insertBefore(card.skip, el.querySelector(".queued"));
-	card.update(entry, !over && document.body.dataset.stale !== "true", over);
+	card.update(entry, !over && !more.away && document.body.dataset.stale !== "true", over);
 	text(el, ".tag", card.tag()); // the card's own word, not QUESTION (and not the stack's GONE: the tower did not leave, the wait ended)
 }

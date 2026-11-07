@@ -50,7 +50,7 @@ const final = (r: Answer) => ["accepted", "stale", "busy", "unknown"].includes(S
 /** A panel drawn for a pending. `done`: it takes no further answer from here; `sending`: its answer is on its way; `focus`: what had the focus in it
  * when it left the page (it takes it back on coming back); `lost`: the control that lost the focus by being disabled here (it takes it back when enabled); `busy`: refused while another answer was on its way, and `spell` once the server showed
  * that answer (read-only): the dialog answerable after it means that answer was refused, so this panel answers again. */
-interface Panel { copy?: string; first?: () => HTMLButtonElement | HTMLInputElement | undefined; key: string; el: HTMLElement; note: HTMLElement; send?: HTMLButtonElement; cancel?: HTMLButtonElement; controls: (HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement)[]; pick: () => Pick | undefined; done: boolean; sending: boolean; focus?: HTMLElement; lost?: HTMLButtonElement | HTMLInputElement; busy?: boolean; spell?: boolean }
+interface Panel { copy?: string; first?: () => HTMLButtonElement | HTMLInputElement | undefined; key: string; el: HTMLElement; note: HTMLElement; send?: HTMLButtonElement; cancel?: HTMLButtonElement; controls: (HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement)[]; pick: () => Pick | undefined; done: boolean; sending: boolean; focus?: HTMLElement; lost?: HTMLButtonElement | HTMLInputElement; busy?: boolean; spell?: boolean; away?: boolean }
 /** A dialog the page may answer is known by its id and digest, under whichever call the server reads it; anything else by its call and why. */
 const keyOf = (p: Pending) => (p.answer ? `d\n${p.answer.dialog}\n${p.answer.digest}` : `c\n${p.callId}\n${p.why ?? ""}`);
 
@@ -71,7 +71,7 @@ function cue(el: HTMLElement) {
 
 export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: { key: string; show(): void }, accepted?: (opened: boolean) => void, terminalLabel: () => string = m.show_terminal) {
 	// `cur` is the panel on show, drawn for `shown`; `kept` is the newest one that answers, which comes back as it was when its dialog does.
-	let shown: Pending | undefined, cur: Panel | undefined, kept: Panel | undefined, ready = false, busy = false, leave: ReturnType<typeof setTimeout> | undefined;
+	let shown: Pending | undefined, cur: Panel | undefined, kept: Panel | undefined, ready = false, why: string | undefined, busy = false, leave: ReturnType<typeof setTimeout> | undefined;
 	for (const type of ["focusin", "pointerdown"]) document.addEventListener(type, (e) => cur && !cur.el.contains(e.target as Node) && (cur.lost = undefined)); // the user went elsewhere
 	const say = (note: HTMLElement, tone: string, text: string, ...kids: HTMLElement[]) => ((note.dataset.tone = tone), note.replaceChildren(text, ...kids));
 	const draw = () => {
@@ -80,6 +80,8 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		if (!idle && had !== cur.lost) cur.lost = undefined; // the user took the focus elsewhere
 		cur.controls.forEach((c) => (c.disabled = !ready || busy || cur!.done));
 		if (cur.send) cur.send.disabled = !ready || busy || cur.done || !cur.pick();
+		if (why && !ready && !busy && !cur.done && !cur.sending) (say(cur.note, "", why), (cur.away = true)); // a remote base that takes no answer says so beside the greyed choices
+		else if (cur.away) (say(cur.note, "", ""), (cur.away = false));
 		if (had && cur.el.contains(had) && had.disabled) cur.lost = had; // a browser moves the focus off a disabled control, to the body
 		const back = cur.lost;
 		if (back && !back.disabled && cur.el.contains(back) && (!document.activeElement || document.activeElement === document.body)) (back.focus(), (cur.lost = undefined));
@@ -176,8 +178,8 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		},
 		sending: () => busy, // any answer from this panel set is on its way (the panel on show may be another by then)
 		/** The unit's pending dialog now, and whether it can be answered or its pane brought forward (it waits and the stream is up). */
-		update(next: Pending | undefined, can: boolean) {
-			ready = can;
+		update(next: Pending | undefined, can: boolean, reason?: string) {
+			[ready, why] = [can, reason];
 			if (next) leave = void clearTimeout(leave);
 			// An answer sent from here stays on show for its dialog, and for six seconds after the unit moved on (from the first update without it), so its outcome can be read.
 			if (!next && (cur?.done || cur?.sending)) leave ??= setTimeout(() => ((leave = undefined), show()), 6000);

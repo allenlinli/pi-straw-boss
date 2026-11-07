@@ -3,6 +3,7 @@ import type { Net } from "../src/net.ts";
 import { type Intel, intel } from "./intel.ts";
 import { answerPost, canAnswer, mountAnswer, type SessionPost, trustPost } from "./answer.ts";
 import { tabLabels } from "./doctabs.ts";
+import { can } from "./boxmodel.ts";
 import { keypad } from "./keypad.ts";
 import { mountTerminals } from "./mirror.ts";
 import { rankOf, unitOf } from "./alerts.ts";
@@ -114,12 +115,13 @@ export function mountPanels(deps: PanelDeps) {
 		text(el, ".queued", queue.length ? m.also_queued({ tally: tally(queue) }) : "");
 		el.querySelector<HTMLElement>(".later")!.hidden = rankOf(a) !== 0; // a finished one is read once opened: nothing to keep for later
 		if (a.trust) return fillTrust(el, a);
-		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)), { where: (key) => locate(deps.net?.(), key)?.base.id, secretOpen: () => queue.some((x) => x.key === a.wait?.entry?.card?.from?.key && x.pending?.tool === "secret_drop") });
+		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)), { away: !can(locate(deps.net?.(), unitOf(a))?.base, "input"), where: (key) => locate(deps.net?.(), key)?.base.id, secretOpen: () => queue.some((x) => x.key === a.wait?.entry?.card?.from?.key && x.pending?.tool === "secret_drop") });
 		if (!intels.has(a.key)) learn(a);
 		tell(el, a);
 		let ask = asks.get(el);
 		if (!ask) asks.set(el, (ask = mountAnswer(el.querySelector(".ask-root")!, { key: unitOf(a), post: to(unitOf(a)), show: () => deps.showTerminal(a.ws, unitOf(a)), accepted: (opened) => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close(opened ? "go" : "close"), opened && slot.focus()) }))); // a dialog that sent the user to a terminal reveals nothing queued over it, and the card it opened keeps the focus the closing dialog would give back
-		ask.update(a.pending, canAnswer(a.mark, document.body.dataset.stale !== "true")); // what it waits on, answerable or not; the stream state redraws it (report in main.ts)
+		const input = can(locate(deps.net?.(), unitOf(a))?.base, "input");
+		ask.update(a.pending, canAnswer(a.mark, document.body.dataset.stale !== "true", input), input ? undefined : m.box_answer_blocked()); // what it waits on, answerable or not; the stream state redraws it (report in main.ts)
 	};
 	// Finished units wait under the HUD's Finished button, apart from what needs the user: a row goes to the unit's comms and clears it, Clear all clears every one.
 	const [doneBtn, donePop, doneList] = [byId("done", HTMLButtonElement), byId("done-pop", HTMLElement), byId("done-list", HTMLElement)];
@@ -236,7 +238,7 @@ export function mountPanels(deps: PanelDeps) {
 	});
 	// fit() needs only the work's width, so it watches a gauge as wide and no height: the work's height changes inside the map's packing report.
 	new ResizeObserver(fit).observe(work.appendChild(Object.assign(document.createElement("i"), { className: "gauge" })));
-	const terminal = mountTerminals({ tiles, post: to, stream: deps.stream, pad: (t) => keypad({ ...t, enterConfirms: () => document.documentElement.dataset.view === "zen" }) }); // in Zen Enter confirms the pad's confirm (confirmbar.ts)
+	const terminal = mountTerminals({ tiles, post: to, stream: deps.stream, pad: (t) => keypad({ ...t, away: () => !can(locate(deps.net?.(), t.key)?.base, "input"), enterConfirms: () => document.documentElement.dataset.view === "zen" }) }); // in Zen Enter confirms the pad's confirm (confirmbar.ts)
 	const kit = { embed: terminal.embed, watch: terminal.watch, post: to, stream: terminal.id };
 	const slot = mountStepSlot({ dock, kit, showTerminal: deps.showTerminal, openPane: (key, name) => terminal.open(key, name, true) }); // the terminal card (stepslot.ts)
 	return {
@@ -264,6 +266,7 @@ export function mountPanels(deps: PanelDeps) {
 			if (net) slot.follow(net);
 			for (const alert of fresh) void (alert.trust || alert.wait || learn(alert), stack.arrive(alert));
 			stack.prune((key) => now.get(key));
+			if (net) (terminal.refresh(), stack.redraw()); // the pads follow the box too; a remote base's box going unreachable (or back) greys (or frees) the open dialogs
 		},
 	};
 }

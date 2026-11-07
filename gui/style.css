@@ -1042,7 +1042,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .base.remote :is(.box-runs, .box-ally) > summary::before { content: "\25B8"; flex: none; } .base.remote :is(.box-runs, .box-ally)[open] > summary::before { content: "\25BE"; }
 .box-run-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; } .box-run { min-width: 0; }
 .box-run a { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); font-size: 12px; text-decoration: none; } .box-run a:hover { border-color: var(--accent); }
-.box-run .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .box-run .role, .box-run .when { flex: none; color: var(--dim); font-style: normal; }
+.box-run .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .box-run .role, .box-run .when { flex: none; color: var(--dim); font-style: normal; } .box-run .role { text-transform: none; } /* the zh-TW noun keeps its lowercase run (messages role_ally) */
 .box-more { margin-top: 6px; }
 .box-ally-in > .base.ally { margin-top: 6px; box-shadow: none; }
 .base.ally .ally-teams { margin: 2px 0 0; font-size: 11px; white-space: normal; overflow-wrap: anywhere; } /* a device in several teams: one card, its teams on a quiet line (gui/render.ts `fillAlly`) */

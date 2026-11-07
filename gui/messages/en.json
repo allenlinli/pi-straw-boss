@@ -1252,5 +1252,7 @@
   "box_runs_more": "Show more",
   "box_run_aria": "Open {name}, an earlier run",
   "box_ally": "This machine's status card",
-  "box_blocked": "This machine cannot be reached right now; sending waits until it can."
+  "box_blocked": "This machine cannot be reached right now; sending waits until it can.",
+  "box_keys_blocked": "This machine cannot be reached right now; keys wait until it can.",
+  "box_answer_blocked": "This machine cannot be reached right now; answers wait until it can."
 }

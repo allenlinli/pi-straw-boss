@@ -2,7 +2,7 @@ import type { Mark } from "../src/netdata.ts";
 import type { Base, Net, RemoteBox, Unit } from "../src/net.ts";
 
 // The demo's remote (operate) bases for `npm run gui:dev` (docs/specs/2026-11-07-link-operate.md §8): `?operate=<list>`, with `live` (agent-tower-01: one working main that asks a question, a member, a finished subagent, the Earlier runs fold and the box's ally card folded in),
-// `unreachable` (agent-tower-02, last seen four minutes ago), `revoked` (agent-tower-03, the grant withdrawn), `refused` (agent-tower-04, the box does not let this device operate), `more` (live with 53 finished runs: the fold's Show more), or `all`. Without the parameter the demo has none.
+// `unreachable` (agent-tower-02, last seen four minutes ago; its main asks a question, which takes no answer), `revoked` (agent-tower-03, the grant withdrawn), `refused` (agent-tower-04, the box does not let this device operate), `more` (live with 53 finished runs: the fold's Show more), or `all`. Without the parameter the demo has none.
 // Keys and ids are the controller's own form (`x` and 16 hex); the box's words are plain text.
 
 export const BOX_SCENES = ["live", "unreachable", "revoked", "refused", "more"] as const;
@@ -17,8 +17,8 @@ const bare = (id: number, label: string, b: RemoteBox): Base => ({ id: hex(id), 
 export function boxDemo(net: Net, param: string | null, now = Date.now()) {
 	const want = new Set<Scene>(param === null ? [] : param === "all" || param === "" ? BOX_SCENES.filter((s) => s !== "more") : (param.split(",").filter((s): s is Scene => (BOX_SCENES as readonly string[]).includes(s))));
 	if (want.has("more")) want.add("live");
+	const ask = { callId: "demo-box-1", tool: "ask_user_question", asks: [{ header: "Window", question: "Run the nightly export on the box tonight?", options: [{ title: "Tonight 23:00" }, { title: "Tomorrow 06:00" }], multiple: false, freeform: true }], answer: { dialog: "dbox1", digest: "0".repeat(64), cancel: true as const, questions: [{ header: "Window", question: "Run the nightly export on the box tonight?", options: [{ title: "Tonight 23:00" }, { title: "Tomorrow 06:00" }], multiple: false, freeform: true }] } };
 	if (want.has("live")) {
-		const ask = { callId: "demo-box-1", tool: "ask_user_question", asks: [{ header: "Window", question: "Run the nightly export on the box tonight?", options: [{ title: "Tonight 23:00" }, { title: "Tomorrow 06:00" }], multiple: false, freeform: true }], answer: { dialog: "dbox1", digest: "0".repeat(64), cancel: true as const, questions: [{ header: "Window", question: "Run the nightly export on the box tonight?", options: [{ title: "Tonight 23:00" }, { title: "Tomorrow 06:00" }], multiple: false, freeform: true }] } };
 		net.bases.push({
 			id: hex(1), label: "Work", mark: "waiting", tower: null, outposts: [], outside: [], box: box("boxd1", "7c2e90", "agent-tower-01"),
 			tabs: [{ id: hex(11), label: "exports", units: [
@@ -32,7 +32,7 @@ export function boxDemo(net: Net, param: string | null, now = Date.now()) {
 		net.link!.allies.push({ id: "t/boxd1/Work", team: "t", teamName: "moldplan", device: "boxd1", short: "7c2e90", label: "agent-tower-01", online: true, unattended: true, workspace: "Work", tower: "working", tabs: [{ label: "exports", state: "blocked" }, { label: "reports", state: "working" }] } as never);
 		net.link!.units.push({ team: "t", device: "boxd1", at: now - 20_000, units: [{ unit: "Work", state: "working", monitors: ["nightly export"], report: "Nightly export queued.\nWaiting for the window." }] } as never);
 	}
-	if (want.has("unreachable")) net.bases.push({ ...bare(2, "Build farm", box("boxd2", "3d19ab", "agent-tower-02", { state: "unreachable", seen: now - 4 * 60_000 })), mark: "working", tabs: [{ id: hex(31), label: "ci", units: [unit(41, "ci-main", "main", "working", "tool:bash"), unit(42, "ci-lint", "member", "idle")] }] });
+	if (want.has("unreachable")) net.bases.push({ ...bare(2, "Build farm", box("boxd2", "3d19ab", "agent-tower-02", { state: "unreachable", seen: now - 4 * 60_000 })), mark: "working", tabs: [{ id: hex(31), label: "ci", units: [unit(41, "ci-main", "main", "waiting", "waiting on a question", { pending: ask }), unit(42, "ci-lint", "member", "idle")] }] });
 	if (want.has("revoked")) net.bases.push(bare(3, "agent-tower-03", box("boxd3", "55f0c2", "agent-tower-03", { state: "ended", why: "policy", can: [], team: "moldplan" })));
 	if (want.has("refused")) net.bases.push(bare(4, "agent-tower-04", box("boxd4", "a8e641", "agent-tower-04", { state: "ended", why: "not-granted", can: [], team: "moldplan" })));
 	const names = ["nightly export", "invoice scan <img src=x onerror=alert(1)>", "schema check", "release notes", "backup verify", "log sweep"];

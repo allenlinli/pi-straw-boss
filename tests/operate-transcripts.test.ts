@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -282,4 +283,106 @@ test("seenFrom: the registry's units with a file and an owner, as the ledger tak
 	const f = session("reg"), refs: Ref[] = [{ key: "ally-r1", base: "w1", name: "a", role: "ally", file: f }, { key: "nofile", base: "w1", name: "b", role: "main" }, { key: "nobody", base: "w1", name: "c", role: "main", file: session("c") }];
 	const out = seenFrom({ refs, workspace: (b) => `ws ${b}`, owner: (k) => (k === "nobody" ? undefined : { team: A }), device: (k) => (k === "ally-r1" ? alice.id : undefined), live: (k) => k !== "nofile" });
 	assert.deepEqual(out, [{ role: "ally", name: "a", workspace: "ws w1", file: f, owner: { team: A }, device: alice.id }]);
+});
+
+// Review OL-F001..F006 (round 2).
+test("OL-F001/M1: a .jsonl row swapped for a link to a file that is no .jsonl is not read, and neither is a row with no .jsonl name", () => {
+	const f = session("j"), notes = join(root, "notes.txt"), ledger = open(mine());
+	writeFileSync(notes, "plain");
+	ledger.observe([seen(f)]);
+	const t = ledger.within(reach([A])), key = transcriptKey(idOf(f));
+	assert.ok(t.lookup(key));
+	unlinkSync(f);
+	symlinkSync(notes, f);
+	assert.equal(t.lookup(key), undefined, "the real path is notes.txt");
+	const plain = join(root, "plain.txt"), led = mine();
+	writeFileSync(plain, "x");
+	put(led, [row(plain, { last: NOW - 1 })]);
+	assert.equal(open(led).within(reach([A])).lookup(transcriptKey(idOf(plain))), undefined);
+});
+
+test("OL-F001: the folder check is made on the real path too: a link to a .jsonl outside the folder is refused", () => {
+	const out = mkdtempSync(join(scratch, "out-")), real = join(out, "x.jsonl"), f = session("k"), ledger = open(mine());
+	writeFileSync(real, "{}\n");
+	ledger.observe([seen(f)]);
+	unlinkSync(f);
+	symlinkSync(real, f);
+	assert.equal(ledger.within(reach([A])).lookup(transcriptKey(idOf(f))), undefined);
+});
+
+test("OL-F002/M3: a ledger line whose id is not the hash of its file is dropped", () => {
+	const f = session("m3"), led = mine();
+	put(led, [row(f, { id: "0123456789abcdef", last: NOW - 1 })]);
+	assert.deepEqual(open(led).rows(), []);
+});
+
+test("OL-F002/M6: a directory named x.jsonl is not a transcript", () => {
+	const d = join(root, "dir.jsonl"), ledger = open(mine());
+	mkdirSync(d);
+	ledger.observe([seen(d)]);
+	assert.equal(ledger.within(reach([A])).lookup(transcriptKey(idOf(d))), undefined);
+});
+
+test("OL-F002/M6: a named pipe x.jsonl (one hard link, not a regular file) is refused without blocking", { skip: process.platform === "win32" }, () => {
+	const p = join(root, "pipe.jsonl"), ledger = open(mine());
+	execFileSync("mkfifo", [p]);
+	ledger.observe([seen(p)]);
+	assert.equal(ledger.within(reach([A])).lookup(transcriptKey(idOf(p))), undefined);
+});
+
+test("OL-F002/M8: two lines of one id with different teams: the first line's owner stands on reload", () => {
+	const f = session("m8"), led = mine();
+	put(led, [row(f, { team: A, last: NOW - 10 }), row(f, { team: B, last: NOW - 5 })]);
+	const got = open(led).rows();
+	assert.equal(got.length, 1);
+	assert.equal(got[0]!.team, A);
+});
+
+test("OL-F002/M11: a row recorded under a symlinked folder is served by its real path", () => {
+	const real = join(root, "real-dir"), link = join(scratch, "link-dir");
+	mkdirSync(real);
+	symlinkSync(real, link);
+	const f = session("m11", real), via = join(link, f.slice(real.length + 1)), led = mine();
+	put(led, [row(via, { last: NOW - 1 })]);
+	assert.equal(open(led).within(reach([A])).lookup(transcriptKey(idOf(via)))?.file, f);
+});
+
+test("OL-F003: a hard link inside the folder to a file outside it is refused (nlink above 1)", async () => {
+	const out = mkdtempSync(join(scratch, "hl-")), target = join(out, "secret.jsonl"), f = join(root, `2026-11-07T00-00-00-000Z_hl${++n}.jsonl`);
+	writeFileSync(target, lines([header("hl"), user("u1", null, "x")]));
+	linkSync(target, f);
+	const ledger = open(mine()), t = ledger.within(reach([A]));
+	ledger.observe([seen(f)]);
+	assert.equal(t.lookup(transcriptKey(idOf(f))), undefined);
+	assert.deepEqual(((await t.list(Q())).body as { rows: unknown[] }).rows, []);
+});
+
+test("OL-F004: a session seen again after its row left the book keeps the owner the ledger recorded", () => {
+	const f = session("f4"), led = mine();
+	put(led, [row(f, { team: A, first: NOW - 40 * DAY, last: NOW - 40 * DAY + 1, ended: true })]);
+	const ledger = open(led);
+	assert.deepEqual(ledger.rows(), [], "compacted at start: older than 30 days");
+	ledger.observe([seen(f, { owner: { team: B }, device: bob.id })]);
+	assert.equal(ledger.rows()[0]!.team, A, "not re-owned");
+	assert.ok(open(led).within(reach([A])).has(transcriptKey(idOf(f))));
+	assert.ok(!open(led).within(reach([B])).has(transcriptKey(idOf(f))));
+});
+
+test("OL-F005: a t<id> key out of scope is not looked up in the registry", async () => {
+	const f = session("f5"), ledger = open(mine());
+	ledger.observe([seen(f, { owner: { team: B } })]);
+	const key = transcriptKey(idOf(f)), { hub } = hubOf(ledger, reach([A]), { [key]: f });
+	assert.equal((await api(hub, ["history", key], Q())).status, 404);
+	assert.equal(await image(hub, [key, "u1", "0"]), undefined);
+	const plain = hubOf(ledger, reach([A]), { other: f }).hub;
+	assert.equal((await api(plain, ["history", "other"], Q())).status, 200, "other keys still fall to the registry");
+});
+
+test("an append to a ledger that already exists sets mode 600", () => {
+	const f = session("mode"), led = mine();
+	put(led, []);
+	chmodSync(led, 0o644);
+	const ledger = open(led);
+	ledger.observe([seen(f)]);
+	assert.equal(statSync(led).mode & 0o777, 0o600);
 });

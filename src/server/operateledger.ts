@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, chmodSync, closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
 import { dirname, sep } from "node:path";
 import { allyLabel } from "../boardauto.ts";
 import { canonical } from "../history.ts";
@@ -66,15 +66,19 @@ function fold(source: string): { rows: Map<string, Row>; lines: number } {
 }
 const order = (a: Row, b: Row) => b.last - a.last || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 
-/** A `file` inside `root`, a regular `.jsonl`, by its real path; none for anything else. */
+/** A `file` inside `root`, by its real path a regular `.jsonl` with no other hard link, checked on an open handle (no symlink at the last step, and no wait on a pipe) whose device and inode are those of the real path; none for anything else. A reader opens the path again, without following a link at its last step (history.ts). */
 function readable(file: string, root: string): { real: string; size: number } | undefined {
 	const real = canonical(file), top = canonical(root);
-	if (!real || !top || !file.endsWith(".jsonl") || !real.startsWith(top + sep)) return undefined;
+	if (!real || !top || !real.endsWith(".jsonl") || !real.startsWith(top + sep)) return undefined;
+	let fd: number | undefined;
 	try {
-		const s = statSync(real);
-		return s.isFile() ? { real, size: s.size } : undefined;
+		fd = openSync(real, constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0));
+		const s = fstatSync(fd), at = statSync(real);
+		return s.isFile() && s.nlink === 1 && s.dev === at.dev && s.ino === at.ino ? { real, size: s.size } : undefined;
 	} catch {
 		return undefined;
+	} finally {
+		if (fd !== undefined) closeSync(fd);
 	}
 }
 
@@ -93,6 +97,9 @@ export function openLedger(d: LedgerDeps): Ledger {
 	let source = "";
 	try { source = readFileSync(d.file, "utf8"); } catch { /* none yet */ }
 	const { rows, lines } = fold(source), at = d.now();
+	// Who owned every session the ledger has ever held, kept after its row left the book (30 days, the 2,000 cap): a session seen again keeps that owner, never the one of the moment (review OL-F004).
+	const owners = new Map([...rows.values()].map((r) => [r.id, { team: r.team, device: r.device }] as const));
+	try { chmodSync(d.file, 0o600); } catch { /* none yet */ } // an append sets a mode only on create
 	const kept = [...rows.values()].filter((r) => at - r.last <= KEEP_MS).sort(order).slice(0, MAX_ROWS);
 	if (kept.length !== rows.size || lines !== rows.size || (source && !source.endsWith("\n"))) {
 		try {
@@ -107,7 +114,7 @@ export function openLedger(d: LedgerDeps): Ledger {
 			appendFileSync(d.file, text(row), { mode: 0o600 });
 		} catch (error) { failed(error); }
 	};
-	const put = (row: Row) => { book.set(row.id, row); write(row); };
+	const put = (row: Row) => { book.set(row.id, row); owners.set(row.id, { team: row.team, device: row.device }); write(row); };
 	const clean = (v: string) => allyLabel(v, 60, d.root);
 
 	function observe(units: Iterable<Seen>): void {
@@ -116,9 +123,9 @@ export function openLedger(d: LedgerDeps): Ledger {
 			if (!u.file) continue;
 			const file = canonical(u.file) ?? u.file, id = idOf(file), old = book.get(id), over = u.live === false;
 			if (!old) {
-				const team = "team" in u.owner ? u.owner.team : BOX;
+				const prior = owners.get(id), team = prior?.team ?? ("team" in u.owner ? u.owner.team : BOX), device = prior ? prior.device : u.device;
 				if (team !== BOX && !TEAM.test(team)) continue;
-				const row: Row = { id, team, ...(u.device && DEVICE.test(u.device) ? { device: u.device } : {}), role: ROLE.test(u.role) ? u.role : "main", name: clean(u.name), workspace: clean(u.workspace), file, first: at, last: at };
+				const row: Row = { id, team, ...(device && DEVICE.test(device) ? { device } : {}), role: ROLE.test(u.role) ? u.role : "main", name: clean(u.name), workspace: clean(u.workspace), file, first: at, last: at };
 				put(row);
 				if (over) put({ ...row, ended: true });
 				else live.add(id);

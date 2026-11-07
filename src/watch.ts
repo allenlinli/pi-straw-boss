@@ -7,10 +7,10 @@ import type { Found, Ref } from "./net.ts";
 // What a page watching one session or one workspace receives on the stream, and the paged API behind it. Everything is read
 // through the registry (net.lookup): a key it does not know, or that has no file yet, never reaches the file system.
 
-/** The finished runs an operate session reaches (docs/specs/2026-11-07-link-operate.md §9, server/operateledger.ts), narrowed to its scope: a key `t<id>` is looked up here (the ledger holds the path, a request never does) and `GET api/transcripts` is answered from it. Only the box's operate hub has one. */
+/** The finished runs an operate session reaches (docs/specs/2026-11-07-link-operate.md §9, server/operateledger.ts), narrowed to its scope: a key `t<id>` is looked up here and nowhere else, so out of scope it is not found (the ledger holds the path, a request never does) and `GET api/transcripts` is answered from it. Only the box's operate hub has one. */
 export interface Transcripts { has(key: string): boolean; lookup(key: string): Found | undefined; list(query: URLSearchParams): Promise<{ status: number; body: unknown }> }
 export interface Hub { lookup(key: string): Found | undefined; workspace(id: string): Ref[]; readers: ReturnType<typeof makeReaders>; transcripts?: Transcripts }
-const foundOf = (hub: Pick<Hub, "lookup" | "transcripts">, key: string): Found | undefined => hub.transcripts?.lookup(key) ?? hub.lookup(key);
+const foundOf = (hub: Pick<Hub, "lookup" | "transcripts">, key: string): Found | undefined => (hub.transcripts && /^t[0-9a-f]{16}$/.test(key) ? hub.transcripts.lookup(key) : hub.lookup(key));
 export type Send = (event: string, data: unknown) => void;
 /** `refresh` runs after every net reading: it retries what could not attach yet and reports changes the file events missed. */
 export interface Watch { refresh(): Promise<void>; stop(): void }

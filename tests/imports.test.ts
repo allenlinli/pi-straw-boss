@@ -100,7 +100,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Zen music (Z6) to 493: gui.ts takes the `music` option and routes GET /api/music (the list, and a track with its range) to music.ts, which has its own figure.
 	// Z6 review fixes to 495: the music route closes an aborted request's file (pipeline) and answers If-None-Match with a 304.
 	// Operate seam (todo #121 task 4) to 510 (+14): gui.ts makes the box's in-process way in (operateseam.ts), starts and stops the net reading with its sessions (`pulse`), and tells them when the net moved.
-	assert.ok(sum("src", ["net.ts", "gui.ts"]) <= 510, `src/net.ts and src/gui.ts have ${sum("src", ["net.ts", "gui.ts"])} lines`);
+	// Operate bridge (todo #121 task 5) to 511 (+1): net.ts `refs()`, the registry's units for the owner of each (operatescope.ts).
+	assert.ok(sum("src", ["net.ts", "gui.ts"]) <= 511, `src/net.ts and src/gui.ts have ${sum("src", ["net.ts", "gui.ts"])} lines`);
 	// Input (the spec's figure), remote access over Tailscale, its terminal pairing panel (QR, c copies, o opens), and the QR encoder each have their own.
 	// What a waiting session waits on (0.5.0, read for display only; answering is deferred) has its own as well.
 	// 0.5.1 raised remote.ts from 165 to 185 (a recorded server counts as running only if its process started when the entry says: a reused PID
@@ -496,7 +497,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Head log cards (todo #124): towers.ts 1212 to 1215 (the head port's `boss`, and the note that a tower acted). Cap = measured.
 	// An attended device wakes a tower (todo #122): main.ts 706 to 700 (the `openTower` seam moved to opentower.ts `towerOpener`, which tells a failed `open` to its controller and a failed `wake` to nobody, and is tested there). Cap = measured.
 	// #122 merged on main after #124: main.ts 700, towers.ts 1215 (both measured). Cap = measured.
-	for (const [name, max] of [["record.ts", 485], ["log.ts", 135], ["version.ts", 28], ["acl.ts", 402], ["socket.ts", 275], ["client.ts", 829], ["intercom.ts", 120], ["main.ts", 700], ["cli.ts", 457], ["winprep.ts", 509], ["breakaway.ts", 251], ["testguard.ts", 115], ["towers.ts", 1215], ["towerstore.ts", 287], ["towerruns.ts", 28], ["towerclient.ts", 78], ["desk.ts", 125], ["procs.ts", 485], ["procsops.ts", 82], ["procscli.ts", 32]] as const) assert.ok(count(`src/server/${name}`) <= max, `src/server/${name} has ${count(`src/server/${name}`)} lines`);
+	// Operate bridge (todo #121 task 5): main.ts 700 to 706 (the link service's `operate` sink and `onRoster` hook, the bridge's `stop` at shutdown, two imports; the bridge itself is operatewire.ts and operatebox.ts, which have no figure here). Cap = measured.
+	for (const [name, max] of [["record.ts", 485], ["log.ts", 135], ["version.ts", 28], ["acl.ts", 402], ["socket.ts", 275], ["client.ts", 829], ["intercom.ts", 120], ["main.ts", 706], ["cli.ts", 457], ["winprep.ts", 509], ["breakaway.ts", 251], ["testguard.ts", 115], ["towers.ts", 1215], ["towerstore.ts", 287], ["towerruns.ts", 28], ["towerclient.ts", 78], ["desk.ts", 125], ["procs.ts", 485], ["procsops.ts", 82], ["procscli.ts", 32]] as const) assert.ok(count(`src/server/${name}`) <= max, `src/server/${name} has ${count(`src/server/${name}`)} lines`);
 	// The page: the files the spec budgets one by one, then this round's own figures (no figure in the spec): the focus views, the overlay
 	// layer (alert spotting and the stack model in the map's chunk, the layer's DOM and tiles in a chunk of their own), the dev-only demo, and everything else.
 	// 0.18.1 raised mirror.ts to 154 for embed, a terminal shown inside the session view instead of a tile.

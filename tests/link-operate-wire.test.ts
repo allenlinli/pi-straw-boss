@@ -160,12 +160,14 @@ let relay: FakeRelay;
 const cleanup: (() => Promise<void>)[] = [];
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "psb-operate-wire-")); relay = new FakeRelay(); });
 afterEach(async () => { for (const stop of cleanup.splice(0)) await stop(); rmSync(root, { recursive: true, force: true }); });
+/** The relay client each rig built, by device name, for a test that watches what the holder asks of it. */
+const clients: Partial<Record<"alice" | "bob" | "carol" | "dave", RelayClient>> = {};
 const entries: RosterEntry[] = (() => {
 	const log: RosterEntry[] = [createEntry({ team: TEAM, founder: alice, label: LABELS.alice, teamKey: teamKey(1), ...det("create") })];
 	for (const [who, attended] of [["bob", true], ["dave", false], ["carol", false]] as const) log.push(addEntry({ state: view(log), signer: alice, record: DEVICES[who], label: LABELS[who], attended, ...det(`add-${who}`) }));
 	return log;
 })();
-function rig(who: "alice" | "bob" | "carol" | "dave", withOperate: boolean, now?: () => number) {
+function rig(who: "alice" | "bob" | "carol" | "dave", withOperate: boolean, now?: () => number, sink?: (m: OperateIn) => void) {
 	const keys = DEVICES[who], dir = join(root, who, "link"), project = join(root, `${who}-p`);
 	mkdirSync(project, { recursive: true });
 	const store = new LinkStore(dir, { alive: () => true });
@@ -174,10 +176,10 @@ function rig(who: "alice" | "bob" | "carol" | "dave", withOperate: boolean, now?
 	writeTeam(store, entries, keys);
 	const got: OperateIn[] = [];
 	const holder = new LinkHolder({
-		store, isHolder: () => true, attended: () => who === "alice" || who === "bob", ...(now ? { now } : {}), net: async () => netOf([[`tower-${who}`, `w-${who}`, `l-${who}`, project]]), relay: (url: string, device: DeviceKeys) => new RelayClient({ url, device, fetch: (i, init) => relay.fetch(i, init), timeoutMs: 2000 }),
+		store, isHolder: () => true, attended: () => who === "alice" || who === "bob", ...(now ? { now } : {}), net: async () => netOf([[`tower-${who}`, `w-${who}`, `l-${who}`, project]]), relay: (url: string, device: DeviceKeys) => (clients[who] = new RelayClient({ url, device, fetch: (i, init) => relay.fetch(i, init), timeoutMs: 2000 })),
 		config: () => ({ teams: new Map([[TEAM_HEX, { project, share: "status" as const, name: "moldplan" }]]), trust: new Map(), problems: [] }),
 		offer: () => {}, notify: () => {}, backoff: () => 5, drainMs: 20, presenceMs: 60_000, postWaitMs: 2000, capsMs: 3600_000, capsMinMs: 5,
-		...(withOperate ? { operate: (m: OperateIn) => void got.push(m) } : {}),
+		...(withOperate ? { operate: sink ?? ((m: OperateIn) => void got.push(m)) } : {}),
 	});
 	cleanup.push(() => holder.stop());
 	return { holder, got };
@@ -388,3 +390,31 @@ test("RV-F011: a live envelope at a build with no sink, or of another kind, is d
 	assert.ok(!logOf("dave").some((l) => l.event === "operate-sink-failed"));
 });
 
+
+// ---- task 5: what the box's bridge relies on --------------------------------------------------------------------------------------------------------------
+
+test("a sink that throws is logged by the error's name only: what it threw may carry the text of a session", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
+	const MARKER = "typed-text-must-not-reach-the-log";
+	let calls = 0;
+	const d = rig("dave", true, undefined, () => { calls++; throw new Error(MARKER); });
+	await d.holder.start();
+	await streamOf(dave);
+	relay.injectLive(TEAM_HEX, envFor(alice, [dave.id], Date.now()), dave.id);
+	await until(() => calls === 1, 3000, "the sink");
+	await until(() => logOf("dave").some((l) => l.event === "operate-sink-failed"), 3000, "the log line");
+	assert.deepEqual(logOf("dave").filter((l) => l.event === "operate-sink-failed").map((l) => l.error), ["Error"]);
+	assert.ok(!readFileSync(join(root, "dave", "link", "link.log"), "utf8").includes(MARKER));
+});
+
+test("a live post carries a deadline of its own, so a stalled relay does not hold the serial chain of sends for ever", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
+	const a = rig("alice", true), d = rig("dave", true);
+	await Promise.all([a.holder.start(), d.holder.start()]);
+	await until(() => a.holder.capsFor(TEAM_HEX, dave.id).includes("operate/1"), 3000, "caps");
+	const client = clients.alice!, orig = client.postLive.bind(client), signals: (AbortSignal | undefined)[] = [];
+	client.postLive = (team, envelope, signal) => (signals.push(signal), orig(team, envelope, signal));
+	await a.holder.sendLive(TEAM_HEX, dave.id, open);
+	assert.equal(signals.length, 1);
+	assert.ok(signals[0] instanceof AbortSignal && !signals[0].aborted, "the post is handed an abort signal that has not fired");
+});

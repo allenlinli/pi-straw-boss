@@ -14,6 +14,7 @@ import { chunks, Reassembler } from "../src/link/wire.ts";
 import { FakeRelay } from "./link/fake-relay.ts";
 import { alice, bob, clientFor, rosterOf, stateOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
 import { addEntry } from "../src/link/roster.ts";
+import type { ServiceOptions } from "../src/link/service.ts";
 import { linkServer } from "./link/service-world.ts";
 import { Agent, type Registration, until, World } from "./fakes.ts";
 import { det, DEVICES, LABELS, teamKey, TEAM, view } from "./link/scenario.ts";
@@ -37,7 +38,7 @@ afterEach(async () => {
 const FAST = { tickMs: 15, drainMs: 20, presenceMs: 40, pumpMs: 10, offerAgainMs: 60_000 };
 
 /** One computer: its own Herdr, intercom broker, state directory, and link files, and the link holder of its sb server (`start: false` leaves the server's first look to the test). */
-function computer(name: "a" | "b", o: { configured?: boolean; entries?: ReturnType<typeof rosterOf>; start?: boolean; policy?: (project: string) => string } = {}) {
+function computer(name: "a" | "b", o: { configured?: boolean; entries?: ReturnType<typeof rosterOf>; start?: boolean; policy?: (project: string) => string; operate?: ServiceOptions["operate"]; onRoster?: ServiceOptions["onRoster"] } = {}) {
 	const world = new World();
 	worlds.push(world);
 	const keys = name === "a" ? alice : bob, home = join(root, `home-${name}`), project = join(root, `project-${name}`);
@@ -54,7 +55,7 @@ function computer(name: "a" | "b", o: { configured?: boolean; entries?: ReturnTy
 	// A policy file owned by root and not writable by this user, read from memory.
 	const policy: PolicyDeps | undefined = o.policy && { path: "/etc/straw-link/policy.json", uid: 501, stat: () => ({ uid: 0, symlink: false }), writable: () => false, read: () => o.policy!(project) };
 	const service = { ...FAST, home, relay: clientFor(relay), alive: (r: { session: string }) => !world.gone.has(r.session), ...(policy ? { policy } : {}) };
-	const server = linkServer(world, { deps: service, start: o.start });
+	const server = linkServer(world, { deps: service, start: o.start, ...(o.operate ? { operate: o.operate } : {}), ...(o.onRoster ? { onRoster: o.onRoster } : {}) });
 	const deps = { link: { ...service, ask: server.ask } };
 	const tower = (id: string, ws = "wA") => {
 		const t = world.tower(id, `${ws}:t7`, `${ws}:p7`, false, deps);
@@ -494,4 +495,22 @@ test("a box's question reads `main · trial13` in the controller's notice after 
 	const told = a.server.notices.filter((n) => /asks a question/.test(n.text)).map((n) => n.text);
 	assert.deepEqual(told, ["Straw Link: ci-box asks a question (main \u00b7 trial13)", "Straw Link: ci-box asks a question (Mei_s _ Mac)"]);
 	assert.ok(a.server.service.status().notices.some((n) => n.text === told[0]), "and the status keeps it as told");
+});
+
+// The operate bridge's two hooks (src/server/operatebox.ts) reach every holder the service builds: `onRoster` always, the `operate` sink only on an unattended device, so an attended computer never lists `operate/1` in its caps.
+test("operate wiring: the sink and the roster hook reach the holder of an unattended device; an attended one gets the hook and no sink", async () => {
+	const hooks = (c: ReturnType<typeof computer>) => (c.server.service.holder as unknown as { o: { operate?: unknown; onRoster?: unknown } }).o;
+	const sink = () => undefined, onRoster = () => undefined;
+	const box = computer("a", { start: false, policy: unattended((project) => ({ teams: { [TEAM_HEX]: { project } } })), operate: sink, onRoster });
+	await box.server.service.start();
+	await holding(box);
+	assert.equal(hooks(box).operate, sink);
+	assert.equal(hooks(box).onRoster, onRoster);
+	assert.equal(box.server.service.policyNow().mode, "unattended");
+	const seat = computer("b", { start: false, operate: sink, onRoster });
+	await seat.server.service.start();
+	await holding(seat);
+	assert.equal(hooks(seat).operate, undefined, "an attended device takes no operate");
+	assert.equal(hooks(seat).onRoster, onRoster);
+	assert.equal(seat.server.service.policyNow().mode, "attended");
 });

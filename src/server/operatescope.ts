@@ -101,7 +101,8 @@ export function narrow(d: { policy: Policy; member: MemberOf }, s: { team: strin
 export interface OwnerWorld {
 	ref(key: string): Ref | undefined;
 	refs(): Iterable<Ref>;
-	panes(): Pane[];
+	/** Herdr's listing now, or nothing when it could not be read (never read, or the last read failed): a unit whose tab is unknown is then nobody's. */
+	panes(): Pane[] | undefined;
 	/** The panes of the live ally runs, with the device and team each serves (runs.ts `allyPanes`). */
 	allyPanes(): { pane: string; device: string; team?: string }[];
 	/** The run record of `id` in `workspace`, live or finished. */
@@ -121,7 +122,8 @@ const claimed = (token: string | undefined): string | undefined => (typeof token
  *   - a live ally pane: matched by pane id, its record's team;
  *   - a main an ally run opened, and the member or subagent panes in its tab: the `opened` row's team, only when the pane token (`sb_opened_by=link:<device>`) of the tab names the row's device: two witnesses. Any disagreement (a row for
  *     another device, two panes naming two devices, a token that is no device) makes the unit nobody's, which is the box's. One witness alone attributes nothing;
- *   - the tower service, its runs, a session opened at the box, a worker in a tab of its own, anything else: the box's.
+ *   - the tower service, its runs, a session opened at the box, a worker in a tab of its own, anything else: the box's;
+ *   - a main, member or subagent when Herdr's listing could not be read: nobody's (no scope holds it, the box part included) until a read succeeds. An ally run's key and a live ally pane need no listing.
  */
 export function ownerOf(w: OwnerWorld, key: string): Owner | undefined {
 	const ref = w.ref(key);
@@ -133,7 +135,9 @@ export function ownerOf(w: OwnerWorld, key: string): Owner | undefined {
 	if ((ref.role !== "main" && ref.role !== "member" && ref.role !== "subagent") || !ref.pane) return BOX;
 	const ally = w.allyPanes().find((a) => a.pane === ref.pane);
 	if (ally) return ally.team ? { team: ally.team } : BOX;
-	const panes = w.panes(), mine = panes.find((p) => p.pane_id === ref.pane);
+	const panes = w.panes();
+	if (!panes) return undefined; // no listing, no witness: neither a team's nor the box's, so no session's scope holds it (the ally cases above need none)
+	const mine = panes.find((p) => p.pane_id === ref.pane);
 	if (!mine) return BOX;
 	const tab = panes.filter((p) => p.tab_id === mine.tab_id), tabIds = new Set(tab.map((p) => p.pane_id));
 	const named = tab.flatMap((p) => { const token = p.tokens?.sb_opened_by; return typeof token === "string" && token.startsWith("link:") ? [claimed(token)] : []; });
@@ -147,7 +151,7 @@ export function ownerOf(w: OwnerWorld, key: string): Owner | undefined {
 }
 
 /** The facts as the box's own files give them: run records and the route table under `slot`, and what the caller reads live (the registry, Herdr's listing, the live ally panes). */
-export function storeOwnerWorld(d: { slot: Slot; now(): number; refs(): Iterable<Ref>; panes(): Pane[]; allyPanes(): { pane: string; device: string; team?: string }[] }): OwnerWorld {
+export function storeOwnerWorld(d: { slot: Slot; now(): number; refs(): Iterable<Ref>; panes(): Pane[] | undefined; allyPanes(): { pane: string; device: string; team?: string }[] }): OwnerWorld {
 	return {
 		ref: (key) => [...d.refs()].find((r) => r.key === key),
 		refs: d.refs,

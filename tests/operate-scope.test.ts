@@ -21,11 +21,11 @@ const ref = (key: string, role: string, p?: string, base = WS): Ref => ({ key, b
 const opened = (to: string, device: string, team: string, over: Partial<Route> = {}): Route => ({ to, device, team, kind: "opened", at: Date.now(), name: to, label: "x", short: "x", teamName: "x", ...over });
 const by = (device: string) => ({ sb_opened_by: `link:${device}` });
 
-interface Facts { refs: Ref[]; panes: Pane[]; ally?: { pane: string; device: string; team?: string }[]; runs?: Record<string, Partial<RunRecord>>; rows?: Route[] }
+interface Facts { refs: Ref[]; panes: Pane[]; /** Herdr's listing could not be read (a failed `pane list`): `panes()` answers nothing. */ unread?: true; ally?: { pane: string; device: string; team?: string }[]; runs?: Record<string, Partial<RunRecord>>; rows?: Route[] }
 const world = (f: Facts): OwnerWorld => ({
 	ref: (key) => f.refs.find((r) => r.key === key),
 	refs: () => f.refs,
-	panes: () => f.panes,
+	panes: () => (f.unread ? undefined : f.panes),
 	allyPanes: () => f.ally ?? [],
 	run: (workspace, id) => (workspace === WS ? (f.runs?.[id] as RunRecord | undefined) : undefined),
 	opened: (workspace) => (workspace === WS ? (f.rows ?? []).filter((r) => r.kind === "opened") : []),
@@ -133,6 +133,21 @@ test("both teams on one project: two mains in the same folder belong to the team
 test("a row of another workspace says nothing about a unit of this one", () => {
 	const f: Facts = { refs: [ref("s-main", "main", "p1", "w2")], panes: [pane("p1", "t1", by(alice.id))], rows: [opened("s-main", alice.id, A)] };
 	assert.deepEqual(own(f, "s-main"), { box: true });
+});
+
+test("OBX-F002: a listing that could not be read makes a main, member or subagent nobody's, not the box's; ally runs and live ally panes, which need no listing, keep their team", () => {
+	const f: Facts = {
+		refs: [ref("s-main", "main", "p1"), ref("s-member", "member", "p2"), ref("s-sub", "subagent", "p3"), ref("s-ally", "main", "p-ally"), ref("ally-r1", "ally"), ref("tower-1", "tower", "pt")],
+		panes: [pane("p1", "t1", by(alice.id)), pane("p2", "t1"), pane("p3", "t1"), pane("p-ally", "t-ally"), pane("pt", "t0")],
+		rows: [opened("s-main", alice.id, A)], ally: [{ pane: "p-ally", device: alice.id, team: A }], runs: { r1: { kind: "ally", team: B, device: bob.id } },
+	};
+	assert.deepEqual(own(f, "s-main"), { team: A }, "with a listing it is the team's");
+	assert.deepEqual(own({ ...f, unread: true }, "s-main"), undefined, "a team's main: nobody's");
+	assert.deepEqual(own({ ...f, unread: true }, "s-member"), undefined);
+	assert.deepEqual(own({ ...f, unread: true }, "s-sub"), undefined);
+	assert.deepEqual(own({ ...f, unread: true }, "s-ally"), { team: A }, "a live ally pane is matched without the listing");
+	assert.deepEqual(own({ ...f, unread: true }, "ally-r1"), { team: B }, "an ally run is read from its record");
+	assert.deepEqual(own({ ...f, unread: true }, "tower-1"), { box: true }, "the tower never needed the listing");
 });
 
 // ---- The records on disk -------------------------------------------------------------------------------------------------------------------------------

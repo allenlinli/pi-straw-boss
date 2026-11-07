@@ -205,6 +205,8 @@ const BOARD_MIN_MS = 15_000, BOARD_REFRESH_MS = 3600_000, BOARD_OFF_MS = 3600_00
 /** What this build takes (docs/specs/2026-10-26-sb-backend.md, Replies for a main). A `caps` older than 2 hours counts as none. */
 export const CAPS_FEATURES = ["tower.awaitsReply", "tower-reply", "unit-stop", "unit-status.mains", "operate/1"] as const;
 export const CAPS_STALE_MS = 2 * 3600_000;
+/** A live frame is worth nothing late: its post gives up after this, so a stalled relay does not hold the serial chain of sends (spec §11.1, task 5). */
+const LIVE_POST_MS = 5000;
 /** A live envelope is delivered now: the holder takes none whose `ts` is older than this. */
 const LIVE_FRESH_MS = 60_000;
 const CAPS_REFRESH_MS = 3600_000, CAPS_MIN_MS = 15_000, CAPS_OFF_MS = 3600_000, REPLY_OFF_MS = 3600_000, FALLBACK_LOG_MS = 3600_000;
@@ -602,7 +604,7 @@ export class LinkHolder {
 		try {
 			sink({ team: run.team, from: header.from, fromAttended: attended, message, ts: header.ts, dropped: event.dropped });
 		} catch (error) {
-			this.o.store.log({ event: "operate-sink-failed", team: run.team, error: String(error) });
+			this.o.store.log({ event: "operate-sink-failed", team: run.team, error: (error as Error)?.name ?? "Error" }); // the name only: what a sink threw may carry text of a session
 		}
 		return "ack";
 	}
@@ -1337,7 +1339,7 @@ export class LinkHolder {
 			const ts = (run.liveTs = Math.max(now, run.liveTs + 1));
 			const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "operate", to: [device], plaintext: encodePlaintext("operate", message) });
 			try {
-				return { delivered: (await run.client.postLive(run.teamId, envelope)).delivered };
+				return { delivered: (await run.client.postLive(run.teamId, envelope, AbortSignal.timeout(LIVE_POST_MS))).delivered };
 			} catch (error) {
 				// A relay that answers without `delivered` stored the envelope as a plain ephemeral kind: fail closed on the first answer, and say so once.
 				if (error instanceof ProtocolError) {

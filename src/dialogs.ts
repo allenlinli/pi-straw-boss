@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type OpenCall, type Pending, type Relayed, SEVERAL } from "./ask.ts";
 import type { Ack, AnswerMessage, Bridge, CloseResult, Dialogs, FormMessage, FormReply, LocalHub, ToHub } from "./bridge.ts";
 import { guiNamespace, MAX_QUEUED, QUEUED_TEXT, REGISTER } from "./bridgewire.ts";
-import { createCaps, type Doc, docsOf, type Fields, fieldsOk, type FormResult, type Shelf } from "./documents.ts";
+import { answerOk, type BlockAnswer, createCaps, type Doc, docsOf, type Fields, fieldsOk, type FormResult, type Shelf } from "./documents.ts";
 import type { Session } from "./herdr.ts";
 import { canonical } from "./history.ts";
 import type { Queued, Ref } from "./net.ts";
@@ -195,7 +195,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 	const hub: LocalHub & {
 		readonly running: boolean; readonly me: string; onChange(cb: () => void): () => void; answerable(): Offer[]; monitors(): { pane: string; what: string }[]; outcome(dialogId: string): Outcome; start(onChange: () => void): void; track(): void; stop(): void; relayed(sessions: Session[], refs: Map<string, Ref>): Relayed; target(key: string): Target | undefined;
 		has(key: string, owner: string, at?: { pane?: string; file?: string }): boolean; replay(answerId: string, key: string): Sent | undefined; ended(key: string, dialog: string, answerId: string): Sent | undefined; send(key: string, t: Target, a: Answer): Promise<Sent>;
-		probe(key: string, nonce?: string, flags?: boolean): Promise<Editor | undefined>; pull(key: string, step: "begin" | "finish", ref?: string): Promise<Pull | undefined>; commands(key: string, prefix: string): Promise<Cmd[] | undefined>; close(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; stashCheck(key: string): Promise<{ reason?: string } | undefined>; doc(cap: string): { key: string; doc: Doc } | undefined; form(cap: string, answerId: string, fields: Fields): Promise<FormResult | undefined>;
+		probe(key: string, nonce?: string, flags?: boolean): Promise<Editor | undefined>; pull(key: string, step: "begin" | "finish", ref?: string): Promise<Pull | undefined>; commands(key: string, prefix: string): Promise<Cmd[] | undefined>; close(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; stashCheck(key: string): Promise<{ reason?: string } | undefined>; doc(cap: string): { key: string; doc: Doc } | undefined; form(cap: string, answerId: string, fields: Fields, answer?: BlockAnswer): Promise<FormResult | undefined>;
 	} = {
 		receive,
 		/** Whether the bridge bound to `key` relays an open dialog of `owner` (a signal from the runtime that owns the approval, not from the session file). With `at` (the unit's pane and file) the bridges are read directly too, so a dialog relayed since the last net reading counts at once. */
@@ -313,11 +313,11 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 			return doc && { key: at!.key, doc };
 		},
 		/** A form answer for the document `cap`, to its bridge (or this session's), waiting up to 5 s for the owner's result. One answerId is sent once (docs.ts spends its nonce first). */
-		async form(cap, answerId, fields) {
+		async form(cap, answerId, fields, answer) {
 			const at = caps.find(cap), k = at && [at.from, at.bridgeId, at.id, answerId].join("\n");
-			if (!ANSWER_ID.test(answerId) || !fieldsOk(fields)) return { accepted: false, reason: "invalid" };
+			if (!ANSWER_ID.test(answerId) || !fieldsOk(fields) || (answer !== undefined && !answerOk(answer))) return { accepted: false, reason: "invalid" };
 			if (!at || !k || !active || !hub.doc(cap)) return { accepted: false, reason: "closed" };
-			const msg: FormMessage = { version: 1, type: "form", to: at.bridgeId, id: at.id, answerId, fields }, got = wait(forms, k, FORM_MS);
+			const msg: FormMessage = { version: 1, type: "form", to: at.bridgeId, id: at.id, answerId, fields, ...(answer ? { answer } : {}) }, got = wait(forms, k, FORM_MS);
 			try {
 				if (at.from === me) local.form(msg, (r) => receive(me, r));
 				else if (owner()) channel!.publish(msg, { audience: "capable", ownerOnly: true });

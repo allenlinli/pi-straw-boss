@@ -93,7 +93,7 @@ const question = shape({ question: str(4000, true), multiple: bool, options: lis
 const answerable = shape({ dialog: str(64), digest: hex(64) }, { select, questions: list(question, 8), twin: yes, cancel: yes });
 const pending = shape({ callId: str(200), tool: str(200) }, { ask, asks: list(ask, 4), why: str(600), answer: answerable });
 /** A shelf's cards keep their names; `cap` is what opens a document, and nothing crosses (decision 12). */
-const doc = shape<{ display: string; kind: "html" | "text"; reason: string; revision: number; onScreen: boolean; cap: string }>({ display: str(1024), kind: lit("html", "text"), reason: str(2048, true), revision: int(1, 1e9), onScreen: bool });
+const doc = shape<{ display: string; kind: "html" | "text" | "blocks"; reason: string; revision: number; onScreen: boolean; cap: string }>({ display: str(1024), kind: lit("html", "text", "blocks"), reason: str(2048, true), revision: int(1, 1e9), onScreen: bool });
 const shelf = { docs: (v: unknown, rw: Rewrite) => { const r = list(doc, 64)(v, rw); return r?.map((d) => ({ ...d, cap: "" })); }, docsCut: yes };
 
 const memory = shape({ rev: int(0, 1e9), standing: int(0, 1e6), decisions: int(0, 1e6), waits: int(0, 1e6), bossWaits: list(shape({ id: str(64), text: str(2000, true), at: str(64) }, { answered: str(64) }), 50), proposals: list(shape({ id: str(64), op: lit("add", "retire"), kind: lit("standing", "decision"), text: str(2000, true) }, { target: str(64), cites: str(200) }), 50) }, { problem: str(600, true) });

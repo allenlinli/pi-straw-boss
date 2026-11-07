@@ -17,16 +17,19 @@ import { createAccess } from "../src/remote.ts";
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), "psb-lan-docs-")));
 const dir = join(scratch, "docs"), sub = join(dir, "sub");
 mkdirSync(sub, { recursive: true });
-const T = "t".repeat(32), ORIGIN = "https://weis-mbp.local:8445", CAP1 = "1".repeat(32), CAP2 = "2".repeat(32);
+const T = "t".repeat(32), ORIGIN = "https://weis-mbp.local:8445", CAP1 = "1".repeat(32), CAP2 = "2".repeat(32), CAP3 = "3".repeat(32);
 const PLAN = `<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><img src="pic.png"><a href="#top">top</a><form action="cgi-bin:pi-answer" method="post"><input name="choice" value="a"></form></body></html>`;
 writeFileSync(join(dir, "plan.html"), PLAN);
 writeFileSync(join(dir, "other.html"), "<html><head></head><body>other</body></html>");
 writeFileSync(join(dir, "style.css"), "body{color:red}");
 writeFileSync(join(dir, "app.js"), "alert(1)");
+writeFileSync(join(dir, "notes.md"), "# Notes\n\n![a](photo.png)");
+writeFileSync(join(dir, "photo.png"), Buffer.from([0x89, 0x50]));
 writeFileSync(join(sub, "inner.css"), "p{}");
 const docs: Record<string, Doc> = {
 	[CAP1]: { id: "html-1", path: join(dir, "plan.html"), kind: "html", display: "docs/plan.html", reason: "Plan", revision: 1, onScreen: true },
 	[CAP2]: { id: "html-2", path: join(dir, "other.html"), kind: "html", display: "docs/other.html", reason: "Other", revision: 1, onScreen: true },
+	[CAP3]: { id: "md-1", path: join(dir, "notes.md"), kind: "text", display: "docs/notes.md", reason: "Notes", revision: 1, onScreen: true },
 };
 const answers: { cap: string; nonce: string; fields: [string, string][] }[] = [];
 const hub = {
@@ -145,10 +148,11 @@ test("an empty path under a ticket (an in-page link) goes back to the document, 
 	assert.equal((await get(`/${T}/doc/${CAP1}/`)).status, 401, "where it needs the cookie, as the load does");
 });
 
-test("api/doc answers a text document only to an allowed device's cookie on the LAN; the Tailscale form is as it was", () => {
-	assert.equal(served.text(CAP1, { cookie: false }).status, 401);
-	assert.equal(served.text(CAP1, { cookie: true }).status, 404, "an html document is not text, as before");
-	assert.equal(served.text("x").status, 404, "and without `lan` nothing changes");
+test("api/doc answers a text document only to an allowed device's cookie on the LAN; the Tailscale form is as it was", async () => {
+	assert.equal((await served.text(CAP1, { cookie: false })).status, 401);
+	assert.equal((await served.text(CAP1, { cookie: true })).status, 404, "an html document is not text, as before");
+	assert.equal((await served.text("x")).status, 404, "and without `lan` nothing changes");
+	assert.equal((await served.text(CAP3, { cookie: true })).status, 200);
 });
 
 // RVL4-F001: a ticket and an answer nonce belong to the device whose load handed them out; they end with that device (Unpair, Unpair all, Wi-Fi access off), not only after thirty minutes.
@@ -283,4 +287,22 @@ test("RVL4-F002: a top-level navigation under a ticket goes to the ticketless UR
 	const sent = await get(`/${T}/doc/${CAP1}/r/${t2}/answer/${nonce}?choice=a`, { "sec-fetch-dest": "document", "sec-fetch-mode": "navigate" });
 	assert.equal(sent.status, 200, sent.body);
 	assert.equal((await get(`/${T}/doc/${CAP1}/answer/${nonce}?choice=a`, withCookie)).status, 401, "and the ticketless answer is still 401");
+});
+
+test("BS-F002: over Wi-Fi a Markdown document's own page loads the image beside it with the device's cookie and no ticket (the page is same-origin, the ticket stands in for a cookie a sandboxed frame lacks); nothing else is let through that way", async () => {
+	const get = await lanServer();
+	const IMG = { "x-cookie": "1", "x-device": "D", "sec-fetch-dest": "image", "sec-fetch-site": "same-origin" };
+	const ok = await get(`/${T}/doc/${CAP3}/photo.png`, IMG);
+	assert.equal(ok.status, 200);
+	assert.equal(ok.headers["content-type"], "image/png");
+	assert.equal((await get(`/${T}/doc/${CAP3}/photo.png`, { ...IMG, "x-cookie": "0" })).status, 401, "no cookie");
+	const { "x-device": _, ...noDevice } = IMG;
+	assert.equal((await get(`/${T}/doc/${CAP3}/photo.png`, noDevice)).status, 401, "a cookie that names no allowed device");
+	assert.equal((await get(`/${T}/doc/${CAP3}/photo.png`, { ...IMG, "sec-fetch-dest": "script" })).status, 401, "only as an image");
+	assert.equal((await get(`/${T}/doc/${CAP3}/photo.png`, { ...IMG, "sec-fetch-site": "cross-site" })).status, 401, "only from the page's own origin");
+	assert.equal((await get(`/${T}/doc/${CAP3}/style.css`, IMG)).status, 401, "not a stylesheet");
+	assert.equal((await get(`/${T}/doc/${CAP3}/app.js`, IMG)).status, 401, "not a script");
+	assert.equal((await get(`/${T}/doc/${CAP3}/missing.png`, IMG)).status, 404, "the same guards as without a LAN: no such file beside it");
+	assert.equal((await get(`/${T}/doc/${CAP3}/..%2Fplan.html`, IMG)).status, 401);
+	assert.equal((await get(`/${T}/doc/${CAP1}/photo.png`, IMG)).status, 401, "an HTML document's neighbours still need its ticket");
 });

@@ -45,6 +45,8 @@ test("a snapshot keeps its known fields and nothing else: link, head, stashed, t
 	const u = unitsOf(merged)[0]!;
 	assert.deepEqual(u.docs, [{ display: "plan.html", kind: "html", reason: "why", revision: 1, onScreen: false, cap: "" }], "the card keeps its names; nothing opens a document");
 	assert.equal(u.docsCut, true);
+	const blocks = await shown({ bases: [baseOf("wA", [["t1", [{ ...unit("a-main"), docs: [{ cap: "X", display: "plan.md", kind: "blocks", reason: "why", revision: 2, onScreen: true } as never] }]]])] } as never);
+	assert.deepEqual(unitsOf(blocks.host.merge(LOCAL))[0]!.docs, [{ display: "plan.md", kind: "blocks", reason: "why", revision: 2, onScreen: true, cap: "" }], "a box that lists a pi-better-show document is understood");
 	assert.deepEqual(merged.events!.map((e) => Object.keys(e).sort()), [["at", "key", "kind", "mark", "name", "ws"]]);
 	assert.equal(merged.link, undefined);
 });

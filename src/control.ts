@@ -20,9 +20,10 @@ import { parseOpen } from "./bossopen.ts";
 import { parseSend } from "./bosssend.ts";
 import { answersOf, commandReply, headRoutes, markAnswered } from "./headroutes.ts";
 import type { RemoteBridge } from "./server/operatehost.ts";
+import { type Answered, recordBlock } from "./answered.ts";
 
 // Typing into a session from the page, through Herdr's own input path only, as if typed in the terminal:
-//   POST /<token>/api/sessions/<key>/input {text, as: "send" | "followUp", confirmed?, answers?}   the text, then Enter (or Alt+Enter while it works); to a tower, a boss event, and `answers: "W3"` names the wait for the boss it answers (the memory marks it answered once the tower took the message)
+//   POST /<token>/api/sessions/<key>/input {text, as: "send" | "followUp", confirmed?, answers?, block?}   the text, then Enter (or Alt+Enter while it works); to a tower, a boss event, and `answers: "W3"` names the wait for the boss it answers (the memory marks it answered once the tower took the message)
 //   POST /<token>/api/sessions/<key>/keys  {key, stream, confirmed?}                     one key pad key under its mirror (keys.ts), or Stop's {keys: ["esc"]}
 //   POST /<token>/api/sessions/<key>/focus                                               brings the session's pane forward in Herdr
 //   POST /<token>/api/sessions/<key>/commands {prefix}                                   its commands that match a typed `/prefix`, from its bridge (commands.ts); null when it did not say
@@ -39,6 +40,7 @@ import type { RemoteBridge } from "./server/operatehost.ts";
 //   POST /<token>/api/close/unit, close/tab, close/base                                   quits a session, or every agent of a squad or base, then closes it (closer.ts)
 //   POST /<token>/api/close/stash {workspace, name}                                       checks and records a base, then closes it as close/base does (stash.ts); a paired device may, as it may close/base
 //   POST /<token>/api/dirs, open/base, open/member, open/main                            a folder picker, a new base with a member, a new member, a new main (spawn.ts)
+//   POST /<token>/api/doc/<capability>/answer {answerId, answer, rev}                   one answer from a block of a Markdown document the page draws (docs.ts `answer`): a v2 owner takes the Answer, a v1 owner the form answer of an HTML document (this computer's page and a paired device alike; an operate session never)
 //   POST /<token>/api/trust/answer {id, digest, choice, answerId}                       answers a project trust question (trust/serve.ts); a paired device may, as it may answer a relayed confirm
 //   POST /<token>/api/tower/<workspace>/memory {op, …}                                   the tower's memory panel (towermemory.ts `memoryRequest`, the very function `/boss memory` reaches over the control socket's `tower-memory`): read, add, edit, delete, resolve, confirm or reject a run's proposal; a write carries the rev it read (409 `rev` when the file moved on); a paired device may, as it may use the composer
 //   POST /<token>/api/tower/<workspace>/leave, /new                                    leaves the boss conversation, or starts over (the next one is a new session): runs.ts `leave` and `fresh`, the functions `/boss tower leave|new` and the tower prompt's `/new` reach over the control socket; exactly `/quit` and `/new` typed in the tower's composer do the same; a paired device may, as it may use the composer
@@ -53,7 +55,7 @@ import type { RemoteBridge } from "./server/operatehost.ts";
 
 export const MAX_TEXT = 16_384, MAX_BODY = 65_536, MAX_REMOTE_UPLOAD = 2 * 1024 * 1024;
 /** The first parts of every path this control answers (gui.ts routes them here); operateroutes.ts has a row for each. */
-export const SCOPES = ["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "head", "lan"];
+export const SCOPES = ["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "head", "lan", "doc"];
 /** Who is asking, as the guards need it: `remote` a paired device (or an operate session), `secure` a page served over https (which says where a secret is answered), `operate` an operate session's request, which also meets the box's own refusals (docs/specs/2026-11-07-link-operate.md §7). */
 export interface Flags { remote: boolean; secure: boolean; operate?: true; /** An operate session's look at the pane's foreground (foreground.ts), made inside the job right before each write: whether pi, and nothing a pi key opened in its place, holds the pane's terminal. Without it an operate write is refused. */ foreground?(pane: string): Promise<boolean> }
 export { ENDING };
@@ -98,7 +100,7 @@ const REMOTE_LINK = ["state", "confirm-answer", "dialog-answer", "unit-stop"];
 const LINK_NAMES = ["enable", "state", "create", "invite", "invite-text", "invite-cancel", "decide", "join-start", "join-project", "join-cancel", "prefill-clear", "remove", "role", "rotate", "trust", "leave", "confirm-answer", "dialog-answer", "unit-stop", "operate", "operate-off", "operate-on"];
 /** `tower`: the sb server's tower service, when it runs one (TowerPanel). */
 /** `answers.target` reads the net afresh, so the binding and the dialog are checked again for every answer. */
-export interface ControlDeps { /** The units of the boxes this computer operates (server/operatehost.ts): a request that names one goes to its session, after the guards a paired device's write meets, and never to a local route. */ bridge?: Pick<RemoteBridge, "claim">; lan?: LanPanel; /** The marks of the `/boss gui lan` overlay: a paired device's write into a marked pane is Escape only (lan/faces.ts). */ overlay?: Overlay; lookup(key: string): Found | undefined; call?: HerdrCall; csrf: string; canonical(file?: string): string | undefined; pair?(): { url: string; rows: string[] } | undefined; remoteOn?(): Promise<void>; remoteOff?(): Promise<void>; tower?: TowerPanel; paired?: { on(): boolean; list(): unknown; unpair(id: string): boolean; unpairAll(): number; unsaved(): string | undefined }; saveFailed?(reason: string): void; spawn?(parts: string[], json: Record<string, unknown>): Promise<Reply>; close?(kind: string, json: Record<string, unknown>, refresh?: () => Promise<unknown>): Promise<Reply>; dismiss?(key: unknown): Promise<boolean>; dismissAll?(): Promise<number>; stop?(asked: Asked): boolean | void; link?: LinkPort; /** The panes accepted answers opened (answerpane.ts). */ grants?: Pick<Grants, "before" | "claim" | "get" | "live" | "drop">; server?: ServerPanel; mirrors?: Pick<ReturnType<typeof createMirrors>, "toggle" | "fresh">; secret?(file: string): Promise<boolean>; linkRequest?(file: string): Promise<boolean>; answers?: Pick<Hub, "has" | "replay" | "ended" | "send" | "probe" | "commands" | "pull"> & { target(key: string): Promise<Target | undefined> }; trust?(json: Record<string, unknown>): Promise<Reply> }
+export interface ControlDeps { /** The units of the boxes this computer operates (server/operatehost.ts): a request that names one goes to its session, after the guards a paired device's write meets, and never to a local route. */ bridge?: Pick<RemoteBridge, "claim">; lan?: LanPanel; /** The marks of the `/boss gui lan` overlay: a paired device's write into a marked pane is Escape only (lan/faces.ts). */ overlay?: Overlay; lookup(key: string): Found | undefined; call?: HerdrCall; csrf: string; canonical(file?: string): string | undefined; pair?(): { url: string; rows: string[] } | undefined; remoteOn?(): Promise<void>; remoteOff?(): Promise<void>; tower?: TowerPanel; paired?: { on(): boolean; list(): unknown; unpair(id: string): boolean; unpairAll(): number; unsaved(): string | undefined }; saveFailed?(reason: string): void; spawn?(parts: string[], json: Record<string, unknown>): Promise<Reply>; close?(kind: string, json: Record<string, unknown>, refresh?: () => Promise<unknown>): Promise<Reply>; dismiss?(key: unknown): Promise<boolean>; dismissAll?(): Promise<number>; stop?(asked: Asked): boolean | void; link?: LinkPort; /** The panes accepted answers opened (answerpane.ts). */ grants?: Pick<Grants, "before" | "claim" | "get" | "live" | "drop">; server?: ServerPanel; mirrors?: Pick<ReturnType<typeof createMirrors>, "toggle" | "fresh">; secret?(file: string): Promise<boolean>; linkRequest?(file: string): Promise<boolean>; answers?: Pick<Hub, "has" | "replay" | "ended" | "send" | "probe" | "commands" | "pull"> & { target(key: string): Promise<Target | undefined> }; trust?(json: Record<string, unknown>): Promise<Reply>; /** The documents the page shows (docs.ts): the answer of a Markdown block. */ docs?: { answer(cap: string, json: Record<string, unknown>): Promise<Reply> }; /** The record of answered blocks (answered.ts): a chat block's `input` carries `block {entry, index, fields}` and is recorded in the same request. */ answered?: Answered }
 
 const no = (status: number, error: string, reason: string, extra = {}): Reply => ({ status, body: { error, reason, ...extra } });
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -179,7 +181,7 @@ const LOCAL_ONLY = "Pairing, remote access, Wi-Fi, the server, the default view,
 /** What a guarded post from this computer is refused with: the boss typed a /boss send here, and the server holds it to the guards a remote write meets because the session it runs in may have been typed into from elsewhere. */
 const GUARDED = "A /boss send is held to the guards of a remote write (the session it runs in may be driven from elsewhere): this needs this computer's own page, or type it in that session's own terminal.";
 const LINK_LOCAL = "While it waits on a link request, a paired device can only send Escape; approve it on this computer's own page or terminal.";
-export function createControl({ bridge, lan, overlay, link, server: panel, lookup, call, csrf, canonical, pair, remoteOn, remoteOff, paired, saveFailed, spawn, close, dismiss, dismissAll, stop, mirrors, grants, secret = async () => true, linkRequest = async () => false, answers, trust, tower }: ControlDeps) {
+export function createControl({ bridge, lan, overlay, link, server: panel, lookup, call, csrf, canonical, pair, remoteOn, remoteOff, paired, saveFailed, spawn, close, dismiss, dismissAll, stop, mirrors, grants, secret = async () => true, linkRequest = async () => false, answers, trust, tower, docs, answered }: ControlDeps) {
 	const busy = new Set<string>();
 	// A change to the paired devices or the remote wish that could not be written to paired.json took effect in memory only: say so (500), to the page and the session.
 	const lost = (): Reply | undefined => {
@@ -196,8 +198,9 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 	const requested = async (key: string, found: Found) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, found));
 	const runs = createRuns(), pad = createKeys({ overlay, run: runs, fresh: (id, key, pane) => mirrors?.fresh(id, key, pane) ?? false, secret, answerable: async (key) => Boolean(await answers?.target(key)), linkRequest: async (found, key) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, { pane: found.pane, file: found.file })), probe: async (key, nonce, flags) => answers?.probe(key, nonce, flags) });
 	/** The HTTP shell: the origin, the content type, and the CSRF secret, then the body as JSON, which `run` takes from there. `parts` is the path after api/: sessions/<key>/<action>, remote/pair, or server/stop. */
-	async function handle(req: IncomingMessage, origin: string, [scope, key = "", action = ""]: string[], remote = false): Promise<Reply> {
+	async function handle(req: IncomingMessage, origin: string, [scope, key = "", action = "", ...extra]: string[], remote = false): Promise<Reply> {
 		if (req.method !== "POST") return no(405, "method", "Use POST.");
+		if (extra.length) return no(404, "not_found", "No such action."); // a path has three parts at most; a fourth was dropped and the rest answered
 		const site = req.headers["sec-fetch-site"], type = String(req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
 		if (req.headers.origin !== origin || (site !== undefined && site !== "same-origin")) return no(403, "origin", "Only the page itself may send input.");
 		const file = scope === "sessions" && action === "upload";
@@ -223,6 +226,8 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 	 */
 	async function run([scope, key = "", action = ""]: string[], json: Record<string, unknown>, { remote, secure, operate, foreground }: Flags): Promise<Reply> {
 		// A unit of a box this computer operates (operatehost.ts): the guards that belong to this end come first (the composer's text as a paired device's, a secret never from a page), and the box runs its own again (§7).
+		// A chat block's answer (gui/blockanswer.ts) is recorded as answered in the very request that sends it, a box's unit included (the record is this server's).
+		if (answered && !operate && scope === "sessions" && action === "input" && json.block !== undefined) return recordBlock(answered, key, json, (rest) => run([scope, key, action], rest, { remote, secure, operate, foreground }));
 		const far = !operate ? bridge?.claim("POST", [scope, key, action].slice(0, action ? 3 : key ? 2 : 1), json) : undefined;
 		if (far) {
 			if (scope === "sessions" && action === "input") {
@@ -247,6 +252,7 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 			if (key !== "stop" || action || !stop) return no(404, "not_found", "No such action.");
 			return typeof by === "string" && by.length <= 200 && typeof take === "boolean" ? (stop({ by, take }) === false ? no(409, "refused", "This server is not taken over.") : { status: 202, body: { stopping: true } }) : no(400, "bad_request", "A stop names who asks.");
 		}
+		if (scope === "doc") return docs && action === "answer" ? docs.answer(key, json) : no(docs ? 404 : 503, docs ? "not_found" : "unavailable", docs ? "No such action." : "This server shows no documents.");
 		if (scope === "trust") return trust && key === "answer" && !action ? trust(json) : no(trust ? 404 : 503, trust ? "not_found" : "unavailable", trust ? "No such action." : "This server takes no trust answers.");
 		if (scope === "link") {
 			if (!link) return no(503, "unavailable", "This server has no Straw Link.");

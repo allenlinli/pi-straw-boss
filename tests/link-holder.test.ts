@@ -99,8 +99,8 @@ const queued = () => relay.stored.filter((st) => !st.ephemeral);
 const events = (r: Rig) => readFileSync(join(r.dir, "link.log"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
 
 /** A tower message from alice, built by hand: any seq, so a replay can be tried. */
-async function forge(seq: number, text: string, from = alice, head = stateOf(rosterOf(), alice).head) {
-	const envelope = buildEnvelope({ team: TEAM, epoch: 1, teamKey: teamKey(1), head, from, seq, ts: Date.now(), kind: "tower", to: [bob.id], plaintext: encodePlaintext("tower", { fromWorkspace: "forged", toWorkspace: "", replyExpected: false, text }) });
+async function forge(seq: number, text: string, from = alice, head = stateOf(rosterOf(), alice).head, toWorkspace = "") {
+	const envelope = buildEnvelope({ team: TEAM, epoch: 1, teamKey: teamKey(1), head, from, seq, ts: Date.now(), kind: "tower", to: [bob.id], plaintext: encodePlaintext("tower", { fromWorkspace: "forged", toWorkspace, replyExpected: false, text }) });
 	await new RelayClient({ url: "http://relay.test", device: from, fetch: relay.fetch }).postEnvelope(TEAM, envelope);
 	return envelope;
 }
@@ -176,7 +176,7 @@ test("an open that works but whose tower does not show in the net is not repeate
 test("the notice for messages with no tower open says who sent them, how many, how long they have waited, which tower they wait for, and when the oldest is dropped (todo #122)", async () => {
 	const [a, b] = [rig("a"), rig("b", { towers: false })];
 	// A workspace that is open and has no tower in it: a message for it by id names it by its label; one for a workspace that is not open names the project.
-	b.net = { ...netOf([]), workspaces: [{ workspace_id: "w-live", label: "MP Center", tokens: {} }] };
+	withWorkspace(b, "w-live", "MP Center");
 	await Promise.all([a.start(), b.start()]);
 	const inbox = () => b.holder.summary().alerts.filter((x) => x.kind === "inbox").sort((x, y) => (x.id < y.id ? -1 : 1));
 	await send(a, "one", { workspace: "w-live" });
@@ -221,7 +221,7 @@ for (const level of [undefined, "reply", "forward", "dispatch"] as const) {
 	test(`an attended device wakes the tower of its existing workspace for a teammate at ${String(level)}; the notice stays away while the wake works (todo #122)`, async () => {
 		const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
 		b.level = level;
-		b.net = { ...netOf([]), workspaces: [{ workspace_id: "w-live", label: "MP Center", tokens: {} }] };
+		withWorkspace(b, "w-live", "MP Center");
 		await Promise.all([a.start(), b.start()]);
 		await send(a, "wake up", { workspace: "w-live" });
 		await until(() => b.opens.length === 1, 3000, "the wake");
@@ -961,4 +961,94 @@ test("SLH-F019: an unreadable inbox file is dropped, and the inbox is ordered by
 	await b.holder.drain();
 	assert.deepEqual(b.store.inboxIds(), []);
 	assert.ok(events(b).some((e) => e.event === "inbox-dropped" && e.reason === "damaged"));
+});
+
+/** A workspace of the net whose panes are all outside the project. */
+const withOutsideWorkspace = (r: Rig, id: string, label = id) => {
+	r.net = { ...r.net, workspaces: [...r.net.workspaces, { workspace_id: id, label, tokens: {} }], panes: [...r.net.panes, { pane_id: `px-${id}`, tab_id: `${id}:t0`, workspace_id: id, cwd: join(root, "elsewhere"), agent_status: "idle", tokens: {} }] } as NetView;
+};
+const wakesOf = (r: Rig) => (r.holder as unknown as { wakes: Map<string, unknown> }).wakes;
+
+test("a name that matches a workspace with no pane inside the project is a ghost: no wake, one notice for the project (IWR-F008)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	for (let i = 0; i < 5; i++) withOutsideWorkspace(b, `w-out${i}`, `Out${i}`);
+	await Promise.all([a.start(), b.start()]);
+	for (let i = 0; i < 20; i++) await send(a, `out ${i}`, { workspace: i % 2 ? `w-out${i % 5}` : `Out${i % 5}` });
+	await until(() => b.store.inboxIds().length === 20, 5000, "twenty messages");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 0, "no wake for a workspace outside the project");
+	assert.equal(inboxAlerts(b).length, 1, "one card, none of its own for each outside workspace");
+	assert.equal(inboxAlerts(b)[0]!.data.workspace, undefined);
+	assert.equal(b.notices.length, 1);
+	assert.match(b.notices[0]!, /tower of project/);
+	assert.doesNotMatch(b.notices[0]!, /workspace “?Out/);
+});
+
+test("the ghost pi notice comes again for a ghost that arrives after the earlier ghost messages are gone (IWR-F010)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "first", { workspace: "ghost-1" });
+	await until(() => b.notices.length === 1, 3000, "the first notice");
+	for (const id of b.store.inboxIds()) await b.holder.taken(id, "tower-b");
+	await b.holder.drain();
+	assert.equal(b.store.inboxIds().length, 0);
+	await send(a, "second", { workspace: "ghost-2" });
+	await until(() => b.notices.length === 2, 3000, "a notice for the later ghost");
+});
+
+test("one sender's wakes in flight do not hold back another sender's (IWR-F011 N04)", async () => {
+	const entries = rosterOf(["bob", "carol"]);
+	const b = rig("b", { entries, towers: false, unattended: false, runs: true });
+	let release!: () => void;
+	b.hold = new Promise<void>((resolve) => (release = resolve));
+	for (let i = 0; i < 5; i++) withWorkspace(b, `w${i}`);
+	await b.start();
+	const head = stateOf(entries, alice).head;
+	for (let i = 0; i < 4; i++) await forge(i + 1, `alice ${i}`, alice, head, `w${i}`);
+	await until(() => b.store.inboxIds().length === 4 && b.opens.length === 3, 5000, "alice's three wakes in flight");
+	await forge(1, "carol", carol, head, "w4");
+	await until(() => b.opens.length === 4, 5000, "carol's wake starts while alice's three hang");
+	assert.equal(b.opens[3]!.from, carol.id);
+	release();
+});
+
+test("a failed wake is never retried less often than every 10 minutes (IWR-F011 N13)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	b.openFails = true;
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => events(b).some((e) => e.event === "tower-wake-failed"), 3000, "the failure");
+	const calls = async (skew: number) => ((b.skew = skew), await b.holder.drain(), await new Promise((r) => setTimeout(r, 60)), b.opens.length);
+	let at = 0, n = 1;
+	// Backoff doubles from 1 minute: 1, 2, 4, 8, then the cap of 10, so after 20 more minutes at most 2 further calls.
+	for (const step of [61, 183, 427, 915]) { at = step * 1000; n = await calls(at); }
+	assert.equal(n, 5);
+	assert.equal(await calls(at + 9 * 60_000), 5, "inside the cap nothing goes");
+	assert.equal(await calls(at + 10 * 60_000 + 1000), 6, "10 minutes after the last try");
+	assert.equal(await calls(at + 20 * 60_000 + 2000), 7, "and again after 10, not 30");
+});
+
+test("wake records leave with the messages that wanted them (IWR-F011 N15)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	withWorkspace(b, "w1");
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one", { workspace: "w1" });
+	await until(() => events(b).some((e) => e.event === "tower-woke"), 3000, "the wake");
+	assert.equal(wakesOf(b).size, 1);
+	for (const id of b.store.inboxIds()) await b.holder.taken(id, "tower-b");
+	await b.holder.drain();
+	assert.equal(wakesOf(b).size, 0);
+});
+
+test("a wake retry that worked again does not restart the two minutes the notice stays away (IWR-F011 N17)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => events(b).some((e) => e.event === "tower-woke"), 3000, "the wake");
+	b.skew = 61_000;
+	await b.holder.drain();
+	await until(() => b.opens.length === 2, 3000, "the retry");
+	await new Promise((r) => setTimeout(r, 60));
+	b.skew = 125_000;
+	assert.equal(inboxAlerts(b).length, 1, "past two minutes from the first wake that worked, the retry did not hide it again");
 });

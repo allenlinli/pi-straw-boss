@@ -709,6 +709,9 @@ export class LinkHolder {
 		for (const id of this.waiting.keys()) if (!ids.includes(id)) this.waiting.delete(id);
 		const wanted = new Set([...this.waiting.values()].map((w) => w.wakeKey));
 		for (const key of this.wakes.keys()) if (!wanted.has(key) && !this.opening.has(key)) this.wakes.delete(key);
+		// The pi notice for ghost names is told again once no ghost message of the team waits.
+		const ghostTeams = new Set([...this.waiting.values()].filter((w) => w.target === "?").map((w) => w.team));
+		for (const key of [...this.told]) { const m = /^inbox\/(.+)\/ghost$/.exec(key); if (m && !ghostTeams.has(m[1]!)) this.told.delete(key); }
 		if (ids.length === 0) return;
 		const config = this.o.config(), net = await this.o.net(), servedNow = new Set<string>(), runsOn = towerRunsEnabled(this.o.stateDir ?? "");
 		for (const id of ids) {
@@ -765,7 +768,7 @@ export class LinkHolder {
 			if (!first) {
 				// The notice names the workspace the sender asked for when it is a workspace of this computer that a tower could be woken in (not the head, not a sub workspace), else the project: an id of a workspace that is gone is no word for the boss.
 				const byId = !!item.toWorkspace && net.workspaces.some((w) => w.workspace_id === item.toWorkspace);
-				const asked = item.toWorkspace ? net.workspaces.find((w) => !isSub(w) && !isHead(w) && (byId ? w.workspace_id === item.toWorkspace : w.label === item.toWorkspace)) : undefined;
+				const asked = item.toWorkspace ? net.workspaces.find((w) => !isSub(w) && !isHead(w) && (byId ? w.workspace_id === item.toWorkspace : w.label === item.toWorkspace) && net.panes.some((p) => p.workspace_id === w.workspace_id && p.cwd !== undefined && inside(p.cwd, policy.project))) : undefined;
 				const where = asked ? restrictLabel(asked.label) : undefined, project = basename(policy.project) || policy.project, ghost = !!item.toWorkspace && !asked;
 				const level = config.trust.get(item.from) ?? "reply", mode = this.towerMode(level);
 				if (mode === "open") this.openFor(policy.project, item.from, item.toWorkspace || undefined);

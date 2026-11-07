@@ -387,6 +387,23 @@ test("PTP-F006: d says Denied only when the server denied a request; denied: 0 (
 	await r.settled;
 });
 
+test("PTPR-F004: n says No request was waiting when the server denied none, and Denied every request when it denied some", async () => {
+	let approve: LanReply = { ok: true, denied: 0 };
+	const r = rig({ start: { screen: "pairing", facts: FACTS }, handler: (req) => (req.cmd === "gui-lan-pending" ? { ok: true, ...FACTS, pending: [{ id: "a1", label: "iPhone · Safari", peer: "192.168.1.23", iface: "en0" }], events: [] } : req.cmd === "gui-lan-approve" ? approve : undefined) });
+	await r.ready();
+	await r.settle();
+	await r.tick();
+	await r.key("n");
+	assert.match(r.screen(), /No request was waiting/);
+	assert.doesNotMatch(r.screen(), /Denied every request/);
+	approve = { ok: true, denied: 2 };
+	await r.key("n");
+	assert.match(r.screen(), /Denied every request/);
+	assert.doesNotMatch(r.screen(), /No request was waiting/);
+	r.overlay.handleInput!(ESC);
+	await r.settled;
+});
+
 test("the events the server reports are told to the session once, and the overlay lists the latest", async () => {
 	let events: string[] = ["old line"];
 	const r = rig({ start: { screen: "certificate", facts: FACTS }, handler: (req) => (req.cmd === "gui-lan-pending" ? { ok: true, ...FACTS, pending: [], events } : undefined) });

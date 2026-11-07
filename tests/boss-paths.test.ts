@@ -20,7 +20,7 @@ const NET = {
 	],
 } as unknown as Net;
 
-function world({ ui = true, answer = true, lang = "en" }: { ui?: boolean; answer?: boolean; lang?: string } = {}) {
+function world({ ui = true, answer = true, lang = "en", version = "0.60.5" }: { ui?: boolean; answer?: boolean; lang?: string; version?: string | null } = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "sb-paths-"));
 	const told: { text: string; level?: string }[] = [], posted: { path: string; json: Record<string, unknown> }[] = [], asked: string[][] = [], self: boolean[] = [];
 	let reply: { status: number; body: Record<string, unknown> } = { status: 200, body: {} };
@@ -32,7 +32,7 @@ function world({ ui = true, answer = true, lang = "en" }: { ui?: boolean; answer
 		guiDir: dir, me: () => "m1", tell: (text: string, level?: string) => void told.push({ text, level }),
 	} as unknown as Kit;
 	const logs: number[] = [];
-	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, server: { logs: async (n?: number) => (logs.push(n ?? 0), ["line a", "line b"]) }, closeSelf: (keep) => (self.push(keep), undefined), post, read: async () => NET });
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1, version: version ?? undefined } as never }), sessions: async () => [] }, server: { logs: async (n?: number) => (logs.push(n ?? 0), ["line a", "line b"]) }, closeSelf: (keep) => (self.push(keep), undefined), here: (fn) => fn(), post, read: async () => NET });
 	return { paths, told, posted, asked, self, logs, dir, reply: (r: typeof reply, path?: string) => (path ? replies.set(path, r) : (reply = r)), done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
@@ -229,7 +229,7 @@ test("each typed line reaches its path", async () => {
 	assert.deepEqual(b.called, [
 		'close ["api-member"]', 'close ["Beta",true]', 'close ["unit:dup"]', 'stashOther ["mine","Beta"]', 'dismiss [null]', 'dismiss ["builder"]', "devices []", 'unpair ["all"]', 'unpair ["abc"]', "logs [null]", 'logs ["20"]',
 		'send ["api-member",false,"hello there"]', 'send ["api-member",true,"then this\\nand that"]', 'stop ["api-member"]', 'send ["",false,""]', 'send ["",false,""]', 'stop [""]', 'send ["tower · A",false,"hi"]', 'send ["",false,""]', 'send ["",false,""]', 'send ["tower · A",true,"then"]', 'stop ["tower · A"]', 'stop [""]',
-		'open ["base ~/x My base","/work"]', 'open ["member","/work"]', 'open ["main ../y do it\\nthen this","/work"]', "link [null]", 'link ["status"]', 'link ["decide ab12 approve"]',
+		'open ["base ~/x My base","/work"]', 'open ["member","/work"]', 'open ["main ../y do it\\nthen this","/work"]', 'link [null,"/work"]', 'link ["status","/work"]', 'link ["decide ab12 approve","/work"]',
 	]);
 });
 
@@ -468,4 +468,27 @@ test("these writes need a pi with a screen; a read does not", async () => {
 	assert.deepEqual(b.asked, []);
 	assert.ok(b.told.every((t) => t.level === "error"), JSON.stringify(b.told));
 	b.done();
+});
+
+// PTPR-F002: a server older than the first one that reads `guarded` would type the text as a plain local write, which is the PTP-F001 bypass.
+test("PTPR-F002: /boss send refuses, and posts nothing, when the sb server's recorded version predates the guarded flag; it names the version needed", async () => {
+	for (const version of ["0.60.4", "0.59.9", "0.1.0"]) {
+		const w = world({ version });
+		await w.paths.send("api-member", false, "run the build");
+		assert.deepEqual(w.posted, [], version);
+		assert.equal(w.told.at(-1)!.level, "error");
+		assert.match(w.told.at(-1)!.text, /0\.60\.5/);
+		assert.match(w.told.at(-1)!.text, /restart/i);
+		w.done();
+	}
+	for (const version of ["0.60.5", "0.61.0", "1.0.0"]) {
+		const w = world({ version });
+		await w.paths.send("api-member", false, "run the build");
+		assert.equal(w.posted.length, 1, version);
+		w.done();
+	}
+	const none = world({ version: null });
+	await none.paths.send("api-member", false, "x");
+	assert.deepEqual(none.posted, [], "a record with no version predates it");
+	none.done();
 });

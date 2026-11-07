@@ -249,3 +249,31 @@ test("PTP-F001: a paired device's composer cannot hide a gated command in a /bos
 	const phone = world();
 	for (const text of ["/boss send b 4821", "/boss send b --after fix the build", '/boss send "fix login" hello', "/boss send b /boss status", "/boss send b", "/boss stop b", "/boss send b /boss open main ~/x fix it"]) assert.deepEqual((await phone.post("input", { text, as: "send" })).body, { accepted: true }, text);
 });
+
+// PTPR-F001: main's link guard and this branch's /boss send guard compose.
+test("PTPR-F001: a paired device's composer cannot hide a /boss link credential command in a /boss send, at any depth; /boss link and link status stay open", async () => {
+	for (const text of ["/boss send B /boss link invite show", "/boss send B --after /boss link confirm c allow", "/boss open main ~/x /boss send b /boss link join @f", "/boss send b /boss send c /boss link leave t"]) {
+		const w = world();
+		assert.deepEqual(refused(await w.post("input", { text, as: "send" }, true)), [403, "local_only"], text);
+		assert.deepEqual(refused(await world().post("input", { text, as: "send", guarded: true }, false)), [403, "local_only"], `${text} (guarded, from this computer)`);
+		assert.deepEqual(w.written(), [], text);
+	}
+	for (const text of ["/boss send b /boss link", "/boss send b /boss link status", "/boss send b hi"]) assert.deepEqual((await world().post("input", { text, as: "send" }, true)).body, { accepted: true }, text);
+});
+
+// PTPR-F003: the boss at this keyboard typed the /boss send; its refusal must not say the boss is a paired device.
+test("PTPR-F003: a refusal of a guarded post from this computer does not say 'paired device'; a paired device's own refusal keeps saying it", async () => {
+	const reason = (r: Reply) => String((r.body as { reason?: string }).reason);
+	const here = [
+		reason(await world().post("input", { text: "/boss server stop", as: "send", guarded: true }, false)),
+		reason(await world({ linkRequest: async () => true }).post("input", { text: "y", as: "send", guarded: true }, false)),
+	];
+	const marked = world();
+	marked.faces.open(PANE);
+	here.push(reason(await marked.post("input", { text: "4821", as: "send", guarded: true }, false)));
+	for (const r of here) {
+		assert.doesNotMatch(r, /paired device/i, r);
+		assert.match(r, /\/boss send/, r);
+	}
+	assert.match(reason(await world().post("input", { text: "/boss server stop", as: "send" }, true)), /paired device/);
+});

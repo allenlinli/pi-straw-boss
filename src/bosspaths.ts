@@ -1,12 +1,15 @@
 import { existsSync } from "node:fs";
 import { type GuiRecord, postServer } from "./handover.ts";
 import { workspaces } from "./herdr.ts";
+import { createBossLink } from "./bosslink.ts";
 import { createBossOpen } from "./bossopen.ts";
+import type { Here } from "./heremark.ts";
 import { hereOnlyOpts } from "./intercept.ts";
 import type { createHost } from "./host.ts";
 import { type Lang, memoryLang } from "./memorycmd.ts";
 import { collectNet, type Net, type Unit } from "./net.ts";
 import type { ServerLook } from "./server-look.ts";
+import { newer } from "./semver.ts";
 import { nameFor, nameOk, stashFile } from "./stash.ts";
 import type { Kit } from "./state.ts";
 
@@ -50,6 +53,7 @@ const WORDS = {
 		needWorkspace: "stash --workspace needs a label or id: stash [name] --workspace <label|id>",
 		noSend: "Nothing was sent: name the session and the words: /boss send <name|key> [--after] <text> (quote a name that has spaces: /boss send \"fix login\" <text>)",
 		noStop: "Nothing was stopped: name the session: /boss stop <name|key> (quote a name that has spaces: /boss stop \"fix login\")",
+		oldServer: (have: string | undefined, need: string) => `Nothing was sent: the sb server runs pi-straw-boss ${have ?? "(unknown)"}, which does not hold /boss send to a remote write's guards. Restart it on pi-straw-boss ${need} or newer (/boss server restart).`,
 		sendSelf: "That is this session: type it here instead",
 		sent: (n: string, after: boolean) => `Sent to ${n}${after ? " as a follow-up" : ""}`,
 		notSent: "Nothing was sent",
@@ -99,6 +103,7 @@ const WORDS = {
 		needWorkspace: "stash --workspace 需要工作區的標籤或 id：stash [名稱] --workspace <標籤|id>",
 		noSend: "沒有送出：請指定工作階段與內容：/boss send <名稱|key> [--after] <內容>（名稱含空白時加引號：/boss send \"fix login\" <內容>）",
 		noStop: "沒有停止：請指定工作階段：/boss stop <名稱|key>（名稱含空白時加引號：/boss stop \"fix login\"）",
+		oldServer: (have: string | undefined, need: string) => `沒有送出：sb server 是 pi-straw-boss ${have ?? "（未知）"}，不會讓 /boss send 受遠端寫入的防護約束。請重啟成 pi-straw-boss ${need} 以上（/boss server restart）。`,
 		sendSelf: "這就是目前的工作階段：直接在這裡輸入",
 		sent: (n: string, after: boolean) => `已送給 ${n}${after ? "（排在目前工作之後）" : ""}`,
 		notSent: "沒有送出",
@@ -131,7 +136,9 @@ export function parseStash(rest: string | undefined): { name?: string; workspace
 
 const flat = (units: Unit[]): Unit[] => units.flatMap((u) => [u, ...flat(u.subs)]);
 
-export function createBossPaths(kit: Kit, { host, server, closeSelf, post = postServer, read, pollMs }: { host: Pick<ReturnType<typeof createHost>, "ensure" | "sessions">; server?: Pick<ServerLook, "logs">; closeSelf(keepPane: boolean): string | undefined; post?: Post; /** The net as the boss sees it; tests hand one over. */ read?: () => Promise<Net>; /** How often an opening is asked for a trust question (bossopen.ts). */ pollMs?: number }) {
+/** The first pi-straw-boss whose server reads `guarded` on a session's input. */
+const GUARDED_SINCE = "0.60.5";
+export function createBossPaths(kit: Kit, { host, server, closeSelf, post = postServer, read, pollMs, here }: { host: Pick<ReturnType<typeof createHost>, "ensure" | "sessions">; /** Holds the pane's local-only mark while a screen that only this computer may answer waits (heremark.ts). */ here: Here; server?: Pick<ServerLook, "logs">; closeSelf(keepPane: boolean): string | undefined; post?: Post; /** The net as the boss sees it; tests hand one over. */ read?: () => Promise<Net>; /** How often an opening is asked for a trust question (bossopen.ts). */ pollMs?: number }) {
 	const { cfg, s, guiDir, tell, me } = kit, lang = (): Lang => memoryLang(cfg.env), t = () => WORDS[lang()];
 	const net = (): Promise<Net> => read ? read() : collectNet({ run: cfg.run, world: cfg.world, sessions: () => host.sessions() });
 	/** The server's recorded GUI; a refusal says why in the boss's words. */
@@ -142,7 +149,7 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 		return shared.record;
 	}
 	const why = (r: Reply) => (typeof r.body.reason === "string" ? r.body.reason : r.status ? t().answered(r.status) : t().noAnswer);
-	const confirm = async (title: string, body: string, here = false) => (await s.ui?.confirm(title, body, here ? hereOnlyOpts() : undefined)) === true;
+	const confirm = async (title: string, body: string, local = false) => (local ? await here(async () => s.ui?.confirm(title, body, hereOnlyOpts())) : await s.ui?.confirm(title, body)) === true;
 
 	/** Every unit (tower, mains, members), squad, and base of the net, as something `/boss close` can name. */
 	function targets(n: Net): Target[] {
@@ -182,9 +189,13 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 		const reply = await post1(found.key, `${found.name} (in ${found.base}) [${found.key}]`);
 		reply.status === 200 ? tell(said(found.name)) : tell(why(reply), "error");
 	}
+	const more = createBossLink(kit, { record, post, why, confirm, lang, here });
+	const open = createBossOpen(kit, { record, post, why, confirm, here, noScreen: () => t().noScreen, lang, baseName: async (id) => (await workspaces(cfg.run).catch(() => [])).find((w) => w.workspace_id === id)?.label, pollMs, extra: more.status });
 
 	return {
-		...createBossOpen(kit, { record, post, why, confirm, noScreen: () => t().noScreen, lang, baseName: async (id) => (await workspaces(cfg.run).catch(() => [])).find((w) => w.workspace_id === id)?.label, pollMs }),
+		...open,
+		/** `/boss link …`: confirms, questions, invites, join, create, and leave are bosslink.ts's; status and decide are bossopen.ts's. */
+		link: (rest: string | undefined, cwd = process.cwd()) => (more.handles(rest) ? more.run(rest!, cwd) : open.link(rest)),
 		/** The refusal for `/boss stash --workspace` with no value. */
 		needWorkspace: () => tell(t().needWorkspace, "error"),
 		/** `/boss close <name|key>` (or `close all <workspace>` with `onlyBase`): quits another unit, squad, or base after the boss confirms in pi. */
@@ -243,6 +254,8 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 			const as = after ? "followUp" : "send";
 			await toSession(query, async (key, named) => {
 				const r = await record(), body = { text, as, guarded: true };
+				// A server that predates the flag would type the text as a plain local write, the bypass `guarded` closes.
+				if (newer(GUARDED_SINCE, r.version)) return { status: 0, body: { reason: t().oldServer(r.version, GUARDED_SINCE) } };
 				const first = await post(r, `sessions/${encodeURIComponent(key)}/input`, body, 30_000);
 				if (first.status !== 409 || first.body.error !== "confirm") return first;
 				if (!s.ui || !(await confirm(t().confirmSend, t().confirmSendBody(named, text.slice(0, 200))))) return { status: 0, body: { reason: t().notSent } };

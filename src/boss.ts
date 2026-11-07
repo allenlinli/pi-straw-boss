@@ -10,6 +10,7 @@ import type { ServerLook } from "./server-look.ts";
 import type { Kit } from "./state.ts";
 import type { createStashing } from "./stashing.ts";
 import { type createBossPaths, parseStash } from "./bosspaths.ts";
+import { LINK_ARGUMENTS } from "./bosslink.ts";
 import { parseSend, parseStop } from "./bosssend.ts";
 
 /** What Tab completes after /boss; a bare /boss (take over as the main agent) has nothing to complete. */
@@ -61,7 +62,7 @@ export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host,
 		// pi passes the whole argument text and replaces it with the chosen value, so each value is a full argument line.
 		getArgumentCompletions: (prefix) => {
 			const stashed = stashing.names().map((name) => ({ value: `pop ${name}`, label: `pop ${name}`, description: "Open this stashed base again" }));
-			const items = [...BOSS_ARGUMENTS, ...stashed].filter((item) => item.value.startsWith(prefix.trimStart()));
+			const items = [...BOSS_ARGUMENTS, ...LINK_ARGUMENTS, ...stashed].filter((item) => item.value.startsWith(prefix.trimStart()));
 			return items.length ? items : null;
 		},
 		handler: async (args, ctx) => {
@@ -69,7 +70,7 @@ export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host,
 			// A tower run is no part of the net: a bare /boss would promote it to a main in the tower tab.
 			if (runMode?.active()) return tell("A tower run takes no /boss command: it is the server's, and it ends with tower_done.", "warning");
 			try {
-				const line = args.trim(), unpair = /^gui\s+unpair\s+(\S+)$/.exec(line), logs = /^server\s+logs(?:\s+(\S+))?$/.exec(line), sub = /^close\s+all\s+(.+)$/.exec(line), other = /^close\s+(.+)$/.exec(line), dismiss = /^dismiss(?:\s+(.+))?$/.exec(line), open = /^open(?:\s+([\s\S]*))?$/.exec(line), link = /^link(?:\s+(.*))?$/.exec(line);
+				const line = args.trim(), unpair = /^gui\s+unpair\s+(\S+)$/.exec(line), logs = /^server\s+logs(?:\s+(\S+))?$/.exec(line), sub = /^close\s+all\s+(.+)$/.exec(line), other = /^close\s+(.+)$/.exec(line), dismiss = /^dismiss(?:\s+(.+))?$/.exec(line), open = /^open(?:\s+([\s\S]*))?$/.exec(line), link = /^link(?:\s+([\s\S]*))?$/.exec(line);
 				const send = /^send(?=\s|$)([\s\S]*)$/.exec(line), stop = /^stop(?=\s|$)([\s\S]*)$/.exec(line);
 				if (send) return await ((words) => (words ? paths.send(words.query, words.after, words.text) : paths.send("", false, "")))(parseSend(send[1]));
 				if (stop) return await paths.stop(parseStop(stop[1]) ?? "");
@@ -80,10 +81,10 @@ export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host,
 				if (other && other[1]!.trim() !== "all") return await paths.close(other[1]!);
 				if (dismiss) return await paths.dismiss(dismiss[1]);
 				if (open) return await paths.open(open[1], ctx.cwd ?? process.cwd());
-				if (link) return await paths.link(link[1]);
+				if (link) return await paths.link(link[1], ctx.cwd ?? process.cwd());
 				if (/^gui( stop| rotate| remote( off)?| lan( off| reset)?| view( \S+)?)?$/.test(args.trim())) return await host.command(args.trim().slice(4));
 				const sb = /^server(?:\s+(stop|restart)(?:\s+(.*))?)?$/.exec(args.trim());
-				if (sb) return await (server ? server.command((sb[1] ?? "") as "" | "stop" | "restart", sb[2] ?? "") : tell("The sb server is not available in this session.", "warning"));
+				if (sb) return await (server ? server.command((sb[1] ?? "") as "" | "stop" | "restart", sb[2] ?? "", host.here) : tell("The sb server is not available in this session.", "warning"));
 				const why = args.trim() === "close" ? (closeSelf(false) ?? "") : undefined;
 				if (why !== undefined) return void (why && tell(why, "error"));
 				if (args.trim() === "status") return tell(s.joined || s.isTower ? JSON.stringify(await reach.status(), null, 2) : "Not in the net: still joining, or this session cannot join.");

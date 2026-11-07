@@ -7,7 +7,7 @@ import type { Todo } from "./items.ts";
 
 /** What a scrubbed-out piece of text becomes. */
 export const HIDDEN = "…";
-const SECRET = [
+export const SECRET = [
 	/\bsk-[A-Za-z0-9_-]{8,}/g,
 	/\bgh[pousr]_[A-Za-z0-9]{16,}/g,
 	/\bglpat-[A-Za-z0-9_-]{10,}/g,
@@ -27,7 +27,7 @@ const WIN_PATH = /(?<![\w\\:/])(?:[A-Za-z]:[\\/]|\\\\[^\s\\/]+[\\/]|\/\/[^\s/]+\
 // Always hidden: a home folder (`~/`, `~user/`, `$HOME/`, `%USERPROFILE%\`), a way up out of the working folder (`../`), a Windows path with no drive (`\Users\me`) or a relative one (`c:Users\me`).
 const HOME_PATH = /(?<![\w.\\/~-])(?:(?:~[\w.-]*|\$HOME|\$\{HOME\}|%[A-Za-z]+%|\.\.)[\\/]|\\[\w.$-]+\\|[A-Za-z]:[\w.-]+\\)[^\s"'`<>|*?]*/gu;
 const POSIX_PATH = /(?<![\w.\\/~-])\/(?=[\w.@+~-])[^\s"'`<>|*?]*/gu;
-const BASE64_RUN = /[A-Za-z0-9+/_=-]{32,}/g;
+export const BASE64_RUN = /[A-Za-z0-9+/_=-]{32,}/g;
 const TAIL = /[.,;:!?)\]}]+$/u;
 
 /** `text` with a part cut off its end that sentence punctuation owns, mapped through `fn`, and the part put back. */

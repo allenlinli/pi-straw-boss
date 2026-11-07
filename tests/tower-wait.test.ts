@@ -46,7 +46,7 @@ test("the brief says how long an open wait has stood once it is a day old, so th
 	addWait(mem, NOW - 10 * 60_000, "r1", { text: "api-fix asks: deploy ws01?", for: "boss" });
 	const { text } = memorySection(mem, NOW);
 	assert.match(text, /- \[W1\] for boss: Boss token needed to add the ACL \(open 2d 3h\)/);
-	assert.match(text, /- \[W2\] for boss: api-fix asks: deploy ws01\?$/m, "a fresh wait has no age");
+	assert.match(text, /- \[W2\] for boss: api-fix asks: deploy ws01\? \(old free-text wait: record it again as a card with restates: "W2"\)$/m, "a fresh wait has no age; a legacy wait says to restate it");
 });
 
 const service = (bossWaits: { id: string; text: string; at: string; answered?: string }[], rev = 4): TowerService => ({ state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev, standing: 0, decisions: 0, waits: bossWaits.length, bossWaits, proposals: [] } });

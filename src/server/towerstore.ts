@@ -55,6 +55,8 @@ export interface QueuedEvent {
 	crashes?: number;
 	/** `crash` once a run that had it died: the next brief says so. */
 	flag?: "crash";
+	/** A boss event that is a press of a wait card: the comms draw it as the boss's button, not as typed words (docs/specs/2026-11-07-wait-cards.md). */
+	press?: true;
 }
 
 /** A file name for a Herdr id: ids are short counters, but nothing a caller sends may leave the folder. */

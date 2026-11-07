@@ -9,6 +9,8 @@ import { TOOLS } from "../src/server/runtools.ts";
 import type { Slot } from "../src/server/record.ts";
 import { addText, addWait, loadMemory, memoryRequest, memoryTool, updateMemory } from "../src/server/towermemory.ts";
 import { readQueue } from "../src/server/towerstore.ts";
+import { pressRequest } from "../src/server/waitpress.ts";
+import { checkCard } from "../src/server/waitcard.ts";
 import { until, World } from "./fakes.ts";
 import { TowerWorld } from "./tower-world.ts";
 
@@ -17,18 +19,21 @@ import { TowerWorld } from "./tower-world.ts";
 
 const NOW = Date.parse("2026-10-28T10:00:00Z");
 const slotIn = () => ({ dir: mkdtempSync(join(tmpdir(), "psb-memcmd-")) }) as Slot;
-const toolEnv = (slot: Slot) => ({ slot, workspace: "wA", run: "r1", now: () => NOW, bossEvents: () => [{ id: "e1", text: "Standing: ship the beta.67 build to ws01.\nYes." }], session: async (q: string) => ({ id: q, name: q }), log: { line() {}, hide() {} } });
+const toolEnv = (slot: Slot) => ({ slot, workspace: "wA", run: "r1", now: () => NOW, bossEvents: () => [{ id: "e1", text: "Standing: ship the beta.67 build to ws01.\nYes." }], session: async (q: string) => ({ id: q, name: q }), log: { line() {}, hide() {} }, intercomEvents: () => [], raiser: async () => undefined, locale: () => "en" as const });
 
 /** The command against a memory file, through the very function the server's route calls; `sent` is what went over. */
 function harness(over: { own?: string; lang?: "en" | "zh-TW"; interactive?: boolean } = {}) {
 	const slot = slotIn(), told: { text: string; level: string }[] = [], sent: Record<string, unknown>[] = [];
+	const notices: { to: string; text: string; wait: string }[] = [], events: string[] = [];
 	const deps: MemoryCmdDeps = {
 		lang: over.lang ?? "en", interactive: over.interactive ?? true, own: "own" in over ? over.own : "wA",
-		ask: async (workspace, json) => (sent.push(json), { ok: true, ...memoryRequest(slot, workspace, NOW, json) }),
+		ask: async (workspace, json) => (sent.push(json), json.op === "press"
+			? { ok: true, ...(await pressRequest({ slot, now: () => NOW, log: { line() {}, hide() {} }, locale: "en", live: async () => true, send: async (to, text, wait) => (notices.push({ to, text, wait }), { status: "sent" }), boss: (text) => void events.push(text) }, workspace, json)) }
+			: { ok: true, ...memoryRequest(slot, workspace, NOW, json) }),
 		workspaces: async () => [{ workspace_id: "wA", label: "Alpha" }, { workspace_id: "wB", label: "Beta" }],
 		tell: (text, level = "info") => void told.push({ text, level }),
 	};
-	return { slot, told, sent, run: (args: string, d = deps) => runMemoryCommand(args, d), deps, last: () => told.at(-1)! };
+	return { slot, told, sent, notices, events, run: (args: string, d = deps) => runMemoryCommand(args, d), deps, last: () => told.at(-1)! };
 }
 const seed = (h: ReturnType<typeof harness>) => updateMemory(h.slot, "wA", NOW, (m) => (addText(m, NOW, "gui", "standing", "Never deploy to production without asking me"), addText(m, NOW, "gui", "decision", "ws01 beta.67 first"), addWait(m, NOW, "r1", { text: "api-fix asks: deploy ws01?", for: "boss" })));
 const propose = async (h: ReturnType<typeof harness>, args: Record<string, unknown>) => memoryTool(toolEnv(h.slot), args);
@@ -187,8 +192,8 @@ test("/boss memory in a joined pi session reaches the server's memory route: lis
 	await a.start();
 	await a.command("tower");
 	updateMemory(sw.slot, "wA", Date.now(), (m) => addText(m, Date.now(), "gui", "standing", "Never deploy on Friday"));
-	await memoryTool({ slot: sw.slot, workspace: "wA", run: "r1", now: () => Date.now(), bossEvents: () => [], session: async (q) => ({ id: q, name: q }), log: { line() {}, hide() {} } }, { op: "add", kind: "decision", text: "beta.67 first" });
-	await memoryTool({ slot: sw.slot, workspace: "wA", run: "r1", now: () => Date.now(), bossEvents: () => [], session: async (q) => ({ id: q, name: q }), log: { line() {}, hide() {} } }, { op: "add", kind: "decision", text: "beta.67 second" });
+	await memoryTool({ slot: sw.slot, workspace: "wA", run: "r1", now: () => Date.now(), bossEvents: () => [], session: async (q) => ({ id: q, name: q }), log: { line() {}, hide() {} }, intercomEvents: () => [], raiser: async () => undefined, locale: () => "en" as const }, { op: "add", kind: "decision", text: "beta.67 first" });
+	await memoryTool({ slot: sw.slot, workspace: "wA", run: "r1", now: () => Date.now(), bossEvents: () => [], session: async (q) => ({ id: q, name: q }), log: { line() {}, hide() {} }, intercomEvents: () => [], raiser: async () => undefined, locale: () => "en" as const }, { op: "add", kind: "decision", text: "beta.67 second" });
 	const said = () => a.notices.map((n) => n.text);
 	await a.command("memory");
 	assert.match(said().at(-1)!, /Memory \(wA\): 1 standing · 0 decisions · 0 waits · 2 proposals to confirm[\s\S]*P1 add decision: beta\.67 first[\s\S]*S1 {2}Never deploy on Friday/);
@@ -265,4 +270,74 @@ test("a wait for the boss that their own message answered reads as answered by t
 	await h.run("list", { ...h.deps, lang: "zh-TW" });
 	assert.match(h.last().text, /W1 {2}等你: api-fix asks: deploy ws01\?（你已回覆，塔台還沒結案）/);
 	assert.match(h.last().text, /W2 {2}等 api-fix: api-fix to reply（可能已回覆）/);
+});
+
+// --- the acts on a wait card: done, choose, decline, restate (docs/specs/2026-11-07-wait-cards.md, The press) ------------------------------------------------------------------------
+
+const raiser = { id: "main-1", name: "mp3946-print", role: "main", workspace: "Alpha", tab: "MP-3946" };
+const cardWait = (h: ReturnType<typeof harness>, extra: Record<string, unknown> = {}) => updateMemory(h.slot, "wA", NOW, (m) => {
+	const checked = checkCard({ type: "action", from: "main-1", happened: "The key expired.", do: "Re-authorize the machine in the admin page.", url: "https://example.org/admin", after: "The main tests again.", ...extra }, { senders: new Set(["main-1"]), restates: () => undefined, lang: "en" });
+	if (!checked.ok) throw new Error(checked.lines.join("\n"));
+	const id = `W${m.next.W++}`;
+	m.entries.push({ id, kind: "wait", text: checked.card.do, by: "run", via: "run", at: new Date(NOW).toISOString(), run: "r1", for: "boss", state: "open", card: { ...checked.card, from: raiser } });
+});
+
+test("the acts parse: done, choose with an option number, decline with a reason, restate; each names a wait", () => {
+	assert.deepEqual(parseMemoryArgs("done w1"), { op: "done", id: "W1" });
+	assert.deepEqual(parseMemoryArgs("choose W2 2"), { op: "choose", id: "W2", option: 2 });
+	assert.deepEqual(parseMemoryArgs("decline W3 not today, thanks"), { op: "decline", id: "W3", reason: "not today, thanks" });
+	assert.deepEqual(parseMemoryArgs("decline W3"), { op: "decline", id: "W3" });
+	assert.deepEqual(parseMemoryArgs("restate W4"), { op: "restate", id: "W4" });
+	for (const bad of ["done", "done D1", "choose W1", "choose W1 x", "choose W1 0", "restate S2"]) assert.deepEqual(parseMemoryArgs(bad), { usage: true }, bad);
+});
+
+test("done presses the card: one request, the raiser told, and the command says so; the list shows a card with where, after, and its raiser", async () => {
+	const h = harness();
+	cardWait(h);
+	await h.run("list");
+	assert.match(h.last().text, /W1 {2}for you \(action, from mp3946-print\): Re-authorize the machine in the admin page\./);
+	assert.match(h.last().text, /where: https:\/\/example\.org\/admin/);
+	assert.match(h.last().text, /after: The main tests again\./);
+	await h.run("done W1");
+	assert.deepEqual(h.sent.at(-1), { op: "press", id: "W1", act: "done" });
+	assert.equal(h.last().level, "info");
+	assert.match(h.last().text, /^W1 done: mp3946-print got it\.$|^W1 done/);
+	assert.equal(h.notices.length, 1);
+	assert.equal(h.notices[0]!.to, "main-1");
+	assert.equal(h.events.length, 1);
+	await h.run("done W1");
+	assert.equal(h.last().level, "error");
+	assert.match(h.last().text, /W1 was pressed already/);
+});
+
+test("choose takes the option's number as the list shows it (from 1); decline takes a reason; restate asks the tower to rewrite a legacy wait", async () => {
+	const h = harness();
+	cardWait(h, { type: "choice", url: undefined, after: undefined, do: "Deploy to ws01 now?", options: [{ label: "Deploy", then: "The main deploys." }, { label: "Hold", then: "The main waits." }] });
+	await h.run("list");
+	assert.match(h.last().text, /1\) Deploy — The main deploys\./);
+	assert.match(h.last().text, /2\) Hold — The main waits\./);
+	await h.run("choose W1 2");
+	assert.deepEqual(h.sent.at(-1), { op: "press", id: "W1", act: "choose", option: 1 });
+	assert.match(h.events[0]!, /^The boss chose "Hold" on wait W1/);
+	cardWait(h);
+	await h.run("decline W2 not today");
+	assert.deepEqual(h.sent.at(-1), { op: "press", id: "W2", act: "decline", reason: "not today" });
+	assert.equal(loadMemory(h.slot, "wA").memory.entries[1]!.outcome, "declined by the boss: not today");
+	updateMemory(h.slot, "wA", NOW, (m) => addWait(m, NOW, "r0", { text: "old free text", for: "boss" }));
+	await h.run("restate W3");
+	assert.deepEqual(h.sent.at(-1), { op: "press", id: "W3", act: "restate" });
+	assert.match(h.events.at(-1)!, /record wait W3 again as a card/);
+});
+
+test("the acts are writes: refused without a screen, and in Traditional Chinese the command's own words follow the locale", async () => {
+	const h = harness({ interactive: false });
+	cardWait(h);
+	await h.run("done W1");
+	assert.equal(h.last().level, "error");
+	assert.match(h.last().text, /only the list is allowed/);
+	assert.deepEqual(h.sent, [], "nothing was sent");
+	const zh = harness({ lang: "zh-TW" });
+	cardWait(zh);
+	await zh.run("done W1");
+	assert.match(zh.last().text, /^W1 已按下：/);
 });

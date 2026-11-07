@@ -1,4 +1,5 @@
-import { BRIEF_MAX, leadOf, type MainRow } from "./towerbrief.ts";
+import type { Locale } from "../towerprompt/messages.ts";
+import { BRIEF_MAX, leadOf, type MainRow, withWaitLanguage } from "./towerbrief.ts";
 
 // The brief of a head run (docs/specs/2026-11-04-head-tower.md, Runs): who it is, the workspaces now, the open asks, its memory, and the last handoff note, 8,000 characters at most, built by the server and never by a model.
 // When the brief has to give up characters, the memory goes first (down to its floor), then the workspaces, then the asks. The tools, the tower_done line, and the limits are never cut.
@@ -95,3 +96,5 @@ export const HEAD_TOOLS = [
 	"- tower_list: every workspace's tower and its checkout folder; board_read: what each main works on now; read, grep, find, ls: project files by absolute path.",
 	"- tower_memory keeps what outlives runs: the boss's standing instructions and decisions are proposals the boss confirms; your waits are yours (add, resolve, drop). boss_server: the sb server's status, log, and restart.",
 ];
+/** The head tower's tools for sb's locale. */
+export const headTools = (locale: Locale): string[] => withWaitLanguage(HEAD_TOOLS, locale);

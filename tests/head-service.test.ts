@@ -366,7 +366,7 @@ test("HH1-F001: a workspace id a stale tower service still holds is never bound 
 	assert.equal(readService(world.slot, "w100")?.kind, "head");
 	assert.equal(existsSync(join(headDir(world.slot), "service.json")), true);
 	// The tower's files never went into head/.
-	assert.equal(world.expose!.memory("w100", { op: "read" }).status, 200);
+	assert.equal((await world.expose!.memory("w100", { op: "read" })).status, 200);
 	assert.equal(existsSync(join(world.slot.dir, "tower", "w100", "memory.json")), false);
 });
 
@@ -451,9 +451,9 @@ test("HH1 (H3's way in): head/ is reachable by the constant key while no head se
 	await started();
 	assert.equal(head().status(), undefined);
 	assert.equal(towerDir(world.slot, HEAD_KEY), headDir(world.slot));
-	const read = world.expose!.memory(HEAD_KEY, { op: "read" });
+	const read = await world.expose!.memory(HEAD_KEY, { op: "read" });
 	assert.equal(read.status, 200);
-	const added = world.expose!.memory(HEAD_KEY, { op: "add", kind: "standing", text: "forward by project", rev: (read.body as { rev: number }).rev });
+	const added = await world.expose!.memory(HEAD_KEY, { op: "add", kind: "standing", text: "forward by project", rev: (read.body as { rev: number }).rev });
 	assert.equal(added.status, 200);
 	assert.equal(existsSync(join(headDir(world.slot), "memory.json")), true);
 	assert.equal(existsSync(join(world.slot.dir, "tower", HEAD_KEY)), false);

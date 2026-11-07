@@ -1171,9 +1171,6 @@
 	"zen_term_working": "The unit is working again. You can go back to Zen.",
 	"zen_term_gone": "This pane has closed. You can go back to Zen.",
 	"zen_update": "A new version is ready; it loads when you're back at the breath",
-  "alert_note": "Note",
-  "alert_tip": "Tip",
-  "alert_important": "Important",
-  "alert_warning": "Warning",
-  "alert_caution": "Caution"
+  "block_sending": "Sending…",
+  "block_command": "A block cannot send a command (a line that starts with ! or /). Type it in the box below."
 }

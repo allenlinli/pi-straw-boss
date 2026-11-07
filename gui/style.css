@@ -719,9 +719,6 @@ summary::-webkit-details-marker { display: none; }
 .md pre code { padding: 0; background: none; }
 .md blockquote { padding: 6px 12px; background: color-mix(in srgb, var(--hi) 4%, transparent); color: var(--dim); }
 .md table { display: block; overflow-x: auto; border-collapse: collapse; }
-.md-alert { margin: 0 0 8px; padding: 8px 12px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--ac) 45%, transparent); background: color-mix(in srgb, var(--ac) 10%, transparent); --ac: var(--accent); }
-.md-alert[data-kind="tip"] { --ac: var(--good, #3fb950); } .md-alert[data-kind="important"] { --ac: #a371f7; } .md-alert[data-kind="warning"] { --ac: var(--gold); } .md-alert[data-kind="caution"] { --ac: var(--bad, #f85149); }
-.md-alert > p { margin: 0 0 4px; } .md-alert > :last-child { margin-bottom: 0; } .md .md-alert-title { font-weight: 700; color: var(--ac); }
 .md th, .md td { padding: 4px 10px; border: 1px solid var(--line); }
 
 /* Tiles: documents beside the view, sharing its width; tabs when the width runs out. */

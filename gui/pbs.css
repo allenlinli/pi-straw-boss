@@ -1,0 +1,49 @@
+/* pi-better-show's elements in this page (docs/specs/2026-11-07-better-show-host.md, Look): the one place the page's tokens meet the package's `--pbs-*`. The map sits on the block's own wrapper, not on :root, because Geek and Zen
+   set the page's tokens on elements below :root: a custom property that names another is resolved where it is declared, so here it reads the palette of whichever view the block is in. Dark only, as the page is: the light palette comes
+   with the theme mechanism, and the `var()`s below are what it will change. Density is the host's attribute (compact in the comms log, comfortable in a document), not a token. */
+.pbs-block {
+	--pbs-bg: var(--surface-0);
+	--pbs-surface: var(--surface-1);
+	--pbs-fg: var(--text);
+	--pbs-muted: var(--dim);
+	--pbs-line: var(--line);
+	--pbs-control: var(--line-c);
+	--pbs-accent: var(--accent);
+	--pbs-on-accent: var(--ink);
+	--pbs-note: var(--accent);
+	--pbs-ok: var(--ok);
+	--pbs-warn: var(--gold);
+	--pbs-risk: var(--err);
+	--pbs-radius: 10px;
+	--pbs-font: var(--sans);
+	--pbs-font-display: var(--sans);
+	--pbs-mono: var(--mono);
+	--pbs-font-size: 14px;
+	min-width: 0;
+	max-width: 100%;
+	margin: 0 0 8px;
+}
+[data-view="geek"] .pbs-block { --pbs-font-size: 13px; }
+/* What the page says under a block: that its answer is on its way, or why the unit did not take it. */
+.pbs-note { margin: 0 0 8px; color: var(--dim); font: 12px/1.4 var(--sans); }
+.pbs-note:empty { display: none; }
+.pbs-note[data-tone="error"] { color: var(--err-soft); }
+/* A block that did not parse shows its source, set apart from the prose and from real code. */
+.md .pbs-invalid { border-style: dashed; }
+/* A finger needs 44 px: on a touch screen or a phone's width every control of every element is that tall (the parts are the package's; the rows of a choice or a checklist are the tap target, not the small box in them). */
+@media (pointer: coarse), (max-width: 640px) {
+	.pbs-block :is(pbs-form, pbs-checklist, pbs-options, pbs-review, pbs-suggest, pbs-table, pbs-mindmap)::part(choice),
+	.pbs-block pbs-checklist::part(item) { min-height: 44px; align-items: center; }
+	.pbs-block :is(pbs-form, pbs-checklist, pbs-review, pbs-options)::part(submit),
+	.pbs-block pbs-options::part(pick),
+	.pbs-block pbs-suggest::part(chip),
+	.pbs-block pbs-table::part(sort),
+	.pbs-block pbs-review::part(enlarge),
+	.pbs-block pbs-review::part(close),
+	.pbs-block pbs-mindmap::part(node) { min-height: 44px; min-width: 44px; }
+	.pbs-block pbs-mindmap::part(node) { align-items: center; }
+	.pbs-block pbs-table::part(sort) { align-items: center; }
+	.pbs-block pbs-form::part(other),
+	.pbs-block pbs-table::part(filter) { min-height: 44px; }
+	.pbs-block pbs-review::part(pick) { min-height: 44px; align-items: center; }
+}

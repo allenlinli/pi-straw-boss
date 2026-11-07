@@ -3,13 +3,13 @@ import { createReadStream, readFileSync, realpathSync, statSync } from "node:fs"
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { pipeline } from "node:stream";
 import { dirname, extname, resolve, sep } from "node:path";
-import type { Hub } from "./dialogs.ts";
-import type { Fields } from "./documents.ts";
+import { ANSWER_ID, type Hub } from "./dialogs.ts";
+import { type Fields, fieldsOk } from "./documents.ts";
 
 // Serving the documents a session shows (documents.ts) to the page, by capability: the hub's current binding is the allow list, and paths never
 // come from the browser. GET /<t>/doc/<cap>/ is an HTML document, rewritten so its pi-answer forms submit here; GET /<t>/doc/<cap>/<path> an
 // image, stylesheet, or font under its own directory; GET /<t>/doc/<cap>/answer/<nonce>?<fields> takes one form answer to the owner;
-// GET /<t>/api/doc/<cap> a text document as JSON, which the page renders. Every /doc/ response carries a CSP `sandbox` without scripts, so a
+// GET /<t>/api/doc/<cap> a text document as JSON, which the page renders, and POST /<t>/api/doc/<cap>/answer (control.ts) takes one answer from a block of a Markdown document the page draws (docs/specs/2026-11-07-better-show-host.md): the same v1 form message to the owner, once per answer id, and a Markdown document's sibling images (a review block's) are served beside it like an HTML document's, images only. Every /doc/ response carries a CSP `sandbox` without scripts, so a
 // document (or an SVG opened on its own) runs no script and has an opaque origin: it cannot read the API or the cookie. The sources name the
 // server's origin, because WebKit does not match 'self' in a sandboxed document; Chrome loads fonts there in CORS mode with Origin: null,
 // so fonts allow any origin. Answers are never logged. A remote request reaches /doc/ with the Tailscale identity and the capability only:
@@ -45,7 +45,7 @@ export function fieldsOf(query: string): Fields | string {
 export function createDocs(hub: Pick<Hub, "doc" | "form">, name: (key: string) => string) {
 	// `lan` marks what a Wi-Fi load handed out; `device` is the allowed device (the hash of its cookie) whose load it was, when the caller named it (an entry without one goes with any revocation).
 	type Held = { cap: string; until: number; lan?: true; device?: string };
-	const nonces = new Map<string, Held>(), tickets = new Map<string, Held>();
+	const nonces = new Map<string, Held>(), tickets = new Map<string, Held>(), answers = new Map<string, { until: number; reply: Promise<{ status: number; body: unknown }> }>();
 	/** A file the document may use: the listed one itself, or one under its directory, as its real path, within `max` bytes. */
 	const file = (path: string, max: number, under?: string) => {
 		try {
@@ -122,10 +122,27 @@ export function createDocs(hub: Pick<Hub, "doc" | "form">, name: (key: string) =
 			} catch {
 				return void page(404, "Not found", "No such file.");
 			}
-			const type = SIBLING[extname(rel).toLowerCase()], real = doc.kind === "html" && type && !rel.includes("\0") ? file(resolve(dirname(doc.path), rel), MAX_FILE, dirname(doc.path)) : undefined;
+			const type = SIBLING[extname(rel).toLowerCase()], beside = doc.kind === "html" || (/\.(md|markdown)$/i.test(doc.display) && type?.startsWith("image/")), real = beside && type && !rel.includes("\0") ? file(resolve(dirname(doc.path), rel), MAX_FILE, dirname(doc.path)) : undefined;
 			if (!real) return void page(404, "Not found", "No such file beside the document.");
 			res.writeHead(200, { ...base, "content-type": type!, ...(type!.startsWith("font/") ? { "access-control-allow-origin": "*" } : {}) });
 			pipeline(createReadStream(real), res, () => {}); // a file that went meanwhile, or a reader that left, closes both ends
+		},
+		/** POST /<t>/api/doc/<cap>/answer {answerId, fields}: a Markdown document's block answers like a pi-answer form does (hub.form), checked as the form route checks. One answer id is sent once: its outcome, whatever it was, is the reply to the same id again. */
+		async answer(cap: string, json: Record<string, unknown>): Promise<{ status: number; body: unknown }> {
+			const no = (status: number, error: string, reason: string) => ({ status, body: { error, reason } }), { answerId, fields } = json;
+			if (!CAP.test(cap) || !hub.doc(cap)) return no(404, "closed", "The document is no longer open in its session.");
+			if (typeof answerId !== "string" || !ANSWER_ID.test(answerId) || !fieldsOk(fields) || fields.some(([name, value]) => CONTROL.test(name) || CONTROL.test(value)) || Buffer.byteLength(JSON.stringify(fields)) > MAX_ANSWER) return no(400, "bad_request", "The answer is not a list of at most 64 text fields, under 12 KB, with no control characters.");
+			const now = Date.now(), k = `${cap}\n${answerId}`;
+			for (const [id, v] of answers) if (v.until < now || answers.size >= MAX_NONCES) answers.delete(id);
+			const had = answers.get(k);
+			if (had) return had.reply;
+			const reply = hub.form(cap, answerId, fields).then((r) => {
+				if (!r) return no(504, "not_confirmed", "Check the terminal: the session did not confirm the answer, so it may or may not have arrived.");
+				if (r.accepted) return { status: 200, body: { accepted: true } };
+				return no(409, "refused", r.reason === "closed" ? "The document is no longer open in its session." : r.reason === "empty" ? "The form has no fields to send." : `The session refused it (${r.reason ?? "no reason"}).`);
+			});
+			answers.set(k, { until: now + NONCE_MS, reply });
+			return reply;
 		},
 		/** GET /<t>/api/doc/<cap>: a text document for the page's renderer. */
 		text(cap: string, lan?: { cookie: boolean }): { status: number; body: unknown } {

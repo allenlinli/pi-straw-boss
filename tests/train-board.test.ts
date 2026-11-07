@@ -232,7 +232,7 @@ test("readTrainboards lists every train of every project in project and code ord
 	assert.match((all.trains.find((t) => t.code === "2026-11-06-empty") as { reason: string }).reason, /no board\.json|cannot read/);
 	assert.deepEqual(readTrainboards(root, { project: "zeta" }).trains.map((t) => t.code), ["2026-11-06-a"]);
 	assert.deepEqual(readTrainboards(root, { project: "..%2f" }).trains, []);
-	assert.deepEqual(readTrainboards(join(root, "nothing")), { trains: [], truncated: false });
+	assert.deepEqual(readTrainboards(join(root, "nothing")), { trains: [], truncated: false, unlisted: [] });
 });
 
 test("at most 64 trains are read, the rest said to be left out", () => {

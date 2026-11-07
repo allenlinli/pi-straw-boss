@@ -64,3 +64,16 @@ test("the semantic colours are the ones the spec names: bone text, candle gold f
 test("nothing in the raven rules hides the page's text under the backdrop: every panel keeps a translucent solid ground", () => {
 	assert.match(block.body, /--well:\s*rgba\(/);
 });
+
+test("the head band's text holds 4.5 : 1 on the band as Raven Keep paints it: the name and the newest line on its gold wash over --surface-0, the waits chip's amber on its 16% amber wash (docs/specs/2026-11-07-head-band.md)", () => {
+	const band = must(rules.find((r) => r.selector === `${RAVEN} .head-node`), "the keep's band rule");
+	const bg = must(declarations(band.body).find(([p]) => p === "background")?.[1], "the band's background");
+	const gold = Number(must(/color-mix\(in srgb, var\(--gold\) ([\d.]+)%/.exec(bg) ?? undefined, "the band's gold wash")[1]);
+	assert.ok(bg.endsWith("var(--surface-0)"), `the wash sits on --surface-0: ${bg}`);
+	const ground = mix(raven.gold!, gold / 100, raven["surface-0"]!);
+	for (const text of ["text", "dim"]) for (const under of [ground, raven["surface-0"]!]) assert.ok(contrast(raven[text]!, under) >= MIN, `--${text} on the band (${under}): ${contrast(raven[text]!, under).toFixed(2)}`);
+	const chip = must(entryRules.find((r) => r.selector === ".head-node .head-waits"), "the waits chip rule");
+	const share = Number(must(/color-mix\(in srgb, var\(--amber\) ([\d.]+)%/.exec(declarations(chip.body).find(([p]) => p === "background")?.[1] ?? "") ?? undefined, "the chip's amber wash")[1]);
+	const pill = mix(raven.amber!, share / 100, ground);
+	assert.ok(contrast(raven.amber!, pill) >= MIN, `the chip's --amber on ${share}% of itself over the band (${pill}): ${contrast(raven.amber!, pill).toFixed(2)}`);
+});

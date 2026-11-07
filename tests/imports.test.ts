@@ -1047,6 +1047,7 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head band (measured, node 24): 122,069 / 44,492, +1,232 / +440: headband.ts and the routing in render.ts (headpage.ts's ask grouping now loads with the map), less the old curve code; the stylesheet rules for the band. Cap = measured.
 	// Head band newest-line fallback (measured, node 24): 122,077 / 44,493, +8 / +1 over the 122,069 / 44,492 above: `HeadUnit.line` through newestLine (demo-head.ts is not in the built page), the band's 32 px room under it, and the unused `packets()` dropped. Cap = measured.
 	// Head page (todo #130, measured, node 24) on the head band: 122,501 / 44,585, +424 / +92 over the 122,077 / 44,493 above: the log's fold, the `queued_start` and `head_log_title` words, the five `queued_wait_*` reasons in both languages (named one by one in bars.ts: a computed `m[...]` keeps every message of the catalogue in the chunk, +2 KB), and the `start` label in the queue bar. Cap = measured.
+	// Raven status motion (measured, node 24): raw 122,077 as before, gzipped 44,493 to 44,494: the hashed name of raven's stylesheet, which boot.js and the theme list carry, changed with raven.css, and the chunk names move the gzipped figure by a byte. Gzipped cap = measured + 15.
 	assert.ok(eagerBytes <= 122_501 && eagerGz <= 44_585, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
@@ -1236,7 +1237,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head band (measured, node 24): 253,311 / 104,001 to 253,316 / 104,006 (+5 / +5): headpage.ts now loads with the map, so the chunks that shared it with the map are split differently. Cap = measured.
 	// Head band newest-line fallback (measured, node 24): 253,316 / 104,012, +0 / +6 (the chunk names' hashes moved with the rebuilt map chunk). Cap = measured.
 	// Head page (todo #130, measured, node 24) on the head band: 254,244 / 104,284, +928 / +272 over the 253,316 / 104,012 above: the `queued_start`, `head_log_title`, and five `queued_wait_*` words in both languages (the chat chunks carry the shared message module). Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 254_244 && total(chunks, gz) <= 104_284, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Raven status motion on the head page (measured, node 24): 254,244 / 104,288, +0 / +4 (the chunk names' hashes moved with raven.css's hash). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 254_244 && total(chunks, gz) <= 104_288, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1395,7 +1397,9 @@ test("each theme's folder stays within its byte cap", () => {
 	// Raven light (measured, node 24): raven 236,417 / 155,182 to 259,440 / 177,015 (+23,023 / +21,833: the perched raven's two-frame WebP strip 21,562, which does not compress, and the stylesheet's rest veil, strike layers, and perch rules, about 1.4 KB). The spec's 450 KB ceiling holds.
 	// Merge of the head band with raven light (measured, node 24): raven 259,440 / 177,015 to 259,792 / 177,106 (+352 / +91: the keep's band skin lines on top of the lighting), Zen gzip 39,697 as measured. Caps = measured.
 	// Head page review round (todo #130, measured): zen 39,697 to 39,703 gzipped (+6): the five `queued_wait_*` words in the Zen chunk's message module.
-	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [125_735, 39_703], raven: [259_792, 177_106] };
+	// Raven status motion (measured, node 24): raven 259,792 / 177,106 to 266,509 / 178,103 (+6,717 / +997: raven.css, which grew with the seal, mist, soul-fire, and bat figures, their keyframes, and the forced-colours rules; the candle keyframes left). Standard's stylesheet and Geek and Zen are as they were. Cap = measured.
+	// Merge of raven status motion with the head page round (measured, node 24): raven 266,505 / 178,095 (the chunk name in raven's entry moved). Caps = measured.
+	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [125_735, 39_703], raven: [266_505, 178_095] };
 	// Raven Keep review round 2 (measured, node 24): raven 227,821 / 152,777 to 236,417 / 155,182 (+8,596 / +2,405: the crest brand symbol in the sprite, the moon veil, the tome in the documents list). Cap = measured.
 	assert.deepEqual(readdirSync(dir).sort(), Object.keys(caps).sort(), "a folder per theme and no other");
 	assert.ok(caps.raven![0] <= 450_000, "Raven Keep stays within the spec's 450 KB (spec §1.5)");

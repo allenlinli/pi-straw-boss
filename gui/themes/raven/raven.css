@@ -124,8 +124,20 @@ html[data-view="raven"] .stage[data-view="head"]::after { background-position: 1
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::after { animation: rk-flap 0.46s steps(1, end) infinite, rk-raven 83s linear 21s infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"]::before { animation: rk-perch-lit 61s linear infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"]::after { animation: rk-perch-lit 61s linear infinite, rk-perch-turn 17s linear infinite; }
-	/* A unit that waits burns like a candle: its ring flickers instead of pinging. */
-	html[data-view="raven"]:not([data-calm]) .tower[data-mark="waiting"] .pulse, html[data-view="raven"]:not([data-calm]) .plate[data-mark="waiting"]::after { animation: rk-candle 2.9s ease-in-out infinite; }
+	/* Status motion (boss, 2026-11-08, option C): where Standard sweeps, spins, and pings, the keep draws a seal, breathes mist, and swells a soul-fire. Nothing here turns. The still figures are above (the block "Status"), so calm and reduced motion keep them. */
+	/* working: a seal drawn up both sides to its diamond over two layers of mist, and a bat for the small badge. Standard's own spin on the host is stopped; its pseudo-elements carry the drawing. */
+	html[data-view="raven"]:not([data-calm]) .tower[data-mark="working"] > .sweep, html[data-view="raven"]:not([data-calm]) .plate[data-mark="working"] > .ring { animation: none; }
+	html[data-view="raven"]:not([data-calm]) .tower[data-mark="working"] > .sweep::before, html[data-view="raven"]:not([data-calm]) .plate[data-mark="working"] > .ring::before { animation: rk-seal 4.2s ease-in-out infinite; }
+	html[data-view="raven"]:not([data-calm]) .tower[data-mark="working"] > .sweep::after, html[data-view="raven"]:not([data-calm]) .plate[data-mark="working"] > .ring::after { animation: rk-dia 4.2s ease-in-out infinite; }
+	html[data-view="raven"]:not([data-calm]) .tower[data-mark="working"] > .pulse, html[data-view="raven"]:not([data-calm]) .plate[data-mark="working"]::after { animation: rk-mist-a 4.4s ease-in-out infinite, rk-mist-b 5.6s ease-in-out -2.2s infinite; }
+	html[data-view="raven"]:not([data-calm]) [data-mark="working"] > .badge::after { animation: rk-wing 0.9s ease-in-out infinite; }
+	/* waiting: the soul-fire swells and sinks inside the disc under a dotted ring that breathes, and the small badge floats. */
+	html[data-view="raven"]:not([data-calm]) .tower[data-mark="waiting"] > .sweep::before, html[data-view="raven"]:not([data-calm]) .plate[data-mark="waiting"] > .ring::before { animation: rk-dots 3s ease-in-out infinite; }
+	html[data-view="raven"]:not([data-calm]) .tower[data-mark="waiting"] > .pulse, html[data-view="raven"]:not([data-calm]) .plate[data-mark="waiting"]::after { animation: rk-soul 3.2s ease-in-out infinite; }
+	html[data-view="raven"]:not([data-calm]) [data-mark="waiting"] > .badge { animation: rk-bob 2.4s ease-in-out infinite; }
+	/* the connection overlay: a soul-fire swells in the ring instead of the ring turning */
+	html[data-view="raven"]:not([data-calm]) .connect-ring { animation: none; }
+	html[data-view="raven"]:not([data-calm]) .connect-ring::after { animation: rk-soul 3.2s ease-in-out infinite; }
 }
 @keyframes rk-lit-a { 0% { --rk-a: 0.55; } 18% { --rk-a: 0.9; } 33% { --rk-a: 0.5; } 52% { --rk-a: 0.85; } 71% { --rk-a: 0.62; } 100% { --rk-a: 0.78; } }
 @keyframes rk-lit-b { 0% { --rk-b: 0.8; } 22% { --rk-b: 0.5; } 40% { --rk-b: 0.95; } 63% { --rk-b: 0.58; } 81% { --rk-b: 0.9; } 100% { --rk-b: 0.66; } }
@@ -147,9 +159,49 @@ html[data-view="raven"] .stage[data-view="head"]::after { background-position: 1
 }
 @keyframes rk-flap { 0% { background-position: 0 0; } 50% { background-position: 100% 0; } }
 @keyframes rk-raven { 0% { translate: -20vw 0; opacity: 0; } 1% { opacity: 1; } 7% { translate: calc(var(--rk-w) * 0.3) calc(var(--rk-w) * 0.012); } 12% { translate: calc(var(--rk-w) * 0.62) calc(var(--rk-w) * -0.006); opacity: 1; } 13%, 100% { translate: calc(var(--rk-w) + 10vw) 0; opacity: 0; } }
-@keyframes rk-candle { 0%, 100% { opacity: 0.5; transform: scale(1.12); } 18% { opacity: 0.85; transform: scale(1.3); } 33% { opacity: 0.4; transform: scale(1.1); } 52% { opacity: 0.9; transform: scale(1.32); } 71% { opacity: 0.55; transform: scale(1.18); } 86% { opacity: 0.75; transform: scale(1.25); } }
+/* The seal: the ring is drawn from the foot up both sides (the mask's top edge climbs from 7 to 94 percent), holds with its diamond, and fades. The mist: two registered numbers breathe at 4.4 s and 5.6 s. The soul-fire swells from small to large and back in 3.2 s, the dots breathe in 3 s, the bat's wings beat in 0.9 s, the waiting badge floats in 2.4 s. None of them turns. */
+@keyframes rk-seal { 0% { --rk-seal: 7%; opacity: 0; } 6% { opacity: 1; } 52%, 76% { --rk-seal: 94%; opacity: 1; } 100% { --rk-seal: 94%; opacity: 0; } }
+@keyframes rk-dia { 0%, 50% { opacity: 0; } 58%, 76% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes rk-mist-a { 0%, 100% { --rk-m1: 0; } 50% { --rk-m1: 1; } }
+@keyframes rk-mist-b { 0%, 100% { --rk-m2: 0; } 50% { --rk-m2: 1; } }
+@keyframes rk-soul { 0%, 100% { opacity: 0.3; transform: scale(0.5); } 50% { opacity: 0.95; transform: scale(1.18); } }
+@keyframes rk-dots { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+@keyframes rk-wing { 0%, 100% { transform: scale(1, 1) translateY(0); } 50% { transform: scale(0.62, 1.35) translateY(-0.6px); } }
+@keyframes rk-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 /* Forced colours draw the page in system colours: the picture and its weather go. */
 @media (forced-colors: active) { html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after, html[data-view="raven"]:has(#stage[data-view="head"]) body::before, html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
 /* The documents list in the dossier: the tome icon (sprite `doc`, set by docList) stands where Standard's paper sheet is drawn in the row's background. */
 html[data-view="raven"] .d-doc { position: relative; background-image: none; }
 html[data-view="raven"] .d-doc-ico { display: block; position: absolute; left: 8px; top: 50%; translate: 0 -50%; width: 16px; height: 16px; fill: currentColor; color: var(--accent); }
+/* Status (boss, 2026-11-08: "no radar and no turning, a little fantasy"; option C of the mockup). Standard marks a working unit with a conic sweep that turns (a tower) or a ring that spins (a plate) and a spinning badge, and a waiting one with a ping; the keep draws other figures on the same elements, and none of them turns or sweeps.
+   Working is a seal: a ring drawn up from the foot on both sides to a diamond at the top, over two layers of mist under the disc, and a bat on the small badge. Waiting is a soul-fire inside the disc under a dotted ring, and the small badge floats. The two differ in shape, not hue alone. This block is the still figure each state keeps under calm, prefers-reduced-motion, and forced colours;
+   the motion is the end of the no-preference block above. The tower's `.sweep` and the plate's `.ring` are the seal's ring (::before) and diamond (::after); the tower's `.pulse` and the plate's ::after are the mist and the soul-fire. An ally's tower has no `.sweep`, so it shows the mist and the soul-fire only. */
+@property --rk-seal { syntax: "<percentage>"; inherits: false; initial-value: 94%; }
+@property --rk-m1 { syntax: "<number>"; inherits: false; initial-value: 0.6; }
+@property --rk-m2 { syntax: "<number>"; inherits: false; initial-value: 0.4; }
+html[data-view="raven"] .tower > .sweep, html[data-view="raven"] .plate > .ring { inset: -3px; border-radius: 0; opacity: 1; background: none; mask: none; }
+html[data-view="raven"] :is(.tower, .plate) > svg { position: relative; z-index: 2; }
+html[data-view="raven"] :is(.tower, .plate) > .badge { z-index: 3; }
+/* the seal: a solid ring that stops short of the foot and the top, and its diamond (a polygon, not a turned square) */
+html[data-view="raven"] .tower[data-mark="working"] > .sweep::before, html[data-view="raven"] .plate[data-mark="working"] > .ring::before { content: ""; position: absolute; inset: 0; box-sizing: border-box; border: 2px solid var(--c); border-radius: 50%; filter: drop-shadow(0 0 2px var(--accent-hi)); mask-image: linear-gradient(to top, transparent 7%, #000 8.5%, #000 calc(var(--rk-seal) - 2%), transparent var(--rk-seal)); }
+html[data-view="raven"] .tower[data-mark="working"] > .sweep::after, html[data-view="raven"] .plate[data-mark="working"] > .ring::after { content: ""; position: absolute; left: calc(50% - 2.5px); top: -1.5px; width: 5px; height: 5px; background: var(--accent-hi); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+/* the mist: two soft ellipses under the disc, each breathing on a number of its own (--rk-m1, --rk-m2) */
+html[data-view="raven"] .tower[data-mark="working"] > .pulse, html[data-view="raven"] .plate[data-mark="working"]::after { content: ""; inset: auto -9px -8px -9px; height: 20px; z-index: 1; border: 0; border-radius: 0; opacity: 1; background: radial-gradient(ellipse calc(50% * (0.85 + 0.3 * var(--rk-m1))) calc(35% * (0.85 + 0.3 * var(--rk-m1))) at calc(50% + (var(--rk-m1) - 0.5) * 11%) 50%, rgb(190 178 214 / calc(0.5 * (0.3 + 0.55 * var(--rk-m1)))), transparent 70%), radial-gradient(ellipse calc(38% * (0.85 + 0.3 * var(--rk-m2))) calc(35% * (0.85 + 0.3 * var(--rk-m2))) at calc(50% + (var(--rk-m2) - 0.5) * 11%) 35%, rgb(190 178 214 / calc(0.3 * (0.3 + 0.55 * var(--rk-m2)))), transparent 70%); }
+/* the bat on the small badge: a mask of the small drawing, in the badge's ink */
+html[data-view="raven"] [data-mark="working"] > .badge::after { width: 75%; height: auto; aspect-ratio: 40 / 18; border: 0; border-radius: 0; background: var(--ink); mask: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2040%2018%27%3E%3Cpath%20d=%27M20%2011%2017%205%2011%202%208%207%202%205%208%2013%2014%2011%2018%2014%2020%2010%2022%2014%2026%2011%2032%2013%2038%205%2032%207%2029%202%2023%205Z%27/%3E%3C/svg%3E") center / contain no-repeat; transform-origin: 50% 60%; }
+/* waiting: a dotted ring, and a soul-fire inside the disc (calm and reduced motion keep it at four fifths, a little under full size) */
+html[data-view="raven"] .tower[data-mark="waiting"] > .sweep::before, html[data-view="raven"] .plate[data-mark="waiting"] > .ring::before { content: ""; position: absolute; inset: 0; box-sizing: border-box; border: 2px dotted var(--c); border-radius: 50%; opacity: 0.85; }
+html[data-view="raven"] .tower[data-mark="waiting"] > .pulse, html[data-view="raven"] .plate[data-mark="waiting"]::after { content: ""; inset: 6%; z-index: 1; border: 0; border-radius: 50%; opacity: 0.8; transform: scale(0.9); background: radial-gradient(circle, rgb(255 229 160 / 0.95) 0%, color-mix(in srgb, var(--c) 70%, transparent) 38%, transparent 70%); }
+/* the connection overlay: a dotted ring with a soul-fire in it, a plain red ring when the stream gave up */
+html[data-view="raven"] .connect-ring { position: relative; border: 2px dotted var(--accent); }
+html[data-view="raven"] .connect-ring::after { content: ""; position: absolute; inset: 15%; border-radius: 50%; opacity: 0.8; transform: scale(0.9); background: radial-gradient(circle, rgb(255 229 160 / 0.95) 0%, color-mix(in srgb, var(--accent) 70%, transparent) 38%, transparent 70%); }
+html[data-view="raven"] .connect:is([data-state="offline"], [data-state="replaced"]) .connect-ring { border: 3px solid var(--err); }
+html[data-view="raven"] .connect:is([data-state="offline"], [data-state="replaced"]) .connect-ring::after { display: none; }
+/* Forced colours: nothing moves (Standard's spin and hop included) and the figures take system colours; the mist is only air and goes. */
+@media (forced-colors: active) {
+	html[data-view="raven"] .tower > .sweep, html[data-view="raven"] .tower > .sweep::before, html[data-view="raven"] .tower > .sweep::after, html[data-view="raven"] .tower > .pulse, html[data-view="raven"] .plate > .ring, html[data-view="raven"] .plate > .ring::before, html[data-view="raven"] .plate > .ring::after, html[data-view="raven"] .plate::after, html[data-view="raven"] .badge, html[data-view="raven"] .badge::after, html[data-view="raven"] .connect-ring, html[data-view="raven"] .connect-ring::after { animation: none !important; }
+	html[data-view="raven"] .tower[data-mark="working"] > .sweep::after, html[data-view="raven"] .plate[data-mark="working"] > .ring::after { forced-color-adjust: none; background: CanvasText; }
+	html[data-view="raven"] [data-mark="working"] > .badge::after { forced-color-adjust: none; background: CanvasText; }
+	html[data-view="raven"] .tower[data-mark="waiting"] > .pulse, html[data-view="raven"] .plate[data-mark="waiting"]::after, html[data-view="raven"] .connect-ring::after { forced-color-adjust: none; background: radial-gradient(circle, Highlight 0 45%, transparent 70%); }
+	html[data-view="raven"] .tower[data-mark="working"] > .pulse, html[data-view="raven"] .plate[data-mark="working"]::after { display: none; }
+}

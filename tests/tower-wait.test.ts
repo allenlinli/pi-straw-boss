@@ -74,32 +74,33 @@ test("a snapshot drawn while the panel's chunk loads is not overwritten by the o
 	assert.equal(box.find((el) => el.tag === "textarea").length, 0);
 });
 
-test("the wait's row on the card mounts the wait panel: Handle unfolds the answer box that tells the tower, Dismiss posts the dismiss by the wait's id, and the link goes to the tower's comms", async () => {
+test("the wait's row on the card mounts the wait card: the reply fold unfolds the answer box that tells the tower, Skip's second tap posts the decline press by the wait's id, and the row has no link to the comms", async () => {
 	const sent: { path: string; body: Record<string, unknown> }[] = [];
 	Object.assign(globalThis.document, { querySelector: () => ({ content: "CSRF" }) });
 	Object.assign(globalThis, { fetch: async (path: string, init: { body: string }) => (sent.push({ path, body: JSON.parse(init.body) }), { ok: true, status: 200, json: async () => (path.endsWith("/memory") ? { rev: 5, proposals: [], entries: [] } : { accepted: true, woke: true }) }) });
 	const box = new El("div");
 	fillNotices(box as unknown as HTMLElement, "wA", service([FRESH]), "sb-tower-wa");
-	await new Promise((done) => setTimeout(done, 50)); // the panel loads with the first wait row
-	const buttons = box.find((el) => el.tag === "button");
-	assert.deepEqual(buttons.map((b) => b.textContent), [m.tower_answer(), m.send(), m.wait_dismiss()]);
-	const [handle, send, dismiss] = buttons as unknown as { onclick(): void; hidden: boolean }[];
-	assert.equal(send!.hidden, true, "Send waits for Handle");
-	dismiss!.onclick();
+	await new Promise((done) => setTimeout(done, 50)); // the card loads with the first wait row
+	(box.find((el) => el.classes.has("wc-fold"))[0] as unknown as { click(): void }).click();
+	const by = (label: string) => box.find((el) => el.tag === "button" && el.textContent === label)[0] as unknown as { onclick(): void; click(): void; hidden: boolean };
+	const labels = box.find((el) => el.tag === "button").map((b) => b.textContent);
+	for (const want of [m.wc_b_restate(), m.wc_b_reply(), m.wc_b_skip(), m.send()]) assert.ok(labels.includes(want), `the unfolded row has ${want}`);
+	assert.equal(by(m.send()).hidden, true, "Send waits for the reply fold");
+	by(m.wc_b_skip()).click();
+	assert.equal(sent.length, 0, "the first tap of Skip sends nothing");
+	by(m.wc_skip_yes()).click();
 	await new Promise((done) => setTimeout(done, 5));
-	assert.deepEqual(sent, [{ path: "api/tower/wA/memory", body: { op: "drop", id: "W2" } }]);
-	handle!.onclick();
+	assert.deepEqual(sent, [{ path: "api/tower/wA/memory", body: { op: "press", id: "W2", act: "decline" } }]);
+	by(m.wc_b_reply()).click();
 	const text = box.find((el) => el.tag === "textarea")[0]!;
 	text.value = "Yes, deploy";
 	text.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
 	await new Promise((done) => setTimeout(done, 5));
 	assert.deepEqual(sent.at(-1), { path: "api/sessions/sb-tower-wa/input", body: { text: "Yes, deploy", as: "send", answers: "W2" } }, "the tower's session input, as the comms' composer sends it, naming the wait it answers");
-	const link = box.find((el) => el.tag === "a")[0]!;
-	assert.equal(link.attrs.get("data-route"), "w/wA/s/sb-tower-wa");
-	assert.equal(link.textContent, m.wait_goto());
+	assert.equal(box.find((el) => el.tag === "a").length, 0, "no link to the comms on a row");
 	const again = box.find((el) => el.tag === "textarea")[0]!;
 	fillNotices(box as unknown as HTMLElement, "wA", service([{ ...FRESH, at: iso(NOW - 3 * HOUR) }], 5), "sb-tower-wa"); // the row's age changed: it is redrawn
-	assert.equal(box.find((el) => el.tag === "textarea")[0], again, "the panel, and a draft in it, outlives a redraw");
+	assert.equal(box.find((el) => el.tag === "textarea")[0], again, "the card, and a draft in it, outlives a redraw");
 });
 
 const rowRig = async (ws: string, key: string) => {
@@ -110,7 +111,8 @@ const rowRig = async (ws: string, key: string) => {
 	draw(service([FRESH]));
 	await new Promise((done) => setTimeout(done, 50));
 	const enter = (el: El) => el.bubble("keydown", { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 });
-	return { sent, box, draw, enter, handle: box.find((el) => el.tag === "button")[0]!, text: box.find((el) => el.tag === "textarea")[0]!, form: box.find((el) => el.tag === "form")[0]! };
+	(box.find((el) => el.classes.has("wc-fold"))[0] as unknown as { click(): void }).click();
+	return { sent, box, draw, enter, handle: box.find((el) => el.tag === "button" && el.textContent === m.wc_b_reply())[0]!, text: box.find((el) => el.tag === "textarea")[0]!, form: box.find((el) => el.tag === "form")[0]! };
 };
 
 test("once the tower took the words, the row clears and folds its box, so a second Enter sends nothing", async () => {
@@ -147,7 +149,7 @@ test("a wait for the boss that is under a day old is an alert of the tower, rais
 	assert.equal(waits.length, 1, "the day-old wait is on the card and in the memory, not an alert that buzzes at every page load");
 	const [a] = waits;
 	assert.deepEqual([a!.key, a!.ws, a!.unit, a!.name, a!.mark, a!.note, rankOf(a!)], ["wait\u001fw\u001fW2", "w", "t1", "tower · Harbor", "waiting", FRESH.text, 0]);
-	assert.deepEqual({ ...a!.wait }, { id: "W2", text: FRESH.text });
+	assert.deepEqual({ ...a!.wait }, { id: "W2", text: FRESH.text, entry: FRESH }, "the alert carries the wait as the snapshot has it, for the card");
 	assert.deepEqual(arrivals(undefined, first).filter((x) => x.wait).map((x) => x.key), [a!.key], "it arrives");
 	const next = alertsOf(net([OLD, FRESH]), NOW + 2000);
 	assert.deepEqual(arrivals(first, next).filter((x) => x.wait), [], "and not again at the next snapshot");

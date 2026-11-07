@@ -1,5 +1,5 @@
 import { HEAD_KEY } from "../src/headkey.ts";
-import type { Net } from "../src/net.ts";
+import type { BossWait, Net } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
 import { cardAlerts, cardSig, explainer } from "./cardalerts.ts";
 import { answerPost, canAnswer, trustPost } from "./answer.ts";
@@ -30,7 +30,7 @@ import { mountPalette } from "./palette.ts";
 import { entriesOf } from "./paletteentries.ts";
 import { ESC_MS, escStep } from "./zenkeys.ts";
 import { mountZenTerm } from "./zenterm.ts";
-import { waitPanel } from "./waitpanel.ts";
+import { waitCard } from "./waitcard.ts";
 import { mountMenu } from "./zenmenu.ts";
 import { mountMusic } from "./zenmusicbar.ts";
 import { syncQuestions } from "./zenquestions.ts";
@@ -154,16 +154,18 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		ctx.onclick = () => void toggle();
 		ctx.hidden = true;
 		skip.onclick = () => apply(model.skip());
-		if (a.wait) said.textContent = a.wait.text; // a wait for the boss says what it waits for, not what the tower last said
+		if (a.wait) said.hidden = true; // a wait for the boss is the card (waitcard.ts): it says what happened and what to do, not what the tower last said
 		else if (a.card) said.textContent = cardSaid(a.card);
 		else if (!trust) void deps.recent(key).then((items) => (said.textContent = intel(items).said ?? ""), () => {});
 		const answer: AnswerPost = (action, body) => tell(a.key, to(key)(action, body));
 		const online = deps.online;
 		if (a.wait) {
-			// The answer is typed on the card and goes where Standard's composer sends it: the tower's session `input` (asks.ts `waitActions`); the card never leaves Zen.
-			const panel = waitPanel({ actions: waitActions({ ws: a.ws, id: a.wait.id, tower: key }, to(key)), reply: true, send: (reply) => tell(a.key, reply) });
-			slot.replaceChildren(panel.el);
-			return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: panel.enter, cancel: () => false, sending: () => panel.sending(), replying: panel.isOpen, foldReply: () => panel.fold(true), update: (x, outcome) => (panel.update(online() && !endedOf(outcome), endedOf(outcome)), say(out, outcome, x)) };
+			// The card's buttons press at the memory route and its reply box goes where Standard's composer sends it: the tower's session `input` (asks.ts `waitActions`); the card never leaves Zen, and an ending press plays the card's outcome through `send`.
+			const entry = (x: Alert): BossWait => x.wait!.entry ?? { id: x.wait!.id, text: x.wait!.text, at: new Date(x.since ?? x.at).toISOString() };
+			const wc = waitCard({ host: "zen", wait: entry(a), actions: waitActions({ ws: a.ws, id: a.wait.id, tower: key }, to(key)), remote, send: (reply) => tell(a.key, reply) });
+			const secretOpen = (x: Alert) => () => { const k = x.wait?.entry?.card?.from?.key; return Boolean(k && net && locate(net, k)?.u.pending?.tool === "secret_drop"); }; // the raiser's `secret_drop` dialog is pending: the second step of a secret card says to enter it in the terminal
+			slot.replaceChildren(wc.el);
+			return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: wc.enter, cancel: () => false, sending: () => wc.sending(), replying: wc.isOpen, foldReply: () => wc.foldReply(), update: (x, outcome) => (wc.secretWhen(secretOpen(x)), wc.update(entry(x), online() && !endedOf(outcome), endedOf(outcome)), say(out, outcome, x)) };
 		}
 		if (a.card) {
 			// A question outside a unit's dialog (cardalerts.ts): each answers through the shared action of asks.ts, the call Standard's row makes, and the server's list decides when it is over.

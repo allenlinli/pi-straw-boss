@@ -378,6 +378,7 @@ body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /
 .tower-notices .tnote span { flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; }
 .tower-notices .tnote.error span { color: var(--err-soft); }
 .tower-notices .tnote.warning span { color: var(--gold); }
+.tower-notices .tnote .wait-card span { color: inherit; } /* a wait row is a card: its spans keep the card's colours, not the notice's */
 .tower-notices .tnote .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .tower-notices .tnote .tnote-fail:empty { display: none; }
 .tower-notices .tnote button:disabled { opacity: 0.6; cursor: progress; }
 .wait-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; } .wait-text { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; } .wait-panel .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .wait-panel .tnote-fail:empty { display: none; }
@@ -389,6 +390,32 @@ html:not([data-view="zen"]) .wait-box { box-sizing: border-box; width: 100%; min
 @supports (field-sizing: content) { html:not([data-view="zen"]) .wait-box { field-sizing: content; max-height: 220px; } }
 html:not([data-view="zen"]) .wait-box:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
 .wait-note { margin: 0; color: var(--err-soft); font-size: 0.95em; } .wait-note:empty { display: none; }
+/* A wait card (waitcard.ts, docs/specs/2026-11-07-wait-cards.md): the tag and who raised it, the parts (a label above its text), the state in words, then the buttons; the dock's dialog shows it whole, a row folds it to one line. Zen restyles it in zen.css. */
+.wait-card { display: grid; gap: 8px; min-width: 0; flex: 1 1 100%; margin-top: 8px; text-align: left; } .wait-card[hidden], .wait-card [hidden] { display: none; }
+.wait-card .wc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; } .wait-card .wc-tag { color: var(--gold); font: 600 12px var(--sans); letter-spacing: 0.06em; } .wait-card .wc-raised { color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
+.wait-card .wc-parts { display: grid; gap: 8px; } .wait-card .wc-part { display: grid; gap: 2px; min-width: 0; } .wait-card .wc-label { color: var(--dim); font: 600 11px var(--sans); letter-spacing: 0.06em; }
+.wait-card .wc-text { overflow-wrap: anywhere; white-space: pre-line; } .wait-card .wc-url { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.wait-card .wc-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.wait-card .wc-more { justify-self: start; background: none; border: 0; color: var(--dim); font: 12px var(--sans); text-decoration: underline; cursor: pointer; padding: 2px 0; }
+.wait-card .wc-cmd { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--sunken, transparent); font: 12px var(--mono); white-space: pre; overflow-x: auto; max-width: 100%; }
+.wait-card .wc-norun, .wait-card .wc-copied { color: var(--dim); font-size: 12px; } .wait-card .wc-copied:empty { display: none; }
+.wait-card :is(.wc-open, .wc-copy) { justify-self: start; }
+.wait-card .wc-state { margin: 0; color: var(--ok); font-size: 0.9em; overflow-wrap: anywhere; } .wait-card .wc-remote { margin: 0; color: var(--gold); font-weight: 600; }
+.wait-card[data-phase="ended"] .wc-parts, .wait-card[data-phase="ended"] .wc-head { text-decoration: line-through; opacity: 0.6; } .wait-card[data-phase="ended"] .wc-state { color: var(--dim); }
+.wait-card .wc-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wait-card .pair-btn { text-transform: none; letter-spacing: 0; white-space: normal; font-size: 13px; } .wait-card .wc-primary { border: 0; background: var(--accent); color: var(--ink); }
+.wait-card .wc-opt { display: grid; justify-items: start; gap: 2px; flex: 1 1 100%; text-align: left; padding: 8px 12px; } .wait-card .wc-opt small { color: var(--dim); font-weight: 400; font-size: 12px; } .wait-card .wc-opt.wc-picked { border-color: var(--accent); color: var(--text); }
+.wait-card .wc-opt:disabled:not(.wc-picked) { opacity: 0.5; }
+.wait-card .wc-fold { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; width: 100%; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; } .wait-card .wc-fold .wc-do { flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; }
+.wait-card[data-host="row"] { margin-top: 0; }
+.wait-card[data-host="dialog"] { margin-top: 12px; } .tower-notices .tnote + .tnote { padding-top: 8px; border-top: 1px solid var(--line); }
+.wait-card .wc-skip-box { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; } .wait-card .wc-skip-tells { margin: 0; } .wait-card .wc-skip-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.wait-card .wc-skip-reason { box-sizing: border-box; width: 100%; min-height: 44px; resize: none; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--sunken, transparent); color: var(--text); font: inherit; }
+.wait-card .wc-fail { color: var(--err-soft); } .wait-card .wc-fail:empty { display: none; }
+.wait-card .wait-panel { display: contents; } .wait-card .wait-panel .wait-go { justify-self: start; }
+.wait-card .wc-acts .wait-go { border: 1px solid var(--line); background: none; color: var(--dim); } .dialog[data-wait] .wait-card .wc-acts .wait-go { border: 1px solid var(--line); background: none; color: var(--text); } .wait-card .wait-panel .wait-go { background: var(--accent); color: var(--ink); border: 0; }
+.dialog[data-wait] footer .wc-skip { text-transform: none; letter-spacing: 0; font-size: 13px; }
+.wait-card[data-host="row"][data-folded="true"] { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; } .wait-card[data-host="row"][data-folded="true"] > .wc-head { flex: 1 1 16em; min-width: 0; } .wait-card[data-host="row"][data-folded="true"] > .wc-acts { flex: 0 0 auto; } .wait-card[data-host="row"][data-folded="true"] > :is(.wc-state, .wc-fail) { flex: 1 1 100%; }
 /* In the comms the same rows sit between the log and the composer. */
 .tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))):not(:has(> .head-asks:not([hidden]))):not(:has(> .head-absent:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }
 /* The tower's queue on its map card, and the sentence that stands where a standing tower's terminal would be. */
@@ -989,6 +1016,9 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.composer textarea { min-height: 56px; } .cmp-row { gap: 8px 10px; }
 	.comms-in .ask-acts { position: sticky; bottom: -12px; margin: 0 -14px -12px; padding: 8px 14px 12px; background: color-mix(in srgb, var(--amber) 6%, var(--bg)); } /* Send answer stays in view while a long question scrolls */
 	.composer :is(.cmp-alt, .cmp-send) { min-height: 48px; } .composer .cmp-alt { min-width: 48px; } .composer .cmp-send { min-width: 64px; }
+	/* A wait card (waitcard.ts): parts stack, every button and link is 44 px with 8 px between, the primary and each choice take the width, a long URL wraps anywhere, a command scrolls sideways. */
+	.wait-card :is(.pair-btn, .wc-fold, .wc-more) { min-height: 44px; min-width: 44px; } .wait-card .wc-acts { gap: 8px; } .wait-card .wc-primary { flex: 1 1 100%; } .wait-card .wc-opt { flex: 1 1 100%; min-height: 44px; }
+	.wait-card .wc-url { overflow-wrap: anywhere; } .wait-card .wc-cmd { overflow-x: auto; } .wait-card :is(.wc-open, .wc-copy) { justify-self: stretch; } .wait-card .wc-skip-acts { gap: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { *:not(.zen-hl), *::before, *::after { animation: none !important; transition: none !important; } .connect-reload { animation: connect-reveal 0s linear 10s forwards !important; } } /* the Reload link's delay is no motion, and without it the way out would stay hidden; the head's Zen lines (zen.css) step to their rest level once, with a delay their script sets, which an !important shorthand would reset */
 

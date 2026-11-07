@@ -12,7 +12,7 @@ import { m } from "./paraglide/messages.js";
 import { aim, byId, doing, fillPlate, hang, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
 import { mountStepSlot } from "./stepslot.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
-import { waitDialog } from "./waitpanel.ts";
+import { waitDialog } from "./waitcard.ts";
 
 // The overlay layer's DOM, a chunk fetched on the first alert, dialog, or tile: the HUD alert with its queue, the dialogs in the dock (stacked; the
 // rules are in overlay.ts), and the tiles beside the current view. A tile is a document (a demo document in the dev fixture) or a session's terminal (mirror.ts); tiles share the
@@ -113,7 +113,7 @@ export function mountPanels(deps: PanelDeps) {
 		text(el, ".queued", queue.length ? m.also_queued({ tally: tally(queue) }) : "");
 		el.querySelector<HTMLElement>(".later")!.hidden = rankOf(a) !== 0; // a finished one is read once opened: nothing to keep for later
 		if (a.trust) return fillTrust(el, a);
-		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)));
+		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)), { secretOpen: () => queue.some((x) => x.key === a.wait?.entry?.card?.from?.key && x.pending?.tool === "secret_drop") });
 		if (!intels.has(a.key)) learn(a);
 		tell(el, a);
 		let ask = asks.get(el);

@@ -589,7 +589,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Z-D20 second round (ZNI review; measured): confirmbar.ts 24 to 26 (a typed key moves the focus to Cancel), zenhost.ts 60 to 64 (`done`, the step's end that leaves the layer open), zen.ts 444 to 467 (the over session, `refocus`, `focusOn`), zenterm.ts 111 to 121 (`finish` and the bar's note).
 	// Document tabs (todo #128): layer.ts 261 to 267 (a doc tab's label from doctabs.ts, its path as title and aria-label, aria-current); markdown.ts and doc.ts stay (the alert callout in markdown.ts is inside its cap).
 	// Per-view themes (batch 1; measured): tabicon.ts 10 to 21 (the badge colours as a parameter with Standard's as the default, and `iconOf`, the tab icon file of a view from the build's theme map).
-	for (const [name, max] of [["router.ts", 80], ["chat.ts", 349], ["markdown.ts", 180], ["views.ts", 99], ["scene.ts", 55], ["tokens.ts", 24], ["nav.ts", 46], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 166], ["sessionfacts.ts", 15], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 267], ["askkeys.ts", 86], ["composer.ts", 334], ["ask.ts", 196], ["terminalthen.ts", 21], ["answer.ts", 16], ["mirror.ts", 193], ["mirrorconn.ts", 84], ["keywriter.ts", 71], ["termcard.ts", 155], ["confirmbar.ts", 28], ["termwords.ts", 21], ["stepslot.ts", 63], ["zenhost.ts", 64], ["cardmodel.ts", 49], ["keypad.ts", 80], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 508], ["zenquestions.ts", 159], ["zentypes.ts", 70], ["zenterm.ts", 121], ["zenlines.ts", 139], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["zensound.ts", 140], ["zenmusic.ts", 116], ["zenmusicbar.ts", 178], ["prefs.ts", 41], ["tabicon.ts", 21], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
+	// Wait cards GUI (todo #126 task 4; measured): zen.ts 508 to 509 (the wait card replaces the panel's mount; `secretOpen` reads whether the raiser's secret_drop dialog is pending).
+	for (const [name, max] of [["router.ts", 80], ["chat.ts", 349], ["markdown.ts", 180], ["views.ts", 99], ["scene.ts", 55], ["tokens.ts", 24], ["nav.ts", 46], ["workspace.ts", 66], ["dossier.ts", 52], ["session.ts", 166], ["sessionfacts.ts", 15], ["bars.ts", 99], ["lightbox.ts", 34], ["layer.ts", 267], ["askkeys.ts", 86], ["composer.ts", 334], ["ask.ts", 196], ["terminalthen.ts", 21], ["answer.ts", 16], ["mirror.ts", 193], ["mirrorconn.ts", 84], ["keywriter.ts", 71], ["termcard.ts", 155], ["confirmbar.ts", 28], ["termwords.ts", 21], ["stepslot.ts", 63], ["zenhost.ts", 64], ["cardmodel.ts", 49], ["keypad.ts", 80], ["doc.ts", 108], ["i18n.ts", 55], ["slash.ts", 63], ["zen.ts", 509], ["zenquestions.ts", 159], ["zentypes.ts", 70], ["zenterm.ts", 121], ["zenlines.ts", 139], ["zenmenu.ts", 96], ["zenfs.ts", 56], ["zensound.ts", 140], ["zenmusic.ts", 116], ["zenmusicbar.ts", 178], ["prefs.ts", 41], ["tabicon.ts", 21], ["intel.ts", 15]] as const) assert.ok(count(`gui/${name}`) <= max, `gui/${name} has ${count(`gui/${name}`)} lines`);
 	// 0.28.0 to 185 with the answer keys' hooks into gui/ask.ts (the focus on the first option, the textarea). 0.28.0 raised gui/ask.ts from 156 to 175 for the secret panel: the masked field with Show and Hide, Submit, the way back to the terminal, the unsupported-remote notice, and a value that leaves with its one request.
 	// 0.10.0: the page's text comes from Paraglide's messages (gui/messages), which raised chat.ts, views.ts, layer.ts, ask.ts, mirror.ts, and doc.ts by one
 	// line each for the messages import; the strings replaced in place. gui/i18n.ts picks the locale (the menu's choice, the browser's languages with
@@ -664,7 +665,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Z-D20 second round to 426 (measured, +2): `&left` on `?zen=settled`, and `?zen=idle&end=<ms>` and `&lost=<ms>` (the companion's session ends or loses control).
 	// Z-D20 third round to 429 (measured, +3): `&upgrade=<ms>` announces a new build once for the browser session (the hello's `build` is "demo", main.ts reads the same).
 	// Z-D22 to 430 (measured, +1): `?zen=chain`, three units ask the Robot Hand select and Enter takes the first card.
-	assert.ok(demo <= 430, `the demo fixture has ${demo} lines`);
+	// Wait cards GUI (todo #126 task 4; measured): 430 to 432 (`?waits=cards`: the import and the memory route's stand-in; the cards and their presses are demo-waits.ts, a file of its own).
+	assert.ok(demo <= 432, `the demo fixture has ${demo} lines`);
 	// Head tower H5 to 387 (+3 over 384): the strip's `?zen=head|head-open|head-history` states (the quiet net, the Enter and H presses, the draft), and a message to the head answered with its working mark (demo-head.ts holds the words).
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
@@ -848,7 +850,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Operate re-review round (todo #121 task 4): 7126 measured (+2 in gui/termwords.ts: the operate refusals' own words). Cap = measured.
 	// Document tabs (todo #128): 7126 to 7145 (doctabs.ts, the tab label in layer.ts, the alert callout in markdown.ts).
 	// Per-view themes (batch 1; measured): 7145 to 7225: nouns.ts (20) and icons.ts (28), the two chokepoints; themes/registry.ts (36), theme.ts (11) and the two theme entries; the call sites' switches.
-	assert.ok(page <= 7225, `the page's TypeScript has ${page} lines`);
+	// Wait cards GUI (todo #126 task 4) 7225 to 7666 (measured, +441): waitcardmodel.ts (the card's parts, buttons and words), waitcard.ts (the card and the dock's dialog), demo-waits.ts (`?waits=cards`), and the hosts' lines (waitpanel.ts now only the reply fold, towernotes.ts, asks.ts, zen.ts, waits.ts). Cap = measured.
+	assert.ok(page <= 7666, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -1027,7 +1030,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Wait cards review (todo #126, RV-F003): three consumers skip a resolved boss wait (`!w.state`), 114,624 to 114,654 bytes and 41,489 to 41,492 gzipped (node 24). Cap = measured.
 	// Per-view themes (batch 1; measured, node 24): 117,027 / 42,418, +2,403 / +929: the theme registry (themes/registry.ts), the role-noun and icon chokepoints (nouns.ts, icons.ts), the call sites that go through them, the tab icon per view, and the one list of view names. Cap = measured.
 	// Merge of #126 onto the per-view themes (measured, node 24): 117,057 / 42,427. Cap = measured.
-	assert.ok(eagerBytes <= 117_057 && eagerGz <= 42_427, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Wait cards GUI (todo #126 task 4; measured, node 24): 117,198 / 42,470, +141 / +43 over the figure above: the card's words (`wc_*`, both languages; the map chunk carries every message) and the one line that `waits.ts` adds (the entry on a wait alert). The card itself loads with the first wait. Cap = measured.
+	assert.ok(eagerBytes <= 117_198 && eagerGz <= 42_473, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1210,7 +1214,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Per-view themes (batch 1; measured, node 24): the lazy chunks in assets/ are 255,928 / 105,264, down from 328,309 / 133,889: the Zen theme (its chunk, its music and bus) now sits in themes/zen/ under its own cap (the test below), Geek has none. Cap = measured.
 	// Merge of #126 onto the per-view themes (measured, node 24). Cap = measured.
 	// Review round 1 (RV-F002, measured, node 24): 256,134 / 105,256: boot.js (emitted into assets/, so counted here) grew 2,974 to 3,180 bytes for the Standard icon restore. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 256_134 && total(chunks, gz) <= 105_264, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Wait cards GUI (todo #126 task 4; measured, node 24): 269,636 / 110,100, +13,502 / +4,836 over the figure above, all lazy: waitcard.ts and waitcardmodel.ts load with the first wait (the dock's dialog, a row, Zen's card), the demo's wait cards stay out of the live build. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 269_636 && total(chunks, gz) <= 110_100, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1347,7 +1352,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Activity ring (todo #127): 170,836 / 34,568 measured (node 24), +2,235 / +508 over the figure above: the composer's ring (its states, the sweep and its keyframes, the still ring, the forced-colours line), the live region's clip, and Zen's lit line, less the live line's rules. Cap = measured.
 	// Merge of #127 onto #128 (measured, node 24): 171,691 / 34,763 (the doc tabs and the activity ring together). Cap = measured.
 	// Per-view themes (batch 1; measured, node 24): the entry stylesheet is 117,754 / 24,562, down from 171,691 / 34,763: Geek's block (themes/geek/geek.css) and zen.css (themes/zen/) left it, each under its folder's cap (the test below). Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 117_754 && total(css, gz) <= 24_562, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Wait cards GUI (todo #126 task 4; measured, node 24): 122,081 / 25,296, +4,327 / +734 over the figure above: the card's block in style.css (parts, buttons, the folded row, the Skip confirm, the dialog's footer) and its phone rules; the Zen skin is in the Zen theme's folder. Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 122_081 && total(css, gz) <= 25_296, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen theme's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.
@@ -1360,7 +1366,7 @@ test("the Zen theme's entry imports zenrows.ts, which registers the Zen keymap r
 test("each theme's folder stays within its byte cap", () => {
 	const dir = join(root, "dist", "gui", "themes");
 	// Measured on node 24 after batch 1 (the mechanism, no new art): Geek is its stylesheet and an empty entry; Zen is its chunk, stylesheet, music player, and audio bus. Caps = measured; merge of #126 (zenhead.ts) +20 / +5.
-	const caps: Record<string, [number, number]> = { geek: [6_088, 2_054], zen: [123_997, 38_954] };
+	const caps: Record<string, [number, number]> = { geek: [6_088, 2_054], zen: [125_451, 39_251] }; // wait cards GUI (todo #126 task 4): zen +1,454 / +297 (the card's Zen skin in zen.css, the card's mount in zen.ts)
 	assert.deepEqual(readdirSync(dir).sort(), Object.keys(caps).sort(), "a folder per theme and no other");
 	for (const [view, [raw, zipped]] of Object.entries(caps)) {
 		const names = readdirSync(join(dir, view)), bytes = names.reduce((sum, n) => sum + readFileSync(join(dir, view, n)).length, 0), gzipped = names.reduce((sum, n) => sum + gzipSync(readFileSync(join(dir, view, n))).length, 0);

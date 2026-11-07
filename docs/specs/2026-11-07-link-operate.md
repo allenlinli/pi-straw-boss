@@ -1,6 +1,6 @@
-# Straw Link: operating an unattended box from a controller (draft)
+# Straw Link: operating an unattended box from a controller
 
-Status: design, not built. Todo #121. Base `main` 95df290 (0.61.0, untagged). Request relayed by 無人塔台規劃 (01a1a17a-c765) from the boss's ask_user answers. A boss addendum of 11/07 (via sb 主塔台實體化) sets the bar: 「基本上就和我們一般遠端模式完全一樣」. It follows [2026-11-05-link-shared-box.md](2026-11-05-link-shared-box.md) and [2026-11-07-link-remote-stop.md](2026-11-07-link-remote-stop.md). Section 12 lists the open decisions. Each one has options and a recommendation.
+Status: decided, not built. Boss ruling 2026-11-07 (ask_user): all sixteen recommendations of section 12 taken, including the five places stricter than remote mode (decisions 5 to 9 and 12: no `!` lines, no `/boss` commands, no `hereOnly` choices, no answer panes, no opening of bases or mains and no closing of a base, shelf documents by name only), decision 2 (`box` scope only for the box's own units) and decision 15 (the relay's `live` class; R1 may ship alone, each relay deploy after a tower go). Todo #121. Base `main` 95df290 (0.61.0, untagged). Request relayed by 無人塔台規劃 (01a1a17a-c765) from the boss's ask_user answers. A boss addendum of 11/07 (via sb 主塔台實體化) sets the bar: 「基本上就和我們一般遠端模式完全一樣」. It follows [2026-11-05-link-shared-box.md](2026-11-05-link-shared-box.md) and [2026-11-07-link-remote-stop.md](2026-11-07-link-remote-stop.md). Section 12 lists the open decisions. Each one has options and a recommendation.
 
 ## 1. The request and the bar
 

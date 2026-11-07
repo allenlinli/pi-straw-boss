@@ -394,6 +394,15 @@ Order: R1 can land alone. Task 1 and R2 go together, with the vectors first in t
 - `operateKeys` throws a raw OpenSSL error for a low-order peer key (all-zero, 1, the order-8 points). The session catches it and refuses the `open` or `accept`; it never lets it reach the stream handler. (No call site exists in task 1, so no test is added there.)
 - `accept.limits` are unbounded integers on the wire. Task 6 clamps them (a malicious box).
 
+**Built in `src/link/operate.ts` (task 2).** The core owns no timer: the host calls `session.tick()` about once a second (`OPERATE_LIMITS.tickMs`), and a session reads a clock and writes to a `send` it is given. Where the spec left a number or a rule open, the core takes:
+- **Ping:** one frame when nothing was sent for 15 s (any frame is a sign of life, so traffic is a ping's work). Silence is no frame that opens for 45 s, counted from the accept; a junk frame that does not open moves nothing. Either end then sends a best-effort `close` and ends (`silence`).
+- **Open:** an `open` nobody answers within 20 s ends as `no-answer` (a late accept finds the box told by the `close`).
+- **Rekey:** both ends end at 12 h by their own clock (`rekey`, a `close` word); the operator's clock starts first, and the host reopens at once.
+- **Parts:** a deflated message over 160 KB is cut in parts of at most 120 KB, each its own frame with contiguous counters. A message's 10 s runs from the last part that arrived. Caps: 4 MB per message (also the inflate limit of any frame), 8 MB and 16 messages in flight per session, at most 64 parts per message. A lying part (changed `n`, repeated or out-of-range `i`, a nested part) drops its message.
+- **The counter:** a received `ctr` has to be above the last one that opened; gaps are fine and a reorder loses the late frame. Only an opened frame moves it.
+- **The registry:** `OperateRegistry` is the box's book for §5.2's Replay rule (a seen session id, 2 per operator device per team, 6 per box); the box host calls `admit` before `OperateSession.accept` and `release` at the end. `refuseOpen` is the one-line `refuse`.
+- **A failed send** goes to `onTransportError` and does not end the session; the host decides (the silence timer ends a dead link).
+
 **For task 5 (the box's bridge).**
 - `live()` and `sendLive()` each call `loadTeam`: a synchronous file read and a full roster replay with signature checks, about 0.6 ms for an 8-entry log, on every frame in both directions, at about 10 to 20 envelopes per second per session. Cache the replayed roster per head.
 - `liveChain` has no cap: a stalled relay holds each send for up to `timeoutMs` while a producer that does not await piles up tasks. Pass an `AbortSignal` or a 5 s deadline to `postLive` (a late live frame is worth nothing) and bound the pending sends by the §5.4 budget.

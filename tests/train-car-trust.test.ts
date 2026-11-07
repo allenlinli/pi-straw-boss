@@ -226,9 +226,13 @@ test("RR-F001/RR-F004: each landed check fetches into a mirror made then, mode 7
 	};
 	const shell = (await register(w, TRAIN, 222, "wA:p2", startOf(222)))?.secret;
 	assert.equal((await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: local }))?.ok, false);
-	swap = true;
 	assert.equal((await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: pushed }))?.ok, true);
-	assert.equal(seen.length, 2);
+	swap = true;
+	// The folder is swapped for a symlink to the train's folder after the check ran its git: the check sees a mirror that is not the one it made and refuses (RR2-F001), and removing it unlinks the link.
+	const swapped = await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: pushed });
+	assert.equal(swapped?.ok, false);
+	assert.match(String(swapped?.error), /mirror/);
+	assert.equal(seen.length, 3);
 	assert.notEqual(seen[0]!.dir, seen[1]!.dir, "a fresh mirror for each check");
 	for (const s of seen) {
 		assert.equal(s.mode, 0o700);

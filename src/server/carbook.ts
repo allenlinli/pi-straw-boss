@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
+import { isAbsolute, join, parse } from "node:path";
 import { carsDir, trainboardDir } from "../train/board.ts";
 import { addState, type CarFile, carFileName, type CarState, type CarView, coordinatorWord, emptyCar, headsIn, type NoticeRecord, type Setter, type SlipFacts, slipsInText, type StateEntry, type StateNotice, validateStateFields } from "../train/cars.ts";
 import { isCode, isName, isObject, SHA_RE } from "../train/spec.ts";
@@ -10,7 +11,7 @@ import { writePrivate } from "../trainboard.ts";
 // open the control socket, name any session, pid and pane, and write any file under the state folder. Node gives the server no peer credentials of a socket. So no secret and no file proves who a caller is, and nothing the guard or the integrator relies on
 // rests on a caller's word. The book holds three kinds of thing:
 //   - Facts the server establishes itself. A car's identity (app, tickets, branch, head, coordinator) is read from the slip the tower forwarded, which the tower's code stamped (the forward record, in memory). `landed` is a commit that git finds on the real
-//     remote branch of the base, fetched into a repository this server makes for that check alone (and removes) from a URL the server read at the open. The cars a train may touch are the heads of the manifest the server was handed at the open. A notice is told when the broker answered.
+//     remote branch of the base: its tip read by `ls-remote` with no repository, then fetched into a repository this server makes for that check alone (inspected, then removed) from a URL the server read at the open. The cars a train may touch are the heads of the manifest the server was handed at the open. A notice is told when the broker answered.
 //   - Claims, each limited to the claimer's own train and granting nothing: `dropped` and `returned` of a car on the claimer's train (it only ends that car's ride), the `version` text of `landed`, and the integrator's `train`, `departs` and `reason` text. A
 //     process that claims a role it is not can, at worst, end the rides of the cars of the train it registered as (it must be that train's session by Herdr's pane record and the server's own open), or put those words in the notice of a car the tower
 //     forwarded to the integrator it registered as.
@@ -20,12 +21,33 @@ import { writePrivate } from "../trainboard.ts";
 const KEEP_MS = 24 * 3600_000, MAX_FORWARDS = 512, MAX_FILES = 256;
 const BASE_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 /**
- * What the server fetches from: an `https://host/...` or `ssh://host/...` URL, or an scp-like `user@host:path` (no slash before the colon, so git reads it as ssh and never as a path). Anything git could read on this computer (an absolute or relative path, `~`, `file://`,
- * `x:y`), any other transport (`http`, `git`, `ext::`, `fd::`), an option, a host that begins with a dash, and white space are no remote: a train that reaches the checkout's configuration can point it at a repository on this computer that it controls (RR-F002).
+ * What the server fetches from: an `https://host/...` or `ssh://host/...` URL, or an scp-like `user@host:path` (no slash before the colon, so git reads it as ssh and never as a path). Anything git could read on this computer (an absolute or relative path, `~`,
+ * `file://`, `x:y`), any other transport (`http`, `git`, `ext::`, `fd::`), an option, a host that begins with a dash, a user or scp path that begins with a dash, and white space are no remote: a train that reaches the checkout's configuration can point it at a
+ * repository on this computer that it controls (RR-F002). So is a host that is this computer (RR2-F002): `localhost`, `*.localhost`, a loopback or `0.` address in any spelling, `0.0.0.0`, this machine's own host name and its `.local` name; an ssh to
+ * those reaches a repository the train can write.
  */
-const HOST = "[A-Za-z0-9][A-Za-z0-9.-]*", USER = "(?:[^\\s/@:]+@)?";
-const URL_OK = [new RegExp(`^https://${USER}${HOST}(?::\\d{1,5})?(?:/[^\\s]*)?$`, "i"), new RegExp(`^ssh://${USER}${HOST}(?::\\d{1,5})?(?:/[^\\s]*)?$`, "i"), new RegExp(`^[A-Za-z0-9][A-Za-z0-9._-]*@${HOST}:[^\\s]+$`)];
-export const safeUrl = (url: string): string | undefined => (url.length <= 500 && !url.startsWith("-") && !/\/\/[^/@]*@-/.test(url) && URL_OK.some((re) => re.test(url)) ? url : undefined);
+const HOST = "(?<host>[A-Za-z0-9][A-Za-z0-9.-]*)", USER = "(?:[^\\s/@:-][^\\s/@:]*@)?";
+const URL_OK = [new RegExp(`^https://${USER}${HOST}(?::\\d{1,5})?(?:/[^\\s]*)?$`, "i"), new RegExp(`^ssh://${USER}${HOST}(?::\\d{1,5})?(?:/[^\\s]*)?$`, "i"), new RegExp(`^[A-Za-z0-9][A-Za-z0-9._-]*@${HOST}:[^\\s-][^\\s]*$`)];
+/** True for a host that is this computer, or spelled so that a resolver could read it as such (a number that is not a plain dotted quad, a quad that starts with 127 or 0). */
+function localHost(host: string): boolean {
+	const h = host.toLowerCase().replace(/\.+$/, "");
+	if (h === "localhost" || h.endsWith(".localhost") || h === "localhost.localdomain") return true;
+	const labels = h.split(".");
+	if (labels.every((l) => /^(?:0x[0-9a-f]+|[0-9]+)$/.test(l))) {
+		const quad = labels.length === 4 && labels.every((l) => /^(?:0|[1-9][0-9]{0,2})$/.test(l) && Number(l) <= 255);
+		return !quad || labels[0] === "127" || labels[0] === "0";
+	}
+	const mine = hostname().toLowerCase().replace(/\.+$/, ""), short = mine.split(".")[0]!;
+	return [mine, short, `${short}.local`, `${mine}.local`].includes(h);
+}
+export const safeUrl = (url: string): string | undefined => {
+	if (url.length > 500 || url.startsWith("-") || /\/\/[^/@]*@-/.test(url)) return undefined;
+	for (const re of URL_OK) {
+		const host = re.exec(url)?.groups?.host;
+		if (host !== undefined) return localHost(host) ? undefined : url;
+	}
+	return undefined;
+};
 /** What the server reads from the manifest text the tower opens a train on: the base it names and the heads of its cars. */
 export function openingFacts(request: string): { base?: string; heads: string[] } {
 	const head = request.split(/\r?\n(?=\s*car:)/i)[0] ?? request;
@@ -43,12 +65,14 @@ export interface BookDeps {
 	stateDir: string;
 	/** The server's own folder: the mirror each `landed` check fetches into is made under it and removed after the check. */
 	dir: string;
+	/** The user's known_hosts as the server read it when it started: each check writes it for ssh to use (RR2-F002). Absent, ssh knows no host and an ssh remote cannot be checked. */
+	knownHosts?: string;
 	now(): number;
 	look(session: string): Promise<Look | undefined>;
 	/** The start time of a process, in the form `register` is given; undefined when it cannot be told. */
 	startOf(pid: number): string | undefined;
-	/** git in a folder, with the folder's own configuration kept out of it (carops.ts `runGit`); rejects when git exits non-zero. */
-	git(cwd: string, args: string[]): Promise<string>;
+	/** git in a folder, with the folder's own configuration kept out of it (carops.ts `runGit`), and `env` added to the environment the server scrubbed; rejects when git exits non-zero. */
+	git(cwd: string, args: string[], env?: Record<string, string>): Promise<string>;
 	exists(path: string): boolean;
 	log?(event: string, facts: Record<string, string | number | boolean>): void;
 	/** 32 random bytes in hex (tests give a fixed one). */
@@ -78,7 +102,85 @@ const noticeName = (name: string) => name.replace(/\.json$/, ".notice.json");
 const firstLine = (error: unknown) => String((error as { stderr?: unknown }).stderr || (error as Error).message).trim().split("\n")[0]!.slice(0, 200);
 const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 /** git's settings for the mirror: no commit-graph, multi-pack-index, or automatic gc is read or written, so nothing but the objects the fetch hashed itself decides the answer. */
-const MIRROR_FLAGS = ["-c", "core.commitGraph=false", "-c", "fetch.writeCommitGraph=false", "-c", "gc.auto=0", "-c", "core.multiPackIndex=false"];
+const MIRROR_FLAGS = ["-c", "core.commitGraph=false", "-c", "fetch.writeCommitGraph=false", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "core.multiPackIndex=false"];
+/**
+ * What the fetch does not trust (RR2-F001): every object is checked as it comes in, and a pack is always kept (`unpackLimit=1`), so the mirror holds no loose object and the check below can refuse any. No proxy and a certificate check, whatever the global settings say.
+ */
+const FETCH_FLAGS = ["-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true", "-c", "fetch.unpackLimit=1", "-c", "transfer.unpackLimit=1"];
+const REMOTE_FLAGS = ["-c", "http.proxy=", "-c", "http.sslVerify=true"];
+/** Failed `landed` checks of one car on one train that close it (RR2-F001), within this window; the failures older than it are forgotten. */
+const FAIL_LIMIT = 3, FAIL_WINDOW_MS = 10 * 60_000;
+/**
+ * ssh for the fetch (RR2-F002): no user configuration (`-F /dev/null`: the train writes `~/.ssh/config`), the known_hosts file the server wrote itself and no other, a host key that must match, no prompt, no proxy, and only the identity files of the user (and the agent keys that match
+ * them). The agent and the key files stay reachable by the train: the identity is the user's and the check needs it.
+ */
+export function sshCommand(knownHosts: string): string {
+	const nul = process.platform === "win32" ? "NUL" : "/dev/null";
+	const word = (v: string) => (/^[\w./:@+=,-]+$/.test(v) ? v : `'${v.replace(/'/g, `'\\''`)}'`);
+	return ["ssh", "-F", nul, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", word(`UserKnownHostsFile=${knownHosts}`), "-o", `GlobalKnownHostsFile=${nul}`, "-o", "ProxyCommand=none", "-o", "ProxyJump=none", "-o", "IdentitiesOnly=yes"].join(" ");
+}
+
+type Kind = "dir" | "file" | "link" | "other" | "none";
+const kindOf = (path: string): Kind => { try { const st = lstatSync(path); return st.isSymbolicLink() ? "link" : st.isDirectory() ? "dir" : st.isFile() ? "file" : "other"; } catch { return "none"; } };
+const entries = (path: string): string[] => { try { return readdirSync(path).sort(); } catch { return []; } };
+const filesUnder = (dir: string, prefix = ""): string[] => entries(dir).flatMap((n) => (kindOf(join(dir, n)) === "dir" ? filesUnder(join(dir, n), `${prefix}${n}/`) : [`${prefix}${n}`]));
+/** The settings `git init --bare` writes into a config, and nothing else: a train that wrote one first (a `url.*.insteadOf`, an `include`, a `core.sshCommand`) is seen at once, with no earlier copy to compare to. */
+const INIT_KEYS = new Set(["repositoryformatversion", "filemode", "bare", "logallrefupdates", "ignorecase", "precomposeunicode", "symlinks"]);
+function strangeConfig(text: string): string | undefined {
+	let core = false;
+	for (const raw of text.split(/\r?\n/)) {
+		const line = raw.trim();
+		if (!line) continue;
+		if (/^\[core\]$/i.test(line)) { core = true; continue; }
+		const m = /^([A-Za-z]+)\s*=\s*(\S+)$/.exec(line);
+		if (!core || !m || !INIT_KEYS.has(m[1]!.toLowerCase()) || (m[1]!.toLowerCase() === "repositoryformatversion" && m[2] !== "0") || (m[1]!.toLowerCase() === "bare" && m[2] !== "true")) return line.slice(0, 60);
+	}
+	return core ? undefined : "no [core]";
+}
+const PACK_FILE = /^pack-[0-9a-f]{40,64}\.(?:pack|idx|rev)$/;
+interface Look1 { config: string; head: string; packs: string }
+/**
+ * What the mirror the server made may hold at each stage of a check (RR2-F001): after `init` nothing but HEAD, config, the empty `objects/info` and `objects/pack`, and `refs`; after the fetch the same plus FETCH_HEAD, the one pack git wrote (its `.pack` and `.idx`), and
+ * the one ref `refs/sb/base/<code>`; never an alternates file, a hooks folder, a loose object, `commondir`, `shallow`, a link, or a config or HEAD that is not byte for byte what it was. `before` is the earlier stage's look. Returns what was found wrong, and the look.
+ */
+function inspectMirror(dir: string, code: string, stage: "init" | "fetch" | "check", before?: Look1): { problems: string[]; look?: Look1 } {
+	if (kindOf(dir) !== "dir") return { problems: ["the folder itself"] };
+	const bad: string[] = [];
+	const top = new Set(["HEAD", "config", "objects", "refs", ...(stage === "init" ? [] : ["FETCH_HEAD"])]);
+	for (const n of entries(dir)) if (!top.has(n)) bad.push(n);
+	for (const n of ["HEAD", "config"]) if (kindOf(join(dir, n)) !== "file") bad.push(n);
+	const objects = join(dir, "objects");
+	if (kindOf(objects) !== "dir") bad.push("objects");
+	for (const n of entries(objects)) if (n !== "info" && n !== "pack") bad.push(`objects/${n}`);
+	if (kindOf(join(objects, "info")) !== "dir") bad.push("objects/info");
+	for (const n of entries(join(objects, "info"))) bad.push(`objects/info/${n}`);
+	const packDir = join(objects, "pack");
+	if (kindOf(packDir) !== "dir") bad.push("objects/pack");
+	const packs = entries(packDir);
+	for (const n of packs) if (!PACK_FILE.test(n) || kindOf(join(packDir, n)) !== "file") bad.push(`objects/pack/${n}`);
+	const names = packs.filter((n) => n.endsWith(".pack"));
+	for (const n of names) if (!packs.includes(n.replace(/\.pack$/, ".idx"))) bad.push(`objects/pack/${n} (no index)`);
+	if (stage === "init" ? packs.length : names.length !== 1) bad.push(stage === "init" ? "objects/pack (not empty)" : `objects/pack (the fetch of one branch writes one pack, found ${names.length})`);
+	const refs = join(dir, "refs");
+	if (kindOf(refs) !== "dir") bad.push("refs");
+	const refFiles = kindOf(refs) === "dir" ? filesUnder(refs) : [];
+	const wanted = stage === "init" ? [] : [`sb/base/${code}`];
+	for (const f of refFiles) if (!wanted.includes(f)) bad.push(`refs/${f}`);
+	if (stage !== "init" && !refFiles.includes(wanted[0]!)) bad.push(`refs/${wanted[0]} (missing)`);
+	if (bad.length) return { problems: bad };
+	if (stage === "init") {
+		const odd = strangeConfig(readFileSync(join(dir, "config"), "utf8"));
+		if (odd) return { problems: [`config: ${odd}`] };
+		if (!/^ref: refs\/heads\/[A-Za-z0-9._/-]+\r?\n?$/.test(readFileSync(join(dir, "HEAD"), "utf8"))) return { problems: ["HEAD"] };
+	}
+	const look: Look1 = { config: readFileSync(join(dir, "config")).toString("latin1"), head: readFileSync(join(dir, "HEAD")).toString("latin1"), packs: packs.map((n) => `${n}:${lstatSync(join(packDir, n)).size}`).join(",") };
+	if (before) {
+		if (look.config !== before.config) bad.push("config (changed)");
+		if (look.head !== before.head) bad.push("HEAD (changed)");
+		if (stage === "check" && look.packs !== before.packs) bad.push("objects/pack (changed)");
+	}
+	return { problems: bad, look };
+}
 
 export class CarBook {
 	private readonly cars = new Map<string, Map<string, Held>>();
@@ -88,6 +190,8 @@ export class CarBook {
 	private readonly trains = new Map<string, TrainRecord>();
 	/** The remote the first train of each project was opened on in this server's life: a later open that read another one is not trusted for `landed`. */
 	private readonly remotes = new Map<string, string>();
+	/** When each failed `landed` check of a car (project/train/head) happened, within the window. */
+	private readonly failures = new Map<string, number[]>();
 	private chain: Promise<unknown> = Promise.resolve();
 	private readonly d: BookDeps;
 
@@ -285,7 +389,7 @@ export class CarBook {
 			if (receipt.train !== train!.code) throw refusal(`sb: car ${label} was not received for train ${train!.code} (the integrator received it for ${String(receipt.train).slice(0, 40)}), so this train does not set it`);
 			if (receipt.by.session !== record.integrator) throw refusal(`sb: car ${label} was not received by this train's integrator, so this train does not set it`);
 			if (state === "dropped" && (!isAbsolute(String(fields.evidence)) || !this.d.exists(String(fields.evidence)))) throw refusal(`sb: dropped.evidence ${String(fields.evidence).slice(0, 200)} is not a file that exists (give its absolute path)`);
-			if (state === "landed") await this.landed(project, record, String(fields.commit), label);
+			if (state === "landed") await this.landed(project, record, head, String(fields.commit), label);
 		}
 		let next: CarFile;
 		try { next = addState(file, { state, fields, by: setter, at: iso(this.d.now()) }); } catch (error) { throw refusal((error as Error).message); }
@@ -300,30 +404,69 @@ export class CarBook {
 	}
 
 	/**
-	 * A commit is landed when git, run here, finds it on the real remote's branch of the base. The remote is the one the server read from the tower's checkout at the open; the base is the one the manifest named; the repository is a bare one the server makes
-	 * for this check alone under its folder (mode 700) and removes after it, so nothing a train wrote there earlier, an object, a commit-graph or a pack, can decide the answer (RR-F001, RR-F004). git reads it with no replace refs, commit-graph or multi-pack-index and none of the
-	 * global, system or hook settings. A push the train makes itself to the base counts: the train runs the merge (§3.3).
+	 * A commit is landed when git, run here, finds it on the real remote's branch of the base. The remote is the one the server read from the tower's checkout at the open; the base is the one the manifest named. The tip of that branch is read by `git ls-remote` run
+	 * with no repository (cwd the file system's root, no GIT_DIR, a ceiling there), so no repository configuration is read. The fetch goes into a bare repository the server makes for this check alone under its folder (mode 700), with an empty template, and the folder is
+	 * removed after it, so nothing a train wrote there earlier decides the answer (RR-F001, RR-F004). The fetch must bring exactly that tip, every object is checked as it comes in, and the mirror must hold nothing but what init and fetch wrote: the same config, no alternates,
+	 * no loose object, packs git wrote (RR2-F001). Not proof against a train that wins a race inside the few seconds of a check, and a refusal does not say it did not: it is the bar, and the refusals are logged. A push the train makes itself to the base counts: the train runs
+	 * the merge (§3.3). Failed checks of one car are limited (RR2-F001): three in ten minutes close it until the window passes.
 	 */
-	private async landed(project: string, record: TrainRecord, commit: string, label: string): Promise<void> {
-		const code = record.code;
-		if (!record.base || !BASE_RE.test(record.base) || record.base.includes("..")) throw refusal(`sb: the manifest of train ${code} names no usable base (base: <branch>)`);
+	private async landed(project: string, record: TrainRecord, head: string, commit: string, label: string): Promise<void> {
+		const key = `${project}/${record.code}/${head}`, now = this.d.now();
+		const failed = (this.failures.get(key) ?? []).filter((t) => now - t < FAIL_WINDOW_MS);
+		this.failures.set(key, failed);
+		const log = (reason: string, shut: boolean) => this.d.log?.("cars-landed-refused", { project, train: record.code, car: label.slice(0, 40), shut, reason: reason.slice(0, 200) });
+		if (failed.length >= FAIL_LIMIT) {
+			const minutes = Math.max(1, Math.ceil((failed[0]! + FAIL_WINDOW_MS - now) / 60_000));
+			const word = `sb: too many failed landed checks of ${label} on train ${record.code} (${FAIL_LIMIT} in ${FAIL_WINDOW_MS / 60_000} minutes); retry in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+			log(word, true);
+			throw refusal(word);
+		}
+		try { await this.checkLanded(project, record, commit, label); } catch (error) {
+			failed.push(now);
+			log((error as Error).message, false);
+			throw error;
+		}
+	}
+	private async checkLanded(project: string, record: TrainRecord, commit: string, label: string): Promise<void> {
+		const code = record.code, base = record.base;
+		if (!base || !BASE_RE.test(base) || base.includes("..")) throw refusal(`sb: the manifest of train ${code} names no usable base (base: <branch>)`);
 		if (!record.url) throw refusal(`sb: the remote of project ${project} was not read when train ${code} opened (the open names none or none that is safe to fetch from, or this server learned of the train after a restart), so ${label}'s commit cannot be checked`);
-		const first = this.remotes.get(project);
-		if (first !== undefined && first !== record.url) throw refusal(`sb: the remote of project ${project} changed between two opens of this server (${first.slice(0, 120)}, then ${record.url.slice(0, 120)}); landed is not checked against a remote that moved`);
-		let mirror: string | undefined;
+		const url = record.url, first = this.remotes.get(project);
+		if (first !== undefined && first !== url) throw refusal(`sb: the remote of project ${project} changed between two opens of this server (${first.slice(0, 120)}, then ${url.slice(0, 120)}); landed is not checked against a remote that moved`);
+		let work: string | undefined, mirror = "", hosts = "";
 		try {
 			mkdirSync(this.d.dir, { recursive: true, mode: 0o700 });
-			mirror = mkdtempSync(join(this.d.dir, "cars-mirror-"));
-			await this.d.git(mirror, ["init", "--bare", "-q", "."]);
+			work = mkdtempSync(join(this.d.dir, "cars-mirror-"));
+			mirror = join(work, "repo");
+			mkdirSync(mirror, { mode: 0o700 });
+			hosts = join(work, "known_hosts");
+			writeFileSync(hosts, this.d.knownHosts ?? "", { flag: "wx", mode: 0o600 });
 		} catch (error) {
-			this.dropMirror(mirror);
+			this.dropMirror(work);
 			throw refusal(`sb: the server's mirror for project ${project} cannot be made: ${firstLine(error)}`);
 		}
-		const inMirror = (...args: string[]) => this.d.git(mirror!, ["--git-dir", mirror!, ...MIRROR_FLAGS, ...args]);
+		const env = { GIT_SSH_COMMAND: sshCommand(hosts), GIT_ALLOW_PROTOCOL: "https:ssh" };
+		const ref = `refs/heads/${base}`, mine = `refs/sb/base/${code}`;
+		const tampered = (problems: string[]) => refusal(`sb: the mirror the server made for this check was written to by something else (${problems.slice(0, 4).join(", ")}); landed is not accepted from it. Check again`);
 		try {
-			try { await inMirror("fetch", "--no-tags", "--no-recurse-submodules", "--", record.url, `+refs/heads/${record.base}:refs/sb/base/${code}`); } catch (error) { throw refusal(`sb: git fetch of ${record.base} from the project's remote failed: ${firstLine(error)}`); }
-			try { await inMirror("merge-base", "--is-ancestor", commit, `refs/sb/base/${code}`); } catch { throw refusal(`sb: landed.commit ${commit.slice(0, 12)} is not on ${record.base} of the project's remote: a car has landed only when its commit is on the base's branch there`); }
-		} finally { this.dropMirror(mirror); }
+			// The tip, from no repository: git reads no repository configuration there.
+			let listed: string;
+			try { listed = await this.d.git(parse(this.d.dir).root, [...REMOTE_FLAGS, "ls-remote", "--exit-code", "--", url, ref], env); } catch (error) { throw refusal(`sb: git ls-remote of ${base} from the project's remote failed: ${firstLine(error)}`); }
+			const tip = listed.split("\n").map((l) => l.split("\t")).find(([, name]) => name === ref)?.[0];
+			if (!tip || !/^[0-9a-f]{40,64}$/.test(tip)) throw refusal(`sb: the project's remote lists no branch ${base}`);
+			try { await this.d.git(mirror, ["init", "--bare", "-q", "--template=", "."]); } catch (error) { throw refusal(`sb: the server's mirror for project ${project} cannot be made: ${firstLine(error)}`); }
+			const inMirror = (...args: string[]) => this.d.git(mirror, ["--git-dir", mirror, ...MIRROR_FLAGS, ...args], env);
+			const fresh = inspectMirror(mirror, code, "init");
+			if (fresh.problems.length) throw tampered(fresh.problems);
+			try { await inMirror(...REMOTE_FLAGS, ...FETCH_FLAGS, "fetch", "--no-tags", "--no-recurse-submodules", "--", url, `+${ref}:${mine}`); } catch (error) { throw refusal(`sb: git fetch of ${base} from the project's remote failed: ${firstLine(error)}`); }
+			const fetched = inspectMirror(mirror, code, "fetch", fresh.look);
+			if (fetched.problems.length) throw tampered(fetched.problems);
+			const got = (await inMirror("rev-parse", "--verify", "-q", mine)).trim();
+			if (got !== tip) throw refusal(`sb: the fetch brought ${got.slice(0, 12)} as the tip of ${base}, but ls-remote read ${tip.slice(0, 12)} (the branch moved between the two, or the fetch was served from another repository); landed is not accepted. Check again`);
+			try { await inMirror("merge-base", "--is-ancestor", commit, mine); } catch { throw refusal(`sb: landed.commit ${commit.slice(0, 12)} is not on ${base} of the project's remote: a car has landed only when its commit is on the base's branch there`); }
+			const after = inspectMirror(mirror, code, "check", fetched.look);
+			if (after.problems.length) throw tampered(after.problems);
+		} finally { this.dropMirror(work); }
 	}
 	/** Removes the mirror this server made. `rmSync` unlinks a symlink where the folder was, it never follows one out. */
 	private dropMirror(mirror: string | undefined): void {

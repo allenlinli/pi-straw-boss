@@ -1,5 +1,7 @@
 import { execFileExe } from "../exe.mjs";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, parse, resolve } from "node:path";
 import type { IntercomLike } from "../agent/kit.ts";
 import type { HerdrRun } from "../herdr.ts";
 import { panes } from "../herdr.ts";
@@ -19,12 +21,15 @@ const GIT_ENV = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIREC
  * git in a folder, for the checks the server makes on a train's word (CR-F002): the repository-selecting variables of this process are taken out, the system and global configuration are not read, no prompt is made, and no hook, fsmonitor, `ext::` transport,
  * replace ref or submodule recursion can run something the folder chose. The folder's own `.git/config` is still read (the server reads the project's remote from the tower's checkout with it, at the open); the fetches run in a repository of the server's own. 60 s at most.
  */
-export function runGit(cwd: string, args: string[]): Promise<string> {
+export function runGit(cwd: string, args: string[], extra: Record<string, string> = {}): Promise<string> {
 	const env = { ...process.env };
 	for (const key of GIT_ENV) delete env[key];
-	Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" });
+	// What a fetch must not take from the server's own environment: a proxy, the transport's certificate settings and curl's (RR2-F002).
+	for (const key of Object.keys(env)) if (/^(?:GIT_SSL_|GIT_CURL_)/i.test(key) || /^(?:https?|all|ftp)_proxy$/i.test(key)) delete env[key];
+	// git looks for no repository above the root of the file system: the `ls-remote` of `landed` runs at that root with none to find, so no repository configuration is read.
+	Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_CEILING_DIRECTORIES: parse(resolve(cwd)).root, ...extra });
 	const isolation = ["-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null", "-c", "protocol.ext.allow=never", "-c", "submodule.recurse=false", "--no-replace-objects"];
-	return new Promise((resolve, reject) => execFileExe("git", [...isolation, "-C", cwd, ...args], { encoding: "utf8", timeout: 60_000, env, windowsHide: true }, (error, stdout, stderr) => (error ? reject(Object.assign(error, { stderr })) : resolve(String(stdout).trim()))));
+	return new Promise((resolvePromise, reject) => execFileExe("git", [...isolation, "-C", cwd, ...args], { encoding: "utf8", timeout: 60_000, env, windowsHide: true }, (error, stdout, stderr) => (error ? reject(Object.assign(error, { stderr })) : resolvePromise(String(stdout).trim()))));
 }
 
 const reply = (error: unknown): Reply => ({ ok: false, error: (error as Error).message });
@@ -79,11 +84,16 @@ async function look(o: StartCars, session: string): Promise<Look | undefined> {
 	return { id: session, name: (found.name ?? session), ...(token ? { role: token } : {}), ...(train ? { train } : {}), pane: paneId, ...(pane.workspace_id ? { workspace: pane.workspace_id } : {}), ...(pane.cwd ? { cwd: pane.cwd } : {}), foreground };
 }
 
+/** The user's known_hosts as it is now, read once when the server starts: the copy ssh trusts for the `landed` check (RR2-F002). Missing or unreadable, nothing is known and an ssh remote cannot be checked. */
+function knownHostsOfUser(): string {
+	try { return readFileSync(join(homedir(), ".ssh", "known_hosts"), "utf8").slice(0, 4_000_000); } catch { return ""; }
+}
+
 /** The book and the sender of this server; the sender runs on a 5 s timer until the server leaves. */
 export function startCars(o: StartCars): Cars {
 	let notices: CarNotices | undefined;
 	const book = new CarBook({
-		stateDir: o.slot.stateDir, dir: o.slot.dir, now: o.now, look: (session) => look(o, session), git: runGit, exists: existsSync, log: o.log,
+		stateDir: o.slot.stateDir, dir: o.slot.dir, now: o.now, look: (session) => look(o, session), git: runGit, knownHosts: knownHostsOfUser(), exists: existsSync, log: o.log,
 		startOf: o.startOf, onChange: () => notices?.kick(), ...o.over,
 	});
 	notices = new CarNotices({ book, now: o.now, intercom: () => o.client(), tower: (workspace) => towerId(o.slot, workspace), log: o.log });

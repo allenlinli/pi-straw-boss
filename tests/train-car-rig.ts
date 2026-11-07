@@ -25,10 +25,11 @@ export function carWorld() {
 	const logs: string[] = [];
 	const existing = new Set<string>();
 	let counter = 0;
-	// The server fetches only from an https, ssh or scp-like remote (never a path on this computer), so the world's remote is `PUBLIC_URL` and git, in this world only, reads it from the bare repository `repo()` made.
+	// The server fetches only from an https, ssh or scp-like remote (never a path on this computer), so the world's remote is `PUBLIC_URL` and git, in this world only, reads it from the bare repository `repo()` made (and is let to use the file transport, which the server's
+	// own environment forbids: `GIT_ALLOW_PROTOCOL` is the server's to give, and this world's override is what lets the tests play a train that redirects the fetch to a local repository).
 	const rewrites: [string, string][] = [];
 	const deps = {
-		stateDir, dir, now: () => clock, look: async (id: string) => looks.get(id), git: (cwd: string, args: string[]) => runGit(cwd, [...rewrites.flatMap(([from, to]) => ["-c", `url.${to}.insteadOf=${from}`]), ...args]), exists: (p: string) => existing.has(p),
+		stateDir, dir, now: () => clock, look: async (id: string) => looks.get(id), git: (cwd: string, args: string[], env?: Record<string, string>) => runGit(cwd, [...rewrites.flatMap(([from, to]) => ["-c", `url.${to}.insteadOf=${from}`]), ...args], { ...env, GIT_ALLOW_PROTOCOL: "https:ssh:file" }), knownHosts: "git.example.test ssh-ed25519 not-a-real-key\n", exists: (p: string) => existing.has(p),
 		startOf, secret: () => `secret-${++counter}`, log: (event: string, facts: Record<string, unknown>) => void logs.push(`${event} ${JSON.stringify(facts)}`),
 	};
 	const book = new CarBook(deps as never);

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { readdirSync, renameSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { registerTrainGuard } from "../src/trainguard.ts";
+import { registerTrainGuard, signsOfTrain } from "../src/trainguard.ts";
 import { World } from "./fakes.ts";
 import { sb } from "./train-fixtures.ts";
 
@@ -15,7 +17,7 @@ const MANIFEST = "train:\n  project: acme\n  app: web\n  code: 2026-11-06-m\n";
 type Blocked = { block?: boolean; reason?: string } | undefined;
 
 async function withTrain() {
-	world.herdr.onAgentStart = (pane) => void world.agent({ id: "train-1", name: "train 1106m", pane: pane.pane_id, env: { STRAW_BOSS_ROLE: pane.env?.find((e) => e.startsWith("STRAW_BOSS_ROLE="))?.slice(16) ?? "" } }).start();
+	world.herdr.onAgentStart = (pane) => void Object.assign(world.agent({ id: "train-1", name: "train 1106m", pane: pane.pane_id, env: { STRAW_BOSS_ROLE: pane.env?.find((e) => e.startsWith("STRAW_BOSS_ROLE="))?.slice(16) ?? "" } }), { file: "/sessions/train-1.jsonl" }).start();
 	const tower = world.tower("tower-wA", "wA:t7", "wA:p7");
 	await tower.start();
 	const sender = world.agent({ id: "sender-1", name: "integ-acme", pane: "wA:p1", tab: "wA:t1" });
@@ -59,10 +61,10 @@ test("with the merge train off, nothing is registered: no handler, no guard", ()
 		pi: { on: (name: string) => void handlers.push(name), events: { on: () => () => {} } },
 		cfg: { env: { STRAW_BOSS_INTEGRATION: "off" }, now: Date.now }, guiDir: "/nonexistent/state", s: { isTrain: false, train: undefined, at: undefined }, role: () => "main", me: () => "x", tell: () => {},
 	};
-	assert.equal(registerTrainGuard(kit as never, { trainOf: () => undefined } as never), undefined);
+	assert.equal(registerTrainGuard(kit as never), undefined);
 	assert.deepEqual(handlers, []);
 	const on = { ...kit, cfg: { env: { STRAW_BOSS_INTEGRATION: "on" }, now: Date.now } };
-	assert.ok(registerTrainGuard(on as never, { trainOf: () => undefined } as never));
+	assert.ok(registerTrainGuard(on as never));
 	assert.deepEqual([...new Set(handlers)].sort(), ["tool_call", "tool_result", "turn_end"]);
 });
 
@@ -125,34 +127,32 @@ test("a session with no sign of a train is untouched while Herdr does not answer
 	assert.equal(await call(plain, "MonitorCreate", { command: "npm test", description: "tests" }), undefined);
 });
 
-test("the pending word reads the saved entry, the env and the pane's role record, and a settled session is not asked", () => {
+test("the pending word is the sign taken at the start, and a settled session is not asked", () => {
 	const handlers = new Map<string, (event: Record<string, unknown>, ctx: unknown) => unknown>();
-	const s = { isTrain: false, train: undefined, trainSettled: false, at: undefined, saved: {} };
-	let record: unknown;
-	const entries: unknown[] = [];
+	const s = { isTrain: false, train: undefined, trainSettled: false, trainSign: false, at: undefined, saved: {} };
 	const kit = {
 		pi: { on: (name: string, fn: never) => void handlers.set(name, fn), events: { on: () => () => {} } },
 		cfg: { env: {} as Record<string, string>, now: Date.now }, guiDir: "/nonexistent/state", s, role: () => undefined, me: () => "x", tell: () => {},
 	};
-	const roles = { trainOf: () => record };
-	registerTrainGuard(kit as never, roles as never);
-	const ctx = { cwd: "/", sessionManager: { getBranch: () => entries } };
+	registerTrainGuard(kit as never);
+	const ctx = { cwd: "/", sessionManager: { getBranch: () => [] } };
 	const todo = () => handlers.get("tool_call")!({ toolName: "todo", toolCallId: "c", input: { action: "create", subject: "x" } }, ctx) as { reason?: string } | undefined;
-	assert.equal(todo(), undefined, "no evidence");
-	record = { project: "acme", code: "2026-11-06-m" };
-	assert.match(todo()?.reason ?? "", UNSETTLED, "the pane's role record");
+	assert.equal(todo(), undefined, "no sign");
+	s.trainSign = true;
+	assert.match(todo()?.reason ?? "", UNSETTLED, "a sign");
 	s.trainSettled = true;
 	assert.equal(todo(), undefined, "settled as no train");
-	record = undefined;
-	s.trainSettled = false;
-	kit.cfg.env.STRAW_BOSS_ROLE = "train";
-	assert.match(todo()?.reason ?? "", UNSETTLED, "the env");
-	kit.cfg.env.STRAW_BOSS_ROLE = "main";
-	assert.equal(todo(), undefined);
-	entries.push({ type: "custom", customType: "straw-boss", data: { openedPane: "wA:p2", train: { project: "acme", code: "2026-11-06-m" } } });
-	assert.match(todo()?.reason ?? "", UNSETTLED, "the saved entry");
-	entries[0] = { type: "custom", customType: "straw-boss", data: { train: { project: "../x", code: "bad" } } };
-	assert.equal(todo(), undefined, "an entry that names no train proves nothing");
+});
+
+test("the signs are read from the env, the saved entry and the pane's record, once", () => {
+	const entry = (train: unknown) => [{ type: "custom", customType: "straw-boss", data: { openedPane: "wA:p2", train } }];
+	const id = { project: "acme", code: "2026-11-06-m" };
+	assert.equal(signsOfTrain({}, [], undefined), false, "no evidence");
+	assert.equal(signsOfTrain({}, [], id), true, "the pane's role record");
+	assert.equal(signsOfTrain({ STRAW_BOSS_ROLE: "train" }, [], undefined), true, "the env");
+	assert.equal(signsOfTrain({ STRAW_BOSS_ROLE: "main" }, [], undefined), false);
+	assert.equal(signsOfTrain({}, entry(id), undefined), true, "the saved entry");
+	assert.equal(signsOfTrain({}, entry({ project: "../x", code: "bad" }), undefined), false, "an entry that names no train proves nothing");
 });
 
 test("a pi in a train's old shell that is no train settles as none once Herdr answers: its todo and monitor pass again", async () => {
@@ -163,4 +163,23 @@ test("a pi in a train's old shell that is no train settles as none once Herdr an
 	await world.quiet();
 	assert.equal(await call(stray, "todo", { action: "create", subject: "x" }), undefined, "settled as no train");
 	assert.equal(await call(stray, "MonitorCreate", { command: "npm test", description: "tests" }), undefined);
+});
+
+test("SB4R-F001: the signs are taken once at the start: moving the role record away mid-window does not open the guard", async () => {
+	const { train } = await withTrain();
+	await world.quiet();
+	world.herdr.failReads = true;
+	const pane = world.herdr.panes.find((p) => p.tokens.sb_role === "train")!;
+	await train.stop("reload");
+	await world.quiet();
+	const again = world.agent({ id: "train-1d", pane: pane.pane_id, env: {}, entries: [], deps: { couple: false } });
+	again.file = train.file;
+	void again.fire("session_start", { reason: "reload" });
+	await world.quiet();
+	assert.match((await call(again, "todo", { action: "create", subject: "x" }))?.reason ?? "", UNSETTLED, "the record alone is a sign");
+	const dir = join(world.stateDir, "roles");
+	const moved = readdirSync(dir).map((name) => [join(dir, name), join(dir, `${name}.away`)] as const);
+	assert.ok(moved.length > 0, "a record exists");
+	for (const [from, to] of moved) renameSync(from, to);
+	assert.match((await call(again, "todo", { action: "create", subject: "x" }))?.reason ?? "", UNSETTLED, "still refused with the record gone");
 });

@@ -184,7 +184,7 @@ export interface GuardEnv {
 	/** Whether this session is a main (the integrator is one). */
 	isMain(): boolean;
 	/** Whether a local sign says this session is a train whose role is not settled yet (§22): the guard refuses `todo` and `MonitorCreate` meanwhile. Left out, a session is never pending. */
-	pending?(entries: readonly unknown[]): boolean;
+	pending?(): boolean;
 	session(): { id: string; pane?: string };
 	now(): number;
 	node: string; cli: string; home: string;
@@ -455,7 +455,7 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 		const me = env.train();
 		let reasons: string[] = [];
 		try {
-			if (!me && env.pending?.(ctx.sessionManager.getBranch())) reasons = [UNSETTLED];
+			if (!me && env.pending?.()) reasons = [UNSETTLED];
 			else if (me) reasons = event.toolName === "todo" ? trainTodo(input, ctx, me) : [monitorCall(event, input, ctx, me)].flatMap((r) => (r ? [r] : []));
 			else if (event.toolName === "todo" && env.isMain() && (hasSb(input) || changesTrainTodo(input, ctx))) reasons = integratorTodo(input, ctx);
 		} catch (error) {
@@ -493,17 +493,26 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 export type TrainGuard = ReturnType<typeof createTrainGuard>;
 
 /** Local signs, known at once and before Herdr answers, that this session may be a train: it was started as one, its saved entry names one, or its pane's role record does. A sign proves nothing by itself; it only closes the guard until the role is settled. */
-function signsOfTrain(env: NodeJS.ProcessEnv, entries: readonly unknown[], recorded: TrainId | undefined): boolean {
+export function signsOfTrain(env: NodeJS.ProcessEnv, entries: readonly unknown[], recorded: TrainId | undefined): boolean {
 	if (env.STRAW_BOSS_ROLE === TRAIN || recorded !== undefined) return true;
 	return entries.some((e) => isObject(e) && e.type === "custom" && e.customType === ENTRY && isObject(e.data) && trainFromToken(e.data.train && trainToken(e.data.train as TrainId)) !== undefined);
 }
 
+/** Takes the signs once per start and holds them in `s.trainSign` (SB4R-F001): the guard reads this copy, so a role record moved away or put back mid-window changes nothing. Registered before every other session_start handler, so the copy exists before any of them awaits. */
+export function registerTrainSigns(kit: Kit, roles: Pick<Roles, "trainOf">): void {
+	const { s, cfg } = kit;
+	(kit.pi as unknown as { on(event: string, handler: (event: unknown, ctx: { sessionManager: { getBranch(): readonly unknown[]; getSessionFile(): string | undefined } }) => unknown): void }).on("session_start", (_event, ctx) => {
+		s.file = ctx.sessionManager.getSessionFile();
+		s.trainSign = signsOfTrain(cfg.env, ctx.sessionManager.getBranch(), roles.trainOf({ paneId: cfg.env.HERDR_PANE_ID, tabId: cfg.env.HERDR_TAB_ID, workspaceId: cfg.env.HERDR_WORKSPACE_ID }));
+	});
+}
+
 /** The guard of this session, unless the merge train is off (§14.8: with it off nothing of this loads). */
-export function registerTrainGuard(kit: Kit, roles: Pick<Roles, "trainOf">): TrainGuard | undefined {
+export function registerTrainGuard(kit: Kit): TrainGuard | undefined {
 	const { s, cfg } = kit;
 	if (integrationOff(cfg.env, kit.guiDir)) return undefined;
 	return createTrainGuard(kit.pi as unknown as GuardPi, {
-		stateDir: kit.guiDir, train: () => (s.isTrain ? s.train : undefined), pending: (entries) => !s.isTrain && !s.trainSettled && signsOfTrain(cfg.env, entries, roles.trainOf({ paneId: cfg.env.HERDR_PANE_ID, tabId: cfg.env.HERDR_TAB_ID, workspaceId: cfg.env.HERDR_WORKSPACE_ID })), isMain: () => kit.role() === "main", session: () => ({ id: kit.me(), ...(s.at?.paneId ? { pane: s.at.paneId } : {}) }), now: () => cfg.now(),
+		stateDir: kit.guiDir, train: () => (s.isTrain ? s.train : undefined), pending: () => !s.isTrain && !s.trainSettled && s.trainSign, isMain: () => kit.role() === "main", session: () => ({ id: kit.me(), ...(s.at?.paneId ? { pane: s.at.paneId } : {}) }), now: () => cfg.now(),
 		node: process.execPath, cli: serverCli(), home: homedir(), tell: kit.tell,
 	});
 }

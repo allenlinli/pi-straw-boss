@@ -295,7 +295,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		const held = s.holdsTower;
 		s.holdsTower = false;
 		const had = role(), keepTrain = s.isTrain && event.reason === "reload";
-		[s.isTrain, s.train, s.trainSettled] = [false, undefined, false]; // a /new or /resume in this process is not the train: the next start finds out again
+		[s.isTrain, s.train, s.trainSettled, s.trainSign] = [false, undefined, false, false]; // a /new or /resume in this process is not the train: the next start finds out again
 		if (!had || !s.at) return;
 		// A /reload brings the same train back in this pane (its entry), so it keeps the tokens that name it through the gap; only a quit, /new, /resume or /fork lets go of them.
 		await presence.clear({ keepTrain });

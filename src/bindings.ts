@@ -5,14 +5,19 @@ import type { Report } from "./probe.ts";
 // reads the live manager, so a keybindings.json that moves `app.editor.external` (which hands the terminal to $EDITOR) or any other app action onto a key the pad sends shows up here and nowhere else. Keys are compared as pi compares them,
 // by the bytes the pad sends (`manager.matches(bytes, id)`), never by the spelling of an id: `esc`, `escape` and `ctrl+[` are one key, and so are `enter`, `return` and `ctrl+m`.
 
-/** The bytes Herdr's key of that name puts on the terminal (Home, End, Page Up and Down as keys.ts's SEQUENCES), more than one where pi reads another spelling of the same press (Alt+Left and Alt+Right as the legacy Alt+B and Alt+F). Every key an operate session can send is here; tests/operate-rr3.test.ts holds the table to keys.ts. */
+/** The kitty keyboard protocol's spelling of a key (`CSI code ; modifier u`, the modifier being 1 plus shift 1, alt 2, ctrl 4) and xterm's modifyOtherKeys one (`CSI 27 ; modifier ; code ~`, only for a modified key): a pane whose pi turned either on gets these from Herdr, and pi-tui reads the legacy Alt bytes only while the kitty protocol is off. */
+const csi = (point: number, modifier = 1): string[] => (modifier === 1 ? [`\x1b[${point}u`] : [`\x1b[${point};${modifier}u`, `\x1b[27;${modifier};${point}~`]);
+const cp = (c: string) => c.charCodeAt(0);
+const kitty = (point: number, modifier: number, ...legacy: string[]): string[] => [...legacy, ...csi(point, modifier)];
+
+/** The bytes Herdr's key of that name puts on the terminal (Home, End, Page Up and Down as keys.ts's SEQUENCES), more than one where pi reads another spelling of the same press: Alt+Left and Alt+Right as the legacy Alt+B and Alt+F, and every key under the kitty keyboard protocol and modifyOtherKeys (`csi`). Every key an operate session can send is here; tests/operate-rr3.test.ts holds the table to keys.ts. */
 export const BYTES: Record<string, string[]> = {
-	esc: ["\x1b"], enter: ["\r"], up: ["\x1b[A"], down: ["\x1b[B"], right: ["\x1b[C"], left: ["\x1b[D"], tab: ["\t"], "shift+tab": ["\x1b[Z"], space: [" "], backspace: ["\x7f", "\b"], delete: ["\x1b[3~"],
+	esc: kitty(27, 1, "\x1b"), enter: kitty(13, 1, "\r"), up: ["\x1b[A"], down: ["\x1b[B"], right: ["\x1b[C"], left: ["\x1b[D"], tab: kitty(9, 1, "\t"), "shift+tab": kitty(9, 2, "\x1b[Z"), space: kitty(32, 1, " "), backspace: kitty(127, 1, "\x7f", "\b"), delete: ["\x1b[3~"],
 	pageup: ["\x1b[5~"], pagedown: ["\x1b[6~"], home: ["\x1b[H"], end: ["\x1b[F"],
-	...Object.fromEntries(["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => [d, [d]])),
-	...Object.fromEntries([..."abefkuwyc"].map((l) => [`ctrl+${l}`, [String.fromCharCode(l.charCodeAt(0) - 96)]])),
-	...Object.fromEntries([..."bdfy"].map((l) => [`alt+${l}`, [`\x1b${l}`]])),
-	"alt+enter": ["\x1b\r"], "alt+backspace": ["\x1b\x7f"], "ctrl+left": ["\x1b[1;5D"], "ctrl+right": ["\x1b[1;5C"], "alt+left": ["\x1b[1;3D", "\x1bb"], "alt+right": ["\x1b[1;3C", "\x1bf"],
+	...Object.fromEntries(["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => [d, kitty(cp(d), 1, d)])),
+	...Object.fromEntries([..."abefkuwyc"].map((l) => [`ctrl+${l}`, kitty(cp(l), 5, String.fromCharCode(cp(l) - 96))])),
+	...Object.fromEntries([..."bdfy"].map((l) => [`alt+${l}`, kitty(cp(l), 3, `\x1b${l}`)])),
+	"alt+enter": kitty(13, 3, "\x1b\r"), "alt+backspace": kitty(127, 3, "\x1b\x7f"), "ctrl+left": ["\x1b[1;5D"], "ctrl+right": ["\x1b[1;5C"], "alt+left": ["\x1b[1;3D", "\x1bb"], "alt+right": ["\x1b[1;3C", "\x1bf"],
 };
 
 /** The actions reported apart, by key (`holds`): each is allowed only on the key its guard is written for (`HOME` in probe.ts). */

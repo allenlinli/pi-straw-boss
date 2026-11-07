@@ -115,10 +115,10 @@ test("the pad needs the session's own live mirror: the page's stream id is repla
 	assert.equal((await x.session.mirror("other-1", true, scope)).status, 403, "a mirror of a unit out of scope");
 });
 
-test("Stop (Escape alone) needs no mirror, and probes only for the key's binding (rr-f002); a text that is not a string is the page's bad request, not a crash", async () => {
+test("Stop (Escape alone) needs no mirror, and probes for the key's binding, and for raw once more right before the write (rr-f002, RR4-F003); a text that is not a string is the page's bad request, not a crash", async () => {
 	const x = await world();
 	assert.equal((await x.session.request("POST", ["sessions", "sess-1", "keys"], Q, { keys: ["esc"] }, scope)).status, 200);
-	assert.deepEqual(x.probes.map((p) => [p.nonce, p.flags]), [[undefined, true]]);
+	assert.deepEqual(x.probes.map((p) => [p.nonce, p.flags]), [[undefined, true], [undefined, true]]);
 	assert.equal((await x.session.request("POST", ["sessions", "sess-1", "input"], Q, { text: 5, as: "send" }, scope)).status, 400);
 });
 

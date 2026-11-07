@@ -104,16 +104,16 @@ test("RR3-F004: a key id in keybindings.json that pi does not define (an extensi
 	assert.equal(operateKeyRefusal({ editor: "empty", ...report }, "up"), undefined);
 });
 
-test("RR3-F005: the foreground is looked at inside the control job, right before each write: a program that opens during the editor probe stops the Enter", async () => {
+test("RR3-F005: the foreground is looked at inside the control job, right before each write: a second pi (a nested one, in the list beside pi, as a real list always has pi in it) that opens during the editor probe stops the Enter", async () => {
 	const x = await world();
 	await x.attach(scope);
-	x.w.onProbe = () => void (x.w.procs = [{ pid: 12, name: "nano", argv0: "nano", cmdline: "nano" }]);
+	x.w.onProbe = () => void (x.w.procs = [pi, { ...pi, pid: 12 }]);
 	assert.deepEqual(why(await x.key(x.session, scope, "enter")), [403, "foreground"]);
 	assert.deepEqual(x.typed(), []);
 	// the same for the key pad's other keys, whose probe is first
 	const y = await world();
 	await y.attach(scope);
-	y.w.onProbe = () => void (y.w.procs = [{ pid: 12, name: "nano", argv0: "nano", cmdline: "nano" }]);
+	y.w.onProbe = () => void (y.w.procs = [pi, { ...pi, pid: 12 }]);
 	assert.deepEqual(why(await y.key(y.session, scope, "up")), [403, "foreground"]);
 	assert.deepEqual(y.typed(), []);
 });

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { CarView } from "../src/train/cars.ts";
 import { createTrainGuard, type GuardEnv } from "../src/trainguard.ts";
 import { trainHandoff } from "../src/opener.ts";
 import { CODE, runCheck, sb, slip, type Json } from "./train-fixtures.ts";
@@ -24,7 +25,7 @@ export const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c"
 
 /** What a guard that starts again on the same session shares with the one before it. */
 export interface Shared { root: string; stateDir: string; cwd: string; entries: Entry[]; list: { tasks: Json[]; nextId: number }; now(): number }
-export interface RigOptions { manifest?: string; main?: boolean; train?: boolean; node?: string; cli?: string; stateName?: string; now?: number; /** A guard that starts again on the same session: the folders, the branch and the todo list of an earlier rig (a /reload). */ reuse?: Shared }
+export interface RigOptions { /** The sb server's answer about the cars (cars-read); the guard asks for it and reads no car file. Left out, the guard has no link to a server. */ cars?: { views: CarView[]; error?: string }; manifest?: string; main?: boolean; train?: boolean; node?: string; cli?: string; stateName?: string; now?: number; /** A guard that starts again on the same session: the folders, the branch and the todo list of an earlier rig (a /reload). */ reuse?: Shared }
 
 export type Rig = ReturnType<typeof build>;
 export const rig = (o: RigOptions = {}): Rig => build(o);
@@ -51,6 +52,7 @@ function build(o: RigOptions) {
 	const env: GuardEnv = {
 		stateDir, train: () => train, isMain: () => o.main === true, session: () => ({ id: "sess-train-1", pane: "wA:p2" }), now: () => clock,
 		node: o.node ?? "/usr/local/bin/node", cli: o.cli ?? "/pkg/src/server/cli.ts", home: root, tell: (text) => void told.push(text),
+		...(o.cars ? { cars: { read: async () => { if (o.cars!.error) throw new Error(o.cars!.error); return structuredClone(o.cars!.views); } } } : {}),
 	};
 	const guard = createTrainGuard(pi as never, env);
 	const ctx = { cwd, sessionManager: { getBranch: () => entries, getEntries: () => entries } };
@@ -141,7 +143,7 @@ function build(o: RigOptions) {
 		return input;
 	}
 	return {
-		root, stateDir, cwd, entries, guard, told, ctx, handlers, list, fire, todo, create, update, complete, taskOf, sbOf, apply, snapshot, monitor, emit, started, output, finished, wrapperRun, begin, runStep, describe, frozen, hashOf, lines,
+		cars: o.cars, root, stateDir, cwd, entries, guard, told, ctx, handlers, list, fire, todo, create, update, complete, taskOf, sbOf, apply, snapshot, monitor, emit, started, output, finished, wrapperRun, begin, runStep, describe, frozen, hashOf, lines,
 		tick: (ms: number) => void (clock += ms), now: () => clock, iso, boardFile: join(stateDir, "trainboard", "acme", CODE, "board.json"), yardFile: join(stateDir, "trainboard", "acme", "yard.json"),
 	};
 }
@@ -151,3 +153,9 @@ function build(o: RigOptions) {
 export const run = (r: Rig, over: Json = {}, spec: Json = {}) => sb(over, { check: runCheck({ cwd: r.cwd, run: "true", log: join(r.cwd, "unit.log") }), ...spec });
 export const slipBlock = (over: Record<string, string | undefined> = {}) => slip(over);
 export { writeFileSync };
+
+/** A message of the integrator's branch as pi-intercom stores it: a tower's forward of a car slip, its header naming `from` as the slip's sender (`fwd-from`). */
+export const forwardEntry = (from: string, slipText = slipBlock(), over: { sender?: string; id?: string; role?: string; kind?: string } = {}): Entry => ({
+	type: "custom_message", customType: "intercom_message",
+	details: { from: { id: over.sender ?? "tower-1" }, message: { id: "m1", content: { text: `[straw net from=tower id=${over.id ?? "tower-1"} role=${over.role ?? "tower"} workspace=Base kind=${over.kind ?? "tower_reply"} scope=session to=integ reply=none fwd=${"e".repeat(16)} fwd-from=${from}] ${slipText}` } } },
+} as Entry);

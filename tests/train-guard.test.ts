@@ -3,11 +3,12 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { type CarView, coordinatorWord } from "../src/train/cars.ts";
 import { serverCli } from "../src/server/version.ts";
 import { acceptanceWord } from "../src/train/spec.ts";
 import { boardPath, boardState, readBoard, validateBoard, writeBoard } from "../src/train/board.ts";
 import { frozenText, gateCommand, specHash } from "../src/trainguard.ts";
-import { cleanup, git, MANIFEST_HEADER, type Reply, rig, type Rig, run, sha, slipBlock } from "./train-guard-rig.ts";
+import { cleanup, forwardEntry, git, MANIFEST_HEADER, type Reply, rig, type Rig, run, sha, slipBlock } from "./train-guard-rig.ts";
 import { CODE, evidence, type Json, result, runCheck, SHA_A, SHA_B, SHA_C, sb } from "./train-fixtures.ts";
 
 // The train's guard (docs/specs/2026-11-07-train-workers.md §7, §21; todo #125 task 4): what sb checks on a train's own tools. It reads `event.input` for policy and the session branch for state, blocks with the spec's words, rewrites
@@ -155,13 +156,13 @@ test("a delete or a clear never reaches a step that started: it is completed voi
 
 test("a completed step carries a result that meets its check; the validator's words come with the step's number", async () => {
 	const r = rig();
-	const id = await r.begin(sb({ kind: "assemble", name: "round 1" }, { check: check(r), on: { head: SHA_A } }));
-	await refused(r.update(id, "completed"), "sb: step #1: completed needs a result in metadata.sb.result");
-	await refused(r.complete(id, result({ outcome: "passed" })), "sb: step #1: a git check passes with result.head, the commit HEAD showed");
-	await refused(r.update(id, "pending", { sb: { ...r.sbOf(id), result: result() } }), /^sb: step #1: metadata\.sb\.result is set only on completed/);
 	const report = await r.begin(sb({ kind: "review", name: "review" }, { check: { type: "report", path: join(r.cwd, "rev.md"), expect: "P0=0 P1=0" }, on: { head: SHA_A } }));
-	await refused(r.complete(report, result()), "sb: step #2: a report check passes with result.verdict, the report's verdict line");
-	await refused(r.complete(report, result({ verdict: "P0=1" })), "sb: step #2: result.verdict must equal the check's expect (P0=0 P1=0)");
+	await refused(r.complete(report, result()), "sb: step #1: a report check passes with result.verdict, the report's verdict line");
+	await refused(r.complete(report, result({ verdict: "P0=1" })), "sb: step #1: result.verdict must equal the check's expect (P0=0 P1=0)");
+	const id = await r.begin(sb({ kind: "assemble", name: "round 1" }, { check: check(r), on: { head: SHA_A } }));
+	await refused(r.update(id, "completed"), "sb: step #2: completed needs a result in metadata.sb.result");
+	await refused(r.complete(id, result({ outcome: "passed" })), "sb: step #2: a git check passes with result.head, the commit HEAD showed");
+	await refused(r.update(id, "pending", { sb: { ...r.sbOf(id), result: result() } }), /^sb: step #2: metadata\.sb\.result is set only on completed/);
 });
 
 test("a `run` step completes passed only after its monitor ended passed for this spec", async () => {
@@ -528,42 +529,148 @@ test("a `report` step that was never seen in_progress cannot pass: the time it s
 	assert.equal((await again.complete(1, result({ verdict: "P0=0 P1=0" }))).ok, true);
 });
 
-function carFiles(r: Rig, notice?: Json) {
-	const dir = join(r.stateDir, "trainboard", "acme", "cars");
-	mkdirSync(dir, { recursive: true });
-	const head = SHA_A.slice(0, 12);
-	writeFileSync(join(dir, `web-${head}.json`), JSON.stringify({ v: 1, project: "acme", app: "web", car: { tickets: ["T-15"], branch: "fix/t-15", head: SHA_A }, coordinator: "sess-coord-1", states: [{ state: "landed", at: "2026-11-07T08:30:00Z", by: { role: "train", name: "train 1106m", session: "sess-train-1" }, version: "1.2.0", commit: SHA_B }] }));
-	if (notice) writeFileSync(join(dir, `web-${head}.notice.json`), JSON.stringify({ v: 1, states: { landed: notice } }));
-}
+/** The server's answer about T-15: landed, with this notice record (the guard reads this, never a file). */
+const landedView = (notice?: Json): CarView => ({
+	file: { v: 1, project: "acme", app: "web", car: { tickets: ["T-15"], branch: "fix/t-15", head: SHA_A }, coordinator: "sess-coord-1", states: [{ state: "landed", at: "2026-11-07T08:30:00Z", by: { role: "train", name: "train 1106m", session: "sess-train-1" }, version: "1.2.0", commit: SHA_B }] },
+	...(notice ? { notice: { v: 1, states: { landed: notice as never } } } : {}),
+});
 
 test("a `notice` pass waits for sb: refused until the coordinator's notice is delivered or escalated, passed after", async () => {
-	const r = rig();
 	const land = () => sb({ kind: "land", name: "land" }, { check: { type: "notice", cars: ["T-15"], state: "landed" } });
+	const views = { views: [] as CarView[] };
+	const r = rig({ cars: views });
 	const id = await r.begin(land());
 	await refused(r.complete(id, result()), "sb: step #1: car T-15 has no car file");
-	carFiles(r);
+	views.views = [landedView()];
 	await refused(r.complete(id, result()), "sb: step #1: waits for sb to tell sess-coord-1 that car T-15 is landed (0 attempts)");
-	carFiles(r, { attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "queued", answer: "queued" }] });
+	views.views = [landedView({ attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "queued", answer: "queued" }] })];
 	await refused(r.complete(id, result()), "sb: step #1: waits for sb to tell sess-coord-1 that car T-15 is landed (1 attempt, last: queued)");
-	carFiles(r, { attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "delivered" }], deliveredAt: "2026-11-07T08:31:00Z" });
+	views.views = [landedView({ attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "delivered" }], deliveredAt: "2026-11-07T08:31:00Z" })];
 	assert.equal((await r.complete(id, result())).ok, true);
-	const escalated = rig();
+	const escalated = rig({ cars: { views: [landedView({ attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "not-live" }], escalatedAt: "2026-11-07T08:40:00Z" })] } });
 	const e = await escalated.begin(land());
-	carFiles(escalated, { attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "not-live" }], escalatedAt: "2026-11-07T08:40:00Z" });
 	assert.equal((await escalated.complete(e, result())).ok, true, "escalated counts");
 });
 
-test("a car file that is not one, or a notice record out of shape, is no notice: the step does not pass", async () => {
-	const r = rig();
-	const id = await r.begin(sb({ kind: "land", name: "land" }, { check: { type: "notice", cars: ["T-15"], state: "landed" } }));
-	const dir = join(r.stateDir, "trainboard", "acme", "cars");
+test("a car file or notice file the train wrote itself passes nothing (SB4-F003): the guard asks the server and reads no file", async () => {
+	const land = () => sb({ kind: "land", name: "land" }, { check: { type: "notice", cars: ["T-15"], state: "landed" } });
+	const r = rig({ cars: { views: [] } });
+	const id = await r.begin(land());
+	// What a shell could write: a landed car file and a delivered notice, exactly as the server writes them.
+	const dir = join(r.stateDir, "trainboard", "acme", "cars"), head = SHA_A.slice(0, 12);
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, `web-${SHA_A.slice(0, 12)}.json`), "{ not json");
+	const view = landedView({ attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "delivered" }], deliveredAt: "2026-11-07T08:31:00Z" });
+	writeFileSync(join(dir, `web-${head}.json`), JSON.stringify(view.file));
+	writeFileSync(join(dir, `web-${head}.notice.json`), JSON.stringify(view.notice));
 	await refused(r.complete(id, result()), "sb: step #1: car T-15 has no car file");
-	carFiles(r, { deliveredAt: "yesterday", attempts: [] });
-	await refused(r.complete(id, result()), /waits for sb to tell/);
-	carFiles(r, "delivered" as unknown as Json);
-	await refused(r.complete(id, result()), /waits for sb to tell/);
+	const blind = rig();
+	const b = await blind.begin(land());
+	await refused(blind.complete(b, result()), "sb: this guard has no link to the sb server, so it cannot read the car notices a step waits for");
+	const down = rig({ cars: { views: [], error: "connect ECONNREFUSED" } });
+	const d = await down.begin(land());
+	await refused(down.complete(d, result()), /^sb: the sb server did not answer for the cars of project acme \(connect ECONNREFUSED\); try again$/);
+});
+
+// ---- SB4-F003: what a step that depends on a notice waits for
+
+/** The server's view of one car in a terminal state, with its notice record. */
+function carView(ticket: string, state: "dropped" | "returned" | "landed", notice?: Json, head = SHA_B): CarView {
+	const fields: Record<string, Json> = { dropped: { round: 1, reason: "unit red", evidence: "/r/unit.log" }, returned: { reason: ASKED_WORD }, landed: { version: "1.2.0", commit: SHA_B } };
+	return {
+		file: { v: 1, project: "acme", app: "web", car: { tickets: [ticket], branch: `fix/${ticket.toLowerCase()}`, head }, coordinator: "sess-coord-2", states: [{ state, at: "2026-11-07T08:30:00Z", by: { role: "train", name: "train 1106m", session: "sess-train-1" }, ...fields[state] }] },
+		...(notice ? { notice: { v: 1, states: { [state]: notice as never } } } : {}),
+	};
+}
+const ASKED_WORD = "sb: the train runs no acceptance: car T-16 asks for UAT (/r/checkpoints.md) (slip line uat:); rewrite its acceptance criteria and run them before loading, then send the evidence in accept:";
+const TOLD = { attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "delivered" }], deliveredAt: "2026-11-07T08:31:00Z" };
+
+function repoWithHead(r: Rig) {
+	const repo = join(r.cwd, "repo");
+	mkdirSync(repo);
+	git(repo, "init", "-q", "-b", "main");
+	writeFileSync(join(repo, "a.txt"), "a");
+	git(repo, "add", "a.txt");
+	git(repo, "commit", "-q", "-m", "a");
+	const head = git(repo, "rev-parse", "HEAD");
+	return { repo, head, step: (spec: Json = {}) => sb({ kind: "assemble", name: "round 1" }, { check: { type: "git", cwd: repo, contains: [head] }, on: { head }, ...spec }) };
+}
+
+test("an assemble that removes cars is not passed on its git check alone: it waits for sb to tell each removed car's coordinator that it is dropped or returned", async () => {
+	const views = { views: [] as CarView[] };
+	const r = rig({ cars: views });
+	const { head, step } = repoWithHead(r);
+	const id = await r.begin(step({ cars: ["T-15"], removed: [{ ticket: "T-16", why: "unit red", evidence: "/r/unit.log" }] }));
+	await refused(r.complete(id, result({ head })), "sb: step #1: car T-16 has no car file");
+	views.views = [carView("T-16", "dropped")];
+	await refused(r.complete(id, result({ head })), "sb: step #1: waits for sb to tell sess-coord-2 that car T-16 is dropped (0 attempts)");
+	views.views = [carView("T-16", "dropped", { attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "failed", answer: "session gone" }] })];
+	await refused(r.complete(id, result({ head })), "sb: step #1: waits for sb to tell sess-coord-2 that car T-16 is dropped (1 attempt, last: session gone)");
+	views.views = [carView("T-16", "landed", TOLD)];
+	await refused(r.complete(id, result({ head })), "sb: step #1: car T-16 is landed, not dropped or returned");
+	views.views = [carView("T-16", "dropped", TOLD)];
+	assert.equal((await r.complete(id, result({ head }))).ok, true);
+	// A returned car counts, and so does one the tower was told about; an assemble that removes nothing needs no server.
+	for (const view of [carView("T-16", "returned", TOLD), carView("T-16", "dropped", { attempts: [{ at: "2026-11-07T08:31:00Z", outcome: "not-live" }], escalatedAt: "2026-11-07T08:40:00Z" })]) {
+		const o = rig({ cars: { views: [view] } });
+		const h = repoWithHead(o);
+		const i = await o.begin(h.step({ removed: [{ ticket: "T-16", why: "x" }] }));
+		assert.equal((await o.complete(i, result({ head: h.head }))).ok, true);
+	}
+	const none = rig();
+	const plain = repoWithHead(none);
+	assert.equal((await none.complete(await none.begin(plain.step()), result({ head: plain.head }))).ok, true, "no removed car, no notice to wait for");
+});
+
+test("an assemble whose removed cars the server cannot be asked about is refused, and a notice file the train wrote itself does not stand in (SB4-F003)", async () => {
+	const down = rig({ cars: { views: [], error: "connect ECONNREFUSED" } });
+	const h = repoWithHead(down);
+	const id = await down.begin(h.step({ removed: [{ ticket: "T-16", why: "x" }] }));
+	await refused(down.complete(id, result({ head: h.head })), /^sb: the sb server did not answer for the cars of project acme/);
+	const blind = rig();
+	const b = repoWithHead(blind);
+	const bid = await blind.begin(b.step({ removed: [{ ticket: "T-16", why: "x" }] }));
+	const dir = join(blind.stateDir, "trainboard", "acme", "cars");
+	mkdirSync(dir, { recursive: true });
+	const view = carView("T-16", "dropped", TOLD);
+	writeFileSync(join(dir, `web-${SHA_B.slice(0, 12)}.json`), JSON.stringify(view.file));
+	writeFileSync(join(dir, `web-${SHA_B.slice(0, 12)}.notice.json`), JSON.stringify(view.notice));
+	await refused(blind.complete(bid, result({ head: b.head })), "sb: this guard has no link to the sb server, so it cannot read the car notices a step waits for");
+});
+
+test("round 1's assemble cannot pass until the notice for a car returned from the manifest is delivered (D13 + D14)", async () => {
+	const views = { views: [] as CarView[] };
+	const r = rig({ manifest: MANIFEST, cars: views });
+	const { repo, head } = repoWithHead(r);
+	const spec = { check: { type: "git", cwd: repo, contains: [head] }, on: { head }, cars: ["T-15"], removed: [{ ticket: "T-16", why: ASKED, evidence: "/r/checkpoints.md" }] };
+	const id = await r.begin(sb({ kind: "assemble", name: "round 1" }, spec));
+	views.views = [carView("T-16", "returned")];
+	await refused(r.complete(id, result({ head })), "sb: step #1: waits for sb to tell sess-coord-2 that car T-16 is returned (0 attempts)");
+	views.views = [carView("T-16", "returned", TOLD)];
+	assert.equal((await r.complete(id, result({ head }))).ok, true);
+});
+
+test("the round opens once its assemble exists, and its other steps wait until the assemble has passed (SB4-F003): started or passed or failed is refused; void is not", async () => {
+	const views = { views: [carView("T-16", "dropped")] };
+	const r = rig({ cars: views });
+	const { head, step } = repoWithHead(r);
+	assert.equal((await r.create(step({ removed: [{ ticket: "T-16", why: "unit red", evidence: "/r/unit.log" }] }))).ok, true);
+	assert.equal((await r.create(run(r, { name: "unit" }))).ok, true, "creating a step of the round is fine");
+	await refused(r.update(2, "in_progress"), "sb: step #2 waits for round 1's assemble #1 to pass");
+	assert.equal((await r.update(1, "in_progress")).ok, true);
+	await refused(r.update(2, "in_progress"), "sb: step #2 waits for round 1's assemble #1 to pass");
+	await refused(r.complete(1, result({ outcome: "passed", head })), /waits for sb to tell sess-coord-2 that car T-16 is dropped/);
+	await refused(r.update(2, "in_progress"), /waits for round 1's assemble #1 to pass/);
+	assert.equal((await r.complete(1, result({ outcome: "failed", head }))).ok, true, "a failed assemble is completed");
+	await refused(r.update(2, "in_progress"), /waits for round 1's assemble #1 to pass/);
+	assert.equal((await r.complete(2, result({ outcome: "void", why: "skipped", evidence: "round 1 failed" }))).ok, true, "a void completion is always allowed");
+	views.views = [carView("T-16", "dropped", TOLD)];
+	const second = rig({ cars: views });
+	const h = repoWithHead(second);
+	await second.create(h.step({ removed: [{ ticket: "T-16", why: "x" }] }));
+	await second.create(run(second, { name: "unit" }));
+	await second.update(1, "in_progress");
+	assert.equal((await second.complete(1, result({ head: h.head }))).ok, true);
+	assert.equal((await second.update(2, "in_progress")).ok, true, "the assemble passed: the round's steps run");
 });
 
 // ---- D13: a manifest car that asks for acceptance
@@ -879,6 +986,9 @@ test("every todo call rewrites the train's board from the list: steps, round, ca
 	assert.equal(board.writer.pane, "wA:p2");
 	assert.equal(board.writer.pid, process.pid);
 	assert.deepEqual(validateBoard(board), []);
+	assert.equal((await r.create(run(r, { name: "early" }))).ok, true);
+	assert.equal((await r.update(2, "in_progress")).ok, false, "a step of the round waits for its assemble");
+	await r.complete(1, result({ outcome: "void", why: "skipped", evidence: "the app declares no assemble" }));
 	const id = await r.begin(run(r, { name: "unit" }, { holds: { lane: "web" }, lock: "heavy", load: { max: 30, weight: 4 } }));
 	await r.runStep(id);
 	await r.complete(id, result({ evidence: "exit 0 in 1s" }));
@@ -916,9 +1026,8 @@ test("the board keeps `train clear`'s clears, and mends a board the train's shel
 });
 
 test("a land step that completed ends the board; the writer that cannot write a board tells once and never fails the todo call", async () => {
-	const r = rig();
+	const r = rig({ cars: { views: [landedView({ attempts: [], deliveredAt: "2026-11-07T08:31:00Z" })] } });
 	const id = await r.begin(sb({ kind: "land", name: "land" }, { check: { type: "notice", cars: ["T-15"], state: "landed" } }));
-	carFiles(r, { attempts: [], deliveredAt: "2026-11-07T08:31:00Z" });
 	await r.complete(id, result());
 	const board = readBoard(r.boardFile);
 	assert.ok(board.ok);
@@ -935,8 +1044,15 @@ test("a land step that completed ends the board; the writer that cannot write a 
 
 const trainTodo = (over: Json = {}, car: Json = {}) => ({ v: 1, project: "acme", app: "web", train: CODE, kind: "train", spec: { cars: [{ tickets: ["T-15"], branch: "fix/t-15", head: SHA_A, coordinator: "sess-coord-1", departs: "next", accept: "none", ...car }] }, ...over });
 
+/** The server's answer about T-15 once the integrator received it. */
+const receivedView = (notice?: Json, over: Json = {}): CarView => ({
+	file: { v: 1, project: "acme", app: "web", car: { tickets: ["T-15"], branch: "fix/t-15", head: SHA_A }, coordinator: "sess-coord-1", states: [{ state: "received", at: "2026-11-07T08:00:00Z", by: { role: "main", name: "integ acme", session: "sess-integ-1" }, train: CODE, departs: "next train", ...over }] },
+	...(notice ? { notice: { v: 1, states: { received: notice as never } } } : {}),
+});
+
 test("the integrator's `train` todo is checked with validateTrainTodo: a well-formed one passes, a malformed one is refused in its words", async () => {
-	const r = rig({ main: true, train: false });
+	const r = rig({ main: true, train: false, cars: { views: [receivedView({ attempts: [], deliveredAt: "2026-11-07T08:01:00Z" })] } });
+	r.entries.push(forwardEntry("sess-coord-1"));
 	assert.equal((await r.create(trainTodo())).ok, true);
 	await refused(r.create(trainTodo({ kind: "full-check" })), "sb: metadata.sb.kind must be train");
 	await refused(r.create(trainTodo({ spec: { cars: [] } })), /metadata\.sb\.spec\.cars must be a list of 1 to 32 cars/);
@@ -947,6 +1063,35 @@ test("the integrator's `train` todo is checked with validateTrainTodo: a well-fo
 	await refused(r.complete(1, { outcome: "passed", at: "2026-11-07T08:40:00Z" }), /passed needs result\.session/);
 	assert.equal((await r.complete(1, { outcome: "passed", session: "sess-train-1", at: "2026-11-07T08:40:00Z" })).ok, true);
 	assert.equal((await r.todo({ action: "create", subject: "plain note" })).ok, true, "a todo with no metadata.sb is none of the guard's");
+});
+
+test("the integrator's `train` todo goes in_progress only when every car's received notice is told and the tower's forward names the slip's coordinator (§5.5, §7.4)", async () => {
+	const views = { views: [] as CarView[] };
+	const r = rig({ main: true, train: false, cars: views });
+	assert.equal((await r.create(trainTodo())).ok, true, "creating it waits for nothing");
+	await refused(r.update(1, "in_progress"), "sb: car T-15 has no forward by the tower on this branch: a car slip reaches the integrator as the tower's forward, whose header names its sender (fwd-from)");
+	// A header that names a sender the broker did not send it from, or is no tower's, is no forward.
+	r.entries.push(forwardEntry("sess-coord-1", slipBlock(), { sender: "sess-coord-1", id: "tower-1" }), forwardEntry("sess-coord-1", slipBlock(), { role: "main" }), forwardEntry("sess-coord-1", slipBlock(), { kind: "call_tower" }));
+	await refused(r.update(1, "in_progress"), /has no forward by the tower/);
+	r.entries.push(forwardEntry("sess-other"));
+	await refused(r.update(1, "in_progress"), coordinatorWord("T-15", "sess-coord-1", "sess-other"));
+	r.entries.push(forwardEntry("sess-coord-1"));
+	await refused(r.update(1, "in_progress"), "sb: car T-15 was never received: set it received with train_car first");
+	views.views = [receivedView()];
+	await refused(r.update(1, "in_progress"), "sb: waits for sb to tell sess-coord-1 that car T-15 is received (0 attempts)");
+	views.views = [receivedView({ attempts: [{ at: "2026-11-07T08:01:00Z", outcome: "queued", answer: "queued" }] })];
+	await refused(r.update(1, "in_progress"), "sb: waits for sb to tell sess-coord-1 that car T-15 is received (1 attempt, last: queued)");
+	views.views = [receivedView({ attempts: [{ at: "2026-11-07T08:01:00Z", outcome: "not-live" }], escalatedAt: "2026-11-07T08:02:00Z" })];
+	assert.equal((await r.update(1, "in_progress")).ok, true, "escalated counts");
+	// A car file the integrator wrote itself is no receipt: the guard asks the server.
+	const own = rig({ main: true, train: false, cars: { views: [] } });
+	own.entries.push(forwardEntry("sess-coord-1"));
+	await own.create(trainTodo());
+	const dir = join(own.stateDir, "trainboard", "acme", "cars");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, `web-${SHA_A.slice(0, 12)}.json`), JSON.stringify(receivedView().file));
+	writeFileSync(join(dir, `web-${SHA_A.slice(0, 12)}.notice.json`), JSON.stringify({ v: 1, states: { received: { attempts: [], deliveredAt: "2026-11-07T08:01:00Z" } } }));
+	await refused(own.update(1, "in_progress"), "sb: car T-15 was never received: set it received with train_car first");
 });
 
 test("at the integrator, a car whose evidence asks for acceptance, names another head, or cannot be read is refused", async () => {

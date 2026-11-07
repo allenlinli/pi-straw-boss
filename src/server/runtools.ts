@@ -65,6 +65,10 @@ export interface ToolHost {
 	requester(): Promise<{ id: string; name: string } | undefined>;
 	/** Whether an ask of the head tower to this tower's workspace is open (headasks.ts): a tower answers with `tower_send {head: true, inReplyTo}` only to one. */
 	headAsked?(id: string): boolean;
+	/** The `call_tower` event (why=shared) this run took, by its id: the code stamps its sender into a forwarded car slip (docs/specs/2026-11-07-train-workers.md §5.5). Undefined when the run took no such event. */
+	forwardEvent?(id: string): { id: string; from: string } | undefined;
+	/** What the server keeps of a forward it stamped, for the car book to check a slip's coordinator against. */
+	noteForward?(f: { fwd: string; from: string; to: string[]; text: string }): void;
 	/** `tower_memory` of a local run (towermemory.ts): it proposes, and the boss confirms elsewhere. */
 	memory(args: Record<string, unknown>): Promise<ToolResult>;
 	now(): number;
@@ -117,6 +121,16 @@ const json = (result: unknown): ToolResult => ({ text: JSON.stringify(result, nu
 const NO_HOLDER = new Set(["no_holder", "no_link"]);
 const ASK = /^[0-9a-f]{32}$/;
 
+/** `forward` on `tower_send` and `tower_reply`: the server finds the event the model names among the ones this run took and writes `fwd` and `fwd-from` from it; the model can name neither a sender nor an event it did not take. */
+function forwardOf(host: ToolHost, args: Record<string, unknown>): { fwd: string; fwdFrom: string } | undefined {
+	const id = opt(args, "forward");
+	if (id === undefined) return undefined;
+	const event = host.forwardEvent?.(id);
+	if (!event) throw new Error(`forward ${id.slice(0, 40)} is no call_tower event (why=shared) that this run took: forward a car slip with the id its event header shows`);
+	return { fwd: event.id, fwdFrom: event.from };
+}
+const sentTo = (details: unknown): string[] => ((details as { results?: { id: string; status: string }[] } | undefined)?.results ?? []).filter((r) => r.status === "sent").map((r) => r.id);
+
 export interface CallExtra { toolCallId?: string; /** The id of the taken event that started the run's current turn, as the run's extension reports it (the head's relay); the server checks it. */ turn?: string }
 
 export async function runTool(host: ToolHost, kind: Kind, name: string, args: Record<string, unknown>, extra: CallExtra = {}): Promise<ToolResult> {
@@ -144,6 +158,7 @@ const peerSender = (who: RunWho, sender: string): PeerSender | undefined => {
 async function allyTool(host: ToolHost, name: string, args: Record<string, unknown>, extra: CallExtra): Promise<ToolResult> {
 	const { who } = host;
 	if (!ALLY.has(name)) throw new Error(`${name} is not available in an ally run`);
+	if (args.forward !== undefined) throw new Error("An ally run forwards no car slip: forward is for the tower runs of this computer");
 	if (who.gone) throw new Error("The sender of this run is no longer a member of its team: the run is ending");
 	const level = who.level ?? "reply", gated = level !== "dispatch" && !FREE.has(name);
 	// A target on this computer that is a tower identity would carry a peer's text into a local run: refused outright, whatever the level or an Allow.
@@ -271,7 +286,10 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			if (args.head === true) return answerHead(host, args);
 			if (opt(args, "device") !== undefined) return towerSendDevice(host, args);
 			if (opt(args, "for") !== undefined || opt(args, "inReplyTo") !== undefined) throw new Error("for and inReplyTo go with a device");
-			return reach.towerSend(str(args, "message"), opt(args, "workspace"), args.reply === true);
+			const stamped = forwardOf(host, args), message = str(args, "message");
+			const done = await reach.towerSend(message, opt(args, "workspace"), args.reply === true, stamped ?? {});
+			if (stamped) host.noteForward?.({ fwd: stamped.fwd, from: stamped.fwdFrom, to: sentTo(done.details), text: message });
+			return done;
 		}
 		case "tower_reply": {
 			const to = str(args, "to", 200), message = str(args, "message", 16_384);
@@ -284,8 +302,10 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			// The head's gate takes a `tower_send` that names its ask, never a `tower_reply`: say so here, before anything is sent, instead of leaving the run to read a refused receipt (or none) as an answer given.
 			if (!ally && target.id === headIdOf(net.all)) throw new Error("Not delivered: the head tower takes no tower_reply. Answer it with tower_send {head: true, inReplyTo: \"H<n>\", message} (H<n> is the ask id in the header of its message).");
 			// The server stamps `origin=remote:<device id>` on what an ally run sends to a local session, so the receiver knows a peer's text started it.
-			const result = await reach.post(target.id, message, "tower_reply", "session", args.reply === true, ally && host.who.device ? `remote:${host.who.device}` : undefined);
+			const stamped = forwardOf(host, args);
+			const result = await reach.post(target.id, message, "tower_reply", "session", args.reply === true, ally && host.who.device ? `remote:${host.who.device}` : undefined, undefined, stamped ?? {});
 			if (result.status !== "sent") throw new Error(`${shown} did not take the message: ${result.status} ${result.code ?? ""} ${result.detail ?? ""}`.trim());
+			if (stamped) host.noteForward?.({ fwd: stamped.fwd, from: stamped.fwdFrom, to: [target.id], text: message });
 			if (args.reply === true) host.expect(target.id, shown, message);
 			return { text: `Sent to ${shown}.`, details: { to: target.id, status: result.status } };
 		}

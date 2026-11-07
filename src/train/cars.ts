@@ -45,7 +45,8 @@ export function validateStateFields(state: CarState, fields: Record<string, unkn
 	return out;
 }
 
-export interface Setter { role: "train" | "main"; name: string; session: string }
+/** Who set a state: the session's role, name and id, and the Herdr workspace it runs in (where an escalation goes) when the server knew it. */
+export interface Setter { role: "train" | "main"; name: string; session: string; workspace?: string }
 export type StateEntry = { state: CarState; at: string; by: Setter } & Record<string, unknown>;
 export interface CarFile {
 	v: 1; project: string; app: string;
@@ -119,7 +120,7 @@ export function validateCarFile(value: unknown): string[] {
 	return out;
 }
 
-export interface NoticeContext { ticket: string; head: string; train: string; departs?: string; reason?: string; round?: number; evidence?: string; version?: string; commit?: string }
+export interface NoticeContext { ticket: string; head: string; train?: string; departs?: string; reason?: string; round?: number; evidence?: string; version?: string; commit?: string }
 
 /** The line the coordinator is sent for a state (the table of §5.5). */
 export function noticeText(state: CarState, c: NoticeContext): string {
@@ -128,18 +129,19 @@ export function noticeText(state: CarState, c: NoticeContext): string {
 		if (v === undefined || v === "") throw new Error(`sb: ${state} needs ${field}`);
 		return String(v);
 	};
-	const head = c.head.slice(0, 12), train = shortCode(c.train);
+	const head = c.head.slice(0, 12), train = () => shortCode(need("train"));
 	switch (state) {
-		case "received": return `received: your car ${c.ticket} (${head}) rides train ${train}; it departs ${need("departs")}`;
+		case "received": return `received: your car ${c.ticket} (${head}) rides train ${train()}; it departs ${need("departs")}`;
 		case "returned": return `returned: your car ${c.ticket} (${head}): ${need("reason")}`;
-		case "dropped": return `dropped from train ${train} round ${need("round")}: ${need("reason")}; evidence ${need("evidence")}`;
+		case "dropped": return `dropped from train ${train()} round ${need("round")}: ${need("reason")}; evidence ${need("evidence")}`;
 		case "landed": return `landed in ${need("version")}, your commit is ${need("commit")}`;
 	}
 }
 
 export type Outcome = "delivered" | "queued" | "failed" | "not-live" | "unknown";
 export interface Attempt { at: string; outcome: Outcome; answer?: string }
-export interface StateNotice { id?: string; attempts: Attempt[]; deliveredAt?: string; escalatedAt?: string }
+/** `tower`: the attempts to tell the tower that the coordinator could not be (§5.5, step 5); `escalatedAt` is set when one of them was taken. */
+export interface StateNotice { id?: string; attempts: Attempt[]; deliveredAt?: string; escalatedAt?: string; tower?: Attempt[] }
 /** `<car file>.notice.json`: per state, what the server sent and what the broker answered (the server is its one writer). */
 export interface NoticeRecord { v: 1; states: Partial<Record<CarState, StateNotice>> }
 export type NoticeStatus = { kind: "pending"; attempts: number; last?: string } | { kind: "delivered" | "escalated"; attempts: number; at: string };
@@ -160,20 +162,78 @@ const latest = (file: CarFile) => file.states.reduce((at, s) => (s.at > at ? s.a
  * The `notice` check (§6.3): every named car's terminal state is `state` and its notice is told. Returns what is still missing, in words; an empty list passes.
  * A ticket whose car came back is in several car files (§5.5: a new head, a new file); the one changed last is its current life, and two changed at the same time are refused, not guessed. `app` leaves out another app's car of the same ticket.
  */
-export function noticeSatisfied(cars: readonly { file: CarFile; notice?: NoticeRecord }[], tickets: readonly string[], state: TerminalState, opts: { app?: string } = {}): string[] {
+export function noticeSatisfied(cars: readonly CarView[], tickets: readonly string[], state: TerminalState | readonly TerminalState[], opts: { app?: string } = {}): string[] {
+	const wanted: readonly TerminalState[] = typeof state === "string" ? [state] : state;
 	return tickets.flatMap((ticket) => {
-		const files = cars.filter((c) => c.file.car.tickets.includes(ticket) && (opts.app === undefined || c.file.app === opts.app));
-		if (files.length === 0) return [`sb: car ${ticket} has no car file`];
-		const newest = files.reduce((top, c) => (latest(c.file) > latest(top.file) ? c : top));
-		const tied = files.filter((c) => latest(c.file) === latest(newest.file));
-		if (tied.length > 1) return [`sb: car ${ticket} has ${tied.length} car files with the same latest state (heads ${tied.map((c) => c.file.car.head.slice(0, 12)).join(", ")}); one of them must change first`];
-		const found = newest;
+		const found = currentCar(cars, ticket, opts.app);
+		if (typeof found === "string") return [found];
 		const terminal = found.file.states.find((s) => isTerminal(s.state));
 		if (!terminal) return [`sb: car ${ticket} has no terminal state yet`];
-		if (terminal.state !== state) return [`sb: car ${ticket} is ${terminal.state}, not ${state}`];
-		const status = noticeStatus(found.notice, state);
-		if (status.kind !== "pending") return [];
-		const tried = `${status.attempts} attempt${status.attempts === 1 ? "" : "s"}${status.last ? `, last: ${status.last}` : ""}`;
-		return [`sb: waits for sb to tell ${found.file.coordinator} that car ${ticket} is ${state} (${tried})`];
+		if (!(wanted as readonly string[]).includes(terminal.state)) return [`sb: car ${ticket} is ${terminal.state}, not ${wanted.join(" or ")}`];
+		return toldRefusals(found, ticket, terminal.state as CarState);
 	});
 }
+
+/** The car file and notice of the ticket's current life, or the refusal in words (none, or two changed at the same moment). */
+function currentCar(cars: readonly CarView[], ticket: string, app?: string): CarView | string {
+	const files = cars.filter((c) => c.file.car.tickets.includes(ticket) && (app === undefined || c.file.app === app));
+	if (files.length === 0) return `sb: car ${ticket} has no car file`;
+	const newest = files.reduce((top, c) => (latest(c.file) > latest(top.file) ? c : top));
+	const tied = files.filter((c) => latest(c.file) === latest(newest.file));
+	if (tied.length > 1) return `sb: car ${ticket} has ${tied.length} car files with the same latest state (heads ${tied.map((c) => c.file.car.head.slice(0, 12)).join(", ")}); one of them must change first`;
+	return newest;
+}
+const toldRefusals = (found: CarView, ticket: string, state: CarState): string[] => {
+	const status = noticeStatus(found.notice, state);
+	if (status.kind !== "pending") return [];
+	const tried = `${status.attempts} attempt${status.attempts === 1 ? "" : "s"}${status.last ? `, last: ${status.last}` : ""}`;
+	return [`sb: waits for sb to tell ${found.file.coordinator} that car ${ticket} is ${state} (${tried})`];
+};
+
+/** A car file with its notice record: what the server answers for a car (`cars-read`). */
+export interface CarView { file: CarFile; notice?: NoticeRecord }
+
+/** The `received` notice of a car (by app and head) is told, and the car was received by the train `train` when given: what the integrator's `train` todo waits for (§5.5, §7.4). Empty when it holds. */
+export function receivedTold(cars: readonly CarView[], car: { app: string; head: string; ticket: string }): string[] {
+	const found = cars.find((c) => c.file.app === car.app && c.file.car.head === car.head);
+	if (!found) return [`sb: car ${car.ticket} was never received: set it received with train_car first`];
+	const entry = found.file.states.find((s) => s.state === "received");
+	if (!entry) return [`sb: car ${car.ticket} is not received (${found.file.states.at(-1)?.state ?? "no state"}): set it received with train_car first`];
+	return toldRefusals(found, car.ticket, "received");
+}
+
+// ---- a tower's forward (§5.5): who sent the car slip, read from the header the code wrote
+
+/** One message of a session's branch that a tower forwarded as a car slip: the event it came in (`fwd`), the session that sent it there (`from`), the sender the broker named for this message (`sender`), and the slip text under the header. */
+export interface Forward { fwd: string; from: string; sender?: string; role?: string; text: string }
+
+const textOfMessage = (details: Record<string, unknown>): string | undefined => {
+	const message = details.message as { content?: { text?: unknown } } | undefined;
+	if (typeof message?.content?.text === "string") return message.content.text;
+	return typeof details.bodyText === "string" ? details.bodyText : undefined;
+};
+
+/** The forwarded messages on a branch: intercom messages whose first header carries `fwd` and `fwd-from`. The header must name the same session the broker said sent it (`id=` equals the message's sender) and a tower; anything else is no forward. */
+export function forwardsOf(entries: readonly unknown[], fields: (text: string) => Record<string, string> | undefined): Forward[] {
+	const out: Forward[] = [];
+	for (const entry of entries) {
+		const e = entry as { type?: unknown; customType?: unknown; details?: unknown };
+		if (e?.type !== "custom_message" || e.customType !== "intercom_message" || !isObject(e.details)) continue;
+		const text = textOfMessage(e.details), sender = isObject(e.details.from) && typeof e.details.from.id === "string" ? e.details.from.id : undefined;
+		if (text === undefined) continue;
+		const f = fields(text);
+		if (!f?.fwd || !f["fwd-from"] || f.role !== "tower" || (f.kind !== "tower_send" && f.kind !== "tower_reply")) continue;
+		if (sender === undefined || f.id !== sender) continue;
+		out.push({ fwd: f.fwd, from: f["fwd-from"], sender, role: f.role, text });
+	}
+	return out;
+}
+
+/** The forwards whose slip carries this head as a `head:` field. */
+export const forwardsFor = (forwards: readonly Forward[], head: string): Forward[] => forwards.filter((f) => new RegExp(`(?:^|[\\s|])head:\\s*${head}(?![0-9a-f])`, "im").test(f.text));
+
+/** The heads a text carries as `head: <40 hex>` fields: what the server registers a forward under. */
+export const headsIn = (text: string): string[] => [...new Set([...text.matchAll(/(?:^|[\s|])head:\s*([0-9a-f]{40})(?![0-9a-f])/gim)].map((m) => m[1]!))];
+
+/** The word for a slip whose `coordinator` is not the session that sent it (§5.5). */
+export const coordinatorWord = (ticket: string, coordinator: string, sender: string) => `sb: car ${ticket} names coordinator ${coordinator}, but ${sender} sent it; the slip is refused`;

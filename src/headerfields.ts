@@ -41,6 +41,12 @@ export function fieldsOf(message: string): Record<string, string> | undefined {
 	return fields;
 }
 
+/** The text under the leading header of a message; the whole message when it has none. */
+export function bodyOf(message: string): string {
+	const scanned = scan(message);
+	return scanned ? message.slice(scanned.end).replace(/^[ \t]*/, "") : message;
+}
+
 /** The message with every field named `key` taken out of its leading header (untouched when it has none); the text under the header is never read. */
 export function withoutField(message: string, key: string): string {
 	const scanned = scan(message);

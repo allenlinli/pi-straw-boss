@@ -169,12 +169,12 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		return { name: nameOf(mine) || s.ownName || me(), id: me(), role: role() ?? "session", ...(head ? { head: true } : {}), ...(head ? { workspace: "head" } : workspace ? { workspace: workspace.label } : {}) };
 	};
 	/** The message under its header, once for the whole audience: every recipient reads the same line, with the others named in it. */
-	const deliver = async (targets: Session[], message: string, kind: Kind, scope: string, reply: boolean, net: Net, origin?: string, why?: Why, extra: Pick<Stamp, "ask" | "relay" | "inReplyTo" | "wait"> = {}) => {
+	const deliver = async (targets: Session[], message: string, kind: Kind, scope: string, reply: boolean, net: Net, origin?: string, why?: Why, extra: Pick<Stamp, "ask" | "relay" | "inReplyTo" | "wait" | "fwd" | "fwdFrom"> = {}) => {
 		const line = stamp({ from: selfParty(net), kind, scope, to: targets.map((x) => partyOf(x, net)), reply, ...(origin ?? s.remoteOrigin ? { origin: (origin ?? s.remoteOrigin)! } : {}), ...(why ? { why } : {}), ...extra }, message);
 		return Promise.all(targets.map(async (x) => ({ id: x.id, name: nameOf(x), ...(await send(x.id, line)) })));
 	};
 	/** One session by id, with a header. The result is intercom's. */
-	const post = async (to: string, message: string, kind: Kind, scope: string, reply: boolean, origin?: string, why?: Why, extra: Pick<Stamp, "wait"> = {}): Promise<SendResult> => {
+	const post = async (to: string, message: string, kind: Kind, scope: string, reply: boolean, origin?: string, why?: Why, extra: Pick<Stamp, "wait" | "fwd" | "fwdFrom"> = {}): Promise<SendResult> => {
 		const net = await read();
 		const [result] = await deliver([net.sessions.find((x) => x.id === to) ?? { id: to }], message, kind, scope, reply, net, origin, why, extra);
 		return result!;
@@ -246,7 +246,7 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		return { text: JSON.stringify(result, null, 2), details: result };
 	};
 	/** One tower by workspace id or label (a sub workspace goes to its parent), or every other tower; a workspace without a tower is reached through its mains, else its members. */
-	const towerSend = async (message: string, workspace: string | undefined, reply = false) => {
+	const towerSend = async (message: string, workspace: string | undefined, reply = false, stamped: Pick<Stamp, "fwd" | "fwdFrom"> = {}) => {
 		const net = await read(), stations = reachable(net), notes = new Map<string, string>();
 		let chosen = stations;
 		if (workspace !== undefined) {
@@ -261,7 +261,7 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 			}
 		}
 		const targets = chosen.flatMap((st) => st.sessions.map((x) => (noTower(st) && notes.set(x.id, noTower(st)!), x)));
-		return report(await deliver(targets, message, "tower_send", workspace === undefined ? "towers" : "tower", reply, net), notes, workspace === undefined ? "towers" : "tower");
+		return report(await deliver(targets, message, "tower_send", workspace === undefined ? "towers" : "tower", reply, net, undefined, undefined, stamped), notes, workspace === undefined ? "towers" : "tower");
 	};
 	const { forward, answerHead } = createHeadReach({ read, deliver });
 	/** A resident tower of this build hands its workspace to the sb server (docs/specs/2026-10-26-sb-backend.md, Migration from resident towers): the server takes this pane as the standing pane. */

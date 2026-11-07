@@ -25,6 +25,7 @@ import { boxesOf, createOperateHost, type OperateHost } from "./operatehost.ts";
 import { operateOff } from "./operateoff.ts";
 import { operateWire, type OperateWire } from "./operatewire.ts";
 import { createLog, tailLog } from "./log.ts";
+import { type Cars, carsReply, startCars } from "./carops.ts";
 import { procsReply, startProcs, type StartProcs } from "./procsops.ts";
 import { gateRun, type RunInfo } from "./rungate.ts";
 import type { ServerTools } from "./runtools.ts";
@@ -164,6 +165,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	const timers: ReturnType<typeof setInterval>[] = [], stops: (() => void)[] = [];
 	let link: LinkService | undefined, linkFirst: Promise<void> | undefined;
 	let procs: ReturnType<typeof startProcs> | undefined; // the owner registry (procsops.ts), assigned before the first request is taken
+	let cars: Cars | undefined; // the book of cars and the notice sender (carops.ts), assigned before the first request is taken
 	// The Allows the dialog hub gave (a gate or an approval closed with a yes) and the asks the towers made for their mains: both are held for the tower service (B6).
 	const allows = createAllows({ now }), asks = createAsks(slot, now);
 
@@ -410,6 +412,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			return leaveAfterReply("restarting", mode === "serve" ? SERVE_RESTART_CODE : 0);
 		}
 		const owners = procsReply(procs, request); if (owners) return owners;
+		const carsAnswer = carsReply(cars, request); if (carsAnswer) return carsAnswer;
 		const tower = towerCommand(request);
 		if (tower) return tower;
 		return { ok: false, error: `unknown command ${String(request.cmd)}` };
@@ -580,8 +583,9 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		if (read.problem !== toldConfig) (toldConfig = read.problem ?? "", read.problem && recordError("config", read.problem));
 		return read;
 	};
+	cars = startCars({ slot, run: cfg.run, now, client: () => (client?.isConnected() ? client : undefined), startOf, log: (event, facts) => log.line(event, facts), stops });
 	towers = createTowers({
-		ally: allyPort(() => link), allows, asks,
+		ally: allyPort(() => link), allows, asks, cars: cars.book,
 		slot, cfg, env, connect: () => mod.connect(), log, pid, startedAt, enabled: () => towerRuns().enabled, server: serverTools,
 		link: async (body, from) => (!slot.primary ? { ok: false, code: "no_link", error: NO_LINK } : link ? link.request(body, from) : { ok: false, code: "no_holder", error: "The link holder is not running in the sb server yet; ask again in a moment" }),
 		sessions: () => (client ? client.listSessions() : Promise.reject(new Error("pi-intercom is not connected"))),

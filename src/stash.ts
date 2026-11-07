@@ -3,6 +3,7 @@ import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync,
 import { dirname, join } from "node:path";
 import type { Reply } from "./control.ts";
 import { createTab, type HerdrRun, isHead, isStandin, isSub, type Pane, panes, parentOf, report, result, type Session, type Sleep, startPi, tabs, workspaces } from "./herdr.ts";
+import { isSessionRole } from "./trainrole.ts";
 import { assertSettingsSafe } from "./trust/settings.ts";
 import { waitPastTrust } from "./trust/wait.ts";
 
@@ -116,6 +117,11 @@ export async function survey(run: HerdrRun, workspaceId: string, live: Session[]
 				continue;
 			}
 			const role = p.tokens?.sb_role ?? "";
+			// A train is the tower's: a stash would end it with the tab and a pop could not bring its steps back (docs/specs/2026-11-07-train-workers.md §3.3).
+			if (role === "train") {
+				reasons.push(`a train runs in this tab (${who}); only the tower closes it, with boss_close_main`);
+				continue;
+			}
 			if (p.agent !== "pi") reasons.push(`pane ${p.pane_id} runs ${p.agent}, which Straw Boss cannot ask to quit`);
 			else if (!ROLES.has(role)) reasons.push(`${who} is a subagent or outside the net`);
 			if (p.agent !== "pi" || !ROLES.has(role)) continue;
@@ -162,7 +168,7 @@ export async function closeAll(d: Pick<StashDeps, "run" | "sleep" | "sessions" |
 	const baseOf = (id?: string) => (id ? live.find((s) => s.id === id)?.herdrLocation?.workspace?.id : undefined), mine = baseOf(me), theirs = workspace ?? baseOf(by);
 	if (!theirs) return no(400, "bad_request", "Close all needs a base: name its workspace, or ask from a session of the net.");
 	// A role token outlives its pi up to its TTL: only a live tower, main, or member puts a workspace on the net.
-	const bases = (await workspaces(d.run)).filter((w) => w.workspace_id === theirs && !isSub(w) && ((w.tokens?.tower && alive.has(w.tokens.tower)) || ps.some((p) => p.workspace_id === w.workspace_id && (p.tokens?.sb_role === "main" || p.tokens?.sb_role === "member") && lives(p))));
+	const bases = (await workspaces(d.run)).filter((w) => w.workspace_id === theirs && !isSub(w) && ((w.tokens?.tower && alive.has(w.tokens.tower)) || ps.some((p) => p.workspace_id === w.workspace_id && isSessionRole(p.tokens?.sb_role) && lives(p))));
 	if (!bases.length) return no(404, "not_found", "That workspace is not a base on the net.");
 	const surveyAll = async (sessions: Session[]) => Promise.all(bases.map(async (w) => ({ w, sv: await survey(d.run, w.workspace_id, sessions, false, d.service?.(w.workspace_id)) })));
 	const first = await surveyAll(live), reasons = first.flatMap(({ w, sv }) => (sv ? sv.reasons.map((r) => `${w.label}: ${r}`) : []));

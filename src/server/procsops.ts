@@ -19,7 +19,7 @@ export function procsReply(reg: Procs | undefined, request: Request): Promise<Re
 	if (!reg) return Promise.resolve({ ok: false, error: "the server is still starting" });
 	switch (request.cmd) {
 		case "procs-hello":
-			return reg.hello({ pid: Number(request.pid), id: str(request.id, 64), started: str(request.started, 64), subagentId: str(request.subagentId), sessionFile: str(request.sessionFile), pane: str(request.pane), terminal: str(request.terminal), cwd: str(request.cwd) }).then((r) => ({ ok: true, ...r }), (error: unknown) => (error instanceof ProcsRefusal ? { ok: false, error: error.message, refused: true } : refusal(error)));
+			return reg.hello({ pid: Number(request.pid), id: str(request.id, 64), started: str(request.started, 64), subagentId: str(request.subagentId), role: request.role === "train" ? "train" : undefined, sessionFile: str(request.sessionFile), pane: str(request.pane), terminal: str(request.terminal), cwd: str(request.cwd) }).then((r) => ({ ok: true, ...r }), (error: unknown) => (error instanceof ProcsRefusal ? { ok: false, error: error.message, refused: true } : refusal(error)));
 		case "procs-beat":
 			return Promise.resolve({ ok: true, known: reg.beat(String(request.id)) });
 		case "procs-bye":

@@ -29,7 +29,7 @@ const short = (name: string) => (name.length > NAME_MAX ? `${name.slice(0, NAME_
  * linked worktree whose sessions hang under their launcher); the head tower's workspace is no base: its pane is keyed `000.0` by the head service wherever the workspace stands, and while it exists the
  * bases are numbered from 001, so no base ties with it (HH1-F005). A pane's slot is its place among its tab's panes, so every member has a key of its own.
  */
-export function orderKey(role: "tower" | "main" | "member", pane: Pane, ps: Pane[], all: Workspace[], tabList: HerdrTab[]): string | undefined {
+export function orderKey(role: "tower" | "main" | "member" | "train", pane: Pane, ps: Pane[], all: Workspace[], tabList: HerdrTab[]): string | undefined {
 	const index = all.filter((w) => !isSub(w) && !isHead(w)).findIndex((w) => w.workspace_id === pane.workspace_id), base = index + (all.some(isHead) ? 1 : 0);
 	if (index < 0) return undefined;
 	if (role === "tower") return `${part(base)}.0`;
@@ -81,7 +81,7 @@ export function allyKids(towerKey: string, allies: { pane: string; label: string
  * has an indent or a name, which clears the ones a pane keeps from when it ran a subagent) and those of the subagents it launched, and whether one of those
  * has no pi pane yet (`waiting`). Reads Herdr only.
  */
-export async function netTokens(run: HerdrRun, place: Place, role: "tower" | "main" | "member", name: string, now = Date.now(), world: HerdrWorld = worldOf(run)): Promise<{ own: Record<string, string | null>; kids: Kid[]; joined: Set<string>; waiting: boolean }> {
+export async function netTokens(run: HerdrRun, place: Place, role: "tower" | "main" | "member" | "train", name: string, now = Date.now(), world: HerdrWorld = worldOf(run)): Promise<{ own: Record<string, string | null>; kids: Kid[]; joined: Set<string>; waiting: boolean }> {
 	const { panes: ps, workspaces: all, tabs: tabList } = await world(place.workspaceId);
 	const pane = ps.find((p) => p.pane_id === place.paneId), key = pane && orderKey(role, pane, ps, all, tabList);
 	const joined = new Set(ps.filter((p) => p.tokens?.sb_role).map((p) => p.pane_id));

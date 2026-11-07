@@ -7,6 +7,7 @@ import type { Pane, Session } from "../src/herdr.ts";
 import { createCloser } from "../src/closer.ts";
 import { requestFile, trustDir, writeAtomic } from "../src/trust/files.ts";
 import { digestOf } from "../src/trust/found.ts";
+import { trainBase } from "./train-base-fixture.ts";
 import { closeAll, listStashes, nameFor, nameOk, stashedList, popBase, type Stash, stashBase, stashFile } from "../src/stash.ts";
 
 // Stash and pop (docs/specs/2026-10-22-stash/spec.md): a base is checked before anything closes, recorded, then closed; a pop resumes
@@ -387,4 +388,14 @@ test("a pop into a folder whose .pi/settings.json pi must not read opens nothing
 	rmSync(join(w.dir, ".pi", "settings.json"));
 	writeFileSync(join(w.dir, ".pi", "settings.json"), "{}");
 	assert.equal((await popper(w).pop()).sessions, 3, "fixed, it pops");
+});
+
+test("close all finds a base that only a train holds, and refuses it for the train", async () => {
+	const t = trainBase();
+	t.panes.splice(0, 1); // no tower: the base is on the net by its train alone
+	const closed: string[] = [];
+	const r = await closeAll({ run: t.run, sleep: async () => {}, sessions: async () => t.live.filter((x) => x.id === "train-1"), check: async () => ({}) }, "gui", async (ws) => (closed.push(ws), { status: 200, body: {} }), undefined, undefined, "wA");
+	assert.equal(r.status, 409, JSON.stringify(r.body));
+	assert.match(JSON.stringify(r.body), /a train runs in this tab/);
+	assert.deepEqual(closed, []);
 });

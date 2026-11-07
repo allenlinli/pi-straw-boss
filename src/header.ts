@@ -2,16 +2,18 @@
 // writes it, never the model, so a receiver can tell from the line alone who sent the message and in what role, what kind of message it is, who else
 // got it, and whether the sender waits for a reply. It has the shape of the line a net sidecar types before a message (src/agent/sidecar.ts), with the
 // sender's own fields added:
-//   [straw net from=<name> id=<session id> role=<tower|main|member|session> [head=yes] workspace=<label> kind=<kind> scope=<scope> to=<recipients> reply=<expected|none> [why=<why>]] <message>
+//   [straw net from=<name> id=<session id> role=<tower|main|member|train|session> [head=yes] workspace=<label> kind=<kind> scope=<scope> to=<recipients> reply=<expected|none> [why=<why>]] <message>
 // A message that came over Straw Link adds the verified sender after the workspace (docs/specs/2026-10-25-straw-link.md, Header):
 //   … workspace=<label> remote=<device label> device=<short id> team=<team> verified=yes kind=tower_send …
 // The sidecar puts its own line, with the role Herdr's tokens give the sender, before this one; the two are not merged.
 
 import { restrictLabel } from "./link/text.ts";
 
-export type Kind = "call_tower" | "broadcast" | "tower_send" | "tower_reply" | "handoff" | "link_reply";
+export type Kind = "call_tower" | "broadcast" | "tower_send" | "tower_reply" | "handoff" | "link_reply" | "wait_card";
+/** The roles a joined session publishes in its pane's `sb_role` token, and so the roles a header names (`train`: the worker the tower opened for an integrator's manifest). */
+export const ROLE_WORDS = ["tower", "main", "member", "train"] as const;
 /** `session` is a pi session that did not join the net (a scope `all` broadcast reaches it). `head`: the tower of the head workspace. */
-export interface Party { name: string; id: string; role: "tower" | "main" | "member" | "session"; head?: boolean; workspace?: string }
+export interface Party { name: string; id: string; role: (typeof ROLE_WORDS)[number] | "session"; head?: boolean; workspace?: string }
 /** Why a main calls the tower (D19): a finished milestone, before it touches something shared, or blocked. `unspecified` is a caller that gave none. The code writes it from this set, so the tower reads the reason from the line, not from the message. */
 export const WHYS = ["milestone", "shared", "blocked"] as const;
 export type Why = (typeof WHYS)[number] | "unspecified";
@@ -21,7 +23,7 @@ const FOR = /^[A-Za-z0-9_.:-]{1,80}$/;
 /** The verified sender of a message that came over Straw Link: its device label and short id from the roster, and the team. */
 export interface Remote { device: string; short: string; team: string }
 /** `origin`: `remote:<device id>` on a message a tower sent to a local session during a Straw Link remote turn, so its receiver knows a peer's text started it. */
-export interface Stamp { from: Party; kind: Kind; scope: string; to: Party[]; reply: boolean; remote?: Remote; origin?: string; /** The ask id the message carries (a `tower` with `awaitsReply`): an ally run answers it with `inReplyTo`. */ asks?: string; /** A `link_reply` for a main: the tower identity that asked on its behalf. */ for?: string; /** A `call_tower`: why the main calls. */ why?: Why; /** The head tower's forward: the ask it opened (`H12`), and `boss:<event id>` when the boss's own turn made it. */ ask?: string; relay?: string; /** A tower's answer to the head's ask. */ inReplyTo?: string }
+export interface Stamp { from: Party; kind: Kind; scope: string; to: Party[]; reply: boolean; remote?: Remote; origin?: string; /** The ask id the message carries (a `tower` with `awaitsReply`): an ally run answers it with `inReplyTo`. */ asks?: string; /** A `link_reply` for a main: the tower identity that asked on its behalf. */ for?: string; /** A `call_tower`: why the main calls. */ why?: Why; /** The head tower's forward: the ask it opened (`H12`), and `boss:<event id>` when the boss's own turn made it. */ ask?: string; relay?: string; /** A tower's answer to the head's ask. */ inReplyTo?: string; /** A `wait_card`: the wait the boss pressed a card of (`W9`). */ wait?: string }
 const ORIGIN = /^remote:[a-z2-7]{26}$/;
 /** A remote sender's `id=`: never a session id of this machine, so a reply cannot be aimed at a local session by a remote's choice. */
 export const REMOTE_ID = /^link:[a-z2-7]{26}$/;
@@ -34,8 +36,9 @@ const roleOf = (p: Party) => (p.head ? "head tower" : p.role);
 const MAX_NAMED = 20;
 const recipient = (p: Party) => `${clean(p.name)} (${roleOf(p)}${p.workspace ? ` of ${clean(p.workspace)}` : ""})`;
 
-const HEAD_ASK = /^H\d{1,6}$/, RELAY = /^boss:[A-Za-z0-9_.-]{1,80}$/;
-export function header({ from, kind, scope, to, reply, remote, origin, asks, for: asked, why, ask, relay, inReplyTo }: Stamp): string {
+const WAIT = /^W\d{1,6}$/, HEAD_ASK = /^H\d{1,6}$/, RELAY = /^boss:[A-Za-z0-9_.-]{1,80}$/;
+export function header({ from, kind, scope, to, reply, remote, origin, asks, for: asked, why, ask, relay, inReplyTo, wait }: Stamp): string {
+	if (wait !== undefined && !WAIT.test(wait)) throw new Error("A wait is W and its number");
 	if (ask !== undefined && !HEAD_ASK.test(ask)) throw new Error("A head ask id is H and a number");
 	if (inReplyTo !== undefined && !HEAD_ASK.test(inReplyTo)) throw new Error("An in-reply-to is the head's ask id, H and a number");
 	if (relay !== undefined && !RELAY.test(relay)) throw new Error("A relay is boss: and an event id");
@@ -58,6 +61,7 @@ export function header({ from, kind, scope, to, reply, remote, origin, asks, for
 		...(ask ? [`ask=${ask}`] : []),
 		...(relay ? [`relay=${relay}`] : []),
 		...(inReplyTo ? [`in-reply-to=${inReplyTo}`] : []),
+		...(wait ? [`wait=${wait}`] : []),
 	];
 	return `[straw net ${fields.join(" ")}]`;
 }

@@ -3,6 +3,7 @@ import type { LinkSummary } from "./link/holder.ts";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { commanding, type Mark, markOf, type Row, sessionMark, subagents } from "./netdata.ts";
+import { cutCards } from "./waitbudget.ts";
 import { type HeadChapter, type HeadSeam, type HeadUnit, headUnit, serviceMark } from "./nethead.ts";
 import { type HerdrRun, type HerdrWorld, isHead, isSub, type Pane, parentOf, type Session, type Workspace, worldOf } from "./herdr.ts";
 import { type Pending, type Relayed, withPending } from "./ask.ts";
@@ -11,6 +12,7 @@ import type { Monitor } from "./monitors.ts";
 import { canonical } from "./history.ts";
 import { type NetEvent, type Tick, trackActivity } from "./activity.ts";
 import type { TodoSum } from "./todo.ts";
+import { type TrainId, trainFromToken } from "./trainrole.ts";
 import type { TrustAsk } from "./trust/types.ts";
 
 // The whole straw net as one JSON-able snapshot for the browser view: every workspace as a base with its tower, tabs, agents,
@@ -22,11 +24,21 @@ type Lately = { since?: number; ticks?: Tick[]; todo?: TodoSum };
 /** A message typed while the agent works, waiting in pi's queue: `steer` reaches it at its next turn, `followUp` when the run ends. */
 export interface Queued { text: string; as: "steer" | "followUp" }
 /** `ended`: a subagent whose run is over (Row.ended); the page clears its finished alert. */
-export interface Unit extends Shelf, Lately { queued?: Queued[]; monitors?: Monitor[]; id: string; key: string; control: boolean; agent?: "claude" | "codex"; name: string; role: "main" | "member" | "subagent" | "outside"; mark: Mark; note?: string; subs: Unit[]; pending?: Pending; ended?: boolean }
+export interface Unit extends Shelf, Lately { queued?: Queued[]; monitors?: Monitor[]; id: string; key: string; control: boolean; agent?: "claude" | "codex"; name: string; role: "main" | "member" | "train" | "subagent" | "outside"; /** A train's project and code (its pane's `sb_train` token). */ train?: TrainId; mark: Mark; note?: string; subs: Unit[]; pending?: Pending; ended?: boolean }
 export interface Tab { id: string; label: string; units: Unit[] }
 export interface Outpost extends Lately { id: string; label: string; mark: Mark }
 /** A run's proposal the boss has not answered; `cites` is the boss message it comes from. */ export interface MemoryProposal { id: string; op: "add" | "retire"; kind: "standing" | "decision"; text: string; target?: string; cites?: string }
-export interface MemorySummary { rev: number; standing: number; decisions: number; waits: number; /** The open waits for the boss, with their text; `answered`: when the boss answered it (their message named it) and the tower has not resolved it yet. */ bossWaits: { id: string; text: string; at: string; answered?: string }[]; /** What runs proposed and the boss has neither confirmed nor rejected. */ proposals: MemoryProposal[]; /** The memory file cannot be read: nothing in it can be changed until it is fixed. */ problem?: string }
+/**
+ * A wait for the boss as the page sees it (docs/specs/2026-11-07-wait-cards.md): `card` and `press` as stored, with the raiser's session id replaced by its unit `key` when the net has the unit (buildNet); `cut`: the card went over the snapshot's budget (waitbudget.ts) and is only its `text`,
+ * which the page reads whole with the memory route's `read`.
+ */
+export interface BossWait { id: string; text: string; at: string; answered?: string; /** A wait the boss declined or the tower resolved, kept until the sweep drops it (24 h): `outcome` is what became of it and `ended` when. It is no longer open: no alert, no count. */ state?: "resolved"; outcome?: string; ended?: string; card?: WaitCardView; press?: WaitPressView; cut?: true }
+export interface WaitCardView {
+	type: "action" | "choice" | "secret"; lang: "zh-TW" | "en"; happened: string; do: string; url?: string; command?: string; after?: string; options?: { label: string; then: string }[]; secret?: { name: string };
+	from?: { /** On the server; the net swaps it for `key`. */ id?: string; name: string; role: string; workspace?: string; tab?: string; gone?: true; key?: string };
+}
+export interface WaitPressView { act: "done" | "choose" | "secret" | "decline" | "restate"; option?: number; reason?: string; at: string; main?: { status: "delivered" | "queued" | "gone" | "failed"; at: string }; secretAsked?: string }
+export interface MemorySummary { rev: number; standing: number; decisions: number; waits: number; /** The open waits for the boss, with their text; `answered`: when the boss answered it (their message named it) and the tower has not resolved it yet. */ bossWaits: BossWait[]; /** What runs proposed and the boss has neither confirmed nor rejected. */ proposals: MemoryProposal[]; /** The memory file cannot be read: nothing in it can be changed until it is fixed. */ problem?: string }
 /**
  * The sb server's tower service of a workspace (docs/specs/2026-10-26-sb-backend.md, GUI): what the tower unit shows while no pi session is the tower. `queue` and `file` come with the reading and are not part of the
  * snapshot's `service` (the page sees them as the unit's `queued` rows and its comms).
@@ -66,7 +78,7 @@ export interface Found extends Ref { live: boolean; successor?: string }
 export interface NetInput { /** The tower service of a workspace, when the sb server runs towers there. */ services?(workspace: string): TowerView | undefined; /** The head tower: its key, asks, and chapters. */ head?: HeadSeam; sessions: Session[]; panes: Pane[]; workspaces: Workspace[]; children(pane: Pane | undefined): Row[]; sessionDir?: string }
 
 const agentOf = (pane?: Pane) => (pane?.agent === "claude" || pane?.agent === "codex" ? pane.agent : undefined); // a net sidecar (src/agent) joined it: the page names the agent, and nothing can be typed into it
-const joinedRole = (token?: string): "main" | "member" | undefined => (token === "main" || token === "member" ? token : undefined);
+const joinedRole = (token?: string): "main" | "member" | "train" | undefined => (token === "main" || token === "member" || token === "train" ? token : undefined);
 const RECENT_MS = 10 * 60_000;
 
 /**
@@ -74,6 +86,8 @@ const RECENT_MS = 10 * 60_000;
  * and so are workspaces with no part in the net (no live tower, nobody joined): a base is a workspace the net reaches. Every unit
  * that has a key is also written to `refs`, the server's allow list, with a file only from pi's `sessionDir`. A base's `outside` lists its other pi panes (D1), except one that is closing on purpose (`sb_closing`, closing.ts: its session has left intercom, its pi is shutting down).
  */
+/** A raiser as the page gets it: the unit key when the net has the session, not its id. */
+const raiserView = ({ id, ...rest }: NonNullable<WaitCardView["from"]>, keys: Map<string, string>): NonNullable<WaitCardView["from"]> => ({ ...rest, ...(id && keys.get(id) ? { key: keys.get(id)! } : {}) });
 export function buildNet({ sessions, panes: ps, workspaces: all, children, services, head, sessionDir = join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "sessions") }: NetInput, refs = new Map<string, Ref>()): Net {
 	// Readable: a .jsonl really under pi's sessions directory (symlinks resolved), named for its intercom session (during /new the pane names the
 	// next file first). The registry keeps the resolved path, so the reader and the input check compare like with like.
@@ -97,6 +111,7 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 		const key = keep({ key: r.id ?? `${launcher}/${r.text}`, base, name: r.text, role: "subagent", file: readable(r.file), pane: r.pane });
 		return { id: key, key, control: Boolean(r.pane), name: r.text, role: "subagent", mark: r.mark, note: r.note, subs: [], ...(r.ended && { ended: true }) };
 	});
+	const towerKeys = new Map<string, string>();
 	const bases = all.filter((w) => !isSub(w) && !isHead(w)).flatMap((w): Base[] => {
 		const mine = joined.filter((j) => j.base === w.workspace_id && j.tab);
 		const tabs = Object.values(Object.groupBy(mine, (j) => j.tab!.id)).map((group = []): Tab => ({
@@ -104,8 +119,8 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 			label: group[0]!.tab!.label,
 			units: group.toSorted((a, b) => Number(b.role === "main") - Number(a.role === "main")).map(({ s, pane, role }): Unit => {
 				const subs = subsOf(s.id, w.workspace_id), mark = commanding(sessionMark(s, pane), subs.map((c) => c.mark));
-				const key = keep({ key: s.id, base: w.workspace_id, name: s.name ?? s.id, role, file: piFile(pane, s.id), pane: pane?.pane_id });
-				return { id: key, key, control: pane?.agent === "pi", ...(agentOf(pane) && { agent: agentOf(pane) }), name: s.name ?? s.id, role, mark, note: note(mark, s.status), subs };
+				const key = keep({ key: s.id, base: w.workspace_id, name: s.name ?? s.id, role, file: piFile(pane, s.id), pane: pane?.pane_id }), train = role === "train" ? trainFromToken(pane?.tokens?.sb_train) : undefined;
+				return { id: key, key, control: pane?.agent === "pi", ...(agentOf(pane) && { agent: agentOf(pane) }), name: s.name ?? s.id, role, ...(train ? { train } : {}), mark, note: note(mark, s.status), subs };
 			}),
 		}));
 		const outposts = all.filter((x) => isSub(x) && parentOf(all, x) === w && !claimed.has(x.workspace_id)).map((x): Outpost => ({ id: x.workspace_id, label: x.label, mark: markOf(x.agent_status) }));
@@ -126,6 +141,7 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 		// not waiting on a question shows as working, and the queued events show as the unit's queued rows.
 		const view = tower ? services?.(w.workspace_id) : undefined, { queue, file: runFile, allyFiles, eventFiles, ...service } = view ?? ({} as Partial<TowerView>);
 		const named = tower && keep({ key: tower.id, base: w.workspace_id, name: tower.name ?? tower.id, role: "tower", file: view ? readable(runFile) : piFile(towerPane, tower.id), pane: towerPane?.pane_id });
+		if (tower && named) towerKeys.set(tower.id, named);
 		// An ally run of the service whose session file is known is a unit of its own with no pane (a teammate's message drives it, so nothing is typed into it): the chip on the tower opens its comms read-only.
 		const allyRuns = (service.allyRuns ?? []).map((a) => { const file = readable(allyFiles?.[a.id]); return file ? { ...a, key: keep({ key: `ally-${a.id}`, base: w.workspace_id, name: a.label, role: "ally", file }) } : a; });
 		// An event run whose session file is known is a read-only unit as well (its handoff note stays on the chip): the tower's own comms are the boss conversation, which an event run does not interrupt.
@@ -133,7 +149,14 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 		const towerMark = tower ? commanding(sessionMark(tower, towerPane), towerSubs.map((c) => c.mark)) : "unknown";
 		return [{ id: w.workspace_id, label: w.label, mark, tower: tower && named ? { name: tower.name ?? tower.id, mark: serviceMark(view ? (service as TowerService) : undefined, towerMark), key: named, control: view ? true : towerPane?.agent === "pi", ...(view ? { service: { ...service, allyRuns, ...(localRuns.length ? { localRuns } : {}) } as TowerService, ...(queue?.length ? { queued: queue } : {}) } : {}), subs: towerSubs } : null, tabs, outposts, outside }];
 	});
-	return { bases, ...(head ? headUnit({ all, sessions, ps, services, seam: head, readable: (file) => readable(file), keep }) : {}) };
+	const headed = head ? headUnit({ all, sessions, ps, services, seam: head, readable: (file) => readable(file), keep }) : undefined;
+	// The cards of the wait for the boss: the raiser's unit key (never its session id) and the budget across every tower, the head's included.
+	const keys = new Map<string, string>(towerKeys);
+	for (const b of bases) for (const u of [...b.tabs.flatMap((t) => t.units), ...b.outside]) keys.set(u.id, u.key);
+	const holders = [...bases.flatMap((b) => (b.tower?.service?.memory ? [b.tower.service] : [])), ...(headed?.head.service?.memory ? [headed.head.service] : [])];
+	const keyed = holders.map((h) => ({ ...h.memory!, bossWaits: h.memory!.bossWaits.map((w): BossWait => (w.card?.from ? { ...w, card: { ...w.card, from: raiserView(w.card.from, keys) } } : w)) }));
+	cutCards(keyed).forEach((memory, i) => void (holders[i]!.memory = memory));
+	return { bases, ...(headed ?? {}) };
 }
 
 /** One reading of Herdr and intercom as a net. */

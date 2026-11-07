@@ -432,7 +432,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 				return workspace ? answer((t) => t.close(workspace)) : Promise.resolve({ ok: false, error: "close-tower needs a workspace" });
 			case "open-main": {
 				const [what, sender] = [text(request.request, 100_000), text(request.sender)];
-				return workspace && what && sender ? answer(async (t) => ({ opened: await t.openMain({ workspace, request: what, sender, ...(text(request.label) ? { label: text(request.label)! } : {}) }) })) : Promise.resolve({ ok: false, error: "open-main needs a workspace, a request, and a sender" });
+				return workspace && what && sender ? answer(async (t) => ({ opened: await t.openMain({ workspace, request: what, sender, ...(text(request.label) ? { label: text(request.label)! } : {}), ...(text(request.role, 16) ? { role: text(request.role, 16)! } : {}) }) })) : Promise.resolve({ ok: false, error: "open-main needs a workspace, a request, and a sender" });
 			}
 			case "close-main": {
 				const query = text(request.query);
@@ -467,7 +467,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 				return towers.prompt(request.cmd, workspace, pid);
 			}
 			// The boss's memory (towermemory.ts `memoryRequest`): `/boss memory` in a pi session is the GUI panel's request on the same function. A run's token never gets here (rungate.ts refuses it).
-			case "tower-memory": return workspace && typeof request.json === "object" && request.json !== null ? answer(async (t) => ({ ...t.memory(workspace, request.json as Record<string, unknown>) })) : Promise.resolve({ ok: false, error: "tower-memory needs a workspace and a request" });
+			case "tower-memory": return workspace && typeof request.json === "object" && request.json !== null ? answer(async (t) => ({ ...(await t.memory(workspace, request.json as Record<string, unknown>)) })) : Promise.resolve({ ok: false, error: "tower-memory needs a workspace and a request" });
 			case "tower-retry": return workspace ? answer(async (t) => (t.runs.retry(workspace), {})) : Promise.resolve({ ok: false, error: "tower-retry needs a workspace" });
 			// The boss conversation (runs.ts `leave`, `fresh`): `/boss tower leave|new` and the GUI's Leave and New are these two; a run token never gets here (rungate.ts).
 			case "tower-leave": return workspace ? answer(async (t) => ({ ...(await t.runs.leave(workspace)) })) : Promise.resolve({ ok: false, error: "tower-leave needs a workspace" });

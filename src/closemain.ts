@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { subagents } from "./netdata.ts";
 import { panes, waitFor, workspaces } from "./herdr.ts";
 import { type Kit, REGISTER } from "./state.ts";
+import { TRAIN } from "./trainrole.ts";
 
 // A tower closes the mains it opened (boss_open_main). It asks the main's own extension to quit as /boss close does, and the main decides: it checks that the
 // request is from the tower of its workspace, that a tower opened it (its pane's `sb_opened_by` token), and that nothing running would be lost, as a stash
@@ -87,7 +88,7 @@ export function createCloseMain({ pi, cfg, s, me }: Kit, { closeSelf, check, tur
 			if (found.length !== 1) throw new Error(`${found.length ? "Several sessions are named" : "No live session is named or has the id"} "${query}"`);
 			const main = found[0]!, name = main.name ?? main.id, pane = all.find((p) => p.pane_id === main.herdrLocation?.paneId);
 			if (pane?.workspace_id !== s.at.workspaceId) throw new Error(`${name} is not in this workspace; a tower closes only the mains it opened here`);
-			if (pane.tokens?.sb_role !== "main") throw new Error(`${name} is not a main agent`);
+			if (pane.tokens?.sb_role !== "main" && pane.tokens?.sb_role !== TRAIN) throw new Error(`${name} is not a main agent`);
 			if (!pane.tokens.sb_opened_by) throw new Error(`${name} was not opened by a tower (the boss opened it), so only the boss closes it`);
 			if (!interrupt && !["idle", "done"].includes(pane.agent_status ?? "")) throw new Error(`${name} is ${pane.agent_status ?? "in an unknown state"}; try again when it is idle`);
 			// A main reports its outcome in the turn that ends right after, so a refusal for something running is asked again for a while; any other refusal is final.

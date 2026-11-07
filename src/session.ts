@@ -16,6 +16,7 @@ import type { Presence } from "./presence.ts";
 import type { Reach } from "./reach.ts";
 import type { Roles } from "./roles.ts";
 import { ENTRY, type Kit } from "./state.ts";
+import { isSessionRole, TRAIN, TRAIN_EVENT, trainFromToken, trainToken } from "./trainrole.ts";
 
 /** The custom message that asks the launcher to resume the subagents a Herdr restore brought back plain. */
 const RESUME = "straw-boss-resume";
@@ -65,6 +66,8 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 	};
 	// A tab the tower opened for a request starts its pi with this role: it promotes itself as soon as it has joined (opener.ts).
 	const opensAsMain = env.STRAW_BOSS_ROLE === "main";
+	// A tab the tower opened for a train starts its pi with this one: the pi is the train (s.isTrain), never the tab's main (docs/specs/2026-11-07-train-workers.md §3.3).
+	const opensAsTrain = env.STRAW_BOSS_ROLE === TRAIN;
 	// The session start in progress, and its answer to whether this session may join (true) once Herdr has said what workspace it is in.
 	let started: object | undefined, checked: Promise<boolean> = Promise.resolve(false);
 	// STRAW_BOSS_ROLE=main stays in the new tab's shell, so a later pi started there would self-promote. The tower's one-time pane token is what
@@ -119,8 +122,26 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 			retryTimer = setTimeout(() => void (live() && again()), cfg.joinRetryMs[Math.min(retries++, cfg.joinRetryMs.length - 1)]).unref();
 		};
 		// What a joinable session does once it is placed: join, and the opener and restore bookkeeping that goes with it. Once per start, whoever got the answer first.
+		// How this pi came to be a train: the tower's one-time claim (the pane's `sb_open_main` with a valid `sb_train`), the same pi in the same pane after a /reload (its saved entry), or a Herdr restore (its record). It is known before the join: the
+		// join publishes the role, and the guard looks at the tab as soon as the join ends, so neither may ever see a train as a member that can be crowned.
+		let trainHow: "claim" | "reload" | "restore" | undefined;
+		const trainIdentity = async () => {
+			if (s.isTrain || !placed) return;
+			const mine = opensAsTrain ? (await panes(run, placed.workspaceId).catch(() => [])).find((p) => p.pane_id === placed!.paneId) : undefined;
+			const token = trainFromToken(mine?.tokens?.sb_train);
+			const saved = trainFromToken(s.saved.train && trainToken(s.saved.train));
+			if (mine?.tokens?.sb_open_main === "1" && token) {
+				[s.isTrain, s.train, s.openedBy, trainHow] = [true, token, mine.tokens.sb_opened_by, "claim"];
+			} else if (event.reason !== "startup" && saved && s.saved.openedPane === placed.paneId) {
+				[s.isTrain, s.train, s.openedBy, trainHow] = [true, saved, s.saved.openedBy ?? undefined, "reload"];
+			} else if (roles.held(placed) === TRAIN) {
+				const record = roles.trainOf(placed);
+				if (record) [s.isTrain, s.train, s.openedBy, trainHow] = [true, record, roles.openerOf(placed), "restore"];
+			}
+		};
 		const proceed = async () => {
 			if (!s.stopped && !unwatch) unwatch = cfg.watch(presence.restore); // a shutdown that came while Herdr was asked about the workspace has stopped nothing yet
+			await trainIdentity();
 			// What the record says is read once, before the first join: the guard may promote this session at once, which writes its record anew (roles.ts), and a retry must not take that record for a restore's.
 			decided ??= (() => {
 				// A main a Herdr restore resumed in its own pane and tab takes the role back; a tab that has a live main already keeps it.
@@ -139,6 +160,16 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 			});
 			note(`${who()} joined tab ${s.info.tab}`);
 			if (failed) tell(`Straw Boss: joined the net (tab ${s.info.tab}) after ${retries} ${retries === 1 ? "retry" : "retries"}`, "info");
+			if (s.isTrain) {
+				pi.events.emit(TRAIN_EVENT, { train: true });
+				// A train is never promoted. The tower that opened it may close it (closemain.ts), a Herdr restore brings it back (roles.ts), and a /reload in this pane finds it again (the entry).
+				if (trainHow === "claim") await report(run, "pane", s.at.paneId, { sb_open_main: null }).catch(() => {});
+				if (trainHow !== "reload") pi.appendEntry(ENTRY, { openedBy: s.openedBy ?? null, openedPane: s.at.paneId, train: s.train });
+				control.register();
+				roles.remember(TRAIN);
+				await presence.publish();
+				return;
+			}
 			const claimed = await claimOpened();
 			if (!claimed && event.reason !== "startup" && s.saved.openedBy && s.saved.openedPane === s.at.paneId) s.openedBy = s.saved.openedBy; // only the same pi in the tower's pane (/reload, /fork): `pi --session` anywhere is the boss's main
 			if (s.openedBy) {
@@ -222,7 +253,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		if (s.isTower) return { block: true, reason: "A tower dispatches no subagents. Open a main for this work with boss_open_main, or route it to the main that owns it." };
 		try {
 			await membership.joinNet();
-			if (!s.isMain) await membership.promote(false);
+			if (!s.isMain) await membership.promote(false); // a train is refused there (membership.ts), silently: it dispatches its reviewers as it is
 		} catch (error) {
 			tell(`Straw Boss: ${(error as Error).message}`, "warning");
 		}
@@ -259,11 +290,14 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		await presence.settled();
 		const held = s.holdsTower;
 		s.holdsTower = false;
-		if (!role() || !s.at) return;
-		await presence.clear();
+		const had = role(), keepTrain = s.isTrain && event.reason === "reload";
+		[s.isTrain, s.train] = [false, undefined]; // a /new or /resume in this process is not the train: the next start finds out again
+		if (!had || !s.at) return;
+		// A /reload brings the same train back in this pane (its entry), so it keeps the tokens that name it through the gap; only a quit, /new, /resume or /fork lets go of them.
+		await presence.clear({ keepTrain });
 		// A tower that quits says so with the members the base has, so the mains are cleared at once instead of after the grace a /reload gets,
 		// and the guard opens no new tower until the base grows past them.
-		const members = event.reason === "quit" && held ? (await panes(run, s.at.workspaceId).catch(() => [])).filter((p) => ["member", "main"].includes(p.tokens?.sb_role ?? "")).length : 0;
+		const members = event.reason === "quit" && held ? (await panes(run, s.at.workspaceId).catch(() => [])).filter((p) => isSessionRole(p.tokens?.sb_role)).length : 0;
 		if (held) await report(run, "workspace", s.at.workspaceId, { tower: null, ...(event.reason === "quit" ? { sb_tower_quit: String(members) } : {}) }).catch(() => {});
 	});
 }

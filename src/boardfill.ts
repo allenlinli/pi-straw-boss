@@ -3,6 +3,7 @@ import { ENDED_MS, finished, readEntries, removeEntry, writeEntry } from "./boar
 import { type Derived, deriveBoard } from "./boardauto.ts";
 import { BOARD_ENTRY, seedBoard, withdrawnKey } from "./boardseed.ts";
 import type { Kit } from "./state.ts";
+import { ownsBoard } from "./trainrole.ts";
 import { todosOfBranch } from "./todo.ts";
 
 // The work board fills itself (docs/specs/2026-10-25-straw-link.md, Work board, Auto-fill): the main's own session turns its todo list and its name into its entry and writes it
@@ -36,7 +37,7 @@ export function createBoardFill({ pi, cfg, s, guiDir, me, role, tell }: Kit): Bo
 		doneAt = finished({ src: "todo", ...(d.count ? { count: d.count } : {}) }) ? cfg.now() : undefined;
 	};
 	const refresh = () => {
-		if (role() !== "main" || !me()) return;
+		if (!ownsBoard(role()) || !me()) return;
 		try {
 			const d = derive(), key = JSON.stringify(d ?? null);
 			// An entry that outlived the extension's own reload is this session's: its quit deletes it (s.boardId), and a board_set one stands until the todo list or the name moves, as one written in this instance does.
@@ -88,7 +89,7 @@ export function createBoardFill({ pi, cfg, s, guiDir, me, role, tell }: Kit): Bo
 	return {
 		refresh,
 		clear() {
-			if (role() !== "main") throw new Error("Only the main agent of a tab writes the work board; a member, a demoted main, a tower, or a subagent does not");
+			if (!ownsBoard(role())) throw new Error("Only the main agent of a tab writes the work board; a member, a demoted main, a tower, or a subagent does not");
 			last = JSON.stringify(derive() ?? null);
 			seeded = true;
 			doneAt = undefined;
@@ -96,7 +97,7 @@ export function createBoardFill({ pi, cfg, s, guiDir, me, role, tell }: Kit): Bo
 			withdraw(last);
 		},
 		handBack() {
-			if (role() !== "main") throw new Error("Only the main agent of a tab writes the work board; a member, a demoted main, a tower, or a subagent does not");
+			if (!ownsBoard(role())) throw new Error("Only the main agent of a tab writes the work board; a member, a demoted main, a tower, or a subagent does not");
 			const d = derive();
 			last = JSON.stringify(d ?? null);
 			seeded = true;

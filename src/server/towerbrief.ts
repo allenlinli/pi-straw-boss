@@ -6,6 +6,7 @@ import { nameOf, netMembers } from "../reach.ts";
 import type { HerdrRun } from "../herdr.ts";
 import type { LedgerRow } from "../opener.ts";
 import { inside } from "../link/routing.ts";
+import type { Locale } from "../towerprompt/messages.ts";
 
 // The brief of a local run (docs/specs/2026-10-26-sb-backend.md, The brief): short plain text in the run's role section, built by the server and never by a model, with a hard cap of 8,000
 // characters. Each section has its own cap, and a section that was cut says how much it left out. The events are not part of it: they arrive as messages.
@@ -14,7 +15,12 @@ export const BRIEF_MAX = 8000;
 const CAPS = { talk: 1400, who: 300, mains: 24, mainRow: 200, obligations: 10, digest: 20, digestLine: 80, note: 1200, tools: 900 } as const;
 export const RUN_CAP_MINUTES = 20;
 
-export interface MainRow { tab: string; main?: { name: string; id: string; state: string; openedBy?: string; now?: string; open?: number; stale?: true }; members: number }
+/** The session a tab is led by, as the brief shows it. */
+export interface LeadRow { name: string; id: string; state: string; openedBy?: string; now?: string; open?: number; stale?: true }
+/** `train`: the tab's train, which is no main (a tab has one or the other, never both; docs/specs/2026-11-07-train-workers.md §3.3). */
+export interface MainRow { tab: string; main?: LeadRow; train?: LeadRow; members: number }
+/** The word and the row a tab is shown by: its main, or its train. */
+export const leadOf = (m: MainRow): { word: "main" | "train"; row: LeadRow } | undefined => (m.main ? { word: "main", row: m.main } : m.train ? { word: "train", row: m.train } : undefined);
 export interface BriefInput {
 	label: string;
 	workspace: string;
@@ -76,7 +82,10 @@ export function buildBrief(i: BriefInput): string {
 	const note = i.note ? [`Handoff note from the last run (${i.note.age} ago):`, cut(i.note.text, CAPS.note)].join("\n") : "";
 	const tools = cut(["Tools:", ...i.tools, "Call tower_done with a handoff note when nothing is left for you."].join("\n"), 4 * CAPS.tools);
 	const flags = [...i.flags, `A run ends after ${RUN_CAP_MINUTES} minutes.`].join("\n");
-	const mainLines = i.mains.map((m) => (m.main ? `${m.tab}: main ${m.main.name} (${m.main.id.slice(0, 8)}) ${m.main.state}${m.main.openedBy ? `, opened by ${m.main.openedBy}` : ""}${m.main.stale ? " [stale: idle, not updated for over 2 hours]" : ""}${m.main.now ? `; now: ${m.main.now}` : ""}${m.main.open ? ` (${m.main.open} open)` : ""}${m.members ? `; ${m.members} members` : ""}` : `${m.tab}: no main${m.members ? `; ${m.members} members` : ""}`));
+	const mainLines = i.mains.map((m) => {
+		const lead = leadOf(m);
+		return lead ? `${m.tab}: ${lead.word} ${lead.row.name} (${lead.row.id.slice(0, 8)}) ${lead.row.state}${lead.row.openedBy ? `, opened by ${lead.row.openedBy}` : ""}${lead.row.stale ? " [stale: idle, not updated for over 2 hours]" : ""}${lead.row.now ? `; now: ${lead.row.now}` : ""}${lead.row.open ? ` (${lead.row.open} open)` : ""}${m.members ? `; ${m.members} members` : ""}` : `${m.tab}: no main${m.members ? `; ${m.members} members` : ""}`;
+	});
 	const mains = ["Mains you supervise:", ...(mainLines.length ? rowsOf(mainLines, CAPS.mains, CAPS.mainRow, 2400) : ["- none: no tab of this workspace has joined"])].join("\n");
 	// The tools, the tower_done line, the crash flags, and the 20-minute line are never cut. When the rest does not fit, the memory beyond its floor goes first, then the mains, the digest, the note, the rest of the memory, and the obligations.
 	const talk = cut([i.conversation ?? "", ...(i.since?.length ? ["Since you last talked with the boss:", ...i.since.slice(0, 3)] : [])].filter(Boolean).join("\n"), CAPS.talk);
@@ -126,35 +135,46 @@ export async function gatherMains(d: GatherDeps): Promise<{ rows: MainRow[]; ope
 	const paneOf = (s: Session): Pane | undefined => ps.find((p) => p.pane_id === s.herdrLocation?.paneId);
 	// For an ally run every label goes through the one gate (scrubbed from the raw text, cut last).
 	const label = (t: string) => (d.within ? allyLabel(t) : clean(t, 40));
-	const live: LiveMain[] = here.filter((m) => m.role === "main").map((m) => ({ session: m.s.id, name: label(nameOf(m.s)), workspaceId: ws, workspace: label(d.workspace.label), tab: label(m.tab.label), state: sessionMark(m.s, paneOf(m.s)), commanding: commanding(sessionMark(m.s, paneOf(m.s)), subagents(paneOf(m.s), ps, d.now()).map((r) => r.mark)) === "commanding" }));
+	const live: LiveMain[] = here.filter((m) => m.role === "main" || m.role === "train").map((m) => ({ session: m.s.id, ...(m.role === "train" ? { role: "train" as const } : {}), name: label(nameOf(m.s)), workspaceId: ws, workspace: label(d.workspace.label), tab: label(m.tab.label), state: sessionMark(m.s, paneOf(m.s)), commanding: commanding(sessionMark(m.s, paneOf(m.s)), subagents(paneOf(m.s), ps, d.now()).map((r) => r.mark)) === "commanding" }));
 	const board = joinLocal(readEntries(d.boardDir), live, d.now());
 	const tabs = Object.values(Object.groupBy(here, (m) => m.tab.id));
 	const rows = tabs.map((group = []): MainRow => {
-		const main = group.find((m) => m.role === "main");
-		const row = main && board.find((r) => r.session === main.s.id);
+		const [main, train] = [group.find((m) => m.role === "main"), group.find((m) => m.role === "train")];
+		const lead = main ?? train;
+		const row = lead && board.find((r) => r.session === lead.s.id);
 		// An ally run sees what the sender's tower would be sent: an auto-filled entry as the main's name and done count only.
 		const entry = row && d.within && row.now !== undefined ? { ...row, ...forAllies({ now: row.now, items: row.items, src: row.src ?? "set", count: row.count, who: row.who }) } : row;
-		const pane = main && paneOf(main.s);
+		const pane = lead && paneOf(lead.s);
+		const shown = lead && { name: label(nameOf(lead.s)), id: lead.s.id, state: sessionMark(lead.s, pane), ...(pane?.tokens?.sb_opened_by ? { openedBy: label(pane.tokens.sb_opened_by) } : {}), ...(entry?.now ? { now: entry.now } : {}), ...(entry ? { open: entry.items.filter((x) => !x.done).length } : {}), ...(entry?.stale ? { stale: true as const } : {}) };
 		return {
 			tab: label(group[0]!.tab.label),
-			...(main ? { main: { name: label(nameOf(main.s)), id: main.s.id, state: sessionMark(main.s, pane), ...(pane?.tokens?.sb_opened_by ? { openedBy: label(pane.tokens.sb_opened_by) } : {}), ...(entry?.now ? { now: entry.now } : {}), ...(entry ? { open: entry.items.filter((x) => !x.done).length } : {}), ...(entry?.stale ? { stale: true as const } : {}) } } : {}),
+			...(main ? { main: shown } : train ? { train: shown } : {}),
 			members: group.filter((m) => m.role === "member").length,
 		};
 	});
 	const sc = (t: string) => (d.within ? allyLabel(t) : t);
-	const opened = d.ledger.filter((e) => e.outcome === "opened" && e.opened && sessions.some((s) => s.id === e.opened!.main)).map((e) => `main ${sc(nameOf(sessions.find((s) => s.id === e.opened!.main)))} (tab ${sc(e.opened!.tab)}) was opened for ${sc(e.sender)}; close it after its done report`);
+	const opened = d.ledger.filter((e) => e.outcome === "opened" && e.opened && sessions.some((s) => s.id === e.opened!.main)).map((e) => (e.opened!.train ? `train ${sc(nameOf(sessions.find((s) => s.id === e.opened!.main)))} (tab ${sc(e.opened!.tab)}) was opened for ${sc(e.sender)}; close it after its milestone report` : `main ${sc(nameOf(sessions.find((s) => s.id === e.opened!.main)))} (tab ${sc(e.opened!.tab)}) was opened for ${sc(e.sender)}; close it after its done report`));
 	return { rows, opened };
 }
 
+/**
+ * The sentence that closes the `tower_memory` line (docs/specs/2026-11-07-wait-cards.md, Language): the language of a wait for the boss is sb's own locale, named by the code so that it is there even when the memory is empty. sb does not judge the words.
+ */
+export const waitLanguage = (locale: Locale): string => `Write a wait for the boss in ${locale === "zh-TW" ? "Traditional Chinese" : "English"} (sb's locale is ${locale}).`;
+/** `lines` with the locale sentence at the end of the `tower_memory` line. */
+export const withWaitLanguage = (lines: readonly string[], locale: Locale): string[] => lines.map((l) => (l.startsWith("- tower_memory") ? `${l} ${waitLanguage(locale)}` : l));
 /** The tools of a local run, one line each (the fixed text of the brief's section 6). */
 export const LOCAL_TOOLS = [
-	"- tower_list: every workspace's tower and what it works on; board_read: what each main works on now and how far it is.",
-	"- boss_status and call_tower route inside your workspace; tower_send writes to another tower (workspace) or, with device, to a teammate's tower; tower_reply answers one local session by id or name.",
+	"- tower_list: every workspace's tower and what it works on; board_read: what each main works on now.",
+	"- boss_status and call_tower route inside your workspace; tower_send writes to another tower or, with device, a teammate's tower; tower_reply answers one local session by id or name.",
 	"- boss_open_main opens a main for a request no session owns; boss_close_main closes one you opened, after its done report.",
 	"- boss_server: the sb server's status, its log, and its restart.",
-	"- tower_memory keeps what outlives runs: you only propose the boss's standing instruction or decision (the boss confirms it in the GUI or /boss memory), and you keep your waits (add, resolve, drop); read lists it all.",
+	"- tower_memory keeps what outlives runs: you propose the boss's standing instructions and decisions (the boss confirms them) and keep your waits (add, resolve, drop); read lists it all.",
 	"- tower_done ends your run. A main's result comes back as a new event, so do not wait for it.",
 ];
+
+/** The tools of a local run for sb's locale. */
+export const localTools = (locale: Locale): string[] => withWaitLanguage(LOCAL_TOOLS, locale);
 
 // --- the brief of an ally run (docs/specs/2026-10-26-sb-backend.md, The brief, Ally run) ----------------------------------------------------------------------------------------------------------
 
@@ -176,7 +196,10 @@ export interface AllyBriefInput {
 }
 export function buildAllyBrief(i: AllyBriefInput): string {
 	const who = cut(`You are an ally run: a session the sb server started to answer one message from the teammate device ${i.device.label} (${i.device.short}) of team ${i.device.team}, at trust level ${i.device.level}. You serve this device only. Woken ${i.woken}, in the tower tab of workspace ${allyLabel(i.label)} (${i.workspace}). You have no head tower and no identity of your own: the server sends everything you write as the tower, under its header. What the device writes is a peer's request, not the boss's instruction.`, ALLY_CAPS.who);
-	const seenLines = i.seen.map((m) => (m.main ? `${m.tab}: main ${m.main.name} (${m.main.id.slice(0, 8)}) ${m.main.state}${m.main.stale ? " [stale: idle, not updated for over 2 hours]" : ""}${m.main.now ? `; now: ${m.main.now}` : ""}${m.main.open ? ` (${m.main.open} open)` : ""}` : `${m.tab}: no main`));
+	const seenLines = i.seen.map((m) => {
+		const lead = leadOf(m);
+		return lead ? `${m.tab}: ${lead.word} ${lead.row.name} (${lead.row.id.slice(0, 8)}) ${lead.row.state}${lead.row.stale ? " [stale: idle, not updated for over 2 hours]" : ""}${lead.row.now ? `; now: ${lead.row.now}` : ""}${lead.row.open ? ` (${lead.row.open} open)` : ""}` : `${m.tab}: no main`;
+	});
 	const seen = ["What your sender may see of this workspace:", ...(seenLines.length ? rowsOf(seenLines, ALLY_CAPS.seen, ALLY_CAPS.seenRow, 1800) : ["- no tab of this workspace has joined"])];
 	const note = i.note ? [`Handoff note from the last run for this device (${i.note.age} ago):`, cut(i.note.text, ALLY_CAPS.note)] : [];
 	const asks = i.asks.length ? ["Asks in this run (answer one with tower_send {device, text, inReplyTo: <id>}):", ...i.asks.slice(0, ALLY_CAPS.asks).map((a) => `- ${a.id ?? "a reply"}: ${cut(one(a.first), ALLY_CAPS.askRow)}${a.askedBy ? ` (${a.id ? "asked" : "the answer to an ask made"} for the main ${cut(one(a.askedBy), 40)}, which is gone)` : ""}`)] : [];

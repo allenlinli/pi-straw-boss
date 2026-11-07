@@ -1,4 +1,5 @@
-import { BRIEF_MAX, type MainRow } from "./towerbrief.ts";
+import type { Locale } from "../towerprompt/messages.ts";
+import { BRIEF_MAX, leadOf, type MainRow, withWaitLanguage } from "./towerbrief.ts";
 
 // The brief of a head run (docs/specs/2026-11-04-head-tower.md, Runs): who it is, the workspaces now, the open asks, its memory, and the last handoff note, 8,000 characters at most, built by the server and never by a model.
 // When the brief has to give up characters, the memory goes first (down to its floor), then the workspaces, then the asks. The tools, the tower_done line, and the limits are never cut.
@@ -62,7 +63,10 @@ export function buildHeadBrief(i: HeadBriefInput): string {
 		...(!chapter.resumed && chapter.n > 1 ? [`New chapter ${chapter.n}: ${chapter.why ?? "the last conversation could not be resumed"}.`] : []),
 	].join("\n");
 	const recap = !chapter.resumed && chapter.recap?.length ? ["The last lines between you and the boss, oldest first:", ...chapter.recap.map((l) => `- ${cut(one(l), 400)}`)].join("\n") : "";
-	const mains = (rows: MainRow[]) => rows.map((m) => (m.main ? `  ${m.tab}: main ${m.main.name} ${m.main.state}${m.main.stale ? " [stale: idle, not updated for over 2 hours]" : ""}${m.main.now ? `; now: ${m.main.now}` : ""}${m.main.open ? ` (${m.main.open} open)` : ""}` : `  ${m.tab}: no main`));
+	const mains = (rows: MainRow[]) => rows.map((m) => {
+		const lead = leadOf(m);
+		return lead ? `  ${m.tab}: ${lead.word} ${lead.row.name} ${lead.row.state}${lead.row.stale ? " [stale: idle, not updated for over 2 hours]" : ""}${lead.row.now ? `; now: ${lead.row.now}` : ""}${lead.row.open ? ` (${lead.row.open} open)` : ""}` : `  ${m.tab}: no main`;
+	});
 	const wsLines = i.workspaces.flatMap((w) => [`- ${w.label} (${w.id})${w.folder ? `, ${w.folder}` : ""}: ${w.tower === "none" ? "no tower" : `tower ${w.tower}`}`, ...mains(w.rows).slice(0, 6).map((l) => cut(l, CAPS.row))]);
 	const workspaces = ["Workspaces now:", ...(wsLines.length ? rowsWithin(wsLines, CAPS.workspaces) : ["- none open: ask the boss to open the project's workspace"])].join("\n");
 	const askLines = i.asks.map((a) => `- ${a.id} ${a.label}, ${a.age}: ${cut(one(a.first), 120)}${a.answer ? ` → ${cut(one(a.answer), 100)}` : ""}`);
@@ -92,3 +96,5 @@ export const HEAD_TOOLS = [
 	"- tower_list: every workspace's tower and its checkout folder; board_read: what each main works on now; read, grep, find, ls: project files by absolute path.",
 	"- tower_memory keeps what outlives runs: the boss's standing instructions and decisions are proposals the boss confirms; your waits are yours (add, resolve, drop). boss_server: the sb server's status, log, and restart.",
 ];
+/** The head tower's tools for sb's locale. */
+export const headTools = (locale: Locale): string[] => withWaitLanguage(HEAD_TOOLS, locale);

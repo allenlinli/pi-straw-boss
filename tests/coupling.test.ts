@@ -89,6 +89,16 @@ test("a base with two members opens its tower once another base has one, and not
 	await until(() => role("wA:p1") === "main" && role("wA:p2") === "main", "the tower promotes the member of each tab");
 });
 
+test("a train counts as a session of its base: one member and a train open the tower once another base has one", async () => {
+	world.autoTowers();
+	await world.tower("tower-wB", "wB:t7", "wB:p7").start();
+	world.herdr.addTab("wA:t2", "train 1106m", undefined);
+	world.herdr.addPane("wA:p2", "wA:t2");
+	Object.assign(world.herdr.pane("wA:p2").tokens, { sb_role: "train", sb_train: "acme/2026-11-06-m", sb_opened_by: "sender-1" });
+	await world.agent({ id: "a", pane: "wA:p1", tab: "wA:t1", deps: { ...deps, autoTower: true } }).start();
+	await until(() => world.herdr.workspace("wA").tokens.tower, "Alpha's tower opened with a member and a train");
+});
+
 test("a lone member does not open a tower, whatever other bases have", async () => {
 	world.autoTowers();
 	await world.tower("tower-wB", "wB:t7", "wB:p7").start();

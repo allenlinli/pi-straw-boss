@@ -26,7 +26,7 @@ const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", 
 const GLYPH: Record<Exclude<Mark, "working">, string> = { waiting: "?", idle: "○", done: "✓", error: "✗", unknown: "·", commanding: "◈" };
 const TONE: Record<Mark, Tone> = { working: "accent", waiting: "warning", idle: "dim", done: "success", error: "error", unknown: "muted", commanding: "title" };
 // A row's role mark goes before its name, the same glyph as Herdr's sidebar shows (src/herdr.ts); a tab or sub workspace has none.
-const ROLE: Record<string, [Tone, string]> = { main: ["main", MARK.main], member: ["member", MARK.member], subagent: ["dim", ARROW], tower: ["tower", TOWER_LABEL], "head tower": ["tower", TOWER_LABEL] };
+const ROLE: Record<string, [Tone, string]> = { main: ["main", MARK.main], member: ["member", MARK.member], train: ["member", MARK.train], subagent: ["dim", ARROW], tower: ["tower", TOWER_LABEL], "head tower": ["tower", TOWER_LABEL] };
 const MAX_ROWS = 18;
 const MAX_WIDTH = 76;
 
@@ -75,7 +75,7 @@ export async function collect({ run, world = worldOf(run), sessions, workspaceId
 	const joined = live.filter((s) => s.herdrLocation?.workspace?.id === workspaceId).flatMap((s) => {
 		const pane = ps.find((p) => p.pane_id === s.herdrLocation?.paneId);
 		const role = pane?.tokens?.sb_role;
-		return role === "main" || role === "member" ? [{ s, pane, role, tab: s.herdrLocation!.tab! }] : [];
+		return role === "main" || role === "member" || role === "train" ? [{ s, pane, role, tab: s.herdrLocation!.tab! }] : [];
 	});
 	const rows: Row[] = [];
 	for (const group of Object.values(Object.groupBy(joined, (j) => j.tab.id))) {

@@ -80,7 +80,7 @@ function noticeText(n: TowerService["notices"][number], o?: Opts): string {
 export function noticeRows(service: TowerService | undefined, o?: Opts, now = Date.now()): Row[] {
 	return [
 		...(service?.notices ?? []).filter((n) => !n.id.startsWith("parked-")).map((n): Row => ({ id: n.id, level: n.level, text: noticeText(n, o), actions: n.kind === "loop" || (n.kind === "start" && n.id === "start") ? ["retry"] : [] })),
-		...(service?.memory?.bossWaits ?? []).map((w): Row => ({ id: `wait-${w.id}`, level: "warning", text: waitLine(w, now, o), wait: w.id, actions: ["answer", "dismiss"] })),
+		...(service?.memory?.bossWaits ?? []).filter((w) => !w.state).map((w): Row => ({ id: `wait-${w.id}`, level: "warning", text: waitLine(w, now, o), wait: w.id, actions: ["answer", "dismiss"] })),
 		...(service?.memory?.proposals ?? []).map((p): Row => ({ id: `proposal-${p.id}`, level: "warning", text: proposalText(p, o), proposal: p.id, rev: service!.memory!.rev, actions: ["confirm", "reject"] })),
 		...(service?.memory?.problem ? [{ id: "memory-unreadable", level: "warning" as const, text: service.memory.problem, actions: [] }] : []),
 		...(service?.parked ?? []).map((p): Row => ({ id: `parked-${p.id}`, level: "warning", text: p.from ? m.tower_parked({ kind: p.kind, from: p.from, first: p.first }, o) : m.tower_parked_anon({ kind: p.kind, first: p.first }, o), event: p.id, actions: ["deliver", "drop"] })),

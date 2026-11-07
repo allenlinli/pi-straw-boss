@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { availableParallelism, homedir, loadavg } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -17,7 +17,7 @@ import { holderAlive, holderOf, lockDirOf, takeLock, type Taken } from "./trainl
 // most 1000 characters with `progress.message`, so the monitor counts it as progress, and at least one comes every 30 s; the same state is written to `gate-<id>.json` beside the step file, which the server reads (§11.1).
 // Time, load, process liveness, signals and output come in as arguments, so a test runs it on a clock it moves.
 
-export const BEAT_MS = 30_000, GRACE_MS = 10_000, MAX_LINE = 1000, MAX_TAIL = 200, MAX_SPEC_BYTES = 16 * 1024;
+export const BEAT_MS = 30_000, GRACE_MS = 4000, KILL_WAIT_MS = 500, TRY_GRACE_MS = 10_000, GATE_MAX_BOARDS = 4096, MAX_LINE = 1000, MAX_TAIL = 200, MAX_SPEC_BYTES = 16 * 1024;
 export type GateState = "waiting" | "running" | "verifying" | "passed" | "failed" | "refused" | "stopped";
 export const EXIT: Record<"passed" | "failed" | "refused" | "stopped", number> = { passed: 0, failed: 1, refused: 3, stopped: 143 };
 /** A pipeline's last line that ends a poll: the conclusion is in and it is not the expected one. The whole line is the status; a longer line is never read for these words. */
@@ -43,15 +43,20 @@ export interface GateDeps {
 	lockDir(stateDir: string): string;
 	beatMs?: number;
 	graceMs?: number;
+	/** How many trainboards of the project a wait round reads before it holds everything (`GATE_MAX_BOARDS`). */
+	maxBoards?: number;
 }
+
+/** A start time as an instant: the text `ps` prints is read in UTC and carries no zone (Date.parse would take it as local time), and the ISO text Windows gives carries its own. */
+export const startMs = (text: string) => (/Z$/.test(text) ? Date.parse(text) : Date.parse(`${text} GMT`));
 
 /**
  * Whether a board's writer still runs: its pid answers and the process is not one that started after the writer did (a reused pid). The writer's `started` is an ISO time and `startOf` answers in the platform's text, so both go through
- * `Date.parse`, with 2 s for the seconds that `ps` rounds off and for the time the session took to say it started.
+ * `startMs` and `Date.parse`, with 2 s for the seconds that `ps` rounds off and for the time the session took to say it started.
  */
 export function writerAlive(writer: Writer, startOf: (pid: number) => string | undefined = realStartOf): boolean {
 	if (!holderAlive({ pid: writer.pid })) return false;
-	const process = Date.parse(startOf(writer.pid) ?? ""), said = Date.parse(writer.started);
+	const process = startMs(startOf(writer.pid) ?? ""), said = Date.parse(writer.started);
 	return Number.isNaN(process) || Number.isNaN(said) || process <= said + 2000;
 }
 
@@ -121,6 +126,18 @@ export function cleanTail(text: string): string {
 	return cut(segments.at(-1) ?? "", MAX_TAIL);
 }
 
+/** The last `max` bytes of a file as text: a verify that prints hundreds of MB is not read whole. */
+export function lastBytes(file: string, max: number): string {
+	const fd = openSync(file, "r");
+	try {
+		const size = fstatSync(fd).size, length = Math.min(size, max), buffer = Buffer.alloc(length);
+		readSync(fd, buffer, 0, length, size - length);
+		return buffer.toString("utf8");
+	} finally {
+		closeSync(fd);
+	}
+}
+
 /** The last line of a log file, read from its last 8 KB. */
 export function tailOf(file: string): string {
 	let fd: number | undefined;
@@ -143,7 +160,9 @@ export function fit(line: Json): string {
 	const copy = structuredClone(line) as { progress: { message: string }; sb?: { tail?: string; waits?: unknown } };
 	const sb = copy.sb;
 	while (sb?.tail && text.length > MAX_LINE) {
-		sb.tail = sb.tail.length > text.length - MAX_LINE + 4 ? Array.from(sb.tail).slice(0, Math.max(0, sb.tail.length - (text.length - MAX_LINE) - 4)).join("") : "";
+		// By code points, at least one a round: a tail of characters outside the BMP (two UTF-16 units each) shrinks too.
+		const points = Array.from(sb.tail), drop = Math.max(1, Math.floor((text.length - MAX_LINE) / 2));
+		sb.tail = points.slice(0, Math.max(0, points.length - drop)).join("");
 		if (!sb.tail) delete sb.tail;
 		text = JSON.stringify(copy);
 	}
@@ -181,9 +200,8 @@ export function readGate(file: string): GateFile | undefined {
 	}
 }
 
-let counter = 0;
 function writeGate(file: string, gate: GateFile) {
-	const temp = `${file}.${process.pid}.${counter++}.tmp`;
+	const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
 	try {
 		writeFileSync(temp, `${JSON.stringify(gate)}\n`, { mode: 0o600, flag: "wx" });
 		renameSync(temp, file);
@@ -216,7 +234,7 @@ const realSleep = (ms: number) => new Promise<void>((done) => setTimeout(done, m
 /** The last line of the output, trimmed: the pipeline's conclusion or the version a target runs. */
 export const lastLine = (text: string) => text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).at(-1) ?? "";
 
-interface Ended { code: number | null; signal: string | null; error?: Error; stopped?: boolean }
+interface Ended { code: number | null; signal: string | null; error?: Error; stopped?: boolean; timedOut?: boolean }
 
 export async function runGate(specFile: string, deps: GateDeps): Promise<number> {
 	const d = { ...deps, beatMs: deps.beatMs ?? BEAT_MS, graceMs: deps.graceMs ?? GRACE_MS };
@@ -233,7 +251,8 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 	const holds = spec.holds as { lane?: string; target?: string } | undefined;
 	if (d.platform === "win32") return refuse("train gate needs process groups (macOS or Linux); this computer is Windows", sb, id);
 	const home = d.home, cwd = resolve(expand(String(check.cwd), home)), logFile = resolve(cwd, expand(String(check.log), home));
-	const gateFile = join(dirname(frozen.file), `gate-${id}.json`), started = d.startOf(d.pid);
+	const gateFile = join(dirname(frozen.file), `gate-${id}.json`);
+	let started = d.startOf(d.pid);
 	const began = clock.now();
 
 	let state: GateState = "waiting", since = new Date(began).toISOString(), waits: Wait[] = [], loadNow: GateFile["load"];
@@ -253,14 +272,21 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 		if (next !== state) (state = next, since = new Date(clock.now()).toISOString());
 		const final = next === "passed" || next === "failed" || next === "stopped";
 		const holder = waits.map((w) => ("lock" in w ? w.lock.holder?.train : "lane" in w ? w.lane.holder : "target" in w ? w.target.holder : undefined)).find(Boolean);
-		writeGate(gateFile, {
-			v: 1, project, app: String(sb.app), train: code, step: id, kind: String(sb.kind), name: String(sb.name), state, since, updated: new Date(clock.now()).toISOString(), message: cut(message, 400),
-			...(loadNow ? { load: loadNow } : {}), waits, ...(holder ? { holder } : {}), pid: d.pid, ...(started ? { started } : {}), spec: frozen.hash, ...(extra.exit !== undefined ? { exit: extra.exit } : {}),
-		});
+		// A gate file that cannot be written does not keep the line from the monitor; a line that is not the last then ends the gate (the caller ends what it started).
+		let failure: Error | undefined;
+		try {
+			writeGate(gateFile, {
+				v: 1, project, app: String(sb.app), train: code, step: id, kind: String(sb.kind), name: String(sb.name), state, since, updated: new Date(clock.now()).toISOString(), message: cut(message, 400),
+				...(loadNow ? { load: loadNow } : {}), waits, ...(holder ? { holder } : {}), pid: d.pid, ...(started ? { started } : {}), spec: frozen.hash, ...(extra.exit !== undefined ? { exit: extra.exit } : {}),
+			});
+		} catch (error) {
+			failure = error as Error;
+		}
 		const ident = { v: 1, train: code, step: id, kind: sb.kind, state };
 		const progress = { message, ...(loadNow ? { load: { max: loadNow.max, now: loadNow.now } } : {}) };
 		d.out(final ? fit({ monitorOutcome: { status: state, message }, progress: { message }, sb: { ...ident, ...(extra.exit !== undefined ? { exit: extra.exit } : {}) } })
 			: fit({ progress, sb: { ...ident, since, ...(waits.length ? { waits } : {}), ...(extra.tail ? { tail: extra.tail } : {}) } }));
+		if (failure && !final) throw failure;
 	}
 
 	/** Sleeps `ms` in beats; false when a signal came first. `beat` prints the line between beats. */
@@ -285,7 +311,7 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 		return EXIT[status];
 	};
 
-	/** SIGTERM to the child's group; SIGKILL to what is left of it after the grace. */
+	/** SIGTERM to the child's group; SIGKILL to what is left of it after the grace (4 s, and at most 0.5 s more: MonitorStop's own SIGKILL comes 5 s after its SIGTERM). */
 	async function terminate(child: { pid: number; exited: Promise<Ended> }) {
 		const signal = (name: "SIGTERM" | "SIGKILL") => {
 			try { sendSignal(-child.pid, name); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
@@ -301,13 +327,17 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 		over = true;
 		if (!quick && groupAlive(child.pid)) {
 			signal("SIGKILL");
-			for (let tries = 0; tries < 100 && groupAlive(child.pid); tries++) await realSleep(20);
+			// One budget for what follows the kill, so the whole stop (grace and this) ends inside MonitorStop's 5 s between SIGTERM and SIGKILL.
+			const end = Date.now() + KILL_WAIT_MS;
+			while (groupAlive(child.pid) && Date.now() < end) await realSleep(20);
+			await Promise.race([child.exited, realSleep(Math.max(0, end - Date.now()))]);
+			return;
 		}
-		await Promise.race([child.exited, realSleep(2000)]);
+		await Promise.race([child.exited, realSleep(KILL_WAIT_MS)]);
 	}
 
-	/** Runs a command through the shell in a group of its own; ends when it exits, or when a signal came (the group is then killed). */
-	async function runChild(command: string, stdout: number, stderr: number, beat: () => void): Promise<Ended> {
+	/** Runs a command through the shell in a group of its own; ends when it exits, when a signal came, when `deadline` (a time of the clock) passed, or when a beat could not be written (the group is then killed first). */
+	async function runChild(command: string, stdout: number, stderr: number, beat: () => void, deadline?: number): Promise<Ended> {
 		const file = "/bin/sh"; // a literal absolute path: the gate runs where there are process groups, which is where this is
 		const child = spawn(file, ["-c", command], { cwd, detached: true, stdio: ["ignore", stdout, stderr], env: d.env });
 		const exited = new Promise<Ended>((done) => {
@@ -320,13 +350,22 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 		current = { pid, exited };
 		try {
 			for (;;) {
-				const first = await Promise.race([exited, clock.sleep(d.beatMs).then(() => "beat" as const), stopped]);
+				const first = await Promise.race([exited, clock.sleep(Math.max(1, Math.min(d.beatMs, deadline === undefined ? d.beatMs : deadline - clock.now()))).then(() => "beat" as const), stopped]);
 				if (first === "stop") {
 					await terminate({ pid, exited });
 					return { code: null, signal: null, stopped: true };
 				}
 				if (first === "beat") {
-					beat();
+					if (deadline !== undefined && clock.now() >= deadline) {
+						await terminate({ pid, exited });
+						return { code: null, signal: null, timedOut: true };
+					}
+					try {
+						beat();
+					} catch (error) {
+						await terminate({ pid, exited }); // never leave the command running unwatched
+						throw error;
+					}
 					continue;
 				}
 				return first;
@@ -343,12 +382,20 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 		// ---- waits
 		for (;;) {
 			const l = readLoad();
-			const boards = readTrainboards(stateDir, { project });
+			const boards = readTrainboards(stateDir, { project, max: d.maxBoards ?? GATE_MAX_BOARDS });
+			// A read that was cut cannot say who holds what: everything is held, which for a gate is a refusal (it would otherwise run beside a train it did not see).
+			if (boards.truncated) return refuse(`more than ${d.maxBoards ?? GATE_MAX_BOARDS} trainboards of project ${project}, so what is held cannot be known; end or clear old trains`, sb, id);
 			const trains = boards.trains.map((b) => factsOf(b, { now: clock.now(), alive: d.alive }));
 			const step: FactStep = { id, kind: String(sb.kind), status: "in_progress", round: Number(sb.round), ...(holds ? { holds } : {}), ...(load ? { load } : {}), ...(lockName ? { lock: lockName } : {}) };
 			const own: TrainFacts = trains.find((t) => t.code === code) ?? { project, code, state: "live", steps: [step] };
 			const locks = lockName ? (() => { const h = holderOf(dir, lockName, { startOf: d.startOf }); return h ? { [lockName]: { train: h.train, step: h.step } } : {}; })() : {};
 			waits = stepWaits(own, step, { trains: [own, ...trains.filter((t) => t.code !== code)], ...(l ? { load: { now: r1(l.now), cores: l.cores } } : {}), locks });
+			if (waits.length === 0 && lockName && !(started ??= d.startOf(d.pid))) {
+				// A lock without the holder's start time cannot tell a reused pid from its holder: wait a beat for it.
+				line("waiting", "waiting: this process's start time cannot be read yet (the lock records it)");
+				if (!(await pause(d.beatMs, () => {}))) return finish("stopped", `stopped by ${signalled} while waiting`);
+				continue;
+			}
 			if (waits.length === 0 && lockName) {
 				const taken = takeLock(dir, lockName, { train: code, step: id, pid: d.pid, ...(started ? { started } : {}) }, { startOf: d.startOf });
 				if (taken.ok) lock = taken;
@@ -368,9 +415,9 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 			const l = readLoad();
 			line("running", `running ${short(clock.now() - ranFrom)}: ${String(sb.name)}${l ? ` (load ${r1(l.now)})` : ""}`, { tail: tail() });
 		};
-		running();
 		let result: Ended;
 		try {
+			running();
 			result = await runChild(String(check.run), log, log, running);
 		} finally {
 			closeSync(log);
@@ -384,20 +431,23 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 		const verify = check.verify as string | undefined, expect = check.expect as string | undefined, poll = check.poll as { everySec: number; forMin: number } | undefined;
 		if (!verify) return finish("passed", `exit 0 in ${took}`, 0);
 		const outFile = join(dirname(frozen.file), `verify-${id}.out`), until = clock.now() + (poll ? poll.forMin * 60_000 : 0), verifyFrom = clock.now();
+		// A try inside a poll ends with the poll (and a short grace for a try that started at its end): a verify that hangs does not hold the gate and its lock for ever.
+		const deadline = poll ? until + TRY_GRACE_MS : undefined;
 		for (let attempt = 1; ; attempt++) {
 			const beat = () => line("verifying", `verifying ${short(clock.now() - verifyFrom)}: ${String(sb.name)} (try ${attempt})`, { tail: tail() });
 			beat();
 			const outFd = openSync(outFile, "w", 0o600), errFd = openSync(logFile, "a", 0o600);
 			let checked: Ended;
 			try {
-				checked = await runChild(verify, outFd, errFd, beat);
+				checked = await runChild(verify, outFd, errFd, beat, deadline);
 			} finally {
 				closeSync(outFd);
 				closeSync(errFd);
 			}
-			const printed = lastLine(readFileSync(outFile, "utf8").slice(-16384));
+			const printed = lastLine(lastBytes(outFile, 16384));
 			try { unlinkSync(outFile); } catch { /* gone */ }
 			if (checked.stopped) return finish("stopped", `stopped by ${signalled}; the command's process group was ended`);
+			if (checked.timedOut) return finish("failed", `verify was still running after ${long(clock.now() - verifyFrom)} of polling; its group was ended`, 0);
 			if (checked.error) return finish("failed", `could not start verify: ${checked.error.message}`);
 			const exitedOk = checked.code === 0;
 			if (exitedOk && (expect === undefined || printed === expect.trim())) return finish("passed", `exit 0 in ${took}; verified${expect !== undefined ? ` "${cut(printed, 80)}"` : ""} in ${long(clock.now() - verifyFrom)}`, 0);

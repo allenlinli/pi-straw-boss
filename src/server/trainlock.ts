@@ -1,14 +1,16 @@
-import { closeSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { linkSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startOf as realStartOf } from "../startof.ts";
 
 // The named machine-wide lock of the train gate wrapper (docs/specs/2026-11-07-train-workers.md §9.1): `<slot dir>/locks/<name>.lock`, held by the wrapper process for the child's life. Node has no flock, so the lock is a file that only
 // one process can make (a hard link of a finished temp file: never seen half written) and whose body is its holder (train, step, pid, start time). A holder whose pid is gone, or answers to another start time (the pid was reused), loses the
-// lock at the next look: the looker takes it over under a marker (one looker at a time), re-checks the body it judged dead, replaces it by an atomic rename of a new body, and reads it back to be sure the body is its own.
+// lock at the next look: the looker takes it over under a marker (one looker at a time; the marker's body is its looker, linked into place finished, and goes only when that looker is dead, never by age, so a looker that stalls is not robbed),
+// re-checks the body it judged dead, replaces it by an atomic rename of a new body, and reads it back to be sure the body is its own.
 // Nothing here is held by a descriptor, so nothing is lost across an exec; the holder is the wrapper itself, which spawns the command and never execs it. Everything is synchronous: the marker is held for a few file calls.
 
 export const LOCK_NAME = /^[a-z0-9-]{1,32}$/;
-/** A marker (or an unreadable body) older than this is a crashed looker's: a live looker holds it for a few file calls. */
+/** A lock body or marker that does not read as one and is older than this is a crashed writer's: a live writer makes it whole at once. A marker that reads is judged by its looker's liveness, never by age. */
 export const MARKER_MAX_MS = 5000;
 
 export interface LockHolder { train: string; step: number; pid: number; started?: string; since: string }
@@ -20,6 +22,10 @@ export interface LockDeps {
 	alive?: (pid: number) => boolean;
 	/** Runs between a takeover's replace and its read-back: where a test puts the other process that must not be able to win. */
 	afterReplace?: () => void;
+	/** Runs while the looker holds the marker, after it re-read the lock and before it replaces it: where a test stalls the looker. */
+	beforeReplace?: () => void;
+	/** Runs when a marker was judged a dead looker's, before it is moved aside: where a test puts a live looker's marker in its place. */
+	beforeMoveAside?: () => void;
 }
 export type Taken =
 	| { ok: true; holder: LockHolder; release(): void }
@@ -94,12 +100,10 @@ export function heldLocks(dir: string, deps: LockDeps = {}): { name: string; hol
 	});
 }
 
-let counter = 0;
-
 /**
  * Takes the lock `name` for `who` (a train's step; this process, unless `pid` says otherwise), or says who has it. Free: the body is linked into place. Held by a live process: `held`. Held by a dead one (pid gone, or another start
  * time): taken over under `<name>.lock.looking`, which one looker at a time makes; the looker reads the lock again under it, and only a body that is still the dead one it judged is replaced, by renaming the new body over it, after which the
- * lock is read back and is this looker's only if the body is its own. A marker or an unreadable body older than 5 s is a crashed looker's or writer's and goes. Another looker at the marker is `looking`: the caller looks again at its next poll.
+ * lock is read back and is this looker's only if the body is its own. A marker whose looker is dead, or an unreadable marker or body older than 5 s, goes. Another looker at the marker is `looking`: the caller looks again at its next poll.
  */
 export function takeLock(dir: string, name: string, who: { train: string; step: number; pid?: number; started?: string }, deps: LockDeps = {}): Taken {
 	check(name);
@@ -107,7 +111,7 @@ export function takeLock(dir: string, name: string, who: { train: string; step: 
 	mkdirSync(dir, { recursive: true, mode: 0o700 });
 	const holder: LockHolder = { train: who.train, step: who.step, pid, ...(started ? { started } : {}), since: new Date(now()).toISOString() };
 	const body = JSON.stringify(holder), file = fileOf(dir, name), marker = `${file}.looking`;
-	const temp = `${file}.${process.pid}.${counter++}.tmp`;
+	const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
 	writeFileSync(temp, body, { flag: "wx", mode: 0o600 });
 	const release = () => {
 		if (readRaw(file) === body) {
@@ -127,16 +131,17 @@ export function takeLock(dir: string, name: string, who: { train: string; step: 
 			if (seen && holderAlive(seen, deps)) return { ok: false, holder: seen, why: "held" };
 			if (!seen && ageOf(file, now()) <= MARKER_MAX_MS) return { ok: false, why: "unreadable" };
 			// A dead holder, or a body nobody finished writing for 5 s.
-			if (!enterMarker(marker, now)) return { ok: false, ...(seen ? { holder: seen } : {}), why: "looking" };
+			const mine = enterMarker(marker, now, deps);
+			if (mine === undefined) return { ok: false, ...(seen ? { holder: seen } : {}), why: "looking" };
 			try {
 				if (readRaw(file) !== raw) continue; // changed while we waited for the marker: look again
+				deps.beforeReplace?.();
 				renameSync(temp, file);
 				deps.afterReplace?.();
-				const mine = readRaw(file) === body;
-				if (mine) return { ok: true, holder, release };
+				if (readRaw(file) === body) return { ok: true, holder, release };
 				return { ok: false, holder: parse(readRaw(file)), why: "held" };
 			} finally {
-				try { unlinkSync(marker); } catch { /* a crashed looker's marker was removed by another */ }
+				if (readRaw(marker) === mine) try { unlinkSync(marker); } catch { /* gone */ }
 			}
 		}
 		return { ok: false, why: "looking" };
@@ -145,29 +150,56 @@ export function takeLock(dir: string, name: string, who: { train: string; step: 
 	}
 }
 
-/** Makes the marker, which only one looker can; a marker older than 5 s is a crashed looker's: it is moved aside (and put back when it turns out to be fresh) and the marker is tried once more. */
-function enterMarker(marker: string, now: () => number): boolean {
-	for (let tries = 0; tries < 2; tries++) {
-		try {
-			closeSync(openSync(marker, "wx", 0o600));
-			return true;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-		}
-		if (ageOf(marker, now()) <= MARKER_MAX_MS) return false;
-		const aside = `${marker}.${process.pid}.${counter++}.old`;
-		try {
-			renameSync(marker, aside);
-		} catch {
-			continue; // another looker moved it first
-		}
-		if (ageOf(aside, now()) <= MARKER_MAX_MS) {
-			// What we moved is a live looker's fresh marker (the stale one went and a new one was made in between): put it back.
-			try { linkSync(aside, marker); } catch { /* a third looker made one: it is theirs */ }
-			try { unlinkSync(aside); } catch { /* gone */ }
-			return false;
-		}
-		try { unlinkSync(aside); } catch { /* gone */ }
+const isLooker = (value: unknown): value is { pid: number; started?: string } => {
+	const l = value as { pid: number; started?: string };
+	return typeof l === "object" && l !== null && Number.isSafeInteger(l.pid) && l.pid > 0 && (l.started === undefined || typeof l.started === "string");
+};
+const parseLooker = (raw: string) => {
+	try {
+		const value = JSON.parse(raw);
+		return isLooker(value) ? value : undefined;
+	} catch {
+		return undefined;
 	}
-	return false;
+};
+
+/**
+ * Makes the marker, which only one looker can: its body is this process (pid and start time), written whole under another name and linked into place. A marker whose looker is dead goes at once; one that does not read goes when it is older than 5 s;
+ * one whose looker is alive stays however old it is. What is moved aside is put back when it is not the marker that was judged (a live looker made a new one in between). Returns the body of the marker that is ours, or nothing.
+ */
+function enterMarker(marker: string, now: () => number, deps: LockDeps): string | undefined {
+	const started = (deps.startOf ?? realStartOf)(process.pid), body = JSON.stringify({ pid: process.pid, ...(started ? { started } : {}) });
+	const temp = `${marker}.${process.pid}.${randomUUID()}.tmp`;
+	writeFileSync(temp, body, { flag: "wx", mode: 0o600 });
+	try {
+		for (let tries = 0; tries < 2; tries++) {
+			try {
+				linkSync(temp, marker);
+				return body;
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+			}
+			const raw = readRaw(marker);
+			if (raw === undefined) continue; // gone between the link and the read
+			const looker = parseLooker(raw);
+			if (looker ? holderAlive(looker, deps) : ageOf(marker, now()) <= MARKER_MAX_MS) return undefined;
+			deps.beforeMoveAside?.();
+			const aside = `${marker}.${process.pid}.${randomUUID()}.old`;
+			try {
+				renameSync(marker, aside);
+			} catch {
+				continue; // another looker moved it first
+			}
+			if (readRaw(aside) !== raw) {
+				// What we moved is not the marker we judged: a live looker's new one. Put it back.
+				try { linkSync(aside, marker); } catch { /* a third looker made one: it is theirs */ }
+				try { unlinkSync(aside); } catch { /* gone */ }
+				return undefined;
+			}
+			try { unlinkSync(aside); } catch { /* gone */ }
+		}
+		return undefined;
+	} finally {
+		try { unlinkSync(temp); } catch { /* never made */ }
+	}
 }

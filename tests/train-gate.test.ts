@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { run } from "../src/server/cli.ts";
 import { slotOf } from "../src/server/record.ts";
 import { trainStatus } from "../src/server/traincmds.ts";
-import { cleanTail, fit, type GateDeps, readGate, readSpec, runGate, writerAlive } from "../src/server/traingate.ts";
+import { cleanTail, fit, GRACE_MS, KILL_WAIT_MS, lastBytes, lastLine, type GateDeps, readGate, readSpec, runGate, startMs, writerAlive } from "../src/server/traingate.ts";
 import { heldLocks, holderAlive, holderOf, lockDirOf, takeLock } from "../src/server/trainlock.ts";
 import { startOf } from "../src/startof.ts";
 import { type Board, boardPath, readBoard, writeBoard } from "../src/train/board.ts";
@@ -442,7 +442,7 @@ test("a lock keeps three real processes out of each other's critical region", as
 });
 
 test("writerAlive: the pid answers and the process is not one that started after the writer did", () => {
-	const mine = Date.parse(startOf(process.pid)!);
+	const mine = startMs(startOf(process.pid)!);
 	const iso = (ms: number) => new Date(ms).toISOString();
 	assert.equal(writerAlive({ session: "s", pid: process.pid, started: iso(mine) }), true);
 	assert.equal(writerAlive({ session: "s", pid: process.pid, started: iso(mine + 60_000) }), true, "a session that said it started later is the same process");
@@ -532,7 +532,7 @@ test("SIGTERM ends the command's process group, releases the lock, and says stop
 	assert.equal(readGate(join(codeDir(w), "gate-1.json"))?.state, "stopped");
 });
 
-test("a command that ignores SIGTERM gets SIGKILL after 10 s, and the lock is held until then", async () => {
+test("a command that ignores SIGTERM gets SIGKILL after the 4 s grace, and the lock is held until then", async () => {
 	const w = world();
 	const pids = join(w.work, "pids");
 	const g = start(w, step(w, 1, { run: `trap '' TERM; sleep 300 & echo "$$ $!" > '${pids}'; wait` }, { lock: "heavy" }));
@@ -541,13 +541,15 @@ test("a command that ignores SIGTERM gets SIGKILL after 10 s, and the lock is he
 	const [shell, sleeper] = readFileSync(pids, "utf8").trim().split(" ").map(Number) as [number, number];
 	g.leave("SIGTERM");
 	await turn();
-	await w.clock.advance(9_000);
+	await w.clock.advance(3_000);
 	await new Promise((done) => setTimeout(done, 100));
-	assert.equal(gone(shell) || gone(sleeper), false, "both still run after 9 s");
+	assert.equal(gone(shell) || gone(sleeper), false, "both still run after 3 s");
 	assert.equal(holderOf(w.lockDir, "heavy")?.step, 1, "the lock is held while the group lives");
 	assert.equal(last(g).sb.state, "running");
 	await w.clock.advance(1_500);
+	await until(() => last(g).monitorOutcome, "the stopped line");
 	assert.equal(await g.done, 143);
+	assert.ok(GRACE_MS + KILL_WAIT_MS < 5000, "the whole stop fits inside MonitorStop's SIGTERM-to-SIGKILL 5 s");
 	await until(() => gone(shell) && gone(sleeper), "the group to be killed");
 	assert.equal(holderOf(w.lockDir, "heavy"), undefined);
 });
@@ -579,7 +581,7 @@ test("SIGTERM during a poll ends the gate without another try", async () => {
 // ---- lane, target and the gate file
 
 const board = (code: string, over: Partial<Board> = {}): Board => ({
-	v: 1, project: PROJECT, app: "web", code, writer: { session: "sess-train-0", pid: process.pid, started: new Date(Date.parse(startOf(process.pid)!)).toISOString() }, updated: "2026-11-07T07:59:00.000Z", round: 1,
+	v: 1, project: PROJECT, app: "web", code, writer: { session: "sess-train-0", pid: process.pid, started: new Date(startMs(startOf(process.pid)!)).toISOString() }, updated: "2026-11-07T07:59:00.000Z", round: 1,
 	cars: [{ tickets: ["T-15"], branch: "fix/t-15", head: SHA_A, coordinator: "sess-coord-1", departs: "next", accept: "none" }],
 	steps: [{ id: 1, kind: "merge", name: "merge", status: "in_progress", round: 1, holds: { lane: "web" } }, { id: 2, kind: "deploy", name: "deploy", status: "pending", round: 1, holds: { target: "target-a" } }],
 	...over,
@@ -896,4 +898,210 @@ test("train clear releases a stale train's lane in its board, refuses a live, re
 	// usage: a code that is no code, a missing reason
 	assert.equal(await go("../x", false, "--lane", "web"), 2);
 	assert.equal(await run(["train", "clear", "--project", PROJECT, "--train", CODE, "--lane", "web", "--reason", "  "], { out: () => {}, err: () => {}, stateDir: w.stateDir }), 2);
+});
+
+// ---- review fixes (todo #125 task 2, review G-F001 to G-F013)
+
+test("G-F001: writerAlive reads the start time `ps` prints as UTC, whatever zone the process runs in", () => {
+	const was = process.env.TZ;
+	cleanup.push(() => (was === undefined ? delete process.env.TZ : (process.env.TZ = was)));
+	const lstart = "Sat Nov  7 12:19:53 2026", at = "2026-11-07T12:19:53.000Z", threeHoursEarlier = "2026-11-07T09:19:53.000Z";
+	for (const tz of ["America/New_York", "Asia/Taipei", "UTC"]) {
+		process.env.TZ = tz;
+		assert.equal(startMs(lstart), Date.parse(at), tz);
+		assert.equal(startMs(at), Date.parse(at), `${tz}: the ISO text of Windows is its own instant`);
+		assert.equal(writerAlive({ session: "s", pid: process.pid, started: at }, () => lstart), true, `${tz}: the live writer`);
+		assert.equal(writerAlive({ session: "s", pid: process.pid, started: threeHoursEarlier }, () => lstart), false, `${tz}: a pid reused 3 h after the writer started`);
+		assert.equal(writerAlive({ session: "s", pid: process.pid, started: at }, () => at), true, `${tz}: Windows text`);
+	}
+});
+
+test("G-F002: a gate reads every board of its project, so a lane held by a train past the 64th board still holds", async () => {
+	const w = world();
+	for (let day = 1; day <= 7; day++) for (const letter of "abcdefghij") writeBoard(w.stateDir, board(`2026-10-0${day}-${letter}`, { steps: [{ id: 1, kind: "merge", name: "merge", status: "completed", round: 1, outcome: "passed", holds: { lane: "web" } }, { id: 2, kind: "land", name: "land", status: "completed", round: 1, outcome: "passed" }] }));
+	writeBoard(w.stateDir, board("2026-11-05-a"));
+	const g = start(w, step(w, 1, { run: "true" }, { holds: { lane: "web" } }), { alive: () => true });
+	await until(() => g.lines.length === 1, "the first line");
+	assert.equal(last(g).progress.message, "waiting: lane web (held by 2026-11-05-a)");
+	g.leave("SIGTERM");
+	await g.done;
+});
+
+test("G-F002: a read of the project's boards that was cut holds everything: the gate refuses and says why", async () => {
+	const w = world();
+	for (const letter of "abcdef") writeBoard(w.stateDir, board(`2026-11-01-${letter}`, { steps: [{ id: 1, kind: "land", name: "land", status: "completed", round: 1, outcome: "passed" }] }));
+	const g = start(w, step(w, 1, { run: "true" }), { alive: () => true, maxBoards: 5 });
+	assert.equal(await g.done, 3);
+	assert.match(last(g).monitorOutcome.message, /^refused: .*more than 5 trainboards/);
+});
+
+test("G-F002: train status shows the newest 64 trains, not the oldest, and says it cut", () => {
+	const w = world();
+	for (let day = 1; day <= 6; day++) for (const letter of "abcdefghijk") writeBoard(w.stateDir, board(`2026-10-${String(day).padStart(2, "0")}-${letter}`));
+	const status = trainStatus({ stateDir: w.stateDir, slotDir: join(w.base, "slot"), now: () => Date.parse("2026-11-07T08:00:00Z"), alive: () => true, load: () => undefined });
+	assert.equal(status.trains.length, 64);
+	assert.equal(status.truncated, true);
+	assert.equal(status.trains.at(-1)!.code, "2026-10-06-k");
+	assert.equal(status.trains[0]!.code, "2026-10-01-c", "66 trains: the two oldest are cut");
+});
+
+const deadHolder = (pid = dead()) => JSON.stringify({ train: "2026-11-05-a", step: 3, pid, started: "Sat Nov  7 08:00:00 2026", since: "2026-11-05T00:00:00.000Z" });
+const liveBody = () => JSON.stringify({ pid: process.pid, started: startOf(process.pid) });
+const longAgo = () => new Date(Date.now() - 60_000);
+
+test("G-F003: a live looker's marker is never robbed by age, a dead looker's marker goes at once", () => {
+	const w = world();
+	mkdirSync(w.lockDir, { recursive: true });
+	const file = join(w.lockDir, "heavy.lock"), marker = `${file}.looking`;
+	writeFileSync(file, deadHolder());
+	writeFileSync(marker, liveBody());
+	utimesSync(marker, longAgo(), longAgo());
+	const stalled = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 });
+	assert.deepEqual([stalled.ok, !stalled.ok && stalled.why], [false, "looking"], "a looker that is alive keeps its marker however long it takes");
+	assert.equal(readFileSync(marker, "utf8"), liveBody());
+	assert.equal(JSON.parse(readFileSync(file, "utf8")).train, "2026-11-05-a", "the lock was not touched");
+	writeFileSync(marker, JSON.stringify({ pid: dead(), started: "Sat Nov  7 08:00:00 2026" }));
+	const taken = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 });
+	assert.ok(taken.ok, "the marker of a dead looker does not wait for its age");
+	assert.equal(existsSync(marker), false);
+	// a pid reused by another process is not the looker either
+	taken.ok && taken.release();
+	writeFileSync(file, deadHolder());
+	writeFileSync(marker, JSON.stringify({ pid: process.pid, started: "Thu Jan  1 00:00:00 1970" }));
+	assert.ok(takeLock(w.lockDir, "heavy", { train: CODE, step: 2 }).ok);
+});
+
+test("G-F003: a looker that stalls in a takeover is not robbed, however long: two real processes never both hold", async () => {
+	const w = world();
+	const sync = join(w.base, "sync-stall");
+	mkdirSync(sync, { recursive: true });
+	mkdirSync(w.lockDir, { recursive: true });
+	const file = join(w.lockDir, "heavy.lock");
+	writeFileSync(file, deadHolder());
+	const { exits } = workers(w, 1, { mode: "stall", dir: w.lockDir, name: "heavy", sync });
+	await until(() => existsSync(join(sync, "in-marker")), "the looker to stand inside its takeover");
+	utimesSync(`${file}.looking`, longAgo(), longAgo()); // it has stood there for a minute
+	const rival = takeLock(w.lockDir, "heavy", { train: CODE, step: 9 });
+	assert.deepEqual([rival.ok, !rival.ok && rival.why], [false, "looking"], "the second looker backs off");
+	rival.ok && rival.release();
+	writeFileSync(join(sync, "go"), "");
+	await until(() => existsSync(join(sync, "res-stall")), "the stalled looker's answer");
+	assert.equal(JSON.parse(readFileSync(join(sync, "res-stall"), "utf8")).ok, true);
+	assert.equal(JSON.parse(readFileSync(file, "utf8")).step, 1, "the lock is the stalled looker's, taken once");
+	writeFileSync(join(sync, "rel"), "");
+	assert.deepEqual(await Promise.all(exits), [0]);
+});
+
+test("G-F003: a marker that was moved aside and turns out to be a live looker's is put back", () => {
+	const w = world();
+	mkdirSync(w.lockDir, { recursive: true });
+	const file = join(w.lockDir, "heavy.lock"), marker = `${file}.looking`;
+	writeFileSync(file, deadHolder());
+	writeFileSync(marker, JSON.stringify({ pid: dead(), started: "Sat Nov  7 08:00:00 2026" }));
+	const r = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 }, { beforeMoveAside: () => writeFileSync(marker, liveBody()) });
+	assert.deepEqual([r.ok, !r.ok && r.why], [false, "looking"]);
+	assert.equal(readFileSync(marker, "utf8"), liveBody(), "the live looker's marker is back in place");
+	assert.equal(readdirSync(w.lockDir).filter((n) => n.endsWith(".old") || n.endsWith(".tmp")).length, 0);
+});
+
+test("G-F004: a gate-file write error while the command runs ends the command's group, frees the lock after it, and still prints the outcome line", async () => {
+	const w = world();
+	const pids = join(w.work, "pids");
+	const g = start(w, step(w, 1, { run: `sleep 300 & echo "$$ $!" > '${pids}'; wait` }, { lock: "heavy" }));
+	cleanup.push(() => { try { for (const p of readFileSync(pids, "utf8").trim().split(" ")) process.kill(Number(p), "SIGKILL"); } catch { /* gone */ } });
+	await until(() => existsSync(pids) && readFileSync(pids, "utf8").includes(" ") && holderOf(w.lockDir, "heavy"), "the command under its lock");
+	const [shell, sleeper] = readFileSync(pids, "utf8").trim().split(" ").map(Number) as [number, number];
+	chmodSync(codeDir(w), 0o500);
+	cleanup.push(() => chmodSync(codeDir(w), 0o700));
+	await w.clock.advance(30_000); // the beat's gate file cannot be written
+	await until(() => last(g).monitorOutcome, "the outcome line");
+	assert.equal(await g.done, 1);
+	assert.equal(last(g).monitorOutcome.status, "failed");
+	assert.match(last(g).monitorOutcome.message, /^the wrapper failed: .*gate-1\.json/);
+	await until(() => gone(shell) && gone(sleeper), "the command's group to be gone");
+	assert.equal(holderOf(w.lockDir, "heavy"), undefined);
+});
+
+test("G-F005: a verify try that hangs is ended when the poll's time is up: its group is killed, the step fails, the lock is free", async () => {
+	const w = world();
+	const pids = join(w.work, "vpids");
+	const g = start(w, step(w, 1, { run: "true", verify: `sleep 300 & echo "$$ $!" > '${pids}'; wait`, expect: "success", poll: { everySec: 10, forMin: 1 } }, { lock: "heavy" }));
+	cleanup.push(() => { try { for (const p of readFileSync(pids, "utf8").trim().split(" ")) process.kill(Number(p), "SIGKILL"); } catch { /* gone */ } });
+	await until(() => existsSync(pids) && readFileSync(pids, "utf8").includes(" "), "the hung verify");
+	const [shell, sleeper] = readFileSync(pids, "utf8").trim().split(" ").map(Number) as [number, number];
+	await w.clock.advance(60_000);
+	assert.equal(last(g).sb.state, "verifying", "inside the minute it is still tried");
+	await w.clock.advance(10_000); // the try's own 10 s of grace
+	await until(() => last(g).monitorOutcome, "the outcome line");
+	assert.equal(await g.done, 1);
+	assert.match(last(g).monitorOutcome.message, /^verify was still running after .+ of polling; its group was ended$/);
+	await until(() => gone(shell) && gone(sleeper), "the hung verify's group to be gone");
+	assert.equal(holderOf(w.lockDir, "heavy"), undefined);
+});
+
+test("G-F007: a gate does not take a lock before it can tell its own start time", async () => {
+	const w = world();
+	let blind = true;
+	const g = start(w, step(w, 1, { run: waitFor(w.flag) }, { lock: "heavy" }), { startOf: (pid) => (blind && pid === process.pid ? undefined : startOf(pid)) });
+	await until(() => g.lines.length === 1, "the first line");
+	assert.match(last(g).progress.message, /^waiting: .*start time/);
+	assert.equal(existsSync(join(w.lockDir, "heavy.lock")), false, "no lock without a start time");
+	blind = false;
+	await w.clock.advance(30_000);
+	await until(() => holderOf(w.lockDir, "heavy"), "the lock");
+	assert.equal(holderOf(w.lockDir, "heavy")!.started, startOf(process.pid));
+	assert.equal(readGate(join(codeDir(w), "gate-1.json"))?.started, startOf(process.pid));
+	touch(w.flag);
+	assert.equal(await g.done, 0);
+});
+
+test("G-F008: temp names do not collide with what a killed process of the same pid left behind", async () => {
+	const w = world();
+	mkdirSync(w.lockDir, { recursive: true });
+	const lockFile = join(w.lockDir, "heavy.lock");
+	for (let n = 0; n < 3000; n++) writeFileSync(`${lockFile}.${process.pid}.${n}.tmp`, "");
+	const taken = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 });
+	assert.ok(taken.ok);
+	taken.ok && taken.release();
+	const file = step(w, 1, { run: "true" });
+	for (let n = 0; n < 3000; n++) writeFileSync(join(codeDir(w), `gate-1.json.${process.pid}.${n}.tmp`), "");
+	const g = start(w, file);
+	assert.equal(await g.done, 0, JSON.stringify(last(g)));
+});
+
+test("G-F009: fit ends on a tail of characters outside the BMP", () => {
+	const url = new URL("../src/server/traingate.ts", import.meta.url).href;
+	const code = `import(${JSON.stringify(url)}).then(({ fit }) => { const t = fit({ progress: { message: "running 1m: unit" }, sb: { v: 1, state: "running", tail: "\\u{1F600}".repeat(600) } }); process.exit(t.length <= 1000 ? 0 : 2); });`;
+	const r = spawnSync(process.execPath, ["-e", code], { timeout: 20_000, env: process.env });
+	assert.equal(r.status, 0, `${r.status} ${r.signal} ${String(r.stderr)}`);
+});
+
+test("G-F010: lastBytes reads the end of a file only", () => {
+	const w = world();
+	const big = join(w.work, "big"), small = join(w.work, "small");
+	writeFileSync(big, `${"x\n".repeat(50_000)}one\nsuccess\n`);
+	writeFileSync(small, "ok\n");
+	const end = lastBytes(big, 16384);
+	assert.ok(end.length <= 16384 && end.length > 10_000);
+	assert.equal(lastLine(end), "success");
+	assert.equal(lastBytes(small, 16384), "ok\n");
+	assert.equal(lastBytes(big, 4), "ess\n");
+});
+
+test("G-F011: a name that is an Object.prototype member is a usage error, not a crash", async () => {
+	const go = (...argv: string[]) => run(argv, { out: () => {}, err: () => {}, stateDir: join(ROOT, "cli-state") });
+	assert.equal(await go("train", "constructor", "--spec", "x"), 2);
+	assert.equal(await go("train", "toString"), 2);
+	assert.equal(await go("constructor", "--x"), 2);
+	assert.equal(await go("hasOwnProperty"), 2);
+});
+
+test("G-F012: a step file that is a symlink is refused", () => {
+	const w = world();
+	const real = step(w, 9), dir = codeDir(w);
+	renameSync(real, join(dir, "real.json"));
+	symlinkSync(join(dir, "real.json"), join(dir, "step-9.json"));
+	const read = readSpec(join(dir, "step-9.json"));
+	assert.equal(read.ok, false);
+	assert.match(!read.ok ? read.refusals.join(" ") : "", /not a regular file|cannot read/);
 });

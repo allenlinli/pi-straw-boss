@@ -54,12 +54,12 @@ export interface Args { command: string; flags: Record<string, string | true> }
 export function parseArgs(argv: string[]): Args {
 	const [command, ...rest] = argv;
 	if (!command) throw new UsageError(USAGE);
-	let allowed = FLAGS[command];
+	let allowed = Object.hasOwn(FLAGS, command) ? FLAGS[command] : undefined;
 	if (!allowed) throw new UsageError(`unknown command ${command}\n${USAGE}`);
 	const flags: Record<string, string | true> = {};
 	if (command === "train") {
 		const sub = rest.shift() ?? "";
-		if (!TRAIN[sub]) throw new UsageError(`train needs gate, check, status or clear\n${USAGE}`);
+		if (!Object.hasOwn(TRAIN, sub)) throw new UsageError(`train needs gate, check, status or clear\n${USAGE}`);
 		allowed = TRAIN[sub]!;
 		flags.sub = sub;
 	}

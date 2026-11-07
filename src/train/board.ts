@@ -354,17 +354,21 @@ const dirs = (path: string) => {
 	}
 };
 
-/** Every train's board under the state folder, in project and code order, at most 64: a folder that does not read shows as unreadable with its reason. Folders that are not trains (the car files, the yard) are skipped. */
-export function readTrainboards(stateDir: string, opts: { project?: string } = {}): { trains: BoardRead[]; truncated: boolean } {
+/**
+ * Every train's board under the state folder, in project and code order, the newest `max` (64 unless asked for more) when there are more, and `truncated` then: a folder that does not read shows as unreadable with its reason. Folders that are not
+ * trains (the car files, the yard) are skipped.
+ */
+export function readTrainboards(stateDir: string, opts: { project?: string; max?: number } = {}): { trains: BoardRead[]; truncated: boolean } {
 	const root = trainboardDir(stateDir), found: { project: string; code: string }[] = [];
 	const projects = dirs(root).filter((p) => isName(p) && (opts.project === undefined || p === opts.project)).sort();
 	for (const project of projects) for (const code of dirs(join(root, project)).filter((c) => FOLDER_CODE_RE.test(c)).sort(compareCodes)) found.push({ project, code });
-	const trains = found.slice(0, MAX_TRAINS).map(({ project, code }): BoardRead => {
+	const max = opts.max ?? MAX_TRAINS;
+	const trains = found.slice(Math.max(0, found.length - max)).map(({ project, code }): BoardRead => {
 		const file = join(root, project, code, "board.json");
 		const read = readBoard(file);
 		return { project, code, file, ...(read.ok ? read : { ok: false, reason: read.reason.replace(/^cannot read: ENOENT$/, "no board.json") }) } as BoardRead;
 	});
-	return { trains, truncated: found.length > MAX_TRAINS };
+	return { trains, truncated: found.length > max };
 }
 
 // ---- life of a board

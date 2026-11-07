@@ -31,6 +31,8 @@ Decisions (ask_user, the decision form, and the correction, 11/07):
 | D12 | A train ends only after CI/CD has finished and a machine check reads the train's own version on each target. On a failure it rolls back or reports, then ends. It owns the order of its deploy targets. |
 | D13 | 「火車如果被要求要做 UAT 或進一步驗收，要拒絕直接退回要求重寫驗收標準」: a car, slip, evidence file, or step that asks the train for UAT, e2e, or any acceptance is refused at once and returned to its coordinator, with words that name what was asked and ask for the acceptance criteria to be rewritten (§5.4). The train never runs it, never waits for it, and never turns it into a weaker check. |
 
+| D14 | The boss's choice on coordinator notices (11/07), after seeing trains forget to tell the main a car came from: **"sb sends the notices itself and confirms delivery."** The train (and the integrator, for a car it returns at receipt) only sets each car's state; the sb server sends the intercom to the car's coordinator session id, records the broker's delivery, and holds the car's step until then; a coordinator that is gone is reported to the tower. The slip's `coordinator` must be the session the tower's code-written header names as the sender (§5.5). |
+
 Straw Boss stays project-neutral: no environment is named here or in a prompt (train stages D3).
 
 ## 2. What exists today
@@ -43,6 +45,7 @@ Straw Boss stays project-neutral: no environment is named here or in a prompt (t
 - **Monitors show their last line.** `trackMonitors` (`src/monitors.ts`) keeps the newest output line, cut to 160 characters. pi-loop-monitor 0.2.8 sends at most one `monitor:output` per second, carrying only the latest line. Its JSONL parser takes `progress` only with a numeric `current` or `total` or a string `message`: `{"progress":{"load":{...}}}` alone is no progress to it and does not renew the inactivity timeout (the 11/07 lesson: a redirected 25-minute test run was killed at its timeout).
 - **A `tool_call` handler can block a call and rewrite its arguments.** pi hands the same validated arguments object to the `tool_call` handlers and then to `execute`, with no re-validation (spike (b): `agent-loop.js:489-492, 534-538`); pi-loop-monitor's `MonitorCreate` reads `params.command` and `params.timeout` at run time. A rewrite mutates `event.input` in place (the handler's return value carries only `block` and `reason`), keeps the types (`command` a string, `timeout` a number ≥ 0), and keeps `command` and `herdrPaneId` exclusive.
 - **Machine-wide admission is not built.** Procs release 2 (slots, `cli.mjs slot run|hold`, `docs/specs/2026-11-04-procs.md` §4) is designed only. Projects wait for load in their own words: one skill's `## Load` waits while the 1-minute load is above twice the core count and runs one heavy gate at a time across projects.
+- **Car notices are unconfirmed.** The slip's `coordinator` session id, the tower's code-written header (`from=… id=…`), and the manifest all carry where a car came from, but nothing checks that the coordinator was told: `land` was a `report` check on the train's own ledger, and a car returned at receipt (D13) or dropped at a re-assembly had no check at all. The boss saw trains forget to tell the original main. pi-intercom 0.18.1's client answers a send with `delivered` and `delivery` (`socket_delivered`, or `queued` when the broker holds it; `broker/client.ts:400-417`), which the sb server's own intercom connection can read. The tower forwards a slip with `tower_send` as it came, and only the model names the original sender in the text. Subagent sessions appear on intercom as `subagent-chat-<id>` (todo #49), so a name does not reliably reach a session; a session id does.
 - **The sidebar.** The Herdr plugin (`herdr-plugin/`, id `wayne930242.straw-boss`, manifest 0.5.1) installs one view sorted by the `sb_order` token and reads no `sb_role`. Order and marks come from the tokens each session writes (`src/order.ts`): star for a main, person for a member, `[sub] <launcher>` for a subagent.
 
 ## 3. Roles
@@ -50,12 +53,14 @@ Straw Boss stays project-neutral: no environment is named here or in a prompt (t
 ```mermaid
 flowchart TD
   C["coordinator main: acceptance on its branch, boss's nod"] -- "car slip: departs, accept evidence (call_tower why=shared)" --> T[tower]
-  T -- "forwards as it came" --> I["integrator main: integ &lt;project&gt;"]
-  I -- "receipt: train number, departure" --> C
+  T -- "forwards; code stamps fwd-from=coordinator" --> I["integrator main: integ &lt;project&gt;"]
+  I -- "train_car: received / returned" --> N["sb server: car notices"]
   I -- "train manifest (call_tower why=shared)" --> T
   T -- "boss_open_main role=train" --> W1["train 1106m (own tab)"]
   T -- "boss_open_main role=train" --> W2["train 1106n (own tab)"]
-  W1 -- "returned car, landed" --> C
+  W1 -- "train_car: landed / returned / dropped" --> N
+  N -- "intercom to the coordinator's session id, delivery recorded" --> C
+  N -. "coordinator gone: call_tower why=blocked" .-> T
   W1 -- "call_tower: blocked, shared target, done" --> T
   W1 -- "subagent agent=reviewer" --> R[reviewer]
 ```
@@ -64,6 +69,7 @@ flowchart TD
 
 - **Acceptance first.** Before the slip, the coordinator runs the acceptance its app requires (`integration.accept`, §5.1) on its own branch, as the project skill's `## Acceptance` says (e2e, UAT, where and how), and gets the boss's nod on the result. A car whose project requires none needs no acceptance.
 - **The slip** is today's, with two lines (§5.1): `departs:` (when the car may leave) and `accept:` (the evidence that acceptance passed: what ran, on which head, the result, and the boss's words quoted). It checks the evidence with `cli.mjs train check --accept <file>` before it sends the slip.
+- **Notices** about its car (received, returned, dropped, landed) come from the sb server, addressed to its session id, under a code-written header with `kind=car_notice` (§5.5). It answers none of them to the train unless it has a question.
 - **After landing** it closes its ticket as today; no acceptance follows the train.
 
 ### 3.2 The integrator (schedules)
@@ -72,8 +78,8 @@ Unchanged in identity: opened by the tower with `boss_open_main`, one per projec
 
 It now does only this:
 
-- Receives cars (`integrating` receive-car) and checks each: the slip's fields as today, `train check --accept` on the evidence, and that the car's `auth` covers every `strict` target the train would deploy to. A failed check returns the car to its coordinator with the reason, so a train never meets a missing approval or acceptance.
-- Answers each coordinator with the train number and the departure conditions.
+- Receives cars (`integrating` receive-car) and checks each: the slip's fields as today, that its `coordinator` is the sender the tower's code-written forward names (§5.5), `train check --accept` on the evidence, and that the car's `auth` covers every `strict` target the train would deploy to. A failed check returns the car: the integrator sets it `returned` with the reason (`train_car`), and sb tells the coordinator (§5.5), so a train never meets a missing approval or acceptance.
+- Sets each car it takes `received` with the train number and the departure conditions; sb sends that receipt. It writes no notice about a car itself.
 - Forms trains: places each car on a forming train by its `departs` line and `integrating`'s train step 1 (`maxCars`, `maxWaitMin`, `Load`, a red pipeline). It puts together only cars whose `auth` covers the same `strict` targets, since a deploy ships every car.
 - Departs a train when its conditions hold and the project has fewer than `maxTrains` live trains, by asking the tower: `call_tower` `why: shared` carrying one `train:` manifest (§5.3). Its `train` todo for it completes when the tower answers with the opened train's session id.
 - Keeps the project's index in the ledger (§10) and one `train` todo per forming train (§7.4).
@@ -92,10 +98,10 @@ boss_open_main({ role: "train", request: <the manifest verbatim>, sender: <integ
 - **Who opens it.** The tower only, on an integrator's manifest. A coordinator never asks for one, and a train never asks for another.
 - **Where.** A new tab in the tower's own workspace, as an opened main; the train works in `~/.herdr/worktrees/<repo>/train-<code>`.
 - **Quota.** The workspace's two opened mains do not count it, and it does not count toward them; the per-sender limit of one does not apply to the role. The open is refused when the project already has `maxTrains` live trains, counted from live panes with `sb_role=train` whose `sb_train` names the project, so the limit survives a tower restart as the main limit does.
-- **What it does** (D11, D12): assemble the cars on the latest base; have a fresh reviewer read the assembly; run the project's full checks (`## Full gates`: full suite, type-check, lint, build); push `pre-dev/<code>` and run `## Merge`; watch the pipelines `## Post-merge` names until each concludes; where the train starts a deploy, run `## Deploy` per target in the order it chooses from that heading; read each target's version with `## Deploy verify`; on a failure, roll back as `## Deploy` says and verify the rollback, or report. Each of these is a step (§6). It answers the coordinators (a returned or red car, "landed in `<version>`, your commit is `<sha>`") and calls the tower itself: `blocked`; `shared` naming a target before a deploy it starts; `milestone` when done.
+- **What it does** (D11, D12): assemble the cars on the latest base; have a fresh reviewer read the assembly; run the project's full checks (`## Full gates`: full suite, type-check, lint, build); push `pre-dev/<code>` and run `## Merge`; watch the pipelines `## Post-merge` names until each concludes; where the train starts a deploy, run `## Deploy` per target in the order it chooses from that heading; read each target's version with `## Deploy verify`; on a failure, roll back as `## Deploy` says and verify the rollback, or report. Each of these is a step (§6). It tells the coordinators nothing itself: it sets each car `landed` (version, commit), `returned` (§5.4's word), or `dropped` (reason, evidence) with `train_car`, and sb sends the notice and confirms its delivery (D14, §5.5). It calls the tower itself: `blocked`; `shared` naming a target before a deploy it starts; `milestone` when done.
 - **Never acceptance** (D13). A car that asks the train for UAT, e2e, or any acceptance is returned with §5.4's word; the train never runs it, waits for it, or weakens it.
 - **Never a person.** A train has no step that waits on the boss, a coordinator, or a page. What it would need a person for (approval, acceptance) was checked at receipt; anything that still needs one is a failure it reports as `blocked`, then ends.
-- **Done** when every target the train deployed reads the train's version (or its rollback's), every pipeline concluded, and every car is landed or returned. It reports `milestone` with the outcome and waits; the tower closes it with `boss_close_main`, which accepts the `train` role on the same checks as an opened main.
+- **Done** when every target the train deployed reads the train's version (or its rollback's), every pipeline concluded, and every car is landed, returned, or dropped with its notice delivered or escalated (§5.5). It reports `milestone` with the outcome and waits; the tower closes it with `boss_close_main`, which accepts the `train` role on the same checks as an opened main.
 - **Name.** `train <MMDDx>`, set by the open and never renamed (`boss_rename` is refused in the role).
 - **Prompt.** Its system prompt is `prompts/train.md`, not `main.md`; it ends with its own `## Seam bindings` block (§13), so the session holds exactly one, as `integrating` requires.
 - **Hygiene.** A train registers with the sb server as an owner (`procs-hello` with `role: "train"`), as a worker does, so what its gates leave dies with it.
@@ -116,7 +122,7 @@ boss_open_main({ role: "train", request: <the manifest verbatim>, sender: <integ
 | `closer.ts` | skipped: only the tower closes a train (`boss_close_main`) |
 | `closemain.ts` | accepts `train` with the same checks as an opened main |
 | `roles.ts` | a role record with `role: "train"`, the project and the code; a Herdr restore brings it back as a train with the main's terminal proof |
-| `reach.ts` `ROLES`, `agent/sidecar.ts` | header role `train` |
+| `reach.ts` `ROLES`, `agent/sidecar.ts`, `header.ts` | header role `train`; a new kind `car_notice` (§5.5) |
 | `order.ts` | `orderKey` takes `train` (§12) |
 | board (`boardauto.ts`, `boardread.ts`), `tower_list`, `boss_status` | entries carry `role: "train"`; a train's board line auto-fills from its todos as a main's does |
 | `answerpane.ts` `isPiPane`, `runmode.ts` `RUN_PANE_ROLES`, `link/*` | unchanged (a pi pane; not a run pane; never routed as a main) |
@@ -133,7 +139,7 @@ A dropped car starts a new round, and the todos say so (D8):
 1. The train waits for the running monitors of round `n` to end (or stops them), then completes every step of round `n` that has not passed, and every passed step whose `on.head` is round `n`'s head, as `void` with `why: "superseded"`, naming the dropped car.
 2. It creates `assemble` for round `n+1`, whose spec lists the cars kept and `removed`: each dropped car, why, and the evidence (failing tests and log path, or a review finding).
 3. It creates round `n+1`'s steps again against the new head.
-4. It tells the dropped car's coordinator (`integrating` train step 5). The car comes back, reworked and accepted again where its project requires it, as a new slip to the integrator.
+4. It sets each dropped car `dropped` with the reason and the evidence (`train_car`); sb tells its coordinator (`integrating` train step 5) and confirms the delivery. Round `n+1`'s `assemble` cannot pass until every car in its `removed` is notified (§5.5). The car comes back, reworked and accepted again where its project requires it, as a new slip to the integrator.
 
 A red pipeline after the merge, and a failed target, are not re-assemblies: the train rolls back or reports and ends (D12); a revert or a fix-forward car goes as a new train the integrator forms.
 
@@ -190,6 +196,10 @@ accept: <evidence file> | none
 
 The check proves the evidence is complete and names the car's head; it does not prove the boss said the quoted words (§16). The integrator runs the same check at receipt.
 
+### 5.3 The manifest
+
+The integrator's `train:` block, which the tower passes verbatim as the open's request: `project`, `app`, `code`, `base`, `stages`, `targets`, `skill`, the integrator's session id, and each car's slip verbatim with its evidence file. The train copies each evidence file into its trainboard folder (`car-<n>.json`) and records it in its ledger file; it does not use it further.
+
 ### 5.4 A request for acceptance is refused (D13)
 
 Acceptance is done before loading, so anything that asks the train to accept a car is a slip to rewrite, not work for the train. It is refused wherever it appears, with one refusal word:
@@ -200,16 +210,51 @@ sb: the train runs no acceptance: car <ticket> asks for <what> (<where>); rewrit
 
 | Where | What counts as asking | Who refuses | Then |
 |---|---|---|---|
-| The slip | a `uat:` line; an `accept:` that names a checkpoints or conditions file instead of evidence; free text in any field asking for UAT, e2e, or acceptance on the train or after deploy | `train check --accept` (reads the slip with `--slip`), the integrator at receipt | the car is returned to its coordinator with the word; it joins no train |
+| The slip | a `uat:` line; an `accept:` that names a checkpoints or conditions file instead of evidence; free text in any field asking for UAT, e2e, or acceptance on the train or after deploy | `train check --accept` (reads the slip with `--slip`), the integrator at receipt | the integrator sets the car `returned` with the word; sb sends it to the coordinator and confirms delivery (§5.5); it joins no train |
 | The evidence file | an entry without `result` or with `result` other than `passed` or `accepted` (`pending`, `todo`); an entry with `check`, `run`, `page`, or `checkpoints` to be done; a top-level `conditions` (the old format) | `train check --accept`, the integrator | as above |
-| The manifest | a car that carries any of the above (a check was skipped) | the train, before `assemble` | it leaves that car out of round 1, tells its coordinator with the word, and tells the integrator; the train runs nothing of it |
-| A train's todo | a step of kind `e2e`, `uat`, or anything not in §6.2; a check type other than `run`, `git`, `report`; a `run` whose `name` or spec says it accepts a car (`accept`, `uat`, `e2e` in `name`) | the guard (§7.1) | the call is blocked with the word; the train completes no such step and opens no page |
+| The manifest | a car that carries any of the above (a check was skipped) | the train, before `assemble` | it leaves that car out of round 1 (it is in the round's `removed`) and sets it `returned` with the word; sb tells the coordinator, and round 1's `assemble` cannot pass until that notice is delivered; the train runs nothing of it |
+| A train's todo | a step of kind `e2e`, `uat`, or anything not in §6.2; a check type other than `run`, `git`, `report`, `notice`; a `run` whose `name` or spec says it accepts a car (`accept`, `uat`, `e2e` in `name`) | the guard (§7.1) | the call is blocked with the word; the train completes no such step and opens no page |
 
 The refusal never degrades: the train does not run a weaker check in place of the asked one, does not wait for the acceptance, and does not keep the car waiting on the train. A car returned this way comes back as a new slip once its coordinator has rewritten its criteria and run them.
 
-### 5.3 The manifest
+### 5.5 Car states and notices (D14)
 
-The integrator's `train:` block, which the tower passes verbatim as the open's request: `project`, `app`, `code`, `base`, `stages`, `targets`, `skill`, the integrator's session id, and each car's slip verbatim with its evidence file. The train copies each evidence file into its trainboard folder (`car-<n>.json`) and records it in its ledger file; it does not use it further.
+The train and the integrator decide what happened to a car; the sb server tells its coordinator and proves it did. No session writes a notice about a car's fate itself.
+
+**The states.** A car's state is set with the tool `train_car`, registered in a train and in the integrator only:
+
+```text
+train_car({ car: "<first ticket>", state: "received" | "landed" | "returned" | "dropped", ... })
+```
+
+| State | Set by | Fields | Checked by the tool | The notice says |
+|---|---|---|---|---|
+| `received` | the integrator | `train` (code), `departs` (the conditions in words) | the car's slip is on the integrator's branch with a matching `fwd-from` (below) | `received: your car <ticket> (<head12>) rides train <MMDDx>; it departs <conditions>` |
+| `returned` | the integrator (receipt), the train (manifest, §5.4) | `reason`: §5.4's word or the failed receipt check, verbatim, at most 600 characters | the car is the integrator's (on its branch) or the train's (in its manifest) | `returned: your car <ticket> (<head12>): <reason>` |
+| `dropped` | the train | `round`, `reason`, `evidence` (a path that exists) | the car is in the current round and in the next round's `removed` | `dropped from train <MMDDx> round <n>: <reason>; evidence <path>` |
+| `landed` | the train | `version`, `commit` (40 hex) | `git merge-base --is-ancestor <commit> <the base's remote branch>` in the train's worktree, after a fetch | `landed in <version>, your commit is <commit>` |
+
+The tool appends the state to `<state>/trainboard/<project>/cars/<app>-<head12>.json` (the car, its coordinator, and every state with who set it and when; folder 700, file 600; one writer, the session's extension, which holds the file's lock for the append). A car has one terminal state (`landed`, `returned`, or `dropped`); a second is refused (`sb: car <ticket> is already <state>`). A dropped or returned car that comes back is a new car with a new head and a new file.
+
+**The coordinator is the sender.** When the tower forwards a car slip, `tower_send` takes `forward: <event id>` (the `call_tower` event the slip came in), and the code stamps `fwd=<event id> fwd-from=<sender session id>` into the header from the event it recorded; the model cannot write those fields, and a forward without them is no car slip. At receipt the integrator's guard requires the slip's `coordinator` to equal `fwd-from` on a forwarded message on its branch that carries the slip's `head`; otherwise the `train` todo and `train_car received` are refused: `sb: car <ticket> names coordinator <id>, but <fwd-from> sent it; the slip is refused`, and the integrator sets the car `returned` with that word, which sb sends to `fwd-from`, the session that really sent it.
+
+**Sending.** `src/server/carnotices.ts` in the sb server watches the `cars/` folders (`fs.watch` and a 5 s tick). For each state without a delivery record it:
+
+1. Resolves the coordinator by session id in the broker's list of live sessions. A name is never used, since subagent sessions appear as `subagent-chat-<id>` (todo #49).
+2. Sends one intercom message to that id under a code-written header: `from=<train or integrator name> id=<its session id> role=<train|main> kind=car_notice … reply=none`, then the line from the table. The server is the intercom sender; the header names the session that set the state, so a reply goes to it.
+3. Records in `<car file>.notice.json` (the server is its one writer): per state, the message id, each attempt, the broker's answer, and `deliveredAt` when the answer is `delivered: true` with `delivery: "socket_delivered"`.
+4. Treats `queued`, a failure, and an unknown outcome as not delivered, and tries again at 30 s, 2 min, and 5 min.
+5. When the coordinator is not live at an attempt, or after the last retry, sends `call_tower` `why=blocked` to the workspace's tower, naming the car, the state, the coordinator's id, and the notice text, and records `escalatedAt` once that message is delivered. A coordinator that comes back live later still gets the notice, once.
+
+Every state is sent once: the records are keyed by (car, state), and a server restart resumes from them without a second send.
+
+**What waits for it.** A step that depends on a notice cannot pass until the notice is delivered or escalated:
+
+- `land` is a `notice` check (§6.3) over every car that landed.
+- An `assemble` whose spec lists `removed` cars passes only when each one's `dropped` or `returned` notice is delivered or escalated, besides its `git` check.
+- The integrator's `train` todo goes `in_progress` (the manifest's `call_tower`) only when every car's `received` notice is delivered or escalated.
+
+Escalated counts, because the tower then owns finding the coordinator's owner; a train is never held for good by a session that ended. The yard shows which notices are delivered, pending, or escalated (§11.2).
 
 ## 6. Steps
 
@@ -236,7 +281,7 @@ Every todo of a train carries one object under `metadata.sb`; nothing else of a 
 
 - `kind` is one of §6.2's words; `name` tells apart steps of one kind (several gates, several targets).
 - `check` says how the step passes (§6.3); it is the one required part.
-- `on` is what the check is against: `{ head }` (a commit) or `{ target, version }` (a deployed result). It is required, and it decides what a re-assembly voids (§3.5).
+- `on` is what the check is against: `{ head }` (a commit) or `{ target, version }` (a deployed result). It is required for every check except `notice`, and it decides what a re-assembly voids (§3.5).
 - `load` is `{ max }` (a load average) or `{ perCore }` (resolved against the core count where it runs), with an optional `weight`, the cores the step expects to use (the slot weight of procs release 2). It is the CPU need the GUI shows. Only a `run` check takes it.
 - `lock` is a name of the machine-wide lock (§9.1); only a `run` check takes it.
 - `holds` declares a lane or a target (§3.4).
@@ -257,7 +302,7 @@ The kind names the step for the GUI, the sidebar, and the counts; it decides not
 | `deploy` | 部署 | `## Deploy`, one per target | `run` |
 | `deploy-verify` | 部署驗證 | `## Deploy verify`, one per target | `run` with `expect` |
 | `rollback` | 回滾 | `## Deploy`'s rollback, one per failed target | `run` |
-| `land` | 落地 | telling each coordinator | `report` (the ledger file lists each notice sent) |
+| `land` | 落地 | every car's `landed` notice delivered by sb (§5.5) | `notice` |
 
 A test scans the prompts and the code for exactly this set.
 
@@ -269,6 +314,7 @@ The check type is what Straw Boss enforces, whatever the kind. Each is read by a
 |---|---|---|---|
 | `run` | `cwd`, `run`, `log`; optional `verify` (a command after `run`), `expect` (the last stdout line of `verify` must equal it), `poll` (`everySec`, `forMin`, for `expect`) | `MonitorCreate`, rewritten to the wrapper (§8) | the wrapper's outcome for this frozen spec is `passed` |
 | `git` | `cwd`, `contains` (commits that must be ancestors), optional `ref` | the guard itself | `git -C cwd` shows `result.head` as `HEAD` (or `ref`), every `contains` commit is its ancestor, and `on.head` equals `result.head` |
+| `notice` | `cars` (tickets), `state` (`landed`, `returned`, or `dropped`) | the sb server (§5.5); the session only sets the state with `train_car` | every named car's terminal state is `state` and its notice record has `deliveredAt` or `escalatedAt` |
 | `report` | `path`, `expect` (the verdict, such as `P0=0 P1=0`) | a subagent or the session | the file exists, is not empty, changed after the step went `in_progress`, and `result.verdict` equals `expect` |
 
 `ci` and `deploy-verify` are `run` checks with `expect`: the project's command prints the pipeline's conclusion or the version the target runs as its last line, and the wrapper polls it. "A finished monitor is not done" is then enforced, not only said. A step whose check failed completes `failed`; the train follows `integrating`'s red handling before the merge, and `deploying`'s rollback after it.
@@ -285,11 +331,12 @@ The check type is what Straw Boss enforces, whatever the kind. Each is read by a
 | A train's todo carries `metadata.sb` (D8) | `sb: every todo of a train is a step: add metadata.sb (kinds: assemble, review, full-check, merge, ci, deploy, deploy-verify, rollback, land)` |
 | `kind` is in the set | `sb: kind "<x>" is not a step kind (…)` |
 | The common fields hold (§6.1) | `sb: metadata.sb.<field> <what is wrong>` |
-| The check type is `run`, `git`, or `report`, and its fields are present and well formed (§6.3) | `sb: a <type> check needs <field>`, `sb: check type "<x>" is not one a train runs (run, git, report)` |
+| The check type is `run`, `git`, `report`, or `notice`, and its fields are present and well formed (§6.3) | `sb: a <type> check needs <field>`, `sb: check type "<x>" is not one a train runs (run, git, report, notice)` |
 | `train`, `project`, `app` are this train's, and `round` its current round | `sb: step #<id> names train <x>, round <n>; this train is <y>, round <m>` |
 | A new round's `assemble` comes after every step of the old round has completed | `sb: round <n> still has step #<id> <status>; complete it (void) first` |
 | `completed` carries `result`, and `passed` meets the check (§6.3) | `sb: step #<id> passes only when <criterion>; <what is missing>` |
 | A `run` step completes `passed` only after its monitor ended `passed` for this spec | `sb: step #<id> has no passed run of its spec (last: <state>)` |
+| A step that depends on a notice passes only after it is delivered or escalated (§5.5) | `sb: step #<id> waits for sb to tell <coordinator> that car <ticket> is <state> (<attempts>, last: <answer>)` |
 | `metadata.sb` within 8 KB | `sb: metadata.sb is <n> KB, more than 8` |
 
 ### 7.2 `MonitorCreate` calls
@@ -323,7 +370,7 @@ Straw Boss derives every wait from the spec; the model writes none. Every wait i
             "departs": { "maxCars": 4, "maxWaitMin": 60, "oldest": "…" } } } }
 ```
 
-`pending` while the train forms, `in_progress` from the manifest's `call_tower`, `completed` when the tower answers (`result.outcome` `passed` with the train's session id, or `failed` with the refusal). The guard checks its fields and runs `train check --accept` on each car's evidence.
+`pending` while the train forms, `in_progress` from the manifest's `call_tower` (refused until every car's `received` notice is delivered or escalated, and each car's `coordinator` matches its `fwd-from`, §5.5), `completed` when the tower answers (`result.outcome` `passed` with the train's session id, or `failed` with the refusal). The guard checks its fields and runs `train check --accept` on each car's evidence.
 
 ## 8. The wrapper and the monitor format
 
@@ -364,7 +411,8 @@ The wrapper takes a named lock under `<slot dir>/locks/<name>.lock`, holding an 
 | Command | Effect |
 |---|---|
 | `train check (--step <spec.json> \| --accept <file> [--app-accept K,…] [--slip <file>])` | Validates one step's `metadata.sb`, or a car's acceptance evidence (§5.2) and, with `--slip`, the slip itself for a request for acceptance (§5.4), with the guard's validator; prints the refusals, exit 2 when any. The coordinator runs it before it sends a slip, the integrator at receipt. |
-| `train status [--project P] [--json]` | Every train on this computer from the trainboards: project, app, code, session (live or gone), round, steps with state, the waits with their holders, the load each needs, and the locks held. `/boss trains` shows the same in a session. |
+| `train status [--project P] [--json]` | Every train on this computer from the trainboards: project, app, code, session (live or gone), round, steps with state, the waits with their holders, the load each needs, the locks held, and each car's state with its notice (delivered, pending with its attempts, or escalated). `/boss trains` shows the same in a session. |
+| `train notices [--project P] [--pending] [--json]` | Every car's states and notice records from `cars/`: who set each state, the text sent, the attempts, `deliveredAt` or `escalatedAt`. |
 | `train clear --train <code> --project P (--lane <app> \| --target <name>) --reason TEXT` | Releases what a train whose session is gone still holds, writing who cleared it and why into its trainboard. Refused while the train's session is live. Run only after reading the target's version with the project's `Deploy verify`; when it cannot be read, the asker calls the tower `blocked` instead. |
 
 ## 10. Trainboards and the ledger
@@ -372,7 +420,7 @@ The wrapper takes a named lock under `<slot dir>/locks/<name>.lock`, holding an 
 Two kinds of file, one writer each:
 
 - **The ledger** stays the model's (the Record seam): `trains/<project>/<app>.json` keeps the queue and an `index` (code, train session, file, state), written by the integrator; `trains/<project>/<app>/<code>.json` holds one train (cars with their acceptance evidence, SHAs, review, gates, pipelines, versions per target, rollbacks), written by the train. One writer per file ends the race between several sessions on one JSON file. Old entries stay where they are.
-- **The trainboard** is Straw Boss's derived state, as the work board is: `<state>/trainboard/<project>/<code>/board.json` is written by the train's extension from its todo list after every `todo` call and turn end (atomic rename, folder 700, file 600); `<state>/trainboard/<project>/yard.json` by the integrator's from its `train` todos. Each holds `v`, `project`, `app`, `code`, the writer (session id, pane, pid, start time), `updated`, `round`, `cars`, and each step's id, kind, name, status, round, holds, derived waits, and outcome. The copied evidence files, the frozen `step-<id>.json`, and the wrapper's `gate-<id>.json` sit beside it.
+- **The trainboard** is Straw Boss's derived state, as the work board is: `<state>/trainboard/<project>/<code>/board.json` is written by the train's extension from its todo list after every `todo` call and turn end (atomic rename, folder 700, file 600); `<state>/trainboard/<project>/yard.json` by the integrator's from its `train` todos. Each holds `v`, `project`, `app`, `code`, the writer (session id, pane, pid, start time), `updated`, `round`, `cars`, and each step's id, kind, name, status, round, holds, derived waits, and outcome. The copied evidence files, the frozen `step-<id>.json`, and the wrapper's `gate-<id>.json` sit beside it. The car files and their notice records are in `<state>/trainboard/<project>/cars/` (§5.5).
 
 A trainboard outlives its session on purpose: a train that crashed while it held a target stays visible and keeps its hold. It is `ended` when its `land` step completed, and `stale` when its writer is gone and it was not updated for 10 minutes. The server deletes an ended trainboard 7 days after its last update; a stale one only after `train clear` and the same 7 days.
 
@@ -388,7 +436,7 @@ A trainboard outlives its session on purpose: a train that crashed while it held
 
 ### 11.2 What the page shows
 
-- **The yard** (調車場), one per project, opened from a chip on the base header (「火車 3（等待 2）」) and from the integrator's card, so it stays reachable after the integrator closed: the forming trains with their cars, each car's acceptance as a chip (「已驗收：e2e、UAT」, the boss's nod in its tooltip) and its departure condition (「滿 4 節或 60 分（還 23 分）」, 「T-15：單獨出車」); then one row per train: code, app, the cars' tickets, the round (「第 2 次組裝：移除 T-12（unit 紅）」), its steps as pills by kind (組裝、審查、全檢查、合併、CI/CD、部署、部署驗證、回滾、落地) colored by state and outcome, the wait in words (§7.3), and the load it needs (「需負載 ≤30，約 4 核」). The header: 「3 列火車：1 運行、2 等待（互相等待 1）」 and 「負載 42／14 核」.
+- **The yard** (調車場), one per project, opened from a chip on the base header (「火車 3（等待 2）」) and from the integrator's card, so it stays reachable after the integrator closed: the forming trains with their cars, each car's acceptance as a chip (「已驗收：e2e、UAT」, the boss's nod in its tooltip) and its departure condition (「滿 4 節或 60 分（還 23 分）」, 「T-15：單獨出車」); then one row per train: code, app, the cars' tickets, the round (「第 2 次組裝：移除 T-12（unit 紅）」), its steps as pills by kind (組裝、審查、全檢查、合併、CI/CD、部署、部署驗證、回滾、落地) colored by state and outcome, the wait in words (§7.3), the load it needs (「需負載 ≤30，約 4 核」), and each car's notice (「已通知 T-12：已落地」, 「通知中 T-15：退回（重試 2）」, 「已上報塔臺：T-9 的協調者已離線」). The header: 「3 列火車：1 運行、2 等待（互相等待 1）」 and 「負載 42／14 核」.
 - **A train's unit card** uses the locomotive icon; its note line is the current step and its wait. Its tab shows on the map as any tab.
 - **Zen**: the strip adds the train count and the waiting count only (D9).
 - **Language**: zh-TW first, English; the kind words, wait words and counts are paraglide messages.
@@ -418,12 +466,12 @@ The plugin sorts by `sb_order` and changes no code; order and marks come from th
 
 | File | Change |
 |---|---|
-| `prompts/integrator.md` | The scheduler of §3.2: receipt with `train check --accept --slip` and the `strict`-target check, a car that asks for acceptance returned with §5.4's word, placing cars by `departs` and by the `strict` targets their `auth` covers, departure under `maxTrains`, the `train:` manifest through `call_tower` `why: shared`, the `train` todo with `metadata.sb`, the idle condition; no supervision of a running train; no UAT page. Budget 340 to about 380 words. |
-| `prompts/train.md` (new) | The train: one train; its tab; assembly and the checks before push, merge, and CI/CD; every todo a step with `metadata.sb` (§6); kinds classify and the order comes from `integrating`, `deploying` and the project skill; a `run` step through `MonitorCreate` described `train <code> #<id> <kind>`; rounds and void steps on re-assembly; deploy targets in its own order, each read back by machine; rollback or report on failure, then end; never wait on a person; answering coordinators; `call_tower` for `blocked`, `shared` naming a target, and `milestone` when done; the name never changes. It ends with its own `## Seam bindings` block, seven lines (§13.2). Its system prompt; budget about 450 words. Inside the integration markers as a whole: with the switch off the role is refused at the open. |
-| `prompts/main.md` | Seam bindings: Batch owner reads "the project's one integrator main schedules trains; each departed train runs in a `train` session the tower opens"; Record names the index and the per-train files; Handoff route adds that the train answers a car after the integrator's receipt; Approval says the boss's nod on acceptance is quoted in `accept`. Still six lines. Budget on 700 to about 720. |
+| `prompts/integrator.md` | The scheduler of §3.2: receipt with `train check --accept --slip` and the `strict`-target check, a car that asks for acceptance returned with §5.4's word, placing cars by `departs` and by the `strict` targets their `auth` covers, departure under `maxTrains`, the `train:` manifest through `call_tower` `why: shared`, the `train` todo with `metadata.sb`, the idle condition; no supervision of a running train; no UAT page; every car's fate set with `train_car` (`received`, `returned`), never a notice sent by itself (D14). Budget 340 to about 380 words. |
+| `prompts/train.md` (new) | The train: one train; its tab; assembly and the checks before push, merge, and CI/CD; every todo a step with `metadata.sb` (§6); kinds classify and the order comes from `integrating`, `deploying` and the project skill; a `run` step through `MonitorCreate` described `train <code> #<id> <kind>`; rounds and void steps on re-assembly; deploy targets in its own order, each read back by machine; rollback or report on failure, then end; never wait on a person; each car's fate set with `train_car` (`landed`, `returned`, `dropped`), never a notice to a coordinator sent by itself, and `land` passes only when sb has delivered them (D14); `call_tower` for `blocked`, `shared` naming a target, and `milestone` when done; the name never changes. It ends with its own `## Seam bindings` block, seven lines (§13.2). Its system prompt; budget about 450 words. Inside the integration markers as a whole: with the switch off the role is refused at the open. |
+| `prompts/main.md` | Seam bindings: Batch owner reads "the project's one integrator main schedules trains; each departed train runs in a `train` session the tower opens"; Record names the index and the per-train files; Handoff route adds that the sb server sends every car notice (received, returned, dropped, landed) to the slip's `coordinator` by session id, and that the slip's `coordinator` is the session that sent it; Approval says the boss's nod on acceptance is quoted in `accept`. Still six lines. Budget on 700 to about 720. |
 | `prompts/planning.md` | A coordinator runs its app's `integration.accept` before the slip, on its branch, as the project skill's `## Acceptance` says, gets the boss's nod, and writes the evidence file it checks with `train check --accept`; a `human` anchor is this acceptance, not the train's. Budget unchanged (trim elsewhere). |
 | `prompts/apps-config.md` | `integration.maxTrains` (top level, default 3); per app `integration.accept`; `stages` is `merge`, then optionally `deploy` (`uat` is gone). |
-| `prompts/tower.md`, `tower-run.md` | A `shared` request from the integrator with a `train:` block is no go: open the train with `boss_open_main` role `train`, the manifest verbatim, once per code; a train is no main and does not count toward the two; its `shared` naming a target is checked for a clash like the integrator's deploy; close it after its done `milestone`. |
+| `prompts/tower.md`, `tower-run.md` | A `shared` request from the integrator with a `train:` block is no go: open the train with `boss_open_main` role `train`, the manifest verbatim, once per code; a train is no main and does not count toward the two; its `shared` naming a target is checked for a clash like the integrator's deploy; close it after its done `milestone`. A car slip is forwarded with `tower_send` `forward: <event id>` so the code stamps its sender (§5.5). A `blocked` from the sb server about a car notice names a coordinator that is gone: find its owner on the board or record a wait for the boss, as for any `blocked`. |
 
 ### 13.2 pi-anchorloop (`wayne930242/anchorloop`), for 2.11.0
 
@@ -436,13 +484,15 @@ The acceptance leaves the train, and the train runs its checks through a seam:
 - `integrating/playbooks/receive-car.md`: the slip's `departs` and `accept` lines (§5.1), replacing `uat`; the owner checks the evidence and the `strict` targets.
 - `integrating/playbooks/train.md` step 1 departs by the cars' `departs` lines too; steps 2 to 4: one train per integration branch holds it from assembly to its merge; each gate through the Step runner; step 4's pipeline read becomes the train's last pre-deploy step; step 6: a re-assembly voids the old head's steps and recreates them; a red pipeline after the push ends the train with a report, and the revert or fix-forward goes as a new train.
 
+- `integrating`'s Handoff route default and After the train: the owner may hand each car's outcome to the host as a state, and the host then sends the notice and reports its delivery; the owner's step waits for that report. Straw Boss binds it so (D14).
+
 Straw Boss binds the Step runner in `train.md`: "every step is a todo with `metadata.sb` (this prompt); a step that runs a command runs as `MonitorCreate` described `train <code> #<id> <kind>` with `command` its `check.run`, which Straw Boss wraps, and whose lines report `{progress: {message, load}}` and the outcome". Straw Boss then requires pi-anchorloop 2.11.0 or newer (README, the `blocked` lines of `integrator.md` and `train.md`).
 
 ## 14. Migration
 
 1. pi-anchorloop 2.11.0 is released first; this Straw Boss release requires it.
 2. A project moves `uat` out of `stages` into `integration.accept` (and renames its skill's `## UAT` to `## Acceptance`, read by its coordinators) before it pins this release. An app whose `stages` still lists `uat` is a config error: the integrator does not depart and calls the tower `blocked`, naming the field and the fix, as for a missing heading.
-3. A running integrator picks up the new prompts at its next `/reload` or restart. A train already in its ledger with no trainboard is a legacy train: the integrator finishes it itself, the old way, its open UAT pages included; every departure after that opens a train session.
+3. A running integrator picks up the new prompts at its next `/reload` or restart. A train already in its ledger with no trainboard is a legacy train: the integrator finishes it itself, the old way, its open UAT pages included, and tells coordinators by intercom as before (no car files, no sb notices); every departure after that opens a train session, and every car received after the release is notified by sb.
 4. A slip without `departs` departs `next`; one with `uat:` and no `accept:` is returned with the new format named.
 5. The live ledgers are not rewritten. New trains add `index` entries and per-train files; old `trains` entries stay as history.
 6. One integrator per project: where several ran per app, the tower's rule already holds for new openings; the extra ones go idle and are closed as usual.
@@ -465,11 +515,12 @@ Task 0, the spike, is done (`spike.md`): (a) rpiv-todo keeps `metadata` and a `t
 | 6 | Herdr tokens and the snippet: the integrator's key and mark, the train keys and marks, `sb_step` | `src/order.ts`, `src/herdr.ts`, `docs/how-it-works.md` Sidebar net view | `tests/order.test.ts` (tower subagents, then the integrator, then trains by code, then tabs; a train ending moves no other row; a reviewer under its train; two-letter codes after one-letter ones) | 3 | No |
 | 7 | The page: the yard, the base chip, the train icon and card, Zen's count, strings, demo states | `gui/trains.ts` (pure model), `gui/yard.ts`, `gui/ICONS.md`, `index.html` sprite, messages | `tests/gui-trains.test.ts` (counts, 互相等待, wait words, round text with the removed car, acceptance chips, load need); `visual-tester` for Standard, Geek, Zen and the phone width | 5 | No (anchor + visual check) |
 | P | pi-anchorloop 2.11.0 (§13.2): acceptance before handoff and `## Acceptance`, `stages` without `uat`, the UAT stage out of `deploying`, `strict` targets checked at receipt, the Step runner seam, Batch owner, Record and Settings wording, the slip's `departs` and `accept`, lanes and targets as holds, re-assembly voiding | anchorloop `skills/integrating/` (`SKILL.md`, `references/seams.md`, `playbooks/receive-car.md`, `playbooks/train.md`), `skills/deploying/` (`SKILL.md`, `playbooks/deploy.md`) | that repository's own tests | none | Yes (shared contract) |
-| 8 | Prompts | `prompts/integrator.md`, new `prompts/train.md`, `main.md`, `planning.md`, `apps-config.md`, `tower.md`, `tower-run.md` | `tests/prompts.test.ts`: budgets on and off; `train.md`'s block of seven lines in the order of `seams.md`, directly at its end; `main.md`'s six; every kind of §6.2 named in `train.md`; no `uat` stage and no UAT page in `integrator.md` or `train.md`; `train.md` and `integrator.md` state D13's refusal and its word; no environment named; the tower prompts name `role: "train"` and the manifest | 3, 4, P | Yes (with P) |
+| 5a | Car states and notices (D14): `train_car` in a train and the integrator, the car files, the server's sender and retries, the `notice` check, `tower_send` `forward` stamping `fwd`/`fwd-from`, the coordinator match at receipt, the `car_notice` header kind | new `src/train/cars.ts`, `src/traincar.ts` (the tool), `src/server/carnotices.ts`; `src/server/runtools.ts` (`forward`), `src/header.ts`, `src/trainguard.ts` | `tests/train-car.test.ts` (each state's fields; a `landed` commit not on the base's remote branch refused; a car not in the manifest or not on the integrator's branch refused; a second terminal state refused), `tests/server-car-notices.test.ts` (server world with a fake intercom client: one send per (car, state) addressed by session id, a `subagent-chat-<id>` name never used; `socket_delivered` records `deliveredAt`; `queued` and a failure retried at 30 s, 2 min, 5 min on the fake clock; a coordinator not live sends one `blocked` to the tower naming the car and records `escalatedAt`; a coordinator back live gets it once; a server restart resumes without a second send), `tests/train-coordinator.test.ts` (a forward without `forward` has no `fwd-from`; the model cannot write `fwd-from`; a slip whose `coordinator` differs from `fwd-from` is refused and returned to `fwd-from`), guard cases in `tests/train-guard.test.ts` (`land` refused before every landed notice is delivered or escalated; a round-2 `assemble` refused before its `removed` cars are notified; round-1 `assemble` refused before a car returned from the manifest is notified; the integrator's `train` todo refused `in_progress` before `received` is delivered) | 1, 3, 4 | Yes (shared contract, messaging) |
+| 8 | Prompts | `prompts/integrator.md`, new `prompts/train.md`, `main.md`, `planning.md`, `apps-config.md`, `tower.md`, `tower-run.md` | `tests/prompts.test.ts`: budgets on and off; `train.md`'s block of seven lines in the order of `seams.md`, directly at its end; `main.md`'s six; every kind of §6.2 named in `train.md`; no `uat` stage and no UAT page in `integrator.md` or `train.md`; `train.md` and `integrator.md` state D13's refusal and its word; neither tells a coordinator a car's fate itself, both name `train_car`; the tower prompts name `forward`; no environment named; the tower prompts name `role: "train"` and the manifest | 3, 4, P | Yes (with P) |
 | 9 | Docs and release: `how-it-works.md` Merge train, Opening a main, the work board and GUI sections; README (pi-anchorloop 2.11.0); `docs/specs/2026-11-05-train-stages.md` gets a note that its UAT stage and D5 moved to the coordinator's acceptance; this record's status; a minor release | — | full suite, then CI | 1 to 8 | One fresh reviewer over the whole change-set before release (roles, enforcement, shared contract) |
 | 10 | Pilot in one project: the project moves `uat` into `accept` (migration step 2); first an app with `merge` only, then one with `deploy` and acceptance | the project's apps.json, skill, integrator and coordinators; no Straw Boss files | The acceptance list of §17 | 9 and the boss's go for the project | — |
 
-Order: 1 first. Tasks 2, 3 and P run in parallel worktrees from 1's commit (P needs none of it). 4 follows 2 and 3; 5 and 6 follow 4 and 3; 7 follows 5; 8 follows 4 and P.
+Order: 1 first. Tasks 2, 3 and P run in parallel worktrees from 1's commit (P needs none of it). 4 follows 2 and 3; 5, 5a and 6 follow 4 and 3; 7 follows 5 and 5a; 8 follows 4, 5a and P.
 
 ## 16. Not built, and limits
 
@@ -478,6 +529,8 @@ Order: 1 first. Tasks 2, 3 and P run in parallel worktrees from 1's commit (P ne
 - Claude Code and Codex sessions cannot be trains (no rpiv-todo, no `MonitorCreate`); they can still be coordinators, and a sidecar coordinator runs `train check --accept` like any other.
 - Yards do not cross Straw Link.
 - The guard trusts what `verify` prints and what a `report` says: the project skill owns the commands that read a pipeline's conclusion and a target's version, and the reviewer's verdict line.
+- A notice counts as delivered when the broker answers `socket_delivered`: the message reached the coordinator's session, which says nothing about whether its model read it. A `queued` message is not counted, because a session that is gone may never take it.
+- Escalation lets a train end when a coordinator is gone; the car's outcome then rests on the tower finding its owner, as any `blocked` does.
 - `train check --accept` proves that the evidence is complete, names the car's head, and points at files that exist. It does not prove that the boss said the quoted `nod`: that rests on the coordinator, as `auth` does today.
 
 ## 17. Acceptance
@@ -491,6 +544,8 @@ Order: 1 first. Tasks 2, 3 and P run in parallel worktrees from 1's commit (P ne
 - [ ] A command step runs only as a `MonitorCreate` of its step, rewritten to the wrapper; its lines follow §8.2 and pi-loop-monitor counts each as progress.
 - [ ] A gate waiting on load shows 「等負載 ≤30（現在 42）」 in the yard within 30 s, with the load the train needs.
 - [ ] A second train holding the same lane waits for it, one holding the same target waits for that target, and the header counts them as 互相等待.
+- [ ] Every car's coordinator is told by the sb server, by session id, that its car was received, returned, dropped, or landed; `train notices` shows each delivery; a `land` or `assemble` step that depends on a notice is refused until it is delivered or escalated; a coordinator that is gone produces one `blocked` to the tower naming the car.
+- [ ] A slip whose `coordinator` is not the session the tower's code-written forward names as its sender is refused at receipt and returned to the real sender.
 - [ ] A dropped car shows as round 2 with the car and its evidence; the old head's steps are void, and round 2's steps exist before any of them passes.
 - [ ] A train ends only after its pipelines concluded and each target's version was read by `deploy-verify`; a failed target is rolled back and the rollback read back, or reported, and the train then ends and is closed by the tower.
 - [ ] The sidebar lists the integrator right under the tower and the trains under it in code order, each with its step glyph; a train ending moves no other row.

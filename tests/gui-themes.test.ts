@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,7 @@ import { after, test } from "node:test";
 import { startGui, type Gui } from "../src/gui.ts";
 import type { ServerView } from "../src/server/guiprefs.ts";
 
-// The server and the theme files (docs/specs/2026-11-07-raven-view/spec.md §1.2, §6.5): a theme's files are listed at start and read from disk on their first request only, and the default view's first frame links its theme.
+// The server and the theme files (docs/specs/2026-11-07-raven-view/spec.md §1.2, §6.5): the whole bundle is read at start, and the default view's first frame links its theme.
 
 const scratch = mkdtempSync(join(tmpdir(), "psb-themes-test-"));
 const dir = join(scratch, "bundle");
@@ -39,29 +39,24 @@ const raw = (gui: Gui, path: string) =>
 		}).on("error", reject).end();
 	});
 
-test("a theme's file is read from disk on its first request, not at start, and kept after; a name the listing lacks, and one that cannot be read, are 404", async () => {
+test("the whole bundle, themes included, is read at start: a theme's file is served after the folder is gone; an unknown name and a path out of the bundle are 404", async () => {
 	const gui = await serve();
 	const at = (name: string) => raw(gui, `/${gui.token}/${name}`);
-	// Rewritten after the server started and before anyone asked: what is served is what the disk says at the first request, so nothing was held.
-	writeFileSync(join(dir, "themes", "geek", "geek-ab12.css"), "second");
+	// A package update replaces dist/gui under the running server: what the page names must still be served from memory.
+	rmSync(join(dir, "themes"), { recursive: true, force: true });
 	const first = await at("themes/geek/geek-ab12.css");
-	assert.deepEqual([first.status, first.body], [200, "second"], "read at the first request");
-	writeFileSync(join(dir, "themes", "geek", "geek-ab12.css"), "third");
-	assert.equal((await at("themes/geek/geek-ab12.css")).body, "second", "and kept from then on");
+	assert.deepEqual([first.status, first.body], [200, "first"], "held from start");
 	assert.deepEqual([first.headers["content-type"], first.headers["cache-control"]], ["text/css; charset=utf-8", "private, max-age=31536000, immutable"], "a hashed file is kept by the phone");
 	const pic = await at("themes/geek/pic-aa11.webp");
 	assert.deepEqual([pic.status, pic.headers["content-type"]], [200, "image/webp"]);
-	unlinkSync(join(dir, "themes", "geek", "gone-bb22.css"));
-	assert.equal((await at("themes/geek/gone-bb22.css")).status, 404, "a listed file that cannot be read now");
-	assert.equal((await at("themes/geek/unknown.css")).status, 404, "a name that was not listed at start");
-	writeFileSync(join(dir, "themes", "geek", "late-cc33.css"), "added after start");
-	assert.equal((await at("themes/geek/late-cc33.css")).status, 404, "nor one that appeared later: the list is the start's");
+	assert.equal((await at("themes/geek/gone-bb22.css")).body, "soon gone", "every listed file, not only the ones asked for");
+	assert.equal((await at("themes/geek/unknown.css")).status, 404, "a name that was not in the bundle");
 	for (const path of ["themes/%2e%2e/secret.txt", "themes/geek/%2e%2e/%2e%2e/%2e%2e/secret.txt", "themes/geek/..%2f..%2f..%2fsecret.txt", "themes//geek/geek-ab12.css", "themes"]) {
 		const r = await at(path);
 		assert.ok([308, 403, 404].includes(r.status), `${path}: ${r.status}`);
 		assert.notEqual(r.body, "outside the bundle", path);
 	}
-	assert.equal((await at("assets/app.css")).body, "body{}", "the rest of the bundle is still held from start");
+	assert.equal((await at("assets/app.css")).body, "body{}");
 });
 
 test("the default view's first frame links its theme after the entry's stylesheet and takes its icon; Standard and Auto add nothing", async () => {

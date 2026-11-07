@@ -76,7 +76,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 	} catch {
 		throw new Error(`The GUI bundle is missing (${dir}); build it with npm run gui:build`);
 	}
-	// The bundle is read once, except the themes' folders (guithemes.ts): a package update replaces dist/gui under a running server, whose page names the old assets.
+	// The bundle, themes included, is read once at start (guithemes.ts): a package update replaces dist/gui under a running server, whose page names the old assets.
 	const themes = listBundle(dir), bundle = themes.bundle;
 	// `build` names this bundle in the page and in each stream's hello: a page from another build, reconnecting to this server, reloads itself.
 	const html = bundle.get("index.html")!, build = createHash("sha256").update(html).digest("hex").slice(0, 16);

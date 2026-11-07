@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { subagents } from "./netdata.ts";
-import { isCode, shortCode } from "./train/spec.ts";
+import { isCode, isName, shortCode } from "./train/spec.ts";
 import { ALLY_MARK, ARROW, type HerdrRun, type HerdrTab, type HerdrWorld, isHead, isSub, MARK, type Pane, type Place, report, type Workspace, worldOf } from "./herdr.ts";
 
 // Five display tokens for the sidebar plugin and for Herdr's own Agents rows, written next to `sb_role`:
@@ -26,28 +27,32 @@ const NAME_MAX = 24;
 const part = (n: number, width = 3) => String(n).padStart(width, "0");
 const short = (name: string) => (name.length > NAME_MAX ? `${name.slice(0, NAME_MAX - 1)}…` : name);
 
-/** What a session is besides its role, as far as its key and mark go: a train's code, or whether it is the integrator (a main that owns the project's `train` todos). */
-export interface Who { code?: string; integrator?: boolean }
+/**
+ * What a session is besides its role, as far as its key and mark go: a train's code and project, whether it is the integrator (a main whose live `yard.json` names it), and for a member the panes of the sessions
+ * the yards name (`integratorPanes`), among which the main of its tab is the integrator. All of it comes from the trainboard files and the intercom's list, none from a token on a pane (§23).
+ */
+export interface Who { code?: string; project?: string; integrator?: boolean; integratorPanes?: readonly string[] }
 
 /**
  * The key of a session that is in the net, or undefined when Herdr cannot place it. Workspaces count among the base ones (a sub workspace is a
  * linked worktree whose sessions hang under their launcher); the head tower's workspace is no base: its pane is keyed `000.0` by the head service wherever the workspace stands, and while it exists the
  * bases are numbered from 001, so no base ties with it (HH1-F005). A pane's slot is its place among its tab's panes, so every member has a key of its own.
- * The integrator's tab sits right after the tower and its subagents (`WWW.05.R.PPP`), the trains after it by code (`WWW.06.YYMMDDLL`, the letters left-padded with `0`), the other tabs after both (`WWW.1`):
- * a code's key does not depend on the trains beside it, so a train ending moves no other row (docs/specs/2026-11-07-train-workers.md §12).
+ * An integrator's tab sits right after the tower and its subagents (`WWW.05.TTT.R.PPP`, its own tab place `TTT`, so two integrators in a workspace are two blocks), the trains after it by code and project
+ * (`WWW.06.YYMMDDLL.HHHHHHHH`, the letters left-padded with `0`, then eight hex digits of the project name's hash), the other tabs after both (`WWW.1`):
+ * a train's key depends on its own code and project alone, so a train ending moves no other row (docs/specs/2026-11-07-train-workers.md §12).
  */
 export function orderKey(role: "tower" | "main" | "member" | "train", pane: Pane, ps: Pane[], all: Workspace[], tabList: HerdrTab[], who: Who = {}): string | undefined {
 	const index = all.filter((w) => !isSub(w) && !isHead(w)).findIndex((w) => w.workspace_id === pane.workspace_id), base = index + (all.some(isHead) ? 1 : 0);
 	if (index < 0) return undefined;
 	if (role === "tower") return `${part(base)}.0`;
-	if (role === "train") return who.code !== undefined && isCode(who.code) ? `${part(base)}.06.${who.code.slice(2, 4)}${who.code.slice(5, 7)}${who.code.slice(8, 10)}${shortCode(who.code).slice(4).padStart(2, "0")}` : undefined;
+	if (role === "train") return who.code !== undefined && isCode(who.code) && isName(who.project) ? `${part(base)}.06.${who.code.slice(2, 4)}${who.code.slice(5, 7)}${who.code.slice(8, 10)}${shortCode(who.code).slice(4).padStart(2, "0")}.${createHash("sha256").update(who.project).digest("hex").slice(0, 8)}` : undefined;
 	const tab = tabList.findIndex((t) => t.tab_id === pane.tab_id), slot = ps.filter((p) => p.tab_id === pane.tab_id).findIndex((p) => p.pane_id === pane.pane_id);
 	if (tab < 0 || slot < 0) return undefined;
-	return who.integrator ? `${part(base)}.05.${role === "main" ? 0 : 1}.${part(slot)}` : `${part(base)}.1.${part(tab)}.${role === "main" ? 0 : 1}.${part(slot)}`;
+	return who.integrator ? `${part(base)}.05.${part(tab)}.${role === "main" ? 0 : 1}.${part(slot)}` : `${part(base)}.1.${part(tab)}.${role === "main" ? 0 : 1}.${part(slot)}`;
 }
 
-/** Whether the main of a pane's tab is the integrator, as that main's own tokens say (its role is `main` and its mark is the integrator's): a member of that tab sorts beside it. */
-const integratorTab = (pane: Pane, ps: Pane[]) => ps.some((p) => p.tab_id === pane.tab_id && p.tokens?.sb_role === "main" && p.tokens.sb_mark === MARK.integrator);
+/** Whether a pane of the member's tab is one of the panes a yard's writer sits in (Herdr places the panes; the writers come from the yards and the intercom's list, not from any token): the member sorts beside it. */
+const integratorTab = (pane: Pane, ps: Pane[], named: readonly string[] = []) => ps.some((p) => p.tab_id === pane.tab_id && named.includes(p.pane_id));
 
 /** A step token from text that came from a board file: control and bidi characters out, at most 24 characters. */
 const clean = (text: string) => Array.from(text.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\n]/g, " ")).slice(0, 24).join("").trim();
@@ -103,7 +108,7 @@ const markOf = (role: "tower" | "main" | "member" | "train", who: Who): string |
 export async function netTokens(run: HerdrRun, place: Place, role: "tower" | "main" | "member" | "train", name: string, now = Date.now(), world: HerdrWorld = worldOf(run), who: Who & { step?: string } = {}): Promise<{ own: Record<string, string | null>; kids: Kid[]; joined: Set<string>; waiting: boolean }> {
 	const { panes: ps, workspaces: all, tabs: tabList } = await world(place.workspaceId);
 	const pane = ps.find((p) => p.pane_id === place.paneId);
-	const mine: Who = { ...(role === "train" && who.code !== undefined && isCode(who.code) ? { code: who.code } : {}), ...(role === "main" && who.integrator ? { integrator: true } : {}), ...(role === "member" && pane && integratorTab(pane, ps) ? { integrator: true } : {}) };
+	const mine: Who = { ...(role === "train" && who.code !== undefined && isCode(who.code) && isName(who.project) ? { code: who.code, project: who.project } : {}), ...(role === "main" && who.integrator ? { integrator: true } : {}), ...(role === "member" && pane && integratorTab(pane, ps, who.integratorPanes) ? { integrator: true } : {}) };
 	const key = pane && orderKey(role, pane, ps, all, tabList, mine);
 	const joined = new Set(ps.filter((p) => p.tokens?.sb_role).map((p) => p.pane_id));
 	const tab = tabList.find((t) => t.tab_id === pane?.tab_id)?.label || null;

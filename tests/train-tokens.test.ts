@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { MARK } from "../src/herdr.ts";
 import { type Board, writeBoard, writeYard, type Yard } from "../src/train/board.ts";
-import { isIntegrator, stepOf } from "../src/trainsign.ts";
+import { integrators, isIntegrator, stepOf } from "../src/trainsign.ts";
 import { until, World } from "./fakes.ts";
 
 // Task 6 (docs/specs/2026-11-07-train-workers.md §12): the integrator and the train find themselves in the trainboard files, and their panes carry the keys, marks and `sb_step` from them.
@@ -21,18 +22,35 @@ const M = "2026-11-06-m";
 const GLYPH = { run: "\uF04B", wait: "\uF254", fail: "\uF00D" };
 const state = () => (dirs.push(mkdtempSync(join(tmpdir(), "sb-tokens-"))), dirs.at(-1)!);
 const writer = (session: string) => ({ session, pid: 4300, started: "2026-11-07T06:00:00Z" });
-const yard = (session: string): Yard => ({ v: 1, project: "acme", writer: writer(session), updated: "2026-11-07T08:00:00Z", trains: [] });
+// A yard written by a session whose process runs (this test process stands for it): its pid answers and it started before the file was written.
+const live = (session: string) => ({ session, pid: process.pid, started: new Date().toISOString() });
+const yard = (session: string, by = writer(session), project = "acme"): Yard => ({ v: 1, project, writer: by, updated: "2026-11-07T08:00:00Z", trains: [] });
 const board = (steps: Board["steps"]): Board => ({ v: 1, project: "acme", app: "web", code: M, writer: writer("train-1"), updated: "2026-11-07T08:00:00Z", round: 1, cars: [], steps });
 const step = (id: number, status: Board["steps"][number]["status"], kind: Board["steps"][number]["kind"] = "full-check", extra: object = {}): Board["steps"][number] => ({ id, kind, name: "n", status, round: 1, ...extra });
 
 test("the integrator is the session a project's yard names as its writer; nobody else, and nothing a pane says", () => {
-	const root = state();
-	assert.equal(isIntegrator(root, "integ-1"), false, "no trainboard folder");
+	const root = state(), up = () => true;
+	assert.equal(isIntegrator(root, "integ-1", up), false, "no trainboard folder");
 	writeYard(root, yard("integ-1"));
-	assert.equal(isIntegrator(root, "integ-1"), true);
-	assert.equal(isIntegrator(root, "integ-2"), false);
+	assert.equal(isIntegrator(root, "integ-1", up), true);
+	assert.equal(isIntegrator(root, "integ-2", up), false);
 	mkdirSync(join(root, "trainboard", "..bad"), { recursive: true });
-	assert.equal(isIntegrator(root, "integ-1"), true, "a folder that is no project name is skipped");
+	assert.equal(isIntegrator(root, "integ-1", up), true, "a folder that is no project name is skipped");
+	assert.deepEqual([...integrators(root, up)], ["integ-1"]);
+});
+
+test("TT-F003: a yard counts only while its writer's process runs: a yard of a gone writer, or one that names a pid it does not own, gives no integrator", () => {
+	const root = state(), seen: unknown[] = [];
+	writeYard(root, yard("integ-1"));
+	assert.equal(isIntegrator(root, "integ-1", (w) => (seen.push(w), false)), false, "the writer is gone: the old yard keeps no mark");
+	assert.deepEqual(seen, [writer("integ-1")], "the liveness question is the writer record of the yard");
+	assert.deepEqual([...integrators(root, () => false)], []);
+	const ended = spawnSync(process.execPath, ["-e", ""]).pid!;
+	writeYard(root, yard("integ-2", { session: "integ-2", pid: ended, started: new Date().toISOString() }, "beta"));
+	assert.equal(isIntegrator(root, "integ-2"), false, "by default the pid of a process that has ended is no writer");
+	writeYard(root, yard("integ-3", live("integ-3"), "gamma"));
+	assert.equal(isIntegrator(root, "integ-3"), true, "by default a writer that runs counts");
+	assert.deepEqual([...integrators(root)], ["integ-3"]);
 });
 
 test("a train's step is its own board's: the lowest step in progress, else the newest completed; none for a missing board", () => {
@@ -48,12 +66,12 @@ test("a train's step is its own board's: the lowest step in progress, else the n
 
 test("a main whose yard names it carries the integrator's key and mark, its member follows into the same place, and a main that is none keeps its tab's place", async () => {
 	const root = world.stateDir;
-	writeYard(root, yard("integ-1"));
+	writeYard(root, yard("integ-1", live("integ-1")));
 	const main = world.agent({ id: "integ-1", name: "integ-acme", pane: "wA:p1", tab: "wA:t1" });
 	await main.start();
 	await main.promote();
 	await until(() => world.herdr.pane("wA:p1").tokens.sb_mark === MARK.integrator, "the integrator's mark");
-	assert.equal(world.herdr.pane("wA:p1").tokens.sb_order, "000.05.0.000");
+	assert.match(world.herdr.pane("wA:p1").tokens.sb_order!, /^000\.05\.\d{3}\.0\.000$/);
 	const other = world.agent({ id: "main-2", name: "Docs", pane: "wA:p3", tab: "wA:t2" });
 	await other.start();
 	await other.promote();
@@ -62,8 +80,36 @@ test("a main whose yard names it carries the integrator's key and mark, its memb
 	assert.equal(world.herdr.pane("wA:p3").tokens.sb_mark, MARK.main);
 	const member = world.agent({ id: "mem-1", name: "Helper", pane: "wA:p2", tab: "wA:t1" });
 	await member.start();
-	await until(() => world.herdr.pane("wA:p2").tokens.sb_order === "000.05.1.001", "the integrator's member");
+	await until(() => /^000\.05\.\d{3}\.1\.001$/.test(world.herdr.pane("wA:p2").tokens.sb_order ?? ""), "the integrator's member");
 	assert.equal(world.herdr.pane("wA:p2").tokens.sb_mark, MARK.member);
+	assert.equal(world.herdr.pane("wA:p2").tokens.sb_order, world.herdr.pane("wA:p1").tokens.sb_order!.replace(".0.000", ".1.001"), "right beside its main, in the same tab place");
+});
+
+test("TT-F002: a pane's tokens move no member: a main's role and mark written by anyone leave its tab's members where they were", async () => {
+	const main = world.agent({ id: "main-1", name: "Docs", pane: "wA:p1", tab: "wA:t1" });
+	await main.start();
+	await main.promote();
+	await until(() => world.herdr.pane("wA:p1").tokens.sb_mark === MARK.main, "an ordinary main");
+	world.herdr.pane("wA:p1").tokens.sb_mark = MARK.integrator; // what any session can write with pane.report
+	const member = world.agent({ id: "mem-1", name: "Helper", pane: "wA:p2", tab: "wA:t1" });
+	await member.start();
+	await until(() => world.herdr.pane("wA:p2").tokens.sb_order !== undefined, "the member's key");
+	assert.match(world.herdr.pane("wA:p2").tokens.sb_order!, /^000\.1\.\d{3}\.1\.001$/, "no yard names the main: the member keeps its tab's place");
+	assert.equal(world.herdr.pane("wA:p1").tokens.sb_mark, MARK.integrator, "the forged mark is still on the main's pane, and counts for nothing");
+});
+
+test("TT-F003: a yard of a writer that is gone gives its main no mark and its members no place", async () => {
+	const root = world.stateDir, ended = spawnSync(process.execPath, ["-e", ""]).pid!;
+	writeYard(root, yard("integ-1", { session: "integ-1", pid: ended, started: new Date().toISOString() }));
+	const main = world.agent({ id: "integ-1", name: "integ-acme", pane: "wA:p1", tab: "wA:t1" });
+	await main.start();
+	await main.promote();
+	const member = world.agent({ id: "mem-1", name: "Helper", pane: "wA:p2", tab: "wA:t1" });
+	await member.start();
+	await until(() => world.herdr.pane("wA:p1").tokens.sb_mark !== undefined && world.herdr.pane("wA:p2").tokens.sb_order !== undefined, "both published");
+	assert.equal(world.herdr.pane("wA:p1").tokens.sb_mark, MARK.main);
+	assert.match(world.herdr.pane("wA:p1").tokens.sb_order!, /^000\.1\./);
+	assert.match(world.herdr.pane("wA:p2").tokens.sb_order!, /^000\.1\./);
 });
 
 test("a train's pane carries its key, its mark with the short code and its step, and the step follows the board within the debounce", async () => {
@@ -75,7 +121,7 @@ test("a train's pane carries its key, its mark with the short code and its step,
 	};
 	const tower = world.tower("tower-wA", "wA:t7", "wA:p7");
 	await tower.start();
-	writeYard(root, yard("sender-1")); // the integrator's yard is the folder the train watches
+	writeYard(root, yard("sender-1", live("sender-1"))); // the integrator's yard is the folder the train watches
 	const sender = world.agent({ id: "sender-1", name: "integ-acme", pane: "wA:p1", tab: "wA:t1" });
 	await sender.start();
 	await sender.promote();
@@ -83,7 +129,7 @@ test("a train's pane carries its key, its mark with the short code and its step,
 	const pane = world.herdr.panes.find((p) => p.tokens.sb_role === "train")!;
 	await until(() => world.herdr.pane(pane.pane_id).tokens.sb_order?.startsWith("000.06."), "the train's key");
 	const tokens = () => world.herdr.pane(pane.pane_id).tokens;
-	assert.equal(tokens().sb_order, "000.06.2611060m");
+	assert.equal(tokens().sb_order, "000.06.2611060m.822b33ad", "the code, then the project's tie");
 	assert.equal(tokens().sb_mark, `${MARK.train} 1106m`);
 	assert.equal(tokens().sb_step, undefined, "no board yet, no step");
 	writeBoard(root, board([step(1, "in_progress", "assemble")]));

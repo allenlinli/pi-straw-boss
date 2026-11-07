@@ -1,11 +1,11 @@
 import { type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { report, type Session } from "./herdr.ts";
-import { clearOrder, markKids, netTokens } from "./order.ts";
+import { clearOrder, markKids, netTokens, type Who } from "./order.ts";
 import { nameOf } from "./reach.ts";
 import type { Kit } from "./state.ts";
 import { trainToken } from "./trainrole.ts";
-import { isIntegrator, stepOf } from "./trainsign.ts";
+import { integrators, stepOf } from "./trainsign.ts";
 import { trainboardDir } from "./train/board.ts";
 
 const REFRESH_MS = 4 * 60_000;
@@ -36,8 +36,14 @@ export function createPresence(kit: Kit) {
 			soon ??= setTimeout(() => ((soon = undefined), void detect()), detectMs).unref();
 		});
 	};
-	// Whether this session is the integrator, and a train's code and step, come from the trainboard files by the session's own record (trainsign.ts), never from a pane token.
-	const whoAmI = (sbRole: string) => (sbRole === "train" && s.train ? { code: s.train.code, step: stepOf(guiDir, s.train) } : sbRole === "main" ? { integrator: isIntegrator(guiDir, me()) } : {});
+	// Whether this session is the integrator, and a train's code, project and step, come from the trainboard files and the session's own record (trainsign.ts), never from a pane token. A member's place beside its
+	// tab's integrator comes from the intercom's list of where the sessions the live yards name sit, asked only when a yard names one; only a member waits for it, so the other roles publish as they always did.
+	const whoAmI = (sbRole: string): Who & { step?: string } => (sbRole === "train" && s.train ? { code: s.train.code, project: s.train.project, step: stepOf(guiDir, s.train) } : sbRole === "main" ? { integrator: integrators(guiDir).has(me()) } : {});
+	const whoMember = async (known?: Session[]): Promise<Who> => {
+		const named = integrators(guiDir);
+		if (!named.size) return {};
+		return { integratorPanes: (known ?? (await s.c.listSessions().catch(() => []))).flatMap((x) => (named.has(x.id) && x.herdrLocation?.paneId ? [x.herdrLocation.paneId] : [])) };
+	};
 	let stepSoon: ReturnType<typeof setTimeout> | undefined;
 	/** A train's current step changed: its token is written 5 s after the first of a burst of changes (the 4 minute refresh stays as the safety net). */
 	const stepChanged = () => {
@@ -65,7 +71,7 @@ export function createPresence(kit: Kit) {
 		if (sbRole) {
 			s.ownName = nameOf((known ?? (await s.c.listSessions().catch(() => []))).find((x) => x.id === me())) || s.ownName;
 			// A failed read of Herdr leaves the subagents' tokens as they are; their TTL still runs.
-			const net = await netTokens(run, s.at, sbRole, s.ownName || me().slice(0, 8), Date.now(), world, whoAmI(sbRole)).catch(() => undefined);
+			const net = await netTokens(run, s.at, sbRole, s.ownName || me().slice(0, 8), Date.now(), world, sbRole === "member" ? await whoMember(known) : whoAmI(sbRole)).catch(() => undefined);
 			await report(run, "pane", s.at.paneId, { sb_role: sbRole, ...net?.own, ...(s.openedBy ? { sb_opened_by: s.openedBy } : {}), ...(s.isTrain && s.train ? { sb_train: trainToken(s.train) } : {}) }).catch(() => {});
 			watchBoard();
 			if (net) {
@@ -79,7 +85,7 @@ export function createPresence(kit: Kit) {
 	// One reading of the subagents' panes; their tokens are written when they differ from the last ones written, the session's own tokens are left to the refresh.
 	const detectOnce = async () => {
 		if (s.stopped || !role()) return;
-		const net = await netTokens(run, s.at, role()!, s.ownName || me().slice(0, 8), Date.now(), world, whoAmI(role()!)).catch(() => undefined);
+		const net = await netTokens(run, s.at, role()!, s.ownName || me().slice(0, 8), Date.now(), world, role() === "member" ? await whoMember() : whoAmI(role()!)).catch(() => undefined);
 		if (!net || s.stopped) return;
 		watchDetect(net.waiting);
 		if (JSON.stringify(net.kids) === written) return;

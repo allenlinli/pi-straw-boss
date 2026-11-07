@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Flags, Reply } from "./control.ts";
+import { piInForeground } from "./foreground.ts";
 import type { HerdrCall } from "./herdr.ts";
 import type { createMirrors } from "./mirror.ts";
 import type { Net } from "./net.ts";
@@ -60,7 +61,9 @@ export interface SeamDeps {
 
 export function createOperate({ control, files, mirrors, net, call, active }: SeamDeps) {
 	const sessions = new Set<{ enforce(scope?: OperateScope): Promise<void>; refresh(): Promise<void>; stop(): void }>(), listeners = new Set<() => void>();
-	const FLAGS: Flags = { remote: true, secure: true, operate: true };
+	/** Herdr says `pi` while pi lives, whatever runs below it; the process list says whether pi is in the foreground, and control.ts asks right before each write (the bridge's raw-mode report says the rest, probe.ts). */
+	const foreground = async (pane: string) => piInForeground(await call?.("pane.process_info", { pane_id: pane }).then((r) => (r as { process_info?: unknown })?.process_info as Parameters<typeof piInForeground>[0], () => undefined));
+	const FLAGS: Flags = { remote: true, secure: true, operate: true, foreground };
 	/** The registry as this scope sees it: a key out of scope is unknown, so nothing of it is read from the file system. */
 	const scoped = (at: () => OperateScope): Files => ({ lookup: (key) => (at().has(key) ? files.lookup(key) : undefined), workspace: (id) => files.workspace(id).filter((r) => at().has(r.key)), readers: files.readers });
 	const roleOf = (key: string) => files.lookup(key)?.role;
@@ -70,6 +73,10 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 		changed: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
 		open(sink) {
 			const stream = randomBytes(16).toString("hex"), watches = new Map<string, Held>(), mirrored = new Map<string, OperateScope>();
+			/** The scope the last `rescope` set and how many there were: a watch or mirror that began before one finishes under it, since `enforce` cannot see an entry that is still being set up. */
+			let latest: OperateScope | undefined, epoch = 0, ended = false, ticket = 0;
+			/** The newest request of each watch id: an earlier one still setting up when a later one (or `stop`) came does not register, so no watch lives outside `watches`, where `enforce` and `stop` reach it. */
+			const newest = new Map<string, number>();
 			mirrors.open(stream, (event, data) => sink(`m:${(data as { key?: string }).key ?? ""}`, event, data));
 			/** Each watch and mirror keeps the scope it was asked under; whatever unit has left it ends here (§1.5: an admin's removal ends open operate streams at once). */
 			const enforce = async (next?: OperateScope) => {
@@ -91,6 +98,8 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 				enforce,
 				refresh: async () => { await enforce(); await Promise.all([...watches.values()].map((h) => h.w.refresh().catch(() => {}))); },
 				stop() {
+					ended = true;
+					newest.clear();
 					watches.forEach((h) => h.w.stop());
 					watches.clear();
 					mirrored.clear();
@@ -102,28 +111,44 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 			active();
 			return {
 				stop: self.stop,
-				rescope: (scope) => enforce(scope),
+				rescope: (scope) => (epoch++, (latest = scope), enforce(scope)),
 				async watch(id, at, on, scope) {
 					if (!id || id.length > 64) return no(400, "bad_request", "A watch is named by an id.");
+					const mine = ++ticket;
+					newest.set(id, mine);
 					watches.get(id)?.w.stop();
 					watches.delete(id);
-					if (!on) return { status: 200, body: { watching: false } };
-					if (watches.size >= MAX_WATCHES) return no(429, "too_many", `A session watches at most ${MAX_WATCHES} things.`);
-					const workspace = at.startsWith("w:"), held: Held = { w: undefined as unknown as Watch, scope, ...(workspace ? {} : { key: at }) };
-					if (held.key !== undefined && !scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." });
-					await net(); // the registry is filled by reading the net: a watch starts once a reading exists
-					if (held.key !== undefined && !held.scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." }); // the scope may have narrowed while the net was read
-					const send = (event: string, data: unknown) => sink(id, event, data), hub = scoped(() => held.scope);
-					held.w = workspace ? watchWorkspace(hub, at.slice(2), send) : watchSession(hub, at, send);
-					watches.set(id, held);
-					void held.w.refresh().catch(() => {});
-					return { status: 200, body: { watching: true } };
+					try {
+						if (!on) return { status: 200, body: { watching: false } };
+						if (watches.size >= MAX_WATCHES) return no(429, "too_many", `A session watches at most ${MAX_WATCHES} things.`);
+						const workspace = at.startsWith("w:"), held: Held = { w: undefined as unknown as Watch, scope, ...(workspace ? {} : { key: at }) };
+						if (held.key !== undefined && !scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." });
+						const began = epoch;
+						await net(); // the registry is filled by reading the net: a watch starts once a reading exists
+						if (ended || newest.get(id) !== mine) return no(409, "superseded", "The session ended, or this watch was asked for again meanwhile.");
+						if (epoch !== began) held.scope = latest!; // a `rescope` ran meanwhile
+						if (held.key !== undefined && !held.scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." }); // the scope may have narrowed while the net was read
+						const send = (event: string, data: unknown) => sink(id, event, data), hub = scoped(() => held.scope);
+						held.w = workspace ? watchWorkspace(hub, at.slice(2), send) : watchSession(hub, at, send);
+						watches.set(id, held);
+						void held.w.refresh().catch(() => {});
+						return { status: 200, body: { watching: true } };
+					} finally {
+						if (newest.get(id) === mine) newest.delete(id);
+					}
 				},
 				async mirror(key, on, scope) {
 					const p = plan("POST", ["sessions", key, "mirror"], {}, scope, "mirror", roleOf);
 					if (!p.ok) return refusalReply(p);
-					const done = await control.run(["sessions", key, "mirror"], { stream, on }, FLAGS);
-					if (done.status === 200) on ? mirrored.set(key, scope) : mirrored.delete(key);
+					const began = epoch, done = await control.run(["sessions", key, "mirror"], { stream, on }, FLAGS);
+					if (done.status !== 200) return done;
+					if (!on) return mirrored.delete(key), done;
+					const now = epoch !== began ? latest! : scope; // a `rescope` ran while the mirror was being attached
+					if (!now.has(key)) {
+						await control.run(["sessions", key, "mirror"], { stream, on: false }, FLAGS).catch(() => undefined); // not through `plan`: the key is out of scope, which is why it ends
+						return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." });
+					}
+					mirrored.set(key, now);
 					return done;
 				},
 				async request(method, parts, query, body, scope) {

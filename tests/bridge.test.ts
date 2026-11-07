@@ -3,8 +3,9 @@ import { createHash, createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { after, mock, test } from "node:test";
+import { pathToFileURL } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Ack, type Dialogs, guiNamespace, type LocalHub, REGISTER, startBridge, type ToHub } from "../src/bridge.ts";
 import { secretDigest, selectDigest } from "../src/owners.ts";
@@ -394,6 +395,19 @@ test("without pi-intercom, or with a broker that drops, nothing breaks and the d
 	t.connected = false;
 	t.events.emit("robot-hand:closed", { version: 1, id: "d1", by: "local" });
 	assert.equal(t.lists().length, 1, "nothing sent while disconnected");
+});
+
+test("RR3-F006 (M26): the bridge answers an operate probe with the pad keys bound outside the editor, the keys holding each guarded action, and the raw mode", async () => {
+	const { KeybindingsManager, setKeybindings } = await import("@earendil-works/pi-tui");
+	const defs = ((await import(pathToFileURL(resolve("node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js")).href)) as { KEYBINDINGS: never }).KEYBINDINGS;
+	setKeybindings(new KeybindingsManager(defs, { "app.editor.external": "tab" }) as never);
+	const s = session();
+	s.own();
+	const answer = s.bridge.probe(undefined, true);
+	assert.deepEqual(answer.keys, ["tab"]);
+	assert.deepEqual(answer.holds, { submit: ["enter"], followUp: ["alt+enter"], clear: ["ctrl+c"], interrupt: ["esc"] });
+	assert.equal(typeof answer.raw, "boolean");
+	assert.equal("keys" in s.bridge.probe(undefined, undefined), false, "without the flags nothing of it is told");
 });
 
 test("a probe from G for this bridge is answered with what Enter would submit, as a class and at most a command name, never the draft", () => {

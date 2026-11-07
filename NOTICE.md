@@ -64,3 +64,41 @@ Straw Link's safety words are drawn from the BIP-39 English word list (2048 word
 ## Zen view lines
 
 The short lines under the Zen view's idle circle (`gui/zenlines.ts`) are one sentence or less each, shown with their source. Their sources, with the book, page, or chapter of each, are named in the comment above every entry: Thich Nhat Hanh, *Peace Is Every Step* (Bantam, 1991; 橡實文化 for the Chinese); Tara Brach and Mindful.org (mindful.org); Sharon Salzberg (sharonsalzberg.com); 華人正念減壓中心 (mindfulness.com.tw); 陳德中 and 台灣正念工坊 (Firstory); Zen Mind, Beginner's Mind by Shunryu Suzuki (Weatherhill, 1970); and the Japanese works whose originals are shown in small type under a line: Matsuo Bashō (おくのほそ道, haiku), Yosa Buson and Kobayashi Issa (haiku), Kamo no Chōmei (方丈記), Yoshida Kenkō (徒然草), Sei Shōnagon (枕草子), the waka of Fujiwara no Teika (新古今和歌集), Ki no Tomonori (古今和歌集), Yamabe no Akahito (万葉集), and Dōgen (傘松道詠), 利休百首 (Urasenke's text), Ii Naosuke (茶湯一会集), Tanizaki Jun'ichirō (陰翳礼讃), Masaoka Shiki and Natsume Sōseki (haiku), and Taneda Santōka (草木塔); the texts of Aozora Bunko, Wikisource, the Nara Manyo Culture Museum database, and Urasenke are named in the comments. A Chinese line marked `zh: our translation`, and an English line marked `en: our translation`, are ours.
+
+## pi-better-show (`dist/gui/assets/blockschunk-*.js`)
+
+The GUI's block chunk bundles [pi-better-show](https://github.com/wayne930242/pi-better-show) 0.1.0 (its parser, its answer encoding, and its thirteen elements), and with it the [yaml](https://github.com/eemeli/yaml) library 2.9.1.
+
+pi-better-show: MIT License, Copyright (c) 2026 wayne930242
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+yaml: ISC License, Copyright Eemeli Aro <eemeli@gmail.com>
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.

@@ -27,6 +27,8 @@ import { trustDir } from "../trust/files.ts";
 import { createTrustServe } from "../trust/serve.ts";
 import type { Kit } from "../state.ts";
 import { type Log, tailLog } from "./log.ts";
+import { writeDurableText } from "./towerstore.ts";
+import { createAnswered } from "../answered.ts";
 import { createLanHost, type LanHost, type LanSeams } from "./lanhost.ts";
 import { CHOICES, said } from "../views.ts";
 import { isView, readView, type ServerView, storedIs, writeView } from "./guiprefs.ts";
@@ -129,6 +131,8 @@ export function createGuiHost(o: GuiHostOptions) {
 	let rotating: Promise<unknown> | undefined;
 	// Built once for this process (`lock`: one opening at a time, for every GUI this process starts): pi-intercom has no unregister, so a channel the hub registered stays, and the same hub serves the GUI again after a stop.
 	const deploys = createDeploys(), openings = createOpenings(join(slot.stateDir, "openings.json")), lock = { busy: false }, trust = createTrustServe({ dir: trustDir(slot.stateDir), herdr: slot.herdr, world: () => cfg.world(), opening: deploys.openingOf });
+	// The record of answered blocks (answered.ts): one file beside paired.json, mode 600, shared by every page of this server and read again by the next.
+	const answeredFile = join(dir, "answered.json"), answered = createAnswered({ load: () => { try { return readFileSync(answeredFile, "utf8"); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; } }, save: (text) => writeDurableText(answeredFile, text) });
 	const live = async (session: string) => (await o.sessions()).some((x) => x.id === session);
 
 	/** The hub, built when the server starts and kept for the process: it tracks the gates for the tower service whether or not a page listens (dialogs.ts `track`). */
@@ -234,7 +238,7 @@ export function createGuiHost(o: GuiHostOptions) {
 				const next = await net.read(), summary = await o.link.summary();
 				return summary && (summary.allies.length || summary.alerts.length || summary.confirms.length) ? { ...next, link: summary } : next;
 			},
-			net, call: cfg.call, hub, dir: o.bundle ?? BUNDLE, paired: join(dir, "paired.json"), port: prefer.port, remotePort: prefer.remotePort, ...(prefer.keep ? { keep: prefer.keep } : {}), bindWaitMs: wait, desk: cfg.env.STRAW_BOSS_DESK === "1", view, music: musicDirOf(cfg.env),
+			net, call: cfg.call, hub, dir: o.bundle ?? BUNDLE, paired: join(dir, "paired.json"), answered, port: prefer.port, remotePort: prefer.remotePort, ...(prefer.keep ? { keep: prefer.keep } : {}), bindWaitMs: wait, desk: cfg.env.STRAW_BOSS_DESK === "1", view, music: musicDirOf(cfg.env),
 			lan: { panel: host.panel, overlay: host.faces, ...(slot.primary ? { file: join(dir, "lan.json") } : {}), notify: host.event, log: (event, fields) => log.line(event, Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? v : JSON.stringify(v)]))) },
 			link: { call: (name, args) => o.link.call(name, args), enable: () => o.link.enable() }, ...(o.operateHost ? { operateHost: o.operateHost } : {}), ...(o.tower ? { tower: o.tower } : {}), trust: { answer: trust.answer, watch: trust.watch },
 			server: { status: () => o.status(), log: (lines) => tailLog(fileOf(slot, "log"), lines), restart: async (reason) => (o.restart ? o.restart(reason) : { status: 501, body: { error: "unavailable", reason: "This server cannot restart itself." } }) },

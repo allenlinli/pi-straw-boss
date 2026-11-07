@@ -741,3 +741,64 @@ test("RV8-F001: a gui.json of a dead server does not hide the live hub.json: the
 	s.bridge.sync();
 	assert.deepEqual(s.regs.map((r) => r.namespace), [guiNamespace("H")], "the live hub.json is joined, the dead gui.json is not");
 });
+
+/** pi-better-show 0.1.0 on the bus, as its README's "Event bus, contract version 2" describes it: the list, the request, and an answer with its result. */
+const BASE2 = "http://127.0.0.1:41234/6f1e2d3c-4b5a-4968-8776-655443322110";
+const DOC2 = { id: "d1", kind: "blocks", display: "docs/plan.md", reason: "Plan ready", revision: 1, onScreen: true, capability: `${BASE2}/doc/d1/plan.md`, assets: `${BASE2}/doc/d1/` };
+function betterShow(s: ReturnType<typeof session>, documents: Record<string, unknown>[] = [DOC2]) {
+	const answers: Record<string, unknown>[] = [], requests: unknown[] = [];
+	const offs = [
+		s.events.on("better-show:documents-request", (r) => (requests.push(r), s.events.emit("better-show:documents", { version: 2, documents }))),
+		s.events.on("better-show:answer", (raw) => {
+			const f = raw as { id: string; answerId: string; answer: { fields: unknown[] } };
+			answers.push(f);
+			s.events.emit("better-show:answer-result", { version: 2, id: "other", answerId: f.answerId, accepted: true });
+			s.events.emit("better-show:answer-result", { version: 2, id: f.id, answerId: f.answerId, accepted: f.answer.fields.length > 0, ...(f.answer.fields.length ? {} : { reason: "empty" }) });
+		}),
+	];
+	return { answers, requests, publish: (docs: Record<string, unknown>[]) => s.events.emit("better-show:documents", { version: 2, documents: docs }), off: () => offs.forEach((off) => off()) };
+}
+
+test("documents v2: the owner's list goes to G with the dialogs beside the v1 list, asked for at the session's start, and an entry carries no path", () => {
+	const s = session(), v1 = docReview(s), owner = betterShow(s);
+	s.own();
+	s.fire("session_start");
+	assert.deepEqual(owner.requests, [{ version: 2 }]);
+	assert.deepEqual(v1.requests, [{ version: 1 }]);
+	assert.deepEqual(docsSent(s).at(-1)!.documents, [DOC, { ...DOC2, v: 2 }], "both owners' documents, the v2 one marked");
+	owner.publish([{ ...DOC2, revision: 2, path: "/etc/passwd" }]);
+	assert.deepEqual(docsSent(s).at(-1)!.documents, [DOC, { ...DOC2, revision: 2, v: 2 }], "a new revision goes at once, and never a path");
+	owner.publish([{ ...DOC2, capability: "http://evil.example/u/doc/d1/plan.md" }]);
+	assert.deepEqual(docsSent(s).at(-1)!.documents, [DOC, { id: "d1", kind: "blocks", display: "docs/plan.md", reason: "Plan ready", revision: 1, onScreen: true, assets: DOC2.assets, v: 2 }], "a capability that is not the owner's loopback server is dropped: the document stays, unreachable");
+	s.fire("session_shutdown");
+	assert.deepEqual(docsSent(s).at(-1)!.documents, [], "the session's end sends none");
+	owner.off();
+	v1.off();
+});
+
+test("documents v2: an answer from G for a blocks document reaches the owner as better-show:answer, and its own result goes back; a text document takes none; a v1 document still takes the v1 form", () => {
+	const s = session(), owner = betterShow(s, [DOC2, { ...DOC2, id: "d2", kind: "html", display: "docs/review.html", capability: `${BASE2}/doc/d2/review.html` }, { ...DOC2, id: "d3", kind: "text", display: "notes.txt", capability: `${BASE2}/doc/d3/notes.txt` }]), v1 = docReview(s);
+	s.fire("session_start");
+	s.own();
+	const to = bridgeIdOf(s), answer = { kind: "form", title: "Decide", fields: [["q", "1"]], ref: { doc: "docs/plan.md", block: 2 } };
+	const form = (extra: Record<string, unknown> = {}) => ({ version: 1, type: "form", to, id: "d1", answerId: "n".repeat(32), fields: [["q", "1"]], answer, ...extra });
+	const results = () => s.published.filter((p) => p.payload.type === "form-result").map((p) => [p.audience, p.payload]);
+	s.message(form({ answer: undefined }));
+	s.message(form({ answer: { kind: "other", fields: [] } }));
+	s.message(form({ answer: { kind: "form", fields: [["a", 1]] } }));
+	assert.deepEqual([owner.answers.length, results().length], [0, 0], "a v2 document with no answer, or one out of shape, reaches nobody");
+	s.message(form());
+	assert.deepEqual(owner.answers, [{ version: 2, id: "d1", answerId: "n".repeat(32), answer }]);
+	assert.deepEqual(results(), [["owner", { version: 1, type: "form-result", bridgeId: to, id: "d1", answerId: "n".repeat(32), accepted: true }]]);
+	s.message(form({ id: "d2", answerId: "h".repeat(32) }));
+	assert.equal(owner.answers.length, 2, "an html document is answered the same way");
+	s.message(form({ id: "d3", answerId: "t".repeat(32) }));
+	assert.deepEqual(results().at(-1)![1], { version: 1, type: "form-result", bridgeId: to, id: "d3", answerId: "t".repeat(32), accepted: false, reason: "invalid" });
+	assert.equal(owner.answers.length, 2, "a text document's answer never reaches the owner");
+	s.message({ version: 1, type: "form", to, id: DOC.id, answerId: "v".repeat(32), fields: [["choice", "b"]] });
+	assert.equal(v1.forms.length, 1, "the v1 owner is asked as before");
+	assert.equal(owner.answers.length, 2);
+	owner.off();
+	v1.off();
+	s.fire("session_shutdown");
+});

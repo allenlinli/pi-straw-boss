@@ -3,6 +3,7 @@ import type { Net } from "../src/net.ts";
 import { h } from "./dom.ts";
 import type { Tile } from "./layer.ts";
 import { deliverToDoc } from "./blockanswer.ts";
+import { type Fields, lockFor } from "./blocklock.ts";
 import { mdBody } from "./mdbody.ts";
 import { m } from "./paraglide/messages.js";
 import { post } from "./post.ts";
@@ -15,7 +16,8 @@ import { unitsOf } from "./units.ts";
 // sees a path: show_doc cards and the dossier find a document by its display name. `docHooks` is the dev fixture's stand-in for the server.
 
 export const SANDBOX = "allow-forms allow-popups allow-popups-to-escape-sandbox";
-export const docHooks: { src?(cap: string): string; load?(cap: string): Promise<{ text: string } | undefined>; post?(path: string, body: Record<string, unknown>): ReturnType<typeof post>; image?(cap: string, ref: string): string | undefined } = {};
+export interface Loaded { text: string; /** The hash of the text, which an answer names (src/docs.ts). */ rev?: string; /** What the server's record says of the document's blocks. */ answered?: { done: [number, Fields][]; pending: number[]; unreadable?: boolean } }
+export const docHooks: { src?(cap: string): string; load?(cap: string): Promise<Loaded | undefined>; post?(path: string, body: Record<string, unknown>): ReturnType<typeof post>; image?(cap: string, ref: string): string | undefined } = {};
 type Open = { card: DocCard; tile: Tile; loaded: number; seq: number; failed?: boolean; shown: boolean; gone: boolean; body: HTMLElement; state: HTMLElement; off: HTMLElement; frame?: HTMLIFrameElement };
 const open = new Map<string, Open>();
 
@@ -35,16 +37,22 @@ export function arrivals(seen: Map<string, Set<string>>, key: string, cards: Doc
 	return known ? cards.filter((c) => !known.has(c.display)) : [];
 }
 
-/** A Markdown document's blocks (docs/specs/2026-11-07-better-show-host.md): comfortable, answered on the document's own route, locked for this revision, and a review's images only from the document's capability route (src/docs.ts serves a Markdown document's images). */
-const SAFE_IMAGE = /^(?!\/)(?:[\w .@+-]+\/)*[\w .@+-]+\.(?:png|jpe?g|gif|webp|svg)$/i;
-const docHost = (cap: string, revision: number) => ({
+/** A Markdown document's blocks (docs/specs/2026-11-07-better-show-host.md): comfortable, answered on the document's own route, locked for this text (its hash: an edit opens the blocks again), and a review's images only from the document's capability route (src/docs.ts serves a Markdown document's images). A name is any letters, digits, and `_ .@+-`, as the server serves; no separator but `/` between folders, and `.` and `..` never. */
+const SAFE_IMAGE = /^(?!\/)(?:[\p{L}\p{N}_ .@+-]+\/)*[\p{L}\p{N}_ .@+-]+\.(?:png|jpe?g|gif|webp|svg)$/iu;
+const docHost = (cap: string, rev: string, known: boolean) => ({
 	density: "comfortable" as const,
 	doc: cap,
-	scope: ["doc", cap, String(revision)],
+	scope: ["doc", cap, rev],
+	ready: async () => known,
 	image: (ref: string) => (SAFE_IMAGE.test(ref) && !ref.split("/").some((part) => part === ".." || part === ".") ? (docHooks.image?.(cap, ref) ?? `doc/${encodeURIComponent(cap)}/${ref.split("/").map(encodeURIComponent).join("/")}`) : undefined),
-	send: (answer: Parameters<ReturnType<typeof deliverToDoc>>[0]) => deliverToDoc((path, body) => (docHooks.post ?? post)(path, body), cap)(answer),
+	send: (answer: Parameters<ReturnType<typeof deliverToDoc>>[0]) => deliverToDoc((path, body) => (docHooks.post ?? post)(path, body), cap, rev)(answer),
 });
 
+/** The document's Markdown with its blocks, locked as the server's record says (it comes with the text) for this text. */
+function drawn(cap: string, { text, rev = "", answered }: Loaded) {
+	if (answered) lockFor("doc", cap, rev).seed({ done: answered.done, pending: answered.pending });
+	return mdBody(text, "md", docHost(cap, rev, !answered?.unreadable));
+}
 const say = (o: Open, text: string, tone = "") => ((o.state.dataset.tone = tone), (o.state.textContent = text));
 const fail = (o: Open, text: string) => ((o.failed = true), say(o, text, "error")); // it loads again when it next shows
 const src = (cap: string) => docHooks.src?.(cap) ?? `doc/${encodeURIComponent(cap)}/`;
@@ -52,9 +60,9 @@ function load(o: Open) {
 	[o.loaded, o.failed] = [o.card.revision, false];
 	say(o, "");
 	if (o.frame) return void (o.frame.src = src(o.card.cap));
-	const cap = o.card.cap, md = /\.(md|markdown)$/i.test(o.card.display), seq = ++o.seq; // only the latest load lands
-	void (docHooks.load?.(cap) ?? fetch(`api/doc/${encodeURIComponent(cap)}`, { cache: "no-store" }).then((r) => (r.ok ? (r.json() as Promise<{ text: string }>) : undefined))).then(
-		(d) => o.seq !== seq || (d ? o.body.replaceChildren(md ? mdBody(d.text, "md", docHost(cap, o.card.revision)) : h("pre", { class: "doc-pre" }, d.text)) : fail(o, m.doc_gone())),
+	const cap = o.card.cap, blocks = o.card.kind === "blocks", seq = ++o.seq; // only the latest load lands
+	void (docHooks.load?.(cap) ?? fetch(`api/doc/${encodeURIComponent(cap)}`, { cache: "no-store" }).then((r) => (r.ok ? (r.json() as Promise<Loaded>) : undefined))).then(
+		(d) => o.seq !== seq || (d ? o.body.replaceChildren(blocks ? drawn(cap, d) : h("pre", { class: "doc-pre" }, d.text)) : fail(o, m.doc_gone())),
 		() => o.seq !== seq || fail(o, m.unreachable()),
 	);
 }

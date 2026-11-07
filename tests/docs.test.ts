@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { type IncomingMessage, request } from "node:http";
@@ -133,7 +134,7 @@ test("a text document comes as JSON from the API for the page's renderer; an HTM
 	const { gui, html, text } = await serve();
 	const r = await get(gui, `/${gui.token}/api/doc/${text}`);
 	assert.equal(r.status, 200);
-	assert.deepEqual(JSON.parse(r.body), { kind: "text", display: "docs/notes.md", revision: 1, text: "# Notes" });
+	assert.deepEqual(JSON.parse(r.body), { kind: "text", display: "docs/notes.md", revision: 1, rev: createHash("sha256").update("# Notes").digest("hex").slice(0, 16), text: "# Notes", answered: { done: [], pending: [] } }, "the text, the hash of it the page answers with, and what the record says of its blocks");
 	for (const cap of [html, "0".repeat(32), "x"]) assert.equal((await get(gui, `/${gui.token}/api/doc/${cap}`)).status, 404, cap);
 });
 

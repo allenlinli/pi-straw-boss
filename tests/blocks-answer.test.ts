@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import "./pbs-loader.ts";
-import { commandLine, deliverToDoc, deliverToUnit, docFields } from "../gui/blockanswer.ts";
+import { commandLine, deliverToDoc, deliverToUnit } from "../gui/blockanswer.ts";
 import { hasBlocks } from "../gui/mdbody.ts";
 import type { Answer as Posted } from "../gui/post.ts";
 
-// How a block's answer leaves the page: the hint that decides whether the block code loads at all, the text a chat block sends as the boss's message (its guards), and the v1 fields a document block's answer goes out on.
+// How a block's answer leaves the page: the hint that decides whether the block code loads at all, the text a chat block sends as the boss's message (its guards), and the Answer a document block's answer goes out as.
 
 const { BLOCK_KINDS, encodeAnswer } = await import("pi-better-show");
 const ok = (body: Record<string, unknown> = { accepted: true }): Posted => ({ ok: true, status: 200, body });
@@ -29,15 +29,15 @@ test("a command line is a text beginning with ! or /, after any space: a block n
 
 test("a chat block's answer goes to the unit as the boss's message through the composer's input route, held to a paired device's guards", async () => {
 	const posts: Record<string, unknown>[] = [];
-	const to = deliverToUnit(async (body) => (posts.push(body), ok()));
+	const to = deliverToUnit(async (body) => (posts.push(body), ok()), { entry: "e7", index: 2, fields: [["text", "Go ahead"]] });
 	assert.deepEqual(await to("Go ahead"), { ok: true });
-	assert.deepEqual(posts, [{ text: "Go ahead", as: "send", guarded: true }], "guarded: the server's local-only /boss refusal applies here too");
+	assert.deepEqual(posts, [{ text: "Go ahead", as: "send", guarded: true, block: { entry: "e7", index: 2, fields: [["text", "Go ahead"]] } }], "guarded: the server's local-only /boss refusal applies here too; the block names itself so the server can record that it was answered");
 	assert.equal(posts.length, 1);
 });
 
 test("a chat block never sends a command line, and nothing is posted for one", async () => {
 	const posts: unknown[] = [];
-	const to = deliverToUnit(async (body) => (posts.push(body), ok()));
+	const to = deliverToUnit(async (body) => (posts.push(body), ok()), { entry: "e", index: 0, fields: [] });
 	for (const line of ["/quit", "/boss gui stop", "!rm -rf ~"]) {
 		const r = await to(line);
 		assert.equal(r.ok, false, line);
@@ -47,7 +47,7 @@ test("a chat block never sends a command line, and nothing is posted for one", a
 });
 
 test("what the server refuses is said in its words (or the page's), an unconfirmed send as unsure, a network failure as unsure", async () => {
-	const to = (r: Posted | Error) => deliverToUnit(async () => { if (r instanceof Error) throw r; return r; });
+	const to = (r: Posted | Error) => deliverToUnit(async () => { if (r instanceof Error) throw r; return r; }, { entry: "e", index: 0, fields: [] });
 	assert.deepEqual(await to(refuse(409, "not_live", "This session is no longer live in a pane."))("x"), { ok: false, reason: "This session is no longer live in a pane." });
 	const local = await to(refuse(403, "local_only", "A /boss send is held to the guards of a remote write."))("x");
 	assert.ok(!local.ok && /remote write/.test(local.reason));
@@ -57,35 +57,27 @@ test("what the server refuses is said in its words (or the page's), an unconfirm
 	assert.ok(!down.ok && /Not confirmed/.test(down.reason));
 });
 
-test("a document block's answer goes out on the v1 form path: a form's fields as they are, a review under its kind, other answers as a form that names the block", () => {
-	assert.deepEqual(docFields({ kind: "form", title: "t", fields: [["a", "1"], ["b", "2"]] }), [["a", "1"], ["b", "2"]]);
-	assert.deepEqual(docFields({ kind: "review", fields: [["title", "L"], ["picked", "A"]] }), [["pi-kind", "review"], ["title", "L"], ["picked", "A"]]);
-	assert.deepEqual(docFields({ kind: "feedback", fields: [["page", "p"]] }), [["pi-kind", "feedback"], ["page", "p"]]);
-	assert.deepEqual(docFields({ kind: "pick", title: "Store", fields: [["picked", "SQLite"]] }), [["block", 'pick "Store"'], ["picked", "SQLite"]]);
-	assert.deepEqual(docFields({ kind: "suggest", fields: [["text", "Go"]] }), [["block", "suggest"], ["text", "Go"]]);
-	assert.deepEqual(docFields({ kind: "checklist", title: "T", fields: [["Run tests", "checked"]] }), [["block", 'checklist "T"'], ["Run tests", "checked"]]);
-	assert.deepEqual(docFields({ kind: "form", fields: [["pi-kind", "review"], ["a", "1"]] }), [["a", "1"]], "a block cannot pick the kind the owner reads");
+test("a chat block already answered elsewhere comes back as the fields that went, so the page locks it", async () => {
+	const had: Posted = { ok: false, status: 409, body: { error: "answered", reason: "This block was answered already.", fields: [["text", "Go"]] } };
+	const r = await deliverToUnit(async () => had, { entry: "e", index: 0, fields: [["text", "Later"]] })("Later");
+	assert.deepEqual(r, { ok: false, reason: "This block was answered already.", answered: [["text", "Go"]] });
 });
 
-test("the owner's v1 reading of docFields is the text encodeAnswer gives for the kinds v1 knows", () => {
-	// The v1 owner (pi-herdr-doc-review) reads `pi-kind`; encodeAnswer is byte-compatible with it for form and review.
-	const review = { kind: "review" as const, fields: [["title", "L"], ["picked", "A"], ["item", "A"], ["comment", "good"]] as [string, string][] };
-	assert.match(encodeAnswer(review), /^User reviewed "L":\nPicked: A\n- A: good$/);
-	assert.deepEqual(docFields(review)[0], ["pi-kind", "review"]);
-});
-
-test("a document block's answer is posted to the document's answer route under one answer id, and its result is the delivery", async () => {
+test("a document block's answer is posted to the document's answer route as the Answer, with the hash of the text it drew and one answer id of its own", async () => {
 	const posts: [string, Record<string, unknown>][] = [];
-	const to = deliverToDoc(async (path, body) => (posts.push([path, body]), ok()), "cap/with space");
-	assert.deepEqual(await to({ kind: "form", fields: [["a", "1"]] }), { ok: true });
-	const [[path, body]] = posts as [[string, { answerId: string; fields: unknown }]];
+	const to = deliverToDoc(async (path, body) => (posts.push([path, body]), ok()), "cap/with space", "0123456789abcdef");
+	const answer = { kind: "form" as const, fields: [["a", "1"]] as [string, string][], ref: { doc: "cap/with space", block: 3 } };
+	assert.deepEqual(await to(answer), { ok: true });
+	const [[path, body]] = posts as [[string, { answerId: string; answer: unknown; rev: string }]];
 	assert.equal(path, "doc/cap%2Fwith%20space/answer");
 	assert.match(body.answerId, /^[A-Za-z0-9_-]{16,64}$/);
-	assert.deepEqual(body.fields, [["a", "1"]]);
-	await to({ kind: "form", fields: [["a", "1"]] });
+	assert.deepEqual([body.answer, body.rev], [answer, "0123456789abcdef"]);
+	await to(answer);
 	assert.notEqual((posts[1]![1] as { answerId: string }).answerId, body.answerId, "each answer has an id of its own");
-	const gone = await deliverToDoc(async () => refuse(409, "closed", "The document is no longer open in its session."), "c")({ kind: "form", fields: [["a", "1"]] });
+	const gone = await deliverToDoc(async () => refuse(409, "closed", "The document is no longer open in its session."), "c", "0123456789abcdef")(answer);
 	assert.deepEqual(gone, { ok: false, reason: "The document is no longer open in its session." });
-	const lost = await deliverToDoc(async () => refuse(504, "not_confirmed", "Check the terminal."), "c")({ kind: "form", fields: [["a", "1"]] });
+	const lost = await deliverToDoc(async () => refuse(504, "not_confirmed", "Check the terminal."), "c", "0123456789abcdef")(answer);
 	assert.ok(!lost.ok && /Check the terminal|Not confirmed/.test(lost.reason));
+	const had = await deliverToDoc(async () => ({ ok: false, status: 409, body: { error: "answered", reason: "This block was answered already.", fields: [["a", "0"]] } }), "c", "0123456789abcdef")(answer);
+	assert.deepEqual(had, { ok: false, reason: "This block was answered already.", answered: [["a", "0"]] });
 });

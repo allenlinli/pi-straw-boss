@@ -25,7 +25,7 @@ export { count as drawing, whenDrawn };
 export function mdBody(text: string, cls: string, host?: BlockHost): HTMLElement {
 	const body = h("div", { class: cls }, mount(parse(text)));
 	if (host && hasBlocks(text)) {
-		const job = import("./blockschunk.ts").then(({ drawBlocks }) => drawBlocks(body, text, host)).catch(() => {}); // the Markdown above stays
+		const job = import("./blockschunk.ts").then(async ({ drawBlocks }) => drawBlocks(body, text, host, host.ready ? await host.ready() : true)).catch(() => {}); // the Markdown above stays
 		drawing.add(job);
 		void job.finally(() => drawing.delete(job));
 	}

@@ -9,6 +9,7 @@ import { demoOpen } from "./demo-open.ts";
 import { DEMO_BLOCKS_DOC, demoImage } from "./demo-blocks.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
 import { headDemo, headDraft, headHistory, headInput, headReport, type HeadState, isHeadState } from "./demo-head.ts";
+import { answeredHooks } from "./answered.ts";
 import { docHooks } from "./doc.ts";
 import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
@@ -138,6 +139,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	}
 	// The demo documents stand in for the server's: the HTML one as a data: page, the text ones from here.
 	[docHooks.src, docHooks.load] = [() => `data:text/html;charset=utf-8,${encodeURIComponent(DEMO_PAGE)}`, async (cap) => ({ text: cap === "plan" ? DEMO_DOC : cap === "blocks" ? DEMO_BLOCKS_DOC : `# Notes ${cap.slice(5)}\n\nA demo document that arrived on its own.` })];
+	answeredHooks.get = async () => ({ done: [], pending: [] }); // the demo has no server to ask: nothing is answered yet
 	[docHooks.post, docHooks.image] = [async () => ({ ok: true, status: 200, body: { accepted: true } }), (_, ref) => demoImage(ref)]; // a Markdown document's blocks: every answer is accepted, and the review block's two pictures are drawn here
 	const demoHistory0 = demoHistory(), history = demoHistory0;
 	// `?head=<state>`: the head tower on the net (demo-head.ts); without it the demo has none.

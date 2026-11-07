@@ -26,6 +26,8 @@
 /* What the page says under a block: that its answer is on its way, or why the unit did not take it. */
 .pbs-note { margin: 0 0 8px; color: var(--dim); font: 12px/1.4 var(--sans); }
 .pbs-note:empty { display: none; }
+/* A block whose answer is on its way is locked in every drawing of it: dimmed, and it takes no tap or key (the attribute is `inert`). */
+.pbs-block[inert] { opacity: 0.6; }
 .pbs-note[data-tone="error"] { color: var(--err-soft); }
 /* A block that did not parse shows its source, set apart from the prose and from real code. */
 .md .pbs-invalid { border-style: dashed; }

@@ -6,6 +6,7 @@ import type { Queued, TowerService } from "../src/net.ts";
 import type { Monitor } from "../src/monitors.ts";
 import { h, replay } from "./dom.ts";
 import { createFollow, reach } from "./follow.ts";
+import { readAnswered } from "./answered.ts";
 import { deliverToUnit } from "./blockanswer.ts";
 import { mdBody } from "./mdbody.ts";
 import { post } from "./post.ts";
@@ -201,7 +202,7 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 	/** An agent message's text: its blocks are pi-better-show's elements, compact, and an answer from one is the boss's message to this unit through the composer's route (blockanswer.ts), locked per session, entry, and block. */
 	const textOf = (id: string, text: string) => {
 		const key = who().key, route = (b: Record<string, unknown>) => (data.post ? data.post("input", b) : post(`sessions/${encodeURIComponent(key)}/input`, b));
-		return mdBody(text, "md", { density: "compact", doc: `chat:${id}`, scope: [key, id], send: (_, said) => deliverToUnit(route)(said) });
+		return mdBody(text, "md", { density: "compact", doc: `chat:${id}`, scope: [key, id], ready: () => readAnswered(key), send: (answer, said) => deliverToUnit(route, { entry: id, index: answer.ref!.block, fields: answer.fields })(said) });
 	};
 	/** Whether the log being drawn is the head's own page (not Zen's log, not another tower's). */
 	const bare = () => page === true && who().head === true;

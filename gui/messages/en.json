@@ -1172,5 +1172,6 @@
 	"zen_term_gone": "This pane has closed. You can go back to Zen.",
 	"zen_update": "A new version is ready; it loads when you're back at the breath",
   "block_sending": "Sending…",
-  "block_command": "A block cannot send a command (a line that starts with ! or /). Type it in the box below."
+  "block_command": "A block cannot send a command (a line that starts with ! or /). Type it in the box below.",
+  "block_unsure_state": "Whether this was answered could not be read."
 }

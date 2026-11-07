@@ -5,8 +5,11 @@ import { isAbsolute, resolve } from "node:path";
 import type { TrustPrompt } from "./deploy.ts";
 import type { GuiRecord } from "./handover.ts";
 import type { DeviceUnits, LinkView } from "./link/holder.ts";
+import type { Here } from "./heremark.ts";
 import { hereOnlyOpts } from "./intercept.ts";
+import { LIMITS } from "./link/kinds.ts";
 import type { Lang } from "./memorycmd.ts";
+import { line } from "./safetext.ts";
 import type { Kit } from "./state.ts";
 
 // The boss's typed twins of the page's + Base, + Member, + Main (`/boss open base|member|main`) and of the Straw Link join requests (`/boss link [status]`, `link decide <id> approve|refuse`). Like bosspaths.ts
@@ -43,7 +46,7 @@ const WORDS = {
 		trustBusy: "The answer is being taken; try again in a moment",
 		trustUnknown: "The answer was not confirmed; look at the opening",
 		trustNoScreen: "The new pi waits on a trust question; answer it in the GUI or in its terminal (this session has no pi screen to ask in)",
-		linkUsage: "/boss link [status] | link decide <id> approve|refuse",
+		linkUsage: "/boss link [status] | link decide <id> approve|refuse | confirms | confirm <id> allow|deny | asks | answer <id> <choice number | text> | invite show|cancel <hash> | join <invite|@file> | join cancel | create <relay> <dir> | leave <team>",
 		linkOff: "Straw Link is not on in this server",
 		linkDevice: (label: string, short: string) => `This device: ${label} (${short})`,
 		linkNoTeams: "No team yet",
@@ -63,6 +66,7 @@ const WORDS = {
 		linkRefused: (label: string) => `Refused ${label}: nobody joined`,
 		linkDeclined: "Nothing was decided",
 		stopUsage: "/boss link units [box] | link stop <box> <main name | handle start> [--interrupt] [reason]",
+		stopReasonLong: (bytes: number, max: number) => `The reason is ${bytes} bytes; the most a stop request carries is ${max}. Nothing was sent: shorten it`,
 		unitsNone: "No unattended box has reported its units yet",
 		unitsBox: (label: string, short: string, team: string, stale: boolean) => `${label} (${short}) · team ${team}${stale ? " · no status lately: this is its last one" : ""}`,
 		unitsUnit: (name: string, state: string) => `  unit ${name} · ${state}`,
@@ -109,7 +113,7 @@ const WORDS = {
 		trustBusy: "正在處理答案，請稍後再試",
 		trustUnknown: "答案沒有得到確認，請看這次開啟的結果",
 		trustNoScreen: "新的 pi 在等信任問題；請在 GUI 或它的終端機回答（本工作階段沒有 pi 畫面可以問）",
-		linkUsage: "/boss link [status] | link decide <id> approve|refuse",
+		linkUsage: "/boss link [status] | link decide <id> approve|refuse | confirms | confirm <id> allow|deny | asks | answer <id> <選項編號 | 文字> | invite show|cancel <hash> | join <邀請|@檔案> | join cancel | create <中繼站> <資料夾> | leave <團隊>",
 		linkOff: "這個伺服器沒有開 Straw Link",
 		linkDevice: (label: string, short: string) => `本裝置：${label}（${short}）`,
 		linkNoTeams: "還沒有團隊",
@@ -129,6 +133,7 @@ const WORDS = {
 		linkRefused: (label: string) => `已拒絕 ${label}：沒有人加入`,
 		linkDeclined: "什麼都沒有決定",
 		stopUsage: "/boss link units [無人機] | link stop <無人機> <主智慧體名稱 | 代號開頭> [--interrupt] [原因]",
+		stopReasonLong: (bytes: number, max: number) => `原因有 ${bytes} 位元組；停止請求最多帶 ${max}。什麼都沒送出：請縮短`,
 		unitsNone: "還沒有無人值守的機器回報過它的單位",
 		unitsBox: (label: string, short: string, team: string, stale: boolean) => `${label}（${short}）· 團隊 ${team}${stale ? " · 最近沒有狀態：這是它最後一次的回報" : ""}`,
 		unitsUnit: (name: string, state: string) => `  單位 ${name} · ${state}`,
@@ -153,7 +158,7 @@ const WORDS = {
 } as const;
 
 /** One word of a typed line: a quoted run (single or double quotes) or a run without spaces, and what follows it. */
-function firstWord(text: string): { word: string; rest: string } {
+export function firstWord(text: string): { word: string; rest: string } {
 	const quoted = /^(["'])(.*?)\1(?:\s+|$)([\s\S]*)$/.exec(text);
 	if (quoted) return { word: quoted[2]!, rest: quoted[3]!.trim() };
 	const plain = /^(\S+)(?:\s+([\s\S]*))?$/.exec(text);
@@ -168,7 +173,7 @@ export function parseOpen(rest: string | undefined): { kind: "base" | "main" | "
 	return { kind: kind.word, ...(dir.word ? { dir: dir.word } : {}), text: dir.rest };
 }
 
-/** `/boss link [status]`, `link decide <id> approve|refuse`, `link units [box]`, or `link stop <box> <main> [--interrupt] [reason]`; "usage" for a malformed units or stop. */
+/** `/boss link [status]`, `link decide <id> approve|refuse`, `link units [box]`, or `link stop <box> <main> [--interrupt] [reason]` (`--interrupt` is the whole word anywhere after the main); "usage" for a malformed units or stop. */
 export function parseLink(rest: string | undefined): { action: "status" } | { action: "decide"; id: string; verdict: "approve" | "refuse" } | { action: "units"; device?: string } | { action: "stop"; device: string; main: string; interrupt: boolean; reason: string } | "usage" | undefined {
 	const text = (rest ?? "").trim();
 	if (!text || text === "status") return { action: "status" };
@@ -181,9 +186,8 @@ export function parseLink(rest: string | undefined): { action: "status" } | { ac
 	if (stop) {
 		const device = firstWord((stop[1] ?? "").trim()), main = firstWord(device.rest);
 		if (!device.word || !main.word) return "usage";
-		let after = main.rest, interrupt = false;
-		for (let next = firstWord(after); next.word === "--interrupt"; next = firstWord(after)) (interrupt = true, after = next.rest);
-		return { action: "stop", device: device.word, main: main.word, interrupt, reason: after };
+		const words = main.rest.split(/\s+/).filter(Boolean);
+		return { action: "stop", device: device.word, main: main.word, interrupt: words.includes("--interrupt"), reason: words.filter((w) => w !== "--interrupt").join(" ") };
 	}
 	const m = /^decide\s+(\S+)\s+(approve|refuse)$/.exec(text);
 	return m ? { action: "decide", id: m[1]!, verdict: m[2] as "approve" | "refuse" } : undefined;
@@ -207,15 +211,19 @@ export interface OpenDeps {
 	why(reply: Reply): string;
 	/** Asked on this computer only: a paired device cannot answer it (`hereOnly`). */
 	confirm(title: string, body: string, here?: boolean): Promise<boolean>;
+	/** Holds the pane's local-only mark while a select that only this computer may answer waits (heremark.ts). */
+	here: Here;
 	noScreen(): string;
 	lang(): Lang;
 	/** The label of a base, for naming a unit opened in it; undefined when it cannot be read. */
 	baseName?(workspace: string): Promise<string | undefined>;
 	/** How often an opening is asked for a trust question. */
 	pollMs?: number;
+	/** More lines for `link status` (bosslink.ts: the open invites, the join in progress, the confirms and questions that wait). */
+	extra?(view: LinkView): string[];
 }
 
-export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, noScreen, lang, baseName, pollMs = POLL_MS }: OpenDeps) {
+export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, here, noScreen, lang, baseName, pollMs = POLL_MS, extra }: OpenDeps) {
 	const t = () => WORDS[lang()];
 
 	/** The trust question an opening waits on, asked in pi; the answer goes to the route the page's dialog posts to. A dismissed question stays open for the GUI or the terminal. */
@@ -241,11 +249,12 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 	function pickBox(view: LinkView, query: string): Box | string {
 		const all = boxesOf(view), low = query.toLowerCase(), exact = all.filter((b) => b.label.toLowerCase() === low || b.short.toLowerCase() === low || b.device === query);
 		const hit = exact.length ? exact : all.filter((b) => b.label.toLowerCase().startsWith(low) || (query.length >= 4 && (b.short.toLowerCase().startsWith(low) || b.device.startsWith(query))));
-		const list = (xs: Box[]) => xs.map((b) => t().candidateBox(b.label, b.short));
-		return hit.length === 1 ? hit[0]! : hit.length ? t().manyBoxes(query, list(hit)) : t().noBox(query, list(all));
+		const list = (xs: Box[]) => xs.map((b) => t().candidateBox(line(b.label), line(b.short)));
+		return hit.length === 1 ? hit[0]! : hit.length ? t().manyBoxes(line(query), list(hit)) : t().noBox(line(query), list(all));
 	}
-	const byLabel = (row: DeviceUnits, by: string) => (row.dispatchers?.[by]?.self ? undefined : (row.dispatchers?.[by]?.label ?? by.slice(0, 6)));
-	/** `/boss link units [box]` and `/boss link stop <box> <main> [--interrupt] [reason]`: the units a box reported and the mains this computer may stop, and the page's Stop. */
+	/** A dispatcher's label as the roster names it, written out; undefined for this computer's own. */
+	const byLabel = (row: DeviceUnits, by: string) => (row.dispatchers?.[by]?.self ? undefined : line(row.dispatchers?.[by]?.label ?? by.slice(0, 6)));
+	/** `/boss link units [box]` and `/boss link stop <box> <main> [--interrupt] [reason]`: the units a box reported and the mains this computer may stop, and the page's Stop. Whatever the box or the roster wrote (labels, names, states, handles) goes through `line`: nothing a teammate wrote repaints the list or the confirm, or reaches the terminal. */
 	async function units(r: GuiRecord, view: LinkView, parsed: Extract<NonNullable<ReturnType<typeof parseLink>>, { action: "units" | "stop" }>) {
 		const rows = (view.units ?? []).filter((row) => row.units.length);
 		if (!rows.length) return tell(t().unitsNone, "warning");
@@ -255,28 +264,30 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 			const lines = rows.filter((row) => !parsed.device || (found as Box).device === row.device).flatMap((row) => {
 				const box = boxesOf({ ...view, units: [row] })[0]!, teamName = view.teams.find((x) => x.team === row.team)?.name ?? row.team.slice(0, 6);
 				const mains = row.mains ?? [];
-				return [t().unitsBox(box.label, box.short, teamName, row.stale === true), ...row.units.flatMap((u) => [t().unitsUnit(u.unit, u.state), ...mains.filter((x) => x.unit === u.unit).map((x) => t().unitsMain(x.name, x.state, byLabel(row, x.by), x.handle.slice(0, 6)))]), ...(mains.length && !row.canStop ? [t().unitsNoStop] : [])];
+				return [t().unitsBox(line(box.label), line(box.short), line(teamName), row.stale === true), ...row.units.flatMap((u) => [t().unitsUnit(line(u.unit), line(u.state)), ...mains.filter((x) => x.unit === u.unit).map((x) => t().unitsMain(line(x.name), line(x.state), byLabel(row, x.by), line(x.handle.slice(0, 6))))]), ...(mains.length && !row.canStop ? [t().unitsNoStop] : [])];
 			});
 			return tell(lines.join("\n"));
 		}
 		if (typeof found === "string") return tell(found, "error");
-		const box = found, boxRows = rows.filter((row) => row.device === box.device), listed: Listed[] = [];
+		const box = found, name = line(box.label), named = `${name} (${line(box.short)})`;
+		// A box in two teams has a row per team: the freshest row decides, as the page's card does.
+		const boxRows = rows.filter((row) => row.device === box.device).sort((a, b) => b.at - a.at), listed: Listed[] = [];
 		for (const row of boxRows) for (const main of row.mains ?? []) if (!listed.some((x) => x.main.handle === main.handle)) listed.push({ row, main });
-		const cands = (xs: Listed[]) => xs.map((x) => t().candidateMain(x.main.name, x.main.unit, x.main.handle.slice(0, 6)));
-		if (!listed.length) return tell(t().stopNoMains(box.label), "error");
+		const cands = (xs: Listed[]) => xs.map((x) => t().candidateMain(line(x.main.name), line(x.main.unit), line(x.main.handle.slice(0, 6))));
+		if (!listed.length) return tell(t().stopNoMains(name), "error");
 		const low = parsed.main.toLowerCase(), hit = listed.filter((x) => x.main.name.toLowerCase() === low || (parsed.main.length >= 4 && x.main.handle.startsWith(parsed.main)));
-		if (!hit.length) return tell(t().noMain(parsed.main, box.label, cands(listed)), "error");
-		if (hit.length > 1) return tell(t().manyMains(parsed.main, cands(hit)), "error");
+		if (!hit.length) return tell(t().noMain(line(parsed.main), name, cands(listed)), "error");
+		if (hit.length > 1) return tell(t().manyMains(line(parsed.main), cands(hit)), "error");
 		const { row, main } = hit[0]!, mode = parsed.interrupt ? "interrupt" : "quit";
-		if (main.stopping) return tell(t().stopAlready(main.name, box.label), "error");
-		if (!row.canStop) return tell(t().stopNoCap(box.label), "error");
-		if (row.stale) return tell(t().stopQuiet(box.label), "error");
+		if (main.stopping) return tell(t().stopAlready(line(main.name), name), "error");
+		if (!row.canStop) return tell(t().stopNoCap(name), "error");
+		if (row.stale) return tell(t().stopQuiet(name), "error");
 		if (!s.ui) return tell(noScreen(), "error");
-		const by = byLabel(row, main.by) ?? `${row.dispatchers?.[main.by]?.label ?? main.by.slice(0, 6)} (${t().stopSelf})`;
-		if (!(await confirm(t().stopTitle, t().stopBody(box.label, main.name, main.unit, by, t().stopModes[mode]!, parsed.reason), true))) return tell(t().linkDeclined);
+		const by = byLabel(row, main.by) ?? `${line(row.dispatchers?.[main.by]?.label ?? main.by.slice(0, 6))} (${t().stopSelf})`;
+		if (!(await confirm(t().stopTitle, t().stopBody(named, line(main.name), line(main.unit), by, t().stopModes[mode]!, line(parsed.reason)), true))) return tell(t().linkDeclined);
 		const reply = await post(r, "link/unit-stop", { team: row.team, device: box.device, handle: main.handle, mode, reason: parsed.reason }, 30_000);
 		if (reply.status !== 200) return tell(why(reply), "error");
-		tell(t().stopSent(box.label, main.name, reply.body.status === "queued"));
+		tell(t().stopSent(named, line(main.name), reply.body.status === "queued"));
 	}
 
 	return {
@@ -320,6 +331,7 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 			const parsed = parseLink(rest);
 			if (parsed === "usage") return tell(t().stopUsage, "error");
 			if (!parsed) return tell(t().linkUsage, "error");
+			if (parsed.action === "stop" && Buffer.byteLength(parsed.reason) > LIMITS.stopReason) return tell(t().stopReasonLong(Buffer.byteLength(parsed.reason), LIMITS.stopReason), "error");
 			const r = await record(), state = await post(r, "link/state", {}, 10_000);
 			if (state.status !== 200) return tell(why(state), "error");
 			const view = state.body.view as LinkView | undefined;
@@ -329,7 +341,7 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 				const role = (x: string) => (x === "admin" ? t().linkRoleAdmin : t().linkRoleMember);
 				const teams = view.teams.flatMap((x) => [t().linkTeam(x.name, role(x.self.role), x.status === "running", x.stoppedWhy ?? ""), ...x.members.map((m) => t().linkMember(m.label, m.short, role(m.role), m.attended, m.online, m.self))]);
 				const requests = view.joinRequests.length ? [t().linkRequests, ...view.joinRequests.map((q) => t().linkRequest(q.id.slice(0, 8), q.label, q.short, q.teamName, q.unattended))] : [t().linkNoRequests];
-				return tell([t().linkDevice(view.label, view.short), ...(teams.length ? teams : [t().linkNoTeams]), ...requests].join("\n"));
+				return tell([t().linkDevice(view.label, view.short), ...(teams.length ? teams : [t().linkNoTeams]), ...requests, ...(extra?.(view) ?? [])].join("\n"));
 			}
 			const hit = view.joinRequests.filter((q) => q.id === parsed.id || (parsed.id.length >= 4 && q.id.startsWith(parsed.id)));
 			if (!hit.length) return tell(t().linkNoRequest(parsed.id), "error");
@@ -342,7 +354,7 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 					if (!(await confirm(t().linkApproveTitle, t().linkApproveUnattended(q.label, q.short, q.teamName), true))) return tell(t().linkDeclined);
 					sent = { id: q.id, approve: true };
 				} else {
-					const words = q.sets.map((w) => w.join(" ")), none = t().linkNone, picked = await s.ui.select(t().linkWords(q.label, q.short, q.teamName), [...words, none], hereOnlyOpts());
+					const words = q.sets.map((w) => w.join(" ")), none = t().linkNone, picked = await here(async () => s.ui!.select(t().linkWords(q.label, q.short, q.teamName), [...words, none], hereOnlyOpts()));
 					if (picked === undefined) return tell(t().linkDeclined);
 					if (picked !== none) sent = { id: q.id, pick: words.indexOf(picked) };
 				}

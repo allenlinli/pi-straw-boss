@@ -13,6 +13,7 @@ import { createHost } from "../src/host.ts";
 import { createServerLook } from "../src/server-look.ts";
 import type { Kit } from "../src/state.ts";
 import { settle } from "./fakes.ts";
+import { hereWorld } from "./here.ts";
 
 // The wrap of ctx.ui.select and ctx.ui.confirm (src/intercept.ts) over a fake pi: a bus that records, a ctx.ui whose dialogs the test settles
 // (or that end when their signal aborts, as pi's do), and the tool-call events that say which call is in flight.
@@ -380,7 +381,7 @@ function pathsOver(r: Rig) {
 	const posted: { path: string; json: Record<string, unknown> }[] = [], told: string[] = [];
 	const post: Post = async (_r, path, json) => (posted.push({ path, json }), path === "link/state" ? { status: 200, body: { view } } : { status: 200, body: { joined: true, unpaired: 1 } });
 	const kit = { cfg: { env: { LANG: "en" }, run: async () => "{}" }, s: { at: { workspaceId: "wA", tabId: "t", paneId: "p" }, ui: r.ui }, guiDir: "/nowhere", me: () => "m", tell: (text: string) => void told.push(text) } as unknown as Kit;
-	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, post });
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, here: (fn) => fn(), post });
 	return { paths, posted, told };
 }
 const flush = async (n = 20) => { for (let i = 0; i < n; i++) await new Promise((done) => setImmediate(done)); };
@@ -413,19 +414,23 @@ test("while a tool call runs, the join approval select, the unattended confirm, 
 test("while a tool call runs, the rotate and server stop confirms are relayed hereOnly: the commands a paired device's composer may not run are not answerable from it either", async () => {
 	const r = rig(), told: string[] = [];
 	const kit = { pi: { on() {}, events: r.events }, cfg: { env: { HERDR_PANE_ID: "p" }, version: "1.0.0" }, s: { ui: r.ui }, guiDir: "/nowhere", me: () => "m", tell: (text: string) => void told.push(text) } as unknown as Kit;
-	const host = createHost(kit, { connected: async () => {}, ask: async () => ({ ok: false, error: "not asked" }) });
+	const marks = hereWorld("p"), host = createHost(kit, { connected: async () => {}, ask: async (request) => (request.cmd === "gui-lan-face" || request.cmd === "gui-lan-pending" ? marks.ask(request) : { ok: false, error: "not asked" }) });
 	await r.start("c1", "bash");
 	const rotate = host.command("rotate");
 	for (let i = 0; i < 50 && !r.dialogs.length; i++) await flush(1);
+	assert.equal(marks.marked(), true, "while the rotate confirm waits, a paired device's key pad is Escape only on the pane");
 	assert.deepEqual((r.sent("pending").at(-1) as ReturnType<typeof pending>).select.choices, [{ label: "Yes", hereOnly: true }, { label: "No", hereOnly: true }]);
 	r.dialogs[0]!.settle(false);
 	await rotate;
 	assert.equal(told.at(-1), "The GUI's address was not rotated.");
+	assert.equal(marks.marked(), false);
 	const look = createServerLook(kit, {});
-	const stop = look.command("stop", "");
+	const stop = look.command("stop", "", host.here);
 	for (let i = 0; i < 50 && r.dialogs.length < 2; i++) await flush(1);
+	assert.equal(marks.marked(), true, "and while the server stop confirm waits");
 	assert.deepEqual((r.sent("pending").at(-1) as ReturnType<typeof pending>).select.choices, [{ label: "Yes", hereOnly: true }, { label: "No", hereOnly: true }]);
 	r.dialogs[1]!.settle(false);
 	await stop;
 	assert.equal(told.at(-1), "The sb server was not stopped.");
+	assert.equal(marks.marked(), false);
 });

@@ -1141,7 +1141,8 @@ export class LinkHolder {
 		this.notices.push({ id, team: run.team, device: header.from, at: this.now(), kind: p.kind, unit: p.unit, text: p.text });
 		while (this.notices.length > NOTICES_KEPT) this.notices.shift();
 	}
-	private memberLabel(team: string, device: string): string {
+	/** A roster member's label in `team`, or its short id when the roster cannot be read or names no such device. */
+	memberLabel(team: string, device: string): string {
 		try {
 			return this.loadTeam(team).state.members.get(device)?.label ?? shortId(device);
 		} catch {

@@ -52,6 +52,27 @@ export class FakeAlly implements AllyPort {
 	thread(device: string) {
 		return this.threads.get(device) ?? [];
 	}
+	/** The holder's side of a remote stop: this box's device id, the admins (`team\ndevice`), the roster labels, the notices told to one device, and the lines the holder's link.log got. */
+	self: string | undefined;
+	admins = new Set<string>();
+	labels = new Map<string, string>();
+	told: { team: string; device: string; notice: { kind: string; unit: string; text: string } }[] = [];
+	audits: Record<string, unknown>[] = [];
+	box() {
+		return this.self;
+	}
+	admin(team: string, device: string) {
+		return this.admins.has(`${team}\n${device}`);
+	}
+	label(_team: string, device: string) {
+		return this.labels.get(device) ?? device.slice(0, 6);
+	}
+	async tell(team: string, device: string, notice: { kind: string; unit: string; text: string }) {
+		this.told.push({ team, device, notice });
+	}
+	audit(entry: Record<string, unknown>) {
+		this.audits.push(entry);
+	}
 	/** A message from a device, as the holder lists it. */
 	add(id: string, device: string, text: string, over: Partial<AllyItem> = {}): AllyItem {
 		const item: AllyItem = { id, device, label: `label-${device}`, short: device.slice(0, 6), team: "team-1", teamName: "Team One", fromWorkspace: "theirs", replyExpected: false, text, at: Date.now() + this.items.length, ...over };

@@ -175,7 +175,8 @@ test("a tower-reply is the reply to an ask only when the server has the ask open
 	assert.equal(plain.reply, undefined);
 	assert.equal(plain.text, "unasked");
 	await b.holder.taken(plain.id, "tower-b");
-	b.open = { main: "main-1", mainName: "docs-main", tower: "sb-tower-wb", workspace: "label-b" };
+	// The ask is recorded with the Herdr id of the workspace it was made in, as the server records it (todo #119).
+	b.open = { main: "main-1", mainName: "docs-main", tower: "sb-tower-wb", workspace: "w-b" };
 	b.net = { ...netOf([["tower-b", "w-b", "label-b", b.project]]), sessions: [{ id: "tower-b", herdrLocation: { status: "current", paneId: "p0" } }, { id: "main-1", name: "docs-main", herdrLocation: { status: "current", paneId: "p9" } }] as never };
 	b.net.panes.push({ pane_id: "p9", tab_id: "w-b:t1", workspace_id: "w-b", cwd: b.project, agent_status: "idle", tokens: { sb_role: "main" } } as never);
 	await sendTo(a, "the real answer", { inReplyTo: ASK });
@@ -188,6 +189,8 @@ test("a tower-reply is the reply to an ask only when the server has the ask open
 	void b.holder.drain();
 	await until(() => b.store.readInbox(item.id)?.reply === undefined, 3000, "the fallback");
 	assert.equal(b.store.readInbox(item.id)!.askedBy, "docs-main");
+	void b.holder.drain();
+	await until(() => b.offers.some((x) => x.tower === "tower-b" && x.id === item.id), 3000, "the fallen-back reply is offered to the tower of the workspace the ask named by id");
 });
 
 test("a reply offered to a main that does not take it (an older build, a main that never connects to the channel) falls back to an ally run after 5 minutes, not before (RV6-F005)", async () => {

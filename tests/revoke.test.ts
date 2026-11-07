@@ -102,7 +102,8 @@ test("a main whose pane Herdr still lists is never let go on a miss; the admins 
 		for (let i = 0; i < 6; i++) await r.revoker.sweep();
 		assert.deepEqual(r.forgot, [], why);
 		assert.deepEqual(r.signals.map((s) => s.kind === "revoked" && s.ended), [false], why);
-		assert.match(r.signals.map((s) => (s.kind === "revoked" ? s.text : ""))[0]!, new RegExp(why.slice(0, 20)));
+		// The broker's miss names the session id, so the notice says what it means instead (USB-F003); the boss-opened main's reason names no id.
+		assert.match(r.signals.map((s) => (s.kind === "revoked" ? s.text : ""))[0]!, new RegExp(why.startsWith("No live") ? "the broker no longer lists it but its pane is still open" : why.slice(0, 20)), why);
 	}
 });
 

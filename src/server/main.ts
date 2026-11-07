@@ -31,9 +31,10 @@ import {
 import { AFTER, endpointFor, helloOf, listenControl, newSecret, PROTOCOL, type Reply, type Request } from "./socket.ts";
 import { promptCommand } from "./standing.ts";
 import { UnitReporter, runNotice } from "../link/unitstatus.ts";
+import { mainsOf, type MainFact } from "./unitstop.ts";
 import { readNotes } from "./towerrunstore.ts";
 import { createTowers, type Towers, type TowersOptions } from "./towers.ts";
-import { headCommand } from "./headcmds.ts";
+import { headCommand, markWaitAnswered } from "./headcmds.ts";
 import { headSeam } from "./headnet.ts";
 import { towerPanel } from "./towerpanel.ts";
 import { runsStopMs } from "./runs.ts";
@@ -395,6 +396,9 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			}
 		};
 		const workspace = text(request.workspace);
+		const waitId = (value: unknown) => (typeof value === "string" && /^W\d+$/.test(value) ? value : undefined);
+		// The page's composer refuses exactly `/quit` and `/new` sent as the answer to a wait (headroutes.ts `commandReply`): the same here, before anything is queued.
+		const notAnAnswer = (answers: string | undefined, body: string | undefined) => (answers && body && /^\/(quit|new)$/.test(body.trim()) ? { ok: false as const, error: "A command is not an answer to a wait; send it without --answers." } : undefined);
 		switch (request.cmd) {
 			case "ensure-tower": {
 				const claim = typeof request.made === "object" && request.made !== null ? (request.made as Record<string, unknown>) : undefined;
@@ -402,7 +406,13 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 				return workspace ? answer(async (t) => ({ ...(await t.ensure({ workspace, ...(text(request.pane) ? { pane: text(request.pane)! } : {}), ...(text(request.cwd, 4096) ? { cwd: text(request.cwd, 4096)! } : {}), ...(Number.isInteger(request.pid) && (request.pid as number) > 0 ? { pid: request.pid as number } : {}), ...(made ? { made } : {}) })) })) : Promise.resolve({ ok: false, error: "ensure-tower needs a workspace" });
 			}
 			// The boss's `/boss head …` (headcmds.ts): a run token never gets here (rungate.ts).
-			case "head-open": case "head-event": case "head-leave": case "head-new": case "head-close": return answer((t) => headCommand(t, request.cmd, text(request.text, 16_384)));
+			case "head-open": case "head-event": case "head-leave": case "head-new": case "head-close": case "head-retry": case "head-deliver": case "head-drop": {
+				const answers = request.answers === undefined ? undefined : waitId(request.answers);
+				if (request.answers !== undefined && !answers) return Promise.resolve({ ok: false, error: "answers names a wait: W and its number" });
+				const refusal = request.cmd === "head-event" ? notAnAnswer(answers, text(request.text, 16_384)) : undefined;
+				if (refusal) return Promise.resolve(refusal);
+				return answer((t) => headCommand(t, request.cmd, text(request.text, 16_384), { ...(answers ? { answers } : {}), ...(text(request.id, 64) ? { id: text(request.id, 64)! } : {}) }));
+			}
 			case "close-tower":
 				return workspace ? answer((t) => t.close(workspace)) : Promise.resolve({ ok: false, error: "close-tower needs a workspace" });
 			case "open-main": {
@@ -427,7 +437,11 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			case "tower-event": {
 				const body = text(request.text, 16_384);
 				// `present`: the boss wrote it at the tower prompt in the standing pane, so they are at the keyboard and the run it wakes stays for them (runs.ts, the boss's presence).
-				return workspace && body ? answer(async (t) => ({ queued: t.runs.boss(workspace, body, "the boss", { present: request.present === true }).id })) : Promise.resolve({ ok: false, error: "tower-event needs a workspace and text" });
+				const answers = request.answers === undefined ? undefined : waitId(request.answers);
+				if (request.answers !== undefined && !answers) return Promise.resolve({ ok: false, error: "answers names a wait: W and its number" });
+				const refusal = notAnAnswer(answers, body);
+				if (refusal) return Promise.resolve(refusal);
+				return workspace && body ? answer(async (t) => ({ queued: t.runs.boss(workspace, body, "the boss", { present: request.present === true }).id, ...(answers ? { answered: await markWaitAnswered(t, workspace, answers) } : {}) })) : Promise.resolve({ ok: false, error: "tower-event needs a workspace and text" });
 			}
 			// The tower prompt in the standing pane (towerprompt/, standing.ts): it polls for the state it shows and for the order to leave, says Ctrl+D, and says it is gone. It starts nothing and holds no run token;
 			// its requests are a session's or a shell's, as the CLI's, and a server that is still loading tells it to wait.
@@ -570,6 +584,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	}));
 	/** `team\nlabel` a unit is told under (scrubbed) → its workspace id, for the report lookup: two workspaces may share a label, and a team reads only its own. */
 	const unitWorkspaces = new Map<string, string>();
+	let mainFacts: { at: number; facts: Promise<MainFact[]> } | undefined;
 	const unitsOut = () => (reporter ??= new UnitReporter({
 		controllers: () => link?.holder?.dialogControllers() ?? [], admin: (team, device) => link?.holder?.isAdmin(team, device) ?? false,
 		// Per team: the units whose workspace has a pane inside that team's project, when its policy shares status. Labels and monitor commands leave this computer, so they pass the same scrub as a board's.
@@ -593,7 +608,9 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			const ws = unitWorkspaces.get(`${team}\n${unit}`), note = ws ? readNotes(slot, ws).at(-1) : undefined, sent = ws ? link?.holder?.lastSentTo(ws, device) : undefined;
 			return note && (!sent || Date.parse(note.at) >= sent.at) ? note.note : sent?.text ?? "";
 		},
-		status: async (team, device, units) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendUnitStatus(team, device, units); },
+		// The mains this controller may stop (unitstop.ts): its own, or the whole team's for an admin; only where the units are shared too. One reading of the broker and Herdr serves a pass (two seconds).
+		mains: (team, device) => mainsOf({ team, device }, { box: link?.holder?.deviceId, share: link?.holder?.policyOf(team)?.share, admin: (tm, d) => link?.holder?.isAdmin(tm, d) ?? false, facts: towers && (() => (mainFacts = !mainFacts || now() - mainFacts.at > 2000 ? { at: now(), facts: towers!.mains() } : mainFacts).facts) }),
+		status: async (team, device, units, mains) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendUnitStatus(team, device, units, mains); },
 		notice: async (team, device, n) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, "notice", n); },
 		now, log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),
 	}));
@@ -603,6 +620,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			kit, stateDir: slot.stateDir, version, pid, started: () => own.started,
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
 			dialogAnswer: (a) => dialogsOut().answer(a),
+			// A `unit-stop` that passed the holder's checks: the tower service decides which main and whose, and the revoker carries it out (unitstop.ts). Its presence puts `unit-stop` in this box's caps.
+			unitStop: (a) => (towers ? towers.unitStop(a) : Promise.reject(new Error("The tower service is not running"))),
 			// The tower service takes part in the holder's work (B6): an ask answered by a `tower-reply` is the main's, messages for a tower identity the server runs wake an ally run, and a `forward` answer reaches its run.
 			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false,
 				openTower: async (project, toWorkspace, from) => {

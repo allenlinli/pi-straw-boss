@@ -56,6 +56,58 @@ test("a main's Stop and its row in the Mains fold are 44 px each way on a phone,
 	assert.match(css, /\.sheet-row\s*\{\s*flex-wrap:\s*wrap;/, "three buttons wrap on a narrow screen");
 });
 
+// The cascade at phone width (USC-F001): the phone block's `.au-stop { min-height: 44px }` lost to a later top-level `.au-stop { min-height: 32px }` of the same specificity, and the declarations test above read only the block.
+// This reads every rule in source order (the top level and the phone query; other queries are skipped), keeps the declarations of rules whose selector ends in the class, and applies specificity, then order.
+const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+/** The style rules that apply at a phone's width, in source order: [selector list, declarations]. */
+function phoneRules(): [string, string][] {
+	const out: [string, string][] = [];
+	const walk = (text: string) => {
+		let depth = 0, from = 0, head = "";
+		for (let at = 0; at < text.length; at++) {
+			if (text[at] === "{" && depth++ === 0) (head = text.slice(from, at).trim(), (from = at + 1));
+			else if (text[at] === "}" && --depth === 0) {
+				const inner = text.slice(from, at);
+				if (head === MEDIA.slice(0, -2)) walk(inner);
+				else if (!head.startsWith("@")) out.push([head, inner]);
+				from = at + 1;
+			}
+		}
+	};
+	walk(stripped);
+	return out;
+}
+/** A selector's weight as (ids, classes + attributes + pseudo-classes): `:where()` is nothing, other pseudo-classes count one, a `::pseudo-element` none. */
+const weight = (selector: string) => {
+	const bare = selector.replace(/:where\((?:[^()]|\([^()]*\))*\)/g, "").replace(/::[\w-]+/g, "");
+	return (bare.match(/#[\w-]+/g)?.length ?? 0) * 100 + (bare.match(/\.[\w-]+|\[[^\]]*\]|:[\w-]+/g)?.length ?? 0);
+};
+/** A selector list as single selectors: split at top-level commas, and a selector that is one `:is(...)` is its members (it weighs what its heaviest member weighs). */
+const members = (list: string): string[] => list.split(/,(?![^(]*\))/).map((x) => x.trim()).flatMap((x) => { const is = /^:is\(((?:[^()]|\([^()]*\))*)\)$/.exec(x); return is ? members(is[1]!) : [x]; });
+/** The value a property has at phone width on an element whose own class is `cls`: the rules with a selector whose last compound names the class (inside `:where()` too), the heaviest first, the later one among equals. */
+function phoneValue(cls: string, property: string): string | undefined {
+	let best: { w: number; value: string } | undefined;
+	for (const [list, decls] of phoneRules()) {
+		const value = new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(decls)?.[1]?.trim();
+		if (!value) continue;
+		for (const sel of members(list)) {
+			const last = sel.split(/[\s>+~]+(?![^(]*\))/).pop()!;
+			if (!new RegExp(`\\.${cls}(?![\\w-])`).test(last)) continue;
+			const w = weight(sel);
+			if (!best || w >= best.w) best = { w, value };
+		}
+	}
+	return best?.value;
+}
+
+test("USC-F001: at phone width a main's Stop is 44 px tall and wide after the cascade, not only inside the phone block", () => {
+	assert.equal(phoneValue("au-stop", "min-height"), "44px");
+	assert.equal(phoneValue("au-stop", "min-width"), "44px");
+	assert.equal(phoneValue("au-main", "min-height"), "44px");
+	assert.equal(phoneValue("sheet-yes", "min-height"), "44px", "the check reads the sheet's buttons the same way");
+	assert.equal(phoneValue("quit-btn", "min-height"), "44px");
+});
+
 test("the map's head pill stays 36 px to look at but its ::before reaches 44 px on a phone, inside the map's 36 px top band", () => {
 	const pill = topRule(".head-node"), band = topRule(".map:has(> .head-node:not([hidden]))");
 	assert.match(pill, /height:\s*36px/, "the pill keeps its look");

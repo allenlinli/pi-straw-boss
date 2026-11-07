@@ -69,6 +69,17 @@ test("a message for a named workspace goes to the tower of that workspace label;
 	assert.equal(towerFor(view, project, "")!.session.id, "s1", "no workspace named: the rule above");
 });
 
+test("a reply to an ask the tower made for a main names its workspace by Herdr id, and it reaches that workspace's tower (todo #119)", () => {
+	const project = dir("proj");
+	const view = net({ w1: [["p1", "tower", project, "s1"]], w2: [["p2", "tower", project, "s2"]] });
+	assert.equal(towerFor(view, project, "w2")!.session.id, "s2", "the id of the workspace the ask was made in");
+	assert.equal(towerFor(view, project, "w1")!.session.id, "s1");
+	assert.equal(towerFor(view, project, "w9"), undefined, "an id no workspace has still waits");
+	const twin = net({ w1: [["p1", "tower", project, "s1"]], w2: [["p2", "tower", project, "s2"]] });
+	twin.workspaces[1]!.label = "w1";
+	assert.equal(towerFor(twin, project, "w1")!.session.id, "s1", "an id wins over another workspace's label that equals it");
+});
+
 test("a sub workspace has no tower: a tower pane in a linked worktree workspace is not a candidate", () => {
 	const project = dir("proj");
 	const view = net({ w1: [["p1", "tower", project, "s1"]] });

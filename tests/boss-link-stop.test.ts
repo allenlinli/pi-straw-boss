@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseLink } from "../src/bossopen.ts";
+import { LINK_ARGUMENTS } from "../src/bosslink.ts";
 import { createBossPaths, type Post } from "../src/bosspaths.ts";
 import { hereOnlyOpts } from "../src/intercept.ts";
 import type { Kit } from "../src/state.ts";
@@ -36,7 +37,7 @@ function world({ units = [row()] as object[], ui = true, confirm = true, lang = 
 		s: { at: undefined, ui: ui ? { confirm: async (title: string, body: string, opts?: object) => (asked.push({ title, body, hereOnly: (opts as Record<symbol, unknown> | undefined)?.[here] === true }), confirm), select: async () => undefined, notify: () => {} } : undefined },
 		guiDir: "/nowhere", me: () => "m1", tell: (text: string, level?: string) => void told.push({ text, level }),
 	} as unknown as Kit;
-	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, post });
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, post, here: (fn) => fn() });
 	return { paths, told, posted, asked, stops: () => posted.filter((p) => p.path === "link/unit-stop") };
 }
 
@@ -139,4 +140,77 @@ test("the words are Chinese in zh-TW and the confirm still names the box, the ma
 	assert.match(w.asked[0]!.body, /bob-mac/);
 	assert.match(w.asked[0]!.body, /[\u4e00-\u9fff]/);
 	assert.match(w.told.at(-1)!.text, /[\u4e00-\u9fff]/);
+});
+
+// Review fixes (USC-F002, F004 to F008). What a teammate's box wrote is one string the boss reads; an escape sequence in it must not repaint the screen or reach the terminal.
+const EVIL = "x\x1b]52;c;ZXZpbA==\x07\x1b[2K\r\u202eMode: quit\nmain forged · idle · 012345";
+const bare = (text: string) => !/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202e]/.test(text.replace(/\n/g, ""));
+
+test("USC-F002: control, bidi, and line-break characters in a box's label, a unit, a main, and a dispatcher's label are written out in `link units`, in every error list, and in the stop confirm and the sent note", async () => {
+	const units = [row({ units: [{ unit: EVIL, state: EVIL, monitors: [], report: "" }], mains: [main({ name: EVIL, unit: EVIL, state: EVIL, by: "d-bob", handle: HANDLE_A }), main({ handle: HANDLE_B, name: "api", by: "d-evil" })], dispatchers: { "d-bob": { label: EVIL }, "d-evil": { label: EVIL }, "d-me": { label: "Boss Mac", self: true } } })];
+	const w = world({ units });
+	await w.paths.link("units");
+	assert.ok(bare(w.told.map((t) => t.text).join("\n")), "no raw control character in the list");
+	assert.doesNotMatch(w.told.map((t) => t.text).join("\n"), /^main forged/m, "a forged line cannot start a line of its own");
+	assert.match(w.told[0]!.text, /\\x1b\]52;c;ZXZpbA==\\x07/, "written out, so the boss can read what was there");
+	assert.match(w.told[0]!.text, /\\u202e/);
+	w.told.length = 0;
+	await w.paths.link("stop ci-box nothing");
+	await w.paths.link("stop ci-box 0");
+	assert.ok(bare(w.told.map((t) => t.text).join("\n")), "the candidate lists are written out too");
+	await w.paths.link("stop ci-box 012345 reason");
+	assert.equal(w.asked.length, 1);
+	assert.ok(bare(w.asked[0]!.body) && bare(w.told.at(-1)!.text), "the confirm and the sent note carry no raw control character");
+	assert.doesNotMatch(w.asked[0]!.body, /\nmain forged/, "no forged line in the confirm");
+	assert.match(w.asked[0]!.body, /\\x1b\]52/, "the confirm shows the name as the box wrote it");
+	assert.equal(w.stops()[0]!.json.handle, HANDLE_A, "the stop still goes to the handle");
+	const plain = world({ units: [row({ dispatchers: { "d-me": { label: "Boss Mac", self: true }, "d-bob": { label: EVIL } } })] });
+	await plain.paths.link("stop ci-box api");
+	assert.ok(bare(plain.asked[0]!.body), "a dispatcher's roster label is written out in the confirm");
+});
+
+test("USC-F004: a box in two teams is read from its freshest status row, as the page reads it", async () => {
+	const stale = row({ team: "t1", at: 1_000, canStop: undefined, mains: [main({ stopping: false })] }), fresh = row({ team: "t2", at: 9_000, mains: [main({ stopping: true })] });
+	const w = world({ units: [stale, fresh] });
+	await w.paths.link("stop ci-box docs");
+	assert.match(w.told.at(-1)!.text, /already stopping/, "the fresh row says it is stopping; the stale row's pending state does not decide");
+	assert.equal(w.stops().length, 0);
+	const ok = world({ units: [row({ team: "t1", at: 1_000, canStop: undefined }), row({ team: "t2", at: 9_000 })] });
+	await ok.paths.link("stop ci-box api");
+	assert.deepEqual(ok.stops().map((p) => p.json.team), ["t2"], "the stop goes with the fresh row's team, not the first row's");
+});
+
+test("USC-F005: Tab completion lists `link units` and `link stop`", () => {
+	const values = LINK_ARGUMENTS.map((a) => a.value);
+	assert.ok(values.includes("link units") && values.includes("link stop"));
+	assert.match(LINK_ARGUMENTS.find((a) => a.value === "link stop")!.description ?? "", /--interrupt/);
+});
+
+test("USC-F006: --interrupt counts anywhere in the line, and what is left is the reason", () => {
+	assert.deepEqual(parseLink("stop ci-box api never idle --interrupt"), { action: "stop", device: "ci-box", main: "api", interrupt: true, reason: "never idle" });
+	assert.deepEqual(parseLink("stop ci-box api never --interrupt idle"), { action: "stop", device: "ci-box", main: "api", interrupt: true, reason: "never idle" });
+	assert.deepEqual(parseLink("stop ci-box api --interrupt"), { action: "stop", device: "ci-box", main: "api", interrupt: true, reason: "" });
+	assert.deepEqual(parseLink("stop ci-box api not--interrupt here"), { action: "stop", device: "ci-box", main: "api", interrupt: false, reason: "not--interrupt here" }, "only the whole token");
+});
+
+test("USC-F007: the confirm and the sent note name the box by label and short id", async () => {
+	const w = world();
+	await w.paths.link("stop ci-box api");
+	assert.match(w.asked[0]!.body, /ci-box \(BX01\)/);
+	assert.match(w.told.at(-1)!.text, /ci-box \(BX01\)/);
+	const zh = world({ lang: "zh-TW" });
+	await zh.paths.link("stop ci-box api");
+	assert.match(zh.asked[0]!.body, /ci-box（BX01）|ci-box \(BX01\)/);
+});
+
+test("USC-F008: a reason over 200 bytes is refused before the confirm, saying how long it may be; 200 bytes goes through", async () => {
+	const w = world();
+	await w.paths.link(`stop ci-box api ${"x".repeat(201)}`);
+	assert.deepEqual([w.told.at(-1)!.level, w.asked.length, w.stops().length], ["error", 0, 0]);
+	assert.match(w.told.at(-1)!.text, /200/);
+	await w.paths.link(`stop ci-box api ${"é".repeat(101)}`);
+	assert.deepEqual([w.told.at(-1)!.level, w.asked.length], ["error", 0], "bytes, not characters");
+	const ok = world();
+	await ok.paths.link(`stop ci-box api ${"y".repeat(200)}`);
+	assert.deepEqual([ok.asked.length, ok.stops().length], [1, 1]);
 });

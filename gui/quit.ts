@@ -43,16 +43,18 @@ const sheet = (text: string, yes?: string): Promise<boolean> => new Promise((don
 	d.showModal();
 });
 
-/** The page's confirm with more than one yes: a Cancel and one button per choice, in order (with no choice, a notice with Close). Resolves the chosen value, or undefined when cancelled or dismissed (an Escape, a click away). */
-export const choose = <T extends string>(text: string, choices: { label: string; value: T }[]): Promise<T | undefined> => new Promise((done) => {
+/** The page's confirm with more than one yes: a Cancel and one button per choice, in order (with no choice, a notice with Close). Cancel has the focus, so an Enter does not take a choice. A `danger` choice is the heavier one (a solid fill and a border, not colour alone). Resolves the chosen value, or undefined when cancelled or dismissed (an Escape, a click away). */
+export const choose = <T extends string>(text: string, choices: { label: string; value: T; tone?: "danger" }[]): Promise<T | undefined> => new Promise((done) => {
 	const d = document.createElement("dialog"), p = document.createElement("p"), row = document.createElement("div");
 	const button = (label: string, cls: string, value?: T) => Object.assign(document.createElement("button"), { type: "button", className: cls, textContent: label, onclick: () => (d.close(), done(value)) });
+	const first = button(choices.length ? m.cancel() : m.close(), "later");
 	[d.className, p.textContent, row.className] = ["sheet", text, "sheet-row"];
-	row.append(...(choices.length ? [button(m.cancel(), "later"), ...choices.map((c) => button(c.label, "sheet-yes", c.value))] : [button(m.close(), "later")]));
+	row.append(first, ...choices.map((c) => button(c.label, c.tone === "danger" ? "sheet-yes sheet-danger" : "sheet-yes", c.value)));
 	d.append(p, row);
 	d.addEventListener("close", () => (d.remove(), done(undefined)));
 	document.body.append(d);
 	d.showModal();
+	first.focus();
 });
 
 /** The keys of the finished subagents on the net, as the server counts them (net.ts: the subagents of the tower, of each tab's units, and of the outside units). */

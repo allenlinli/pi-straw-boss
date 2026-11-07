@@ -17,7 +17,7 @@ export const requested = (u: Pick<UnitCard, "device">, c: Pick<MainCard, "handle
 
 /** Asks the boss how to stop `c` of box `box`, and posts it. Resolves whether a request went (the box was asked, or the relay holds it); a refusal is said in the dialog. */
 export async function stopMain(u: Pick<UnitCard, "team" | "device">, c: Pick<MainCard, "handle" | "name">, box: string): Promise<boolean> {
-	const mode = await io.choose(m.link_main_stop_ask({ box, name: c.name }), [{ label: m.link_main_stop(), value: "quit" }, { label: m.link_main_interrupt(), value: "interrupt" }]);
+	const mode = await io.choose(m.link_main_stop_ask({ box, name: c.name }), [{ label: m.link_main_stop(), value: "quit" }, { label: m.link_main_interrupt(), value: "interrupt", tone: "danger" }]);
 	if (!mode) return false;
 	const answer = await io.post("link/unit-stop", { team: u.team, device: u.device, handle: c.handle, mode, reason: "" }).catch((): Answer => ({ ok: false, status: 0, body: {} }));
 	if (answer.ok) return (asked.set(keyOf(u, c), Date.now()), true);

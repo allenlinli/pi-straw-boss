@@ -89,6 +89,19 @@ test("a workspace of the project that has no tower is the one opened; none is ma
 	assert.ok(world.expose!.status().some((r) => r.workspace === "wX"));
 });
 
+test("a workspace named by its Herdr id (a reply to an ask a tower made for a main) is the one opened, as one named by its label (todo #119)", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	const project = join(world.root, "home", "project");
+	mkdirSync(project, { recursive: true });
+	world.herdr.workspaces.push({ workspace_id: "wZ", label: "MP Center", tokens: {} });
+	world.herdr.addTab("wZ:t1", "work");
+	world.herdr.addPane("wZ:p1", "wZ:t1");
+	Object.assign(world.herdr.pane("wZ:p1"), { cwd: realpathSync(project) });
+	assert.deepEqual(await openTowerFor(deps(), realpathSync(project), "wZ"), { workspace: "wZ", created: false });
+	assert.equal(world.herdr.workspaces.length, base + 1, "none made");
+});
+
 test("a folder that does not exist, or a named workspace with none inside the project, is refused and nothing is made; a workspace outside the project does not count", async () => {
 	const s = await world.start();
 	await s.handle.ready;

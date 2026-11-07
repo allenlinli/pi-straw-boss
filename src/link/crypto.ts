@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, createPrivateKey, createPublicKey, diffieHellman, hkdfSync, randomBytes, sign, timingSafeEqual, verify, type KeyObject } from "node:crypto";
 import { dec, enc, exact, int, str } from "./canon.ts";
+import { idOk } from "./device.ts";
 
 // The primitives of Straw Link (docs/specs/2026-10-25-straw-link.md, Cryptography), Node's built-in crypto only. Every function that
 // needs a nonce or an ephemeral key takes it as an optional argument, so the test vectors can fix it; without one it is random.
@@ -109,3 +110,48 @@ export const joinMac = (secret: Uint8Array, team: Uint8Array, fields: Uint8Array
 /** What a relay request's signature covers: `straw-link/request/1 ‖ team ‖ enc(method, path with query, time, sha256(body))`. */
 export const requestBytes = (o: { team: Uint8Array; method: string; path: string; time: number; body: Uint8Array }): Buffer =>
 	signedBytes(CONTEXT.request, o.team, enc(str(o.method), str(o.path), int(o.time), sha256(o.body)));
+
+// ---- Operate sessions (docs/specs/2026-11-07-link-operate.md §5.2) ---------------------------------------------------------------------------------
+
+const OPERATE_INFO = "straw-link/operate/1";
+/** The 4-byte direction tag that opens a frame's nonce: the operator's frames to the box, and the box's to the operator. */
+const OPERATE_DIR = { toBox: Buffer.from([0, 0, 0, 1]), toOperator: Buffer.from([0, 0, 0, 2]) } as const;
+export type OperateDir = keyof typeof OPERATE_DIR;
+
+/** An ephemeral X25519 key of one session; the private half stays in memory and is dropped at close. A seed is for the vectors only. */
+export function operateEphemeral(seed: Uint8Array = randomBytes(32)): { key: KeyObject; pub: Buffer } {
+	const key = privateKeyOf("x25519", seed);
+	return { key, pub: publicBytes(key) };
+}
+
+/**
+ * The two keys of a session: `HKDF-SHA256(X25519(mine, theirs), salt = empty, info = "straw-link/operate/1" ‖ team ‖ session ‖ operator id ‖ box id ‖ ephOp ‖ ephBox)`,
+ * 64 bytes. The first 32 key operator → box, the last 32 box → operator. Both ends compute the same pair: `mine` is this end's ephemeral private key, `theirs` the other's public one.
+ */
+export function operateKeys(o: { team: Uint8Array; session: Uint8Array; operator: string; box: string; ephOp: Uint8Array; ephBox: Uint8Array; mine: KeyObject; theirs: Uint8Array }): { toBox: Buffer; toOperator: Buffer } {
+	// The info holds the two ids with no length prefix; that is unambiguous only while both are 26 characters.
+	if (!idOk(o.operator) || !idOk(o.box)) throw new RangeError("an operate session names two device ids");
+	const info = concat(Buffer.from(OPERATE_INFO, "utf8"), exact(o.team, TEAM_ID_BYTES, "a team id"), exact(o.session, 16, "a session id"), Buffer.from(o.operator, "utf8"), Buffer.from(o.box, "utf8"), exact(o.ephOp, 32, "an ephemeral key"), exact(o.ephBox, 32, "an ephemeral key"));
+	const k = hkdf(diffieHellman({ privateKey: o.mine, publicKey: publicKeyOf("x25519", o.theirs) }), info, 64);
+	return { toBox: k.subarray(0, 32), toOperator: k.subarray(32) };
+}
+
+const frameParts = (session: Uint8Array, ctr: number, dir: OperateDir) => {
+	if (!Number.isSafeInteger(ctr) || ctr < 1) throw new RangeError("a frame counter starts at 1");
+	const n = int(ctr);
+	return { nonce: concat(OPERATE_DIR[dir], n), aad: concat(exact(session, 16, "a session id"), n) };
+};
+/** A frame's ciphertext (with its tag): ChaCha20-Poly1305, nonce = direction tag ‖ 8-byte `ctr`, AAD = `session ‖ ctr`. */
+export function operateSeal(o: { key: Uint8Array; dir: OperateDir; session: Uint8Array; ctr: number; plaintext: Uint8Array }): Buffer {
+	const { nonce, aad } = frameParts(o.session, o.ctr, o.dir);
+	return aeadSeal(o.key, nonce, o.plaintext, aad);
+}
+/** The plaintext of a frame, or null when it does not open (wrong key, direction, session or counter). The caller keeps the counter rule. */
+export function operateOpen(o: { key: Uint8Array; dir: OperateDir; session: Uint8Array; ctr: number; ct: Uint8Array }): Buffer | null {
+	try {
+		const { nonce, aad } = frameParts(o.session, o.ctr, o.dir);
+		return aeadOpen(o.key, nonce, o.ct, aad);
+	} catch {
+		return null;
+	}
+}

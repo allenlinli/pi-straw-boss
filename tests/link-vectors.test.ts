@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
-import { createDecipheriv, createHmac, createPublicKey, hkdfSync, verify } from "node:crypto";
+import { createDecipheriv, createHmac, createPublicKey, diffieHellman, hkdfSync, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { CanonError, dec, enc, readBool, readInt } from "../src/link/canon.ts";
-import { CONTEXT, openSealedKey, requestBytes, sealKey, signBytes } from "../src/link/crypto.ts";
+import { CONTEXT, openSealedKey, operateEphemeral, operateKeys, operateOpen, operateSeal, requestBytes, sealKey, sha256, signBytes } from "../src/link/crypto.ts";
 import { base32, deviceFromSeeds, encodeKeyRecord, keyRecordHash, labelOk, type DeviceKeys } from "../src/link/device.ts";
 import { idOk } from "../src/link/device.ts";
 import { buildEnvelope, decodeEnvelope, encodeEnvelope, encodeHeader, openEnvelope } from "../src/link/envelope.ts";
 import { BIP39_ENGLISH, BIP39_ENGLISH_SHA256 } from "../src/link/bip39-english.ts";
 import { buildJoinRequest, checkJoiner, decodeInvite, encodeInvite, inviteHash, openJoinRequest, safetyWords, type Invite } from "../src/link/join.ts";
-import { decodePlaintext, encodePlaintext, KINDS, type Kind } from "../src/link/kinds.ts";
+import { decodePlaintext, encodePlaintext, KINDS, operateBody, type Kind } from "../src/link/kinds.ts";
 import { decodeEntry, encodeEntry, entryHash, replayEncoded } from "../src/link/roster.ts";
 import { encodeTyped, generateVectors, VECTORS_PATH, type Typed } from "./link/generate-vectors.ts";
-import type { StateSpec } from "./link/envelope-cases.ts";
+import { operateFromJson, operateJson, type StateSpec } from "./link/envelope-cases.ts";
 import type { ReceiveState } from "../src/link/envelope.ts";
 
 // Replays tests/link/vectors.json against the library, using the file's own inputs: this is what a Go implementation has to reproduce.
@@ -67,7 +67,7 @@ test("a relay request signature covers context, team, method, path, time, and th
 test("every kind's plaintext encodes to the vector's bytes and decodes back", () => {
 	assert.deepEqual(V.kinds.map((k: { kind: string }) => k.kind), Object.keys(KINDS));
 	for (const k of V.kinds) {
-		const value = k.kind === "presence" ? { ...k.value, headHash: h(k.value.headHash) } : k.value;
+		const value = k.kind === "presence" ? { ...k.value, headHash: h(k.value.headHash) } : k.kind === "operate" ? operateFromJson(k.value) : k.value;
 		assert.equal(encodePlaintext(k.kind as Kind, value).toString("hex"), k.plaintext, k.kind);
 		assert.deepEqual(decodePlaintext(k.kind as Kind, h(k.plaintext)), value, k.kind);
 		assert.deepEqual(k.rule, KINDS[k.kind as Kind]);
@@ -80,6 +80,38 @@ test("tower with 4 or 5 fields, caps, and tower-reply: cut as the vectors say, a
 	for (const c of V.capsReplyCases) assert.deepEqual(decodePlaintext(c.kind as Kind, h(c.plaintext)), c.expect, c.name);
 	assert.ok(V.unitStopCases.length >= 18);
 	for (const c of V.unitStopCases) assert.deepEqual(decodePlaintext(c.kind as Kind, h(c.plaintext)), c.expect, c.name);
+});
+
+test("operate: the outer structures decode as the vectors say, the keys derive from the fixed seeds at both ends, and each frame's nonce, AAD and ciphertext reproduce", () => {
+	const O = V.operateCases;
+	assert.ok(O.structure.length >= 20);
+	for (const c of O.structure) {
+		const got = decodePlaintext("operate", h(c.plaintext));
+		assert.deepEqual(got === null ? null : operateJson(got), c.expect, c.name);
+	}
+	assert.equal(O.openHash, sha256(operateBody(operateFromJson(V.kinds.find((k: { kind: string }) => k.kind === "operate").value))).toString("hex"));
+	for (const c of O.keys) {
+		const op = operateEphemeral(h(c.ephOpSeed)), box = operateEphemeral(h(c.ephBoxSeed));
+		assert.equal(op.pub.toString("hex"), c.ephOp);
+		assert.equal(box.pub.toString("hex"), c.ephBox);
+		const common = { team: h(c.team), session: h(c.session), operator: c.operatorId, box: c.boxId, ephOp: op.pub, ephBox: box.pub };
+		const a = operateKeys({ ...common, mine: op.key, theirs: box.pub }), b = operateKeys({ ...common, mine: box.key, theirs: op.pub });
+		assert.deepEqual([a.toBox.toString("hex"), a.toOperator.toString("hex"), b.toBox.toString("hex")], [c.toBox, c.toOperator, c.boxSide]);
+		assert.equal(c.operatorId, V.devices[c.operator].id);
+		// A second reading of the derivation with Node's own HKDF.
+		const info = Buffer.concat([Buffer.from("straw-link/operate/1"), h(c.team), h(c.session), Buffer.from(c.operatorId), Buffer.from(c.boxId), op.pub, box.pub]);
+		const k64 = Buffer.from(hkdfSync("sha256", diffieHellman({ privateKey: op.key, publicKey: createPublicKey(box.key) }), Buffer.alloc(0), info, 64));
+		assert.equal(k64.toString("hex"), c.toBox + c.toOperator);
+	}
+	for (const f of O.frames) {
+		assert.equal(operateSeal({ key: h(f.key), dir: f.dir, session: h(f.session), ctr: f.ctr, plaintext: h(f.plaintext) }).toString("hex"), f.ct, `${f.dir} ${f.ctr}`);
+		assert.equal(operateOpen({ key: h(f.key), dir: f.dir, session: h(f.session), ctr: f.ctr, ct: h(f.ct) })?.toString("hex"), f.plaintext);
+		assert.equal(f.opensWrongDir, null);
+		const d = createDecipheriv("chacha20-poly1305", h(f.key), h(f.nonce), { authTagLength: 16 });
+		d.setAAD(h(f.aad), { plaintextLength: h(f.ct).length - 16 });
+		d.setAuthTag(h(f.ct).subarray(-16));
+		assert.equal(Buffer.concat([d.update(h(f.ct).subarray(0, -16)), d.final()]).toString("hex"), f.plaintext);
+	}
 });
 
 test("board plaintexts: the caps cut as the vectors say, and a truncated entry, trailing bytes, or a wrong field count is refused", () => {

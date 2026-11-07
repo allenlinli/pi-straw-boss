@@ -50,7 +50,21 @@ export const SAMPLE: { [K in Kind]: Plaintexts[K] } = {
 	caps: { features: ["tower.awaitsReply", "tower-reply"] },
 	"tower-reply": { inReplyTo: ASK_ID, text: "Done: the build is green again." },
 	"unit-stop": { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "forgotten idle main" },
+	operate: { session: Buffer.alloc(16, 0x11), type: "open", eph: Buffer.alloc(32, 0x22), caps: ["operate/1"], want: "team" },
 };
+
+/** An operate message as vectors.json holds it (bytes as hex), and back. */
+export const operateJson = (m: Plaintexts["operate"]): unknown => JSON.parse(JSON.stringify(m, (_k, v) => (v && v.type === "Buffer" && Array.isArray(v.data) ? Buffer.from(v.data).toString("hex") : v)));
+export function operateFromJson(j: any): Plaintexts["operate"] {
+	const h = (x: string) => Buffer.from(x, "hex");
+	const base = { session: h(j.session) };
+	switch (j.type) {
+		case "open": return { ...base, type: "open", eph: h(j.eph), caps: j.caps, want: j.want };
+		case "accept": return { ...base, type: "accept", eph: h(j.eph), openHash: h(j.openHash), scope: { teams: j.scope.teams.map(h), box: j.scope.box }, limits: j.limits };
+		case "frame": return { ...base, type: "frame", ctr: j.ctr, ct: h(j.ct) };
+		default: return { ...base, type: j.type, reason: j.reason };
+	}
+}
 
 interface Forge {
 	from?: Who;
@@ -81,7 +95,7 @@ export function envelopeCases(): EnvelopeCase[] {
 
 	for (const kind of Object.keys(KINDS) as Kind[]) {
 		const sender: Who = KINDS[kind].sender === "unattended" ? "dave" : "alice";
-		add(`a ${kind} from ${sender} is taken`, forge({ kind, from: sender }), "ok");
+		add(`${kind === "operate" ? "an" : "a"} ${kind} from ${sender} is taken`, forge({ kind, from: sender }), "ok");
 	}
 	add("a presence carries no seq and still passes beside queued seqs", forge({ kind: "presence" }), "ok", baseState({ lastSeq: { [D.alice.id]: 40 } }));
 	add("the epoch before the current one, written before the rotation was known", forge({ header: { epoch: 2, head: { seq: 6, hash: entryHash(log[6]!) } }, from: "carol" }), "ok");

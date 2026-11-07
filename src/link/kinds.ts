@@ -4,30 +4,33 @@ import { CanonError, bool, cutBytes, cutChars, dec, enc, int, list, readBool, re
 // whole team, and its plaintext as a canonical structure. Every text field is cut to its limit, on the way out and on the way in, and a
 // plaintext never becomes a header.
 
-export type Kind = "tower" | "presence" | "board" | "confirm-request" | "confirm-answer" | "dialog-open" | "dialog-answer" | "dialog-close" | "unit-status" | "notice" | "caps" | "tower-reply" | "unit-stop";
+export type Kind = "tower" | "presence" | "board" | "confirm-request" | "confirm-answer" | "dialog-open" | "dialog-answer" | "dialog-close" | "unit-status" | "notice" | "caps" | "tower-reply" | "unit-stop" | "operate";
 /** Which devices may send a kind: any member, only an attended one, or only an unattended one. */
 export type Sender = "any" | "attended" | "unattended";
-export interface KindRule { ephemeral: boolean; wholeTeam: boolean; sender: Sender }
+/** `live` is a third class of ephemeral kind (docs/specs/2026-11-07-link-operate.md §5.1): the relay never stores it, writes it only to the addressee's open streams, and sends it as a `live` event with no id. */
+export interface KindRule { ephemeral: boolean; wholeTeam: boolean; sender: Sender; live: boolean }
 
 /**
  * The rule of each kind. The ephemeral flag is fixed here, never chosen by the sender. `dialog-answer` is the one kind with a sender rule
  * the spec leaves implicit: a controller answers, and nobody answers at an unattended device, so it takes only attended senders.
  */
 export const KINDS: Record<Kind, KindRule> = {
-	tower: { ephemeral: false, wholeTeam: false, sender: "any" },
-	presence: { ephemeral: true, wholeTeam: true, sender: "any" },
-	board: { ephemeral: true, wholeTeam: true, sender: "any" },
-	"confirm-request": { ephemeral: false, wholeTeam: false, sender: "any" },
-	"confirm-answer": { ephemeral: false, wholeTeam: false, sender: "any" },
-	"dialog-open": { ephemeral: false, wholeTeam: false, sender: "unattended" },
-	"dialog-answer": { ephemeral: false, wholeTeam: false, sender: "attended" },
-	"dialog-close": { ephemeral: false, wholeTeam: false, sender: "unattended" },
-	"unit-status": { ephemeral: true, wholeTeam: false, sender: "unattended" },
-	notice: { ephemeral: false, wholeTeam: false, sender: "unattended" },
-	caps: { ephemeral: true, wholeTeam: true, sender: "any" },
-	"tower-reply": { ephemeral: false, wholeTeam: false, sender: "any" },
+	tower: { ephemeral: false, wholeTeam: false, sender: "any", live: false },
+	presence: { ephemeral: true, wholeTeam: true, sender: "any", live: false },
+	board: { ephemeral: true, wholeTeam: true, sender: "any", live: false },
+	"confirm-request": { ephemeral: false, wholeTeam: false, sender: "any", live: false },
+	"confirm-answer": { ephemeral: false, wholeTeam: false, sender: "any", live: false },
+	"dialog-open": { ephemeral: false, wholeTeam: false, sender: "unattended", live: false },
+	"dialog-answer": { ephemeral: false, wholeTeam: false, sender: "attended", live: false },
+	"dialog-close": { ephemeral: false, wholeTeam: false, sender: "unattended", live: false },
+	"unit-status": { ephemeral: true, wholeTeam: false, sender: "unattended", live: false },
+	notice: { ephemeral: false, wholeTeam: false, sender: "unattended", live: false },
+	caps: { ephemeral: true, wholeTeam: true, sender: "any", live: false },
+	"tower-reply": { ephemeral: false, wholeTeam: false, sender: "any", live: false },
 	/** A controller's request that an unattended box stop one main (docs/specs/2026-11-07-link-remote-stop.md): queued, addressed to one box, from attended senders only. */
-	"unit-stop": { ephemeral: false, wholeTeam: false, sender: "attended" },
+	"unit-stop": { ephemeral: false, wholeTeam: false, sender: "attended", live: false },
+	/** A controller's live session with an unattended box (docs/specs/2026-11-07-link-operate.md §5): live, addressed to one device, either end sends it; the holder checks the type against the sender's `attended` flag. */
+	operate: { ephemeral: true, wholeTeam: false, sender: "any", live: true },
 };
 export const kindOk = (kind: unknown): kind is Kind => typeof kind === "string" && Object.hasOwn(KINDS, kind);
 
@@ -55,6 +58,9 @@ export const LIMITS = {
 	/** The spec's: a `unit-status` names at most this many mains, each by a name of at most `boardLabel` characters; a stop's reason is at most this many bytes. */
 	mains: 20,
 	stopReason: 200,
+	/** operate: a `frame`'s ciphertext (a part is at most 160 KB, so 200 KB leaves room), and the teams a session may name. */
+	operateFrame: 200 * 1024,
+	operateTeams: 8,
 } as const;
 const short = (s: string) => cutBytes(s, LIMITS.short);
 
@@ -87,6 +93,20 @@ const oneLine = (text: string) => cutBytes(text.replace(LINE_BREAKERS, " "), LIM
 export interface UnitStatus { unit: string; state: string; monitors: string[]; report: string }
 export interface Notice { kind: string; unit: string; text: string }
 
+/** The outer layer of `operate` (spec §5.2): `session` is 16 random bytes, and the body depends on `type`. The version (1) is on the wire only; any other is refused. */
+export type OperateType = "open" | "accept" | "refuse" | "frame" | "close";
+export type OperateMessage = { session: Buffer } & (
+	| { type: "open"; eph: Buffer; caps: string[]; want: "team" | "box" }
+	| { type: "accept"; eph: Buffer; openHash: Buffer; scope: { teams: Buffer[]; box: boolean }; limits: { mirrors: number; watches: number; budget: number } }
+	| { type: "refuse"; reason: string }
+	| { type: "frame"; ctr: number; ct: Buffer }
+	| { type: "close"; reason: string }
+);
+export const OPERATE_VERSION = 1;
+/** Which outer types each end sends: a controller (attended) opens; a box (unattended) accepts or refuses; both send frames and close. The spec's table lists `frame` for either end; its "open, req and close" for the controller names `req`, an inner message, so `frame` stands for it. */
+const OPERATE_FROM: Record<"attended" | "unattended", readonly OperateType[]> = { attended: ["open", "frame", "close"], unattended: ["accept", "refuse", "frame", "close"] };
+export const operateDirectionOk = (type: OperateType, attended: boolean): boolean => OPERATE_FROM[attended ? "attended" : "unattended"].includes(type);
+
 export interface Plaintexts {
 	tower: TowerMessage;
 	presence: Presence;
@@ -102,6 +122,26 @@ export interface Plaintexts {
 	caps: Caps;
 	"tower-reply": TowerReply;
 	"unit-stop": UnitStop;
+	operate: OperateMessage;
+}
+
+const sessionOk = (b: Buffer) => b.length === 16;
+const exactBytes = (b: Buffer, n: number, what: string): Buffer => {
+	if (b.length !== n) throw new RangeError(`${what} is ${n} bytes`);
+	return b;
+};
+/** The canonical bytes of an `operate` body: `accept` carries sha256 of the `open` body, so a box's signature covers the operator's key. */
+export function operateBody(m: OperateMessage): Buffer {
+	switch (m.type) {
+		case "open": return enc(exactBytes(m.eph, 32, "an ephemeral key"), list(m.caps.slice(0, LIMITS.capsFeatures).map((c) => str(short(c)))), str(m.want));
+		case "accept": return enc(exactBytes(m.eph, 32, "an ephemeral key"), exactBytes(m.openHash, 32, "an open hash"), enc(list(m.scope.teams.slice(0, LIMITS.operateTeams).map((t) => exactBytes(t, 16, "a team id"))), bool(m.scope.box)), enc(int(m.limits.mirrors), int(m.limits.watches), int(m.limits.budget)));
+		case "refuse": return enc(str(short(m.reason)));
+		case "frame":
+			if (!Number.isSafeInteger(m.ctr) || m.ctr < 1) throw new RangeError("a frame counter starts at 1");
+			if (m.ct.length < 16 || m.ct.length > LIMITS.operateFrame) throw new RangeError("a frame's ciphertext holds a tag and at most 200 KB");
+			return enc(int(m.ctr), m.ct);
+		case "close": return enc(str(short(m.reason)));
+	}
 }
 
 // `toWorkspace` is empty when absent: a workspace label is never empty.
@@ -140,6 +180,10 @@ const encoders: { [K in Kind]: (p: Plaintexts[K]) => Buffer } = {
 		if (!askIdOk(p.stopId)) throw new RangeError("a stop id is 32 lowercase hex digits");
 		if (!handleOk(p.handle)) throw new RangeError("a main's handle is 16 lowercase hex digits");
 		return enc(str(p.stopId), str(p.handle), str(short(p.mode)), str(oneLine(p.reason)));
+	},
+	operate: (p) => {
+		if (!sessionOk(p.session)) throw new RangeError("a session id is 16 bytes");
+		return enc(int(OPERATE_VERSION), p.session, str(p.type), operateBody(p));
 	},
 };
 
@@ -233,6 +277,37 @@ const decoders: { [K in Kind]: (b: Buffer) => Plaintexts[K] } = {
 		if (!askIdOk(id)) throw new CanonError("a stop id is 32 lowercase hex digits");
 		if (!handleOk(h)) throw new CanonError("a main's handle is 16 lowercase hex digits");
 		return { stopId: id, handle: h, mode: s(mode), reason: oneLine(readStr(reason)) };
+	},
+	operate: (b) => {
+		const [v, session, type, body] = dec(b, 4) as [Buffer, Buffer, Buffer, Buffer];
+		if (readInt(v) !== OPERATE_VERSION) throw new CanonError("an operate message is version 1");
+		if (!sessionOk(session)) throw new CanonError("a session id is 16 bytes");
+		const base = { session };
+		switch (readStr(type)) {
+			case "open": {
+				const [eph, caps, want] = dec(body, 3) as [Buffer, Buffer, Buffer], w = readStr(want);
+				if (eph.length !== 32) throw new CanonError("an ephemeral key is 32 bytes");
+				if (w !== "team" && w !== "box") throw new CanonError("want is team or box");
+				return { ...base, type: "open", eph, caps: readList(caps).slice(0, LIMITS.capsFeatures).map((c) => s(c)), want: w };
+			}
+			case "accept": {
+				const [eph, openHash, scope, limits] = dec(body, 4) as [Buffer, Buffer, Buffer, Buffer];
+				if (eph.length !== 32 || openHash.length !== 32) throw new CanonError("a key and a hash are 32 bytes");
+				const [teams, box] = dec(scope, 2) as [Buffer, Buffer], [mirrors, watches, budget] = dec(limits, 3) as [Buffer, Buffer, Buffer];
+				const ids = readList(teams).slice(0, LIMITS.operateTeams);
+				if (ids.some((t) => t.length !== 16)) throw new CanonError("a team id is 16 bytes");
+				return { ...base, type: "accept", eph, openHash, scope: { teams: ids, box: readBool(box) }, limits: { mirrors: readInt(mirrors), watches: readInt(watches), budget: readInt(budget) } };
+			}
+			case "refuse": return { ...base, type: "refuse", reason: s((dec(body, 1) as [Buffer])[0]) };
+			case "frame": {
+				const [ctr, ct] = dec(body, 2) as [Buffer, Buffer], n = readInt(ctr);
+				if (n < 1) throw new CanonError("a frame counter starts at 1");
+				if (ct.length < 16 || ct.length > LIMITS.operateFrame) throw new CanonError("a frame's ciphertext holds a tag and at most 200 KB");
+				return { ...base, type: "frame", ctr: n, ct };
+			}
+			case "close": return { ...base, type: "close", reason: s((dec(body, 1) as [Buffer])[0]) };
+			default: throw new CanonError("an operate type this build does not know");
+		}
 	},
 };
 

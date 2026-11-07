@@ -111,12 +111,12 @@ A unit belongs to a team only through the box's own records of who started it. T
 - **Stream event.** The SSE event is `live`, with **no `id:` line**, so it never moves `Last-Event-ID`. A resumed stream replays nothing live.
 - **Per-stream buffer.** Each stream has a bounded queue: 64 envelopes or 4 MB. On overflow the relay drops the oldest entries and counts them. The next delivered envelope carries `dropped: n` in its event data, which the receiver uses as a resync hint.
 - **Ordering.** Envelopes from one sender to one addressee are written in arrival order.
-- **Checks.** The relay checks a `live` envelope as it checks an ephemeral one: signature, membership, the kind's rules, `seq` = 0, and `to` naming members. Its limits are its own (§5.5).
+- **Checks.** The relay checks a `live` envelope as it checks an ephemeral one: signature, membership, the kind's rules, `seq` = 0, and `to` naming exactly one member that is not the sender. Its limits are its own (§5.5).
 - **Relay logs.** Team, sender, addressee count, size and status, as now. Never bodies.
 
-**The `operate` kind.** One new kind: `{ ephemeral: true, wholeTeam: false, sender: "any", live: true }`. `KindRule` gains `live` in both repositories, and in the `kinds` cases of `tests/link/vectors.json`. Both directions use it. The holder checks direction by the roster's `attended` flag: an attended sender may send only `open`, `req` and `close`; an unattended sender only `accept`, `refuse`, `frame` and `close`. A wrong direction is dropped and logged.
+**The `operate` kind.** One new kind: `{ ephemeral: true, wholeTeam: false, sender: "any", live: true }`. `KindRule` gains `live` in both repositories, and in the `kinds` cases of `tests/link/vectors.json`. Both directions use it. The holder checks direction by the roster's `attended` flag: an attended sender may send only `open`, `frame` and `close` (a `req` is an inner message, §5.3, carried in a `frame`); an unattended sender only `accept`, `refuse`, `frame` and `close`. A wrong direction is dropped and logged. The receiver checks its own role as well: an `open` is for the unattended box and an `accept` or `refuse` for the attended controller, and the holder drops the others.
 
-**On the receiver.** The envelope checks are those of an ephemeral kind, including "`ts` newer than the last one from `from` for this kind". So the sender keeps a strictly rising `ts` for `operate`, at least +1 ms per envelope, like `unitTs`. Nothing is acknowledged.
+**On the receiver.** A live envelope is delivered now, so the holder drops one whose `ts` is older than 60 s (`stale-live`), one that names other than a single addressee (`operate-addressees`), and an `operate` that arrives as a stored `envelope` event (`live-on-stored-path`, dropped unopened). The post side fails closed too: an answer without `delivered` means the relay stored the envelope, and `sendLive` stops posting for an hour (`operate-relay-not-live`). The envelope checks are those of an ephemeral kind, including "`ts` newer than the last one from `from` for this kind". So the sender keeps a strictly rising `ts` for `operate`, at least +1 ms per envelope, like `unitTs`. Nothing is acknowledged.
 
 **Why not reuse what is there.**
 - Queued envelopes are stored for 7 days and block the outbox.
@@ -372,6 +372,32 @@ Every task is red first, and its anchor is `npm run check && npm test` plus its 
 | 10 | Live check on agent-tower-01 | After R1, R2 are redeployed (the boss's go: moldplan-center cloud), 0.62.0 is on the box, and P has landed | The acceptance list of §14; latency measured | all | — |
 
 Order: R1 can land alone. Task 1 and R2 go together, with the vectors first in this repository. Tasks 2, 3 and 4 run in parallel worktrees from task 1's commit. Task 5 follows 2, 3 and 4. Task 6 follows 2 and the snapshot shape of 4. Tasks 7 and 8 follow. Each relay task needs a relay redeploy, and so the boss's go.
+
+### 11.1 Notes carried from the task 1 review
+
+**What straw-relay R2 must enforce** (the client assumes each point):
+
+1. `operate` enters `Kinds` together with the live class, in one commit. The rule is `{Ephemeral: true, WholeTeam: false, Sender: any, Live: true}`; `KindRule` gains `Live`, and `TestEnvelopeShapeVectors` compares it with the vectors' `rule.live`. There is never a commit where `operate` is a plain stored ephemeral kind: such a relay stores sealed frames for 7 days and replaces one operator's frames with another's. Copy `tests/link/vectors.json` from the commit that merges task 1, and update the commit line in `testdata/README.md`. The receive case "an operate from alice is taken" then passes through `CheckEnvelope`.
+2. Never stored: no `PutEnvelope` for `Live`. Test: the SQLite row count for kind `operate` is 0 during and after delivery, and it is not in `EventsAfter` or on a resume.
+3. The post answer is `{id, delivered}` (201, `delivered` a non-negative integer, `id` 32 lowercase hex). The client refuses any other shape. No `duplicate` through the store.
+4. The SSE event is `event: live` with no `id:` line. Its `data` is `{id` (hex32, equal to the header id), `from` (equal to the header from), `ephemeral: true`, `envelope` (base64url without padding), `dropped?}`. `dropped` is omitted or a non-negative safe integer, carried on the next delivered envelope after an overflow. The client turns anything else into a `malformed` event that it never acknowledges.
+5. Exactly one addressee, a member and not the sender. A `to` with 0 or more than one id, or a non-member, is refused with 422. Today's `postEnvelope` silently drops non-member ids and fans out to the rest.
+6. Its own limiter, decided after the decode. The 600/min team limiter runs before the decode today (`s.limiter.allow` precedes `DecodeEnvelope`), so peek the kind first or split the path: a live post must not spend the queued budget. Limits as §5.5: 1,200 envelopes and 8 MB per (team, sender) per minute, 3,000 per team per minute; 429 `rate-limited`, which the client does not retry.
+7. The per-stream queue: 64 envelopes or 4 MB, drop oldest, count into `dropped`. Order per sender and addressee is kept; the client posts serially per team and assumes arrival order equals send order.
+8. The same checks as an ephemeral kind (signature, membership, epoch, head, `seq` 0, `ts` window), with no store-based staleness or replacement for `Live`. The client's `ts` rises per (sender, kind) across all addressees.
+9. An unknown kind on an old relay stays `422 unknown-kind`: the client backs off an hour on that code, and again on a new stream.
+10. Logs: team, sender, addressee count, size, status; never a body.
+11. Removing a member stops live delivery to it at once: its streams end, as today for queued kinds.
+
+**For task 2 (the session core).**
+- The session object owns its send counter. Nothing outside it calls `operateSeal` with a caller-chosen `ctr`: `operateSeal` is stateless, so a repeated `(key, dir, ctr)` is a ChaCha20-Poly1305 nonce reuse. It never resumes a counter across a reopen: a fresh `operateEphemeral()` per `open`, keys dropped at close (§5.6's reopen after 45 s).
+- `operateKeys` throws a raw OpenSSL error for a low-order peer key (all-zero, 1, the order-8 points). The session catches it and refuses the `open` or `accept`; it never lets it reach the stream handler. (No call site exists in task 1, so no test is added there.)
+- `accept.limits` are unbounded integers on the wire. Task 6 clamps them (a malicious box).
+
+**For task 5 (the box's bridge).**
+- `live()` and `sendLive()` each call `loadTeam`: a synchronous file read and a full roster replay with signature checks, about 0.6 ms for an 8-entry log, on every frame in both directions, at about 10 to 20 envelopes per second per session. Cache the replayed roster per head.
+- `liveChain` has no cap: a stalled relay holds each send for up to `timeoutMs` while a producer that does not await piles up tasks. Pass an `AbortSignal` or a 5 s deadline to `postLive` (a late live frame is worth nothing) and bound the pending sends by the §5.4 budget.
+- The sink must not throw an error that carries content: `operate-sink-failed` logs `String(error)`, and §10 says no text in link.log.
 
 ## 12. Open decisions
 

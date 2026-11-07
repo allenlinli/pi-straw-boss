@@ -255,8 +255,8 @@ test("the sheet: no self-referencing --c, no head Info, no uppercase chapter lin
 test("the head's marks: the map node and the chat avatar carry the crown in the crown's colour, one row of buttons in the conversation box, and no empty ⋯ in the page header", async () => {
 	const { readFileSync } = await import("node:fs");
 	const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8"), html = readFileSync(new URL("../gui/index.html", import.meta.url), "utf8"), chat = readFileSync(new URL("../gui/chat.ts", import.meta.url), "utf8");
-	assert.match(html, /id="head-node"[^>]*><span class="tower">(?:(?!<\/span>).)*<use data-icon="crown" href="#i-crown"\/>/, "the head node's tower mark is the crown");
-	assert.match(css, /\.head-node \.tower svg, \.tx\.in\.head \.ava \{[^}]*color: var\(--gold\)/);
+	assert.match(html, /id="head-node"[^>]*><svg class="head-crown"[^>]*><use data-icon="crown" href="#i-crown"\/>/, "the head band's mark is the crown");
+	assert.match(css, /\.head-node \.head-crown, \.tx\.in\.head \.ava \{[^}]*color: var\(--gold\)/);
 	assert.match(chat, /icon\(me\.head \? "crown" : me\.role\)/, "the head's messages wear the crown");
 	assert.match(css, /\.comms-head\[data-head\] \.head-menu \{ display: none; \}/);
 });

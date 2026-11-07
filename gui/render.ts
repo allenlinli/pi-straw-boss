@@ -12,7 +12,7 @@ import { fillAllies } from "./towerallies.ts";
 import { fillNotices } from "./towernotes.ts";
 import { queueChip, statusLine } from "./towermodel.ts";
 import { mountMinimap } from "./minimap.ts";
-import { packets } from "./packets.ts";
+import { bandModel, gutter, routePackets } from "./headband.ts";
 import { aimBase, aimSquad, aimStash, aimTower, aimUnit } from "./quit.ts";
 import { formatRoute, type Route } from "./router.ts";
 
@@ -266,45 +266,74 @@ export function fillAlly(el: HTMLElement, a: AllyCard, link: LinkSummary | undef
 	fillAsks(el, a, link);
 }
 
-/** The head node on the map's top edge: a small crowned tower that opens the head page, faint and dashed while the head is not open, hidden (and no hub) when the net has no head. */
-export function fillHeadNode(el: HTMLElement, head: HeadUnit | undefined) {
+/** The head band at the top of the map (docs/specs/2026-11-07-head-band.md): the crown, the name, the newest line, and the waits chip, all one link to the head page; faint and dashed while the head is not open, hidden (and no hub) when the net has no head. */
+export function fillHeadNode(el: HTMLElement, head: HeadUnit | undefined, now = Date.now()) {
 	el.hidden = !head;
 	el.classList.toggle("off", !head);
 	if (!head) return;
-	const open = head.state !== "absent";
-	el.classList.toggle("absent", !open);
+	const band = bandModel(head, now);
+	el.classList.toggle("absent", band.absent);
 	mark(el, head.mark);
-	const tower = el.querySelector<HTMLElement>(".tower")!;
-	tower.classList.toggle("ghost", !open);
-	mark(tower, head.mark);
 	el.setAttribute("href", "head");
-	text(el, ".head-name", noun("head_tower"));
-	text(el, ".tstate", open ? statusLine(head.service, head.mark, (mk) => LABEL[mk]()) : m.head_state_absent());
-	el.title = `${noun("head_tower")} · ${el.querySelector<HTMLElement>(".tstate")!.textContent}`; // the node shows no state words: a hover reads them
+	el.setAttribute("aria-label", band.label);
+	el.title = band.label; // the line is ellipsised in the band: a hover reads it whole
+	text(el, ".head-name", band.name);
+	text(el, ".head-line", band.line);
+	const waits = el.querySelector<HTMLElement>(".head-waits")!;
+	waits.hidden = !band.waits;
+	text(el, ".head-waits", band.waits ? String(band.waits) : "");
 }
 type Spot = readonly [number, number];
-/** The wires of the head node: one curve from its centre to each base's tower; none without a hub. */
-export const headWires = (hub: Spot | undefined, ends: readonly Spot[]) => (hub ? ends.map(([x2, y2]) => ({ x1: hub[0], y1: hub[1], x2, y2, mid: Math.round((hub[0] + x2) / 2) })) : []);
+/** Where a base's tower is on the map (the centre of its mark) and the x of the gutter on the left of its column. */
+export interface WireEnd { x: number; y: number; gutter: number }
+export interface Seg { x1: number; y1: number; x2: number; y2: number }
+/**
+ * The head band's wires, straight and orthogonal: from the band's bottom centre (`hub`) a drop to the bus (`bus`, a y in the gap above the grid), the bus along to the gutter on the left of each tower's column, down that gutter, and across into the tower's centre.
+ * `routes` is each tower's path, corner by corner, for its packet; `segments` are the lines to draw, the stretches the routes share (the drop, the bus, a column's trunk) merged into one. None without a hub or without a tower to reach.
+ */
+export function headWires(hub: Spot | undefined, bus: number, ends: readonly WireEnd[]): { routes: Spot[][]; segments: Seg[] } {
+	if (!hub || !ends.length) return { routes: [], segments: [] };
+	const routes = ends.map((e): Spot[] => ([[hub[0], hub[1]], [hub[0], bus], [e.gutter, bus], [e.gutter, e.y], [e.x, e.y]] as Spot[]).filter((p, i, all) => i === 0 || p[0] !== all[i - 1]![0] || p[1] !== all[i - 1]![1]));
+	// Each stretch lies on a line (a y for a horizontal, an x for a vertical); the stretches on one line that touch or overlap are one.
+	const lines = new Map<string, [number, number][]>();
+	for (const r of routes) for (let i = 1; i < r.length; i++) {
+		const [a, b] = [r[i - 1]!, r[i]!], flat = a[1] === b[1], key = flat ? `h${a[1]}` : `v${a[0]}`, span: [number, number] = flat ? [Math.min(a[0], b[0]), Math.max(a[0], b[0])] : [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+		lines.set(key, [...(lines.get(key) ?? []), span]);
+	}
+	const segments = [...lines].flatMap(([key, spans]) => {
+		const at = Number(key.slice(1)), merged: [number, number][] = [];
+		for (const s of spans.sort((p, q) => p[0] - q[0])) {
+			const last = merged.at(-1);
+			if (last && s[0] <= last[1]) last[1] = Math.max(last[1], s[1]);
+			else merged.push([...s]);
+		}
+		return merged.map(([from, to]): Seg => (key[0] === "h" ? { x1: from, y1: at, x2: to, y2: at } : { x1: at, y1: from, x2: at, y2: to }));
+	});
+	return { routes, segments: segments.sort((p, q) => p.y1 - q.y1 || p.x1 - q.x1 || p.y2 - q.y2 || p.x2 - q.x2) };
+}
 
-/** Draws the head tower's wires to every base's tower, with a packet travelling along each while one end of it works, in the map's own coordinates. */
-function wire(map: HTMLElement, svg: SVGSVGElement, dots: HTMLElement, still: boolean) {
-	const towers = [...map.querySelectorAll<HTMLElement>(".base:not(.leaving):not(.ally) .tower")];
-	const head = map.querySelector<HTMLElement>(".head-node:not(.off) .tower") ?? undefined;
-	const box = map.getBoundingClientRect();
-	const centre = (el: HTMLElement) => {
-		const r = el.getBoundingClientRect();
-		return [Math.round(r.x + r.width / 2 - box.x), Math.round(r.y + r.height / 2 - box.y)] as const;
-	};
-	const ends = !head ? [] : towers.filter((t) => t !== head);
-	const wires = headWires(head && centre(head), ends.map(centre));
-	const paths = wires.map(({ x1, y1, x2, y2, mid }) => `M${x1} ${y1}C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}`);
-	const sig = paths.join("|");
+/** Draws the head band's wires to every base's tower, with a packet travelling along each while one end of it works, in the map's own coordinates. */
+function wire(map: HTMLElement, bases: HTMLElement, svg: SVGSVGElement, dots: HTMLElement, still: boolean) {
+	const cards = [...bases.querySelectorAll<HTMLElement>(":scope > .base:not(.leaving)")], band = map.querySelector<HTMLElement>(".head-node:not(.off)") ?? undefined;
+	const box = map.getBoundingClientRect(), grid = bases.getBoundingClientRect(), style = getComputedStyle(bases);
+	const [col, gap] = [parseFloat(style.gridTemplateColumns), parseFloat(style.columnGap) || 20];
+	band?.style.setProperty("--col", Number.isFinite(col) ? `${col}px` : ""); // the band is one grid column wide: the width the masonry resolved for its tracks
+	const left = (el: HTMLElement) => el.getBoundingClientRect().x - box.x, first = Math.min(...cards.map(left));
+	const wired = cards.filter((c) => !c.classList.contains("ally")).map((c) => ({ c, t: c.querySelector<HTMLElement>(".tower")! }));
+	const r = band?.getBoundingClientRect(), hub = r ? ([Math.round(r.x + r.width / 2 - box.x), Math.round(r.bottom - box.y)] as const) : undefined;
+	const ends = wired.map(({ c, t }) => {
+		const q = t.getBoundingClientRect();
+		return { x: Math.round(q.x + q.width / 2 - box.x), y: Math.round(q.y + q.height / 2 - box.y), gutter: gutter(left(c), first, gap) };
+	});
+	const { routes, segments } = headWires(hub, hub ? Math.round((hub[1] + grid.y - box.y) / 2) : 0, ends);
+	const paths = segments.map(({ x1, y1, x2, y2 }) => (y1 === y2 ? `M${x1} ${y1}H${x2}` : `M${x1} ${y1}V${y2}`));
+	const sig = JSON.stringify(routes);
 	if (svg.dataset.sig !== sig) {
 		svg.dataset.sig = sig;
 		svg.replaceChildren(...paths.map((d) => ((line) => (line.setAttribute("class", "wire"), line.setAttribute("d", d), line))(document.createElementNS("http://www.w3.org/2000/svg", "path"))));
-		dots.replaceChildren(...packets(wires, still));
+		dots.replaceChildren(...routePackets(routes, still));
 	}
-	dots.querySelectorAll<HTMLElement>(".packet").forEach((dot, i) => dot.toggleAttribute("data-live", ["working", "commanding"].includes(head!.dataset.mark ?? "") || ["working", "commanding"].includes(ends[i]!.dataset.mark ?? "")));
+	dots.querySelectorAll<HTMLElement>(".packet").forEach((dot, i) => dot.toggleAttribute("data-live", ["working", "commanding"].includes(band!.dataset.mark ?? "") || ["working", "commanding"].includes(wired[i]!.t.dataset.mark ?? "")));
 }
 
 export interface Page { show(net: Net): void; stats(net: Net): void; layout(): void; pause(paused: boolean): void }
@@ -318,7 +347,7 @@ const ROW = 2, GAP = 20;
 export function mountPage(): Page {
 	const [map, bases, links, dots] = [byId("map", HTMLElement), byId("bases", HTMLElement), byId("links", SVGSVGElement), byId("packets", HTMLElement)];
 	const still = matchMedia("(prefers-reduced-motion: reduce)").matches, packed = new Set<Element>();
-	const minimap = mountMinimap(map, bases), layout = () => (minimap(), !map.hidden && wire(map, links, dots, still));
+	const minimap = mountMinimap(map, bases), layout = () => (minimap(), !map.hidden && wire(map, bases, links, dots, still));
 	let queued = 0;
 	const later = () => (queued ||= requestAnimationFrame(() => ((queued = 0), layout())));
 	const pack = new ResizeObserver((all) => (all.forEach(({ target, borderBoxSize }) => ((target as HTMLElement).style.gridRowEnd = `span ${Math.ceil((borderBoxSize[0]!.blockSize + GAP) / ROW)}`)), later()));

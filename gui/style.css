@@ -522,6 +522,7 @@ html:not([data-view="zen"]) .wait-box:focus { outline: none; border-color: color
 [data-calm] .tower[data-mark="waiting"] .pulse { opacity: 0.55; }
 [data-calm] .plate[data-mark="waiting"]::after { opacity: 0.55; transform: scale(1.25); }
 [data-calm] .packet { animation-play-state: paused !important; opacity: 0; }
+[data-calm] .head-node { animation: none !important; }
 [data-calm] .subs::before, [data-calm] .subs > .unit > .card::before { animation: none !important; }
 @media (prefers-reduced-motion: reduce), (hover: none) and (prefers-reduced-motion: reduce) { .plate[data-mark="commanding"]::before, .tower[data-mark="commanding"]::after { box-shadow: 0 0 12px 3px var(--c4); } .stats [data-mark="commanding"][data-on], .comms-head[data-mark="commanding"] .logo { box-shadow: 0 0 12px 2px var(--c4); } }
 [data-calm] :is(.plate, .tower)[data-mark="commanding"]::before, [data-calm] .tower[data-mark="commanding"]::after { animation: none !important; box-shadow: 0 0 12px 3px var(--c4); }
@@ -984,8 +985,6 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	:is(.pair-btn, .quit-btn, .later, .go, .x, .tab-add, .ask-send, .ask-cancel, .sheet-yes, .cmp-yes) { min-width: 44px; }
 	.set-head .head-back { width: 44px; min-height: 44px; } .lan summary { padding-block: 13px; min-width: 44px; } .set-ctl input[type="range"] { min-height: 44px; } .set-group { padding: 12px; }
 	.set-row .lang { max-width: 55%; } .set-ctl { flex-wrap: wrap; }
-	/* The map's head pill stays 36 px to look at; its ::before reaches 44 px (the pill's padding box is 34, so 5 px each way), still inside the map's 36 px top band, clear of the first base row. */
-	.head-node::before { content: ""; position: absolute; inset: -5px 0; }
 	/* The map: a quit button, then its row. */
 	.tab h3 { min-height: 44px; }
 	/* Chips and the small pills: the pill is a 22 px drawing in a 44 px box. */
@@ -1252,15 +1251,16 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 .head-btn .dot[hidden] { display: none; }
 .head-btn[data-state="absent"] { opacity: 0.7; }
 .head-btn[aria-current="page"] { background: color-mix(in srgb, var(--gold) 14%, transparent); border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); }
-.head-node { position: absolute; z-index: 2; top: 0; left: 50%; translate: -50% -25%; display: flex; align-items: center; gap: 8px; height: 36px; max-width: calc(100% - 16px); box-sizing: border-box; padding: 0 14px 0 3px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--gold) 40%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 12%, transparent), transparent 80%), linear-gradient(180deg, var(--surface-1), var(--surface-0)); color: var(--text); text-decoration: none; white-space: nowrap; box-shadow: 0 6px 16px color-mix(in srgb, var(--shadow) 30%, transparent); } /* it sits in the map's top band, a quarter of it above the edge and clear of the crumbs row, out of the flow: the bases start where they would without it, and the map keeps room for the rest of it (the rule below) */
-.map:has(> .head-node:not([hidden])) { padding-top: 36px; }
-.head-node .tower { width: 30px; height: 30px; }
-.head-node .tower svg { width: 20px; height: 20px; }
-.head-node .tower > .badge { right: -4px; bottom: -4px; }
-.head-node .crown { margin: 0; padding: 0; flex: none; white-space: nowrap; background: none; font-size: 11px; letter-spacing: 0.14em; }
-.head-node .crown svg { display: none; } /* the tower already wears the crown */
-.head-node .tstate { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* its state is in the node's title and the tower's badge; the words stay for a reader of the page */
-.head-node.absent { opacity: 0.55; border-style: dashed; box-shadow: none; }
+.head-node { position: relative; z-index: 2; display: flex; align-items: center; gap: 8px; width: var(--col, min(100%, 330px)); max-width: 100%; height: 44px; margin: 0 auto 32px; box-sizing: border-box; padding: 0 12px; container-type: inline-size; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--gold) 40%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 12%, transparent), transparent 80%), linear-gradient(180deg, var(--surface-1), var(--surface-0)); color: var(--text); text-decoration: none; white-space: nowrap; box-shadow: 0 6px 16px color-mix(in srgb, var(--shadow) 30%, transparent); } /* the head band (docs/specs/2026-11-07-head-band.md): the first thing in the map's flow, one grid column wide (render.ts sets --col from the masonry's tracks), and the bases start 32 px under it (the boss's mockup, scratch/raven-sfx/hp/f.html: room for the bus of the wires halfway) */
+.head-node .head-crown { flex: none; width: 20px; height: 20px; }
+.head-node .head-name { flex: none; font-size: 11px; letter-spacing: 0.14em; }
+.head-node .head-line { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; color: var(--dim); } /* the newest line gives way first */
+.head-node .head-waits { flex: none; min-width: 22px; box-sizing: border-box; padding: 2px 8px; border-radius: 999px; font-style: normal; font-size: 12px; font-weight: 600; line-height: 16px; text-align: center; color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); }
+.head-node .head-waits[hidden] { display: none; }
+@container (max-width: 240px) { .head-node .head-line { display: none; } } /* a band too narrow for the line shows the crown, the name, and the chip */
+.head-node:is([data-mark="working"], [data-mark="commanding"]) { animation: glow 2.6s ease-in-out infinite; } /* its state is the band's look: a glow while it works, the amber edge while it waits on the boss */
+.head-node[data-mark="waiting"] { border-color: color-mix(in srgb, var(--amber) 55%, var(--line)); }
+.head-node.absent { opacity: 0.55; border-style: dashed; box-shadow: none; animation: none; }
 .head-node:hover, .head-node:focus-visible { border-color: color-mix(in srgb, var(--gold) 70%, var(--line)); }
 /* The head page's asks: a card per broadcast, whose closed line is its labelled parts (what the boss said, what the head sent, to whom) and when with how many replied; a tap unfolds the whole texts and each tower's answer; a correction folds the orders it replaced under it; groups quiet for a day fold into "Older" (docs/specs/2026-11-07-head-log-cards.md). */
 .head-asks { --ask-tag: 62px; display: grid; gap: 6px; margin: 0 0 8px; min-width: 0; } /* one length for the label column: the tag's width and the when line's indent (the tag is 11 px and the line 12 px, so `em` would not agree) */
@@ -1297,7 +1297,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 .head-absent { margin: 0 0 8px; color: var(--dim); font-size: 13px; }
 .comms-head[data-head] .head-info { display: none !important; }
 .comms-head[data-head] .head-menu { display: none; } /* nothing behind it: the head's Close is in the conversation box */
-.head-node .tower svg, .tx.in.head .ava { color: var(--gold); fill: currentColor; } /* the head's mark is the crown, in the crown's colour, beside the state's own sweep and pulse */
+.head-node .head-crown, .tx.in.head .ava { color: var(--gold); fill: currentColor; } /* the head's mark is the crown, in the crown's colour */
 .comms-head[data-head] .logo { color: var(--gold); background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--gold) 30%, transparent), color-mix(in srgb, var(--bg-2) 90%, transparent)); } /* the head's plate is gold like its node and avatar, not the accent's blue */
 .comms-head[data-head]:not([data-mark="commanding"]) .logo { border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); }
 .comms-head[data-head] .logo svg { fill: currentColor; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--gold) 70%, transparent)); }

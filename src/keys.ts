@@ -1,7 +1,7 @@
 import { DEQUEUE_KEY } from "./dequeuekey.ts";
 import type { Overlay } from "./lan/faces.ts";
 import type { Found } from "./net.ts";
-import { type Editor, operateRefusal } from "./probe.ts";
+import { type Editor, operateKeyRefusal, operateRawRefusal, operateRefusal } from "./probe.ts";
 import type { Taken } from "./runs.ts";
 
 // The key pad's keys (POST …/sessions/<key>/keys {key, stream, confirmed?}), checked in order after the write guards and the registry:
@@ -119,7 +119,15 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 		},
 		/** The guards that need the pane as Herdr has it now, then the Herdr calls that send the key, in order, 60 ms apart. */
 		async send(session: string, found: Found, pane: Pane, a: Asked): Promise<Plan> {
-			if (a.text !== undefined) return await guard(session, found, pane, a), { keys: [], double: false, calls: [["pane.send_text", { pane_id: pane.pane_id, text: a.text }]] };
+			if (a.text !== undefined) {
+				await guard(session, found, pane, a);
+				if (a.operate) { // typed text and a paste go into whatever has the terminal: pi's raw mode, told by the bridge, is the proof that it is pi's editor
+					const barred = operateRawRefusal(await probe(session, undefined, true));
+					if (barred) throw no(403, "operate_refused", barred.reason, { why: barred.why });
+					await guard(session, found, pane, a); // the probe took up to a second: a secret or a dialog may have opened meanwhile
+				}
+				return { keys: [], double: false, calls: [["pane.send_text", { pane_id: pane.pane_id, text: a.text }]] };
+			}
 			const { keys, double } = await this.keys(session, found, pane, a), text = SEQUENCES[keys[0]!];
 			return { keys, double, calls: text ? [["pane.send_text", { pane_id: pane.pane_id, text }]] : keys.map((k) => ["pane.send_input", { pane_id: pane.pane_id, keys: [k] }]) };
 		},
@@ -127,11 +135,21 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 		async keys(session: string, found: Found, pane: Pane, a: Asked): Promise<{ keys: string[]; double: boolean }> {
 			await guard(session, found, pane, a);
 			// Alt+Enter acts as Enter in pi while it is not streaming (it submits the draft, a `!` line included), so an operate session's is probed like Enter.
-			if (a.key === "enter" || (a.operate && a.key === "alt+enter")) {
+			const probed = a.key === "enter" || (a.operate && a.key === "alt+enter");
+			// An operate session's every key is first checked against pi's live bindings on the box: a user's keybindings.json may put the external editor, or any app action, on a key the pad sends (Tab and the arrows too).
+			const own = a.operate && !probed ? await probe(session, undefined, true) : undefined;
+			if (a.operate && !probed) {
+				const barred = operateKeyRefusal(own, a.key);
+				if (barred) throw no(403, "operate_refused", barred.reason, { why: barred.why });
+				await guard(session, found, pane, a);
+			}
+			if (probed) {
 				const e = await probe(session, a.run === undefined ? undefined : run?.nonce(session, a.run), a.operate); // the grant's nonce goes with a `run` Enter's probe only: no other Enter has a MAC of the draft made
 				await guard(session, found, pane, a); // the probe took up to a second: a secret or a dialog may have opened meanwhile
 				const barred = a.operate ? operateRefusal(e) : undefined; // an operate session's Enter never runs a shell line or a /boss command, and no confirm lifts that
 				if (barred) throw no(403, "operate_refused", barred.reason, { why: barred.why });
+				const unbound = a.operate ? operateKeyRefusal(e, a.key) : undefined; // and Enter's own binding, as the bridge's pi has it, must be the editor's
+				if (unbound) throw no(403, "operate_refused", unbound.reason, { why: unbound.why });
 				let need = !e || e.editor === "unknown" ? "unread" : (e.ending ?? (e.editor === "command" ? "command" : undefined));
 				if (a.run !== undefined) {
 					const taken = run?.take(session, a.run, e?.mac) ?? "unknown";
@@ -144,13 +162,13 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 			if (a.key === "ctrl+d" && a.confirmed !== "ctrl-d") throw confirm("ctrl-d");
 			// A second Ctrl+C leaves pi and a second Escape opens its tree or fork menu: both leave the editor, which the probe is about, and no confirm lifts that for an operate session (the first one still goes).
 			if (a.operate && a.key === "ctrl+c" && now() - (interrupted.get(session) ?? -Infinity) < DOUBLE_MS) throw no(403, "operate_refused", "A second Ctrl+C within a second leaves pi; wait a moment.", { why: "leaves-editor" });
-			if (a.operate && a.key === "esc" && pane.agent_status !== "working" && pane.agent_status !== "blocked" && now() - (escaped.get(session) ?? -Infinity) < DOUBLE_MS) throw no(403, "operate_refused", "A second Escape within a second runs pi's double-Escape action, which leaves the editor; wait a moment.", { why: "leaves-editor" });
+			if (a.operate && a.key === "esc" && now() - (escaped.get(session) ?? -Infinity) < DOUBLE_MS) throw no(403, "operate_refused", "A second Escape within a second runs pi's double-Escape action, which leaves the editor; wait a moment.", { why: "leaves-editor" });
 			if (a.key === "ctrl+c" && now() - (interrupted.get(session) ?? -Infinity) < DOUBLE_MS && a.confirmed !== "double-ctrl-c") throw confirm("double-ctrl-c");
 			if (a.key === "ctrl+c") return { keys: [a.key], double: a.confirmed === "double-ctrl-c" };
 			if (a.key !== "esc") return { keys: [a.key], double: false };
 			const idle = pane.agent_status !== "working" && pane.agent_status !== "blocked", last = escaped.get(session) ?? -Infinity, t = now();
 			if (idle && t - last < DOUBLE_MS && a.confirmed !== "double-esc") throw confirm("double-esc");
-			if (!(idle && a.confirmed === "double-esc" && t - last < 60_000)) return { keys: ["esc"], double: false };
+			if (a.operate || !(idle && a.confirmed === "double-esc" && t - last < 60_000)) return { keys: ["esc"], double: false };
 			return { keys: t - last < PAIR_MS ? ["esc"] : ["esc", "esc"], double: true }; // confirmed so fast that pi pairs it with the Escape before
 		},
 		/** Herdr took the keys: an Escape counts from now; the double leaves none, so the next Escape starts afresh. */

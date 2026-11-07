@@ -9,7 +9,7 @@ import type { DeviceKeys } from "./device.ts";
 import { holderAlive, LinkElection } from "./election.ts";
 import { LinkHolder, type HolderOptions, type RelayPort, type SendResult } from "./holder.ts";
 import { createLevelOf } from "./level.ts";
-import { createOperateNotes, type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
+import { createOperateNotes, type Policy, type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
 import { RelayClient } from "./relay.ts";
 import type { NetView } from "./routing.ts";
 import { type HolderRecord, LinkStore } from "./store.ts";
@@ -61,6 +61,10 @@ export interface ServiceOptions {
 	dialogAnswer?: HolderOptions["dialogAnswer"];
 	/** Where an accepted `unit-stop` goes (src/server/towers.ts `unitStop`); with it the box lists `unit-stop` in its caps. */
 	unitStop?: HolderOptions["unitStop"];
+	/** Where a taken `operate` message goes (src/server/operatebox.ts `take`): given to the holders of an unattended device only, which then list `operate/1` in their caps. */
+	operate?: HolderOptions["operate"];
+	/** Told right after a team's roster changed and when a team stops (operatebox.ts `onRoster`): given to every holder this service builds, since it builds a new one at each gain. */
+	onRoster?: HolderOptions["onRoster"];
 	/** The tower service of the same server (towers.ts), when it runs: the asks local towers made for their mains, and what to tell when messages wait for a tower identity it runs. */
 	tower?: Pick<HolderOptions, "asks" | "served" | "openTower"> & {
 		/** An answer to a `forward` confirm for a tower identity the server runs (an ally run waits for it): true when the server took it, so it is not published on the channel. */
@@ -76,7 +80,7 @@ export interface Notice { at: number; level: "info" | "warning" | "error"; text:
 type Answer = { ok: boolean; error?: string; [key: string]: unknown };
 type ChannelEvent = { type: string; fromSessionId?: string; payload?: unknown };
 
-export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer, unitStop }: ServiceOptions) {
+export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer, unitStop, operate, onRoster }: ServiceOptions) {
 	const { pi, cfg } = kit;
 	const store = new LinkStore(join(stateDir, "link"));
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
@@ -160,7 +164,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 				if (!tower?.confirmed?.(to, dialogId, allow)) void publish({ version: 1, type: "confirmed", to, id: dialogId, allow });
 			},
 			drainMs: opts.drainMs, presenceMs: opts.presenceMs, boardMinMs: opts.boardMs, offerAgainMs: opts.offerAgainMs, capsMs: opts.capsMs, capsMinMs: opts.capsMinMs,
-			...(tower?.asks ? { asks: tower.asks } : {}), ...(tower?.served ? { served: tower.served } : {}), ...(dialogAnswer ? { dialogAnswer } : {}), ...(unitStop ? { unitStop } : {}), ...(tower?.openTower ? { openTower: tower.openTower } : {}),
+			...(tower?.asks ? { asks: tower.asks } : {}), ...(tower?.served ? { served: tower.served } : {}), ...(dialogAnswer ? { dialogAnswer } : {}), ...(unitStop ? { unitStop } : {}), ...(operate && !attended() ? { operate } : {}), ...(onRoster ? { onRoster } : {}), ...(tower?.openTower ? { openTower: tower.openTower } : {}),
 		});
 		holder = fresh;
 		await fresh.start();
@@ -314,6 +318,9 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 			return store;
 		},
 		attended,
+		/** The policy as the file reads now, and the path the box watches (operatebox.ts). */
+		policyNow: (): Policy => policy(),
+		policyPath: policyDeps.path,
 		/** How the policy file reads now: a refused one means the box cannot tell who may do what (g346-F003). */
 		policyMode: (): "attended" | "unattended" | "refused" => policy().mode,
 		/** The policy mode and the effective config from one read of the policy file, so the two cannot disagree. */

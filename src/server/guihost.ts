@@ -14,7 +14,7 @@ import { answers, boundedWait, type GuiRecord, listening, postServer, readRecord
 import type { Session } from "../herdr.ts";
 import { type GuiLink } from "../link/guiport.ts";
 import type { OperateHost } from "./operatehost.ts";
-import { type Net, netSource, type TowerView } from "../net.ts";
+import { type Found, type Net, netSource, type Ref, type TowerView } from "../net.ts";
 import type { TowerPanel } from "../control.ts";
 import type { HeadSeam } from "../nethead.ts";
 import type { TowerEnd } from "./towerpanel.ts";
@@ -223,7 +223,7 @@ export function createGuiHost(o: GuiHostOptions) {
 	};
 	const begin = async (prefer: ReturnType<typeof recorded>, wait: number): Promise<Gui> => {
 		theHub();
-		const net = netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), ...(o.head ? { head: o.head } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub });
+		const net = (current = netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), ...(o.head ? { head: o.head } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub }));
 		// `running` is read by the page's remote buttons, which only come once the server is up.
 		let running!: Gui;
 		// Wi-Fi access belongs to the primary slot (one port, one CA, one name per computer): a secondary server builds the host too, to refuse its requests in words, and never writes lan.json.
@@ -353,11 +353,15 @@ export function createGuiHost(o: GuiHostOptions) {
 	};
 	const unsavedReply = (g: Gui) => (unsaved(g) ? { warning: unsaved(g) } : {});
 
+	/** The net source of the GUI that runs, for the operate bridge's view of the registry (operatebox.ts). */
+	let current: ReturnType<typeof netSource> | undefined;
 	/** A reading of the net for the dialog forwarder (src/link/dialogs-out.ts): it binds the hub's relayed dialogs to units whether or not a page listens. */
 	let forwardNet: ReturnType<typeof netSource> | undefined;
 	return {
 		/** The hub and a net reading that binds its dialogs, for the forwarder an unattended device runs. */
 		dialogs: () => ({ hub: theHub(), read: async () => void (await (forwardNet ??= netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), run: cfg.run, world: cfg.world, sessions, hub: theHub() })).read()), /** The unit the hub files dialogs under `key` (known after a `read`): its pane for the dispatcher, its name and role for the label a controller is told. */ lookup: (key: string) => forwardNet?.lookup(key) }),
+		/** The operate bridge's way in while a GUI runs (src/server/operatebox.ts): the GUI's in-process operate entry, and the registry's units and keys as the last net reading knows them. */
+		operate: (): { api: Gui["operate"]; refs(): Ref[]; lookup(key: string): Found | undefined } | undefined => (gui && current ? { api: gui.operate, refs: () => current!.refs(), lookup: (key) => current!.lookup(key) } : undefined),
 		/** At the server's start: the GUI on the recorded ports unless it was stopped on purpose (which only the boss's own command undoes). */
 		async start(): Promise<void> {
 			// The gates' tracking does not depend on the page: a GUI stopped on purpose, or one that could not bind, still has the Allows of the boss's yes in the terminal.

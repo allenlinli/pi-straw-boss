@@ -13,7 +13,7 @@ import { linkRequest as linkRequestOwner } from "./owners.ts";
 import type { createMirrors } from "./mirror.ts";
 import type { Found } from "./net.ts";
 import { upload } from "./upload.ts";
-import { ENDING, operateTextRefusal } from "./probe.ts";
+import { ENDING, operateKeyRefusal, operateRawRefusal, operateTextRefusal } from "./probe.ts";
 import { OPERATE_REFUSED } from "./operateroutes.ts";
 import { qr } from "./qr.ts";
 import { parseOpen } from "./bossopen.ts";
@@ -55,7 +55,7 @@ export const MAX_TEXT = 16_384, MAX_BODY = 65_536, MAX_REMOTE_UPLOAD = 2 * 1024 
 /** The first parts of every path this control answers (gui.ts routes them here); operateroutes.ts has a row for each. */
 export const SCOPES = ["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "head", "lan"];
 /** Who is asking, as the guards need it: `remote` a paired device (or an operate session), `secure` a page served over https (which says where a secret is answered), `operate` an operate session's request, which also meets the box's own refusals (docs/specs/2026-11-07-link-operate.md §7). */
-export interface Flags { remote: boolean; secure: boolean; operate?: true }
+export interface Flags { remote: boolean; secure: boolean; operate?: true; /** An operate session's look at the pane's foreground (foreground.ts), made inside the job right before each write: whether pi, and nothing a pi key opened in its place, holds the pane's terminal. Without it an operate write is refused. */ foreground?(pane: string): Promise<boolean> }
 export { ENDING };
 
 export interface Reply { status: number; body: unknown }
@@ -187,6 +187,12 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 		return reason ? (saveFailed?.(reason), no(500, "save_failed", reason)) : undefined;
 	};
 	// A link_request is open when the session file shows its call or the runtime that owns the approval relays its dialog (a call nested in codemode is not in the file).
+	/** An operate session's write goes only while pi is in the pane's foreground and holds the terminal, looked at right before it (the box's own refusal, the last of the guards): Herdr's process list, then pi's raw mode again. An editor that pi starts sits in pi's own group, beside pi, so the list cannot see it; only `raw` can, and an earlier probe may be a second old. */
+	const foremost = async (foreground: Flags["foreground"], pane: string, session: string) => {
+		if (!(await foreground?.(pane).catch(() => false))) throw no(403, OPERATE_REFUSED, "Something other than pi may hold the pane's terminal (or Herdr cannot say), so nothing is sent from here.", { why: "foreground" });
+		const barred = operateRawRefusal(await answers?.probe(session, undefined, true));
+		if (barred) throw no(403, OPERATE_REFUSED, barred.reason, { why: barred.why });
+	};
 	const requested = async (key: string, found: Found) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, found));
 	const runs = createRuns(), pad = createKeys({ overlay, run: runs, fresh: (id, key, pane) => mirrors?.fresh(id, key, pane) ?? false, secret, answerable: async (key) => Boolean(await answers?.target(key)), linkRequest: async (found, key) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, { pane: found.pane, file: found.file })), probe: async (key, nonce, flags) => answers?.probe(key, nonce, flags) });
 	/** The HTTP shell: the origin, the content type, and the CSRF secret, then the body as JSON, which `run` takes from there. `parts` is the path after api/: sessions/<key>/<action>, remote/pair, or server/stop. */
@@ -215,7 +221,7 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 	 * One request past the HTTP shell: the session checks, then one Herdr call. Everything a guard decides is decided here, so a request that does not come over HTTP (an operate session's, gui.ts `operate`) meets the very guards a paired
 	 * device does; `operate` adds the box's own (docs/specs/2026-11-07-link-operate.md §7), which the table of operateroutes.ts has already applied to the route and the text.
 	 */
-	async function run([scope, key = "", action = ""]: string[], json: Record<string, unknown>, { remote, secure, operate }: Flags): Promise<Reply> {
+	async function run([scope, key = "", action = ""]: string[], json: Record<string, unknown>, { remote, secure, operate, foreground }: Flags): Promise<Reply> {
 		// A unit of a box this computer operates (operatehost.ts): the guards that belong to this end come first (the composer's text as a paired device's, a secret never from a page), and the box runs its own again (§7).
 		const far = !operate ? bridge?.claim("POST", [scope, key, action].slice(0, action ? 3 : key ? 2 : 1), json) : undefined;
 		if (far) {
@@ -349,12 +355,15 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 			job = async () => {
 				const pane = await live(found);
 				if (operate) { // the text joins whatever draft the editor holds (pasted at the cursor, then Enter), so it goes only into an empty one (probe.ts)
-					const barred = operateTextRefusal(await answers?.probe(key, undefined, true));
+					const e = await answers?.probe(key, undefined, true);
+					// and the Enter it ends with (agent.prompt's, or the Alt+Enter of a follow-up while it works) is a key write like the pad's: its binding must be the editor's
+					const barred = operateTextRefusal(e) ?? operateKeyRefusal(e, json.as === "followUp" && pane.agent_status === "working" ? "alt+enter" : "enter");
 					if (barred) throw no(403, OPERATE_REFUSED, barred.reason, { why: barred.why });
 				}
 				if (guarded && (await requested(key, found))) throw no(403, "local_only", remote ? LINK_LOCAL : GUARDED); // a prompt's Enter would be taken by its terminal dialog as Yes
 				if (pane.agent_status === "blocked") throw no(409, "blocked", "It is waiting on a dialog; answer it in the terminal.");
 				if (guarded) guardOverlay(found, remote); // right before the write: the composer's text and Enter would answer the overlay
+				if (operate) await foremost(foreground, pane.pane_id, key);
 				// Enter sends a prompt when idle and a steering message while it works; Alt+Enter queues a follow-up, which only means something while it works.
 				return json.as === "followUp" && pane.agent_status === "working"
 					? call("pane.send_input", { pane_id: pane.pane_id, text, keys: ["alt+enter"] }, 15_000)
@@ -372,6 +381,7 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 					if (i) await new Promise((r) => setTimeout(r, 60));
 					if (remote && asked.key !== "esc" && (await requested(key, found))) throw no(403, "local_only", LINK_LOCAL);
 					if (remote && asked.key !== "esc") guardOverlay(found); // and the overlay's mark, looked at last with nothing awaited before the write
+					if (operate) await foremost(foreground, found.pane!, key); // and, for an operate session, pi's hold of the terminal
 					await call(method, params, 15_000);
 				}
 				pad.sent(key, plan);
@@ -389,11 +399,16 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 				if (begun.text !== undefined) return void (direct = { status: 200, body: { text: begun.text } }); // this very take-back was done, and its answer got lost on the way: no key goes
 				if (!begun.pending || !begun.ticket) return void (direct = { status: 200, body: { empty: true } }); // nothing is queued: no key goes
 				const sent = begun.key ?? defaultDequeue(); // a bridge that names no key is an older pi-straw-boss: pi's default on this platform
+				if (operate) { // the key goes into whatever has the terminal: pi's raw mode, told by the bridge, is the proof that it is pi's editor
+					const barred = operateRawRefusal(await answers.probe(key, undefined, true));
+					if (barred) throw no(403, OPERATE_REFUSED, barred.reason, { why: barred.why });
+				}
 				const plan = await pad.dequeue(key, found, pane, sent, remote);
 				await live(found); // the guard took a moment: still pi, on this file
 				for (const [method, params] of plan.calls) {
 					if (remote && (await requested(key, found))) throw no(403, "local_only", LINK_LOCAL); // as in keys: a link_request may have opened since the guard looked
 					if (remote) guardOverlay(found);
+					if (operate) await foremost(foreground, found.pane!, key);
 					await call(method, params, 15_000);
 				}
 				const done = await answers.pull(key, "finish", begun.ticket);

@@ -367,7 +367,7 @@ function box(hook: (team: string, holder: LinkHolder) => void, opt: { entries?: 
 	writeTeam(store, entries, bob);
 	const teams = opt.teams ?? new Map([[TEAM_HEX, { project, share: "status" as const, name: "moldplan" }]]);
 	const holder: LinkHolder = new LinkHolder({
-		store, isHolder: () => true, attended: () => false, net: async () => netOf([]), relay: clientFor(relay),
+		store, stateDir: join(root, "box"), isHolder: () => true, attended: () => false, net: async () => netOf([]), relay: clientFor(relay),
 		config: () => ({ teams, trust: new Map(), problems: [] }),
 		offer: () => {}, notify: () => {}, backoff: () => 5, drainMs: 20, presenceMs: 60_000, postWaitMs: 2000, capsMs: 3600_000, capsMinMs: 5,
 		onRoster: (team) => hook(team, holder),

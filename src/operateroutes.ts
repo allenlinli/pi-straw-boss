@@ -24,6 +24,7 @@ export const ROUTES: readonly Row[] = [
 	{ method: "GET", path: "history/*", cross: "request", names: { part: 1 }, note: "A page of a session's history." },
 	{ method: "GET", path: "entry/*/*", cross: "request", names: { part: 1 }, note: "One entry in full." },
 	{ method: "GET", path: "image/*/*/*", cross: "request", names: { part: 1 }, note: "An entry's image." },
+	{ method: "GET", path: "transcripts", cross: "request", note: "The box's finished runs, in the session's scope (watch.ts, server/operateledger.ts, §9)." },
 	{ method: "GET", path: "music/**", cross: "local", note: "The controller plays its own." },
 	{ method: "GET", path: "doc/**", cross: "refused", note: "Documents are never served over operate (decision 12)." },
 	{ method: "GET", path: "lan/**", cross: "refused", note: "Wi-Fi access is this computer's own." },
@@ -79,7 +80,7 @@ export function verdictOf(method: "GET" | "POST", parts: string[]): "request" | 
 
 /** A line pi runs as a shell command, and a `/boss` command (not `/bossy`): the composer's text and the editor's draft are checked by these (probe.ts holds the editor's twin). `\s` is JavaScript's, as pi's own trim. */
 export const SHELL_LINE = /^\s*!/, BOSS_LINE = /^\s*\/boss(\s|$)/;
-export type Why = "route" | "out-of-scope" | "shell" | "boss-command" | "bad-request";
+export type Why = "route" | "out-of-scope" | "shell" | "boss-command" | "bad-request" | "foreground";
 export type Plan = { ok: true; row: Row; keys: string[]; tab?: { workspace: string; tab: string } } | { ok: false; why: Why; reason: string };
 const no = (why: Why, reason: string): Plan => ({ ok: false, why, reason });
 const str = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 200;

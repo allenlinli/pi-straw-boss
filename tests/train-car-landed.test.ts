@@ -148,6 +148,53 @@ test("RR2-F001: a loose object planted under the real tip's id with a forged par
 	assert.ok(!states(w).includes("landed"));
 });
 
+test("RR3-F001: the answer is taken against the tip id: a ref swapped to an orphan commit (planted loose) between the tip check and the answer, then put back, cannot land it", async () => {
+	const w = world();
+	const { shell } = await ready(w);
+	const { orphan } = evil(w);
+	const looseOf = (root: string, id: string) => join(root, "objects", id.slice(0, 2), id.slice(2));
+	let ref = "", plantedRef = "";
+	after(w, "rev-parse", (m) => {
+		ref = join(m, "refs", "sb", "base", CODE);
+		plantedRef = readFileSync(ref, "utf8");
+		writeFileSync(ref, `${orphan}\n`);
+		mkdirSync(join(m, "objects", orphan.slice(0, 2)), { recursive: true });
+		execFileSync("cp", [looseOf(join(w.root, "evil.git"), orphan), looseOf(m, orphan)]);
+	});
+	after(w, "merge-base", (m) => {
+		writeFileSync(ref, plantedRef);
+		rmSync(join(m, "objects", orphan.slice(0, 2)), { recursive: true, force: true });
+	});
+	const reply = await landed(w, shell, orphan);
+	assert.equal(reply?.ok, false, "an orphan commit must not land by a swapped ref");
+	assert.ok(!states(w).includes("landed"));
+});
+
+test("RR3-F001: a ref whose value (not its name) changed during the check is refused as the mirror's, even for a commit on the base", async () => {
+	const w = world();
+	const { shell, pushed } = await ready(w);
+	after(w, "rev-parse", (m) => writeFileSync(join(m, "refs", "sb", "base", CODE), `${"1".repeat(40)}\n`));
+	const reply = await landed(w, shell, pushed);
+	assert.equal(reply?.ok, false);
+	assert.match(String(reply?.error), /mirror/);
+	assert.deepEqual(mirrors(w), []);
+});
+
+test("RR3-F002: the server's own GIT_DEFAULT_HASH, GIT_ALTERNATE_OBJECT_DIRECTORIES and GIT_CONFIG_COUNT do not reach git: an honest check still lands", async () => {
+	const w = world();
+	const { shell, pushed } = await ready(w);
+	const keep = { ...process.env };
+	Object.assign(process.env, { GIT_DEFAULT_HASH: "sha256", GIT_ALTERNATE_OBJECT_DIRECTORIES: "/nowhere/objects", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.abbrev", GIT_CONFIG_VALUE_0: "12", GIT_TRACE: "/dev/null" });
+	try {
+		assert.equal((await landed(w, shell, pushed))?.ok, true);
+		const out = await runGit(w.root, ["-c", "alias.sbenv=!env", "sbenv"]);
+		assert.ok(!/^GIT_(?:DEFAULT_HASH|ALTERNATE_OBJECT|CONFIG_COUNT|CONFIG_KEY|CONFIG_VALUE|TRACE)/m.test(out), out);
+	} finally {
+		for (const name of Object.keys(process.env)) if (!(name in keep)) delete process.env[name];
+		Object.assign(process.env, keep);
+	}
+});
+
 test("RR2-F001: a fetch that leaves no pack in the mirror (every object gone after it) is refused as the mirror's", async () => {
 	const w = world();
 	const { shell, pushed } = await ready(w);

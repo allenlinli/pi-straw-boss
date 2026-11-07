@@ -16,16 +16,15 @@ import type { Reply, Request } from "./socket.ts";
 
 export interface Cars { book: CarBook; notices: CarNotices }
 
-const GIT_ENV = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_COUNT", "GIT_EXEC_PATH", "GIT_SSH_COMMAND", "GIT_SSH", "GIT_ASKPASS", "GIT_PROXY_COMMAND", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_NO_REPLACE_OBJECTS"];
+// What git gets from the server's own environment (RR3-F002): an allow-list, so no GIT_* of the server (GIT_DEFAULT_HASH, GIT_DIR, GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_CONFIG_*, GIT_EXEC_PATH, GIT_TRACE...), proxy or ssl setting reaches it.
+const KEEP_ENV = /^(?:PATH|HOME|USER|LOGNAME|SHELL|TMPDIR|TEMP|TMP|LANG|LC_[A-Z_]+|SSH_AUTH_SOCK|SSL_CERT_FILE|SSL_CERT_DIR|SystemRoot|SYSTEMROOT|USERPROFILE|APPDATA|LOCALAPPDATA|PATHEXT|COMSPEC)$/;
 /**
- * git in a folder, for the checks the server makes on a train's word (CR-F002): the repository-selecting variables of this process are taken out, the system and global configuration are not read, no prompt is made, and no hook, fsmonitor, `ext::` transport,
+ * git in a folder, for the checks the server makes on a train's word (CR-F002): git's environment is an allow-list of this process's (no GIT_*, proxy or ssl variable), the system and global configuration are not read, no prompt is made, and no hook, fsmonitor, `ext::` transport,
  * replace ref or submodule recursion can run something the folder chose. The folder's own `.git/config` is still read (the server reads the project's remote from the tower's checkout with it, at the open); the fetches run in a repository of the server's own. 60 s at most.
  */
 export function runGit(cwd: string, args: string[], extra: Record<string, string> = {}): Promise<string> {
-	const env = { ...process.env };
-	for (const key of GIT_ENV) delete env[key];
-	// What a fetch must not take from the server's own environment: a proxy, the transport's certificate settings and curl's (RR2-F002).
-	for (const key of Object.keys(env)) if (/^(?:GIT_SSL_|GIT_CURL_)/i.test(key) || /^(?:https?|all|ftp)_proxy$/i.test(key)) delete env[key];
+	const env: Record<string, string> = {};
+	for (const [key, value] of Object.entries(process.env)) if (value !== undefined && KEEP_ENV.test(key)) env[key] = value;
 	// git looks for no repository above the root of the file system: the `ls-remote` of `landed` runs at that root with none to find, so no repository configuration is read.
 	Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_CEILING_DIRECTORIES: parse(resolve(cwd)).root, ...extra });
 	const isolation = ["-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null", "-c", "protocol.ext.allow=never", "-c", "submodule.recurse=false", "--no-replace-objects"];

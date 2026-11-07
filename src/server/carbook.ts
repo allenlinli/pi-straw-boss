@@ -138,7 +138,7 @@ function strangeConfig(text: string): string | undefined {
 	return core ? undefined : "no [core]";
 }
 const PACK_FILE = /^pack-[0-9a-f]{40,64}\.(?:pack|idx|rev)$/;
-interface Look1 { config: string; head: string; packs: string }
+interface Look1 { refs: string; config: string; head: string; packs: string }
 /**
  * What the mirror the server made may hold at each stage of a check (RR2-F001): after `init` nothing but HEAD, config, the empty `objects/info` and `objects/pack`, and `refs`; after the fetch the same plus FETCH_HEAD, the one pack git wrote (its `.pack` and `.idx`), and
  * the one ref `refs/sb/base/<code>`; never an alternates file, a hooks folder, a loose object, `commondir`, `shallow`, a link, or a config or HEAD that is not byte for byte what it was. `before` is the earlier stage's look. Returns what was found wrong, and the look.
@@ -173,10 +173,12 @@ function inspectMirror(dir: string, code: string, stage: "init" | "fetch" | "che
 		if (odd) return { problems: [`config: ${odd}`] };
 		if (!/^ref: refs\/heads\/[A-Za-z0-9._/-]+\r?\n?$/.test(readFileSync(join(dir, "HEAD"), "utf8"))) return { problems: ["HEAD"] };
 	}
-	const look: Look1 = { config: readFileSync(join(dir, "config")).toString("latin1"), head: readFileSync(join(dir, "HEAD")).toString("latin1"), packs: packs.map((n) => `${n}:${lstatSync(join(packDir, n)).size}`).join(",") };
+	const refValue = refFiles.length ? refFiles.map((f) => readFileSync(join(refs, f), "latin1")).join("|") : "";
+	const look: Look1 = { refs: refValue, config: readFileSync(join(dir, "config")).toString("latin1"), head: readFileSync(join(dir, "HEAD")).toString("latin1"), packs: packs.map((n) => `${n}:${lstatSync(join(packDir, n)).size}`).join(",") };
 	if (before) {
 		if (look.config !== before.config) bad.push("config (changed)");
 		if (look.head !== before.head) bad.push("HEAD (changed)");
+		if (stage === "check" && look.refs !== before.refs) bad.push("refs (changed)");
 		if (stage === "check" && look.packs !== before.packs) bad.push("objects/pack (changed)");
 	}
 	return { problems: bad, look };
@@ -463,7 +465,7 @@ export class CarBook {
 			if (fetched.problems.length) throw tampered(fetched.problems);
 			const got = (await inMirror("rev-parse", "--verify", "-q", mine)).trim();
 			if (got !== tip) throw refusal(`sb: the fetch brought ${got.slice(0, 12)} as the tip of ${base}, but ls-remote read ${tip.slice(0, 12)} (the branch moved between the two, or the fetch was served from another repository); landed is not accepted. Check again`);
-			try { await inMirror("merge-base", "--is-ancestor", commit, mine); } catch { throw refusal(`sb: landed.commit ${commit.slice(0, 12)} is not on ${base} of the project's remote: a car has landed only when its commit is on the base's branch there`); }
+			try { await inMirror("merge-base", "--is-ancestor", commit, tip); } catch { throw refusal(`sb: landed.commit ${commit.slice(0, 12)} is not on ${base} of the project's remote: a car has landed only when its commit is on the base's branch there`); }
 			const after = inspectMirror(mirror, code, "check", fetched.look);
 			if (after.problems.length) throw tampered(after.problems);
 		} finally { this.dropMirror(work); }
@@ -471,6 +473,11 @@ export class CarBook {
 	/** Removes the mirror this server made. `rmSync` unlinks a symlink where the folder was, it never follows one out. */
 	private dropMirror(mirror: string | undefined): void {
 		if (!mirror) return;
-		try { rmSync(mirror, { recursive: true, force: true }); } catch (error) { this.d.log?.("cars-mirror", { error: (error as Error).message.slice(0, 200) }); }
+		// A train writing into the folder while it goes can make the removal fail (ENOTEMPTY, EBUSY): a few tries with a short wait, then `cars-mirror-left` (RR3-F003).
+		let last: unknown;
+		for (let i = 0; i < 5; i++) {
+			try { rmSync(mirror, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); return; } catch (error) { last = error; }
+		}
+		this.d.log?.("cars-mirror-left", { folder: mirror, error: (last as Error).message.slice(0, 200) });
 	}
 }

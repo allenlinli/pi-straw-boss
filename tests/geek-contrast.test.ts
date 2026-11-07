@@ -106,3 +106,13 @@ test("a forced-colors block keeps the state shapes and leaves the QR and the ter
 	assert.match(forced, /\.qr[^{}]*\{[^}]*forced-color-adjust:\s*none/);
 	assert.match(forced, /\.term-scroll[^{}]*\{[^}]*forced-color-adjust:\s*none/);
 });
+
+test("the head band's text holds 7 : 1 on the band as Geek paints it: the name and the newest line on --surface-0, the waits chip's amber on its own 16% amber wash (docs/specs/2026-11-07-head-band.md)", () => {
+	const band = rules.find((r) => geekOnly(r) && r.parts.flatMap(expand).includes(`${GEEK} .head-node`) && declarations(r.body).some(([p, v]) => p === "background" && v === "var(--surface-0)"));
+	assert.ok(band, "Geek grounds the band on --surface-0 (the entry's gold gradient does not reach it)");
+	const chip = must(entryRules.find((r) => r.selector === ".head-node .head-waits"), "the waits chip rule");
+	const share = Number(must(/color-mix\(in srgb, var\(--amber\) ([\d.]+)%/.exec(declarations(chip.body).find(([p]) => p === "background")?.[1] ?? "") ?? undefined, "the chip's amber wash")[1]);
+	for (const text of ["text", "dim"]) assert.ok(contrast(geek[text]!, geek["surface-0"]!) >= 7, `--${text} on the band: ${contrast(geek[text]!, geek["surface-0"]!).toFixed(2)}`);
+	const under = mix(geek.amber!, share / 100, geek["surface-0"]!);
+	assert.ok(contrast(geek.amber!, under) >= 7, `the chip's --amber on ${share}% of itself over --surface-0 (${under}): ${contrast(geek.amber!, under).toFixed(2)}`);
+});

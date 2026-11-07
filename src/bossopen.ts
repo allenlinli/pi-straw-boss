@@ -43,7 +43,7 @@ const WORDS = {
 		trustBusy: "The answer is being taken; try again in a moment",
 		trustUnknown: "The answer was not confirmed; look at the opening",
 		trustNoScreen: "The new pi waits on a trust question; answer it in the GUI or in its terminal (this session has no pi screen to ask in)",
-		linkUsage: "/boss link [status] | link decide <id> approve|refuse",
+		linkUsage: "/boss link [status] | link decide <id> approve|refuse | confirms | confirm <id> allow|deny | asks | answer <id> <choice number | text> | invite show|cancel <hash> | join <invite|@file> | join cancel | create <relay> <dir> | leave <team>",
 		linkOff: "Straw Link is not on in this server",
 		linkDevice: (label: string, short: string) => `This device: ${label} (${short})`,
 		linkNoTeams: "No team yet",
@@ -88,7 +88,7 @@ const WORDS = {
 		trustBusy: "正在處理答案，請稍後再試",
 		trustUnknown: "答案沒有得到確認，請看這次開啟的結果",
 		trustNoScreen: "新的 pi 在等信任問題；請在 GUI 或它的終端機回答（本工作階段沒有 pi 畫面可以問）",
-		linkUsage: "/boss link [status] | link decide <id> approve|refuse",
+		linkUsage: "/boss link [status] | link decide <id> approve|refuse | confirms | confirm <id> allow|deny | asks | answer <id> <選項編號 | 文字> | invite show|cancel <hash> | join <邀請|@檔案> | join cancel | create <中繼站> <資料夾> | leave <團隊>",
 		linkOff: "這個伺服器沒有開 Straw Link",
 		linkDevice: (label: string, short: string) => `本裝置：${label}（${short}）`,
 		linkNoTeams: "還沒有團隊",
@@ -111,7 +111,7 @@ const WORDS = {
 } as const;
 
 /** One word of a typed line: a quoted run (single or double quotes) or a run without spaces, and what follows it. */
-function firstWord(text: string): { word: string; rest: string } {
+export function firstWord(text: string): { word: string; rest: string } {
 	const quoted = /^(["'])(.*?)\1(?:\s+|$)([\s\S]*)$/.exec(text);
 	if (quoted) return { word: quoted[2]!, rest: quoted[3]!.trim() };
 	const plain = /^(\S+)(?:\s+([\s\S]*))?$/.exec(text);
@@ -153,9 +153,11 @@ export interface OpenDeps {
 	baseName?(workspace: string): Promise<string | undefined>;
 	/** How often an opening is asked for a trust question. */
 	pollMs?: number;
+	/** More lines for `link status` (bosslink.ts: the open invites, the join in progress, the confirms and questions that wait). */
+	extra?(view: LinkView): string[];
 }
 
-export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, noScreen, lang, baseName, pollMs = POLL_MS }: OpenDeps) {
+export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, noScreen, lang, baseName, pollMs = POLL_MS, extra }: OpenDeps) {
 	const t = () => WORDS[lang()];
 
 	/** The trust question an opening waits on, asked in pi; the answer goes to the route the page's dialog posts to. A dismissed question stays open for the GUI or the terminal. */
@@ -220,7 +222,7 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 				const role = (x: string) => (x === "admin" ? t().linkRoleAdmin : t().linkRoleMember);
 				const teams = view.teams.flatMap((x) => [t().linkTeam(x.name, role(x.self.role), x.status === "running", x.stoppedWhy ?? ""), ...x.members.map((m) => t().linkMember(m.label, m.short, role(m.role), m.attended, m.online, m.self))]);
 				const requests = view.joinRequests.length ? [t().linkRequests, ...view.joinRequests.map((q) => t().linkRequest(q.id.slice(0, 8), q.label, q.short, q.teamName, q.unattended))] : [t().linkNoRequests];
-				return tell([t().linkDevice(view.label, view.short), ...(teams.length ? teams : [t().linkNoTeams]), ...requests].join("\n"));
+				return tell([t().linkDevice(view.label, view.short), ...(teams.length ? teams : [t().linkNoTeams]), ...requests, ...(extra?.(view) ?? [])].join("\n"));
 			}
 			const hit = view.joinRequests.filter((q) => q.id === parsed.id || (parsed.id.length >= 4 && q.id.startsWith(parsed.id)));
 			if (!hit.length) return tell(t().linkNoRequest(parsed.id), "error");

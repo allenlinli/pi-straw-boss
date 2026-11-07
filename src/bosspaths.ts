@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { type GuiRecord, postServer } from "./handover.ts";
 import { workspaces } from "./herdr.ts";
+import { createBossLink } from "./bosslink.ts";
 import { createBossOpen } from "./bossopen.ts";
 import { hereOnlyOpts } from "./intercept.ts";
 import type { createHost } from "./host.ts";
@@ -146,8 +147,13 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 		return hit.length === 1 ? hit[0]! : hit.length ? t().many(query, hit.map(label)) : t().none(query);
 	}
 
+	const more = createBossLink(kit, { record, post, why, confirm, lang });
+	const open = createBossOpen(kit, { record, post, why, confirm, noScreen: () => t().noScreen, lang, baseName: async (id) => (await workspaces(cfg.run).catch(() => [])).find((w) => w.workspace_id === id)?.label, pollMs, extra: more.status });
+
 	return {
-		...createBossOpen(kit, { record, post, why, confirm, noScreen: () => t().noScreen, lang, baseName: async (id) => (await workspaces(cfg.run).catch(() => [])).find((w) => w.workspace_id === id)?.label, pollMs }),
+		...open,
+		/** `/boss link …`: confirms, questions, invites, join, create, and leave are bosslink.ts's; status and decide are bossopen.ts's. */
+		link: (rest: string | undefined, cwd = process.cwd()) => (more.handles(rest) ? more.run(rest!, cwd) : open.link(rest)),
 		/** The refusal for `/boss stash --workspace` with no value. */
 		needWorkspace: () => tell(t().needWorkspace, "error"),
 		/** `/boss close <name|key>` (or `close all <workspace>` with `onlyBase`): quits another unit, squad, or base after the boss confirms in pi. */

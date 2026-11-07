@@ -170,3 +170,35 @@ test("storeOwnerWorld reads the run records and the route table of the box's own
 	assert.deepEqual(ownerOf(w, "s-main"), { team: A });
 	assert.deepEqual(ownerOf(w, "s-exp"), { box: true });
 });
+
+// ---- a reading that is kept (review OW-F004) ---------------------------------------------------------------------------------------------------------------------------------------
+
+const settled = (f: Facts, key: string) => ownerOf(world(f), key, true);
+
+test("OW-F004: a reading that is kept says nobody's while the records are still being written: a pane the listing does not hold yet, a token with no row yet, a row with no token yet", () => {
+	const missing: Facts = { refs: [ref("s-main", "main", "p9")], panes: [pane("p1", "t1")], rows: [] };
+	assert.deepEqual(own(missing, "s-main"), { box: true }, "the guard's reading is the box's, as before");
+	assert.equal(settled(missing, "s-main"), undefined, "a listing that predates the pane");
+	const tokenOnly: Facts = { refs: [ref("s-main", "main", "p1")], panes: [pane("p1", "t1", by(alice.id))], rows: [] };
+	assert.deepEqual(own(tokenOnly, "s-main"), { box: true });
+	assert.equal(settled(tokenOnly, "s-main"), undefined, "the pane's token before the opened row");
+	const rowOnly: Facts = { refs: [ref("s-main", "main", "p1")], panes: [pane("p1", "t1")], rows: [opened("s-main", alice.id, A)] };
+	assert.deepEqual(own(rowOnly, "s-main"), { box: true });
+	assert.equal(settled(rowOnly, "s-main"), undefined, "the row before the pane's token");
+	const member: Facts = { refs: [ref("s-main", "main", "p1"), ref("s-member", "member", "p2")], panes: [pane("p1", "t1", by(alice.id)), pane("p2", "t1")], rows: [] };
+	assert.equal(settled(member, "s-member"), undefined, "a member of the same tab");
+});
+
+test("OW-F004: a reading that is kept still says the team once both witnesses agree, and the box's where there is nothing to wait for", () => {
+	const agree: Facts = { refs: [ref("s-main", "main", "p1")], panes: [pane("p1", "t1", by(alice.id))], rows: [opened("s-main", alice.id, A)] };
+	assert.deepEqual(settled(agree, "s-main"), { team: A });
+	const none: Facts = { refs: [ref("s-main", "main", "p1")], panes: [pane("p1", "t1")], rows: [] };
+	assert.deepEqual(settled(none, "s-main"), { box: true }, "no witness at all: a session opened at the box");
+	const disagree: Facts = { refs: [ref("s-main", "main", "p1")], panes: [pane("p1", "t1", by(bob.id))], rows: [opened("s-main", alice.id, A)] };
+	assert.deepEqual(settled(disagree, "s-main"), { box: true }, "two witnesses that disagree attribute nothing");
+	const junk: Facts = { refs: [ref("s-main", "main", "p1")], panes: [pane("p1", "t1", { sb_opened_by: "link:not-a-device" })], rows: [opened("s-main", "not-a-device", A)] };
+	assert.deepEqual(settled(junk, "s-main"), { box: true });
+	const run: Facts = { refs: [ref("ally-r1", "ally"), ref("s-tower", "main", "p3")], panes: [pane("p3", "t3")], runs: { r1: { kind: "ally", team: A, device: alice.id } } };
+	assert.deepEqual(settled(run, "ally-r1"), { team: A }, "an ally run needs no listing");
+	assert.deepEqual(settled({ ...none, unread: true }, "s-main"), undefined, "no listing: nobody's, as before");
+});

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -9,7 +9,7 @@ import { boxesOf } from "../src/server/operatehost.ts";
 import type { Base, Net, Ref, Unit } from "../src/net.ts";
 import { addRoute } from "../src/server/allyroute.ts";
 import { idOf } from "../src/server/operateledger.ts";
-import { operateFacts, operateRecord } from "../src/server/operatewire.ts";
+import { operateFacts, operateRecord, operateWire } from "../src/server/operatewire.ts";
 import type { Scope } from "../src/server/operatescope.ts";
 import { slotOf } from "../src/server/record.ts";
 import type { Transcripts } from "../src/watch.ts";
@@ -30,7 +30,7 @@ const none: Transcripts = { has: () => false, lookup: () => undefined, list: asy
 // ---- the holder's one operate sink (link/service.ts) ----------------------------------------------------------------------------------------------------------------------------
 
 test("wire 1: an attended holder's sink is the controller's, an unattended one's the box's, and a holder given neither has none", () => {
-	const box = () => undefined, controller = { receive: () => undefined, status: () => [], off: () => undefined };
+	const box = () => undefined, controller = { receive: () => undefined, status: () => [], offSince: () => undefined, off: () => ({ saved: true }), on: () => ({ saved: true }) };
 	assert.equal(operateSink(true, { operate: box, controller }).operate, controller.receive, "attended: the controller takes it, which lists operate/1 in the caps");
 	assert.equal(operateSink(false, { operate: box, controller }).operate, box, "unattended: the box's bridge, never the controller's");
 	assert.deepEqual(operateSink(true, { operate: box }), {}, "attended with no controller (a secondary server): no sink, no caps entry");
@@ -138,6 +138,34 @@ test("wire 3: the seam reads and watches a transcript the ledger shows its sessi
 	assert.equal((await bare.request("GET", ["transcripts"], new URLSearchParams(), {}, scope)).status, 404);
 });
 
+test("OW-F009/M10: only a read takes the transcripts' reach: a write on a key the registry knows, out of the scope, stays refused though the ledger shows a run under that key", async () => {
+	const x = await seamWorld({ units: { [TK]: "main" } }), transcripts: Transcripts = { has: (key) => key === TK, lookup: (key) => (key === TK ? { key, base: "wA", name: "old run", role: "ally", file: x.path, live: false } : undefined), list: async () => ({ status: 200, body: { rows: [] } }) };
+	const s = x.operate.open(() => undefined, transcripts), scope = scopeOf(["sess-1"]);
+	assert.equal((await s.request("GET", ["history", TK], new URLSearchParams(), {}, scope)).status, 200, "a read goes through the ledger's reach");
+	for (const [m, parts, body] of [["POST", ["sessions", TK, "input"], { text: "hi" }], ["POST", ["sessions", TK, "keys"], { key: "enter" }], ["POST", ["close", "unit"], { key: TK }], ["POST", ["dismiss"], { key: TK }]] as const) {
+		const done = await s.request(m, [...parts], new URLSearchParams(), { ...body }, scope);
+		assert.ok(done.status === 403 || done.status === 404, `${parts.join("/")}: ${done.status}`);
+	}
+	assert.deepEqual(x.typed(), [], "nothing reached the unit");
+	assert.deepEqual(x.effects, [], "and nothing was closed or dismissed");
+});
+
+test("OW-F009/M11: a watch on a transcript the ledger still shows survives a rescope: the new scope is read with the ledger's reach, not raw", async () => {
+	const x = await seamWorld(), shown = new Set([TK]), seen: [string, string, unknown][] = [];
+	const transcripts: Transcripts = { has: (key) => shown.has(key), lookup: (key) => (shown.has(key) ? { key, base: "wA", name: "old run", role: "ally", file: x.path, live: false } : undefined), list: async () => ({ status: 200, body: { rows: [] } }) };
+	const s = x.operate.open((id, event, data) => void seen.push([id, event, data]), transcripts), scope = scopeOf([]);
+	assert.equal((await s.watch("w1", TK, true, scope)).status, 200);
+	await x.wait(() => seen.some(([id, e]) => id === "w1" && e === "history"));
+	await s.rescope(scopeOf([]));
+	await s.rescope(scopeOf(["sess-1"]));
+	// The first event of a watch is a reset; the one that ends it is the same key unknown, with no reset.
+	const ended = () => seen.some(([id, , d]) => id === "w1" && (d as { state?: string; reset?: boolean }).state === "unknown" && (d as { reset?: boolean }).reset === false);
+	assert.equal(ended(), false, "the watch was not ended by a rescope that the ledger's reach still covers");
+	shown.clear();
+	await s.rescope(scopeOf(["sess-1"]));
+	assert.equal(ended(), true, "and it ends once the ledger stops showing the run");
+});
+
 // ---- the ledger's record on the box (operatewire.ts) -----------------------------------------------------------------------------------------------------------------------
 
 const WS = "wA", TEAM = A;
@@ -183,6 +211,89 @@ test("wire 2: the box's observer hands the ledger the whole registry with each u
 	assert.deepEqual(logs, []);
 });
 
+// ---- the owner a run is first written with, and the box's own reading of its net (review OW-F004, the box's slow timer) ------------------------------------------------------------------
+
+/** A box with one main in a tab, a session file for it, and the facts a reading is made from; `listing` and `net` are for the test to change. */
+function lateBox(name: string) {
+	const stateDir = join(scratch, `${name}-state`), sessions = join(scratch, `${name}-sessions`);
+	mkdirSync(sessions, { recursive: true });
+	const slot = slotOf(stateDir, {}, "linux"), now = Date.now();
+	const f = join(sessions, `2026-11-07T00-00-00-000Z_${name}.jsonl`);
+	writeFileSync(f, lines([header(name), user("u1", null, "go"), assistant("a1", "u1", [text("done")])]));
+	const refs: Ref[] = [{ key: name, base: WS, name, role: "main", pane: "p1", file: realpathSync(f) }];
+	const calls: (boolean | undefined)[] = [];
+	const net = netOf(baseOf(WS, [["t1", [unit(name)]]], { label: "billing" }));
+	const listing: { panes: object[] } = { panes: [] };
+	const run: HerdrRun = async () => JSON.stringify({ result: listing });
+	const gui = () => ({ api: { snapshot: async (_scope: unknown, fresh?: boolean) => (calls.push(fresh), net) } as never, refs: () => refs, lookup: (key: string) => refs.find((r) => r.key === key) as never });
+	const link = () => ({ holder: { list: () => [] }, store: { log: () => undefined } }) as never;
+	const facts = operateFacts({ slot, now: () => now, run, gui, allyPanes: () => [] });
+	const record = operateRecord({ slot, now: () => now, gui, link, sessionDir: sessions }, facts);
+	const opened = () => addRoute(slot, WS, { to: name, device: alice.id, team: TEAM, kind: "opened", at: now, name, label: "x", short: "x", teamName: "x" }, now);
+	return { slot, now, facts, record, listing, calls, opened, gui, link, run, sessions, name };
+}
+const placed = (): object[] => [{ pane_id: "p1", tab_id: "t1", workspace_id: WS, tokens: { sb_opened_by: `link:${alice.id}` } }, { pane_id: "px", tab_id: "t1", workspace_id: WS }];
+
+test("OW-F004: a reading reads Herdr's listing after the net, so a pane the net shows is in it: an owner is never fixed from a listing that predates the pane", async () => {
+	const b = lateBox("late-pane");
+	await b.facts.refresh(); // the listing the facts hold is older than the pane
+	b.listing.panes = placed();
+	b.opened();
+	await b.record.observe();
+	assert.deepEqual(b.record.ledger.rows().map((r) => [r.name, r.team]), [[b.name, TEAM]]);
+});
+
+test("OW-F004: a unit whose pane token is there and whose opened row is not written yet has no row (not the box's), and is placed by the reading after the row", async () => {
+	const b = lateBox("late-row");
+	b.listing.panes = placed();
+	await b.record.observe();
+	assert.deepEqual(b.record.ledger.rows(), [], "token before row: nobody's for now, so no row is made as the box's");
+	b.opened();
+	await b.record.observe();
+	assert.deepEqual(b.record.ledger.rows().map((r) => [r.name, r.team, r.device, r.ended === true]), [[b.name, TEAM, alice.id, false]]);
+	assert.equal(existsSync(join(b.slot.stateDir, "link", "operate-ledger.jsonl")), true);
+});
+
+test("OW-F004: a listing that cannot be read leaves rows as they are: it neither makes the box's rows nor ends the team's", async () => {
+	const b = lateBox("no-listing");
+	b.listing.panes = placed();
+	b.opened();
+	await b.record.observe();
+	assert.equal(b.record.ledger.rows().length, 1);
+	const failing = operateFacts({ slot: b.slot, now: () => b.now, run: async () => { throw new Error("herdr is down"); }, gui: b.gui, allyPanes: () => [] });
+	const again = operateRecord({ slot: b.slot, now: () => b.now, gui: b.gui, link: b.link, sessionDir: b.sessions }, failing);
+	await again.observe();
+	assert.deepEqual(again.ledger.rows().map((r) => [r.team, r.ended === true]), [[TEAM, false]]);
+});
+
+test("the box's slow reading: nothing runs until the policy says operate, then the net is read at once with a fresh read and every netMs; it stops when asked and with the bridge", async () => {
+	const b = lateBox("slow");
+	b.listing.panes = placed();
+	b.opened();
+	const timers: { ms: number; fn: () => void; stopped: boolean }[] = [];
+	const wire = operateWire({ slot: b.slot, now: () => b.now, run: b.run, gui: b.gui, allyPanes: () => [], link: b.link, sessionDir: b.sessions, netMs: 777, every: (ms, fn) => { const t = { ms, fn, stopped: false }; timers.push(t); return () => void (t.stopped = true); } });
+	assert.equal(timers.length, 0, "a bridge that is built reads nothing and arms nothing by itself");
+	assert.equal(wire.net.running(), false);
+	wire.net.start();
+	wire.net.start();
+	assert.equal(timers.filter((t) => t.ms === 777).length, 1, "one timer however often it is started");
+	assert.equal(wire.net.running(), true);
+	await new Promise((r) => setImmediate(r));
+	await new Promise((r) => setImmediate(r));
+	assert.deepEqual(b.calls, [true], "read now, fresh: no page or session keeps the box's net current");
+	assert.equal(existsSync(join(b.slot.stateDir, "link", "operate-ledger.jsonl")), true);
+	timers.find((t) => t.ms === 777)!.fn();
+	await new Promise((r) => setImmediate(r));
+	await new Promise((r) => setImmediate(r));
+	assert.deepEqual(b.calls, [true, true], "and again at each beat");
+	wire.net.stop();
+	assert.equal(timers.find((t) => t.ms === 777)!.stopped, true);
+	assert.equal(wire.net.running(), false);
+	wire.net.start();
+	wire.stop();
+	assert.equal(timers.filter((t) => t.ms === 777).at(-1)!.stopped, true, "stopping the bridge stops its reading too");
+});
+
 // ---- the controller's host: transcripts of a box (operatehost.ts, operatesanitize.ts) ------------------------------------------------------------------------------------------
 
 test("wire 4: a page's list of a box's finished runs goes to the session that shows the base, with the cursor and not the base, and its rows come back as the page's keys", async () => {
@@ -193,26 +304,44 @@ test("wire 4: a page's list of a box's finished runs goes to the session that sh
 	const base = w.host.merge({ bases: [] }).bases[0]!.id;
 	assert.equal(w.host.bridge.claim("GET", ["transcripts"], {}, new URLSearchParams({ limit: "5" })), undefined, "no base named: not a box's request");
 	assert.equal(w.host.bridge.claim("GET", ["transcripts"], {}, new URLSearchParams({ base: "x0000000000000000" })), undefined, "a base nobody shows");
-	const claim = w.host.bridge.claim("GET", ["transcripts"], {}, new URLSearchParams({ base, limit: "20", before: "5:0123456789abcdef" }))!;
+	// A cursor the page never held is no cursor: the box's own ledger id is not something a page can name (review OW-F006), and nothing of it reaches the box.
+	const before = w.box().reqs().length;
+	for (const hostile of ["5:0123456789abcdef", "5:x0000000000000000", "abc", "5:" + "a".repeat(62), ":x0123456789abcdef", "5:x0123456789abcdef:1"]) {
+		const refused = await w.host.bridge.claim("GET", ["transcripts"], {}, new URLSearchParams({ base, before: hostile }))!.send();
+		assert.deepEqual([refused.status, (refused.body as { error: string }).error], [400, "bad_request"], hostile);
+	}
+	await w.pump();
+	assert.equal(w.box().reqs().length, before, "none of them was sent to the box");
+	const claim = w.host.bridge.claim("GET", ["transcripts"], {}, new URLSearchParams({ base, limit: "20" }))!;
 	assert.ok(claim);
 	const answer = claim.send();
 	await w.pump();
 	const asked = w.box().reqs().at(-1)!;
-	assert.deepEqual([asked.m, asked.parts, asked.q], ["GET", ["transcripts"], { limit: "20", before: "5:0123456789abcdef" }]);
+	assert.deepEqual([asked.m, asked.parts, asked.q], ["GET", ["transcripts"], { limit: "20" }]);
 	w.box().rep(asked.id as string, 200, {
 		rows: [
 			{ id: "0123456789abcdef", name: "ally run", role: "ally", workspace: "billing", dispatcher: "agent-tower-01", first: 1, last: 2, size: 10 },
 			{ id: "../../etc/passwd", name: "x", role: "ally", workspace: "billing", first: 1, last: 2, size: 10 },
 			{ id: "fedcba9876543210", name: "main one", role: "main", workspace: "billing", first: 3, last: 4, size: 20, path: "/etc/passwd", extra: 1 },
+			{ id: "00112233445566aa", name: "free text role", role: "the boss said so", workspace: "billing", first: 3, last: 4, size: 20 },
 		],
-		before: "2:0123456789abcdef",
+		before: "2:fedcba9876543210",
 	});
 	await w.pump();
 	const done = await answer, body = done.body as { rows: Record<string, unknown>[]; before?: string };
 	assert.equal(done.status, 200);
-	assert.deepEqual(body.rows.map((r) => Object.keys(r).sort().join()), ["dispatcher,first,key,last,name,role,size,workspace", "first,key,last,name,role,size,workspace"], "a row that names no run is dropped, and a field the schema does not know is not passed on");
+	assert.deepEqual(body.rows.map((r) => Object.keys(r).sort().join()), ["dispatcher,first,key,last,name,role,size,workspace", "first,key,last,name,role,size,workspace"], "a row that names no run is dropped, and so is a role that is no word of the list, and a field the schema does not know is not passed on");
 	assert.ok(body.rows.every((r) => /^x[0-9a-f]{16}$/.test(String(r.key))));
-	assert.equal(body.before, "2:0123456789abcdef");
+	assert.equal(body.before, `2:${body.rows[1]!.key}`, "the cursor names the last row by its key, as the page holds it");
+	assert.ok(!JSON.stringify(body).includes("fedcba9876543210"), "the box's own ledger id is not passed on");
+	// The next page: the page gives the cursor back, and the box gets its own id again.
+	const next = w.host.bridge.claim("GET", ["transcripts"], {}, new URLSearchParams({ base, limit: "20", before: body.before! }))!.send();
+	await w.pump();
+	const second = w.box().reqs().at(-1)!;
+	assert.deepEqual(second.q, { limit: "20", before: "2:fedcba9876543210" });
+	w.box().rep(second.id as string, 200, { rows: [] });
+	await w.pump();
+	assert.equal((await next).status, 200);
 	// A row is read through its key like any unit of the box: history goes to the box named by `t<id>`, and the key is no key of a unit.
 	const key = String(body.rows[0]!.key), read = w.host.bridge.claim("GET", ["history", key], {}, new URLSearchParams({ limit: "10" }))!;
 	assert.ok(read);

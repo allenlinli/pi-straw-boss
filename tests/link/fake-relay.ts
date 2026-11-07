@@ -3,10 +3,12 @@ import { decodeEntry, entryHash, type RosterEntry, encodeEntry } from "../../src
 import { encodeEnvelope, parseEnvelope, type Envelope } from "../../src/link/envelope.ts";
 
 // An in-memory relay behind a `fetch`: the endpoints the link holder uses (envelopes, events, acks, roster), with the delivery rules that matter to
-// it. Queued envelopes are kept until the addressee acknowledges them and come again on every new stream, whatever its Last-Event-ID; ephemeral
-// ones reach only open streams. It does not check signatures: the real relay does, in tests/link-relay-live.test.ts.
+// it. Queued envelopes are kept until the addressee acknowledges them and come again on every new stream, whatever its Last-Event-ID; an ephemeral
+// one reaches the streams open when it is posted, and the last one of each sender, kind and addressee set comes again on a new stream when its event
+// id is past the Last-Event-ID, as the real relay's `EventsAfter` does (internal/store/store.go). It does not check signatures: the real relay
+// does, in tests/link-relay-live.test.ts.
 
-interface Stored { id: string; envelope: Envelope; to: Set<string>; ephemeral: boolean; acked: Set<string> }
+interface Stored { id: string; eid: number; envelope: Envelope; to: Set<string>; ephemeral: boolean; acked: Set<string> }
 interface Stream { device: string; team: string; controller: ReadableStreamDefaultController<Uint8Array>; closed: boolean }
 
 const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
@@ -27,6 +29,8 @@ export class FakeRelay {
 	dropAcks = false;
 	/** Answers every event stream with this status (401: the device was removed). */
 	refuseStreams: number | undefined;
+	/** A new stream is given the last ephemeral envelope of each sender and kind that is past its Last-Event-ID (the real relay does; a test of a relay that does not turns it off). */
+	replayEphemerals = true;
 	/** A POST of an envelope waits for this to settle before it is answered (to look at the sender's state meanwhile). */
 	holdPosts: Promise<void> | undefined;
 	failPosts = 0;
@@ -97,7 +101,7 @@ export class FakeRelay {
 		return live.length;
 	}
 	private deliver(s: Stream, st: Stored) {
-		this.send(s, "envelope", { id: st.id, from: st.envelope.header.from, ephemeral: st.ephemeral, envelope: Buffer.from(encodeEnvelope(st.envelope)).toString("base64url") });
+		this.send(s, "envelope", { id: st.id, from: st.envelope.header.from, ephemeral: st.ephemeral, envelope: Buffer.from(encodeEnvelope(st.envelope)).toString("base64url") }, st.eid);
 	}
 
 	fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -175,7 +179,7 @@ export class FakeRelay {
 		const to = new Set(h.to.length ? h.to : members.filter((x) => x !== h.from));
 		const stale = h.ephemeral && h.ts <= (this.timestamps.get(`${h.from}/${h.kind}`) ?? 0);
 		if (h.ephemeral) this.timestamps.set(`${h.from}/${h.kind}`, h.ts);
-		const st: Stored = { id, envelope, to, ephemeral: h.ephemeral, acked: new Set() };
+		const st: Stored = { id, eid: ++this.eid, envelope, to, ephemeral: h.ephemeral, acked: new Set() };
 		this.stored.push(st);
 		for (const s of this.streams.filter((x) => x.team === team && !x.closed && to.has(x.device))) this.deliver(s, st);
 		return json(201, { id, duplicate: false, stale });
@@ -191,6 +195,11 @@ export class FakeRelay {
 				this.opened.push({ device, lastEventId: last });
 				// Every queued envelope this device has not acknowledged, whatever the Last-Event-ID.
 				for (const st of this.stored) if (!st.ephemeral && st.to.has(device) && !st.acked.has(device)) this.deliver(stream, st);
+				if (this.replayEphemerals) {
+					const after = last === null ? 0 : Number(last), latest = new Map<string, Stored>();
+					for (const st of this.stored) if (st.ephemeral && st.envelope.header.kind !== "operate" && st.to.has(device) && st.envelope.header.from !== device && hex(st.envelope.header.team) === team) latest.set(`${st.envelope.header.from}/${st.envelope.header.kind}/${[...st.to].sort().join(",")}`, st);
+					for (const st of [...latest.values()].sort((a, b) => a.eid - b.eid)) if (st.eid > after) this.deliver(stream, st);
+				}
 				signal?.addEventListener("abort", () => { stream.closed = true; try { controller.error(new DOMException("aborted", "AbortError")); } catch { /* closed */ } }, { once: true });
 			},
 		});

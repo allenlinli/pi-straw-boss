@@ -44,7 +44,8 @@ export interface OperateSession {
 export interface Operate {
 	/** `transcripts` are the finished runs this session's scope reaches (server/operateledger.ts `within`, §9): its hub lists them, and a `t<id>` key it holds is read and watched like a unit in scope. */
 	open(sink: Sink, transcripts?: Transcripts): OperateSession;
-	snapshot(scope: OperateScope): Promise<Net>;
+	/** The net as `scope` sees it: the last reading, or a fresh one with `fresh` (the reading is otherwise kept current only while a page or a session listens). */
+	snapshot(scope: OperateScope, fresh?: boolean): Promise<Net>;
 	/** Calls back after each reading of the net that differs from the one before; returns the way to stop. */
 	changed(listener: () => void): () => void;
 }
@@ -71,7 +72,7 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 	const roleOf = (key: string) => files.lookup(key)?.role;
 
 	const api_: Operate = {
-		snapshot: async (scope) => sliceNet(await net(), scope),
+		snapshot: async (scope, fresh) => sliceNet(await net(fresh), scope),
 		changed: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
 		open(sink, transcripts) {
 			/** The scope for what a session reads: a `t<id>` its ledger shows it is in scope (the ledger holds the scope itself), and every other key is the scope's own. Only reads and watches take it: nothing else is done to a transcript. */

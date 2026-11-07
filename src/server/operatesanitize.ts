@@ -1,5 +1,6 @@
 import { sanitize as mirrorRow } from "../mirror.ts";
 import type { Base, Net, Outpost, Tab, TowerService, Unit } from "../net.ts";
+import { UNIT_ROLES } from "./operateroles.ts";
 
 // What the controller lets through from an operate box (docs/specs/2026-11-07-link-operate.md §6.4): the box is treated as hostile, so everything it sends is rebuilt field by field from a schema before any page sees it.
 // Known fields only (anything else is dropped, never passed on); every string is plain text (controls, bidi overrides and invisible characters become spaces, or go) with a length of its own; marks, roles and states come from their enums;
@@ -211,13 +212,18 @@ const then = (v: unknown) => {
 };
 /** A finished run of the box's ledger (§9): its `id` becomes the page's key for the run's transcript (`t<id>` on the box), so the page reads it through `api/history` like any unit. */
 const finishedRun: P<unknown> = (v, rw) => {
-	const base = shape<{ id: string; name: string; role: string; workspace: string; first: number; last: number; size: number; dispatcher?: string }>({ id: hex(16), name: str(200), role: str(12), workspace: str(200), first: num, last: num, size: int(0, 1e12) }, { dispatcher: str(100) })(v, rw);
+	const base = shape<{ id: string; name: string; role: string; workspace: string; first: number; last: number; size: number; dispatcher?: string }>({ id: hex(16), name: str(200), role: lit(...UNIT_ROLES), workspace: str(200), first: num, last: num, size: int(0, 1e12) }, { dispatcher: str(100) })(v, rw);
 	if (!base) return undefined;
 	const { id, ...rest } = base;
 	return { key: rw.key(`t${id}`), ...rest };
 };
+/** The cursor of the next page of finished runs: the box's is `<last>:<its ledger id>`, and the id is a key like the rows' (the box's own id is never passed on): the page gets `<last>:<key of the last row>` and gives it back as it is. */
+const cursor: P<string> = (v, rw) => {
+	const m = typeof v === "string" ? /^(\d{1,16}):([0-9a-f]{16})$/.exec(v) : null;
+	return m ? `${m[1]}:${rw.key(`t${m[2]}`)}` : undefined;
+};
 const bodyOf: Record<ReplyKind, P<unknown>> = {
-	transcripts: shape({ rows: list(finishedRun, 50) }, { before: str(64) }),
+	transcripts: shape({ rows: list(finishedRun, 50) }, { before: cursor }),
 	history: shape({ items: itemList }, { before: str(200) }),
 	entry: item,
 	image: () => undefined, // an image never takes this path (sanitizeImage)

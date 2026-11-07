@@ -61,6 +61,10 @@ export interface OperateHostDeps {
 	log(entry: Record<string, unknown>): void;
 	/** The tick of the clock (default 1 s); `false` leaves it to the caller (`tick()`), as a test with a fake clock does. */
 	interval?: number | false;
+	/** The boss turned operate off here (`/boss link operate off`, kept until `on`): no session opens or stays while it says so, and the clock stops when none is left. */
+	paused?(): boolean;
+	/** Whether this computer can operate a box at all: a link holder runs here and the device is attended. The clock runs only while it says so, so a computer with no Link, or an unattended one, ticks nothing and reads no policy (read when a page comes or leaves, and when the caller says `on`). Default: yes. */
+	enabled?(): boolean;
 }
 /** A claimed request: what the page asked of a unit that belongs to a box. `send` takes the body again only for an upload's bytes. */
 export interface Claim { send(bytes?: Buffer): Promise<Reply> }
@@ -128,7 +132,7 @@ function kindOf(method: "GET" | "POST", parts: string[]): ReplyKind {
 export function createOperateHost(deps: OperateHostDeps) {
 	const sessions = new Map<string, Sess>(), pending = new Map<string, Pending>(), groups = new Map<string, Group>(), mirrorGroups = new Map<string, MirrorGroup>();
 	const streams = new Map<string, Send>(), frameAt = new Map<string, number>(), keysSent = new Map<string, number[]>(), told = new Set<string>(), listeners = new Set<() => void>();
-	let stopped = false, pages = 0, leftAt: number | undefined, offUntil = 0, version = 0, counter = 0, timer: ReturnType<typeof setInterval> | undefined, cache: { version: number; bases: Base[]; events: NonNullable<Net["events"]>; dialogs: Map<string, Set<string>> } | undefined;
+	let stopped = false, pages = 0, leftAt: number | undefined, version = 0, counter = 0, timer: ReturnType<typeof setInterval> | undefined, cache: { version: number; bases: Base[]; events: NonNullable<Net["events"]>; dialogs: Map<string, Set<string>> } | undefined;
 	const now = () => deps.now();
 	const changed = () => { version++; for (const l of [...listeners]) try { l(); } catch { /* a listener's failure is not the host's */ } };
 
@@ -400,7 +404,13 @@ export function createOperateHost(deps: OperateHostDeps) {
 			body = bytes.toString("base64");
 		}
 		const q: Record<string, string> = {};
-		for (const [k, v] of [...query].filter(([k]) => parts[0] !== "transcripts" || k !== "base").slice(0, 8)) if (k.length <= 32 && v.length <= (k === "name" ? NAME_ENCODED : 200)) q[k] = v;
+		for (const [k, v] of [...query].filter(([k]) => parts[0] !== "transcripts" || (k !== "base" && k !== "before")).slice(0, 8)) if (k.length <= 32 && v.length <= (k === "name" ? NAME_ENCODED : 200)) q[k] = v;
+		if (parts[0] === "transcripts" && query.has("before")) {
+			// The page's cursor is `<last>:<key of the last row>`; the box's is `<last>:<its own id>`, which the page never held. A key this session did not give is no cursor.
+			const m = /^(\d{1,16}):(x[0-9a-f]{16})$/.exec(query.get("before")!), id = m ? /^t([0-9a-f]{16})$/.exec(rawOf(sess, m[2]!) ?? "")?.[1] : undefined;
+			if (!m || !id) return no(400, "bad_request", "`before` is the cursor a page gave.");
+			q.before = `${m[1]}:${id}`;
+		}
 		return ask(sess, kindOf(method, parts), method, out, q, body);
 	}
 
@@ -551,6 +561,8 @@ export function createOperateHost(deps: OperateHostDeps) {
 			if (s.deferred !== undefined && s.session) { const raw = s.deferred; s.snapAt = 0; snap(s, raw); }
 		}
 		for (const [id, p] of [...pending]) if (t - p.at >= REQUEST_MS) (pending.delete(id), p.done(no(504, "timeout", "The box did not answer; check before sending again.")));
+		if (deps.paused?.()) { for (const s of [...sessions.values()]) close(s, "off"); return pulse(); }
+		if (!(deps.enabled?.() ?? true)) { for (const s of [...sessions.values()]) close(s, "gone"); return pulse(); }
 		if (pages === 0 && leftAt !== undefined && t - leftAt >= IDLE_MS) { for (const s of [...sessions.values()]) close(s, "idle"); leftAt = undefined; return; }
 		if (pages === 0 && leftAt === undefined) return;
 		const offered = deps.boxes(), ids = new Set(offered.map((o) => `${o.team}/${o.device}`));
@@ -563,15 +575,17 @@ export function createOperateHost(deps: OperateHostDeps) {
 				sessions.set(id, s);
 			}
 			s.offer = offer;
-			if (s.session || t < s.retryAt || t < s.refusedUntil || t < offUntil) continue;
+			if (s.session || t < s.retryAt || t < s.refusedUntil) continue;
 			open(s);
 		}
 		for (const s of sessions.values()) if (s.ghostUntil !== undefined && s.ghostUntil > 0 && t >= s.ghostUntil) (s.ghostUntil = -1, changed());
 	}
 	const pulse = () => {
 		if (stopped || deps.interval === false) return;
-		if (sessions.size + pages > 0 && !timer) timer = setInterval(tick, deps.interval ?? OPERATE_LIMITS.tickMs).unref();
-		if (sessions.size + pages === 0 && timer) (clearInterval(timer), (timer = undefined));
+		// While operate is off here nothing opens, so the clock runs only for a session that is still closing.
+		const wanted = (deps.enabled?.() ?? true) && (deps.paused?.() ? [...sessions.values()].some((s) => s.session) : sessions.size + pages > 0);
+		if (wanted && !timer) timer = setInterval(tick, deps.interval ?? OPERATE_LIMITS.tickMs).unref();
+		if (!wanted && timer) (clearInterval(timer), (timer = undefined));
 	};
 
 	return {
@@ -609,10 +623,15 @@ export function createOperateHost(deps: OperateHostDeps) {
 		status: () => [...sessions.values()].filter((s) => s.state !== "idle").map((s) => ({ team: s.offer.team, device: s.offer.device, label: s.offer.label, short: s.offer.short, teamName: s.offer.teamName, scope: s.scope.box ? "box" : "team", state: s.state, since: s.openedAt, pages })),
 		/** A team stopped (removal, fork, leave): its sessions end now. */
 		closeTeam(team: string): void { for (const s of [...sessions.values()]) if (s.offer.team === team) close(s, "team-stopped"); },
-		/** `/boss link operate off`: every session ends, and none opens again for a minute (the pages that stay would else reopen them at the next tick). */
+		/** `/boss link operate off`: every session ends (the caller has the `paused` answer say so first), and none opens until `on`. */
 		off(): void {
-			offUntil = now() + 60_000;
 			for (const s of [...sessions.values()]) close(s, "off");
+			pulse();
+		},
+		/** `/boss link operate on`: the clock runs again for the pages that are connected, and the sessions open at its next tick. */
+		on(): void {
+			pulse();
+			queueMicrotask(tick);
 		},
 		stop(): void {
 			stopped = true;

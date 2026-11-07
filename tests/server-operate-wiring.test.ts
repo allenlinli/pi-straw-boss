@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { get, request } from "node:http";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { readRecord as readGuiJson } from "../src/handover.ts";
+import { buildEnvelope } from "../src/link/envelope.ts";
+import { encodePlaintext } from "../src/link/kinds.ts";
 import { OPERATE_LIMITS } from "../src/link/operate.ts";
 import { LinkStore } from "../src/link/store.ts";
 import { addEntry, removeEntry, roleEntry } from "../src/link/roster.ts";
@@ -13,7 +15,7 @@ import { callControl } from "../src/server/socket.ts";
 import { FakeRelay } from "./link/fake-relay.ts";
 import { World } from "./fakes.ts";
 import { alice, bob, clientFor, rosterOf, stateOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
-import { det, DEVICES, LABELS, TEAM, view } from "./link/scenario.ts";
+import { det, DEVICES, LABELS, TEAM, teamKey, view } from "./link/scenario.ts";
 import { assistant, header, lines, text, user } from "./sessions.ts";
 import { ServerWorld, sleep, until } from "./server-world.ts";
 
@@ -69,7 +71,7 @@ async function boot(o: { grant?: "team" | "box" | "none" } = {}) {
 	entries.push(addEntry({ state: view(entries), signer: alice, record: dave, label: LABELS.dave, attended: false, ...det("add-dave") }));
 	entries.push(roleEntry({ state: stateOf(entries, alice), signer: alice, subjectId: bob.id, role: "admin" }));
 	relay.addTeam(TEAM, [alice.id, bob.id, dave.id], entries);
-	const link = (world: ServerWorld, policy: Record<string, unknown>) => ({ tickMs: 15, drainMs: 20, presenceMs: 40, capsMs: 3_600_000, capsMinMs: 5, relay: clientFor(relay), home: join(world.root, "home"), policy });
+	const link = (world: ServerWorld, policy: Record<string, unknown>) => ({ tickMs: 15, drainMs: 20, presenceMs: 40, capsMs: 3_600_000, capsMinMs: 5, operateNetMs: 100, relay: clientFor(relay), home: join(world.root, "home"), policy });
 
 	// The box: a team project, a main there that bob dispatched (the box's records and the pane's token say so), a session file in pi's folder, and a policy that grants bob operate.
 	const project = join(boxWorld.root, "home", "project");
@@ -84,7 +86,8 @@ async function boot(o: { grant?: "team" | "box" | "none" } = {}) {
 	boxHerdr.herdr.addPane(PANE, TAB);
 	Object.assign(boxHerdr.herdr.pane(PANE), { cwd: real, agent: "pi", agent_session: { value: realpathSync(file) }, tokens: { sb_role: "main", sb_opened_by: `link:${bob.id}` } });
 	addRoute(boxWorld.slot, WS, { to: SESSION, device: bob.id, team: TEAM_HEX, kind: "opened", at: Date.now(), name: SESSION, label: "x", short: "x", teamName: "x", pane: PANE }, Date.now());
-	const policy = JSON.stringify({ unattended: true, trust: { [bob.id]: "dispatch" }, teams: { [TEAM_HEX]: { project: real, share: "status" } }, ...(o.grant === "none" ? {} : { operate: { [bob.id]: o.grant ?? "box" } }) });
+	const policyOf = (grant: "team" | "box" | "none") => JSON.stringify({ unattended: true, trust: { [bob.id]: "dispatch" }, teams: { [TEAM_HEX]: { project: real, share: "status" } }, ...(grant === "none" ? {} : { operate: { [bob.id]: grant } }) });
+	let policy = policyOf(o.grant ?? "box");
 	const boxLink = link(boxWorld, { path: "/etc/straw-link/policy.json", uid: 501, stat: () => ({ uid: 0, symlink: false }), writable: () => false, read: () => policy });
 	const boxCall = async (method: string) => {
 		if (method === "pane.get") return { pane: { pane_id: PANE, terminal_id: "term_1", agent: "pi", agent_status: "idle", agent_session: { value: realpathSync(file) } } };
@@ -110,8 +113,14 @@ async function boot(o: { grant?: "team" | "box" | "none" } = {}) {
 	// Each device has told the other its caps (they go to the streams open when they are sent, and the second to start sends its own after the first's reached it): the box checks the Mac's before it answers an open.
 	const capsFrom = (id: string) => relay.stored.some((x) => x.envelope.header.kind === "caps" && x.envelope.header.from === id);
 	await until(() => capsFrom(bob.id) && capsFrom(dave.id), "both devices' caps", WAIT);
+	/** The box's policy as the file reads from now on (the holder reads it at each tick). */
+	const setGrant = (grant: "team" | "box" | "none") => void (policy = policyOf(grant));
 	await sleep(150);
-	return { relay, entries, macWorld, boxWorld, boxHerdr, mac, box, file, boxLog: () => logOf(boxWorld), macLog: () => logOf(macWorld), gui: () => GUI(macWorld) };
+	// A server that stops and starts again at once (a pi-straw-boss update, `/boss server restart`): the same state folders, link folders and policy, a new holder with an empty memory of its peers' caps. The real relay replays a `caps` only past
+	// the cursor a restarted holder resumes from, and any queued envelope after the peer's last `caps` (a dispatch, a tower's reply) has moved it there: the stored cursor is set past everything the relay holds, as that leaves it.
+	const restartBox = async () => { writeTeam(boxStore, entries, dave, { lastEventId: 1_000_000 }); const again = await boxWorld.start({ link: boxLink, herdr: { run: boxHerdr.herdr.runFor(""), call: boxCall as never } }); again.client.sessions = box.client.sessions; await again.handle.ready; return again; };
+	const restartMac = async () => { writeTeam(macStore, entries, bob, { lastEventId: 1_000_000 }); const again = await macWorld.start({ link: link(macWorld, none), herdr: { run: macHerdr.herdr.runFor("") } }); await again.handle.ready; return again; };
+	return { relay, entries, macWorld, boxWorld, boxHerdr, mac, box, file, restartBox, restartMac, setGrant, boxLog: () => logOf(boxWorld), macLog: () => logOf(macWorld), gui: () => GUI(macWorld) };
 }
 const logOf = (w: ServerWorld) => { const f = join(w.stateDir, "link", "link.log"); return existsSync(f) ? readFileSync(f, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) : []; };
 const boxBase = (net: Net) => net.bases.find((b) => b.box);
@@ -216,25 +225,108 @@ test("/boss link operate lists the session and `operate off` ends it on both com
 	const w = await paged();
 	const status = await operateStatus(w.macWorld);
 	assert.deepEqual(status.sessions.map((x: Record<string, unknown>) => [x.label, x.short, x.teamName, x.scope, x.state, x.pages]), [["ci-box", dave.shortId, "project", "box", "live", 1]]);
-	assert.deepEqual(await linkGui(w.macWorld, "operate-off"), { ok: true });
+	assert.deepEqual(await linkGui(w.macWorld, "operate-off"), { ok: true, saved: true });
 	assert.deepEqual((await operateStatus(w.macWorld)).sessions, []);
 	await until(() => w.boxLog().some((l) => l.event === "operate-close"), "the box's line", WAIT);
 	assert.deepEqual(w.boxLog().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason]), [["operator", "off"]]);
-	// The page that stays does not bring them back for a minute.
+	// The page that stays does not bring them back.
 	await sleep(1500);
 	assert.deepEqual((await operateStatus(w.macWorld)).sessions, []);
+	assert.equal(typeof (await operateStatus(w.macWorld)).off, "number", "the status says since when");
 });
 
-test("an unattended box answers the same command with no session, and a box with no operate entry in its policy is refused once and shows nothing", async () => {
+test("OW-F003: operate off stays off across a GUI that starts again and a server that starts again, until operate on, and the switch is a mode 600 file of the device's own", async () => {
+	const w = await paged(), socket = () => ({ socket: w.macWorld.record()!.socket, secret: w.macWorld.record()!.secret });
+	assert.deepEqual(await linkGui(w.macWorld, "operate-off"), { ok: true, saved: true });
+	const file = join(w.macWorld.stateDir, "link", "operate-off.json");
+	assert.equal(statSync(file).mode & 0o777, 0o600);
+	const since = (JSON.parse(readFileSync(file, "utf8")) as { since: number }).since;
+	assert.equal((await operateStatus(w.macWorld)).off, since);
+	// The GUI stops and starts again (a new host is built for it): still off.
+	assert.equal((await callControl(socket().socket, socket().secret, { cmd: "gui-stop" })).reply?.ok, true);
+	w.page.close();
+	assert.equal((await callControl(socket().socket, socket().secret, { cmd: "gui", boss: true } as never)).reply?.ok, true);
+	const again = listen(GUI(w.macWorld));
+	cleanups.push(() => again.close());
+	await sleep(2000);
+	assert.equal(again.nets().some((n) => boxBase(n)), false, "a new GUI, a new host, and no base");
+	assert.deepEqual((await operateStatus(w.macWorld)).sessions, []);
+	// The server stops and starts again: still off, since the same moment.
+	again.close();
+	await w.mac.handle.shutdown(0);
+	await w.restartMac();
+	const afterRestart = listen(GUI(w.macWorld));
+	cleanups.push(() => afterRestart.close());
+	await sleep(2000);
+	assert.equal(afterRestart.nets().some((n) => boxBase(n)), false, "a new server, and no base");
+	assert.equal((await operateStatus(w.macWorld)).off, since);
+	// On: the base comes back at the next tick, and the file is gone.
+	assert.deepEqual(await linkGui(w.macWorld, "operate-on"), { ok: true, saved: true });
+	assert.equal(existsSync(file), false);
+	await until(() => afterRestart.nets().some((n) => boxBase(n)?.box?.state === "live"), "the base after on", WAIT);
+	assert.equal((await operateStatus(w.macWorld)).off, undefined);
+});
+
+test("OW-F003: operate off and on answer on the box with the other ops: an unattended device has no switch", async () => {
+	const w = await boot();
+	assert.equal((await linkGui(w.boxWorld, "operate-off")).ok, false);
+	assert.equal((await linkGui(w.boxWorld, "operate-on")).ok, false);
+});
+
+test("an unattended box answers the same command with no session, and a box whose policy has no operate entry is offered to nobody: no open, no line, no timer", async () => {
 	const w = await boot({ grant: "none" }), gui = w.gui(), page = listen(gui);
 	cleanups.push(() => page.close());
-	await until(() => w.boxLog().some((l) => l.event === "operate-open"), "the box's refusal", WAIT);
-	assert.deepEqual(w.boxLog().filter((l) => l.event === "operate-open").map((l) => l.verdict), ["not-granted"]);
-	await sleep(500);
-	assert.equal(page.nets().some((n) => boxBase(n)?.box?.state === "live"), false);
+	await sleep(1500); // the Mac's host looks at its offers every second; the box has no operate/1 in its caps, so it has none
+	assert.equal(page.nets().some((n) => boxBase(n)), false, "the box is no base of the Mac's net");
 	assert.deepEqual((await operateStatus(w.boxWorld)).sessions, [], "an unattended device has no controller end");
-	assert.deepEqual(w.macLog().filter((l) => String(l.event).startsWith("operate-")).map((l) => [l.event, l.reason ?? l.verdict]), [["operate-close", "not-granted"]], "the Mac wrote the one line of the refusal and nothing else");
-	assert.equal(w.boxLog().filter((l) => l.event === "operate-open").length, 1, "a refusal is remembered: the box is not asked again");
+	assert.deepEqual(w.boxLog().filter((l) => String(l.event).startsWith("operate")), [], "the box wrote no operate line");
+	assert.deepEqual(w.macLog().filter((l) => String(l.event).startsWith("operate")), [], "nor did the Mac");
+	assert.equal(existsSync(join(w.boxWorld.stateDir, "link", "operate-ledger.jsonl")), false, "and the box has no bridge, so no ledger and no reading of its net");
+});
+
+test("OW-F002: an open that comes to a box whose policy grants nobody is dropped before any bridge is built: no line, no policy watch, no ledger", async () => {
+	const w = await boot({ grant: "none" });
+	const roster = view(w.entries), m = { session: Buffer.alloc(16, 7), type: "open" as const, eph: Buffer.alloc(32, 9), caps: ["operate/1"], want: "box" as const };
+	const forged = buildEnvelope({ team: TEAM, epoch: roster.epoch, teamKey: teamKey(roster.epoch), head: roster.head, from: bob, seq: 0, ts: Date.now(), kind: "operate", to: [dave.id], plaintext: encodePlaintext("operate", m) });
+	assert.equal(w.relay.injectLive(TEAM_HEX, forged, dave.id), 1);
+	await sleep(500);
+	assert.deepEqual(w.boxLog().filter((l) => String(l.event).startsWith("operate")), []);
+	assert.equal(existsSync(join(w.boxWorld.stateDir, "link", "operate-ledger.jsonl")), false);
+});
+
+test("OW-F002: a policy that gains an operate grant offers the box to the Mac at once, and one that loses it takes the base away", async () => {
+	const w = await boot({ grant: "none" }), gui = w.gui(), page = listen(gui);
+	cleanups.push(() => page.close());
+	await sleep(500);
+	assert.equal(page.nets().some((n) => boxBase(n)), false);
+	w.setGrant("box");
+	await until(() => page.nets().some((n) => boxBase(n)?.box?.state === "live"), "the base after the grant", WAIT);
+	w.setGrant("none");
+	await until(() => !boxBase(page.nets().at(-1)!), "the base gone after the grant went", WAIT);
+});
+
+test("OW-F002: a policy that gains an operate grant starts the box's slow reading of its net, and one that loses it stops it", async () => {
+	const w = await boot({ grant: "none" });
+	const file = join(w.boxWorld.stateDir, "link", "operate-ledger.jsonl");
+	await sleep(400);
+	assert.equal(existsSync(file), false, "no grant, no reading");
+	w.setGrant("box");
+	await until(() => existsSync(file) && readFileSync(file, "utf8").includes(TEAM_HEX), "the ledger row after the grant, with no page", WAIT);
+	w.setGrant("none");
+	await sleep(500); // the holder reads the policy at each tick (15 ms here)
+	boxHerdr(w).panes.splice(0);
+	w.box.client.sessions = [] as never;
+	await sleep(1000); // ten readings of the box's net, had its timer kept running
+	assert.equal(readFileSync(file, "utf8").trim().split("\n").some((l) => (JSON.parse(l) as { ended?: boolean }).ended), false, "the box no longer reads its net: the run that ended after the grant went has no end line");
+});
+
+test("the box reads its own net on a slow timer while its policy grants operate, with no session and no page: a run that starts and ends unobserved still has a ledger row", async () => {
+	const w = await boot();
+	const file = join(w.boxWorld.stateDir, "link", "operate-ledger.jsonl");
+	await until(() => existsSync(file) && readFileSync(file, "utf8").includes(TEAM_HEX), "the ledger row, with no page", WAIT);
+	boxHerdr(w).panes.splice(0);
+	w.box.client.sessions = [] as never;
+	await until(() => readFileSync(file, "utf8").trim().split("\n").some((l) => (JSON.parse(l) as { ended?: boolean }).ended), "the end line, with no page", WAIT);
 });
 
 test("a GUI that stops and starts again in the same server gets a host of its own: the stopped one is final, and the box's base comes back", async () => {
@@ -253,3 +345,24 @@ test("a GUI that stops and starts again in the same server gets a host of its ow
 const link = async (w: ServerWorld, body: Record<string, unknown>) => (await callControl(w.record()!.socket, w.record()!.secret, { cmd: "link", from: w.record()!.intercomId, body } as never)).reply!.answer as Record<string, any>;
 const linkGui = (w: ServerWorld, name: string) => link(w, { op: "gui", name, args: {} });
 const operateStatus = (w: ServerWorld) => linkGui(w, "operate");
+
+// ---- a quick restart of either end (review OW-F001) -------------------------------------------------------------------------------------------------------------------------
+
+test("OW-F001: the box's server restarts at once: the Mac's base is live again with no wait for an hourly caps", async () => {
+	const w = await paged();
+	await w.box.handle.shutdown(0);
+	await until(() => boxBase(w.page.nets().at(-1)!)?.box?.state === "unreachable", "the base greyed", WAIT);
+	await w.restartBox();
+	await until(() => boxBase(w.page.nets().at(-1)!)?.box?.state === "live", "the base live again", WAIT);
+	assert.equal(w.boxLog().filter((l) => l.event === "operate-send-failed" && l.why === "peer").length, 0, "the box never met a controller whose caps it did not know");
+});
+
+test("OW-F001: the Mac's server restarts at once: a new page sees the box's base live again", async () => {
+	const w = await paged();
+	w.page.close();
+	await w.mac.handle.shutdown(0);
+	await w.restartMac();
+	const again = listen(GUI(w.macWorld));
+	cleanups.push(() => again.close());
+	await until(() => again.nets().some((n) => boxBase(n)?.box?.state === "live"), "the base live on the restarted Mac", WAIT);
+});

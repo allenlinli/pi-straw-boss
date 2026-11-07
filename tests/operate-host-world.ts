@@ -24,9 +24,9 @@ export function hostWorld(o: { teams?: string[]; box?: boolean; devices?: string
 	const clock = fakeClock(1_800_000_000_000), registry = new OperateRegistry(clock.now), logs: Record<string, unknown>[] = [], offers: BoxOffer[] = (o.teams ?? [A]).flatMap((t) => [offer(t), ...(o.devices ?? []).map((d) => offer(t, { device: d, short: d.slice(0, 6) }))]);
 	const toBox: { team: string; device: string; message: OperateMessage }[] = [], boxes = new Map<string, FakeBox>(), changes = { n: 0 };
 	let down = false, failing = false;
-	const stats = { opens: 0 };
+	const stats = { opens: 0 }, paused = { on: false };
 	const host = createOperateHost({
-		now: clock.now, device: () => alice.id, boxes: () => offers, log: (e) => void logs.push(e), interval: false,
+		now: clock.now, device: () => alice.id, boxes: () => offers, paused: () => paused.on, log: (e) => void logs.push(e), interval: false,
 		send: async (team, device, message) => { if (failing) throw new Error("relay down"); if (message.type === "open") stats.opens++; if (!down) toBox.push({ team, device, message }); return { delivered: 1 }; },
 	});
 	host.onChange(() => void changes.n++);
@@ -83,5 +83,5 @@ export function hostWorld(o: { teams?: string[]; box?: boolean; devices?: string
 		await pump();
 		return left;
 	};
-	return { clock, host, box, logs, offers, pump, run, page, changes, stats, registry, partition: (v: boolean) => (down = v), /** The relay refuses every send (the holder's `sendLive` rejects). */ fail: (v: boolean) => (failing = v), sent: () => toBox };
+	return { paused, clock, host, box, logs, offers, pump, run, page, changes, stats, registry, partition: (v: boolean) => (down = v), /** The relay refuses every send (the holder's `sendLive` rejects). */ fail: (v: boolean) => (failing = v), sent: () => toBox };
 }

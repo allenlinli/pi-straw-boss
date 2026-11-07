@@ -63,7 +63,7 @@
     <!-- What acts on the map's contents comes and goes with them, so it sits here rather than shift the header. -->
     <div class="menu-pop hud-pop" id="bar-pop" popover role="group" aria-label="More" data-m-label="menu_more">
       <div class="bar-acts">
-        <a class="pair-btn head-btn" id="head-btn" href="head" data-route="head" hidden data-m-label="head_tower" data-m-title="head_tower"><svg viewBox="0 0 512 512" aria-hidden="true"><use href="#i-crown"/></svg><span data-m="head_tower">Head tower</span><i class="dot" hidden></i></a>
+        <a class="pair-btn head-btn" id="head-btn" href="head" data-route="head" hidden data-m-label="head_tower" data-m-title="head_tower"><svg viewBox="0 0 512 512" aria-hidden="true"><use data-icon="crown" href="#i-crown"/></svg><span data-m="head_tower">Head tower</span><i class="dot" hidden></i></a>
         <button class="pair-btn" id="dismiss-all" type="button" data-close="dismiss-all" hidden></button>
         <button class="pair-btn" id="stashed" type="button" popovertarget="stashed-pop" aria-haspopup="dialog" hidden></button>
         <div class="hud-pop done-pop" id="stashed-pop" popover><ul id="stashed-list"></ul></div>
@@ -83,7 +83,7 @@
       <main class="map view" id="map">
         <svg class="links" id="links" aria-hidden="true"></svg>
         <div class="packets" id="packets" aria-hidden="true"></div>
-        <a class="head-node" id="head-node" href="head" data-route="head" hidden><span class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use href="#i-crown"/></svg><b class="badge"></b></span><span class="crown"><svg><use href="#i-crown"/></svg><b class="head-name" data-m="head_tower">Head tower</b></span><span class="tstate"></span></a>
+        <a class="head-node" id="head-node" href="head" data-route="head" hidden><span class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use data-icon="crown" href="#i-crown"/></svg><b class="badge"></b></span><span class="crown"><svg><use data-icon="crown" href="#i-crown"/></svg><b class="head-name" data-m="head_tower">Head tower</b></span><span class="tstate"></span></a>
         <div class="bases" id="bases"><button type="button" class="new-base" data-open="base" data-m="new_base">+ New base</button></div>
       </main>
       <section class="zoom view" id="ws-view" hidden></section>

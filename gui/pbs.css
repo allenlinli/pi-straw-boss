@@ -23,7 +23,6 @@
 	max-width: 100%;
 	margin: 0 0 8px;
 }
-[data-view="geek"] .pbs-block { --pbs-font-size: 13px; }
 /* What the page says under a block: that its answer is on its way, or why the unit did not take it. */
 .pbs-note { margin: 0 0 8px; color: var(--dim); font: 12px/1.4 var(--sans); }
 .pbs-note:empty { display: none; }

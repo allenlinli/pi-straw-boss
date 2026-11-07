@@ -1,5 +1,5 @@
 import { replay } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
 import { aim } from "./render.ts";
 import type { NetRoute } from "./router.ts";
 import { HEAD_KEY } from "../src/headkey.ts";
@@ -15,7 +15,7 @@ export function crumbs(scene: Readonly<Scene>) {
 	};
 	const nav = document.getElementById("crumbs")!, { route: r, net, info } = scene;
 	if (r.view === "map") return nav.replaceChildren(part("b", "Straw Net"), part("span", m.all_bases()));
-	if (r.view === "head" || (r.view === "session" && r.ws === HEAD_KEY)) return nav.replaceChildren(part("a", "Straw Net", { view: "map" }), part("b", m.head_tower()));
+	if (r.view === "head" || (r.view === "session" && r.ws === HEAD_KEY)) return nav.replaceChildren(part("a", "Straw Net", { view: "map" }), part("b", noun("head_tower")));
 	const label = net?.bases.find((b) => b.id === r.ws)?.label ?? r.ws, name = r.view === "session" ? (locate(net, r.key)?.u.name ?? info?.name ?? r.key) : "";
 	// A subagent sits under the session that launched it, and that one under its own launcher.
 	const chain: { key: string; name: string }[] = [];

@@ -71,7 +71,7 @@ export function createHost({ pi, cfg, s, guiDir, tell }: Kit, { connected, ask }
 			const found = r.ok ? record() : undefined;
 			return found ? { record: found } : { error: r.error ?? "the server wrote no gui.json" };
 		},
-		/** `mode` is "", "stop", "rotate", "remote", "remote off", "lan", "lan off", "lan reset", "view", or "view <auto|standard|geek|zen>", and works from any session: the GUI and the access over a network are the server's. */
+		/** `mode` is "", "stop", "rotate", "remote", "remote off", "lan", "lan off", "lan reset", "view", or "view <name>" (a name of src/views.ts), and works from any session: the GUI and the access over a network are the server's. */
 		async command(mode: string) {
 			if (/^view\b/.test(mode)) {
 				// The server's default view: a device that follows the server shows it, a device with a choice of its own keeps that. Only this command writes it (the page has no way to). Setting it starts the sb server, not a GUI that was stopped; showing it starts nothing.

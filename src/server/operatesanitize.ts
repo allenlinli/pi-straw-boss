@@ -5,8 +5,7 @@ import type { Base, Net, Outpost, Tab, TowerService, Unit } from "../net.ts";
 // Known fields only (anything else is dropped, never passed on); every string is plain text (controls, bidi overrides and invisible characters become spaces, or go) with a length of its own; marks, roles and states come from their enums;
 // a unit key is refused when it names a path segment `..` or `.`, holds a backslash or a control, or is over 200 characters, and what is refused takes its subtree with it; images are `image/png|jpeg|gif|webp` under 1 MB with the
 // bytes the type says; `then` in an answer's reply is limited to `terminal` and `run`, never `pane`; a reply's status is a number from 200 to 599 and its body under 1 MB. Documents never cross: a card keeps its names and its `cap` is empty.
-// Every id the page uses is rewritten: a unit key to `x<16 hex of sha256(box ‖ box key)>` (the same for the same unit in every session of that box, so a unit two sessions show is one unit), a base id and a tab id with the team in
-// the hash as well. No box key reaches a URL, and no id from the box is one the page can point at a local unit.
+// Every id the page uses is rewritten: a unit key to `x<16 hex of sha256(box ‖ box key)>` (the same for the same unit in every session of that box, so a unit two sessions show is one unit), a base id and a tab id the same, each with its own tag (a tab's also with its workspace). The team is in none of the hashes (§11.3), so one box shows one key for a unit in every team's session. No box key reaches a URL, and no id from the box is one the page can point at a local unit.
 
 /** What the sanitizer needs from its host: the rewrite of the ids of one (box, team), and a place to say that a field was refused. */
 export interface Rewrite {
@@ -79,7 +78,15 @@ const lately = { since: num, ticks, todo: todoSum };
 const option = shape({ title: str(200) }, { description: str(600), preview: yes });
 const ask = shape({ question: str(4000, true), options: list(option, 50), multiple: bool, freeform: bool }, { header: str(200), context: str(8000, true) });
 const choice = shape({ label: str(300) }, { note: str(600), localOnly: yes, hereOnly: yes, next: lit("terminal", "pane"), tagged: yes });
-const select = shape({ title: str(600, true), choices: list(choice, 20) }, { copy: str(4000, true), confirm: yes });
+const selectShape = shape<{ title: string; choices: unknown[]; copy?: string; confirm?: true }>({ title: str(600, true), choices: list(choice, 20) }, { copy: str(4000, true), confirm: yes });
+/** The text Copy command puts on this computer's clipboard comes from the box: it is offered only when it is one line and stands whole in the title the page shows, so what is copied is what was read (a box cannot show `ls` and copy a script). */
+const select: P<unknown> = (v, rw) => {
+	const r = selectShape(v, rw);
+	if (r?.copy === undefined || (!/[\r\n]/.test(r.copy) && r.title.includes(r.copy))) return r;
+	rw.bad("copy");
+	const { copy: _copy, ...rest } = r;
+	return rest;
+};
 const question = shape({ question: str(4000, true), multiple: bool, options: list(option, 50) }, { header: str(200) });
 const answerable = shape({ dialog: str(64), digest: hex(64) }, { select, questions: list(question, 8), twin: yes, cancel: yes });
 const pending = shape({ callId: str(200), tool: str(200) }, { ask, asks: list(ask, 4), why: str(600), answer: answerable });

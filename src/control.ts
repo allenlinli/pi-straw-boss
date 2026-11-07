@@ -205,7 +205,7 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 		if (!same(String(req.headers["x-sb-csrf"] ?? ""), csrf)) return no(403, "csrf", "The page's token is out of date; reload the page.");
 		if (file) {
 			// A box's unit takes the file through its session: at most 2 MB (decision 11), held in memory, then sent sealed.
-			const far = bridge?.claim("POST", ["sessions", key, "upload"]);
+			const far = bridge?.claim("POST", ["sessions", key, "upload"], {}, new URLSearchParams({ name: String(req.headers["x-sb-name"] ?? "") })); // the file's name travels in the query, as the box reads it
 			if (far) {
 				const bytes = await bytesOf(req, MAX_REMOTE_UPLOAD);
 				return Buffer.isBuffer(bytes) ? far.send(bytes) : bytes;

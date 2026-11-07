@@ -19,6 +19,8 @@ const LOCAL: Net = { bases: [baseOf("local-ws", [["t0", [unit("local-1")]]])] };
 const PENDING = (dialog: string) => ({ callId: "c1", tool: "ask_user", answer: { dialog, digest: "a".repeat(64), select: { title: "Allow?", choices: [{ label: "Allow" }, { label: "Deny" }] } } });
 const flags = { remote: false, secure: false };
 const settled = async <T>(p: Promise<T>): Promise<T | "pending"> => Promise.race([p, new Promise<"pending">((r) => setImmediate(() => r("pending")))]);
+/** An answer this end gives itself (a refusal, a bad request): a guard that is gone would forward the request and wait for a box's reply the fake clock never ends, so the test fails here instead of hanging (OHR-F013). */
+const here = async <T>(p: Promise<T>, what = "answered here, not forwarded to the box"): Promise<T> => { const r = await settled(p); assert.notEqual(r, "pending", what); return r as T; };
 const control = (w: ReturnType<typeof hostWorld>) => createControl({ bridge: w.host.bridge, lookup: () => undefined, csrf: "c", canonical: () => undefined });
 const unitsOf = (net: Net) => net.bases.flatMap((b) => b.tabs.flatMap((t) => t.units));
 /** The page's key for a box unit: only what the merged net shows. */
@@ -231,7 +233,7 @@ test("the table's refusals never leave this computer: focus, spawning, closing a
 		[["sessions", key, "bogus"], {}], [["close", "all"], { key }],
 	];
 	for (const [parts, json] of refused) {
-		const r = await c.run(parts, json, flags);
+		const r = await here(c.run(parts, json, flags), JSON.stringify(parts));
 		assert.equal(r.status, 403, JSON.stringify(parts));
 		assert.equal((r.body as { error: string }).error, "operate_refused", JSON.stringify(parts));
 	}
@@ -244,7 +246,7 @@ test("a tower route needs the box scope: a team-only session refuses it before t
 	await w.page();
 	w.box().snap(netOf(baseOf("wA", [["t1", [unit("a-main")]]], { tower })));
 	await w.pump();
-	const r = await control(w).run(["tower", baseKey(w, "ws wA"), "memory"], { op: "read" }, flags);
+	const r = await here(control(w).run(["tower", baseKey(w, "ws wA"), "memory"], { op: "read" }, flags));
 	assert.deepEqual([r.status, (r.body as { why: string }).why], [403, "out-of-scope"]);
 	assert.equal(w.box().reqs().length, 0);
 	const w2 = hostWorld({ box: true });
@@ -265,7 +267,7 @@ test("close/unit and dismiss name the box's unit; close/tab names the box's base
 	const tabOf = (label: string) => w.host.merge(LOCAL).bases.find((b) => b.label === label)!.tabs[0]!.id;
 	const tab = await post(w, ["close", "tab"], { workspace: baseKey(w, "billing"), tab: tabOf("billing") });
 	assert.deepEqual(tab.asked[0]!.body, { workspace: "wA", tab: "t1" });
-	const crossed = await control(w).run(["close", "tab"], { workspace: baseKey(w, "billing"), tab: tabOf("other") }, flags);
+	const crossed = await here(control(w).run(["close", "tab"], { workspace: baseKey(w, "billing"), tab: tabOf("other") }, flags));
 	assert.equal(crossed.status, 404);
 	assert.equal(w.box().reqs().length, 3, "the crossed one never left");
 	void close.pending; void dismiss.pending; void tab.pending;
@@ -274,8 +276,8 @@ test("close/unit and dismiss name the box's unit; close/tab names the box's base
 test("dismiss takes a unit's key only: a base's key is not one, and `all` (every team's finished units) is refused here before the box is asked", async () => {
 	const w = await live();
 	const c = control(w);
-	assert.equal((await c.run(["dismiss", "", ""], { key: baseKey(w, "billing") }, flags)).status, 404);
-	const all = await c.run(["dismiss", "", ""], { key: keyOf(w, "a-main"), all: true }, flags);
+	assert.equal((await here(c.run(["dismiss", "", ""], { key: baseKey(w, "billing") }, flags))).status, 404);
+	const all = await here(c.run(["dismiss", "", ""], { key: keyOf(w, "a-main"), all: true }, flags));
 	assert.deepEqual([all.status, (all.body as { why: string }).why], [403, "route"]);
 	assert.equal(w.box().reqs().length, 0);
 });
@@ -311,9 +313,9 @@ test("history, entry and image reads go through the claim with the box's key and
 test("an upload goes as base64, at most 2 MB, and names the file in the query", async () => {
 	const w = await live();
 	const key = keyOf(w, "a-main"), claim = w.host.bridge.claim("POST", ["sessions", key, "upload"], {}, new URLSearchParams("name=pic.png"))!;
-	const big = await claim.send(Buffer.alloc(2 * 1024 * 1024 + 1, 1));
+	const big = await here(claim.send(Buffer.alloc(2 * 1024 * 1024 + 1, 1)));
 	assert.equal(big.status, 413);
-	assert.equal((await claim.send(Buffer.alloc(0))).status, 400);
+	assert.equal((await here(claim.send(Buffer.alloc(0)))).status, 400);
 	assert.equal(w.box().reqs().length, 0);
 	const sent = claim.send(Buffer.from("hello"));
 	await w.pump();
@@ -327,10 +329,10 @@ test("an upload goes as base64, at most 2 MB, and names the file in the query", 
 test("control.ts holds a paired device's text to the guards before it reaches a box: a local-only /boss command, a secret value", async () => {
 	const w = await live();
 	const key = keyOf(w, "a-main"), c = control(w), phone = { remote: true, secure: true };
-	assert.equal((await c.run(["sessions", key, "input"], { text: "/boss gui stop", as: "send" }, phone)).status, 403);
-	assert.equal((await c.run(["sessions", key, "input"], { text: "", as: "send" }, phone)).status, 400);
-	assert.equal((await c.run(["sessions", key, "input"], { text: "x\u0007y", as: "send" }, phone)).status, 400);
-	assert.equal((await c.run(["sessions", key, "answer"], { dialog: "d", digest: "a".repeat(64), answerId: "a".repeat(16), value: "secret" }, phone)).status, 403);
+	assert.equal((await here(c.run(["sessions", key, "input"], { text: "/boss gui stop", as: "send" }, phone))).status, 403);
+	assert.equal((await here(c.run(["sessions", key, "input"], { text: "", as: "send" }, phone))).status, 400);
+	assert.equal((await here(c.run(["sessions", key, "input"], { text: "x\u0007y", as: "send" }, phone))).status, 400);
+	assert.equal((await here(c.run(["sessions", key, "answer"], { dialog: "d", digest: "a".repeat(64), answerId: "a".repeat(16), value: "secret" }, phone))).status, 403);
 	assert.equal(w.box().reqs().length, 0);
 	// The same text from this computer's own page is the box's to refuse (it checks again, §7).
 	const own = await post(w, ["sessions", key, "input"], { text: "/boss gui stop", as: "send" });
@@ -430,20 +432,20 @@ test("a terminal is asked of the box once, its frames come back under the page's
 test("the pad's keys go only while this page's stream got a frame in the last 5 s, at most 4 a second; Stop's Escape needs neither", async () => {
 	const w = await live();
 	const t = await terminal(w), keys = (extra: Record<string, unknown>) => t.c.run(["sessions", t.key, "keys"], { stream: "s1", ...extra }, flags);
-	assert.equal((await keys({ key: "up" })).status, 409, "no frame yet");
+	assert.equal((await here(keys({ key: "up" }))).status, 409, "no frame yet");
 	w.box().ev("m:a-main", "mirror", frame("a-main"));
 	await w.pump();
 	const sent = ["up", "down", "left", "right"].map((key) => keys({ key }));
 	await w.pump();
 	assert.equal(w.box().reqs().filter((r) => (r.parts as string[])[2] === "keys").length, 4);
-	const over = await keys({ key: "up" });
+	const over = await here(keys({ key: "up" }));
 	assert.deepEqual([over.status, (over.body as { error: string }).error], [429, "rate"]);
 	await w.run(1000);
 	for (const r of w.box().reqs().filter((r) => (r.parts as string[])[2] === "keys")) w.box().rep(r.id as string, 200, { accepted: true });
 	await w.pump();
 	await Promise.all(sent);
 	await w.run(5000);
-	assert.equal((await keys({ key: "up" })).status, 409, "the last frame is older than 5 s");
+	assert.equal((await here(keys({ key: "up" }))).status, 409, "the last frame is older than 5 s");
 	const stop = t.c.run(["sessions", t.key, "keys"], { keys: ["esc"] }, flags);
 	await w.pump();
 	assert.deepEqual(w.box().reqs().at(-1)!.body, { keys: ["esc"] });
@@ -529,11 +531,15 @@ test("a close by the box for its policy or roster replaces the base with one lin
 	assert.equal(w.host.merge(LOCAL).bases[1]!.box!.state, "live");
 });
 
-test("a word the box invents for its close or refusal reaches the page as `other`", async () => {
+test("a word the box invents for its refusal reaches the page as `other`; one it invents for a close is no revocation, the base greys and reopens", async () => {
 	const w = await live();
 	w.box().close("<script>alert(1)</script>");
 	await w.pump();
-	assert.equal(w.host.merge(LOCAL).bases[1]!.box!.why, "other");
+	assert.deepEqual([w.host.merge(LOCAL).bases[1]!.box!.state, w.host.merge(LOCAL).bases[1]!.box!.why], ["unreachable", undefined]);
+	const r = hostWorld();
+	r.box().policy = "<script>alert(1)</script>";
+	await r.page();
+	assert.deepEqual([r.host.merge(LOCAL).bases[1]!.box!.state, r.host.merge(LOCAL).bases[1]!.box!.why], ["ended", "other"]);
 });
 
 test("a refusal is remembered for 10 minutes, shows as one line for a minute once, and is not shown again", async () => {
@@ -755,6 +761,7 @@ test("an upload to a box's unit over HTTP is read up to 2 MB and sent as the box
 		const sent = post(Buffer.from("file bytes"));
 		await pumped(w, () => w.box().reqs().length === 1, "the upload request");
 		assert.deepEqual([w.box().reqs()[0]!.parts, w.box().reqs()[0]!.body], [["sessions", "a-main", "upload"], Buffer.from("file bytes").toString("base64")]);
+		assert.deepEqual(w.box().reqs()[0]!.q, { name: "pic.png" }, "X-Sb-Name reaches the box as the query's name (OHR-F007)");
 		w.box().rep(w.box().reqs()[0]!.id as string, 200, { path: "/tmp/f" });
 		await w.pump();
 		assert.deepEqual([(await sent).status, JSON.parse((await sent).body)], [200, { path: "/tmp/f" }]);

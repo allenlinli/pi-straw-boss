@@ -17,22 +17,23 @@ export const unit = (key: string, over: Partial<Unit> = {}): Unit => ({ id: key,
 export const baseOf = (id: string, tabs: [string, Unit[]][], over: Partial<Base> = {}): Base => ({ id, label: `ws ${id}`, mark: "idle", tower: null, outposts: [], outside: [], tabs: tabs.map(([tab, units]) => ({ id: tab, label: `tab ${tab}`, units })), ...over });
 export const netOf = (...bases: Base[]): Net => ({ bases });
 
-export interface FakeBox { team: string; session?: OperateSession; inner: OperateInner[]; policy: "accept" | string; scope: { teams: Buffer[]; box: boolean }; limits: { mirrors: number; watches: number; budget: number }; opens: number; snap(net: unknown): void; rep(id: string, status: unknown, body: unknown): void; ev(id: string, e: string, d: unknown): void; send(inner: OperateInner): void; close(reason: string): void; reqs(): OperateInner[]; watches(): OperateInner[] }
+export interface FakeBox { team: string; device: string; session?: OperateSession; inner: OperateInner[]; policy: "accept" | string; scope: { teams: Buffer[]; box: boolean }; limits: { mirrors: number; watches: number; budget: number }; opens: number; snap(net: unknown): void; rep(id: string, status: unknown, body: unknown): void; ev(id: string, e: string, d: unknown): void; send(inner: OperateInner): void; close(reason: string): void; reqs(): OperateInner[]; watches(): OperateInner[] }
 
-export function hostWorld(o: { teams?: string[]; box?: boolean } = {}) {
-	const clock = fakeClock(1_800_000_000_000), registry = new OperateRegistry(clock.now), logs: Record<string, unknown>[] = [], offers: BoxOffer[] = (o.teams ?? [A]).map((t) => offer(t));
-	const toBox: { team: string; message: OperateMessage }[] = [], boxes = new Map<string, FakeBox>(), changes = { n: 0 };
-	let down = false;
+/** `devices` adds boxes of other devices to each team (one box per team and device). */
+export function hostWorld(o: { teams?: string[]; box?: boolean; devices?: string[] } = {}) {
+	const clock = fakeClock(1_800_000_000_000), registry = new OperateRegistry(clock.now), logs: Record<string, unknown>[] = [], offers: BoxOffer[] = (o.teams ?? [A]).flatMap((t) => [offer(t), ...(o.devices ?? []).map((d) => offer(t, { device: d, short: d.slice(0, 6) }))]);
+	const toBox: { team: string; device: string; message: OperateMessage }[] = [], boxes = new Map<string, FakeBox>(), changes = { n: 0 };
+	let down = false, failing = false;
 	const stats = { opens: 0 };
 	const host = createOperateHost({
 		now: clock.now, device: () => alice.id, boxes: () => offers, log: (e) => void logs.push(e), interval: false,
-		send: async (team, device, message) => { if (message.type === "open") stats.opens++; if (device === dave.id && !down) toBox.push({ team, message }); return { delivered: 1 }; },
+		send: async (team, device, message) => { if (failing) throw new Error("relay down"); if (message.type === "open") stats.opens++; if (!down) toBox.push({ team, device, message }); return { delivered: 1 }; },
 	});
 	host.onChange(() => void changes.n++);
-	const box = (team = A): FakeBox => {
-		let b = boxes.get(team);
+	const box = (team = A, device = dave.id): FakeBox => {
+		let b = boxes.get(`${team}\0${device}`);
 		if (!b) {
-			b = { team, inner: [], policy: "accept", scope: { teams: [Buffer.from(team, "hex")], box: o.box ?? true }, limits: { mirrors: 2, watches: 8, budget: 900 }, opens: 0 } as unknown as FakeBox;
+			b = { team, device, inner: [], policy: "accept", scope: { teams: [Buffer.from(team, "hex")], box: o.box ?? true }, limits: { mirrors: 2, watches: 8, budget: 900 }, opens: 0 } as unknown as FakeBox;
 			const self = b;
 			self.send = (i) => void self.session?.send(i);
 			self.snap = (net) => self.send({ t: "snap", net });
@@ -41,27 +42,27 @@ export function hostWorld(o: { teams?: string[]; box?: boolean } = {}) {
 			self.close = (reason) => self.session?.close(reason);
 			self.reqs = () => self.inner.filter((i) => i.t === "req");
 			self.watches = () => self.inner.filter((i) => i.t === "watch");
-			boxes.set(team, self);
+			boxes.set(`${team}\0${device}`, self);
 		}
 		return b;
 	};
-	const takeAt = (team: string, message: OperateMessage) => {
-		const b = box(team);
+	const takeAt = (team: string, device: string, message: OperateMessage) => {
+		const b = box(team, device);
 		if (message.type === "open") {
-			const deps = { now: clock.now, send: (m: OperateMessage) => void out.push({ team, message: m }), onInner: (i: OperateInner) => void b.inner.push(i), onEnd: () => undefined, onTransportError: () => undefined };
+			const deps = { now: clock.now, send: (m: OperateMessage) => void out.push({ team, device, message: m }), onInner: (i: OperateInner) => void b.inner.push(i), onEnd: () => undefined, onTransportError: () => undefined };
 			if (b.policy !== "accept") return refuseOpen(deps, message.session, b.policy);
 			b.opens++;
-			b.session = OperateSession.accept(deps, { team: Buffer.from(team, "hex"), self: dave.id, from: alice.id, open: message, scope: b.scope, limits: b.limits, registry }) ?? b.session;
+			b.session = OperateSession.accept(deps, { team: Buffer.from(team, "hex"), self: device, from: alice.id, open: message, scope: b.scope, limits: b.limits, registry }) ?? b.session;
 		} else b.session?.receive(message, alice.id);
 	};
-	const out: { team: string; message: OperateMessage }[] = [];
+	const out: { team: string; device: string; message: OperateMessage }[] = [];
 	/** What the host sent reaches the boxes and what the boxes sent reaches the host, until nothing is left. */
 	const pump = async () => {
 		for (let round = 0; round < 10; round++) {
 			let moved = false;
-			for (const m of toBox.splice(0)) (moved = true, takeAt(m.team, m.message));
+			for (const m of toBox.splice(0)) (moved = true, takeAt(m.team, m.device, m.message));
 			await new Promise((r) => setImmediate(r));
-			for (const m of out.splice(0)) (moved = true, !down && host.receive({ team: m.team, from: dave.id, fromAttended: false, message: m.message, ts: clock.now(), dropped: 0 }));
+			for (const m of out.splice(0)) (moved = true, !down && host.receive({ team: m.team, from: m.device, fromAttended: false, message: m.message, ts: clock.now(), dropped: 0 }));
 			if (!moved) break;
 		}
 	};
@@ -82,5 +83,5 @@ export function hostWorld(o: { teams?: string[]; box?: boolean } = {}) {
 		await pump();
 		return left;
 	};
-	return { clock, host, box, logs, offers, pump, run, page, changes, stats, registry, partition: (v: boolean) => (down = v), sent: () => toBox };
+	return { clock, host, box, logs, offers, pump, run, page, changes, stats, registry, partition: (v: boolean) => (down = v), /** The relay refuses every send (the holder's `sendLive` rejects). */ fail: (v: boolean) => (failing = v), sent: () => toBox };
 }

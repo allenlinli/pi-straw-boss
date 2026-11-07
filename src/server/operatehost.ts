@@ -26,9 +26,15 @@ export const LIMIT_CAPS = { mirrors: 6, watches: 16, budget: 900 } as const;
 /** The page actions a box lets through (§6.3), for `RemoteBox.can`; `tower` only for a scope that holds the box part. */
 const CAN = ["history", "input", "keys", "answer", "dequeue", "commands", "upload", "mirror", "dismiss", "close-unit", "close-tab"];
 /** The words of a box's `refuse` or `close` that reach a page; any other is `other`. */
-const WHY = new Set(["not-granted", "not-admin", "out-of-scope", "local-only", "policy", "roster", "seen", "operator-limit", "box-limit", "bad-key", "silence", "no-answer", "unsupported"]);
+const WHY = new Set(["not-granted", "not-admin", "out-of-scope", "local-only", "policy", "roster", "seen", "operator-limit", "box-limit", "bad-key", "silence", "no-answer", "unsupported", "stopped", "unavailable", "overload"]);
 /** The reasons the host gave `close()` itself: such an end leaves nothing behind. */
-const LOCAL = new Set(["idle", "off", "team-stopped", "stop"]);
+const LOCAL = new Set(["idle", "off", "team-stopped", "stop", "gone"]);
+/** What a box says when it takes the grant away: the only closes that end the base. Every other close (a restart, an overload, a swapped GUI) greys it and reopens (§11.3). */
+const REVOKED = new Set(["policy", "roster"]);
+/** A refusal that says "not now" (the box's server stopping or without a GUI, a slot or the registry full, an id seen before): retried with the reopen backoff, with no line; only a grant's refusal is remembered for 10 minutes (§5.6). */
+const TRANSIENT = new Set(["unavailable", "operator-limit", "box-limit", "seen"]);
+/** How long a refused watch waits before it is asked again, and how often a failed send is written to the log (per session). */
+const WATCH_RETRY_MS = 10_000, SEND_LOG_MS = 60_000;
 
 /** An unattended device of a team, which this one may try to operate: its fresh `caps` list `operate/1`. */
 export interface BoxOffer { team: string; teamName: string; device: string; short: string; label: string }
@@ -84,12 +90,15 @@ interface Sess {
 	ghostUntil?: number;
 	reopening: boolean;
 	deferred?: unknown;
+	sendFailAt: number;
+	sendFails: number;
 	snapAt: number;
 	bad: number;
 	badLogged: number;
 }
 interface Pending { sess: Sess; session: OperateSession; kind: ReplyKind; at: number; done(reply: Reply): void; rw: Rewrite }
-interface Group { id: string; target: string; subs: Set<Send>; sess?: Sess; issued: boolean }
+/** `raw` is the box's own target the watch was started with (what its stop must name), `retryAt` the earliest time a refused watch is asked again. */
+interface Group { id: string; target: string; subs: Set<Send>; sess?: Sess; issued: boolean; raw?: string; retryAt: number }
 interface MirrorGroup { device: string; x: string; raw: string; viewers: Map<string, Send>; sess: Sess }
 
 const sha = (...parts: string[]) => createHash("sha256").update(parts.join("\0")).digest("hex").slice(0, 16);
@@ -110,7 +119,7 @@ function kindOf(method: "GET" | "POST", parts: string[]): ReplyKind {
 export function createOperateHost(deps: OperateHostDeps) {
 	const sessions = new Map<string, Sess>(), pending = new Map<string, Pending>(), groups = new Map<string, Group>(), mirrorGroups = new Map<string, MirrorGroup>();
 	const streams = new Map<string, Send>(), frameAt = new Map<string, number>(), keysSent = new Map<string, number[]>(), told = new Set<string>(), listeners = new Set<() => void>();
-	let pages = 0, leftAt: number | undefined, offUntil = 0, version = 0, counter = 0, timer: ReturnType<typeof setInterval> | undefined, cache: { version: number; bases: Base[]; events: NonNullable<Net["events"]>; dialogs: Map<string, Set<string>> } | undefined;
+	let stopped = false, pages = 0, leftAt: number | undefined, offUntil = 0, version = 0, counter = 0, timer: ReturnType<typeof setInterval> | undefined, cache: { version: number; bases: Base[]; events: NonNullable<Net["events"]>; dialogs: Map<string, Set<string>> } | undefined;
 	const now = () => deps.now();
 	const changed = () => { version++; for (const l of [...listeners]) try { l(); } catch { /* a listener's failure is not the host's */ } };
 
@@ -143,12 +152,14 @@ export function createOperateHost(deps: OperateHostDeps) {
 	function open(s: Sess) {
 		const self = deps.device();
 		if (!self) return;
+		const was = s.state;
 		s.state = s.reopening ? "live" : "opening";
+		if (s.state !== was) changed(); // a greyed base that is being reopened stays in the net as one
 		try {
 			const session = OperateSession.open({
 				now: deps.now,
 				send: (m) => deps.send(s.offer.team, s.offer.device, m).then(() => undefined),
-				onTransportError: (error) => { deps.log({ event: "operate-send-failed", team: s.offer.team, device: s.offer.device, error: (error as Error)?.name ?? "Error" }); },
+				onTransportError: (error) => sendFailed(s, error),
 				onOpen: (a) => opened(s, session, a),
 				onInner: (inner) => taken(s, session, inner),
 				onEnd: (end) => ended(s, session, end),
@@ -160,6 +171,15 @@ export function createOperateHost(deps: OperateHostDeps) {
 			s.retryAt = now() + 60_000;
 			deps.log({ event: "operate-open-failed", team: s.offer.team, device: s.offer.device, error: (error as Error)?.name ?? "Error" });
 		}
+	}
+	/** One line a minute for a session (the box throttles its own the same way), with how many sends failed since the last. */
+	function sendFailed(s: Sess, error: unknown) {
+		s.sendFails++;
+		const t = now();
+		if (t - s.sendFailAt < SEND_LOG_MS) return;
+		deps.log({ event: "operate-send-failed", team: s.offer.team, device: s.offer.device, error: (error as Error)?.name ?? "Error", count: s.sendFails });
+		s.sendFailAt = t;
+		s.sendFails = 0;
 	}
 	function opened(s: Sess, session: OperateSession, a: { scope: { box: boolean }; limits: { mirrors: number; watches: number; budget: number } }) {
 		if (s.session !== session) return;
@@ -186,7 +206,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 		for (const g of [...mirrorGroups.values()]) if (g.sess === s) dropMirror(g, "The box's operate session ended.");
 		if (LOCAL.has(end.reason)) return forget(s);
 		s.reopening = false;
-		if (end.reason === "refused") {
+		if (end.reason === "refused" && !(end.peer !== undefined && TRANSIENT.has(end.peer))) {
 			s.state = "ended";
 			s.why = word ?? "other";
 			s.net = undefined;
@@ -196,7 +216,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 			s.ghostUntil = told.has(s.id) ? -1 : (told.add(s.id), t + GHOST_MS);
 			return clear(s);
 		}
-		if (end.reason === "peer-closed" && word !== undefined && word !== "silence") {
+		if (end.reason === "peer-closed" && word !== undefined && REVOKED.has(word)) {
 			s.state = "ended";
 			s.why = word;
 			s.net = undefined;
@@ -204,7 +224,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 			s.ghostUntil = undefined;
 			return clear(s);
 		}
-		// Silence, no answer, a key that would not derive: the base greys (`unreachable`) and the session reopens, later each time.
+		// Silence, no answer, a key that would not derive, a box that stopped or is overloaded, a transient refusal: the base greys (`unreachable`) and the session reopens, later each time.
 		s.state = s.net ? "unreachable" : "idle"; // a box that never answered has nothing to grey
 		if (end.reason === "silence") s.seen = t - OPERATE_LIMITS.silenceMs;
 		s.fails++;
@@ -218,6 +238,8 @@ export function createOperateHost(deps: OperateHostDeps) {
 	}
 	function forget(s: Sess) {
 		sessions.delete(s.id);
+		s.state = "idle";
+		for (const g of groups.values()) if (g.sess === s) (g.issued = false, g.sess = undefined); // a session that opens in its place asks for what the pages still watch
 		changed();
 		pulse();
 	}
@@ -285,12 +307,25 @@ export function createOperateHost(deps: OperateHostDeps) {
 		const { id, status, body } = inner;
 		if (typeof id !== "string") return bad(s, "rep");
 		const p = pending.get(id);
-		if (!p || p.sess !== s) return; // late (the page gave up), or a watch's refusal: nothing waits
+		if (!p) return refused(s, id, status); // late (the page gave up), or a watch's answer
+		if (p.sess !== s) return;
 		pending.delete(id);
 		let out: ReturnType<typeof sanitizeReply>;
 		try { out = sanitizeReply(p.kind, status, body, p.rw); } catch { out = { ok: false, why: "throw" }; } // the page's request is answered whatever the box sent
 		if (!out.ok) { bad(s, out.why, "reply"); return p.done(no(502, "bad_reply", "The box sent an answer this computer does not accept.")); }
 		p.done({ status: out.status, body: out.body });
+	}
+	/** The box's answer to a watch is only heard when it refuses (its watch cap, a unit out of scope): the page is told the view is unknown, and the watch is asked again after a wait. */
+	function refused(s: Sess, id: string, status: unknown) {
+		const g = groups.get(id);
+		if (!g || g.sess !== s || !g.issued || typeof status !== "number" || status < 400) return;
+		g.issued = false;
+		g.retryAt = now() + WATCH_RETRY_MS;
+		unknown(g);
+	}
+	function unknown(g: Group) {
+		const x = g.target.startsWith("w:") ? g.target.slice(2) : g.target;
+		for (const send of g.subs) send(g.target.startsWith("w:") ? "cards" : "history", g.target.startsWith("w:") ? {} : { key: x, items: [], reset: true, state: "unknown" });
 	}
 	function settle(match: (p: Pending) => boolean, reply: Reply) {
 		for (const [id, p] of [...pending]) if (match(p)) (pending.delete(id), p.done(reply));
@@ -365,31 +400,39 @@ export function createOperateHost(deps: OperateHostDeps) {
 	function pad(x: string, json: Record<string, unknown>): Reply | undefined {
 		const stop = json.key === undefined && Array.isArray(json.keys) && json.keys.length === 1 && json.keys[0] === "esc";
 		const t = now(), recent = (keysSent.get(x) ?? []).filter((at) => t - at < 1000);
-		if (recent.length >= KEYS_PER_SECOND) return no(429, "rate", `At most ${KEYS_PER_SECOND} keys a second reach a box's unit.`);
+		if (!stop && recent.length >= KEYS_PER_SECOND) return no(429, "rate", `At most ${KEYS_PER_SECOND} keys a second reach a box's unit.`);
 		if (!stop && typeof json.stream === "string") {
 			const at = frameAt.get(`${json.stream}\0${x}`);
 			if (at === undefined || t - at > FRESH_MS) return no(409, "no_mirror", "Keys are sent only while this page shows the session's terminal live; open it again.");
 		}
-		keysSent.set(x, [...recent, t]);
+		if (!stop) keysSent.set(x, [...recent, t]);
 		for (const [k, ats] of keysSent) if (t - ats.at(-1)! >= 1000) keysSent.delete(k);
 	}
 
 	// ---- watches and terminals --------------------------------------------------------------------------------------------------------------------------------------------------
 
+	/** Ends a watch where it runs: the box's stop names the target it was started with. */
+	function unissue(g: Group) {
+		if (g.issued && g.raw !== undefined && g.sess?.state === "live") g.sess.session?.send({ t: "watch", id: g.id, target: g.raw, on: false });
+		g.issued = false;
+	}
 	function issue(g: Group) {
 		const x = g.target.startsWith("w:") ? g.target.slice(2) : g.target, s = sessionFor(x);
+		if (g.sess !== s) unissue(g); // the watch moves to another session: it ends on the one that had it
 		g.sess = s;
 		g.issued = false;
-		if (!s || s.state !== "live" || !s.session) return;
+		if (!s || s.state !== "live" || !s.session || now() < g.retryAt) return;
 		const raw = rawOf(s, x);
 		if (raw === undefined) return;
-		g.issued = s.session.send({ t: "watch", id: g.id, target: g.target.startsWith("w:") ? `w:${raw}` : raw, on: true });
+		if ([...groups.values()].filter((h) => h !== g && h.issued && h.sess === s).length >= s.limits.watches) return (g.retryAt = now() + WATCH_RETRY_MS, unknown(g)); // the box's own limit (accept.limits), asked about no further
+		g.raw = g.target.startsWith("w:") ? `w:${raw}` : raw;
+		g.issued = s.session.send({ t: "watch", id: g.id, target: g.raw, on: true });
 	}
 	/** A box's key or base (`x` and 16 hex, in a page's address, which may load before the session's first snapshot): the watch starts when the session shows it. Any other target is a local one. */
 	function watch(target: string, send: Send): Watch | undefined {
 		if (!/^(w:)?x[0-9a-f]{16}$/.test(target)) return undefined;
 		let g = [...groups.values()].find((h) => h.target === target);
-		if (!g) (g = { id: `w${++counter}`, target, subs: new Set(), issued: false }, groups.set(g.id, g));
+		if (!g) (g = { id: `w${++counter}`, target, subs: new Set(), issued: false, retryAt: 0 }, groups.set(g.id, g));
 		g.subs.add(send);
 		issue(g); // a page that joins a running watch gets the first page of history again: the box restarts the watch under the same id
 		const group = g;
@@ -399,7 +442,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 				group.subs.delete(send);
 				if (group.subs.size) return;
 				groups.delete(group.id);
-				if (group.issued && group.sess?.state === "live") group.sess.session?.send({ t: "watch", id: group.id, target: "", on: false });
+				unissue(group);
 			},
 		};
 	}
@@ -428,6 +471,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 		}
 		if (sess.state !== "live") return UNREACHABLE;
 		if (!g?.viewers.has(stream as string) && [...mirrorGroups.values()].filter((h) => h.viewers.has(stream as string)).length >= PER_STREAM) return no(429, "too_many", `A page shows at most ${PER_STREAM} terminals; close one first.`);
+		if (!g && [...mirrorGroups.values()].filter((h) => h.sess === sess).length >= sess.limits.mirrors) return no(429, "too_many", `This box shows at most ${sess.limits.mirrors} terminals to this computer; close one first.`); // the box's own limit (accept.limits)
 		const first = !g;
 		if (!g) (g = { device: sess.offer.device, x, raw, viewers: new Map(), sess }, mirrorGroups.set(key, g));
 		g.viewers.set(stream as string, send);
@@ -446,7 +490,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 		const bases: Base[] = [], events: NonNullable<Net["events"]> = [], dialogs = new Map<string, Set<string>>(), devices = new Map<string, Sess[]>();
 		for (const s of sessions.values()) devices.set(s.offer.device, [...(devices.get(s.offer.device) ?? []), s]);
 		for (const [device, list] of devices) {
-			const shown = list.filter((s) => s.net && (s.state === "live" || s.state === "unreachable")), byBase = new Map<string, { s: Sess; b: Base }[]>();
+			const shown = list.filter((s) => s.net && (s.state === "live" || s.state === "unreachable" || s.state === "opening")), byBase = new Map<string, { s: Sess; b: Base }[]>();
 			for (const s of shown) for (const b of s.net!.bases) byBase.set(b.id, [...(byBase.get(b.id) ?? []), { s, b }]);
 			for (const items of byBase.values()) bases.push(mergeBases(items));
 			if (!byBase.size) {
@@ -492,6 +536,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 	// ---- the clock and the pages ------------------------------------------------------------------------------------------------------------------------------------------------
 
 	function tick() {
+		if (stopped) return;
 		const t = now();
 		for (const s of [...sessions.values()]) {
 			try { s.session?.tick(); } catch { /* a handler's failure is not the clock's */ }
@@ -500,11 +545,13 @@ export function createOperateHost(deps: OperateHostDeps) {
 		for (const [id, p] of [...pending]) if (t - p.at >= REQUEST_MS) (pending.delete(id), p.done(no(504, "timeout", "The box did not answer; check before sending again.")));
 		if (pages === 0 && leftAt !== undefined && t - leftAt >= IDLE_MS) { for (const s of [...sessions.values()]) close(s, "idle"); leftAt = undefined; return; }
 		if (pages === 0 && leftAt === undefined) return;
-		for (const offer of deps.boxes()) {
+		const offered = deps.boxes(), ids = new Set(offered.map((o) => `${o.team}/${o.device}`));
+		for (const s of [...sessions.values()]) if (!ids.has(s.id)) close(s, "gone"); // a box that is no longer offered (removed, attended, no operate/1)
+		for (const offer of offered) {
 			const id = `${offer.team}/${offer.device}`;
 			let s = sessions.get(id);
 			if (!s) {
-				s = { id, offer, state: "idle", scope: { box: false }, limits: { mirrors: 0, watches: 0, budget: 0 }, keys: new Map(), bases: new Map(), tabs: new Map(), extra: new Map(), retryAt: 0, refusedUntil: 0, fails: 0, reopening: false, snapAt: -Infinity, bad: 0, badLogged: 0 };
+				s = { id, offer, state: "idle", scope: { box: false }, limits: { mirrors: 0, watches: 0, budget: 0 }, keys: new Map(), bases: new Map(), tabs: new Map(), extra: new Map(), retryAt: 0, refusedUntil: 0, fails: 0, reopening: false, sendFailAt: -Infinity, sendFails: 0, snapAt: -Infinity, bad: 0, badLogged: 0 };
 				sessions.set(id, s);
 			}
 			s.offer = offer;
@@ -514,7 +561,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 		for (const s of sessions.values()) if (s.ghostUntil !== undefined && s.ghostUntil > 0 && t >= s.ghostUntil) (s.ghostUntil = -1, changed());
 	}
 	const pulse = () => {
-		if (deps.interval === false) return;
+		if (stopped || deps.interval === false) return;
 		if (sessions.size + pages > 0 && !timer) timer = setInterval(tick, deps.interval ?? OPERATE_LIMITS.tickMs).unref();
 		if (sessions.size + pages === 0 && timer) (clearInterval(timer), (timer = undefined));
 	};
@@ -526,6 +573,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 		} } satisfies RemoteBridge,
 		/** A page's stream connected: the sessions open at the next tick. Returns the call that tells the host it left. */
 		page(): () => void {
+			if (stopped) return () => undefined;
 			pages++;
 			leftAt = undefined;
 			pulse();
@@ -560,6 +608,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 			for (const s of [...sessions.values()]) close(s, "off");
 		},
 		stop(): void {
+			stopped = true;
 			if (timer) (clearInterval(timer), (timer = undefined));
 			for (const s of [...sessions.values()]) close(s, "stop");
 			settle(() => true, UNREACHABLE);

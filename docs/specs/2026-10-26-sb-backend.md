@@ -1208,7 +1208,9 @@ operation drawn on the page (D23); every local run sees it in its brief beside t
 { "v": 1, "rev": 17, "next": { "S": 4, "D": 8, "W": 3, "P": 5 }, "entries": [
   { "id": "S3", "kind": "standing", "text": "部署發版都授權", "by": "boss", "via": "gui", "at": "2026-10-28T09:10:00Z" },
   { "id": "D7", "kind": "decision", "text": "ws01 先上 beta.67", "by": "boss", "via": "proposal", "at": "…" },
-  { "id": "W2", "kind": "wait", "text": "api-fix asks: deploy ws01?", "for": "boss", "state": "open", "by": "run", "via": "run", "run": "c0ffee12…", "at": "…" }
+  { "id": "W2", "kind": "wait", "text": "Re-authorize fonstar-staging in Tailscale, or set its key to never expire.", "for": "boss", "state": "open", "by": "run", "via": "run", "run": "c0ffee12…", "at": "…",
+    "card": { "type": "action", "lang": "en", "happened": "The Tailscale login key of fonstar-staging expired at about 10:30, so it is offline.", "do": "Re-authorize fonstar-staging in the Tailscale admin page, or set its key to never expire.",
+      "url": "https://login.tailscale.com/admin/machines", "after": "The tower asks the MP-3946 main to verify the print feature.", "from": { "id": "4f1c…", "name": "mp3946-print", "role": "main", "workspace": "MP Center", "tab": "MP-3946" } } }
 ], "proposals": [
   { "id": "P4", "op": "add", "kind": "standing", "text": "Always run the tests first.", "run": "a1b2c3d4…", "event": "e91…", "cites": "…the boss message, as context…", "at": "…" },
   { "id": "P3", "op": "retire", "kind": "decision", "target": "D2", "text": "the entry as it was", "run": "a1b2c3d4…", "at": "…" }
@@ -1225,7 +1227,7 @@ operation drawn on the page (D23); every local run sees it in its brief beside t
 |---|---|---|---|
 | standing | 12, and 2,400 characters of brief rows in all | 300 | An add (or an edit that grows one) is refused: "12 standing instructions are kept already: delete one first" at 12; "would not fit the brief" past the 2,400. |
 | decision | 24 | 300 | An add is refused: "24 decisions are kept already: delete one first". Nothing the boss kept is ever dropped to make room, by the boss's own add or by a confirm. |
-| wait (open or answered) | 12 | 200 | An add is refused. |
+| wait (open or answered) | 12 | for the boss: a card, `happened` 160, `do` 160, `url` 300, `command` 300 and 4 lines, `after` 160, 2 to 4 options of 24 and 120, `secret.name` 60 (`docs/specs/2026-11-07-wait-cards.md`, The tool); for an agent: 200 | An add is refused. |
 | wait (resolved or expired) | kept 24 h | outcome 120 | Shown in the GUI only; an expired one is shown once in the next brief. |
 | proposal (pending) | 12 | 300 | A new one is refused ("12 proposals wait for the boss already"); a pending proposal is never evicted. The same proposal asked again is the one already there. |
 
@@ -1264,12 +1266,16 @@ goes around its tools (below, T3R-F005) can also write `memory.json` directly, a
 
 **Waits** are the tower's own notes. `tower_memory { op: "add", kind: "wait", text, for: "boss" | "agent", on?, due? }`:
 
-- `for: "boss"`: the tower needs the boss's decision. It reaches the boss as an alert of the tower while it is under a day old (`FRESH_MS`): the dialog and Zen item say what it waits for and offer **Handle** (an answer box in place: the words go to the tower's session `input`, the route of the comms' composer; a secondary link opens
-  the comms), **Dismiss** (the memory route's `drop`, below), and Later, and a system notification says it once while the page is hidden. The tower card and its comms keep a line for it as long as it is open ("waits for you", how long it has
-  stood, "may be out of date" after a day), with the same buttons; a wait a day old raises no alert. **Answering** names the wait: the message to the tower (the session's `input`, a boss event) carries `answers: "W3"`, and once the tower took the message the server
-  marks that wait `answered` with the time (the memory route's `answer` op, which the boss's route runs by the id and needs no `rev`; the reply of `input` says `answered: "W3"`, or `answered: false` when the memory no longer has the wait for the boss; a malformed `answers` is a 400 before anything is sent).
-  An answered wait stays in the memory (it expires after 7 days like an open one) for the tower to resolve; the snapshot's `bossWaits` row carries `answered`, so **no view raises it again** (it is no alert, and the Zen item, the dialog, the HUD, the notification and the tab icon all read the alerts), the card's and the comms' line says "Answered, waiting for the tower", and the brief says `answered by the boss at HH:MM, check their message`
-  (`prompts/tower-run.md`). A wait the tower writes anew is a new id and asks again. A brief shows an open wait that old with `(open 2d 3h)`, and `prompts/tower-run.md` tells the run to check it and resolve, drop, or restate it.
+- `for: "boss"`: the tower needs the boss to do something or decide. It is a **card** with fields (`type` action, choice or secret; `happened`, `do`, `url` or `command`, `after`, `options`, `secret.name`, `from`), checked by the server, and `text` is refused
+  (`docs/specs/2026-11-07-wait-cards.md`, which changes this bullet). It reaches the boss as an alert of the tower while it is under a day old (`FRESH_MS`): the dock's dialog and the Zen item draw the card whole, the tower card, its comms and the head page's
+  rows draw it folded to one line with its primary button; a system notification says it once while the page is hidden. The boss **presses** it (`press` on the memory route, below): *I'm done*, a choice's option, *Start entering* and *I've entered it* for a secret
+  (the value is entered in the raiser's terminal by `secret_drop`, never on a page; sb never runs a command a card shows), **Skip** (a second tap: it tells the tower and the raiser, with an optional reason, and the wait is kept resolved for a day), or **Reply to the tower**
+  (an answer box in place: the words go to the tower's session `input`, the route of the comms' composer). A wait stored before cards (free text) is drawn with the tower's old words and *Ask the tower to rewrite it*. **Answering** names the wait: the message to the tower
+  (the session's `input`, a boss event) carries `answers: "W3"`, and once the tower took the message the server marks that wait `answered` with the time (the memory route's `answer` op, which the boss's route runs by the id and needs no `rev`; the reply of `input` says
+  `answered: "W3"`, or `answered: false` when the memory no longer has the wait for the boss; a malformed `answers` is a 400 before anything is sent). An answered wait stays in the memory (it expires after 7 days like an open one) for the tower to resolve; the snapshot's
+  `bossWaits` row carries `answered`, so **no view raises it again** (it is no alert, and the Zen item, the dialog, the HUD, the notification and the tab icon all read the alerts), the line says "Answered, waiting for the tower", and the brief says
+  `answered by the boss at HH:MM, check their message` (`prompts/tower-run.md`). A wait the tower writes anew is a new id and asks again. A brief shows an open wait that old with `(open 2d 3h)`, and `prompts/tower-run.md` tells the run to check it and resolve,
+  drop, or restate it.
 - `for: "agent"` names `on`, a live session (by id or name; the server resolves it). When a message from that session arrives, the server marks
   the wait `answered` and the brief says `answered? message from <name> HH:MM`, but only when the net the server reads (the broker's sessions and
   Herdr's panes) shows a live session with the sender's id in this tower's workspace: the id on a message is the broker's, and pi-intercom
@@ -1297,8 +1303,8 @@ the memory beyond its first 2,700 characters (the head and the standing instruct
 ### The GUI's memory route
 
 `POST /api/tower/<workspace>/memory { op, … }`, with the page's origin and CSRF like every write, on the local and the remote listener (the paired phone is the boss), and the control socket's `tower-memory
-{ workspace, json }`, are one function. `op` is `read`, `add` (`kind` standing or decision, `text`), `edit` (`id`, `text`), `delete` (`id`), `resolve` (`id`, `outcome?`), `drop` (`id`: a wait only; the boss's Dismiss, with no `rev`, since a wait's id is never reused), `confirm` (`proposal`), or `reject` (`proposal`);
-every write but a reject and a drop names the `rev` it read. The answer is `{ rev, entries, proposals }` (a proposal is `{ id, op, kind, text, target?, cites?, at }`). A moved file is 409 `rev` with the current memory in the body; a full cap, a missing entry or
+{ workspace, json }`, are one function. `op` is `read`, `add` (`kind` standing or decision, `text`), `edit` (`id`, `text`), `delete` (`id`), `resolve` (`id`, `outcome?`), `drop` (`id`: a wait only, with no `rev`, since a wait's id is never reused; a card is no longer dropped from a page, Skip is a `press`), `press` (`id`, `act` done, choose, secret, decline or restate, `option?`, `reason?`: a card's button, with no `rev`; it tells the raiser and the tower, `docs/specs/2026-11-07-wait-cards.md`, The press), `confirm` (`proposal`), or `reject` (`proposal`);
+every write but a reject, a drop and a press names the `rev` it read. The answer is `{ rev, entries, proposals }` (a proposal is `{ id, op, kind, text, target?, cites?, at }`). A moved file is 409 `rev` with the current memory in the body; a full cap, a missing entry or
 proposal, or a proposal that no longer applies is 409 `refused`; a bad request is 400. (Every route of the control API is a POST, so the read is `op: "read"`.) The snapshot's `service.memory` carries
 `{ rev, standing, decisions, waits, bossWaits, proposals, problem? }` (`proposals` as `{ id, op, kind, text, target?, cites? }`), so the panel reads again only when `rev` moves.
 
@@ -1524,11 +1530,11 @@ What changes:
   message waiting more than 10 minutes, a server stopped on purpose that an automatic opening found, and a server `lastError`.
 - **Memory** (D22, D23): a panel in the tower's comms that mirrors `/boss memory`: the proposals waiting for the boss first (each with the boss message it cites, **Confirm** and **Reject**), then the
   standing instructions, the decisions, and the waits (open, and resolved or expired within 24 h, struck through). The boss adds, edits, and deletes there, with the caps shown; every change but a reject
-  names the `rev` it read (**Tower memory**). A wait for the boss is an alert (the dialog, the Zen item, the notification) and a notice row on the tower card with **Handle** (the same answer box, in place), a link to the comms, and **Dismiss**, and so is every pending proposal, with **Confirm** and **Reject**.
+  names the `rev` it read (**Tower memory**). A wait for the boss is an alert (the dialog, the Zen item, the notification) and a notice row on the tower card, each drawing the wait card (`gui/waitcard.ts`: its parts, its buttons by kind, **Reply to the tower**, **Skip**; the dialog's footer has the link to the comms and Later), and so is every pending proposal, with **Confirm** and **Reject**.
   zh-TW: 常駐指示, 決定, 等待, 確認, 駁回.
 - **The server** in the settings panel: state, version, uptime, last error, **Restart server**, and **Show log**, on this computer's
   page only (**Seeing and restarting the server**).
-- Net snapshot: `service.memory` is `{ rev, standing, decisions, waits, bossWaits: { id, text, at, answered? }[], proposals, problem? }`.
+- Net snapshot: `service.memory` is `{ rev, standing, decisions, waits, bossWaits: { id, text, at, answered?, state?, outcome?, ended?, card?, press?, cut? }[], proposals, problem? }` (`card` and `press` as the wait cards record says; `cut` for a card over the snapshot's budget).
 - Net snapshot: `Base.tower` gains `service: { state: "standing" | "waking" | "running" | "closing" | "held", queued: number, run?: { id,
   kind, startedAt }, allyRuns: { device, startedAt }[], lastRun?: { endedAt, outcome } }`. Readers that do not know `service` keep
   working.

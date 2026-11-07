@@ -28,6 +28,8 @@
 
 <p align="center"><img src="docs/gui-zen-wait.png" width="49%" alt="禪檢視裡塔台的一則等待：塔台和基地名當標題、問題、細線下打了一句回覆的輸入框，以及送出、略過和晚點再說"> <img src="docs/gui-wait-answer.png" width="49%" alt="標準檢視裡塔台等待事項的對話框：問題、打了一句回覆的輸入框、送出、前往塔台通訊的連結、稍後和略過"></p>
 
+塔台對你的等待是一張卡片，不是一行文字：發生什麼事、你要做的事、在哪裡做（可開啟的連結，或可複製的指令；sb 不會執行指令）、做完之後會怎樣，以及是哪個 session 提出的；按鈕依類型而定（我做完了、選項，或在終端機輸入密鑰的步驟），**略過**要點兩下，並會告訴塔台和那個 session，也有回覆的輸入框。示範頁的 `?waits=cards` 每一類都看得到。
+
 <p align="center"><img src="docs/gui-zen-history.png" width="49%" alt="打開「前情」的禪檢視：卡片裡是這個 unit 的 session 紀錄，問題的選項仍然可以回答"> <img src="docs/gui-zen-palette.png" width="49%" alt="在陪伴的 session 上打開指令面板（⌘K）的禪檢視，頂端有工作中與閒著的 unit 數的淡淡一行"></p>
 
 <p align="center"><img src="docs/gui-zen-music.png" width="49%" alt="有音樂資料夾時的禪檢視：右上角的 ♪ 開關與打開的曲目清單"></p>

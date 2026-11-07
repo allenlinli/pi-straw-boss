@@ -10,9 +10,10 @@ import { iconRef } from "./icons.ts"; import { prefs } from "./prefs.ts";
 import { type Alert, createStack, tally } from "./overlay.ts";
 import { m } from "./paraglide/messages.js";
 import { aim, byId, doing, fillPlate, hang, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
+import { locate } from "./scene.ts";
 import { mountStepSlot } from "./stepslot.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
-import { waitDialog } from "./waitpanel.ts";
+import { enterWait, waitDialog } from "./waitcard.ts";
 
 // The overlay layer's DOM, a chunk fetched on the first alert, dialog, or tile: the HUD alert with its queue, the dialogs in the dock (stacked; the
 // rules are in overlay.ts), and the tiles beside the current view. A tile is a document (a demo document in the dev fixture) or a session's terminal (mirror.ts); tiles share the
@@ -57,7 +58,7 @@ export function createTiles(io: TilesIO) {
 }
 
 /** `post` and `trust` are the demo fixture's stand-ins for the server's session and trust endpoints; `stream` the newest `hello` of the page's stream, as it came. */
-export interface PanelDeps { label(ws: string): string; recent(key: string): Promise<Item[]>; post?(key: string): SessionPost | undefined; trust?: TrustPost; stream(): string; showTerminal(ws: string, key: string): void }
+export interface PanelDeps { label(ws: string): string; recent(key: string): Promise<Item[]>; post?(key: string): SessionPost | undefined; trust?: TrustPost; stream(): string; showTerminal(ws: string, key: string): void; /** The newest snapshot, to find the workspace of a wait's raiser by its key (the head's alert is on the head's base, not the raiser's). */ net?(): Net | undefined }
 const dialogEl = () => html(`<section class="dialog" role="dialog" aria-modal="false" tabindex="-1"><header><b class="tag">${m.dialog_alert()}</b><span class="where"></span><button class="zoom" type="button"></button><button class="x" type="button" aria-label="${m.close()}">×</button></header><div class="who">${PLATE}<div><h3></h3><p><em class="role"></em> <span class="state"></span></p></div></div><div class="intel"><h4>${m.last_transmission()}</h4><p class="said">…</p><p class="pending" hidden><b>${m.waiting_on()}</b> <span></span></p></div><div class="ask-root"></div><footer><a class="go">${m.open_comms()}</a><button class="later" type="button">${m.later()}</button><span class="queued"></span></footer></section>`);
 const doneEl = () => html(`<li><a class="done-go">${PLATE}<span><b class="name"></b><small></small></span></a></li>`);
 const tileEl = () => html(`<section class="tile" tabindex="-1"><header><svg><use data-icon="doc"/></svg><b></b><button class="x" type="button" aria-label="${m.close_document()}">×</button></header><div class="tile-body"></div></section>`);
@@ -113,7 +114,7 @@ export function mountPanels(deps: PanelDeps) {
 		text(el, ".queued", queue.length ? m.also_queued({ tally: tally(queue) }) : "");
 		el.querySelector<HTMLElement>(".later")!.hidden = rankOf(a) !== 0; // a finished one is read once opened: nothing to keep for later
 		if (a.trust) return fillTrust(el, a);
-		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)));
+		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)), { where: (key) => locate(deps.net?.(), key)?.base.id, secretOpen: () => queue.some((x) => x.key === a.wait?.entry?.card?.from?.key && x.pending?.tool === "secret_drop") });
 		if (!intels.has(a.key)) learn(a);
 		tell(el, a);
 		let ask = asks.get(el);
@@ -170,11 +171,12 @@ export function mountPanels(deps: PanelDeps) {
 			text(button, "#alert-text", head ? `${head.name} · ${head.trust ? m.trust_title() : doing(head.note, head.mark)}` : m.no_alerts());
 			sync(button.querySelector(".faces")!, asking.slice(0, 3).map((a) => ({ ...a, id: a.key })), () => html(PLATE), (face, a) => fillPlate(face, a.role, a.mark));
 			drawDone(queue);
+			work.toggleAttribute("inert", open.at(-1)?.wait !== undefined); // a wait's dialog is modal for presses: a tap on a row or card behind it must not press another wait
 		},
 		// A dialog with a question to answer takes the focus on its first option; the others on Open comms.
 		enter(a) {
 			const el = dock.querySelector<HTMLElement>(`[data-key="${CSS.escape(a.key)}"]`);
-			if (el && !asks.get(el)?.enter()) el.querySelector<HTMLElement>(".go")?.focus();
+			if (el && !asks.get(el)?.enter() && !enterWait(el)) el.querySelector<HTMLElement>(".go")?.focus(); // a wait's card takes it on its primary button
 		},
 		focused: () => (document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : undefined),
 		restore: (target) => Boolean(target?.isConnected && !target.closest("[inert]") && (target.focus(), document.activeElement === target)), // a disabled HUD alert does not take it

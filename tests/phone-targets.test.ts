@@ -220,3 +220,19 @@ test("the head page's rows are tap targets of 44 px: the log's fold line, each b
 	assert.ok(shared[0].includes(".pair-btn") && shared[0].includes(".quit-btn") && /min-height:\s*44px/.test(shared[1]), "End and New are `.pair-btn`, Close is `.quit-btn`");
 	assert.match(css, /\.head-acts \{[^}]*flex-wrap:\s*wrap/, "the row wraps instead of cutting a button off a 360 px screen");
 });
+
+// A wait card (gui/waitcard.ts; docs/specs/2026-11-07-wait-cards.md, Phone): every button, link, the folded line and the More toggle are 44 px each way with 8 px between targets, the primary and each choice are full-width rows, a URL wraps anywhere, a
+// command wraps whole (it never scrolls sideways: nothing of it may hide). The behavior tests are in wait-card-gui.test.ts; this guards the same block this file reads.
+test("a wait card's controls are 44 px each way on a phone, 8 px apart; the primary and each choice take the width", () => {
+	const set = ".wait-card :is(.pair-btn, .wc-fold, .wc-more)";
+	assert.equal(size(set, "min-height"), 44);
+	assert.equal(size(set, "min-width"), 44);
+	assert.match(body(".wait-card .wc-acts"), /gap:\s*8px/);
+	assert.match(body(".wait-card .wc-primary"), /flex:\s*1 1 100%/);
+	assert.equal(size(".wait-card .wc-opt", "min-height"), 44);
+	assert.match(body(".wait-card .wc-opt"), /flex:\s*1 1 100%/);
+	assert.match(body(".wait-card .wc-url"), /overflow-wrap:\s*anywhere/);
+	assert.doesNotMatch(css.slice(css.indexOf("/* A phone's tap targets")), /\.wait-card \.wc-cmd \{[^}]*overflow-x/, "a command wraps on a phone too");
+	assert.match(body(".wait-card .wc-skip-acts"), /gap:\s*8px/);
+	assert.match(body(".wait-card :is(.wc-open, .wc-copy)"), /justify-self:\s*stretch/, "Open link and Copy sit below their text at the full width");
+});

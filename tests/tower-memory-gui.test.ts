@@ -202,7 +202,7 @@ test("the open panel lists the proposals first, each with what it cites, Confirm
 	assert.equal(box.find((el) => el.tag === "h4" && el.textContent === m.memory_pending()).length, 0, "no pending section without proposals");
 });
 
-test("a wait for the boss is a notice on the tower card with a link to the comms and a Dismiss; waits for agents are not (tower-wait.test.ts has the rest)", async () => {
+test("a wait for the boss is a notice on the tower card, drawn as the wait card; waits for agents are not (tower-wait.test.ts has the rest)", async () => {
 	const service: TowerService = { state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: summary({ bossWaits: [{ id: "W1", text: "api-fix asks: deploy ws01?", at: "t" }] }) };
 	assert.deepEqual(noticeRows(service).map((r) => [r.id, r.text, r.actions]), [["wait-W1", m.tower_waits_for_you({ text: "api-fix asks: deploy ws01?" }), ["answer", "dismiss"]]]);
 	assert.equal(noticeRows({ ...service, memory: summary() }).length, 0);
@@ -210,9 +210,8 @@ test("a wait for the boss is a notice on the tower card with a link to the comms
 	const box = new El("div");
 	fillNotices(box as unknown as HTMLElement, "wA", service, "sb-tower-wa");
 	await new Promise((done) => setTimeout(done, 50)); // the wait panel loads with the first wait row
-	const link = box.find((el) => el.tag === "a")[0]!;
-	assert.equal(link.attrs.get("data-route"), "w/wA/s/sb-tower-wa");
-	assert.equal(link.textContent, m.wait_goto());
+	assert.equal(box.find((el) => el.tag === "a").length, 0, "a row has no link to the comms: the dock's dialog has it in its footer");
+	assert.ok(box.find((el) => el.classes.has("wait-card")).length === 1, "the row is the wait card, folded");
 	assert.equal(noticeRows(service, { locale: "zh-TW" })[0]!.text, "等你決定：api-fix asks: deploy ws01?");
 });
 

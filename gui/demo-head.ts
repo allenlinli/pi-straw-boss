@@ -6,9 +6,9 @@ import { getLocale } from "./paraglide/runtime.js";
 import type { Answer } from "./post.ts";
 
 // The head tower of the demo (`?head=<state>`, docs/specs/2026-11-04-head-tower.md, Demo and pictures): `absent` (not open yet), `talk` (a conversation, no asks), `answers` (work handed to three towers, one answered), `waiting` (it waits for the boss), `starting` (as `answers`, but the tower stands by with a message of the boss waiting for its run to start),
-// and `busy` (as `talk`, but it refuses what the boss sends: the strip's refusal). `?zen=head`, `head-open`, `head-history`, and `head-rest` (an unasked report six seconds after the page starts: the strip is at rest, as every visit begins, and stays so) show the strip in Zen (fixture.ts); they take `answers` unless `?head=` says another.
+// `off` (as `starting`, but the sb server's tower service is off: the row says the message is kept), and `busy` (as `talk`, but it refuses what the boss sends: the strip's refusal). `?zen=head`, `head-open`, `head-history`, and `head-rest` (an unasked report six seconds after the page starts: the strip is at rest, as every visit begins, and stays so) show the strip in Zen (fixture.ts); they take `answers` unless `?head=` says another.
 
-export const HEAD_STATES = ["absent", "talk", "answers", "waiting", "busy", "starting"] as const;
+export const HEAD_STATES = ["absent", "talk", "answers", "waiting", "busy", "starting", "off"] as const;
 export type HeadState = (typeof HEAD_STATES)[number];
 export const isHeadState = (s: string | null): s is HeadState => HEAD_STATES.includes(s as HeadState);
 
@@ -75,6 +75,7 @@ export function headDemo(state: HeadState, now = Date.now()): HeadUnit {
 		localRuns: [{ id: "e1", kind: "event", startedAt: new Date(now - 4 * HOUR).toISOString(), outcome: "done", note: "reported the answer" }, { id: "e2", kind: "event", startedAt: new Date(now - 3 * HOUR).toISOString(), outcome: "done" }],
 		...(state === "waiting" ? { memory: { rev: 1, standing: 0, decisions: 0, waits: waits.length, bossWaits: waits.filter((x) => !lapsedWait(x, now)).map(({ id, text, at }) => ({ id, text, at })), proposals: [] } } : state === "answers" ? { memory: { rev: 2, standing: 1, decisions: 2, waits: 0, bossWaits: [], proposals: [] } } : {}),
 	};
+	if (state === "off") return { key: "sb-head", name: "head tower", mark: "idle", state: "standing", service: { ...service, state: "standing", queued: 1, run: undefined, conversation: undefined }, queued: [{ text: `boss: ${words().q1}`, as: "followUp", why: "off" }], asks: headAsks(now), said: now - 60_000, line: words().a4 };
 	if (state === "starting") return { key: "sb-head", name: "head tower", mark: "idle", state: "waking", service: { ...service, state: "waking", queued: 1, run: undefined, conversation: undefined }, queued: [{ text: `boss: ${words().q1}`, as: "start" }], asks: headAsks(now), said: now - 60_000, line: words().a4 };
 	return { key: "sb-head", name: "head tower", mark: "idle", state: "running", service, asks: state === "answers" || state === "waiting" ? headAsks(now) : [], said: now - 60_000, line: words().a4 };
 }
@@ -116,11 +117,11 @@ export function headHistory(state: HeadState): Item[] {
 		{ id: "h-a1", kind: "assistant", model: "head-1", at: at(3), text: w.a1, ctx: 4000, tools: ["Harbor API", "Lighthouse Web"].map((to, i) => ({ id: `h-t${i}`, name: "tower_send", summary: `(workspace: ${to})`, args: JSON.stringify({ workspace: to, message: w.u1 }) })) },
 	];
 	// What the head page leaves out (docs/specs/2026-11-06-head-page-minimal.md): the sb server's notice and a turn of one tool call alone.
-	if (state === "answers" || state === "waiting" || state === "starting") out.push(
+	if (state === "answers" || state === "waiting" || state === "starting" || state === "off") out.push(
 		{ id: "h-n0", kind: "notice", type: "straw-tower", event: "notice", text: "[notice from the sb server]\nThe run has been open for 40 minutes.", at: at(5) },
 		{ id: "h-done", kind: "assistant", model: "head-1", at: at(6), ctx: 4400, tools: [{ id: "h-td", name: "tower_done", summary: "(note: 11/06 morning: boss woke…)", args: JSON.stringify({ note: "11/06 morning: boss woke" }) }] },
 	);
-	if (state === "answers" || state === "waiting" || state === "starting") out.push(
+	if (state === "answers" || state === "waiting" || state === "starting" || state === "off") out.push(
 		{ id: "h-n1", kind: "notice", type: "straw-tower", event: "intercom", from: "tower · Lighthouse Web", text: `[intercom from tower · Lighthouse Web (demo-lh)]\n[straw net from="tower · Lighthouse Web" id=demo-lh role=tower workspace="Lighthouse Web" kind=tower_send scope=one to="head tower" reply=none in-reply-to=H2] ${w.n1}`, at: at(9) },
 		{ id: "h-a2", kind: "assistant", model: "head-1", at: at(10), text: w.a2, ctx: 5200 },
 	);

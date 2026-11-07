@@ -80,6 +80,7 @@ const withPanels = (call: (p: Panels) => void) => {
 		post: (key) => fixture && ((action, body) => fixture.data(key).post!(action as Parameters<Post>[0], body)), trust: fixture && fixture.trust,
 		stream: () => hello,
 		showTerminal: (ws, key) => core.openSession(ws, key, { mode: "term" }),
+		net: () => core.latest,
 	})));
 	void panelsLoading.then(call);
 };

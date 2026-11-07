@@ -1,4 +1,4 @@
-import type { Base, TowerService } from "../src/net.ts";
+import type { Base, BossWait, TowerService } from "../src/net.ts";
 import { WAIT_FRESH_MS } from "../src/waitlapse.ts";
 import type { Alert } from "./alerts.ts";
 import { m } from "./paraglide/messages.js";
@@ -8,8 +8,7 @@ import { m } from "./paraglide/messages.js";
 
 type Opts = { locale?: "en" | "zh-TW" };
 /** What an alert of a wait carries: the wait's id in the tower's memory and its text. */
-export interface WaitInfo { id: string; text: string }
-type BossWait = NonNullable<TowerService["memory"]>["bossWaits"][number];
+export interface WaitInfo { id: string; text: string; /** The wait as the snapshot carries it (its card and press), for the card to draw. */ entry?: BossWait }
 /** A wait older than this raises no alert (the boss was told long ago, and a page that opens would buzz at it every time); it stays on the card and in the memory, marked as possibly out of date. */
 export const FRESH_MS = WAIT_FRESH_MS;
 const age = (at: string, now: number) => now - Date.parse(at);
@@ -26,5 +25,5 @@ export function waitLine(w: BossWait, now: number, o?: Opts): string {
 }
 /** The alerts of a tower's fresh waits for the boss that the boss has not answered yet (an answered one is the tower's to resolve: no view raises it again, and a wait that changed is a new one), each by its own key (a wait's id is never reused), as of `at`. */
 export function waitAlerts(ws: string, tower: Base["tower"], at: number): Alert[] {
-	return (tower?.service?.memory?.bossWaits ?? []).filter((w) => age(w.at, at) < FRESH_MS && !w.answered && !w.state).map((w): Alert => ({ key: `wait\u001f${ws}\u001f${w.id}`, unit: tower!.key, ws, name: tower!.name, role: "tower", mark: "waiting", note: w.text, at, since: Date.parse(w.at), closed: !tower!.control, wait: { id: w.id, text: w.text } }));
+	return (tower?.service?.memory?.bossWaits ?? []).filter((w) => age(w.at, at) < FRESH_MS && !w.answered && !w.state).map((w): Alert => ({ key: `wait\u001f${ws}\u001f${w.id}`, unit: tower!.key, ws, name: tower!.name, role: "tower", mark: "waiting", note: w.text, at, since: Date.parse(w.at), closed: !tower!.control, wait: { id: w.id, text: w.text, entry: w } }));
 }

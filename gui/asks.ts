@@ -25,15 +25,18 @@ export interface WaitTarget { ws: string; id: string; tower: string }
 export interface WaitActions {
 	/** The boss's words to the tower: the session's `input`, the route Standard's composer sends to (`send` is `answerPost` of the tower's key, or the demo fixture's stand-in). */
 	tell(text: string): Promise<Answer>;
-	/** Dismiss: the server drops the wait from the tower's memory. */
-	dismiss(): Promise<Answer>;
+	/** A button of a wait card (docs/specs/2026-11-07-wait-cards.md, The press): the memory route's `press`, which tells the tower and the raiser. `decline` is Skip (a second tap, with its optional reason); `secret` is the first step of a secret card. */
+	press(act: "done" | "choose" | "secret" | "decline" | "restate", extra?: { option?: number; reason?: string }): Promise<Answer>;
+	/** The memory, whole: a card the snapshot cut to its text is read from it when it is drawn (`entries` carry `card` and `press`). */
+	read(): Promise<Answer>;
 	/** The tower's comms: the one action that navigates, offered as a link. */
 	goto: NetRoute;
 }
-/** What the boss can do with a wait the tower recorded on them, as plain functions every view draws (waitpanel.ts, towernotes.ts); a view differs only in what it does after `outcome` of the reply. */
+/** What the boss can do with a wait the tower recorded on them, as plain functions every view draws (waitcard.ts, waitpanel.ts); a view differs only in what it does after `outcome` of the reply. */
 export const waitActions = (w: WaitTarget, send: SessionPost): WaitActions => ({
 	tell: (text) => send("input", { text, as: "send", answers: w.id }), // `answers`: the server marks this wait answered once the tower took the message, so no view raises it again
-	dismiss: () => post(`${towerRoute(w.ws)}/memory`, { op: "drop", id: w.id }), // the head's waits go to `head/memory`
+	press: (act, extra) => post(`${towerRoute(w.ws)}/memory`, { op: "press", id: w.id, act, ...extra }), // the head's waits go to `head/memory`
+	read: () => post(`${towerRoute(w.ws)}/memory`, { op: "read" }),
 	goto: { view: "session", ws: w.ws, key: w.tower },
 });
 

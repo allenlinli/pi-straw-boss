@@ -28,6 +28,8 @@ English | [繁體中文](https://github.com/wayne930242/pi-straw-boss/blob/main/
 
 <p align="center"><img src="docs/gui-zen-wait.png" width="49%" alt="The Zen view with a tower's wait for you: the tower and its base as the title, the question, an answer box with a reply typed under a thin line, and Send, Dismiss, and Maybe later"> <img src="docs/gui-wait-answer.png" width="49%" alt="The Standard view's dialog for a tower's wait: the question, the answer box with a reply typed, Send, the link to the tower's comms, Later, and Dismiss"></p>
 
+A tower's wait for you is a card, not a line of text: what happened, what you do, where (a link to open, or a command to copy; sb never runs one), what happens after, and which session raised it, with the buttons that fit (I'm done, a choice's options, or the steps of a secret entered in the terminal), a **Skip** that takes two taps and tells the tower and the session, and a reply box. The demo's `?waits=cards` shows each kind.
+
 <p align="center"><img src="docs/gui-zen-history.png" width="49%" alt="The Zen view with an item's Context open: the unit's session log inside the card, above the question's choices, which stay answerable"> <img src="docs/gui-zen-palette.png" width="49%" alt="The Zen view's command palette (⌘K) open over the companion session, with the quiet strip of working and idle units above"></p>
 
 <p align="center"><img src="docs/gui-zen-music.png" width="49%" alt="The Zen view with a music folder: the ♪ switch and the open track list in the corner"></p>

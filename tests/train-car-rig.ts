@@ -25,8 +25,10 @@ export function carWorld() {
 	const logs: string[] = [];
 	const existing = new Set<string>();
 	let counter = 0;
+	// The server fetches only from an https, ssh or scp-like remote (never a path on this computer), so the world's remote is `PUBLIC_URL` and git, in this world only, reads it from the bare repository `repo()` made.
+	const rewrites: [string, string][] = [];
 	const deps = {
-		stateDir, dir, now: () => clock, look: async (id: string) => looks.get(id), git: runGit, exists: (p: string) => existing.has(p),
+		stateDir, dir, now: () => clock, look: async (id: string) => looks.get(id), git: (cwd: string, args: string[]) => runGit(cwd, [...rewrites.flatMap(([from, to]) => ["-c", `url.${to}.insteadOf=${from}`]), ...args]), exists: (p: string) => existing.has(p),
 		startOf, secret: () => `secret-${++counter}`, log: (event: string, facts: Record<string, unknown>) => void logs.push(`${event} ${JSON.stringify(facts)}`),
 	};
 	const book = new CarBook(deps as never);
@@ -38,7 +40,7 @@ export function carWorld() {
 	looks.set(TRAIN, { id: TRAIN, name: "train 1106m", role: "train", train: { project: "acme", code: CODE }, pane: "wA:p2", workspace: "wA", cwd: work, foreground: [222] });
 	const client = (session: string, pid: number, pane: string, held = new Map<string, string>()) => createCarClient({ call, session: () => session, pane: () => pane, pid, held, started: startOf });
 	return {
-		root, stateDir, dir, work, checkout, book, cars, call, looks, logs, existing, client, deps,
+		root, stateDir, dir, work, checkout, book, cars, call, looks, logs, existing, client, deps, rewrites,
 		integ: client(INTEG, 111, "wA:p1"), train: client(TRAIN, 222, "wA:p2"),
 		tick: (ms: number) => void (clock += ms), now: () => clock,
 		/** The server opened train CODE for the train session, with its base, on a manifest that lists `heads`; the tower's checkout is read at the open. */
@@ -51,7 +53,9 @@ export function carWorld() {
 }
 export type CarWorld = ReturnType<typeof carWorld>;
 
-const made = new WeakMap<object, { remote: string; pushed: string; local: string }>();
+/** The remote the tower's checkout names in this world. */
+export const PUBLIC_URL = "https://git.example.test/acme.git";
+const made = new WeakMap<object, { remote: string; url: string; pushed: string; local: string }>();
 function makeRepo(world: CarWorld) {
 	const remote = join(world.root, "remote.git"), clone = world.work;
 	execFileSync("git", ["init", "--bare", "-b", "develop", remote]);
@@ -62,14 +66,16 @@ function makeRepo(world: CarWorld) {
 	git(clone, "push", "origin", "HEAD:develop");
 	const pushed = git(clone, "rev-parse", "HEAD");
 	execFileSync("git", ["clone", remote, world.checkout], { stdio: "ignore" });
+	git(world.checkout, "remote", "set-url", "origin", PUBLIC_URL);
+	world.rewrites.push([PUBLIC_URL, remote]);
 	writeFileSync(join(clone, "b.txt"), "b");
 	git(clone, "add", "b.txt");
 	git(clone, "commit", "-m", "only here");
-	return { remote, pushed, local: git(clone, "rev-parse", "HEAD") };
+	return { remote, url: PUBLIC_URL, pushed, local: git(clone, "rev-parse", "HEAD") };
 }
 
 /**
- * A bare "remote", the tower's checkout and the train's clone of it, with two commits on `develop` in the train's clone: the first pushed, the second only there. Made once per world; call it before `opened()` so the open reads the remote
+ * A bare "remote" (`remote`, read by git as `url`), the tower's checkout and the train's clone of it, with two commits on `develop` in the train's clone: the first pushed, the second only there. Made once per world; call it before `opened()` so the open reads the remote
  * from the checkout.
  */
 export function repo(world: CarWorld) {

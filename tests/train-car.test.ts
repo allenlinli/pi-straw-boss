@@ -164,13 +164,13 @@ test("a car not in the train's manifest, one the integrator never received, and 
 	w3.forwarded();
 	await trainCar(integratorDeps(w3), received, integratorCtx(forwardEntry(COORD)));
 	await refused(trainCar(trainDeps(w3, r), { car: "T-15", state: "landed", version: "1", commit: pushed }, ctx), `is not in the manifest of train ${CODE}`);
-	// And the other way: whatever train the received entry names, the manifest of the train that sets decides.
+	// And the other way: the manifest alone is not enough either (RR-F003): the receipt names the train that was to carry the car.
 	const w4 = world();
 	repo(w4);
 	await w4.opened();
 	w4.forwarded();
 	await trainCar(integratorDeps(w4), { ...received, train: "2026-11-06-n" }, integratorCtx(forwardEntry(COORD)));
-	assert.equal((await trainCar(trainDeps(w4, r), { car: "T-15", state: "landed", version: "1", commit: repo(w4).pushed }, ctx)).details !== undefined, true);
+	await refused(trainCar(trainDeps(w4, r), { car: "T-15", state: "landed", version: "1", commit: repo(w4).pushed }, ctx), `was not received for train ${CODE}`);
 });
 
 test("a second terminal state is refused: landed, then dropped or returned or landed again", async () => {

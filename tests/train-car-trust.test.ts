@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, sep } from "node:path";
 import { afterEach, test } from "node:test";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { CarBook } from "../src/server/carbook.ts";
 import { noticeSatisfied } from "../src/train/cars.ts";
 import { type CarCtx, type CarParams, type CarToolDeps, trainCar } from "../src/traincar.ts";
@@ -111,7 +112,7 @@ test("CR-F001: the integrator's states need the server's own forward: a raw clie
 
 test("CR-F002: landed is checked against the remote the server read at the open, not the origin of the train's clone: a clone pointed at a fake origin holding the commit is not landed", async () => {
 	const w = world();
-	const { remote, pushed, local } = repo(w);
+	const { url, pushed, local } = repo(w);
 	await w.opened();
 	await receive(w);
 	// The train rewrites its own clone's origin (and the checkout's) to a repository that holds its commit on `develop`.
@@ -124,7 +125,7 @@ test("CR-F002: landed is checked against the remote the server read at the open,
 	const off = await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: local });
 	assert.equal(off?.ok, false);
 	assert.match(String(off?.error), new RegExp(`landed\\.commit ${local.slice(0, 12)} is not on `));
-	assert.equal(w.book.trainOf("acme", CODE)?.url, remote, "the remote is the one read before the train existed; a later change of the checkout's config does not reach it");
+	assert.equal(w.book.trainOf("acme", CODE)?.url, url, "the remote is the one read before the train existed; a later change of the checkout's config does not reach it");
 	const on = await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: pushed });
 	assert.equal(on?.ok, true, String(on?.error));
 });
@@ -146,23 +147,97 @@ test("CR-F002: the check runs no code the train's clone configures: an uploadpac
 	assert.equal(existsSync(marker), false, "the server fetched in a repository of its own, whose config the train's clone does not reach");
 });
 
-test("CR-F002: the mirror is the server's: its config is rewritten before each check, so a rewritten URL or a planted replace ref in it changes nothing", async () => {
+/** A commit-graph file (version 1, SHA-1) that says `tip` has the parent `orphan` and `orphan` has none: what a shell can write by hand, since git does not check a graph against the objects. */
+function forgedGraph(tip: { id: string; tree: string }, orphan: { id: string; tree: string }): Buffer {
+	const rows = [{ ...tip, parent: orphan.id, gen: 2 }, { ...orphan, parent: undefined, gen: 1 }].sort((a, b) => a.id.localeCompare(b.id));
+	const at = (id: string) => rows.findIndex((r) => r.id === id);
+	const fan = Buffer.alloc(1024);
+	for (let byte = 0; byte < 256; byte++) fan.writeUInt32BE(rows.filter((r) => parseInt(r.id.slice(0, 2), 16) <= byte).length, byte * 4);
+	const ids = Buffer.concat(rows.map((r) => Buffer.from(r.id, "hex")));
+	const data = Buffer.concat(rows.map((r) => {
+		const row = Buffer.alloc(36);
+		Buffer.from(r.tree, "hex").copy(row);
+		row.writeUInt32BE(r.parent ? at(r.parent) : 0x70000000, 20);
+		row.writeUInt32BE(0x70000000, 24);
+		row.writeUInt32BE(r.gen << 2, 28);
+		row.writeUInt32BE(1, 32);
+		return row;
+	}));
+	const chunks: [string, Buffer][] = [["OIDF", fan], ["OIDL", ids], ["CDAT", data]];
+	const table = Buffer.alloc(12 * (chunks.length + 1));
+	let offset = 8 + table.length;
+	chunks.forEach(([name, body], i) => { table.write(name, i * 12, "latin1"); table.writeBigUInt64BE(BigInt(offset), i * 12 + 4); offset += body.length; });
+	table.writeBigUInt64BE(BigInt(offset), chunks.length * 12 + 4);
+	const body = Buffer.concat([Buffer.from([0x43, 0x47, 0x50, 0x48, 1, 1, chunks.length, 0]), table, ...chunks.map(([, b]) => b)]);
+	return Buffer.concat([body, createHash("sha1").update(body).digest()]);
+}
+
+/** What a train that shares the server's uid can put where the old persistent mirror lived (`<server folder>/cars-mirror/<project>`): the commit `local` (on no remote), and either the real tip's id holding a commit whose parent is `local`, or a commit-graph that says so. */
+function plantMirror(w: CarWorld, graph: boolean) {
+	const { pushed, local } = repo(w);
+	const old = join(w.dir, "cars-mirror", "acme");
+	mkdirSync(join(w.dir, "cars-mirror"), { recursive: true });
+	execFileSync("git", ["init", "--bare", "-q", old]);
+	git(w.work, "push", "-q", old, `${local}:refs/heads/orphan`);
+	if (graph) {
+		mkdirSync(join(old, "objects", "info"), { recursive: true });
+		writeFileSync(join(old, "objects", "info", "commit-graph"), forgedGraph({ id: pushed, tree: git(w.work, "rev-parse", `${pushed}^{tree}`) }, { id: local, tree: git(w.work, "rev-parse", `${local}^{tree}`) }));
+		return { old, pushed, local };
+	}
+	const genuine = git(w.work, "cat-file", "commit", pushed);
+	const forged = execFileSync("git", ["-C", old, "hash-object", "-t", "commit", "-w", "--stdin"], { input: `${genuine.replace(/^(tree .*\n)(?:parent .*\n)*/, `$1parent ${local}\n`)}\n`, encoding: "utf8" }).trim();
+	const loose = (id: string) => join(old, "objects", id.slice(0, 2), id.slice(2));
+	rmSync(loose(pushed), { force: true });
+	copyFileSync(loose(forged), loose(pushed));
+	return { old, pushed, local };
+}
+
+for (const graph of [false, true]) {
+	test(`RR-F001: ${graph ? "a planted commit-graph" : "a planted object under the real tip's id with a forged parent"} where the old mirror lived makes no orphan commit land; a real ancestor lands`, async () => {
+		const w = world();
+		const { pushed, local } = plantMirror(w, graph);
+		await w.opened();
+		await receive(w);
+		const shell = (await register(w, TRAIN, 222, "wA:p2", startOf(222)))?.secret;
+		const forged = await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: local });
+		assert.equal(forged?.ok, false, "the orphan commit is not on the base");
+		assert.match(String(forged?.error), new RegExp(`landed\\.commit ${local.slice(0, 12)} is not on develop`));
+		assert.equal((await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: pushed }))?.ok, true, "a commit that is on the base lands");
+	});
+}
+
+test("RR-F001/RR-F004: each landed check fetches into a mirror made then, mode 700, with the commit-graph and gc off, and removes it, whatever the answer; a mirror swapped for a symlink is unlinked, never followed", async () => {
 	const w = world();
-	const { remote, pushed, local } = repo(w);
+	const { pushed, local } = repo(w);
 	await w.opened();
 	await receive(w);
+	const victim = join(w.root, "victim");
+	mkdirSync(victim);
+	writeFileSync(join(victim, "keep.txt"), "keep");
+	const seen: { dir: string; mode: number; args: string[] }[] = [];
+	const real = w.deps.git;
+	let swap = false;
+	w.deps.git = async (cwd: string, args: string[]) => {
+		const gitDir = args[args.indexOf("--git-dir") + 1];
+		if (args.includes("fetch") && gitDir) seen.push({ dir: gitDir, mode: statSync(gitDir).mode & 0o777, args });
+		const out = await real(cwd, args);
+		if (swap && args.includes("merge-base") && gitDir) { rmSync(gitDir, { recursive: true, force: true }); symlinkSync(victim, gitDir); }
+		return out;
+	};
 	const shell = (await register(w, TRAIN, 222, "wA:p2", startOf(222)))?.secret;
 	assert.equal((await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: local }))?.ok, false);
-	const fake = join(w.root, "fake.git");
-	execFileSync("git", ["init", "--bare", "-b", "develop", fake]);
-	git(w.work, "push", fake, `${local}:refs/heads/develop`);
-	const mirror = join(w.dir, "cars-mirror", "acme");
-	assert.ok(existsSync(mirror), "the mirror lives under the server's folder");
-	writeFileSync(join(mirror, "config"), `[core]\n\tbare = true\n[url "${fake}"]\n\tinsteadOf = ${remote}\n`);
-	mkdirSync(join(mirror, "refs", "replace"), { recursive: true });
-	assert.equal((await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: local }))?.ok, false, "the rewritten URL was not used");
-	assert.equal(readFileSync(join(mirror, "config"), "utf8").includes("insteadOf"), false, "the server rewrote the mirror's config");
+	swap = true;
 	assert.equal((await rawSet(w, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: pushed }))?.ok, true);
+	assert.equal(seen.length, 2);
+	assert.notEqual(seen[0]!.dir, seen[1]!.dir, "a fresh mirror for each check");
+	for (const s of seen) {
+		assert.equal(s.mode, 0o700);
+		assert.ok(s.dir.startsWith(w.dir + sep), "under the server's folder");
+		for (const flag of ["core.commitGraph=false", "fetch.writeCommitGraph=false", "gc.auto=0", "core.multiPackIndex=false"]) assert.ok(s.args.includes(flag), flag);
+		assert.equal(existsSync(s.dir), false, "removed after the check");
+	}
+	assert.deepEqual(readdirSync(w.dir).filter((n) => n.startsWith("cars-mirror")), []);
+	assert.equal(readFileSync(join(victim, "keep.txt"), "utf8"), "keep", "the symlink was removed, not followed");
 });
 
 test("CR-F002: a remote that changes between two opens of one server refuses the later train's landed with a word, and a remote that is no safe URL is never fetched", async () => {
@@ -170,9 +245,9 @@ test("CR-F002: a remote that changes between two opens of one server refuses the
 	const { pushed } = repo(w);
 	await w.opened();
 	// The first train rewrites the shared config before the next open.
-	git(w.checkout, "remote", "set-url", "origin", join(w.root, "elsewhere.git"));
+	git(w.checkout, "remote", "set-url", "origin", "https://elsewhere.example.test/acme.git");
 	w.book.noteTrain({ project: "acme", code: "2026-11-06-n", session: "sess-train-2", pane: "wA:p3", integrator: INTEG, base: "develop", heads: [SHA_B], url: await w.book.remoteOf(w.checkout) });
-	assert.equal(w.book.trainOf("acme", "2026-11-06-n")?.url, join(w.root, "elsewhere.git"));
+	assert.equal(w.book.trainOf("acme", "2026-11-06-n")?.url, "https://elsewhere.example.test/acme.git");
 	w.looks.set("sess-train-2", { id: "sess-train-2", name: "train n", role: "train", train: { project: "acme", code: "2026-11-06-n" }, pane: "wA:p3", workspace: "wA", cwd: w.work, foreground: [333] });
 	const second = (await register(w, "sess-train-2", 333, "wA:p3", startOf(333)))?.secret;
 	const integ = (await register(w, INTEG, 111, "wA:p1", startOf(111)))?.secret;
@@ -189,6 +264,65 @@ test("CR-F002: a remote that changes between two opens of one server refuses the
 		await w2.opened();
 		assert.equal(w2.book.trainOf("acme", CODE)?.url, undefined, `unsafe url ${JSON.stringify(url)} is not kept`);
 	}
+});
+
+test("RR-F002: a remote git reads as a path on this computer, or by any transport but https and ssh, is no remote: the open notes the train without one and landed is refused; https, ssh and scp-like remotes are kept", async () => {
+	const w = world();
+	const { pushed } = repo(w);
+	const remoteOf = async (url: string) => { git(w.checkout, "config", "remote.origin.url", url); return w.book.remoteOf(w.checkout); };
+	for (const url of ["/tmp/evil.git", "/", "./evil.git", "../evil.git", "evil.git", "~/evil.git", "~user/evil.git", "x:y", "evil:evil.git", "c:/evil.git", "//host/share/evil.git", "file:///tmp/evil.git", "file://localhost/tmp/evil.git", "FILE:///tmp/evil.git", "git://host/acme.git", "http://host/acme.git", "ext::sh -c id", "fd::3", "https:///evil.git", "https://-oProxyCommand=x/a.git", "ssh://-oProxyCommand=x/a.git", "-oProxyCommand=x@host:a.git", "git@-host:a.git", "git@host:a git", `https://host/${"a".repeat(500)}`]) assert.equal(await remoteOf(url), undefined, JSON.stringify(url));
+	for (const url of ["https://git.example.test/acme.git", "https://user@git.example.test:8443/acme.git", "ssh://git@git.example.test/acme.git", "ssh://git.example.test:2222/acme.git", "git@git.example.test:acme/acme.git"]) assert.equal(await remoteOf(url), url, url);
+	// The open: the checkout a train rewrote before a restart names a repository it controls.
+	for (const evil of ["/tmp/evil.git", "file:///tmp/evil.git", "./evil.git"]) {
+		const w2 = world();
+		repo(w2);
+		git(w2.checkout, "remote", "set-url", "origin", evil);
+		await w2.opened();
+		assert.equal(w2.book.trainOf("acme", CODE)?.url, undefined, evil);
+		await receive(w2);
+		const shell = (await register(w2, TRAIN, 222, "wA:p2", startOf(222)))?.secret;
+		const reply = await rawSet(w2, shell, "landed", { app: "web", head: SHA_A }, { version: "1", commit: pushed });
+		assert.equal(reply?.ok, false, evil);
+		assert.match(String(reply?.error), /remote of project acme was not read/, evil);
+	}
+});
+
+// ---- RR-F003: a train's right to a car is the one the integrator's receipt gave it
+
+test("RR-F003: a train opened with another train's heads cannot set those cars: the receipt must name this train and come from this train's integrator", async () => {
+	const w = world();
+	repo(w);
+	await w.opened(); // train CODE, heads [SHA_A], integrator INTEG
+	await receive(w); // received for train CODE
+	const OTHER = "2026-11-06-n";
+	w.book.noteTrain({ project: "acme", code: OTHER, session: "sess-train-2", pane: "wA:p3", integrator: INTEG, base: "develop", heads: [SHA_A], url: await w.book.remoteOf(w.checkout) });
+	w.looks.set("sess-train-2", { id: "sess-train-2", name: "train n", role: "train", train: { project: "acme", code: OTHER }, pane: "wA:p3", workspace: "wA", cwd: w.work, foreground: [333] });
+	const second = (await register(w, "sess-train-2", 333, "wA:p3", startOf(333)))?.secret;
+	const evidence = join(w.root, "log.txt");
+	w.freeze(evidence);
+	for (const [state, fields] of [["dropped", { round: 1, reason: "x", evidence }], ["returned", { reason: "x" }], ["landed", { version: "1", commit: repo(w).pushed }]] as const) {
+		const reply = await rawSet(w, second, state, { app: "web", head: SHA_A }, { ...fields });
+		assert.equal(reply?.ok, false, state);
+		assert.match(String(reply?.error), new RegExp(`was not received for train ${OTHER}`), state);
+	}
+	assert.deepEqual(states(w), ["T-15:received"]);
+	// The right train still sets it.
+	const first = (await register(w, TRAIN, 222, "wA:p2", startOf(222)))?.secret;
+	assert.equal((await rawSet(w, first, "returned", { app: "web", head: SHA_A }, { reason: "x" }))?.ok, true);
+});
+
+test("RR-F003: a receipt by a session that is not the integrator the train was opened for gives the train no right", async () => {
+	const w = world();
+	repo(w);
+	await w.opened("develop", [SHA_A]);
+	w.book.noteTrain({ project: "acme", code: "2026-11-06-n", session: "sess-train-2", pane: "wA:p3", integrator: SECOND_INTEG, base: "develop", heads: [SHA_A] });
+	w.looks.set("sess-train-2", { id: "sess-train-2", name: "train n", role: "train", train: { project: "acme", code: "2026-11-06-n" }, pane: "wA:p3", workspace: "wA", cwd: w.work, foreground: [333] });
+	w.forwarded();
+	assert.equal((await trainCar(integratorDeps(w), { ...received, train: "2026-11-06-n" }, integratorCtx(forwardEntry(COORD)))).details !== undefined, true);
+	const second = (await register(w, "sess-train-2", 333, "wA:p3", startOf(333)))?.secret;
+	const reply = await rawSet(w, second, "returned", { app: "web", head: SHA_A }, { reason: "x" });
+	assert.equal(reply?.ok, false);
+	assert.match(String(reply?.error), /was not received by this train's integrator/);
 });
 
 // ---- CR-F003: nothing read from disk at the start is proof
@@ -246,14 +380,14 @@ test("CR-F004: cars-read takes a registered session and returns only its own: a 
 test("the open's facts are read before the train exists: a checkout or manifest changed during or after the open does not change what the server holds; a repeated open adds no remote", async () => {
 	const { noteTrains } = await import("../src/server/trainnote.ts");
 	const w = world();
-	const { remote } = repo(w);
+	const { url: remote } = repo(w);
 	const manifest = `train:\n  project: acme\n  app: web\n  code: ${CODE}\n  base: develop\n\n${"car: web | tickets: T-15 | branch: fix/t-15 | head: " + SHA_A}\n`;
 	const errors: string[] = [];
 	let opens = 0;
 	const open = async () => {
 		opens++;
 		// The train starts: its first act rewrites the shared config, and the manifest it was handed is edited in its own copy.
-		git(w.checkout, "remote", "set-url", "origin", join(w.root, "evil.git"));
+		git(w.checkout, "remote", "set-url", "origin", "https://evil.example.test/acme.git");
 		return { tab: "t", pane: "wA:p2", main: TRAIN, sender: INTEG, train: { project: "acme", code: CODE }, ...(opens > 1 ? { repeated: true as const } : {}) };
 	};
 	const opener = noteTrains(open as never, { cars: w.book, checkout: async () => w.checkout, error: (what, message) => void errors.push(`${what}: ${message}`) });

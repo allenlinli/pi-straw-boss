@@ -50,7 +50,7 @@ interface File { next: number; asks: HeadAsk[] }
 
 const fileOf = (slot: Slot) => join(towerDir(slot, HEAD_KEY), "asks.json");
 const cut = (text: string | undefined) => { const t = (text ?? "").trim(); return t ? Array.from(t).slice(0, TEXT_KEEP).join("") : undefined; };
-const line = (text: string) => Array.from(text.split("\n").find((l) => l.trim()) ?? "").join("").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, FIRST);
+const line = (text: string) => Array.from(text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").split("\n").map((l) => l.replace(/\s+/g, " ").trim()).find(Boolean) ?? "").join("").slice(0, FIRST);
 const valid = (a: unknown): a is HeadAsk => {
 	const v = a as Partial<HeadAsk> | null;
 	return typeof v === "object" && v !== null && typeof v.id === "string" && /^H\d+$/.test(v.id) && typeof v.workspace === "string" && typeof v.label === "string" && Number.isFinite(v.at) && Number.isFinite(v.last) && typeof v.first === "string" && Array.isArray(v.answers);

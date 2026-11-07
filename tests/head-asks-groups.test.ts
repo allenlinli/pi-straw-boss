@@ -135,3 +135,8 @@ test("the head's brief names the lapsed waits and tells the head to resolve them
 	assert.doesNotMatch(buildHeadBrief(input()), /Lapsed waits/);
 	assert.doesNotMatch(buildHeadBrief(input({ lapsed: [] })), /Lapsed waits/);
 });
+
+test("HLC-R2-F003: a first line made only of control characters is skipped, never an empty first", () => {
+	const slot = slotIn();
+	assert.equal(openAsk(slot, 1, { workspace: "wA", label: "A", first: "\u0007\u2028\nreal text" }).first, "real text");
+});

@@ -348,6 +348,11 @@ test("HLC-R3-F001: a tower's tower_reply to the head is refused at the tool, bef
 	assert.match(String(reply.error), /head: true/);
 	assert.match(String(reply.error), /inReplyTo/);
 	assert.equal(world.client("sb-head")!.sent.length, sentBefore, "nothing was sent to the head");
+	assert.equal(world.client("sb-tower-wa")!.sent.some((x) => x.to === "sb-head"), false, "the tower's own client sent nothing to the head");
+	const byName = await tool(s, one.run.token, "tower_reply", { to: "head tower", message: "landed" }, { turn: one.ev.id });
+	assert.equal(byName.ok, false, "the head's name is refused like its id");
+	assert.match(String(byName.error), /not delivered/i);
+	assert.equal(world.client("sb-tower-wa")!.sent.some((x) => x.to === "sb-head"), false, "still nothing sent after the refusal by name");
 	assert.equal(readAsks(world.slot, Date.now())[0]!.answers.length, 0, "no answer is recorded for a reply the head never got");
 	assert.equal(state(a.id), "received", "a failed call records nothing beyond what the run's taking noted");
 });
@@ -400,6 +405,15 @@ test("the snapshot carries at most TEXTS units of whole text: the newest broadca
 	for (let i = 0; i < 9; i++) send(slot2, T0 + (i + 1) * 5 * MIN, `v${i}`, big("x"), { relay: `boss:f${i}`, boss: big("y") });
 	send(slot2, T0 + HOUR, "wZ", "newest small", { relay: "boss:z", boss: "z" });
 	assert.deepEqual(headSeam(slot2, () => T0 + 2 * HOUR).asks().filter((r) => r.sent !== undefined).map((r) => r.id), ["H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11"], "newest first (2 + 7 × 3,000 fit): the two oldest large ones and the small oldest one are cut together");
+});
+
+test("the budget counts every tower's own copy: broadcasts whose towers got different texts cost all of them", () => {
+	const slot = slotIn(), copy = (n: number) => String(n).padStart(2, "0").repeat(740);
+	// ten broadcasts of three towers, each tower with its own 1,480-unit copy: 4,440 each, so five fit 24,000 (a cost that counted only the first tower's would keep all ten)
+	for (let g = 0; g < 10; g++) for (let t = 0; t < 3; t++) send(slot, T0 + g * 5 * MIN + t, `w${g}${t}`, copy(g * 3 + t), { relay: `boss:e${g}` });
+	const rows = headSeam(slot, () => T0 + HOUR).asks();
+	assert.equal(rows.filter((r) => r.sent !== undefined).length, 15, "only the newest five broadcasts (fifteen copies) are whole");
+	assert.equal(rows.reduce((n, r) => n + (r.sent?.length ?? 0), 0) <= TEXTS, true);
 });
 
 test("worst case, measured: the asks of one snapshot stay within the bound the spec states, for text that costs the most bytes (escaped control characters), 4-byte emoji, and CJK", () => {

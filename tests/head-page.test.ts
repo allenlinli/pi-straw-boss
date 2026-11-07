@@ -344,6 +344,7 @@ test("the head's line with the boss's own words taken out: only an exact copy of
 	assert.equal(sentLine({ ...g, sent: "電腦重開了" }), "電腦重開了", "the head sent nothing but the boss's words: the line is that");
 	assert.equal(sentLine({ boss: undefined, first: "kept first line", sent: undefined as never }), "kept first line", "an ask from before the whole text was kept");
 	assert.equal(sentLine({ ...g, sent: "\n\n  Boss: 「電腦重開了」.\nsecond" }), "Boss:", "the first line with words");
+	assert.equal(sentLine({ ...g, sent: "\u0007\u2028\nreal text" }), "real text", "a line of control characters only is not the first line");
 	assert.equal(sentLine({ boss: "a|b.*", first: "x", sent: "Boss: 「a|b.*」 go" }), "Boss: go", "no pattern is made of the boss's words");
 	// one pair of quotation marks around the copy, whichever kind, and one full stop after it: nothing else next to it is touched
 	for (const [open, close] of [["「", "」"], ["『", "』"], ["“", "”"], ["\"", "\""], ["'", "'"], ["‘", "’"]]) assert.equal(sentLine({ ...g, sent: `Boss CORRECTION 2: ${open}電腦重開了${close}. Remove the time limit.` }), "Boss CORRECTION 2: Remove the time limit.", open);

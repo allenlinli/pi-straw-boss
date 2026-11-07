@@ -131,7 +131,7 @@ export function sentLine(g: { sent?: string; boss?: string; first: string }): st
 		if (open && QUOTES[open] !== undefined && after.startsWith(QUOTES[open]!)) (before = before.slice(0, -1), after = after.slice(1), (mark = ""), /^[.。]/.test(after) && (after = after.slice(1)));
 		if ((before + after).trim()) text = before + mark + after;
 	}
-	return text.split("\n").map((l) => l.replace(/\s+/g, " ").trim()).find(Boolean) ?? g.first;
+	return text.split("\n").map((l) => l.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim()).find(Boolean) ?? g.first;
 }
 const STATE: Record<HeadAskRow["state"], (o?: Opts) => string> = { waiting: (o) => m.head_ask_waiting({}, o), answered: (o) => m.head_ask_answered({}, o), handled: (o) => m.head_ask_handled({}, o), received: (o) => m.head_ask_received({}, o), silent: (o) => m.head_ask_silent({}, o) };
 /** Whether nothing can come of this row: the net has no tower of the workspace and it never handled it, so waiting is a word it cannot keep. */

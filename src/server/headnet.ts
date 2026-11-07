@@ -17,8 +17,14 @@ export const TEXTS = 24_000;
 /** How far from the end of a conversation file the newest assistant text is looked for. */
 const TAIL = 65_536;
 
-/** The time of the newest assistant message with text in the last bytes of a session file; undefined when it has none or cannot be read. */
-function lastSaid(file: string): number | undefined {
+/** The longest the newest line is (in UTF-16 units); a longer one ends in an ellipsis. */
+const LINE = 160;
+
+/**
+ * The newest assistant message with text in the last bytes of a session file, by the head page's log filter (items.ts `toItem`: an assistant item whose text is not empty; tool-only, user, and notice entries are not the head's words):
+ * its own time, and the first non-empty line of its text. Both undefined when there is none or the file cannot be read.
+ */
+function lastWords(file: string): { at?: number; line?: string } {
 	let fd: number | undefined;
 	try {
 		fd = openSync(file, "r");
@@ -29,19 +35,34 @@ function lastSaid(file: string): number | undefined {
 		for (const raw of rows.reverse()) {
 			if (!raw.includes('"assistant"')) continue;
 			const entry: Json | undefined = parse(raw), item = entry && toItem(entry, raw.length), at = item?.kind === "assistant" && item.text ? Date.parse(item.at ?? "") : NaN;
-			if (Number.isFinite(at)) return at;
+			if (!Number.isFinite(at)) continue;
+			// a fence line is no words; a heading's, quote's, or list's marks and bold go; the cut counts characters, so an emoji is never split
+			const first = item!.text!.split("\n").map((l) => l.trim()).filter((l) => !l.startsWith("```")).map((l) => l.replace(/^(?:[#>]+\s*|[-*+]\s+)+/, "").replaceAll("**", "").trim()).find(Boolean), chars = first ? Array.from(first) : [];
+			return { at, ...(first ? { line: chars.length > LINE ? `${chars.slice(0, LINE - 1).join("")}…` : first } : {}) };
 		}
 	} catch {
 		// a file that is not there yet, or that cannot be read, has said nothing
 	} finally {
 		if (fd !== undefined) closeSync(fd);
 	}
-	return undefined;
+	return {};
 }
 
 export function headSeam(slot: Slot, now: () => number): HeadSeam {
 	// The conversation file is read again only when it changed: the net is read every two seconds.
-	const seen = new Map<string, { sig: string; at: number | undefined }>();
+	const seen = new Map<string, { sig: string; words: { at?: number; line?: string } }>();
+	const words = (file: string | undefined) => {
+		if (!file) return {};
+		try {
+			const s = statSync(file), sig = `${s.size}:${s.mtimeMs}`, kept = seen.get(file);
+			if (kept?.sig === sig) return kept.words;
+			const read = lastWords(file);
+			seen.set(file, { sig, words: read });
+			return read;
+		} catch {
+			return {};
+		}
+	};
 	return {
 		key: headId(slot),
 		asks: (): HeadAskRow[] => {
@@ -74,17 +95,7 @@ export function headSeam(slot: Slot, now: () => number): HeadSeam {
 			});
 		},
 		chapters: () => readChapters(slot),
-		said: (file) => {
-			if (!file) return undefined;
-			try {
-				const s = statSync(file), sig = `${s.size}:${s.mtimeMs}`, kept = seen.get(file);
-				if (kept?.sig === sig) return kept.at;
-				const at = lastSaid(file);
-				seen.set(file, { sig, at });
-				return at;
-			} catch {
-				return undefined;
-			}
-		},
+		said: (file) => words(file).at,
+		line: (file) => words(file).line,
 	};
 }

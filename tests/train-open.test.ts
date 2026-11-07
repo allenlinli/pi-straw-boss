@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { DEFAULT_MAX_TRAINS, maxTrainsOf, readMaxTrains, trainFromRequest, trainFromToken, trainLabel, trainToken } from "../src/trainrole.ts";
+import { opener } from "../src/opener.ts";
+import { type Board, writeBoard } from "../src/train/board.ts";
 import { World } from "./fakes.ts";
 
 // The tower opens a train with boss_open_main and role "train" (docs/specs/2026-11-07-train-workers.md §3.3, task 3): a tab of its own, counted per project against maxTrains and not
@@ -96,6 +99,16 @@ test("a sender that has an opened main still opens a train, and a main still ope
 	assert.equal(trains().length, 1);
 });
 
+test("a pane that carries sb_train but is a main's still counts toward the two mains: only the role train leaves the count", async () => {
+	world.autoMains();
+	const { tower } = await net();
+	await tower.tool("boss_open_main", { request: "one", sender: "sender-1" });
+	await tower.tool("boss_open_main", { request: "two", sender: "sender-2" });
+	for (const pane of world.herdr.panes.filter((p) => p.tokens.sb_opened_by)) pane.tokens.sb_train = "acme/2026-11-06-z"; // left behind by a crashed train, or written by a process of the same user
+	await assert.rejects(tower.tool("boss_open_main", { request: "three", sender: "sender-3" }), /already has 2 mains opened by its tower \(the limit is 2\)/);
+	await assert.rejects(tower.tool("boss_open_main", { request: "again", sender: "sender-1" }), /already has an opened main running/);
+});
+
 test("one integrator opens as many trains as the project allows: the per-sender limit of one does not apply to the role", async () => {
 	world.autoMains();
 	const { tower } = await net();
@@ -107,7 +120,7 @@ test("the fourth live train of a project is refused, counted from live panes so 
 	world.autoMains();
 	const { tower } = await net();
 	for (const code of [M, N, O]) await tower.tool("boss_open_main", { role: "train", request: manifest(code), sender: "sender-1" });
-	await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-1" }), /already has 3 live trains of project acme \(maxTrains is 3\)/);
+	await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-1" }), /Project acme already has 3 live trains \(maxTrains is 3\)/);
 	const fresh = await restart(tower);
 	await assert.rejects(fresh.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-2" }), /maxTrains is 3/);
 	assert.equal(world.herdr.commands("tab", "create").length, 3);
@@ -137,7 +150,7 @@ test("maxTrains comes from the project's apps.json (integration.maxTrains); a va
 		world.herdr.workspace("wA").worktree = { checkout_path: dir };
 		const { tower } = await net();
 		await tower.tool("boss_open_main", { role: "train", request: manifest(M), sender: "sender-1" });
-		await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(N), sender: "sender-1" }), /already has 1 live train of project acme \(maxTrains is 1\)/);
+		await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(N), sender: "sender-1" }), /Project acme already has 1 live train \(maxTrains is 1\)/);
 		writeFileSync(join(dir, ".straw-boss", "apps.json"), JSON.stringify({ integration: { maxTrains: "many" } }));
 		await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(N), sender: "sender-1" }), /apps\.json: integration\.maxTrains must be a whole number from 1 to 32/);
 		assert.equal(trains().length, 1);
@@ -154,6 +167,77 @@ test("the same code twice is refused whatever the request, in the same project o
 	assert.equal(trains().length, 1);
 	await tower.tool("boss_open_main", { role: "train", request: manifest(M, "beta"), sender: "sender-2" });
 	assert.equal(trains().length, 2);
+});
+
+// D4 and D3 are per project across the whole computer (§19): the count and the code check read every workspace's panes and the trainboards, not one workspace's live panes.
+async function secondTower() {
+	const tower = world.tower("tower-wB", "wB:t7", "wB:p7");
+	await tower.start();
+	const sender = world.agent({ id: "sender-b", name: "integ-acme-b", pane: "wB:p1", tab: "wB:t1" });
+	await sender.start();
+	await sender.promote();
+	return tower;
+}
+/** A board a train wrote: its writer is this very process (alive), updated just now, no land step. */
+const writtenBoard = (code: string, over: Partial<Board> = {}) => writeBoard(world.stateDir, { v: 1, project: "acme", app: "web", code, writer: { session: "gone-train", pid: process.pid, started: new Date().toISOString() }, updated: new Date().toISOString(), round: 1, cars: [], steps: [{ id: 1, kind: "assemble", name: "assemble", status: "in_progress", round: 1 }], ...over });
+
+test("maxTrains counts the project's trains across every workspace of the computer: three in one workspace refuse a fourth from the tower of another, and another project is still free", async () => {
+	world.autoMains();
+	const { tower } = await net();
+	for (const code of [M, N, O]) await tower.tool("boss_open_main", { role: "train", request: manifest(code), sender: "sender-1" });
+	const other = await secondTower();
+	await assert.rejects(other.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-b" }), /Project acme already has 3 live trains \(maxTrains is 3\)/);
+	await other.tool("boss_open_main", { role: "train", request: manifest(P, "beta"), sender: "sender-b" });
+	assert.equal(trains().length, 4);
+});
+
+test("a code is used once on the whole computer: the other workspace's live train blocks it, and so does the trainboard folder of a train that has ended", async () => {
+	world.autoMains();
+	const { tower } = await net();
+	await tower.tool("boss_open_main", { role: "train", request: manifest(M), sender: "sender-1" });
+	const other = await secondTower();
+	await assert.rejects(other.tool("boss_open_main", { role: "train", request: manifest(M, "acme", "cars: T-9"), sender: "sender-b" }), /train 1106m of project acme is already open/);
+	world.herdr.panes = world.herdr.panes.filter((p) => p.tokens.sb_train !== `acme/${M}`); // the train ended and its tab is gone
+	writtenBoard(M, { steps: [{ id: 1, kind: "land", name: "land", status: "completed", round: 1, outcome: "passed" }] });
+	await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(M, "acme", "round: 2"), sender: "sender-1" }), /train 1106m of project acme was already used/);
+	assert.equal(trains().length, 0);
+	await tower.tool("boss_open_main", { role: "train", request: manifest(M, "beta"), sender: "sender-1" }); // the same code of another project is another train
+	assert.equal(trains().length, 1);
+});
+
+test("a live trainboard counts toward maxTrains when its pane is gone; an ended one does not", async () => {
+	world.autoMains();
+	const { tower } = await net();
+	writtenBoard(M);
+	writtenBoard(N);
+	writtenBoard(O);
+	await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-1" }), /Project acme already has 3 live trains \(maxTrains is 3\)/);
+	writtenBoard(O, { steps: [{ id: 1, kind: "land", name: "land", status: "completed", round: 1, outcome: "passed" }] });
+	await tower.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-1" });
+	assert.equal(trains().length, 1);
+});
+
+test("a board whose writer is gone and that nobody updated for ten minutes is stale and counts for nothing, while a live writer keeps an old board counted", async () => {
+	world.autoMains();
+	const { tower } = await net();
+	const gone = spawnSync(process.execPath, ["-e", ""]).pid!; // a pid that has ended
+	const old = new Date(Date.now() - 20 * 60_000).toISOString();
+	writtenBoard(M, { writer: { session: "dead-train", pid: gone, started: old }, updated: old });
+	writtenBoard(N, { writer: { session: "dead-train", pid: gone, started: old }, updated: old });
+	writtenBoard(O, { updated: old }); // the writer is this process: alive
+	await tower.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-1" }); // M and N are stale: only O counts, and 2 of 3 places are free
+	await tower.tool("boss_open_main", { role: "train", request: manifest("2026-11-06-q"), sender: "sender-1" });
+	await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest("2026-11-06-r"), sender: "sender-1" }), /Project acme already has 3 live trains \(maxTrains is 3\)/);
+});
+
+test("a train with a live pane and a live board counts once", async () => {
+	world.autoMains();
+	const { tower } = await net();
+	for (const code of [M, N]) await tower.tool("boss_open_main", { role: "train", request: manifest(code), sender: "sender-1" });
+	writtenBoard(M);
+	writtenBoard(N);
+	await tower.tool("boss_open_main", { role: "train", request: manifest(O), sender: "sender-1" });
+	assert.equal(trains().length, 3);
 });
 
 test("the same manifest from the same sender opens once and says so", async () => {
@@ -175,6 +259,22 @@ test("a manifest without a project or a code, with an unsafe name, or with a bad
 	await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest("1106m"), sender: "sender-1" }), /is not a train code/);
 	await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(M, "../up"), sender: "sender-1" }), /not a path-safe name/);
 	assert.deepEqual(world.herdr.commands("tab", "create"), []);
+});
+
+test("a train is opened for a session of this computer: a request for a teammate's device is refused before anything is read", async () => {
+	const open = opener({} as never);
+	await assert.rejects(open({ role: "train", request: manifest(M), sender: "d1", peer: { id: "d1", label: "Ann's laptop", short: "ab12" } }), /A train is opened for a session of this computer, not for a teammate's device/);
+});
+
+test("a main and a train of the same sender and the same text are two requests: the train is opened, not given the main's open back", async () => {
+	world.autoMains();
+	const { tower } = await net();
+	const main = await tower.tool("boss_open_main", { request: manifest(M), sender: "sender-1" });
+	const train = await tower.tool("boss_open_main", { role: "train", request: manifest(M), sender: "sender-1" });
+	assert.equal((main.details as { train?: unknown }).train, undefined);
+	assert.deepEqual((train.details as { train?: unknown }).train, { project: "acme", code: M });
+	assert.equal((train.details as { repeated?: boolean }).repeated, undefined);
+	assert.equal(trains().length, 1);
 });
 
 test("a role other than train is refused before anything opens", async () => {

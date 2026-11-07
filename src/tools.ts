@@ -153,7 +153,7 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callT
 		// Tower only. The tower runs no commands: this is its one way to start work, in a new tab of its own workspace.
 		addOpenMain() {
 			// The request reaches the new main under a header, and names the tower the main reports to as well as the sender.
-			const open = opener({ run: cfg.run, sleep: cfg.sleep, workspaceId: s.at.workspaceId, cwd: process.cwd(), sessions: () => s.c.listSessions(), send: (to, message) => post(to, message, "handoff", "main", true), tower: () => ({ id: me(), name: s.ownName || me() }), trustDir: trustDir(guiDir), integrationOff: () => integrationOff(cfg.env, guiDir) });
+			const open = opener({ run: cfg.run, sleep: cfg.sleep, workspaceId: s.at.workspaceId, cwd: process.cwd(), sessions: () => s.c.listSessions(), send: (to, message) => post(to, message, "handoff", "main", true), tower: () => ({ id: me(), name: s.ownName || me() }), trustDir: trustDir(guiDir), integrationOff: () => integrationOff(cfg.env, guiDir), stateDir: guiDir });
 			tool("boss_open_main", "Open a new tab in this workspace with a new pi as its main agent and hand it a request that no session owns. Does not ask the boss and does not take focus. Opens at most one main per request; when it fails, tell the sender. The main reports its outcome to the sender and to you; close it with boss_close_main after its done report.",
 				Type.Object({
 					request: Type.String({ description: "The sender's request exactly as it reached you, with every boss decision it quotes kept verbatim." }),

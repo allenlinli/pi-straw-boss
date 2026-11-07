@@ -16,7 +16,7 @@ import type { Presence } from "./presence.ts";
 import type { Reach } from "./reach.ts";
 import type { Roles } from "./roles.ts";
 import { ENTRY, type Kit } from "./state.ts";
-import { isSessionRole, TRAIN, trainFromToken, trainToken } from "./trainrole.ts";
+import { isSessionRole, TRAIN, TRAIN_EVENT, trainFromToken, trainToken } from "./trainrole.ts";
 
 /** The custom message that asks the launcher to resume the subagents a Herdr restore brought back plain. */
 const RESUME = "straw-boss-resume";
@@ -161,6 +161,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 			note(`${who()} joined tab ${s.info.tab}`);
 			if (failed) tell(`Straw Boss: joined the net (tab ${s.info.tab}) after ${retries} ${retries === 1 ? "retry" : "retries"}`, "info");
 			if (s.isTrain) {
+				pi.events.emit(TRAIN_EVENT, { train: true });
 				// A train is never promoted. The tower that opened it may close it (closemain.ts), a Herdr restore brings it back (roles.ts), and a /reload in this pane finds it again (the entry).
 				if (trainHow === "claim") await report(run, "pane", s.at.paneId, { sb_open_main: null }).catch(() => {});
 				if (trainHow !== "reload") pi.appendEntry(ENTRY, { openedBy: s.openedBy ?? null, openedPane: s.at.paneId, train: s.train });
@@ -289,10 +290,11 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		await presence.settled();
 		const held = s.holdsTower;
 		s.holdsTower = false;
-		const had = role();
+		const had = role(), keepTrain = s.isTrain && event.reason === "reload";
 		[s.isTrain, s.train] = [false, undefined]; // a /new or /resume in this process is not the train: the next start finds out again
 		if (!had || !s.at) return;
-		await presence.clear();
+		// A /reload brings the same train back in this pane (its entry), so it keeps the tokens that name it through the gap; only a quit, /new, /resume or /fork lets go of them.
+		await presence.clear({ keepTrain });
 		// A tower that quits says so with the members the base has, so the mains are cleared at once instead of after the grace a /reload gets,
 		// and the guard opens no new tower until the base grows past them.
 		const members = event.reason === "quit" && held ? (await panes(run, s.at.workspaceId).catch(() => [])).filter((p) => isSessionRole(p.tokens?.sb_role)).length : 0;

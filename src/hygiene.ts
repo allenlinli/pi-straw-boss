@@ -13,6 +13,7 @@ import { inRun, inStandingRun } from "./runmark.ts";
 import { makeCtx, trusted } from "./server/client.ts";
 import { packageRoot } from "./server/version.ts";
 import { slotOf } from "./server/record.ts";
+import { TRAIN_EVENT } from "./trainrole.ts";
 import { callControl, type Reply } from "./server/socket.ts";
 import { startOf } from "./startof.ts";
 
@@ -108,9 +109,10 @@ export function createHygiene(deps: HygieneDeps = {}) {
 	});
 	const track = (done: Promise<unknown>) => (deps.track?.(done), done);
 	const subagentId = env.PI_SUBAGENT_ID?.trim() || undefined;
-	// A train (docs/specs/2026-11-07-train-workers.md §3.3) registers as an owner as a worker does, so what its gates leave dies with it: its tab's shell carries the role the tower opened it with.
-	const isTrain = !subagentId && env.STRAW_BOSS_ROLE === "train";
-	const id = ownerId(pid, subagentId ?? (isTrain ? "train" : undefined));
+	// A train (docs/specs/2026-11-07-train-workers.md §3.3) registers as an owner as a worker does, so what its gates leave dies with it. What makes this pi a train is the session's own word (the event the
+	// session emits once it knows: its claim, its entry, or its record), never the shell's `STRAW_BOSS_ROLE`, which a later pi or one whose claim failed in the train's tab inherits.
+	let isTrain = false;
+	let id = ownerId(pid, subagentId);
 	/** Nothing of this runs on Windows, nor in a standing tower run (a run of the sb server, which has its own pane and rules). */
 	const inert = () => platform === "win32" || inStandingRun(argv);
 
@@ -214,7 +216,7 @@ export function createHygiene(deps: HygieneDeps = {}) {
 			told.add(text);
 			notify(text);
 		};
-		let stop: (() => void) | undefined, registered = false, refused = false;
+		let stop: (() => void) | undefined, registered = false, refused = false, current: { self: Self; pane: string | undefined } | undefined;
 		/** Everything a hello needs of the session, read while its ctx is live: pi invalidates the ctx of a session that is replaced (reload, new, resume, fork) and a getter of it then throws. */
 		interface Self { cwd: string; file?: string; notify: (text: string) => void; terminal?: Promise<string | undefined> }
 		/** A background step: its failure is its own (a stale session, a server that went away), never an unhandled rejection that would take pi down. */
@@ -239,13 +241,26 @@ export function createHygiene(deps: HygieneDeps = {}) {
 				if (env[OWNER_KEY] === id) delete env[OWNER_KEY];
 				return;
 			}
-			if (!subagentId && !isTrain) return;
 			const pane = env.HERDR_PANE_ID, self: Self = { cwd: ctx.cwd, notify };
 			try { self.file = ctx.sessionManager?.getSessionFile?.(); } catch { /* no session file */ }
+			current = { self, pane };
+			if (subagentId || isTrain) enlist();
+		});
+		/** Says hello now and at every beat; what a worker does at its start and a train does when its session says it is one. */
+		const enlist = () => {
+			if (!current || platform === "win32" || inStandingRun(argv)) return;
+			const { self, pane } = current;
 			refused = false;
 			stop?.();
 			background(hello(self, pane));
 			stop = every(() => background(registered ? call({ cmd: "procs-beat", id }).then((reply) => void (registered = reply?.ok === true && reply.known === true), () => void (registered = false)) : refused ? Promise.resolve() : hello(self, pane)), BEAT_MS);
+		};
+		pi.events?.on(TRAIN_EVENT, (data) => {
+			if (subagentId || isTrain || (data as { train?: unknown } | undefined)?.train !== true || platform === "win32" || inStandingRun(argv)) return;
+			isTrain = true;
+			id = ownerId(pid, "train");
+			if (!inRun(argv)) setOwner(id, env); // what its gates start from here on carries the train's owner id
+			enlist();
 		});
 		pi.on("session_shutdown", async (event) => {
 			stop?.();
@@ -253,6 +268,14 @@ export function createHygiene(deps: HygieneDeps = {}) {
 			// A reload or a switch of session keeps this process (and its children) alive: only a quit is the worker's end.
 			if (event.reason === "quit" && (subagentId || isTrain) && registered && !inert()) await track(call({ cmd: "procs-bye", id }).catch(() => undefined));
 			registered = false;
+			// The next session of this process finds out again; the owner id goes back to the plain one.
+			if (isTrain) {
+				isTrain = false;
+				const was = id;
+				id = ownerId(pid, subagentId);
+				if (env[OWNER_KEY] === was && !inRun(argv)) setOwner(id, env);
+			}
+			current = undefined;
 		});
 
 		pi.on("tool_call", async (event, ctx) => {

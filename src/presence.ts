@@ -83,10 +83,14 @@ export function createPresence({ cfg, s, me, role }: Kit) {
 		},
 		/** The publish in flight, which shutdown waits for. */
 		settled: () => publishing,
-		/** The tokens of this session's pane go: its role, its marks, and the sidebar order of the subagents it marked. */
-		async clear() {
+		/**
+		 * The tokens of this session's pane go: its role, its marks, and the sidebar order of the subagents it marked. A train's /reload keeps the three that make the pane a train
+		 * (`keepTrain`): for the length of the gap a pi that joined the tab later would otherwise be crowned beside it, and the project would count one train less.
+		 * The tokens lapse by their TTL when no pi comes back.
+		 */
+		async clear({ keepTrain = false }: { keepTrain?: boolean } = {}) {
 			written = undefined;
-			await report(run, "pane", s.at.paneId, { sb_role: null, sb_opened_by: null, sb_train: null, sb_order: null, sb_mark: null, sb_indent: null, sb_name: null, sb_tab: null, sb_main_tab: null, sb_member_tab: null }).catch(() => {});
+			await report(run, "pane", s.at.paneId, { ...(keepTrain ? {} : { sb_role: null, sb_opened_by: null, sb_train: null }), sb_order: null, sb_mark: null, sb_indent: null, sb_name: null, sb_tab: null, sb_main_tab: null, sb_member_tab: null }).catch(() => {});
 			await clearOrder(run, [...s.kids]);
 		},
 	};

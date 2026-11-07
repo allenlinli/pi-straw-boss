@@ -7,6 +7,8 @@ import { isCode, isName, shortCode } from "./train/spec.ts";
 // known by two pane tokens: `sb_role=train` and `sb_train=<project>/<code>`. The words and the small rules of that live here, so the opener, the session and the readers agree on them.
 
 export const TRAIN = "train";
+/** What the session says on pi's event bus once it knows it is a train (`{ train: true }`): process hygiene registers the pi as an owner of its own on that word, not on the shell's role. */
+export const TRAIN_EVENT = "straw-boss:train";
 /** `maxTrains` of the project's apps.json (top-level `integration`) when it names none (D4). */
 export const DEFAULT_MAX_TRAINS = 3;
 const MAX_TRAINS_CAP = 32;

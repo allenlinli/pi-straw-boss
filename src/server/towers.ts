@@ -389,7 +389,7 @@ export function createTowers(o: TowersOptions): Towers {
 					// Two openers over the same tower: the local run's, whose ledger the local brief lists, and the ally runs', whose ledger is their own (allyroute.ts).
 					const openerFor = (file?: string) => opener({
 						run, sleep, workspaceId: l.record.workspace, cwd: l.record.cwd ?? slot.stateDir, sessions: () => (l.client ?? client).listSessions(), send: (to, message) => l.reach!.send(to, message),
-						tower: () => ({ id: l.record.id, name: l.record.name }), trustDir: trustDir(slot.stateDir), integrationOff: () => integrationOff(o.env, slot.stateDir),
+						tower: () => ({ id: l.record.id, name: l.record.name }), trustDir: trustDir(slot.stateDir), integrationOff: () => integrationOff(o.env, slot.stateDir), stateDir: slot.stateDir,
 						ledger: { entries: () => readLedger(slot, l.record.workspace, now(), file), put: (row) => { try { putLedger(slot, l.record.workspace, row, now(), file); } catch (cause) { error("ledger", (cause as Error).message); } } },
 					});
 					if (!isHeadL(l)) (l.open = openerFor(), l.openAlly = openerFor(ALLY_LEDGER));

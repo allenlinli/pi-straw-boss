@@ -492,10 +492,16 @@ test("a train's pi started again in the same shell after it quit takes no role f
 	await openTrain(tower);
 	const first = world.agents.find((a) => a.id === "train-1")!;
 	await first.stop("quit");
+	// Another pi holds the tab now, so the pi started again stays a member and writes no record of its own over the train's.
+	const holder = world.agent({ id: "holder", pane: "wA:p130", tab: world.herdr.pane(TRAIN.pane).tab_id });
+	await holder.start();
+	await holder.promote();
+	assert.equal(holder.tokens.sb_role, "main");
 	const again = world.agent({ id: "train-again", pane: TRAIN.pane });
 	again.file = TRAIN.file;
 	await again.start();
-	assert.notEqual(again.tokens.sb_role, "train");
+	assert.equal(again.tokens.sb_role, "member");
+	assert.equal(records().some((r) => r.role === "train"), false, "the record of the train that quit does not claim the next restore");
 });
 
 test("a /reload of the train in its own pane finds it again from its saved entry, with its opener; a /new in that process does not", async () => {

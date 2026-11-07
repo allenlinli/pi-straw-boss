@@ -4,13 +4,16 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { isPiPane } from "../src/answerpane.ts";
 import { createCloser } from "../src/closer.ts";
-import { collect } from "../src/dashboard.ts";
+import { readEntries } from "../src/board.ts";
+import { collect, render } from "../src/dashboard.ts";
 import { ROLE_WORDS } from "../src/header.ts";
 import { collectNet, type Ref } from "../src/net.ts";
 import { RUN_PANE_ROLES } from "../src/runmode.ts";
 import { joinedAs } from "../src/spawn.ts";
+import { MARK } from "../src/herdr.ts";
+import { gatherMains, buildBrief } from "../src/server/towerbrief.ts";
 import { survey } from "../src/stash.ts";
-import { isSessionRole, ownsBoard } from "../src/trainrole.ts";
+import { isSessionRole, ownsBoard, TRAIN_EVENT } from "../src/trainrole.ts";
 import { until, World } from "./fakes.ts";
 import { trainBase } from "./train-base-fixture.ts";
 
@@ -63,8 +66,28 @@ const READERS: Record<string, () => Promise<void>> = {
 	},
 	"dashboard.ts: a row with the train mark": async () => {
 		await withTrain();
-		const { rows } = await collect({ run: world.herdr.runFor("wA:p7"), sessions: sessions, workspaceId: "wA" });
-		assert.ok(rows.some((r) => r.kind === "train" && r.text === "train 1106m"), JSON.stringify(rows));
+		const snapshot = await collect({ run: world.herdr.runFor("wA:p7"), sessions: sessions, workspaceId: "wA" });
+		assert.ok(snapshot.rows.some((r) => r.kind === "train" && r.text === "train 1106m"), JSON.stringify(snapshot.rows));
+		const drawn = render(snapshot, 0, 80, (_tone, text) => text);
+		assert.ok(drawn.some((l) => l.includes(`${MARK.train} train 1106m`)), `the row carries the train mark before its name:\n${drawn.join("\n")}`);
+	},
+	"server/towerbrief.ts: the tower run's brief shows a train as a train, with its state and board line, and its opened line is no main's": async () => {
+		const { tower, train, pane } = await withTrain();
+		await train.tool("board_set", { now: "assembling 1106m", items: [{ t: "assemble", done: false }] });
+		const opened = world.herdr.pane(pane.pane_id);
+		const ledger = [{ key: "k", sender: "integ-acme", outcome: "opened" as const, at: Date.now(), opened: { tab: opened.tab_id, pane: pane.pane_id, main: train.id, sender: "integ-acme", train: { project: "acme", code: M } } }];
+		const g = await gatherMains({ run: world.herdr.runFor("wA:p7"), now: Date.now, sessions, boardDir: join(world.stateDir, "board"), workspace: { workspace_id: "wA", label: "Alpha" } as never, ledger });
+		const row = g.rows.find((r) => r.train);
+		assert.ok(row, JSON.stringify(g.rows));
+		assert.equal(row!.main, undefined, "a train is no main");
+		assert.equal(row!.train!.id, train.id);
+		assert.equal(row!.train!.now, "assembling 1106m");
+		assert.match(g.opened[0]!, /^train train 1106m \(tab .*\) was opened for integ-acme; close it after its milestone report$/);
+		const brief = buildBrief({ label: "Alpha", workspace: "wA", head: "Alpha", woken: "10:00", counts: { intercom: 1 }, identity: "tower", mains: g.rows, obligations: g.opened, digest: [], flags: [], tools: ["- x"] });
+		assert.match(brief, /train 1106m: train train 1106m \(/);
+		assert.match(brief, /; now: assembling 1106m/);
+		assert.doesNotMatch(brief, /main train 1106m/);
+		assert.equal(tower.tokens.sb_role, "tower");
 	},
 	"spawn.ts awaitJoin: any joined role counts, a named role must match exactly": async () => {
 		assert.equal(joinedAs("train"), true);
@@ -170,27 +193,95 @@ const READERS: Record<string, () => Promise<void>> = {
 		assert.equal(tab.main, null, "a train is not the tab's main");
 		assert.equal(tab.train, train.id);
 	},
+	"reach.ts tower_list: a tab with a train says so, in a train key, and a tab without one has none": async () => {
+		const { tower, pane } = await withTrain();
+		const sender = world.agents.find((a) => a.id === "sender-1")!;
+		const list = json(await tower.tool("tower_list"));
+		const tabs = (list.towers as Record<string, any>[]).flatMap((t) => t.tabs as Record<string, any>[]);
+		const trainTab = tabs.find((t) => t.label === "train 1106m")!;
+		assert.equal(trainTab.main, null, "a train is no main");
+		assert.equal(trainTab.train, "train 1106m");
+		assert.ok(tabs.filter((t) => t.label !== "train 1106m").every((t) => !("train" in t)), "the other tabs carry no train key");
+		assert.ok(sender && pane);
+	},
+	"boardfill.ts: a train's board line fills from its todos as a main's does": async () => {
+		const { train } = await withTrain();
+		train.entries.push({ customType: "rpiv-todo-state", data: { tasks: [{ id: 1, subject: "Assemble the cars", status: "in_progress", activeForm: "Assembling the cars" }, { id: 2, subject: "Land", status: "pending" }], nextId: 3 } });
+		await train.fire("turn_end");
+		const entry = readEntries(join(world.stateDir, "board")).find((e) => e.session === train.id);
+		assert.ok(entry, "a board entry of the train");
+		assert.equal(entry!.src, "todo");
+		assert.match(entry!.now, /Assembling the cars/);
+		assert.deepEqual(entry!.count, { done: 0, total: 2 });
+	},
 	"answerpane.ts, runmode.ts: a pi pane, not a run pane": async () => {
 		assert.equal(isPiPane({ tokens: { sb_role: "train" } }), true);
 		assert.equal(RUN_PANE_ROLES.has("train"), false);
 	},
-	"hygiene.ts, server/procs.ts: the train's pi says hello as a train, an owner of its own": async () => {
+	"hygiene.ts, server/procs.ts: the train's pi says hello as a train, an owner of its own, when its session says it is one": async () => {
 		const { createHygiene } = await import("../src/hygiene.ts");
-		const calls: Record<string, unknown>[] = [];
-		const handlers = new Map<string, ((e: unknown, c: unknown) => unknown)[]>();
-		const make = createHygiene({
-			env: { STRAW_BOSS_ROLE: "train", HERDR_PANE_ID: "p_9" }, platform: "darwin", argv: ["node", "pi"], pid: 4300, now: () => 0, startOf: () => "Tue Nov  3 21:00:00 2026",
-			call: async (request) => (calls.push(request), { ok: true }), terminalOf: async () => "term-1", every: () => () => {}, track: () => {},
-		});
-		make({ on: (name: string, fn: (e: unknown, c: unknown) => unknown) => void handlers.set(name, [...(handlers.get(name) ?? []), fn]) } as never);
-		for (const fn of handlers.get("session_start") ?? []) await fn({ reason: "startup" }, { cwd: "/w/train", sessionManager: { getSessionFile: () => "/s/t.jsonl" }, ui: { notify() {} } });
-		await new Promise((done) => setTimeout(done, 20));
-		const hello = calls.find((c) => c.cmd === "procs-hello");
-		assert.ok(hello, JSON.stringify(calls));
+		const make = (env: Record<string, string>) => {
+			const calls: Record<string, unknown>[] = [], handlers = new Map<string, ((e: unknown, c: unknown) => unknown)[]>(), bus = new Map<string, ((data: unknown) => void)[]>();
+			createHygiene({
+				env: { HERDR_PANE_ID: "p_9", ...env }, platform: "darwin", argv: ["node", "pi"], pid: 4300, now: () => 0, startOf: () => "Tue Nov  3 21:00:00 2026",
+				call: async (request) => (calls.push(request), { ok: true }), terminalOf: async () => "term-1", every: () => () => {}, track: () => {},
+			})({
+				on: (name: string, fn: (e: unknown, c: unknown) => unknown) => void handlers.set(name, [...(handlers.get(name) ?? []), fn]),
+				events: { on: (name: string, fn: (data: unknown) => void) => void bus.set(name, [...(bus.get(name) ?? []), fn]) },
+			} as never);
+			return {
+				calls,
+				fire: async (name: string, event: unknown) => { for (const fn of handlers.get(name) ?? []) await fn(event, { cwd: "/w/train", sessionManager: { getSessionFile: () => "/s/t.jsonl" }, ui: { notify() {} } }); },
+				say: (name: string, data: unknown) => (bus.get(name) ?? []).forEach((fn) => fn(data)),
+			};
+		};
+		const later = () => new Promise((done) => setTimeout(done, 20));
+		// the role in the shell alone: a later pi in the train's tab, or one whose claim failed, registers nothing and is not reaped at its quit
+		const shell = make({ STRAW_BOSS_ROLE: "train" });
+		await shell.fire("session_start", { reason: "startup" });
+		await later();
+		assert.deepEqual(shell.calls, []);
+		await shell.fire("session_shutdown", { reason: "quit" });
+		assert.deepEqual(shell.calls, [], "no procs-bye either");
+		// the session's own word makes the train
+		const train = make({ STRAW_BOSS_ROLE: "train" });
+		await train.fire("session_start", { reason: "startup" });
+		train.say(TRAIN_EVENT, { train: true });
+		await later();
+		const hello = train.calls.find((c) => c.cmd === "procs-hello");
+		assert.ok(hello, JSON.stringify(train.calls));
 		assert.equal(hello!.role, "train");
 		assert.equal(hello!.id, "train-4300");
 		assert.equal(hello!.subagentId, undefined);
 		assert.match(src("server/procsops.ts"), /role/);
+		await train.fire("session_shutdown", { reason: "quit" });
+		assert.deepEqual(train.calls.at(-1), { cmd: "procs-bye", id: "train-4300" });
+		// a /new in the same process: not the train until its session says so again
+		const again = make({});
+		await again.fire("session_start", { reason: "startup" });
+		again.say(TRAIN_EVENT, { train: true });
+		await again.fire("session_shutdown", { reason: "new" });
+		await again.fire("session_start", { reason: "new" });
+		await later();
+		again.calls.length = 0;
+		await again.fire("session_shutdown", { reason: "quit" });
+		assert.deepEqual(again.calls, [], "the second session was not the train");
+		// a subagent id wins over the train word
+		const worker = make({ PI_SUBAGENT_ID: "w-1" });
+		await worker.fire("session_start", { reason: "startup" });
+		worker.say(TRAIN_EVENT, { train: true });
+		await later();
+		assert.equal(worker.calls.filter((c) => c.cmd === "procs-hello").every((c) => c.role === undefined && c.id === "w-1-4300"), true, JSON.stringify(worker.calls));
+	},
+	"hygiene.ts, session.ts: the session says it is a train on pi's event bus, and a later member in the train's shell does not": async () => {
+		const { pane } = await withTrain();
+		const said = (a: { emitted: [string, unknown][] }) => a.emitted.filter(([name]) => name === TRAIN_EVENT);
+		const train = world.agents.find((a) => a.pane === pane.pane_id)!;
+		assert.deepEqual(said(train), [[TRAIN_EVENT, { train: true }]]);
+		await train.stop("new");
+		const later = world.agent({ id: "later", pane: pane.pane_id, env: { STRAW_BOSS_ROLE: "train" }, deps: { couple: false } });
+		await later.start();
+		assert.deepEqual(said(later), []);
 	},
 	"the work board's owner rule: a train writes it as a main does": async () => {
 		assert.equal(ownsBoard("main"), true);

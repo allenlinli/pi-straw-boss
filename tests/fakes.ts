@@ -518,6 +518,8 @@ export class Agent {
 	env?: Record<string, string | undefined>;
 	private handlers = new Map<string, ((event: unknown, ctx: unknown) => unknown)[]>();
 	readonly bus = new Map<string, ((data: unknown) => void)[]>();
+	/** What this session emitted on its event bus, in order: a test reads what an extension said to the others. */
+	readonly emitted: [string, unknown][] = [];
 	private ctx: unknown;
 
 	world: World;
@@ -561,7 +563,7 @@ export class Agent {
 				this.bus.set(channel, [...(this.bus.get(channel) ?? []), handler]);
 				return () => this.bus.set(channel, (this.bus.get(channel) ?? []).filter((h) => h !== handler));
 			},
-			emit: (channel: string, data: unknown) => (this.bus.get(channel) ?? []).forEach((handler) => handler(data)),
+			emit: (channel: string, data: unknown) => (this.emitted.push([channel, data]), (this.bus.get(channel) ?? []).forEach((handler) => handler(data))),
 		};
 		const pi = {
 			events,

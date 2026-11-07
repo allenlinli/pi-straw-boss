@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { alive } from "./remote.ts";
+import { boardState, readTrainboards, trainboardDir } from "./train/board.ts";
 import { createTab, report, panes, startPi, type HerdrRun, type Session, type Sleep, workspaces } from "./herdr.ts";
 import { assertSettingsSafe, SettingsRefused } from "./trust/settings.ts";
 import { readMaxTrains, TRAIN, type TrainId, trainFromRequest, trainFromToken, trainLabel, trainToken } from "./trainrole.ts";
@@ -30,6 +34,8 @@ export interface OpenerEnv {
 	trustDir?: string;
 	/** Whether the merge train is off on this computer (trainswitch.ts): a train is refused then. Without it the opener never refuses on that account. */
 	integrationOff?(): boolean;
+	/** The state folder whose `trainboard/` the train quota and the once-per-code rule read (§19); without it only the panes speak. */
+	stateDir?: string;
 	/** `maxTrains` of the project whose checkout is `dir`, or the refusal in words (trainrole.ts `readMaxTrains`, apps.json). */
 	maxTrains?(dir: string): number | { refusal: string };
 	/**
@@ -108,16 +114,22 @@ export function opener(env: OpenerEnv) {
 		const here = await panes(run, workspace.workspace_id);
 		const dir = workspace.worktree?.checkout_path ?? env.cwd;
 		if (train) {
-			// A train has its own count: the project's live trains against maxTrains, from the panes that carry `sb_train`, so the limit survives a tower restart. It takes none of the places of the mains, and has no limit per sender.
-			const live = here.flatMap((p) => ((t) => (t ? [t] : []))(trainFromToken(p.tokens?.sb_train)));
-			if (live.some((t) => t.project === train!.project && t.code === train!.code)) throw new OpenLimitError(`The ${trainLabel(train.code)} of project ${train.project} is already open in workspace ${workspace.label}; a code is used once`);
+			// A train has its own count, per project over the whole computer (D4): the project's live trains, from every workspace's panes that carry `sb_train` (so the limit survives a tower restart) and from the
+			// live trainboards (a train whose pane is gone and whose board still says live is running). It takes none of the places of the mains, and has no limit per sender.
+			const everywhere = await panes(run);
+			const codes = new Set(everywhere.flatMap((p) => ((t) => (t && t.project === train!.project ? [t.code] : []))(trainFromToken(p.tokens?.sb_train))));
+			if (codes.has(train.code)) throw new OpenLimitError(`The ${trainLabel(train.code)} of project ${train.project} is already open; a code is used once`);
+			// A code is used once for good: the folder of its trainboard stays after the train ends, and holds the code.
+			if (env.stateDir && existsSync(join(trainboardDir(env.stateDir), train.project, train.code))) throw new OpenLimitError(`The ${trainLabel(train.code)} of project ${train.project} was already used (its trainboard is kept); a code is used once, so the next train takes a new code`);
 			const max = (env.maxTrains ?? readMaxTrains)(dir);
 			if (typeof max !== "number") throw new OpenLimitError(max.refusal);
-			const count = live.filter((t) => t.project === train!.project).length;
-			if (count >= max) throw new OpenLimitError(`Workspace ${workspace.label} already has ${count} live train${count === 1 ? "" : "s"} of project ${train.project} (maxTrains is ${max}); try again when one has finished.`);
+			const boards = env.stateDir ? readTrainboards(env.stateDir, { project: train.project }).trains : [];
+			for (const b of boards) if (b.ok && boardState(b.board, { now: Date.now(), alive: alive(b.board.writer.pid) }) === "live") codes.add(b.code);
+			if (codes.size >= max) throw new OpenLimitError(`Project ${train.project} already has ${codes.size} live train${codes.size === 1 ? "" : "s"} (maxTrains is ${max}); try again when one has finished.`);
 		}
-		// A train carries `sb_opened_by` as a main does (the tower closes it by that mark), but it counts toward neither of the mains' limits.
-		const marked = here.filter((p) => p.tokens?.sb_opened_by && !p.tokens.sb_train);
+		// A train carries `sb_opened_by` as a main does (the tower closes it by that mark), but it counts toward neither of the mains' limits. It is the role that says it (a train in its first moments has none yet):
+		// a main's pane with an `sb_train` token left on it (a crashed train's, or one a process of the same user wrote) is still a main.
+		const marked = here.filter((p) => p.tokens?.sb_opened_by && p.tokens.sb_role !== TRAIN && !(p.tokens.sb_role === undefined && p.tokens.sb_train));
 		const ofSender = train ? 0 : marked.filter((p) => p.tokens!.sb_opened_by === sender.id).length;
 		if (ofSender) throw new OpenLimitError(`Sender ${sender.name ?? sender.id} already has ${ofSender === 1 ? "an opened main" : `${ofSender} opened mains`} running in workspace ${workspace.label}; a sender gets one at a time. Wait for it to finish, or send the request to it.`);
 		if (!train && marked.length >= MAX_OPENED_MAINS) throw new OpenLimitError(`Workspace ${workspace.label} already has ${marked.length} mains opened by its tower (the limit is ${MAX_OPENED_MAINS}); try again when one has finished.`);

@@ -128,6 +128,19 @@ test("with towerRuns.enabled off nothing happens: ensure-tower is refused, no id
 	assert.equal((await ask(s, { cmd: "ensure-tower", workspace: "wA" })).ok, true);
 });
 
+test("a tower service that ends counts a train among the sessions its base keeps in sb_tower_quit", async () => {
+	world.herdr.addTab("wA:t1b", "mine", "wA:p9", "shell");
+	pane("wA:p9").tokens.sb_role = "member";
+	world.herdr.addTab("wA:t1c", "train 1106m", "wA:p10", "shell");
+	Object.assign(pane("wA:p10").tokens, { sb_role: "train", sb_train: "acme/2026-11-06-m", sb_opened_by: "sender-1" });
+	const s = await started();
+	const reply = await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	await world.herdr.runFor("x")(["tab", "close", String(reply.tab)]);
+	world.herdr.emit("tab.closed", "tab_closed", { tab_id: reply.tab, workspace_id: "wA" });
+	await until(() => !readService(world.slot, "wA"), "the service to end");
+	assert.equal(tokens().sb_tower_quit, "2", "the member and the train");
+});
+
 test("a tab closed in Herdr ends the service: the identity leaves, the marks go with sb_tower_quit, service.json goes, and the queue stays", async () => {
 	world.herdr.addTab("wA:t1b", "mine", "wA:p9", "shell");
 	pane("wA:p9").tokens.sb_role = "member";

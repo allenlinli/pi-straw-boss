@@ -1209,7 +1209,7 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Wait cards review (todo #126, RV-F003): +20 bytes of chat chunk for the three consumers' `!w.state` (gzip unchanged within the cap). Cap = measured.
 	// Per-view themes (batch 1; measured, node 24): the lazy chunks in assets/ are 255,928 / 105,264, down from 328,309 / 133,889: the Zen theme (its chunk, its music and bus) now sits in themes/zen/ under its own cap (the test below), Geek has none. Cap = measured.
 	// Merge of #126 onto the per-view themes (measured, node 24). Cap = measured.
-	// Review round 1 fix run (measured, node 24): 256,134 / 105,256 after a fresh build; the fix touched no chunk, so the +206 raw is the merge's own, not measured at the merge. Cap = measured.
+	// Review round 1 (RV-F002, measured, node 24): 256,134 / 105,256: boot.js (emitted into assets/, so counted here) grew 2,974 to 3,180 bytes for the Standard icon restore. Cap = measured.
 	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 256_134 && total(chunks, gz) <= 105_264, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.

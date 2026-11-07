@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { DEFAULT_MAX_TRAINS, maxTrainsOf, readMaxTrains, trainFromRequest, trainFromToken, trainLabel, trainToken } from "../src/trainrole.ts";
 import { opener } from "../src/opener.ts";
-import { type Board, writeBoard } from "../src/train/board.ts";
+import { type Board, trainboardDir, writeBoard } from "../src/train/board.ts";
 import { World } from "./fakes.ts";
 
 // The tower opens a train with boss_open_main and role "train" (docs/specs/2026-11-07-train-workers.md §3.3, task 3): a tab of its own, counted per project against maxTrains and not
@@ -213,6 +213,22 @@ test("a live trainboard counts toward maxTrains when its pane is gone; an ended 
 	writtenBoard(O);
 	await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-1" }), /Project acme already has 3 live trains \(maxTrains is 3\)/);
 	writtenBoard(O, { steps: [{ id: 1, kind: "land", name: "land", status: "completed", round: 1, outcome: "passed" }] });
+	await tower.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-1" });
+	assert.equal(trains().length, 1);
+});
+
+test("a project's trainboard folder that cannot be listed opens no train: its live trains cannot be counted (RR-F004)", { skip: process.platform === "win32" || process.getuid?.() === 0 }, async () => {
+	world.autoMains();
+	const { tower } = await net();
+	writtenBoard(M);
+	const folder = join(trainboardDir(world.stateDir), "acme");
+	chmodSync(folder, 0o300); // entries reachable, the listing refused
+	try {
+		await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-1" }), /live trains of project acme cannot be counted: cannot list/);
+		assert.equal(trains().length, 0);
+	} finally {
+		chmodSync(folder, 0o700);
+	}
 	await tower.tool("boss_open_main", { role: "train", request: manifest(P), sender: "sender-1" });
 	assert.equal(trains().length, 1);
 });

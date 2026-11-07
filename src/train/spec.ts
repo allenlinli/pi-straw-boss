@@ -145,7 +145,7 @@ const KIND_LIST = KINDS.join(", ");
 export const STEP_REQUIRED = `sb: every todo of a train is a step: add metadata.sb (kinds: ${KIND_LIST})`;
 const NAME_HELP = "a path-safe name (letters, digits, ., _, -; 1 to 64 characters)";
 const FIELDS = ["v", "project", "app", "train", "round", "kind", "name", "spec", "result"];
-const SPEC_FIELDS = ["check", "on", "load", "lock", "holds"];
+const SPEC_FIELDS = ["check", "on", "load", "lock", "holds", "cars", "removed"];
 const CHECK_FIELDS: Record<CheckType, string[]> = {
 	run: ["type", "cwd", "run", "log", "verify", "expect", "poll"],
 	git: ["type", "cwd", "contains", "ref"],
@@ -242,6 +242,28 @@ function holdsRefusals(holds: unknown): string[] {
 	return out;
 }
 
+/** An assemble step's cars (the tickets kept) and removed (the cars it leaves out, why, and the evidence): §3.5 and §5.5. No other kind takes them. */
+function carsRefusals(spec: Json, kind: unknown): string[] {
+	const at = "metadata.sb.spec", out: string[] = [];
+	if (kind !== "assemble") out.push("sb: only an assemble step takes cars and removed");
+	const ticket = (value: unknown) => isText(value, 64) && !/\s/.test(value);
+	if (present(spec.cars)) {
+		if (!Array.isArray(spec.cars) || spec.cars.length > 32) out.push(`sb: ${at}.cars must be a list of at most 32 tickets`);
+		else spec.cars.forEach((car, i) => ticket(car) || out.push(`sb: ${at}.cars[${i}] must be a ticket without spaces`));
+	}
+	if (present(spec.removed)) {
+		if (!Array.isArray(spec.removed) || spec.removed.length > 32) out.push(`sb: ${at}.removed must be a list of at most 32 cars`);
+		else spec.removed.forEach((car, i) => {
+			if (!isObject(car)) return void out.push(`sb: ${at}.removed[${i}] must be an object`);
+			out.push(...unknownKeys(car, ["ticket", "why", "evidence"], `${at}.removed[${i}]`));
+			if (!ticket(car.ticket)) out.push(`sb: ${at}.removed[${i}].ticket must be a ticket without spaces`);
+			if (!isText(car.why, 600)) out.push(`sb: ${at}.removed[${i}].why must be 1 to 600 characters`);
+			if (present(car.evidence) && !isText(car.evidence, MAX_PATH)) out.push(`sb: ${at}.removed[${i}].evidence must be a non-empty string`);
+		});
+	}
+	return out;
+}
+
 function resultRefusals(sb: Json, result: unknown, check: Json | undefined): string[] {
 	const at = "metadata.sb.result";
 	if (!isObject(result)) return [`sb: ${at} must be an object`];
@@ -301,6 +323,7 @@ export function validateStep(value: unknown, opts: StepOptions = {}): string[] {
 			else if (!(typeof spec.lock === "string" && LOCK_RE.test(spec.lock))) out.push("sb: metadata.sb.spec.lock must be 1 to 32 of a-z, 0-9, -");
 		}
 		if (present(spec.holds)) out.push(...holdsRefusals(spec.holds));
+		if (present(spec.cars) || present(spec.removed)) out.push(...carsRefusals(spec, value.kind));
 	}
 	if (opts.status !== undefined) {
 		if (opts.status === "completed" && !present(value.result)) out.push("sb: completed needs a result in metadata.sb.result");

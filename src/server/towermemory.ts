@@ -241,6 +241,7 @@ export function dropWait(m: Memory, id: unknown): Entry {
 /** The boss edits an entry's text; from then on it is the boss's own words. */
 export function editEntry(m: Memory, id: unknown, text: unknown): Entry {
 	const e = find(m, id);
+	if (e.card) throw new Refused(`${e.id} is a card: the tower records it again (restate), or answer it, decline it, or drop it`);
 	const line = tidy("The text", text, e.kind === "wait" ? MEM.waitText : MEM.text);
 	if (e.kind === "standing") fitsBrief(m, line, e);
 	Object.assign(e, { text: line, by: "boss", via: "gui" });
@@ -341,6 +342,7 @@ function cardRow(e: Entry, card: Card, now: number, due: string, open: string): 
 			: `pressed ${DONE_LABEL[card.lang]} at ${at}${card.after ? `; check: ${card.after}` : ""}`;
 		return row(e.id, `${who}: ${said}${due}${open}`, CARD_ROW);
 	}
+	if (e.state === "answered") return row(e.id, `${who}: answered by the boss at ${hhmm(e.answered ?? e.at)}, check their message: ${card.do}${due}${open}`, CARD_ROW);
 	if (e.state === "open" && p?.act === "secret") return row(e.id, `${who}: ready to enter ${card.secret?.name ?? "the secret"} at ${hhmm(p.secretAsked ?? p.at)}; ${card.from?.name ?? "the raiser"} was told to call secret_drop${due}${open}`, CARD_ROW);
 	return row(e.id, `${who}: ${card.do}${due}${open}`, CARD_ROW);
 }
@@ -415,7 +417,8 @@ export function memorySummary(m: Memory, now?: number): MemorySummary {
 	const shown = (e: Entry) => isOpen(e) && !(now !== undefined && e.for === "boss" && lapsed(e, now));
 	return {
 		rev: m.rev, standing: m.entries.filter((e) => e.kind === "standing").length, decisions: m.entries.filter((e) => e.kind === "decision").length, waits: m.entries.filter(shown).length,
-		bossWaits: m.entries.filter((e) => shown(e) && e.for === "boss").map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}), ...(e.card ? { card: e.card } : {}), ...(e.press ? { press: e.press } : {}) })), proposals: m.proposals.map(proposalView),
+		// A boss wait that was resolved or declined stays until the sweep drops it (24 h): the page draws it struck through, with what became of it.
+		bossWaits: m.entries.filter((e) => e.for === "boss" && (shown(e) || (e.kind === "wait" && e.state === "resolved"))).map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}), ...(e.state === "resolved" ? { state: "resolved" as const, ...(e.outcome ? { outcome: e.outcome } : {}), ...(e.ended ? { ended: e.ended } : {}) } : {}), ...(e.card ? { card: e.card } : {}), ...(e.press ? { press: e.press } : {}) })), proposals: m.proposals.map(proposalView),
 	};
 }
 /** The memory as the panel reads it, swept as of `now`. */

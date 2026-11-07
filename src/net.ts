@@ -31,7 +31,7 @@ export interface Outpost extends Lately { id: string; label: string; mark: Mark 
  * A wait for the boss as the page sees it (docs/specs/2026-11-07-wait-cards.md): `card` and `press` as stored, with the raiser's session id replaced by its unit `key` when the net has the unit (buildNet); `cut`: the card went over the snapshot's budget (waitbudget.ts) and is only its `text`,
  * which the page reads whole with the memory route's `read`.
  */
-export interface BossWait { id: string; text: string; at: string; answered?: string; card?: WaitCardView; press?: WaitPressView; cut?: true }
+export interface BossWait { id: string; text: string; at: string; answered?: string; /** A wait the boss declined or the tower resolved, kept until the sweep drops it (24 h): `outcome` is what became of it and `ended` when. It is no longer open: no alert, no count. */ state?: "resolved"; outcome?: string; ended?: string; card?: WaitCardView; press?: WaitPressView; cut?: true }
 export interface WaitCardView {
 	type: "action" | "choice" | "secret"; lang: "zh-TW" | "en"; happened: string; do: string; url?: string; command?: string; after?: string; options?: { label: string; then: string }[]; secret?: { name: string };
 	from?: { /** On the server; the net swaps it for `key`. */ id?: string; name: string; role: string; workspace?: string; tab?: string; gone?: true; key?: string };

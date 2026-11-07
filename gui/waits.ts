@@ -26,5 +26,5 @@ export function waitLine(w: BossWait, now: number, o?: Opts): string {
 }
 /** The alerts of a tower's fresh waits for the boss that the boss has not answered yet (an answered one is the tower's to resolve: no view raises it again, and a wait that changed is a new one), each by its own key (a wait's id is never reused), as of `at`. */
 export function waitAlerts(ws: string, tower: Base["tower"], at: number): Alert[] {
-	return (tower?.service?.memory?.bossWaits ?? []).filter((w) => age(w.at, at) < FRESH_MS && !w.answered).map((w): Alert => ({ key: `wait\u001f${ws}\u001f${w.id}`, unit: tower!.key, ws, name: tower!.name, role: "tower", mark: "waiting", note: w.text, at, since: Date.parse(w.at), closed: !tower!.control, wait: { id: w.id, text: w.text } }));
+	return (tower?.service?.memory?.bossWaits ?? []).filter((w) => age(w.at, at) < FRESH_MS && !w.answered && !w.state).map((w): Alert => ({ key: `wait\u001f${ws}\u001f${w.id}`, unit: tower!.key, ws, name: tower!.name, role: "tower", mark: "waiting", note: w.text, at, since: Date.parse(w.at), closed: !tower!.control, wait: { id: w.id, text: w.text } }));
 }

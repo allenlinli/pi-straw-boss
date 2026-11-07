@@ -45,7 +45,7 @@ export function parseMemoryArgs(input: string): ({ workspace?: string } & Memory
 interface ViewCard { type: string; do: string; url?: string; command?: string; after?: string; options?: { label: string; then: string }[]; secret?: { name: string }; from?: { name: string } }
 interface View {
 	rev: number;
-	entries: { id: string; kind: "standing" | "decision" | "wait"; text: string; for?: "boss" | "agent"; on?: string; state?: string; outcome?: string; card?: ViewCard; press?: { act: string } }[];
+	entries: { id: string; kind: "standing" | "decision" | "wait"; text: string; for?: "boss" | "agent"; on?: string; state?: string; outcome?: string; card?: ViewCard; press?: { act: string; secretAsked?: string } }[];
 	proposals: { id: string; op: "add" | "retire"; kind: "standing" | "decision"; text: string; target?: string; cites?: string }[];
 }
 const KIND = { en: { standing: "standing", decision: "decision" }, "zh-TW": { standing: "常駐指示", decision: "決定" } } as const;
@@ -185,6 +185,8 @@ export async function runMemoryCommand(args: string, d: MemoryCmdDeps): Promise<
 				const entry = view.entries.find((x) => x.id === parsed.id), name = entry?.card?.from?.name ?? "";
 				const option = parsed.op === "choose" ? parsed.option - 1 : undefined, picked = option === undefined ? undefined : entry?.card?.options?.[option];
 				if (parsed.op === "choose" && !picked) throw new Error(w.noOption(parsed.id, parsed.option));
+				// In pi the boss is at the terminal: the first step of a secret card is taken for them, so `done` closes it (the server's table wants it before `done`).
+				if (parsed.op === "done" && entry?.card?.type === "secret" && !entry.press?.secretAsked) await call({ op: "press", id: parsed.id, act: "secret" });
 				const act = parsed.op, done = await call({ op: "press", id: parsed.id, act, ...(option !== undefined ? { option } : {}), ...(parsed.op === "decline" && parsed.reason ? { reason: parsed.reason } : {}) });
 				const status = (done.press as { main?: { status: string } } | undefined)?.main?.status;
 				const note = !name || !status ? "" : status === "delivered" || status === "queued" ? w.told(name) : w.notReached(name, status);

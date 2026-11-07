@@ -72,7 +72,8 @@ export function pressWait(m: Memory, now: number, json: Record<string, unknown>,
 			event: (status) => `The boss declined wait ${id} (${what})${quoted(reason)}. Do not ask again unless something changed; tell the raiser what happens instead.${delivery(status)}`,
 		};
 	}
-	if (e.state !== "open") {
+	// A reply in the card's box marks the wait `answered` with no press: it is not a press, so the card stays pressable (a secret card's first step leaves a press that is not the last word either).
+	if (!(e.state === "open" || (e.state === "answered" && (!e.press || e.press.act === "secret")))) {
 		const p = e.press;
 		throw new Refused(p && p.act !== "secret" ? `${id} was pressed already: ${p.act === "choose" && card?.options?.[p.option ?? -1] ? card.options[p.option!]!.label : p.act === "restate" ? "restate" : DONE_LABEL[card?.lang ?? locale]} at ${hhmm(p.at)}` : `${id} is ${e.state} already`);
 	}
@@ -132,6 +133,7 @@ const failure = (cause: unknown): { status: number; body: Record<string, unknown
  */
 export async function pressRequest(d: PressDeps, workspace: string, json: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
 	if (typeof json.id !== "string") return { status: 400, body: { error: "bad_request", reason: "A press names the wait (id)" } };
+	if (json.value !== undefined) return { status: 400, body: { error: "bad_request", reason: "A press carries no value: a secret is entered in the terminal, never here" } };
 	let plan: Plan;
 	const now = d.now();
 	try {

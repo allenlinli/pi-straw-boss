@@ -61,7 +61,7 @@ Not recorded: a wait for the boss is a card they act on, and 3 fields need a fix
 |---|---|
 | missing or empty | `missing. <what the field is, from the table>` |
 | over the cap | `too long: at most <n> characters` |
-| secret-shaped text in any field (`SECRET` and `BASE64_RUN` of `src/boardauto.ts`, exported for this) | `looks like a secret or a key. A wait never carries one: name it in secret.name and use type secret` |
+| secret-shaped text in any field (`SECRET` and `BASE64_RUN` of `src/boardauto.ts`, exported for this; narrowed, see **Secret shape** under the choices) | `looks like a secret or a key. A wait never carries one: name it in secret.name and use type secret` |
 | `url` not `http(s)`, has userinfo, does not parse | `"<first 40 chars>" is not an http(s) address …` |
 | `command` with a control character other than a line break, or more than 4 lines | `a command is plain text of at most 4 lines` |
 | `do` equals `happened` | `says the same as happened: say what the boss does` |
@@ -110,12 +110,14 @@ A new op on the memory route (`memoryRequest`, `src/server/towermemory.ts`): `{ 
 
 | `act` | Card | Allowed when | Memory | The tower's event | The raiser's notice |
 |---|---|---|---|---|---|
-| `done` | action; secret after `secret` | open (a secret card: `secretAsked` set) | `answered`, `press` | `The boss pressed "我做完了" on wait W9 (<do>). Check it, then resolve W9: <after>` | `The boss did what wait W9 asked: <do>` |
-| `choose` | choice | open | `answered`, `press.option` | `The boss chose "<label>" on wait W9 (<do>): <then>. Act on it, then resolve W9.` | `The boss chose "<label>" on wait W9: <then>` |
-| `secret` | secret | open, not `secretAsked` | `secretAsked` (still open) | `The boss is ready to enter <secret.name> for wait W9; <raiser> was told to call secret_drop now.` | `The boss is at this computer to enter <secret.name> (wait W9): call secret_drop now for it, in this session. Tell the tower with call_tower when it is stored.` |
+| `done` | action; secret after `secret` | open or answered by a reply with no press (a secret card: `secretAsked` set) | `answered`, `press` | `The boss pressed "我做完了" on wait W9 (<do>). Check it, then resolve W9: <after>` | `The boss did what wait W9 asked: <do>` |
+| `choose` | choice | open or answered by a reply with no press | `answered`, `press.option` | `The boss chose "<label>" on wait W9 (<do>): <then>. Act on it, then resolve W9.` | `The boss chose "<label>" on wait W9: <then>` |
+| `secret` | secret | open or answered by a reply with no press, not `secretAsked` | `secretAsked` (still open) | `The boss is ready to enter <secret.name> for wait W9; <raiser> was told to call secret_drop now.` | `The boss is at this computer to enter <secret.name> (wait W9): call secret_drop now for it, in this session. Tell the tower with call_tower when it is stored.` |
 | `decline` | every card, legacy too | open or answered | `resolved`, outcome `declined by the boss[: <reason>]`, kept 24 h | `The boss declined wait W9 (<do>)[: "<reason>"]. Do not ask again unless something changed; tell the raiser what happens instead.` | `The boss will not do what wait W9 asked (<do>)[: "<reason>"]. The tower decides what comes next.` |
 | `restate` | legacy | open | `answered` | `The boss asks you to record wait W9 again as a card (tower_memory add kind wait with restates: "W9"); its old text: <text>` | none (a legacy wait has no raiser) |
 
+- A **reply in the card's box** (回覆塔台) is `answer`, not a press: it marks the wait `answered` with no `press`, the card stays pressable, and the brief's row reads `answered by the boss at <hh:mm>, check their message: <do>` until a press changes it.
+- The route refuses a `value` (400): a press carries none.
 - `reason` is at most 120 characters and goes through the same secret-shape check, which refuses it with "a reason never carries a secret".
 - A second press on an answered wait is refused, 409 `refused` (`W9 was pressed already: 我做完了 at 10:58`), except `decline`. A wait that is gone is `No such wait W9` as now.
 - **Order.** The server sends the raiser's notice first, waits for the broker's answer (at most 5 s), records `press.main`, and only then queues the tower's event. The event therefore tells the tower whether the raiser got the notice. One of these is appended: `<name> got it.`, `<name> was not reached (<status>): tell it yourself, or tell its owner if it is gone.`, or for `self` nothing. There is no retry loop: the tower owns a notice that did not arrive, as it owns any `blocked`.
@@ -123,7 +125,7 @@ A new op on the memory route (`memoryRequest`, `src/server/towermemory.ts`): `{ 
 - **The raiser's notice** is one intercom message from the tower's identity to `from.id`, resolved by id in the broker's live sessions and never by name (todo #49). The header is code-written, with a new header kind `wait_card` (`src/header.ts` `Kind`), `reply=none`, and `why` absent, and a field `wait=W9`. A raiser not in the live list is `gone`: nothing is sent and the tower's event says so. The head's waits notify a workspace tower the same way (its identity is a session id).
 - **Logs** name the op, the act, the id, and the delivery status, never the text (as every memory line).
 
-**`/boss memory`** gets the same acts, so pi stays the first interface (D23): `/boss memory done W9`, `choose W9 <n>`, `decline W9 [reason]`, `restate W9`. There is no `secret` command, because in pi the boss is at the terminal already: the listing says to tell the raiser, and `done` closes it. These are writes, so they are refused without a screen, as every write is.
+**`/boss memory`** gets the same acts, so pi stays the first interface (D23): `/boss memory done W9`, `choose W9 <n>`, `decline W9 [reason]`, `restate W9`. There is no `secret` command, because in pi the boss is at the terminal already: `done` on a secret card whose first step was not taken sends that step (`secret`, which tells the raiser to call `secret_drop`) and then `done`, so `done` closes it. `edit` of a card wait is refused (a card is recorded again by the tower with `restate`; the boss may answer, decline or drop it). These are writes, so they are refused without a screen, as every write is.
 
 ## The card in the GUI
 
@@ -191,6 +193,8 @@ Every kind also has, in this order after the primary: **回覆塔台 / Reply to 
 
 ## The snapshot
 
+A boss wait that was declined or resolved stays in `bossWaits[]` with `state: "resolved"`, `outcome` and `ended` until the 24 h sweep drops it (WC-D1's struck-through day, and the card's `ended` state); it is not counted in `waits`, raises no alert, and the rows and the Zen strip skip it.
+
 `MemorySummary.bossWaits[]` gains `card` (as stored, `from` as `{ name, role, workspace?, tab?, gone? }` plus the raiser's unit key when the net has it, so **打開 …** links to the session view) and `press`. Every page and paired device gets the whole snapshot on every change, so the cards are bounded as the head's broadcast cards are (`2026-11-07-head-log-cards.md`, **Payload**). Whole cards are sent, newest first across all towers, while their text sum is at most `CARD_TEXTS` = 24,000 UTF-16 units. Any card after that goes as `{ id, text, at, answered?, cut: true }`, and the card reads its entry with the memory route's `read` when it is drawn, unfolded, or opened in the dock. The limit is measured in `tests/wait-cards.test.ts`: 12 waits × 10 towers with every field at its cap.
 
 ## Prompts
@@ -257,4 +261,7 @@ Choices the record left open:
 - **A secret card's step 1** leaves the wait `open` with `press: { act: "secret", secretAsked }`; the brief row then reads `ready to enter <name>`.
 - **Cut cards.** The page is shown `cut: true` for cards after the budget; reading one whole is the memory route's `read`, which now carries `card` and `press` on every entry.
 - **Raiser key.** `buildNet` swaps the raiser's session id for the unit `key` when the session is a unit of the net, so a session id never reaches the page; a raiser that is not a unit has no key (the card has no 打開 button).
-- **Mutation check.** Each refusal of tasks 1 and 2 was removed in turn and the tests failed, except `self gets no notice` (equivalent: a card with no raiser has no notice).
+- **Secret shape.** The card's check is the board's `SECRET` list with its key-and-value pattern narrowed: `token: expired` passes, `token=abcdefg12345` is refused (a value of six characters or more with a letter and a digit). A bearer token, a PEM private-key header, and the long hex and mixed base64 runs are refused in prose. In a `url` the path is held only to the named key shapes (a commit's 40-character hash or a Google document's id passes), while the host, query and fragment are held to everything.
+- **Remote callers.** The memory route (`tower/<ws>/memory`, `head/memory`) refuses `{ op: "press", act: "secret" }` from a paired device or an operate session with "Enter it at the computer" (WC-D4 on the server): the first step tells the raiser the boss is at this computer. Operate sessions with the box part reach every other memory op already (link-operate policy), so the doors above include them.
+- **`queued`.** The tower's event says `<name> got it.` for `delivered` and for `queued`: the broker holds the message for a raiser that is live.
+- **Mutation check.** Each refusal of tasks 1 and 2 was removed in turn and the tests failed, except `self gets no notice` (equivalent: a card with no raiser has no notice). The review round (RV-F001 to RV-F009) added `tests/wait-cards-review.test.ts`; each of its guards, and the four that had survived (the options' secret check, the per-run filter of `intercomEvents`, the boss-only press, the raiser read by id), was removed in turn and a test failed.

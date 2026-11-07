@@ -54,11 +54,27 @@ export function isPress(value: unknown): value is Press {
 	return typeof p === "object" && p !== null && ACTS.includes(p.act as Act) && typeof p.at === "string" && (p.option === undefined || Number.isInteger(p.option)) && (p.main === undefined || (typeof p.main === "object" && p.main !== null && typeof p.main.at === "string"));
 }
 
-/** Whether `text` has the shape of a credential: a pattern of the board's scrub, or a long mixed run (letters of both cases and a digit) of base64 characters. */
-export function secretShaped(text: string): boolean {
-	if (SECRET.some((re) => text.search(re) >= 0)) return true;
-	return (text.match(BASE64_RUN) ?? []).some((run) => /[a-z]/.test(run) && /[A-Z]/.test(run) && /\d/.test(run));
+const HEX_RUN = /\b[0-9a-fA-F]{32,}\b/g;
+// The board's last pattern names a credential in the same breath (`token: x`); a card narrows it: the value has to look like a secret (six characters or more, a letter and a digit), so "the token: expired" passes.
+const KEY_VALUE = /\b(?:pass(?:word)?|pwd|secret|token|api[_-]?key)\s*[=:]\s*["']?([^\s;,"']+)["']?/giu;
+const BEARER = /\bBearer\s+[A-Za-z0-9._~+\/=-]{16,}/gu;
+const PEM = /-----BEGIN [A-Z ]*PRIVATE KEY-----/u;
+const NAMED = (re: RegExp) => re.source.startsWith("\\b(?:pass(?:word)?");
+const PATTERNS = SECRET.filter((re) => !NAMED(re));
+const keyed = (text: string) => [...text.matchAll(KEY_VALUE)].some((m) => m[1]!.length >= 6 && /[A-Za-z]/.test(m[1]!) && /\d/.test(m[1]!));
+const mixedRun = (text: string) => (text.match(BASE64_RUN) ?? []).some((run) => /[a-z]/.test(run) && /[A-Z]/.test(run) && /\d/.test(run));
+
+/**
+ * Whether `text` has the shape of a credential: a pattern of the board's scrub (the key-and-value one narrowed, above), a bearer token, a PEM header, or a long mixed run of base64 characters.
+ * `path`: the text is the path of a URL, where a commit's hash or a document's id is ordinary: only the named key shapes count there, not a long hex or mixed run.
+ */
+export function secretShaped(text: string, { path = false }: { path?: boolean } = {}): boolean {
+	if (PEM.test(text) || keyed(text) || text.search(BEARER) >= 0) return true;
+	if (PATTERNS.some((re) => (path && re.source === HEX_RUN.source ? false : text.search(re) >= 0))) return true;
+	return !path && mixedRun(text);
 }
+/** A parsed URL's secret check: its path leniently, everything else (user, query, fragment) in full. */
+const urlSecretShaped = (u: URL) => secretShaped(u.pathname, { path: true }) || secretShaped(`${u.host}${u.search}${u.hash}`);
 
 export interface CheckContext {
 	/** The ids of the senders of the intercom events this run took. */
@@ -117,7 +133,7 @@ export function checkCard(args: Record<string, unknown>, ctx: CheckContext): Che
 		else if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname) fail("url", `${shown(raw)} is not an http(s) address. Give the page's https address, or a command instead.`);
 		else if (parsed.username || parsed.password) fail("url", `${shown(raw)} has a user name or password in it. Give the address without them.`);
 		else if (chars(parsed.href) > CARD.url) fail("url", `too long: at most ${CARD.url} characters`);
-		else if (secretShaped(raw) || secretShaped(parsed.href)) fail("url", NO_SECRET);
+		else if (urlSecretShaped(parsed)) fail("url", NO_SECRET);
 		else url = parsed.href;
 	}
 	let command: string | undefined;
@@ -128,7 +144,7 @@ export function checkCard(args: Record<string, unknown>, ctx: CheckContext): Che
 		else if (secretShaped(raw)) fail("command", NO_SECRET);
 		else command = raw;
 	}
-	if (type === "action" && args.url === undefined && args.command === undefined) fail("url", "missing. An action says where the boss does it: give url (an https address) or command (a command they run themselves).");
+	if (type === "action" && !url && !command && !lines.some((l) => /^- (url|command): /.test(l))) fail("url", "missing. An action says where the boss does it: give url (an https address) or command (a command they run themselves).");
 
 	let options: Option[] | undefined;
 	if (type === "choice") {

@@ -233,6 +233,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			return { status: 200, body };
 		}
 		if (scope === "panes") return panes({ grants, mirrors, pad, call, busy, refused }, key, action, json, remote);
+		if (remote && json.op === "press" && json.act === "secret" && ((scope === "tower" && action === "memory") || (scope === "head" && key === "memory"))) return no(409, "refused", "Enter it at the computer: this step is taken on this computer's own page or in pi."); // WC-D4: a secret card's first step says the boss is at this computer, so only its own page (or pi) takes it
 		if (scope === "tower") {
 			if (key.startsWith("@") || tower?.isHead?.(key)) return no(404, "not_found", "No such tower.");
 			if (action === "memory") return tower?.memory && tower.has(key) ? tower.memory(key, json) : no(404, "not_found", "No such tower.");

@@ -47,7 +47,7 @@ import { api, type Hub as Files, image, watchSession, type Watch, watchWorkspace
 // Both come from the package folder, not from this file's place: the sb server bundles this module into dist/server, where "../dist/gui" and "../package.json" are not the package's.
 export const BUNDLE = join(packageRoot(), "dist", "gui");
 export const VERSION: string = PACKAGE_VERSION;
-const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json", ".woff2": "font/woff2", ".mp3": "audio/mpeg", ".png": "image/png", ".webmanifest": "application/manifest+json" };
+const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json", ".woff2": "font/woff2", ".mp3": "audio/mpeg", ".png": "image/png", ".webp": "image/webp", ".webmanifest": "application/manifest+json" };
 const HEADERS = {
 	"cache-control": "no-store",
 	"referrer-policy": "no-referrer",
@@ -76,8 +76,30 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 	} catch {
 		throw new Error(`The GUI bundle is missing (${dir}); build it with npm run gui:build`);
 	}
-	// The whole bundle is read once: a package update replaces dist/gui under a running server, whose page names the old assets.
-	const bundle = new Map(readdirSync(dir, { recursive: true, encoding: "utf8" }).filter((f) => statSync(join(dir, f)).isFile()).map((f) => [f.split("\\").join("/"), readFileSync(join(dir, f))]));
+	// The bundle is read once, except the themes' folders: a package update replaces dist/gui under a running server, whose page names the old assets. Only the names under `themes/` are listed (no contents), and a theme's file is read from disk
+	// on its first request and kept, so a server whose devices never show a theme never holds its files. A name not in the list, or a read that fails, is a 404; no other path is ever joined to the folder.
+	const listed = readdirSync(dir, { recursive: true, encoding: "utf8" }).filter((f) => statSync(join(dir, f)).isFile()).map((f) => f.split("\\").join("/"));
+	const bundle = new Map(listed.filter((f) => !f.startsWith("themes/")).map((f) => [f, readFileSync(join(dir, f))]));
+	const themeNames = new Set(listed.filter((f) => f.startsWith("themes/"))), themed = new Map<string, Buffer>();
+	const fileOf = (file: string): Buffer | undefined => {
+		const held = bundle.get(file) ?? themed.get(file);
+		if (held || !themeNames.has(file)) return held;
+		try {
+			const read = readFileSync(join(dir, file));
+			themed.set(file, read);
+			return read;
+		} catch {
+			return undefined;
+		}
+	};
+	// The build's theme map (themes.json, names only): the page's first frame links the default view's stylesheet and icon (scripts/vite-themes.ts).
+	const themeMap = (() => {
+		try {
+			return JSON.parse(bundle.get("themes.json")?.toString("utf8") ?? "{}") as Record<string, { css?: string; icon?: string } | undefined>;
+		} catch {
+			return {};
+		}
+	})();
 	// `build` names this bundle in the page and in each stream's hello: a page from another build, reconnecting to this server, reloads itself.
 	const html = bundle.get("index.html")!, build = createHash("sha256").update(html).digest("hex").slice(0, 16);
 	// The token and the CSRF secret outlive a listener that gets both of its ports back (D27, the boss's choice: a restart keeps the address, so an open page and an installed app go on). A listener that had to move to
@@ -121,7 +143,13 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 	const token = kept ? keep!.token : randomBytes(16).toString("hex"), csrf = kept ? keep!.csrf : randomBytes(16).toString("hex");
 	// The server's default view rides in the page (`sb-view`, read before the first paint, so a device that follows the server shows it with no flash) and in each stream's `hello`; a change is a `view` event to the open streams.
 	let view: ServerView = firstView;
-	const pageOf = () => html.toString("utf8").replace("<head>", `<head>\n<base href="/${token}/">\n<meta name="sb-csrf" content="${csrf}">${desk ? '\n<meta name="sb-desk" content="1">' : ""}\n<meta name="sb-view" content="${view}">\n<meta name="sb-build" content="${build}">`);
+	// The default view's first frame: its stylesheet link goes where the build left the marker (after the entry's own stylesheet, so the cascade is as it was), and the tab icon is its icon. Standard has no theme: nothing is added.
+	const themedPage = () => {
+		const theme = Object.hasOwn(themeMap, view) ? themeMap[view] : undefined, page = html.toString("utf8");
+		if (!theme) return page;
+		return page.replace("<!--sb-theme-->", theme.css ? `<link rel="stylesheet" data-theme="${view}" href="${theme.css}">` : "").replace(/(<link rel="icon"[^>]*?) href="[^"]*"/, theme.icon ? `$1 href="${theme.icon}" data-standard="./icon.svg"` : "$&");
+	};
+	const pageOf = () => themedPage().replace("<head>", `<head>\n<base href="/${token}/">\n<meta name="sb-csrf" content="${csrf}">${desk ? '\n<meta name="sb-desk" content="1">' : ""}\n<meta name="sb-view" content="${view}">\n<meta name="sb-build" content="${build}">`);
 	const remoteManifest = (() => {
 		try {
 			const manifest = bundle.get("manifest.webmanifest");
@@ -299,10 +327,10 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		if (file === "index.html") return void res.writeHead(200, { ...HEADERS, "content-type": TYPES[".html"] }).end(pageOf());
 		// A remote page installs with the fixed entry as its start URL: the token in its own address changes with every listener, and an installed app cannot follow it.
 		if (file === "manifest.webmanifest" && who.remote && remoteManifest) return void res.writeHead(200, { ...HEADERS, "content-type": TYPES[".webmanifest"] }).end(remoteManifest);
-		const body = bundle.get(file);
+		const body = fileOf(file);
 		if (!body) return void fail(404);
-		// A font's or sound's name carries its content hash, so a phone keeps it instead of fetching it on every page load.
-		const keep = /\.(woff2|mp3)$/.test(file) ? { "cache-control": "private, max-age=31536000, immutable" } : {};
+		// A font's, sound's, or theme file's name carries its content hash, so a phone keeps it instead of fetching it on every page load.
+		const keep = /\.(woff2|mp3)$|^themes\//.test(file) ? { "cache-control": "private, max-age=31536000, immutable" } : {};
 		res.writeHead(200, { ...HEADERS, ...keep, "content-type": TYPES[extname(file)] ?? "application/octet-stream" }).end(body);
 	};
 	const lanHandler = handler("lan", () => server) as LanHandler;

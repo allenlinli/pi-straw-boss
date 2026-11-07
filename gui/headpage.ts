@@ -2,6 +2,8 @@ import type { MemorySummary, Net } from "../src/net.ts";
 import type { HeadAskRow, HeadUnit } from "../src/nethead.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
+import { iconRef } from "./icons.ts";
+import { noun } from "./nouns.ts";
 import { LABEL } from "./render.ts";
 import { formatRoute } from "./router.ts";
 import { statusLine } from "./towermodel.ts";
@@ -37,8 +39,8 @@ export function fillHeadButton(button: HTMLElement, head: HeadUnit | undefined, 
 	if (!head) return;
 	button.dataset.mark = head.mark;
 	button.dataset.state = head.state;
-	button.title = m.head_tower();
-	button.setAttribute("aria-label", head.said && headDot(head, seen) && !here ? `${m.head_tower()}: ${m.head_new()}` : m.head_tower());
+	button.title = noun("head_tower");
+	button.setAttribute("aria-label", head.said && headDot(head, seen) && !here ? `${noun("head_tower")}: ${m.head_new()}` : noun("head_tower"));
 	button.toggleAttribute("aria-current", here);
 	if (here) button.setAttribute("aria-current", "page");
 	const dot = button.querySelector<HTMLElement>(".dot");
@@ -53,9 +55,10 @@ export const headLine = (head: HeadUnit, o?: Opts) => (head.state === "absent" ?
 /** The page header: the crown where the comms logo is, the title, the state line, and the one line a head that is not open shows. */
 export function fillHeadTitle(root: HTMLElement, head: HeadUnit) {
 	const set = (sel: string, text: string) => { const el = root.querySelector(sel); if (el && el.textContent !== text) el.textContent = text; };
-	root.querySelector(".head-icon")?.setAttribute("href", "#i-crown");
+	const icon = root.querySelector<SVGUseElement>(".head-icon");
+	if (icon) (icon.dataset.icon = "crown", icon.setAttribute("href", iconRef("crown")));
 	set(".head-kicker", "");
-	set(".head-title", m.head_tower());
+	set(".head-title", noun("head_tower"));
 	set(".head-line", headLine(head));
 	const absent = root.querySelector<HTMLElement>(".head-absent");
 	if (absent) (absent.hidden = head.state !== "absent", set(".head-absent", m.head_absent()));

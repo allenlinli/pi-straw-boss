@@ -41,7 +41,7 @@ test("the head node takes no row of its own: it is a small pill in the map's top
 	assert.match(css, /\.map:has\(> \.head-node:not\(\[hidden\]\)\) \{ padding-top: (\d+)px; \}/, "the map keeps room for the lower half of the pill");
 	assert.match(rule(css, ".head-node .tstate"), /clip-path: inset\(50%\)/, "the state line is for a reader of the page; the title and the tower's badge carry it for the eye");
 	assert.match(rule(css, ".head-node .tower"), /width: 30px; height: 30px/, "a small tower, not the 64 px one");
-	assert.match(css, /\[data-view="geek"\] :is\(\.head-node, \.drawer-head\) \{ background: var\(--surface-0\); box-shadow: none; \}/, "Geek stays flat");
+	assert.match(read("gui/themes/geek/geek.css"), /\[data-view="geek"\] :is\(\.head-node, \.drawer-head\) \{ background: var\(--surface-0\); box-shadow: none; \}/, "Geek stays flat");
 });
 
 test("the node's title says the head and its state, for a hover", () => {

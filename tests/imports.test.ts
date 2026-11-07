@@ -1333,8 +1333,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	assert.ok(total(css, (n) => size(n).length) <= 171_691 && total(css, gz) <= 34_763, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
-// The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.
-test("the Zen chunk's entry imports zenrows.ts, which registers the Zen keymap rows", () => {
-	assert.match(readFileSync(join(root, "gui/zenchunk.ts"), "utf8"), /^import\s+["']\.\/zenrows\.ts["'];?/m);
+// The Zen rows of the keymap exist only because the Zen theme's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.
+test("the Zen theme's entry imports zenrows.ts, which registers the Zen keymap rows", () => {
+	assert.match(readFileSync(join(root, "gui/themes/zen/index.ts"), "utf8"), /^import\s+["']\.\.\/\.\.\/zenrows\.ts["'];?/m);
 	assert.match(readFileSync(join(root, "gui/zenrows.ts"), "utf8"), /KEYMAP\.zen\s*=|KEYMAP\[["']zen["']\]\s*=/);
 });

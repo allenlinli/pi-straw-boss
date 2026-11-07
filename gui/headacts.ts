@@ -2,6 +2,7 @@ import type { TowerService } from "../src/net.ts";
 import { HEAD_KEY } from "../src/headkey.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
+import { noun } from "./nouns.ts";
 import { post } from "./post.ts";
 import { guarded, towerRoute } from "./towermodel.ts";
 
@@ -27,7 +28,7 @@ export function fillHeadActs(box: HTMLElement, service: TowerService | undefined
 	box.replaceChildren(
 		...(c && !c.closing ? [act(m.head_end(), m.conv_leave_title(), "leave", m.conv_left)] : []),
 		...(c ? [act(m.conv_new_button(), m.conv_new_title(), "new", m.conv_fresh)] : []),
-		h("button", { type: "button", class: "quit-btn head-close", "data-close": "head", "data-name": m.head_tower(), "aria-label": m.head_close(), title: m.head_close() }, m.head_close_short()),
+		h("button", { type: "button", class: "quit-btn head-close", "data-close": "head", "data-name": noun("head_tower"), "aria-label": m.head_close(), title: m.head_close() }, m.head_close_short()),
 		fail, done,
 	);
 }

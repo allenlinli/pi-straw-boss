@@ -1,6 +1,7 @@
 import type { Tile } from "./layer.ts";
 import { docList, docTile } from "./doc.ts";
 import { m } from "./paraglide/messages.js";
+import { noun } from "./nouns.ts";
 import { fillPlate, html, LABEL, liveMark, mark, PLATE, roleName, say, sync, text } from "./render.ts";
 import { closed, locate, type Scene, type Subject, wsOf } from "./scene.ts";
 import { fillToken, linkTo, tokenEl } from "./tokens.ts";
@@ -31,7 +32,7 @@ export function mountDossier(host: HTMLElement, scene: Readonly<Scene>, { openTi
 		if (info?.successor) note.append(` ${m.successor()} `, linkTo({ view: "session", ws, key: info.successor }, locate(net, info.successor)?.u.name ?? m.new_session()));
 		const rows: [string, string | Node | undefined][] = [
 			[m.spec_model(), model], [m.spec_context(), ctx ? m.tokens({ count: ctx.toLocaleString() }) : undefined], [m.spec_directory(), info?.header?.cwd],
-			[m.spec_base(), hit && linkTo({ view: "workspace", ws: hit.base.id }, hit.base.label)], [m.spec_squad(), hit?.squad],
+			[noun("spec_base"), hit && linkTo({ view: "workspace", ws: hit.base.id }, hit.base.label)], [m.spec_squad(), hit?.squad],
 			[m.spec_launcher(), hit?.launcher && linkTo({ view: "session", ws: hit.base.id, key: hit.launcher.key }, hit.launcher.name)],
 			[m.spec_unreadable(), info?.unreadable ? m.entry_count({ count: info.unreadable }) : undefined],
 		];

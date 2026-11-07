@@ -62,7 +62,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	vol.oninput = () => setVolume(Number(vol.value));
 	vol.onchange = () => play("done");
 	$("sound-try").onclick = () => play("done");
-	const play = (kind: Kind) => audio.play(soundOf(kind, SOUNDS[kind]));
+	const play = (kind: Kind) => audio.play(soundOf(kind, SOUNDS[kind]), SOUNDS[kind]);
 	/** The system notification of an alert, while the page is hidden or unfocused and Remind is on and allowed. */
 	function notice(a: Alert, k: Kind) {
 		if (!remind || !can || Notification.permission !== "granted" || (!document.hidden && document.hasFocus())) return;

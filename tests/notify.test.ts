@@ -14,7 +14,8 @@ const { audio } = await import("../gui/audio.ts");
 const { useSounds } = await import("../gui/themesounds.ts");
 // The page's one playback core is replaced by recorders: what notify asks of it is what these tests read.
 const played: string[] = [], volumes: number[] = [];
-audio.play = (url) => void played.push(url);
+const fallbacks: (string | undefined)[] = [];
+audio.play = (url, fallback) => void (played.push(url), fallbacks.push(fallback));
 audio.volume = (v) => void volumes.push(v);
 
 const ids = ["remind", "remind-note", "sound", "sound-vol", "sound-vol-out", "sound-try"];
@@ -142,4 +143,17 @@ test("a theme's sounds replace the base clips for each kind while it is the view
 	r.n.chime();
 	assert.match(played[0]!, /done\.mp3$/);
 	assert.ok(!played[0]!.includes("themes/"), "Standard's own clip again");
+});
+
+test("a theme's clip is played with Standard's clip of the same kind as its fallback", () => {
+	const r = rig({ [KEYS.sound]: "1" });
+	fallbacks.length = 0;
+	useSounds({ done: "/themes/raven/done-2.mp3" });
+	try {
+		r.n.chime();
+		assert.match(fallbacks[0]!, /done\.mp3$/);
+		assert.ok(!fallbacks[0]!.includes("themes/"));
+	} finally {
+		useSounds(undefined);
+	}
 });

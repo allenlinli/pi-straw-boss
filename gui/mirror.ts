@@ -157,7 +157,7 @@ export function mountTerminals({ tiles, post, stream, pad }: { tiles: { open(til
 		if (conn.phase !== "connecting") say(t);
 		t.pad = pad?.({ name, state: conn.state, post: conn.post, stream: conns.id, blip: () => replay(t.scroll, "blip"), taken: () => conns.taken(conn) });
 		sync(t);
-		return (t.tile = { id: `term:${key}`, title: m.terminal_title({ name }), icon: "i-comms", body: () => h("div", { class: "term-tile" }, h("div", { class: "term-bar" }, t.state, t.typing, t.kb, t.fit), t.scroll, t.sink, t.pad?.el), closed: () => (t.sink.blur(), t.stop(), open.delete(key)) });
+		return (t.tile = { id: `term:${key}`, title: m.terminal_title({ name }), icon: "comms", body: () => h("div", { class: "term-tile" }, h("div", { class: "term-bar" }, t.state, t.typing, t.kb, t.fit), t.scroll, t.sink, t.pad?.el), closed: () => (t.sink.blur(), t.stop(), open.delete(key)) });
 	};
 	return {
 		/** Opens (or brings forward) the tile of a terminal, a session's or a pane an answer opened (key `grant:<id>`), the user's own act, so it takes focus; a mirror that ended tries again. `keys`: the keyboard goes to it (a desktop's; a phone has the pad under it, and its Keyboard button). */

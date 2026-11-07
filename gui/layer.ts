@@ -6,7 +6,7 @@ import { tabLabels } from "./doctabs.ts";
 import { keypad } from "./keypad.ts";
 import { mountTerminals } from "./mirror.ts";
 import { rankOf, unitOf } from "./alerts.ts";
-import { prefs } from "./prefs.ts";
+import { iconRef } from "./icons.ts"; import { prefs } from "./prefs.ts";
 import { type Alert, createStack, tally } from "./overlay.ts";
 import { m } from "./paraglide/messages.js";
 import { aim, byId, doing, fillPlate, hang, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
@@ -19,7 +19,7 @@ import { waitDialog } from "./waitpanel.ts";
 // view's width side by side and turn into tabs when it runs out. Opening a tile never covers or closes a dialog, and a tile that
 // arrives on its own shows beside the view without taking focus or the active tab.
 
-/** `icon` names the header's symbol (a document by default); `closed` runs when the tile closes, by its × or pushed out by a fifth, or is refused. */
+/** `icon` names the header's role icon (iconRef: `doc` by default); `closed` runs when the tile closes, by its × or pushed out by a fifth, or is refused. */
 export interface Tile { id: string; title: string; path?: string; body(): HTMLElement; icon?: string; closed?(): void }
 export interface TilesIO { render(tiles: Tile[], active: string | undefined): void; enter(tile: Tile): void }
 export { type Intel, intel };
@@ -205,7 +205,7 @@ export function mountPanels(deps: PanelDeps) {
 			row.hidden = !list.length;
 			sync(row, list, (t) => {
 				const el = tileEl();
-				el.querySelector("use")!.setAttribute("href", `#${t.icon ?? "i-doc"}`);
+				{ const use = el.querySelector("use")!, role = t.icon ?? "doc"; use.dataset.icon = role; use.setAttribute("href", iconRef(role)); }
 				el.querySelector(".x")!.setAttribute("aria-label", m.close_tile({ title: t.title }));
 				el.querySelector(".tile-body")!.append(t.body());
 				el.querySelector(".x")!.addEventListener("click", () => tiles.close(t.id));

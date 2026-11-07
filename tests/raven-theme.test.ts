@@ -11,16 +11,17 @@ import { rulesOf } from "./css-rules.ts";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const at = (path: string) => readFileSync(join(root, path), "utf8");
 const ROLES = ["user", "crown", "tower", "main", "member", "subagent", "outpost", "outside", "comms", "doc"];
+const ICONS = [...ROLES, "brand"]; // the ten roles and the header's brand mark (the crest, where Standard has its antenna glyph)
 
-test("the sprite draws the ten roles Standard draws, as symbols prefixed raven-, in one colour", () => {
+test("the sprite draws the ten roles and the brand mark Standard draws, as symbols prefixed raven-, in one colour", () => {
 	const sprite = at("gui/themes/raven/sprite.svg");
 	const ids = [...sprite.matchAll(/<symbol id="([^"]+)" viewBox="([^"]+)"/g)];
-	assert.deepEqual(ids.map((x) => x[1]), ROLES.map((r) => `raven-${r}`));
+	assert.deepEqual(ids.map((x) => x[1]), ICONS.map((r) => `raven-${r}`));
 	for (const x of ids) assert.equal(x[2], "0 0 256 256");
 	const standard = [...at("gui/index.html").matchAll(/<symbol id="i-(\w+)"/g)].map((x) => x[1]).sort();
-	assert.deepEqual([...ROLES].sort(), standard, "the same role keys as Standard's inline sprite");
+	assert.deepEqual([...ICONS].sort(), standard, "the same role keys as Standard's inline sprite");
 	assert.ok(!/fill="#|stroke=|<style|<script/.test(sprite), "single colour: currentColor only");
-	assert.equal([...sprite.matchAll(/fill="currentColor"/g)].length, ROLES.length);
+	assert.equal([...sprite.matchAll(/fill="currentColor"/g)].length, ICONS.length);
 });
 
 test("the noun pack names each role in both languages with the spec's words, and only keys the chokepoint knows", () => {
@@ -109,4 +110,33 @@ test("the lightning comes at most once a minute and never washes the screen: its
 test("the backdrop belongs to the head page only, and fog, flicker, bats, and the raven are all in the stylesheet", () => {
 	assert.match(raw, /html\[data-view="raven"\]:has\(#stage\[data-view="head"\]\)::before/);
 	for (const name of ["rk-fog", "rk-bat", "rk-raven", "rk-lit-a", "rk-lit-b", "rk-candle", "rk-bolt"]) assert.match(raw, new RegExp(`@keyframes ${name}\\b`), name);
+});
+
+test("no selector of the theme puts a pseudo-element inside :is() (it matches nothing there)", () => {
+	const bad = css.filter((r) => /:is\([^)]*::/.test(r.selector) || /:is\([^)]*:(before|after)\b/.test(r.selector));
+	assert.deepEqual(bad.map((r) => r.selector), []);
+	for (const query of ["(max-width: 600px)", "(forced-colors: active)"]) {
+		const block = new RegExp(`@media ${query.replace(/[()]/g, "\\$&")} \\{([^\\n]*)\\}`).exec(raw)?.[1] ?? "";
+		assert.match(block, /::after/, `${query} hides ::after`);
+		assert.ok(!/:is\(/.test(block), `${query} writes its selectors out`);
+	}
+});
+
+test("the head page's veil over the moon keeps the crumb row's text at 4.5 : 1 against the moon's brightest pixel", () => {
+	// 243 217 194 is the brightest pixel of backdrop.webp in the crumb row's band (y 88 to 122 of 721), sampled with PIL; the plain veil there is 0.68 falling to 0.3 over 45 percent of the picture.
+	const moon = /radial-gradient\(ellipse .* at 16\.4% 17%, rgb\(13 10 16 \/ ([\d.]+)\) 55%/.exec(raw);
+	assert.ok(moon, "the moon's own veil layer");
+	const plain = 0.68 - (0.68 - 0.3) * (104 / 324), alpha = 1 - (1 - plain) * (1 - Number(moon[1]));
+	const lin = (v: number) => ((v / 255 + 0.055) / 1.055) ** 2.4, lum = (c: number[]) => 0.2126 * lin(c[0]!) + 0.7152 * lin(c[1]!) + 0.0722 * lin(c[2]!);
+	const ground = [243, 217, 194].map((v, i) => (1 - alpha) * v + alpha * [13, 10, 16][i]!);
+	for (const [name, text] of Object.entries({ dim: [0xb0, 0xa6, 0xbc], gold: [0xe6, 0xb3, 0x4e], accent: [0xbb, 0xa9, 0xea] })) {
+		const [hi, lo] = [lum(text), lum(ground)].sort((a, b) => b - a);
+		assert.ok((hi! + 0.05) / (lo! + 0.05) >= 4.5, `${name} on the moon under the veil`);
+	}
+});
+
+test("no page source reads a role noun straight from the messages: every one goes through the noun chokepoint (a view's pack could not rename it otherwise)", () => {
+	const hit = new RegExp(`\\bm\\.(${NOUN_KEYS.join("|")})\\b`);
+	const offenders = readdirSync(join(root, "gui")).filter((f) => f.endsWith(".ts") && f !== "nouns.ts" && f !== "towermodel.ts").filter((f) => hit.test(at(`gui/${f}`)));
+	assert.deepEqual(offenders, []);
 });

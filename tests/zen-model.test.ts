@@ -4,7 +4,7 @@ import type { Mark } from "../src/netdata.ts";
 import type { Net, Unit } from "../src/net.ts";
 import { type Alert, alertsOf, ownOpenings } from "../gui/alerts.ts";
 import type { BossCard } from "../gui/cardalerts.ts";
-import { blocks, createZen, OUTCOME_MS, PAUSE_MS, REST_MS, type Screen } from "../gui/zenmodel.ts";
+import { blocks, createZen, HOLD_MS, OUTCOME_MS, PAUSE_MS, REST_MS, type Screen } from "../gui/zenmodel.ts";
 
 const al = (key: string, mark: Mark, since?: number, extra: Partial<Alert> = {}): Alert => ({ key, ws: "w", name: key, role: "main", mark, at: 0, since, ...extra });
 const map = (...a: Alert[]) => new Map(a.map((x) => [x.key, x]));
@@ -121,13 +121,14 @@ test("a refusal then an accepted retry still knocks", () => {
 	assert.equal(r.z.accepted("a").sound, "knock");
 });
 
-test("the pause lasts 3 s, then Zen rests; the next item takes the screen when the boss takes it, with the bowl", () => {
+test("the pause lasts 3 s, then Zen rests; an item that arrived meanwhile takes the screen when the boss takes it, with the bowl", () => {
 	const r = rig();
-	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	r.z.update(map(al("a", "waiting", 1)));
 	r.z.take();
 	r.z.accepted("a");
 	r.at(OUTCOME_MS);
 	assert.equal(r.z.tick().screen.kind, "pause");
+	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2))); // b arrives during the pause: it waits for it (with b queued at the answer, Z-D22 takes it at once)
 	r.at(PAUSE_MS - 1);
 	assert.equal(r.z.tick().screen.kind, "pause");
 	r.at(1);
@@ -327,7 +328,7 @@ const PROPOSAL = (since = 1) => al("proposal\u001fw\u001fP1", "waiting", since, 
 const held = (r: { screen: Screen }) => (r.screen.kind === "item" ? r.screen.outcome : undefined);
 const keyOf = (r: { screen: Screen }) => (r.screen.kind === "item" ? r.screen.item.key : r.screen.kind);
 
-test("Z-D19 (replaces Z-D18's preemption): a question that blocks an agent does not take the screen from a tower wait; it comes next, once the wait is done and the boss takes it", () => {
+test("Z-D19 (replaces Z-D18's preemption): a question that blocks an agent does not take the screen from a tower wait; it comes next, once the wait is done (Z-D22: the boss's own answer is followed by it directly)", () => {
 	const { z, at } = rig();
 	z.update(map(WAIT()));
 	assert.equal(keyOf(z.take()), WAIT().key);
@@ -335,12 +336,8 @@ test("Z-D19 (replaces Z-D18's preemption): a question that blocks an agent does 
 	assert.deepEqual([keyOf(r), r.sound], [WAIT().key, undefined]);
 	z.accepted(WAIT().key);
 	at(OUTCOME_MS);
-	assert.equal(z.tick().screen.kind, "pause");
-	at(PAUSE_MS);
-	const next = z.update(map(WAIT(), BOX()));
-	assert.deepEqual([keyOf(next), next.sound], ["companion", undefined]);
-	const taken = z.take();
-	assert.deepEqual([keyOf(taken), taken.sound], [BOX().key, "bowl"]);
+	const taken = z.tick();
+	assert.deepEqual([keyOf(taken), taken.sound], [BOX().key, "bowl"], "Z-D22: the wait's answer is followed by the question, as if Enter had taken it: no pause");
 });
 
 test("Z-D18: every kind that blocks an agent comes before every kind that blocks none, by Enter", () => {
@@ -394,16 +391,14 @@ test("Z-D19: a card on the screen is never interrupted: a blocking question that
 	assert.equal(keyOf(z.take()), BOX().key);
 });
 
-test("Z-D18: a card whose answer was just accepted is not preempted; the blocking question waits for Enter after the pause", () => {
+test("Z-D18: a card whose answer was just accepted is not preempted; a blocking question that comes during the outcome waits for Enter (Z-D22, ZCR-F002)", () => {
 	const { z, at } = rig();
 	z.update(map(WAIT()));
 	z.take();
 	z.accepted(WAIT().key);
 	assert.equal(keyOf(z.update(map(WAIT(), BOX()))), WAIT().key, "the outcome is on the screen");
 	at(OUTCOME_MS);
-	assert.equal(z.tick().screen.kind, "pause");
-	at(PAUSE_MS);
-	assert.equal(keyOf(z.take()), BOX().key, "the wait is held for 30 s, so the question comes first either way");
+	assert.deepEqual([keyOf(z.tick()), z.queued().map((x) => x.key)], ["pause", [BOX().key]], "the question came after the answer: the pause, and it waits for Enter");
 });
 
 test("Z-D18: a question that arrives during a pause waits for the pause, like any arrival, and then for Enter", () => {
@@ -475,27 +470,29 @@ test("Z-D19: on the breathing circle no card takes the screen, whatever its kind
 	assert.match(z.why(BOX(50, "early").key) ?? "", /waits for Enter/);
 });
 
-test("Z-D19: Enter takes the next card, blocking first and oldest first, with the bowl; one card at a time; the answer returns to the breath and the next waits for Enter again", () => {
+test("Z-D19: Enter takes the next card, blocking first and oldest first, with the bowl; one card at a time; the answer is followed by the next that waits (Z-D22), and Not now returns to the breath", () => {
 	const { z, at } = rig();
 	z.update(map(WAIT(1), BOX(60, "late"), BOX(50, "early")));
 	const first = z.take();
 	assert.deepEqual([keyOf(first), first.sound], [BOX(50, "early").key, "bowl"]);
 	assert.deepEqual(z.queued().map((a) => a.key), [BOX(60, "late").key, WAIT(1).key], "the cue counts the cards behind the one on the screen, not that one");
 	assert.equal(keyOf(z.take()), BOX(50, "early").key, "a second Enter changes nothing");
-	z.accepted(BOX(50, "early").key);
-	at(OUTCOME_MS);
-	assert.equal(z.tick().screen.kind, "pause");
+	z.skip();
+	assert.equal(z.tick().screen.kind, "pause", "Not now is the breath, not a chain");
 	at(PAUSE_MS);
 	assert.equal(z.tick().screen.kind, "companion", "back to the breath");
 	assert.deepEqual(z.queued().map((a) => a.key), [BOX(60, "late").key, WAIT(1).key], "the rest still wait");
 	assert.equal(keyOf(z.take()), BOX(60, "late").key, "the next one waits for Enter, not for the pause");
+	z.accepted(BOX(60, "late").key);
+	at(OUTCOME_MS);
+	assert.equal(keyOf(z.tick()), WAIT(1).key, "after the boss's answer the next that waits follows (Z-D22)");
 });
 
 test("Z-D19: Enter during the pause takes the next card at once; with none waiting it changes nothing", () => {
 	const { z, at } = rig();
 	z.update(map(BOX(50, "a"), BOX(60, "b")));
 	z.take();
-	z.accepted(BOX(50, "a").key);
+	z.skip();
 	at(OUTCOME_MS);
 	assert.equal(z.tick().screen.kind, "pause");
 	assert.equal(keyOf(z.take()), BOX(60, "b").key);
@@ -703,4 +700,205 @@ test("ZNR-F005: a card taken before the relay, whose tool call then gains its re
 	p.z.update(map(withAnswer()));
 	p.z.take();
 	assert.equal(held(p.z.update(map(withAnswer("c1", "d2")))), "elsewhere");
+});
+
+// Z-D22 (docs/specs/2026-11-01-zen-view.md, Chain): after the boss's own accepted answer, a queued card is taken directly once the outcome has shown: no pause, no breath.
+const chained = (r: object) => (r as { chained?: boolean }).chained;
+
+test("Z-D22: after the boss's accepted answer the outcome shows 1.2 s, then the next queued card takes the screen with the bowl: no pause, no breath; the cue's count drops by one per card", () => {
+	const { z, at } = rig();
+	z.update(map(al("a", "waiting", 1), al("b", "waiting", 2), al("c", "waiting", 3)));
+	z.take();
+	assert.deepEqual(z.queued().map((x) => x.key), ["b", "c"]);
+	assert.equal(z.accepted("a").sound, "knock", "the answer knocks as before");
+	at(OUTCOME_MS - 1);
+	assert.equal(held(z.tick()), "answered", "the outcome still holds 1.2 s");
+	at(1);
+	const next = z.tick();
+	assert.deepEqual([keyOf(next), held(next), next.sound, chained(next)], ["b", undefined, "bowl", true], "b rings as a taken card does: the bowl, and no knock besides");
+	assert.deepEqual(z.queued().map((x) => x.key), ["c"], "one fewer waits");
+	assert.equal(z.due(), 1_000_000 + HOLD_MS, "no pause timer: the one thing due is the answered card's hold ending, 30 s from its answer");
+	assert.equal(z.tick().sound, undefined, "and it rings once");
+	z.accepted("b");
+	at(OUTCOME_MS);
+	assert.deepEqual([keyOf(z.tick()), z.queued().length], ["c", 0]);
+	z.accepted("c");
+	at(OUTCOME_MS);
+	const last = z.tick();
+	assert.deepEqual([last.screen.kind, chained(last)], ["pause", undefined], "the queue is empty: the pause, as before");
+	at(PAUSE_MS);
+	assert.equal(z.tick().screen.kind, "companion", "and then the breath");
+});
+
+test("Z-D22: the chain takes the cards in Blocking-first order, the one that has waited longest first within a rank", () => {
+	const { z, at } = rig(), all = () => map(al("a", "waiting", 0), WAIT(1), CONFIRM(2), BOX(50), PAIR(3));
+	z.update(all());
+	z.take();
+	const order: string[] = [];
+	for (let i = 0; i < 4; i++) {
+		z.accepted(keyOf({ screen: z.tick().screen }));
+		at(OUTCOME_MS);
+		order.push(keyOf(z.update(all())));
+	}
+	assert.deepEqual(order, [CONFIRM().key, BOX().key, WAIT().key, PAIR().key]);
+});
+
+test("Z-D22: no chain after Not now, after closing a card that ended (elsewhere, gone, error), or with an empty queue: the pause and the breath, as before", () => {
+	const ends: [string, (z: ReturnType<typeof rig>["z"]) => unknown][] = [
+		["elsewhere", (z) => z.update(map(al("a", "working", 1), al("b", "waiting", 2)))],
+		["gone", (z) => z.update(map(al("b", "waiting", 2)))],
+		["error", (z) => z.update(map(al("a", "error", 1), al("b", "waiting", 2)))],
+	];
+	for (const [name, end] of ends) {
+		const r = rig();
+		r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+		r.z.take();
+		end(r.z);
+		r.at(OUTCOME_MS * 10);
+		assert.equal(held(r.z.tick()) !== undefined, true, `${name}: the card stays until the boss closes it`);
+		const closed = r.z.skip();
+		assert.deepEqual([closed.screen.kind, chained(closed), r.z.queued().map((x) => x.key)], ["pause", undefined, ["b"]], `${name}: closing it is the pause, and b waits for Enter`);
+		r.at(PAUSE_MS);
+		assert.equal(r.z.tick().screen.kind, "companion", name);
+	}
+	const notNow = rig();
+	notNow.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	notNow.z.take();
+	const skipped = notNow.z.skip();
+	assert.deepEqual([skipped.screen.kind, chained(skipped), notNow.z.queued().map((x) => x.key)], ["pause", undefined, ["b"]], "Not now (Esc) is the pause");
+	notNow.at(PAUSE_MS);
+	assert.deepEqual([notNow.z.tick().screen.kind, notNow.z.tick().sound], ["companion", undefined]);
+	const alone = rig();
+	alone.z.update(map(al("a", "waiting", 1)));
+	alone.z.take();
+	alone.z.accepted("a");
+	alone.at(OUTCOME_MS);
+	assert.equal(alone.z.tick().screen.kind, "pause", "nothing queued: the pause");
+});
+
+test("Z-D22: a card that resolved while it queued is never drawn: the chain skips it, and with none left it is the pause", () => {
+	const r = rig();
+	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2), al("c", "waiting", 3)));
+	r.z.take();
+	r.z.accepted("a");
+	r.z.update(map(al("a", "waiting", 1), al("b", "working", 2), al("c", "waiting", 3)));
+	r.at(OUTCOME_MS);
+	const next = r.z.tick();
+	assert.deepEqual([keyOf(next), next.sound, chained(next)], ["c", "bowl", true], "b was answered in the terminal: c is next, b is never drawn");
+	r.z.accepted("c");
+	r.z.update(map(al("b", "working", 2)));
+	r.at(OUTCOME_MS);
+	assert.equal(r.z.tick().screen.kind, "pause");
+});
+
+test("Z-D22: the unit's own next question, listed under the card the boss just answered, is not chained into: it waits for Enter like any other", () => {
+	const r = rig();
+	r.z.update(map(al("a", "waiting", 1, { pending: dlg("one") as never })));
+	r.z.take();
+	r.z.accepted("a");
+	r.z.update(map(al("a", "waiting", 9, { pending: dlg("two") as never })));
+	r.at(OUTCOME_MS * 40);
+	const s = r.z.tick();
+	assert.deepEqual([s.screen.kind, chained(s)], ["pause", undefined]);
+});
+
+test("Z-D22: a hidden page, or something the boss opened over the card (the terminal layer, the palette, the menu), does not chain: the pause and the breath as before, and the card waits for Enter", () => {
+	let covered = false, t = 1_000_000;
+	const z = createZen({ now: () => t, covered: () => covered });
+	const all = () => map(al("a", "waiting", 1), al("b", "waiting", 2));
+	z.update(all());
+	z.take();
+	z.accepted("a");
+	covered = true;
+	t += OUTCOME_MS;
+	assert.equal(z.tick().screen.kind, "pause", "the terminal layer is open over the card");
+	t += PAUSE_MS;
+	assert.equal(z.tick().screen.kind, "companion");
+	assert.deepEqual(z.queued().map((x) => x.key), ["b"], "b is in the cue");
+	covered = false;
+	const hid = rig();
+	hid.z.update(all());
+	hid.z.take();
+	hid.z.accepted("a");
+	hid.z.visible(false);
+	hid.at(OUTCOME_MS);
+	const s = hid.z.tick();
+	assert.deepEqual([s.screen.kind, s.sound, chained(s), hid.z.queued().map((x) => x.key)], ["companion", undefined, undefined, ["b"]], "a page nobody looks at is not made to ring a second card: the pause ends at once, as a hidden page's does, and b waits for Enter");
+});
+
+test("Z-D22: a reply that came after the snapshot (the card ended elsewhere first) is still the boss's answer: it chains", () => {
+	const r = rig();
+	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	r.z.take();
+	r.z.update(map(al("a", "working", 1), al("b", "waiting", 2)));
+	assert.equal(held(r.z.tick()), "elsewhere");
+	r.z.accepted("a");
+	r.at(OUTCOME_MS);
+	const first = r.z.tick();
+	assert.deepEqual([keyOf(first), first.sound, chained(first)], ["b", "bowl", true], "taken, and its bowl rings with the tick that took it");
+	assert.equal(r.z.tick().sound, undefined, "and only once");
+});
+
+test("Z-D22 (ZCR-F002, boss 2026-11-07): only a card that was already queued when the answer was accepted is chained into; one that arrives during the 1.2 s outcome waits for Enter", () => {
+	const r = rig();
+	r.z.update(map(al("a", "waiting", 1)));
+	r.z.take();
+	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2))); // b came while a was open: queued when the answer is accepted
+	r.z.accepted("a");
+	r.at(600);
+	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2), al("c", "waiting", 3))); // c comes in the outcome
+	r.at(OUTCOME_MS - 600);
+	assert.deepEqual([keyOf(r.z.tick()), chained(r.z.tick())], ["b", undefined], "b was queued at the answer: it is taken (chained reports once, on the call that took it)");
+	r.z.accepted("b"); // c is queued by now: it is queued at b's answer, so it follows b
+	r.at(OUTCOME_MS);
+	assert.equal(keyOf(r.z.tick()), "c", "c was queued when b's answer was accepted");
+	// the arrival alone, with nothing else queued
+	const only = rig();
+	only.z.update(map(al("a", "waiting", 1)));
+	only.z.take();
+	only.z.accepted("a");
+	only.at(600);
+	only.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	only.at(OUTCOME_MS - 600);
+	const t = only.z.tick();
+	assert.deepEqual([t.screen.kind, t.sound, chained(t), only.z.queued().map((x) => x.key)], ["pause", undefined, undefined, ["b"]], "the one waiting card arrived after the answer: the pause, the cue counts it");
+	// a reply that follows the snapshot snapshots the queue at the reply, not at the first Enter
+	const late = rig();
+	late.z.update(map(al("a", "waiting", 1)));
+	late.z.take();
+	late.z.update(map(al("a", "working", 1), al("b", "waiting", 2)));
+	late.z.accepted("a");
+	late.at(OUTCOME_MS);
+	assert.equal(keyOf(late.z.tick()), "b", "b was queued when the reply was accepted");
+});
+
+test("Z-D22 (ZCR-F001, Z-D16): Zen shown again never starts on a chained card: a return after the outcome ended, or one inside the outcome, is the pause and the breath", () => {
+	const after = rig();
+	after.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	after.z.take();
+	after.z.accepted("a");
+	after.at(300); // Zen was left here (the layer cancels its timer) ...
+	after.at(60_000);
+	const back = after.z.update(map(al("a", "working", 1), al("b", "waiting", 2)), true); // ... and shown again a minute later
+	assert.deepEqual([back.screen.kind, back.sound, chained(back)], ["pause", undefined, undefined], "the visit does not start on b");
+	after.at(PAUSE_MS);
+	assert.equal(after.z.tick().screen.kind, "companion");
+	assert.deepEqual(after.z.queued().map((x) => x.key), ["b"]);
+	const inside = rig();
+	inside.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	inside.z.take();
+	inside.z.accepted("a");
+	inside.at(300);
+	inside.z.update(map(al("a", "working", 1), al("b", "waiting", 2)), true); // back inside the outcome
+	inside.at(OUTCOME_MS);
+	const s = inside.z.tick();
+	assert.deepEqual([s.screen.kind, s.sound, chained(s)], ["pause", undefined, undefined], "the outcome that was interrupted by a visit does not chain at its end");
+	// the next answer of the next visit chains again
+	inside.at(PAUSE_MS);
+	inside.z.tick();
+	inside.z.take();
+	inside.z.update(map(al("b", "waiting", 2), al("c", "waiting", 3)));
+	inside.z.accepted("b");
+	inside.at(OUTCOME_MS);
+	assert.deepEqual([keyOf(inside.z.tick())], ["c"], "a fresh answer chains as before");
 });

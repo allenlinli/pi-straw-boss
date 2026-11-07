@@ -48,14 +48,15 @@ interface Card { key: string; /** What the card's answer is bound to (cardalerts
 interface Company { seen?: boolean; key: string; ws: string; name: HTMLElement; where: HTMLElement; /** The header, and the quiet line in it once the session ended or lost control: the screen stays, with its input off, until the boss leaves (Z-D20). */ header: HTMLElement; note: HTMLElement; over?: "ended" | "lost"; /** The way back to the breath, made when the session is over. */ leave?: HTMLButtonElement; /** The cue that says how many cards wait for Enter (zenhead.ts), under the name: a card never takes this screen by itself. */ cue: ReturnType<typeof mountCue>; chat?: Chat; composer?: Composer; queue: HistoryEvent[]; /** Appends that came while the newest page was in flight: applied again after it, which they may not be in. */ late?: HistoryEvent[]; state?: string }
 
 const UPGRADE_MS = 1000; // how often a waiting new build looks for the breath
+const DWELL_MS = 400; // how long the card the chain takes (Z-D22) holds off the key and the tap that answered the one before it: the confirm bar's dwell (confirmbar.ts, ZNR-F007), kept apart so the page's first file does not export it
 export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real) {
 	const now = deps.now ?? Date.now, later = deps.later ?? ((fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
-	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), unitAlerts = new Map<string, Alert>(), pairList: PairRequest[] = [], pairsAt = 0, shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined, histOpen = false; // picked: this visit's companion (its start, or the one stepped to); none is the circle. histOpen: the head tower's whole conversation, as a companion, on the circle screen (zenhead.ts)
+	let line: ReturnType<typeof mountLine> | undefined, escAt: number | undefined, stopEsc = () => {}, net: Net | undefined, alerts = new Map<string, Alert>(), unitAlerts = new Map<string, Alert>(), pairList: PairRequest[] = [], pairsAt = 0, shown: Screen = { kind: "companion" }, card: Card | undefined, company: Company | undefined, view: Screen["kind"] | undefined, active = false, cancel = () => {}, turn = 0, picked: With | undefined, histOpen = false, chain: { key: string; at: number; stamp: number } | undefined, deadTap = false; // picked: this visit's companion (its start, or the one stepped to); none is the circle. histOpen: the head tower's whole conversation, as a companion, on the circle screen (zenhead.ts)
 	/** The alerts Standard raises, and beside them the cards (cardalerts.ts): the Link confirms and forwarded dialogs and the towers' proposals from the snapshot, the pair requests from the page's poll. A pair request is this computer's to decide (the server refuses a paired device `lan/*`), so a paired device is given none. */
 	const remote = deps.remote ?? globalThis.location?.hostname !== "127.0.0.1";
 	const withCards = () => new Map([...unitAlerts, ...(net ? cardAlerts(net, now(), { pairs: remote ? [] : pairList, pairsAt }) : []).map((a) => [a.key, a] as const)]);
 	const to = (key: string) => answerPost(key, deps.post), trustTo: TrustPost = trustPost(deps.trust);
-	const model = createZen({ now }), explain = explainer(deps.debug ?? ((line) => console.debug(line)), (key) => (active ? model.why(key) : "the Zen layer is not shown")); // a question that waits off the page says why in the console
+	const model = createZen({ now, covered: () => !active || !document.hasFocus() || term.isOpen() || palette.isOpen() || menu.isOpen() || Boolean(music?.isOpen()) }), explain = explainer(deps.debug ?? ((line) => console.debug(line)), (key) => (active ? model.why(key) : "the Zen layer is not shown")); // a question that waits off the page says why in the console
 	const head = mountHead({ now, later, post: (action, body) => answerPost(net?.head?.key ?? HEAD_KEY, deps.post)(action, body), latest: () => deps.data(net?.head?.key ?? HEAD_KEY).latest(), online: deps.online, sound: deps.sound, rest: (on) => void line?.away(!on), history: () => void openHistory(), cards: () => model.queued().length, take: () => void enter() });
 	/** Enter, or a tap on the cue (Z-D19): the next card takes the screen; with none waiting on the circle, the head tower is called back (its input unfolds). */
 	const enter = () => (model.queued().length ? (apply(model.take()), true) : onCircle() && head.unfold());
@@ -99,10 +100,11 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const fading = new Map<HTMLElement, () => void>(), reminded = new Set<string>(); // reminded: the cards that wait for Enter and were notified of while the page was away
 	const dissolve = (el: HTMLElement) => (el.dataset.gone = "", el.setAttribute("inert", ""), stage.append(el), void fading.set(el, later(() => (fading.delete(el), el.remove()), 1400)));
 	/** What the stage draws changed: the sound goes out, the screen follows, and the one timer is set for the next moment the model may change. */
-	function apply(o: { screen: Screen; sound?: Sound }) {
+	function apply(o: { screen: Screen; sound?: Sound; chained?: boolean }) {
 		if (!active) return;
 		const gone = view === "item" && (o.screen.kind !== "item" || o.screen.item.key !== card?.key || cardSig(o.screen.item) !== card?.sig) ? card?.el : undefined; // a card that leaves dissolves: the boss's answer or Not now ended it (the model never swaps one card for another)
 		shown = o.screen;
+		chain = o.chained && shown.kind === "item" ? { key: shown.item.key, at: now(), stamp: globalThis.performance?.now?.() ?? 0 } : chain?.key === (shown.kind === "item" ? shown.item.key : undefined) ? chain : undefined; // the card the chain took (Z-D22) keeps its guard while it is on the screen
 		if (o.sound) deps.sound(o.sound);
 		if (shown.kind === "item") drawItem(shown);
 		else (card?.hist?.close(), card = undefined, shown.kind === "pause" ? drawPause() : drawCompany());
@@ -226,7 +228,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			live.textContent = m.zen_asks({ name: s.item.card && s.item.card.kind !== "proposal" ? s.item.name : titleOf(s.item) });
 			card.update(s.item, s.outcome);
 			const away = document.hidden || !document.hasFocus();
-			if (away) deps.remind(s.item);
+			if (away && !reminded.has(s.item.key)) (reminded.add(s.item.key), deps.remind(s.item)); // a card the page already told of while it queued (a chained one included) is not told of again
 			else if (idle()) card.enter() || card.el.focus();
 		} else card.update(s.item, s.outcome);
 		const ended = endedOf(s.outcome);
@@ -321,7 +323,18 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		});
 	}
 	// A held Enter must not press a card's button over and over: the Enter that takes a card (or a tap on the cue after it) leaves the focus on its first control, and the key's repeats arrive there. Only a fresh press acts.
-	root.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.repeat && (e.target as Element | null)?.closest?.("button, a, summary, [role=button]")) e.preventDefault(); }, true);
+	// The card the chain took (Z-D22) is the one that comes under the boss's hand mid-answer: the Enter that answered the card before it, held, repeated, or tapped twice, must not press it. For DWELL_MS after it is drawn it takes no Enter and no tap, and it takes no repeating Enter and no keydown that began before it was drawn at all (the confirm bar's guards, confirmbar.ts).
+	const dwelling = () => Boolean(chain && shown.kind === "item" && card?.key === chain.key && now() < chain.at + DWELL_MS);
+	const onCard = (e: Event) => Boolean(card?.el.contains(e.target as Node | null));
+	root.addEventListener("keydown", (e) => {
+		deadTap = false; // a key since the press: the next click is the key's own, not the dead press's
+		if (e.key !== "Enter") return;
+		if (chain && shown.kind === "item" && card?.key === chain.key && (e.repeat || dwelling() || (e.timeStamp ?? Infinity) < chain.stamp + DWELL_MS)) return (e.preventDefault(), e.stopPropagation());
+		if (e.repeat && (e.target as Element | null)?.closest?.("button, a, summary, [role=button]")) e.preventDefault();
+	}, true);
+	root.addEventListener("pointerdown", (e) => void (deadTap = e.isTrusted === true && dwelling() && onCard(e)), true);
+	root.addEventListener("pointercancel", () => void (deadTap = false), true); // a press the browser took for a scroll never becomes a click
+	root.addEventListener("click", (e) => { const dead = e.isTrusted === true && onCard(e) && (dwelling() || (deadTap && (e as MouseEvent).detail > 0)); deadTap = false; if (dead) (e.preventDefault(), e.stopPropagation()); }, true); // a tap is a click the user made: one the layer's own code makes (Back to the breath, Not now, the panel's Enter) is not
 	mountRestTap(root, { blank: (at) => at === root || stage.contains(at) || ripples.el.contains(at) || Boolean(at.closest?.(".zen-drift")), on: () => active && onCircle() && !term.isOpen() && !palette.isOpen() && !menu.isOpen() && !music?.isOpen(), head }); // a tap or click on the blank space rests the head's strip; mounted before the pause tap below, so its press is read first
 	const tap = () => shown.kind === "pause" && !term.isOpen() && apply(model.tap());
 	root.addEventListener("pointerdown", (e) => (tap(), head.tapAway(e.target)));
@@ -445,7 +458,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			const type = inside ? (at!.getAttribute?.("type") ?? at!.type ?? "text") : "", editable = inside && (/^textarea$/i.test(at!.tagName) || (/^input$/i.test(at!.tagName) && !/^(checkbox|radio|range|button|submit|reset|file|color|image)$/i.test(type)));
 			const armed = escAt !== undefined && now() - escAt < ESC_MS;
 			const step = escStep({ menu: menu.isOpen() || palette.isOpen() || Boolean(music?.isOpen()), history: Boolean(card?.hist?.isOpen()) || histOpen, reply: Boolean(card?.replying?.()) && !card?.sending(), head: head.isOpen(), rest: onCircle() && head.restable(), field: !editable ? "none" : at!.value !== "" ? "text" : "empty", item: shown.kind === "item" && !shown.outcome && Boolean(card && !card.sending()), ended: shown.kind === "item" && endedOf(shown.outcome) && Boolean(card && !card.sending()), over: Boolean(company?.over) && shown.kind === "companion", armed, repeat: e.repeat });
-			if (step === "none") return true;
+			if (step === "none" || (step === "item" && dwelling())) return true; // Esc cancels the question or puts the card aside: not a card that was just drawn under the Esc that answered the one before (Z-D22)
 			if (step !== "hint") clearEsc();
 			if (step === "menu") (menu.close(), palette.close(), music?.close());
 			else if (step === "history") histOpen ? closeHistory() : card!.collapse();

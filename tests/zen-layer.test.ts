@@ -635,7 +635,7 @@ const esc = (r: { z: { escape(e: { preventDefault(): void; repeat?: boolean }): 
 	return { took, prevented };
 };
 
-test("Esc on an item cancels its question when it can be cancelled (the card's own Cancel), else it is Not now: the next card; it never leaves", async () => {
+test("Esc on an item cancels its question when it can be cancelled (the card's own Cancel), else it is Not now: the next card follows the cancel; it never leaves", async () => {
 	const r = rig();
 	r.feed(net([unit("a", "waiting", { since: 5, pending: questions() }), unit("b", "waiting", { since: 9, name: "bravo", pending: select() })]));
 	r.z.show();
@@ -648,12 +648,9 @@ test("Esc on an item cancels its question when it can be cancelled (the card's o
 	await r.reply(ok);
 	assert.deepEqual(r.calls.leave, []);
 	await r.advance(1300);
-	await r.advance(3100);
-	assert.ok(!r.text().includes("bravo"), "the next card waits for Enter");
-	r.z.key("talk");
-	await r.settle();
-	assert.ok(r.text().includes("bravo"), "the next card");
-	assert.equal(r.button("Cancel"), undefined, "this one has no Cancel");
+	assert.ok(r.text().includes("bravo"), "the next card follows the boss's own cancel directly (Z-D22), with no pause between");
+	assert.equal(liveCard(r)!.all((el) => el.classes.has("ask-cancel")).length, 0, "this one has no Cancel (the card before it, dissolving, did)");
+	await r.advance(401); // the card the chain took holds off an Esc for 400 ms (Z-D22)
 	esc(r);
 	assert.equal(r.calls.posts.length, 1, "so Esc is Not now: nothing is sent");
 	assert.ok(r.by((el) => el.getAttribute("role") === "img").length, "the item rests and the pause starts");
@@ -2252,7 +2249,7 @@ test("Z-D19: on the breathing circle no card takes the screen, whatever its kind
 	assert.equal(cueText(r), "", "none: the line is away, and keeps its room");
 });
 
-test("Z-D19: Enter takes the next card, the blocking question first, with the bowl and the focus; the answer returns to the breath and the other card waits for Enter again", async () => {
+test("Z-D19: Enter takes the next card, the blocking question first, with the bowl and the focus; the answer is followed by the other card directly (Z-D22), and Not now returns to the breath", async () => {
 	const sent = server();
 	const r = rig({ start: null });
 	r.feed(waitAndBox(r, true));
@@ -2269,12 +2266,14 @@ test("Z-D19: Enter takes the next card, the blocking question first, with the bo
 	assert.equal(sent.length, 1, "answered through the same route");
 	r.feed(waitAndBox(r, false)); // the box's dialog closed
 	await r.advance(OUTCOME + 100);
+	assert.deepEqual(r.calls.sound, ["bowl", "knock", "bowl"], "the wait is taken as a taken card is: the bowl");
+	assert.ok(r.text().includes("Boss token needed to add the ACL") && r.button("Handle"), "the wait follows the boss's answer: no pause, no breath");
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length, 0);
+	await r.advance(DWELL + 1);
+	r.button("Maybe later")!.click(); // Not now is not an answer: the breath, as before
 	await r.advance(PAUSE + 100);
-	assert.equal(cards(r), 0, "back to the breath: the wait does not follow by itself");
-	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.");
-	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
-	assert.equal(enterKey(r), true);
-	assert.ok(r.text().includes("Boss token needed to add the ACL") && r.button("Handle"), "the wait, on Enter");
+	assert.equal(cards(r), 0, "back to the breath");
+	assert.equal(cueText(r) ?? "", "", "the wait rests; nothing else waits");
 });
 
 test("Z-D19: a tap on the cue takes the next card as Enter does", async () => {
@@ -2854,4 +2853,348 @@ test("ZNR upgrade: the pause after an answer is not the breath yet: the line sho
 	assert.equal(updateLine(r), UPDATE(), "the line is there on the pause");
 	await pass(r, 4_000);
 	assert.equal(go.reloads, 1);
+});
+
+// --- Z-D22 (docs/specs/2026-11-01-zen-view.md, Chain; boss 2026-11-07): once the boss has taken a card and answered it, the next one that waits is taken straight after the outcome ---------------------------------
+
+const DWELL = 400;
+/** Three cards of units that wait, a, b, c, in the order they come (the oldest first); `gone` lists the ones that have stopped waiting by now. */
+const trio = (gone: string[] = []) => net(["a", "b", "c"].map((k, i) => unit(k, gone.includes(k) ? "working" : "waiting", { name: `ops-${k}`, since: 5 + i, ...(gone.includes(k) ? {} : { pending: { ...select({ dialog: `d${k}` }), callId: `c-${k}` } }) })));
+const liveCard = (r: ReturnType<typeof rig>) => r.by((el) => el.classes.has("zen-card") && el.getAttribute("data-gone") === null)[0];
+const radios = (r: ReturnType<typeof rig>) => liveCard(r)!.all((el) => el.getAttribute("role") === "radio");
+/** The boss answers the card on the screen (the first choice, Send) and the server accepts it: the knock and the outcome. */
+async function answerCard(r: ReturnType<typeof rig>) {
+	radios(r)[0]!.click();
+	r.button("Send answer")!.click();
+	await r.reply({ outcome: "accepted" });
+}
+async function chainRig(o: { remind?: boolean } = {}) {
+	server();
+	const r = rig({ start: null });
+	r.feed(trio());
+	r.z.show();
+	await r.settle();
+	assert.equal(cueText(r), "3 cards wait for Enter. No rush, when you're ready.");
+	r.z.key("talk"); // the boss takes the first card
+	await r.settle();
+	return r;
+}
+
+test("Z-D22: after the boss answers a card the next waits no pause and no breath: the outcome shows 1.2 s, then the next card is drawn with the bowl and the focus on its first choice; the last answer is the pause", async () => {
+	const r = await chainRig();
+	assert.deepEqual(whoIs(r), ["ops-a"]);
+	await answerCard(r);
+	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
+	r.feed(trio(["a"])); // the server's snapshot: a is answered
+	await r.advance(OUTCOME - 100);
+	assert.deepEqual(whoIs(r), ["ops-a"], "the outcome still shows");
+	await r.advance(200);
+	assert.deepEqual(whoIs(r), ["ops-b"], "b is the card on the screen");
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length, 0, "the breathing circle never came");
+	assert.deepEqual(r.calls.sound, ["bowl", "knock", "bowl"], "b rings as a taken card does: the bowl, and no knock besides");
+	assert.equal(page.focused, radios(r)[0], "the focus is on b's first choice, as for any taken card");
+	assert.equal(r.by((el) => el.getAttribute("aria-live") === "polite")[0]!.textContent, "ops-b wants to ask you");
+	assert.equal(cueText(r) ?? "", "", "a card on the screen shows no cue");
+	// b answered (after the 400 ms the card holds off the key and the tap that answered a): c follows, then the queue is empty and the pause comes
+	await r.advance(DWELL + 1);
+	await answerCard(r);
+	r.feed(trio(["a", "b"]));
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), ["ops-c"]);
+	await r.advance(DWELL + 1);
+	await answerCard(r);
+	r.feed(trio(["a", "b", "c"]));
+	await r.advance(OUTCOME + 100);
+	assert.equal(cards(r), 0);
+	assert.equal(r.by((el) => el.getAttribute("role") === "img")[0]?.getAttribute("aria-label"), "Take a breath", "the queue is empty: the pause");
+	await r.advance(PAUSE + 100);
+	assert.equal(cueText(r) ?? "", "", "and then the breath, nothing waits");
+	assert.deepEqual(r.calls.sound, ["bowl", "knock", "bowl", "knock", "bowl", "knock"]);
+});
+
+test("Z-D22: the cue counts one fewer for every card the chain takes, and Esc (Not now) is not a chain: the breath returns with the others counted", async () => {
+	const r = await chainRig();
+	r.z.escape({ preventDefault() {} }); // Not now on a (a select with no Cancel)
+	await r.advance(PAUSE + 100);
+	assert.equal(cards(r), 0, "no card follows Not now");
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length >= 1, true, "the breath");
+	assert.equal(cueText(r), "2 cards wait for Enter. No rush, when you're ready.", "a rests; b and c wait for Enter");
+	r.z.key("talk");
+	await r.settle();
+	assert.deepEqual(whoIs(r), ["ops-b"]);
+	await r.advance(DWELL + 1);
+	await answerCard(r);
+	r.feed(trio(["b"]));
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), ["ops-c"], "b's answer chains to c");
+});
+
+test("Z-D22: closing a card that ended elsewhere, gone, or in error is not a chain: its Back to the breath returns to the breath, with the cue counting the cards that wait", async () => {
+	for (const [name, ends] of [["elsewhere", () => trio(["a"])], ["gone", () => net([unit("b", "waiting", { name: "ops-b", since: 6, pending: { ...select({ dialog: "db" }), callId: "c-b" } }), unit("c", "waiting", { name: "ops-c", since: 7, pending: { ...select({ dialog: "dc" }), callId: "c-c" } })])], ["error", () => net(["a", "b", "c"].map((k, i) => unit(k, k === "a" ? "error" : "waiting", { name: `ops-${k}`, since: 5 + i, ...(k === "a" ? {} : { pending: { ...select({ dialog: `d${k}` }), callId: `c-${k}` } }) })))]] as const) {
+		const r = await chainRig();
+		r.feed(ends());
+		await r.advance(OUTCOME * 5);
+		assert.deepEqual(whoIs(r), ["ops-a"], `${name}: the card stays until the boss closes it`);
+		r.button("Back to the breath")!.click();
+		await r.advance(PAUSE + 100);
+		assert.equal(cards(r), 0, `${name}: closing it is the breath, not the next card`);
+		assert.equal(cueText(r), "2 cards wait for Enter. No rush, when you're ready.", name);
+	}
+});
+
+test("Z-D22: a card that resolved while it queued is never drawn: the chain goes to the next one", async () => {
+	const r = await chainRig();
+	await answerCard(r);
+	r.feed(trio(["a", "b"])); // b was answered in its terminal meanwhile
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), ["ops-c"], "b is skipped");
+	assert.deepEqual(r.calls.sound, ["bowl", "knock", "bowl"], "no card, no bowl, and no knock for b");
+});
+
+test("Z-D22: the card the chain takes ignores the Enter that answered the card before it: a repeating Enter, a keydown that began before it was drawn, and any Enter within 400 ms of it being drawn; a fresh Enter after that is the button's", async () => {
+	const r = await chainRig();
+	await answerCard(r);
+	r.feed(trio(["a"]));
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), ["ops-b"]);
+	const choice = radios(r)[0]!;
+	let prevented = 0, stopped = 0; // the panel's own keys prevent Enter's default too (askkeys.ts), so the layer's guard is what stops the event: it never reaches the panel
+	const key = (name: string, extra: object = {}) => choice.bubble("keydown", { key: name, repeat: false, timeStamp: Infinity, preventDefault: () => void prevented++, stopPropagation: () => void stopped++, ...extra });
+	const swallowed = (act: () => void) => { [prevented, stopped] = [0, 0]; act(); return stopped === 1 && prevented >= 1; };
+	const enter = (extra: object = {}) => key("Enter", extra);
+	assert.equal(swallowed(() => enter()), true, "an Enter at the moment it is drawn is kept from it (and from the panel's own keys under it)");
+	await r.advance(DWELL - 100);
+	assert.equal(swallowed(() => enter()), true, "so is one 300 ms on: the second tap of a double Enter");
+	assert.equal(swallowed(() => enter({ repeat: true })), true, "a repeating Enter is kept from it");
+	await r.advance(101);
+	assert.equal(swallowed(() => enter()), false, "a fresh Enter after the 400 ms is the card's own");
+	assert.equal(swallowed(() => enter({ repeat: true })), true, "a repeating one still is not");
+	assert.equal(swallowed(() => enter({ timeStamp: -1 })), true, "nor is a keydown that began before the card was drawn");
+	assert.equal(swallowed(() => key("ArrowDown")), false, "only Enter is held back");
+	assert.deepEqual(r.calls.posts.map((p) => p.key), ["a"], "and no answer of b's was sent by any of them");
+});
+
+test("Z-D22: a tap on the card the chain takes, within 400 ms of it being drawn, presses nothing; a tap after that does; a tap that began inside the window and ends after it presses nothing", async () => {
+	const r = await chainRig();
+	await answerCard(r);
+	r.feed(trio(["a"]));
+	await r.advance(OUTCOME + 100);
+	const choice = radios(r)[0]!;
+	let prevented = 0, stopped = 0;
+	const hit = (type: string) => choice.bubble(type, { isTrusted: true, detail: 1, preventDefault: () => void prevented++, stopPropagation: () => void stopped++ }); // a tap's click has a detail of 1 (a keyboard's activation has 0)
+	hit("click");
+	assert.deepEqual([prevented, stopped], [1, 1], "a tap at once");
+	[prevented, stopped] = [0, 0];
+	await r.advance(DWELL - 50);
+	hit("click");
+	assert.deepEqual([prevented, stopped], [1, 1], "a tap at 350 ms");
+	[prevented, stopped] = [0, 0];
+	hit("pointerdown"); // a press at 350 ms ...
+	await r.advance(100);
+	hit("click"); // ... whose release comes at 450 ms
+	assert.deepEqual([prevented, stopped], [1, 1], "a tap that began in the window is the window's");
+	[prevented, stopped] = [0, 0];
+	hit("pointerdown");
+	hit("click");
+	assert.deepEqual([prevented, stopped], [0, 0], "a tap after it is the card's own");
+	[prevented, stopped] = [0, 0];
+	choice.bubble("click", { isTrusted: false, preventDefault: () => void prevented++, stopPropagation: () => void stopped++ });
+	assert.deepEqual([prevented, stopped], [0, 0], "a click the layer's own code makes (Back to the breath, Not now) is not a tap");
+});
+
+test("Z-D22: Esc within 400 ms of the card the chain takes is kept from it (a cancel is an answer); after that it is Not now, as before", async () => {
+	const r = await chainRig();
+	await answerCard(r);
+	r.feed(trio(["a"]));
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), ["ops-b"]);
+	let prevented = 0;
+	assert.equal(r.z.escape({ preventDefault: () => void prevented++ }), true, "Esc is Zen's");
+	assert.deepEqual([prevented, whoIs(r)], [1, ["ops-b"]], "and it does nothing to the card");
+	await r.advance(DWELL + 1);
+	r.z.escape({ preventDefault() {} });
+	await r.advance(PAUSE + 100);
+	assert.equal(cards(r), 0, "later it is Not now");
+	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.", "c still waits; b rests");
+});
+
+test("Z-D22: a card taken by Enter is not guarded: the boss's own Enter, 100 ms later, acts as before", async () => {
+	const r = await chainRig();
+	const choice = radios(r)[0]!;
+	let stopped = 0;
+	choice.bubble("keydown", { key: "Enter", repeat: false, timeStamp: Infinity, preventDefault() {}, stopPropagation: () => void stopped++ });
+	assert.equal(stopped, 0, "the guard is the chained card's alone");
+	assert.equal(r.z.escape({ preventDefault() {} }), true);
+	await r.advance(PAUSE + 100);
+	assert.equal(cards(r), 0, "and Esc at once is Not now");
+});
+
+test("Z-D22: with the terminal layer open over the card (an answer that opened a pane) the chain does not draw the next card under it: the pause, the breath, and the cue", async () => {
+	const r = await chainRig();
+	await answerCard(r);
+	r.z.terminal({ key: "a" } as never); // the answer's step opens the layer
+	await r.settle();
+	r.feed(trio(["a"]));
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), [], "no card is drawn under the layer");
+	await r.advance(PAUSE + 100);
+	assert.equal(cueText(r), "2 cards wait for Enter. No rush, when you're ready.", "b and c wait for Enter");
+});
+
+test("Z-D22: a page nobody is looking at is reminded of each card once: the chain's card was reminded while it queued and is not reminded again after it is drawn", async () => {
+	const r = await chainRig();
+	assert.deepEqual(r.calls.remind, [], "the page had the focus");
+	page.focus = false;
+	r.feed(trio()); // a snapshot: the page is away, so the cards that wait are reminded, once each
+	assert.deepEqual(r.calls.remind.sort(), ["b", "c"]);
+	await answerCard(r);
+	page.focus = true; // back before the outcome ends: the chain draws b
+	r.feed(trio(["a"]));
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), ["ops-b"]);
+	page.focus = false;
+	r.feed(trio(["a"])); // away again while b is on the screen
+	assert.deepEqual(r.calls.remind.sort(), ["b", "c"], "b was reminded while it queued, and is not told of again when the chain drew it");
+});
+
+// --- the review of Z-D22 (ZCR-F001 to F005) ---------------------------------------------------------------------------------------------------------------------------------
+
+test("Z-D22 (ZCR-F001, Z-D16): leaving Zen within the outcome and coming back later starts the visit at the breath: no card, no bowl, the cue counts the others", async () => {
+	const r = await chainRig();
+	await answerCard(r);
+	r.feed(trio(["a"]));
+	await r.advance(300);
+	r.z.hide(); // Esc Esc, the menu, or the palette's Standard
+	await r.advance(60_000);
+	r.z.show();
+	await r.settle();
+	assert.deepEqual(whoIs(r), [], "the visit does not open on b");
+	assert.equal(r.by((el) => el.classes.has("zen-circle")).length >= 1, true, "it opens on the breath");
+	assert.deepEqual(r.calls.sound, ["bowl", "knock"], "no bowl for a card nobody took");
+	await r.advance(PAUSE + 100);
+	assert.equal(cueText(r), "2 cards wait for Enter. No rush, when you're ready.");
+});
+
+test("Z-D22 (ZCR-F001): the page being hidden and shown while Standard has it does not take a card either, and a return inside the outcome is the breath once the outcome ends", async () => {
+	const r = await chainRig();
+	await answerCard(r);
+	r.feed(trio(["a"]));
+	await r.advance(300);
+	r.z.hide();
+	r.z.visible(false);
+	await r.advance(5_000);
+	r.z.visible(true);
+	await r.advance(5_000);
+	r.z.show();
+	await r.settle();
+	assert.deepEqual(whoIs(r), [], "Standard's visibility change did not take b");
+	assert.deepEqual(r.calls.sound, ["bowl", "knock"]);
+	const q = await chainRig();
+	await answerCard(q);
+	q.feed(trio(["a"]));
+	await q.advance(300);
+	q.z.hide();
+	await q.advance(200);
+	q.z.show(); // back inside the 1.2 s outcome
+	await q.advance(OUTCOME);
+	assert.deepEqual(whoIs(q), [], "the outcome the visit interrupted does not end in a chain");
+	assert.deepEqual(q.calls.sound, ["bowl", "knock"]);
+});
+
+test("Z-D22 (ZCR-F002, boss 2026-11-07 「只接你送出答案當下已在排的卡」): a card that arrives during the 1.2 s outcome is not chained into: the breath, and the cue waits for Enter", async () => {
+	server();
+	const r = rig({ start: null });
+	r.feed(net([unit("a", "waiting", { name: "ops-a", since: 5, pending: { ...select({ dialog: "da" }), callId: "c-a" } })]));
+	r.z.show();
+	await r.settle();
+	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.");
+	r.z.key("talk");
+	await r.settle();
+	await answerCard(r);
+	await r.advance(600);
+	r.feed(net([unit("a", "working", { name: "ops-a", since: 5 }), unit("b", "waiting", { name: "ops-b", since: 9, pending: { ...select({ dialog: "db" }), callId: "c-b" } })]));
+	await r.advance(800);
+	assert.deepEqual(whoIs(r), [], "b arrived after the answer: it did not take the screen");
+	assert.deepEqual(r.calls.sound, ["bowl", "knock"], "and the bowl did not ring");
+	assert.equal(r.by((el) => el.getAttribute("role") === "img")[0]?.getAttribute("aria-label"), "Take a breath", "the pause");
+	await r.advance(PAUSE + 100);
+	assert.equal(cueText(r), "1 card waits for Enter. No rush, when you're ready.", "b waits for Enter");
+});
+
+test("Z-D22 (ZCR-F002): a card that was queued when the answer was accepted is chained into, even one that came after the first Enter while the card was open", async () => {
+	const r = await chainRig();
+	r.feed(net(["a", "b", "c", "d"].map((k, i) => unit(k, "waiting", { name: `ops-${k}`, since: 5 + i, pending: { ...select({ dialog: `d${k}` }), callId: `c-${k}` } })))); // d arrives while a is open
+	await answerCard(r);
+	r.feed(net(["b", "c", "d"].map((k, i) => unit(k, "waiting", { name: `ops-${k}`, since: 6 + i, pending: { ...select({ dialog: `d${k}` }), callId: `c-${k}` } }))));
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), ["ops-b"]);
+});
+
+test("Z-D22 (ZCR-F003): a page that is shown but has lost the focus does not chain: no bowl, no card without the focus; the cue waits and the breath comes", async () => {
+	const r = await chainRig();
+	await answerCard(r);
+	r.feed(trio(["a"]));
+	page.focus = false; // the boss moved to another window within the outcome
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), [], "b did not take the screen");
+	assert.deepEqual(r.calls.sound, ["bowl", "knock"], "no bowl rang in a window nobody looks at");
+	assert.deepEqual(r.calls.remind.sort(), ["b", "c"], "the page told of the cards that wait, once each, as on any page nobody looks at");
+	page.focus = true;
+	await r.advance(PAUSE + 100);
+	assert.equal(cueText(r), "2 cards wait for Enter. No rush, when you're ready.");
+});
+
+/** The chain has taken b and the 400 ms window is on. */
+async function onB() {
+	const r = await chainRig();
+	await answerCard(r);
+	r.feed(trio(["a"]));
+	await r.advance(OUTCOME + 100);
+	assert.deepEqual(whoIs(r), ["ops-b"]);
+	return r;
+}
+
+test("Z-D22 (ZCR-F004): a press inside the window that never became a click does not swallow the next real click: a key, a cancelled press, or a click with no pointer behind it clears it", async () => {
+	/** A press on b's choice inside the window that is dragged off (no click); 2 s later, the window is over. */
+	const dead = async () => {
+		const r = await onB(), choice = radios(r)[0]!;
+		choice.bubble("pointerdown", { isTrusted: true, preventDefault() {}, stopPropagation() {} });
+		await r.advance(2_000);
+		let stopped = 0;
+		return { r, choice, stopped: () => stopped, click: (detail: number) => choice.bubble("click", { isTrusted: true, detail, preventDefault() {}, stopPropagation: () => void stopped++ }) };
+	};
+	const key = await dead(); // a key since the press (the boss's Tab, or the Enter whose activation click follows)
+	key.choice.bubble("keydown", { key: "Tab", repeat: false, timeStamp: Infinity, preventDefault() {}, stopPropagation() {} });
+	key.click(1);
+	assert.equal(key.stopped(), 0, "a key between the dead press and the click: the click is the card's own");
+	const cancelled = await dead(); // the browser took the touch for a scroll
+	cancelled.choice.bubble("pointercancel", { isTrusted: true });
+	cancelled.click(1);
+	assert.equal(cancelled.stopped(), 0, "pointercancel: the press never became a click");
+	const keyboard = await dead(); // the click of a keyboard's activation has no detail
+	keyboard.click(0);
+	assert.equal(keyboard.stopped(), 0, "a keyboard's click is not a tap");
+	// the real tap whose press began in the window and ended after it is still held
+	const t = await onB(), pressed = radios(t)[0]!;
+	let stopped = 0;
+	pressed.bubble("pointerdown", { isTrusted: true, preventDefault() {}, stopPropagation() {} });
+	await t.advance(DWELL + 50);
+	pressed.bubble("click", { isTrusted: true, detail: 1, preventDefault() {}, stopPropagation: () => void stopped++ });
+	assert.equal(stopped, 1, "a tap that began inside the window and ended after it is still held");
+});
+
+test("Z-D22 (ZCR-F005): a new build waiting while the chain runs does not reload between the cards; it loads at the breath", async () => {
+	const r = await chainRig();
+	const go = upgraded();
+	r.z.upgrade(go);
+	const counts: number[] = [];
+	for (const gone of [["a"], ["a", "b"], ["a", "b", "c"]]) {
+		await pass(r, DWELL + 100);
+		await answerCard(r);
+		r.feed(trio(gone));
+		for (let t = 0; t < OUTCOME + 200; t += 100) { await r.advance(100); counts.push(go.reloads); }
+	}
+	assert.equal(Math.max(...counts), 0, "no reload under the boss's hand, between the cards or in the last pause's first moments");
+	await pass(r, PAUSE + 4_000);
+	assert.equal(go.reloads, 1, "the breath loads it, once");
 });

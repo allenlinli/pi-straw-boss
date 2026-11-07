@@ -203,6 +203,28 @@ test("R-F001: a block in the log of a unit whose box is away cannot be submitted
 	assert.deepEqual(chips!.answered, [["text", "Go ahead"]]);
 });
 
+test("RR-F001: the focus a block's control loses by the block going off with the box comes back when the box does, unless the boss went elsewhere meanwhile", async () => {
+	const gate = { away: false }, { show, chat } = mountAway("S1", gate);
+	const root = await show(reply(DEMO_CHAT_BLOCKS));
+	const [form] = find(root, "pbs-form");
+	const dropped = () => void (page.focused = undefined); // a browser moves the focus off what became inert, to the body
+	form!.focus();
+	gate.away = true;
+	chat.box();
+	dropped();
+	gate.away = false;
+	chat.box();
+	assert.equal(page.focused, form, "the control has the focus back");
+	form!.focus();
+	gate.away = true;
+	chat.box();
+	dropped();
+	for (const on of page.on.pointerdown ?? []) on({ target: page.body });
+	gate.away = false;
+	chat.box();
+	assert.equal(page.focused, undefined, "the boss went elsewhere: the focus stays where he put it");
+});
+
 test("R-F001: a box going away turns the blocks already drawn off at the next box() call, and a block answered before stays answered", async () => {
 	const gate = { away: false }, { show, chat } = mountAway("S1", gate);
 	const root = await show(reply(DEMO_CHAT_BLOCKS));

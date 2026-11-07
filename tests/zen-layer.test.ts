@@ -3313,6 +3313,22 @@ test("a box going unreachable turns a card that was answerable off at the next s
 	assert.ok(!r.text().includes(m.box_answer_blocked()));
 });
 
+test("RR-F002: a wait card on an unreachable or ended remote base is off and says box_answer_blocked, not the connection words; a live box and a local base keep the card on", async () => {
+	for (const [state, off] of [["unreachable", true], ["ended", true], ["live", false], [undefined, false]] as const) {
+		const r = rig({ start: null });
+		const base = waitNet(r);
+		r.feed(state ? onBox(base, state) : base);
+		r.z.show();
+		await r.settle();
+		r.z.key("talk");
+		await r.settle();
+		assert.ok(r.button("Skip"), `${state}: the card is drawn`);
+		assert.equal(r.button("Skip")!.disabled, off, `${state}: Skip`);
+		assert.equal(r.text().includes(m.box_answer_blocked()), off, `${state}: the box's reason only when the box is the cause`);
+		assert.ok(!r.text().includes(m.wc_stale()), `${state}: the connection is fine`);
+	}
+});
+
 test("R-F001: the companion's log of a unit on an unreachable or ended remote base is told its box is away, a live box and a local base are not, and every snapshot has the log read the box again", async () => {
 	for (const [state, off] of [["unreachable", true], ["ended", true], ["live", false], [undefined, false]] as const) {
 		const r = rig({ start: { key: "m", ws: "w" } });

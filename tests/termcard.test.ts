@@ -729,6 +729,57 @@ test("a card of an unreachable or ended remote base is off: Run, Send Enter, the
 	} finally { p.done(); }
 });
 
+test("RR-F001: the focus a card's line or button loses by going off with the box comes back when the box does, unless the boss went elsewhere meanwhile", () => {
+	const gone = { on: false };
+	const q = rig("pane", { away: () => gone.on });
+	try {
+		const browserDrops = () => void (page.focus = undefined); // a browser moves the focus off a control that became disabled, to the body
+		q.input().focus();
+		gone.on = true;
+		q.card.update();
+		browserDrops();
+		gone.on = false;
+		q.card.update();
+		assert.equal(page.focus, q.input(), "the line has the focus back");
+		q.go().focus();
+		gone.on = true;
+		q.card.update();
+		browserDrops();
+		gone.on = false;
+		q.card.update();
+		assert.equal(page.focus, q.go(), "so does Send Enter");
+		// the boss clicked somewhere else (the body) while the box was away: nothing takes the focus
+		q.input().focus();
+		gone.on = true;
+		q.card.update();
+		browserDrops();
+		for (const on of page.on.pointerdown ?? []) on({ target: page.root });
+		gone.on = false;
+		q.card.update();
+		assert.equal(page.focus, undefined, "the boss went elsewhere: the focus is left where he put it");
+		// and a focus that is somewhere else is not taken
+		q.input().focus();
+		gone.on = true;
+		q.card.update();
+		browserDrops();
+		const other = new El("input");
+		other.focus();
+		for (const on of page.on.focusin ?? []) on({ target: other });
+		gone.on = false;
+		q.card.update();
+		assert.equal(page.focus, other);
+		// the focus is on another control (no event told the card): it is not taken either
+		q.input().focus();
+		gone.on = true;
+		q.card.update();
+		browserDrops();
+		other.focus();
+		gone.on = false;
+		q.card.update();
+		assert.equal(page.focus, other, "only a focus on the body is given back");
+	} finally { q.done(); }
+});
+
 test("a local card (no away fact) is unchanged", () => {
 	const p = rig("prompt");
 	try {

@@ -14,7 +14,7 @@ import { type Manifest, rowsOfSnapshot, slipBlocks, type TrainGuard } from "./tr
 import type { TrainId } from "./trainrole.ts";
 import { integrationOff } from "./trainswitch.ts";
 
-// `train_car` (docs/specs/2026-11-07-train-workers.md §5.5, §23; todo #125 task 5a): a train and the integrator set what became of a car, and the sb server tells its coordinator and confirms the delivery. The tool checks what only the session
+// `train_car` (docs/specs/2026-11-07-train-workers.md §5.5, §24; todo #125 task 5a): a train and the integrator set what became of a car, and the sb server tells its coordinator and confirms the delivery. The tool checks what only the session
 // knows (its manifest, its branch, its todo list) and sends the state to the server, which checks what it can know itself and records it. The session proves itself to the server with a secret the server hands this process once and this process holds in memory only.
 
 /** Where the secrets of the sessions this process has run are kept: on `globalThis`, so a `/reload` (a new module in the same process) finds the one it was given; never in env, argv, a file, or any text the model reads. */

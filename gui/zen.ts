@@ -167,7 +167,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			const wc = waitCard({ host: "zen", wait: entry(a), actions: waitActions({ ws: a.ws, id: a.wait.id, tower: key }, to(key)), remote, main: (raiser) => ((ws) => (raiser && ws ? { view: "session" as const, ws, key: raiser } : undefined))(locate(net, raiser)?.base.id), go: (route) => deps.leave({ route }), send: (reply) => tell(a.key, reply) });
 			const secretOpen = (x: Alert) => () => { const k = x.wait?.entry?.card?.from?.key; return Boolean(k && net && locate(net, k)?.u.pending?.tool === "secret_drop"); }; // the raiser's `secret_drop` dialog is pending: the second step of a secret card says to enter it in the terminal
 			slot.replaceChildren(wc.el);
-			return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: wc.enter, cancel: () => false, sending: () => wc.sending(), replying: wc.isOpen, foldReply: () => wc.foldReply(), update: (x, outcome) => (wc.secretWhen(secretOpen(x)), wc.update(entry(x), online() && !endedOf(outcome), endedOf(outcome)), say(out, outcome, x)) };
+			return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: wc.enter, cancel: () => false, sending: () => wc.sending(), replying: wc.isOpen, foldReply: () => wc.foldReply(), update: (x, outcome) => (wc.secretWhen(secretOpen(x)), wc.update(entry(x), online() && !endedOf(outcome), endedOf(outcome), deps.online() ? why() : undefined), say(out, outcome, x)) };
 		}
 		if (a.card) {
 			// A question outside a unit's dialog (cardalerts.ts): each answers through the shared action of asks.ts, the call Standard's row makes, and the server's list decides when it is over.

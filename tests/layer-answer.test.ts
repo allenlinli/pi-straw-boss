@@ -135,3 +135,17 @@ test("the dock's dialog of a remote base's unit is off while its box is unreacha
 	assert.deepEqual([choice(0).disabled, choice(1).disabled], [false, false], "and back");
 	assert.ok(!dock.textContent.includes(m.box_answer_blocked()));
 });
+
+test("RR-F002: the dock's wait dialog of a remote base's unit on an unreachable or ended box says box_answer_blocked in its status, not the connection words; a live box and a local base do not", async () => {
+	const { m } = await import("../gui/paraglide/messages.js");
+	const waiting = { key: "u1", ws: "w", name: "Ada", role: "main", mark: "waiting" as const, at: 1, wait: { id: "W2", text: "Boss token needed" } };
+	for (const [state, off] of [["unreachable", true], ["ended", true], ["live", false], [undefined, false]] as const) {
+		const layer = mount();
+		netNow = boxNet(state);
+		layer.alerts([waiting as never], new Map([[waiting.key, waiting as never]]), netNow as never);
+		layer.stack.show(waiting as never);
+		assert.ok(dock.textContent.includes("Boss token needed"), `${state}: the wait is drawn`);
+		assert.equal(dock.textContent.includes(m.box_answer_blocked()), off, `${state}: the box's reason`);
+		assert.ok(!dock.textContent.includes(m.wc_stale()), `${state}: not the connection words`);
+	}
+});

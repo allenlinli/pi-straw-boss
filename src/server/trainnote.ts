@@ -1,7 +1,7 @@
 import type { Opened, OpenRequest } from "../opener.ts";
 import { type CarBook, openingFacts } from "./carbook.ts";
 
-// What the server reads when the tower opens a train (docs/specs/2026-11-07-train-workers.md §23): the base and the heads of the cars from the manifest the integrator sent, and the project's remote from the tower workspace's checkout. Both are read BEFORE
+// What the server reads when the tower opens a train (docs/specs/2026-11-07-train-workers.md §24): the base and the heads of the cars from the manifest the integrator sent, and the project's remote from the tower workspace's checkout. Both are read BEFORE
 // the opener creates the train's tab, so no process of the train can have changed the checkout's configuration yet; they are the only source the `landed` check and a train's right to a car rest on. Nothing is read again later.
 
 type Open = (input: OpenRequest) => Promise<Opened>;

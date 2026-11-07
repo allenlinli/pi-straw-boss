@@ -8,7 +8,7 @@ import { cleanup, forwardEntry, MANIFEST_HEADER, rig, type Rig, slipBlock } from
 import { CODE, result, SHA_A, SHA_B, sb } from "./train-fixtures.ts";
 import { carWorld, type CarWorld, COORD, INTEG, repo, TRAIN } from "./train-car-rig.ts";
 
-// `train_car` and the server's book of cars (docs/specs/2026-11-07-train-workers.md §5.5, §23; todo #125 task 5a): what each state needs, what the tool checks in the session, and what the server checks itself.
+// `train_car` and the server's book of cars (docs/specs/2026-11-07-train-workers.md §5.5, §24; todo #125 task 5a): what each state needs, what the tool checks in the session, and what the server checks itself.
 
 const worlds: CarWorld[] = [];
 const world = () => (worlds.push(carWorld()), worlds.at(-1)!);

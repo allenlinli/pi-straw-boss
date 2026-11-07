@@ -18,7 +18,7 @@ export interface WaitPanelOptions {
 }
 export function waitPanel(o: WaitPanelOptions) {
 	const wrap = o.send ?? ((reply: Promise<Answer>) => reply);
-	let busy = false, live = true, open = false, over = false; // over: the question ended (Zen's card says so itself): the buttons are off and nothing says offline
+	let busy = false, live = true, open = false, over = false, blocked: string | undefined; // over: the question ended (Zen's card says so itself): the buttons are off and nothing says offline
 	// The answer box: in Zen it takes the head strip's look (`zen-head-*` in zen.css: a hairline that turns vermilion on focus), in Standard and Geek the composer's (`wait-*` in style.css). Enter sends, and the note under it is the refusal.
 	const go = h("button", { type: "button", class: "pair-btn wait-go" }, m.wc_b_reply()), send = h("button", { type: "button", class: "pair-btn wait-go" }, m.send()); // the dialog makes these its act (style.css)
 	const box = h("textarea", { class: "wait-box zen-head-box", rows: "1", maxlength: String(MAX_TEXT), "aria-label": m.zen_wait_placeholder(), placeholder: m.zen_wait_placeholder(), enterkeyhint: "send" }) as HTMLTextAreaElement;
@@ -28,8 +28,8 @@ export function waitPanel(o: WaitPanelOptions) {
 	const draw = () => {
 		[go.hidden, send.hidden, form.hidden] = [open, !open, !open];
 		[box.disabled, send.disabled, go.disabled] = [!live || busy, !live || busy, over]; // the fold is off for a card whose question ended only: an offline page keeps it, as Standard does, and says so in the box
-		if (!live && open && !over) say(m.link_offline());
-		else if (why.textContent === m.link_offline()) say("");
+		if (!live && open && !over) say(blocked ?? m.link_offline());
+		else if (why.textContent === m.link_offline() || (blocked !== undefined && why.textContent === blocked)) say("");
 	};
 	async function answer() {
 		const text = box.value;
@@ -85,8 +85,8 @@ export function waitPanel(o: WaitPanelOptions) {
 			return Boolean(to && (to.focus(), true));
 		},
 		/** The answer works only while the stream is live; `ended`: it is off because the question ended, not because the page is offline (Zen's card). */
-		update(on: boolean, ended = false) {
-			[live, over] = [on, ended];
+		update(on: boolean, ended = false, why?: string) {
+			[live, over, blocked] = [on, ended, why];
 			draw();
 		},
 	};

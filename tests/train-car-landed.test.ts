@@ -11,7 +11,7 @@ import { CODE, SHA_A } from "./train-fixtures.ts";
 import { type CarWorld, carWorld, COORD, git, INTEG, PUBLIC_URL, repo, startOf, TRAIN } from "./train-car-rig.ts";
 import { type CarCtx, type CarParams, type CarToolDeps, trainCar } from "../src/traincar.ts";
 
-// The `landed` check against a train that shares the server's uid (docs/specs/2026-11-07-train-workers.md §23; todo #125 task 5a fix round 3, RR2-F001 to RR2-F003). The train's shell writes into the fresh mirror while the check runs, rewrites the fetch through the repository's
+// The `landed` check against a train that shares the server's uid (docs/specs/2026-11-07-train-workers.md §24; todo #125 task 5a fix round 3, RR2-F001 to RR2-F003). The train's shell writes into the fresh mirror while the check runs, rewrites the fetch through the repository's
 // configuration, plants objects, or makes ssh reach this computer. These tests play it from inside the check: a hook on the server's git seam runs the train's write at the moment a watcher would.
 
 const worlds: CarWorld[] = [];

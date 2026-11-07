@@ -11,7 +11,7 @@ import { cleanup, forwardEntry } from "./train-guard-rig.ts";
 import { CODE, SHA_A, SHA_B } from "./train-fixtures.ts";
 import { carWorld, type CarWorld, COORD, git, INTEG, repo, startOf, TRAIN } from "./train-car-rig.ts";
 
-// What the car book trusts (docs/specs/2026-11-07-train-workers.md §23; todo #125 task 5a fix round, CR-F001 to CR-F003). The train's shell is the same user as pi and the server: it can open the control socket, name any session, pid and pane, and write any file of
+// What the car book trusts (docs/specs/2026-11-07-train-workers.md §24; todo #125 task 5a fix round, CR-F001 to CR-F003). The train's shell is the same user as pi and the server: it can open the control socket, name any session, pid and pane, and write any file of
 // the state folder. These tests play that shell as a raw client of the socket handler, and assert that nothing the guard or the integrator relies on follows from what it says.
 
 const worlds: CarWorld[] = [];

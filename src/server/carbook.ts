@@ -7,7 +7,7 @@ import { addState, type CarFile, carFileName, type CarState, type CarView, coord
 import { isCode, isName, isObject, SHA_RE } from "../train/spec.ts";
 import { writePrivate } from "../trainboard.ts";
 
-// The server's book of cars (docs/specs/2026-11-07-train-workers.md §5.5, §23; todo #125 task 5a). Every car state is set here, and every check that rests on a state or a notice asks here. The train's shell runs as the same user as pi and this server: it can
+// The server's book of cars (docs/specs/2026-11-07-train-workers.md §5.5, §24; todo #125 task 5a). Every car state is set here, and every check that rests on a state or a notice asks here. The train's shell runs as the same user as pi and this server: it can
 // open the control socket, name any session, pid and pane, and write any file under the state folder. Node gives the server no peer credentials of a socket. So no secret and no file proves who a caller is, and nothing the guard or the integrator relies on
 // rests on a caller's word. The book holds three kinds of thing:
 //   - Facts the server establishes itself. A car's identity (app, tickets, branch, head, coordinator) is read from the slip the tower forwarded, which the tower's code stamped (the forward record, in memory). `landed` is a commit that git finds on the real

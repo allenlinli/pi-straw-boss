@@ -409,3 +409,29 @@ test("a part is clamped to three lines by the standard property as well as the p
 	assert.match(css, /\.wait-card \.wc-clamp\s*\{[^}]*-webkit-line-clamp:\s*3/);
 	assert.match(zen, /\[data-view="zen"\] \.wait-card \.pair-btn\s*\{[^}]*min-height:\s*44px/);
 });
+
+// RR-F002 (todo #121 task 7): a wait card turned off because its unit's box is away says box_answer_blocked in the status line (role=status) and in the reply box's note; the stale-connection words are for a stream that is the cause.
+test("RR-F002 the model: a stale card with a box reason shows the reason in place of the connection words", () => {
+	const stale = cardModel({ ...base, phase: "stale", wait: wait(fonstar()), blocked: m.box_answer_blocked() });
+	assert.equal(stale.line, m.box_answer_blocked());
+	assert.equal(stale.buttons.filter((b) => b.id !== "reply").every((b) => b.disabled), true, "the buttons are off as for a stale stream");
+	assert.equal(cardModel({ ...base, phase: "stale", wait: wait(fonstar()) }).line, m.wc_stale(), "no reason: the stream is the cause");
+});
+
+test("RR-F002 the card: a card off for an away box says box_answer_blocked in its status (not the stale words), its reply box says it too, and the box's return clears both", () => {
+	const card = rig(wait(fonstar()));
+	card.update(wait(fonstar()), false, false, m.box_answer_blocked());
+	const el = card.el as unknown as El, status = el.find((x) => x.classes.has("wc-state"))[0]!;
+	assert.equal(status.getAttribute("role"), "status");
+	assert.equal(status.textContent, m.box_answer_blocked());
+	assert.ok(!text(card).includes(m.wc_stale()), "not the connection words");
+	assert.equal(act(card, "done")!.disabled, true);
+	(el.find((x) => x.classes.has("wait-go"))[0] as El).click();
+	assert.equal(el.find((x) => x.classes.has("wait-note"))[0]!.textContent, m.box_answer_blocked(), "the reply box says the same, not that the page is offline");
+	card.update(wait(fonstar()), false);
+	assert.equal(status.textContent, m.wc_stale(), "a dropped stream alone: the connection words");
+	assert.equal(el.find((x) => x.classes.has("wait-note"))[0]!.textContent, m.link_offline());
+	card.update(wait(fonstar()), true);
+	assert.equal(status.textContent, "");
+	assert.equal(act(card, "done")!.disabled, false);
+});

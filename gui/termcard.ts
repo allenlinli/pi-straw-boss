@@ -2,6 +2,7 @@ import { ENDING } from "../src/ending.ts";
 import { type CardFacts, type CardState, type Kind, NO_MASK, cardState, maskStep, maskToggle, secretPrompt, stepRule, tail } from "./cardmodel.ts";
 import { confirmBar } from "./confirmbar.ts";
 import { h } from "./dom.ts";
+import { keepFocus } from "./focusback.ts";
 import { keywriter, type Write } from "./keywriter.ts";
 import type { Conn, Post, TermState } from "./mirrorconn.ts";
 import { m } from "./paraglide/messages.js";
@@ -96,8 +97,12 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 		maskBtn.setAttribute("aria-pressed", String(mask.on));
 		go.textContent = s === "sending" ? m.card_sending() : pane ? m.send_enter() : m.card_run();
 		const gone = away?.() === true;
-		go.disabled = !OK.includes(s) || s === "confirm" || gone;
-		input.disabled = maskBtn.disabled = gone;
+		const switches = () => {
+			go.disabled = !OK.includes(s) || s === "confirm" || gone;
+			input.disabled = maskBtn.disabled = gone;
+		};
+		if (away) keepFocus(el, switches); // a remote base's card gives the focus back when its box returns; a local one is as it was
+		else switches();
 		if (enter && !pane && !go.disabled && !focused && fine()) {
 			focused = true; // the card's primary control takes the focus once, when it can act (Zen's Enter presses it)
 			if (!at || at === document.body || el.contains(at)) go.focus();

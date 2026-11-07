@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { allyLabel } from "./boardauto.ts";
 import { sessionMark } from "./netdata.ts";
 import { createHeadReach, headIdOf, headInfo } from "./reachhead.ts";
-import { type Kind, type Party, stamp, type Stamp, type Why, WHYS } from "./header.ts";
+import { type Kind, type Party, ROLE_WORDS, stamp, type Stamp, type Why, WHYS } from "./header.ts";
 import { isHead, isSub, type Pane, panes, parentOf, type Session, towerModel, workspaces, type Workspace } from "./herdr.ts";
 import type { Kit, Scope, SendResult } from "./state.ts";
 import { inside } from "./link/routing.ts";
@@ -138,6 +138,7 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 			id: group[0]?.tab.id,
 			label: L(group[0]?.tab.label),
 			main: group.find((m) => m.role === "main")?.s.id ?? null,
+			...(group.find((m) => m.role === "train") ? { train: group.find((m) => m.role === "train")!.s.id } : {}),
 			sessions: group.length,
 		}));
 		return {
@@ -155,7 +156,7 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		return { sessions, ps, all };
 	};
 	type Net = Awaited<ReturnType<typeof read>>;
-	const ROLES = new Set(["tower", "main", "member"]);
+	const ROLES = new Set<string>(ROLE_WORDS);
 	/** A session as a header names it: its role is the one its pane's token publishes, `session` for a pi that did not join. The head tower is a tower, and the one `head=yes` is for. */
 	const partyOf = (x: Session, net: Net): Party => {
 		const token = net.ps.find((p) => p.pane_id === x.herdrLocation?.paneId)?.tokens?.sb_role ?? "", head = x.id === headIdOf(net.all);
@@ -168,14 +169,14 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		return { name: nameOf(mine) || s.ownName || me(), id: me(), role: role() ?? "session", ...(head ? { head: true } : {}), ...(head ? { workspace: "head" } : workspace ? { workspace: workspace.label } : {}) };
 	};
 	/** The message under its header, once for the whole audience: every recipient reads the same line, with the others named in it. */
-	const deliver = async (targets: Session[], message: string, kind: Kind, scope: string, reply: boolean, net: Net, origin?: string, why?: Why, extra: Pick<Stamp, "ask" | "relay" | "inReplyTo"> = {}) => {
+	const deliver = async (targets: Session[], message: string, kind: Kind, scope: string, reply: boolean, net: Net, origin?: string, why?: Why, extra: Pick<Stamp, "ask" | "relay" | "inReplyTo" | "wait"> = {}) => {
 		const line = stamp({ from: selfParty(net), kind, scope, to: targets.map((x) => partyOf(x, net)), reply, ...(origin ?? s.remoteOrigin ? { origin: (origin ?? s.remoteOrigin)! } : {}), ...(why ? { why } : {}), ...extra }, message);
 		return Promise.all(targets.map(async (x) => ({ id: x.id, name: nameOf(x), ...(await send(x.id, line)) })));
 	};
 	/** One session by id, with a header. The result is intercom's. */
-	const post = async (to: string, message: string, kind: Kind, scope: string, reply: boolean, origin?: string, why?: Why): Promise<SendResult> => {
+	const post = async (to: string, message: string, kind: Kind, scope: string, reply: boolean, origin?: string, why?: Why, extra: Pick<Stamp, "wait"> = {}): Promise<SendResult> => {
 		const net = await read();
-		const [result] = await deliver([net.sessions.find((x) => x.id === to) ?? { id: to }], message, kind, scope, reply, net, origin, why);
+		const [result] = await deliver([net.sessions.find((x) => x.id === to) ?? { id: to }], message, kind, scope, reply, net, origin, why, extra);
 		return result!;
 	};
 	/**
@@ -238,7 +239,7 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 		const mine = net.all.find((w) => w.workspace_id === s.at.workspaceId);
 		const { bound, here } = scopeOf(within, net.ps);
 		const towers = stationsOf(net).filter((st) => bound(st.workspace.workspace_id)).map((st) => {
-			const tabs = Object.values(Object.groupBy(st.members.filter((m) => here(m.s)), (m) => m.tab.id)).map((group = []) => ({ label: L(group[0]!.tab.label), main: L(nameOf(group.find((m) => m.role === "main")?.s)) || null, members: group.filter((m) => m.role === "member").map((m) => L(nameOf(m.s))) }));
+			const tabs = Object.values(Object.groupBy(st.members.filter((m) => here(m.s)), (m) => m.tab.id)).map((group = []) => ({ label: L(group[0]!.tab.label), main: L(nameOf(group.find((m) => m.role === "main")?.s)) || null, ...(group.some((m) => m.role === "train") ? { train: L(nameOf(group.find((m) => m.role === "train")!.s)) } : {}), members: group.filter((m) => m.role === "member").map((m) => L(nameOf(m.s))) }));
 			return { workspace: { id: st.workspace.workspace_id, label: L(st.workspace.label) }, self: st.self, reach: st.via, sessions: st.sessions.filter(here).map(mark), tabs };
 		});
 		const result = { me: { id: me(), role: role(), workspace: { id: s.at.workspaceId, label: L(mine?.label) } }, head: within ? null : headInfo(net.sessions, net.ps, net.all), towers };

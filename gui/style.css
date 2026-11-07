@@ -601,8 +601,7 @@ a.tower:hover::before { border-color: var(--c); }
 .tx.in + .tx.in, .tx.you + .tx.you { margin-top: -4px; }
 .tx.in + .tx.in > .ava, .tx.you + .tx.you .ava { visibility: hidden; }
 .tx.in + .tx.in .tx-body > header b, .tx.you + .tx.you > header b { display: none; }
-.chat-top { height: 1px; } .chat-end { height: 1px; margin-top: -1px; } /* the sentinel chat.ts reads the log's end from, in the last pixel of the live line */
-.chat-live { display: flex; align-items: center; gap: 10px; max-width: 1040px; margin: 14px auto 0; padding-left: 44px; color: var(--c); font-size: 12px; }
+.chat-top { height: 1px; } .chat-end { height: 1px; margin-top: 13px; } /* the sentinel chat.ts reads the log's end from, in the last pixel of the log: 14 px under the last message (the room an empty live line once took; what a unit does is the composer's ring now), less its own pixel */
 .chat-pill { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); border: 0; --c: var(--accent); }
 /* The entry Open comms lands on, lit for a moment (an entry's containment makes it the containing block). */
 .lit::after { content: ""; position: absolute; inset: 0; border-radius: 14px; background: color-mix(in srgb, var(--accent) 18%, transparent); animation: out 1s 1s forwards; }
@@ -618,6 +617,22 @@ a.tower:hover::before { border-color: var(--c); }
 .composer textarea { flex: 1; min-width: 0; resize: none; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--sunken); color: var(--text); font: 14px/1.4 var(--sans); }
 @supports (field-sizing: content) { .composer textarea { field-sizing: content; max-height: 220px; } .composer { grid-template-columns: minmax(0, 1fr); } } /* a long URL wraps instead of widening the column */
 .composer textarea:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+/* What the unit is doing, round the box (composer.ts: `data-activity` is the mark, `data-kind` the working state). The ring is the row's own pseudo element, out of the layout and the taps, so a state change moves nothing. The still ring is the base:
+   a dim one while the unit works, a full one in the colour of the state while it waits for the boss or failed (neither ever moves). Where motion is welcome, a bright band runs along a working ring, faster for a tool than for a thought, slowest while a monitor is watched; Geek and a calm page keep the still ring, and Zen draws its own (zen.css). */
+.cmp-row { position: relative; }
+.composer[data-activity] { --ring: var(--accent); --ring-ms: 3.2s; }
+.composer[data-activity="working"][data-kind="tool"] { --ring: var(--accent-hi); --ring-ms: 1.6s; }
+.composer[data-activity="working"][data-kind="monitoring"] { --ring: var(--idle); --ring-ms: 6s; }
+.composer[data-activity="commanding"] { --ring: var(--violet); --ring-ms: 2.4s; }
+.composer[data-activity="waiting"] { --ring: var(--amber); }
+.composer[data-activity="error"] { --ring: var(--err); }
+.composer[data-activity] .cmp-row::before { content: ""; position: absolute; inset: -5px; padding: 2px; border-radius: 16px; pointer-events: none; background: color-mix(in srgb, var(--ring) 55%, transparent); mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude; }
+.composer:is([data-activity="waiting"], [data-activity="error"]) .cmp-row::before { background: var(--ring); }
+@media (prefers-reduced-motion: no-preference) {
+	html:not([data-calm]):not([data-view="geek"]):not([data-view="zen"]) .composer:is([data-activity="working"], [data-activity="commanding"]) .cmp-row::before { background: linear-gradient(100deg, transparent 42%, var(--ring) 50%, transparent 58%) 0 0 / 300% 100% no-repeat, color-mix(in srgb, var(--ring) 40%, transparent); animation: ring-run var(--ring-ms) linear infinite; }
+}
+@keyframes ring-run { from { background-position: 100% 0, 0 0; } to { background-position: 0 0, 0 0; } }
+.cmp-activity { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* the words stay for a screen reader: the ring is their picture */
 .composer.ended { padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); }
 .cmp-bar { margin: 0; text-align: center; font-size: 13px; color: var(--dim); }
 .composer button:disabled { opacity: 0.45; cursor: default; }
@@ -704,6 +719,9 @@ summary::-webkit-details-marker { display: none; }
 .md pre code { padding: 0; background: none; }
 .md blockquote { padding: 6px 12px; background: color-mix(in srgb, var(--hi) 4%, transparent); color: var(--dim); }
 .md table { display: block; overflow-x: auto; border-collapse: collapse; }
+.md-alert { margin: 0 0 8px; padding: 8px 12px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--ac) 45%, transparent); background: color-mix(in srgb, var(--ac) 10%, transparent); --ac: var(--accent); }
+.md-alert[data-kind="tip"] { --ac: var(--good, #3fb950); } .md-alert[data-kind="important"] { --ac: #a371f7; } .md-alert[data-kind="warning"] { --ac: var(--gold); } .md-alert[data-kind="caution"] { --ac: var(--bad, #f85149); }
+.md-alert > p { margin: 0 0 4px; } .md-alert > :last-child { margin-bottom: 0; } .md .md-alert-title { font-weight: 700; color: var(--ac); }
 .md th, .md td { padding: 4px 10px; border: 1px solid var(--line); }
 
 /* Tiles: documents beside the view, sharing its width; tabs when the width runs out. */
@@ -716,7 +734,9 @@ summary::-webkit-details-marker { display: none; }
 .tiles.tabbed { flex-direction: column; gap: 8px; }
 .tile:has(.spawn, .pair) { height: auto; min-height: 0; max-height: calc(var(--vvh, 100vh) - var(--hud, 64px) - 64px); align-self: flex-start; } /* a short form keeps its own height */
 .spawn .chat-empty { padding: 0; text-align: left; } .spawn .chat-empty:empty { display: none; }
-.tiles.tabbed .tile-tabs { display: flex; gap: 6px; }
+.tiles.tabbed .tile-tabs { display: flex; flex: none; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; min-width: 0; } /* one row; more tabs than fit scroll sideways */
+.tiles.tabbed .tile-tabs .tab-btn { flex: 0 0 auto; max-width: min(220px, 70vw); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tiles.tabbed .tile-tabs .tab-btn.active { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; } /* bold and underlined besides the gold: not colour alone */
 .tiles.tabbed .tile:not(.active) { display: none; } .tiles.tabbed .tile { flex: none; } /* its own height, not the column's share */
 .tab-btn.active, .open { border-color: color-mix(in srgb, var(--gold) 40%, transparent); color: var(--gold); }
 
@@ -1113,7 +1133,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.comms-head:not([data-tower]) .menu-btn { display: none; } .comms-head:not([data-tower]) .menu-pop { display: contents; }
 	.modes { padding: 1px; }
 	/* The log is the screen: no avatar gutter on an assistant's message, and the bars above the composer sit closer. */
-	.tx.in { grid-template-columns: minmax(0, 1fr); } .tx.in > .ava { display: none; } .tx.sys, .chat-live { padding-left: 0; }
+	.tx.in { grid-template-columns: minmax(0, 1fr); } .tx.in > .ava { display: none; } .tx.sys { padding-left: 0; }
 	.tower-notes, .queue-bar, .queue-list, .queue-act, .todos, .monitors { margin-inline: 10px; }
 	.todos, .monitors { margin-top: 2px; }
 	.composer { padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); } .composer textarea { min-height: 44px; } .cmp-row { gap: 6px 10px; } /* one line to start with: the box grows as it is typed in */
@@ -1288,6 +1308,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 	.tcard { border: 1px solid CanvasText; } .tcard-go { border: 1px solid ButtonText; } .tcard-go:disabled, .tcard-mask:disabled { color: GrayText; border-color: GrayText; opacity: 1; }
 	/* A disabled control and a placeholder take the system's own grey; the map's dashed connectors (the wires between towers, an svg the system leaves in colour, and the tree's gradient lines) would run over the cards, and the indent says the same. */
 	:is(.composer, .ask) button:disabled { opacity: 1; color: GrayText; border-color: GrayText; }
+	.composer[data-activity] .cmp-row::before { background: Highlight; } /* the system's colour: the words say which state */
 	:is(textarea, input)::placeholder { color: GrayText; opacity: 1; }
 	.subs::before, .subs > .unit > .card::before, .subs > .unit > .card::after, .drones::before, .links, .packets { display: none; }
 }

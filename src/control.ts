@@ -19,6 +19,7 @@ import { qr } from "./qr.ts";
 import { parseOpen } from "./bossopen.ts";
 import { parseSend } from "./bosssend.ts";
 import { answersOf, commandReply, headRoutes, markAnswered } from "./headroutes.ts";
+import type { RemoteBridge } from "./server/operatehost.ts";
 
 // Typing into a session from the page, through Herdr's own input path only, as if typed in the terminal:
 //   POST /<token>/api/sessions/<key>/input {text, as: "send" | "followUp", confirmed?, answers?}   the text, then Enter (or Alt+Enter while it works); to a tower, a boss event, and `answers: "W3"` names the wait for the boss it answers (the memory marks it answered once the tower took the message)
@@ -50,7 +51,7 @@ import { answersOf, commandReply, headRoutes, markAnswered } from "./headroutes.
 // from the browser), and Herdr is asked right then that the pane still runs pi on that session's file, so a reused pane id is refused.
 // One request per session is in flight at a time. Typed text is never logged; a Herdr timeout is not retried: it does not prove nothing arrived.
 
-export const MAX_TEXT = 16_384, MAX_BODY = 65_536;
+export const MAX_TEXT = 16_384, MAX_BODY = 65_536, MAX_REMOTE_UPLOAD = 2 * 1024 * 1024;
 /** The first parts of every path this control answers (gui.ts routes them here); operateroutes.ts has a row for each. */
 export const SCOPES = ["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "head", "lan"];
 /** Who is asking, as the guards need it: `remote` a paired device (or an operate session), `secure` a page served over https (which says where a secret is answered), `operate` an operate session's request, which also meets the box's own refusals (docs/specs/2026-11-07-link-operate.md §7). */
@@ -97,7 +98,7 @@ const REMOTE_LINK = ["state", "confirm-answer", "dialog-answer", "unit-stop"];
 const LINK_NAMES = ["enable", "state", "create", "invite", "invite-text", "invite-cancel", "decide", "join-start", "join-project", "join-cancel", "prefill-clear", "remove", "role", "rotate", "trust", "leave", "confirm-answer", "dialog-answer", "unit-stop"];
 /** `tower`: the sb server's tower service, when it runs one (TowerPanel). */
 /** `answers.target` reads the net afresh, so the binding and the dialog are checked again for every answer. */
-export interface ControlDeps { lan?: LanPanel; /** The marks of the `/boss gui lan` overlay: a paired device's write into a marked pane is Escape only (lan/faces.ts). */ overlay?: Overlay; lookup(key: string): Found | undefined; call?: HerdrCall; csrf: string; canonical(file?: string): string | undefined; pair?(): { url: string; rows: string[] } | undefined; remoteOn?(): Promise<void>; remoteOff?(): Promise<void>; tower?: TowerPanel; paired?: { on(): boolean; list(): unknown; unpair(id: string): boolean; unpairAll(): number; unsaved(): string | undefined }; saveFailed?(reason: string): void; spawn?(parts: string[], json: Record<string, unknown>): Promise<Reply>; close?(kind: string, json: Record<string, unknown>, refresh?: () => Promise<unknown>): Promise<Reply>; dismiss?(key: unknown): Promise<boolean>; dismissAll?(): Promise<number>; stop?(asked: Asked): boolean | void; link?: LinkPort; /** The panes accepted answers opened (answerpane.ts). */ grants?: Pick<Grants, "before" | "claim" | "get" | "live" | "drop">; server?: ServerPanel; mirrors?: Pick<ReturnType<typeof createMirrors>, "toggle" | "fresh">; secret?(file: string): Promise<boolean>; linkRequest?(file: string): Promise<boolean>; answers?: Pick<Hub, "has" | "replay" | "ended" | "send" | "probe" | "commands" | "pull"> & { target(key: string): Promise<Target | undefined> }; trust?(json: Record<string, unknown>): Promise<Reply> }
+export interface ControlDeps { /** The units of the boxes this computer operates (server/operatehost.ts): a request that names one goes to its session, after the guards a paired device's write meets, and never to a local route. */ bridge?: Pick<RemoteBridge, "claim">; lan?: LanPanel; /** The marks of the `/boss gui lan` overlay: a paired device's write into a marked pane is Escape only (lan/faces.ts). */ overlay?: Overlay; lookup(key: string): Found | undefined; call?: HerdrCall; csrf: string; canonical(file?: string): string | undefined; pair?(): { url: string; rows: string[] } | undefined; remoteOn?(): Promise<void>; remoteOff?(): Promise<void>; tower?: TowerPanel; paired?: { on(): boolean; list(): unknown; unpair(id: string): boolean; unpairAll(): number; unsaved(): string | undefined }; saveFailed?(reason: string): void; spawn?(parts: string[], json: Record<string, unknown>): Promise<Reply>; close?(kind: string, json: Record<string, unknown>, refresh?: () => Promise<unknown>): Promise<Reply>; dismiss?(key: unknown): Promise<boolean>; dismissAll?(): Promise<number>; stop?(asked: Asked): boolean | void; link?: LinkPort; /** The panes accepted answers opened (answerpane.ts). */ grants?: Pick<Grants, "before" | "claim" | "get" | "live" | "drop">; server?: ServerPanel; mirrors?: Pick<ReturnType<typeof createMirrors>, "toggle" | "fresh">; secret?(file: string): Promise<boolean>; linkRequest?(file: string): Promise<boolean>; answers?: Pick<Hub, "has" | "replay" | "ended" | "send" | "probe" | "commands" | "pull"> & { target(key: string): Promise<Target | undefined> }; trust?(json: Record<string, unknown>): Promise<Reply> }
 
 const no = (status: number, error: string, reason: string, extra = {}): Reply => ({ status, body: { error, reason, ...extra } });
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -118,6 +119,17 @@ function body(req: IncomingMessage): Promise<Reply | { json: Record<string, unkn
 				done(no(400, "bad_request", "The body is not JSON."));
 			}
 		});
+	});
+}
+
+/** The bytes of a request body of at most `max`, or the reply that refuses it (a body past the limit is drained, not kept). */
+function bytesOf(req: IncomingMessage, max: number): Promise<Buffer | Reply> {
+	return new Promise((done) => {
+		const parts: Buffer[] = [];
+		let size = 0;
+		req.on("data", (chunk: Buffer) => ((size += chunk.length) <= max && parts.push(chunk)));
+		req.on("error", () => done(no(400, "bad_request", "The file could not be read.")));
+		req.on("end", () => done(size > max ? no(413, "too_large", "The file is larger than 2 MB.") : Buffer.concat(parts)));
 	});
 }
 
@@ -167,7 +179,7 @@ const LOCAL_ONLY = "Pairing, remote access, Wi-Fi, the server, the default view,
 /** What a guarded post from this computer is refused with: the boss typed a /boss send here, and the server holds it to the guards a remote write meets because the session it runs in may have been typed into from elsewhere. */
 const GUARDED = "A /boss send is held to the guards of a remote write (the session it runs in may be driven from elsewhere): this needs this computer's own page, or type it in that session's own terminal.";
 const LINK_LOCAL = "While it waits on a link request, a paired device can only send Escape; approve it on this computer's own page or terminal.";
-export function createControl({ lan, overlay, link, server: panel, lookup, call, csrf, canonical, pair, remoteOn, remoteOff, paired, saveFailed, spawn, close, dismiss, dismissAll, stop, mirrors, grants, secret = async () => true, linkRequest = async () => false, answers, trust, tower }: ControlDeps) {
+export function createControl({ bridge, lan, overlay, link, server: panel, lookup, call, csrf, canonical, pair, remoteOn, remoteOff, paired, saveFailed, spawn, close, dismiss, dismissAll, stop, mirrors, grants, secret = async () => true, linkRequest = async () => false, answers, trust, tower }: ControlDeps) {
 	const busy = new Set<string>();
 	// A change to the paired devices or the remote wish that could not be written to paired.json took effect in memory only: say so (500), to the page and the session.
 	const lost = (): Reply | undefined => {
@@ -191,7 +203,15 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 		const file = scope === "sessions" && action === "upload";
 		if (type !== (file ? "application/octet-stream" : "application/json")) return no(415, "content_type", file ? "The body must be the file's bytes." : "The body must be JSON.");
 		if (!same(String(req.headers["x-sb-csrf"] ?? ""), csrf)) return no(403, "csrf", "The page's token is out of date; reload the page.");
-		if (file) return upload(req, lookup(key)); // its own size limit and reader (upload.ts)
+		if (file) {
+			// A box's unit takes the file through its session: at most 2 MB (decision 11), held in memory, then sent sealed.
+			const far = bridge?.claim("POST", ["sessions", key, "upload"], {}, new URLSearchParams({ name: String(req.headers["x-sb-name"] ?? "") })); // the file's name travels in the query, as the box reads it
+			if (far) {
+				const bytes = await bytesOf(req, MAX_REMOTE_UPLOAD);
+				return Buffer.isBuffer(bytes) ? far.send(bytes) : bytes;
+			}
+			return upload(req, lookup(key)); // its own size limit and reader (upload.ts)
+		}
 		const read = await body(req);
 		if ("status" in read) return read;
 		return run([scope, key, action], read.json, { remote, secure: origin.startsWith("https:") });
@@ -202,6 +222,17 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 	 * device does; `operate` adds the box's own (docs/specs/2026-11-07-link-operate.md §7), which the table of operateroutes.ts has already applied to the route and the text.
 	 */
 	async function run([scope, key = "", action = ""]: string[], json: Record<string, unknown>, { remote, secure, operate, foreground }: Flags): Promise<Reply> {
+		// A unit of a box this computer operates (operatehost.ts): the guards that belong to this end come first (the composer's text as a paired device's, a secret never from a page), and the box runs its own again (§7).
+		const far = !operate ? bridge?.claim("POST", [scope, key, action].slice(0, action ? 3 : key ? 2 : 1), json) : undefined;
+		if (far) {
+			if (scope === "sessions" && action === "input") {
+				const text = checkText(json.text);
+				if (typeof text !== "string") return text;
+				if (remote && localOnlyText(text)) return no(403, "local_only", LOCAL_ONLY);
+			}
+			if (scope === "sessions" && action === "answer" && "value" in json) return no(secure ? 403 : 400, secure ? "local_only" : "terminal_only", "A secret cannot be entered from a page; answer it in the terminal.");
+			return far.send();
+		}
 		if (scope === "server") {
 			if (panel && !action && key === "status") return { status: 200, body: panel.status() };
 			if (panel && !action && key === "log") {
@@ -233,6 +264,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			return { status: 200, body };
 		}
 		if (scope === "panes") return panes({ grants, mirrors, pad, call, busy, refused }, key, action, json, remote);
+		if (remote && json.op === "press" && json.act === "secret" && ((scope === "tower" && action === "memory") || (scope === "head" && key === "memory"))) return no(409, "refused", "Enter it at the computer: this step is taken on this computer's own page or in pi."); // WC-D4: a secret card's first step says the boss is at this computer, so only its own page (or pi) takes it
 		if (scope === "tower") {
 			if (key.startsWith("@") || tower?.isHead?.(key)) return no(404, "not_found", "No such tower.");
 			if (action === "memory") return tower?.memory && tower.has(key) ? tower.memory(key, json) : no(404, "not_found", "No such tower.");

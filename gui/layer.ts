@@ -2,6 +2,7 @@ import type { Item } from "../src/items.ts";
 import type { Net } from "../src/net.ts";
 import { type Intel, intel } from "./intel.ts";
 import { answerPost, canAnswer, mountAnswer, type SessionPost, trustPost } from "./answer.ts";
+import { tabLabels } from "./doctabs.ts";
 import { keypad } from "./keypad.ts";
 import { mountTerminals } from "./mirror.ts";
 import { rankOf, unitOf } from "./alerts.ts";
@@ -19,7 +20,7 @@ import { waitDialog } from "./waitpanel.ts";
 // arrives on its own shows beside the view without taking focus or the active tab.
 
 /** `icon` names the header's symbol (a document by default); `closed` runs when the tile closes, by its × or pushed out by a fifth, or is refused. */
-export interface Tile { id: string; title: string; body(): HTMLElement; icon?: string; closed?(): void }
+export interface Tile { id: string; title: string; path?: string; body(): HTMLElement; icon?: string; closed?(): void }
 export interface TilesIO { render(tiles: Tile[], active: string | undefined): void; enter(tile: Tile): void }
 export { type Intel, intel };
 export const MAX_TILES = 4;
@@ -213,12 +214,17 @@ export function mountPanels(deps: PanelDeps) {
 				text(el, "header b", t.title);
 				el.classList.toggle("active", t.id === active);
 			});
+			const docs = list.filter((t) => t.path), names = tabLabels(docs.map((t) => t.path!));
 			sync(tabs, list, () => html(`<button type="button" class="tab-btn"></button>`), (el, t) => {
-				el.textContent = t.title;
+				el.textContent = t.path ? names[docs.indexOf(t)]! : t.title;
+				el.title = t.path ?? t.title;
+				el.setAttribute("aria-label", t.path ?? t.title);
+				el.setAttribute("aria-current", String(t.id === active));
 				el.classList.toggle("active", t.id === active);
 				el.onclick = () => tiles.activate(t.id);
 			});
 			row.prepend(tabs);
+			tabs.querySelector(".active")?.scrollIntoView?.({ inline: "nearest", block: "nearest" }); // the active tab stays in the one scrolling row
 			if (list.length !== shown) {
 				shown = list.length;
 				fit();

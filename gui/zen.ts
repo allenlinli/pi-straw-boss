@@ -17,7 +17,7 @@ import { intel } from "./intel.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
 import { roleName, waitTitle } from "./render.ts";
-import { composerUnit, liveOf } from "./sessionfacts.ts";
+import { composerUnit } from "./sessionfacts.ts";
 import { locate } from "./scene.ts";
 import type { Hotkey } from "./hotkeys.ts";
 import type { StepOpen } from "./terminalthen.ts";
@@ -279,8 +279,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		markOver(company!, over);
 		if (u || over || histOpen) {
 			const facts = composerUnit(u?.u, { name: u?.u.name ?? company!.name.textContent ?? c.key, mk: u?.u.mark ?? "unknown", state: company!.state, online: deps.online(), head: histOpen });
-			if (u) company!.chat?.setLive(...liveOf(u.u, company!.state, u.u.mark));
-			company!.composer?.update(over ? { ...facts, live: over === "lost" && facts.live, control: false } : facts); // a session that is over takes no more words: Send is off and the composer's own line says why
+			company!.composer?.update(over ? { ...facts, live: over === "lost" && facts.live, control: false, activity: undefined } : facts); // a session that is over takes no more words: Send is off and the composer's own line says why
 			if (company!.composer) company!.composer.box.readOnly = Boolean(over); // the box keeps its draft but takes no typing: a session that lost control is off, not just unsendable (R2, ZNR)
 		}
 	}

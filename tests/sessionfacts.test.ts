@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Base, Net, Unit } from "../src/net.ts";
-import { composerUnit, liveOf } from "../gui/sessionfacts.ts";
+import { composerUnit } from "../gui/sessionfacts.ts";
 
 // The facts a session's composer and live line read, decided once for the session view and Zen's companion (gui/sessionfacts.ts).
 
@@ -27,14 +27,12 @@ test("an ally run or an event run, which the net does not list, takes the compos
 	assert.deepEqual([listed.ally, listed.run], [false, false]);
 });
 
-test("the live line: a working unit says what it does, a waiting one that it waits, and a finished subagent keeps no working mark", () => {
-	const [note, mark] = liveOf(unit({ note: "read(a.ts)" }), "live", "working");
-	assert.ok(note.length > 0);
-	assert.equal(mark, "working");
-	assert.equal(liveOf(unit({ ended: true, control: false, note: "x" }), "live", "working")[0], "");
-	assert.equal(liveOf(unit({ ended: true, control: false }), "live", "working")[1], "done");
-	assert.equal(liveOf(unit(), "recent", "commanding")[1], "done", "a session that left the net");
-	assert.ok(liveOf(unit(), "live", "waiting")[0].length > 0);
-	assert.equal(liveOf(unit(), "live", "idle")[0], "");
+test("the composer's activity: a working unit says what it does, a waiting one that it waits, a finished subagent or a session that left the net has none", () => {
+	const act = (u: Unit, mk: Parameters<typeof composerUnit>[1]["mk"], state = "live") => composerUnit(u, { name: "Ada", mk, state, online: true }).activity;
+	assert.ok((act(unit({ note: "read(a.ts)" }), "working")?.text.length ?? 0) > 0);
+	assert.equal(act(unit({ ended: true, control: false, note: "x" }), "working"), undefined);
+	assert.equal(act(unit(), "commanding", "recent"), undefined, "a session that left the net");
+	assert.equal(act(unit(), "waiting")?.mark, "waiting");
+	assert.equal(act(unit(), "idle"), undefined);
 });
 

@@ -10,6 +10,7 @@ import { assertSettingsSafe, type SettingsRefusal, SettingsRefused } from "./tru
 import { waitPastTrust } from "./trust/wait.ts";
 import { type Hidden, HiddenError, hasHidden, platformHidden } from "./hidden.ts";
 import { createTab, type HerdrCall, type HerdrRun, isHead, isSub, type Pane, panes, report, result, type Sleep, startPi, type Workspace, workspaces } from "./herdr.ts";
+import { isSessionRole } from "./trainrole.ts";
 
 // What the page opens by itself, each pi started in a folder picked from the home folder. A base starts with no tower: it opens with one member
 // (a base is never empty), a base without a tower takes more members, and only a member that promotes itself opens the tower (index.ts), so the
@@ -31,6 +32,8 @@ import { createTab, type HerdrCall, type HerdrRun, isHead, isSub, type Pane, pan
 // A first message is typed once: a repeat types it only when the first open never began to (`delivery` of the record was `pending`), and never when it was being typed or was typed (`sent`, `unknown` in the reply).
 
 /** The join wait of an open (`joinWaitMs` of open/base asks for another, within the bounds): a slow computer, Windows especially, needs more than a minute. */
+/** Whether a pane's `sb_role` token says it joined as `role`, or, when none is named, as any joined session (a train is one). */
+export const joinedAs = (token: string | undefined, role?: string): boolean => (role ? token === role : isSessionRole(token));
 export const JOIN_WAIT_MS = 60_000, MIN_JOIN_WAIT_MS = 10_000, MAX_JOIN_WAIT_MS = 300_000;
 const MAX_DIRS = 500, MAX_LABEL = 64;
 
@@ -148,7 +151,7 @@ export function createSpawn({ run, sleep, call, live, sessionAt, home = homedir(
 		d.go("join");
 		const joined = await waitPastTrust(sleep, async () => {
 			const r = (await panes(run)).find((p) => p.pane_id === paneId)?.tokens?.sb_role;
-			return role ? r === role : r === "member" || r === "main";
+			return joinedAs(r, role);
 		}, joinWaitMs, 500, trustDir ? { dir: trustDir, pane: paneId, on: (r) => d.hold(r && { id: r.id, digest: r.digest, folder: clean(r.cwd), found: r.found.map(cleanGroup) }) } : undefined);
 		if (!joined) throw new Error(`The pi in pane ${paneId} did not join the net${role ? ` as the ${role} of its tab` : ""} within ${joinWaitMs / 1000} s`);
 	}

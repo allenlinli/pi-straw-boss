@@ -35,6 +35,10 @@ const DIVIDER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const cells = (line: string) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 const starts = (line: string, next?: string) => /^\s*(`{3,}|~{3,}|#{1,6}\s|>)/.test(line) || RULE.test(line) || LIST.test(line) || (line.includes("|") && next !== undefined && DIVIDER.test(next) && next.includes("-"));
 
+/** A quote whose first line is `[!KIND]` (and a title after it, if any) is a GitHub alert: a callout of its own kind, with the title or the kind's name on top. */
+const ALERT = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(.*?)\s*$/i;
+const alertName = (kind: string) => ({ note: msg.alert_note, tip: msg.alert_tip, important: msg.alert_important, warning: msg.alert_warning, caution: msg.alert_caution })[kind as "note"]();
+
 /** Block quotes and lists nest at most 16 deep; anything deeper stays plain text, so hostile nesting can neither overflow the stack nor go quadratic. */
 export const MAX_DEPTH = 16;
 /**
@@ -58,7 +62,12 @@ export function parse(md: string, depth = 0, lines = md.replace(/\r\n?/g, "\n").
 		else if (/^\s*>/.test(line)) {
 			const body: string[] = [];
 			for (; i < lines.length && /^\s*>/.test(lines[i]!); i++) body.push(lines[i]!.replace(/^\s*> ?/, ""));
-			out.push(el("blockquote", parse("", depth + 1, body, body.map(indentOf))));
+			const alert = body[0]?.match(ALERT);
+			if (!alert) out.push(el("blockquote", parse("", depth + 1, body, body.map(indentOf))));
+			else {
+				const kind = alert[1]!.toLowerCase(), rest = body.slice(1);
+				out.push(el("div", [el("p", alert[2] ? inline(alert[2]) : [alertName(kind)], { class: "md-alert-title" }), ...parse("", depth + 1, rest, rest.map(indentOf))], { class: "md-alert", "data-kind": kind }));
+			}
 		} else if (line.includes("|") && next !== undefined && DIVIDER.test(next) && next.includes("-")) {
 			const rows: string[][] = [];
 			for (i += 2; i < lines.length && lines[i]!.trim() && lines[i]!.includes("|"); i++) rows.push(cells(lines[i]!));

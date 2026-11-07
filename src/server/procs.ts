@@ -26,9 +26,9 @@ const SHELLS = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh
 const SNAPSHOT_MAX = 2000;
 
 /** What a worker's pi says about itself. */
-export interface Hello { pid: number; started?: string; id?: string; subagentId?: string; sessionFile?: string; pane?: string; terminal?: string; cwd?: string }
+export interface Hello { pid: number; started?: string; id?: string; subagentId?: string; /** "train": the pi of a train, an owner like a worker's (docs/specs/2026-11-07-train-workers.md §3.3). */ role?: "train"; sessionFile?: string; pane?: string; terminal?: string; cwd?: string }
 export interface OwnerRecord {
-	id: string; pid: number; started: string; roots: string[]; snapshot: Ref[]; subagentId?: string; pane?: string; terminal?: string; cwd?: string; helloAt: number; seenAt: number;
+	id: string; pid: number; started: string; roots: string[]; snapshot: Ref[]; subagentId?: string; role?: "train"; pane?: string; terminal?: string; cwd?: string; helloAt: number; seenAt: number;
 	/** Set when the owner ends. `left`: the reap ran and something stayed alive, so the record stays for `reap`; without it the reap has not finished (a restart resumes it). */
 	ended?: { at: number; reason: string; left?: boolean; /** The cwd rule was left out of the reap because the live panes were not known: tries so far; the next ticks try again until `DEFER_MAX`. */ retry?: number };
 }
@@ -63,7 +63,7 @@ export interface ProcsDeps {
 	platform?: NodeJS.Platform;
 }
 export interface ReapResult { owner: string; reason: string; targets: number; termed: number; killed: number; skipped: number; left: { pid: number; program: string }[]; spared: number; /** The cwd rule was left out: the live panes of Herdr were not known, so the reap did not risk a session's orphans. */ deferred?: boolean }
-export interface OwnerRow { id: string; pid: number; started: string; live: boolean; roots: string[]; snapshot: number; pane?: string; subagentId?: string; endedReason?: string }
+export interface OwnerRow { id: string; pid: number; started: string; live: boolean; roots: string[]; snapshot: number; pane?: string; subagentId?: string; role?: "train"; endedReason?: string }
 export interface Procs {
 	/** Loads the records, reaps the owners that ended while the server was down, and takes the first tick (its cost is logged once). */
 	start(): Promise<void>;
@@ -344,7 +344,7 @@ export function createProcs(d: ProcsDeps): Procs {
 			const keep = known && !known.ended && known.pid === h.pid && known.started === started ? known : undefined;
 			const record: OwnerRecord = {
 				id, pid: h.pid, started, roots: rootsOf(cwd), snapshot: keep?.snapshot ?? [], helloAt: keep?.helloAt ?? d.now(), seenAt: d.now(),
-				...(text(h.subagentId) ? { subagentId: text(h.subagentId)! } : {}), ...(text(h.pane) ? { pane: text(h.pane)! } : {}), ...(text(h.terminal) ? { terminal: text(h.terminal)! } : {}), ...(cwd ? { cwd } : {}),
+				...(text(h.subagentId) ? { subagentId: text(h.subagentId)! } : {}), ...(h.role === "train" ? { role: "train" as const } : {}), ...(text(h.pane) ? { pane: text(h.pane)! } : {}), ...(text(h.terminal) ? { terminal: text(h.terminal)! } : {}), ...(cwd ? { cwd } : {}),
 			};
 			owners.set(id, record);
 			save();
@@ -391,7 +391,7 @@ export function createProcs(d: ProcsDeps): Procs {
 			if (!theirs) await reapWorkspace(ws, pane, event.event);
 		},
 		list() {
-			return [...owners.values()].map((r) => ({ id: r.id, pid: r.pid, started: r.started, live: !r.ended, roots: r.roots, snapshot: r.snapshot.length, ...(r.pane ? { pane: r.pane } : {}), ...(r.subagentId ? { subagentId: r.subagentId } : {}), ...(r.ended ? { endedReason: r.ended.reason } : {}) }));
+			return [...owners.values()].map((r) => ({ id: r.id, pid: r.pid, started: r.started, live: !r.ended, roots: r.roots, snapshot: r.snapshot.length, ...(r.pane ? { pane: r.pane } : {}), ...(r.subagentId ? { subagentId: r.subagentId } : {}), ...(r.role ? { role: r.role } : {}), ...(r.ended ? { endedReason: r.ended.reason } : {}) }));
 		},
 		async reapOwner(id) {
 			const r = owners.get(id);

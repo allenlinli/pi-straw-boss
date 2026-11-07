@@ -128,7 +128,7 @@ test("an ally run's token is refused tower_memory by its kind, and its brief sho
 	await drain(s, next.token);
 	await end(s, next.token, next.id);
 	const minted = world.expose!.runs.mint("wA", { kind: "ally", device: "d1", level: "dispatch", team: "team-1" });
-	const refused = await tool(s, minted, { op: "add", kind: "wait", text: "x", for: "boss" });
+	const refused = await tool(s, minted, { op: "add", kind: "wait", for: "boss", type: "action", from: "self", happened: "h", do: "d", url: "https://example.org/", after: "a" });
 	assert.equal(refused.ok, false);
 	assert.match(String(refused.error), /not available in an ally run/);
 	assert.equal(memory().entries.some((e) => e.kind === "wait"), false);
@@ -145,7 +145,7 @@ test("waits: the run words one, it shows in the next brief and in the snapshot's
 	tower().incoming(from, msg("m0", "go"));
 	const one = await claimNth(s);
 	await drain(s, one.token);
-	const forBoss = await tool(s, one.token, { op: "add", kind: "wait", text: "docs-main asks: deploy ws01?", for: "boss" });
+	const forBoss = await tool(s, one.token, { op: "add", kind: "wait", for: "boss", type: "action", from: "main-1", happened: "docs-main asks whether the build may go to ws01.", do: "Tell docs-main in its tab whether it may deploy to ws01.", url: "https://example.org/ws01", after: "docs-main deploys or holds." });
 	assert.equal(forBoss.ok, true, JSON.stringify(forBoss));
 	const forAgent = await tool(s, one.token, { op: "add", kind: "wait", text: "docs-main to confirm the build", for: "agent", on: "docs-main" });
 	assert.equal(forAgent.ok, true, JSON.stringify(forAgent));
@@ -159,7 +159,7 @@ test("waits: the run words one, it shows in the next brief and in the snapshot's
 	await until(() => memory().entries[1]!.state === "answered", "the wait to be answered");
 	assert.equal(memory().entries[0]!.state, "open", "the boss wait is not answered by an agent");
 	const two = await claimNth(s, 2);
-	assert.match(two.brief, /\[W1\] for boss: docs-main asks: deploy ws01\?/);
+	assert.match(two.brief, /\[W1\] for boss \(action, from docs-main\): Tell docs-main in its tab whether it may deploy to ws01\./);
 	assert.match(two.brief, /\[W2\] answered\? message from docs-main \d\d:\d\d/);
 	await drain(s, two.token);
 	assert.equal((await tool(s, two.token, { op: "resolve", id: "W2", outcome: "build is green" })).ok, true);

@@ -3,6 +3,7 @@ import { FRESH_MS, readRecord, restartingFresh, slotOf, towerId } from "./server
 import type { Election } from "./election.ts";
 import type { Reach } from "./reach.ts";
 import type { Roles } from "./roles.ts";
+import { isSessionRole, trainInTab } from "./trainrole.ts";
 import type { Kit } from "./state.ts";
 
 // The tower and the mains go together (guard below): Herdr's events start each check, and a sweep every GUARD_MS catches what no event tells; how
@@ -60,7 +61,8 @@ export function createGuard({ cfg, s, me, guiDir }: Kit, { claim, pin, openTower
 		const state = s.c.snapshot().state?.payload as { main?: string; since?: number } | undefined, main = s.pinned ?? state?.main;
 		if (towerLive(ws?.tokens?.tower)) {
 			missing = undefined;
-			if (owner && !live(main)) {
+			// A tab with a train in it has no main to crown: the train is a worker of its own, and a pi that comes later stays a member (§3.3). A pane list that cannot be had is no reason to hold the crown back (restoring() reads it the same way).
+			if (owner && !live(main) && !s.isTrain && !(await trainInTab(run, s.at.workspaceId, s.at.tabId).catch(() => undefined))) {
 				// Whoever joins a restored tab first would be crowned over the main the restore is bringing back.
 				const waitUntil = await restoring();
 				if (waitUntil === undefined) await claim(s.c, me(), false);
@@ -72,7 +74,7 @@ export function createGuard({ cfg, s, me, guiDir }: Kit, { claim, pin, openTower
 		// member dispatching a subagent, promotes it in tool_call, and a promotion opens the tower). A member that joins checks it too.
 		// A tower closed on purpose stays closed until the base grows past the members it had then (a subagent or /boss tower opens it any time).
 		if (autoTower && all.some((w) => w.workspace_id !== s.at.workspaceId && live(w.tokens?.tower))) {
-			const members = (await panes(run, s.at.workspaceId)).filter((p) => ["member", "main"].includes(p.tokens?.sb_role ?? "")).length;
+			const members = (await panes(run, s.at.workspaceId)).filter((p) => isSessionRole(p.tokens?.sb_role)).length;
 			if (members >= 2 && members > Number(ws?.tokens?.sb_tower_quit ?? -1)) return void (await openTower(undefined, true));
 		}
 		if (!owner) return;

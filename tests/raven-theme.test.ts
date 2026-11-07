@@ -105,7 +105,7 @@ test("every motion rule of the theme sits under prefers-reduced-motion: no-prefe
 	const blocks = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{/g)];
 	assert.ok(blocks.length >= 1, "a no-preference block exists");
 	const outside = raw.replace(/@media \(prefers-reduced-motion: no-preference\) \{(?:[^{}]|\{[^{}]*\})*\}/g, "");
-	assert.ok(!/animation(-name)?\s*:/.test(outside), "no animation declared outside the no-preference block");
+	assert.ok(![...outside.matchAll(/animation(?:-name)?\s*:\s*([^;}]*)/g)].some((m) => !/^none\b/.test(m[1]!.trim())), "no animation declared outside the no-preference block (forced colours only stop one with `animation: none`)");
 	for (const rule of css.filter((r) => /animation\s*:/.test(r.body) && !/animation\s*:\s*none/.test(r.body))) assert.ok(/:not\(\[data-calm\]\)/.test(rule.selector), `${rule.selector} stops at data-calm`);
 	assert.match(raw, /@media \(forced-colors: active\)/);
 });
@@ -178,7 +178,7 @@ test("the perched raven sits on the head page only, in two frames of one strip, 
 
 test("the backdrop belongs to the head page only, and fog, flicker, bats, and the raven are all in the stylesheet", () => {
 	assert.match(raw, /html\[data-view="raven"\]:has\(#stage\[data-view="head"\]\)::before/);
-	for (const name of ["rk-fog", "rk-bat", "rk-raven", "rk-lit-a", "rk-lit-b", "rk-candle", "rk-bolt"]) assert.match(raw, new RegExp(`@keyframes ${name}\\b`), name);
+	for (const name of ["rk-fog", "rk-bat", "rk-raven", "rk-lit-a", "rk-lit-b", "rk-bolt"]) assert.match(raw, new RegExp(`@keyframes ${name}\\b`), name);
 });
 
 test("no selector of the theme puts a pseudo-element inside :is() (it matches nothing there)", () => {

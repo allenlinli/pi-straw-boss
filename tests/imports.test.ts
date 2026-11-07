@@ -1040,7 +1040,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Raven Keep re-review 2 (RRB2-F001, measured, node 24): 120,837 / 44,052, +37 / +12: the head's kicker drops the comms template's data-m, and a theme switch always redraws. Cap = measured.
 	// Head band (measured, node 24): 122,069 / 44,492, +1,232 / +440: headband.ts and the routing in render.ts (headpage.ts's ask grouping now loads with the map), less the old curve code; the stylesheet rules for the band. Cap = measured.
 	// Head band newest-line fallback (measured, node 24): 122,077 / 44,493, +8 / +1 over the 122,069 / 44,492 above: `HeadUnit.line` through newestLine (demo-head.ts is not in the built page), the band's 32 px room under it, and the unused `packets()` dropped. Cap = measured.
-	assert.ok(eagerBytes <= 122_077 && eagerGz <= 44_493, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Raven status motion (measured, node 24): raw 122,077 as before, gzipped 44,493 to 44,494: the hashed name of raven's stylesheet, which boot.js and the theme list carry, changed with raven.css, and the chunk names move the gzipped figure by a byte. Gzipped cap = measured + 15.
+	assert.ok(eagerBytes <= 122_077 && eagerGz <= 44_509, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1385,7 +1386,8 @@ test("each theme's folder stays within its byte cap", () => {
 	// Head band (measured, node 24): Geek 6,767 / 2,370 to 6,853 / 2,384 (+86 / +14: the band's flat outline), Zen 125,731 to 125,735 raw (+4: the shared chunk split differently; its gzip is 5 under the old cap), raven 236,417 / 155,182 to 236,769 / 155,269 (+352 / +87: the keep's band skin lines). Caps = measured.
 	// Raven light (measured, node 24): raven 236,417 / 155,182 to 259,440 / 177,015 (+23,023 / +21,833: the perched raven's two-frame WebP strip 21,562, which does not compress, and the stylesheet's rest veil, strike layers, and perch rules, about 1.4 KB). The spec's 450 KB ceiling holds.
 	// Merge of the head band with raven light (measured, node 24): raven 259,440 / 177,015 to 259,792 / 177,106 (+352 / +91: the keep's band skin lines on top of the lighting), Zen gzip 39,697 as measured. Caps = measured.
-	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [125_735, 39_697], raven: [259_792, 177_106] };
+	// Raven status motion (measured, node 24): raven 259,792 / 177,106 to 266,509 / 178,103 (+6,717 / +997: raven.css, which grew with the seal, mist, soul-fire, and bat figures, their keyframes, and the forced-colours rules; the candle keyframes left). Standard's stylesheet and Geek and Zen are as they were. Cap = measured.
+	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [125_735, 39_697], raven: [266_509, 178_103] };
 	// Raven Keep review round 2 (measured, node 24): raven 227,821 / 152,777 to 236,417 / 155,182 (+8,596 / +2,405: the crest brand symbol in the sprite, the moon veil, the tome in the documents list). Cap = measured.
 	assert.deepEqual(readdirSync(dir).sort(), Object.keys(caps).sort(), "a folder per theme and no other");
 	assert.ok(caps.raven![0] <= 450_000, "Raven Keep stays within the spec's 450 KB (spec §1.5)");

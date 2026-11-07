@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Flags, Reply } from "./control.ts";
+import { piAlone } from "./foreground.ts";
 import type { HerdrCall } from "./herdr.ts";
 import type { createMirrors } from "./mirror.ts";
 import type { Net } from "./net.ts";
@@ -20,6 +21,8 @@ import { api, type Hub as Files, image, watchSession, type Watch, watchWorkspace
 export type Sink = (id: string, event: string, data: unknown) => void;
 /** What a reply carries at most: an image's bytes, and one entry's whole body (§6.4 and §9 drop what is larger at the controller; here it is refused clearly, before it is sealed). */
 export const MAX_UPLOAD = 2 * 1024 * 1024, MAX_WATCHES = 8, MAX_REPLY = 1024 * 1024;
+/** The requests that write into the unit's pane: each needs pi alone in its foreground (foreground.ts). */
+const WRITES = new Set(["sessions/*/keys", "sessions/*/input", "sessions/*/dequeue"]);
 const no = (status: number, error: string, reason: string): Reply => ({ status, body: { error, reason } });
 
 interface Held { w: Watch; scope: OperateScope; /** The unit a session watch is of; a workspace's cards follow the scope on their own. */ key?: string }
@@ -70,6 +73,8 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 		changed: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
 		open(sink) {
 			const stream = randomBytes(16).toString("hex"), watches = new Map<string, Held>(), mirrored = new Map<string, OperateScope>();
+			/** The scope the last `rescope` set and how many there were: a watch or mirror that began before one finishes under it, since `enforce` cannot see an entry that is still being set up. */
+			let latest: OperateScope | undefined, epoch = 0;
 			mirrors.open(stream, (event, data) => sink(`m:${(data as { key?: string }).key ?? ""}`, event, data));
 			/** Each watch and mirror keeps the scope it was asked under; whatever unit has left it ends here (§1.5: an admin's removal ends open operate streams at once). */
 			const enforce = async (next?: OperateScope) => {
@@ -102,7 +107,7 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 			active();
 			return {
 				stop: self.stop,
-				rescope: (scope) => enforce(scope),
+				rescope: (scope) => (epoch++, (latest = scope), enforce(scope)),
 				async watch(id, at, on, scope) {
 					if (!id || id.length > 64) return no(400, "bad_request", "A watch is named by an id.");
 					watches.get(id)?.w.stop();
@@ -111,7 +116,9 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 					if (watches.size >= MAX_WATCHES) return no(429, "too_many", `A session watches at most ${MAX_WATCHES} things.`);
 					const workspace = at.startsWith("w:"), held: Held = { w: undefined as unknown as Watch, scope, ...(workspace ? {} : { key: at }) };
 					if (held.key !== undefined && !scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." });
+					const began = epoch;
 					await net(); // the registry is filled by reading the net: a watch starts once a reading exists
+					if (epoch !== began) held.scope = latest!; // a `rescope` ran meanwhile
 					if (held.key !== undefined && !held.scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." }); // the scope may have narrowed while the net was read
 					const send = (event: string, data: unknown) => sink(id, event, data), hub = scoped(() => held.scope);
 					held.w = workspace ? watchWorkspace(hub, at.slice(2), send) : watchSession(hub, at, send);
@@ -122,14 +129,26 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 				async mirror(key, on, scope) {
 					const p = plan("POST", ["sessions", key, "mirror"], {}, scope, "mirror", roleOf);
 					if (!p.ok) return refusalReply(p);
-					const done = await control.run(["sessions", key, "mirror"], { stream, on }, FLAGS);
-					if (done.status === 200) on ? mirrored.set(key, scope) : mirrored.delete(key);
+					const began = epoch, done = await control.run(["sessions", key, "mirror"], { stream, on }, FLAGS);
+					if (done.status !== 200) return done;
+					if (!on) return mirrored.delete(key), done;
+					const now = epoch !== began ? latest! : scope; // a `rescope` ran while the mirror was being attached
+					if (!now.has(key)) {
+						await control.run(["sessions", key, "mirror"], { stream, on: false }, FLAGS).catch(() => undefined); // not through `plan`: the key is out of scope, which is why it ends
+						return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." });
+					}
+					mirrored.set(key, now);
 					return done;
 				},
 				async request(method, parts, query, body, scope) {
 					const p = plan(method, parts, body, scope, "request", roleOf);
 					if (!p.ok) return refusalReply(p);
 					const hub = scoped(() => scope);
+					if (method === "POST" && WRITES.has(p.row.path)) {
+						// Herdr says `pi` while pi lives, whatever runs below it; the process list says what holds the terminal. Looked at here, before control.ts's own guards (which may take up to a second for the editor probe) and its write.
+						const pane = files.lookup(parts[1]!)?.pane, info = pane === undefined ? undefined : await call?.("pane.process_info", { pane_id: pane }).then((r) => (r as { process_info?: unknown })?.process_info, () => undefined);
+						if (!piAlone(info as Parameters<typeof piAlone>[0])) return refusalReply({ ok: false, why: "foreground", reason: "Something other than pi may hold the pane's terminal (or Herdr cannot say), so nothing is sent from here." });
+					}
 					if (p.tab) {
 						// A squad closes with everything in it, and Herdr's tab close takes every pane in it: every unit the net shows there must be this scope's, a tab the net does not show is not one to close, and so is one whose panes
 						// are not all those units' (a shell, a pane an answer opened, a unit that joined since the reading) — read from Herdr now.

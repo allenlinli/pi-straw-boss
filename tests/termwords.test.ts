@@ -47,3 +47,15 @@ test("the mirror's ended reasons are said in the page's language, and an unknown
 	}
 	assert.equal(endedWhy("Something else.", "zh-TW"), "Something else.");
 });
+
+test("an operate refusal with a word of its own (binding, binding-unread, foreground) is said in the page's words; any other why falls back to the generic operate words", () => {
+	const op = (why: string) => ({ ok: false, status: 403, body: { error: "operate_refused", reason: "the server's words", why } });
+	const generic = refusalText(op("shell"), "en");
+	for (const why of ["binding", "binding-unread", "foreground"]) {
+		const en = refusalText(op(why), "en"), zh = refusalText(op(why), "zh-TW");
+		assert.notEqual(en, generic, why);
+		assert.notEqual(en, "the server's words", why);
+		assert.match(zh, CJK, why);
+	}
+	assert.equal(new Set(["binding", "binding-unread", "foreground"].map((why) => refusalText(op(why), "en"))).size, 3);
+});

@@ -36,16 +36,22 @@ export async function world(opts: { editor?: Editor | undefined; status?: string
 	const path = join(scratch, `op-${Math.random().toString(36).slice(2)}_sess-1.jsonl`);
 	writeFileSync(path, lines([header(), user("u1", null, "go"), ...(opts.entries ?? [])]));
 	const file = canonical(path)!, calls: [string, Record<string, unknown>][] = [], effects: unknown[][] = [], probes: Probe[] = [];
-	const w = { editor, status, agent: "pi", /** Panes Herdr lists in the squads beside the units' own. */ strangers: [] as { pane_id: string; tab_id: string }[], relayed: false, answerable: false, choices: [{ label: "Allow", hereOnly: true }, { label: "Deny" }, { label: "Open a pane", next: "pane" }, { label: "Put it in my prompt", next: "terminal" }] as { label: string; hereOnly?: boolean; next?: "pane" | "terminal" }[], sent: 0 };
+	const w = { editor, status, agent: "pi", /** Panes Herdr lists in the squads beside the units' own. */ strangers: [] as { pane_id: string; tab_id: string }[], /** What Herdr lists in the pane's foreground (pane.process_info); `undefined` makes the call fail. */ procs: [{ pid: 11, name: "pi", argv0: "pi", cmdline: "pi" }] as { pid: number; name: string; argv0?: string; cmdline?: string }[] | undefined, /** How the pane listing of close/tab goes wrong: Herdr rejects it, or answers with no `panes`. */ listing: "ok" as "ok" | "reject" | "shape", relayed: false, answerable: false, choices: [{ label: "Allow", hereOnly: true }, { label: "Deny" }, { label: "Open a pane", next: "pane" }, { label: "Put it in my prompt", next: "terminal" }] as { label: string; hereOnly?: boolean; next?: "pane" | "terminal" }[], sent: 0 };
 	const call = async (method: string, params: Record<string, unknown>) => {
 		calls.push([method, params]);
 		if (method === "pane.get") return { pane: { pane_id: "wA:p1", agent: w.agent, agent_status: w.status, agent_session: { value: file } } };
+		if (method === "pane.list" && w.listing === "reject") throw new Error("herdr down");
+		if (method === "pane.list" && w.listing === "shape") return {};
 		if (method === "pane.list") return { panes: [{ pane_id: "wA:p1", tab_id: "t1" }, { pane_id: "wA:p1", tab_id: "t3" }, ...w.strangers] };
+		if (method === "pane.process_info") {
+			if (!w.procs) throw new Error("herdr down");
+			return { process_info: { shell_pid: 10, foreground_processes: w.procs } };
+		}
 		if (method === "pane.layout") return { layout: { panes: [{ pane_id: "wA:p1", rect: { width: 40 } }] } };
 		return method === "pane.read" ? { read: { text: "pi\r\n> " } } : {};
 	};
 	const target = (): Target => ({ from: "S", bridgeId: "B", answer: { dialog: "d1", digest: "a".repeat(64), cancel: true, select: { title: "T", choices: w.choices } } }) as Target;
-	const hub = { running: true, me: "G", start() {}, stop() {}, receive() {}, relayed: () => ({ dialogsOf: () => undefined, merge: () => ({ callId: "", tool: "" }) }), has: (_key: string, owner: string) => w.relayed && owner === "straw-link-request", replay: () => undefined, ended: () => undefined, send: async () => (w.sent++, { status: 200, body: { outcome: "accepted" } }), target: () => (w.answerable ? target() : undefined), probe: async (key: string, nonce?: string, flags?: unknown) => (probes.push({ key, nonce, flags }), w.editor), commands: async () => [{ name: "compact", description: "" }], pull: async () => ({ pending: false }) };
+	const hub = { running: true, me: "G", start() {}, stop() {}, receive() {}, relayed: () => ({ dialogsOf: () => undefined, merge: () => ({ callId: "", tool: "" }) }), has: (_key: string, owner: string) => w.relayed && owner === "straw-link-request", replay: () => undefined, ended: () => undefined, send: async () => (w.sent++, { status: 200, body: { outcome: "accepted" } }), target: () => (w.answerable ? target() : undefined), probe: async (key: string, nonce?: string, flags?: unknown) => (probes.push({ key, nonce, flags }), flags === true && w.editor && !("keys" in w.editor) ? { ...w.editor, keys: [] } : w.editor), commands: async () => [{ name: "compact", description: "" }], pull: async () => ({ pending: false }) };
 	const ROLES: Record<string, string> = { "sess-1": "main", "other-1": "main", "head-1": "head", "tower-1": "tower" };
 	const found = (key: string): Found | undefined => (key in ROLES ? { key, base: "wA", name: key, role: ROLES[key]!, file, pane: "wA:p1", live: true } : undefined);
 	const tower = { has: () => true, live: () => false, event: async (...a: unknown[]) => (effects.push(["tower.event", ...a]), { ok: true }), act: async (...a: unknown[]) => (effects.push(["tower.act", ...a]), { ok: true }), conversation: async (...a: unknown[]) => (effects.push(["tower.conversation", ...a]), { ok: true, left: true }), memory: async (...a: unknown[]) => (effects.push(["tower.memory", ...a]), { status: 200, body: {} }), isHead: () => false };
@@ -64,7 +70,7 @@ export async function world(opts: { editor?: Editor | undefined; status?: string
 	const seen: [string, string, unknown][] = [], session = gui.operate.open((id, event, data) => void seen.push([id, event, data]));
 	const wait = async (what: () => boolean) => { for (let i = 0; i < 150 && !what(); i++) await new Promise((r) => setTimeout(r, 20)); if (!what()) throw new Error("timed out"); };
 	/** What reached Herdr apart from reading the pane's state. */
-	const typed = () => calls.filter(([m]) => !["pane.get", "pane.layout", "pane.read", "pane.list"].includes(m));
+	const typed = () => calls.filter(([m]) => !["pane.get", "pane.layout", "pane.read", "pane.list", "pane.process_info"].includes(m));
 	/** The pad's key, as the controller's page would send it (its own stream id, which the box replaces with the session's). */
 	const key = (session_: typeof session, scope: OperateScope, k: string, extra: Record<string, unknown> = {}) => session_.request("POST", ["sessions", "sess-1", "keys"], new URLSearchParams(), { key: k, stream: "page-stream", ...extra }, scope);
 	const attach = async (scope: OperateScope) => {

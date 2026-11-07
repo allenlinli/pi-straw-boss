@@ -41,8 +41,9 @@ export function headAsks(now: number): HeadAskRow[] {
 	const w = words();
 	const chain = CHAIN.flatMap((c, g): HeadAskRow[] => WORKSPACES.slice(0, 3).map(([workspace, label], i) => {
 		const id0 = 21 + g * 3, since = now - c.ago, says = c.says[i]!, answered = says === "answered", sent = w.chain[g]!.sent;
+		// A copy equal to the first tower's is left out, as the server does (src/server/headnet.ts).
 		return {
-			id: `H${id0 + i}`, group: `H${id0}`, workspace, label, since, at: answered ? since + 4 * 60_000 : since, first: sent.split("\n")[0]!, sent: i === 1 ? w.chain[g]!.other : sent,
+			id: `H${id0 + i}`, group: `H${id0}`, workspace, label, since, at: answered ? since + 4 * 60_000 : since, first: sent.split("\n")[0]!, ...(i === 1 ? { sent: w.chain[g]!.other } : i === 0 ? { sent } : {}),
 			state: says, answers: answered ? 1 : 0, ...(answered ? { last: w.chain[g]!.reply } : {}),
 			...(i === 0 ? { boss: w.chain[g]!.boss } : {}), ...(c.over !== undefined ? { supersedes: `H${21 + c.over * 3}` } : {}),
 		};

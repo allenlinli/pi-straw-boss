@@ -53,10 +53,18 @@ const valid = (a: unknown): a is HeadAsk => {
 	const v = a as Partial<HeadAsk> | null;
 	return typeof v === "object" && v !== null && typeof v.id === "string" && /^H\d+$/.test(v.id) && typeof v.workspace === "string" && typeof v.label === "string" && Number.isFinite(v.at) && Number.isFinite(v.last) && typeof v.first === "string" && Array.isArray(v.answers);
 };
+/**
+ * An ask as the file holds it, with each optional field of the cards kept only when it has its type (a hand-edited or damaged file must not reach the page as a number where text is drawn): text for `group`, `sent`, and `boss`,
+ * an `H<n>` for `supersedes`, a finite time for `read` and `acted`. A field of the wrong type is dropped and the ask stays.
+ */
+function clean(a: HeadAsk): HeadAsk {
+	const { group, sent, boss, supersedes, read, acted, closed, ...rest } = a;
+	return { ...rest, ...(typeof group === "string" ? { group } : {}), ...(typeof sent === "string" ? { sent } : {}), ...(typeof boss === "string" ? { boss } : {}), ...(typeof supersedes === "string" && /^H\d+$/.test(supersedes) ? { supersedes } : {}), ...(typeof read === "number" && Number.isFinite(read) ? { read } : {}), ...(typeof acted === "number" && Number.isFinite(acted) ? { acted } : {}), ...(closed === true ? { closed } : {}) };
+}
 function load(slot: Slot): File {
 	try {
 		const f = JSON.parse(readFileSync(fileOf(slot), "utf8")) as Partial<File>;
-		const asks = Array.isArray(f.asks) ? f.asks.filter(valid).map((a) => (typeof a.group === "string" ? a : (({ group: _g, ...rest }) => rest)(a))) : [];
+		const asks = Array.isArray(f.asks) ? f.asks.filter(valid).map(clean) : [];
 		return { next: Number.isInteger(f.next) && f.next! >= 1 ? f.next! : 1 + Math.max(0, ...asks.map((a) => Number(a.id.slice(1)))), asks };
 	} catch {
 		return { next: 1, asks: [] };
@@ -88,13 +96,19 @@ export const readAsks = (slot: Slot, _now: number): HeadAsk[] => load(slot).asks
 /** The asks that are open now, oldest first. */
 export const openAsks = (slot: Slot, now: number): HeadAsk[] => load(slot).asks.filter((a) => isOpen(a, now));
 
+/** Throws for a `supersedes` that is not the id (`H<n>`) of an ask of the file older than the one about to open: the head's forward asks this before it opens a tower for it. */
+function refuseSupersedes(file: File, supersedes: string): void {
+	if (!(/^H\d+$/.test(supersedes) && Number(supersedes.slice(1)) < file.next && file.asks.some((a) => a.id === supersedes))) throw new Error(`supersedes has to be the id (H12) of an earlier ask you sent; ${JSON.stringify(supersedes)} is not one`);
+}
+export const checkSupersedes = (slot: Slot, supersedes: string): void => refuseSupersedes(load(slot), supersedes);
+
 /**
  * Opens an ask for a forward; the 41st open ask closes the oldest open one. `first` is the message: its first line and the whole of it (`sent`) are kept. `boss` is the boss's words (the first ask of a relayed broadcast keeps them),
  * `supersedes` the earlier ask this one corrects: it has to be an `H<n>` of the file and older than this ask, or the call throws and opens nothing.
  */
 export function openAsk(slot: Slot, now: number, d: { workspace: string; label: string; first: string; relay?: string; boss?: string; supersedes?: string }): HeadAsk {
 	const file = load(slot), id = `H${file.next}`;
-	if (d.supersedes !== undefined && !(/^H\d+$/.test(d.supersedes) && Number(d.supersedes.slice(1)) < file.next && file.asks.some((a) => a.id === d.supersedes))) throw new Error(`supersedes has to be the id (H12) of an earlier ask you sent; ${JSON.stringify(d.supersedes)} is not one`);
+	if (d.supersedes !== undefined) refuseSupersedes(file, d.supersedes);
 	const sent = cut(d.first), ask: HeadAsk = { id, workspace: d.workspace, label: d.label, at: now, last: now, first: line(d.first), ...(sent ? { sent } : {}), ...(d.relay ? { relay: d.relay } : {}), ...(d.supersedes ? { supersedes: d.supersedes } : {}), answers: [] };
 	ask.group = groupsOf([...file.asks, ask]).get(id)!;
 	const boss = ask.group === id ? cut(d.boss) : undefined;
@@ -136,6 +150,23 @@ export function noteEvent(slot: Slot, now: number, workspace: string, event: { f
 	try {
 		const id = event?.from?.id === headId(slot) ? fieldsOf(event.text)?.ask : undefined;
 		if (id && /^H\d+$/.test(id)) noteAsk(slot, now, { id, workspace, what });
+	} catch { /* the ask is a convenience of the page */ }
+}
+/** The tools of a tower run that count as acting on the head's message: it sent something, or handed the order to a main. Others (listing, memory, reading the board) are not acts. */
+const ACTS = new Set(["tower_send", "tower_reply", "boss_open_main"]);
+export const isAct = (name: string): boolean => ACTS.has(name);
+/**
+ * What a workspace tower's run did with its tool in the turn an event of the head started (`event`, the event that started the turn): a send or a reply to the head itself is its answer, recorded as its own words (an ask that is no longer
+ * open takes `acted` instead, so the tower is not left waiting); any other send, a reply to someone else, or an order handed to a main is `acted`; anything else is nothing. `{head: true}` answers through the head's own intake, which records it.
+ * Nothing throws: a note must not break the call it is about.
+ */
+export function noteToolCall(slot: Slot, now: number, workspace: string, event: { from?: { id: string }; text: string } | undefined, call: { name: string; args: Record<string, unknown>; details?: unknown }): void {
+	try {
+		if (!isAct(call.name)) return;
+		const to = call.details as { to?: unknown; towerId?: unknown } | undefined, toHead = call.args.head !== true && (to?.to === headId(slot) || to?.towerId === headId(slot));
+		const id = event?.from?.id === headId(slot) ? fieldsOf(event.text)?.ask : undefined;
+		if (!id || !/^H\d+$/.test(id)) return;
+		if (!(toHead && answerAsk(slot, now, { id, workspace, text: typeof call.args.message === "string" ? call.args.message : "" }))) noteAsk(slot, now, { id, workspace, what: "acted" });
 	} catch { /* the ask is a convenience of the page */ }
 }
 /** Closes an ask: the forward it was opened for was not delivered. */

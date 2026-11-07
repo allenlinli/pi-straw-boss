@@ -808,7 +808,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Review fixes of the remote stop (USC-F003) to 7001 (measured, +2 over 6999): quit.ts `choose` (the danger tone, the focus on Cancel).
 	// Z-D22 and the remote stop controller merged on main: 7020 lines (measured). Cap = measured.
 	// Head log cards (todo #124, docs/specs/2026-11-07-head-log-cards.md) 7020 to 7100 (measured, +80): headpage.ts (the card's parts, `sentLine`, the chain of corrections folded under the newest) and demo-head.ts (the chain of the boss's screenshot, in both languages). Cap = measured.
-	assert.ok(page <= 7100, `the page's TypeScript has ${page} lines`);
+	// Head log cards, fix round (review of todo #124) 7100 to 7111 (measured, +11): headpage.ts (`sentLine` takes the quotation marks and the full stop with the copy, the chain's count and title, the handled count) and demo-head.ts (the omitted copy). Cap = measured.
+	assert.ok(page <= 7111, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -972,7 +973,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 		// Remote stop, the controller (todo #100 task 4): 109,036 / 39,349 measured, +1,144 / +284 over the figure above: `MainCard` and `mainCards` with the one message of the pending row (linkmodel.ts), and the `choose` sheet the entry shares with the lazy chunk (quit.ts). The fold's code and words are in the lazy chunks. Cap = measured.
 	// Review fixes of the remote stop (USC-F003): 109,075 / 39,378 measured, +39 / +29 over the figure above: `choose`'s danger tone and its focus on Cancel (quit.ts). Cap = measured.
 	// Head log cards (todo #124): 111,772 / 40,252 measured, +2,697 / +874 over the figure above: headpage.ts (the card's parts, `sentLine`, the chain) and its fourteen messages in two languages. Cap = measured.
-	assert.ok(eagerBytes <= 111_772 && eagerGz <= 40_252, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Head log cards, fix round: 112,072 / 40,457 measured, +300 / +205 over the figure above: `sentLine`'s quotation marks and the chain's count and title. Cap = measured.
+	assert.ok(eagerBytes <= 112_072 && eagerGz <= 40_457, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1135,7 +1137,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Remote stop, the controller (todo #100 task 4): 323,871 / 132,253 measured, +2,717 / +1,144 over the figure above: the Mains fold (allyunits.ts), mainstop.ts, the choose sheet (quit.ts), the demo scenes, and the eight messages in both languages. Cap = measured.
 	// Review fixes of the remote stop (USC-F003): 323,885 / 132,298 measured, +14 / +45 over the figure above: `choose`'s danger tone and its focus on Cancel (quit.ts), the lazy chunks' share. Cap = measured.
 	// Z-D22 and the remote stop controller merged on main: 324,954 / 132,612. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 324_954 && total(chunks, gz) <= 132_612, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Head log cards, fix round: 324,954 / 132,616 measured, +0 / +4 over the figure above (the same bytes compress four bytes worse). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 324_954 && total(chunks, gz) <= 132_616, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1267,7 +1270,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 		// Remote stop, the controller (todo #100 task 4): 167,157 / 33,782 measured, +1,026 / +154 over the figure above: the Mains fold's rows and Stop button, the phone's 44 px line, and the sheet row's wrap. Cap = measured.
 	// Review fixes of the remote stop (USC-F001, F003): 167,304 / 33,812 measured, +147 / +30 over the figure above: the base `.au-stop` as `:where()` and the sheet's `.sheet-danger`. Cap = measured.
 	// Head log cards (todo #124): 168,568 / 34,054 measured, +1,264 / +242 over the figure above: the card's parts, its unfolded texts, the fold of replaced orders, and the struck cards. Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 168_568 && total(css, gz) <= 34_054, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Head log cards, fix round: 168,601 / 34,060 measured, +33 / +6 over the figure above: the label column's one length (`--ask-tag`). Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 168_601 && total(css, gz) <= 34_060, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

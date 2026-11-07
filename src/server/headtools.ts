@@ -11,6 +11,8 @@ export interface HeadPort {
 	/** Opens the ask `H<n>` for a forward; closes it again when the delivery failed. */
 	openAsk(d: { workspace: string; label: string; first: string; relay?: string; boss?: string; supersedes?: string }): { id: string };
 	closeAsk(id: string): void;
+	/** Throws for a `supersedes` that names no earlier ask of the file; asked before a tower is opened for the forward. */
+	checkSupersedes(id: string): void;
 	/** `boss:<event id>` when `turn` names a boss event this run took; the model never says it, the run's extension reports which taken event started the turn and the server checks it. */
 	relay(turn: string | undefined): string | undefined;
 	/** The boss's own words of the boss event `turn` names, for the card of the ask (docs/specs/2026-11-07-head-log-cards.md); read from the queue by the server, never said by the model. */
@@ -55,6 +57,7 @@ async function forward(host: HeadHost, args: Record<string, unknown>, extra: Cal
 	const asked = found[0]!, target = isSub(asked) ? parentOf(net.all, asked) : asked;
 	if (isHead(asked)) throw new Error("That is the head tower's own workspace: it has no tower to forward to");
 	if (!target) throw new Error(`${asked.label} is a sub workspace with no open parent workspace, so it has no tower; ask the boss to open the parent workspace first`);
+	if (supersedes) host.head.checkSupersedes(supersedes);
 	const ensured = await host.head.ensureTower(target.workspace_id);
 	const relay = host.head.relay(extra.turn), boss = relay ? host.head.boss(extra.turn) : undefined, ask = host.head.openAsk({ workspace: target.workspace_id, label: target.label, first: message, ...(relay ? { relay } : {}), ...(boss ? { boss } : {}), ...(supersedes ? { supersedes } : {}) });
 	try {

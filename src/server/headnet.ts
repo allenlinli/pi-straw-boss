@@ -1,7 +1,7 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { type Json, parse, toItem } from "../items.ts";
 import type { HeadAskRow, HeadSeam } from "../nethead.ts";
-import { groupsOf, openAsks, readAsks } from "./headasks.ts";
+import { groupsOf, type HeadAsk, openAsks, readAsks } from "./headasks.ts";
 import { readChapters } from "./headchapters.ts";
 import { headId, type Slot } from "./record.ts";
 
@@ -9,6 +9,11 @@ import { headId, type Slot } from "./record.ts";
 
 /** The most asks the snapshot carries: the newest whole broadcasts (the page folds a group into one row, so a group is never cut). */
 const ASKS = 60;
+/**
+ * The most whole text (`sent` and `boss`, in UTF-16 units) one snapshot carries (docs/specs/2026-11-07-head-log-cards.md, Data): every page and paired phone gets the whole snapshot on every net change, so the cards' texts are bounded as the rows are.
+ * The newest broadcasts take it first, whole; the first one that does not fit and every older one ship without them, and their cards show the first line. A tower's copy of the message that equals the first tower's is not sent twice.
+ */
+export const TEXTS = 24_000;
 /** How far from the end of a conversation file the newest assistant text is looked for. */
 const TAIL = 65_536;
 
@@ -50,9 +55,22 @@ export function headSeam(slot: Slot, now: () => number): HeadSeam {
 				used += sizes.get(g)!;
 				kept.add(g);
 			}
+			// The newest broadcasts' whole texts, while they fit: a copy of the message that equals the broadcast's first is left out (the page falls back to the first's).
+			const byGroup = new Map<string, HeadAsk[]>(), whole = new Set<string>();
+			for (const a of all) byGroup.set(groups.get(a.id)!, [...(byGroup.get(groups.get(a.id)!) ?? []), a]);
+			const cost = (rows: HeadAsk[]) => rows.reduce((n, a, i) => n + (a.boss?.length ?? 0) + (a.sent && (i === 0 || a.sent !== rows[0]!.sent) ? a.sent.length : 0), 0);
+			let spent = 0;
+			for (const g of [...byGroup.keys()].reverse()) {
+				if (!kept.has(g)) continue;
+				const c = cost(byGroup.get(g)!);
+				if (spent + c > TEXTS) break;
+				spent += c;
+				whole.add(g);
+			}
 			return all.filter((a) => kept.has(groups.get(a.id)!)).map((a) => {
-				const replaced = a.supersedes ? groups.get(a.supersedes) ?? a.supersedes : undefined, state: HeadAskRow["state"] = a.answers.length ? "answered" : a.acted !== undefined ? "handled" : a.read !== undefined ? "received" : open.has(a.id) ? "waiting" : "silent";
-				return { id: a.id, group: groups.get(a.id)!, workspace: a.workspace, label: a.label, since: a.at, at: a.last, first: a.first, state, answers: a.answers.length, ...(a.answers.at(-1) ? { last: a.answers.at(-1)!.first } : {}), ...(a.sent ? { sent: a.sent } : {}), ...(a.boss ? { boss: a.boss } : {}), ...(replaced && replaced !== groups.get(a.id) ? { supersedes: replaced } : {}) };
+				const group = groups.get(a.id)!, replaced = a.supersedes ? groups.get(a.supersedes) ?? a.supersedes : undefined, state: HeadAskRow["state"] = a.answers.length ? "answered" : a.acted !== undefined ? "handled" : a.read !== undefined ? "received" : open.has(a.id) ? "waiting" : "silent";
+				const texts = whole.has(group), lead = byGroup.get(group)![0]!;
+				return { id: a.id, group, workspace: a.workspace, label: a.label, since: a.at, at: a.last, first: a.first, state, answers: a.answers.length, ...(a.answers.at(-1) ? { last: a.answers.at(-1)!.first } : {}), ...(texts && a.sent && (a === lead || a.sent !== lead.sent) ? { sent: a.sent } : {}), ...(texts && a.boss ? { boss: a.boss } : {}), ...(replaced && replaced !== group ? { supersedes: replaced } : {}) };
 			});
 		},
 		chapters: () => readChapters(slot),

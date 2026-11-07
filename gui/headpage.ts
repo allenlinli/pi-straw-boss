@@ -67,10 +67,10 @@ export interface AskTower { workspace: string; label: string; state: HeadAskRow[
  * One broadcast as a card (docs/specs/2026-11-07-head-log-cards.md): what the boss said (`boss`, when the server kept it), what the head sent (`sent`, whole; `first` its first line), the towers it went to, when it began and when
  * anything last happened. `supersedes` is the earlier ask or group the head named as the one this corrects; `replaces` the groups of the chain folded under this card, newest first, and `replacedBy` the group that folded this one.
  */
-export interface AskGroup { id: string; first: string; sent: string; boss?: string; towers: AskTower[]; replied: number; since: number; active: number; supersedes?: string; replaces: AskGroup[]; replacedBy?: string }
+export interface AskGroup { id: string; first: string; sent: string; boss?: string; towers: AskTower[]; handled: number; since: number; active: number; supersedes?: string; replaces: AskGroup[]; replacedBy?: string }
 const DAY = 86_400_000, RANK = { answered: 4, handled: 3, received: 2, waiting: 1, silent: 0 } as const;
-/** A tower that answered, or acted on the message and answered someone else, has replied. */
-const replied = (state: HeadAskRow["state"]) => state === "answered" || state === "handled";
+/** A tower that answered, or acted on the message and answered someone else, has handled it (an answer is a handling). */
+const handled = (state: HeadAskRow["state"]) => state === "answered" || state === "handled";
 const num = (id: string) => Number(id.slice(1));
 
 /**
@@ -82,12 +82,12 @@ export function askGroups(asks: HeadAskRow[], now: number, net: Net | undefined)
 	const by = new Map<string, HeadAskRow[]>();
 	for (const a of asks) by.set(a.group ?? a.id, [...(by.get(a.group ?? a.id) ?? []), a]);
 	const groups = [...by].map(([id, rows]): AskGroup => {
-		const list = [...new Set(rows.map((a) => a.workspace))].map((workspace): AskTower => {
-			const mine = rows.filter((a) => a.workspace === workspace), best = mine.reduce((x, y) => (RANK[y.state] > RANK[x.state] ? y : x)), said = mine.filter((a) => a.last).sort((x, y) => y.at - x.at)[0]?.last, key = net?.bases.find((b) => b.id === workspace)?.tower?.key, sent = mine.at(-1)!.sent ?? mine.at(-1)!.first;
+		const lead = rows[0]!, list = [...new Set(rows.map((a) => a.workspace))].map((workspace): AskTower => {
+			const mine = rows.filter((a) => a.workspace === workspace), best = mine.reduce((x, y) => (RANK[y.state] > RANK[x.state] ? y : x)), said = mine.filter((a) => a.last).sort((x, y) => y.at - x.at)[0]?.last, key = net?.bases.find((b) => b.id === workspace)?.tower?.key, sent = mine.at(-1)!.sent ?? lead.sent ?? mine.at(-1)!.first;
 			return { workspace, label: mine.at(-1)!.label, state: best.state, ...(said ? { said } : {}), ...(key ? { route: formatRoute({ view: "session", ws: workspace, key }) } : {}), sent };
 		});
-		const lead = rows[0]!, boss = rows.find((a) => a.boss)?.boss, supersedes = rows.find((a) => a.supersedes && a.supersedes !== id)?.supersedes;
-		return { id, first: lead.first, sent: lead.sent ?? lead.first, ...(boss ? { boss } : {}), towers: list, replied: list.filter((t) => replied(t.state)).length, since: Math.min(...rows.map((a) => a.since)), active: Math.max(...rows.map((a) => a.at)), ...(supersedes ? { supersedes } : {}), replaces: [] };
+		const boss = rows.find((a) => a.boss)?.boss, supersedes = rows.find((a) => a.supersedes && a.supersedes !== id)?.supersedes;
+		return { id, first: lead.first, sent: lead.sent ?? lead.first, ...(boss ? { boss } : {}), towers: list, handled: list.filter((t) => handled(t.state)).length, since: Math.min(...rows.map((a) => a.since)), active: Math.max(...rows.map((a) => a.at)), ...(supersedes ? { supersedes } : {}), replaces: [] };
 	}).sort((a, b) => b.since - a.since);
 	// A named order folds under its newest correction; a name that points at itself, forward, or at an order the snapshot does not hold folds nothing.
 	const byId = new Map(groups.map((g) => [g.id, g]));
@@ -110,24 +110,33 @@ export function askGroups(asks: HeadAskRow[], now: number, net: Net | undefined)
 	const top = groups.filter((g) => !g.replacedBy);
 	return { recent: top.filter((g) => now - g.active < DAY), older: top.filter((g) => now - g.active >= DAY) };
 }
-/** A card's line of when and how many replied: `1h ago · 1/4 replied`. Who it went to is a part of its own. */
+/** A card's line of when and how many towers handled it (answered, or acted and answered someone else): `1h ago · 1/4 handled`. Who it went to is a part of its own. */
 export function groupLine(g: AskGroup, now: number, o?: Opts) {
 	const n = Math.max(0, now - g.since) / 1000, age = n < 60 ? m.age_s({ n: String(Math.floor(n)) }, o) : n < 3600 ? m.age_m({ n: String(Math.floor(n / 60)) }, o) : n < 86_400 ? m.age_h({ n: String(Math.floor(n / 3600)) }, o) : m.age_d({ n: String(Math.floor(n / 86_400)) }, o);
-	return (g.towers.length === 1 ? m.head_group_one : m.head_group)({ age, replied: g.replied, count: g.towers.length }, o);
+	return (g.towers.length === 1 ? m.head_group_one : m.head_group)({ age, handled: g.handled, count: g.towers.length }, o);
 }
+const QUOTES: Record<string, string> = { "「": "」", "『": "』", "“": "”", "\"": "\"", "'": "'", "‘": "’" };
 /**
- * The head's message as the card's one line: its first line with words in it, the boss's own words left out of it when it copies them exactly (they have a part of their own; a paraphrase is the head's words and stays). An ask from before the whole text was kept
- * has its first line. Nothing is made of the boss's words as a pattern.
+ * The head's message as the card's one line: its first line with words in it, the boss's own words left out of it when it copies them exactly (they have a part of their own; a paraphrase is the head's words and stays). When the copy sits
+ * in one pair of quotation marks the pair goes with it, and so does a full stop right after the pair, so no `「…」` or `「」.` is left; a copy with no quotation marks around it is marked `…`. When nothing else is left the whole message is the line,
+ * and so for an ask from before the whole text was kept (its first line). Nothing is made of the boss's words as a pattern: only the characters next to the exact copy are looked at.
  */
 export function sentLine(g: { sent?: string; boss?: string; first: string }): string {
 	if (!g.sent) return g.first;
-	const at = g.boss ? g.sent.indexOf(g.boss) : -1, text = at >= 0 && g.sent.slice(0, at) + g.sent.slice(at + g.boss!.length) ? g.sent.slice(0, at) + "…" + g.sent.slice(at + g.boss!.length) : g.sent;
+	const at = g.boss ? g.sent.indexOf(g.boss) : -1;
+	let text = g.sent;
+	if (at >= 0) {
+		let before = g.sent.slice(0, at), after = g.sent.slice(at + g.boss!.length), mark = "…";
+		const open = before.at(-1);
+		if (open && QUOTES[open] !== undefined && after.startsWith(QUOTES[open]!)) (before = before.slice(0, -1), after = after.slice(1), (mark = ""), /^[.。]/.test(after) && (after = after.slice(1)));
+		if ((before + after).trim()) text = before + mark + after;
+	}
 	return text.split("\n").map((l) => l.replace(/\s+/g, " ").trim()).find(Boolean) ?? g.first;
 }
 const STATE: Record<HeadAskRow["state"], (o?: Opts) => string> = { waiting: (o) => m.head_ask_waiting({}, o), answered: (o) => m.head_ask_answered({}, o), handled: (o) => m.head_ask_handled({}, o), received: (o) => m.head_ask_received({}, o), silent: (o) => m.head_ask_silent({}, o) };
-/** Whether nothing can come of this row: the net has no tower of the workspace and it never replied, so waiting is a word it cannot keep. */
-export const gone = (t: AskTower) => !t.route && !replied(t.state);
-/** A tower's state word; for a workspace the net has no tower of and that never replied, that there is none (muted, no wait). */
+/** Whether nothing can come of this row: the net has no tower of the workspace and it never handled it, so waiting is a word it cannot keep. */
+export const gone = (t: AskTower) => !t.route && !handled(t.state);
+/** A tower's state word; for a workspace the net has no tower of and that never handled it, that there is none (muted, no wait). */
 export const towerState = (t: AskTower, o?: Opts) => (gone(t) ? m.head_ask_no_tower({}, o) : STATE[t.state](o));
 
 const opened = new WeakMap<HTMLElement, Set<string>>();
@@ -151,13 +160,14 @@ export function fillHeadAsks(box: HTMLElement, head: HeadUnit | undefined, net: 
 		...(t.state === "handled" ? [h("p", { class: "ask-note" }, m.head_ask_handled_note())] : []),
 		...(t.sent && t.sent !== g.sent ? [h("p", { class: "ask-sent", "data-tag": m.head_part_sent() }, t.sent)] : []));
 	const group = (g: AskGroup): HTMLElement => {
-		const chain = g.replacedBy ? m.head_replaced_by({ id: g.replacedBy }) : g.supersedes ? m.head_replaces({ id: g.supersedes }) : "";
+		// What the boss reads says how many orders and in which direction; the ids are the tooltip's (and the card's `data-id`).
+		const chain = g.replacedBy ? m.head_replaced_by() : g.supersedes ? m.head_replaces({ count: Math.max(1, g.replaces.length) }) : "", ids = g.replacedBy ?? (g.replaces.length ? g.replaces.map((r) => r.id) : [g.supersedes]).join(", ");
 		const card = h("details", { class: "ask-group", "data-id": g.id, ...(g.replacedBy ? { "data-superseded": "" } : {}) },
 			h("summary", null,
 				...(g.boss ? [part("boss", m.head_part_boss(), g.boss)] : []),
 				part("sent", m.head_part_sent(), sentLine(g)),
 				part("to", m.head_part_to(), g.towers.map((t) => t.label).join(m.head_sep())),
-				h("span", { class: "ask-foot" }, h("span", { class: "ask-meta" }, lines.get(g.id)!), ...(chain ? [h("span", { class: "ask-chain" }, chain)] : []))),
+				h("span", { class: "ask-foot" }, h("span", { class: "ask-meta" }, lines.get(g.id)!), ...(chain ? [h("span", { class: "ask-chain", title: ids }, chain)] : []))),
 			h("div", { class: "ask-full" }, ...(g.boss ? [section("boss", m.head_part_boss(), g.boss)] : []), section("sent", m.head_part_sent(), g.sent)),
 			h("ul", { class: "ask-towers" }, ...g.towers.map(tower(g))),
 			...(g.replaces.length ? [unfold(h("details", { class: "ask-replaced", "data-id": `replaced-${g.id}` }, h("summary", null, m.head_replaced_fold({ count: g.replaces.length })), ...g.replaces.map(group)), `replaced-${g.id}`)] : []));

@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { HEAD_REGISTERED_DESCRIPTION } from "../src/runhead.ts";
-import { answerAsk, closeAsk, noteAsk, openAsk, readAsks } from "../src/server/headasks.ts";
+import { answerAsk, closeAsk, noteAsk, noteToolCall, openAsk, readAsks } from "../src/server/headasks.ts";
+import { headId } from "../src/server/record.ts";
 import { HEAD_TOOLS } from "../src/server/headbrief.ts";
-import { headSeam } from "../src/server/headnet.ts";
+import { headSeam, TEXTS } from "../src/server/headnet.ts";
 import type { Slot } from "../src/server/record.ts";
 import { callControl } from "../src/server/socket.ts";
 import { HEAD_KEY, towerDir } from "../src/server/towerstore.ts";
@@ -18,6 +19,8 @@ import { TowerWorld } from "./tower-world.ts";
 // message or acted on it (and answered someone else, not the head) is no longer "waiting" for ever.
 
 const slotIn = () => ({ dir: mkdtempSync(join(tmpdir(), "psb-hc-")) }) as Slot;
+/** The most bytes the asks of one snapshot take as JSON: the worst case measured by the test below (60 rows, the costliest mix of text; docs/specs/2026-11-07-head-log-cards.md, Data). Before the budget the same rows took about 1.1 MB. */
+const SNAPSHOT_MAX = 190_659;
 const T0 = Date.parse("2026-11-07T06:00:00Z"), MIN = 60_000, HOUR = 3_600_000;
 const send = (slot: Slot, at: number, workspace: string, message: string, extra: { relay?: string; boss?: string; supersedes?: string } = {}) => openAsk(slot, at, { workspace, label: workspace.toUpperCase(), first: message, ...extra });
 
@@ -230,4 +233,178 @@ test("the head is told how to say what a correction replaces: the tool's descrip
 	assert.match(HEAD_REGISTERED_DESCRIPTION, /supersedes/);
 	assert.match(HEAD_TOOLS.join("\n"), /supersedes/);
 	assert.match(readFileSync(new URL("../prompts/head-run.md", import.meta.url), "utf8"), /supersedes/);
+});
+
+// --- the fix round of todo #124 (review report head-log-cards-review.md) ---------------------------------------------------------------------------------------------------------------------------------------
+
+test("HLC-R-F002: a bad `supersedes` is refused before any tower is opened for the forward", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	const head = await world.expose!.head.ensure();
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	await ask(s, { cmd: "tower-event", workspace: head.workspace, text: "go", present: true });
+	const run = await claimed(s, head.workspace);
+	const e = (await ask(s, { cmd: "run-poll", token: run.token, idle: true })).event as { id: string };
+	await ask(s, { cmd: "run-taken", token: run.token, id: e.id });
+	const towersOf = async () => ((await ask(s, { cmd: "status" })).towers as { workspace: string }[]).map((t) => t.workspace).sort();
+	assert.equal((await towersOf()).includes("wB"), false, "wB has no tower yet");
+	for (const bad of ["H1", "H99", "x"]) {
+		const r = await tool(s, run.token, "tower_send", { workspace: "wB", message: "m", supersedes: bad }, { turn: e.id });
+		assert.equal(r.ok, false, bad);
+		assert.match(String(r.error), /supersedes/);
+	}
+	assert.equal((await towersOf()).includes("wB"), false, "a refused forward opened no tower");
+	assert.equal(readAsks(world.slot, Date.now()).length, 0);
+});
+
+test("M14: the boss's words are those of the event that started the turn, not the first boss event of the run", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	const head = await world.expose!.head.ensure();
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	await ask(s, { cmd: "tower-event", workspace: head.workspace, text: "the first thing I said", present: true });
+	await ask(s, { cmd: "tower-event", workspace: head.workspace, text: "the second thing I said", present: true });
+	const run = await claimed(s, head.workspace);
+	const e1 = (await ask(s, { cmd: "run-poll", token: run.token, idle: true })).event as { id: string };
+	await ask(s, { cmd: "run-taken", token: run.token, id: e1.id });
+	assert.equal((await tool(s, run.token, "tower_send", { workspace: "wA", message: "one" }, { turn: e1.id })).ok, true);
+	let e2 = (await ask(s, { cmd: "run-poll", token: run.token, idle: true })).event as { id: string } | undefined;
+	e2 ??= (await ask(s, { cmd: "run-poll", token: run.token, idle: true })).event as { id: string }; // the first poll after the ask opened carries the brief that now lists it
+	assert.notEqual(e2.id, e1.id);
+	await ask(s, { cmd: "run-taken", token: run.token, id: e2.id });
+	assert.equal((await tool(s, run.token, "tower_send", { workspace: "wA", message: "two" }, { turn: e2.id })).ok, true);
+	assert.deepEqual(readAsks(world.slot, Date.now()).map((a) => [a.sent, a.boss]), [["one", "the first thing I said"], ["two", "the second thing I said"]]);
+});
+
+test("M1: an id below the file's `next` that was pruned is not an ask to correct", () => {
+	const slot = slotIn();
+	send(slot, T0, "wA", "a");
+	send(slot, T0 + 1, "wA", "b");
+	const file = join(towerDir(slot, HEAD_KEY), "asks.json"), f = JSON.parse(readFileSync(file, "utf8")) as { next: number; asks: { id: string }[] };
+	writeFileSync(file, JSON.stringify({ ...f, asks: f.asks.slice(1) })); // H1 is gone, next is 3
+	assert.throws(() => send(slot, T0 + 2, "wA", "c", { supersedes: "H1" }), /supersedes/);
+	assert.equal(send(slot, T0 + 3, "wA", "d", { supersedes: "H2" }).supersedes, "H2");
+});
+
+test("M7: a tower that acted has read the message at once: `read` is set by the `acted` note itself", () => {
+	const slot = slotIn();
+	const a = send(slot, T0, "wA", "one");
+	assert.equal(noteAsk(slot, T0 + MIN, { id: a.id, workspace: "wA", what: "acted" }), true);
+	const kept = readAsks(slot, T0)[0]!;
+	assert.deepEqual([kept.read, kept.acted], [T0 + MIN, T0 + MIN]);
+});
+
+test("M19: the kept text is cut by characters, not UTF-16 units: a pair straddling the cut is whole or gone, never half", () => {
+	const slot = slotIn();
+	const text = `${"a".repeat(1499)}😀tail`;
+	const a = send(slot, T0, "wA", text, { relay: "boss:e1", boss: text });
+	for (const kept of [a.sent!, a.boss!]) {
+		assert.equal(Array.from(kept).length, 1500);
+		assert.equal(kept.endsWith("😀"), true, "the pair is whole");
+		assert.doesNotMatch(kept, /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/, "no lone surrogate");
+	}
+});
+
+test("HLC-R-F005: a new field of the wrong type is ignored on read and the ask still draws", () => {
+	const slot = slotIn();
+	send(slot, T0, "wA", "one");
+	send(slot, T0 + 1, "wA", "two");
+	const file = join(towerDir(slot, HEAD_KEY), "asks.json"), f = JSON.parse(readFileSync(file, "utf8")) as { next: number; asks: Record<string, unknown>[] };
+	f.asks[0] = { ...f.asks[0], sent: 5, boss: { x: 1 }, supersedes: "nope", read: "yes", acted: null };
+	f.asks[1] = { ...f.asks[1], sent: "kept", boss: "kept too", supersedes: "H1", read: 5, acted: 6 };
+	writeFileSync(file, JSON.stringify(f));
+	const [bad, good] = readAsks(slot, T0);
+	assert.deepEqual([bad!.id, bad!.sent, bad!.boss, bad!.supersedes, bad!.read, bad!.acted], ["H1", undefined, undefined, undefined, undefined, undefined]);
+	assert.deepEqual([good!.sent, good!.boss, good!.supersedes, good!.read, good!.acted], ["kept", "kept too", "H1", 5, 6]);
+	const rows = headSeam(slot, () => T0 + MIN).asks();
+	assert.deepEqual(rows.map((r) => [r.id, r.sent, r.boss, r.supersedes, r.state]), [["H1", undefined, undefined, undefined, "waiting"], ["H2", "kept", "kept too", "H1", "handled"]]);
+	// a non-finite number is no time either
+	f.asks[1] = { ...f.asks[1], read: "NaN", acted: Infinity };
+	writeFileSync(file, JSON.stringify(f));
+	assert.deepEqual([readAsks(slot, T0)[1]!.read, readAsks(slot, T0)[1]!.acted], [undefined, undefined]);
+});
+
+const taking = async (s: Running, ws: string, label: string, id: string, n = 1) => {
+	world.client(`sb-tower-${ws.toLowerCase()}`)!.incoming({ id: "sb-head", name: "head tower" }, { id: `hm-${id}`, content: { text: `[straw net from="head tower" id=sb-head role=tower head=yes workspace=head kind=tower_send scope=tower to="tower · ${label}" reply=expected ask=${id}] do it` } } as never);
+	const run = await claimed(s, ws, n);
+	const ev = (await ask(s, { cmd: "run-poll", token: run.token, idle: true })).event as { id: string };
+	assert.equal((await ask(s, { cmd: "run-taken", token: run.token, id: ev.id })).ok, true);
+	return { run, ev };
+};
+
+test("HLC-R-F004: a tower's tower_reply to the head answers the ask through the server (it did not answer someone else)", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	await world.expose!.head.ensure();
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	const a = openAsk(world.slot, Date.now(), { workspace: "wA", label: "Alpha", first: "do it" });
+	const state = (id: string) => headSeam(world.slot, () => Date.now()).asks().find((r) => r.id === id)!.state;
+	const one = await taking(s, "wA", "Alpha", a.id);
+	const reply = await tool(s, one.run.token, "tower_reply", { to: "sb-head", message: "landed" }, { turn: one.ev.id });
+	assert.equal(reply.ok, true, JSON.stringify(reply));
+	assert.equal(state(a.id), "answered", "a reply to the head is an answer, not an answer to someone else");
+	assert.equal(readAsks(world.slot, Date.now())[0]!.answers.at(-1)!.first, "landed");
+});
+
+test("HLC-R-F004: which calls of a tower's turn count: a send or reply to anyone but the head, and boss_open_main, are handled; one to the head is an answer; a tool that is not an act is nothing", () => {
+	const slot = slotIn(), head = headId(slot), event = (id: string) => ({ from: { id: head }, text: `[straw net from="head tower" id=${head} role=tower head=yes workspace=head kind=tower_send scope=tower to=x reply=expected ask=${id}] go` });
+	const [a, b, c, d, e, f] = ["wA", "wB", "wC", "wD", "wE", "wF"].map((ws) => send(slot, T0, ws, "go"));
+	const state = (id: string) => headSeam(slot, () => T0 + MIN).asks().find((r) => r.id === id)!.state;
+	noteToolCall(slot, T0 + 1, "wA", event(a!.id), { name: "boss_open_main", args: { request: "x", sender: "y" }, details: { tab: "t1" } });
+	noteToolCall(slot, T0 + 1, "wB", event(b!.id), { name: "tower_reply", args: { to: "main-1", message: "m" }, details: { to: "main-1" } });
+	noteToolCall(slot, T0 + 1, "wC", event(c!.id), { name: "tower_reply", args: { to: head, message: "landed it" }, details: { to: head } });
+	noteToolCall(slot, T0 + 1, "wD", event(d!.id), { name: "tower_list", args: {}, details: {} });
+	noteToolCall(slot, T0 + 1, "wE", event(e!.id), { name: "tower_send", args: { head: true, inReplyTo: e!.id, message: "m" }, details: { to: "head", ask: e!.id } });
+	noteToolCall(slot, T0 + 1, "wF", { from: { id: "main-9" }, text: event(f!.id).text }, { name: "tower_send", args: { message: "m" }, details: {} });
+	assert.deepEqual([a, b, c, d, e, f].map((x) => state(x!.id)), ["handled", "handled", "answered", "waiting", "handled", "waiting"], "wE's answer reaches the head by its own intake, which records it; the head's header from anyone else marks nothing");
+	assert.equal(readAsks(slot, T0).find((x) => x.id === c!.id)!.answers.at(-1)!.first, "landed it");
+	// an ask that is no longer open cannot take an answer: the reply to the head is still an act
+	closeAsk(slot, a!.id);
+	noteToolCall(slot, T0 + 2, "wA", event(a!.id), { name: "tower_reply", args: { to: head, message: "late" }, details: { to: head } });
+	assert.equal(readAsks(slot, T0).find((x) => x.id === a!.id)!.answers.length, 0);
+	assert.equal(state(a!.id), "handled");
+});
+
+test("the snapshot sends one copy of a broadcast's message: a tower's copy equal to the first tower's is left out, a tailored one is kept, and the page's reading falls back to the first's", () => {
+	const slot = slotIn();
+	send(slot, T0, "wA", "same for all", { relay: "boss:e1", boss: "boss words" });
+	send(slot, T0 + 1, "wB", "same for all", { relay: "boss:e1" });
+	send(slot, T0 + 2, "wC", "tailored for C", { relay: "boss:e1" });
+	send(slot, T0 + 3, "wD", "same for all", { relay: "boss:e1" });
+	const rows = headSeam(slot, () => T0 + MIN).asks();
+	assert.deepEqual(rows.map((r) => [r.id, r.sent, r.boss]), [["H1", "same for all", "boss words"], ["H2", undefined, undefined], ["H3", "tailored for C", undefined], ["H4", undefined, undefined]]);
+});
+
+test("the snapshot carries at most TEXTS units of whole text: the newest broadcasts whole while they fit, then the first that does not and every older one without (their cards show the first line)", () => {
+	const slot = slotIn(), big = (c: string) => c.repeat(1500);
+	// one-tower broadcasts of 1,500 + 1,500 units = 3,000 each; ten are 30,000 > TEXTS
+	for (let i = 0; i < 10; i++) send(slot, T0 + i * 5 * MIN, `w${i}`, big(String(i)), { relay: `boss:e${i}`, boss: big("b") });
+	const rows = headSeam(slot, () => T0 + HOUR).asks();
+	assert.deepEqual(rows.filter((r) => r.sent !== undefined).map((r) => r.id), ["H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10"], "the newest eight fit 24,000 exactly; the oldest two are first lines");
+	assert.equal(rows.every((r) => r.first.length > 0), true);
+	assert.equal(rows.filter((r) => r.boss !== undefined).length, 8);
+	assert.equal(rows.reduce((n, r) => n + (r.sent?.length ?? 0) + (r.boss?.length ?? 0), 0) <= TEXTS, true);
+	// an older broadcast that is small does not jump the queue: once one does not fit, the rest are first lines too
+	const slot2 = slotIn();
+	send(slot2, T0, "wA", "small", { relay: "boss:s", boss: "small" });
+	for (let i = 0; i < 9; i++) send(slot2, T0 + (i + 1) * 5 * MIN, `v${i}`, big("x"), { relay: `boss:f${i}`, boss: big("y") });
+	send(slot2, T0 + HOUR, "wZ", "newest small", { relay: "boss:z", boss: "z" });
+	assert.deepEqual(headSeam(slot2, () => T0 + 2 * HOUR).asks().filter((r) => r.sent !== undefined).map((r) => r.id), ["H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11"], "newest first (2 + 7 × 3,000 fit): the two oldest large ones and the small oldest one are cut together");
+});
+
+test("worst case, measured: the asks of one snapshot stay within the bound the spec states, for text that costs the most bytes (escaped control characters), 4-byte emoji, and CJK", () => {
+	const measured: Record<string, number> = {};
+	// "mixed" has the costliest first line and answer too: 120 CJK characters, then 1,379 escaped control characters
+	for (const [kind, text] of [["control", "\u0001".repeat(1500)], ["emoji", "😀".repeat(750)], ["cjk", "字".repeat(1500)], ["mixed", `${"字".repeat(120)}\n${"\u0001".repeat(1379)}`]] as const) {
+		const slot = slotIn();
+		for (let i = 0; i < 100; i++) {
+			const a = send(slot, T0 + i * 1000, `w${i}`, text, { relay: `boss:e${i}`, boss: text });
+			answerAsk(slot, T0 + i * 1000 + 1, { id: a.id, workspace: `w${i}`, text: "字".repeat(120) });
+		}
+		const rows = headSeam(slot, () => T0 + HOUR).asks();
+		assert.equal(rows.length <= 60, true, "the newest broadcasts, as many as the cap allows");
+		assert.equal(rows.reduce((n, r) => n + (r.sent?.length ?? 0) + (r.boss?.length ?? 0), 0) <= TEXTS, true, kind);
+		measured[kind] = Buffer.byteLength(JSON.stringify(rows));
+	}
+	for (const [kind, bytes] of Object.entries(measured)) assert.equal(bytes <= SNAPSHOT_MAX, true, `${kind}: ${bytes}`);
 });

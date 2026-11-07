@@ -1311,17 +1311,17 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 .head-node.absent { opacity: 0.55; border-style: dashed; box-shadow: none; }
 .head-node:hover, .head-node:focus-visible { border-color: color-mix(in srgb, var(--gold) 70%, var(--line)); }
 /* The head page's asks: a card per broadcast, whose closed line is its labelled parts (what the boss said, what the head sent, to whom) and when with how many replied; a tap unfolds the whole texts and each tower's answer; a correction folds the orders it replaced under it; groups quiet for a day fold into "Older" (docs/specs/2026-11-07-head-log-cards.md). */
-.head-asks { display: grid; gap: 6px; margin: 0 0 8px; min-width: 0; }
+.head-asks { --ask-tag: 62px; display: grid; gap: 6px; margin: 0 0 8px; min-width: 0; } /* one length for the label column: the tag's width and the when line's indent (the tag is 11 px and the line 12 px, so `em` would not agree) */
 .ask-group, .ask-older, .ask-replaced { min-width: 0; border: 1px solid var(--line); border-radius: 12px; }
 .ask-older > .ask-group, .ask-replaced > .ask-group { margin: 0 8px 8px; } .ask-replaced { margin: 0 8px 8px; border-style: dashed; }
 .ask-group > summary, .ask-older > summary, .ask-replaced > summary { display: grid; align-content: center; gap: 3px; box-sizing: border-box; min-height: 44px; padding: 6px 12px; font-size: 13px; cursor: pointer; list-style: none; }
 .ask-group > summary::-webkit-details-marker, .ask-older > summary::-webkit-details-marker, .ask-replaced > summary::-webkit-details-marker { display: none; }
 .ask-older > summary, .ask-replaced > summary { color: var(--dim); }
 .ask-part { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.ask-tag { flex: none; width: 5.6em; color: var(--dim); font-size: 11px; font-weight: 600; } .ask-part[data-part="boss"] .ask-tag { color: var(--gold); }
+.ask-tag { flex: none; width: var(--ask-tag); color: var(--dim); font-size: 11px; font-weight: 600; } .ask-part[data-part="boss"] .ask-tag { color: var(--gold); }
 .ask-text { min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; color: var(--text); }
 .ask-part[data-part="to"] .ask-text { -webkit-line-clamp: 1; line-clamp: 1; color: var(--dim); }
-.ask-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; padding-left: calc(5.6em + 8px); font-size: 12px; }
+.ask-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; padding-left: calc(var(--ask-tag) + 8px); font-size: 12px; }
 .ask-meta { color: var(--dim); } .ask-chain { color: var(--accent); }
 .ask-group[data-superseded] { opacity: 0.8; } .ask-group[data-superseded] .ask-text { color: var(--dim); text-decoration: line-through; }
 .ask-full { display: grid; gap: 8px; padding: 8px 12px; border-top: 1px dashed var(--line); }

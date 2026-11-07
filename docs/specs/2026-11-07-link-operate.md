@@ -81,9 +81,9 @@ A new **root-owned** policy field. Section 13 gives the exact shape, and decisio
 1. This device is unattended, and its policy reads as unattended now. A refused or unreadable policy ends every operate session (§5.6).
 2. The sender is a current, attended member of the team the envelope came on.
 3. The sender is at `dispatch` in `trust` now, and `operate` names it with `team` or `box`.
-4. The unit the request names is in the session's scope (§4). For the `team` part, the sender is an admin of the unit's team in the roster now (`holder.isAdmin`). An admin of team X has no reach into team Y's units (g346-F001).
+4. The unit the request names is in the session's scope (§4): the team the session was opened on, or the box part. For the team part, the sender is an admin of that team in the roster now (`holder.isAdmin`). An admin of team X has no reach into team Y's units (g346-F001).
 
-A refusal answers with a reason word (`not-granted`, `not-admin`, `out-of-scope`, `local-only`, `policy`) and is logged (§10). The session itself is admitted at open by checks 1 to 3, and the scope (team set, box part) is computed then. Every request rechecks all four, against the roster and the policy at that moment.
+A refusal answers with a reason word (`not-granted`, `not-admin`, `out-of-scope`, `local-only`, `policy`) and is logged (§10). The session itself is admitted at open by checks 1 to 3, and the scope (the open's team, box part) is computed then. Every request rechecks all four, against the roster and the policy at that moment.
 
 ## 4. Whose unit is it: the operate scope
 
@@ -97,7 +97,7 @@ A unit belongs to a team only through the box's own records of who started it. T
 | The box's tower service, its standing pane, its local and event runs | The box | Not a team's: the tower serves every team bound to the workspace |
 | A worker in a tab of its own, a session opened at the box, anything else | The box | Not attributed (the residual of the shared-box spec, §2) |
 
-- The scope of a session is the set of teams it may reach (those it admins, among the teams the policy names), plus the box's own units when it holds `box`.
+- The scope of a session is the team its `open` came on, when the operator admins it and the policy names it, plus the box's own units when the session holds `box` and asked for them. An admin of two teams has two sessions, one per team (§5.6), each reaching its own team: a team's units and traffic ride only that team's session. A `box` grant's session covers the box's own units plus that one team, so a `box` operator that admins two teams holds two sessions that both show the box's units. The controller (task 6) dedupes a box-own unit that appears in two sessions by its key.
 - The box filters its net down to that set before anything leaves it (§6.2).
 - A unit seen once is written to the ledger with its owner (§9). A finished run keeps the owner it had when it ran, even after its route row or run record ages out.
 
@@ -204,7 +204,7 @@ Peak per operator session (one page with the map, one comms view and one termina
   - **any request whose recheck (§3.2) fails.** The request is refused, and the session closes when the failure is the grant, not the unit.
 
   Unlike the revoker's two-look rule (shared-box spec, row 14), **one** bad read ends operate. Ending a view loses no work, and a session that outlives its grant is the one failure that must not happen.
-- **On the controller.** The holder stopping a team (removal, fork, leave) closes its sessions locally at once.
+- **On the controller.** The holder stopping a team (removal, fork, leave, a team dropped from the config) closes its sessions locally at once.
 - **"At once"** means within the next 2 s poll for a policy edit, and when the roster event arrives for a removal or a role change.
 
 ## 6. The bridge
@@ -409,6 +409,26 @@ Order: R1 can land alone. Task 1 and R2 go together, with the vectors first in t
 - `live()` and `sendLive()` each call `loadTeam`: a synchronous file read and a full roster replay with signature checks, about 0.6 ms for an 8-entry log, on every frame in both directions, at about 10 to 20 envelopes per second per session. Cache the replayed roster per head.
 - `liveChain` has no cap: a stalled relay holds each send for up to `timeoutMs` while a producer that does not await piles up tasks. Pass an `AbortSignal` or a 5 s deadline to `postLive` (a late live frame is worth nothing) and bound the pending sends by the §5.4 budget.
 - The sink must not throw an error that carries content: `operate-sink-failed` logs `String(error)`, and §10 says no text in link.log.
+
+### 11.2 Notes from task 3 (the grant, scope and teardown as built)
+
+**Files.** `src/link/policy.ts` (`operate`, `operateRefused`, `operateIdle`, `createOperateNotes`, `policyStamp`, `watchPolicy`), `src/server/operatescope.ts` (`ownerOf`, `admitOperate`, `checkOperate`, `narrow`, `storeOwnerWorld`), `src/server/operateguard.ts` (`createOperateGuard`), `holder.ts` (`member`, the `onRoster` option), and `service.ts` (the once-only `policy-operate-refused` and `policy-operate-idle` lines).
+
+- **Words and ends.** `admitOperate` and `checkOperate` give exactly the words of §3.2: `policy` (attended, refused, a malformed `operate`, or a team the policy does not name), `not-granted` (not an attended member of the team the session came on, no `operate` entry, below `dispatch`), `not-admin` (nothing to reach; a team that left the reach), `out-of-scope` (a unit of another team, a box unit without the box part, a key nobody owns), `local-only`. `local-only` is the route table's (task 4) to raise: the check takes `localOnly` and answers it last, so a unit out of reach learns nothing from it. A failure of the grant carries `ends` (`policy` or `roster`); a failure of the unit does not, unless the scope is empty then.
+- **Scope.** At the open: the team the open came on when the device is an attended roster admin of it (one session per (box, team), §5.6; review OAR-F003 narrowed it from every team the device admins), and the box part only for a `box` grant that asked for it (`want: box`). A session whose grant is `box` needs no team. Afterwards the scope only narrows: `narrow` drops a team the device no longer admins and the box part once the grant is lowered, and a session with nothing left ends (`roster`, or `policy` when the lowered box part was all it had).
+- **Owner.** `ownerOf` reads: an `ally-<run>` key by its run record (live or finished; a record without a team is the box's); a live ally pane by pane id; a main by the `opened` row and the tab's `sb_opened_by` token, which must name the row's device (the row may find the main by its session id or by the `pane` it kept); a member or subagent by its tab. Any disagreement, two panes of a tab naming two devices, a token that is no device id, a row with no team, or one witness alone: the box's. A key the registry does not know has no owner (`out-of-scope`).
+- **Teardown.** `watchPolicy(onChange)` is `fs.watch` on the file and its folder plus a 2 s poll of `policyStamp` (inode, size, mtime, ctime, owner, group and mode of both, `gone:<code>` for a path that cannot be read); `onChange` runs on any event or changed stamp, and the guard rereads the policy once per sweep. `LinkHolder` calls `onRoster(team)` after the entries are stored (outside its lock), when a team stops (`kill`: the box removed, a fork; `leave`; a team dropped from the config by `refresh`), and for every team when the holder stops. `member(team, device)` answers `{ role, attended }` from the roster now, and nothing for a non-member, a team this holder does not run or has stopped, or a roster that cannot be read: one bad read ends. A hook that throws is logged by the error's name only (`operate-roster-hook-failed`).
+
+**For task 5 (wiring).**
+- Build the guard with `policy: () => readPolicy(policyDeps)`, `member: (t, d) => link.holder.member(t, d)`, `owner: (k) => ownerOf(storeOwnerWorld({...}), k)` (the registry's refs, Herdr's listing and the live ally panes at the moment of the request), and an `end` that sends the `close` (reason `policy` or `roster`), stops the session's watches and mirrors, and writes `operate-close` with `by: box`. The guard writes no `operate-*` line itself except `operate-policy-unreadable` and `operate-end-failed`.
+- Start `watchPolicy(() => guard.onPolicy())` with the box's server and stop it with it; pass `onRoster: (team) => guard.onRoster(team)` in the holder's options. The holder is built before the guard needs to exist: hold the guard in a variable the closure reads.
+- Every `check` rereads the policy and replays the roster (`member` is one `loadTeam` per team it asks about). At the rate of §5.5 that is cheap, but the roster replay is the cost that task 1's note about caching per head applies to as well.
+- The caps of the box list `operate/1` only when the guard exists, as `operate` in the holder's options says.
+- **Bind the request to the session (review OAR-F006).** `guard.check(id, { from, team, unit?, localOnly? })` takes the envelope's sender and team and answers `not-granted` (ending nothing) when they differ from the session's own. The session layer passes them from the verified envelope, never from the inner message, so a member who learned a session id cannot ride another device's grant.
+- **The hook on every holder.** `createLinkService` builds a fresh `LinkHolder` on each gain (service.ts), and `onRoster` is not yet in `ServiceOptions`: add it there and pass it to every holder the service builds. `member` reads the current `link.holder` and answers nothing when there is none.
+- **`end` never waits on `store.withLock`.** `onRoster` runs inside the holder's lock from `kill` (in `takeEntries`) and from `displaced` to `stop`; a queued `sendLive` is fine, a synchronous wait on the lock deadlocks.
+- **Start order.** Start `watchPolicy` before the first `admit`: a change before that is caught only by the next request.
+- **Duplicate ids.** `admit` throws on a session id already in use, and the id is remote-chosen: the session layer catches the throw and answers with a refusal.
 
 ## 12. Open decisions
 

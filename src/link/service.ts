@@ -9,7 +9,7 @@ import type { DeviceKeys } from "./device.ts";
 import { holderAlive, LinkElection } from "./election.ts";
 import { LinkHolder, type HolderOptions, type RelayPort, type SendResult } from "./holder.ts";
 import { createLevelOf } from "./level.ts";
-import { type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
+import { createOperateNotes, type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
 import { RelayClient } from "./relay.ts";
 import type { NetView } from "./routing.ts";
 import { type HolderRecord, LinkStore } from "./store.ts";
@@ -103,6 +103,8 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 	const holderUp = opts.alive ?? holderAlive();
 	const notices: Notice[] = [];
 	let lookError = "", refusedTold = "";
+	/** A malformed `operate` in the policy and the devices it names with no effect, each said once (policy.ts). */
+	const operateNotes = createOperateNotes((entry) => store.log(entry));
 	const sid = () => kit.me();
 	const note = (raw: string, level: "info" | "warning" | "error" = "info") => {
 		const text = restrictNotice(raw);
@@ -183,6 +185,7 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 			return void (await election?.release());
 		}
 		refusedTold = "";
+		operateNotes(found);
 		if (!inUse()) return void (await election?.release());
 		if (!sid()) return;
 		if (!connect()) return;

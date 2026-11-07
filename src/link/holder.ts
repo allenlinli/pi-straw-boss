@@ -14,7 +14,7 @@ import { type AdminRun, type InviteView, type JoinRequestView, type JoinView, ty
 import { Outbox, type QueuedEnvelope } from "./outbox.ts";
 import { Requests } from "./request.ts";
 import type { RelayClient } from "./relay.ts";
-import { decodeEntry, encodeEntry, replayEncoded, type RosterEntry, type RosterState } from "./roster.ts";
+import { decodeEntry, encodeEntry, replayEncoded, type Role, type RosterEntry, type RosterState } from "./roster.ts";
 import { inside, nearestTeams, oneTeamEach, resolveDevice, towersFor, type MemberRef, type NetView } from "./routing.ts";
 import type { Backoff, Sleep } from "./retry.ts";
 import type { Disposition, EnvelopeEvent, LiveEvent, RelayEvent, RosterEvent } from "./sse.ts";
@@ -86,6 +86,11 @@ export interface HolderOptions {
 	dialogAnswer?: (a: DialogAnswerInput) => void | Promise<void>;
 	/** Where a taken `operate` message goes. A build with no sink does not list `operate/1` in its caps and drops what it is sent. */
 	operate?: (message: OperateIn) => void;
+	/**
+	 * Told right after a team's roster changed on this device (entries applied and stored) and when the team stops (the box removed, a fork): the operate guard rechecks its sessions then (docs/specs/2026-11-07-link-operate.md §5.6).
+	 * `member` already answers from the new roster. Called outside the holder's lock, except from a team's stopping; it must not throw, and one that does is logged without its message and ignored.
+	 */
+	onRoster?: (team: string) => void;
 	/** An unattended device: where a `unit-stop` goes once the holder's checks passed (docs/specs/2026-11-07-link-remote-stop.md §4: this device unattended, an attended sender at `dispatch` now, a request no older than 15 minutes, a known mode). The server's checks follow there. */
 	unitStop?: (a: UnitStopInput) => void | Promise<void>;
 }
@@ -278,6 +283,7 @@ export class LinkHolder {
 				const run = me.runs.get(team);
 				me.runs.delete(team);
 				if (run) await me.stopRun(run);
+				me.rosterChanged(team);
 			},
 			notify: (text, level) => o.notify(text, level), log: (entry) => o.store.log(entry),
 		});
@@ -313,6 +319,7 @@ export class LinkHolder {
 		clearInterval(this.timer);
 		const runs = [...this.runs.values()];
 		this.runs.clear();
+		for (const run of runs) this.rosterChanged(run.team);
 		await Promise.all(runs.map((run) => this.stopRun(run)));
 	}
 	private async stopRun(run: TeamRun): Promise<void> {
@@ -356,6 +363,7 @@ export class LinkHolder {
 			if (!config.teams.has(team) || run.dead) {
 				this.runs.delete(team);
 				void this.stopRun(run);
+				if (!run.dead) this.rosterChanged(team);
 			}
 		}
 		for (const team of store.teamIds()) {
@@ -493,6 +501,7 @@ export class LinkHolder {
 		clearInterval(run.presenceTimer);
 		clearTimeout(run.haltTimer);
 		void run.stream?.stop();
+		this.rosterChanged(run.team);
 	}
 
 	// ---- Receiving ---------------------------------------------------------------------------------------------------------------------
@@ -685,6 +694,7 @@ export class LinkHolder {
 	private async takeEntries(run: TeamRun, entries: RosterEntry[]): Promise<void> {
 		const { store } = this.o;
 		const self = this.device!.keys;
+		let applied = false;
 		await store.withLock(() => {
 			if (!this.o.isHolder()) return void this.displaced();
 			const tf = store.readTeam(run.team);
@@ -703,7 +713,17 @@ export class LinkHolder {
 			tf.entries = merged;
 			tf.keys = Object.fromEntries([...replay.value.keys].map(([epoch, key]) => [String(epoch), key.toString("hex")]));
 			store.writeTeam(tf);
+			applied = true;
 		});
+		if (applied) this.rosterChanged(run.team);
+	}
+	/** Tells `o.onRoster` that `team`'s roster changed or the team stopped. A throw is logged by its name only: what a hook threw may carry text of a session. */
+	private rosterChanged(team: string): void {
+		try {
+			this.o.onRoster?.(team);
+		} catch (error) {
+			this.o.store.log({ event: "operate-roster-hook-failed", team, error: (error as Error)?.name ?? "Error" });
+		}
 	}
 
 	// ---- The inbox and the towers ----------------------------------------------------------------------------------------------------
@@ -1125,6 +1145,20 @@ export class LinkHolder {
 			return this.loadTeam(team).state.members.get(device)?.role === "admin";
 		} catch {
 			return false;
+		}
+	}
+	/**
+	 * `device`'s place on `team`'s roster now: its role and whether it is attended; nothing for a device that is not a member, for a team this holder does not run (or has stopped: its roster is no longer trusted), and for a roster
+	 * that cannot be read. The operate check asks this on every request (docs/specs/2026-11-07-link-operate.md §3.2).
+	 */
+	member(team: string, device: string): { role: Role; attended: boolean } | undefined {
+		const run = this.runs.get(team);
+		if (!run || run.dead) return undefined;
+		try {
+			const m = this.loadTeam(team).state.members.get(device);
+			return m && { role: m.role, attended: m.attended };
+		} catch {
+			return undefined;
 		}
 	}
 	/** False while the controller list cannot be trusted to be complete (the holder is not running, or a team's roster could not be read): a caller does not withdraw anything then. */

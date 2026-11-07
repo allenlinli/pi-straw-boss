@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { readLinkConfig } from "../src/link/config.ts";
-import { type PolicyDeps, POLICY_PATH, policyProblem, readEffectiveConfig, readPolicy } from "../src/link/policy.ts";
+import { createOperateNotes, operateIdle, type PolicyDeps, POLICY_PATH, policyProblem, policyStamp, readEffectiveConfig, readPolicy } from "../src/link/policy.ts";
 
 // Trust levels: config.json on an attended device, the policy file on an unattended one, which refuses to run unless that file and its folder are
 // owned by another user and not writable by its own (docs/specs/2026-10-25-straw-link.md, Storage and policy).
@@ -142,4 +142,104 @@ test("readEffectiveConfig: the policy's teams and trust on an unattended device,
 		const re = readEffectiveConfig({ mode: "refused", reason: "x" }, state, dirs);
 		assert.equal(re.teams.size + re.trust.size, 0);
 	});
+});
+
+// ---- operate (docs/specs/2026-11-07-link-operate.md §3.1, §13) ---------------------------------------------------------------------------------------
+
+test("operate maps a device id to team or box; it is optional, and an empty map is fine", () => {
+	const un = (over: Record<string, unknown>) => {
+		const p = readPolicy(fs({ text: file(over) }));
+		assert.equal(p.mode, "unattended");
+		return p.mode === "unattended" ? p : (undefined as never);
+	};
+	assert.deepEqual([...un({}).operate], [], "no operate key: nobody operates");
+	assert.equal(un({}).operateRefused, undefined);
+	assert.deepEqual([...un({ operate: {} }).operate], []);
+	assert.equal(un({ operate: {} }).operateRefused, undefined);
+	const p = un({ operate: { [ctrl]: "box", [other]: "team" } });
+	assert.deepEqual([...p.operate], [[ctrl, "box"], [other, "team"]]);
+	assert.equal(p.operateRefused, undefined);
+});
+
+test("a malformed operate turns operate off for the whole box and leaves the rest of the policy in force: trust and teams still read, the reason is kept", () => {
+	folders((project, dirs) => {
+		const bad: [string, unknown, RegExp][] = [
+			["an unknown value", { [ctrl]: "admin" }, /operate.*"team" or "box"/],
+			["true", { [ctrl]: true }, /operate.*"team" or "box"/],
+			["a level word", { [ctrl]: "dispatch" }, /operate.*"team" or "box"/],
+			["a bad device id", { short: "box" }, /operate.*device id/],
+			["an upper case id", { [ctrl.toUpperCase()]: "box" }, /operate.*device id/],
+			["an array", [ctrl], /operate has to be an object/],
+			["a string", "box", /operate has to be an object/],
+			["null", null, /operate has to be an object/],
+		];
+		for (const [what, operate, reason] of bad) {
+			// One good entry beside the bad one: the whole map is dropped, not just the bad entry.
+			const value = typeof operate === "object" && operate !== null && !Array.isArray(operate) ? { [other]: "box", ...operate } : operate;
+			const p = readPolicy({ ...fs({ text: file({ trust: { [ctrl]: "dispatch" }, teams: { [hex]: { project } }, operate: value }) }), ...dirs });
+			assert.equal(p.mode, "unattended", `${what}: the rest of the policy is not refused`);
+			if (p.mode !== "unattended") continue;
+			assert.equal(p.operate.size, 0, `${what}: operate is off for every device`);
+			assert.match(p.operateRefused ?? "", reason, what);
+			assert.deepEqual([...p.trust], [[ctrl, "dispatch"]], `${what}: trust still reads`);
+			assert.deepEqual([...p.teams.keys()], [hex], `${what}: teams still read`);
+		}
+	});
+});
+
+test("a policy that is refused for its file or its teams carries no operate: only the fail-closed mode exists there", () => {
+	const p = readPolicy(fs({ owner: 501, text: file({ operate: { [ctrl]: "box" } }) }));
+	assert.equal(p.mode, "refused");
+	assert.equal("operate" in p, false);
+});
+
+test("a device in operate that is not at dispatch in trust is listed as having no effect", () => {
+	const p = readPolicy(fs({ text: file({ trust: { [ctrl]: "dispatch", [other]: "forward" }, operate: { [ctrl]: "box", [other]: "team", eeeeeeeeeeeeeeeeeeeeeeeeee: "team" } }) }));
+	assert.equal(p.mode, "unattended");
+	if (p.mode !== "unattended") return;
+	assert.deepEqual(operateIdle(p), [other, "eeeeeeeeeeeeeeeeeeeeeeeeee"]);
+	assert.equal(p.operate.size, 3, "the map is kept as written; the box's check is what ignores them");
+});
+
+test("policyStamp changes when the file is rewritten, loses its owner, or goes; the same file twice reads the same", () => {
+	const dir = mkdtempSync(join(tmpdir(), "psb-link-policy-stamp-"));
+	try {
+		const path = join(dir, "policy.json");
+		assert.match(policyStamp(path), /gone/, "a missing file has a stamp of its own");
+		writeFileSync(path, file());
+		const first = policyStamp(path);
+		assert.equal(policyStamp(path), first);
+		writeFileSync(path, file({ operate: { [ctrl]: "box" } }));
+		assert.notEqual(policyStamp(path), first, "a rewrite with other content (size) changes it");
+		const second = policyStamp(path);
+		chmodSync(path, 0o444);
+		assert.notEqual(policyStamp(path), second, "a mode change counts: the file's own user may now write it, which the check refuses");
+		rmSync(path);
+		assert.match(policyStamp(path), /gone/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("operateNotes says a malformed operate and the devices that have no effect once each, and again when the reason changes or comes back", () => {
+	const logs: Record<string, unknown>[] = [];
+	const notes = createOperateNotes((entry) => void logs.push(entry));
+	const un = (over: Record<string, unknown>) => readPolicy(fs({ text: file(over) }));
+	const bad = un({ operate: { [ctrl]: "root" } });
+	notes(bad);
+	notes(bad);
+	notes(bad);
+	assert.deepEqual(logs.map((l) => l.event), ["policy-operate-refused"]);
+	assert.match(String(logs[0]!.reason), /operate/);
+	notes(un({ operate: { [ctrl]: "box" }, trust: { [ctrl]: "dispatch" } }));
+	notes(bad);
+	assert.equal(logs.filter((l) => l.event === "policy-operate-refused").length, 2, "said again after it was fine");
+	logs.length = 0;
+	const idle = un({ trust: { [ctrl]: "forward" }, operate: { [ctrl]: "team" } });
+	notes(idle);
+	notes(idle);
+	assert.deepEqual(logs.map((l) => [l.event, l.devices]), [["policy-operate-idle", [ctrl]]]);
+	notes({ mode: "attended" });
+	notes({ mode: "refused", reason: "x" });
+	assert.equal(logs.length, 1, "other modes say nothing here (the service says why a policy is refused)");
 });

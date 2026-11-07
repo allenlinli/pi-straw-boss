@@ -2,6 +2,7 @@ import { report, type Session } from "./herdr.ts";
 import { clearOrder, markKids, netTokens } from "./order.ts";
 import { nameOf } from "./reach.ts";
 import type { Kit } from "./state.ts";
+import { trainToken } from "./trainrole.ts";
 
 const REFRESH_MS = 4 * 60_000;
 // What can turn a launched subagent's pane into a pi that is marked: Herdr detecting the agent, or the pane's session file showing up.
@@ -37,7 +38,7 @@ export function createPresence({ cfg, s, me, role }: Kit) {
 			s.ownName = nameOf((known ?? (await s.c.listSessions().catch(() => []))).find((x) => x.id === me())) || s.ownName;
 			// A failed read of Herdr leaves the subagents' tokens as they are; their TTL still runs.
 			const net = await netTokens(run, s.at, sbRole, s.ownName || me().slice(0, 8), Date.now(), world).catch(() => undefined);
-			await report(run, "pane", s.at.paneId, { sb_role: sbRole, ...net?.own, ...(s.openedBy ? { sb_opened_by: s.openedBy } : {}) }).catch(() => {});
+			await report(run, "pane", s.at.paneId, { sb_role: sbRole, ...net?.own, ...(s.openedBy ? { sb_opened_by: s.openedBy } : {}), ...(s.isTrain && s.train ? { sb_train: trainToken(s.train) } : {}) }).catch(() => {});
 			if (net) {
 				s.kids = await markKids(run, net.kids, s.kids, net.joined);
 				written = JSON.stringify(net.kids);
@@ -85,7 +86,7 @@ export function createPresence({ cfg, s, me, role }: Kit) {
 		/** The tokens of this session's pane go: its role, its marks, and the sidebar order of the subagents it marked. */
 		async clear() {
 			written = undefined;
-			await report(run, "pane", s.at.paneId, { sb_role: null, sb_opened_by: null, sb_order: null, sb_mark: null, sb_indent: null, sb_name: null, sb_tab: null, sb_main_tab: null, sb_member_tab: null }).catch(() => {});
+			await report(run, "pane", s.at.paneId, { sb_role: null, sb_opened_by: null, sb_train: null, sb_order: null, sb_mark: null, sb_indent: null, sb_name: null, sb_tab: null, sb_main_tab: null, sb_member_tab: null }).catch(() => {});
 			await clearOrder(run, [...s.kids]);
 		},
 	};

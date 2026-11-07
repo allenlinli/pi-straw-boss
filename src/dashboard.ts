@@ -75,7 +75,7 @@ export async function collect({ run, world = worldOf(run), sessions, workspaceId
 	const joined = live.filter((s) => s.herdrLocation?.workspace?.id === workspaceId).flatMap((s) => {
 		const pane = ps.find((p) => p.pane_id === s.herdrLocation?.paneId);
 		const role = pane?.tokens?.sb_role;
-		return role === "main" || role === "member" ? [{ s, pane, role, tab: s.herdrLocation!.tab! }] : [];
+		return role === "main" || role === "member" || role === "train" ? [{ s, pane, role, tab: s.herdrLocation!.tab! }] : [];
 	});
 	const rows: Row[] = [];
 	for (const group of Object.values(Object.groupBy(joined, (j) => j.tab.id))) {

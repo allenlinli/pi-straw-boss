@@ -12,6 +12,8 @@ import { opener } from "./opener.ts";
 import type { Reach } from "./reach.ts";
 import type { ServerLook } from "./server-look.ts";
 import type { Kit } from "./state.ts";
+import { integrationOff } from "./trainswitch.ts";
+import { ownsBoard, trainLabel } from "./trainrole.ts";
 import { trustDir } from "./trust/files.ts";
 
 /** The tab label for a name, cut at 16 characters as pi-auto-tab-name cuts it, so that extension takes the label as its own and keeps it. */
@@ -108,25 +110,26 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callT
 					const home = cfg.link?.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
 					if (clear) {
 						if (now !== undefined || items !== undefined || auto) throw new Error("clear: true takes no now, items, or auto");
-						if (role() !== "main") throw new Error(NOT_MAIN);
+						if (!ownsBoard(role())) throw new Error(NOT_MAIN);
 						boardFill.clear();
 						return { text: "Board entry cleared. Auto-fill leaves it off until your todo list or your name changes; the towers (and allies' towers) no longer see a line from you.", details: { clear: true } };
 					}
 					if (auto) {
 						if (now !== undefined || items !== undefined) throw new Error("auto: true takes no now or items; the board follows your todo list and your name");
-						if (role() !== "main") throw new Error(NOT_MAIN);
+						if (!ownsBoard(role())) throw new Error(NOT_MAIN);
 						const derived = boardFill.handBack(), where = whereTo({ stateDir: guiDir, cwd, home, agentDir });
 						return { text: derived ? `Board handed back to auto-fill (${derived.text.items.length} item${derived.text.items.length === 1 ? "" : "s"}). It goes to: ${where}; allies get its name and done count only.` : "Board handed back to auto-fill. There is nothing to show yet (no todo list); it fills when you have one.", details: { auto: true, now: derived?.text.now ?? null, items: derived?.text.items.length ?? 0, sharedWith: where } };
 					}
 					if (now === undefined) throw new Error("now is required unless auto or clear is true");
 					s.boardId = me();
-					return setBoard({ dir: join(guiDir, "board"), stateDir: guiDir, session: me(), isMain: role() === "main", now: cfg.now(), cwd, input: { now, items }, home, agentDir, autoFill: true });
+					return setBoard({ dir: join(guiDir, "board"), stateDir: guiDir, session: me(), isMain: ownsBoard(role()), now: cfg.now(), cwd, input: { now, items }, home, agentDir, autoFill: true });
 				});
 			// The session's name is what the net and the GUI show for it. A main agent names its tab too: the tab is its squad, and pi-auto-tab-name
 			// leaves a tab alone once anyone else labelled it. A tower keeps its own name.
 			if (!s.isTower) tool("boss_rename", "Name this session with a short phrase for the work it is doing now, at most 16 characters (e.g. \"MP-3584 cost mask\", \"重構通知模組\"). The net and the GUI show it, and a main agent's Herdr tab takes it as its label.",
 				Type.Object({ name: Type.String({ description: "The phrase: what this session works on now, at most 16 characters so the tab label shows it whole." }) }),
 				async ({ name }) => {
+					if (s.isTrain) throw new Error(`A train is named by its code (${s.ownName || pi.getSessionName()}) and keeps it`);
 					const phrase = name.replace(/\s+/g, " ").trim();
 					if (!phrase) throw new Error("The name is empty");
 					if (Array.from(phrase).length > 40) throw new Error(`The name has ${Array.from(phrase).length} characters; keep it a short phrase (at most 16 fit the tab)`);
@@ -150,16 +153,19 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callT
 		// Tower only. The tower runs no commands: this is its one way to start work, in a new tab of its own workspace.
 		addOpenMain() {
 			// The request reaches the new main under a header, and names the tower the main reports to as well as the sender.
-			const open = opener({ run: cfg.run, sleep: cfg.sleep, workspaceId: s.at.workspaceId, cwd: process.cwd(), sessions: () => s.c.listSessions(), send: (to, message) => post(to, message, "handoff", "main", true), tower: () => ({ id: me(), name: s.ownName || me() }), trustDir: trustDir(guiDir) });
+			const open = opener({ run: cfg.run, sleep: cfg.sleep, workspaceId: s.at.workspaceId, cwd: process.cwd(), sessions: () => s.c.listSessions(), send: (to, message) => post(to, message, "handoff", "main", true), tower: () => ({ id: me(), name: s.ownName || me() }), trustDir: trustDir(guiDir), integrationOff: () => integrationOff(cfg.env, guiDir) });
 			tool("boss_open_main", "Open a new tab in this workspace with a new pi as its main agent and hand it a request that no session owns. Does not ask the boss and does not take focus. Opens at most one main per request; when it fails, tell the sender. The main reports its outcome to the sender and to you; close it with boss_close_main after its done report.",
 				Type.Object({
 					request: Type.String({ description: "The sender's request exactly as it reached you, with every boss decision it quotes kept verbatim." }),
 					sender: Type.String({ description: "The intercom name or session id of the session that made the request; the new main reports back to it. For a request from a teammate's device (an ally run): the message header's id= value as it stands (it reads link:<device id>)." }),
-					label: Type.Optional(Type.String({ description: "A short label for the new tab." })),
+					label: Type.Optional(Type.String({ description: "A short label for the new tab. A train's tab is named by its code whatever label is given." })),
+					role: Type.Optional(Type.Literal("train", { description: "\"train\": open a train on an integrator's manifest (the request, verbatim: it must carry project: and code:) in a tab of its own. A train counts against the project's maxTrains, not against the two mains, and has no per-sender limit. Omit it for a main." })),
 				}),
 				async (input) => {
 					const opened = await open(input);
-					const text = opened.repeated ? `A main was already opened for this request (tab ${opened.tab}); nothing new opened.` : `Opened tab ${opened.tab} with a main agent (session ${opened.main}) and handed it the request. It reports to ${opened.sender} and to you.`;
+					const text = opened.train
+						? opened.repeated ? `A train was already opened for this request (tab ${opened.tab}); nothing new opened.` : `Opened tab ${opened.tab} with ${trainLabel(opened.train.code)} (session ${opened.main}) and handed it the manifest. It reports to you; close it with boss_close_main after its milestone report.`
+						: opened.repeated ? `A main was already opened for this request (tab ${opened.tab}); nothing new opened.` : `Opened tab ${opened.tab} with a main agent (session ${opened.main}) and handed it the request. It reports to ${opened.sender} and to you.`;
 					return { text, details: opened };
 				});
 		},

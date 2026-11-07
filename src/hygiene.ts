@@ -108,7 +108,9 @@ export function createHygiene(deps: HygieneDeps = {}) {
 	});
 	const track = (done: Promise<unknown>) => (deps.track?.(done), done);
 	const subagentId = env.PI_SUBAGENT_ID?.trim() || undefined;
-	const id = ownerId(pid, subagentId);
+	// A train (docs/specs/2026-11-07-train-workers.md §3.3) registers as an owner as a worker does, so what its gates leave dies with it: its tab's shell carries the role the tower opened it with.
+	const isTrain = !subagentId && env.STRAW_BOSS_ROLE === "train";
+	const id = ownerId(pid, subagentId ?? (isTrain ? "train" : undefined));
 	/** Nothing of this runs on Windows, nor in a standing tower run (a run of the sb server, which has its own pane and rules). */
 	const inert = () => platform === "win32" || inStandingRun(argv);
 
@@ -223,7 +225,7 @@ export function createHygiene(deps: HygieneDeps = {}) {
 			// The terminal of the pane is asked of Herdr once per session start: a server that is not running leaves the hello to be repeated at every beat.
 			self.terminal ??= pane ? terminalOf(pane).catch(() => undefined) : Promise.resolve(undefined);
 			const terminal = await self.terminal;
-			const reply = await call({ cmd: "procs-hello", pid, id, ...(started ? { started } : {}), ...(subagentId ? { subagentId } : {}), ...(self.file ? { sessionFile: self.file } : {}), ...(pane ? { pane } : {}), ...(terminal ? { terminal } : {}), cwd: self.cwd });
+			const reply = await call({ cmd: "procs-hello", pid, id, ...(started ? { started } : {}), ...(subagentId ? { subagentId } : {}), ...(isTrain ? { role: "train" } : {}), ...(self.file ? { sessionFile: self.file } : {}), ...(pane ? { pane } : {}), ...(terminal ? { terminal } : {}), cwd: self.cwd });
 			if (reply?.ok) return void (registered = true);
 			registered = false;
 			// The server turned this pi down (an id in use, a pid it does not know): that does not change on its own, so it is said once and not asked again. No server, a restarting one, or any other failed reply is tried again at the next beat.
@@ -237,7 +239,7 @@ export function createHygiene(deps: HygieneDeps = {}) {
 				if (env[OWNER_KEY] === id) delete env[OWNER_KEY];
 				return;
 			}
-			if (!subagentId) return;
+			if (!subagentId && !isTrain) return;
 			const pane = env.HERDR_PANE_ID, self: Self = { cwd: ctx.cwd, notify };
 			try { self.file = ctx.sessionManager?.getSessionFile?.(); } catch { /* no session file */ }
 			refused = false;
@@ -249,7 +251,7 @@ export function createHygiene(deps: HygieneDeps = {}) {
 			stop?.();
 			stop = undefined;
 			// A reload or a switch of session keeps this process (and its children) alive: only a quit is the worker's end.
-			if (event.reason === "quit" && subagentId && registered && !inert()) await track(call({ cmd: "procs-bye", id }).catch(() => undefined));
+			if (event.reason === "quit" && (subagentId || isTrain) && registered && !inert()) await track(call({ cmd: "procs-bye", id }).catch(() => undefined));
 			registered = false;
 		});
 

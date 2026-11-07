@@ -149,9 +149,10 @@ export function forAllies(e: { now: string; items: BoardItem[]; src: Src; count?
 /** The id an entry has on the wire: the first 8 bytes of sha256(device id ‖ session id), hex. No local session id leaves the computer. */
 export const wireId = (device: string, session: string): string => createHash("sha256").update(device).update(session).digest().subarray(0, 8).toString("hex");
 
-/** A live main as the join needs it (the net reading `tower_list` already does). */
-export interface LiveMain { session: string; name: string; workspaceId: string; workspace: string; tab: string; state: string; cwd?: string; /** It commands work (a subagent of it runs): its entry is not stale. */ commanding?: boolean }
+/** A live main as the join needs it (the net reading `tower_list` already does). `role`: "train" for a train, whose line fills from its todos as a main's does. */
+export interface LiveMain { role?: "train"; session: string; name: string; workspaceId: string; workspace: string; tab: string; state: string; cwd?: string; /** It commands work (a subagent of it runs): its entry is not stale. */ commanding?: boolean }
 export interface LocalRow {
+	role?: "train";
 	session: string;
 	workspaceId?: string;
 	workspace: string;
@@ -179,7 +180,7 @@ export function joinLocal(entries: Entry[], mains: LiveMain[], now: number): Loc
 	const live = mains.map((m): LocalRow => {
 		const found = byId.get(m.session), e = found && finished(found) && now - found.updated > ENDED_MS ? undefined : found;
 		return {
-			session: m.session, workspaceId: m.workspaceId, workspace: m.workspace, tab: m.tab, main: m.name, state: m.state, items: e?.items ?? [],
+			session: m.session, ...(m.role ? { role: m.role } : {}), workspaceId: m.workspaceId, workspace: m.workspace, tab: m.tab, main: m.name, state: m.state, items: e?.items ?? [],
 			...(e ? { now: e.now, src: e.src, ...(e.count ? { count: e.count } : {}), ...(e.who ? { who: e.who } : {}), updatedSecondsAgo: Math.max(0, Math.round((now - e.updated) / 1000)), ...(m.state === "idle" && !m.commanding && now - e.updated > STALE_MS ? { stale: true as const } : {}) } : {}), ...(m.cwd ? { cwd: m.cwd } : {}),
 		};
 	});

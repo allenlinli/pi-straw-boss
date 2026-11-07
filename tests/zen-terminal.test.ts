@@ -73,7 +73,7 @@ function rig() {
 			return () => void (timers.includes(e) && timers.splice(timers.indexOf(e), 1));
 		},
 	};
-	const mounts = { ...real, composer: ((root: El) => (root.replaceChildren(new El("textarea")), { box: new El("textarea"), update() {} })) as never, chat: async () => () => ({ apply() {}, setLive() {}, reveal() {} }) as never };
+	const mounts = { ...real, composer: ((root: El) => (root.replaceChildren(new El("textarea")), { box: new El("textarea"), update() {} })) as never, chat: async () => () => ({ apply() {}, setLive() {}, reveal() {}, box() {} }) as never };
 	const root = new El("section");
 	page.body.replaceChildren(root);
 	[page.focused, page.hidden, page.focus] = [undefined, false, true];

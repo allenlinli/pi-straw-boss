@@ -15,6 +15,8 @@
 .pbs-confirm button:focus-visible { outline: 2px solid var(--pbs-accent); outline-offset: 2px; }
 /* A block whose answer is on its way is locked in every drawing of it: dimmed, and it takes no tap or key (the attribute is `inert`). */
 .pbs-block[inert] { opacity: 0.6; }
+/* A block of a unit whose box takes no input (a remote base unreachable or ended) is off the same way, but its note stays in full: that is where the reason is. */
+.pbs-block[data-away] > [inert] { opacity: 0.6; }
 .pbs-note[data-tone="error"] { color: var(--err-soft); }
 /* A block that did not parse shows its source, set apart from the prose and from real code. */
 .md .pbs-invalid { border-style: dashed; }

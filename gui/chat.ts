@@ -8,6 +8,7 @@ import { h, replay } from "./dom.ts";
 import { createFollow, reach } from "./follow.ts";
 import { readAnswered } from "./answered.ts";
 import { deliverToUnit } from "./blockanswer.ts";
+import type { Away } from "./blocks.ts";
 import { mdBody } from "./mdbody.ts";
 import { post } from "./post.ts";
 import type { Post } from "./composer.ts";
@@ -86,9 +87,9 @@ export interface HistoryEvent { key: string; state?: string; successor?: string;
 export interface Data { older(before: string): Promise<Page>; latest(): Promise<Page>; entry(id: string): Promise<Item | undefined>; pic?(id: string, n: number): string; post?: Post }
 export interface Who extends Shelf { key: string; name: string; role: string; mark: Mark; /** The head tower (its words are named for it). */ head?: boolean; note?: string; control?: boolean; agent?: "claude" | "codex"; ended?: boolean; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; service?: TowerService }
 /** `docFor` opens the document a show_doc path names while its session lists it (doc.ts), or is undefined. */
-export interface ChatDeps { who(): Who; link(name: string): HTMLAnchorElement | undefined; docFor?(path: string): (() => void) | undefined; /** The session route's log: for the head it shows the words only (docs/specs/2026-11-06-head-page-minimal.md). Zen's companion log leaves it out and shows the head's cards as before. */ page?: boolean }
+export interface ChatDeps { who(): Who; link(name: string): HTMLAnchorElement | undefined; docFor?(path: string): (() => void) | undefined; /** The session route's log: for the head it shows the words only (docs/specs/2026-11-06-head-page-minimal.md). Zen's companion log leaves it out and shows the head's cards as before. */ page?: boolean; /** Whether the unit is a remote base's and its box takes no input now (unreachable or ended): its blocks cannot be submitted, with box_answer_blocked shown. Read at every answer and at `box()`. Without it the unit is local. */ away?(): boolean }
 /** `reveal` opens the log at an entry (scrolled into view and lit), or with none at the newest entry. `log` is the scrolling log, a focus target. `docs` shows Open beside on the show_doc cards whose document is listed now. */
-export interface Chat { apply(event: HistoryEvent): void; reveal(at?: string): void; docs(): void; /** The boss conversation's runs (src/server/runs.ts `LocalRunRow`): a divider opens each in the log, with how it ended once it has. */ runs(rows: ConversationRun[]): void; log: HTMLElement }
+export interface Chat { apply(event: HistoryEvent): void; reveal(at?: string): void; docs(): void; /** The unit's box may have come or gone (`ChatDeps.away`): the blocks drawn read it again. */ box(): void; /** The boss conversation's runs (src/server/runs.ts `LocalRunRow`): a divider opens each in the log, with how it ended once it has. */ runs(rows: ConversationRun[]): void; log: HTMLElement }
 export type ConversationRun = NonNullable<TowerService["localRuns"]>[number];
 
 /** Who an assistant message is from, as its header says: the unit's role, since the page header already names the session. */
@@ -117,7 +118,7 @@ function plain(text: string) {
 	return [...out, text.slice(at)];
 }
 
-export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, page }: ChatDeps): Chat {
+export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, page, away }: ChatDeps): Chat {
 	const model = createChat(), els = new Map<string, HTMLElement>(), opens = new Set<{ paths: string[]; button: HTMLButtonElement; shown?: boolean }>(); // a card the log dropped leaves it
 	const docs = () => opens.forEach((o) => (o.button.isConnected ? ((o.shown = true), (o.button.hidden = !o.paths.some((p) => docFor?.(p)))) : o.shown && opens.delete(o)));
 	const list = h("div", { class: "chat-list" }), top = h("div", { class: "chat-top" }), foot = h("div", { class: "chat-end" }), pill = h("button", { class: "chat-pill", type: "button", hidden: "" }), empty = h("p", { class: "chat-empty" }, m.no_transmissions());
@@ -199,10 +200,13 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 		if (t.kind === "intercom") return intercomLabel(t.from);
 		return [t.kind === "server" ? m.notice_server() : m.notice_timer()];
 	};
+	// The blocks drawn, told when the box comes or goes (`box()`); weakly, so a block the log dropped is forgotten.
+	const blocks = new Set<WeakRef<{ refresh(): void }>>(), sweep = () => blocks.forEach((ref) => ref.deref() || blocks.delete(ref));
+	const gate: Away | undefined = away && { why: () => (away() ? m.box_answer_blocked() : undefined), watch: (v) => (blocks.size >= 256 && sweep(), void blocks.add(new WeakRef(v))) };
 	/** An agent message's text: its blocks are pi-better-show's elements, compact, and an answer from one is the boss's message to this unit through the composer's route (blockanswer.ts), locked per session, entry, and block. */
 	const textOf = (id: string, text: string) => {
 		const key = who().key, route = (b: Record<string, unknown>) => (data.post ? data.post("input", b) : post(`sessions/${encodeURIComponent(key)}/input`, b));
-		return mdBody(text, "md", { density: "compact", doc: `chat:${id}`, scope: [key, id], ready: () => readAnswered(key), send: (answer, said) => deliverToUnit(route, { entry: id, index: answer.ref!.block, fields: answer.fields })(said) });
+		return mdBody(text, "md", { density: "compact", doc: `chat:${id}`, scope: [key, id], ready: () => readAnswered(key), ...(gate ? { away: gate } : {}), send: (answer, said) => deliverToUnit(route, { entry: id, index: answer.ref!.block, fields: answer.fields })(said) });
 	};
 	/** Whether the log being drawn is the head's own page (not Zen's log, not another tower's). */
 	const bare = () => page === true && who().head === true;
@@ -328,6 +332,11 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 	return {
 		log: scroller,
 		docs,
+		box: () => blocks.forEach((ref) => {
+			const view = ref.deref();
+			if (view) view.refresh();
+			else blocks.delete(ref);
+		}),
 		runs(rows) {
 			if (JSON.stringify(rows) === JSON.stringify(convRuns)) return;
 			convRuns = rows;

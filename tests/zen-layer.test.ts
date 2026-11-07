@@ -34,7 +34,7 @@ const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found:
 function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; /** The companion the visit starts with: the tower `t` unless given; null for none. */ start?: With | null; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean; candidates?: (n: Net | undefined) => { key: string; ws: string }[] } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
-	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], settings: 0, composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[], debug: [] as string[] };
+	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], settings: 0, composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[], debug: [] as string[], chats: [] as { away(): boolean }[], boxes: 0 };
 	const replies: ((r: Answer) => void)[] = [];
 	let netNow: Net | undefined;
 	const items: Item[] = [{ id: "a1", kind: "assistant", text: "I need a decision." } as Item];
@@ -47,7 +47,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 			calls.composers.push(c);
 			return { box, update: (u: unknown) => c.updates.push(u) };
 		}) as never,
-		chat: async () => (root: El, _data: unknown, _deps: unknown) => (calls.logs.push("mounted"), { apply: (e: HistoryEvent) => calls.applied.push(e), setLive() {}, reveal() {} } as unknown as Chat),
+		chat: async () => (root: El, _data: unknown, deps: unknown) => (calls.logs.push("mounted"), calls.chats.push(deps as { away(): boolean }), { apply: (e: HistoryEvent) => calls.applied.push(e), setLive() {}, reveal() {}, box: () => void calls.boxes++ } as unknown as Chat),
 	};
 	const deps = {
 		debug: (line: string) => void calls.debug.push(line),
@@ -3311,4 +3311,42 @@ test("a box going unreachable turns a card that was answerable off at the next s
 	await r.settle();
 	assert.ok(radios().every((x) => !x.disabled), "and back");
 	assert.ok(!r.text().includes(m.box_answer_blocked()));
+});
+
+test("R-F001: the companion's log of a unit on an unreachable or ended remote base is told its box is away, a live box and a local base are not, and every snapshot has the log read the box again", async () => {
+	for (const [state, off] of [["unreachable", true], ["ended", true], ["live", false], [undefined, false]] as const) {
+		const r = rig({ start: { key: "m", ws: "w" } });
+		const base = net([unit("m", "working")]);
+		r.feed(state ? onBox(base, state) : base);
+		r.z.show();
+		await r.settle();
+		const chat = r.calls.chats.at(-1);
+		assert.ok(chat, `${state}: the log is mounted`);
+		assert.equal(chat.away(), off, String(state));
+		const before = r.calls.boxes;
+		r.feed(state ? onBox(base, state === "live" ? "unreachable" : "live") : base);
+		await r.settle();
+		assert.ok(r.calls.boxes > before, `${state}: the next snapshot has the blocks read the box again`);
+	}
+});
+
+test("R-F001: the context expanded on a card (Zen's history of the unit) is told its box is away as well, and reads the box again at the next snapshot", async () => {
+	for (const [state, off] of [["unreachable", true], ["live", false]] as const) {
+		const r = rig();
+		const base = net([unit("a", "waiting", { name: "ops-main", since: 5, pending: select({ cancel: true }) })]);
+		r.feed(onBox(base, state));
+		r.z.show();
+		await r.settle();
+		r.z.key("talk");
+		await r.settle();
+		r.z.key("history");
+		await r.settle();
+		const chat = r.calls.chats.at(-1);
+		assert.ok(chat, `${state}: the context is mounted`);
+		assert.equal(chat.away(), off, state);
+		const before = r.calls.boxes;
+		r.feed(onBox(base, state === "live" ? "unreachable" : "live"));
+		await r.settle();
+		assert.ok(r.calls.boxes > before, state);
+	}
 });

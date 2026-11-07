@@ -54,7 +54,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 			return sub && linkTo({ view: "session", ws: locate(scene.net, sub.key)?.base.id ?? wsOf(scene), key: sub.key }, name);
 		};
 		const opener = (path: string, card = docFor(locate(scene.net, key)?.u.docs, scene.info?.header?.cwd, path)) => card && (() => openTile(docTile(who().name, card)));
-		chat = mountChat(view.querySelector(".chat-root")!, data(key), { who, link, docFor: opener, page: true });
+		chat = mountChat(view.querySelector(".chat-root")!, data(key), { who, link, docFor: opener, page: true, away: () => !can(locate(scene.net, key)?.base, "input") });
 		const send = answerPost(key, () => data(key).post);
 		[composer, asker] = [mountComposer(view.querySelector(".composer-root")!, key, send), mountAnswer(view.querySelector(".ask-root")!, { key, post: send, show: () => setMode("term") })];
 		mountQueueEdit(view, () => composer?.takeQueue() ?? Promise.resolve());
@@ -119,6 +119,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 			const isHead = hit?.base.id === HEAD_KEY, headUnit = isHead ? scene.net?.head : undefined;
 			view.querySelector<HTMLElement>(".modes")?.toggleAttribute("hidden", !u?.control || headUnit?.state === "absent"); // the head has no terminal before it exists
 			chat?.docs();
+			chat?.box();
 			chat?.runs((u?.service?.localRuns ?? []).filter((r) => r.kind === "conversation"));
 			const head = view.querySelector<HTMLElement>(".comms-head");
 			if (head) {

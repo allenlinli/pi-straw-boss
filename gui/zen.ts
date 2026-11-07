@@ -139,7 +139,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	function makeCard(a: Alert): Card {
 		const trust = a.trust, key = unitOf(a), said = h("p", { class: "zen-said" }), out = h("p", { class: "zen-out", role: "status" });
 		const slot = h("div", { class: "zen-answer" }), skip = h("button", { type: "button", class: "cmp-alt zen-skip" }, m.zen_not_now());
-		const unit = unitOf(a), hist = trust || a.wait || a.card ? undefined : mountHistory({ key: unit, chat: mounts.chat, data: deps.data, who: () => locate(net, unit)?.u ?? { key: unit, name: a.name, role: a.role, mark: a.mark }, watch: deps.watch, changed: () => sync() });
+		const unit = unitOf(a), hist = trust || a.wait || a.card ? undefined : mountHistory({ key: unit, chat: mounts.chat, data: deps.data, who: () => locate(net, unit)?.u ?? { key: unit, name: a.name, role: a.role, mark: a.mark }, away: () => !can(locate(net, unit)?.base, "input"), watch: deps.watch, changed: () => sync() });
 		const ctx = h("button", { type: "button", class: "cmp-link zen-history-btn", "aria-keyshortcuts": "H", "aria-expanded": "false", "aria-controls": hist?.el.getAttribute("id") ?? "" }, m.zen_history());
 		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, titleOf(a)), a.wait || a.card ? null : h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, hist?.el, h("div", { class: "zen-acts" }, hist && ctx, skip), out);
 		const el = h("section", { class: "zen-card", tabindex: "-1" }, inner);
@@ -312,7 +312,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		deps.watch(c.key);
 		void mounts.chat().then((mountChat) => {
 			if (mine !== turn) return;
-			co.chat = mountChat(logRoot, deps.data(c.key), { who: () => locate(net, c.key)?.u ?? { key: c.key, name: c.key, role: "member", mark: "unknown" }, link: () => undefined }), histOpen && quietForwards(logRoot);
+			co.chat = mountChat(logRoot, deps.data(c.key), { who: () => locate(net, c.key)?.u ?? { key: c.key, name: c.key, role: "member", mark: "unknown" }, link: () => undefined, away: () => !can(locate(net, c.key)?.base, "input") }), histOpen && quietForwards(logRoot);
 			co.chat.reveal();
 			co.queue.splice(0).forEach((e) => co.chat?.apply(e));
 			if (!co.seen) {
@@ -426,6 +426,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			[unitAlerts, net] = [next, whole];
 			alerts = withCards();
 			term.follow(whole);
+			card?.hist?.box();
+			company?.chat?.box(); // the blocks in the logs read the box again
 			if (active) apply(model.update(alerts));
 			explain(alerts);
 		},

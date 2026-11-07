@@ -356,3 +356,82 @@ test("BSR-F001: the step's controls are 44 px tall on touch, in the block's own 
 	const css = readFileSync(new URL("../gui/pbs.css", import.meta.url), "utf8");
 	assert.match(css, /@media \(pointer: coarse\), \(max-width: 640px\) \{[^@]*\.pbs-confirm button \{ min-height: 44px; min-width: 44px; \}/);
 });
+
+// A block of a unit on a remote base whose box takes no input (unreachable or ended): the host says so (`away`), and the block cannot be submitted (todo #121 task 7 fix round 4, R-F001).
+const away = (reason?: string) => {
+	const views = new Set<{ refresh(): void }>();
+	const a = { reason, why: () => a.reason, watch: (v: { refresh(): void }) => void views.add(v), set(next?: string) { a.reason = next; views.forEach((v) => v.refresh()); } };
+	return a;
+};
+const noteOf = (into: El) => into.find((e) => e.getAttribute("class") === "pbs-note")[0]!.textContent;
+
+test("R-F001: an open block of a unit whose box takes no input is off with the reason under it, posts nothing when its answer arrives, and follows the box back", async () => {
+	const sent: string[] = [];
+	const gate = away("This machine cannot be reached right now; answers wait until it can.");
+	const h = host(async (_a, t) => (sent.push(t), { ok: true }), { scope: ["S1", "away"], away: gate });
+	const into = drawn("```suggest\n- Go\n```", h), [el] = elementsOf(into) as unknown as (El & { answered?: unknown })[];
+	assert.equal(el!.hasAttribute("inert"), true, "its controls are off");
+	assert.equal(noteOf(into), gate.reason, "with the reason");
+	assert.equal(fire(el!, { kind: "suggest", fields: [["text", "Go"]], ref: { block: 0 } }), true, "the host still takes the event");
+	await settle();
+	assert.deepEqual(sent, [], "nothing is posted");
+	assert.equal(el!.answered, undefined);
+	gate.set(undefined);
+	assert.equal(el!.hasAttribute("inert"), false, "back on a live box: on");
+	assert.equal(noteOf(into), "", "the reason goes");
+	fire(el!, { kind: "suggest", fields: [["text", "Go"]], ref: { block: 0 } });
+	await settle();
+	assert.equal(sent.length, 1, "and it sends again");
+	assert.deepEqual(el!.answered, [["text", "Go"]]);
+});
+
+test("R-F001: a box going away turns a drawn open block off at once, and a confirm step that was open goes with it, taking no late Send", async () => {
+	const sent: string[] = [];
+	const gate = away();
+	const into = drawn(FORM_SPLIT, host(async (_a, t) => (sent.push(t), { ok: true }), { scope: ["S1", "away2"], away: gate }));
+	const [el] = elementsOf(into) as unknown as El[];
+	fire(el!, { kind: "form", fields: [["when", "approve the production deploy"]], ref: { block: 0 } });
+	const panel = confirmOf(into);
+	assert.ok(panel, "the step is open");
+	gate.set("gone");
+	assert.equal(confirmOf(into), undefined, "the step is withdrawn");
+	assert.equal(el!.hasAttribute("inert"), true);
+	assert.equal(noteOf(into), "gone");
+	pressed(panel, "pbs-confirm-send");
+	await settle();
+	assert.deepEqual(sent, [], "a stale Send sends nothing");
+});
+
+test("R-F001: an answered block stays as it is on a box that is away (locked with its fields, no reason), and one on its way keeps Sending…", () => {
+	const gate = away("gone");
+	lockFor("S1", "away3").seed({ done: [[0, [["text", "Go"]]]], pending: [1] });
+	const into = drawn("```suggest\n- Go\n```\n\n```suggest\n- Stop\n```\n\n```suggest\n- Wait\n```", host(undefined, { scope: ["S1", "away3"], away: gate }));
+	const els = elementsOf(into) as unknown as (El & { answered?: unknown })[];
+	const notes = () => into.find((e) => e.getAttribute("class") === "pbs-note").map((e) => e.textContent);
+	assert.deepEqual(els[0]!.answered, [["text", "Go"]]);
+	assert.equal(els[0]!.hasAttribute("inert"), false, "answered: as it was");
+	assert.deepEqual(notes(), ["", "Sending…", "gone"], "answered and pending as they were; open: off with the reason");
+	assert.equal(els[2]!.hasAttribute("inert"), true);
+	gate.set(undefined);
+	assert.deepEqual(notes(), ["", "Sending…", ""], "back: only the open one changed");
+});
+
+test("R-F001: a host with no away (a document's, a local base's) draws and sends as before", async () => {
+	const sent: string[] = [];
+	const into = drawn("```suggest\n- Go\n```", host(async (_a, t) => (sent.push(t), { ok: true })));
+	assert.equal(elementsOf(into)[0]!.hasAttribute("inert"), false);
+	fire(elementsOf(into)[0]!, { kind: "suggest", fields: [["text", "Go"]], ref: { block: 0 } });
+	await settle();
+	assert.equal(sent.length, 1);
+});
+
+test("R-F001: only a block that can be answered is off on a box that is away: a table, a diagram or a card stays as it is, with no reason under it", () => {
+	const gate = away("gone");
+	const text = "```table\ncolumns: [a, b]\nrows:\n  - [1, 2]\n```\n\n```form\nquestions:\n  - {name: q, label: Q}\n```\n\n```options\n- title: A\n- title: B\n```\n\n```checklist\nitems:\n  - One\n```\n\n```suggest\n- Go\n```\n\n```review\nitems:\n  - {name: r, label: R}\n```\n\n```cards\n- {title: T, body: B}\n```";
+	const into = drawn(text, host(undefined, { scope: ["S1", "away4"], away: gate }));
+	const kinds = into.find((e) => e.getAttribute("class") === "pbs-block").map((w) => w.getAttribute("data-kind"));
+	const els = elementsOf(into);
+	assert.deepEqual(kinds, ["table", "form", "options", "checklist", "suggest", "review", "cards"]);
+	assert.deepEqual(els.map((e) => e.hasAttribute("inert")), [false, true, true, true, true, true, false]);
+	assert.deepEqual(into.find((e) => e.getAttribute("class") === "pbs-note").map((e) => e.textContent), ["", "gone", "gone", "gone", "gone", "gone", ""]);
+});

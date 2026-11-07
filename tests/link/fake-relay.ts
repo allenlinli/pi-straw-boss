@@ -42,6 +42,8 @@ export class FakeRelay {
 	tokens = new Set<string>();
 	/** The join requests the relay took, in order (hash and request bytes). */
 	joined: { hash: string; request: Buffer }[] = [];
+	/** The `ts` of each live envelope posted, in arrival order. */
+	liveTs: number[] = [];
 	private eid = 0;
 	private timestamps = new Map<string, number>();
 
@@ -73,6 +75,20 @@ export class FakeRelay {
 	private send(s: Stream, event: string, data: unknown, id = ++this.eid) {
 		if (s.closed) return;
 		s.controller.enqueue(new TextEncoder().encode(`id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+	}
+	/** A live envelope: written to the addressees' open streams as a `live` event with no id, never stored. Returns how many streams took it. */
+	private deliverLive(team: string, envelope: Envelope, to: Set<string>): number {
+		const live = this.streams.filter((x) => x.team === team && !x.closed && to.has(x.device));
+		for (const s of live) {
+			if (s.closed) continue;
+			const data = { id: hex(envelope.header.id), from: envelope.header.from, ephemeral: true, envelope: Buffer.from(encodeEnvelope(envelope)).toString("base64url") };
+			s.controller.enqueue(new TextEncoder().encode(`event: live\ndata: ${JSON.stringify(data)}\n\n`));
+		}
+		return live.length;
+	}
+	/** Writes an envelope to `to`'s open streams, as a relay would for a live envelope another member sent. */
+	injectLive(team: string, envelope: Envelope, to: string): number {
+		return this.deliverLive(team, envelope, new Set([to]));
 	}
 	private deliver(s: Stream, st: Stored) {
 		this.send(s, "envelope", { id: st.id, from: st.envelope.header.from, ephemeral: st.ephemeral, envelope: Buffer.from(encodeEnvelope(st.envelope)).toString("base64url") });
@@ -144,6 +160,10 @@ export class FakeRelay {
 		if (!envelope) return json(422, { error: "bad-envelope" });
 		if (this.rejectKinds.has(envelope.header.kind)) return json(422, { error: "unknown-kind" });
 		const id = hex(envelope.header.id);
+		if (envelope.header.kind === "operate") {
+			this.liveTs.push(envelope.header.ts);
+			return json(201, { id, delivered: this.deliverLive(team, envelope, new Set(envelope.header.to)) });
+		}
 		if (this.stored.some((s) => s.id === id)) return json(200, { id, duplicate: true, stale: false });
 		const h = envelope.header, members = this.members.get(team) ?? [];
 		const to = new Set(h.to.length ? h.to : members.filter((x) => x !== h.from));

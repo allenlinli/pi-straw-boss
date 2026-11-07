@@ -21,7 +21,7 @@ const STOP = "00112233445566778899aabbccddeeff", HANDLE = "0123456789abcdef";
 const main = (over: Partial<MainStatus> = {}): MainStatus => ({ handle: HANDLE, unit: "build", name: "docs", state: "idle", by: alice.id, stopping: false, ...over });
 
 test("unit-stop is a queued kind for one box, from attended senders only", () => {
-	assert.deepEqual(KINDS["unit-stop"], { ephemeral: false, wholeTeam: false, sender: "attended" });
+	assert.deepEqual(KINDS["unit-stop"], { ephemeral: false, wholeTeam: false, sender: "attended", live: false });
 });
 
 test("a unit-stop round trips and is decoded strictly: 4 fields, a stop id of 32 and a handle of 16 lowercase hex digits", () => {

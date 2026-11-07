@@ -9,7 +9,7 @@ import type { LinkConfig, Share } from "./config.ts";
 import { shortId, type DeviceKeys } from "./device.ts";
 import { buildEnvelope, openEnvelope, parseEnvelope, recordTaken, type Header, type ReceiveState } from "./envelope.ts";
 import { PayloadTooLargeError, RelayError, UnauthorizedError } from "./errors.ts";
-import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, handleOk, LIMITS, type MainStatus, type Notice, type Presence, type TowerMessage, type TowerReply, type UnitStatus, type UnitStop, type WorkspaceState } from "./kinds.ts";
+import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, handleOk, LIMITS, type MainStatus, type Notice, type OperateMessage, operateDirectionOk, type Presence, type TowerMessage, type TowerReply, type UnitStatus, type UnitStop, type WorkspaceState } from "./kinds.ts";
 import { type AdminRun, type InviteView, type JoinRequestView, type JoinView, type Prefill, TeamAdmin, type TeamView } from "./admin.ts";
 import { Outbox, type QueuedEnvelope } from "./outbox.ts";
 import { Requests } from "./request.ts";
@@ -17,7 +17,7 @@ import type { RelayClient } from "./relay.ts";
 import { decodeEntry, encodeEntry, replayEncoded, type RosterEntry, type RosterState } from "./roster.ts";
 import { inside, nearestTeams, oneTeamEach, resolveDevice, towersFor, type MemberRef, type NetView } from "./routing.ts";
 import type { Backoff, Sleep } from "./retry.ts";
-import type { Disposition, EnvelopeEvent, RelayEvent, RosterEvent } from "./sse.ts";
+import type { Disposition, EnvelopeEvent, LiveEvent, RelayEvent, RosterEvent } from "./sse.ts";
 import { TeamFileError, type InboxItem, type LinkStore, type TeamFile, type ThreadRow } from "./store.ts";
 import { type DialogAnswerInput, DialogViews, newAnswerId } from "./dialogs-out.ts";
 import { towerRunsEnabled } from "../server/towerruns.ts";
@@ -28,7 +28,7 @@ import { towerRunsEnabled } from "../server/towerruns.ts";
 // delivers it again rather than losing it, and the receive checks drop the second copy. A tower takes it from the inbox when it is idle.
 
 /** The part of the relay client the holder uses; tests swap in the same client over a fake `fetch`, and the live test uses the real one. */
-export type RelayPort = Pick<RelayClient, "stream" | "postEnvelope" | "getRoster" | "createTeam" | "appendRoster" | "createInvite" | "join">;
+export type RelayPort = Pick<RelayClient, "stream" | "postEnvelope" | "postLive" | "getRoster" | "createTeam" | "appendRoster" | "createInvite" | "join">;
 
 export interface HolderOptions {
 	store: LinkStore;
@@ -84,8 +84,22 @@ export interface HolderOptions {
 	capsMinMs?: number;
 	/** An unattended device: where a `dialog-answer` goes once the sender is checked to be attended and at `dispatch` now (src/link/dialogs-out.ts `DialogForwarder.answer`, which checks the rest). */
 	dialogAnswer?: (a: DialogAnswerInput) => void | Promise<void>;
+	/** Where a taken `operate` message goes. A build with no sink does not list `operate/1` in its caps and drops what it is sent. */
+	operate?: (message: OperateIn) => void;
 	/** An unattended device: where a `unit-stop` goes once the holder's checks passed (docs/specs/2026-11-07-link-remote-stop.md §4: this device unattended, an attended sender at `dispatch` now, a request no older than 15 minutes, a known mode). The server's checks follow there. */
 	unitStop?: (a: UnitStopInput) => void | Promise<void>;
+}
+
+/** An `operate` message the holder took (docs/specs/2026-11-07-link-operate.md §5.1): checked, decrypted and in the right direction for its sender. `dropped` is the relay's resync hint. */
+export interface OperateIn { team: string; from: string; fromAttended: boolean; message: OperateMessage; ts: number; dropped: number }
+/** Why `sendLive` did not send: the peer (or this end) does not take operate, the relay does not yet, or the send is in the wrong direction. */
+export class OperateSendError extends Error {
+	readonly reason: "peer" | "relay" | "direction";
+	constructor(reason: "peer" | "relay" | "direction", message: string) {
+		super(message);
+		this.name = "OperateSendError";
+		this.reason = reason;
+	}
 }
 
 /** A `unit-stop` the holder accepted: `at` is its header `ts`. `mode` is one of `STOP_MODES`. */
@@ -160,7 +174,7 @@ const BOARD_OFFLINE_MS = 2 * 3600_000, BOARD_MAX_AGE_MS = 7 * 24 * 3600_000;
 /** The board is sent at most this often per team, and once an hour unchanged; a relay without the kind is left alone for an hour. */
 const BOARD_MIN_MS = 15_000, BOARD_REFRESH_MS = 3600_000, BOARD_OFF_MS = 3600_000;
 /** What this build takes (docs/specs/2026-10-26-sb-backend.md, Replies for a main). A `caps` older than 2 hours counts as none. */
-export const CAPS_FEATURES = ["tower.awaitsReply", "tower-reply", "unit-stop", "unit-status.mains"] as const;
+export const CAPS_FEATURES = ["tower.awaitsReply", "tower-reply", "unit-stop", "unit-status.mains", "operate/1"] as const;
 export const CAPS_STALE_MS = 2 * 3600_000;
 const CAPS_REFRESH_MS = 3600_000, CAPS_MIN_MS = 15_000, CAPS_OFF_MS = 3600_000, REPLY_OFF_MS = 3600_000, FALLBACK_LOG_MS = 3600_000;
 
@@ -192,6 +206,10 @@ interface TeamRun {
 	/** The last `unit-status` of each unattended peer, in memory only, and the `ts` of the last one this device sent (an ephemeral kind's `ts` has to rise). */
 	units: Map<string, { at: number; units: UnitStatus[]; mains?: MainStatus[] }>;
 	unitTs: number;
+	/** `operate`: the `ts` of the last live envelope sent (it has to rise), what is in flight (sends are serial per team), and until when a relay that refused the kind is not tried. */
+	liveTs: number;
+	liveChain: Promise<unknown>;
+	liveOffUntil: number;
 	/** What this holder last sent as `caps` to the team: when, the `ts` used, and until when a relay that refused the kind is left alone. */
 	capsSent: { at: number; ts: number; offUntil: number };
 	/** Until when a relay that refused `tower-reply` is not sent one (a plain `tower` goes instead). */
@@ -424,7 +442,7 @@ export class LinkHolder {
 			},
 			onRetry: (_item, error) => store.log({ event: "send-retry", team, error: String(error) }),
 		});
-		const run: TeamRun = { team, teamId, client, outbox, stream: undefined, presences: new Map(), boards: new Map(), boardSent: { hash: undefined, looked: 0, at: 0, ts: 0, epoch: 0, offUntil: 0, wasEmpty: false }, lastEphemeral: new Map(), caps: new Map(), units: new Map(), unitTs: 0, capsSent: { at: 0, ts: 0, offUntil: 0 }, replyOffUntil: 0, presenceTimer: undefined, dead: undefined, settled, haltTimer: undefined, gone, waiters, downSince: undefined, headDiff: new Map() };
+		const run: TeamRun = { team, teamId, client, outbox, stream: undefined, presences: new Map(), boards: new Map(), boardSent: { hash: undefined, looked: 0, at: 0, ts: 0, epoch: 0, offUntil: 0, wasEmpty: false }, lastEphemeral: new Map(), caps: new Map(), units: new Map(), unitTs: 0, liveTs: 0, liveChain: Promise.resolve(), liveOffUntil: 0, capsSent: { at: 0, ts: 0, offUntil: 0 }, replyOffUntil: 0, presenceTimer: undefined, dead: undefined, settled, haltTimer: undefined, gone, waiters, downSince: undefined, headDiff: new Map() };
 		this.runs.set(team, run);
 		// What an earlier holder (or this one before a restart) built and did not see land goes first, in order, before anything new is accepted.
 		for (const item of store.outboxPending(team)) {
@@ -444,7 +462,7 @@ export class LinkHolder {
 			onState: (st) => {
 				run.downSince = st.state === "open" ? undefined : st.state === "retrying" ? (run.downSince ?? this.now()) : run.downSince;
 				// A stream that (re)starts is a reason to send the board once more (the 15 second spacing still holds).
-				if (st.state === "open") (Object.assign(run.boardSent, { hash: undefined, looked: 0 }), (run.capsSent.at = 0));
+				if (st.state === "open") (Object.assign(run.boardSent, { hash: undefined, looked: 0 }), (run.capsSent.at = 0), (run.liveOffUntil = 0));
 			},
 		});
 		void run.stream.start();
@@ -483,6 +501,7 @@ export class LinkHolder {
 			switch (event.type) {
 				case "envelope": return event.ephemeral ? await this.ephemeral(run, event) : await this.receive(run, event, false);
 				case "roster": return await this.onRoster(run, event);
+				case "live": return this.live(run, event);
 				case "malformed":
 					this.o.store.log({ event: "malformed", team: run.team, name: event.name, reason: event.reason });
 					return "ack";
@@ -519,6 +538,25 @@ export class LinkHolder {
 			const presence = opened.message as Presence;
 			run.presences.set(opened.header.from, { at: this.now(), presence });
 			this.compareHead(run, opened.header.from, presence, roster);
+		}
+		return "ack";
+	}
+
+	/** An `operate` envelope off the live stream: the receive checks of an ephemeral kind, the sender's direction, then the sink. Never acknowledged, never stored. */
+	private live(run: TeamRun, event: LiveEvent): Disposition {
+		const { tf, state: roster } = this.loadTeam(run.team), header = event.envelope.header;
+		if (header.kind !== "operate") return (this.o.store.log({ event: "drop", team: run.team, reason: "live-kind", from: event.from, kind: header.kind }), "ack");
+		const sink = this.o.operate;
+		if (!sink) return (this.o.store.log({ event: "drop", team: run.team, reason: "operate-unsupported", from: event.from, kind: "operate" }), "ack");
+		const opened = openEnvelope(event.envelope, this.state(run, tf, roster));
+		if (!opened.ok) return (this.o.store.log({ event: "drop", team: run.team, reason: opened.reason, from: event.from, kind: "operate" }), "ack");
+		run.lastEphemeral = recordTaken(this.state(run, tf, roster), opened.header).lastEphemeral;
+		const message = opened.message as OperateMessage, attended = roster.members.get(header.from)?.attended === true;
+		if (!operateDirectionOk(message.type, attended)) return (this.o.store.log({ event: "drop", team: run.team, reason: "operate-direction", from: header.from, kind: "operate", type: message.type }), "ack");
+		try {
+			sink({ team: run.team, from: header.from, fromAttended: attended, message, ts: header.ts, dropped: event.dropped });
+		} catch (error) {
+			this.o.store.log({ event: "operate-sink-failed", team: run.team, error: String(error) });
 		}
 		return "ack";
 	}
@@ -937,7 +975,7 @@ export class LinkHolder {
 				if (!key) continue;
 				const ts = Math.max(now, sent.ts + 1);
 				sent.at = now; // a failed post is tried again after the spacing, not at every tick
-				const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: CAPS_FEATURES.filter((f) => f !== "unit-stop" || this.o.unitStop) }) });
+				const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: CAPS_FEATURES.filter((f) => (f !== "unit-stop" || this.o.unitStop) && (f !== "operate/1" || this.o.operate)) }) });
 				await run.client.postEnvelope(run.teamId, envelope);
 				sent.ts = ts;
 			} catch (error) {
@@ -1124,6 +1162,39 @@ export class LinkHolder {
 		// `ts` rises by at least 1 per status, so a receiver's per-sender guard never drops one for an equal clock reading.
 		const ts = (run.unitTs = Math.max(this.now(), run.unitTs + 1));
 		await run.client.postEnvelope(run.teamId, buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "unit-status", to: [device], plaintext: encodePlaintext("unit-status", { units, ...(mains !== undefined && this.capsOf(run, device).includes("unit-status.mains") ? { mains } : {}) }) }));
+	}
+	/**
+	 * An `operate` message to one device of a team, as a live envelope (spec §5.1): not queued, not stored, answered with how many streams took it. Sends are serial per team and `ts` rises by
+	 * at least 1 ms. Refused up front when this end may not send that type, when the peer's fresh `caps` lack `operate/1`, or while a relay that did not know the kind is left alone.
+	 */
+	sendLive(team: string, device: string, message: OperateMessage): Promise<{ delivered: number }> {
+		const run = this.runs.get(team);
+		if (!run || run.dead || !this.running || !this.device) return Promise.reject(new Error("That team is not running on this device"));
+		const task = async (): Promise<{ delivered: number }> => {
+			if (run.dead || !this.device) throw new Error("That team is not running on this device");
+			if (!operateDirectionOk(message.type, this.o.attended?.() ?? true)) throw new OperateSendError("direction", `This device does not send an operate ${message.type} (wrong direction)`);
+			const { state } = this.loadTeam(team), key = state.keys.get(state.epoch);
+			if (!state.members.has(device)) throw new Error("That device is not in the team");
+			if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
+			if (!this.capsOf(run, device).includes("operate/1")) throw new OperateSendError("peer", "That device does not take operate yet: it needs a pi-straw-boss that lists operate/1 in its caps");
+			const now = this.now();
+			if (now < run.liveOffUntil) throw new OperateSendError("relay", "The relay does not take operate yet");
+			const ts = (run.liveTs = Math.max(now, run.liveTs + 1));
+			const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "operate", to: [device], plaintext: encodePlaintext("operate", message) });
+			try {
+				return { delivered: (await run.client.postLive(run.teamId, envelope)).delivered };
+			} catch (error) {
+				if (error instanceof RelayError && error.code === "unknown-kind") {
+					run.liveOffUntil = now + CAPS_OFF_MS;
+					this.o.store.log({ event: "operate-unsupported", team });
+					throw new OperateSendError("relay", "The relay does not take operate yet");
+				}
+				throw error;
+			}
+		};
+		const next = run.liveChain.then(task, task);
+		run.liveChain = next.catch(() => undefined);
+		return next;
 	}
 	private takeUnitStatus(run: TeamRun, roster: RosterState, header: Header, p: { units: UnitStatus[]; mains?: MainStatus[] }): void {
 		const sender = roster.members.get(header.from);

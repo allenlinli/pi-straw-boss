@@ -91,7 +91,12 @@ export interface JoinEvent { type: "join"; eid: number; hash: Buffer; request: B
  * its bytes. `id` is the envelope id when it was readable, so the handler can acknowledge garbage it will never use.
  */
 export interface MalformedEvent { type: "malformed"; eid: number; name: string; reason: string; id?: Buffer }
-export type RelayEvent = RosterEvent | EnvelopeEvent | JoinEvent | MalformedEvent;
+/**
+ * A `live` envelope (spec docs/specs/2026-11-07-link-operate.md §5.1): in memory at the relay, written only to streams open now, never queued, never acknowledged, with no
+ * event id, so it never moves the stream's cursor. `dropped` is how many the relay shed from this stream's queue before this one: a resync hint.
+ */
+export interface LiveEvent { type: "live"; /** Always 0: a live event has no event id. */ eid: 0; id: Buffer; from: string; envelope: Envelope; dropped: number }
+export type RelayEvent = RosterEvent | EnvelopeEvent | JoinEvent | LiveEvent | MalformedEvent;
 
 /**
  * What a handler says about an event. For an envelope, `ack` means it is delivered to a tower or written to the inbox (or deliberately dropped by
@@ -111,6 +116,7 @@ const malformed = (eid: number, name: string, reason: string, id?: Buffer): Malf
 
 /** The typed event of one SSE message, or null for a name this client does not know (a newer relay may add some). */
 export function decodeRelayEvent(m: SseMessage): RelayEvent | null {
+	if (m.event === "live") return decodeLive(m);
 	if (m.event !== "roster" && m.event !== "envelope" && m.event !== "join") return null;
 	const eid = m.id !== undefined && /^[0-9]+$/.test(m.id) ? Number(m.id) : NaN;
 	if (!Number.isSafeInteger(eid)) return malformed(0, m.event, "no numeric id");
@@ -146,6 +152,26 @@ export function decodeRelayEvent(m: SseMessage): RelayEvent | null {
 	if (!envelope.header.id.equals(id)) return malformed(eid, "envelope", "id does not match the envelope", id);
 	if (envelope.header.from !== d.from || envelope.header.ephemeral !== d.ephemeral) return malformed(eid, "envelope", "from or ephemeral flag does not match the envelope", id);
 	return { type: "envelope", eid, id, from: d.from, ephemeral: d.ephemeral, envelope };
+}
+
+/** A `live` event's id line, if one came, is ignored; a malformed one carries no envelope id, so nothing is ever acknowledged for it. */
+function decodeLive(m: SseMessage): RelayEvent {
+	let d: Record<string, unknown>;
+	try {
+		const parsed: unknown = JSON.parse(m.data);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return malformed(0, "live", "data is not an object");
+		d = parsed as Record<string, unknown>;
+	} catch {
+		return malformed(0, "live", "data is not JSON");
+	}
+	const raw = b64(d.envelope), id = typeof d.id === "string" && HEX16.test(d.id) ? Buffer.from(d.id, "hex") : undefined;
+	const dropped = d.dropped === undefined ? 0 : d.dropped;
+	if (!raw || !id || typeof d.from !== "string" || d.ephemeral !== true || typeof dropped !== "number" || !Number.isSafeInteger(dropped) || dropped < 0) return malformed(0, "live", "fields out of shape");
+	const envelope = parseEnvelope(raw);
+	if (!envelope) return malformed(0, "live", "envelope does not decode");
+	if (!envelope.header.id.equals(id)) return malformed(0, "live", "id does not match the envelope");
+	if (envelope.header.from !== d.from || !envelope.header.ephemeral) return malformed(0, "live", "from or ephemeral flag does not match the envelope");
+	return { type: "live", eid: 0, id, from: d.from, envelope, dropped };
 }
 
 // ---- The reader ----------------------------------------------------------------------------------------------------------------------
@@ -316,6 +342,7 @@ export class EventStream {
 		} catch (cause) {
 			throw new HandlerFailure(cause);
 		}
+		if (event.type === "live") return; // never acknowledged, never moves the cursor
 		if (verdict === "ack") {
 			if (event.type === "envelope" && !event.ephemeral) this.o.onAck?.(event.id);
 			else if (event.type === "malformed" && event.id) this.o.onAck?.(event.id);

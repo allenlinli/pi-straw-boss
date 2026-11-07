@@ -36,6 +36,9 @@ export interface PostResult {
 	stale: boolean;
 }
 
+/** What the relay says of a `live` post. */
+export interface LiveResult { id: Buffer; delivered: number }
+
 const MAX_ACK_IDS = 500;
 /** The most of an answer this client reads: the relay's ordinary and error bodies are tiny; a roster read can carry a whole team's log. */
 const MAX_BODY_BYTES = 64 * 1024, MAX_ROSTER_BYTES = 16 * 1024 * 1024;
@@ -124,6 +127,17 @@ export class RelayClient {
 		const out = await this.json("POST", `/v1/teams/${hex(team)}/envelopes`, team, { envelope: b64(bytes) }, signal);
 		if (typeof out.id !== "string" || !/^[0-9a-f]{32}$/.test(out.id) || typeof out.duplicate !== "boolean") throw this.bad("an envelope answer out of shape");
 		return { id: Buffer.from(out.id, "hex"), duplicate: out.duplicate, stale: out.stale === true };
+	}
+
+	/**
+	 * A `live` envelope (an `operate` message): the same endpoint, and the relay answers how many of the addressee's open streams took it (0: none is open, and nothing is kept).
+	 * Never retried here: a 429 or a 422 `unknown-kind` (a relay that does not take the kind yet) reaches the caller as it is.
+	 */
+	async postLive(team: Uint8Array, envelope: Envelope | Uint8Array, signal?: AbortSignal): Promise<LiveResult> {
+		const bytes = envelope instanceof Uint8Array ? envelope : encodeEnvelope(envelope);
+		const out = await this.json("POST", `/v1/teams/${hex(team)}/envelopes`, team, { envelope: b64(bytes) }, signal);
+		if (typeof out.id !== "string" || !/^[0-9a-f]{32}$/.test(out.id) || !Number.isSafeInteger(out.delivered) || (out.delivered as number) < 0) throw this.bad("a live answer out of shape");
+		return { id: Buffer.from(out.id, "hex"), delivered: out.delivered as number };
 	}
 
 	/** `POST …/acks`: marks envelopes read by this device, 500 ids to a request. Returns how many deliveries the relay cleared. */

@@ -1,14 +1,14 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { bool, enc, int, list, str } from "../../src/link/canon.ts";
-import { CONTEXT, openSealedKey, requestBytes, sealKey, signBytes, sha256 } from "../../src/link/crypto.ts";
+import { CONTEXT, openSealedKey, operateEphemeral, operateKeys, operateOpen, operateSeal, requestBytes, sealKey, signBytes, sha256 } from "../../src/link/crypto.ts";
 import { base32, encodeKeyRecord, keyRecordHash } from "../../src/link/device.ts";
 import { buildEnvelope, encodeEnvelope, encodeHeader } from "../../src/link/envelope.ts";
 import { BIP39_ENGLISH, BIP39_ENGLISH_SHA256 } from "../../src/link/bip39-english.ts";
 import { buildJoinRequest, checkJoiner, encodeInvite, inviteHash, openJoinRequest, safetyWords, type Invite } from "../../src/link/join.ts";
-import { encodePlaintext, KINDS, type Kind } from "../../src/link/kinds.ts";
+import { encodePlaintext, KINDS, operateBody, type Kind, type OperateMessage } from "../../src/link/kinds.ts";
 import { addEntry, encodeEntry, entryHash } from "../../src/link/roster.ts";
-import { ASK_ID, envelopeCases, HANDLE, NOW, SAMPLE } from "./envelope-cases.ts";
+import { ASK_ID, envelopeCases, HANDLE, NOW, operateJson, SAMPLE } from "./envelope-cases.ts";
 import { rosterCases } from "./roster-cases.ts";
 import { DEVICES, det, mainLog, TEAM, teamKey, view, type Who } from "./scenario.ts";
 
@@ -41,6 +41,7 @@ const canonCases: { name: string; fields: Typed[] }[] = [
 
 function plainJson(kind: Kind): unknown {
 	const p = SAMPLE[kind];
+	if (kind === "operate") return operateJson(SAMPLE.operate);
 	return kind === "presence" ? { ...SAMPLE.presence, headHash: hex(SAMPLE.presence.headHash) } : p;
 }
 
@@ -136,6 +137,60 @@ function unitStopCases() {
 	];
 }
 
+/**
+ * `operate` (docs/specs/2026-11-07-link-operate.md §5.2): the outer structure (plaintext in, what a decoder gives back out, null for a refusal; bytes as hex), the session key derivation
+ * from fixed ephemeral seeds, and a frame's AEAD in both directions. The relay replays only `structure`.
+ */
+function operateCases() {
+	const session = Buffer.alloc(16, 0x11), eph = Buffer.alloc(32, 0x22), hash = Buffer.alloc(32, 0x33);
+	const mk = (name: string, plaintext: Buffer, expect: OperateMessage | null) => ({ name, plaintext: hex(plaintext), expect: expect === null ? null : operateJson(expect) });
+	const outer = (v: number, sid: Buffer, type: string, body: Buffer) => enc(int(v), sid, str(type), body);
+	const open: OperateMessage = { session, type: "open", eph, caps: ["operate/1"], want: "team" };
+	const accept: OperateMessage = { session, type: "accept", eph, openHash: hash, scope: { teams: [TEAM], box: true }, limits: { mirrors: 2, watches: 4, budget: 900 } };
+	const frame = (ctr: number, ct: Buffer): OperateMessage => ({ session, type: "frame", ctr, ct });
+	const openBody = (e: Buffer, w: string) => enc(e, list([str("operate/1")]), str(w));
+	const acceptBody = (e: Buffer, h: Buffer, ids: Buffer[]) => enc(e, h, enc(list(ids), bool(true)), enc(int(2), int(4), int(900)));
+	const structure = [
+		mk("an open", encodePlaintext("operate", open), open),
+		mk("an open for the box", encodePlaintext("operate", { ...open, want: "box" }), { ...open, want: "box" }),
+		mk("an accept", encodePlaintext("operate", accept), accept),
+		mk("an accept naming no team", encodePlaintext("operate", { ...accept, scope: { teams: [], box: false } } as OperateMessage), { ...accept, scope: { teams: [], box: false } } as OperateMessage),
+		mk("a refuse", encodePlaintext("operate", { session, type: "refuse", reason: "not-admin" }), { session, type: "refuse", reason: "not-admin" }),
+		mk("a frame", encodePlaintext("operate", frame(1, Buffer.alloc(40, 7))), frame(1, Buffer.alloc(40, 7))),
+		mk("a frame of 200 KB", outer(1, session, "frame", enc(int(2), Buffer.alloc(200 * 1024, 1))), frame(2, Buffer.alloc(200 * 1024, 1))),
+		mk("a close", encodePlaintext("operate", { session, type: "close", reason: "roster" }), { session, type: "close", reason: "roster" }),
+		mk("an open with 18 caps is cut to 16", outer(1, session, "open", enc(eph, list(Array.from({ length: 18 }, (_, i) => str(`c${i}`))), str("team"))), { ...open, caps: Array.from({ length: 16 }, (_, i) => `c${i}`) } as OperateMessage),
+		mk("an accept with 10 teams is cut to 8", outer(1, session, "accept", acceptBody(eph, hash, Array.from({ length: 10 }, (_, i) => Buffer.alloc(16, i)))), { ...accept, scope: { teams: Array.from({ length: 8 }, (_, i) => Buffer.alloc(16, i)), box: true } } as OperateMessage),
+		mk("version 2", outer(2, session, "open", openBody(eph, "team")), null),
+		mk("a session id of 15 bytes", outer(1, session.subarray(1), "open", openBody(eph, "team")), null),
+		mk("a type this build does not know", outer(1, session, "req", openBody(eph, "team")), null),
+		mk("an open that wants neither team nor box", outer(1, session, "open", openBody(eph, "all")), null),
+		mk("an open with an ephemeral key of 31 bytes", outer(1, session, "open", openBody(eph.subarray(1), "team")), null),
+		mk("an open with a field too many", outer(1, session, "open", enc(eph, list([]), str("box"), str("x"))), null),
+		mk("an accept with an open hash of 31 bytes", outer(1, session, "accept", acceptBody(eph, hash.subarray(1), [TEAM])), null),
+		mk("an accept naming a team of 15 bytes", outer(1, session, "accept", acceptBody(eph, hash, [TEAM.subarray(1)])), null),
+		mk("a frame with counter 0", outer(1, session, "frame", enc(int(0), Buffer.alloc(40))), null),
+		mk("a frame too short to hold a tag", outer(1, session, "frame", enc(int(1), Buffer.alloc(15))), null),
+		mk("a frame over 200 KB", outer(1, session, "frame", enc(int(1), Buffer.alloc(200 * 1024 + 1))), null),
+		mk("a refuse with two fields", outer(1, session, "refuse", enc(str("a"), str("b"))), null),
+		mk("trailing bytes after the structure", Buffer.concat([encodePlaintext("operate", open), Buffer.from([0])]), null),
+	];
+	// The key derivation: both ends from fixed ephemeral seeds, operator = alice, box = dave.
+	const op = operateEphemeral(sha256(Buffer.from("operate-op"))), box = operateEphemeral(sha256(Buffer.from("operate-box")));
+	const common = { team: TEAM, session, operator: DEVICES.alice.id, box: DEVICES.dave.id, ephOp: op.pub, ephBox: box.pub };
+	const k = operateKeys({ ...common, mine: op.key, theirs: box.pub });
+	const keys = [{
+		team: hex(TEAM), session: hex(session), operator: "alice", operatorId: DEVICES.alice.id, box: "dave", boxId: DEVICES.dave.id,
+		ephOpSeed: hex(sha256(Buffer.from("operate-op"))), ephBoxSeed: hex(sha256(Buffer.from("operate-box"))), ephOp: hex(op.pub), ephBox: hex(box.pub),
+		toBox: hex(k.toBox), toOperator: hex(k.toOperator), boxSide: hex(operateKeys({ ...common, mine: box.key, theirs: op.pub }).toBox),
+	}];
+	const frames = (["toBox", "toOperator"] as const).flatMap((dir) => [1, 258].map((ctr) => {
+		const plaintext = Buffer.from(`{"t":"ping"}#${dir}${ctr}`), key = k[dir], ct = operateSeal({ key, dir, session, ctr, plaintext });
+		return { dir, key: hex(key), session: hex(session), ctr, plaintext: hex(plaintext), nonce: hex(Buffer.concat([Buffer.from(dir === "toBox" ? [0, 0, 0, 1] : [0, 0, 0, 2]), int(ctr)])), aad: hex(Buffer.concat([session, int(ctr)])), ct: hex(ct), opensWrongDir: operateOpen({ key, dir: dir === "toBox" ? "toOperator" : "toBox", session, ctr, ct }) === null ? null : "opened" };
+	}));
+	return { structure, keys, frames, openHash: hex(sha256(operateBody(open))) };
+}
+
 export function generateVectors() {
 	const devices = Object.fromEntries(WHO.map((w) => {
 		const d = DEVICES[w];
@@ -182,6 +237,7 @@ export function generateVectors() {
 			"HKDF-SHA256 uses an empty salt. A seal is enc(ephemeral public key, ciphertext ‖ tag) with AEAD associated data empty and a zero nonce. A label or table under a team key is nonce ‖ ciphertext ‖ tag with associated data 'straw-link/labels/1' ‖ team ‖ 8-byte epoch.",
 			"A join request is nonce ‖ AEAD(join key, enc(key record, label, mac)) with empty associated data; mac = HMAC-SHA256(secret, 'straw-link/join/1' ‖ team ‖ enc(key record, label)).",
 			"A relay request signs 'straw-link/request/1' ‖ team ‖ enc(method, path with query, time, sha256(body)).",
+			"operate (a live kind, docs/specs/2026-11-07-link-operate.md §5.2): the outer plaintext is enc(int version 1, 16 session bytes, type text, body); a body is enc of its fields, an `accept` scope is enc(list of 16-byte team ids, bool box) and its limits enc(mirrors, watches, budget as ints). The session keys are HKDF-SHA256(X25519, empty salt, info 'straw-link/operate/1' ‖ team ‖ session ‖ operator id text ‖ box id text ‖ ephOp ‖ ephBox) of 64 bytes, the first 32 operator → box. A frame's nonce is a 4-byte direction tag (00000001 operator → box, 00000002 box → operator) ‖ 8-byte ctr; its AAD is session ‖ 8-byte ctr.",
 			"A failed replay reports the position of the entry in the log (the index equals its seq in an honest log).",
 		],
 		notes: "Straw Link core vectors (docs/specs/2026-10-25-straw-link.md). All bytes are hex. Integers are 8-byte big-endian inside a length-prefixed field; a list is a field holding count ‖ item fields. See src/link/*.ts for the reference implementation; where the spec leaves a choice, vectors fix it.",
@@ -209,6 +265,7 @@ export function generateVectors() {
 		towerCases: towerCases(),
 		capsReplyCases: capsReplyCases(),
 		unitStopCases: unitStopCases(),
+		operateCases: operateCases(),
 		limits: [
 			{ kind: "tower", field: "text", unit: "bytes", max: 192 * 1024 },
 			{ kind: "confirm-request", field: "args", unit: "characters", max: 12_000 },
@@ -219,13 +276,16 @@ export function generateVectors() {
 			{ kind: "unit-stop", field: "reason", unit: "bytes", max: 200 },
 			{ kind: "unit-status", field: "mains", unit: "entries", max: 20 },
 			{ kind: "unit-status", field: "main name", unit: "characters", max: 40 },
+			{ kind: "operate", field: "frame ciphertext", unit: "bytes", max: 200 * 1024 },
+			{ kind: "operate", field: "open caps", unit: "entries", max: 16 },
+			{ kind: "operate", field: "accept teams", unit: "entries", max: 8 },
 			{ kind: "board", field: "entries", unit: "entries", max: 24 },
 			{ kind: "board", field: "workspace, tab, name", unit: "characters", max: 40 },
 			{ kind: "board", field: "now", unit: "characters", max: 120 },
 			{ kind: "board", field: "items", unit: "items", max: 8 },
 			{ kind: "board", field: "item text", unit: "characters", max: 80 },
 		],
-		envelopes: [built("tower", "alice", [DEVICES.bob.id], 1, "tower"), built("presence", "alice", [], 0, "presence"), built("board", "alice", [], 0, "board"), built("dialog-open", "dave", [DEVICES.alice.id, DEVICES.bob.id], 4, "dialog")],
+		envelopes: [built("tower", "alice", [DEVICES.bob.id], 1, "tower"), built("presence", "alice", [], 0, "presence"), built("board", "alice", [], 0, "board"), built("dialog-open", "dave", [DEVICES.alice.id, DEVICES.bob.id], 4, "dialog"), built("operate", "alice", [DEVICES.dave.id], 0, "operate")],
 		receive: envelopeCases().map((c) => ({ name: c.name, envelope: hex(c.envelope), state: c.state, expect: c.expect })),
 		roster: {
 			log: logHex,

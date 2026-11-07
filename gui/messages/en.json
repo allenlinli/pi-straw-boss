@@ -1170,5 +1170,10 @@
 	"zen_company_lost": "Lost control",
 	"zen_term_working": "The unit is working again. You can go back to Zen.",
 	"zen_term_gone": "This pane has closed. You can go back to Zen.",
-	"zen_update": "A new version is ready; it loads when you're back at the breath"
+	"zen_update": "A new version is ready; it loads when you're back at the breath",
+  "alert_note": "Note",
+  "alert_tip": "Tip",
+  "alert_important": "Important",
+  "alert_warning": "Warning",
+  "alert_caution": "Caution"
 }

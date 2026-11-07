@@ -56,7 +56,7 @@ export function docTile(unit: string, card: DocCard): Tile {
 	const body = frame ?? h("div", { class: "doc-text" }, h("p", { class: "chat-empty" }, m.loading())), state = h("span", { class: "term-state", role: "status" }), off = h("em", { class: "doc-off" }, m.off_screen());
 	const wrap = h("div", { class: "doc-tile" }, h("div", { class: "term-bar doc-bar" }, h("span", { class: "doc-why" }, card.reason), off, state, h("span", { class: "doc-acts" }, reload, tab)), body);
 	const io = new IntersectionObserver(([e]) => ((o.shown = Boolean(e?.isIntersecting)), o.shown && !o.gone && (o.failed || o.loaded !== o.card.revision) && load(o)));
-	const tile: Tile = { id: `doc:${card.cap}`, title: `${name} · ${unit}`, icon: "i-doc", body: () => wrap, closed: () => (open.delete(card.cap), io.disconnect()) };
+	const tile: Tile = { id: `doc:${card.cap}`, title: `${name} · ${unit}`, path: card.display, icon: "i-doc", body: () => wrap, closed: () => (open.delete(card.cap), io.disconnect()) };
 	const o: Open = { card, tile, loaded: 0, seq: 0, shown: false, gone: false, body, state, off, ...(frame && { frame }) };
 	reload.onclick = () => !o.gone && load(o);
 	off.hidden = card.onScreen;

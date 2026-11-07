@@ -1381,7 +1381,8 @@ test("each theme's folder stays within its byte cap", () => {
 	const dir = join(root, "dist", "gui", "themes");
 	// Measured on node 24 after batch 1 (the mechanism, no new art): Geek is its stylesheet and an empty entry; Zen is its chunk, stylesheet, music player, and audio bus. Caps = measured; merge of #126 (zenhead.ts) +20 / +5.
 	// Raven Keep (batch 2; measured, node 24): Geek 6,088 / 2,054 to 6,767 / 2,370 (+679 / +316: its tab icon and the `--pbs-*` block), Zen 123,997 / 38,954 to 125,731 / 39,702 (+1,734 / +748: its ensō tab icon and the `--pbs-*` block), and raven 227,821 / 152,777 (the three sounds 21,300, the backdrop 101,872, the sprite and entry chunk 87,800, the stylesheet about 8.7 KB, the crest icon about 8.1 KB; the WebP and the MP3s do not compress, hence the gzipped figure). The spec's own ceiling for raven is 450 KB, asserted beside. Caps = measured.
-	const caps: Record<string, [number, number]> = { geek: [6_767, 2_370], zen: [125_731, 39_702], raven: [236_417, 155_182] };
+	const caps: Record<string, [number, number]> = { geek: [6_767, 2_370], zen: [125_731, 39_702], raven: [259_440, 177_015] };
+	// Raven light (measured, node 24): raven 236,417 / 155,182 to 259,440 / 177,015 (+23,023 / +21,833: the perched raven's two-frame WebP strip 21,562, which does not compress, and the stylesheet's rest veil, strike layers, and perch rules, about 1.4 KB). The spec's 450 KB ceiling holds.
 	// Raven Keep review round 2 (measured, node 24): raven 227,821 / 152,777 to 236,417 / 155,182 (+8,596 / +2,405: the crest brand symbol in the sprite, the moon veil, the tome in the documents list). Cap = measured.
 	assert.deepEqual(readdirSync(dir).sort(), Object.keys(caps).sort(), "a folder per theme and no other");
 	assert.ok(caps.raven![0] <= 450_000, "Raven Keep stays within the spec's 450 KB (spec §1.5)");

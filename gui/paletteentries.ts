@@ -1,5 +1,7 @@
+import { VIEWS } from "../src/views.ts";
 import { m } from "./paraglide/messages.js";
 import type { Entry } from "./palette.ts";
+import { NAME } from "./viewlabel.ts";
 import type { MenuDeps } from "./zenmenu.ts";
 
 // What Zen puts in the palette: the page's actions it can do now, then the preferences the corner menu has (the same functions, so the two never disagree), and Music when a switch for it is given.
@@ -27,7 +29,7 @@ export function entriesOf(a: Acts, p: Prefs): Entry[] {
 	const { view, language, sound, music } = p, pick = (what: string, choice: string) => m.pal_pick({ what, choice });
 	if (view) {
 		add("view:auto", pick(m.view_label(), view.auto()), () => view.set("auto"), here(view.choice() === "auto"));
-		for (const c of ["standard", "geek", "zen"] as const) add(`view:${c}`, pick(m.view_label(), { standard: m.view_standard, geek: m.view_geek, zen: m.view_zen }[c]()), () => view.set(c), here(view.choice() === c));
+		for (const c of VIEWS) add(`view:${c}`, pick(m.view_label(), NAME[c]()), () => view.set(c), here(view.choice() === c));
 	}
 	if (language) for (const l of language.names()) add(`language:${l.id}`, pick(m.language(), l.name), () => language.set(l.id), here(language.get() === l.id));
 	if (sound) {

@@ -1,4 +1,5 @@
 import { trackActivity } from "../src/activity.ts";
+import { CHOICES } from "../src/views.ts";
 import type { Mark } from "../src/netdata.ts";
 import type { Net, TowerService, Unit } from "../src/net.ts";
 import type { Data, Page } from "./chat.ts";
@@ -84,7 +85,7 @@ function towerService(state: TowerState): { service?: TowerService; mark: Mark }
 	return { service, mark: !live ? "idle" : idle ? "idle" : "working" };
 }
 
-const HEAL_MS = 8000, SERVER_VIEWS = ["auto", "standard", "geek", "zen"];
+const HEAL_MS = 8000, SERVER_VIEWS: readonly string[] = CHOICES;
 export interface Control { drop(): void; silence(): void; restore(): void; doc(): void; hand(): void; tower(state?: string): void; /** The server's default view changes, as `/boss gui view` does: the stream's `view` event (no value: the next of Auto, Standard, Geek, Zen). */ serverView(view?: string): void }
 
 /** What the demo's key pad hears: Enter and Esc need a confirm (the server's English words, which the page replaces by token), Tab is refused. */
@@ -109,7 +110,7 @@ const zenState = (net: Net, extra: string | null) => {
 
 export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: number }): { open(watch: string | null): Source; data(key: string): Data; control: Control; trust(body: { id: string }): Promise<Answer>; api(path: string): Promise<unknown>; start(): { key: string; ws: string } | undefined } {
 	demoOpen(); // the opening tiles' folder picker and deploy, with no server
-	let towerNow: TowerState = "off", serverNow = "auto";
+	let towerNow: TowerState = "off", serverNow: string = "auto";
 	const zen = new URLSearchParams(location.search).get("zen"), cardParam = new URLSearchParams(location.search).get("card");
 	/** The terminal card's script (democard.ts): `?card=<state>` starts one; an answer that leaves a terminal step starts the default one (a pane types its command, "Run it" runs it). */
 	let card = isCard(cardParam) ? demoCard(cardParam, (type, payload) => current?.send(type, payload)) : undefined;

@@ -1,6 +1,8 @@
+import { VIEWS } from "../src/views.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import type { Choice } from "./view.ts";
+import { NAME } from "./viewlabel.ts";
 
 // Zen's corner menu: one quiet button that opens a small panel of the settings a page in Zen would otherwise have to leave for (language, view, sound, the way back to Standard). Every row
 // calls what the settings page calls, so the two never disagree. It opens only on a press of its button (a click, a tap, Enter, or Space), never on hover, and takes the focus inside. It closes on Esc,
@@ -30,7 +32,7 @@ export function mountMenu(deps: MenuDeps, leave: () => void) {
 		const choose = (c: Choice) => (view.set(c), redraw.forEach((r) => r()));
 		const auto = pick(view.auto(), () => view.choice() === "auto", () => choose("auto"));
 		redraw.push(() => (auto.textContent = view.auto()));
-		panel.append(row(m.view_label(), auto, ...(["standard", "geek", "zen"] as const).map((c) => pick({ zen: m.view_zen, standard: m.view_standard, geek: m.view_geek }[c](), () => view.choice() === c, () => choose(c)))));
+		panel.append(row(m.view_label(), auto, ...VIEWS.map((c) => pick(NAME[c](), () => view.choice() === c, () => choose(c)))));
 	}
 	if (sound) {
 		const on = h("button", { type: "button", class: "zen-opt" }), vol = h("input", { type: "range", min: "0", max: "100", step: "5", "aria-label": m.sound_volume() }) as HTMLInputElement;

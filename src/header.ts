@@ -2,7 +2,7 @@
 // writes it, never the model, so a receiver can tell from the line alone who sent the message and in what role, what kind of message it is, who else
 // got it, and whether the sender waits for a reply. It has the shape of the line a net sidecar types before a message (src/agent/sidecar.ts), with the
 // sender's own fields added:
-//   [straw net from=<name> id=<session id> role=<tower|main|member|session> [head=yes] workspace=<label> kind=<kind> scope=<scope> to=<recipients> reply=<expected|none> [why=<why>]] <message>
+//   [straw net from=<name> id=<session id> role=<tower|main|member|train|session> [head=yes] workspace=<label> kind=<kind> scope=<scope> to=<recipients> reply=<expected|none> [why=<why>]] <message>
 // A message that came over Straw Link adds the verified sender after the workspace (docs/specs/2026-10-25-straw-link.md, Header):
 //   … workspace=<label> remote=<device label> device=<short id> team=<team> verified=yes kind=tower_send …
 // The sidecar puts its own line, with the role Herdr's tokens give the sender, before this one; the two are not merged.
@@ -10,8 +10,10 @@
 import { restrictLabel } from "./link/text.ts";
 
 export type Kind = "call_tower" | "broadcast" | "tower_send" | "tower_reply" | "handoff" | "link_reply";
+/** The roles a joined session publishes in its pane's `sb_role` token, and so the roles a header names (`train`: the worker the tower opened for an integrator's manifest). */
+export const ROLE_WORDS = ["tower", "main", "member", "train"] as const;
 /** `session` is a pi session that did not join the net (a scope `all` broadcast reaches it). `head`: the tower of the head workspace. */
-export interface Party { name: string; id: string; role: "tower" | "main" | "member" | "session"; head?: boolean; workspace?: string }
+export interface Party { name: string; id: string; role: (typeof ROLE_WORDS)[number] | "session"; head?: boolean; workspace?: string }
 /** Why a main calls the tower (D19): a finished milestone, before it touches something shared, or blocked. `unspecified` is a caller that gave none. The code writes it from this set, so the tower reads the reason from the line, not from the message. */
 export const WHYS = ["milestone", "shared", "blocked"] as const;
 export type Why = (typeof WHYS)[number] | "unspecified";

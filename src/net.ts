@@ -11,6 +11,7 @@ import type { Monitor } from "./monitors.ts";
 import { canonical } from "./history.ts";
 import { type NetEvent, type Tick, trackActivity } from "./activity.ts";
 import type { TodoSum } from "./todo.ts";
+import { type TrainId, trainFromToken } from "./trainrole.ts";
 import type { TrustAsk } from "./trust/types.ts";
 
 // The whole straw net as one JSON-able snapshot for the browser view: every workspace as a base with its tower, tabs, agents,
@@ -22,7 +23,7 @@ type Lately = { since?: number; ticks?: Tick[]; todo?: TodoSum };
 /** A message typed while the agent works, waiting in pi's queue: `steer` reaches it at its next turn, `followUp` when the run ends. */
 export interface Queued { text: string; as: "steer" | "followUp" }
 /** `ended`: a subagent whose run is over (Row.ended); the page clears its finished alert. */
-export interface Unit extends Shelf, Lately { queued?: Queued[]; monitors?: Monitor[]; id: string; key: string; control: boolean; agent?: "claude" | "codex"; name: string; role: "main" | "member" | "subagent" | "outside"; mark: Mark; note?: string; subs: Unit[]; pending?: Pending; ended?: boolean }
+export interface Unit extends Shelf, Lately { queued?: Queued[]; monitors?: Monitor[]; id: string; key: string; control: boolean; agent?: "claude" | "codex"; name: string; role: "main" | "member" | "train" | "subagent" | "outside"; /** A train's project and code (its pane's `sb_train` token). */ train?: TrainId; mark: Mark; note?: string; subs: Unit[]; pending?: Pending; ended?: boolean }
 export interface Tab { id: string; label: string; units: Unit[] }
 export interface Outpost extends Lately { id: string; label: string; mark: Mark }
 /** A run's proposal the boss has not answered; `cites` is the boss message it comes from. */ export interface MemoryProposal { id: string; op: "add" | "retire"; kind: "standing" | "decision"; text: string; target?: string; cites?: string }
@@ -66,7 +67,7 @@ export interface Found extends Ref { live: boolean; successor?: string }
 export interface NetInput { /** The tower service of a workspace, when the sb server runs towers there. */ services?(workspace: string): TowerView | undefined; /** The head tower: its key, asks, and chapters. */ head?: HeadSeam; sessions: Session[]; panes: Pane[]; workspaces: Workspace[]; children(pane: Pane | undefined): Row[]; sessionDir?: string }
 
 const agentOf = (pane?: Pane) => (pane?.agent === "claude" || pane?.agent === "codex" ? pane.agent : undefined); // a net sidecar (src/agent) joined it: the page names the agent, and nothing can be typed into it
-const joinedRole = (token?: string): "main" | "member" | undefined => (token === "main" || token === "member" ? token : undefined);
+const joinedRole = (token?: string): "main" | "member" | "train" | undefined => (token === "main" || token === "member" || token === "train" ? token : undefined);
 const RECENT_MS = 10 * 60_000;
 
 /**
@@ -104,8 +105,8 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 			label: group[0]!.tab!.label,
 			units: group.toSorted((a, b) => Number(b.role === "main") - Number(a.role === "main")).map(({ s, pane, role }): Unit => {
 				const subs = subsOf(s.id, w.workspace_id), mark = commanding(sessionMark(s, pane), subs.map((c) => c.mark));
-				const key = keep({ key: s.id, base: w.workspace_id, name: s.name ?? s.id, role, file: piFile(pane, s.id), pane: pane?.pane_id });
-				return { id: key, key, control: pane?.agent === "pi", ...(agentOf(pane) && { agent: agentOf(pane) }), name: s.name ?? s.id, role, mark, note: note(mark, s.status), subs };
+				const key = keep({ key: s.id, base: w.workspace_id, name: s.name ?? s.id, role, file: piFile(pane, s.id), pane: pane?.pane_id }), train = role === "train" ? trainFromToken(pane?.tokens?.sb_train) : undefined;
+				return { id: key, key, control: pane?.agent === "pi", ...(agentOf(pane) && { agent: agentOf(pane) }), name: s.name ?? s.id, role, ...(train ? { train } : {}), mark, note: note(mark, s.status), subs };
 			}),
 		}));
 		const outposts = all.filter((x) => isSub(x) && parentOf(all, x) === w && !claimed.has(x.workspace_id)).map((x): Outpost => ({ id: x.workspace_id, label: x.label, mark: markOf(x.agent_status) }));

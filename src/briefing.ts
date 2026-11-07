@@ -6,7 +6,8 @@ const PROMPTS = ["main", "tower", "member", "member-no-main"];
 /** The role prompt: a system prompt section, set when a run starts, and a steer when the role changes during one. */
 export function createBriefing({ pi, cfg, s, role, guiDir, tell }: Kit) {
 	let prompts: Record<string, string> = {}, files: PromptSet | undefined;
-	const promptOf = (current = role()) => (current === "member" && !s.mainId ? "member-no-main" : current);
+	// A train has no prompt of its own yet (prompts/train.md arrives with the train's session, task 4 of docs/specs/2026-11-07-train-workers.md): until then it works from the main's.
+	const promptOf = (current = role()) => (current === "member" && !s.mainId ? "member-no-main" : current === "train" ? "main" : current);
 	// The role's prompt is a system prompt section, set when a run starts. A role that changes during a run (a member promoted as it
 	// dispatches a subagent, mains demoted as their tower quits) reaches the agent at its next step as a steer; an idle session gets it with its next run.
 	let briefed: Role | undefined, running = false;

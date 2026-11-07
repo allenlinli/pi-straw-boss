@@ -1,4 +1,5 @@
 import type { Channel, Kit } from "./state.ts";
+import { trainInTab } from "./trainrole.ts";
 
 /** Who is the tab's main: the owner of the tab channel records it, and decides the claims members send. */
 export function createElection({ cfg, s, me, tell }: Kit) {
@@ -12,6 +13,8 @@ export function createElection({ cfg, s, me, tell }: Kit) {
 	const claim = async (channel: Channel, from: string, force: boolean) => {
 		try {
 			if (channel.snapshot().owner?.sessionId !== me()) return;
+			// A tab with a train has no main to crown, whoever asks (docs/specs/2026-11-07-train-workers.md §3.3); a pane list that cannot be had is no reason to drop it.
+			if (channel === s.c && (s.isTrain || (await trainInTab(cfg.run, s.at.workspaceId, s.at.tabId).catch(() => undefined)))) return;
 			const current = (channel === s.c ? s.pinned : undefined) ?? (channel.snapshot().state?.payload as { main?: string } | undefined)?.main;
 			if (!force && current && current !== from && (await channel.listSessions()).some((x) => x.id === current)) return;
 			pin(channel, from);

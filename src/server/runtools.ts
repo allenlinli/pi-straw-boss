@@ -5,6 +5,7 @@ import { remoteTowers } from "../link/remotelist.ts";
 import type { AllyBoard, AllyTeam } from "../link/holder.ts";
 import { clean } from "../board.ts";
 import type { Reach } from "../reach.ts";
+import { trainLabel } from "../trainrole.ts";
 import { headIdOf } from "../reachhead.ts";
 import type { Kind, RunWho } from "./rungate.ts";
 import type { TakeResult } from "./allows.ts";
@@ -155,6 +156,7 @@ async function allyTool(host: ToolHost, name: string, args: Record<string, unkno
 	}
 	// A main opened for a `link:` sender reports for the device the run serves, and for no other: another device's id is refused here rather than looked up among the sessions of this computer.
 	if (name === "boss_open_main") {
+		if (args.role !== undefined) throw new Error("An ally run opens no train: a train is opened by the tower of this computer on an integrator's manifest");
 		const sender = str(args, "sender", 300);
 		if (sender.startsWith("link:") && !peerSender(who, sender)) throw new Error("An ally run opens a main for its own sender only: that device is not the sender of this run");
 	}
@@ -289,7 +291,8 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 		}
 		case "boss_open_main": {
 			const sender = str(args, "sender", 300), peer = ally ? peerSender(host.who, sender) : undefined;
-			const opened = await host.open({ request: str(args, "request"), sender: peer?.id ?? sender, ...(peer ? { peer } : {}), ...(opt(args, "label") ? { label: opt(args, "label")! } : {}) });
+			const opened = await host.open({ request: str(args, "request"), sender: peer?.id ?? sender, ...(peer ? { peer } : {}), ...(opt(args, "label") ? { label: opt(args, "label")! } : {}), ...(opt(args, "role") ? { role: opt(args, "role")! } : {}) });
+			if (opened.train) return { text: opened.repeated ? `A train was already opened for this request (tab ${opened.tab}); nothing new opened.` : `Opened tab ${opened.tab} with ${trainLabel(opened.train.code)} (session ${opened.main}) and handed it the manifest. It reports to you; close it with boss_close_main after its milestone report.`, details: opened };
 			const text = opened.repeated ? `A main was already opened for this request (tab ${opened.tab}); nothing new opened.` : `Opened tab ${opened.tab} with a main agent (session ${opened.main}) and handed it the request. ${peer ? `It reports to the tower only; each report wakes a run for ${peer.label} that sends it to the sender.` : `It reports to ${opened.sender} and to you.`}`;
 			return { text, details: opened };
 		}

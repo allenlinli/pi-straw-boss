@@ -6,6 +6,7 @@ import { setBoard } from "../boardset.ts";
 import { createDigest } from "../digest.ts";
 import { createElection } from "../election.ts";
 import { createGuard } from "../guard.ts";
+import { ROLE_WORDS } from "../header.ts";
 import { isSub, place, panes, workspaces } from "../herdr.ts";
 import type { Briefing } from "../briefing.ts";
 import { createMembership } from "../membership.ts";
@@ -194,7 +195,7 @@ export async function startSidecar({ pane, kind, session, record, cli = "straw-n
 			const text = clean(message.content.text), attached = attachments.length ? ` [${attachments.length} attachment${attachments.length > 1 ? "s" : ""}: ${attachments.map((f) => clean(f.name)).join(", ")} — not carried into this pane]` : "";
 			if (!text && !attached) return;
 			const sender = relay ? `${clean(relay.name)}@${clean(relay.machine)} · unverified cross-machine` : clean(info.name ?? info.id), fromId = clean(info.id);
-			const role = relay ? "session" : ["tower", "main", "member"].includes(sbRole ?? "") ? sbRole : "session";
+			const role = relay ? "session" : (ROLE_WORDS as readonly string[]).includes(sbRole ?? "") ? sbRole : "session";
 			const reply = relay ? "" : ` reply="${shell(cli)} send --to ${shell(fromId)} --message '…'"`;
 			queue.push(`[straw net from=${quote(sender)} id=${quote(fromId)} role=${role}${reply}] ${text}${attached}`);
 			void drain();

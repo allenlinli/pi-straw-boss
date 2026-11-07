@@ -422,3 +422,103 @@ test("a main the boss opened stays the boss's after a Herdr restore", async () =
 	world.herdr.pane("wA:p1").agent_status = "idle";
 	await assert.rejects(tower2.tool("boss_close_main", { main: "main-2" }), /was not opened by a tower/);
 });
+
+// A train the tower opened (docs/specs/2026-11-07-train-workers.md §3.3, task 3) leaves a role record of its own: after a Herdr restore it comes back as a train, with its project and code and the tower
+// that opened it, and with the terminal proof a main needs; it is never crowned, and anywhere else, or after a close on purpose, it stays a member.
+const TRAIN = { file: "/s/train.jsonl", pane: "wA:p101" };
+const MANIFEST = "train:\n  project: acme\n  app: web\n  code: 2026-11-06-m\n";
+const asTrain = () => {
+	world.herdr.onAgentStart = (pane) => {
+		const agent = world.agent({ id: "train-1", name: "train 1106m", pane: pane.pane_id, env: { STRAW_BOSS_ROLE: "train" } });
+		agent.file = TRAIN.file;
+		void agent.start();
+	};
+};
+const openTrain = async (tower: Agent) => {
+	asTrain();
+	await tower.tool("boss_open_main", { role: "train", request: MANIFEST, sender: "member-1" });
+	await until(() => world.herdr.pane(TRAIN.pane).tokens.sb_role === "train", "the opened train is a train");
+	world.herdr.onAgentStart = undefined;
+};
+const stateMain = (tab: string) => (world.broker.states.get(`straw-boss/tab/${Buffer.from(tab).toString("hex")}`)?.payload as { main?: string } | undefined)?.main;
+
+test("a train the tower opened leaves a record with its project, code and opener, and a Herdr restore brings it back as a train, never as the tab's main, closable by the restored tower", async () => {
+	const { tower } = await net();
+	await openTrain(tower);
+	const mine = records().find((r) => r.pane === TRAIN.pane) as { role: string; train?: unknown; openedBy?: string } | undefined;
+	assert.deepEqual([mine?.role, mine?.train, mine?.openedBy], ["train", { project: "acme", code: "2026-11-06-m" }, "member-1"]);
+	const [tower2, , back] = await restore([
+		{ id: "tower-2", pane: "wA:p7", file: FILES.tower },
+		{ id: "main-2", pane: "wA:p1", file: FILES.main },
+		{ id: "train-2", pane: TRAIN.pane, file: TRAIN.file },
+	]) as [Agent, Agent, Agent];
+	await until(() => world.herdr.workspace("wA").tokens.tower === "tower-2", "the tower is back");
+	await until(() => tokens(TRAIN.pane).sb_role === "train", "the train is a train again");
+	await until(() => Boolean(tokens(TRAIN.pane).sb_opened_by), "and marked as opened again");
+	assert.equal(tokens(TRAIN.pane).sb_train, "acme/2026-11-06-m");
+	assert.equal(back.regs.has("straw-boss/control"), true, "it listens for close asks");
+	assert.equal(stateMain(world.herdr.pane(TRAIN.pane).tab_id), undefined, "nobody is its tab's main");
+	world.herdr.pane(TRAIN.pane).agent_status = "idle";
+	await tower2.tool("boss_close_main", { main: "train-2" });
+	await until(() => back.stopped, "the restored train quit");
+});
+
+test("a train resumed in another pane than it held stays a member and carries no train token", async () => {
+	const { tower } = await net();
+	await openTrain(tower);
+	world.herdr.addPane("wA:p120", "wA:t1");
+	const [, , , moved] = await restore([
+		{ id: "tower-2", pane: "wA:p7", file: FILES.tower },
+		{ id: "main-2", pane: "wA:p1", file: FILES.main },
+		{ id: "member-2", pane: "wA:p2", file: FILES.member },
+		{ id: "train-2", pane: "wA:p120", file: TRAIN.file },
+	]) as [Agent, Agent, Agent, Agent];
+	await world.quiet();
+	assert.equal(tokens("wA:p120").sb_role, "member");
+	assert.equal(tokens("wA:p120").sb_train, undefined);
+	assert.equal(moved.regs.has("straw-boss/control"), false);
+});
+
+test("a train closed on purpose leaves no record, so a later restore does not bring it back", async () => {
+	const { tower } = await net();
+	await openTrain(tower);
+	world.herdr.pane(TRAIN.pane).agent_status = "idle";
+	await tower.tool("boss_close_main", { main: "train-1" });
+	await until(() => !records().some((r) => r.pane === TRAIN.pane), "the record is gone");
+});
+
+test("a train's pi started again in the same shell after it quit takes no role from the record, which a restore does not honor either", async () => {
+	const { tower } = await net();
+	await openTrain(tower);
+	const first = world.agents.find((a) => a.id === "train-1")!;
+	await first.stop("quit");
+	// Another pi holds the tab now, so the pi started again stays a member and writes no record of its own over the train's.
+	const holder = world.agent({ id: "holder", pane: "wA:p130", tab: world.herdr.pane(TRAIN.pane).tab_id });
+	await holder.start();
+	await holder.promote();
+	assert.equal(holder.tokens.sb_role, "main");
+	const again = world.agent({ id: "train-again", pane: TRAIN.pane });
+	again.file = TRAIN.file;
+	await again.start();
+	assert.equal(again.tokens.sb_role, "member");
+	assert.equal(records().some((r) => r.role === "train"), false, "the record of the train that quit does not claim the next restore");
+});
+
+test("a /reload of the train in its own pane finds it again from its saved entry, with its opener; a /new in that process does not", async () => {
+	const { tower } = await net();
+	await openTrain(tower);
+	const first = world.agents.find((a) => a.id === "train-1")!;
+	await first.stop("reload");
+	for (const [reason, role] of [["reload", "train"], ["new", "member"]] as const) {
+		const again = world.agent({ id: `train-${reason}`, pane: TRAIN.pane, env: { STRAW_BOSS_ROLE: "train" }, entries: reason === "reload" ? first.entries : [], deps: { couple: false } });
+		again.file = TRAIN.file;
+		await again.fire("session_start", { reason });
+		await world.quiet();
+		assert.equal(tokens(TRAIN.pane).sb_role, role, reason);
+		if (reason === "reload") {
+			assert.equal(tokens(TRAIN.pane).sb_train, "acme/2026-11-06-m");
+			assert.equal(tokens(TRAIN.pane).sb_opened_by, "member-1");
+		}
+		await again.stop("reload");
+	}
+});

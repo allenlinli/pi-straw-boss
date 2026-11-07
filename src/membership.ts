@@ -5,6 +5,7 @@ import { place, waitFor, workspaces } from "./herdr.ts";
 import type { Presence } from "./presence.ts";
 import { nameOf, type Reach, STOPPED } from "./reach.ts";
 import type { Roles } from "./roles.ts";
+import { trainInTab, trainLabel } from "./trainrole.ts";
 import { type Channel, ENTRY, type Kit, REGISTER } from "./state.ts";
 
 const NAMESPACE = /^[a-z0-9][a-z0-9._/-]{0,63}$/;
@@ -115,6 +116,10 @@ export function createMembership({ pi, cfg, s, me, tell }: Kit, { presence, elec
 	const promote = async (force: boolean): Promise<{ promoted: boolean; text: string }> => {
 		await joinNet();
 		await sync();
+		// A train is never a tab's main, and no one is crowned beside it (docs/specs/2026-11-07-train-workers.md §3.3), the boss's /boss included.
+		if (s.isTrain) return { promoted: false, text: `A train runs in this tab: ${trainLabel(s.train!.code)} is a worker of its own and is never the tab's main agent.` };
+		const trained = await trainInTab(run, s.at.workspaceId, s.at.tabId).catch(() => undefined);
+		if (trained) return { promoted: false, text: `A train (${trainLabel(trained.code)}) runs in this tab, so it has no main agent and you stay a member the train does not command: you may dispatch your own subagents, but tell the tower through intercom what you will do and which resources you will use.` };
 		if (s.isMain) return { promoted: true, text: `You are already the main agent of tab ${s.info.tab}.` };
 		const refused = () => ({ promoted: false, text: `Tab ${s.info.tab} already has a main agent, ${s.info.main}. Stay a member: you may dispatch your own subagents, but tell ${s.info.main} through intercom first what you will do and which resources you will use.` });
 		if (!force && s.mainId) return refused();

@@ -207,3 +207,19 @@ test("GR-F005: disabled buttons of the card look disabled in the dock and in Zen
 test("GR-F006: the card's open, copy and raiser links read as enabled actions (the text colour)", () => {
 	assert.match(css, /\.wait-card :is\(\.wc-open, \.wc-copy, \.wc-main\)\s*\{[^}]*color:\s*var\(--text\)/);
 });
+
+test("a box base's tower note card shows its URL as text only; a local base's keeps Open link", async () => {
+	const withUrl = (url: string) => ({ state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], memory: { rev: 1, standing: 0, decisions: 0, waits: 1, bossWaits: [WAIT("action", { card: { ...CARD(), url } })], proposals: [] } });
+	const draw = async (isBox: boolean) => {
+		const box = new El("div");
+		fillNotices(box as unknown as HTMLElement, "wB", withUrl("https://example.com/export") as never, "sb-tower-w", undefined, isBox);
+		await settle();
+		(box.find((el) => el.classes.has("wc-fold"))[0] as unknown as { click(): void } | undefined)?.click();
+		return box;
+	};
+	const remote = await draw(true), local = await draw(false);
+	assert.equal(byClass(remote, "wc-open").length, 0);
+	assert.ok(byClass(remote, "wc-url").length > 0 || remote.textContent.includes("https://example.com/export"), "the URL is shown as text");
+	assert.equal(remote.find((el) => el.tag === "a" && el.getAttribute("href") === "https://example.com/export").length, 0);
+	assert.equal(byClass(local, "wc-open").length, 1);
+});

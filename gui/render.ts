@@ -209,7 +209,7 @@ export function fillBase(el: HTMLElement, b: Base, { under, link }: { under?: Al
 	aimTower(el.querySelector(".tower-quit")!, b.tower, (a) => can(b, a));
 	sync(el.querySelector(".tower-subs")!, b.tower?.subs ?? [], unitEl, fillUnit);
 	fillAllies(el.querySelector(".title .allies")!, b.id, b.tower?.service);
-	fillNotices(el.querySelector(".tower-notices")!, b.id, b.tower?.service, b.tower?.key);
+	fillNotices(el.querySelector(".tower-notices")!, b.id, b.tower?.service, b.tower?.key, undefined, Boolean(b.box));
 	sync(el.querySelector(".tabs")!, b.tabs, () => {
 		const tab = html(`<div class="tab"><h3><span></span><button type="button" class="tab-add"></button><button type="button" class="quit-btn" data-close="tab"></button></h3><div class="units"></div></div>`);
 		menuAround(tab.querySelector<HTMLElement>("h3 > .quit-btn")!); // a squad's Quit is behind a `⋯` on a phone, as a base's is

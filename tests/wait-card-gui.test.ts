@@ -166,6 +166,16 @@ beforeEach(() => {
 });
 afterEach(() => setNavigator(undefined));
 
+test("a box's wait card shows its URL as plain text only: no Open link, no anchor, no href (spec: no URL comes from a box); a local card keeps Open link", () => {
+	const box = rig(wait(fonstar()), { box: true });
+	assert.ok(text(box).includes("https://login.tailscale.com/admin/machines"), "the URL is still readable text");
+	assert.equal(byClass(box, "wc-open").length, 0, "no Open link control");
+	assert.equal((box.el as unknown as El).find((el) => el.tag === "a" && el.getAttribute("href") !== undefined && el.classes.has("wc-open")).length, 0);
+	assert.equal(byClass(box, "wc-url")[0]!.tag, "span");
+	page.body.replaceChildren();
+	assert.equal(byClass(rig(wait(fonstar())), "wc-open").length, 1, "a local card still offers it");
+});
+
 test("the fonstar card: every part is drawn whole as text, the URL is text with a link that only a click opens, nothing is fetched or opened at mount", () => {
 	const card = rig(wait(fonstar()));
 	const t = text(card);

@@ -69,6 +69,7 @@ function cue(el: HTMLElement) {
 	if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(check);
 }
 
+let whys = 0;
 export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: { key: string; show(): void }, accepted?: (opened: boolean) => void, terminalLabel: () => string = m.show_terminal, box: boolean | (() => boolean) = false) {
 	const onBox = () => (typeof box === "function" ? box() : box), remoteNow = () => remote || onBox(); // a box's unit is a remote one whatever address the page has; asked when the panel is drawn, since the net may not have been read when the view opened
 	// `cur` is the panel on show, drawn for `shown`; `kept` is the newest one that answers, which comes back as it was when its dialog does.
@@ -117,11 +118,14 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		if (copy) (copy.disabled = !navigator.clipboard), (copy.onclick = () => void navigator.clipboard.writeText(a.select!.copy!).then(() => say(x.note, "ok", m.copied()), () => say(x.note, "error", m.clipboard_refused())));
 		const refused = (c: { hereOnly?: true; next?: string }) => (remoteNow() && c.hereOnly === true) || (onBox() && c.next === "pane"); // on a box's unit the box refuses what only this computer may give, and an answer that opens a pane (decisions 7 and 8)
 		const usable = opts.filter((_, k) => !refused(offered(a)[k]!)); // a choice only this computer may give is shown on a paired device, disabled and out of `controls`, which draw() enables, but in the key group so the numbers keep their places (control.ts refuses it as well)
-		opts.forEach((o) => !usable.includes(o) && (o.disabled = true));
+		const off = opts.filter((o) => !usable.includes(o));
+		off.forEach((o) => (o.disabled = true));
+		const why = off.length > 0 ? h("p", { class: "ask-why ask-reason", id: `ask-why-${++whys}` }, m.ask_here_only()) : undefined; // one reason for every choice this page may not make (WC: the disabled choice says why)
+		if (why) off.forEach((o) => o.setAttribute("aria-describedby", why.id));
 		x.pick = () => (chosen === undefined ? undefined : { choice: chosen });
 		x.first = wire(x.el, [{ opts, multiple: false, answered: () => chosen !== undefined }], () => x.send);
 		x.controls = usable;
-		return [h("pre", { class: "ask-title" }, visible(a.select!.title)), h("div", { class: "ask-opts", role: "radiogroup", "aria-label": m.choices() }, ...opts), h("div", { class: "ask-acts" }, x.send!, x.cancel, copy)];
+		return [h("pre", { class: "ask-title" }, visible(a.select!.title)), h("div", { class: "ask-opts", role: "radiogroup", "aria-label": m.choices() }, ...opts), ...(why ? [why] : []), h("div", { class: "ask-acts" }, x.send!, x.cancel, copy)];
 	}
 	/** A questionnaire: per question its options (one, or several), its own words, and a note; it goes when every question has an answer. */
 	function questions(x: Panel, a: Answerable) {

@@ -115,7 +115,7 @@ export function mountPanels(deps: PanelDeps) {
 		text(el, ".queued", queue.length ? m.also_queued({ tally: tally(queue) }) : "");
 		el.querySelector<HTMLElement>(".later")!.hidden = rankOf(a) !== 0; // a finished one is read once opened: nothing to keep for later
 		if (a.trust) return fillTrust(el, a);
-		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)), { away: !can(locate(deps.net?.(), unitOf(a))?.base, "input"), where: (key) => locate(deps.net?.(), key)?.base.id, secretOpen: () => queue.some((x) => x.key === a.wait?.entry?.card?.from?.key && x.pending?.tool === "secret_drop") });
+		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)), { away: !can(locate(deps.net?.(), unitOf(a))?.base, "input"), box: Boolean(locate(deps.net?.(), unitOf(a))?.base.box), where: (key) => locate(deps.net?.(), key)?.base.id, secretOpen: () => queue.some((x) => x.key === a.wait?.entry?.card?.from?.key && x.pending?.tool === "secret_drop") });
 		if (!intels.has(a.key)) learn(a);
 		tell(el, a);
 		let ask = asks.get(el);

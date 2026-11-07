@@ -61,7 +61,9 @@ const WORDS = {
 	en: {
 		usage: "Usage: /boss tower [-w <workspace id | label | head>] [--answers W<n>] [status | retry | parked | deliver <id> | drop <id> | leave | new | <message for the tower>]",
 		noMatch: (q: string, all: string) => `No workspace matches "${q}". Workspaces: ${all}`,
-		confirm: "Act on another tower?", confirmBody: (what: string, label: string, id: string) => `${what} for the tower of ${label} (${id}).`,
+		many: (q: string, list: string[]) => `"${q}" names more than one workspace; nothing was done. Name the id:\n${list.join("\n")}`,
+		confirm: "Act on another tower?", confirmBody: (what: string, label: string, id: string, head: boolean) => head ? `${what} for the head tower.` : `${what} for the tower of ${label} (${id}).`,
+		saySelfHead: "A message to the head tower is /boss head's: /boss head [--answers W<n>] <message>",
 		declined: "Nothing was done.", noConfirm: "Acting on another tower needs the pi screen to confirm it.",
 		what: { retry: "Wake it again", deliver: "Deliver a parked event again", drop: "Drop a parked event", leave: "Leave the boss conversation", new: "Start the boss conversation over", say: "Write to it as the boss" } as Record<string, string>,
 		said: (label: string) => `Handed to the tower of ${label}: it reads the prompt as the boss's instruction (it was not opened or focused).`,
@@ -87,7 +89,9 @@ const WORDS = {
 	"zh-TW": {
 		usage: "用法：/boss tower [-w <workspace id | 名稱 | head>] [--answers W<n>] [status | retry | parked | deliver <id> | drop <id> | leave | new | <給塔台的訊息>]",
 		noMatch: (q: string, all: string) => `沒有符合「${q}」的 workspace。現有：${all}`,
-		confirm: "要對另一個塔台動作嗎？", confirmBody: (what: string, label: string, id: string) => `對 ${label}（${id}）的塔台：${what}。`,
+		many: (q: string, list: string[]) => `「${q}」對到不只一個 workspace，什麼都沒做。請指明 id：\n${list.join("\n")}`,
+		confirm: "要對另一個塔台動作嗎？", confirmBody: (what: string, label: string, id: string, head: boolean) => head ? `對主塔台：${what}。` : `對 ${label}（${id}）的塔台：${what}。`,
+		saySelfHead: "給主塔台的訊息走 /boss head：/boss head [--answers W<n>] <訊息>",
 		declined: "什麼都沒做。", noConfirm: "對另一個塔台動作需要 pi 畫面來確認。",
 		what: { retry: "重新喚醒", deliver: "重新送出擱置的事件", drop: "丟棄擱置的事件", leave: "離開老闆對話", new: "重新開始老闆對話", say: "以老闆的身分寫給它" } as Record<string, string>,
 		said: (label: string) => `已交給 ${label} 的塔台：它會把這段話當成老闆的指示（沒有開啟或切換分頁）。`,
@@ -121,8 +125,8 @@ export interface TowerCmdDeps {
 	/** True when the pi session has a screen (`ctx.hasUI`). */
 	interactive: boolean;
 	tell(text: string, level?: "info" | "warning" | "error"): void;
-	/** The workspaces Herdr has, for `-w <id | label>`. */
-	workspaces?(): Promise<{ workspace_id: string; label: string }[]>;
+	/** The workspaces Herdr has, for `-w <id | label>`; the head tower's carries the `sb_head` token. */
+	workspaces?(): Promise<{ workspace_id: string; label: string; tokens?: Record<string, string> }[]>;
 	/** Asks the boss on the pi screen; false when declined. Needed for a write at another tower (`-w`). */
 	confirm?(title: string, body: string): Promise<boolean>;
 }
@@ -134,15 +138,24 @@ async function resolveTarget(d: TowerCmdDeps, at: string | undefined): Promise<T
 	if (at === undefined) return { ws: d.own, label: d.own ?? "", head: false, other: false };
 	if (at === "head") return { ws: HEAD_KEY, label: "head", head: true, other: true };
 	const all = (await d.workspaces?.()) ?? [], found = matchWorkspaces(all, at);
-	if (found.length !== 1) throw new Error(w.noMatch(at, all.map((x) => `${x.workspace_id} (${x.label})`).join(", ")));
+	if (found.length > 1) throw new Error(w.many(at, found.map((x) => `  ${x.workspace_id} (${x.label})`)));
+	if (found.length < 1) throw new Error(w.noMatch(at, all.map((x) => `${x.workspace_id} (${x.label})`).join(", ")));
+	// The head tower's own workspace is the head, whichever way it is named (as the page maps it).
+	if (found[0]!.tokens?.sb_head) return { ws: HEAD_KEY, label: "head", head: true, other: true };
 	return { ws: found[0]!.workspace_id, label: found[0]!.label, head: false, other: found[0]!.workspace_id !== d.own };
+}
+/** `-w <q>` as the tower line should read it: `head` when it is that word or names the head tower's own Herdr workspace (id or label) uniquely, else as typed (a refusal comes from `resolveTarget`). */
+export async function headAlias(q: string, d: Pick<TowerCmdDeps, "workspaces">): Promise<string> {
+	if (q === "head") return q;
+	const found = matchWorkspaces((await d.workspaces?.()) ?? [], q);
+	return found.length === 1 && found[0]!.tokens?.sb_head ? "head" : q;
 }
 /** A write at another tower names it in the confirm; false when the boss declines (and says so). */
 async function confirmed(d: TowerCmdDeps, target: Target, what: string): Promise<boolean> {
 	const w = WORDS[d.lang];
 	if (!target.other) return true;
 	if (!d.confirm) return d.tell(w.noConfirm, "error"), false;
-	if (await d.confirm(w.confirm, w.confirmBody(w.what[what] ?? what, target.label, target.head ? "head" : target.ws!))) return true;
+	if (await d.confirm(w.confirm, w.confirmBody(w.what[what] ?? what, target.label, target.ws!, target.head))) return true;
 	return d.tell(w.declined), false;
 }
 /** `/boss tower -w <workspace> [--answers W3] <message>`: the boss's words to another tower, the control command the GUI's composer reaches (`tower-event`); the head tower's are `/boss head` (`head-event`). */
@@ -151,6 +164,7 @@ export async function sayToTower(text: string, at: string, answers: string | und
 	if (!d.interactive) return d.tell(w.noUi, "error");
 	try {
 		const target = await resolveTarget(d, at);
+		if (target.head) throw new Error(w.saySelfHead); // the head's words are `head-event`, which `/boss head` sends
 		if (!target.ws) throw new Error(w.noWorkspace);
 		if (!(await confirmed(d, target, "say"))) return;
 		const r = await d.ask({ cmd: "tower-event", workspace: target.ws, text, present: true, ...(answers ? { answers } : {}) });

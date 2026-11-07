@@ -248,6 +248,24 @@ test("head-event with answers marks the wait answered once the head took the mes
 	assert.equal((await ask(s, { cmd: "head-event", text: "no answers" })).answered, undefined);
 });
 
+test("PTP-F008: /quit and /new with answers are refused as the page refuses them (not an answer to a wait): nothing is queued, the wait stays open; without answers they are the boss's words as before", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	updateMemory(world.slot, HEAD_KEY, Date.now(), (m) => addWait(m, Date.now(), "r1", { text: "Boss token needed", for: "boss" }));
+	updateMemory(world.slot, "wA", Date.now(), (m) => addWait(m, Date.now(), "r1", { text: "Boss token needed", for: "boss" }));
+	for (const text of ["/quit", " /new ", "/quit\n"]) {
+		for (const request of [{ cmd: "head-event", text, answers: "W1" }, { cmd: "tower-event", workspace: "wA", text, answers: "W1" }]) {
+			const r = await ask(s, request);
+			assert.deepEqual([r.ok, r.queued, r.answered], [false, undefined, undefined], `${request.cmd} ${JSON.stringify(text)}`);
+			assert.match(String(r.error), /^A command is not an answer to a wait/);
+		}
+	}
+	assert.deepEqual([loadMemory(world.slot, HEAD_KEY).memory.entries[0]!.state, loadMemory(world.slot, "wA").memory.entries[0]!.state], ["open", "open"]);
+	assert.equal((await ask(s, { cmd: "tower-event", workspace: "wA", text: "/quit later", answers: "W1" })).ok, true, "only the exact command is refused");
+	assert.equal((await ask(s, { cmd: "tower-event", workspace: "wA", text: "/new" })).ok, true, "without answers it is the boss's word as before");
+});
+
 test("tower-event with answers marks that tower's wait the same way", async () => {
 	const s = await world.start();
 	await s.handle.ready;

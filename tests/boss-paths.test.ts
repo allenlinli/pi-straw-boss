@@ -225,10 +225,10 @@ function boss(active: boolean) {
 
 test("each typed line reaches its path", async () => {
 	const b = boss(false);
-	for (const line of ["close api-member", "close all Beta", "close unit:dup", "stash mine --workspace Beta", "dismiss", "dismiss builder", "gui devices", "gui unpair all", "gui unpair abc", "server logs", "server logs 20", "send api-member hello there", "send api-member --after then this\nand that", "stop api-member", "send", "send api-member", "stop", "open base ~/x My base", "open member", "open main ../y do it\nthen this", "link", "link status", "link decide ab12 approve"]) await b.run(line);
+	for (const line of ["close api-member", "close all Beta", "close unit:dup", "stash mine --workspace Beta", "dismiss", "dismiss builder", "gui devices", "gui unpair all", "gui unpair abc", "server logs", "server logs 20", "send api-member hello there", "send api-member --after then this\nand that", "stop api-member", "send", "send api-member", "stop", 'send "tower · A" hi', "send api-member --after", "send api-member --after  ", 'send "tower · A" --after then', 'stop "tower · A"', "stop api member", "open base ~/x My base", "open member", "open main ../y do it\nthen this", "link", "link status", "link decide ab12 approve"]) await b.run(line);
 	assert.deepEqual(b.called, [
 		'close ["api-member"]', 'close ["Beta",true]', 'close ["unit:dup"]', 'stashOther ["mine","Beta"]', 'dismiss [null]', 'dismiss ["builder"]', "devices []", 'unpair ["all"]', 'unpair ["abc"]', "logs [null]", 'logs ["20"]',
-		'send ["api-member",false,"hello there"]', 'send ["api-member",true,"then this\\nand that"]', 'stop ["api-member"]', 'send ["",false,""]', 'send ["",false,""]', 'stop ["",false,""]'.replace(',false,""', ""),
+		'send ["api-member",false,"hello there"]', 'send ["api-member",true,"then this\\nand that"]', 'stop ["api-member"]', 'send ["",false,""]', 'send ["",false,""]', 'stop [""]', 'send ["tower · A",false,"hi"]', 'send ["",false,""]', 'send ["",false,""]', 'send ["tower · A",true,"then"]', 'stop ["tower · A"]', 'stop [""]',
 		'open ["base ~/x My base","/work"]', 'open ["member","/work"]', 'open ["main ../y do it\\nthen this","/work"]', "link [null]", 'link ["status"]', 'link ["decide ab12 approve"]',
 	]);
 });
@@ -265,9 +265,9 @@ test("send <name> posts sessions/<key>/input as send, --after as followUp, to a 
 	await w.paths.send("runner", true, "then the tests");
 	await w.paths.send("tower-A", false, "hello tower");
 	assert.deepEqual(w.posted, [
-		{ path: "sessions/b1/input", json: { text: "run the build", as: "send" } },
-		{ path: "sessions/kid-live/input", json: { text: "then the tests", as: "followUp" } },
-		{ path: "sessions/tower-A/input", json: { text: "hello tower", as: "send" } },
+		{ path: "sessions/b1/input", json: { text: "run the build", as: "send", guarded: true } },
+		{ path: "sessions/kid-live/input", json: { text: "then the tests", as: "followUp", guarded: true } },
+		{ path: "sessions/tower-A/input", json: { text: "hello tower", as: "send", guarded: true } },
 	]);
 	assert.deepEqual(w.told.map((t) => t.text), ["Sent to api-member", "Sent to runner as a follow-up", "Sent to tower · A"]);
 	w.done();
@@ -303,13 +303,13 @@ test("a command that ends the session is confirmed in pi and sent again with con
 	w.reply({ status: 409, body: { error: "confirm", reason: "This command ends or replaces the session; confirm to send it." } });
 	await w.paths.send("api-member", false, "/quit");
 	assert.equal(w.asked.length, 1);
-	assert.match(w.asked[0]![1]!, /b1 would end or replace its session with this: \/quit/);
-	assert.deepEqual(w.posted.map((p) => p.json), [{ text: "/quit", as: "send" }, { text: "/quit", as: "send", confirmed: true }]);
+	assert.match(w.asked[0]![1]!, /^api-member \(in Alpha\) \[b1\] would end or replace its session with this: \/quit/, "the confirm names the session as the boss typed it, its base, and its key");
+	assert.deepEqual(w.posted.map((p) => p.json), [{ text: "/quit", as: "send", guarded: true }, { text: "/quit", as: "send", guarded: true, confirmed: true }]);
 	const no = world({ answer: false });
 	no.reply({ status: 409, body: { error: "confirm", reason: "x" } });
 	await no.paths.send("api-member", false, "/new");
 	assert.equal(no.posted.length, 1, "no second post");
-	assert.equal(no.told.at(-1)!.text, "Nothing was closed");
+	assert.equal(no.told.at(-1)!.text, "Nothing was sent", "a declined send does not say anything was closed");
 	const blind = world({ ui: false });
 	blind.reply({ status: 409, body: { error: "confirm", reason: "x" } });
 	await blind.paths.send("api-member", false, "/new");
@@ -317,18 +317,45 @@ test("a command that ends the session is confirmed in pi and sent again with con
 	for (const x of [w, no, blind]) x.done();
 });
 
-test("stop <name> posts Esc to the session's keys route, and refuses what names nothing or itself", async () => {
+test("stop <name> asks first, as the page's Stop does, then posts Esc to the session's keys route; it refuses what names nothing or itself, and with no screen or a declined confirm it sends nothing", async () => {
 	const w = world();
 	await w.paths.stop("runner");
+	assert.deepEqual(w.asked, [["Stop it?", "runner (in Alpha) [kid-live] stops its current task; the messages queued for it go back to its terminal editor."]]);
 	assert.deepEqual(w.posted, [{ path: "sessions/kid-live/keys", json: { keys: ["esc"] } }]);
 	assert.equal(w.told.at(-1)!.text, "Sent Esc to runner");
 	await w.paths.stop("api-main");
 	await w.paths.stop("zzz");
 	await w.paths.stop("");
 	assert.equal(w.posted.length, 1);
+	assert.match(w.told.at(-1)!.text, /^Nothing was stopped: name the session: \/boss stop <name\|key>/, "stop has its own usage line, not send's");
 	w.reply({ status: 409, body: { reason: "Another input to this session is still on its way." } });
 	await w.paths.stop("runner");
 	assert.equal(w.told.at(-1)!.text, "Another input to this session is still on its way.");
+	const no = world({ answer: false });
+	await no.paths.stop("runner");
+	assert.deepEqual([no.posted, no.told.at(-1)!.text], [[], "Nothing was stopped"]);
+	const blind = world({ ui: false });
+	await blind.paths.stop("runner");
+	assert.deepEqual([blind.posted, blind.told.at(-1)!.level], [[], "error"]);
+	assert.match(blind.told.at(-1)!.text, /needs the pi screen to confirm/);
+	for (const x of [w, no, blind]) x.done();
+});
+
+test("PTP-F010: a name with spaces is named in quotes, for send and stop; a name that is a key or one word needs none", async () => {
+	const w = world();
+	await w.paths.send("tower · A", false, "hi");
+	await w.paths.stop("tower · A");
+	assert.deepEqual(w.posted.map((p) => p.path), ["sessions/tower-A/input", "sessions/tower-A/keys"]);
+	assert.ok(w.told.every((t) => t.level !== "error"), JSON.stringify(w.told));
+	w.done();
+});
+
+test("PTP-F010: the usage lines say how to quote a name with spaces", async () => {
+	const w = world();
+	await w.paths.send("", false, "");
+	await w.paths.stop("");
+	assert.match(w.told[0]!.text, /\/boss send <name\|key> \[--after\] <text>.*quote a name that has spaces/);
+	assert.match(w.told[1]!.text, /\/boss stop <name\|key>.*quote a name that has spaces/);
 	w.done();
 });
 
@@ -338,6 +365,7 @@ test("in Traditional Chinese the send words follow", async () => {
 	assert.equal(w.told.at(-1)!.text, "已送給 api-member（排在目前工作之後）");
 	await w.paths.stop("runner");
 	assert.equal(w.told.at(-1)!.text, "已對 runner 送出 Esc");
+	assert.equal(w.asked.at(-1)![0], "要停止嗎？");
 	w.done();
 });
 
@@ -350,7 +378,7 @@ function towerBoss({ hasUI = true, answer = true, runs = true }: { hasUI?: boole
 	const server = { ask: async (request: Record<string, unknown>, o: { start: string }) => (asked.push({ ...request, start: o.start }), request.cmd === "status" ? { ok: true, towers: [], head: null } : { ok: true, queued: "e1", answered: request.answers ?? undefined }) };
 	const kit = {
 		pi: { registerCommand: (_n: string, c: { handler: typeof handler }) => (handler = c.handler) },
-		cfg: { env: { LANG: "en" }, run: async () => JSON.stringify({ result: { workspaces: [{ workspace_id: "wA", label: "Alpha" }, { workspace_id: "wB", label: "Beta" }] } }) },
+		cfg: { env: { LANG: "en" }, run: async () => JSON.stringify({ result: { workspaces: [{ workspace_id: "wA", label: "Alpha" }, { workspace_id: "wB", label: "Beta" }, { workspace_id: "wH", label: "Crown", tokens: { sb_head: "h" } }] } }) },
 		s: { at: { workspaceId: "wA" } }, guiDir: dir, tell: (text: string, level?: string) => void told.push({ text, level }),
 	} as unknown as Kit;
 	registerBoss(kit, {
@@ -415,6 +443,22 @@ test("/boss tower -w head goes to the head: commands as /boss head's, a message 
 	]);
 	assert.match(b.told.find((t) => t.level === "error")!.text, /with more words/);
 	assert.ok(!b.asked.some((r) => r.cmd === "head-close"), "close was not sent");
+	b.done();
+});
+
+test("PTP-F007: -w with the head's own Herdr workspace, by id or label, is the head tower as the page maps it: head commands, head-event, a lone command word refused as a message, and a confirm that says the head", async () => {
+	const b = towerBoss();
+	await b.run("tower -w wH retry");
+	await b.run("tower -w Crown --answers W2 Go ahead");
+	await b.run("tower -w wH Go ahead");
+	await b.run("tower -w Crown close");
+	await b.run("tower -w head leave");
+	assert.deepEqual(b.asked.map((r) => [r.cmd, r.workspace, r.text, r.answers, r.start]), [
+		["head-retry", undefined, undefined, undefined, "never"], ["head-event", undefined, "Go ahead", "W2", "boss"], ["head-event", undefined, "Go ahead", undefined, "boss"], ["head-leave", undefined, undefined, undefined, "never"],
+	]);
+	assert.deepEqual(b.confirms.map((c) => c[1]), ["Wake it again for the head tower.", "Leave the boss conversation for the head tower."]);
+	assert.match(b.told.find((t) => t.level === "error")!.text, /with more words/);
+	assert.ok(!b.asked.some((r) => r.cmd === "tower-event" || r.cmd === "head-close"), "no workspace tower was written to as the head's id");
 	b.done();
 });
 

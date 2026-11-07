@@ -16,6 +16,7 @@ import { upload } from "./upload.ts";
 import { ENDING } from "./probe.ts";
 import { qr } from "./qr.ts";
 import { parseOpen } from "./bossopen.ts";
+import { parseSend } from "./bosssend.ts";
 import { answersOf, commandReply, headRoutes, markAnswered } from "./headroutes.ts";
 
 // Typing into a session from the page, through Herdr's own input path only, as if typed in the terminal:
@@ -148,11 +149,11 @@ export function checkText(text: unknown): string | Reply {
 const OVERLAY_OPEN = "A /boss gui lan screen is open in this session; only Escape can be sent to it from a paired device.";
 /** Boss commands that manage pairing, remote access, Wi-Fi, or the server: a paired device's composer and a new session's first message never run them, nor `gui view <mode>` (the local page and the terminal do). A slip guard, not a boundary: the key pad's terminal keys are not filtered. */
 const BOSS_LOCAL = /^\s*\/boss\s+(gui\s+(stop|rotate|remote|lan|devices|unpair|view\s+\S+)|server|lan|link\s+decide)(?=\s|$)/;
-const BOSS_OPEN = /^\s*\/boss\s+open\s+([\s\S]*)$/;
-/** A text a paired device may not send: a local-only /boss command, or a `/boss open` whose first message (at any depth) is one, since the new pane would run that message from this computer. */
+const BOSS_OPEN = /^\s*\/boss\s+open\s+([\s\S]*)$/, BOSS_SEND = /^\s*\/boss\s+send(?=\s|$)([\s\S]*)$/;
+/** A text a paired device may not send: a local-only /boss command, or a `/boss open` whose first message, or a `/boss send` whose text (at any depth), is one, since the new pane or the other session would run it from this computer. */
 const localOnlyText = (text: string): boolean => {
 	if (BOSS_LOCAL.test(text)) return true;
-	const inner = parseOpen(BOSS_OPEN.exec(text)?.[1])?.text;
+	const inner = parseOpen(BOSS_OPEN.exec(text)?.[1])?.text ?? parseSend(BOSS_SEND.exec(text)?.[1])?.text;
 	return inner !== undefined && localOnlyText(inner);
 };
 const LOCAL_ONLY = "Pairing, remote access, Wi-Fi, the server, the default view, and deciding a join request are managed on this computer's own page or terminal, not from a paired device.";
@@ -295,13 +296,15 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			const text = checkText(json.text);
 			if (typeof text !== "string") return text;
 			if (json.as !== "send" && json.as !== "followUp") return no(400, "bad_request", "`as` must be send or followUp.");
-			if (remote && localOnlyText(text)) return no(403, "local_only", LOCAL_ONLY);
+			// `/boss send` posts from this computer on a paired device's behalf (it may have typed the command), so it says `guarded` and meets the guards a paired device's own write meets.
+			const guarded = remote || json.guarded === true;
+			if (guarded && localOnlyText(text)) return no(403, "local_only", LOCAL_ONLY);
 			if (ENDING.test(text) && json.confirmed !== true) return no(409, "confirm", "This command ends or replaces the session; confirm to send it.");
 			job = async () => {
 				const pane = await live(found);
-				if (remote && (await requested(key, found))) throw no(403, "local_only", LINK_LOCAL); // a prompt's Enter would be taken by its terminal dialog as Yes
+				if (guarded && (await requested(key, found))) throw no(403, "local_only", LINK_LOCAL); // a prompt's Enter would be taken by its terminal dialog as Yes
 				if (pane.agent_status === "blocked") throw no(409, "blocked", "It is waiting on a dialog; answer it in the terminal.");
-				if (remote) guardOverlay(found); // right before the write: the composer's text and Enter would answer the overlay
+				if (guarded) guardOverlay(found); // right before the write: the composer's text and Enter would answer the overlay
 				// Enter sends a prompt when idle and a steering message while it works; Alt+Enter queues a follow-up, which only means something while it works.
 				return json.as === "followUp" && pane.agent_status === "working"
 					? call("pane.send_input", { pane_id: pane.pane_id, text, keys: ["alt+enter"] }, 15_000)

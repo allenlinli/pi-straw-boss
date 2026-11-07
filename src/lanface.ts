@@ -285,9 +285,15 @@ export async function showLan(ui: ExtensionContext["ui"], d: LanDeps, start: Lan
 			// One request (the page's Deny): the marked row's id; the server keeps the others.
 			if (is("d")) {
 				const at = pending[marked];
-				return at && act(async () => void (answered(await d.ask({ cmd: "gui-lan-approve", face, deny: at.id })) && (said = `Denied ${at.label} from ${at.peer}`)));
+				return at && act(async () => {
+					const r = await d.ask({ cmd: "gui-lan-approve", face, deny: at.id });
+					if (answered(r)) said = r.denied === 0 ? "That request is gone" : `Denied ${at.label} from ${at.peer}`; // the server answers ok for a request it no longer holds (timed out, answered elsewhere), as the page's Deny finds
+				});
 			}
-			if (is("n")) return act(async () => void (answered(await d.ask({ cmd: "gui-lan-approve", face, deny: "all" })) && (said = "Denied every request")));
+			if (is("n")) return act(async () => {
+				const r = await d.ask({ cmd: "gui-lan-approve", face, deny: "all" });
+				if (answered(r)) said = r.denied === 0 ? "No request was waiting" : "Denied every request";
+			});
 		}
 		if (is("t")) return act(() => enter("certificate"));
 		if (is("f")) return act(async () => {

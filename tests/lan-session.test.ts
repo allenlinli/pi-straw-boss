@@ -370,6 +370,23 @@ test("d denies the one request: the only one, or the marked one (Up and Down mov
 	await r.settled;
 });
 
+test("PTP-F006: d says Denied only when the server denied a request; denied: 0 (timed out, or answered elsewhere) says the request is gone, as the page does", async () => {
+	let approve: LanReply = { ok: true, denied: 0 };
+	const r = rig({ start: { screen: "pairing", facts: FACTS }, handler: (req) => (req.cmd === "gui-lan-pending" ? { ok: true, ...FACTS, pending: [{ id: "a1", label: "iPhone · Safari", peer: "192.168.1.23", iface: "en0" }], events: [] } : req.cmd === "gui-lan-approve" ? approve : undefined) });
+	await r.ready();
+	await r.settle();
+	await r.tick();
+	await r.key("d");
+	assert.match(r.screen(), /That request is gone/);
+	assert.doesNotMatch(r.screen(), /Denied iPhone/);
+	approve = { ok: true, denied: 1 };
+	await r.key("d");
+	assert.match(r.screen(), /Denied iPhone · Safari from 192\.168\.1\.23/);
+	assert.doesNotMatch(r.screen(), /request is gone/);
+	r.overlay.handleInput!(ESC);
+	await r.settled;
+});
+
 test("the events the server reports are told to the session once, and the overlay lists the latest", async () => {
 	let events: string[] = ["old line"];
 	const r = rig({ start: { screen: "certificate", facts: FACTS }, handler: (req) => (req.cmd === "gui-lan-pending" ? { ok: true, ...FACTS, pending: [], events } : undefined) });

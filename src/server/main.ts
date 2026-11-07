@@ -396,6 +396,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		};
 		const workspace = text(request.workspace);
 		const waitId = (value: unknown) => (typeof value === "string" && /^W\d+$/.test(value) ? value : undefined);
+		// The page's composer refuses exactly `/quit` and `/new` sent as the answer to a wait (headroutes.ts `commandReply`): the same here, before anything is queued.
+		const notAnAnswer = (answers: string | undefined, body: string | undefined) => (answers && body && /^\/(quit|new)$/.test(body.trim()) ? { ok: false as const, error: "A command is not an answer to a wait; send it without --answers." } : undefined);
 		switch (request.cmd) {
 			case "ensure-tower": {
 				const claim = typeof request.made === "object" && request.made !== null ? (request.made as Record<string, unknown>) : undefined;
@@ -406,6 +408,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			case "head-open": case "head-event": case "head-leave": case "head-new": case "head-close": case "head-retry": case "head-deliver": case "head-drop": {
 				const answers = request.answers === undefined ? undefined : waitId(request.answers);
 				if (request.answers !== undefined && !answers) return Promise.resolve({ ok: false, error: "answers names a wait: W and its number" });
+				const refusal = request.cmd === "head-event" ? notAnAnswer(answers, text(request.text, 16_384)) : undefined;
+				if (refusal) return Promise.resolve(refusal);
 				return answer((t) => headCommand(t, request.cmd, text(request.text, 16_384), { ...(answers ? { answers } : {}), ...(text(request.id, 64) ? { id: text(request.id, 64)! } : {}) }));
 			}
 			case "close-tower":
@@ -434,6 +438,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 				// `present`: the boss wrote it at the tower prompt in the standing pane, so they are at the keyboard and the run it wakes stays for them (runs.ts, the boss's presence).
 				const answers = request.answers === undefined ? undefined : waitId(request.answers);
 				if (request.answers !== undefined && !answers) return Promise.resolve({ ok: false, error: "answers names a wait: W and its number" });
+				const refusal = notAnAnswer(answers, body);
+				if (refusal) return Promise.resolve(refusal);
 				return workspace && body ? answer(async (t) => ({ queued: t.runs.boss(workspace, body, "the boss", { present: request.present === true }).id, ...(answers ? { answered: await markWaitAnswered(t, workspace, answers) } : {}) })) : Promise.resolve({ ok: false, error: "tower-event needs a workspace and text" });
 			}
 			// The tower prompt in the standing pane (towerprompt/, standing.ts): it polls for the state it shows and for the order to leave, says Ctrl+D, and says it is gone. It starts nothing and holds no run token;

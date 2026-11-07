@@ -105,7 +105,7 @@ test("in Traditional Chinese the words follow, and what the server sent is clean
 });
 
 // G4, G9: `-w <workspace id | label | head>` and `--answers W<n>` (docs/specs/2026-10-26-sb-backend.md, The boss conversation).
-const WORKSPACES = [{ workspace_id: "wA", label: "Alpha" }, { workspace_id: "wB", label: "Beta" }, { workspace_id: "wC", label: "Gamma" }, { workspace_id: "wD", label: "Gamma" }];
+const WORKSPACES = [{ workspace_id: "wA", label: "Alpha" }, { workspace_id: "wB", label: "Beta" }, { workspace_id: "wC", label: "Gamma" }, { workspace_id: "wD", label: "Gamma" }, { workspace_id: "wH", label: "Crown", tokens: { sb_head: "h" } }];
 function other(over: Partial<TowerCmdDeps> = {}) {
 	const asked: string[][] = [];
 	let yes = true;
@@ -153,7 +153,9 @@ test("an unknown or ambiguous workspace refuses and sends nothing; a declined co
 	await h.at("nope", "retry");
 	assert.match(h.last().text, /No workspace matches "nope"\. Workspaces: wA \(Alpha\), wB \(Beta\)/);
 	await h.at("Gamma", "retry");
-	assert.match(h.last().text, /No workspace matches "Gamma"/, "two workspaces carry the label: name the id");
+	assert.match(h.last().text, /^"Gamma" names more than one workspace; nothing was done\. Name the id:\n {2}wC \(Gamma\)\n {2}wD \(Gamma\)$/, "two workspaces carry the label: the refusal lists the ids, and does not say none matched");
+	await sayToTower("hi", "Gamma", undefined, h.deps);
+	assert.match(h.last().text, /^"Gamma" names more than one workspace/);
 	h.refuse();
 	await h.at("wB", "leave");
 	assert.deepEqual(h.last(), { text: "Nothing was done.", level: "info" });
@@ -172,11 +174,25 @@ test("-w head sends the head's own control commands (head-retry, head-deliver, h
 	const h = other({ ask: async (request) => (h.sent.push(request), request.cmd === "status" ? { ok: true, towers: [ROW], head } : { ok: true }) });
 	for (const line of ["retry", "deliver h-1", "drop h-1", "leave", "new"]) await h.at("head", line);
 	assert.deepEqual(h.sent, [{ cmd: "head-retry" }, { cmd: "head-deliver", id: "h-1" }, { cmd: "head-drop", id: "h-1" }, { cmd: "head-leave" }, { cmd: "head-new" }]);
-	assert.match(h.asked[0]![1]!, /for the tower of head \(head\)/);
+	assert.equal(h.asked[0]![1], "Wake it again for the head tower.", "the head is not named \"head (head)\"");
 	await h.at("head", "parked");
 	assert.match(h.last().text, /h-1 {2}intercom: from alpha/);
 	await h.at("head", "status");
 	assert.match(h.last().text, /^Tower \(Head tower\): held/);
+});
+
+test("PTP-F007: -w with the head's own Herdr workspace (id or label) is the head, for commands, reads, and a message", async () => {
+	const head = { workspace: "wH", label: "Head tower", service: { state: "held", queued: 0, parked: [{ id: "h-1", kind: "intercom", first: "from alpha" }] } };
+	const h = other({ ask: async (request) => (h.sent.push(request), request.cmd === "status" ? { ok: true, towers: [ROW], head } : { ok: true }) });
+	await h.at("wH", "retry");
+	await h.at("Crown", "drop h-1");
+	assert.deepEqual(h.sent, [{ cmd: "head-retry" }, { cmd: "head-drop", id: "h-1" }], "head commands, no workspace");
+	await h.at("wH", "parked");
+	assert.match(h.last().text, /h-1 {2}intercom: from alpha/, "the head's row, not a workspace's");
+	h.sent.length = 0;
+	await sayToTower("hi", "Crown", "W3", h.deps);
+	assert.deepEqual(h.sent, [], "a message to the head is /boss head's (head-event), not a tower-event under the head's workspace id");
+	assert.match(h.last().text, /\/boss head/);
 });
 
 test("a message to another tower is the boss's words as a tower-event after a confirm that names it; --answers rides along and the reply says whether the wait was marked", async () => {

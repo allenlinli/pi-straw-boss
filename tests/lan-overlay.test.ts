@@ -210,3 +210,42 @@ test("the head tower's composer from a paired device writes into no pane, so an 
 	assert.deepEqual(events, ["tell Alpha to start"]);
 	assert.deepEqual(w.written(), [], "nothing reached Herdr");
 });
+
+// PTP-F001: `/boss send <B> <text>` posts B's input from this computer, and a paired device can make a session run it (the composer, or the key pad letter by letter). The post carries `guarded: true`, and the server
+// holds it to every guard a paired device's own write meets, whatever its address; the text of a `/boss send` (or one nested in `/boss open`) is judged as the text it will type.
+test("PTP-F001: an input posted with guarded: true meets every remote guard though it comes from this computer: the overlay's mark, a gated command, an open link_request; without it this computer's page is free", async () => {
+	const w = world();
+	w.faces.open(PANE);
+	assert.deepEqual(refused(await w.post("input", { text: "4821", as: "send", guarded: true }, false)), [409, "lan_overlay_open"], "the Wi-Fi approval number cannot be typed into the marked pane");
+	assert.deepEqual(refused(await w.post("input", { text: "4821", as: "followUp", guarded: true }, false)), [409, "lan_overlay_open"]);
+	assert.deepEqual(w.written(), [], "nothing reached Herdr");
+	assert.deepEqual((await w.post("input", { text: "4821", as: "send" }, false)).body, { accepted: true }, "this computer's own page is not limited by the mark");
+	for (const guarded of [false, "true", 1]) assert.deepEqual((await world().post("input", { text: "/boss server stop", as: "send", guarded }, false)).body, { accepted: true }, `guarded: ${JSON.stringify(guarded)} is not the flag`);
+	for (const text of ["/boss server stop", "/boss gui rotate", "/boss link decide ab12 approve", "/boss open main ~/x /boss gui stop"]) {
+		const g = world();
+		assert.deepEqual(refused(await g.post("input", { text, as: "send", guarded: true }, false)), [403, "local_only"], text);
+		assert.deepEqual(g.written(), [], text);
+	}
+	const asking = world({ linkRequest: async () => true });
+	assert.deepEqual(refused(await asking.post("input", { text: "y", as: "send", guarded: true }, false)), [403, "local_only"], "an open link_request would take the prompt's Enter as Yes");
+	assert.deepEqual(refused(await asking.post("input", { text: "y", as: "send", guarded: true }, true)), [403, "local_only"]);
+	assert.deepEqual(asking.written(), []);
+	assert.deepEqual((await asking.post("input", { text: "y", as: "send" }, false)).body, { accepted: true }, "this computer's page keeps typing into it");
+	const plain = world();
+	assert.deepEqual((await plain.post("input", { text: "run the build", as: "send", guarded: true }, false)).body, { accepted: true }, "a plain message passes the guards when none holds");
+});
+
+test("PTP-F001: a paired device's composer cannot hide a gated command in a /boss send, with or without --after or a quoted name, at any depth; plain sends, other commands, and this computer's page pass", async () => {
+	for (const text of [
+		"/boss send b /boss server stop", "/boss send b --after /boss gui rotate", '/boss send "fix login" /boss gui devices', '/boss send "fix login" --after /boss link decide ab12 approve', "  /boss  send  b  /boss  gui  unpair all",
+		"/boss send b /boss send c /boss server stop", "/boss send b /boss open main ~/x /boss server stop", "/boss open main ~/x /boss send b /boss server stop", "/boss send b\n/boss server stop",
+	]) {
+		const w = world();
+		assert.deepEqual(refused(await w.post("input", { text, as: "send" })), [403, "local_only"], JSON.stringify(text));
+		assert.deepEqual(w.written(), [], `${text}: nothing reached Herdr`);
+	}
+	const local = world();
+	assert.deepEqual((await local.post("input", { text: "/boss send b /boss server stop", as: "send" }, false)).body, { accepted: true }, "this computer's own page keeps it (the server it reaches then guards the post)");
+	const phone = world();
+	for (const text of ["/boss send b 4821", "/boss send b --after fix the build", '/boss send "fix login" hello', "/boss send b /boss status", "/boss send b", "/boss stop b", "/boss send b /boss open main ~/x fix it"]) assert.deepEqual((await phone.post("input", { text, as: "send" })).body, { accepted: true }, text);
+});

@@ -10,7 +10,7 @@ import { aimSession } from "./quit.ts";
 import { aim, aimOpening, html, LABEL, mark, text } from "./render.ts";
 import { channelOf, locate, type Scene, type Subject, towerBase, wsOf } from "./scene.ts";
 import { linkTo } from "./tokens.ts";
-import { composerUnit, liveOf } from "./sessionfacts.ts";
+import { composerUnit } from "./sessionfacts.ts";
 import { fillAllies } from "./towerallies.ts";
 import { fillConversation } from "./towerconv.ts";
 import { fillMemory } from "./towermemory.ts";
@@ -159,7 +159,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 			const notes = view.querySelector<HTMLElement>(".tower-notices");
 			if (notes) (fillHeadActs(view.querySelector<HTMLElement>(".head-acts")!, isHead ? u?.service : undefined, isHead && headUnit?.state !== "absent"), fillConversation(view.querySelector<HTMLElement>(".tower-conv")!, hit?.base.id ?? wsOf(scene), isHead ? undefined : u?.service), fillNotices(notes, hit?.base.id ?? wsOf(scene), u?.service, u?.key, true), fillMemory(view.querySelector<HTMLElement>(".tower-memory")!, hit?.base.id ?? wsOf(scene), isHead ? headMemory(u?.service?.memory) : u?.service?.memory)); // the head's page is the conversation and its composer: its actions sit beside the composer (headacts.ts), it has no conversation line and its memory shows only when there is something to read (headpage.ts)
 			if (shown === "term" && holdOf(u?.key ?? "") !== held) setMode("term"); // the tower woke or went to stand by: the terminal or its sentence changes
-			(chat?.setLive(...liveOf(u, state, mk)), composer?.update(composerUnit(u, { name, mk, state, online: online(), role: scene.info?.role, head: isHead })));
+			composer?.update(composerUnit(u, { name, mk, state, online: online(), role: scene.info?.role, head: isHead }));
 			asker?.update(u?.pending, canAnswer(mk, Boolean(u?.control), online())); // its dialog above the composer, answerable or not
 		},
 	};

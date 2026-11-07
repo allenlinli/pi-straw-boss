@@ -5,14 +5,14 @@ import { El, sessionGlobals } from "./fake-dom.ts";
 sessionGlobals();
 Object.assign(globalThis, { setTimeout: () => 0 }); // the session view runs no timer here
 
-// An ended session shows no live activity where the GUI mounts it: the comms' live line (gui/session.ts calls liveNote) the dossier's mark and state (gui/dossier.ts), and the map's unit card (gui/render.ts).
+// An ended session shows no live activity where the GUI mounts it: the composer's activity words and ring (gui/session.ts feeds composerUnit, whose activityOf calls liveNote; the log has no live line since todo #127), the dossier's mark and state (gui/dossier.ts), and the map's unit card (gui/render.ts).
 
 const { m } = await import("../gui/paraglide/messages.js");
 
 const unit = (extra: object) => ({ key: "k", name: "billing-old", role: "session", mark: "working" as const, note: "tool:edit", subs: [], control: false, ...extra });
 const scene = (u: object, state?: string) => ({ route: { view: "session", ws: "w1", key: "k" }, net: { bases: [{ id: "w1", label: "w1", tabs: [], outside: [u] }] }, cards: {}, info: { name: "billing-old", role: "session", state } }) as never;
 
-test("the comms' live line is empty under an ended session and shows the tool under a live one", async () => {
+test("the composer's activity is empty under an ended session and shows the tool under a live one", async () => {
 	const { mountSession } = await import("../gui/session.ts");
 	const { subject } = await import("../gui/scene.ts");
 	const lines: string[] = [];
@@ -24,10 +24,10 @@ test("the comms' live line is empty under an ended session and shows the tool un
 		await new Promise((r) => setImmediate(r));
 		await new Promise((r) => setImmediate(r));
 		session.draw(subject(sc)!);
-		lines.push(view.find((el) => el.classes.has("live-line") || el.dataset.mark !== undefined).map((el) => el.textContent).join("|"));
+		lines.push(view.find((el) => el.classes.has("cmp-activity") || el.classes.has("composer")).map((el) => el.classes.has("composer") ? `ring=${el.dataset.activity ?? "none"}` : el.textContent).join("|"));
 	}
-	assert.ok(!lines[0]!.includes(m.using({ tool: "edit" })), `ended: ${lines[0]}`);
-	assert.ok(lines[1]!.includes(m.using({ tool: "edit" })), `live: ${lines[1]}`);
+	assert.ok(!lines[0]!.includes(m.using({ tool: "edit" })) && lines[0]!.includes("ring=none"), `ended: ${lines[0]}`);
+	assert.ok(lines[1]!.includes(m.using({ tool: "edit" })) && lines[1]!.includes("ring=working"), `live: ${lines[1]}`);
 });
 
 test("the dossier of a session that is not live draws no working mark and no tool", async () => {

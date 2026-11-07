@@ -27,9 +27,14 @@ type Flight = { sent?: string; answer: Promise<Answer> };
 // Sends on their way, by session key. They outlive a composer replaced meanwhile (the route left and came back), whose successor waits for
 // them before it sends again and settles its own box, so text is neither shown as unsent after it went nor sent twice.
 const flights = new Map<string, Flight>();
+/**
+ * What the unit is doing while the box is open (sessionfacts.ts `activityOf`; none at rest, ended, or gone): `text` is the words, said to assistive tech and never drawn in the log; `mark` and `kind` tell the ring round the box which
+ * state to show (style.css): working in its three kinds (the thought, a tool, a monitor watched), commanding, and the two that ask for the boss or failed, which stand still.
+ */
+export interface Activity { text: string; mark: Mark; kind: "thinking" | "tool" | "monitoring" }
 /** `live`: its channel is open (scene.ts `closed`). `answerable`: its question panel on the page answers it. */
 /** `wakes`: the tower of the sb server's service, which has no pi to type into while it stands by: Send posts a boss event that wakes it (the server's tower route). `held`: the service stopped waking after repeated crashes; a boss event still wakes it. `allyLive`: an ally run is working and no local run is (a message wakes a run of the boss's own). `ally`: the unit is an ally run's comms, which are read and never written to. */
-export interface Unit { /** The head tower: its composer wakes it, and says so (it exists only from the first message). */ head?: boolean; wakes?: boolean; /** The boss conversation is live (and not ending): a message continues it. */ conversation?: boolean; held?: boolean; allyLive?: boolean; /** The boss is in the live event run: a message goes to it. */ eventRun?: boolean; ally?: boolean; /** The unit is an event run's comms (read only; the boss writes to the tower). */ run?: boolean; name: string; control: boolean; agent?: keyof typeof AGENT; live: boolean; mark: Mark; online: boolean; answerable?: boolean; /** Zen's words-only item: it waits with no dialog open, so a reply in words is the answer and the waiting rule does not apply. */ unlocked?: boolean }
+export interface Unit { /** The head tower: its composer wakes it, and says so (it exists only from the first message). */ head?: boolean; wakes?: boolean; /** The boss conversation is live (and not ending): a message continues it. */ conversation?: boolean; held?: boolean; allyLive?: boolean; /** The boss is in the live event run: a message goes to it. */ eventRun?: boolean; ally?: boolean; /** The unit is an event run's comms (read only; the boss writes to the tower). */ run?: boolean; name: string; control: boolean; agent?: keyof typeof AGENT; live: boolean; mark: Mark; online: boolean; answerable?: boolean; /** Zen's words-only item: it waits with no dialog open, so a reply in words is the answer and the waiting rule does not apply. */ unlocked?: boolean; activity?: Activity }
 
 /** The server's input API for one session. */
 /** A file pasted, dropped, or picked: stored by the server, its path goes into the message (upload.ts). */
@@ -147,9 +152,9 @@ export function mountComposer(root: HTMLElement, key: string, post: Post, upload
 	const picker = h("input", { type: "file", multiple: "", hidden: "" }) as HTMLInputElement, attach = h("button", { type: "button", class: "cmp-alt", "aria-label": m.attach() }, "+");
 	const note = h("p", { class: "cmp-note", role: "status", "aria-live": "polite" });
 	const menu = mountSlash(box, (prefix) => post("commands", { prefix })); // before the composer's own keys, so Enter on the menu picks
-	const bar = h("p", { class: "cmp-bar", role: "status" });
+	const bar = h("p", { class: "cmp-bar", role: "status" }), activity = h("p", { class: "cmp-activity", role: "status", "aria-live": "polite" }); // the unit's state in words, for assistive tech: the ring round the box is its picture
 	bar.hidden = true;
-	const form = h("form", { class: "composer" }, menu, h("div", { class: "cmp-row" }, attach, picker, box, h("div", { class: "cmp-acts" }, send, follow, stop)), h("div", { class: "cmp-foot" }, note), bar);
+	const form = h("form", { class: "composer" }, menu, h("div", { class: "cmp-row" }, attach, picker, box, h("div", { class: "cmp-acts" }, send, follow, stop)), h("div", { class: "cmp-foot" }, note), bar, activity);
 	root.replaceChildren(form);
 	let unit: Unit = { name: "", control: false, live: false, mark: "unknown", online: false }, busy = false, asking = false;
 	const keep = (use: () => void) => {
@@ -220,6 +225,9 @@ export function mountComposer(root: HTMLElement, key: string, post: Post, upload
 		const line = barOf(unit), parts = [form.querySelector(".cmp-row"), form.querySelector(".cmp-foot")] as HTMLElement[];
 		bar.hidden = line === undefined, bar.textContent = line ?? "", form.classList.toggle("ended", line !== undefined);
 		for (const part of parts) part.hidden = line !== undefined; menu.hidden ||= line !== undefined; // slash.ts alone shows the menu
+		const doing = unit.activity;
+		for (const [name, value] of [["activity", doing?.mark], ["kind", doing?.kind]] as const) value === undefined ? delete form.dataset[name] : (form.dataset[name] = value);
+		if (activity.textContent !== (doing?.text ?? "")) activity.textContent = doing?.text ?? "";
 		const why = blocked(unit), working = unit.mark === "working";
 		box.placeholder = why ?? placeholderOf(unit);
 		box.disabled = attach.disabled = !typable(unit); // a closed channel (the session left the net, or a finished subagent's pi exited) takes no typing at all, as it takes no sending

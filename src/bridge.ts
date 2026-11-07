@@ -65,7 +65,7 @@ export interface AnswerMessage extends Omit<Answer, "value"> { version: 1; type:
 /** The hub when it runs in this session: it takes what a remote bridge would publish, from this session's id. */
 export interface LocalHub { receive(from: string, msg: ToHub): void }
 /** What the hub calls on the bridge of its own session. */
-export interface Bridge { deliver(msg: AnswerMessage, reply: (ack: Ack) => void): void; sync(): void; probe(nonce?: string): Editor; commands(prefix: string): Cmd[]; form(msg: FormMessage, reply: (r: FormReply) => void): void; close(keepPane: boolean, ifStashable?: boolean): { accepted: boolean; reason?: string }; stashCheck(): string | undefined; pull(step: "begin" | "finish", ref?: string, deadline?: number): Pull | Promise<Pull> }
+export interface Bridge { deliver(msg: AnswerMessage, reply: (ack: Ack) => void): void; sync(): void; probe(nonce?: string): Editor; commands(prefix: string): Cmd[]; form(msg: FormMessage, reply: (r: FormReply) => void): void; close(keepPane: boolean, ifStashable?: boolean): { accepted: boolean; reason?: string }; stashCheck(): string | undefined; /** What an `interrupt` of a stop uses (closemain.ts): whether a turn runs, what an abort does not end, and the abort. */ turn?: { running(): boolean; blockers(): string | undefined; abort(): void }; pull(step: "begin" | "finish", ref?: string, deadline?: number): Pull | Promise<Pull> }
 interface Channel { snapshot(): { connected: boolean; owner?: { sessionId: string; epoch: string } }; publish(payload: unknown, options?: { audience?: "owner" | "capable" }): void }
 interface Rec { adapter: OwnerAdapter; d: Dialog; state: "open" | "settling" | "unknown" | "closed"; answerId?: string; accepted?: boolean; by?: string; allow?: true; at?: number; last?: Ack; waiting: ((ack: Ack) => void)[] }
 type Event = { type: string; fromSessionId?: string; owner?: { sessionId: string; epoch: string }; payload?: Record<string, unknown> };
@@ -77,7 +77,7 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 	let g: string | undefined, gpid = 0, seen: number | undefined, poll: ReturnType<typeof setInterval> | undefined, offs: (() => void)[] = [], warned = false;
 	let file: () => string | undefined = () => undefined, tell = (_text: string) => {}, editor = (_nonce?: unknown): Editor => ({ editor: "unknown" }), docs: Doc[] = [];
 	let ticket: { id: string; before: string; expected: string; at: number; take?: string } | undefined, taken: { take: string; text: string; at: number } | undefined, ui: Pick<ExtensionContext, "hasUI" | "ui"> | undefined;
-	let queued: Queued[] = [], waits = () => false, idle = () => true, todo: TodoSum | undefined, branch = (): readonly unknown[] => [];
+	let queued: Queued[] = [], waits = () => false, idle = () => true, abort = () => {}, todo: TodoSum | undefined, branch = (): readonly unknown[] => [];
 	const open = () => [...recs.values()].filter((r) => r.state !== "closed");
 	const pidAlive = (pid: number) => { try { return pid > 0 && (process.kill(pid, 0), true); } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
 	const alive = () => pidAlive(gpid); // a server that died without removing gui.json gets no probe answers
@@ -186,6 +186,11 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		const why = [!idle() && "a turn is running", waits() && "messages wait in its queue", open().length > 0 && "a dialog is open", (monitors?.list() ?? []).some((m) => m.status === "running") && "a background monitor is running"].filter(Boolean);
 		return why.length ? why.join(", ") : undefined;
 	};
+	/** A dialog or a monitor outlives an abort of the turn (an `interrupt` still refuses for them). */
+	const blockers = () => {
+		const why = [open().length > 0 && "a dialog is open", (monitors?.list() ?? []).some((m) => m.status === "running") && "a background monitor is running"].filter(Boolean);
+		return why.length ? why.join(", ") : undefined;
+	};
 	/** `ifStashable`: a stash's close, refused when the session stopped being stashable since its check (a turn started meanwhile). */
 	const shut = (keepPane: boolean, ifStashable = false) => {
 		const why = (ifStashable && stashCheck()) || close(keepPane);
@@ -290,6 +295,7 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		queued = [];
 		waits = () => { try { return ctx.hasPendingMessages(); } catch { return false; } }; // a replaced session's context throws
 		idle = () => { try { return ctx.isIdle(); } catch { return false; } };
+		abort = () => { try { ctx.abort(); } catch { /* a replaced session's context throws: nothing is running there */ } };
 		file = () => ctx.sessionManager.getSessionFile();
 		branch = () => { try { return ctx.sessionManager.getBranch(); } catch { return []; } }; // a replaced session's context throws
 		todo = todoOfBranch(branch());
@@ -327,5 +333,5 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		offs.splice(0).forEach((off) => off());
 		(clearInterval(poll), (poll = undefined));
 	});
-	return { deliver, sync: () => ((seen = -1), follow()), probe: (nonce) => editor(nonce), commands: (prefix) => listCommands(pi, prefix), form, close: shut, stashCheck, pull };
+	return { deliver, sync: () => ((seen = -1), follow()), probe: (nonce) => editor(nonce), commands: (prefix) => listCommands(pi, prefix), form, close: shut, stashCheck, turn: { running: () => !idle(), blockers, abort: () => abort() }, pull };
 }

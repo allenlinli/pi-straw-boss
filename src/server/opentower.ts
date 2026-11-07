@@ -38,12 +38,14 @@ export async function openTowerFor(d: OpenTowerDeps, project: string, toWorkspac
 	const problem = projectProblem(root, { home: d.home, agentDir: d.agentDir });
 	if (problem) throw new Error(`${project} cannot be opened: ${problem}`);
 	const [all, here] = await Promise.all([workspaces(d.run), panes(d.run)]);
-	const found = all.find((w) => !isSub(w) && !isHead(w) && (!toWorkspace || w.label === toWorkspace) && here.some((p) => p.workspace_id === w.workspace_id && p.cwd !== undefined && inside(p.cwd, root)));
+	// A name is a workspace id first (a reply to an ask a tower made for a main), else a label.
+	const byId = !!toWorkspace && all.some((w) => w.workspace_id === toWorkspace);
+	const found = all.find((w) => !isSub(w) && !isHead(w) && (!toWorkspace || (byId ? w.workspace_id === toWorkspace : w.label === toWorkspace)) && here.some((p) => p.workspace_id === w.workspace_id && p.cwd !== undefined && inside(p.cwd, root)));
 	if (found) {
 		await d.ensure({ workspace: found.workspace_id, cwd: root });
 		return { workspace: found.workspace_id, created: false };
 	}
-	if (toWorkspace) throw new Error(`No workspace labelled "${toWorkspace}" is open inside ${project}; the server makes none for a name the sender chose`);
+	if (toWorkspace) throw new Error(`No workspace named "${toWorkspace}" (label or id) is open inside ${project}; the server makes none for a name the sender chose`);
 	// The listing took a moment: the project must still lead to the same folder as when it was checked, or the workspace would be made in another one.
 	if (realpathOr(project) !== root) throw new Error(`The project ${project} moved while its tower was being opened`);
 	const made = await result(d.run, ["workspace", "create", "--cwd", root, "--label", labelOf(root), "--no-focus"]);

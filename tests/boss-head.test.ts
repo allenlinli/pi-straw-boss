@@ -5,6 +5,7 @@ import { HEAD_KEY } from "../src/headkey.ts";
 import { type MemoryCmdDeps, runMemoryCommand } from "../src/memorycmd.ts";
 import { gateRun } from "../src/server/rungate.ts";
 import { callControl } from "../src/server/socket.ts";
+import { addWait, loadMemory, updateMemory } from "../src/server/towermemory.ts";
 import { World } from "./fakes.ts";
 import { type Running, until } from "./server-world.ts";
 import { TowerWorld } from "./tower-world.ts";
@@ -30,7 +31,56 @@ test("the words that are commands: nothing opens, status, leave, new, close alon
 	assert.deepEqual(parseHeadArgs("   "), { op: "open" });
 	for (const op of ["status", "leave", "new", "close"]) assert.deepEqual(parseHeadArgs(` ${op.toUpperCase()} `), { op });
 	assert.deepEqual(parseHeadArgs("start MP-4129 in Alpha"), { op: "say", text: "start MP-4129 in Alpha" });
-	for (const prompt of ["new tests for the build", "close the loop with Beta", "status of the deploy", "leave it to docs"]) assert.deepEqual(parseHeadArgs(prompt), { op: "say", text: prompt }, prompt);
+	for (const prompt of ["new tests for the build", "close the loop with Beta", "status of the deploy", "leave it to docs", "retry later", "drop the plan", "deliver e-1 now"]) assert.deepEqual(parseHeadArgs(prompt), { op: "say", text: prompt }, prompt);
+});
+
+// G5, G9: the notices' buttons and `--answers`.
+test("retry and parked alone, and deliver or drop with an event id, are commands; --answers W<n> makes the rest the message, whatever it says", () => {
+	for (const op of ["retry", "parked"]) assert.deepEqual(parseHeadArgs(` ${op.toUpperCase()} `), { op });
+	assert.deepEqual(parseHeadArgs("deliver e-9"), { op: "deliver", id: "e-9" });
+	assert.deepEqual(parseHeadArgs("drop  E_1.2"), { op: "drop", id: "E_1.2" });
+	assert.deepEqual(parseHeadArgs("--answers w3 Yes, deploy"), { op: "say", text: "Yes, deploy", answers: "W3" });
+	assert.deepEqual(parseHeadArgs("--answers W3 close"), { op: "say", text: "close", answers: "W3" }, "a command word after the flag is a message");
+	for (const bad of ["--answers", "--answers W3", "--answers x hi"]) assert.deepEqual(parseHeadArgs(bad), { op: "usage" }, bad);
+});
+
+test("/boss head retry, parked, deliver and drop are the head's own control commands, with no confirm; parked reads the head row", async () => {
+	const h = harness();
+	h.row({ workspace: "wH", label: "Head tower", service: { state: "held", queued: 0, parked: [{ id: "h-1", kind: "intercom", first: "from alpha" }] } });
+	await h.run("retry");
+	assert.match(h.last().text, /^Retried/);
+	await h.run("deliver h-1");
+	assert.equal(h.last().text, "h-1 will be delivered again.");
+	await h.run("drop h-1");
+	assert.equal(h.last().text, "h-1 dropped.");
+	await h.run("parked");
+	assert.match(h.last().text, /h-1 {2}intercom: from alpha/);
+	assert.deepEqual(h.sent.map((r) => [r.cmd, r.id, r.start]), [["head-retry", undefined, "never"], ["head-deliver", "h-1", "never"], ["head-drop", "h-1", "never"], ["status", undefined, "never"]]);
+	assert.deepEqual(h.sent.map((r) => "workspace" in r), [false, false, false, false], "the head's commands carry no workspace");
+});
+
+test("--answers rides on head-event and the reply says whether the wait was marked; a refusal and a pi with no screen are as for any head message", async () => {
+	const h = harness();
+	h.say({ queued: "e1", answered: "W3" });
+	await h.run("--answers W3 Yes, deploy");
+	assert.deepEqual([h.sent.at(-1)!.cmd, h.sent.at(-1)!.text, h.sent.at(-1)!.answers, h.sent.at(-1)!.start], ["head-event", "Yes, deploy", "W3", "boss"]);
+	assert.match(h.last().text, /^Handed to the head tower.* W3 is marked answered\.$/);
+	h.say({ queued: "e2", answered: false });
+	await h.run("--answers W3 again");
+	assert.match(h.last().text, /W3 was not marked answered/);
+	await h.run("plain words");
+	assert.equal("answers" in h.sent.at(-1)!, false);
+	await h.run("--answers W3");
+	assert.match(h.last().text, /^Usage: \/boss head/);
+	assert.equal(h.last().level, "warning");
+	const blind = harness({ interactive: false });
+	for (const line of ["retry", "deliver e-1", "drop e-1", "--answers W1 hi"]) {
+		await blind.run(line);
+		assert.match(blind.last().text, /only in a pi session with a screen|screen/, line);
+	}
+	assert.deepEqual(blind.sent, []);
+	await blind.run("parked");
+	assert.equal(blind.sent.length, 1, "parked is a read");
 });
 
 test("a bare /boss head makes the head workspace and focuses its tab; a message is a boss event that starts the server when it is stopped; leave, new, and close are one command each", async () => {
@@ -114,7 +164,7 @@ test("/boss memory -w head reaches the head's memory with the head's key; any ot
 });
 
 test("a run's token may not ask for any head command", () => {
-	for (const kind of ["local", "ally", "head"] as const) for (const cmd of ["head-open", "head-event", "head-leave", "head-new", "head-close"]) assert.equal(gateRun({ cmd }, { id: "r", workspace: "wA", kind }).ok, false, `${kind} ${cmd}`);
+	for (const kind of ["local", "ally", "head"] as const) for (const cmd of ["head-open", "head-event", "head-leave", "head-new", "head-close", "head-retry", "head-deliver", "head-drop"]) assert.equal(gateRun({ cmd }, { id: "r", workspace: "wA", kind }).ok, false, `${kind} ${cmd}`);
 });
 
 // --- the server ---------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -165,8 +215,64 @@ test("in a pi session /boss head is the command the harness runs: without the sb
 		await a.command("head start MP-4129 in Alpha");
 		assert.deepEqual(a.notices.at(-1), { text: "The sb server is not available in this session.", level: "warning" });
 		const completions = (a.commands.get("boss") as unknown as { getArgumentCompletions(prefix: string): { value: string }[] | null }).getArgumentCompletions("head");
-		assert.deepEqual(completions?.map((c) => c.value), ["head", "head status", "head leave", "head new", "head close"]);
+		assert.deepEqual(completions?.map((c) => c.value), ["head", "head status", "head retry", "head parked", "head deliver", "head drop", "head --answers", "head leave", "head new", "head close"]);
 	} finally {
 		await world.stopAll();
 	}
+});
+
+// G5, G9 on the server: head-retry, head-deliver, head-drop, and `answers` on head-event and tower-event.
+test("head-retry, head-deliver and head-drop need an open head; deliver and drop need an id, and an unknown parked event is the server's refusal", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	for (const cmd of ["head-retry", "head-deliver", "head-drop"]) assert.match(String((await ask(s, { cmd, id: "x" })).error), /^The head tower is not open/, cmd);
+	assert.equal((await ask(s, { cmd: "head-event", text: "wake" })).ok, true);
+	assert.equal((await ask(s, { cmd: "head-retry" })).ok, true);
+	for (const cmd of ["head-deliver", "head-drop"]) {
+		assert.match(String((await ask(s, { cmd })).error), /needs an event id/, cmd);
+		assert.match(String((await ask(s, { cmd, id: "nope" })).error), /No such parked event/, cmd);
+	}
+});
+
+test("head-event with answers marks the wait answered once the head took the message; a bad id is refused before anything is queued; a wait that is gone says false", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	updateMemory(world.slot, HEAD_KEY, Date.now(), (m) => addWait(m, Date.now(), "r1", { text: "Boss token needed", for: "boss" }));
+	const bad = await ask(s, { cmd: "head-event", text: "x", answers: "token" });
+	assert.deepEqual([bad.ok, bad.error], [false, "answers names a wait: W and its number"]);
+	assert.equal(loadMemory(world.slot, HEAD_KEY).memory.entries[0]!.state, "open");
+	const done = await ask(s, { cmd: "head-event", text: "Use the staging token", answers: "W1" });
+	assert.deepEqual([done.ok, done.answered], [true, "W1"]);
+	assert.equal(loadMemory(world.slot, HEAD_KEY).memory.entries[0]!.state, "answered");
+	assert.equal((await ask(s, { cmd: "head-event", text: "again", answers: "W9" })).answered, false);
+	assert.equal((await ask(s, { cmd: "head-event", text: "no answers" })).answered, undefined);
+});
+
+test("PTP-F008: /quit and /new with answers are refused as the page refuses them (not an answer to a wait): nothing is queued, the wait stays open; without answers they are the boss's words as before", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	updateMemory(world.slot, HEAD_KEY, Date.now(), (m) => addWait(m, Date.now(), "r1", { text: "Boss token needed", for: "boss" }));
+	updateMemory(world.slot, "wA", Date.now(), (m) => addWait(m, Date.now(), "r1", { text: "Boss token needed", for: "boss" }));
+	for (const text of ["/quit", " /new ", "/quit\n"]) {
+		for (const request of [{ cmd: "head-event", text, answers: "W1" }, { cmd: "tower-event", workspace: "wA", text, answers: "W1" }]) {
+			const r = await ask(s, request);
+			assert.deepEqual([r.ok, r.queued, r.answered], [false, undefined, undefined], `${request.cmd} ${JSON.stringify(text)}`);
+			assert.match(String(r.error), /^A command is not an answer to a wait/);
+		}
+	}
+	assert.deepEqual([loadMemory(world.slot, HEAD_KEY).memory.entries[0]!.state, loadMemory(world.slot, "wA").memory.entries[0]!.state], ["open", "open"]);
+	assert.equal((await ask(s, { cmd: "tower-event", workspace: "wA", text: "/quit later", answers: "W1" })).ok, true, "only the exact command is refused");
+	assert.equal((await ask(s, { cmd: "tower-event", workspace: "wA", text: "/new" })).ok, true, "without answers it is the boss's word as before");
+});
+
+test("tower-event with answers marks that tower's wait the same way", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	updateMemory(world.slot, "wA", Date.now(), (m) => addWait(m, Date.now(), "r1", { text: "Boss token needed", for: "boss" }));
+	assert.equal((await ask(s, { cmd: "tower-event", workspace: "wA", text: "x", answers: "W 1" })).ok, false);
+	const done = await ask(s, { cmd: "tower-event", workspace: "wA", text: "Use the staging token", present: true, answers: "W1" });
+	assert.deepEqual([done.ok, done.answered], [true, "W1"]);
+	assert.equal(loadMemory(world.slot, "wA").memory.entries[0]!.state, "answered");
 });

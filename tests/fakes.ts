@@ -495,6 +495,8 @@ export class Agent {
 	/** What pi's context says of the run: `isIdle()` and `hasPendingMessages()`. */
 	idle = true;
 	pending = false;
+	/** How often the extension called ctx.abort() (an `interrupt` of a stop). */
+	aborted = 0;
 	/** The session file pi would name, and the run's abort signal (ctx.signal). */
 	file?: string;
 	/** Entries of the transcript besides the extension's own (custom messages, for instance), as ctx.sessionManager.getEntries() returns them. */
@@ -532,6 +534,7 @@ export class Agent {
 			get cwd() { return self.cwd; },
 			isIdle: () => self.idle,
 			hasPendingMessages: () => self.pending,
+			abort: () => void self.aborted++,
 			shutdown: () => void self.stop("quit"), // pi quits as /quit would
 			ui: {
 				notify: (text: string, level?: string) => this.notices.push({ text, level }),

@@ -40,8 +40,9 @@
 			var bar = d.querySelector('meta[name="theme-color"]');
 			if (bar) bar.setAttribute("content", colors[view]);
 		}
+		var icon = d.querySelector('link[rel="icon"]');
+		if (icon && !(theme && theme.icon) && icon.hasAttribute("data-standard")) icon.setAttribute("href", icon.getAttribute("data-standard")); // the server wrote its default's icon; this device's view has none
 		if (theme && theme.icon) {
-			var icon = d.querySelector('link[rel="icon"]');
 			if (icon) {
 				if (!icon.hasAttribute("data-standard")) icon.setAttribute("data-standard", icon.getAttribute("href") || ""); // main.ts draws Standard's icon from it
 				icon.setAttribute("href", theme.icon);

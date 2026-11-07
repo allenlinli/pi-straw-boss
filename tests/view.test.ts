@@ -362,9 +362,9 @@ test("Z-D20 R3: a change of the server's default never switches a page that is s
 const BOOT = readFileSync(new URL("../gui/boot.js", import.meta.url), "utf8");
 const MAP = JSON.stringify({ geek: { css: "themes/geek/geek-x.css", icon: "icon.svg" }, zen: { css: "themes/zen/zen-x.css", icon: "icon.svg" } });
 /** boot.js run in a page of plain objects: what it did to <html>, the theme-color, the icon, and what it wrote. */
-function boot(stored: string | null, contrast: boolean, server: string | null, o: { linked?: boolean; refuse?: boolean } = {}) {
+function boot(stored: string | null, contrast: boolean, server: string | null, o: { linked?: boolean; refuse?: boolean; standardMark?: string; icon?: string } = {}) {
 	const metas: Record<string, { content: string } | undefined> = { "sb-themes": { content: MAP }, "theme-color": { content: "#1a1b26" }, ...(server !== null ? { "sb-view": { content: server } } : {}) };
-	const attrs = new Map<string, string>([["href", "./icon.svg"]]);
+	const attrs = new Map<string, string>([["href", o.icon ?? "./icon.svg"], ...(o.standardMark ? [["data-standard", o.standardMark] as [string, string]] : [])]);
 	const wrote: string[] = [];
 	const dataset: Record<string, string> = {};
 	const document = {
@@ -406,4 +406,10 @@ test("boot.js sets the theme-color view.ts names, links the theme's stylesheet o
 	assert.deepEqual(boot(null, true, null).wrote.length, 1, "Auto with more contrast is Geek");
 	assert.equal(boot(null, false, "zen", { refuse: true }).view, "zen", "storage refused: the server's default decides");
 	assert.deepEqual(Object.fromEntries(Object.entries(boot(null, false, null).resolve.colors)), THEME, "the colours are view.ts's");
+});
+
+test("boot.js restores Standard's icon from data-standard when the server wrote a theme's icon and the device's view has none", () => {
+	const run = boot("standard", false, "geek", { standardMark: "./icon.svg", icon: "themes/geek/favicon-x.svg" });
+	assert.equal(run.icon, "./icon.svg");
+	assert.equal(boot("geek", false, null, { standardMark: "./icon.svg", icon: "themes/geek/favicon-x.svg" }).icon, "icon.svg", "a themed view still takes its own");
 });

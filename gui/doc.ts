@@ -97,7 +97,6 @@ export function refreshDocs(cards: Map<string, DocCard>) {
 	}
 }
 
-/** The dossier's list of a unit's documents; a click opens one beside the comms. */
 /** The list row's role icon (iconRef `doc`), drawn by a view that has art for it (raven.css); Standard draws its paper sheet in the row's background and hides this. */
 function docIcon(): SVGSVGElement {
 	const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg"), use = document.createElementNS(ns, "use");
@@ -106,6 +105,7 @@ function docIcon(): SVGSVGElement {
 	svg.append(use);
 	return svg;
 }
+/** The dossier's list of a unit's documents; a click opens one beside the comms. */
 export function docList(root: HTMLElement, cards: DocCard[] | undefined, cut: boolean | undefined, show: (card: DocCard) => void) {
 	root.hidden = !cards?.length && !cut;
 	root.querySelector(".d-doc-list")!.replaceChildren(...(cards ?? []).map((c) => {

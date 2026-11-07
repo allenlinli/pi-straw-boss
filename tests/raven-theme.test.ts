@@ -140,3 +140,16 @@ test("no page source reads a role noun straight from the messages: every one goe
 	const offenders = readdirSync(join(root, "gui")).filter((f) => f.endsWith(".ts") && f !== "nouns.ts" && f !== "towermodel.ts").filter((f) => hit.test(at(`gui/${f}`)));
 	assert.deepEqual(offenders, []);
 });
+
+// A template drawn once into a host that lives as long as the page (the dossier, the comms, the zoom) keeps the words it was built with, and the
+// theme's nouns arrive after it (showTheme awaits its chunk) or change on a view switch: a noun printed as a template's text therefore carries
+// `data-m`, so retranslate() rewrites it when the theme lands (RRB-F002).
+test("a noun printed into a page template carries data-m, so a theme switch rewrites it", () => {
+	const dir = join(root, "gui"), bare: string[] = [];
+	for (const f of readdirSync(dir).filter((n) => n.endsWith(".ts")))
+		for (const hit of readFileSync(join(dir, f), "utf8").matchAll(/<([a-z0-9]+)([^<>]*)>\$\{noun\("([a-z_]+)"\)\}/g))
+			if (!hit[2]!.includes(`data-m="${hit[3]}"`)) bare.push(`${f}: <${hit[1]}${hit[2]}>\${noun("${hit[3]}")}`);
+	assert.deepEqual(bare, []);
+	const page = readFileSync(join(dir, "i18n.ts"), "utf8");
+	for (const key of ["documents", "comms", "outposts", "outside_net"]) assert.match(page, new RegExp(`\\b${key}: \\(\\) => noun\\("${key}"\\)`));
+});

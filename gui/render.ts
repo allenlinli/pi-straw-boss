@@ -209,7 +209,7 @@ function fillBase(el: HTMLElement, b: Base) {
 		aimOpening(tab.querySelector(".tab-add")!, b, t.id);
 		sync(tab.querySelector(".units")!, t.units, unitEl, fillUnit);
 	});
-	sync(el.querySelector(".outposts")!, b.outposts.map((o) => ({ id: o.id, name: o.label, role: "outpost" as const, mark: o.mark, note: o.mark === "unknown" ? m.no_agent() : undefined, since: o.since, ticks: o.ticks })), unitEl, fillUnit);
+	el.querySelector<HTMLElement>(".outposts")!.dataset.label = noun("outposts"), sync(el.querySelector(".outposts")!, b.outposts.map((o) => ({ id: o.id, name: o.label, role: "outpost" as const, mark: o.mark, note: o.mark === "unknown" ? m.no_agent() : undefined, since: o.since, ticks: o.ticks })), unitEl, fillUnit);
 }
 
 // A teammate's workspace on a bound project (Straw Link, from its last presence), beside the local bases: a card of its own, not openable (its units are

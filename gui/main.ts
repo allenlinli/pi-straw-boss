@@ -179,7 +179,7 @@ onTheme((shown, parts) => {
 	badge = parts?.badge;
 	if (tabIcon) plain = plainFor(shown);
 	icon(badged, true);
-	if (parts?.nouns || parts?.sprite) core.latest && core.snapshot(core.latest); // the words and icons are drawn again with them
+	if (core.latest) core.snapshot(core.latest); // the words and icons are drawn again in the shown view's, a switch back to Standard included (RRB2-F001)
 });
 view.onChange((shown) => void showTheme(shown));
 void showTheme(view.view());

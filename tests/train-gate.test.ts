@@ -1063,6 +1063,12 @@ test("G-F008: temp names do not collide with what a killed process of the same p
 	const taken = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 });
 	assert.ok(taken.ok);
 	taken.ok && taken.release();
+	// the marker of a takeover too
+	for (let n = 0; n < 3000; n++) writeFileSync(`${lockFile}.looking.${process.pid}.${n}.tmp`, "");
+	writeFileSync(lockFile, deadHolder());
+	const over = takeLock(w.lockDir, "heavy", { train: CODE, step: 2 });
+	assert.ok(over.ok, "a takeover");
+	over.ok && over.release();
 	const file = step(w, 1, { run: "true" });
 	for (let n = 0; n < 3000; n++) writeFileSync(join(codeDir(w), `gate-1.json.${process.pid}.${n}.tmp`), "");
 	const g = start(w, file);

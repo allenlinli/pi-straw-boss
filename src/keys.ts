@@ -1,7 +1,7 @@
 import { DEQUEUE_KEY } from "./dequeuekey.ts";
 import type { Overlay } from "./lan/faces.ts";
 import type { Found } from "./net.ts";
-import { type Editor, operateKeyRefusal, operateRefusal } from "./probe.ts";
+import { type Editor, operateKeyRefusal, operateRawRefusal, operateRefusal } from "./probe.ts";
 import type { Taken } from "./runs.ts";
 
 // The key pad's keys (POST …/sessions/<key>/keys {key, stream, confirmed?}), checked in order after the write guards and the registry:
@@ -119,7 +119,15 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 		},
 		/** The guards that need the pane as Herdr has it now, then the Herdr calls that send the key, in order, 60 ms apart. */
 		async send(session: string, found: Found, pane: Pane, a: Asked): Promise<Plan> {
-			if (a.text !== undefined) return await guard(session, found, pane, a), { keys: [], double: false, calls: [["pane.send_text", { pane_id: pane.pane_id, text: a.text }]] };
+			if (a.text !== undefined) {
+				await guard(session, found, pane, a);
+				if (a.operate) { // typed text and a paste go into whatever has the terminal: pi's raw mode, told by the bridge, is the proof that it is pi's editor
+					const barred = operateRawRefusal(await probe(session, undefined, true));
+					if (barred) throw no(403, "operate_refused", barred.reason, { why: barred.why });
+					await guard(session, found, pane, a); // the probe took up to a second: a secret or a dialog may have opened meanwhile
+				}
+				return { keys: [], double: false, calls: [["pane.send_text", { pane_id: pane.pane_id, text: a.text }]] };
+			}
 			const { keys, double } = await this.keys(session, found, pane, a), text = SEQUENCES[keys[0]!];
 			return { keys, double, calls: text ? [["pane.send_text", { pane_id: pane.pane_id, text }]] : keys.map((k) => ["pane.send_input", { pane_id: pane.pane_id, keys: [k] }]) };
 		},

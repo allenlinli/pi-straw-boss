@@ -8,7 +8,7 @@ import { type Answer, type Bus, type Dialog, OWNERS, type OwnerAdapter, type Ver
 import { type Cmd, listCommands, MAX_PREFIX } from "./commands.ts";
 import type { Queued } from "./net.ts";
 import { type Editor, probeEditor } from "./probe.ts";
-import { foreignKeys } from "./bindings.ts";
+import { bindingReport } from "./bindings.ts";
 import { dequeueKey } from "./dequeuebind.ts";
 import { joined, MAX_PULL, type Pull, pulled } from "./pull.ts";
 import { type Monitor, trackMonitors } from "./monitors.ts";
@@ -301,7 +301,7 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		branch = () => { try { return ctx.sessionManager.getBranch(); } catch { return []; } }; // a replaced session's context throws
 		todo = todoOfBranch(branch());
 		tell = (text) => ctx.hasUI && ctx.ui.notify(text, "warning");
-		editor = (nonce, flags) => probeEditor(ctx, nonce, flags, foreignKeys);
+		editor = (nonce, flags) => probeEditor(ctx, nonce, flags, bindingReport);
 		ui = ctx;
 		ticket = taken = undefined;
 		monitors = trackMonitors(bus, () => push());

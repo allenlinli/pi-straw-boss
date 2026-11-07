@@ -9,7 +9,7 @@ const CODE: Record<string, () => string> = {
 	standing: m.refuse_standing, not_found: m.refuse_not_found, pane_closed: m.refuse_pane_closed, busy: m.refuse_busy, run_unknown: m.refuse_run_unknown, run_expired: m.refuse_run_expired, run_changed: m.refuse_run_changed, operate_refused: m.refuse_operate_refused,
 };
 /** An operate refusal says why by a word of its own beside the code; these are the ones with page words (src/keys.ts, src/probe.ts, src/operateseam.ts). */
-const OPERATE_WHY: Record<string, () => string> = { binding: m.refuse_operate_binding, "binding-unread": m.refuse_operate_binding_unread, foreground: m.refuse_operate_foreground };
+const OPERATE_WHY: Record<string, () => string> = { binding: m.refuse_operate_binding, "binding-unread": m.refuse_operate_binding_unread, foreground: m.refuse_operate_foreground, terminal: m.refuse_operate_terminal };
 const ENDED: Record<string, () => string> = {
 	"The session is no longer live in this pane.": m.ended_not_live, "The pane runs something else now.": m.ended_other, "The pane closed.": m.ended_closed, "The pane could not be read.": m.ended_unreadable, "The session moved to another pane.": m.ended_moved,
 };

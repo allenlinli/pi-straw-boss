@@ -138,9 +138,9 @@ test("probe.ts: with the flags asked, a `command` draft says whether it is a she
 });
 
 // The control split: the very guards of remote mode run for an operate request, driven through `control.run` as the seam does.
-const FILE = "/s/2026_sess-1.jsonl", PANE = "wA:p1", FLAGS = { remote: true, secure: true, operate: true as const };
+const FILE = "/s/2026_sess-1.jsonl", PANE = "wA:p1", FLAGS = { remote: true, secure: true, operate: true as const, foreground: async () => true };
 const found = (): Found => ({ key: "sess-1", base: "wA", name: "billing", role: "main", file: FILE, pane: PANE, live: true });
-function direct(over: Partial<ControlDeps> = {}, editor: Editor | undefined = { editor: "empty", keys: [] }) {
+function direct(over: Partial<ControlDeps> = {}, editor: Editor | undefined = { editor: "empty", keys: [], holds: {}, raw: true }) {
 	const faces = createFaces(fakeClock(5_000_000).now), calls: [string, Record<string, unknown>][] = [];
 	const call = async (method: string, params: Record<string, unknown>) => (calls.push([method, params]), method === "pane.get" ? { pane: { pane_id: PANE, agent: "pi", agent_status: "idle", agent_session: { value: FILE } } } : {});
 	const answers: NonNullable<ControlDeps["answers"]> = { has: () => false, replay: () => undefined, ended: () => undefined, send: async () => ({ status: 200, body: { outcome: "accepted" } }), commands: async () => undefined, target: async () => undefined, probe: async () => editor, pull: async () => ({ pending: false }) };

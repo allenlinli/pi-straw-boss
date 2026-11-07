@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Flags, Reply } from "./control.ts";
-import { piAlone } from "./foreground.ts";
+import { piInForeground } from "./foreground.ts";
 import type { HerdrCall } from "./herdr.ts";
 import type { createMirrors } from "./mirror.ts";
 import type { Net } from "./net.ts";
@@ -21,8 +21,6 @@ import { api, type Hub as Files, image, watchSession, type Watch, watchWorkspace
 export type Sink = (id: string, event: string, data: unknown) => void;
 /** What a reply carries at most: an image's bytes, and one entry's whole body (§6.4 and §9 drop what is larger at the controller; here it is refused clearly, before it is sealed). */
 export const MAX_UPLOAD = 2 * 1024 * 1024, MAX_WATCHES = 8, MAX_REPLY = 1024 * 1024;
-/** The requests that write into the unit's pane: each needs pi alone in its foreground (foreground.ts). */
-const WRITES = new Set(["sessions/*/keys", "sessions/*/input", "sessions/*/dequeue"]);
 const no = (status: number, error: string, reason: string): Reply => ({ status, body: { error, reason } });
 
 interface Held { w: Watch; scope: OperateScope; /** The unit a session watch is of; a workspace's cards follow the scope on their own. */ key?: string }
@@ -63,7 +61,9 @@ export interface SeamDeps {
 
 export function createOperate({ control, files, mirrors, net, call, active }: SeamDeps) {
 	const sessions = new Set<{ enforce(scope?: OperateScope): Promise<void>; refresh(): Promise<void>; stop(): void }>(), listeners = new Set<() => void>();
-	const FLAGS: Flags = { remote: true, secure: true, operate: true };
+	/** Herdr says `pi` while pi lives, whatever runs below it; the process list says whether pi is in the foreground, and control.ts asks right before each write (the bridge's raw-mode report says the rest, probe.ts). */
+	const foreground = async (pane: string) => piInForeground(await call?.("pane.process_info", { pane_id: pane }).then((r) => (r as { process_info?: unknown })?.process_info as Parameters<typeof piInForeground>[0], () => undefined));
+	const FLAGS: Flags = { remote: true, secure: true, operate: true, foreground };
 	/** The registry as this scope sees it: a key out of scope is unknown, so nothing of it is read from the file system. */
 	const scoped = (at: () => OperateScope): Files => ({ lookup: (key) => (at().has(key) ? files.lookup(key) : undefined), workspace: (id) => files.workspace(id).filter((r) => at().has(r.key)), readers: files.readers });
 	const roleOf = (key: string) => files.lookup(key)?.role;
@@ -74,7 +74,9 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 		open(sink) {
 			const stream = randomBytes(16).toString("hex"), watches = new Map<string, Held>(), mirrored = new Map<string, OperateScope>();
 			/** The scope the last `rescope` set and how many there were: a watch or mirror that began before one finishes under it, since `enforce` cannot see an entry that is still being set up. */
-			let latest: OperateScope | undefined, epoch = 0;
+			let latest: OperateScope | undefined, epoch = 0, ended = false, ticket = 0;
+			/** The newest request of each watch id: an earlier one still setting up when a later one (or `stop`) came does not register, so no watch lives outside `watches`, where `enforce` and `stop` reach it. */
+			const newest = new Map<string, number>();
 			mirrors.open(stream, (event, data) => sink(`m:${(data as { key?: string }).key ?? ""}`, event, data));
 			/** Each watch and mirror keeps the scope it was asked under; whatever unit has left it ends here (§1.5: an admin's removal ends open operate streams at once). */
 			const enforce = async (next?: OperateScope) => {
@@ -96,6 +98,8 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 				enforce,
 				refresh: async () => { await enforce(); await Promise.all([...watches.values()].map((h) => h.w.refresh().catch(() => {}))); },
 				stop() {
+					ended = true;
+					newest.clear();
 					watches.forEach((h) => h.w.stop());
 					watches.clear();
 					mirrored.clear();
@@ -110,21 +114,28 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 				rescope: (scope) => (epoch++, (latest = scope), enforce(scope)),
 				async watch(id, at, on, scope) {
 					if (!id || id.length > 64) return no(400, "bad_request", "A watch is named by an id.");
+					const mine = ++ticket;
+					newest.set(id, mine);
 					watches.get(id)?.w.stop();
 					watches.delete(id);
-					if (!on) return { status: 200, body: { watching: false } };
-					if (watches.size >= MAX_WATCHES) return no(429, "too_many", `A session watches at most ${MAX_WATCHES} things.`);
-					const workspace = at.startsWith("w:"), held: Held = { w: undefined as unknown as Watch, scope, ...(workspace ? {} : { key: at }) };
-					if (held.key !== undefined && !scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." });
-					const began = epoch;
-					await net(); // the registry is filled by reading the net: a watch starts once a reading exists
-					if (epoch !== began) held.scope = latest!; // a `rescope` ran meanwhile
-					if (held.key !== undefined && !held.scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." }); // the scope may have narrowed while the net was read
-					const send = (event: string, data: unknown) => sink(id, event, data), hub = scoped(() => held.scope);
-					held.w = workspace ? watchWorkspace(hub, at.slice(2), send) : watchSession(hub, at, send);
-					watches.set(id, held);
-					void held.w.refresh().catch(() => {});
-					return { status: 200, body: { watching: true } };
+					try {
+						if (!on) return { status: 200, body: { watching: false } };
+						if (watches.size >= MAX_WATCHES) return no(429, "too_many", `A session watches at most ${MAX_WATCHES} things.`);
+						const workspace = at.startsWith("w:"), held: Held = { w: undefined as unknown as Watch, scope, ...(workspace ? {} : { key: at }) };
+						if (held.key !== undefined && !scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." });
+						const began = epoch;
+						await net(); // the registry is filled by reading the net: a watch starts once a reading exists
+						if (ended || newest.get(id) !== mine) return no(409, "superseded", "The session ended, or this watch was asked for again meanwhile.");
+						if (epoch !== began) held.scope = latest!; // a `rescope` ran meanwhile
+						if (held.key !== undefined && !held.scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." }); // the scope may have narrowed while the net was read
+						const send = (event: string, data: unknown) => sink(id, event, data), hub = scoped(() => held.scope);
+						held.w = workspace ? watchWorkspace(hub, at.slice(2), send) : watchSession(hub, at, send);
+						watches.set(id, held);
+						void held.w.refresh().catch(() => {});
+						return { status: 200, body: { watching: true } };
+					} finally {
+						if (newest.get(id) === mine) newest.delete(id);
+					}
 				},
 				async mirror(key, on, scope) {
 					const p = plan("POST", ["sessions", key, "mirror"], {}, scope, "mirror", roleOf);
@@ -144,11 +155,6 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 					const p = plan(method, parts, body, scope, "request", roleOf);
 					if (!p.ok) return refusalReply(p);
 					const hub = scoped(() => scope);
-					if (method === "POST" && WRITES.has(p.row.path)) {
-						// Herdr says `pi` while pi lives, whatever runs below it; the process list says what holds the terminal. Looked at here, before control.ts's own guards (which may take up to a second for the editor probe) and its write.
-						const pane = files.lookup(parts[1]!)?.pane, info = pane === undefined ? undefined : await call?.("pane.process_info", { pane_id: pane }).then((r) => (r as { process_info?: unknown })?.process_info, () => undefined);
-						if (!piAlone(info as Parameters<typeof piAlone>[0])) return refusalReply({ ok: false, why: "foreground", reason: "Something other than pi may hold the pane's terminal (or Herdr cannot say), so nothing is sent from here." });
-					}
 					if (p.tab) {
 						// A squad closes with everything in it, and Herdr's tab close takes every pane in it: every unit the net shows there must be this scope's, a tab the net does not show is not one to close, and so is one whose panes
 						// are not all those units' (a shell, a pane an answer opened, a unit that joined since the reading) — read from Herdr now.

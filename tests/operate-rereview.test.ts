@@ -4,9 +4,9 @@ import { resolve } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
-import { foreignKeys } from "../src/bindings.ts";
+import { bindingReport } from "../src/bindings.ts";
 import { createKeys, PAD } from "../src/keys.ts";
-import { checkProbe, type Editor, probeEditor } from "../src/probe.ts";
+import { checkProbe, type Editor, HOME, operateKeyRefusal, probeEditor } from "../src/probe.ts";
 import { scopeOf, world } from "./operate-world.ts";
 import { lines, user } from "./sessions.ts";
 
@@ -19,7 +19,7 @@ const pane = { pane_id: "p", tab_id: "t", agent: "pi", agent_status: "idle" };
 
 test("RR-F001: a confirmed double-esc is never honoured under operate (one Escape at most, whatever the confirm)", async () => {
 	let t = 10_000;
-	const pad = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe: async () => ({ editor: "empty", keys: [] }), now: () => t });
+	const pad = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe: async () => ({ editor: "empty", keys: [], holds: {}, raw: true }), now: () => t });
 	const first = await pad.send("k", found, pane, { key: "esc", stream: "s", remote: true, operate: true });
 	pad.sent("k", first);
 	for (const gap of [200, 1200, 5000]) {
@@ -40,7 +40,7 @@ const pad_sent = (pad: ReturnType<typeof createKeys>, plan: Awaited<ReturnType<R
 
 test("RR-F005: the operate Escape rule counts the Escape while Herdr still says working or blocked", async () => {
 	let t = 10_000;
-	const pad = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe: async () => ({ editor: "empty", keys: [] }), now: () => t });
+	const pad = createKeys({ fresh: () => true, secret: async () => false, answerable: async () => false, probe: async () => ({ editor: "empty", keys: [], holds: {}, raw: true }), now: () => t });
 	for (const status of ["working", "blocked"]) {
 		const busy = { ...pane, agent_status: status }, key = `k-${status}`;
 		pad.sent(key, await pad.send(key, found, busy, { key: "esc", stream: "s", remote: true, operate: true }));
@@ -88,7 +88,7 @@ test("RR-F004: close/tab is refused (and nothing closed) when the pane listing i
 });
 
 test("RR-F002 (a): a key whose binding the bridge cannot name, or has moved onto another app action, is refused before anything is sent", async () => {
-	for (const [keys, key, want] of [[undefined, "up", "binding-unread"], [["ctrl+a"], "ctrl+a", "binding"], [["tab"], "tab", "binding"], [["pageUp"], "pageup", "binding"], [["escape"], "esc", "binding"]] as const) {
+	for (const [keys, key, want] of [[undefined, "up", "binding-unread"], [["ctrl+a"], "ctrl+a", "binding"], [["tab"], "tab", "binding"], [["pageup"], "pageup", "binding"], [["esc"], "esc", "binding"]] as const) {
 		const x = await world({ editor: { editor: "empty", keys: keys ? [...keys] : undefined } as Editor });
 		await x.attach(scope);
 		const done = await x.key(x.session, scope, key);
@@ -101,45 +101,42 @@ test("RR-F002 (a): a key whose binding the bridge cannot name, or has moved onto
 	assert.equal((await x.key(x.session, scope, "up")).status, 200);
 });
 
+const RAW = { isTTY: true, isRaw: true };
 test("RR-F002 (a): the bridge names the keys bound outside the editor, and only when pi's live manager knows its app actions", () => {
 	const defs = { ...TUI_KEYBINDINGS, "app.editor.external": { defaultKeys: "ctrl+g" }, "app.interrupt": { defaultKeys: "escape" }, "app.clear": { defaultKeys: "ctrl+c" }, "app.model.select": { defaultKeys: "ctrl+l" } } as never;
-	const stock = foreignKeys(new KeybindingsManager(defs, {}) as never);
-	assert.ok(stock?.includes("ctrl+g") && stock.includes("ctrl+l"), JSON.stringify(stock));
-	assert.ok(!stock?.includes("escape") && !stock?.includes("ctrl+c") && !stock?.includes("ctrl+a") && !stock?.includes("tab"));
-	const moved = foreignKeys(new KeybindingsManager(defs, { "app.editor.external": ["ctrl+a", "tab"] }) as never)!;
-	assert.ok(moved.includes("ctrl+a") && moved.includes("tab") && !moved.includes("ctrl+g"));
-	assert.equal(foreignKeys(new KeybindingsManager(TUI_KEYBINDINGS, {}) as never), undefined); // outside pi: its app actions are unknown
-	assert.equal(foreignKeys({ getDefinition: () => { throw new Error("x"); } } as never), undefined);
+	const stock = bindingReport(new KeybindingsManager(defs, {}) as never, RAW);
+	assert.ok(stock?.keys.includes("ctrl+g") === false, "ctrl+g is no key of the operate pad, so it is not named"); // the pad's keys only
+	assert.deepEqual(stock?.holds, { interrupt: ["esc"], clear: ["ctrl+c"], submit: ["enter"] });
+	const moved = bindingReport(new KeybindingsManager(defs, { "app.editor.external": ["ctrl+a", "tab"] }) as never, RAW)!;
+	assert.deepEqual(moved.keys.sort(), ["ctrl+a", "tab"]);
+	assert.equal(bindingReport(new KeybindingsManager(TUI_KEYBINDINGS, {}) as never, RAW), undefined); // outside pi: its app actions are unknown
+	assert.equal(bindingReport({ getDefinition: () => { throw new Error("x"); } } as never), undefined);
 });
 
 test("RR-F002 (a): on a stock pi no key of the pad or the operate chords is bound outside the editor, so a stock box is operable", async () => {
 	const pi = (await import(pathToFileURL(resolve("node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js")).href)) as { KEYBINDINGS: never };
-	const stock = foreignKeys(new KeybindingsManager(pi.KEYBINDINGS, {}) as never)!;
-	assert.ok(stock.includes("ctrl+g"), "pi's external editor key is the one the tests name");
-	const id = (k: string) => (k === "esc" ? "escape" : k === "pageup" ? "pageUp" : k === "pagedown" ? "pageDown" : k).toLowerCase();
-	const allowed = [...PAD, "alt+enter", "alt+backspace", "ctrl+left", "ctrl+right", "alt+left", "alt+right", ...["a", "b", "e", "f", "k", "u", "w", "y", "c"].map((l) => `ctrl+${l}`), ...["b", "d", "f", "y"].map((l) => `alt+${l}`)];
-	for (const key of allowed) assert.equal(stock.some((k) => k.toLowerCase() === id(key)), false, `${key} is bound outside the editor on a stock pi`);
+	const stock = bindingReport(new KeybindingsManager(pi.KEYBINDINGS, {}) as never, RAW)!;
+	assert.deepEqual(stock.keys, [], "no key of the pad or the operate chords is foreign on a stock pi");
+	for (const [action, keys] of Object.entries(stock.holds)) for (const key of keys) assert.ok(HOME[action as keyof typeof HOME].includes(key), `${action} on ${key}`);
+	for (const key of [...PAD, "alt+enter", "alt+backspace", "ctrl+left", "ctrl+right", "alt+left", "alt+right", ...[..."abefkuwyc"].map((l) => `ctrl+${l}`), ...[..."bdfy"].map((l) => `alt+${l}`)]) assert.equal(operateKeyRefusal({ editor: "empty", ...stock }, key), undefined, key);
 });
 
-test("RR-F002 (a): the probe carries the keys only with the flags, and the server takes them only as a list of key ids", () => {
-	const ctx = { hasUI: true, ui: { getEditorText: () => "" } } as never;
-	assert.equal("keys" in probeEditor(ctx, undefined, undefined, () => ["ctrl+g"]), false);
-	assert.deepEqual(probeEditor(ctx, undefined, true, () => ["ctrl+g"]).keys, ["ctrl+g"]);
-	assert.deepEqual(probeEditor({ hasUI: false } as never, undefined, true, () => ["ctrl+g"]).keys, ["ctrl+g"]);
+test("RR-F002 (a): the probe carries the report only with the flags, and the server takes it only whole and well-formed", () => {
+	const ctx = { hasUI: true, ui: { getEditorText: () => "" } } as never, rep = () => ({ keys: ["tab"], holds: { clear: ["ctrl+c"] }, raw: true });
+	assert.equal("keys" in probeEditor(ctx, undefined, undefined, rep), false);
+	assert.deepEqual(probeEditor(ctx, undefined, true, rep), { editor: "empty", keys: ["tab"], holds: { clear: ["ctrl+c"] }, raw: true });
+	assert.deepEqual(probeEditor({ hasUI: false } as never, undefined, true, rep).keys, ["tab"]);
 	assert.equal("keys" in probeEditor(ctx, undefined, true, () => undefined), false);
-	assert.deepEqual(checkProbe({ editor: "empty", keys: ["ctrl+g", "pageUp"] })?.keys, ["ctrl+g", "pageUp"]);
-	assert.equal(checkProbe({ editor: "empty", keys: ["ctrl+g", 5] })?.keys, undefined);
-	assert.equal(checkProbe({ editor: "empty", keys: "ctrl+g" })?.keys, undefined);
-	assert.equal(checkProbe({ editor: "empty", keys: ["x\n"] })?.keys, undefined);
-	assert.deepEqual(checkProbe({ editor: "text", ending: "quit", keys: ["ctrl+g"] }), { editor: "text", ending: "quit", keys: ["ctrl+g"] });
+	const whole = { editor: "empty", keys: ["ctrl+g", "pageup"], holds: { clear: ["ctrl+c"] }, raw: true };
+	assert.deepEqual(checkProbe(whole), whole);
+	for (const bad of [{ keys: ["ctrl+g", 5] }, { keys: "ctrl+g" }, { keys: ["x\n"] }, { holds: { nothing: ["a"] } }, { holds: [] }, { raw: "yes" }, { raw: undefined }, { holds: undefined }, { keys: undefined }]) assert.equal(checkProbe({ ...whole, ...bad } as never)?.keys, undefined, JSON.stringify(bad));
+	assert.deepEqual(checkProbe({ ...whole, editor: "text", ending: "quit" }), { editor: "text", ending: "quit", keys: whole.keys, holds: whole.holds, raw: true });
 });
 
 test("RR-F002 (b): every operate write needs pi alone in the pane's foreground, and an unreadable list refuses", async () => {
 	const pi = { pid: 11, name: "pi", argv0: "pi", cmdline: "pi" };
 	const cases: [string, { pid: number; name: string; argv0?: string; cmdline?: string }[] | undefined][] = [
-		["an editor beside pi", [pi, { pid: 12, name: "nano", argv0: "nano" }]],
 		["only an editor", [{ pid: 12, name: "vim", argv0: "vim" }]],
-		["a nested shell", [pi, { pid: 12, name: "bash", argv0: "bash" }]],
 		["no list", []],
 		["Herdr failing", undefined],
 		["two pis", [pi, { ...pi, pid: 13 }]],

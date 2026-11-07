@@ -1,0 +1,284 @@
+import assert from "node:assert/strict";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, test } from "node:test";
+import { boardPath, boardState, type Board, capBoard, carsDir, expired, factsOf, MAX_BOARD_BYTES, MAX_TRAINS, readBoard, readTrainboards, readYard, validateBoard, validateYard, writeBoard, writeYard, yardPath, type Yard } from "../src/train/board.ts";
+import { CODE, SHA_A } from "./train-fixtures.ts";
+
+// §10 and §11.1: the trainboard Straw Boss derives from a train's todos, how it is written (atomic, private) and read (bounded, strict, never guessed).
+
+const dirs: string[] = [];
+afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+const state = () => (dirs.push(mkdtempSync(join(tmpdir(), "sb-trainboard-"))), dirs.at(-1)!);
+const MIN = 60_000, DAY = 24 * 60 * MIN, T0 = Date.parse("2026-11-07T08:00:00Z");
+
+const board = (over: Partial<Board> = {}): Board => ({
+	v: 1, project: "acme", app: "web", code: CODE, writer: { session: "sess-train-1", pane: "w1-2", pid: 4242, started: "2026-11-07T07:00:00Z" }, updated: "2026-11-07T08:00:00Z", round: 1,
+	cars: [{ tickets: ["T-15"], branch: "fix/t-15", head: SHA_A, coordinator: "sess-coord-1", departs: "next", accept: "/r/accept.json", arrived: "2026-11-07T06:00:00Z", accepted: ["e2e"] }],
+	steps: [
+		{ id: 1, kind: "assemble", name: "assemble", status: "completed", round: 1, holds: { lane: "web" }, outcome: "passed" },
+		{ id: 2, kind: "full-check", name: "unit", status: "in_progress", round: 1, load: { max: 30, weight: 4 }, lock: "heavy", waits: [{ load: { max: 30, now: 42 } }] },
+		{ id: 3, kind: "land", name: "land", status: "pending", round: 1 },
+	],
+	...over,
+});
+const yard = (over: Partial<Yard> = {}): Yard => ({
+	v: 1, project: "acme", writer: { session: "sess-integ-1", pid: 4300, started: "2026-11-07T06:00:00Z" }, updated: "2026-11-07T08:00:00Z",
+	trains: [{ code: CODE, app: "web", status: "forming", cars: board().cars, departs: { maxCars: 4, maxWaitMin: 60, oldest: "2026-11-07T06:00:00Z" } }, { code: "2026-11-06-n", app: "web", status: "opened", session: "sess-train-2", cars: [] }],
+	...over,
+});
+
+test("a board validates, and a missing or foreign field is a refusal in the board's own words", () => {
+	assert.deepEqual(validateBoard(board()), []);
+	const bad: [unknown, RegExp][] = [
+		["x", /board must be an object/], [{ ...board(), v: 2 }, /board\.v must be 1/], [{ ...board(), project: "a/b" }, /board\.project/], [{ ...board(), code: "x" }, /board\.code/],
+		[{ ...board(), writer: undefined }, /board\.writer/], [{ ...board(), writer: { session: "", pid: 1, started: "2026-11-07T07:00:00Z" } }, /writer\.session/], [{ ...board(), writer: { session: "s", pid: -1, started: "2026-11-07T07:00:00Z" } }, /writer\.pid/],
+		[{ ...board(), updated: "now" }, /board\.updated must be an ISO time/], [{ ...board(), round: 0 }, /board\.round/], [{ ...board(), cars: "T-15" }, /board\.cars must be an array/],
+		[{ ...board(), cars: [{ tickets: [], branch: "b", head: SHA_A, coordinator: "c", departs: "next", accept: "none" }] }, /cars\[0\]\.tickets/],
+		[{ ...board(), cars: [{ tickets: ["T"], branch: "b", head: "x", coordinator: "c", departs: "next", accept: "none" }] }, /cars\[0\]\.head must be 40 hex/],
+		[{ ...board(), steps: [{ id: 1, kind: "uat", name: "n", status: "pending", round: 1 }] }, /steps\[0\]\.kind/],
+		[{ ...board(), steps: [{ id: 1, kind: "merge", name: "n", status: "weird", round: 1 }] }, /steps\[0\]\.status/],
+		[{ ...board(), steps: [{ id: 1, kind: "merge", name: "n", status: "pending", round: 1 }, { id: 1, kind: "merge", name: "m", status: "pending", round: 1 }] }, /steps\[1\]\.id 1 twice/],
+		[{ ...board(), steps: [{ id: 1, kind: "merge", name: "n", status: "pending", round: 1, waits: [{ person: "boss" }] }] }, /steps\[0\]\.waits\[0\]/],
+		[{ ...board(), steps: [{ id: 1, kind: "merge", name: "n", status: "pending", round: 1, outcome: "meh" }] }, /steps\[0\]\.outcome/],
+		[{ ...board(), clears: [{ lane: "web" }] }, /clears\[0\]/], [{ ...board(), extra: 1 }, /board\.extra is not a field/],
+		[{ ...board(), steps: Array.from({ length: 257 }, (_, i) => ({ id: i + 1, kind: "merge", name: "n", status: "pending", round: 1 })) }, /board\.steps has more than 256/],
+		[{ ...board(), cars: Array.from({ length: 33 }, () => board().cars[0]) }, /board\.cars has more than 32/],
+	];
+	for (const [value, pattern] of bad) {
+		const refusals = validateBoard(value);
+		assert.ok(refusals.some((r) => pattern.test(r)), `${pattern}: ${JSON.stringify(refusals)}`);
+	}
+});
+
+test("every field of a board has its own refusal: the writer, each car field, each step field, each clear field", () => {
+	const b = board(), w = b.writer, car = b.cars[0]!, st = b.steps[1]!;
+	const withWriter = (over: object) => ({ ...b, writer: { ...w, ...over } });
+	const withCar = (over: object) => ({ ...b, cars: [{ ...car, ...over }] });
+	const withStep = (over: object) => ({ ...b, steps: [{ ...st, ...over }] });
+	const clear = { lane: "web", reason: "read back", by: "boss", at: "2026-11-07T08:00:00Z" };
+	const withClear = (over: object) => ({ ...b, clears: [{ ...clear, ...over }] });
+	const table: [unknown, RegExp][] = [
+		[withWriter({ pane: "" }), /writer\.pane/], [withWriter({ started: "x" }), /writer\.started must be an ISO time/], [withWriter({ extra: 1 }), /writer\.extra is not a field/],
+		[withCar({ branch: "" }), /cars\[0\]\.branch/], [withCar({ coordinator: "" }), /cars\[0\]\.coordinator/], [withCar({ departs: "" }), /cars\[0\]\.departs/], [withCar({ accept: "" }), /cars\[0\]\.accept/],
+		[withCar({ arrived: "x" }), /cars\[0\]\.arrived must be an ISO time/], [withCar({ accepted: [1] }), /cars\[0\]\.accepted must be a list of kind names/], [withCar({ extra: 1 }), /cars\[0\]\.extra is not a field/], [{ ...b, cars: ["x"] }, /cars\[0\] must be an object/],
+		[withStep({ id: 0 }), /steps\[0\]\.id/], [withStep({ name: "" }), /steps\[0\]\.name/], [withStep({ round: 0 }), /steps\[0\]\.round/], [withStep({ holds: { lane: "../x" } }), /steps\[0\]\.holds/], [withStep({ holds: { other: "x" } }), /steps\[0\]\.holds/],
+		[withStep({ load: { max: "30" } }), /steps\[0\]\.load/], [withStep({ load: { speed: 1 } }), /steps\[0\]\.load/], [withStep({ lock: "Heavy" }), /steps\[0\]\.lock/], [withStep({ waits: Array.from({ length: 9 }, () => ({ load: { max: 1, now: 2 } })) }), /steps\[0\]\.waits must be a list of at most 8/],
+		[withStep({ waits: "x" }), /steps\[0\]\.waits must be a list/], [withStep({ why: "boredom" }), /steps\[0\]\.why/], [withStep({ extra: 1 }), /steps\[0\]\.extra is not a field/], [{ ...b, steps: [7] }, /steps\[0\] must be an object/],
+		[withStep({ waits: [{ load: { max: "x", now: 1 } }] }), /waits\[0\]/], [withStep({ waits: [{ lock: { name: "" } }] }), /waits\[0\]/], [withStep({ waits: [{ lock: { name: "heavy", holder: { train: "t", step: 0 } } }] }), /waits\[0\]/],
+		[withStep({ waits: [{ lane: { app: "web", holder: "x", why: "bored" } }] }), /waits\[0\]/], [withStep({ waits: [{ target: { target: "", holder: "x" } }] }), /waits\[0\]/], [withStep({ waits: [{ load: 1 }] }), /waits\[0\]/], [withStep({ waits: [{ load: { max: 1, now: 2 }, lane: {} }] }), /waits\[0\]/],
+		[withClear({ lane: "web", target: "t1" }), /clears\[0\] needs lane or target, one of them/], [withClear({ lane: undefined }), /clears\[0\] needs lane or target/], [withClear({ lane: "" }), /clears\[0\]\.lane/], [withClear({ reason: "" }), /clears\[0\] needs reason/],
+		[withClear({ by: "" }), /clears\[0\] needs by/], [withClear({ at: "x" }), /clears\[0\]\.at must be an ISO time/], [withClear({ extra: 1 }), /clears\[0\]\.extra is not a field/], [{ ...b, clears: "x" }, /board\.clears must be a list/], [{ ...b, clears: ["x"] }, /clears\[0\] must be an object/],
+	];
+	for (const [value, pattern] of table) assert.ok(validateBoard(value).some((r) => pattern.test(r)), `${pattern}: ${JSON.stringify(validateBoard(value))}`);
+	assert.deepEqual(validateBoard({ ...b, clears: [clear] }), []);
+	assert.deepEqual(validateBoard(withStep({ waits: [{ load: { max: 30, now: 42 } }, { lock: { name: "heavy", holder: { train: CODE, step: 3 } } }, { lane: { app: "web", holder: CODE, why: "stale" } }, { target: { target: "t1", holder: CODE, why: "unreadable" } }], holds: { lane: "web", target: "t1" }, outcome: "void", why: "skipped" })), []);
+});
+
+test("every field of a yard has its own refusal", () => {
+	const y = yard(), t = y.trains[0]!;
+	const withTrain = (over: object) => ({ ...y, trains: [{ ...t, ...over }] });
+	const table: [unknown, RegExp][] = [
+		["x", /yard must be an object/], [{ ...y, v: 2 }, /yard\.v must be 1/], [{ ...y, project: "../x" }, /yard\.project/], [{ ...y, project: ".." }, /yard\.project/], [{ ...y, writer: undefined }, /yard\.writer/], [{ ...y, updated: "x" }, /yard\.updated must be an ISO time/],
+		[{ ...y, trains: "x" }, /yard\.trains must be an array/], [{ ...y, trains: ["x"] }, /trains\[0\] must be an object/], [withTrain({ app: "../x" }), /trains\[0\]\.app/], [withTrain({ app: ".." }), /trains\[0\]\.app/],
+		[withTrain({ session: "" }), /trains\[0\]\.session must be a non-empty string/], [withTrain({ cars: "x" }), /trains\[0\]\.cars must be a list/], [withTrain({ cars: Array.from({ length: 33 }, () => t.cars[0]) }), /trains\[0\]\.cars must be a list of at most 32/],
+		[withTrain({ departs: { maxCars: 0, maxWaitMin: 60, oldest: "2026-11-07T06:00:00Z" } }), /trains\[0\]\.departs/], [withTrain({ departs: { maxCars: 4, maxWaitMin: 60, oldest: "x" } }), /trains\[0\]\.departs/], [withTrain({ departs: { maxCars: 4, maxWaitMin: 60, oldest: "2026-11-07T06:00:00Z", more: 1 } }), /trains\[0\]\.departs/],
+		[withTrain({ extra: 1 }), /trains\[0\]\.extra is not a field/], [{ ...y, trains: [{ ...t, cars: [{ ...t.cars[0], head: "x" }] }] }, /trains\[0\]\.cars\[0\]\.head must be 40 hex/],
+	];
+	for (const [value, pattern] of table) assert.ok(validateYard(value).some((r) => pattern.test(r)), `${pattern}: ${JSON.stringify(validateYard(value))}`);
+	assert.ok(validateBoard({ ...board(), project: ".." }).some((r) => /board\.project/.test(r)), "dots are no project");
+	assert.ok(validateBoard({ ...board(), app: ".." }).some((r) => /board\.app/.test(r)));
+});
+
+test("a yard validates: each forming train's cars and departure, and an opened train's session", () => {
+	assert.deepEqual(validateYard(yard()), []);
+	assert.ok(validateYard({ ...yard(), trains: [{ code: "x", app: "web", status: "forming", cars: [] }] }).some((r) => /trains\[0\]\.code/.test(r)));
+	assert.ok(validateYard({ ...yard(), trains: [{ code: CODE, app: "web", status: "boarding", cars: [] }] }).some((r) => /trains\[0\]\.status must be forming, departing, opened or refused/.test(r)));
+	assert.ok(validateYard({ ...yard(), trains: [{ code: CODE, app: "web", status: "opened", cars: [] }] }).some((r) => /trains\[0\]\.session/.test(r)), "an opened train names its session");
+	assert.ok(validateYard({ ...yard(), trains: [{ code: CODE, app: "web", status: "forming", cars: [] }, { code: CODE, app: "web", status: "forming", cars: [] }] }).some((r) => /code .* twice/.test(r)));
+	assert.ok(validateYard({ ...yard(), trains: Array.from({ length: 65 }, (_, i) => ({ code: `2026-11-06-${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}`, app: "web", status: "forming", cars: [] })) }).some((r) => /yard\.trains has more than 64/.test(r)));
+	assert.ok(validateYard({ ...yard(), extra: 1 }).some((r) => /yard\.extra is not a field/.test(r)));
+});
+
+test("writing is atomic and private: the folder 700, the file 600, no temp file left, the content what was written", () => {
+	const root = state(), file = writeBoard(root, board());
+	assert.equal(file, boardPath(root, "acme", CODE));
+	assert.equal(file, join(root, "trainboard", "acme", CODE, "board.json"));
+	assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), board());
+	if (process.platform !== "win32") {
+		assert.equal(lstatSync(file).mode & 0o777, 0o600);
+		for (const dir of [join(root, "trainboard", "acme", CODE), join(root, "trainboard", "acme"), join(root, "trainboard")]) assert.equal(lstatSync(dir).mode & 0o777, 0o700, dir);
+	}
+	assert.deepEqual(readdirSync(join(root, "trainboard", "acme", CODE)), ["board.json"]);
+	writeBoard(root, board({ round: 2 }));
+	assert.equal(JSON.parse(readFileSync(file, "utf8")).round, 2, "a second write replaces the first");
+	assert.deepEqual(readdirSync(join(root, "trainboard", "acme", CODE)), ["board.json"]);
+	const ywhere = writeYard(root, yard());
+	assert.equal(ywhere, yardPath(root, "acme"));
+	assert.equal(ywhere, join(root, "trainboard", "acme", "yard.json"));
+	if (process.platform !== "win32") assert.equal(lstatSync(ywhere).mode & 0o777, 0o600);
+	assert.equal(carsDir(root, "acme"), join(root, "trainboard", "acme", "cars"));
+});
+
+test("a folder that already exists is made private too, and a train's temp file never outlives the write", () => {
+	if (process.platform === "win32") return;
+	const root = state();
+	mkdirSync(join(root, "trainboard", "acme", CODE), { recursive: true, mode: 0o755 });
+	chmodSync(join(root, "trainboard"), 0o755), chmodSync(join(root, "trainboard", "acme"), 0o755), chmodSync(join(root, "trainboard", "acme", CODE), 0o755);
+	writeBoard(root, board());
+	for (const dir of [join(root, "trainboard"), join(root, "trainboard", "acme"), join(root, "trainboard", "acme", CODE)]) assert.equal(lstatSync(dir).mode & 0o777, 0o700, dir);
+});
+
+test("a write that would not read back is refused and leaves the old file: an invalid board, one over 64 KB, a path-unsafe name", () => {
+	const root = state();
+	writeBoard(root, board());
+	const before = readFileSync(boardPath(root, "acme", CODE), "utf8");
+	assert.throws(() => writeBoard(root, { ...board(), round: 0 }), /board\.round/);
+	assert.throws(() => writeBoard(root, board({ cars: Array.from({ length: 32 }, () => ({ ...board().cars[0]!, branch: "b".repeat(4000) })) })), new RegExp(`board is .* KB, more than ${MAX_BOARD_BYTES / 1024}`));
+	assert.throws(() => writeBoard(root, { ...board(), project: "../x" }), /board\.project/);
+	assert.equal(readFileSync(boardPath(root, "acme", CODE), "utf8"), before);
+	assert.throws(() => boardPath(root, "..", CODE), /project/);
+	assert.throws(() => boardPath(root, "acme", "../x"), /code/);
+	assert.deepEqual(readdirSync(join(root, "trainboard", "acme", CODE)), ["board.json"]);
+});
+
+test("capBoard cuts long strings and long lists to their caps so a writer never fails on size, and keeps a valid board whole", () => {
+	assert.deepEqual(capBoard(board()), board());
+	const big = capBoard({ ...board(), steps: Array.from({ length: 300 }, (_, i) => ({ id: i + 1, kind: "merge" as const, name: "n".repeat(500), status: "pending" as const, round: 1 })), cars: [{ ...board().cars[0]!, branch: "b".repeat(5000), departs: "d".repeat(5000) }] });
+	assert.deepEqual(validateBoard(big), []);
+	assert.equal(big.steps.length, 256);
+	assert.ok(big.steps[0]!.name.length <= 64);
+	assert.ok(JSON.stringify(big).length <= MAX_BOARD_BYTES);
+	const waits = Array.from({ length: 8 }, (_, i) => ({ lane: { app: `application-number-${i}`, holder: "2026-11-06-zz", why: "unreadable" as const } }));
+	const heavy = capBoard({ ...board(), steps: Array.from({ length: 256 }, (_, i) => ({ id: i + 1, kind: "merge" as const, name: "n", status: "pending" as const, round: 1, waits })) });
+	assert.deepEqual(validateBoard(heavy), [], "a board whose derived waits are too much loses them, not the write");
+	assert.equal(heavy.steps.length, 256);
+	assert.equal(heavy.steps[0]!.waits, undefined);
+	assert.equal(capBoard({ ...board(), cars: Array.from({ length: 40 }, () => board().cars[0]!) }).cars.length, 32);
+	assert.equal(capBoard({ ...board(), clears: Array.from({ length: 70 }, () => ({ lane: "web", reason: "r".repeat(900), by: "b", at: "2026-11-07T08:00:00Z" })) }).clears!.length, 64);
+	assert.deepEqual(validateBoard(capBoard({ ...board(), clears: [{ lane: "web", reason: "r".repeat(900), by: "b", at: "2026-11-07T08:00:00Z" }] })), []);
+});
+
+test("reading is strict: a regular file within 64 KB, JSON, the writer's validator, and the folder it sits in names its project and code", () => {
+	const root = state(), file = writeBoard(root, board());
+	const ok = readBoard(file);
+	assert.deepEqual(ok, { ok: true, board: board() });
+	const missing = readBoard(join(root, "nope.json"));
+	assert.equal(missing.ok, false);
+	const dir = join(root, "trainboard", "acme", "2026-11-06-q");
+	mkdirSync(dir, { recursive: true });
+	const refused = (name: string, content: string | (() => string), pattern: RegExp) => {
+		const path = join(dir, name);
+		const text = typeof content === "function" ? content() : content;
+		writeFileSync(path, text);
+		const out = readBoard(path);
+		assert.equal(out.ok, false, name);
+		assert.match(out.ok ? "" : out.reason, pattern, name);
+	};
+	refused("a.json", "{nope", /not JSON/);
+	refused("b.json", "[]", /board must be an object/);
+	refused("c.json", JSON.stringify({ ...board(), steps: "x" }), /board\.steps must be an array/);
+	refused("d.json", JSON.stringify({ ...board(), extra: 1 }), /board\.extra is not a field/);
+	refused("e.json", "x".repeat(MAX_BOARD_BYTES + 1), /more than 64 KB/);
+	refused("f.json", JSON.stringify(board()), /code 2026-11-06-m is not the folder's 2026-11-06-q/);
+	refused("h.json", JSON.stringify(board({ code: "2026-11-06-q", project: "other" })), /project other is not the folder's acme/);
+	refused("g.json", '{"__proto__":{"polluted":true},"v":1}', /board\./);
+	assert.equal(({} as Record<string, unknown>).polluted, undefined);
+	if (process.platform !== "win32") {
+		symlinkSync(file, join(dir, "link.json"));
+		const out = readBoard(join(dir, "link.json"));
+		assert.equal(out.ok, false);
+		assert.match(out.ok ? "" : out.reason, /not a regular file/);
+	}
+	mkdirSync(join(dir, "folder.json"));
+	assert.match((readBoard(join(dir, "folder.json")) as { reason: string }).reason, /not a regular file/);
+});
+
+test("a yard is read the same way", () => {
+	const root = state(), file = writeYard(root, yard());
+	assert.deepEqual(readYard(file), { ok: true, yard: yard() });
+	writeFileSync(file, JSON.stringify({ ...yard(), project: "other" }));
+	assert.match((readYard(file) as { reason: string }).reason, /project other is not the folder's acme/);
+	writeFileSync(file, "x".repeat(MAX_BOARD_BYTES + 1));
+	assert.match((readYard(file) as { reason: string }).reason, /more than 64 KB/);
+});
+
+test("readTrainboards lists every train of every project in project and code order, shows an unreadable one as such, and skips the yard and the car files", () => {
+	const root = state();
+	writeBoard(root, board({ project: "zeta", code: "2026-11-06-a" } as Partial<Board>));
+	writeBoard(root, board({ code: "2026-11-06-b" }));
+	writeBoard(root, board());
+	writeYard(root, yard());
+	mkdirSync(carsDir(root, "acme"), { recursive: true });
+	writeFileSync(join(carsDir(root, "acme"), "web-aaaaaaaaaaaa.json"), "{}");
+	mkdirSync(join(root, "trainboard", "acme", "2026-11-06-bad"), { recursive: true });
+	writeFileSync(join(root, "trainboard", "acme", "2026-11-06-bad", "board.json"), "{nope");
+	mkdirSync(join(root, "trainboard", "acme", "not-a-code"), { recursive: true });
+	writeFileSync(join(root, "trainboard", "acme", "2026-11-06-file"), "a file named like a train");
+	writeFileSync(join(root, "trainboard", "stray-file"), "not a project");
+	if (process.platform !== "win32") {
+		mkdirSync(join(root, "elsewhere", "2026-11-06-x"), { recursive: true });
+		symlinkSync(join(root, "elsewhere", "2026-11-06-x"), join(root, "trainboard", "acme", "2026-11-06-linked"));
+		symlinkSync(join(root, "elsewhere"), join(root, "trainboard", "linked-project"));
+	}
+	mkdirSync(join(root, "trainboard", "acme", "2026-11-06-empty"), { recursive: true });
+	const all = readTrainboards(root);
+	assert.deepEqual(all.trains.map((t) => `${t.project}/${t.code}/${t.ok}`), ["acme/2026-11-06-b/true", "acme/2026-11-06-m/true", "acme/2026-11-06-bad/false", "acme/2026-11-06-empty/false", "zeta/2026-11-06-a/true"]);
+	assert.equal(all.truncated, false);
+	const bad = all.trains.find((t) => t.code === "2026-11-06-bad")!;
+	assert.equal(bad.ok, false);
+	assert.match(bad.ok ? "" : bad.reason, /not JSON/);
+	assert.match((all.trains.find((t) => t.code === "2026-11-06-empty") as { reason: string }).reason, /no board\.json|cannot read/);
+	assert.deepEqual(readTrainboards(root, { project: "zeta" }).trains.map((t) => t.code), ["2026-11-06-a"]);
+	assert.deepEqual(readTrainboards(root, { project: "..%2f" }).trains, []);
+	assert.deepEqual(readTrainboards(join(root, "nothing")), { trains: [], truncated: false });
+});
+
+test("at most 64 trains are read, the rest said to be left out", () => {
+	const root = state();
+	for (let i = 0; i < MAX_TRAINS + 3; i++) {
+		const code = `2026-11-06-${String.fromCharCode(97 + (i % 26))}${i >= 26 ? String.fromCharCode(97 + Math.floor(i / 26) - 1) : ""}`;
+		mkdirSync(join(root, "trainboard", "acme", code), { recursive: true });
+	}
+	const out = readTrainboards(root);
+	assert.equal(out.trains.length, MAX_TRAINS);
+	assert.equal(out.truncated, true);
+});
+
+test("a train is ended when its land step completed, stale when its writer is gone and 10 minutes have passed, live otherwise", () => {
+	const b = (over: Partial<Board> = {}) => board({ updated: new Date(T0).toISOString(), ...over });
+	const landed = b({ steps: [...board().steps.slice(0, 2), { id: 3, kind: "land", name: "land", status: "completed", round: 1, outcome: "passed" }] });
+	assert.equal(boardState(landed, { now: T0 + 30 * DAY, alive: false }), "ended", "ended wherever the writer is");
+	assert.equal(boardState(b(), { now: T0 + 5 * MIN, alive: false }), "live", "gone for under 10 minutes");
+	assert.equal(boardState(b(), { now: T0 + 10 * MIN, alive: false }), "stale");
+	assert.equal(boardState(b(), { now: T0 + 3 * DAY, alive: true }), "live", "a live writer is never stale");
+	assert.equal(boardState(b({ steps: [{ id: 1, kind: "land", name: "land", status: "completed", round: 1, outcome: "void", why: "superseded" }] }), { now: T0, alive: true }), "live", "a voided land is not an end");
+});
+
+test("an ended train is deleted 7 days after its last update; a stale one only after a clear and the same 7 days; a live one never", () => {
+	const upd = new Date(T0).toISOString();
+	const landed = board({ updated: upd, steps: [{ id: 1, kind: "land", name: "land", status: "completed", round: 1, outcome: "passed" }] });
+	assert.equal(expired(landed, { now: T0 + 7 * DAY - 1, alive: false }), false);
+	assert.equal(expired(landed, { now: T0 + 7 * DAY, alive: false }), true);
+	const stale = board({ updated: upd });
+	assert.equal(expired(stale, { now: T0 + 30 * DAY, alive: false }), false, "a stale board holds until cleared");
+	const clear = { lane: "web", reason: "read back", by: "boss", at: new Date(T0 + 1 * DAY).toISOString() };
+	assert.equal(expired({ ...stale, clears: [clear] }, { now: T0 + 7 * DAY, alive: false }), false, "7 days after the last update, but the clear is newer");
+	assert.equal(expired({ ...stale, clears: [clear], updated: new Date(T0 + 1 * DAY).toISOString() }, { now: T0 + 8 * DAY, alive: false }), true);
+	assert.equal(expired(stale, { now: T0 + 30 * DAY, alive: true }), false);
+	assert.equal(expired({ ...stale, clears: [clear] }, { now: T0 + 30 * DAY, alive: true }), false, "a live writer's board is never deleted, cleared or not");
+	assert.equal(expired({ ...stale, clears: [clear] }, { now: T0 + 30 * DAY, alive: false }), true);
+});
+
+test("facts: a read board becomes the facts waits reads, and an unreadable one holds everything", () => {
+	const root = state();
+	writeBoard(root, board({ steps: [{ id: 1, kind: "merge", name: "merge", status: "in_progress", round: 1, holds: { lane: "web" } }], updated: new Date(T0).toISOString() }));
+	mkdirSync(join(root, "trainboard", "acme", "2026-11-06-bad"), { recursive: true });
+	writeFileSync(join(root, "trainboard", "acme", "2026-11-06-bad", "board.json"), "{nope");
+	const [good, bad] = readTrainboards(root).trains.map((t) => factsOf(t, { now: T0 + 20 * MIN, alive: () => false }));
+	assert.deepEqual(bad, { project: "acme", code: "2026-11-06-bad", state: "unreadable", steps: [] });
+	assert.equal(good!.state, "stale");
+	assert.deepEqual(good!.steps, [{ id: 1, kind: "merge", status: "in_progress", round: 1, holds: { lane: "web" } }]);
+	assert.ok(existsSync(root));
+});

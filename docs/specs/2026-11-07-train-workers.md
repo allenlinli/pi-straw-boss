@@ -550,3 +550,16 @@ Order: 1 first. Tasks 2, 3 and P run in parallel worktrees from 1's commit (P ne
 - [ ] A train ends only after its pipelines concluded and each target's version was read by `deploy-verify`; a failed target is rolled back and the rollback read back, or reported, and the train then ends and is closed by the tower.
 - [ ] The sidebar lists the integrator right under the tower and the trains under it in code order, each with its step glyph; a train ending moves no other row.
 - [ ] With the merge train off, none of it loads.
+
+## 18. Notes from task 1 (the contract, `src/train/`)
+
+Choices the spec left open, built in `spec.ts`, `accept.ts`, `waits.ts`, `board.ts` and `cars.ts` (the last holds §5.5's fields only; the sender is task 5a):
+
+- **Acceptance words** are matched as words of a name (`run-e2e`, `UAT page`, `accepts order`), not as substrings, so `evaluate` is no request. A step is checked in its kind, name and check type; the text of `check.run` is not scanned (a project's own `test:e2e` script is its business, and a guess would refuse real gates). With no ticket the word says "a step asks for".
+- **Slip free text** is a request only when a field names UAT, e2e or acceptance together with "after deploy", "on the train" or the like (English, or 驗收 with 火車 or 部署後). `auth`, `branch`, `head`, `coordinator`, `departs` and `accept` are not scanned; a target named `uat-env` or a light check that ran e2e asks nothing.
+- **`uat:` lines** are always refused: a value is the word of §5.4, `uat: none` is the old format (§14.4). A slip with no `accept:` line is refused too (`accept: none` must be said). An `accept:` that is not a `.json` file is refused; one whose file name has the word `checkpoints` or `conditions` gets the §5.4 word.
+- **Evidence results**: a missing or not-yet result (`pending`, `todo`, …) and an entry with `check`, `run`, `page` or `checkpoints` to do take the §5.4 word; `failed` or any other finished result is a plain refusal (the car was not accepted; nothing is asked of the train). A `delta` is honored whenever it names an existing report and `on.head` is an ancestor; whether the project skill allows it is the integrator's check, not the validator's.
+- **Times** must carry their zone and be real dates; a path-safe name is never made only of dots.
+- **Holds**: a train holds a lane or target from its first started declaring step until every declaring step of any round has completed, so a re-assembly never opens a gap. An ended train holds nothing, a stale one what it held, an unreadable board every lane and target of its project (a `clear` does not release what cannot be read). Earlier is by code: day, then letters, one before two.
+- **Checks**: a `git` check needs a non-empty `contains`; a passed `git` result carries `head` (equal to `on.head`), a passed `report` result a `verdict` equal to `expect`, a `void` result its `why`.
+- **Boards**: a board's project and code must match its folders; a train folder with any letters is listed (and unreadable if wrongly named) rather than hidden. The writer checks a board before it writes and the reader again after it reads.

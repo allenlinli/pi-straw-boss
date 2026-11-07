@@ -64,13 +64,15 @@ export function towerFor(view: NetView, project: string, toWorkspace?: string): 
 }
 /** Every tower `towerFor` could pick, in the order it would pick them. */
 export function towersFor(view: NetView, project: string, toWorkspace?: string): TowerPick[] {
+	// An id names one workspace; a label is matched only when no workspace has that id, so a label that equals another workspace's id cannot pull a message there.
+	const byId = !!toWorkspace && view.workspaces.some((w) => w.workspace_id === toWorkspace);
 	const picks = view.panes.flatMap((pane) => {
 		if (pane.tokens?.sb_role !== "tower" || !pane.cwd) return [];
 		const workspace = view.workspaces.find((w) => w.workspace_id === pane.workspace_id);
 		const session = view.sessions.find((x) => x.herdrLocation?.paneId === pane.pane_id);
 		const depthIn = depth(pane.cwd, project);
 		if (!workspace || isSub(workspace) || !session || depthIn === undefined) return [];
-		if (toWorkspace && workspace.label !== toWorkspace && workspace.workspace_id !== toWorkspace) return [];
+		if (toWorkspace && (byId ? workspace.workspace_id !== toWorkspace : workspace.label !== toWorkspace)) return [];
 		return [{ session, pane, workspace, depthIn, order: view.workspaces.indexOf(workspace) }];
 	});
 	picks.sort((a, b) => a.depthIn - b.depthIn || a.order - b.order);

@@ -85,6 +85,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 	const begin = async (event: SessionStartEvent, ctx: ExtensionContext) => {
 		const start = (started = {});
 		s.stopped = false;
+		s.trainSettled = false;
 		integration.arm();
 		s.ui = ctx.ui;
 		s.hasUI = ctx.hasUI;
@@ -103,6 +104,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		nudgeTimer = setInterval(() => void Promise.allSettled([nudges?.poll(), restores?.poll()]), cfg.nudgeMs).unref();
 		// Starting runs in the background: pi awaits session_start handlers in turn, and pi-intercom connects in its own, after this one.
 		if (s.isTower) {
+			s.trainSettled = true; // a tower is no train
 			s.barred = s.recheck = undefined; // what an earlier start of this process left (a member's unplaced check) is not a tower's: it dispatches no subagents, and a bar would let its call through
 			unwatch = cfg.watch(presence.restore);
 			startTower().catch((error: Error) => tell(`Straw Boss: ${error.message}`, "error"));
@@ -127,7 +129,8 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		let trainHow: "claim" | "reload" | "restore" | undefined;
 		const trainIdentity = async () => {
 			if (s.isTrain || !placed) return;
-			const mine = opensAsTrain ? (await panes(run, placed.workspaceId).catch(() => [])).find((p) => p.pane_id === placed!.paneId) : undefined;
+			// A pane list that fails is no answer for a pi that was started as a train: it is asked again, and the guard stays closed meanwhile (trainguard.ts).
+			const mine = opensAsTrain ? (await panes(run, placed.workspaceId).catch((error) => { throw Object.assign(error as Error, { joining: true }); })).find((p) => p.pane_id === placed!.paneId) : undefined;
 			const token = trainFromToken(mine?.tokens?.sb_train);
 			const saved = trainFromToken(s.saved.train && trainToken(s.saved.train));
 			if (mine?.tokens?.sb_open_main === "1" && token) {
@@ -142,6 +145,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		const proceed = async () => {
 			if (!s.stopped && !unwatch) unwatch = cfg.watch(presence.restore); // a shutdown that came while Herdr was asked about the workspace has stopped nothing yet
 			await trainIdentity();
+			if (live()) s.trainSettled = true; // the role is decided: a train, or none
 			// What the record says is read once, before the first join: the guard may promote this session at once, which writes its record anew (roles.ts), and a retry must not take that record for a restore's.
 			decided ??= (() => {
 				// A main a Herdr restore resumed in its own pane and tab takes the role back; a tab that has a live main already keeps it.
@@ -216,7 +220,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 					clearTimeout(retryTimer);
 					s.recheck = undefined;
 					s.barred = verdict.bar?.text;
-					if (verdict.bar) return (tell(verdict.bar.text, verdict.bar.level), false);
+					if (verdict.bar) return (tell(verdict.bar.text, verdict.bar.level), (s.trainSettled = true), false); // a session that never joins is no train
 					void proceedOnce();
 					return true;
 				})
@@ -291,7 +295,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		const held = s.holdsTower;
 		s.holdsTower = false;
 		const had = role(), keepTrain = s.isTrain && event.reason === "reload";
-		[s.isTrain, s.train] = [false, undefined]; // a /new or /resume in this process is not the train: the next start finds out again
+		[s.isTrain, s.train, s.trainSettled, s.trainSign] = [false, undefined, false, false]; // a /new or /resume in this process is not the train: the next start finds out again
 		if (!had || !s.at) return;
 		// A /reload brings the same train back in this pane (its entry), so it keeps the tokens that name it through the gap; only a quit, /new, /resume or /fork lets go of them.
 		await presence.clear({ keepTrain });

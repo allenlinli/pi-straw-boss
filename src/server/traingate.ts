@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { availableParallelism, homedir, loadavg } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -14,6 +14,7 @@ import { holderAlive, holderOf, lockDirOf, takeLock, type Taken } from "./trainl
 // The train gate wrapper (docs/specs/2026-11-07-train-workers.md §8): `cli.mjs train gate --spec <file>` is the process a train's `MonitorCreate` runs for a `run` step. It reads the step's frozen spec, waits while a load, lock, lane or target
 // wait is unresolved, runs the command in a process group of its own with the lock held in this process, verifies it, and ends with one outcome line and an exit code (0 passed, 1 failed, 3 refused, 143 stopped). Every line is one JSON object of at
 // most 1000 characters with `progress.message`, so the monitor counts it as progress, and at least one comes every 30 s; the same state is written to `gate-<id>.json` beside the step file, which the server reads (§11.1).
+// Every line also carries `sb.spec` (the SHA-256 of the step file it read) and `sb.run` (a nonce of this process): the guard of the train's session takes a run's pass from the monitor's own record and those two fields (trainguard.ts, §21).
 // Time, load, process liveness, signals and output come in as arguments, so a test runs it on a clock it moves.
 
 export const BEAT_MS = 30_000, GRACE_MS = 4000, KILL_WAIT_MS = 500, TRY_GRACE_MS = 10_000, GATE_MAX_BOARDS = 4096, MAX_LINE = 1000, MAX_TAIL = 200, MAX_SPEC_BYTES = 16 * 1024;
@@ -258,6 +259,9 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 	const gateFile = join(dirname(frozen.file), `gate-${id}.json`);
 	let started = d.startOf(d.pid);
 	const began = clock.now();
+	// What the guard binds a run to (trainguard.ts): the hash of the step file this process read and a nonce only this process knows. Every line carries both, the first before the command exists, so nothing the command prints or runs can
+	// put a line into the monitor's stream that the guard takes for this wrapper's (the command's output goes to the log, not to this stdout).
+	const nonce = randomBytes(16).toString("hex");
 
 	let state: GateState = "waiting", since = new Date(began).toISOString(), waits: Wait[] = [], loadNow: GateFile["load"];
 	let signalled: string | undefined, wake = () => {};
@@ -286,7 +290,7 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 		} catch (error) {
 			failure = error as Error;
 		}
-		const ident = { v: 1, train: code, step: id, kind: sb.kind, state };
+		const ident = { v: 1, train: code, step: id, kind: sb.kind, state, spec: frozen.hash, run: nonce };
 		const progress = { message, ...(loadNow ? { load: { max: loadNow.max, now: loadNow.now } } : {}) };
 		d.out(final ? fit({ monitorOutcome: { status: state, message }, progress: { message }, sb: { ...ident, ...(extra.exit !== undefined ? { exit: extra.exit } : {}) } })
 			: fit({ progress, sb: { ...ident, since, ...(waits.length ? { waits } : {}), ...(extra.tail ? { tail: extra.tail } : {}) } }));

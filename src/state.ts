@@ -47,6 +47,10 @@ export interface State {
 	isMain: boolean;
 	/** This session is the train the tower opened in its tab (docs/specs/2026-11-07-train-workers.md §3.3): a role of its own, never the tab's main. `train` names its project and code. */
 	isTrain: boolean; train: TrainId | undefined;
+	/** Whether this start has decided if it is a train (session.ts): a train's guard stays closed until it has, when a local sign (trainguard.ts `pending`) says it may be one. */
+	trainSettled: boolean;
+	/** The local signs of a train (trainguard.ts `signsOfTrain`) taken once at the start and held here: the guard reads this copy, so a record moved away mid-window changes nothing. */
+	trainSign: boolean;
 	holdsTower: boolean;
 	/** Why this session cannot join: it sits in a sub workspace, or Herdr could not say whether it does. */
 	barred: string | undefined;
@@ -102,7 +106,7 @@ export interface Kit {
 export function createKit(pi: ExtensionAPI, cfg: Config): Kit {
 	const { env } = cfg;
 	const s: State = {
-		isTower: env.STRAW_BOSS_ROLE === "tower", joined: false, isMain: false, isTrain: false, train: undefined, holdsTower: false, barred: undefined, recheck: undefined, stopped: false,
+		isTower: env.STRAW_BOSS_ROLE === "tower", joined: false, isMain: false, isTrain: false, train: undefined, trainSettled: false, trainSign: false, holdsTower: false, barred: undefined, recheck: undefined, stopped: false,
 		// SAFETY: `c` and `at` are set by the join (or the tower's start) before any module reads them; the GUI's `sessions()` tests `c` for undefined.
 		c: undefined as unknown as Channel,
 		// SAFETY: as `c` above.

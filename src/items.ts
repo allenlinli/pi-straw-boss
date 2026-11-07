@@ -1,6 +1,7 @@
 import { type FileHandle, open } from "node:fs/promises";
 import { basename } from "node:path";
 import { cleanLabel } from "./eventmarks.ts";
+import { MAX_SB_BYTES, tooDeep } from "./train/spec.ts";
 
 // Session entries as displayable items: what the chat shows for each kind of entry, with previews capped so a page stays small.
 // `full` lifts the caps for the one-entry fetch (thinking text, whole tool result, images).
@@ -10,13 +11,47 @@ export const FULL_LIMIT = FULL;
 
 export interface Tool { id: string; name: string; summary: string; args?: string; cut?: true }
 /** One task of a session's todo list, as @juicesharp/rpiv-todo keeps it (its snapshot entries and todo results); deleted ones are left out. */
-export interface Todo { id: number; subject: string; status: "pending" | "in_progress" | "completed"; activeForm?: string }
+export interface Todo { id: number; subject: string; status: "pending" | "in_progress" | "completed"; activeForm?: string; /** A train's step (`metadata.sb`), bounded: see `stepInfo`. */ sb?: StepInfo }
+/** What the page keeps of a step's `metadata.sb` (docs/specs/2026-11-07-train-workers.md §11.1): its kind and name, whose it is, the check's type, what it holds and needs, and how it ended; never a command, a path, or evidence text. */
+export interface StepInfo {
+	kind: string; name?: string; project?: string; app?: string; train?: string; round?: number; check?: string;
+	holds?: { lane?: string; target?: string }; load?: { max?: number; perCore?: number; weight?: number }; lock?: string; outcome?: "passed" | "failed" | "void"; why?: "superseded" | "skipped";
+}
 const STATUSES = new Set(["pending", "in_progress", "completed"]);
+const obj = (v: unknown): v is Json => typeof v === "object" && v !== null && !Array.isArray(v);
+const cut = (v: unknown, n: number) => (typeof v === "string" && v ? v.slice(0, n) : undefined);
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+/** The members of `from` named in `keys` that `read` accepts, or nothing when none is. */
+function pick<T>(from: unknown, keys: string[], read: (v: unknown) => T | undefined): Record<string, T> | undefined {
+	const out: Record<string, T> = {};
+	if (obj(from)) for (const key of keys) { const v = read(from[key]); if (v !== undefined) out[key] = v; }
+	return Object.keys(out).length ? out : undefined;
+}
+/** The page's view of `metadata.sb`: known keys only, strings cut to their caps, and nothing at all for a value over 8 KB, nested over 32 levels, or without a kind in words. */
+export function stepInfo(metadata: unknown): StepInfo | undefined {
+	const sb = obj(metadata) ? metadata.sb : undefined;
+	if (!obj(sb) || tooDeep(sb)) return undefined;
+	let bytes: number;
+	try { bytes = Buffer.byteLength(JSON.stringify(sb)); } catch { return undefined; }
+	const kind = cut(sb.kind, 32);
+	if (bytes > MAX_SB_BYTES || !kind) return undefined;
+	const spec = obj(sb.spec) ? sb.spec : {}, check = obj(spec.check) ? spec.check : {}, result = obj(sb.result) ? sb.result : {};
+	const info: StepInfo = { kind }, put = <K extends keyof StepInfo>(key: K, value: StepInfo[K] | undefined) => void (value !== undefined && (info[key] = value));
+	put("name", cut(sb.name, 64)); put("project", cut(sb.project, 64)); put("app", cut(sb.app, 64)); put("train", cut(sb.train, 16)); put("round", num(sb.round)); put("check", cut(check.type, 16));
+	put("holds", pick(spec.holds, ["lane", "target"], (v) => cut(v, 64))); put("load", pick(spec.load, ["max", "perCore", "weight"], num)); put("lock", cut(spec.lock, 32));
+	if (["passed", "failed", "void"].includes(result.outcome as string)) put("outcome", result.outcome as StepInfo["outcome"]);
+	if (["superseded", "skipped"].includes(result.why as string)) put("why", result.why as StepInfo["why"]);
+	return info;
+}
 /** The open tasks of a todo snapshot (`{ tasks, nextId }`), checked field by field; anything else is no list. */
 export function todosOf(snapshot: unknown): Todo[] | undefined {
 	const s = snapshot as { tasks?: unknown; nextId?: unknown } | undefined;
 	if (!s || !Array.isArray(s.tasks) || typeof s.nextId !== "number") return undefined;
-	return s.tasks.slice(0, 200).flatMap((t: Json) => (typeof t?.id === "number" && typeof t.subject === "string" && STATUSES.has(t.status) ? [{ id: t.id, subject: t.subject.slice(0, 300), status: t.status, ...(typeof t.activeForm === "string" && { activeForm: t.activeForm.slice(0, 120) }) }] : []));
+	return s.tasks.slice(0, 200).flatMap((t: Json) => {
+		if (!(typeof t?.id === "number" && typeof t.subject === "string" && STATUSES.has(t.status))) return [];
+		const sb = stepInfo(t.metadata);
+		return [{ id: t.id, subject: t.subject.slice(0, 300), status: t.status, ...(typeof t.activeForm === "string" && { activeForm: t.activeForm.slice(0, 120) }), ...(sb && { sb }) }];
+	});
 }
 export interface Item {
 	id: string; kind: "user" | "assistant" | "result" | "bash" | "notice" | "divider" | "meta"; at?: string; text?: string; more?: boolean; images?: number; pics?: string[];

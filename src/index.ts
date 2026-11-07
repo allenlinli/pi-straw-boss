@@ -31,6 +31,7 @@ import { createBossPaths } from "./bosspaths.ts";
 import { type Config, createKit, type Deps } from "./state.ts";
 import { createTools } from "./tools.ts";
 import { createTower } from "./tower.ts";
+import { registerTrainGuard, registerTrainSigns } from "./trainguard.ts";
 import { registerTrust } from "./trust/ask.ts";
 
 export type { Deps } from "./state.ts";
@@ -60,7 +61,9 @@ export function createStrawBoss({ run: given, world: reading, api = herdrApi(), 
 		if (env.PI_SUBAGENT_ID) return;
 		// A pi the sb server started for a tower run (runmode.ts) decides first, at session_start: when it is a run, nothing of the net starts.
 		warmStart(); // Windows tells a process's start time through PowerShell, 2 to 3 s: read this one's now, in the background, so the records written later carry it
-		const link = createLink(kit), briefing = createBriefing(kit), roles = createRoles(kit), look = cfg.server ? createServerLook(kit, cfg.server) : undefined, runMode = createRunMode(kit, look, cfg.runSide, link), reach = createReach(kit, look), election = createElection(kit), presence = createPresence(kit), digest = createDigest(run, now);
+		const roles = createRoles(kit);
+		registerTrainSigns(kit, roles); // first of the session_start handlers: the sign of a train is held before any of them awaits
+		const link = createLink(kit), briefing = createBriefing(kit), look = cfg.server ? createServerLook(kit, cfg.server) : undefined, runMode = createRunMode(kit, look, cfg.runSide, link), reach = createReach(kit, look), election = createElection(kit), presence = createPresence(kit), digest = createDigest(run, now);
 		look?.holdWhile(() => runMode.mode === "run" || Boolean(pi.getFlag("sb-run")));
 		const guard = createGuard(kit, { ...election, openTower: reach.openTower, roles });
 		// A join adds the tools of a joined session, and the tools promote through the membership: each is built with the other's hook.
@@ -71,6 +74,7 @@ export function createStrawBoss({ run: given, world: reading, api = herdrApi(), 
 		closeSelf = createClosing(kit);
 		const control = createCloseMain(kit, { closeSelf, check: bridge.stashCheck, turn: bridge.turn });
 		registerSession(kit, { integration: createIntegrationWatch(kit), runMode, briefing, roles, presence, membership, guard, host, reach, digest, control, startTower: createTower(kit, { membership, presence, tools, control, digest, roles, reach }) });
+		registerTrainGuard(kit); // a train's todo and MonitorCreate calls, and the integrator's train todos (nothing loads with the merge train off)
 		registerBoss(kit, { runMode, host, membership, reach, closeSelf, stashing: createStashing(kit, { host }), server: look, paths: createBossPaths(kit, { host, server: look, closeSelf, here: host.here }) });
 	};
 }

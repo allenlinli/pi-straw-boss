@@ -10,7 +10,7 @@ import { answerAsk, openAsk } from "../src/server/headasks.ts";
 import { appendChapter } from "../src/server/headchapters.ts";
 import { headSeam } from "../src/server/headnet.ts";
 import { slotOf } from "../src/server/record.ts";
-import { assistant, header, lines, text, user } from "./sessions.ts";
+import { assistant, call, custom, header, lines, text, user } from "./sessions.ts";
 
 // The head tower in the snapshot (docs/specs/2026-11-04-head-tower.md, The GUI channel; H3): `Net.head` is the head unit with its state, its asks, and `said`; the session key `sb-head` is always in the registry (role `head`)
 // with a file only when a conversation file exists, so the page can write to the head before it exists; no base carries a crown any more (`Base.head` is gone).
@@ -28,7 +28,7 @@ const ws = (id: string, label: string, tokens: Record<string, string> = {}): Wor
 const pane = (id: string, tab: string, tokens: Record<string, string> = {}): Pane => ({ pane_id: id, tab_id: tab, tokens });
 const session = (id: string, name: string, p: string, w: string, tab: string): Session => ({ id, name, status: "idle", herdrLocation: { status: "current", paneId: p, workspace: { id: w }, tab: { id: tab } } } as Session);
 const view = (over: Partial<TowerView> = {}): TowerView => ({ state: "standing", queued: 0, allyRuns: [], notices: [], parked: [], queue: [], ...over });
-const seam = (over: Partial<HeadSeam> = {}): HeadSeam => ({ key: "sb-head", asks: () => [], chapters: () => [], said: () => undefined, ...over });
+const seam = (over: Partial<HeadSeam> = {}): HeadSeam => ({ key: "sb-head", asks: () => [], chapters: () => [], said: () => undefined, line: () => undefined, ...over });
 
 const headWorld = (services?: (workspace: string) => TowerView | undefined, head: HeadSeam = seam()) => {
 	const refs = new Map<string, Ref>();
@@ -68,15 +68,42 @@ test("the head service is the unit's: state, queue rows, the asks and `said` fro
 	const asks = [{ id: "H1", group: "H1", workspace: "wA", label: "Alpha", since: 900, at: 1000, first: "go", state: "answered" as const, answers: 1, last: "landed" }];
 	const { net, refs } = headWorld(
 		(w) => (w === "wH" ? view({ state: "waking", queued: 1, queue: [{ text: "boss: ship it", as: "followUp" }], file: TWO }) : undefined),
-		seam({ asks: () => asks, said: (f) => (f === ONE || f === TWO ? 4242 : undefined), chapters: () => [{ n: 1, file: ONE, from: "2026-11-01T00:00:00Z", to: "2026-11-03T00:00:00Z", why: "the first conversation" }, { n: 2, file: TWO, from: "2026-11-03T00:00:00Z", why: "the last one grew past 8 MB" }] }),
+		seam({ asks: () => asks, said: (f) => (f === ONE || f === TWO ? 4242 : undefined), line: (f) => (f === TWO ? "Lighthouse Web is green." : undefined), chapters: () => [{ n: 1, file: ONE, from: "2026-11-01T00:00:00Z", to: "2026-11-03T00:00:00Z", why: "the first conversation" }, { n: 2, file: TWO, from: "2026-11-03T00:00:00Z", why: "the last one grew past 8 MB" }] }),
 	);
 	assert.deepEqual(net.bases.map((b) => b.id), ["wA"], "the head workspace is no base");
-	assert.deepEqual({ ...net.head, service: undefined }, { key: "sb-head", name: "head tower", mark: "idle", state: "waking", service: undefined, queued: [{ text: "boss: ship it", as: "followUp" }], asks, said: 4242 });
+	assert.deepEqual({ ...net.head, service: undefined }, { key: "sb-head", name: "head tower", mark: "idle", state: "waking", service: undefined, queued: [{ text: "boss: ship it", as: "followUp" }], asks, said: 4242, line: "Lighthouse Web is green." });
 	assert.equal(net.head?.service?.queued, 1);
 	assert.ok(!("queue" in net.head!.service!) && !("file" in net.head!.service!), "the queue and the file are the unit's, not the service's");
 	const ref = refs.get("sb-head")!;
 	assert.deepEqual([ref.role, ref.base, ref.name, ref.file, ref.pane], ["head", "wH", "head tower", TWO, "wH:p1"]);
 	assert.deepEqual(ref.chapters?.map((c) => [c.n, c.file]), [[1, ONE], [2, TWO]]);
+});
+
+test("the seam's newest line: the first line of the newest assistant text, by the head log's filter (tool-only and non-assistant entries skipped), cut to 160, none for a missing file; read again only when the file changed", () => {
+	const dir = mkdtempSync(join(tmpdir(), "psb-head-line-")), slot = slotOf(dir, { HOME: dir }), conversation = join(SESSIONS, "2026_line.jsonl");
+	try {
+		const seam = headSeam(slot, () => 0);
+		assert.equal(seam.line(undefined), undefined, "no file named");
+		assert.equal(seam.line(conversation), undefined, "no file yet");
+		writeFileSync(conversation, lines([header("s"), user("u1", null, "go"), assistant("a1", "u1", [text("\n  First thing   \nsecond line")])]));
+		assert.equal(seam.line(conversation), "First thing", "the first non-empty line, trimmed");
+		writeFileSync(conversation, lines([header("s"), user("u1", null, "go"), assistant("a1", "u1", [text("Older text")]), assistant("a2", "a1", [call("t1", "bash", { command: "ls" })]), custom("c1", "a2", "straw-tower", "Tower note", true), user("u2", "c1", "newer user text")]));
+		assert.equal(seam.line(conversation), "Older text", "a tool-only assistant entry, a notice, and a user entry are not the head's words");
+		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text("x".repeat(400))])]));
+		assert.equal(seam.line(conversation), `${"x".repeat(159)}…`, "cut to 160 with an ellipsis");
+		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text(`${"x".repeat(158)}😀${"y".repeat(10)}`)])]));
+		assert.equal(seam.line(conversation), `${"x".repeat(158)}😀…`, "the cut counts characters, so an emoji is never split (HB-F001)");
+		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text("```ts\nconst a = 1;\n```")])]));
+		assert.equal(seam.line(conversation), "const a = 1;", "a fence line is no words");
+		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text("## **Done**: merged\nmore")])]));
+		assert.equal(seam.line(conversation), "Done: merged", "a heading's marks and bold are dropped (HB-F002)");
+		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text("> - quoted item")])]));
+		assert.equal(seam.line(conversation), "quoted item", "quote and list marks are dropped");
+		writeFileSync(conversation, lines([header("s"), user("u1", null, "go")]));
+		assert.equal(seam.line(conversation), undefined, "a file with no assistant text has no line");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("the head's session is the server's own id, never the one the workspace token names: a stale or forged sb_head token moves neither its pane nor its name (review HH3-F004)", () => {

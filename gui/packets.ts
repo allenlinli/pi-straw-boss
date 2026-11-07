@@ -1,6 +1,4 @@
-// The packets that travel the map's wires. Each is a dot moved by a CSS animation of `transform` alone, which the compositor runs
-// without the main thread (SVG's animateMotion, and offset-path, are redrawn on the main thread every frame). The wire is a cubic curve
-// whose control points share the middle x, so the keyframes are points spaced evenly along it and a linear timing keeps the dot's pace.
+// Points spaced evenly along a cubic wire whose control points share the middle x, so a linear timing keeps a dot's pace. The map's wires are orthogonal routes now and their packets are headband.ts `routePackets`; this is the curve sampler only.
 
 export interface Wire { x1: number; y1: number; x2: number; y2: number; mid: number }
 
@@ -16,12 +14,4 @@ export function along({ x1, y1, x2, y2, mid }: Wire, n = 64): (readonly [number,
 		const f = reach[i]! > reach[i - 1]! ? (want - reach[i - 1]!) / (reach[i]! - reach[i - 1]!) : 0; // between the two samples, so the spacing is even
 		return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f] as const;
 	});
-}
-
-/** The keyframes (in a `<style>`) and a dot for each wire; none when `still`. */
-export function packets(wires: Wire[], still: boolean): HTMLElement[] {
-	if (still || !wires.length) return [];
-	const css = document.createElement("style");
-	css.textContent = wires.map((w, i) => `@keyframes pk${i}{${along(w).map(([x, y], k, all) => `${((k / (all.length - 1)) * 100).toFixed(2)}%{transform:translate(${x.toFixed(1)}px,${y.toFixed(1)}px)}`).join("")}}`).join("");
-	return [css, ...wires.map((_, i) => ((dot) => ((dot.className = "packet"), (dot.style.animationName = `pk${i}`), dot))(document.createElement("i")))];
 }

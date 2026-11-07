@@ -75,8 +75,8 @@ export function headDemo(state: HeadState, now = Date.now()): HeadUnit {
 		localRuns: [{ id: "e1", kind: "event", startedAt: new Date(now - 4 * HOUR).toISOString(), outcome: "done", note: "reported the answer" }, { id: "e2", kind: "event", startedAt: new Date(now - 3 * HOUR).toISOString(), outcome: "done" }],
 		...(state === "waiting" ? { memory: { rev: 1, standing: 0, decisions: 0, waits: waits.length, bossWaits: waits.filter((x) => !lapsedWait(x, now)).map(({ id, text, at }) => ({ id, text, at })), proposals: [] } } : state === "answers" ? { memory: { rev: 2, standing: 1, decisions: 2, waits: 0, bossWaits: [], proposals: [] } } : {}),
 	};
-	if (state === "starting") return { key: "sb-head", name: "head tower", mark: "idle", state: "waking", service: { ...service, state: "waking", queued: 1, run: undefined, conversation: undefined }, queued: [{ text: `boss: ${words().q1}`, as: "start" }], asks: headAsks(now), said: now - 60_000 };
-	return { key: "sb-head", name: "head tower", mark: "idle", state: "running", service, asks: state === "answers" || state === "waiting" ? headAsks(now) : [], said: now - 60_000 };
+	if (state === "starting") return { key: "sb-head", name: "head tower", mark: "idle", state: "waking", service: { ...service, state: "waking", queued: 1, run: undefined, conversation: undefined }, queued: [{ text: `boss: ${words().q1}`, as: "start" }], asks: headAsks(now), said: now - 60_000, line: words().a4 };
+	return { key: "sb-head", name: "head tower", mark: "idle", state: "running", service, asks: state === "answers" || state === "waiting" ? headAsks(now) : [], said: now - 60_000, line: words().a4 };
 }
 
 /** The demo's words by page language (the lines are the conversation's own, so the pictures in Traditional Chinese read in it). */

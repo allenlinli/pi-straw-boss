@@ -108,19 +108,11 @@ test("USC-F001: at phone width a main's Stop is 44 px tall and wide after the ca
 	assert.equal(phoneValue("quit-btn", "min-height"), "44px");
 });
 
-test("the map's head pill stays 36 px to look at but its ::before reaches 44 px on a phone, inside the map's 36 px top band", () => {
-	const pill = topRule(".head-node"), band = topRule(".map:has(> .head-node:not([hidden]))");
-	assert.match(pill, /height:\s*36px/, "the pill keeps its look");
-	assert.match(pill, /box-sizing:\s*border-box/);
-	const hit = body(".head-node::before");
-	assert.match(hit, /content:\s*""/);
-	assert.match(hit, /position:\s*absolute/);
-	const reach = Number(hit.match(/inset:\s*-(\d+)px 0/)?.[1]);
-	// inset counts from the padding box: 36 - 2 border + 2 * reach.
-	assert.ok(36 - 2 + 2 * reach >= 44, `the hit box is ${36 - 2 + 2 * reach} px tall`);
-	assert.doesNotMatch(topRule(".head-node"), /::before/);
-	// It sits a quarter of its height above the map's edge (translate -25%), so it ends 27 px below it plus the reach; the first base row starts at the band's end.
-	assert.ok(36 * 0.75 + reach + 1 <= Number(band.match(/padding-top:\s*(\d+)px/)?.[1]), "the hit area does not run into the first base row");
+test("the map's head band is 44 px tall, so a tap on a phone lands (the whole band is the link)", () => {
+	const band = topRule(".head-node");
+	assert.match(band, /height:\s*44px/);
+	assert.match(band, /box-sizing:\s*border-box/);
+	assert.doesNotMatch(body(".head-node::before") || "", /position:\s*absolute/, "no hit-box trick: the band itself is the target");
 });
 
 test("the composer's key row is 48 px and Send is wide enough to hit", () => {

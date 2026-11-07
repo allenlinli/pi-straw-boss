@@ -54,7 +54,7 @@ const TEAMS = [
 const view = (over: Record<string, unknown> = {}): Record<string, any> => ({ deviceId: "d-self", short: "SELF", label: "Boss Mac", relay: "https://r.example", invites: [], join: undefined, prefill: undefined, allies: [], alerts: [], confirms: [], units: [], joinRequests: [], teams: TEAMS, ...over });
 const FULL = view({ confirms: CONFIRMS.map((c) => ({ ...c, team: TEAMS[0]!.team })), alerts: ALERTS.map((a) => ({ ...a, team: TEAMS[0]!.team })), invites: INVITES.map((i) => ({ ...i, team: TEAMS[0]!.team })) });
 
-const TOKEN = "tok-SECRET-9f3a77", INVITE = encodeInvite({ relay: "https://relay.example", team: Buffer.alloc(16, 7), secret: Buffer.alloc(32, 9), inviterId: "a".repeat(26), inviterKeyHash: Buffer.alloc(32, 5), forDevice: "" });
+const TOKEN = "fake-qzx-relay", INVITE = encodeInvite({ relay: "https://relay.example", team: Buffer.alloc(16, 7), secret: Buffer.alloc(32, 9), inviterId: "a".repeat(26), inviterKeyHash: Buffer.alloc(32, 5), forDevice: "" });
 
 interface WorldOptions { ui?: boolean; confirm?: boolean | boolean[]; selects?: (string | undefined)[]; inputs?: (string | undefined)[]; lang?: string; custom?: boolean; /** The confirm throws (a pi that fails under the dialog). */ boom?: boolean; /** What the server answers a request to mark the pane local-only. */ markError?: string }
 function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "en", custom = true, boom = false, markError }: WorldOptions = {}) {
@@ -410,7 +410,7 @@ test("create asks hereOnly naming the relay, folder and share, then takes the re
 	assert.match(w.last().text, /Created the team proj/);
 	// The token is in the request and nowhere else: not on any screen frame, notice, dialog, select, or session entry.
 	const elsewhere = JSON.stringify([w.told, w.asked, w.selected, w.typed, w.frames, w.piCalls]);
-	assert.ok(!elsewhere.includes(TOKEN) && !elsewhere.includes("SECRET"), "the token is nowhere but in the request");
+	assert.ok(!elsewhere.includes(TOKEN) && !elsewhere.includes("qzx"), "the token is nowhere but in the request");
 	assert.ok(w.frames.some((f) => f.join("").includes("•••")), "the screen showed bullets");
 	assert.deepEqual(w.typed, [], "ui.input echoes what is typed, so it is never used");
 });

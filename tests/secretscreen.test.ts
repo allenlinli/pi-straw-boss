@@ -25,13 +25,14 @@ function screen(keys: string[]) {
 	};
 	return { ui: ui as never, frames, renders: () => renders };
 }
-const SECRET = "tk_live_Zx81QpL0";
+// A made-up value, plain enough that no secret scanner takes it for a credential.
+const SECRET = "fake_qzx_value";
 
 test("readSecret returns what was typed and draws only bullets, never a character of it", async () => {
 	const s = screen([...SECRET.split(""), "\r"]);
 	assert.equal(await readSecret(s.ui, { title: "Relay token", hint: "Paste the token.", footer: "Enter sends, Esc cancels" }), SECRET);
 	const drawn = s.frames.flat().join("\n");
-	assert.ok(!drawn.includes(SECRET) && !/[A-Za-z]{2}Zx|Zx8|tk_/.test(drawn), "no character of the token is drawn");
+	assert.ok(!drawn.includes(SECRET) && !/fak|qzx|e_v/.test(drawn), "no character of the token is drawn");
 	assert.match(drawn, /Relay token/);
 	assert.match(drawn, /Enter sends, Esc cancels/);
 	assert.ok(s.frames.at(-2)!.some((line) => line.includes("•".repeat(SECRET.length))), `${SECRET.length} bullets after the last key`);

@@ -221,6 +221,12 @@ export function readPolicy(d: PolicyDeps = {}): Policy {
 	return bad.length ? { mode: "refused", reason: `${path}: ${bad.join("; ")}` } : { mode: "unattended", trust: levels(json.trust), teams, ...operate };
 }
 
+/** Whether the policy file says unattended; none while it cannot be read or is refused (the log keeps its last answer then). */
+export function unattendedNow(d: PolicyDeps = {}): boolean | undefined {
+	const policy = readPolicy(d);
+	return policy.mode === "refused" ? undefined : policy.mode === "unattended";
+}
+
 /**
  * The teams and trust every reader of `link.teams` sees under `policy`: config.json's `link` section on an attended device; the policy file's trust and teams on an
  * unattended one, which ignores config.json's `link` section entirely (a file its own user can write cannot grant a team); nothing on a refused one, whose holder does not run.

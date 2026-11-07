@@ -256,3 +256,25 @@ test("SLH-F008: every file is flushed to disk before it replaces the old one, an
 	assert.equal(store.readHolder()?.session, "s");
 	assert.ok(!readdirSync(store.dir).some((n) => n.endsWith(".tmp")));
 });
+
+test("RR-F002: the unattended answer is read once and again only when the policy file's stamp changes; a read that fails keeps the last answer", async () => {
+	let asked = 0, stamp = "a", answer: boolean | undefined = true;
+	const store = open({ logMax: 300, unattended: () => (asked++, answer), unattendedStamp: () => stamp, auditLog: { max: 900, copies: 4 } });
+	for (let i = 0; i < 40; i++) store.log({ event: "drop", i });
+	assert.equal(asked, 1, "the policy is read once for 40 lines between the two sizes");
+	assert.ok(statSync(join(store.dir, "link.log")).size <= 900 + 120);
+	stamp = "b"; answer = undefined; // the file changed and cannot be read now
+	for (let i = 0; i < 80; i++) store.log({ event: "drop", i });
+	assert.equal(asked, 2, "asked again once after the stamp moved, the failed read then kept");
+	assert.ok(!existsSync(join(store.dir, "link.log.5")));
+	assert.ok(readFileSync(join(store.dir, "link.log.1"), "utf8").length > 300 + 120, "an unattended box's log is not rotated at the short size after a failed read");
+	stamp = "c"; answer = false;
+	for (let i = 0; i < 40; i++) store.log({ event: "drop", i });
+	assert.ok(statSync(join(store.dir, "link.log")).size <= 300 + 120, "a read that says attended applies the short rule");
+});
+
+test("RR-F002: before any successful read the answer is attended, and a throw is a failed read", async () => {
+	const store = open({ logMax: 300, unattended: () => { throw new Error("x"); }, unattendedStamp: () => "s", auditLog: { max: 900, copies: 4 } });
+	for (let i = 0; i < 40; i++) store.log({ event: "drop", i });
+	assert.ok(statSync(join(store.dir, "link.log")).size <= 300 + 120);
+});

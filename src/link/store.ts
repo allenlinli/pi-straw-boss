@@ -125,7 +125,9 @@ export interface StoreOptions {
 	 * Whether this device is unattended now (its policy file says so). An unattended box's log is its operate audit (docs/specs/2026-11-07-link-operate.md §10, decision 16), so it rotates by `auditLog` instead. Asked only when the log has passed
 	 * `logMax`, so a log line does not read the policy file.
 	 */
-	unattended?: () => boolean;
+	unattended?: () => boolean | undefined;
+	/** A string that changes when the policy file does (policy.ts `policyStamp`). The answer of `unattended` is kept until it changes, so a log line between `logMax` and the audit size does not read the file; none means every ask reads. */
+	unattendedStamp?: () => string;
 	/** What an unattended device's log rotates by (default `AUDIT_LOG`). */
 	auditLog?: { max: number; copies: number };
 }
@@ -155,7 +157,10 @@ export class LinkStore {
 	private readonly now: () => number;
 	private readonly staleMs: number;
 	private readonly logMax: number;
-	private readonly unattended: (() => boolean) | undefined;
+	private readonly unattended: (() => boolean | undefined) | undefined;
+	private readonly unattendedStamp: (() => string) | undefined;
+	/** The last answer that was read, and the stamp it was read at. */
+	private known: { stamp: string | undefined; value: boolean } | undefined;
 	private readonly auditLog: { max: number; copies: number };
 	private readonly synced: ((kind: "file" | "dir", path: string) => void) | undefined;
 	private readonly scope = new AsyncLocalStorage<symbol>();
@@ -171,6 +176,7 @@ export class LinkStore {
 		this.staleMs = o.staleMs ?? LOCK_STALE_MS;
 		this.logMax = o.logMax ?? 1024 * 1024;
 		this.unattended = o.unattended;
+		this.unattendedStamp = o.unattendedStamp;
 		this.auditLog = o.auditLog ?? AUDIT_LOG;
 		this.synced = o.synced;
 	}
@@ -657,14 +663,24 @@ export class LinkStore {
 
 	// ---- The log -------------------------------------------------------------------------------------------------------------------
 
+	/** Whether the log keeps the audit rule: the policy's answer, read again only when the policy file's stamp moves. A read that fails (a throw, or no answer) keeps the last answer read, the attended one before any. */
+	private audits(): boolean {
+		let stamp: string | undefined;
+		try { stamp = this.unattendedStamp?.(); } catch { /* read again below */ }
+		if (this.known && stamp !== undefined && stamp === this.known.stamp) return this.known.value;
+		let value: boolean | undefined;
+		try { value = this.unattended?.(); } catch { /* keep the last answer */ }
+		this.known = { stamp, value: value ?? this.known?.value ?? false }; // the stamp that could not be read is not asked again until it moves
+		return this.known.value;
+	}
+
 	/** One JSON line: what was dropped and why, a notice raised. Never throws; the log is for an operator, not for the flow. */
 	log(entry: Record<string, unknown>): void {
 		try {
 			const file = this.path("link.log");
 			const size = statSync(file, { throwIfNoEntry: false })?.size ?? 0;
 			if (size > this.logMax) {
-				let audit = false;
-				try { audit = this.unattended?.() === true; } catch { /* a policy that cannot be read keeps the short rule */ }
+				const audit = this.audits();
 				const keep = audit ? this.auditLog : { max: this.logMax, copies: 1 };
 				if (size > keep.max) {
 					for (let n = keep.copies - 1; n >= 1; n--) if (existsSync(`${file}.${n}`)) renameSync(`${file}.${n}`, `${file}.${n + 1}`);

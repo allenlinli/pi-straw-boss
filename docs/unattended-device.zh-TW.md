@@ -141,7 +141,7 @@ pi 啟動的資料夾不只有專案：
 控制端用配對的手機也能透過控制端的 GUI 連上；走的是同一條 Link 通道，沒有別的路，裝置不會為它開任何 port。
 一個 session 能碰到的範圍就是它的 scope（見上面的政策檔一節）：`team` 的操作者看得到自己擔任管理員的那些團隊的單位，`box` 的操作者再加上裝置自己的單位。
 不論頁面怎麼要求，裝置都會拒絕：`!` 開頭的 shell 行、`/boss` 指令、`hereOnly` 的選項與機密值、開啟主智慧體或單獨的窗格、關閉基地、信任、Link 與 server 設定、文件，以及任何 pi 自己的快捷鍵設定不認得是編輯器動作的按鍵。
-頭號塔台（head tower）對任何 operate session 都不在範圍內，連 `box` 授權也一樣。
+主塔台（head tower）對任何 operate session 都不在範圍內，連 `box` 授權也一樣。
 在主智慧體裡打字，等於以完整權限驅動一個 pi session，所以操作者能請模型做裝置的 hooks 與沙箱允許的任何事；這不比 `dispatch` 多。
 每一次連線與每一次輸入都是 `link/link.log` 的一行（`operate-open`、`operate-close`、`operate-input`，含動作與窗格、`operate-read`、`operate-refused`），絕不含打了或讀了什麼內容。
 無人值守裝置的 `link/link.log` 在 8 MiB 時輪替並保留四份舊檔（`link.log.1` 最新，到 `link.log.4`），所以打一小時的字不會把一週的稽核紀錄擠掉；有人值守的電腦維持 1 MiB、一份舊檔。

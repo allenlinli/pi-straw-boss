@@ -473,9 +473,25 @@ test("OW-F007: a row's role is a word of the roles a unit has: a role the net ne
 	const g = session("role2"), led = mine();
 	put(led, [row(g, { role: "bespoke" }), row(session("role3"), { role: "tower" })]);
 	assert.deepEqual(open(led).rows().map((r) => r.role), ["tower"]);
-	for (const role of ["main", "member", "train", "subagent", "outside", "tower", "ally", "run", "head"]) {
+	for (const role of ["main", "member", "train", "subagent", "outside", "tower", "ally", "run"]) { // "head" is a role a unit has, but no row is made for it (RR-F001)
 		const h = session(`r-${role}`), l = open(mine());
 		l.observe([seen(h, { role })]);
 		assert.equal(l.rows()[0]!.role, role, role);
 	}
+});
+
+test("RR-F001: a ledger row the head tower wrote (a 0.62.x or 0.63.x box filed it as its own) is not listed, not opened, and not made again", async () => {
+	const fh = session("head"), fb = session("boxed"), file = mine();
+	put(file, [row(fh, { team: "box", role: "head", device: undefined, name: "head" }), row(fb, { team: "box", role: "ally", device: undefined, name: "box-run" })]);
+	const ledger = open(file), box = reach([], true), { hub } = hubOf(ledger, box), t = (f: string) => transcriptKey(idOf(f));
+	assert.deepEqual(((await list(hub)).body as { rows: { name: string }[] }).rows.map((r) => r.name), ["box-run"], "the list holds no head row");
+	assert.equal(ledger.within(box).has(t(fh)), false);
+	assert.equal(ledger.within(box).lookup(t(fh)), undefined, "not openable");
+	assert.equal((await api(hub, ["history", t(fh)], Q())).status, 404, "the route: not found");
+	assert.equal((await api(hub, ["entry", t(fh), "u1"], Q())).status, 404);
+	assert.equal(ledger.rows().some((r) => r.role === "head"), false, "not loaded");
+	ledger.observe([seen(fh, { role: "head", name: "head", owner: { box: true }, device: undefined }), seen(fb, { role: "ally", name: "box-run", owner: { box: true }, device: undefined })]);
+	assert.equal(ledger.rows().some((r) => r.role === "head"), false, "a head unit seen live makes no row");
+	assert.equal(read(file).some((r) => r.role === "head"), false, "and nothing of it is written");
+	assert.equal(ledger.within(box).lookup(t(fb))?.role, "ally", "the box's other run still opens");
 });

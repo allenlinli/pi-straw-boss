@@ -69,3 +69,17 @@ test("BSR-F004: a block this page is sending itself stays pending whatever the r
 	lockFor("doc", "cap").seed({ done: [], pending: [] });
 	assert.equal(lock.get(2).state, "pending", "another scope's seed does not touch it, nor does one whose scope is a prefix of its");
 });
+
+test("BSR-F004: a seed looks at its own scope's blocks only: another scope's pending block of the same number, or a longer scope that starts with the same parts, does not open this one's send in flight", () => {
+	const mine = lockFor("S", "e1"), other = lockFor("S", "e2"), shorter = lockFor("S");
+	mine.pend(3); // this page is sending block 3 of S/e1
+	shorter.pend(3); // and block 3 of S itself
+	other.seed({ done: [], pending: [3] }); // another message's block 3 is on its way elsewhere
+	mine.seed({ done: [], pending: [] });
+	shorter.seed({ done: [], pending: [] });
+	assert.equal(mine.get(3).state, "pending", "not another entry's block 3");
+	assert.equal(shorter.get(3).state, "pending", "not a longer scope's block 3");
+	assert.equal(other.get(3).state, "pending");
+	other.seed({ done: [], pending: [] });
+	assert.equal(other.get(3).state, "open", "its own seed does reopen it");
+});

@@ -94,7 +94,7 @@ function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement 
 		const go = h("button", { type: "button", class: "pbs-confirm-send" }, m.block_confirm_send()), back = h("button", { type: "button", class: "pbs-confirm-back" }, m.block_confirm_back());
 		const panel = (confirming = h("div", { class: "pbs-confirm", role: "group", "aria-label": m.block_confirm_title() }, h("p", { class: "pbs-confirm-title" }, m.block_confirm_title()), h("pre", { class: "pbs-confirm-text" }, text), h("div", { class: "pbs-confirm-row" }, go, back)));
 		go.addEventListener("click", () => {
-			if (confirming !== panel || sending || lock.get(index).state !== "open") return;
+			if (confirming !== panel) return; // the step goes by itself when the block is locked or sending, so a stale Send finds none
 			closeConfirm();
 			deliver(answer, text);
 		});

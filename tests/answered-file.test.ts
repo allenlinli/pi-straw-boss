@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -80,9 +80,11 @@ test("BSR-F002: a file over 32 MB is not read", () => {
 	const d = dir();
 	mkdirSyncOnce(d);
 	const file = join(d, "answered.json");
-	writeFileSync(file, "{}", { mode: 0o600 });
-	truncateSync(file, 33 * 1024 * 1024);
-	assert.equal(createAnswered(answeredFileDeps(file)).unreadable, true);
+	const record = JSON.stringify({ v: 1, entries: [] });
+	writeFileSync(file, record + " ".repeat(33 * 1024 * 1024), { mode: 0o600 });
+	assert.equal(createAnswered(answeredFileDeps(file)).unreadable, true, "valid JSON, too big");
+	writeFileSync(file, record + " ".repeat(1024 * 1024), { mode: 0o600 });
+	assert.equal(createAnswered(answeredFileDeps(file)).unreadable, false, "the same under the limit");
 });
 
 const mkdirSyncOnce = (path: string) => void mkdirSync(path, { recursive: true });

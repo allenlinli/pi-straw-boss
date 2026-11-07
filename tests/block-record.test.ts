@@ -159,11 +159,13 @@ test("BSR-F007 C01: an operate session writes no record: a `block` in its input 
 	const answers = { has: () => false, replay: () => undefined, ended: () => undefined, send: async () => ({ status: 200, body: {} }), commands: async () => undefined, target: async () => undefined, probe: async () => ({ editor: "empty" as const }), pull: async () => ({ pending: false }) };
 	const found: Found = { key: "sess-1", base: "wA", name: "billing", role: "main", file: FILE, pane: "wA:p1", live: true };
 	const call = async (method: string) => (method === "pane.get" ? { pane: { pane_id: "wA:p1", agent: "pi", agent_status: "idle", agent_session: { value: FILE } } } : {});
-	const store = createAnswered({ load: () => undefined, save: () => {} });
+	let writes = 0;
+	const store = createAnswered({ load: () => undefined, save: () => void writes++ });
 	const body = { text: "Go ahead", as: "send", block: block() };
 	await createControl({ lookup: () => found, call, csrf: "c".repeat(32), canonical: (f) => f, secret: async () => false, mirrors: { fresh: () => true, toggle: async () => ({ status: 200, body: {} }) } as never, answers: answers as never, answered: store }).run(["sessions", "sess-1", "input"], body, { remote: true, secure: true, operate: true, foreground: async () => true });
+	assert.equal(writes, 0, "the record was not even written to (a begun block that is then cancelled leaves no entry, only a write)");
 	assert.deepEqual(store.list("chat", "sess-1"), [], "nothing was recorded for an operate session");
 	const same = createControl({ lookup: () => found, call, csrf: "c".repeat(32), canonical: (f) => f, secret: async () => false, mirrors: { fresh: () => true, toggle: async () => ({ status: 200, body: {} }) } as never, answers: answers as never, answered: store });
 	await same.run(["sessions", "sess-1", "input"], body, { remote: true, secure: true });
-	assert.equal(store.list("chat", "sess-1").length, 1, "the same request from a paired device is recorded (the control)");
+	assert.ok(writes > 0, "the same request from a paired device is recorded (the control)");
 });

@@ -186,6 +186,8 @@ test("a block's answer reaches the owner as an Answer addressed to the block, an
 		const old = await ask(again.gui, `api/doc/${again.caps["plan.md"]}/answer`, { method: "POST", body: { answerId: "e".repeat(32), answer: { ...answer, ref: { block: 1 } }, rev: HASH } });
 		assert.equal(old.status, 409, "a page that drew the text before the edit is told so");
 		assert.equal(json(old).error, "stale");
+		const seen = json(await ask(again.gui, `api/doc/${again.caps["plan.md"]}`)).answered as { done: [number, unknown][] };
+		assert.deepEqual(seen.done.map(([i]) => i), [0], "the edited text shows only what was answered for it, not the older text's blocks");
 	} finally {
 		files.get("/doc/d-blocks/plan.md")!.body = MD;
 	}

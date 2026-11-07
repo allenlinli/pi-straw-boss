@@ -401,15 +401,15 @@ html:not([data-view="zen"]) .wait-box:focus { outline: none; border-color: color
 .wait-card .wc-text { overflow-wrap: anywhere; white-space: pre-line; } .wait-card .wc-url { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 .wait-card .wc-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 .wait-card .wc-more { justify-self: start; background: none; border: 0; color: var(--dim); font: 12px var(--sans); text-decoration: underline; cursor: pointer; padding: 2px 0; }
-.wait-card .wc-cmd { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--sunken, transparent); font: 12px var(--mono); white-space: pre; overflow-x: auto; max-width: 100%; }
+.wait-card .wc-cmd { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--sunken, transparent); font: 12px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; } /* a command wraps whole: nothing of it hides behind a sideways scroll, and Copy still takes it as written */
 .wait-card .wc-norun, .wait-card .wc-copied { color: var(--dim); font-size: 12px; } .wait-card .wc-copied:empty { display: none; }
 .wait-card :is(.wc-open, .wc-copy) { justify-self: start; }
-.wait-card .wc-state { margin: 0; color: var(--ok); font-size: 0.9em; overflow-wrap: anywhere; } .wait-card .wc-remote { margin: 0; color: var(--gold); font-weight: 600; }
+.wait-card .wc-state { margin: 0; color: var(--dim); font-size: 0.9em; overflow-wrap: anywhere; } .wait-card[data-pressed="true"] .wc-state { color: var(--ok); } .wait-card[data-step="2"] .wc-state { color: var(--text); } .wait-card[data-phase="stale"] .wc-state { color: var(--gold); } .wait-card .wc-remote { margin: 0; color: var(--gold); font-weight: 600; }
 .wait-card[data-phase="ended"] .wc-parts, .wait-card[data-phase="ended"] .wc-head { text-decoration: line-through; opacity: 0.6; } .wait-card[data-phase="ended"] .wc-state { color: var(--dim); }
+.wait-card .pair-btn:disabled { cursor: default; color: var(--dim); background: transparent; border: 1px dashed var(--line); } /* off: flat, dashed, in the dim text colour (no opacity: the text keeps its 4.5:1 whatever the row around it does) */ .wait-card :is(.wc-open, .wc-copy, .wc-main) { color: var(--text); } .dialog[data-wait] .wait-card .wc-tag { display: none; } /* disabled looks disabled; the links read as actions; the dialog's badge already says the kind */
 .wait-card .wc-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .wait-card .pair-btn { text-transform: none; letter-spacing: 0; white-space: normal; font-size: 13px; } .wait-card .wc-primary { border: 0; background: var(--accent); color: var(--ink); }
-.wait-card .wc-opt { display: grid; justify-items: start; gap: 2px; flex: 1 1 100%; text-align: left; padding: 8px 12px; } .wait-card .wc-opt small { color: var(--dim); font-weight: 400; font-size: 12px; } .wait-card .wc-opt.wc-picked { border-color: var(--accent); color: var(--text); }
-.wait-card .wc-opt:disabled:not(.wc-picked) { opacity: 0.5; }
+.wait-card .wc-opt { display: grid; justify-items: start; gap: 2px; flex: 1 1 100%; text-align: left; padding: 8px 12px; } .wait-card .wc-opt small { color: var(--dim); font-weight: 400; font-size: 12px; } .wait-card .wc-opt.wc-picked, .wait-card .wc-opt.wc-picked:disabled { border: 1px solid var(--accent); color: var(--text); }
 .wait-card .wc-fold { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; width: 100%; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; } .wait-card .wc-fold .wc-do { flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; }
 .wait-card[data-host="row"] { margin-top: 0; }
 .wait-card[data-host="dialog"] { margin-top: 12px; } .tower-notices .tnote + .tnote { padding-top: 8px; border-top: 1px solid var(--line); }
@@ -1022,7 +1022,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.composer :is(.cmp-alt, .cmp-send) { min-height: 48px; } .composer .cmp-alt { min-width: 48px; } .composer .cmp-send { min-width: 64px; }
 	/* A wait card (waitcard.ts): parts stack, every button and link is 44 px with 8 px between, the primary and each choice take the width, a long URL wraps anywhere, a command scrolls sideways. */
 	.wait-card :is(.pair-btn, .wc-fold, .wc-more) { min-height: 44px; min-width: 44px; } .wait-card .wc-acts { gap: 8px; } .wait-card .wc-primary { flex: 1 1 100%; } .wait-card .wc-opt { flex: 1 1 100%; min-height: 44px; }
-	.wait-card .wc-url { overflow-wrap: anywhere; } .wait-card .wc-cmd { overflow-x: auto; } .wait-card :is(.wc-open, .wc-copy) { justify-self: stretch; } .wait-card .wc-skip-acts { gap: 8px; }
+	.wait-card .wc-url { overflow-wrap: anywhere; } .wait-card :is(.wc-open, .wc-copy) { justify-self: stretch; } .wait-card .wc-skip-acts { gap: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { *:not(.zen-hl), *::before, *::after { animation: none !important; transition: none !important; } .connect-reload { animation: connect-reveal 0s linear 10s forwards !important; } } /* the Reload link's delay is no motion, and without it the way out would stay hidden; the head's Zen lines (zen.css) step to their rest level once, with a delay their script sets, which an !important shorthand would reset */
 

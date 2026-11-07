@@ -129,7 +129,7 @@ A new op on the memory route (`memoryRequest`, `src/server/towermemory.ts`): `{ 
 
 ## The card in the GUI
 
-One component, `gui/waitcard.ts`, draws a wait for the boss everywhere one is drawn. Its rules (which parts, which buttons, which state, which words) are in a pure `gui/waitcardmodel.ts` with a table test. `gui/waitpanel.ts` keeps its answer box as the card's **回覆塔台** fold and loses its own buttons. Standard and Geek change only where a wait is drawn: the dialog shell, the queue, the HUD, the tag, and the title stay as they are.
+One component, `gui/waitcard.ts`, draws a wait for the boss everywhere one is drawn. Its rules (which parts, which buttons, which state, which words) are in a pure `gui/waitcardmodel.ts` with a table test. `gui/waitpanel.ts` keeps its answer box as the card's **回覆塔台** fold and loses its own buttons. Standard and Geek change only where a wait is drawn: the dialog shell, the queue, the HUD, and the title stay as they are. The dialog's badge is the card's own kind word (Needs you / Your choice / Needs a secret / Older wait) instead of QUESTION, since the card under it says the same word (GUI review GR-F007); the card's own tag line is then hidden in the dialog.
 
 ### Parts
 
@@ -156,29 +156,29 @@ Each text part is clamped to three lines with a "更多 / More" toggle. In the d
 
 Every kind also has, in this order after the primary: **回覆塔台 / Reply to the tower** (a quiet link that unfolds today's answer box; the words go to the tower's `input` with `answers: W9`, as now), **略過 / Skip** (below), and **稍後 / Later** where the host has it. The tower-comms link (**開啟塔台對話**) moves to the dialog's footer as its quiet last item, as now. On the tower card and in the comms the card has no comms link (`here`).
 
-**States** (from the model): `open`; `sending` (buttons off, the pressed one says 「送出中…」); `pressed` (the line above; buttons off except 略過 and 回覆塔台); `refused` (the server's reason under the buttons, as `tnote-fail`; buttons on again); `stale` (the stream is down: buttons off, 「連線中斷，暫時不能按」); `ended` (resolved by the tower: 「塔台已確認：<outcome>」, struck, until the snapshot drops it). The flash under the tower card's rows (`towernotes.ts` `flash`) says the press's line for 4 s, as it says a dismissal now.
+**States** (from the model): `open`; `sending` (buttons off, the pressed one says 「送出中…」); `pressed` (the line above; buttons off except 略過, 回覆塔台, and 打開 <raiser>, which only navigates); `refused` (the server's reason under the buttons, as `tnote-fail`; buttons on again); `stale` (the stream is down: buttons off, 「連線中斷，暫時不能按」); `ended` (resolved by the tower: 「塔台已確認：<outcome>」, struck, until the snapshot drops it). The flash under the tower card's rows (`towernotes.ts` `flash`) says the press's line for 4 s, as it says a dismissal now.
 
 **Where it is drawn:**
 
-- **Dock dialog** (`waitDialog`, `gui/layer.ts:115`): the whole card in `.ask-root`. The footer is 開啟塔台對話 · 稍後 · 略過. `.intel` stays hidden.
+- **Dock dialog** (`waitDialog`, `gui/layer.ts:115`): the whole card in `.ask-root`. The footer is 開啟塔台對話 · 稍後 · 略過. `.intel` stays hidden. The dialog opens with the focus on the card's primary button (a choice: its first option). It is modal for presses: while a wait's dialog is on top the page behind it (`#work`) is `inert`, so a tap on a row or card under the dialog, or in the strip beside a phone's sheet, never presses another wait (GR-F004); the HUD, Later, and × stay live. Open <raiser> finds the raiser's workspace by its unit key in the newest snapshot, since the head's alert is on the head's base (GR-F001).
 - **Tower card row and tower comms** (`gui/towernotes.ts`): the card folded. One line shows the tag, `do`, and the raiser, with the primary button beside it. A tap on the line unfolds the other parts. A row that was unfolded stays unfolded across a redraw, as an answer being typed does now.
-- **Zen card** (`gui/zen.ts:162`): the whole card in Zen's skin (`zen-head-*` look, ink palette). The primary takes Enter (`enter()`), and 晚點再說 stays Zen's skip. A press plays the card's outcome (the knock) through `send`, as an answer does.
+- **Zen card** (`gui/zen.ts:162`): the whole card in Zen's skin (`zen-head-*` look, ink palette). The primary takes Enter (`enter()`), and 晚點再說 stays Zen's skip. A press plays the card's outcome (the knock) through `send`, as an answer does. **打開 <raiser>** is there as on the other hosts; its click leaves Zen for the raiser's session, as the companion's session link does (`deps.leave({ route })`).
 - **Head page rows**: the folded card, as on a tower card.
 
 ### 稍後 and 略過
 
 - **稍後 / Later** is unchanged. It is the dock's "back in the queue" and calls nothing on the server. Zen's 晚點再說 likewise.
-- **略過 / Skip** is now the `decline` press. The first tap unfolds, in place, one line 「略過會告訴塔台和 mp3946-print 你不做這件事」, an optional reason box (原因（選填）, 120 characters), and **確定略過 / Skip it** with **取消**. Only the second tap sends. On a phone that confirm is the protection against a stray tap. The wait becomes `resolved` (struck for 24 h) instead of vanishing. `drop` stays on the memory route for `/boss memory` and old pages but is no longer offered on a card.
+- **略過 / Skip** is now the `decline` press. The first tap unfolds, in place, one line 「略過會告訴塔台和 mp3946-print 你不做這件事」, an optional reason box (原因（選填）, 120 characters), and **確定略過 / Skip it** with **取消**, and the focus goes to **確定略過** (not to the optional reason box, which would open a phone's keyboard over the confirm) with the confirm scrolled into view. Only the second tap sends. On a phone that confirm is the protection against a stray tap. The wait becomes `resolved` (struck for 24 h) instead of vanishing. `drop` stays on the memory route for `/boss memory` and old pages but is no longer offered on a card.
 
 ### Commands
 
-`command` is shown in a `<pre>` through `textContent`, with its line breaks, scrolling sideways on a narrow screen. **複製指令** copies it with `navigator.clipboard.writeText`. Where that is not allowed (a paired phone on plain `http:` LAN), it selects the text and says 「已選取，請長按複製」. sb never runs it. There is no Run button, no terminal card, and nothing goes to a pane, the key pad, or the server. The card says 「sb 不會替你執行」 under the block.
+`command` is shown in a `<pre>` through `textContent`, with its line breaks, wrapped whole (`white-space: pre-wrap`, `overflow-wrap: anywhere`) so that every character is visible on a 390 px phone; a sideways scroll would hide the tail of text the boss copies and runs (GR-F002). **複製指令** copies it with `navigator.clipboard.writeText`. Where that is not allowed (a paired phone on plain `http:` LAN), it selects the text and says 「已選取，請長按複製」. sb never runs it. There is no Run button, no terminal card, and nothing goes to a pane, the key pad, or the server. The card says 「sb 不會替你執行」 under the block.
 
 ### Phone (narrow layout, ≤ 640 px)
 
 - The card fills the dock sheet. Parts stack (the label above the value). The raiser line wraps.
 - Every button and link is at least 44 px tall with 8 px between targets. The primary is full width. Choice options are full-width rows of at least 44 px, separated by 8 px. 回覆塔台, 略過, and 稍後 share one row that wraps.
-- A URL wraps anywhere (`overflow-wrap: anywhere`). **開啟連結** is a 44 px button below it. The command block scrolls sideways with **複製指令** below it.
+- A URL wraps anywhere (`overflow-wrap: anywhere`). **開啟連結** is a 44 px button below it. The command block wraps whole, with **複製指令** below it (copy still takes the command as written).
 - The secret card's step 1 has no primary on a paired device (above).
 - `tests/wait-card-gui.test.ts` checks the CSS rules for the 44 px targets in the phone layout, as `tests/phone-targets.test.ts` does for other controls (that test also gets the new selectors).
 
@@ -199,7 +199,7 @@ A boss wait that was declined or resolved stays in `bossWaits[]` with `state: "r
 
 ## Prompts
 
-- `prompts/tower.md`: after the terse line, add: "The boss is not an agent. A wait for the boss is a card the boss reads: plain full sentences in the language your brief names (sb's locale), no shorthand, and a ticket id only beside what it is."
+- `prompts/tower.md`: after the terse line, add: "The boss is not an agent: write a wait for them in plain full sentences, in the language your brief names, no shorthand, a ticket id only beside what it is." (31 words; shortened from 39 in the GUI review, GR-F012.)
 - `prompts/tower-run.md`: replace "A wait for the boss reaches them as an alert in the GUI, so write what they have to do in one line they can act on (a token to hand over, a go to give), not a topic." with the rule below and one worked example (the fonstar case, as in **The stored entry**):
   - Record a wait for the boss as a card: `type` (action when they do something, choice when they pick, secret when a session needs a secret from them), `happened`, `do`, `url` or `command` (where, for an action), `after`, `options` (for a choice), `secret.name` (for a secret; never the value), and `from`: the session id in the `[intercom from …]` line of the message that raised it, or `self`.
   - Write every field in the language the brief's Memory section names (sb's locale), as sentences a person who has not followed the work understands: say what a host, a ticket, or a tool is the first time.
@@ -208,7 +208,7 @@ A boss wait that was declined or resolved stays in `bossWaits[]` with `state: "r
   - A legacy wait (`old free-text wait`) is recorded again as a card with `restates`.
   - Do not send the raiser the same news yourself: sb told it, and your event says whether that reached it.
 - `prompts/head-run.md`: the same rule in its words ("record a wait for the boss with `tower_memory` as a card, in the language your brief names; `from` is the tower's session id").
-- `prompts/main.md`: one line: "A `wait_card` message from your tower is the boss's answer to the wait you raised: act on it. To get a secret from the boss, call `secret_drop` when the tower or a `wait_card` says the boss is ready."
+- `prompts/main.md`: one line: "A `wait_card` message is the boss's answer to your wait: act on it; it says when to call `secret_drop`." (20 words; the raiser's notice carries the `secret_drop` instruction itself.)
 - `MEMORY_DESCRIPTION` and the schema in `src/memorytool.ts` as in **The tool**.
 
 The prompt tests (`tests/prompts.test.ts`) check that these words are there and that `tower-run.md` no longer has the one-line rule.
@@ -271,11 +271,12 @@ Choices the record left open:
 Choices the record left open:
 
 - **Where the code is.** `gui/waitcardmodel.ts` (pure: parts, buttons, words, raised line, the pressed line), `gui/waitcard.ts` (the DOM, the presses, Skip's confirm, copy, the read of a cut card, and `waitDialog`, which moved there from `waitpanel.ts`), `gui/waitpanel.ts` (now only the reply fold and its box; its Dismiss, comms link and stale note went to the card), `gui/demo-waits.ts` (`?waits=cards` and the stand-in for `press` and `read`). `waitActions` has `tell`, `press`, `read`, and `goto`; its `dismiss` is gone. An alert's `wait` carries `entry`, the wait as the snapshot has it. `fillNotices` no longer takes `here`: no row has a link to the comms.
-- **Primary and the rest.** A choice has no primary (the options are equal rows). A pressed card drops its primary and keeps the line; **Open <raiser>** stays on (it is a way to look, not an act), and so do **Skip** and **Reply to the tower**. An ended wait has no buttons at all. The reply fold is never turned off by the card; the box says "offline" when the stream is down (as before).
+- **Primary and the rest.** A choice has no primary (the options are equal rows). A pressed card drops its primary and keeps the line; **Open <raiser>** stays on after a press (it only navigates, and the boss reviewed and kept it), and so do **Skip** and **Reply to the tower**. While a press is on its way or the stream is down, the buttons, the dock's footer Skip, and Open <raiser> are off; a disabled button is drawn at 70% (text contrast stays at least 3:1) and the state line is green only for a press (warning colour when the stream is down, the text colour for the secret's second step). An ended wait has no buttons at all. The reply fold is never turned off by the card; the box says "offline" when the stream is down (as before).
 - **The secret card's first step** ends nothing: it is not wrapped by Zen's `send` (no knock), the dialog does not close, and the card shows step 2 from the press the reply carried until the snapshot catches up. Whether the raiser's `secret_drop` dialog is pending is read from the alerts in the dock and from the net in Zen; a row does not know and shows the "asked" sentence.
 - **Clamp.** A part over 90 characters outside the dock's dialog is clamped to three lines with More; once it is laid out and fits (a wide window), the clamp and the toggle go. The clamp uses `-webkit-line-clamp` and the standard `line-clamp`.
 - **A paired device** is `location.hostname !== "127.0.0.1"`, as `mountAsk`'s default; the screenshots of the phone use `localhost` so the secret card shows the paired-device rule.
 - **Zen.** The card takes `.wait-card` rules in `gui/zen.css` (the Zen theme folder imports it). The tag is clay: `--zen-seal` is never a text colour (`tests/zen-contrast.test.ts`).
 - **A cut card** is read once with `read`; the raiser's session id in the entry is dropped before it is drawn (the card has no Open button for it, since the net's unit key is not in the entry).
 - **Mutation check.** Each guard was removed in turn and a test failed: a URL opened at mount, Skip sending at the first tap, the primary on a paired device's secret card, the secret's first step closing the dialog, the clipboard path posting, markup in a field read as HTML, a `javascript:` URL linked, the link without `rel`, the phone's 44 px rule, an Open button for a raiser that left, the page's own remote check.
-- **Sizes.** `tests/imports.test.ts` caps are measured: the map chunk +141 bytes (the words), the lazy chunks +13,502 (the card, lazy), the stylesheet +4,275, the Zen theme +1,454.
+- **Sizes.** `tests/imports.test.ts` caps are measured after the merge with Raven Keep: the map chunk +202 bytes (the words and the raiser finder), the lazy chunks +14,009 (the card, lazy), the stylesheet +4,633, the Zen theme +1,916; `demo-waits.ts` counts in the demo figure, not the page's.
+- **GUI review fixes (round 1).** GR-F001 `fillNotices` takes a fifth argument, `where(key)` (the session view passes `locate(scene.net, key)?.base.id`), and the dock takes `deps.net`: Open <raiser> is offered only when the host names a route, so the head page never gets a link to itself. GR-F003 to F008, F010 and F012 as written in the sections above.

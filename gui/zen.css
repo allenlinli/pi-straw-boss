@@ -466,7 +466,12 @@
 [data-view="zen"] .wait-card .wc-tag { color: var(--zen-clay); font: 400 0.85rem var(--serif); letter-spacing: 0.18em; }
 [data-view="zen"] .wait-card :is(.wc-raised, .wc-label, .wc-norun, .wc-copied, .wc-more, .wc-opt small) { color: var(--zen-ash); font-family: var(--serif); letter-spacing: 0.04em; }
 [data-view="zen"] .wait-card .wc-cmd { border-color: var(--zen-line); background: var(--zen-sunken); color: var(--zen-paper); }
-[data-view="zen"] .wait-card .wc-state { color: var(--zen-moss); }
+[data-view="zen"] .wait-card .wc-state { color: var(--zen-ash); }
+[data-view="zen"] .wait-card[data-pressed="true"] .wc-state { color: var(--zen-moss); }
+[data-view="zen"] .wait-card[data-step="2"] .wc-state { color: var(--zen-paper); }
+[data-view="zen"] .wait-card[data-phase="stale"] .wc-state { color: var(--zen-clay); }
+[data-view="zen"] .wait-card .pair-btn:disabled { cursor: default; color: var(--zen-ash); background: transparent; border: 1px dashed var(--zen-line); }
+[data-view="zen"] .wait-card .wc-opt.wc-picked:disabled { border: 1px solid var(--zen-seal); color: var(--zen-paper); }
 [data-view="zen"] .wait-card .wc-fail { color: var(--zen-clay); }
 [data-view="zen"] .wait-card .wc-skip-box { border-color: var(--zen-line); }
 [data-view="zen"] .wait-card .pair-btn { text-transform: none; min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid var(--zen-line); border-radius: 22px; background: transparent; color: var(--zen-paper); font: 400 1rem var(--serif); letter-spacing: 0.12em; text-decoration: none; }

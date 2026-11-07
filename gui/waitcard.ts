@@ -1,3 +1,4 @@
+import { HEAD_KEY } from "../src/headkey.ts";
 import type { BossWait, WaitCardView, WaitPressView } from "../src/net.ts";
 import { type Alert, unitOf } from "./alerts.ts";
 import type { SessionPost } from "./answer.ts";
@@ -28,6 +29,8 @@ export interface WaitCardOptions {
 	remote?: boolean;
 	/** The route of the raiser's session, when the page can open it: the card then offers Open <name>. */
 	main?(key: string): NetRoute | undefined;
+	/** A host that is not a page of routes (Zen leaves its layer for the session) takes the click of Open <raiser> itself; the router never sees it. */
+	go?(route: NetRoute): void;
 	/** The raiser's unit has a `secret_drop` dialog pending now (a host that has the net says so). */
 	secretOpen?(): boolean;
 	/** Zen wraps an ending press, so the card's outcome (the knock, the low bowl) follows it. */
@@ -80,7 +83,7 @@ export function waitCard(o: WaitCardOptions) {
 		return { ...cur, ...(full?.card ? { card: full.card } : {}), ...(press ? { press } : {}), ...(full?.card ? { cut: undefined } : {}) } as BossWait;
 	};
 	const phase = (): Phase => (over || cur.state === "resolved" ? "ended" : inflight ? "sending" : !live ? "stale" : refusal ? "refused" : "open");
-	const model = (): CardModel => cardModel({ wait: effective(), phase: phase(), remote: remote(), ...(inflight ? { sending: inflight } : {}), open: Boolean(o.main), ...(o.secretOpen ? { secretOpen: o.secretOpen() } : {}), now: (o.now ?? Date.now)() });
+	const model = (): CardModel => cardModel({ wait: effective(), phase: phase(), remote: remote(), ...(inflight ? { sending: inflight } : {}), open: Boolean(o.main?.(effective().card?.from?.key ?? "")), ...(o.secretOpen ? { secretOpen: o.secretOpen() } : {}), now: (o.now ?? Date.now)() });
 
 	async function press(id: ButtonId, act: Parameters<WaitActions["press"]>[0], extra?: { option?: number; reason?: string }) {
 		if (inflight) return;
@@ -143,13 +146,12 @@ export function waitCard(o: WaitCardOptions) {
 	}
 	function buttonEl(b: CardModel["buttons"][number]): HTMLElement {
 		if (b.id === "reply") return panel.go;
-		if (b.id === "skip") {
-			skip.disabled = Boolean(b.disabled);
-			return skip;
-		}
+		if (b.id === "skip") return skip;
 		if (b.id === "main") {
 			const route = o.main?.(effective().card?.from?.key ?? "");
-			return h("a", { class: "pair-btn wc-main", href: route ? formatRoute(route) || "./" : "./", ...(route ? { "data-route": formatRoute(route) } : {}) }, b.label);
+			const link = h("a", { class: "pair-btn wc-main", href: route ? formatRoute(route) || "./" : "./", ...(route ? { "data-route": formatRoute(route) } : {}) }, b.label);
+			if (route && o.go) link.onclick = (e: Event) => (e.preventDefault(), e.stopPropagation(), o.go!(route));
+			return link;
 		}
 		const el = h("button", { type: "button", class: `pair-btn wc-btn${b.primary ? " wc-primary" : ""}${b.id === "choose" ? " wc-opt" : ""}${b.picked ? " wc-picked" : ""}`, "data-act": b.id, ...(b.option !== undefined ? { "data-option": String(b.option) } : {}) }, b.then ? h("b", null, b.label) : b.label, b.then ? h("small", null, b.then) : null) as HTMLButtonElement;
 		el.disabled = Boolean(b.disabled);
@@ -165,7 +167,10 @@ export function waitCard(o: WaitCardOptions) {
 		root.dataset.kind = md.kind;
 		root.dataset.phase = phase();
 		root.dataset.folded = String(folded);
+		root.dataset.pressed = String(Boolean(w.press && w.press.act !== "secret"));
+		root.dataset.step = String(md.step ?? "");
 		skip.hidden = md.buttons.every((b) => b.id !== "skip");
+		skip.disabled = Boolean(md.buttons.find((b) => b.id === "skip")?.disabled); // the dock puts Skip in its footer, outside the buttons drawn here: it goes off with them
 		if (sig === last) return;
 		last = sig;
 		const held = globalThis.document.activeElement as HTMLElement | null, keep = held && acts.contains(held) ? (held.dataset.act ? `${held.dataset.act}:${held.dataset.option ?? ""}` : undefined) : undefined;
@@ -195,7 +200,8 @@ export function waitCard(o: WaitCardOptions) {
 		if (phase() === "ended" || inflight) return;
 		confirming = true;
 		render();
-		reason.focus();
+		yes.focus(); // the confirm is the act: the optional reason box would open a phone's keyboard over it
+		sure.scrollIntoView?.({ block: "nearest" });
 	};
 	no.onclick = () => ((confirming = false), (reason.value = ""), render(), skip.focus());
 	yes.onclick = () => void press("skip", "decline", reason.value.trim() ? { reason: reason.value.trim() } : undefined);
@@ -221,6 +227,8 @@ export function waitCard(o: WaitCardOptions) {
 	render();
 	return {
 		el: root,
+		/** The tag of the card's kind (Needs you / Your choice / Needs a secret), which the dock's badge repeats. */
+		tag: () => model().tag,
 		/** The Skip button, for a host that places it itself (`skipOutside`). */
 		skip,
 		update,
@@ -246,8 +254,10 @@ export function waitCard(o: WaitCardOptions) {
 const entryOf = (a: Alert): BossWait => a.wait!.entry ?? { id: a.wait!.id, text: a.wait!.text, at: new Date(a.since ?? a.at).toISOString() };
 
 const cards = new WeakMap<HTMLElement, ReturnType<typeof waitCard>>();
+/** The dock's dialog of a wait takes the focus on its card's primary button (else its first option); false when it has none. */
+export const enterWait = (el: HTMLElement) => cards.get(el)?.enter() ?? false;
 /** A wait's dialog in the dock: the card in the answer slot, the link to the comms, Later and Skip in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
-export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () => void, send: SessionPost, more: { remote?: boolean; secretOpen?(): boolean } = {}) {
+export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () => void, send: SessionPost, more: { remote?: boolean; secretOpen?(): boolean; /** The workspace of the raiser's unit, found by its key (a head wait's alert is on the head's base, not the raiser's). */ where?(key: string): string | undefined } = {}) {
 	const over = Boolean(a.gone), go = el.querySelector<HTMLElement>(".go")!;
 	el.dataset.wait = ""; // the footer's link is the secondary act here (style.css): the card's buttons answer
 	el.querySelector<HTMLElement>(".intel")!.hidden = true;
@@ -255,14 +265,14 @@ export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () =
 	for (const dup of [".where", ".role"]) el.querySelector<HTMLElement>(dup)!.hidden = true;
 	go.textContent = m.wait_goto(); // the card is on the dialog; the footer's link is the way to the tower's comms
 	aim(go, over ? undefined : { view: "session", ws: a.ws, key: unitOf(a) });
-	text(el, ".tag", m.tag_question()); // the stack tags a gone unit GONE; the tower did not leave, the wait ended
 	text(el, ".state", over ? m.tower_wait_over() : m.memory_wait_boss());
 	let card = cards.get(el);
 	const entry = entryOf(a);
-	if (!card) cards.set(el, (card = waitCard({ host: "dialog", wait: entry, actions: waitActions({ ws: a.ws, id: entry.id, tower: unitOf(a) }, send), main: (key) => (key ? { view: "session", ws: a.ws, key } : undefined), skipOutside: true, done: close, ...(more.remote !== undefined ? { remote: more.remote } : {}) })));
+	if (!card) cards.set(el, (card = waitCard({ host: "dialog", wait: entry, actions: waitActions({ ws: a.ws, id: entry.id, tower: unitOf(a) }, send), main: (key) => ((ws) => (key && ws ? { view: "session", ws, key } : undefined))(more.where?.(key) ?? (a.ws === HEAD_KEY ? undefined : a.ws)), skipOutside: true, done: close, ...(more.remote !== undefined ? { remote: more.remote } : {}) })));
 	card.secretWhen(more.secretOpen);
 	if (!el.querySelector(".wait-card")) el.querySelector(".ask-root")!.replaceChildren(card.el);
 	// The comms link, Later and Skip in one row of the dialog's footer, the quiet one last.
 	el.querySelector("footer")!.insertBefore(card.skip, el.querySelector(".queued"));
 	card.update(entry, !over && document.body.dataset.stale !== "true", over);
+	text(el, ".tag", card.tag()); // the card's own word, not QUESTION (and not the stack's GONE: the tower did not leave, the wait ended)
 }

@@ -401,7 +401,7 @@ test("the phone layout gives every control of a wait card 44 px and 8 px between
 	assert.match(block, /\.wait-card \.wc-primary\s*\{\s*flex:\s*1 1 100%/);
 	assert.match(block, /\.wait-card \.wc-opt\s*\{[^}]*flex:\s*1 1 100%[^}]*min-height:\s*44px/);
 	assert.match(block, /\.wait-card \.wc-url\s*\{\s*overflow-wrap:\s*anywhere/, "a URL wraps anywhere");
-	assert.match(block, /\.wait-card \.wc-cmd\s*\{\s*overflow-x:\s*auto/, "a command scrolls sideways");
+	assert.doesNotMatch(block, /\.wait-card \.wc-cmd/, "a command wraps on a phone as everywhere: no sideways scroll");
 });
 
 test("a part is clamped to three lines by the standard property as well as the prefixed one, and the card has a Zen skin", () => {

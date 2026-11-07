@@ -365,6 +365,23 @@ test("a wait card in Zen is the whole card; a choice's option presses at the mem
 	assert.deepEqual(r.calls.sound, ["bowl", "knock"], "an accepted press: the knock");
 });
 
+test("a wait card in Zen offers Open <raiser> like the other hosts: the click leaves Zen for the raiser's session, and the router never sees it", async () => {
+	const r = rig({ start: null });
+	const n = cardWaitNet(r, { ...ZCARD, type: "action", options: undefined, do: "Re-authorize the machine.", from: { ...FROM, key: "mp-main" } });
+	n.bases[0]!.tabs[0]!.units.push(unit("mp-main", "working", { name: "mp3946-print" }));
+	r.feed(n);
+	r.z.show();
+	await r.settle();
+	r.z.key("talk");
+	await r.settle();
+	const link = r.by((el) => el.classes.has("wc-main"))[0]!;
+	assert.equal(link.textContent, m.wc_b_main({ name: "mp3946-print" }));
+	let prevented = false;
+	(link.onclick as unknown as (e: object) => void)({ preventDefault: () => (prevented = true), stopPropagation() {} });
+	assert.ok(prevented);
+	assert.deepEqual(r.calls.leave, [{ route: { view: "session", ws: "w", key: "mp-main" } }]);
+});
+
 test("a secret card in Zen: the first step leaves the card for its second, with no knock", async () => {
 	const sent: unknown[] = [];
 	Object.assign(globalThis, { fetch: async (_path: string, init: { body: string }) => (sent.push(JSON.parse(init.body)), { ok: true, status: 200, json: async () => ({ rev: 2, proposals: [], entries: [], press: { act: "secret", at: new Date().toISOString(), secretAsked: new Date().toISOString() } }) }) });

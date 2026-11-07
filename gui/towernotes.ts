@@ -1,4 +1,5 @@
 import type { TowerService } from "../src/net.ts";
+import { HEAD_KEY } from "../src/headkey.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
 import { post } from "./post.ts";
@@ -13,7 +14,7 @@ type Panel = ReturnType<typeof import("./waitcard.ts").waitCard>;
 type Kit = { waitCard: typeof import("./waitcard.ts").waitCard; waitActions: typeof import("./asks.ts").waitActions; answerPost: typeof import("./answer.ts").answerPost };
 let kit: Kit | undefined, loading: Promise<Kit> | undefined;
 const load = () => (loading ??= Promise.all([import("./waitcard.ts"), import("./asks.ts"), import("./answer.ts")]).then(([w, a, r]) => (kit = { waitCard: w.waitCard, waitActions: a.waitActions, answerPost: r.answerPost })));
-const panels = new WeakMap<HTMLElement, Map<string, Panel>>(), newest = new WeakMap<HTMLElement, [string, TowerService | undefined, string | undefined]>();
+const panels = new WeakMap<HTMLElement, Map<string, Panel>>(), newest = new WeakMap<HTMLElement, [string, TowerService | undefined, string | undefined, ((key: string) => string | undefined) | undefined]>();
 
 // What the boss just did to a wait, said under the rows for a few seconds: the row itself goes when the next snapshot arrives, and with it its own confirmation.
 const FLASH_MS = 4000, flashes = new WeakMap<HTMLElement, { text: string; at: number }>();
@@ -32,8 +33,8 @@ function flash(box: HTMLElement, text: string) {
 }
 
 /** Redrawn only when the rows change, so a click never lands on a button that was replaced; the wait cards outlive a redraw (an answer being typed stays, and so does a card the boss unfolded). */
-export function fillNotices(box: HTMLElement, ws: string, service: TowerService | undefined, key?: string) {
-	newest.set(box, [ws, service, key]); // the panel's load redraws this, not the snapshot that started it
+export function fillNotices(box: HTMLElement, ws: string, service: TowerService | undefined, key?: string, where?: (key: string) => string | undefined) {
+	newest.set(box, [ws, service, key, where]); // the panel's load redraws this, not the snapshot that started it
 	const rows = noticeRows(service), sig = JSON.stringify([ws, rows]), live = document.body.dataset.stale !== "true";
 	for (const [id, panel] of panels.get(box)?.entries() ?? []) {
 		const wait = rows.find((r) => `${ws}\u001f${r.wait}` === id)?.entry;
@@ -49,7 +50,7 @@ export function fillNotices(box: HTMLElement, ws: string, service: TowerService 
 		const fail = h("small", { class: "tnote-fail", role: "alert" }), card = r.wait && r.entry && kit && key, row = h(r.wait ? "div" : "p", { class: `tnote ${r.level}` }, card ? null : h("span", null, r.text));
 		if (r.wait) {
 			if (kit && key && r.entry) {
-				const id = `${ws}\u001f${r.wait}`, panel = before.get(id) ?? kit.waitCard({ host: "row", wait: r.entry, actions: kit.waitActions({ ws, id: r.wait, tower: key }, kit.answerPost(key)), main: (raiser) => (raiser ? { view: "session", ws, key: raiser } : undefined), done: (said) => flash(box, said) });
+				const id = `${ws}\u001f${r.wait}`, panel = before.get(id) ?? kit.waitCard({ host: "row", wait: r.entry, actions: kit.waitActions({ ws, id: r.wait, tower: key }, kit.answerPost(key)), main: (raiser) => ((at) => (raiser && at ? { view: "session", ws: at, key: raiser } : undefined))(where?.(raiser) ?? (ws === HEAD_KEY ? undefined : ws)), done: (said) => flash(box, said) });
 				panel.update(r.entry, live);
 				kept.set(id, panel);
 				row.append(panel.el);

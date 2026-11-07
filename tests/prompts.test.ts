@@ -21,10 +21,10 @@ import { PROMPT_DIR } from "./fakes.ts";
 // 2026-11-05 (merge-train switch, src/trainswitch.ts): the budgets count the text a session gets, markers dropped, with the switch on and with it off. On, main gains the ledger folder ({{state}}/trains): 497 to 500; off it is 481.
 // 2026-11-06 (seam bindings, docs/specs/2026-11-06-seam-bindings.md): with the train on, main.md carries the `## Seam bindings` block for pi-anchorloop's `integrating` and `deploying` skills, 500 to 680 (off it stays 481);
 // tower.md 380 to 390 for "the integrator answers the coordinator itself" (off it stays 371). A role that has its own on-budget is listed in ON_BUDGETS.
-// 2026-11-07 (wait cards, docs/specs/2026-11-07-wait-cards.md, Prompts): tower.md +39 for "the boss is not an agent, a wait for them is a card in plain full sentences in sb's locale" (off 371 to 410, on 393 to 432); main.md +39 for the `wait_card` message and `secret_drop` (off 481 to 520, on 695 to 734).
-const BUDGETS: Record<string, number> = { "main.md": 520, "tower.md": 410, "member.md": 140, "member-no-main.md": 150 };
+// 2026-11-07 (wait cards, docs/specs/2026-11-07-wait-cards.md, Prompts; shortened in the GUI review, GR-F012): tower.md +31 for "the boss is not an agent: write a wait for them in plain full sentences" (off 371 to 402, on 393 to 424); main.md +20 for the `wait_card` message and `secret_drop` (off 481 to 501, on 695 to 715). Budgets = measured.
+const BUDGETS: Record<string, number> = { "main.md": 501, "tower.md": 402, "member.md": 140, "member-no-main.md": 150 };
 // Its review fixes (SB-F001, F003, F005: the Approval line quotes words already given and asks only when they are missing, the tower reports nothing back on a forwarded slip): main.md 680 to 700, tower.md 390 to 395, integrator.md 320 to 340 (SB-F002 and F006: the deploy gate before `Merge`, a subagent briefed for one step).
-const ON_BUDGETS: Record<string, number> = { "main.md": 735, "tower.md": 435 };
+const ON_BUDGETS: Record<string, number> = { "main.md": 715, "tower.md": 424 };
 const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir", "state"]);
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
@@ -135,7 +135,7 @@ test("merge train: main hands integration cars over with why shared, planning st
 		const text = readFileSync(`${PROMPT_DIR}/${file}`, "utf8");
 		for (const term of ["`integration`", "integrator", "boss_open_main", "integrator.md"]) assert.ok(text.includes(term), `${file} names ${term}`);
 	}
-	for (const off of [false, true]) assert.ok(words(strip(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8"), off)) <= (off ? 410 : 435)); // wait cards: +39, see BUDGETS
+	for (const off of [false, true]) assert.ok(words(strip(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8"), off)) <= (off ? 402 : 424)); // wait cards: +31, see BUDGETS
 	assert.ok(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8").includes("finding with evidence"));
 });
 
@@ -181,8 +181,8 @@ test("seam bindings: main.md binds all six seams of pi-anchorloop's integrating 
 // docs/specs/2026-11-07-wait-cards.md, Prompts: a wait for the boss is a card the boss reads, not a terse line an agent reads.
 test("wait cards: tower.md says the boss is not an agent, and the card's words are plain, full sentences in the language the brief names", () => {
 	const tower = strip(readFileSync(`${PROMPT_DIR}/tower.md`, "utf8"), true);
-	for (const term of ["The boss is not an agent.", "A wait for the boss is a card the boss reads", "plain full sentences in the language your brief names (sb's locale)", "no shorthand", "a ticket id only beside what it is"]) assert.ok(tower.includes(term), `tower.md names ${term}`);
-	assert.ok(tower.indexOf("The boss is not an agent.") > tower.indexOf("caveman-style"), "after the terse line");
+	for (const term of ["The boss is not an agent: write a wait for them in plain full sentences, in the language your brief names, no shorthand, a ticket id only beside what it is."]) assert.ok(tower.includes(term), `tower.md names ${term}`);
+	assert.ok(tower.indexOf("The boss is not an agent:") > tower.indexOf("caveman-style"), "after the terse line");
 });
 
 test("wait cards: tower-run.md records a boss wait as a card (fields, language, refusals, the press, legacy, no double notice), with the fonstar example, and the one-line rule is gone", () => {
@@ -194,5 +194,5 @@ test("wait cards: tower-run.md records a boss wait as a card (fields, language, 
 test("wait cards: head-run.md and main.md say the same in their words", () => {
 	const head = readFileSync(`${PROMPT_DIR}/head-run.md`, "utf8"), main = readFileSync(`${PROMPT_DIR}/main.md`, "utf8");
 	for (const term of ["as a card", "in the language your brief names", "`from` is the tower's session id", "`restates`"]) assert.ok(head.includes(term), `head-run.md names ${term}`);
-	for (const term of ["A `wait_card` message from your tower is the boss's answer to the wait you raised: act on it.", "To get a secret from the boss, call `secret_drop` when the tower or a `wait_card` says the boss is ready."]) assert.ok(main.includes(term), `main.md names ${term}`);
+	for (const term of ["A `wait_card` message is the boss's answer to your wait: act on it; it says when to call `secret_drop`."]) assert.ok(main.includes(term), `main.md names ${term}`);
 });

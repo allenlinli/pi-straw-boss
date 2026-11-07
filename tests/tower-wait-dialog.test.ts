@@ -52,7 +52,7 @@ test("a wait's dialog says what the tower waits for, offers the reply fold, the 
 	assert.equal(cls("state")!.textContent, m.memory_wait_boss());
 	assert.equal(cls("wc-text")!.textContent, "api-fix asks: deploy ws01?", "the tower's own words (this wait has no card), in the answer slot where they wrap");
 	assert.equal(cls("wc-tag")!.textContent, m.wc_tag_legacy(), "a wait from before cards is drawn as a legacy card");
-	assert.equal(cls("tag")!.textContent, m.tag_question());
+	assert.equal(cls("tag")!.textContent, m.wc_tag_legacy(), "the badge is the card's own word, not QUESTION");
 	assert.equal(cls("intel")!.hidden, true, "no last transmission under a wait");
 	const go = cls("go")!;
 	assert.equal(go.textContent, m.wait_goto());
@@ -117,7 +117,7 @@ test("a dialog whose wait is over says so, not that the tower left the net, and 
 	layer.stack.show(wait as never);
 	layer.alerts([], new Map());
 	assert.equal(cls("state")!.textContent, m.tower_wait_over());
-	assert.equal(cls("tag")!.textContent, m.tag_question(), "the chip does not say the tower is GONE");
+	assert.equal(cls("tag")!.textContent, m.wc_tag_legacy(), "the chip does not say the tower is GONE");
 	assert.equal(button(m.wc_b_skip())?.hidden ?? true, true, "nothing to skip");
 	assert.ok(cls("wait-card")!.textContent.includes(m.wc_ended_plain()), "the card says the tower closed it");
 });

@@ -46,6 +46,13 @@ test("the notice for messages with no tower open says who, how many, how long, w
 	assert.equal(zh(), "團隊 moldplan：box n2knna 傳來 4 則訊息，最早的在 3 小時前就到了，要交給「MP Center」工作區的塔台，還沒送達。塔台能接手時就會自動送達；最早一則會在 11/13 丟棄。");
 	assert.equal(m.link_a_inbox_who_many({ label: "box n2knna", others: 2 }, { locale: "zh-TW" }), "box n2knna 和另外 2 位");
 	for (const text of [inbox(), inbox({ workspace: undefined }), zh(), m.link_a_held({ count: 2, team: "T" }, { locale: "zh-TW" }), m.link_a_served({ count: 2, team: "T" }, { locale: "zh-TW" }), alertLine(alert("served", { count: 2 }, "info")), alertLine(alert("held", { count: 2 }, "info"))]) assert.doesNotMatch(text, /inbox|收件匣|\bopen\b|開著|找不到|關/i, text);
+	// This computer tried to wake the tower of a workspace it has (todo #122): the notice says what the boss can do, in plain words, with no "open tower" wording.
+	const none = inbox({ wake: "none" }), failed = inbox({ wake: "failed", reason: "the tower service is not running yet" });
+	assert.ok(none.endsWith(" This computer has no workspace for it to wake the tower of. Open the project's workspace and the messages go through."), none);
+	assert.ok(failed.endsWith(" Waking the tower did not work (the tower service is not running yet); it is tried again every minute."), failed);
+	assert.equal(m.link_a_inbox_wake_none({}, { locale: "zh-TW" }), "這台電腦上沒有可以叫醒塔台的工作區。開啟專案的工作區，訊息就會送達。");
+	assert.equal(m.link_a_inbox_wake_failed({ reason: "x" }, { locale: "zh-TW" }), "叫醒塔台沒有成功（x）；每分鐘會再試一次。");
+	for (const text of [none, failed, m.link_a_inbox_wake_none({}, { locale: "zh-TW" }), m.link_a_inbox_wake_failed({ reason: "x" }, { locale: "zh-TW" })]) assert.doesNotMatch(text, /inbox|收件匣|tower is (open|closed)|no tower|開著|找不到|關/i, text);
 	// The teammate's words and the workspace's label are text, never markup or a placeholder.
 	assert.match(inbox({ from: "<b>x</b>", workspace: "{ws}" }), /^Team moldplan: <b>x<\/b> sent 4 messages.*“\{ws\}”/);
 });

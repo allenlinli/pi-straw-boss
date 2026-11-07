@@ -1314,9 +1314,21 @@ proposal, or a proposal that no longer applies is 409 `refused`; a bad request i
   and keeps the device's own guards. This is stricter than "the full tower tools" an earlier draft promised, and the code is the reference.
 - A run whose claim names no sender (no peer, or a session with no link module to pin the turn) shuts down at once: it never runs unpinned with every tool.
 - **No tower service for the team's project.** On an attended device, a link message for a project in which no workspace has a tower
-  service waits in the inbox for 7 days with a GUI notice, as today. The server opens nothing for it; the boss opens the workspace, or a
-  promotion opens its tower, and the message then gets its ally run. Only an unattended device opens a workspace for a controller
-  (**Unattended devices**).
+  service waits in the inbox for 7 days. **Ruling of 2026-11-07 (the boss, todo #122):** the server wakes the tower of a workspace the
+  device *already has*. A message from a teammate whose trust on this device is `reply` or higher (a member the roster still holds with
+  no `link.trust` entry is at `reply`, so every member qualifies; a sender that is no member is dropped before this) makes the holder
+  ask the server to give that workspace its tower, the same `ensure-tower` an unattended device calls. Only `openTowerFor`'s `found`
+  branch runs: an existing workspace with a pane inside the project, or the workspace the sender named (id first, else label). The
+  server never makes a workspace or a base, and never a tab beyond what `ensure-tower` does for an existing workspace; with no such
+  workspace the wake answers `no-workspace` and nothing is made, whatever the level. One wake runs at a time per project and named
+  workspace, and the next waits 60 s after one ended, whether it worked or not. Each wake and its outcome is a `link.log` line
+  (`tower-wake`, then `tower-woke`, `tower-wake-none` or `tower-wake-failed` with the error; no message content). The boss's framing:
+  to the boss a workspace's tower always exists, so while a wake is in flight, or for two minutes after the first of the wakes that
+  worked in a row, there is no notice at all. The inbox notice and the pi notice appear only when the wake failed (the notice gives
+  the reason and says it is tried again every minute), when no workspace exists (the notice says to open the project's workspace),
+  or when a wake that worked has not got the message taken after those two minutes (the plain copy). A failed wake is not told to
+  the sender (the unit notice of a failed `open` is for an unattended device's controllers). Unattended devices are unchanged: only
+  a `dispatch` sender opens, and it may make a workspace (**Unattended devices**).
 - A `confirm-request` from an ally's gate at `forward` stays a GUI alert for the boss and wakes nothing (D5). The wait for the sender's answer is the requesting run's: only that run may forget it, and the server drops it when the holder refuses the request or the run ends.
 - The Straw Link spec's rule "an attended device never opens a tab or a session for a remote message" is amended by the boss's
   decision D1: an attended device opens a session, an ally run in the tower tab of a workspace it already has, never a tab or a

@@ -23,11 +23,13 @@ export function alertLine(a: LinkAlert): string {
 		case "unreachable": return m.link_a_unreachable({ team, minutes: text(d.minutes) });
 		case "inbox": {
 			const others = Number(d.others) || 0, from = text(d.from);
-			return m.link_a_inbox({
+			const line = m.link_a_inbox({
 				count: Number(d.count) || 0, team, who: others ? m.link_a_inbox_who_many({ label: from, others }) : from, ago: ageWord(Number(d.ageMin) || 1),
 				where: d.workspace !== undefined ? m.link_a_inbox_where_workspace({ workspace: text(d.workspace) }) : m.link_a_inbox_where_project({ project: text(d.project) }),
 				drop: new Date(Number(d.drop) || 0).toLocaleDateString(getLocale(), { month: "numeric", day: "numeric" }),
 			});
+			// What the boss can do when this computer tried to wake the tower and could not: no workspace to wake, or the wake failed.
+			return d.wake === "none" ? `${line} ${m.link_a_inbox_wake_none()}` : d.wake === "failed" ? `${line} ${m.link_a_inbox_wake_failed({ reason: text(d.reason) })}` : line;
 		}
 		case "held": return m.link_a_held({ count: Number(d.count) || 0, team });
 		case "served": return m.link_a_served({ count: Number(d.count) || 0, team });

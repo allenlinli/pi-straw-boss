@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Level } from "../src/link/config.ts";
@@ -70,6 +70,67 @@ for (const level of ["reply", "forward", undefined] as const) {
 	});
 }
 
+/** The device is alice's and attended (config.json names the team and the project, no policy file); bob is at `level` (none: `reply`). A workspace `labelled` of the project is open, with a shell and no tower. */
+function attended(o: { level?: Level; workspace?: boolean } = {}) {
+	const home = join(world.root, "home"), project = join(home, "project");
+	mkdirSync(project, { recursive: true });
+	const real = realpathSync(project), store = new LinkStore(join(world.stateDir, "link")), entries = rosterOf();
+	writeDevice(store, alice, "alice-mac");
+	writeTeam(store, entries, alice);
+	relay.addTeam(TEAM, [alice.id, bob.id], entries);
+	writeFileSync(join(world.stateDir, "config.json"), JSON.stringify({ towerRuns: { enabled: true }, link: { relay: "http://relay.test", teams: { [TEAM_HEX]: { project: real, share: "status" } }, ...(o.level ? { trust: { [bob.id]: o.level } } : {}) } }));
+	if (o.workspace) {
+		world.herdr.workspaces.push({ workspace_id: "wMine", label: "MP Center", tokens: {} });
+		world.herdr.addTab("wMine:t1", "work");
+		world.herdr.addPane("wMine:p1", "wMine:t1");
+		Object.assign(world.herdr.pane("wMine:p1"), { cwd: real });
+	}
+	const message = async (toWorkspace = "") => {
+		const now = Date.now();
+		await store.withLock(() => store.putInbox({ v: 1, id: "aa".repeat(16), team: TEAM_HEX, from: bob.id, fromLabel: "bob-mac", fromShort: "bob", seq: 1, sentAt: now, received: now, fromWorkspace: "theirs", toWorkspace, replyExpected: true, text: "wake up" }));
+	};
+	const log = () => (existsSync(join(world.stateDir, "link", "link.log")) ? readFileSync(join(world.stateDir, "link", "link.log"), "utf8") : "").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+	const link = { tickMs: 15, drainMs: 20, presenceMs: 40, relay: clientFor(relay), home, policy: { read: () => "{}", stat: () => ({ uid: 0, symlink: false }), writable: () => false, uid: 1000 } };
+	return { real, message, log, link };
+}
+const wakeLines = (u: { log(): Record<string, unknown>[] }) => u.log().filter((e) => /^tower-wake|^tower-woke/.test(String(e.event))).map((e) => e.event);
+
+test("an attended device wakes the tower of a workspace it already has for a teammate at reply: no workspace is made, the tower service takes it, and the message is the server's tower's (todo #122)", async () => {
+	const u = attended({ workspace: true });
+	const s = await world.start({ link: u.link });
+	await s.handle.ready;
+	await u.message();
+	await until(() => world.expose?.status().some((r) => r.workspace === "wMine"), "the tower service for the workspace that was there");
+	await until(() => u.log().some((e) => e.event === "tower-woke"), "the wake to end");
+	assert.deepEqual(wakeLines(u), ["tower-wake", "tower-woke"]);
+	assert.equal(world.herdr.workspaces.length, base + 1, "no workspace made");
+	assert.ok(!u.log().some((e) => /^tower-open/.test(String(e.event))), "an attended device opens nothing");
+	assert.equal(world.herdr.panes.filter((p) => p.workspace_id === "wMine" && p.tokens?.sb_role === "tower").length, 1);
+});
+
+test("an attended device with no workspace inside the project makes none: the wake says so, and the message waits with the notice that tells the boss what to do (todo #122)", async () => {
+	const u = attended({ level: "dispatch" });
+	const s = await world.start({ link: u.link });
+	await s.handle.ready;
+	await u.message();
+	await until(() => u.log().some((e) => e.event === "tower-wake-none"), "the outcome");
+	assert.deepEqual(wakeLines(u), ["tower-wake", "tower-wake-none"]);
+	assert.equal(world.herdr.workspaces.length, base, "no workspace made, whatever the level");
+	const record = world.record()!;
+	const notices = async () => ((await callControl(record.socket, record.secret, { cmd: "status" })).reply as unknown as { link: { notices: { text: string }[] } }).link.notices;
+	await until(async () => (await notices()).some((n) => /no workspace is open for it on this computer \(open the project's workspace/.test(n.text)), "the notice");
+});
+
+test("a workspace the sender named that is not open gets no workspace either (todo #122)", async () => {
+	const u = attended({ workspace: true });
+	const s = await world.start({ link: u.link });
+	await s.handle.ready;
+	await u.message("not a workspace of mine");
+	await until(() => u.log().some((e) => e.event === "tower-wake-none"), "the outcome");
+	assert.equal(world.herdr.workspaces.length, base + 1);
+	assert.ok(!world.expose?.status().some((r) => r.workspace === "wMine"), "the other workspace is not woken for a name it does not have");
+});
+
 // openTowerFor itself, against the fake Herdr.
 const deps = () => ({ home: join(world.root, "home"), agentDir: join(world.root, "home", ".pi", "agent"), run: world.herdr.runFor("none"), ensure: (r: Parameters<NonNullable<typeof world.expose>["ensure"]>[0]) => world.expose!.ensure(r), now: () => Date.now() });
 
@@ -116,8 +177,24 @@ test("a folder that does not exist, or a named workspace with none inside the pr
 	world.herdr.addPane("wY:p1", "wY:t1");
 	Object.assign(world.herdr.pane("wY:p1"), { cwd: join(world.root, "elsewhere") });
 	const made = await openTowerFor(deps(), project);
-	assert.equal(made.created, true);
-	assert.equal(world.herdr.panes.find((p) => p.workspace_id === made.workspace)?.cwd, realpathSync(project));
+	assert.equal(made!.created, true);
+	assert.equal(world.herdr.panes.find((p) => p.workspace_id === made!.workspace)?.cwd, realpathSync(project));
+});
+
+test("with `existing`, no workspace is made for a project or a name that has none open: the answer is null", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	const project = join(world.root, "home", "project");
+	mkdirSync(project, { recursive: true });
+	assert.equal(await openTowerFor(deps(), project, undefined, true), null);
+	assert.equal(await openTowerFor(deps(), project, "chosen by the sender", true), null);
+	assert.equal(world.herdr.workspaces.length, base);
+	world.herdr.workspaces.push({ workspace_id: "wQ", label: "mine", tokens: {} });
+	world.herdr.addTab("wQ:t1", "work");
+	world.herdr.addPane("wQ:p1", "wQ:t1");
+	Object.assign(world.herdr.pane("wQ:p1"), { cwd: realpathSync(project) });
+	assert.deepEqual(await openTowerFor(deps(), realpathSync(project), undefined, true), { workspace: "wQ", created: false });
+	await assert.rejects(openTowerFor(deps(), join(world.root, "home", "missing"), undefined, true), /does not exist/);
 });
 
 test("a project that now leads to the home folder, to ~/.pi, or to the agent folder gets no workspace, however it is spelled", async () => {

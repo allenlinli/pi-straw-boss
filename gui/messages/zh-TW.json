@@ -514,6 +514,8 @@
 	"link_a_inbox_who_many": "{label} 和另外 {others} 位",
 	"link_a_inbox_where_workspace": "「{workspace}」工作區的塔台",
 	"link_a_inbox_where_project": "專案 {project} 的塔台",
+	"link_a_inbox_wake_none": "這台電腦上沒有可以叫醒塔台的工作區。開啟專案的工作區，訊息就會送達。",
+	"link_a_inbox_wake_failed": "叫醒塔台沒有成功（{reason}）；每分鐘會再試一次。",
 	"link_a_held": "團隊 {team} 有 {count} 則訊息已等了超過 10 分鐘，塔台一直不閒",
 	"link_allow": "允許",
 	"link_deny": "拒絕",

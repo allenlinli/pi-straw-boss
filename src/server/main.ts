@@ -624,11 +624,12 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			unitStop: (a) => (towers ? towers.unitStop(a) : Promise.reject(new Error("The tower service is not running"))),
 			// The tower service takes part in the holder's work (B6): an ask answered by a `tower-reply` is the main's, messages for a tower identity the server runs wake an ally run, and a `forward` answer reaches its run.
 			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false,
-				openTower: async (project, toWorkspace, from) => {
+				openTower: async (project, toWorkspace, from, mode) => {
 					try {
-						await openTower({ run: cfg.run, towers: () => towers, now, home: o.link?.home ?? homedir(), agentDir: env.PI_CODING_AGENT_DIR ?? join(o.link?.home ?? homedir(), ".pi", "agent") }, project, toWorkspace);
+						return await openTower({ run: cfg.run, towers: () => towers, now, home: o.link?.home ?? homedir(), agentDir: env.PI_CODING_AGENT_DIR ?? join(o.link?.home ?? homedir(), ".pi", "agent") }, project, toWorkspace, mode === "wake");
 					} catch (error) {
-						void unitsOut().notify(`tower-open/${from}/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: allyLabel(project), text: `Could not open a tower for ${project}: ${(error as Error).message}` }, { device: from });
+						// Only the failed open of an unattended device is told to its controller: an attended device's boss hears of a failed wake in the notice of the waiting message.
+						if (mode === "open") void unitsOut().notify(`tower-open/${from}/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: allyLabel(project), text: `Could not open a tower for ${project}: ${(error as Error).message}` }, { device: from });
 						throw error;
 					}
 				} },

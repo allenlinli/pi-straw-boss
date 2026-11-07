@@ -584,6 +584,8 @@
 	"link_a_inbox_who_many": "{label} and {others} more",
 	"link_a_inbox_where_workspace": "the tower of workspace “{workspace}”",
 	"link_a_inbox_where_project": "the tower of project {project}",
+	"link_a_inbox_wake_none": "This computer has no workspace for it to wake the tower of. Open the project's workspace and the messages go through.",
+	"link_a_inbox_wake_failed": "Waking the tower did not work ({reason}); it is tried again every minute.",
 	"link_a_held": [
 		{
 			"declarations": [

@@ -85,7 +85,7 @@ items:
 title: Before release
 items:
   - {label: Run tests, checked: true}
-  - {label: Bump version, note: semver}
+  - {name: bump-version-and-tag, label: Bump version, note: semver}
   - {label: 更新 CHANGELOG}
 ~~~
 

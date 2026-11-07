@@ -88,5 +88,5 @@ export class El {
 	}
 }
 /** The page: `focus` is the focused element, `fine` whether the pointer is a mouse, `root` the body whose descendants are connected. */
-export const page = { focus: undefined as El | undefined, fine: true, root: new El("body") };
-Object.assign(globalThis, { document: { createElement: (tag: string) => new El(tag), addEventListener() {}, hidden: false, get activeElement() { return page.focus ?? page.root; }, body: page.root }, HTMLElement: El, matchMedia: () => ({ matches: page.fine }) });
+export const page = { focus: undefined as El | undefined, fine: true, root: new El("body"), on: {} as Record<string, ((e: { target: unknown }) => void)[]> };
+Object.assign(globalThis, { document: { createElement: (tag: string) => new El(tag), addEventListener: (type: string, on: (e: { target: unknown }) => void) => void (page.on[type] ??= []).push(on), hidden: false, get activeElement() { return page.focus ?? page.root; }, body: page.root }, HTMLElement: El, matchMedia: () => ({ matches: page.fine }) });

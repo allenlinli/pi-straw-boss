@@ -64,7 +64,7 @@ const selectText = (el: HTMLElement) => {
 export function waitCard(o: WaitCardOptions) {
 	const wrap = o.send ?? ((reply: Promise<Answer>) => reply);
 	const panel = waitPanel({ actions: o.actions, ...(o.send ? { send: o.send } : {}), done: (said) => o.done?.(said) });
-	let cur = o.wait, live = true, over = false, inflight: { id: ButtonId; option?: number } | undefined, refusal = "", confirming = false, folded = o.host === "row", local: WaitPressView | undefined, full: { card?: WaitCardView; press?: WaitPressView } | undefined, read = false, last = "";
+	let cur = o.wait, live = true, blocked: string | undefined, over = false, inflight: { id: ButtonId; option?: number } | undefined, refusal = "", confirming = false, folded = o.host === "row", local: WaitPressView | undefined, full: { card?: WaitCardView; press?: WaitPressView } | undefined, read = false, last = "";
 	const expanded = new Set<string>();
 	const remote = () => o.remote ?? isRemote();
 	// The persistent parts: the root, the reply fold's button (waitpanel.ts), Skip and its confirm, which keep their state across a redraw of the rest.
@@ -83,7 +83,7 @@ export function waitCard(o: WaitCardOptions) {
 		return { ...cur, ...(full?.card ? { card: full.card } : {}), ...(press ? { press } : {}), ...(full?.card ? { cut: undefined } : {}) } as BossWait;
 	};
 	const phase = (): Phase => (over || cur.state === "resolved" ? "ended" : inflight ? "sending" : !live ? "stale" : refusal ? "refused" : "open");
-	const model = (): CardModel => cardModel({ wait: effective(), phase: phase(), remote: remote(), ...(inflight ? { sending: inflight } : {}), open: Boolean(o.main?.(effective().card?.from?.key ?? "")), ...(o.secretOpen ? { secretOpen: o.secretOpen() } : {}), now: (o.now ?? Date.now)() });
+	const model = (): CardModel => cardModel({ wait: effective(), phase: phase(), remote: remote(), ...(inflight ? { sending: inflight } : {}), open: Boolean(o.main?.(effective().card?.from?.key ?? "")), ...(blocked ? { blocked } : {}), ...(o.secretOpen ? { secretOpen: o.secretOpen() } : {}), now: (o.now ?? Date.now)() });
 
 	async function press(id: ButtonId, act: Parameters<WaitActions["press"]>[0], extra?: { option?: number; reason?: string }) {
 		if (inflight) return;
@@ -215,11 +215,12 @@ export function waitCard(o: WaitCardOptions) {
 			if (e?.card) (full = { card: { ...e.card, ...(e.card.from ? { from: { ...e.card.from, id: undefined } } : {}) } as WaitCardView, ...(e.press ? { press: e.press } : {}) }), render();
 		}, () => {});
 	}
-	function update(next: BossWait, on = true, ended = false) {
+	/** `why`: the card is off because its unit's box is away (the reason), not because the stream is down. */
+	function update(next: BossWait, on = true, ended = false, why?: string) {
 		cur = next;
-		[live, over] = [on, ended];
+		[live, over, blocked] = [on, ended, on ? undefined : why];
 		if (cur.press && local && cur.press.at >= local.at) local = undefined; // the snapshot caught up
-		panel.update(on, ended);
+		panel.update(on, ended, blocked);
 		fetchWhole();
 		render();
 	}
@@ -273,6 +274,6 @@ export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () =
 	if (!el.querySelector(".wait-card")) el.querySelector(".ask-root")!.replaceChildren(card.el);
 	// The comms link, Later and Skip in one row of the dialog's footer, the quiet one last.
 	el.querySelector("footer")!.insertBefore(card.skip, el.querySelector(".queued"));
-	card.update(entry, !over && !more.away && document.body.dataset.stale !== "true", over);
+	card.update(entry, !over && !more.away && document.body.dataset.stale !== "true", over, more.away && document.body.dataset.stale !== "true" ? m.box_answer_blocked() : undefined);
 	text(el, ".tag", card.tag()); // the card's own word, not QUESTION (and not the stack's GONE: the tower did not leave, the wait ended)
 }

@@ -3,6 +3,7 @@ import { configure, type PbsElement, TAGS } from "pi-better-show/elements";
 import type { Delivery } from "./blockanswer.ts";
 import { type Cell, lockFor } from "./blocklock.ts";
 import { h } from "./dom.ts";
+import { keepFocus } from "./focusback.ts";
 import { mount, parse as markdown } from "./markdown.ts";
 import { m } from "./paraglide/messages.js";
 
@@ -86,7 +87,7 @@ function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement 
 		gate: off,
 		refresh() {
 			const now = off();
-			el.toggleAttribute("inert", now !== undefined);
+			keepFocus(wrap, () => el.toggleAttribute("inert", now !== undefined));
 			wrap.toggleAttribute("data-away", now !== undefined);
 			if (now !== undefined) {
 				closeConfirm();

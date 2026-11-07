@@ -6,6 +6,9 @@ import { PAD } from "../src/keys.ts";
 // buttons the mirror's state allows.
 
 /** The few DOM calls the pad makes: elements with attributes, data, children, handlers, disabled, and focus. */
+let active: El | undefined;
+const docHandlers: Record<string, ((e: { target: unknown }) => void)[]> = {};
+const body = {};
 class El {
 	attrs = new Map<string, string>();
 	kids: (El | string)[] = [];
@@ -36,6 +39,14 @@ class El {
 	}
 	focus() {
 		this.focused = true;
+		active = this;
+		for (const on of docHandlers.focusin ?? []) on({ target: this });
+	}
+	contains(other: unknown): boolean {
+		return other === this || this.kids.some((k) => k instanceof El && k.contains(other));
+	}
+	closest(): El | null {
+		return null;
 	}
 	get text(): string {
 		return this.kids.map((k) => (typeof k === "string" ? k : k.text)).join("");
@@ -44,7 +55,7 @@ class El {
 		return this.kids.flatMap((k) => (k instanceof El ? [k, ...k.all()] : []));
 	}
 }
-Object.assign(globalThis, { document: { createElement: () => new El() }, getSelection: () => ({ isCollapsed: true }) }); // off a Mac (CI's Linux) a Ctrl+C asks the page whether text is selected
+Object.assign(globalThis, { document: { createElement: () => new El(), addEventListener: (type: string, on: (e: { target: unknown }) => void) => void (docHandlers[type] ??= []).push(on), get activeElement() { return active ?? body; }, body }, getSelection: () => ({ isCollapsed: true }) }); // off a Mac (CI's Linux) a Ctrl+C asks the page whether text is selected
 const mod = await import("../gui/keypad.ts");
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -282,6 +293,28 @@ test("a pad of an unreachable or ended remote base is off: every key disabled wi
 	press("up");
 	assert.equal(posts.length, 1, "back with the box");
 	assert.match(m.box_keys_blocked({}, { locale: "zh-TW" }), /[\u4e00-\u9fff]/);
+});
+
+test("RR-F001: the focus a pad key loses by going off with the box comes back when the box does, unless the boss went elsewhere meanwhile", () => {
+	const gone = { on: false };
+	const { p, key } = pad("live", false, () => gone.on);
+	p.update();
+	const drops = () => void (active = undefined); // a browser moves the focus off a control that became disabled, to the body
+	key("up").focus();
+	gone.on = true;
+	p.update();
+	drops();
+	gone.on = false;
+	p.update();
+	assert.equal(active, key("up"), "the key has the focus back");
+	key("down").focus();
+	gone.on = true;
+	p.update();
+	drops();
+	for (const on of docHandlers.pointerdown ?? []) on({ target: body });
+	gone.on = false;
+	p.update();
+	assert.equal(active, undefined, "the boss went elsewhere: the focus stays where he put it");
 });
 
 test("a local pad (no away fact) is unchanged", () => {

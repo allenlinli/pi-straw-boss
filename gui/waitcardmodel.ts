@@ -38,6 +38,8 @@ export interface CardInput {
 	open: boolean;
 	/** The raiser's unit has a `secret_drop` dialog pending now. */
 	secretOpen?: boolean;
+	/** The card is off because its unit's box is away, not because the stream is down: the reason, which the status line says in place of the connection words. */
+	blocked?: string;
 	now: number;
 }
 
@@ -106,6 +108,6 @@ export function cardModel(i: CardInput, o?: Opts): CardModel {
 		buttons.push({ id: "reply", label: m.wc_b_reply({}, o) }); // the reply fold keeps its own state (waitpanel.ts): an offline page keeps it and says so in the box
 		if (!(w.press?.act === "decline")) buttons.push({ id: "skip", label: m.wc_b_skip({}, o), ...(phase === "stale" || phase === "sending" ? { disabled: true } : {}) });
 	}
-	const line = phase === "ended" ? (w.outcome ? m.wc_ended({ outcome: w.outcome }, o) : m.wc_ended_plain({}, o)) : phase === "stale" ? m.wc_stale({}, o) : pressed ? pressedLine(w, o) : step === 2 ? secretLine(w, i.secretOpen, o) : "";
+	const line = phase === "ended" ? (w.outcome ? m.wc_ended({ outcome: w.outcome }, o) : m.wc_ended_plain({}, o)) : phase === "stale" ? (i.blocked ?? m.wc_stale({}, o)) : pressed ? pressedLine(w, o) : step === 2 ? secretLine(w, i.secretOpen, o) : "";
 	return { kind, tag: tagOf(kind, o), raised: raisedLine(w, i.now, o), parts, buttons, line, ...(remote ? { remote } : {}), ...(step ? { step } : {}), whole: !w.cut };
 }

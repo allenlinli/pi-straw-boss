@@ -855,7 +855,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Per-view themes (batch 1; measured): 7145 to 7225: nouns.ts (20) and icons.ts (28), the two chokepoints; themes/registry.ts (36), theme.ts (11) and the two theme entries; the call sites' switches.
 	// Raven Keep (batch 2; measured) 7225 to 7237 (+12): themesounds.ts (13, the sounds chokepoint beside nouns.ts and icons.ts), the registry's raven loader and `useSounds`, theme.ts's `sounds`, the notify switch, the two nouns `you` and `documents` (nouns.ts, chat.ts, i18n.ts) and `view_raven` in the page's table, and raven's own entry (index.ts 17, nouns.ts 14), less lines the views list took out.
 	// Head band (docs/specs/2026-11-07-head-band.md; measured) 7237 to 7313 (+76): headband.ts (the band's words, the gutter, the route's keyframes), render.ts (the band's fill, `headWires` with its routes and merged segments, the wire's measuring). Cap = measured.
-	assert.ok(page <= 7313, `the page's TypeScript has ${page} lines`);
+	// Wait cards GUI (todo #126 task 4, merged with the head band; measured): 7313 to 7638 (+325): waitcardmodel.ts (the card's parts, buttons and words), waitcard.ts (the card, the dock's dialog, the raiser finder, the first focus), and the hosts' lines (waitpanel.ts now only the reply fold, towernotes.ts, asks.ts, zen.ts, waits.ts, layer.ts's modal page, session.ts's finder); demo-waits.ts is in the demo figure. Cap = measured.
+	assert.ok(page <= 7638, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -1042,7 +1043,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Raven Keep re-review 2 (RRB2-F001, measured, node 24): 120,837 / 44,052, +37 / +12: the head's kicker drops the comms template's data-m, and a theme switch always redraws. Cap = measured.
 	// Head band (measured, node 24): 122,069 / 44,492, +1,232 / +440: headband.ts and the routing in render.ts (headpage.ts's ask grouping now loads with the map), less the old curve code; the stylesheet rules for the band. Cap = measured.
 	// Head band newest-line fallback (measured, node 24): 122,077 / 44,493, +8 / +1 over the 122,069 / 44,492 above: `HeadUnit.line` through newestLine (demo-head.ts is not in the built page), the band's 32 px room under it, and the unused `packets()` dropped. Cap = measured.
-	assert.ok(eagerBytes <= 122_077 && eagerGz <= 44_493, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Wait cards GUI (todo #126 task 4, merged with the head band; measured, node 24): 122,279 / 44,572, +202 / +79 over the figure above: the card's words (`wc_*`, both languages; the map chunk carries every message), the one line `waits.ts` adds (the entry on a wait alert), and the raiser finder of the head page (towernotes.ts, session.ts, main.ts). The card itself loads with the first wait. Cap = measured.
+	assert.ok(eagerBytes <= 122_279 && eagerGz <= 44_572, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1230,7 +1232,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Raven Keep re-review (RRB-F002, measured, node 24): 253,311 / 104,001, +88 / +19: `data-m` on the nouns the dossier, comms, and zoom templates print, so a theme that lands later renames them. Cap = measured.
 	// Head band (measured, node 24): 253,311 / 104,001 to 253,316 / 104,006 (+5 / +5): headpage.ts now loads with the map, so the chunks that shared it with the map are split differently. Cap = measured.
 	// Head band newest-line fallback (measured, node 24): 253,316 / 104,012, +0 / +6 (the chunk names' hashes moved with the rebuilt map chunk). Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 253_316 && total(chunks, gz) <= 104_012, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Wait cards GUI (todo #126 task 4, merged with the head band; measured, node 24): 267,329 / 109,003, +14,013 / +4,991 over the figure above, all lazy: waitcard.ts and waitcardmodel.ts load with the first wait (the dock's dialog, a row, Zen's card; the review fixes: the modal page, the first focus, the raiser finder), the demo's wait cards stay out of the live build. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 267_329 && total(chunks, gz) <= 109_003, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1370,7 +1373,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Raven Keep (batch 2; measured, node 24): 118,180 / 24,669, +426 / +107: the `--pbs-*` mapping of Standard's palette in :root (spec §7), the one block the base sheet carries for it. Cap = measured.
 	// Raven Keep review round 2 (measured, node 24): 118,204 / 24,677, +24 / +8: `.d-doc-ico { display: none; }`, the documents list's icon that only Raven Keep shows. Cap = measured.
 	// Head band (measured, node 24): 118,204 / 24,677 to 118,632 / 24,741 (+428 / +64): the band's rules (a row in the flow, the line, the chip, the state's glow) in place of the pill's, and the calm line. Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 118_632 && total(css, gz) <= 24_741, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Wait cards GUI (todo #126 task 4, merged with the head band; measured, node 24): 123,387 / 25,522, +4,755 / +781 over the figure above: the card's block in style.css (parts, buttons, the folded row, the Skip confirm, the dialog's footer), its phone rules, and the review fixes (wrapped commands, flat dashed off buttons, state colours); the Zen skin is in the Zen theme's folder. Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 123_387 && total(css, gz) <= 25_522, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen theme's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.
@@ -1387,7 +1391,8 @@ test("each theme's folder stays within its byte cap", () => {
 	// Head band (measured, node 24): Geek 6,767 / 2,370 to 6,853 / 2,384 (+86 / +14: the band's flat outline), Zen 125,731 to 125,735 raw (+4: the shared chunk split differently; its gzip is 5 under the old cap), raven 236,417 / 155,182 to 236,769 / 155,269 (+352 / +87: the keep's band skin lines). Caps = measured.
 	// Raven light (measured, node 24): raven 236,417 / 155,182 to 259,440 / 177,015 (+23,023 / +21,833: the perched raven's two-frame WebP strip 21,562, which does not compress, and the stylesheet's rest veil, strike layers, and perch rules, about 1.4 KB). The spec's 450 KB ceiling holds.
 	// Merge of the head band with raven light (measured, node 24): raven 259,440 / 177,015 to 259,792 / 177,106 (+352 / +91: the keep's band skin lines on top of the lighting), Zen gzip 39,697 as measured. Caps = measured.
-	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [125_735, 39_697], raven: [259_792, 177_106] };
+	// Wait cards GUI (todo #126 task 4, merged with the head band; measured, node 24): zen 125,735 / 39,697 to 127,751 / 40,087 (+2,016 / +390: the card's Zen skin in zen.css, the card's mount in zen.ts, the review fixes: state colours, disabled look, Open <raiser>). Cap = measured.
+	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [127_751, 40_087], raven: [259_792, 177_106] };
 	// Raven Keep review round 2 (measured, node 24): raven 227,821 / 152,777 to 236,417 / 155,182 (+8,596 / +2,405: the crest brand symbol in the sprite, the moon veil, the tome in the documents list). Cap = measured.
 	assert.deepEqual(readdirSync(dir).sort(), Object.keys(caps).sort(), "a folder per theme and no other");
 	assert.ok(caps.raven![0] <= 450_000, "Raven Keep stays within the spec's 450 KB (spec §1.5)");

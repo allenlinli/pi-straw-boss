@@ -198,6 +198,7 @@ test("GR-F005: disabled buttons of the card look disabled in the dock and in Zen
 		assert.doesNotMatch(off, /opacity/, `${name}: no opacity, so its text keeps its contrast whatever the row around it does`);
 	}
 	assert.doesNotMatch(css, /\.wc-opt:disabled[^{]*\{[^}]*opacity/, "no rule dims a disabled option");
+	assert.match(css, /\.tower-notices \.tnote \.wait-card \.pair-btn:disabled\s*\{[^}]*opacity:\s*1[;\s}]/, "the notices' own dimming of an off button does not reach the card's buttons in a row: their text keeps its contrast");
 	assert.doesNotMatch(rule(css, ".wait-card .wc-state {").join(" "), /var\(--ok\)/, "the default state line is not success green");
 	assert.match(css, /\.wait-card\[data-pressed="true"\] \.wc-state\s*\{[^}]*var\(--ok\)/);
 	assert.match(css, /\.wait-card\[data-phase="stale"\] \.wc-state\s*\{[^}]*var\(--gold\)/);

@@ -384,7 +384,7 @@ body:has(#remind[data-state="blocked"]) .prefs-btn { color: var(--err-soft); } /
 .tower-notices .tnote.warning span { color: var(--gold); }
 .tower-notices .tnote .wait-card span { color: inherit; } /* a wait row is a card: its spans keep the card's colours, not the notice's */
 .tower-notices .tnote .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .tower-notices .tnote .tnote-fail:empty { display: none; }
-.tower-notices .tnote button:disabled { opacity: 0.6; cursor: progress; }
+.tower-notices .tnote button:disabled { opacity: 0.6; cursor: progress; } .tower-notices .tnote .wait-card .pair-btn:disabled { opacity: 1; cursor: default; } /* a card's off buttons are flat and dashed (below), not dimmed twice */
 .wait-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; } .wait-text { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; } .wait-panel .tnote-fail { flex: 1 1 100%; color: var(--err-soft); font-size: 0.95em; } .wait-panel .tnote-fail:empty { display: none; }
 .tnote:has(.wait-panel[data-gone]) > span { display: none; }
 .tower-notices .tnote-flash { margin: 0; color: var(--ok); font-size: 0.85em; }

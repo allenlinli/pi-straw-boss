@@ -56,7 +56,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const remote = deps.remote ?? globalThis.location?.hostname !== "127.0.0.1";
 	const withCards = () => new Map([...unitAlerts, ...(net ? cardAlerts(net, now(), { pairs: remote ? [] : pairList, pairsAt }) : []).map((a) => [a.key, a] as const)]);
 	const to = (key: string) => answerPost(key, deps.post), trustTo: TrustPost = trustPost(deps.trust);
-	const model = createZen({ now, covered: () => term.isOpen() || palette.isOpen() || menu.isOpen() || Boolean(music?.isOpen()) }), explain = explainer(deps.debug ?? ((line) => console.debug(line)), (key) => (active ? model.why(key) : "the Zen layer is not shown")); // a question that waits off the page says why in the console
+	const model = createZen({ now, covered: () => !active || !document.hasFocus() || term.isOpen() || palette.isOpen() || menu.isOpen() || Boolean(music?.isOpen()) }), explain = explainer(deps.debug ?? ((line) => console.debug(line)), (key) => (active ? model.why(key) : "the Zen layer is not shown")); // a question that waits off the page says why in the console
 	const head = mountHead({ now, later, post: (action, body) => answerPost(net?.head?.key ?? HEAD_KEY, deps.post)(action, body), latest: () => deps.data(net?.head?.key ?? HEAD_KEY).latest(), online: deps.online, sound: deps.sound, rest: (on) => void line?.away(!on), history: () => void openHistory(), cards: () => model.queued().length, take: () => void enter() });
 	/** Enter, or a tap on the cue (Z-D19): the next card takes the screen; with none waiting on the circle, the head tower is called back (its input unfolds). */
 	const enter = () => (model.queued().length ? (apply(model.take()), true) : onCircle() && head.unfold());
@@ -327,12 +327,14 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const dwelling = () => Boolean(chain && shown.kind === "item" && card?.key === chain.key && now() < chain.at + DWELL_MS);
 	const onCard = (e: Event) => Boolean(card?.el.contains(e.target as Node | null));
 	root.addEventListener("keydown", (e) => {
+		deadTap = false; // a key since the press: the next click is the key's own, not the dead press's
 		if (e.key !== "Enter") return;
 		if (chain && shown.kind === "item" && card?.key === chain.key && (e.repeat || dwelling() || (e.timeStamp ?? Infinity) < chain.stamp + DWELL_MS)) return (e.preventDefault(), e.stopPropagation());
 		if (e.repeat && (e.target as Element | null)?.closest?.("button, a, summary, [role=button]")) e.preventDefault();
 	}, true);
 	root.addEventListener("pointerdown", (e) => void (deadTap = e.isTrusted === true && dwelling() && onCard(e)), true);
-	root.addEventListener("click", (e) => { const dead = e.isTrusted === true && onCard(e) && (dwelling() || deadTap); deadTap = false; if (dead) (e.preventDefault(), e.stopPropagation()); }, true); // a tap is a click the user made: one the layer's own code makes (Back to the breath, Not now, the panel's Enter) is not
+	root.addEventListener("pointercancel", () => void (deadTap = false), true); // a press the browser took for a scroll never becomes a click
+	root.addEventListener("click", (e) => { const dead = e.isTrusted === true && onCard(e) && (dwelling() || (deadTap && (e as MouseEvent).detail > 0)); deadTap = false; if (dead) (e.preventDefault(), e.stopPropagation()); }, true); // a tap is a click the user made: one the layer's own code makes (Back to the breath, Not now, the panel's Enter) is not
 	mountRestTap(root, { blank: (at) => at === root || stage.contains(at) || ripples.el.contains(at) || Boolean(at.closest?.(".zen-drift")), on: () => active && onCircle() && !term.isOpen() && !palette.isOpen() && !menu.isOpen() && !music?.isOpen(), head }); // a tap or click on the blank space rests the head's strip; mounted before the pause tap below, so its press is read first
 	const tap = () => shown.kind === "pause" && !term.isOpen() && apply(model.tap());
 	root.addEventListener("pointerdown", (e) => (tap(), head.tapAway(e.target)));

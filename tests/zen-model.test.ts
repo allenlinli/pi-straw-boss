@@ -391,14 +391,14 @@ test("Z-D19: a card on the screen is never interrupted: a blocking question that
 	assert.equal(keyOf(z.take()), BOX().key);
 });
 
-test("Z-D18: a card whose answer was just accepted is not preempted; the blocking question follows it once the outcome has shown (Z-D22)", () => {
+test("Z-D18: a card whose answer was just accepted is not preempted; a blocking question that comes during the outcome waits for Enter (Z-D22, ZCR-F002)", () => {
 	const { z, at } = rig();
 	z.update(map(WAIT()));
 	z.take();
 	z.accepted(WAIT().key);
 	assert.equal(keyOf(z.update(map(WAIT(), BOX()))), WAIT().key, "the outcome is on the screen");
 	at(OUTCOME_MS);
-	assert.equal(keyOf(z.tick()), BOX().key, "the wait is held for 30 s, so the question comes first either way");
+	assert.deepEqual([keyOf(z.tick()), z.queued().map((x) => x.key)], ["pause", [BOX().key]], "the question came after the answer: the pause, and it waits for Enter");
 });
 
 test("Z-D18: a question that arrives during a pause waits for the pause, like any arrival, and then for Enter", () => {
@@ -834,5 +834,71 @@ test("Z-D22: a reply that came after the snapshot (the card ended elsewhere firs
 	assert.equal(held(r.z.tick()), "elsewhere");
 	r.z.accepted("a");
 	r.at(OUTCOME_MS);
-	assert.deepEqual([keyOf(r.z.tick()), r.z.tick().sound], ["b", undefined], "taken, its bowl rang with the first tick");
+	const first = r.z.tick();
+	assert.deepEqual([keyOf(first), first.sound, chained(first)], ["b", "bowl", true], "taken, and its bowl rings with the tick that took it");
+	assert.equal(r.z.tick().sound, undefined, "and only once");
+});
+
+test("Z-D22 (ZCR-F002, boss 2026-11-07): only a card that was already queued when the answer was accepted is chained into; one that arrives during the 1.2 s outcome waits for Enter", () => {
+	const r = rig();
+	r.z.update(map(al("a", "waiting", 1)));
+	r.z.take();
+	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2))); // b came while a was open: queued when the answer is accepted
+	r.z.accepted("a");
+	r.at(600);
+	r.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2), al("c", "waiting", 3))); // c comes in the outcome
+	r.at(OUTCOME_MS - 600);
+	assert.deepEqual([keyOf(r.z.tick()), chained(r.z.tick())], ["b", undefined], "b was queued at the answer: it is taken (chained reports once, on the call that took it)");
+	r.z.accepted("b"); // c is queued by now: it is queued at b's answer, so it follows b
+	r.at(OUTCOME_MS);
+	assert.equal(keyOf(r.z.tick()), "c", "c was queued when b's answer was accepted");
+	// the arrival alone, with nothing else queued
+	const only = rig();
+	only.z.update(map(al("a", "waiting", 1)));
+	only.z.take();
+	only.z.accepted("a");
+	only.at(600);
+	only.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	only.at(OUTCOME_MS - 600);
+	const t = only.z.tick();
+	assert.deepEqual([t.screen.kind, t.sound, chained(t), only.z.queued().map((x) => x.key)], ["pause", undefined, undefined, ["b"]], "the one waiting card arrived after the answer: the pause, the cue counts it");
+	// a reply that follows the snapshot snapshots the queue at the reply, not at the first Enter
+	const late = rig();
+	late.z.update(map(al("a", "waiting", 1)));
+	late.z.take();
+	late.z.update(map(al("a", "working", 1), al("b", "waiting", 2)));
+	late.z.accepted("a");
+	late.at(OUTCOME_MS);
+	assert.equal(keyOf(late.z.tick()), "b", "b was queued when the reply was accepted");
+});
+
+test("Z-D22 (ZCR-F001, Z-D16): Zen shown again never starts on a chained card: a return after the outcome ended, or one inside the outcome, is the pause and the breath", () => {
+	const after = rig();
+	after.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	after.z.take();
+	after.z.accepted("a");
+	after.at(300); // Zen was left here (the layer cancels its timer) ...
+	after.at(60_000);
+	const back = after.z.update(map(al("a", "working", 1), al("b", "waiting", 2)), true); // ... and shown again a minute later
+	assert.deepEqual([back.screen.kind, back.sound, chained(back)], ["pause", undefined, undefined], "the visit does not start on b");
+	after.at(PAUSE_MS);
+	assert.equal(after.z.tick().screen.kind, "companion");
+	assert.deepEqual(after.z.queued().map((x) => x.key), ["b"]);
+	const inside = rig();
+	inside.z.update(map(al("a", "waiting", 1), al("b", "waiting", 2)));
+	inside.z.take();
+	inside.z.accepted("a");
+	inside.at(300);
+	inside.z.update(map(al("a", "working", 1), al("b", "waiting", 2)), true); // back inside the outcome
+	inside.at(OUTCOME_MS);
+	const s = inside.z.tick();
+	assert.deepEqual([s.screen.kind, s.sound, chained(s)], ["pause", undefined, undefined], "the outcome that was interrupted by a visit does not chain at its end");
+	// the next answer of the next visit chains again
+	inside.at(PAUSE_MS);
+	inside.z.tick();
+	inside.z.take();
+	inside.z.update(map(al("b", "waiting", 2), al("c", "waiting", 3)));
+	inside.z.accepted("b");
+	inside.at(OUTCOME_MS);
+	assert.deepEqual([keyOf(inside.z.tick())], ["c"], "a fresh answer chains as before");
 });

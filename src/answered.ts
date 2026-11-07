@@ -1,9 +1,10 @@
-import { CONTROL, type Fields, fieldsOk, MAX_ANSWER } from "./documents.ts";
+import { CONTROL, type Fields, fieldsOk, MAX_ANSWER, MAX_BLOCK } from "./documents.ts";
 
 // Which blocks were answered (docs/specs/2026-11-07-better-show-host.md, "Answered"). The page used to remember it in its own browser storage, which meant that a restart of the server (a new capability), another device, or another address of
 // this computer started again with every block open. The record is the server's now: one owned file (the caller's `save`, mode 600), read by every device. An answer is `pending` from the moment the server begins to send it and `done` with the fields
 // that went once the owner took it; a block that is either is never begun again. Bounded (`max` entries, each field list cut) and pruned (`keepMs`; a pending entry never confirmed within `pendingMs` was not delivered, or was and told its page so).
-// Nothing here reopens a block silently: a file that cannot be written refuses to begin, so nothing is sent; one that cannot be written after the send keeps the entry in memory and says so; one that cannot be read starts empty and says so.
+// Nothing here reopens a block silently: a file that cannot be written refuses to begin, so nothing is sent; one that cannot be written after the send keeps the entry in memory and says so. A file that cannot be read (a link, another account's, not JSON, an entry out of the schema) starts the
+// record empty and says so for the life of the process; the first write sets that file aside (`aside`) instead of replacing it, and the note stays, so no block answered before is taken for open without a word.
 
 export type State = { state: "pending"; at: number } | { state: "done"; fields: Fields; at: number };
 export type Begin = "ok" | "answered" | "pending" | "unsaved";
@@ -12,6 +13,8 @@ export interface AnsweredDeps {
 	load(): string | undefined;
 	/** Writes the whole file (mode 600, by rename); it throws when it cannot. */
 	save(text: string): void;
+	/** Moves the file that could not be read out of the way before the first write over it; it throws when it cannot, and then nothing is written. */
+	aside?(): void;
 	now?(): number;
 	max?: number;
 	keepMs?: number;
@@ -27,7 +30,7 @@ export interface Answered {
 	cancel(key: string): void;
 	/** The entries of one session's `chat` or `doc` blocks, oldest first. */
 	list(kind: "chat" | "doc", unit: string): [string, State][];
-	/** The file could not be read when it was opened (a missing file is a new record, not this); it clears with the first write. */
+	/** The file could not be read when it was opened (a missing file is a new record, not this); it stays set for the life of the process. */
 	readonly unreadable: boolean;
 }
 
@@ -37,35 +40,54 @@ export const chatKey = (unit: string, entry: string, index: number) => JSON.stri
 export const docKey = (unit: string, name: string, rev: string, index: number) => JSON.stringify(["doc", unit, name, rev, index]);
 
 const clip = (fields: Fields): Fields => fields.slice(0, 64).map(([name, value]) => [name.slice(0, 256), value.slice(0, 1024)]);
-const stateOf = (v: unknown): State | undefined => {
-	const s = v as Partial<{ state: string; fields: unknown; at: unknown }> | null;
-	if (typeof s !== "object" || s === null || !Number.isSafeInteger(s.at)) return;
-	if (s.state === "pending") return { state: "pending", at: s.at as number };
-	if (s.state === "done" && Array.isArray(s.fields) && s.fields.every((f) => Array.isArray(f) && f.length === 2 && typeof f[0] === "string" && typeof f[1] === "string")) return { state: "done", fields: clip(s.fields as Fields), at: s.at as number };
+const HASH = /^[0-9a-f]{16}$/, MAX_PART = 4096;
+const part = (v: unknown): v is string => typeof v === "string" && v.length <= MAX_PART;
+const index = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= MAX_BLOCK;
+/** A key of this file's own making: `["chat", unit, entry, index]` or `["doc", unit, name, hash, index]`. */
+function keyOk(key: unknown): key is string {
+	if (typeof key !== "string") return false;
+	let k: unknown;
+	try {
+		k = JSON.parse(key);
+	} catch {
+		return false;
+	}
+	return Array.isArray(k) && ((k[0] === "chat" && k.length === 4 && part(k[1]) && part(k[2]) && index(k[3])) || (k[0] === "doc" && k.length === 5 && part(k[1]) && part(k[2]) && typeof k[3] === "string" && HASH.test(k[3]) && index(k[4])));
+}
+/** A state as this file writes it, its time clamped to `now` (an entry from the future would never expire); undefined when it is out of shape. */
+const stateOf = (v: unknown, now: number): State | undefined => {
+	const s = v as Partial<{ state: unknown; fields: unknown; at: unknown }> | null;
+	if (typeof s !== "object" || s === null || !Number.isSafeInteger(s.at) || (s.at as number) < 0) return;
+	const at = Math.min(s.at as number, now);
+	if (s.state === "pending") return { state: "pending", at };
+	if (s.state === "done" && Array.isArray(s.fields) && s.fields.every((f) => Array.isArray(f) && f.length === 2 && typeof f[0] === "string" && typeof f[1] === "string")) return { state: "done", fields: clip(s.fields as Fields), at };
 };
 
-export function createAnswered({ load, save, now = Date.now, max = MAX_ENTRIES, keepMs = KEEP_MS, pendingMs = PENDING_MS }: AnsweredDeps): Answered {
+export function createAnswered({ load, save, aside, now = Date.now, max = MAX_ENTRIES, keepMs = KEEP_MS, pendingMs = PENDING_MS }: AnsweredDeps): Answered {
 	const entries = new Map<string, State>();
-	let unreadable = false;
+	let unreadable = false, asided = false;
 	try {
 		const text = load();
 		if (text !== undefined) {
-			const parsed = JSON.parse(text) as { entries?: unknown };
-			if (!Array.isArray(parsed.entries)) throw new Error("not a record");
+			const parsed = JSON.parse(text) as { v?: unknown; entries?: unknown };
+			if (parsed.v !== 1 || !Array.isArray(parsed.entries)) throw new Error("not a record");
+			const t = now();
 			for (const e of parsed.entries) {
-				const state = Array.isArray(e) && typeof e[0] === "string" ? stateOf(e[1]) : undefined;
-				if (state && now() - state.at <= keepMs) entries.set((e as [string, unknown])[0], state);
+				const state = Array.isArray(e) && e.length === 2 && keyOk(e[0]) ? stateOf(e[1], t) : undefined;
+				if (!state) throw new Error("an entry out of shape"); // a record this code wrote has none: it was changed, so none of it is trusted
+				if (t - state.at <= keepMs) entries.set((e as [string, unknown])[0], state);
 			}
 		}
 	} catch {
+		entries.clear();
 		unreadable = true;
 	}
 	const text = () => JSON.stringify({ v: 1, entries: [...entries] });
 	/** Writes the record, after dropping the oldest past `max`. */
 	const write = () => {
 		for (const key of entries.keys()) if (entries.size > max) entries.delete(key);
+		if (unreadable && !asided) (aside?.(), (asided = true)); // the file we could not read is kept, not replaced
 		save(text());
-		unreadable = false;
 	};
 	const read = (key: string) => {
 		const state = entries.get(key);

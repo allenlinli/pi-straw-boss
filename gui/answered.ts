@@ -10,7 +10,9 @@ export interface Record_ { done: [string, number, Fields][]; pending: [string, n
 export const answeredHooks: { get?(key: string): Promise<Record_ | undefined> } = {};
 const FRESH_MS = 3000;
 const reads = new Map<string, { at: number; read: Promise<boolean> }>();
-export const forgetAnswered = () => reads.clear();
+/** The entries each unit's last record named: one that a later record names no more is told so (an empty seed), so a block shown as on its way opens again. */
+const named = new Map<string, Set<string>>();
+export const forgetAnswered = () => (reads.clear(), named.clear());
 
 async function load(key: string): Promise<boolean> {
 	try {
@@ -19,7 +21,9 @@ async function load(key: string): Promise<boolean> {
 		const by = new Map<string, { done: [number, Fields][]; pending: number[] }>(), of = (entry: string) => by.get(entry) ?? (by.set(entry, { done: [], pending: [] }), by.get(entry)!);
 		for (const [entry, index, fields] of record.done) of(entry).done.push([index, fields]);
 		for (const [entry, index] of record.pending) of(entry).pending.push(index);
+		for (const entry of named.get(key) ?? []) if (!by.has(entry)) lockFor(key, entry).seed({ done: [], pending: [] });
 		for (const [entry, seed] of by) lockFor(key, entry).seed(seed);
+		named.set(key, new Set(by.keys()));
 		return !record.unreadable;
 	} catch {
 		return false;

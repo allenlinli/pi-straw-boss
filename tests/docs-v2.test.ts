@@ -24,7 +24,7 @@ writeFileSync(join(bundle, "index.html"), "<!doctype html><html><head><title>Str
 const sessionFile = join(scratch, "2026_S.jsonl");
 writeFileSync(sessionFile, "");
 
-const TOKEN = "6f1e2d3c-4b5a-4968-8776-655443322110", MD = "# Plan\n\n```suggest\n- Go\n```\n", RAW_HTML = `<!doctype html><html><head><script src="/${TOKEN}/assets/frame.js"></script></head><body><img src="pic.png"><form action="cgi-bin:pi-answer"><input name="choice" value="a"></form></body></html>`;
+const TOKEN = "6f1e2d3c-4b5a-4968-8776-655443322110", MD = "# Plan\n\n```suggest\n- Go\n```\n\n```suggest\n- Stop\n```\n\n```suggest\n- Wait\n```\n", RAW_HTML = `<!doctype html><html><head><script src="/${TOKEN}/assets/frame.js"></script></head><body><img src="pic.png"><form action="cgi-bin:pi-answer"><input name="choice" value="a"></form></body></html>`;
 const files = new Map<string, { type: string; body: string | Buffer; status?: number; location?: string }>([
 	[`/doc/d-blocks/plan.md`, { type: "text/plain; charset=utf-8", body: MD }],
 	[`/doc/d-blocks/a.png`, { type: "image/png", body: Buffer.from([0x89, 0x50]) }],
@@ -86,7 +86,7 @@ const ask = (gui: Gui, path: string, { method = "GET", body, headers = {} }: { m
 		req.on("error", reject).end(data);
 	});
 const json = (r: Res) => JSON.parse(r.body) as Record<string, unknown>;
-const ID = "a".repeat(32), HASH = createHash("sha256").update(MD).digest("hex").slice(0, 16);
+const ID = "a".repeat(32), hashOf = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 16), HASH = hashOf(MD);
 const FRAME = { "sec-fetch-dest": "iframe", "sec-fetch-site": "same-origin" };
 
 test("the page's cards name what to draw and hold no capability URL or path; a document with no capability is listed but cannot be read", async () => {
@@ -133,6 +133,16 @@ test("a blocks document's neighbours are images only, as a v1 Markdown document'
 	assert.equal((await ask(gui, `doc/${caps["notes.txt"]}/a.png`)).status, 404, "a text document reads no neighbours");
 });
 
+test("BSR-F007 D05, D06: a name beside a document is sent to the owner as one plain relative path: a backslash never goes, and a character that would start a query is encoded", async () => {
+	const { gui, caps } = await serve();
+	const before = hits.length, image = { "sec-fetch-dest": "image", "sec-fetch-site": "same-origin" };
+	assert.equal((await ask(gui, `doc/${caps["plan.md"]}/a%5Cb.png`, { headers: image })).status, 404);
+	assert.deepEqual(hits.slice(before).filter((h) => h.includes("a%5Cb") || h.includes("a\\b")), [], "a backslash in a name never reaches the owner");
+	assert.equal((await ask(gui, `doc/${caps["plan.md"]}/q%3Fx.png`, { headers: image })).status, 404);
+	const asked = hits.slice(before).filter((h) => h.includes("q"));
+	assert.deepEqual(asked.map((h) => h.split(" ")[1]), [`/${TOKEN}/doc/d-blocks/q%3Fx.png`], "the question mark is data in the name, not the start of a query");
+});
+
 test("a form of an HTML document answers over contract v2 as a form Answer, a review under its kind", async () => {
 	const { gui, caps, forms } = await serve();
 	const page = await ask(gui, `doc/${caps["review.html"]}/`, { headers: FRAME });
@@ -167,10 +177,51 @@ test("a block's answer reaches the owner as an Answer addressed to the block, an
 	assert.equal(twice.status, 409);
 	assert.equal(json(twice).error, "answered");
 	assert.equal(again.forms.length, 0, "an answered block is not answered again, from any device");
-	const other = await ask(again.gui, `api/doc/${again.caps["plan.md"]}/answer`, { method: "POST", body: { answerId: "c".repeat(32), answer: { ...answer, ref: { block: 5 } }, rev: HASH } });
+	const other = await ask(again.gui, `api/doc/${again.caps["plan.md"]}/answer`, { method: "POST", body: { answerId: "c".repeat(32), answer: { ...answer, ref: { block: 2 } }, rev: HASH } });
 	assert.equal(other.status, 200, "another block of the same document");
-	const edited = await ask(again.gui, `api/doc/${again.caps["plan.md"]}/answer`, { method: "POST", body: { answerId: "d".repeat(32), answer, rev: "0".repeat(16) } });
-	assert.equal(edited.status, 200, "an edited text (another hash) opens its blocks again");
+	files.get("/doc/d-blocks/plan.md")!.body = `${MD}\n\`\`\`suggest\n- Later\n\`\`\`\n`; // the owner edits the document
+	try {
+		const edited = await ask(again.gui, `api/doc/${again.caps["plan.md"]}/answer`, { method: "POST", body: { answerId: "d".repeat(32), answer, rev: hashOf(`${MD}\n\`\`\`suggest\n- Later\n\`\`\`\n`) } });
+		assert.equal(edited.status, 200, "an edited text (another hash) opens its blocks again");
+		const old = await ask(again.gui, `api/doc/${again.caps["plan.md"]}/answer`, { method: "POST", body: { answerId: "e".repeat(32), answer: { ...answer, ref: { block: 1 } }, rev: HASH } });
+		assert.equal(old.status, 409, "a page that drew the text before the edit is told so");
+		assert.equal(json(old).error, "stale");
+	} finally {
+		files.get("/doc/d-blocks/plan.md")!.body = MD;
+	}
+});
+
+test("BSR-F003: the answer's rev must be the hash of the text the server serves now, and its block one the text has: a made-up rev, or a block that is not there, is refused with a reason before anything is recorded or sent", async () => {
+	const disk = { text: undefined as string | undefined }, { gui, caps, forms } = await serve({ disk });
+	const post = (answerId: string, block: number, rev: string) => ask(gui, `api/doc/${caps["plan.md"]}/answer`, { method: "POST", body: { answerId, answer: { kind: "suggest", fields: [["text", "Go"]], ref: { block } }, rev } });
+	for (const rev of ["f".repeat(16), "0".repeat(16), hashOf("# Plan\n")]) {
+		const r = await post("1".repeat(32), 0, rev);
+		assert.deepEqual([r.status, json(r).error], [409, "stale"], rev);
+		assert.match(String(json(r).reason), /changed|reload/i);
+	}
+	for (const block of [3, 4, 4095]) {
+		const r = await post("2".repeat(32), block, HASH);
+		assert.deepEqual([r.status, json(r).error], [409, "no_block"], String(block));
+	}
+	assert.deepEqual(forms, [], "nothing reached the owner");
+	assert.equal(disk.text, undefined, "and nothing was recorded");
+	assert.equal((await post("1".repeat(32), 2, HASH)).status, 200, "the last block of the text, with the same answer id the refusals used: a refusal before the send does not spend the id");
+	assert.equal(forms.length, 1);
+});
+
+test("BSR-F005: a v1 Markdown document draws its blocks but its owner takes no block answers: the refusal says so up front, and says the v2 package is what takes them, not that the document is closed", async () => {
+	const path = join(scratch, "v1.md");
+	writeFileSync(path, "# Old\n\n```suggest\n- Go\n```\n");
+	const disk = { text: undefined as string | undefined };
+	const { gui, caps, forms, cards } = await serve({ disk, documents: [{ id: "6f1e2d3c-4b5a-4968-8776-655443322110", path, kind: "text", display: "docs/old.md", reason: "r", revision: 1, onScreen: true }] });
+	assert.equal(cards[0]!.kind, "blocks");
+	const cap = caps["old.md"]!;
+	const r = await ask(gui, `api/doc/${cap}/answer`, { method: "POST", body: { answerId: ID, answer: { kind: "suggest", fields: [["text", "Go"]], ref: { block: 0 } }, rev: hashOf("# Old\n\n```suggest\n- Go\n```\n") } });
+	assert.deepEqual([r.status, json(r).error], [409, "refused"]);
+	assert.match(String(json(r).reason), /pi-better-show/);
+	assert.doesNotMatch(String(json(r).reason), /no longer open/);
+	assert.deepEqual(forms, []);
+	assert.equal(disk.text, undefined, "nothing was recorded for it");
 });
 
 test("a v2 text document takes no block answers, and nothing reaches the owner", async () => {

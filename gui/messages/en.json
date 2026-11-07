@@ -1181,5 +1181,8 @@
 	"zen_update": "A new version is ready; it loads when you're back at the breath",
   "block_sending": "Sending…",
   "block_command": "A block cannot send a command (a line that starts with ! or /). Type it in the box below.",
-  "block_unsure_state": "Whether this was answered could not be read."
+  "block_unsure_state": "Whether this was answered could not be read.",
+  "block_confirm_title": "Your answer goes out as this text:",
+  "block_confirm_send": "Send",
+  "block_confirm_back": "Back"
 }

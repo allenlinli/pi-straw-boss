@@ -27,8 +27,8 @@ import { trustDir } from "../trust/files.ts";
 import { createTrustServe } from "../trust/serve.ts";
 import type { Kit } from "../state.ts";
 import { type Log, tailLog } from "./log.ts";
-import { writeDurableText } from "./towerstore.ts";
 import { createAnswered } from "../answered.ts";
+import { answeredFileDeps } from "./answeredfile.ts";
 import { createLanHost, type LanHost, type LanSeams } from "./lanhost.ts";
 import { CHOICES, said } from "../views.ts";
 import { isView, readView, type ServerView, storedIs, writeView } from "./guiprefs.ts";
@@ -132,7 +132,7 @@ export function createGuiHost(o: GuiHostOptions) {
 	// Built once for this process (`lock`: one opening at a time, for every GUI this process starts): pi-intercom has no unregister, so a channel the hub registered stays, and the same hub serves the GUI again after a stop.
 	const deploys = createDeploys(), openings = createOpenings(join(slot.stateDir, "openings.json")), lock = { busy: false }, trust = createTrustServe({ dir: trustDir(slot.stateDir), herdr: slot.herdr, world: () => cfg.world(), opening: deploys.openingOf });
 	// The record of answered blocks (answered.ts): one file beside paired.json, mode 600, shared by every page of this server and read again by the next.
-	const answeredFile = join(dir, "answered.json"), answered = createAnswered({ load: () => { try { return readFileSync(answeredFile, "utf8"); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; } }, save: (text) => writeDurableText(answeredFile, text) });
+	const answered = createAnswered(answeredFileDeps(join(dir, "answered.json")));
 	const live = async (session: string) => (await o.sessions()).some((x) => x.id === session);
 
 	/** The hub, built when the server starts and kept for the process: it tracks the gates for the tower service whether or not a page listens (dialogs.ts `track`). */

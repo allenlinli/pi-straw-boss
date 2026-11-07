@@ -32,7 +32,7 @@ export const cardKind = (d: Doc): DocKind => (d.v === 2 ? d.kind : d.kind === "t
 export const isBlocksDoc = (d: Doc) => cardKind(d) === "blocks";
 
 const str = (v: unknown, max: number): v is string => typeof v === "string" && v.length <= max;
-const MAX_BLOCK = 4095;
+export const MAX_BLOCK = 4095;
 /** The URL of a page server on this computer, or undefined: http, a loopback name with its port, a plain path with no empty, `.`, `..`, or encoded-slash segment, no credentials, query, or fragment. Returned as the URL parses. */
 export function loopbackUrl(url: unknown): string | undefined {
 	if (typeof url !== "string" || url.length > 512 || /[\\\s]|%2f|%5c/i.test(url) || /\/\.\.?(\/|$)/.test(url)) return;
@@ -94,26 +94,18 @@ export function answerOk(a: unknown): a is BlockAnswer {
 	const { doc, block } = (ref ?? {}) as Record<string, unknown>;
 	return typeof ref === "object" && ref !== null && Number.isInteger(block) && (block as number) >= 0 && (block as number) <= MAX_BLOCK && (doc === undefined || str(doc, 1024));
 }
-/** The fields a v1 owner reads for an answer: a form's as they are, a review and page feedback under `pi-kind`, and a pick, chip, or checklist (no v1 kind) as a form whose first field names the block. */
-export function v1Fields({ kind, title, fields }: Pick<BlockAnswer, "kind" | "title" | "fields">): Fields {
-	const own = fields.filter(([name]) => name !== "pi-kind"); // the kind is the block's, never a field's
-	if (kind === "form") return own;
-	if (kind === "review" || kind === "feedback") return [["pi-kind", kind], ...own];
-	return [["block", title ? `${kind} "${title}"` : kind], ...own];
-}
-
 /** The Answer of an HTML document's form: its `pi-kind` field, when it says review or page feedback, is the kind, and is not a field. */
 export function answerOfFields(fields: Fields): BlockAnswer {
 	const kind = fields.find(([name]) => name === "pi-kind")?.[1];
 	return { kind: kind === "review" || kind === "feedback" ? kind : "form", fields: fields.filter(([name]) => name !== "pi-kind") };
 }
 
-/** The owners' lists as they change: v1 (`doc-review:documents`) and v2 (`better-show:documents`) are held apart and relayed together, v1 first. A list out of shape counts as none for its own version, so an older list never stays; a list on the wrong channel for its version is not heard. A viewer that starts late asks each owner for its list once. */
+/** The owners' lists as they change: v1 (`doc-review:documents`) and v2 (`better-show:documents`) are held apart and relayed together, v1 first, the newest 32 when together they pass the hub's limit (each owner lists oldest first; a hub that takes none of an over-long list would hide them all). A list out of shape counts as none for its own version, so an older list never stays; a list on the wrong channel for its version is not heard. A viewer that starts late asks each owner for its list once. */
 export function listenDocs(bus: Bus, list: (docs: Doc[]) => void): () => void {
 	let one: Doc[] = [], two: Doc[] = [];
 	const relay = () => {
 		const seen = new Set<string>();
-		list([...one, ...two].filter((d) => !seen.has(d.id) && seen.add(d.id)));
+		list([...one, ...two].filter((d) => !seen.has(d.id) && seen.add(d.id)).slice(-MAX_DOCS));
 	};
 	const off1 = bus.on(LIST, (raw) => (raw as { version?: unknown })?.version === 1 && ((one = listOf(raw, 1, docOf1) ?? []), relay()));
 	const off2 = bus.on(LIST2, (raw) => (raw as { version?: unknown })?.version === 2 && ((two = listOf(raw, 2, (d) => docOf2(d, false)) ?? []), relay()));

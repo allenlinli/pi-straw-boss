@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { answerOk, cardKind, createCaps, docsOf, isBlocksDoc, listenDocs, loopbackUrl, submitAnswer, v1Fields } from "../src/documents.ts";
+import { answerOk, cardKind, createCaps, docsOf, isBlocksDoc, listenDocs, loopbackUrl, submitAnswer } from "../src/documents.ts";
 import type { Bus } from "../src/owners.ts";
 
 // Document contract v2 (pi-better-show 0.1.0, its README's "Event bus, contract version 2"): `better-show:documents` and `better-show:documents-request`, entries `{id, kind blocks|html|text, display, reason, revision, onScreen, capability?, assets?}` with no
@@ -50,6 +50,20 @@ test("v1 and v2 lists are held apart and sent together; a list out of shape coun
 	assert.deepEqual(lists.at(-1)!.map((d) => d.id), ["d1"], "one id is one document: the later list's duplicate is dropped");
 });
 
+test("BSR-F006: v1 and v2 lists that together pass the hub's limit of 32 relay the newest 32 (each owner lists oldest first, v1 before v2), not none", () => {
+	const b = bus(), lists: { id: string }[][] = [];
+	listenDocs(b, (docs) => lists.push(docs as { id: string }[]));
+	const v1 = Array.from({ length: 20 }, (_, i) => ({ ...V1, id: `old-${i}`, path: `/work/docs/old-${i}.html` })), v2 = Array.from({ length: 20 }, (_, i) => ({ ...V2, id: `new-${i}`, capability: `${BASE}/doc/new-${i}/plan.md`, assets: `${BASE}/doc/new-${i}/` }));
+	b.emit("doc-review:documents", { version: 1, documents: v1 });
+	b.emit("better-show:documents", { version: 2, documents: v2 });
+	const ids = lists.at(-1)!.map((d) => d.id);
+	assert.equal(ids.length, 32);
+	assert.deepEqual(ids, [...v1.slice(8).map((d) => d.id), ...v2.map((d) => d.id)], "the 12 newest v1 documents and all 20 v2 ones");
+	assert.ok(docsOf({ version: 1, documents: lists.at(-1) }), "and the hub takes it");
+	b.emit("better-show:documents", { version: 2, documents: v2.slice(0, 3) });
+	assert.equal(lists.at(-1)!.length, 23, "under the limit nothing is cut");
+});
+
 test("a v2 entry is checked as strictly as a v1 one, and its capability and assets only if they are the owner's own page server on this computer", () => {
 	const ok = (e: Record<string, unknown>) => docsOf({ version: 1, documents: [{ ...e, v: 2 }] });
 	assert.deepEqual(ok(V2), [{ ...V2, v: 2 }]);
@@ -57,6 +71,17 @@ test("a v2 entry is checked as strictly as a v1 one, and its capability and asse
 	assert.deepEqual(ok({ id: "d2", kind: "text", display: "notes.txt", reason: "", revision: 1, onScreen: false }), [{ id: "d2", kind: "text", display: "notes.txt", reason: "", revision: 1, onScreen: false, v: 2 }], "no capability while the page server is off");
 	for (const bad of [{ ...V2, path: "/etc/passwd" }, { ...V2, kind: "pdf" }, { ...V2, revision: 0 }, { ...V2, onScreen: "yes" }, { ...V2, id: "x".repeat(65) }, { ...V2, capability: "https://127.0.0.1:41234/u/doc/d1/plan.md" }, { ...V2, capability: "http://evil.example/u/doc/d1/plan.md" }, { ...V2, capability: "http://127.0.0.1:41234/u/other/d1/plan.md" }, { ...V2, capability: "http://127.0.0.1:41234/u/doc/OTHER/plan.md" }, { ...V2, capability: `${BASE}/doc/d1/plan.md?x=1` }, { ...V2, capability: `${BASE}/doc/OTHER/plan.md`, assets: undefined }, { ...V2, assets: `${BASE}/doc/OTHER/` }, { ...V2, capability: "http://user:pw@127.0.0.1:41234/u/doc/d1/plan.md" }, { ...V2, assets: "http://127.0.0.1:41234/u/doc/d1/../x/" }, { ...V2, assets: `${BASE}/doc/d1` }, { ...V2, capability: 7 }])
 		assert.equal(ok(bad), undefined, JSON.stringify(bad));
+	// BSR-F007 V05, V06, V01: each bad case has the right id and is wrong in one thing only (the origin, the token, the credentials), so it is that check that refuses it.
+	const TOKEN = BASE.split("/")[3]!;
+	for (const [name, bad] of Object.entries({
+		"assets on another port": { ...V2, assets: `http://127.0.0.1:41235/${TOKEN}/doc/d1/` },
+		"assets on another host name": { ...V2, assets: `http://localhost:41234/${TOKEN}/doc/d1/` },
+		"assets under another token": { ...V2, assets: "http://127.0.0.1:41234/another-token/doc/d1/" },
+		"assets with credentials": { ...V2, assets: `http://user:pw@127.0.0.1:41234/${TOKEN}/doc/d1/` },
+		"a capability with credentials": { ...V2, capability: `http://user:pw@127.0.0.1:41234/${TOKEN}/doc/d1/plan.md`, assets: undefined },
+		"assets without a capability to match, on another port": { ...V2, assets: `http://127.0.0.1:41235/${TOKEN}/doc/d1/` },
+	})) assert.equal(ok(bad), undefined, name);
+	assert.ok(ok({ ...V2, assets: `http://127.0.0.1:41234/${TOKEN}/doc/d1/` }), "the control: the same origin and token");
 	assert.equal(docsOf({ version: 1, documents: [{ ...V1, v: 2 }] }), undefined, "a v2 entry names no path; a v1 one with `v: 2` is not one");
 	assert.deepEqual(docsOf({ version: 1, documents: [V1] }), [V1], "a v1 entry is as it was, with no `v`");
 	assert.equal(docsOf({ version: 1, documents: [{ ...V1, kind: "blocks" }] }), undefined, "blocks is a v2 kind");
@@ -87,16 +112,6 @@ test("an answer is checked as the owner checks it: a kind of the six, a title, a
 	for (const bad of [null, "x", { kind: "other", fields: [] }, { kind: "form" }, { kind: "form", fields: "x" }, { kind: "form", fields: [["a"]] }, { kind: "form", fields: [["a", 1]] }, { kind: "form", fields: [["a", "x\u0007y"]] }, { kind: "form", title: 3, fields: [] }, { kind: "form", fields: Array.from({ length: 65 }, (_, i) => [`f${i}`, "v"]) }, { kind: "form", fields: [["a", "x".repeat(13_000)]] }, { kind: "form", fields: [], ref: { block: 1.5 } }, { kind: "form", fields: [], ref: { block: -1 } }, { kind: "form", fields: [], ref: { doc: 3, block: 1 } }])
 		assert.equal(answerOk(bad), false, JSON.stringify(bad)?.slice(0, 60));
 	assert.equal(answerOk({ kind: "form", fields: [["a", "line\nbreak\tand tab"]] }), true, "a text box's line break and a tab are fine");
-});
-
-test("a v1 owner reads a form's fields as they are, a review and page feedback under `pi-kind`, and a pick, chip, or checklist as a form that names the block", () => {
-	assert.deepEqual(v1Fields({ kind: "form", title: "t", fields: [["a", "1"], ["b", "2"]] }), [["a", "1"], ["b", "2"]]);
-	assert.deepEqual(v1Fields({ kind: "review", fields: [["title", "L"], ["picked", "A"]] }), [["pi-kind", "review"], ["title", "L"], ["picked", "A"]]);
-	assert.deepEqual(v1Fields({ kind: "feedback", fields: [["page", "p"]] }), [["pi-kind", "feedback"], ["page", "p"]]);
-	assert.deepEqual(v1Fields({ kind: "pick", title: "Store", fields: [["picked", "SQLite"]] }), [["block", 'pick "Store"'], ["picked", "SQLite"]]);
-	assert.deepEqual(v1Fields({ kind: "suggest", fields: [["text", "Go"]] }), [["block", "suggest"], ["text", "Go"]]);
-	assert.deepEqual(v1Fields({ kind: "checklist", title: "T", fields: [["Run tests", "checked"]] }), [["block", 'checklist "T"'], ["Run tests", "checked"]]);
-	assert.deepEqual(v1Fields({ kind: "form", fields: [["pi-kind", "review"], ["a", "1"]] }), [["a", "1"]], "a block cannot pick the kind the owner reads");
 });
 
 test("an answer goes to the owner as better-show:answer {version 2, id, answerId, answer}; only the result for its document and answerId counts, once; a silent owner leaves nothing behind after 4 s", () => {

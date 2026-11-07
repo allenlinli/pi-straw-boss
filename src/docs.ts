@@ -5,7 +5,8 @@ import { pipeline } from "node:stream";
 import { dirname, extname, resolve, sep } from "node:path";
 import { ANSWER_ID, type Hub } from "./dialogs.ts";
 import { type Answered, createAnswered, docKey } from "./answered.ts";
-import { answerOfFields, answerOk, type Doc, type Fields, isBlocksDoc, MAX_ANSWER, v1Fields } from "./documents.ts";
+import { blockCount } from "./blockcount.ts";
+import { answerOfFields, answerOk, type Doc, type Fields, isBlocksDoc, MAX_ANSWER } from "./documents.ts";
 
 // Serving the documents a session shows (documents.ts) to the page, by capability: the hub's current binding is the allow list, and paths never
 // come from the browser. GET /<t>/doc/<cap>/ is an HTML document, rewritten so its pi-answer forms submit here; GET /<t>/doc/<cap>/<path> an
@@ -29,6 +30,8 @@ const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/; // tab,
 export const docCsp = (origin: string) => `sandbox allow-forms allow-popups allow-popups-to-escape-sandbox; default-src 'none'; img-src ${origin} data:; style-src ${origin} 'unsafe-inline'; font-src ${origin} data:; form-action ${origin}; base-uri 'none'; frame-ancestors ${origin}`;
 /** The owner's frame hook, a script this server's policy does not run. */
 const HOOK = /<script\b[^>]*\bsrc="[^"]*\/assets\/frame\.js"[^>]*><\/script>/gi;
+/** The hash a page sends back with an answer: the first 16 hex digits of the text's SHA-256. */
+const revOf = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 16);
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /** The document as served: other <base> tags dropped, links opening in a new tab, each `cgi-bin:pi-answer` form posting (GET) to this page's nonce,
@@ -163,26 +166,32 @@ export function createDocs(hub: Pick<Hub, "doc" | "form">, name: (key: string) =
 			res.writeHead(200, heads);
 			pipeline(createReadStream(real), res, () => {}); // a file that went meanwhile, or a reader that left, closes both ends
 		},
-		/** POST /<t>/api/doc/<cap>/answer {answerId, answer, rev}: a Markdown document's block answers, in the Answer of pi-better-show whose `ref.block` is the block. A v2 owner gets the Answer, a v1 owner the form it reads (v1Fields). The block is begun in the record
-		 *  first (answered.ts), so a block that is answered or on its way is not sent again from any device. One answer id is sent once: its outcome is the reply to the same id again for as long as the window lasts (30 minutes, whatever else is answered),
+		/** POST /<t>/api/doc/<cap>/answer {answerId, answer, rev}: a Markdown document's block answers, in the Answer of pi-better-show whose `ref.block` is the block. Only a v2 owner (pi-better-show) takes a block's Answer; a v1 Markdown document draws its blocks but its owner (pi-herdr-doc-review) has no way to take one, so the answer is refused up front. The text is read from its owner first: `rev` must be the hash of the text served now, and the block one the text has
+		 *  (blockcount.ts), else the page drew another text and the answer is refused (409 `stale`, `no_block`) before anything is recorded or sent. The block is begun in the record then (answered.ts), so a block that is answered or on its way is not sent again from any device. One answer id is sent once: its outcome is the reply to the same id again for as long as the window lasts (30 minutes, whatever else is answered),
 		 *  but a send that failed outright (no outcome at all) is forgotten, so the same id may try again. */
 		async answer(cap: string, json: Record<string, unknown>): Promise<{ status: number; body: unknown }> {
 			const no = (status: number, error: string, reason: string, extra: object = {}) => ({ status, body: { error, reason, ...extra } }), { answerId, answer, rev } = json;
 			const found = CAP.test(cap) ? hub.doc(cap) : undefined;
 			if (!found) return no(404, "closed", "The document is no longer open in its session.");
 			if (!isBlocksDoc(found.doc)) return no(409, "refused", "This document takes no answers from its blocks.");
+			if (found.doc.v !== 2) return no(409, "refused", "This document comes from pi-herdr-doc-review, which takes no answers from its blocks: they need the document package pi-better-show (contract v2). Answer in the session instead.");
 			if (typeof answerId !== "string" || !ANSWER_ID.test(answerId) || !answerOk(answer) || answer.ref === undefined || typeof rev !== "string" || !REV.test(rev)) return no(400, "bad_request", "The answer is not a block's answer: at most 64 text fields, under 12 KB, with no control characters, the block's index, and the hash of the text it was drawn from.");
-			const now = Date.now(), k = `${cap}\n${answerId}`, { block } = answer.ref;
+			const now = Date.now(), k = `${cap}\n${answerId}`, { block } = answer.ref, doc = found.doc;
 			for (const [id, v] of answers) if (v.until < now) answers.delete(id); else break; // the window is one length for all, so they expire in the order they came
 			const had = answers.get(k);
 			if (had) return had.reply;
-			const key = docKey(found.key, found.doc.path ?? found.doc.display, rev, block), begun = answered.begin(key);
-			if (begun === "answered") return no(409, "answered", "This block was answered already.", { fields: (answered.get(key) as { fields?: Fields } | undefined)?.fields ?? [] });
-			if (begun === "pending") return no(409, "pending", "This block's answer is on its way.");
-			if (begun === "unsaved") return no(500, "unsaved", "This server could not write down the answer, so nothing was sent.");
-			const reply = Promise.resolve().then(async () => {
+			const unspent = (status: number, error: string, reason: string) => (answers.delete(k), no(status, error, reason)); // refused before anything was recorded or sent: the id is not spent, so the page may answer again with a fresh text
+			const reply = (async () => {
+				const text = await body(doc);
+				if (text === undefined) return unspent(404, "closed", "The document could not be read from its owner: it is no longer open in its session.");
+				if (revOf(text) !== rev) return unspent(409, "stale", "The document changed since this page drew it. Reload it to see the text, then answer.");
+				if (block >= blockCount(text)) return unspent(409, "no_block", "The document has no such block. Reload it to see the text, then answer.");
+				const key = docKey(found.key, doc.path ?? doc.display, rev, block), begun = answered.begin(key);
+				if (begun === "answered") return no(409, "answered", "This block was answered already.", { fields: (answered.get(key) as { fields?: Fields } | undefined)?.fields ?? [] });
+				if (begun === "pending") return no(409, "pending", "This block's answer is on its way.");
+				if (begun === "unsaved") return no(500, "unsaved", "This server could not write down the answer, so nothing was sent.");
 				try {
-					const r = await hub.form(cap, answerId, found.doc.v === 2 ? answer.fields : v1Fields(answer), found.doc.v === 2 ? { ...answer, ref: { doc: found.doc.display, block } } : undefined);
+					const r = await hub.form(cap, answerId, answer.fields, { ...answer, ref: { doc: doc.display, block } });
 					if (!r) return no(504, "not_confirmed", "Check the terminal: the session did not confirm the answer, so it may or may not have arrived."); // stays pending: it may have gone
 					if (r.accepted) return { status: 200, body: answered.done(key, answer.fields) ? { accepted: true } : { accepted: true, unsaved: true } };
 					answered.cancel(key);
@@ -192,7 +201,7 @@ export function createDocs(hub: Pick<Hub, "doc" | "form">, name: (key: string) =
 					answered.cancel(key);
 					return no(500, "internal", "The answer could not be sent.");
 				}
-			});
+			})();
 			answers.set(k, { until: now + NONCE_MS, reply });
 			return reply;
 		},
@@ -201,7 +210,7 @@ export function createDocs(hub: Pick<Hub, "doc" | "form">, name: (key: string) =
 			if (lan && !lan.cookie) return { status: 401, body: { error: "not_paired", reason: "A document opens only from a paired device on this network." } };
 			const found = CAP.test(cap) ? hub.doc(cap) : undefined, text = found && found.doc.kind !== "html" ? await body(found.doc) : undefined;
 			if (!found || text === undefined) return { status: 404, body: { error: "not_found", reason: "This document is not open in the net any more." } };
-			const rev = createHash("sha256").update(text).digest("hex").slice(0, 16), name = found.doc.path ?? found.doc.display, mine = answered.list("doc", found.key).filter(([key]) => (JSON.parse(key) as unknown[])[2] === name && (JSON.parse(key) as unknown[])[3] === rev);
+			const rev = revOf(text), name = found.doc.path ?? found.doc.display, mine = answered.list("doc", found.key).filter(([key]) => (JSON.parse(key) as unknown[])[2] === name && (JSON.parse(key) as unknown[])[3] === rev);
 			const index = ([key]: [string, unknown]) => (JSON.parse(key) as number[])[4]!;
 			return { status: 200, body: { kind: "text", display: found.doc.display, revision: found.doc.revision, rev, text, answered: { done: mine.flatMap((e) => (e[1].state === "done" ? [[index(e), e[1].fields]] : [])), pending: mine.filter((e) => e[1].state === "pending").map(index), ...(answered.unreadable ? { unreadable: true } : {}) } } };
 		},

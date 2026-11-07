@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { createAnswered } from "../src/answered.ts";
+import { createControl } from "../src/control.ts";
 import { type Gui, startGui } from "../src/gui.ts";
 import { HerdrError } from "../src/herdr.ts";
 import type { Found } from "../src/net.ts";
@@ -152,4 +153,17 @@ test("a message with no block is sent as it always was, and the record is only f
 	assert.equal((await ask(t.gui, "sessions/sess-1/input", { text: "hello", as: "send" })).status, 200);
 	assert.equal(t.typed().length, 1);
 	assert.deepEqual((await ask(t.gui, "answered/sess-1")).body.done, []);
+});
+
+test("BSR-F007 C01: an operate session writes no record: a `block` in its input is not the box's, so nothing is begun, whatever else the request does", async () => {
+	const answers = { has: () => false, replay: () => undefined, ended: () => undefined, send: async () => ({ status: 200, body: {} }), commands: async () => undefined, target: async () => undefined, probe: async () => ({ editor: "empty" as const }), pull: async () => ({ pending: false }) };
+	const found: Found = { key: "sess-1", base: "wA", name: "billing", role: "main", file: FILE, pane: "wA:p1", live: true };
+	const call = async (method: string) => (method === "pane.get" ? { pane: { pane_id: "wA:p1", agent: "pi", agent_status: "idle", agent_session: { value: FILE } } } : {});
+	const store = createAnswered({ load: () => undefined, save: () => {} });
+	const body = { text: "Go ahead", as: "send", block: block() };
+	await createControl({ lookup: () => found, call, csrf: "c".repeat(32), canonical: (f) => f, secret: async () => false, mirrors: { fresh: () => true, toggle: async () => ({ status: 200, body: {} }) } as never, answers: answers as never, answered: store }).run(["sessions", "sess-1", "input"], body, { remote: true, secure: true, operate: true, foreground: async () => true });
+	assert.deepEqual(store.list("chat", "sess-1"), [], "nothing was recorded for an operate session");
+	const same = createControl({ lookup: () => found, call, csrf: "c".repeat(32), canonical: (f) => f, secret: async () => false, mirrors: { fresh: () => true, toggle: async () => ({ status: 200, body: {} }) } as never, answers: answers as never, answered: store });
+	await same.run(["sessions", "sess-1", "input"], body, { remote: true, secure: true });
+	assert.equal(store.list("chat", "sess-1").length, 1, "the same request from a paired device is recorded (the control)");
 });

@@ -70,6 +70,12 @@ test("a block's answer is the boss's message to that unit: the composer's input 
 	const [form] = find(root, "pbs-form");
 	fire(form!, { kind: "form", title: "Ship the ledger fix", fields: [["when", "now"], ["note", "watch refunds"]], ref: { block: 0 } });
 	await settle();
+	assert.equal(sent.length, 1, "BSR-F001: the form's names are not its labels (when/When?, now/Today): the exact text is shown first and nothing goes until Send");
+	const step = root.find((el) => el.getAttribute("class") === "pbs-confirm");
+	assert.equal(step.length, 1);
+	assert.equal(step[0]!.find((el) => el.tagName === "pre")[0]!.textContent, "User submitted a form in the HTML review pane:\n- when: now\n- note: watch refunds");
+	for (const on of step[0]!.find((el) => el.getAttribute("class") === "pbs-confirm-send")[0]!.handlers.click ?? []) on({ type: "click" });
+	await settle();
 	assert.equal(sent[1]![1].text, "User submitted a form in the HTML review pane:\n- when: now\n- note: watch refunds", "the text the agent reads is encodeAnswer's");
 	assert.deepEqual(form!.answered, [["when", "now"], ["note", "watch refunds"]]);
 });

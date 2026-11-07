@@ -233,3 +233,126 @@ test("nothing a block holds becomes markup: hostile text stays data, and the blo
 	}
 	for (const file of ["gui/blocks.ts", "gui/mdbody.ts", "gui/blockanswer.ts", "gui/blocklock.ts"]) assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|DOMParser/.test(readFileSync(new URL(`../${file}`, import.meta.url), "utf8")), file);
 });
+
+// BSR-F001: a form's choice, a form's question, and a checklist's item each have a name that goes out and a label that is shown; when they differ the boss is shown the exact text before it goes (one confirm step), the way a chip shows its text.
+const FORM_SPLIT = "```form\ntitle: Ship\nquestions:\n  - name: when\n    label: When?\n    choices:\n      - {value: approve the production deploy, label: Today}\n      - Later\n```";
+const confirmOf = (into: El) => into.find((e) => e.getAttribute("class") === "pbs-confirm")[0];
+const pressed = (el: El | undefined, which: string) => {
+	const button = el!.find((e) => e.tagName === "button" && e.getAttribute("class") === which)[0]!;
+	for (const on of button.handlers.click ?? []) on({ type: "click", target: button, preventDefault() {} });
+};
+
+test("BSR-F001: a form choice whose value is not its label asks for a confirm before it sends: the exact outgoing text, then Send sends that very text", async () => {
+	const sent: [Answer, string][] = [];
+	const into = drawn(FORM_SPLIT, host(async (a, text) => (sent.push([a, text]), { ok: true })));
+	const [el] = elementsOf(into) as unknown as (El & { answered?: unknown })[];
+	const answer: Answer = { kind: "form", title: "Ship", fields: [["form", "Ship"], ["when", "approve the production deploy"]], ref: { block: 0 } };
+	assert.equal(fire(el!, answer), true);
+	await settle();
+	assert.equal(sent.length, 0, "nothing goes before the boss says so");
+	const panel = confirmOf(into);
+	assert.ok(panel, "the confirm step is shown");
+	const shown = panel!.find((e) => e.tagName === "pre")[0]!.textContent;
+	assert.equal(shown, "User submitted a form in the HTML review pane:\n- form: Ship\n- when: approve the production deploy", "the text the agent will read, as it is");
+	assert.equal(el!.answered, undefined, "the element stays open under it");
+	pressed(panel, "pbs-confirm-send");
+	await settle();
+	assert.deepEqual(sent.map(([a, t]) => [a.fields, t]), [[answer.fields, shown]], "what was shown is what was sent");
+	assert.equal(confirmOf(into), undefined, "the step goes once it is answered");
+	assert.deepEqual(el!.answered, answer.fields);
+});
+
+test("BSR-F001: Back closes the step and sends nothing; the block can be answered again, and the confirm is of the new answer", async () => {
+	const sent: string[] = [];
+	const into = drawn(FORM_SPLIT, host(async (_a, t) => (sent.push(t), { ok: true })));
+	const [el] = elementsOf(into) as unknown as El[];
+	fire(el!, { kind: "form", fields: [["when", "approve the production deploy"]], ref: { block: 0 } });
+	pressed(confirmOf(into), "pbs-confirm-back");
+	await settle();
+	assert.equal(confirmOf(into), undefined);
+	assert.deepEqual(sent, []);
+	fire(el!, { kind: "form", fields: [["when", "approve the production deploy, Later"]], ref: { block: 0 } });
+	fire(el!, { kind: "form", fields: [["when", "approve the production deploy"]], ref: { block: 0 } });
+	assert.equal(into.find((e) => e.getAttribute("class") === "pbs-confirm").length, 1, "one step at a time: the later answer replaces the earlier");
+	assert.match(confirmOf(into)!.find((e) => e.tagName === "pre")[0]!.textContent, /- when: approve the production deploy$/);
+});
+
+test("BSR-F001: Escape in the step closes it like Back", () => {
+	const into = drawn(FORM_SPLIT, host());
+	fire(elementsOf(into)[0]!, { kind: "form", fields: [["when", "approve the production deploy"]], ref: { block: 0 } });
+	for (const on of confirmOf(into)!.handlers.keydown ?? []) on({ type: "keydown", key: "Enter" });
+	assert.ok(confirmOf(into), "another key leaves it");
+	for (const on of confirmOf(into)!.handlers.keydown ?? []) on({ type: "keydown", key: "Escape" });
+	assert.equal(confirmOf(into), undefined);
+});
+
+test("BSR-F001: a form answer whose values the boss saw goes at once: a choice whose value is its label, even in a form where another choice differs", async () => {
+	const sent: string[] = [];
+	const into = drawn(FORM_SPLIT, host(async (_a, t) => (sent.push(t), { ok: true })));
+	const [el] = elementsOf(into) as unknown as El[];
+	fire(el!, { kind: "form", fields: [["when", "Later"]], ref: { block: 0 } });
+	await settle();
+	assert.equal(confirmOf(into), undefined);
+	assert.equal(sent.length, 1);
+});
+
+test("BSR-F001 (tower's key rule): a question key that is a plain identifier (/^[A-Za-z0-9_.-]{1,40}$/) is the agent's handle and asks for nothing by itself; a key that is prose, has other punctuation, or is longer asks for the confirm unless it is the label as drawn", () => {
+	const ask = (name: string, label: string | undefined) => {
+		const sent: string[] = [];
+		const into = drawn(`\`\`\`form\nquestions:\n  - ${JSON.stringify({ name, ...(label === undefined ? {} : { label }) })}\n\`\`\``, host(async (_a, t) => (sent.push(t), { ok: true })));
+		fire(elementsOf(into)[0]!, { kind: "form", fields: [[name, "yes"]], ref: { block: 0 } });
+		return confirmOf(into) ? "confirm" : sent.length ? "sent" : "nothing";
+	};
+	assert.equal(ask("store", "Which store?"), "sent", "a handle with another label");
+	assert.equal(ask("a.b_c-9", "Q"), "sent");
+	assert.equal(ask("x".repeat(40), "Q"), "sent", "40 characters is the limit");
+	assert.equal(ask("x".repeat(41), "Q"), "confirm", "41 is prose");
+	assert.equal(ask("approve the production deploy", "Run the tests?"), "confirm", "prose, not the label");
+	assert.equal(ask("run:tests", "Run"), "confirm", "punctuation beyond _.-");
+	assert.equal(ask("déploy", "Q"), "confirm", "not ASCII letters");
+	assert.equal(ask("**Ready**", "**Ready**"), "confirm", "the label's markup is not what was drawn");
+	assert.equal(ask("Which store?", "Which store?"), "sent", "a key that is its label as drawn was seen");
+	assert.equal(ask("Which store?", undefined), "sent", "no label: the key is what is drawn");
+});
+
+test("BSR-F001: a checklist whose item name is not its label asks for the confirm (every item goes out); one whose names are the labels does not", async () => {
+	const sent: string[] = [];
+	const into = drawn("```checklist\ntitle: Release\nitems:\n  - {name: deploy to production, label: Run tests}\n  - Write notes\n```", host(async (_a, t) => (sent.push(t), { ok: true })));
+	const [el] = elementsOf(into) as unknown as (El & { answered?: unknown })[];
+	const fields: [string, string][] = [["deploy to production", "checked"], ["Write notes", "unchecked"]];
+	fire(el!, { kind: "checklist", title: "Release", fields, ref: { block: 0 } });
+	await settle();
+	assert.deepEqual(sent, []);
+	assert.equal(confirmOf(into)!.find((e) => e.tagName === "pre")[0]!.textContent, 'User updated the checklist "Release":\n☑ deploy to production\n☐ Write notes');
+	pressed(confirmOf(into), "pbs-confirm-send");
+	await settle();
+	assert.equal(sent.length, 1);
+	const plain = drawn("```checklist\nitems:\n  - Run tests\n  - Write notes\n```", host(async () => ({ ok: true })));
+	fire(elementsOf(plain)[0]!, { kind: "checklist", fields: [["Run tests", "checked"], ["Write notes", "unchecked"]], ref: { block: 0 } });
+	assert.equal(confirmOf(plain), undefined);
+});
+
+test("BSR-F001: the step goes away when another device answers the block meanwhile, and it takes no second tap on Send once the block is locked", async () => {
+	const sent: string[] = [];
+	const h = host(async (_a, t) => (sent.push(t), { ok: true }), { scope: ["S1", "confirm"] });
+	const into = drawn(FORM_SPLIT, h);
+	const [el] = elementsOf(into) as unknown as El[];
+	fire(el!, { kind: "form", fields: [["when", "approve the production deploy"]], ref: { block: 0 } });
+	const panel = confirmOf(into);
+	lockFor("S1", "confirm").done(0, [["when", "Later"]]);
+	assert.equal(confirmOf(into), undefined, "the answered block shows no step");
+	pressed(panel, "pbs-confirm-send");
+	await settle();
+	assert.deepEqual(sent, [], "a stale Send sends nothing");
+});
+
+test("BSR-F001: a chip keeps its own rule (its label is the text it sends) and asks for no step", () => {
+	const into = drawn("```suggest\n- {label: OK, text: approve the deploy}\n```", host());
+	fire(elementsOf(into)[0]!, { kind: "suggest", fields: [["text", "approve the deploy"]], ref: { block: 0 } });
+	assert.equal(confirmOf(into), undefined);
+});
+
+test("BSR-F001: the step's controls are 44 px tall on touch, in the block's own sheet", () => {
+	const css = readFileSync(new URL("../gui/pbs.css", import.meta.url), "utf8");
+	assert.match(css, /@media \(pointer: coarse\), \(max-width: 640px\) \{[^@]*\.pbs-confirm button \{ min-height: 44px; min-width: 44px; \}/);
+});

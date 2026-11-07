@@ -98,20 +98,95 @@ test("a file that cannot be written refuses to begin: nothing is sent, and the b
 	assert.equal(a.begin(key), "answered");
 });
 
-test("a file that cannot be read starts empty and says so, once; the first write heals it", () => {
-	const bad = disk("{not json");
-	const a = createAnswered({ ...bad });
+test("BSR-F002: a file that cannot be read starts empty and says so for the life of the process; the first write sets it aside and never replaces it, and the note does not go", () => {
+	const bad = disk("{not json"), order: string[] = [];
+	const a = createAnswered({ ...bad, aside: () => void order.push("aside"), save: (text) => (order.push("save"), bad.save(text)) });
 	assert.equal(a.unreadable, true);
 	assert.deepEqual(a.list("chat", "S1"), []);
 	const key = chatKey("S1", "e1", 0);
 	assert.equal(a.begin(key), "ok");
-	assert.equal(a.unreadable, false);
+	assert.equal(a.unreadable, true, "still unreadable after a write: the blocks answered before show a note, not silently open");
+	a.done(key, F);
+	a.begin(chatKey("S1", "e2", 0));
+	assert.deepEqual(order, ["aside", "save", "save", "save"], "the old file is moved aside once, before the first write");
 	const gone = disk();
 	gone.box.failLoad = true;
 	assert.equal(createAnswered({ ...gone }).unreadable, true, "an unreadable file (not a missing one)");
 	assert.equal(createAnswered({ ...disk() }).unreadable, false, "a missing file is a new record");
-	const odd = createAnswered({ ...disk(JSON.stringify({ v: 1, entries: [[chatKey("S", "e", 0), { state: "done", fields: "nope", at: 1 }], 7, ["k", { state: "pending", at: 1 }]] })) });
-	assert.deepEqual(odd.list("chat", "S"), [], "an entry out of shape is dropped");
+});
+
+test("BSR-F002: when the unreadable file cannot be set aside nothing is written and nothing is sent", () => {
+	const bad = disk("{not json"), a = createAnswered({ ...bad, aside: () => { throw new Error("EACCES"); } });
+	const key = chatKey("S1", "e1", 0);
+	assert.equal(a.begin(key), "unsaved");
+	assert.equal(bad.box.saves, 0, "the unreadable file was not replaced");
+	assert.equal(bad.box.text, "{not json");
+	assert.equal(a.get(key), undefined);
+});
+
+test("BSR-F002: the record is held to a strict schema at load: a key, a state, a field, or a time out of shape makes the whole record unreadable, never a partly trusted one", () => {
+	const good = chatKey("S", "e", 0), doc = docKey("S", "docs/a.md", "0123456789abcdef", 1);
+	const rec = (...entries: unknown[]) => JSON.stringify({ v: 1, entries });
+	const done = { state: "done", fields: [["q", "a"]], at: 1_000 };
+	assert.equal(createAnswered({ ...disk(rec([good, done], [doc, { state: "pending", at: 1_000 }])), now: () => 2_000 }).unreadable, false, "the control: both key shapes");
+	for (const [name, text] of Object.entries({
+		"no version": JSON.stringify({ entries: [] }),
+		"another version": JSON.stringify({ v: 2, entries: [] }),
+		"a key that is not JSON": rec(["nope", done]),
+		"a key that is not an array": rec([JSON.stringify({ a: 1 }), done]),
+		"a key of another kind": rec([JSON.stringify(["wat", "S", "e", 0]), done]),
+		"a chat key with an object for its index": rec([JSON.stringify(["chat", "S", "e", { x: 1 }]), done]),
+		"a chat key with a negative index": rec([JSON.stringify(["chat", "S", "e", -1]), done]),
+		"a chat key with a fractional index": rec([JSON.stringify(["chat", "S", "e", 1.5]), done]),
+		"a chat key with an index past the limit": rec([JSON.stringify(["chat", "S", "e", 4096]), done]),
+		"a chat key of five parts": rec([JSON.stringify(["chat", "S", "e", 0, 1]), done]),
+		"a doc key with a rev that is not a hash": rec([JSON.stringify(["doc", "S", "n", "XYZ", 0]), done]),
+		"a doc key of four parts": rec([JSON.stringify(["doc", "S", "n", 0]), done]),
+		"a state of another name": rec([good, { state: "weird", at: 1_000 }]),
+		"a done state with no fields": rec([good, { state: "done", at: 1_000 }]),
+		"a field that is a triple": rec([good, { state: "done", fields: [["a", "b", "c"]], at: 1_000 }]),
+		"a field value that is a number": rec([good, { state: "done", fields: [["a", 1]], at: 1_000 }]),
+		"a time that is a string": rec([good, { state: "pending", at: "1000" }]),
+		"a negative time": rec([good, { state: "pending", at: -5 }]),
+		"an entry that is not a pair": rec([good]),
+	})) {
+		const a = createAnswered({ ...disk(text), now: () => 2_000 });
+		assert.equal(a.unreadable, true, name);
+		assert.deepEqual(a.list("chat", "S"), [], name);
+	}
+});
+
+test("BSR-F002: a time in the future is clamped to now, so a planted entry cannot outlive the keep window", () => {
+	const key = chatKey("S", "e", 0);
+	let now = 5_000;
+	const text = JSON.stringify({ v: 1, entries: [[key, { state: "done", fields: [["q", "a"]], at: 9e15 }]] });
+	const a = createAnswered({ ...disk(text), now: () => now, keepMs: 10_000 });
+	assert.equal(a.unreadable, false);
+	assert.equal(a.get(key)?.at, 5_000, "clamped to the time of the load");
+	now += 10_001;
+	const later = createAnswered({ ...disk(JSON.stringify({ v: 1, entries: [[key, a.get(key)]] })), now: () => now, keepMs: 10_000 });
+	assert.equal(later.get(key), undefined, "and it expires with the rest");
+});
+
+test("BSR-F007 A03: a pending entry that was never confirmed within the window is not listed, so a page is not told 'Sending…' for a block the server would take again", () => {
+	let now = 1_000;
+	const a = createAnswered({ ...disk(), now: () => now, pendingMs: 100 });
+	const k = chatKey("S", "e", 0), d = chatKey("S", "e", 1);
+	a.begin(k);
+	a.begin(d);
+	a.done(d, F);
+	assert.deepEqual(a.list("chat", "S").map(([key]) => key), [k, d]);
+	now += 101;
+	assert.deepEqual(a.list("chat", "S").map(([key]) => key), [d], "the expired pending is gone, the done stays");
+	assert.equal(a.begin(k), "ok");
+});
+
+test("BSR-F007 A08: an entry the loader accepts keeps only what the schema names: fields cut to the limits", () => {
+	const key = chatKey("S", "e", 0);
+	const long = JSON.stringify({ v: 1, entries: [[key, { state: "done", fields: Array.from({ length: 70 }, (_, i) => [`f${i}`.padEnd(400, "n"), "v".repeat(2000)]), at: 1_000, extra: "x" }]] });
+	const state = createAnswered({ ...disk(long), now: () => 2_000 }).get(key);
+	assert.ok(state?.state === "done" && state.fields.length === 64 && state.fields.every(([n, v]) => n.length === 256 && v.length === 1024));
+	assert.deepEqual(Object.keys(state!).sort(), ["at", "fields", "state"]);
 });
 
 test("the file holds only the record: a version, and the entries", () => {

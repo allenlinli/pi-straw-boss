@@ -55,7 +55,7 @@ export function fillHeadTitle(root: HTMLElement, head: HeadUnit) {
 	const set = (sel: string, text: string) => { const el = root.querySelector(sel); if (el && el.textContent !== text) el.textContent = text; };
 	const icon = root.querySelector<SVGUseElement>(".head-icon");
 	if (icon) (icon.dataset.icon = "crown", icon.setAttribute("href", iconRef("crown")));
-	set(".head-kicker", "");
+	const kicker = root.querySelector<HTMLElement>(".head-kicker"); if (kicker) delete kicker.dataset.m; set(".head-kicker", ""); // the comms template's word: retranslate() would write it back
 	set(".head-title", noun("head_tower"));
 	set(".head-line", headLine(head));
 	const absent = root.querySelector<HTMLElement>(".head-absent");

@@ -30,7 +30,7 @@ An element's `pbs-answer` is cancelled by the page (the host takes it); the elem
 
 ## Look
 
-`gui/pbs.css` is the only place the page's tokens meet `--pbs-*`, on `.pbs-block` (the wrapper), not `:root`: Geek and Zen set the page's tokens below `:root`, and a custom property that names another is resolved where it is declared, so the block reads the palette of the view it is in. Dark only (no `light-dark()` needed yet: the package's own defaults are overridden). On a touch screen or a phone's width every control of every element is 44 px tall (`::part()` rules in the same file). Geek's font size is 13 px. Zen needs no mapping of its own (its tokens already restyle the page).
+The `--pbs-*` tokens have one owner, the views (docs/specs/2026-11-07-raven-view/spec.md §7): Standard maps them in `gui/style.css` `:root`, Geek in `gui/themes/geek/geek.css`, Raven Keep in `gui/themes/raven/raven.css`, and Zen in `gui/zen.css`, each dark with `color-scheme: dark`. A block takes them by inheritance from the view it is in (`tests/pbs-tokens.test.ts` guards that every view maps all of them and that `gui/pbs.css` declares none). `gui/pbs.css`, the block chunk's own sheet, keeps what §7 does not cover: the wrapper's layout, the note and dimmed states, and the 44 px touch rules (on a touch screen or a phone's width every control of every element is 44 px tall, `::part()` rules scoped to `.pbs-block`). Density is the host's `density` attribute (compact in the comms log, comfortable in a document), not a token.
 
 ## Build notes
 

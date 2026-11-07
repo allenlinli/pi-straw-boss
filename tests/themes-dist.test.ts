@@ -82,6 +82,22 @@ test("the build's ownership rule: a module belongs to a theme only when everythi
 });
 
 test("the theme map names each theme's own files and falls back to Standard's icon", () => {
-	const list = ["assets/index-a.js", "themes/geek/geek-1.js", "themes/geek/geek-1.css", "themes/zen/zen-2.js", "themes/zen/zen-2.css", "themes/zen/favicon-zen-3.svg"];
-	assert.deepEqual(themeMap(list, () => undefined), { geek: { css: "themes/geek/geek-1.css", module: "themes/geek/geek-1.js", icon: "icon.svg" }, zen: { css: "themes/zen/zen-2.css", module: "themes/zen/zen-2.js", icon: "themes/zen/favicon-zen-3.svg" } });
+	const list = ["assets/index-a.js", "themes/geek/geek-1.js", "themes/geek/geek-1.css", "themes/zen/zen-2.js", "themes/zen/zen-2.css", "themes/zen/favicon-zen-3.svg", "themes/raven/raven-4.js", "themes/raven/raven-4.css", "themes/raven/favicon-raven-5.svg", "themes/raven/backdrop-6.webp"];
+	assert.deepEqual(themeMap(list, () => undefined), { geek: { css: "themes/geek/geek-1.css", module: "themes/geek/geek-1.js", icon: "icon.svg" }, zen: { css: "themes/zen/zen-2.css", module: "themes/zen/zen-2.js", icon: "themes/zen/favicon-zen-3.svg" }, raven: { css: "themes/raven/raven-4.css", module: "themes/raven/raven-4.js", icon: "themes/raven/favicon-raven-5.svg" } });
+});
+
+// A stylesheet that names a file (the raven backdrop) names it relative to the stylesheet itself: the page loads a theme's stylesheet from themes/<view>/, so a URL that Vite wrote for a sheet in assets/ (`../themes/raven/x.webp`) would 404 there.
+test("every url() in a theme's stylesheet names a file that exists, relative to the stylesheet", () => {
+	const sheets = files.filter((f) => /^themes\/[^/]+\/.*\.css$/.test(f));
+	assert.ok(sheets.length >= 3, "a stylesheet per theme");
+	let named = 0;
+	for (const sheet of sheets) {
+		for (const [, url] of text(sheet).matchAll(/url\(\s*["']?([^)"']+)["']?\s*\)/g)) {
+			if (/^(data:|#|https?:)/.test(url!)) continue;
+			named++;
+			const target = join(sheet.slice(0, sheet.lastIndexOf("/")), url!).split("\\").join("/");
+			assert.ok(files.includes(target), `${sheet} names ${url}, which resolves to ${target}`);
+		}
+	}
+	assert.ok(named >= 1, "the raven stylesheet names its backdrop");
 });

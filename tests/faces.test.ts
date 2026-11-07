@@ -40,7 +40,7 @@ test("rulesOf: a page that left Zen (or sits on the settings page) follows Stand
 });
 
 test("every view has a row, and no row has a field another lacks", () => {
-	const views: View[] = ["standard", "geek", "zen"];
+	const views: View[] = ["standard", "geek", "zen", "raven"];
 	assert.deepEqual(Object.keys(RULES).sort(), [...views].sort());
 	for (const v of views) assert.deepEqual(Object.keys(RULES[v]).sort(), Object.keys(STANDARD).sort(), v);
 });

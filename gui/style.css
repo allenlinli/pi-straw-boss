@@ -40,6 +40,10 @@
 	--grid: linear-gradient(color-mix(in srgb, var(--line-c) 5%, transparent) 1px, transparent 1px) 0 0 / 44px 44px, linear-gradient(90deg, color-mix(in srgb, var(--line-c) 5%, transparent) 1px, transparent 1px) 0 0 / 44px 44px;
 	--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 	--sans: ui-rounded, "Avenir Next", "Trebuchet MS", system-ui, -apple-system, "Segoe UI", sans-serif;
+	/* pi-better-show's tokens (docs/specs/2026-11-07-raven-view/spec.md §7): a pbs element in a document or the chat takes the page's colours; each theme maps its own. */
+	--pbs-bg: var(--surface-0); --pbs-fg: var(--text); --pbs-muted: var(--dim); --pbs-surface: var(--surface-1); --pbs-line: var(--line); --pbs-control: var(--line-c);
+	--pbs-accent: var(--accent); --pbs-on-accent: var(--ink); --pbs-note: var(--violet); --pbs-ok: var(--ok); --pbs-warn: var(--gold); --pbs-risk: var(--err);
+	--pbs-radius: 12px; --pbs-gap: 12px; --pbs-font: var(--sans); --pbs-font-display: var(--sans); --pbs-mono: var(--mono); --pbs-font-size: 14px;
 }
 * { box-sizing: border-box; margin: 0; }
 html { color-scheme: dark; -webkit-font-smoothing: antialiased; scrollbar-color: color-mix(in srgb, var(--line-c) 45%, transparent) transparent; }
@@ -820,7 +824,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 /* Documents: a parchment badge with the count of those open for review on a unit's plate, the dossier's list, and the tile's frame or text. */
 .plate[data-docs]::before { content: attr(data-docs); position: absolute; left: -5px; top: -5px; z-index: 1; min-width: 10px; height: 16px; padding: 0 3px; border-radius: 3px 6px 3px 6px; background: linear-gradient(var(--paper-hi), var(--paper)); color: var(--paper-ink); font: 700 9px/16px var(--mono); text-align: center; box-shadow: 0 0 0 2px var(--plate), 2px 2px 0 1px var(--paper-edge); }
 .d-docs { margin-top: 12px; text-align: left; } .d-docs h4 { margin: 0 0 6px; text-align: center; }
-.d-doc-list { display: grid; gap: 6px; }
+.d-doc-list { display: grid; gap: 6px; } .d-doc-ico { display: none; }
 .d-doc { display: grid; gap: 1px; width: 100%; padding: 7px 10px 7px 30px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--paper) 25%, transparent); background: color-mix(in srgb, var(--paper) 7%, transparent) no-repeat 9px 50% / 13px 16px linear-gradient(var(--paper-hi), var(--paper)); color: var(--text); font: 13px var(--sans); text-align: left; cursor: pointer; }
 .d-doc:hover { border-color: color-mix(in srgb, var(--paper) 67%, transparent); } .d-doc b { font-weight: 600; overflow-wrap: anywhere; } .d-doc small { color: var(--dim); font-size: 11px; }
 .d-docs-cut { margin: 6px 0 0; color: var(--dim); font-size: 12px; }

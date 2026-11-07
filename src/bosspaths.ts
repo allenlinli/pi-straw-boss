@@ -137,7 +137,7 @@ export function parseStash(rest: string | undefined): { name?: string; workspace
 const flat = (units: Unit[]): Unit[] => units.flatMap((u) => [u, ...flat(u.subs)]);
 
 /** The first pi-straw-boss whose server reads `guarded` on a session's input. */
-const GUARDED_SINCE = "0.60.5";
+const GUARDED_SINCE = "0.61.0";
 export function createBossPaths(kit: Kit, { host, server, closeSelf, post = postServer, read, pollMs, here }: { host: Pick<ReturnType<typeof createHost>, "ensure" | "sessions">; /** Holds the pane's local-only mark while a screen that only this computer may answer waits (heremark.ts). */ here: Here; server?: Pick<ServerLook, "logs">; closeSelf(keepPane: boolean): string | undefined; post?: Post; /** The net as the boss sees it; tests hand one over. */ read?: () => Promise<Net>; /** How often an opening is asked for a trust question (bossopen.ts). */ pollMs?: number }) {
 	const { cfg, s, guiDir, tell, me } = kit, lang = (): Lang => memoryLang(cfg.env), t = () => WORDS[lang()];
 	const net = (): Promise<Net> => read ? read() : collectNet({ run: cfg.run, world: cfg.world, sessions: () => host.sessions() });

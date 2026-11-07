@@ -20,7 +20,7 @@ const NET = {
 	],
 } as unknown as Net;
 
-function world({ ui = true, answer = true, lang = "en", version = "0.60.5" }: { ui?: boolean; answer?: boolean; lang?: string; version?: string | null } = {}) {
+function world({ ui = true, answer = true, lang = "en", version = "0.61.0" }: { ui?: boolean; answer?: boolean; lang?: string; version?: string | null } = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "sb-paths-"));
 	const told: { text: string; level?: string }[] = [], posted: { path: string; json: Record<string, unknown> }[] = [], asked: string[][] = [], self: boolean[] = [];
 	let reply: { status: number; body: Record<string, unknown> } = { status: 200, body: {} };
@@ -477,11 +477,11 @@ test("PTPR-F002: /boss send refuses, and posts nothing, when the sb server's rec
 		await w.paths.send("api-member", false, "run the build");
 		assert.deepEqual(w.posted, [], version);
 		assert.equal(w.told.at(-1)!.level, "error");
-		assert.match(w.told.at(-1)!.text, /0\.60\.5/);
+		assert.match(w.told.at(-1)!.text, /0\.61\.0/);
 		assert.match(w.told.at(-1)!.text, /restart/i);
 		w.done();
 	}
-	for (const version of ["0.60.5", "0.61.0", "1.0.0"]) {
+	for (const version of ["0.61.0", "0.61.1", "1.0.0"]) {
 		const w = world({ version });
 		await w.paths.send("api-member", false, "run the build");
 		assert.equal(w.posted.length, 1, version);

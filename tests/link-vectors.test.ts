@@ -78,6 +78,8 @@ test("tower with 4 or 5 fields, caps, and tower-reply: cut as the vectors say, a
 	assert.ok(V.towerCases.length >= 7 && V.capsReplyCases.length >= 8);
 	for (const c of V.towerCases) assert.deepEqual(decodePlaintext("tower", h(c.plaintext)), c.expect, c.name);
 	for (const c of V.capsReplyCases) assert.deepEqual(decodePlaintext(c.kind as Kind, h(c.plaintext)), c.expect, c.name);
+	assert.ok(V.unitStopCases.length >= 18);
+	for (const c of V.unitStopCases) assert.deepEqual(decodePlaintext(c.kind as Kind, h(c.plaintext)), c.expect, c.name);
 });
 
 test("board plaintexts: the caps cut as the vectors say, and a truncated entry, trailing bytes, or a wrong field count is refused", () => {

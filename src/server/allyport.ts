@@ -40,6 +40,15 @@ export function allyPort(link: () => LinkService | undefined): AllyPort {
 			return service.holder?.isMember(team, device) ? { level: service.levelOf(device) } : undefined;
 		},
 		project: (team) => link()?.config().teams.get(team)?.project,
+		box: () => link()?.holder?.deviceId,
+		admin: (team, device) => link()?.holder?.isAdmin(team, device) ?? false,
+		label: (team, device) => link()?.holder?.memberLabel(team, device) ?? device.slice(0, 6),
+		async tell(team, device, notice) {
+			const holder = link()?.holder;
+			if (!holder) throw new Error("The link holder is not running");
+			await holder.sendDialog(team, device, "notice", notice);
+		},
+		audit: (entry) => void link()?.store.log(entry),
 		thread: (device) => link()?.store.readThread(device).slice(-THREAD_ROWS).map((r) => ({ dir: r.dir, at: r.at, kind: r.kind, text: r.text })) ?? [],
 	};
 }

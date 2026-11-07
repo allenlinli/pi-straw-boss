@@ -145,6 +145,12 @@ export interface AllyPort {
 	project(team: string): string | undefined;
 	/** The last messages of the device's thread with this computer's towers (both directions, oldest first), for the brief. */
 	thread(device: string): { dir: "in" | "out"; at: number; kind: string; text: string }[];
+	/** A remote stop of one main (docs/specs/2026-11-07-link-remote-stop.md; absent in a world without a holder, where no stop is ever accepted): this device's id, whether `device` is an admin of `team`, a roster label, one notice told to one device alone, and a line for the holder's link.log. */
+	box?(): string | undefined;
+	admin?(team: string, device: string): boolean;
+	label?(team: string, device: string): string;
+	tell?(team: string, device: string, notice: { kind: string; unit: string; text: string }): Promise<void>;
+	audit?(entry: Record<string, unknown>): void;
 }
 
 /** What the hub needs of a tower service (towers.ts implements it). */
@@ -305,7 +311,12 @@ export type RunSignal =
 	| { kind: "ended"; run: string; workspace: string; label: string; ally: boolean; outcome: "crashed" | "timeout" | "quit"; detail?: string; /** An ally run's sender and team: the controller that dispatched it. */ device?: string; team?: string }
 	| { kind: "refused"; workspace: string; label: string; ally: boolean; text: string; device?: string; team?: string }
 	/** A main an ally run opened for `device` was asked to quit because the device left the team or lost `dispatch` (revoke.ts); `ended` says it quit, else it still runs and is asked again. */
-	| { kind: "revoked"; workspace: string; label: string; ally: true; device: string; team?: string; main: string; ended: boolean; /** The box cannot end this main (the boss opened it): the admins close it by hand. Its own notice key. */ manual?: boolean; text: string };
+	| { kind: "revoked"; workspace: string; label: string; ally: true; device: string; team?: string; main: string; ended: boolean; /** The box cannot end this main (the boss opened it): the admins close it by hand. Its own notice key. */ manual?: boolean; text: string }
+	/**
+	 * What became of a stop an admin or the dispatcher asked of one main (docs/specs/2026-11-07-link-remote-stop.md, 3.4): `pending` (busy, told once), `stopped`, `manual` (the box cannot end it), or `refused` (a stop the box turned down for another reason than the holder's;
+	 * `device` and `team` are then the requester's, so the notice reaches it and the team's admins, not the dispatcher's scope). `stopId` names the stop. The text never carries the requester's reason.
+	 */
+	| { kind: "main-stop"; outcome: "pending" | "stopped" | "manual" | "refused"; workspace: string; label: string; ally: true; device: string; team?: string; main: string; stopId: string; text: string };
 
 export interface RunsOptions {
 	slot: Slot;

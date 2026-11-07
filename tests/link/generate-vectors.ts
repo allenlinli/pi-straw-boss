@@ -8,7 +8,7 @@ import { BIP39_ENGLISH, BIP39_ENGLISH_SHA256 } from "../../src/link/bip39-englis
 import { buildJoinRequest, checkJoiner, encodeInvite, inviteHash, openJoinRequest, safetyWords, type Invite } from "../../src/link/join.ts";
 import { encodePlaintext, KINDS, type Kind } from "../../src/link/kinds.ts";
 import { addEntry, encodeEntry, entryHash } from "../../src/link/roster.ts";
-import { ASK_ID, envelopeCases, NOW, SAMPLE } from "./envelope-cases.ts";
+import { ASK_ID, envelopeCases, HANDLE, NOW, SAMPLE } from "./envelope-cases.ts";
 import { rosterCases } from "./roster-cases.ts";
 import { DEVICES, det, mainLog, TEAM, teamKey, view, type Who } from "./scenario.ts";
 
@@ -101,6 +101,41 @@ function capsReplyCases() {
 	];
 }
 
+/** `unit-stop` (a stop's ids, mode, and one-line reason) and `unit-status` with an optional second field `mains` (docs/specs/2026-11-07-link-remote-stop.md §3): plaintext in, what a decoder gives back out (null for a structure it refuses). */
+function unitStopCases() {
+	const mk = (name: string, kind: Kind, plaintext: Buffer, expect: unknown) => ({ name, kind, plaintext: hex(plaintext), expect });
+	const stop = (id: string, handle: string, mode: string, reason: string) => enc(str(id), str(handle), str(mode), str(reason));
+	const unit = enc(str("build"), str("working"), list([]), str("r")), units = list([unit]), unitJson = { unit: "build", state: "working", monitors: [] as string[], report: "r" };
+	const main = (handle: string, name: string, stopping: boolean) => enc(str(handle), str("build"), str(name), str("idle"), str(DEVICES.alice.id), bool(stopping));
+	const mainJson = (handle: string, name: string, stopping: boolean) => ({ handle, unit: "build", name, state: "idle", by: DEVICES.alice.id, stopping });
+	return [
+		mk("a unit-stop", "unit-stop", stop(ASK_ID, HANDLE, "quit", "forgotten idle main"), { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "forgotten idle main" }),
+		mk("a unit-stop with an empty reason", "unit-stop", stop(ASK_ID, HANDLE, "interrupt", ""), { stopId: ASK_ID, handle: HANDLE, mode: "interrupt", reason: "" }),
+		mk("a unit-stop with a mode this build does not know is still decoded (the box refuses it)", "unit-stop", stop(ASK_ID, HANDLE, "kill", ""), { stopId: ASK_ID, handle: HANDLE, mode: "kill", reason: "" }),
+		mk("a unit-stop reason is cut to 200 bytes", "unit-stop", stop(ASK_ID, HANDLE, "quit", "a".repeat(300)), { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "a".repeat(200) }),
+		mk("a unit-stop reason loses its line breaks", "unit-stop", stop(ASK_ID, HANDLE, "quit", "one\ntwo\r\tthree"), { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "one two  three" }),
+		mk("a unit-stop reason loses C1 controls (NEL, the 8-bit CSI)", "unit-stop", stop(ASK_ID, HANDLE, "quit", "x\u0085y\u009b31mz"), { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "x y 31mz" }),
+		mk("a unit-stop reason loses U+2028 and U+2029", "unit-stop", stop(ASK_ID, HANDLE, "quit", "a\u2028b\u2029c"), { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "a b c" }),
+		mk("a unit-stop reason loses bidi overrides, embeddings, and isolates", "unit-stop", stop(ASK_ID, HANDLE, "quit", "a\u202ab\u202ec\u2066d\u2069e\u200ef\u061cg"), { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "a b c d e f g" }),
+		mk("a unit-stop reason loses invisible characters", "unit-stop", stop(ASK_ID, HANDLE, "quit", "a\u200bb\u2060c\ufeffd\u00ade\u{e0041}f"), { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "a b c d e f" }),
+		mk("a unit-stop reason cut at 200 bytes inside a multibyte character keeps whole characters", "unit-stop", stop(ASK_ID, HANDLE, "quit", "a" + "中".repeat(80)), { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "a" + "中".repeat(66) }),
+		mk("a unit-stop with an upper-case stop id", "unit-stop", stop(ASK_ID.toUpperCase(), HANDLE, "quit", ""), null),
+		mk("a unit-stop with a stop id of 31 digits", "unit-stop", stop(ASK_ID.slice(1), HANDLE, "quit", ""), null),
+		mk("a unit-stop with a handle of 15 digits", "unit-stop", stop(ASK_ID, HANDLE.slice(1), "quit", ""), null),
+		mk("a unit-stop with an upper-case handle", "unit-stop", stop(ASK_ID, HANDLE.toUpperCase(), "quit", ""), null),
+		mk("a unit-stop with three fields", "unit-stop", enc(str(ASK_ID), str(HANDLE), str("quit")), null),
+		mk("a unit-stop with five fields", "unit-stop", enc(str(ASK_ID), str(HANDLE), str("quit"), str(""), str("x")), null),
+		mk("a unit-status with one field, as before mains existed", "unit-status", enc(units), { units: [unitJson] }),
+		mk("a unit-status with two fields, the second the mains", "unit-status", enc(units, list([main(HANDLE, "docs", false), main("fedcba9876543210", "api", true)])), { units: [unitJson], mains: [mainJson(HANDLE, "docs", false), mainJson("fedcba9876543210", "api", true)] }),
+		mk("a unit-status with an empty mains list", "unit-status", enc(units, list([])), { units: [unitJson], mains: [] }),
+		mk("a unit-status cuts its mains to 20", "unit-status", enc(units, list(Array.from({ length: 22 }, (_, i) => main(HANDLE, `m${i}`, false)))), { units: [unitJson], mains: Array.from({ length: 20 }, (_, i) => mainJson(HANDLE, `m${i}`, false)) }),
+		mk("a main name is cut to 40 characters", "unit-status", enc(units, list([main(HANDLE, "n".repeat(50), false)])), { units: [unitJson], mains: [mainJson(HANDLE, "n".repeat(40), false)] }),
+		mk("a unit-status with three fields", "unit-status", enc(units, list([]), str("x")), null),
+		mk("a unit-status with no field", "unit-status", enc(), null),
+		mk("a main with five fields", "unit-status", enc(units, list([enc(str(HANDLE), str("build"), str("docs"), str("idle"), str(DEVICES.alice.id))])), null),
+	];
+}
+
 export function generateVectors() {
 	const devices = Object.fromEntries(WHO.map((w) => {
 		const d = DEVICES[w];
@@ -173,6 +208,7 @@ export function generateVectors() {
 		boardCases: boardCases(),
 		towerCases: towerCases(),
 		capsReplyCases: capsReplyCases(),
+		unitStopCases: unitStopCases(),
 		limits: [
 			{ kind: "tower", field: "text", unit: "bytes", max: 192 * 1024 },
 			{ kind: "confirm-request", field: "args", unit: "characters", max: 12_000 },
@@ -180,6 +216,9 @@ export function generateVectors() {
 			{ kind: "notice", field: "text", unit: "bytes", max: 1024 },
 			{ kind: "tower-reply", field: "text", unit: "bytes", max: 192 * 1024 },
 			{ kind: "caps", field: "features", unit: "features", max: 16 },
+			{ kind: "unit-stop", field: "reason", unit: "bytes", max: 200 },
+			{ kind: "unit-status", field: "mains", unit: "entries", max: 20 },
+			{ kind: "unit-status", field: "main name", unit: "characters", max: 40 },
 			{ kind: "board", field: "entries", unit: "entries", max: 24 },
 			{ kind: "board", field: "workspace, tab, name", unit: "characters", max: 40 },
 			{ kind: "board", field: "now", unit: "characters", max: 120 },

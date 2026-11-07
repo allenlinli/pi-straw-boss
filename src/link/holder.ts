@@ -9,7 +9,7 @@ import type { LinkConfig, Share } from "./config.ts";
 import { shortId, type DeviceKeys } from "./device.ts";
 import { buildEnvelope, openEnvelope, parseEnvelope, recordTaken, type Header, type ReceiveState } from "./envelope.ts";
 import { PayloadTooLargeError, RelayError, UnauthorizedError } from "./errors.ts";
-import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, LIMITS, type Notice, type Presence, type TowerMessage, type TowerReply, type UnitStatus, type WorkspaceState } from "./kinds.ts";
+import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, handleOk, LIMITS, type MainStatus, type Notice, type Presence, type TowerMessage, type TowerReply, type UnitStatus, type UnitStop, type WorkspaceState } from "./kinds.ts";
 import { type AdminRun, type InviteView, type JoinRequestView, type JoinView, type Prefill, TeamAdmin, type TeamView } from "./admin.ts";
 import { Outbox, type QueuedEnvelope } from "./outbox.ts";
 import { Requests } from "./request.ts";
@@ -84,7 +84,17 @@ export interface HolderOptions {
 	capsMinMs?: number;
 	/** An unattended device: where a `dialog-answer` goes once the sender is checked to be attended and at `dispatch` now (src/link/dialogs-out.ts `DialogForwarder.answer`, which checks the rest). */
 	dialogAnswer?: (a: DialogAnswerInput) => void | Promise<void>;
+	/** An unattended device: where a `unit-stop` goes once the holder's checks passed (docs/specs/2026-11-07-link-remote-stop.md §4: this device unattended, an attended sender at `dispatch` now, a request no older than 15 minutes, a known mode). The server's checks follow there. */
+	unitStop?: (a: UnitStopInput) => void | Promise<void>;
 }
+
+/** A `unit-stop` the holder accepted: `at` is its header `ts`. `mode` is one of `STOP_MODES`. */
+export interface UnitStopInput { team: string; from: string; stopId: string; handle: string; mode: string; reason: string; at: number }
+/** The modes of a stop this build takes, and how old (at the box, by the request's own `ts`) a stop may be. */
+export const STOP_MODES = ["quit", "interrupt"] as const;
+export const STOP_MAX_AGE_MS = 15 * 60_000;
+/** What `requestUnitStop` answers: `sent` when the relay holds the request, `queued` when it does not yet (it is sent again until it does), or why it was not sent. */
+export type UnitStopResult = { ok: true; status: "sent" | "queued"; stopId: string; id: string } | { ok: false; error: string };
 
 export interface ConfirmRequestInput { fromSession: string; team: string; device: string; dialogId: string; digest: string; tool: string; args: string; tower: string }
 /** A confirm-request another device sent, waiting for this device's boss. */
@@ -108,7 +118,7 @@ export interface AllyBase { id: string; team: string; teamName: string; device: 
 /** The compact reading the net snapshot carries: it changes only when something worth redrawing does. */
 /** What an unattended device last said about its units (`unit-status`, kept in memory): shown beside its ally bases while it keeps saying it. */
 /** `at` is when this computer took the status (epoch ms), for the card's clock; `stale` is set when the device has sent no status for `UNITS_FRESH_MS`: what is shown is its last one. */
-export interface DeviceUnits { team: string; device: string; units: UnitStatus[]; at: number; stale?: true }
+export interface DeviceUnits { team: string; device: string; units: UnitStatus[]; /** The mains this computer may stop, when the box sent them (it does so only against this device's `caps`). */ mains?: MainStatus[]; at: number; stale?: true }
 export interface LinkSummary { allies: AllyBase[]; alerts: LinkAlert[]; confirms: ConfirmView[]; units: DeviceUnits[] }
 /** Units a peer's `unit-status` may carry that are kept; how long one counts as current; how many notices are kept, and for how long. */
 const UNITS_MAX = 32, UNITS_FRESH_MS = 3 * 60_000, UNITS_GONE_MS = 30 * 60_000, NOTICES_KEPT = 20, NOTICE_KEEP_MS = 24 * 3600_000;
@@ -138,7 +148,7 @@ const BOARD_OFFLINE_MS = 2 * 3600_000, BOARD_MAX_AGE_MS = 7 * 24 * 3600_000;
 /** The board is sent at most this often per team, and once an hour unchanged; a relay without the kind is left alone for an hour. */
 const BOARD_MIN_MS = 15_000, BOARD_REFRESH_MS = 3600_000, BOARD_OFF_MS = 3600_000;
 /** What this build takes (docs/specs/2026-10-26-sb-backend.md, Replies for a main). A `caps` older than 2 hours counts as none. */
-export const CAPS_FEATURES = ["tower.awaitsReply", "tower-reply"] as const;
+export const CAPS_FEATURES = ["tower.awaitsReply", "tower-reply", "unit-stop", "unit-status.mains"] as const;
 export const CAPS_STALE_MS = 2 * 3600_000;
 const CAPS_REFRESH_MS = 3600_000, CAPS_MIN_MS = 15_000, CAPS_OFF_MS = 3600_000, REPLY_OFF_MS = 3600_000, FALLBACK_LOG_MS = 3600_000;
 
@@ -168,7 +178,7 @@ interface TeamRun {
 	/** The last `caps` of each peer, in memory only: the relay gives it back on the next stream. */
 	caps: Map<string, { at: number; features: string[] }>;
 	/** The last `unit-status` of each unattended peer, in memory only, and the `ts` of the last one this device sent (an ephemeral kind's `ts` has to rise). */
-	units: Map<string, { at: number; units: UnitStatus[] }>;
+	units: Map<string, { at: number; units: UnitStatus[]; mains?: MainStatus[] }>;
 	unitTs: number;
 	/** What this holder last sent as `caps` to the team: when, the `ts` used, and until when a relay that refused the kind is left alone. */
 	capsSent: { at: number; ts: number; offUntil: number };
@@ -491,7 +501,7 @@ export class LinkHolder {
 		}
 		run.lastEphemeral = recordTaken(this.state(run, tf, roster), opened.header).lastEphemeral;
 		if (opened.header.kind === "board") run.boards.set(opened.header.from, { at: this.now(), ts: opened.header.ts, board: opened.message as Board });
-		if (opened.header.kind === "unit-status") this.takeUnitStatus(run, roster, opened.header, opened.message as { units: UnitStatus[] });
+		if (opened.header.kind === "unit-status") this.takeUnitStatus(run, roster, opened.header, opened.message as { units: UnitStatus[]; mains?: MainStatus[] });
 		if (opened.header.kind === "caps") run.caps.set(opened.header.from, { at: this.now(), features: (opened.message as Caps).features });
 		if (opened.header.kind === "presence") {
 			const presence = opened.message as Presence;
@@ -525,6 +535,7 @@ export class LinkHolder {
 			else if (header.kind === "dialog-open") this.takeDialogOpen(run, roster, header, opened.message as DialogOpen);
 			else if (header.kind === "dialog-close") this.takeDialogClose(run, header, opened.message as DialogClose);
 			else if (header.kind === "dialog-answer") this.takeDialogAnswer(run, roster, header, opened.message as DialogAnswer);
+			else if (header.kind === "unit-stop") this.takeUnitStop(run, roster, header, opened.message as UnitStop);
 			else if (header.kind === "notice") this.takeNotice(run, roster, header, opened.message as Notice);
 			else store.log({ event: "unhandled-kind", team: run.team, kind: header.kind, from: header.from });
 			// The sequence guard moves only after the message is in the inbox (or known not to need it), in the same locked write (R-F021).
@@ -914,7 +925,7 @@ export class LinkHolder {
 				if (!key) continue;
 				const ts = Math.max(now, sent.ts + 1);
 				sent.at = now; // a failed post is tried again after the spacing, not at every tick
-				const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: [...CAPS_FEATURES] }) });
+				const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: CAPS_FEATURES.filter((f) => f !== "unit-stop" || this.o.unitStop) }) });
 				await run.client.postEnvelope(run.teamId, envelope);
 				sent.ts = ts;
 			} catch (error) {
@@ -1092,7 +1103,7 @@ export class LinkHolder {
 		});
 	}
 	/** A `unit-status` to one device of a team (ephemeral: no queue, no acknowledgement; the receiver keeps the latest). A relay that does not know the kind refuses it, and the reporter's next pass tries again. */
-	async sendUnitStatus(team: string, device: string, units: UnitStatus[]): Promise<void> {
+	async sendUnitStatus(team: string, device: string, units: UnitStatus[], mains?: MainStatus[]): Promise<void> {
 		const run = this.runs.get(team);
 		if (!run || run.dead || !this.running || !this.device) throw new Error("That team is not running on this device");
 		const { state } = this.loadTeam(team), key = state.keys.get(state.epoch);
@@ -1100,13 +1111,13 @@ export class LinkHolder {
 		if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
 		// `ts` rises by at least 1 per status, so a receiver's per-sender guard never drops one for an equal clock reading.
 		const ts = (run.unitTs = Math.max(this.now(), run.unitTs + 1));
-		await run.client.postEnvelope(run.teamId, buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "unit-status", to: [device], plaintext: encodePlaintext("unit-status", { units }) }));
+		await run.client.postEnvelope(run.teamId, buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "unit-status", to: [device], plaintext: encodePlaintext("unit-status", { units, ...(mains !== undefined && this.capsOf(run, device).includes("unit-status.mains") ? { mains } : {}) }) }));
 	}
-	private takeUnitStatus(run: TeamRun, roster: RosterState, header: Header, p: { units: UnitStatus[] }): void {
+	private takeUnitStatus(run: TeamRun, roster: RosterState, header: Header, p: { units: UnitStatus[]; mains?: MainStatus[] }): void {
 		const sender = roster.members.get(header.from);
 		// Only an attended device shows an unattended one's units; the envelope check enforces the kind's sender rule, this keeps the receiver honest on its own.
 		if (!(this.o.attended?.() ?? true) || !sender || sender.attended) return void this.o.store.log({ event: "drop", team: run.team, reason: "unit-status-unexpected", from: header.from, kind: "unit-status" });
-		run.units.set(header.from, { at: this.now(), units: p.units.slice(0, UNITS_MAX) });
+		run.units.set(header.from, { at: this.now(), units: p.units.slice(0, UNITS_MAX), ...(p.mains ? { mains: p.mains } : {}) });
 	}
 	/** A notice from an unattended device, kept in memory (the last `NOTICES_KEPT`, a day each) until the boss clears it on this page; clearing is local. */
 	private notices: { id: string; team: string; device: string; at: number; kind: string; unit: string; text: string }[] = [];
@@ -1118,7 +1129,8 @@ export class LinkHolder {
 		this.notices.push({ id, team: run.team, device: header.from, at: this.now(), kind: p.kind, unit: p.unit, text: p.text });
 		while (this.notices.length > NOTICES_KEPT) this.notices.shift();
 	}
-	private memberLabel(team: string, device: string): string {
+	/** A roster member's label in `team`, or its short id when the roster cannot be read or names no such device. */
+	memberLabel(team: string, device: string): string {
 		try {
 			return this.loadTeam(team).state.members.get(device)?.label ?? shortId(device);
 		} catch {
@@ -1146,6 +1158,67 @@ export class LinkHolder {
 		if (this.o.config().trust.get(header.from) !== "dispatch") return drop("dialog-answer-level");
 		if (!sink) return drop("dialog-answer-unhandled");
 		void Promise.resolve().then(() => sink({ team: run.team, from: header.from, dialogId: p.dialogId, digest: p.digest, answer: p.answer, answerId: p.answerId })).catch((error: Error) => this.o.store.log({ event: "dialog-answer-failed", error: error.message }));
+	}
+	/**
+	 * A `unit-stop` (docs/specs/2026-11-07-link-remote-stop.md §4, the holder's part): this device is unattended, the sender an attended member at `dispatch` now, the request no older than 15 minutes at this device,
+	 * and the mode one this build takes. A refusal logs `drop` with `unit-stop-*` and tells an attended sender `unit-stop-refused` with its reason word, never the reason text; an acceptance goes to `o.unitStop`,
+	 * where the server decides which main and whose. Every request that gets past the envelope's checks logs `unit-stop-in` with its verdict, and never the reason text.
+	 */
+	private takeUnitStop(run: TeamRun, roster: RosterState, header: Header, p: UnitStop): void {
+		const sender = roster.members.get(header.from), sink = this.o.unitStop, at = header.ts;
+		const refuse = (verdict: string, tell?: string) => {
+			this.o.store.log({ event: "drop", team: run.team, reason: `unit-stop-${verdict}`, from: header.from, kind: "unit-stop", stop: p.stopId });
+			this.o.store.log({ event: "unit-stop-in", team: run.team, from: header.from, stopId: p.stopId, handle: p.handle, verdict });
+			if (tell) void this.sendDialog(run.team, header.from, "notice", { kind: "unit-stop-refused", unit: "", text: `Stop ${p.stopId.slice(0, 6)} was refused: ${tell}.` }).catch((error: Error) => this.o.store.log({ event: "unit-stop-notice-failed", error: error.message }));
+		};
+		if (this.o.attended?.() ?? true) return refuse("attended-device");
+		if (!sender || !sender.attended) return refuse("sender");
+		if (this.o.config().trust.get(header.from) !== "dispatch") return refuse("level", "level");
+		if (this.now() - at > STOP_MAX_AGE_MS) return refuse("stale", "stale");
+		if (!(STOP_MODES as readonly string[]).includes(p.mode)) return refuse("mode", "mode");
+		if (!sink) return refuse("unhandled");
+		this.o.store.log({ event: "unit-stop-in", team: run.team, from: header.from, stopId: p.stopId, handle: p.handle, verdict: "accepted" });
+		void Promise.resolve().then(() => sink({ team: run.team, from: header.from, stopId: p.stopId, handle: p.handle, mode: p.mode, reason: p.reason, at })).catch((error: Error) => this.o.store.log({ event: "unit-stop-failed", error: error.message }));
+	}
+	/**
+	 * Asks an unattended box of a team to stop one main (the controller's side; the box decides). Only an attended device asks, only of an unattended member of the team whose fresh `caps` list `unit-stop` (an older
+	 * build would drop the kind as unknown without telling anyone). Waits as `send` does for the relay's answer: `sent` once it holds the request, `queued` when it has not answered yet, and a refusal of the relay's as an error.
+	 */
+	async requestUnitStop(team: string, device: string, req: { handle: string; mode: string; reason?: string }): Promise<UnitStopResult> {
+		const run = this.runs.get(team);
+		if (!run || run.dead || !this.running || !this.device) return { ok: false, error: "That team is not running on this device" };
+		if (!(this.o.attended?.() ?? true)) return { ok: false, error: "An unattended device does not ask another to stop a main" };
+		if (!handleOk(req.handle)) return { ok: false, error: "A main's handle is 16 lowercase hex digits" };
+		if (!(STOP_MODES as readonly string[]).includes(req.mode)) return { ok: false, error: `mode is ${STOP_MODES.join(" or ")}` };
+		let target;
+		try {
+			target = this.loadTeam(team).state.members.get(device);
+		} catch {
+			return { ok: false, error: "That team's roster cannot be read" };
+		}
+		if (!target || device === this.device.keys.id) return { ok: false, error: "That device is not another member of the team" };
+		if (target.attended) return { ok: false, error: "Only an unattended box takes a stop request" };
+		if (!this.capsOf(run, device).includes("unit-stop")) return { ok: false, error: "That box's build does not take stop requests yet: it needs a pi-straw-boss that lists unit-stop in its caps" };
+		if (run.outbox.haltedBy) return { ok: false, error: `The relay is refusing this device (${restrictLabel(run.outbox.haltedBy.code)}), so nothing is sent to team ${run.team.slice(0, 6)} right now` };
+		const stopId = randomBytes(16).toString("hex"), reason = req.reason ?? "";
+		const queued = await run.outbox.submit((seq) => {
+			const { state } = this.loadTeam(team), key = state.keys.get(state.epoch);
+			if (!key) throw new Error(`This device holds no key for epoch ${state.epoch}`);
+			return buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device!.keys, seq, ts: this.now(), kind: "unit-stop", to: [device], plaintext: encodePlaintext("unit-stop", { stopId, handle: req.handle, mode: req.mode, reason }) });
+		}), id = queued.id.toString("hex");
+		await new Promise<void>((resolve) => {
+			if (run.settled.has(id)) return resolve();
+			const timer = setTimeout(resolve, this.o.postWaitMs ?? POST_WAIT_MS);
+			timer.unref();
+			run.waiters.set(id, () => (clearTimeout(timer), resolve()));
+		});
+		run.waiters.delete(id);
+		const outcome = run.settled.get(id);
+		run.settled.delete(id);
+		if (outcome === undefined || outcome === "halted") run.gone.set(id, `the stop request to ${this.memberLabel(team, device)}`);
+		this.o.store.log({ event: "unit-stop-out", team, to: device, stopId, handle: req.handle, outcome: outcome === undefined ? "queued" : outcome === "posted" ? "posted" : String(outcome) });
+		if (outcome instanceof Error) return { ok: false, error: outcome instanceof RelayError && outcome.code === "unknown-kind" ? "The relay does not take stop requests yet" : `The stop request was not sent: ${refusal(outcome)}` };
+		return { ok: true, status: outcome === "posted" ? "sent" : "queued", stopId, id };
 	}
 	/** The forwarded dialogs of devices still in their team: those waiting for this device's boss, and with `ended` the ones that closed in the last two minutes (the card says how). */
 	dialogRequests(ended = false) {
@@ -1388,7 +1461,7 @@ export class LinkHolder {
 		const now = this.now(), out: DeviceUnits[] = [];
 		for (const run of this.runs.values()) {
 			if (run.dead) continue;
-			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_GONE_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units, at: seen.at, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
+			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_GONE_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units, ...(seen.mains ? { mains: seen.mains } : {}), at: seen.at, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
 		}
 		return out;
 	}

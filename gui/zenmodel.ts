@@ -5,8 +5,9 @@ import { rankOf, unitsOf, waitingOf } from "./units.ts";
 
 // What Zen shows, decided without a page (docs/specs/2026-11-01-zen-view.md): the one current item, the pause, or the companion. The view it hands out never says how many items wait; the cue is the one place that does (Z-D19, `queued`).
 // No card ever takes the screen by itself, and a card on the screen is never replaced or pulled away (Z-D20): a card is taken by the boss (`take`) and leaves by the boss's own answer, Not now, or closing it.
+// One exception, the boss's own ruling (Z-D22): once he has taken a card and answered it, the next one that waits is taken straight after the outcome, with no pause and no breath (`chained`).
 export type Sound = "bowl" | "knock" | "low";
-/** `outcome`: why the card is no longer answerable. `answered` (the boss's own answer) shows for 1.2 s and then the pause; `elsewhere` (the question ended: answered in the terminal, the unit went on), `gone` (the unit left the net or closed: nothing was answered) and `error` (the unit failed) are held: the card stays, saying so, until the boss closes it (`skip`). */
+/** `outcome`: why the card is no longer answerable. `answered` (the boss's own answer) shows for 1.2 s and then the next card that waits (Z-D22), or the pause when none does; `elsewhere` (the question ended: answered in the terminal, the unit went on), `gone` (the unit left the net or closed: nothing was answered) and `error` (the unit failed) are held: the card stays, saying so, until the boss closes it (`skip`). */
 export type Outcome = "answered" | "elsewhere" | "gone" | "error";
 export type Screen = { kind: "item"; item: Alert; outcome?: Outcome } | { kind: "pause" } | { kind: "companion" };
 export const REST_MS = 10 * 60_000, OUTCOME_MS = 1200, HOLD_MS = 30_000, PAUSE_MS = 3000;
@@ -38,9 +39,10 @@ export function companionOf(net: Net | undefined, asked: With | undefined): With
 	return asked && ws !== undefined ? { key: asked.key, ws } : undefined;
 }
 
-export interface ZenDeps { now(): number }
-export function createZen({ now }: ZenDeps) {
-	let alerts = new Map<string, Alert>(), screen: Screen = { kind: "companion" }, until = 0, hidden = false, quiet = false, knocked = false, back = false;
+/** `covered`: something the boss opened lies over the card (the terminal layer, the palette, a menu): the card behind it is not followed by another (Z-D22). */
+export interface ZenDeps { now(): number; covered?(): boolean }
+export function createZen({ now, covered }: ZenDeps) {
+	let alerts = new Map<string, Alert>(), screen: Screen = { kind: "companion" }, until = 0, hidden = false, quiet = false, knocked = false, back = false, chain = false;
 	const seen = new Map<string, number>(), rests = new Map<string, { until: number; q: string }>();
 	let sound: Sound | undefined;
 	const items = () => waitingOf(alerts.values()).filter((a) => a.mark !== "error");
@@ -50,6 +52,8 @@ export function createZen({ now }: ZenDeps) {
 	/** The cards that wait for the boss to take them: the eligible ones but the one on the screen (a card that is shown, even one that has just ended, is not counted behind itself). */
 	const queued = () => eligible().filter((a) => screen.kind !== "item" || a.key !== screen.item.key);
 	const take = (item: Alert) => ((screen = { kind: "item", item }), (quiet = knocked = false), (sound = "bowl"));
+	/** The card the boss's accepted answer is followed by (Z-D22): the next in the order Enter takes, never the unit's own next question under the key just answered (it waits for Enter), and none on a page that is hidden or has something opened over the card. */
+	const after = () => (hidden || covered?.() ? undefined : eligible().find((a) => a.key !== (screen as Extract<Screen, { kind: "item" }>).item.key));
 	const pause = () => ((screen = { kind: "pause" }), (until = now() + PAUSE_MS));
 	/** The card on the screen is settled: it stays (`outcome`), and only the boss's answer, Not now, or Esc takes it away. `answered` runs for 1.2 s, the others until closed (`until` 0: no timer). */
 	const settled = (outcome: Outcome, snd: Sound | undefined) => ((screen = { ...(screen as Extract<Screen, { kind: "item" }>), outcome }), (until = outcome === "answered" ? now() + OUTCOME_MS : 0), snd && !quiet && !(snd === "knock" && knocked) && ((sound = snd), snd === "knock" ? (knocked = true) : (quiet = true))); // one knock per card: a snapshot that drops it and lists it again (a Link reconnect) does not ring again (ZNI-F002); the low bowl is a new thing (a refusal, a failure) and still rings after a knock (ZNR-F001)
@@ -59,7 +63,7 @@ export function createZen({ now }: ZenDeps) {
 		for (const [k, r] of rests) if (r.until <= now() || !open.has(k) || questionOf(open.get(k)!) !== r.q) rests.delete(k);
 		if (screen.kind === "item") {
 			const cur = alerts.get(screen.item.key), live = Boolean(cur && rankOf(cur) === 0 && cur.mark !== "error" && (questionOf(cur) === questionOf(screen.item) || gained(screen.item, cur))); // the same question, still asked
-			if (screen.outcome === "answered") { if (until <= now()) pause(); }
+			if (screen.outcome === "answered") { if (until <= now()) { const n = after(); n ? (take(n), (chain = true)) : pause(); } } // the boss answered: the next card, as if he had pressed Enter for it, or the pause
 			else if (live && screen.outcome !== "error") screen = { kind: "item", item: cur! }; // a held card whose question is listed again (a snapshot that missed it) is live again
 			else if (back) screen = { kind: "companion" }; // the item was on the screen when Zen was left and has ended since (answered in Standard, or closed): no card, no knock, and no line about it
 			else if (!screen.outcome) {
@@ -71,13 +75,13 @@ export function createZen({ now }: ZenDeps) {
 		// A pause is for a boss who is there to breathe: a page that is not shown has none, so an item that waits ends it at once (the page reminds, as on any hidden page). With nothing waiting it is kept until the page is shown.
 		if (screen.kind === "pause" && ((until <= now() && !hidden) || (hidden && next()))) screen = { kind: "companion" };
 	}
-	const out = () => { settle(); const s = sound; sound = undefined; return { screen, sound: s }; };
+	const out = () => { settle(); const s = sound, chained = chain; sound = undefined; chain = false; return { screen, sound: s, ...(chained ? { chained } : {}) }; };
 	return {
 		/** A new snapshot's alerts; `returning`: Zen is shown again after Standard had the page, so an item the screen still held from before and the snapshot no longer has is dropped silently. */
 		update(a: Map<string, Alert>, returning = false) { back = returning; alerts = a; for (const x of items()) if (!seen.has(x.key)) seen.set(x.key, now()); for (const k of seen.keys()) if (!a.has(k)) seen.delete(k); try { return out(); } finally { back = false; } },
 		/** The clock moved. */
 		tick: out,
-		/** The accepted answer or cancel of the item with this key: the knock, the outcome for 1.2 s, then the pause. */
+		/** The accepted answer or cancel of the item with this key: the knock, the outcome for 1.2 s, then the next card that waits (Z-D22) or the pause. */
 		accepted(key: string) { if (screen.kind !== "item" || screen.item.key !== key) return out(); // a reply that comes after the boss moved on belongs to an item that is no longer on screen
 			if (screen.outcome === "elsewhere" || screen.outcome === "gone") settled("answered", undefined); // the server's snapshot came ahead of its reply: this answer settled it, and the knock already rang
 			else if (!screen.outcome) { quiet = knocked = false; settled("answered", "knock"); quiet = true; rests.set(screen.item.key, { until: now() + HOLD_MS, q: questionOf(screen.item) }); } return out(); },

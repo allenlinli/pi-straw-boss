@@ -56,7 +56,8 @@ export interface TowerPick { session: Session; pane: Pane; workspace: Workspace 
 /**
  * The tower a delivery for `project` goes to: a live tower session whose pane's cwd is inside the project. With several, the one whose cwd is
  * closest to the project root, then the first in Herdr's workspace order. Mains and members never receive link deliveries. `toWorkspace`, when
- * the sender named one, restricts the choice to the workspace with that label, and a message with no tower there waits instead of going to another.
+ * the sender named one, restricts the choice to the workspace with that label, and a message with no tower there waits instead of going to another. A reply to an ask a local
+ * tower made for a main names the workspace by its Herdr id instead (holder.ts `takeReply`), so the id is taken too.
  */
 export function towerFor(view: NetView, project: string, toWorkspace?: string): TowerPick | undefined {
 	return towersFor(view, project, toWorkspace)[0];
@@ -69,7 +70,7 @@ export function towersFor(view: NetView, project: string, toWorkspace?: string):
 		const session = view.sessions.find((x) => x.herdrLocation?.paneId === pane.pane_id);
 		const depthIn = depth(pane.cwd, project);
 		if (!workspace || isSub(workspace) || !session || depthIn === undefined) return [];
-		if (toWorkspace && workspace.label !== toWorkspace) return [];
+		if (toWorkspace && workspace.label !== toWorkspace && workspace.workspace_id !== toWorkspace) return [];
 		return [{ session, pane, workspace, depthIn, order: view.workspaces.indexOf(workspace) }];
 	});
 	picks.sort((a, b) => a.depthIn - b.depthIn || a.order - b.order);

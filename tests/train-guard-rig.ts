@@ -22,9 +22,13 @@ export const MANIFEST_HEADER = `train:\n  project: acme\n  app: web\n  code: ${C
 export const handoffOf = (manifest: string) => trainHandoff("Base A", { id: "sess-integ-1", name: "integ acme" }, manifest, { id: "tower-1", name: "tower" }, { project: "acme", code: CODE });
 export const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-C", cwd, ...args], { encoding: "utf8" }).trim();
 
-export interface RigOptions { manifest?: string; main?: boolean; train?: boolean; node?: string; cli?: string; stateName?: string; now?: number; /** A guard that starts again on the same session: the folders, the branch and the todo list of an earlier rig (a /reload). */ reuse?: Rig }
+/** What a guard that starts again on the same session shares with the one before it. */
+export interface Shared { root: string; stateDir: string; cwd: string; entries: Entry[]; list: { tasks: Json[]; nextId: number }; now(): number }
+export interface RigOptions { manifest?: string; main?: boolean; train?: boolean; node?: string; cli?: string; stateName?: string; now?: number; /** A guard that starts again on the same session: the folders, the branch and the todo list of an earlier rig (a /reload). */ reuse?: Shared }
 
-export function rig(o: RigOptions = {}) {
+export type Rig = ReturnType<typeof build>;
+export const rig = (o: RigOptions = {}): Rig => build(o);
+function build(o: RigOptions) {
 	const root = o.reuse?.root ?? realpathSync(mkdtempSync(join(tmpdir(), "sb-tg-")));
 	if (!o.reuse) scratch.push(root);
 	const stateDir = o.reuse?.stateDir ?? join(root, o.stateName ?? "state"), cwd = o.reuse?.cwd ?? join(root, "work");
@@ -109,12 +113,12 @@ export function rig(o: RigOptions = {}) {
 	/** The frozen file's hash, as the wrapper computes it from what it reads. */
 	const frozen = (step: number) => join(stateDir, "trainboard", "acme", CODE, `step-${step}.json`);
 	const hashOf = (step: number) => sha(readFileSync(frozen(step)));
-	const lines = (step: number, kind: string, state: string, spec = hashOf(step)) => ({ progress: { message: state }, sb: { v: 1, train: CODE, step, kind, state, spec } });
+	const lines = (step: number, kind: string, state: string, spec = hashOf(step), run = `nonce-${step}`) => ({ progress: { message: state }, sb: { v: 1, train: CODE, step, kind, state, spec, run } });
 	/** A run of the wrapper that went as `state`: its lines, then the end the monitor reports. */
-	function wrapperRun(input: Json, step: number, kind: string, state: "passed" | "failed" | "stopped" | "refused", over: { spec?: string; monitor?: Json; id?: string } = {}) {
+	function wrapperRun(input: Json, step: number, kind: string, state: "passed" | "failed" | "stopped" | "refused", over: { spec?: string; monitor?: Json; id?: string; run?: string } = {}) {
 		const id = started(input, over.id);
-		output(id, lines(step, kind, "running", over.spec));
-		output(id, { monitorOutcome: { status: state, message: state }, ...lines(step, kind, state, over.spec) });
+		output(id, lines(step, kind, "running", over.spec, over.run));
+		output(id, { monitorOutcome: { status: state, message: state }, ...lines(step, kind, state, over.spec, over.run) });
 		finished(id, state === "passed" ? { ...over.monitor } : { status: "error", exitCode: state === "failed" ? 1 : state === "stopped" ? 143 : 3, reportedOutcome: { status: state, message: state }, ...over.monitor });
 		return id;
 	}
@@ -141,7 +145,7 @@ export function rig(o: RigOptions = {}) {
 		tick: (ms: number) => void (clock += ms), now: () => clock, iso, boardFile: join(stateDir, "trainboard", "acme", CODE, "board.json"), yardFile: join(stateDir, "trainboard", "acme", "yard.json"),
 	};
 }
-export type Rig = ReturnType<typeof rig>;
+
 
 /** A run step whose command runs in the rig's work folder. */
 export const run = (r: Rig, over: Json = {}, spec: Json = {}) => sb(over, { check: runCheck({ cwd: r.cwd, run: "true", log: join(r.cwd, "unit.log") }), ...spec });

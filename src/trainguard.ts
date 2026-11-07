@@ -1,0 +1,490 @@
+import { createHash } from "node:crypto";
+import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
+import { availableParallelism, homedir, loadavg } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
+import { execFileSyncExe } from "./exe.mjs";
+import { startMs, writerAlive } from "./server/traingate.ts";
+import { serverCli } from "./server/version.ts";
+import { startOf } from "./startof.ts";
+import type { Kit } from "./state.ts";
+import { snapshotOfBranch } from "./todo.ts";
+import { checkCar, checkEvidence, type EvidenceOptions, parseSlip } from "./train/accept.ts";
+import { type BoardRead, type BoardStep, boardPath, capBoard, type CarRow, factsOf, readBoard, readTrainboards, validateTrainTodo, type Writer, writeBoard, writeYard } from "./train/board.ts";
+import { noticeSatisfied, type TerminalState } from "./train/cars.ts";
+import { type Effect, isObject, type Json, shortCode, STEP_REQUIRED, todoEffects, validateStep } from "./train/spec.ts";
+import { type FactStep, stepWaits, type TrainFacts, type Wait, waitMessage } from "./train/waits.ts";
+import { buildBoard, buildYard, freezeStep, readCars, type Row } from "./trainboard.ts";
+import type { TrainId } from "./trainrole.ts";
+import { integrationOff } from "./trainswitch.ts";
+
+// The guard of the train's session (docs/specs/2026-11-07-train-workers.md §7, §21; todo #125 task 4): a `tool_call` handler on the session's own tools. In a train it handles every `todo` and `MonitorCreate` call; in the integrator, the `todo`
+// calls that carry a `metadata.sb`. Policy reads `event.input`; state reads the session branch (the todo list) with the call applied to a copy. A blocked call leaves the list as it was and the model reads the reason.
+//
+// What the model can rewrite is exact (§21): the todo list and the step it describes, the files under `<state>/trainboard/`, and its session file on disk. What it cannot: this process's memory, the monitor's own record (what pi-loop-monitor says
+// about a monitor it ran: its status, its exit code, its lines), git, and the clock. So a `run` step passes only on the monitor's record of a run of the spec as this guard froze it; the frozen spec's hash, the runs, and the time a step
+// started live in this module's memory, are written nowhere the train can reach, and are gone with the process. A /reload therefore forgets them: a step that had run must run again, a report must be written after the step is set in_progress again.
+
+const MIN_TIMEOUT_MS = 120_000, START_GRACE_MS = 60_000, MAX_RUNS = 200;
+const GENERIC = (code: string) => `sb: a train's monitor runs one step: describe it "train ${shortCode(code)} #<id> <kind>"`;
+
+// ---- the frozen spec
+
+const sorted = (value: unknown): unknown => (Array.isArray(value) ? value.map(sorted) : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((k) => [k, sorted(value[k])])) : value);
+/** The bytes the wrapper reads: the step's `metadata.sb` without its result, keys in order, so the same step is the same bytes whatever order the model wrote it in. Only for a value `validateStep` passed (it is nested at most 32 levels). */
+export function frozenText(sb: Json): string {
+	const { result: _result, ...step } = sb;
+	return `${JSON.stringify(sorted(step))}\n`;
+}
+export const specHash = (sb: Json): string => createHash("sha256").update(frozenText(sb)).digest("hex");
+const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
+/** The command a run step's monitor runs: the wrapper on the frozen file, each part quoted for the shell (a `'` in a folder name included). */
+export const gateCommand = (node: string, cli: string, file: string) => `${quote(node)} ${quote(cli)} train gate --spec ${quote(file)}`;
+
+// ---- the manifest (§5.3, §5.4)
+
+const HANDOFF = /Straw Boss: the tower of workspace .*you are the train \S+ of project \S+/s, MARK = "Request, verbatim:\n";
+const textOf = (entry: unknown): string => {
+	const e = entry as { content?: unknown; message?: { content?: unknown } } | null;
+	const content = e?.content ?? e?.message?.content;
+	return typeof content === "string" ? content : Array.isArray(content) ? content.map((b) => (isObject(b) && typeof b.text === "string" ? b.text : "")).join("\n") : "";
+};
+export interface ManifestCar { ticket: string; slip: string; row?: CarRow; head?: string; evidence?: string }
+export interface LeftOut { ticket: string; head: string; word: string }
+export interface Manifest { app?: string; cars: ManifestCar[]; leftOut: LeftOut[] }
+
+/** The manifest the tower handed the train: what follows `Request, verbatim:` in the first message that is the train's handoff. A later message that looks alike is none. */
+export function manifestText(entries: readonly unknown[]): string | undefined {
+	for (const entry of entries) {
+		const text = textOf(entry), at = text.indexOf(MARK);
+		if (at >= 0 && HANDOFF.test(text.slice(0, at))) return text.slice(at + MARK.length);
+	}
+	return undefined;
+}
+
+/** A slip block starts at a `car:` line and runs over the lines of `key: value | key: value` segments up to a blank line or the next `car:` line; what comes before the first block is the manifest's header. */
+function slipBlocks(text: string): { header: string; blocks: string[] } {
+	const header: string[] = [], blocks: string[][] = [];
+	let open = false;
+	for (const line of text.split(/\r?\n/)) {
+		if (/^\s*car:/i.test(line)) (blocks.push([line]), (open = true));
+		else if (open && line.trim() !== "" && /^\s*[A-Za-z][A-Za-z0-9-]*:/.test(line)) blocks.at(-1)!.push(line);
+		else {
+			open = false;
+			if (!blocks.length) header.push(line);
+		}
+	}
+	return { header: header.join("\n"), blocks: blocks.map((b) => b.join("\n")) };
+}
+
+export function parseManifest(text: string, read: (path: string) => string | undefined): Manifest {
+	const { header, blocks } = slipBlocks(text), cars: ManifestCar[] = [], leftOut: LeftOut[] = [];
+	const app = /^\s*app:\s*([A-Za-z0-9._-]{1,64})\s*$/m.exec(header)?.[1];
+	for (const slip of blocks) {
+		const parsed = parseSlip(slip), ticket = parsed.tickets[0] ?? parsed.fields.branch ?? "unknown", accept = parsed.fields.accept;
+		const evidence = accept && /\.json$/i.test(accept) ? read(accept) : undefined;
+		const refusals = checkCar(slip, evidence, { appAccept: [], exists: () => true, isAncestor: () => false });
+		const word = refusals.find((r) => r.startsWith("sb: the train runs no acceptance: "));
+		const head = /^[0-9a-f]{40}$/.test(parsed.fields.head ?? "") ? parsed.fields.head! : undefined;
+		let accepted: string[] | undefined;
+		try { accepted = isObject(JSON.parse(evidence ?? "null")) ? ((JSON.parse(evidence!) as Json).accepted as Json[]).map((e) => String(e.kind)).slice(0, 8) : undefined; } catch { accepted = undefined; }
+		const f = parsed.fields, row: CarRow = { tickets: parsed.tickets.slice(0, 16), branch: f.branch ?? "", head: head ?? "", coordinator: f.coordinator ?? "", departs: f.departs ?? "next", accept: accept ?? "none", ...(accepted?.length ? { accepted } : {}) };
+		cars.push({ ticket, slip, ...(head ? { head } : {}), ...(evidence ? { evidence } : {}), ...(row.tickets.length && row.branch && row.head && row.coordinator ? { row } : {}) });
+		if (word) leftOut.push({ ticket, head: head ?? "", word });
+	}
+	return { ...(app ? { app } : {}), cars, leftOut };
+}
+
+// ---- the runs of the session's monitors (§7.2, §21)
+
+export type RunState = "starting" | "running" | "passed" | "failed" | "stopped" | "refused" | "stale" | "unverified" | "ran another spec";
+interface Run {
+	step: number; frozen: string; command: string; description: string; call: string; at: number; state: RunState; monitor?: string;
+	/** The first wrapper line the stream showed: the file it read (`spec`) and its nonce (`run`). It is printed before the command exists. */
+	first?: { spec: string; run: string }; conflict?: true;
+	/** The last line the stream showed, if it was a wrapper line. */
+	last?: { run: string; spec: string; step: unknown; train: unknown; outcome?: string };
+}
+
+/** Starts, lines and ends of the monitors a train created, from pi-loop-monitor's events: what the monitor says of itself, not what any file says. */
+export class RunBook {
+	readonly runs: Run[] = [];
+	private readonly now: () => number;
+	constructor(now: () => number) {
+		this.now = now;
+	}
+	begin(run: Omit<Run, "state" | "at">) {
+		this.runs.push({ ...run, state: "starting", at: this.now() });
+		while (this.runs.length > MAX_RUNS) this.runs.shift();
+	}
+	/** The run of this step that is starting or running; a start that never came is forgotten after a minute. */
+	active(step: number): Run | undefined {
+		return this.runs.find((r) => r.step === step && (r.state === "running" || (r.state === "starting" && this.now() - r.at < START_GRACE_MS)));
+	}
+	failedToStart(call: string) {
+		const at = this.runs.findIndex((r) => r.call === call && r.state === "starting");
+		if (at >= 0) this.runs.splice(at, 1);
+	}
+	started(d: Json) {
+		const run = this.runs.find((r) => r.state === "starting" && r.command === d.command && r.description === d.description && typeof d.monitorId === "string");
+		if (run) [run.state, run.monitor] = ["running", d.monitorId as string];
+	}
+	private of(d: Json) {
+		return typeof d.monitorId === "string" ? this.runs.find((r) => r.monitor === d.monitorId && r.state === "running") : undefined;
+	}
+	output(d: Json) {
+		const run = this.of(d);
+		if (!run) return;
+		let line: unknown;
+		try { line = typeof d.line === "string" && d.line.length <= 4000 ? JSON.parse(d.line) : undefined; } catch { line = undefined; }
+		const sb = isObject(line) && isObject(line.sb) ? line.sb : undefined;
+		if (!sb || typeof sb.spec !== "string" || typeof sb.run !== "string") return void (run.last = undefined);
+		if (!run.first) run.first = { spec: sb.spec, run: sb.run };
+		else if (run.first.spec !== sb.spec || run.first.run !== sb.run) run.conflict = true;
+		const outcome = isObject((line as Json).monitorOutcome) ? ((line as Json).monitorOutcome as Json).status : undefined;
+		run.last = { run: sb.run, spec: sb.spec, step: sb.step, train: sb.train, ...(typeof outcome === "string" ? { outcome } : {}) };
+	}
+	/** The end, by the monitor's own record: a pass is exit 0 of a run that said `passed` in its last line, with the nonce and the file of its first. */
+	finished(d: Json, code: string) {
+		const run = this.of(d);
+		if (!run) return;
+		const reported = isObject(d.reportedOutcome) && typeof d.reportedOutcome.status === "string" ? d.reportedOutcome.status : undefined;
+		const word = (s: string | undefined): RunState => (s === "stopped" || s === "refused" ? s : "failed");
+		if (d.status === "stopped") run.state = d.reason === "timeout" ? "stale" : "stopped";
+		else if (d.status !== "completed" || d.exitCode !== 0) run.state = word(run.last?.outcome ?? reported);
+		else if (!run.first || run.last?.outcome !== "passed" || run.last.run !== run.first.run || run.last.spec !== run.first.spec || run.last.step !== run.step || run.last.train !== code || (reported !== undefined && reported !== "passed")) run.state = run.first ? "ran another spec" : "unverified";
+		else run.state = run.first.spec === run.frozen && !run.conflict ? "passed" : "ran another spec";
+		if (run.state === "ran another spec" && run.last && !run.last.outcome) run.state = "unverified";
+	}
+	/** Whether a run of this step passed for exactly this spec (`hash`). */
+	passed(step: number, hash: string): boolean {
+		return this.runs.some((r) => r.step === step && r.state === "passed" && r.frozen === hash);
+	}
+	/** What to say of the step's last run when none passed. */
+	last(step: number, hash: string): string {
+		const mine = this.runs.filter((r) => r.step === step);
+		const run = mine.at(-1);
+		if (!run) return "none";
+		return run.state === "passed" && run.frozen !== hash ? "passed for another spec" : run.state;
+	}
+}
+
+// ---- the guard
+
+export interface GuardPi {
+	on(event: string, handler: (event: Json, ctx: Ctx) => unknown): void;
+	events?: { on(channel: string, handler: (data: unknown) => void): unknown };
+}
+export interface Ctx { cwd?: string; sessionManager: { getBranch(): readonly unknown[] } }
+export interface GuardEnv {
+	stateDir: string;
+	/** This session's train, when it is one. */
+	train(): TrainId | undefined;
+	/** Whether this session is a main (the integrator is one). */
+	isMain(): boolean;
+	session(): { id: string; pane?: string };
+	now(): number;
+	node: string; cli: string; home: string;
+	tell(text: string, level?: "info" | "warning" | "error"): void;
+	/** Seams: git, the load, the age of a board's writer, this process's start (tests replace them). */
+	git?(cwd: string, args: string[]): string;
+	load?(): { now: number; cores: number } | undefined;
+	alive?(writer: Writer): boolean;
+	pid?: number;
+}
+type Block = { block: true; reason: string } | undefined;
+const GIT_ENV = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_EXEC_PATH"];
+const realGit = (cwd: string, args: string[]): string => {
+	const env = { ...process.env };
+	for (const key of GIT_ENV) delete env[key];
+	return String(execFileSyncExe("git", ["-c", "core.fsmonitor=false", "-C", cwd, ...args], { encoding: "utf8", timeout: 15_000, stdio: ["ignore", "pipe", "pipe"], env })).trim();
+};
+const shortError = (error: unknown) => String((error as { stderr?: unknown }).stderr || (error as Error).message).trim().split("\n")[0]!.slice(0, 200);
+const STATUS = ["pending", "in_progress", "completed"];
+const sbOf = (row: Row | undefined): Json | undefined => (row && isObject(row.metadata?.sb) ? (row.metadata!.sb as Json) : undefined);
+const isStep = (row: Row) => sbOf(row) !== undefined;
+
+function rowsOfSnapshot(snapshot: unknown): { rows: Row[]; nextId: number } {
+	const s = isObject(snapshot) ? snapshot : {}, tasks = Array.isArray(s.tasks) ? s.tasks : [];
+	const rows = tasks.flatMap((t): Row[] => (isObject(t) && Number.isInteger(t.id) && STATUS.includes(t.status as string) ? [{ id: t.id as number, status: t.status as string, ...(isObject(t.metadata) ? { metadata: t.metadata } : {}) }] : []));
+	return { rows, nextId: Number.isInteger(s.nextId) ? (s.nextId as number) : Math.max(0, ...rows.map((r) => r.id)) + 1 };
+}
+
+export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
+	const book = new RunBook(env.now), git = env.git ?? realGit;
+	const starts = new Map<number, number>(); // the time this guard saw each step go in_progress
+	let manifest: Manifest | undefined;
+	const toldBoard = new Set<string>();
+	const created = new Date(env.now()).toISOString();
+
+	const expand = (path: string, ctx: Ctx) => (path === "~" ? env.home : path.startsWith("~/") ? join(env.home, path.slice(2)) : isAbsolute(path) ? path : resolve(ctx.cwd ?? process.cwd(), path));
+	const readText = (ctx: Ctx) => (path: string): string | undefined => {
+		try {
+			const file = expand(path, ctx), stat = lstatSync(file);
+			return stat.isFile() && stat.size <= 32 * 1024 ? readFileSync(file, "utf8") : undefined;
+		} catch { return undefined; }
+	};
+	const manifestOf = (ctx: Ctx): Manifest | undefined => {
+		if (manifest) return manifest;
+		const text = manifestText(ctx.sessionManager.getBranch());
+		return text === undefined ? undefined : (manifest = parseManifest(text, readText(ctx)));
+	};
+	const writer = (): Writer => {
+		const pid = env.pid ?? process.pid, said = startOf(pid), at = said ? startMs(said) : Number.NaN;
+		return { session: env.session().id, ...(env.session().pane ? { pane: env.session().pane } : {}), pid, started: Number.isNaN(at) ? created : new Date(at).toISOString() };
+	};
+	const alive = env.alive ?? ((w: Writer) => writerAlive(w));
+
+	/** Every board of the project as the waits read them; a read that is cut or cannot list holds everything, which is a refusal here. */
+	function others(project: string): { trains: TrainFacts[] } | { error: string } {
+		const read = readTrainboards(env.stateDir, { project, max: 4096 });
+		if (read.truncated) return { error: `more than 4096 trainboards of project ${project}, so what is held cannot be known` };
+		if (read.unlisted.length) return { error: `what trains of project ${project} hold cannot be known: ${read.unlisted.join("; ")}` };
+		return { trains: read.trains.map((b: BoardRead) => factsOf(b, { now: env.now(), alive })) };
+	}
+	const factStep = (id: number, sb: Json): FactStep => {
+		const spec = isObject(sb.spec) ? sb.spec : {};
+		return { id, kind: String(sb.kind), status: "in_progress", round: Number(sb.round), ...(isObject(spec.holds) ? { holds: spec.holds } : {}), ...(isObject(spec.load) ? { load: spec.load } : {}), ...(typeof spec.lock === "string" ? { lock: spec.lock } : {}) };
+	};
+
+	// ---- completion evidence, by check type (§6.3)
+
+	function gitRefusals(check: Json, result: Json, ctx: Ctx): string[] {
+		const cwd = expand(String(check.cwd), ctx), ref = typeof check.ref === "string" ? check.ref : "HEAD";
+		if (ref.startsWith("-")) return ["git check: a ref does not begin with -"];
+		let actual: string;
+		try { actual = git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]); } catch (error) { return [`git check: git failed in ${cwd}: ${shortError(error)}`]; }
+		if (actual !== result.head) return [`git check: ${ref} of ${cwd} is ${actual}, not result.head ${String(result.head).slice(0, 12)}`];
+		return (check.contains as string[]).flatMap((sha) => {
+			try { git(cwd, ["merge-base", "--is-ancestor", sha, actual]); return []; } catch { return [`git check: ${sha.slice(0, 12)} is not an ancestor of ${ref}`]; }
+		});
+	}
+	function reportRefusals(id: number, check: Json, ctx: Ctx): string[] {
+		const file = expand(String(check.path), ctx), began = starts.get(id);
+		let stat;
+		try { stat = statSync(file); } catch { return [`report ${file} does not exist`]; }
+		if (!stat.isFile() || stat.size === 0) return [`report ${file} is empty`];
+		if (began === undefined) return ["report check: the step was never seen in_progress by this session; set it in_progress before it completes"];
+		return stat.mtimeMs > began ? [] : [`report ${file} was not changed since the step went in_progress (${new Date(began).toISOString()})`];
+	}
+	function passRefusals(id: number, sb: Json, ctx: Ctx, code: TrainId): string[] {
+		const spec = sb.spec as Json, check = spec.check as Json;
+		switch (check.type) {
+			case "run": return book.passed(id, specHash(sb)) ? [] : [`sb: step #${id} has no passed run of its spec (last: ${book.last(id, specHash(sb))})`];
+			case "git": return gitRefusals(check, sb.result as Json, ctx).map((r) => `sb: step #${id}: ${r}`);
+			case "report": return reportRefusals(id, check, ctx).map((r) => `sb: step #${id}: ${r}`);
+			default: return noticeSatisfied(readCars(env.stateDir, code.project), check.cars as string[], check.state as TerminalState, { app: String(sb.app) }).map((r) => r.replace(/^sb: /, `sb: step #${id}: `));
+		}
+	}
+
+	// ---- todo calls
+
+	const startedWord = (id: number, status: string) => `sb: step #${id} is ${status}; a started step is never deleted: complete it as void (why: skipped or superseded)`;
+
+	function trainTodo(input: Json, ctx: Ctx, me: TrainId): string[] {
+		const entries = ctx.sessionManager.getBranch(), { rows, nextId } = rowsOfSnapshot(snapshotOfBranch(entries));
+		if (input.action === "clear") {
+			const started = rows.find((r) => isStep(r) && r.status !== "pending");
+			return started ? [startedWord(started.id, started.status)] : [];
+		}
+		if (input.action === "delete") {
+			const row = typeof input.id === "number" ? rows.find((r) => r.id === input.id) : undefined;
+			return row && isStep(row) && row.status !== "pending" ? [startedWord(row.id, row.status)] : [];
+		}
+		if (input.action !== "create" && input.action !== "update") return [];
+		const effects = todoEffects(input, rows, nextId), batch = input.action === "create" && Array.isArray(input.tasks);
+		const shadow = new Map(rows.map((r) => [r.id, r])), begun: number[] = [], info = manifestOf(ctx);
+		for (const effect of effects) {
+			const out = step(effect, shadow, me, info, ctx);
+			if (out.length) return batch ? out.map((r) => r.replace(/^sb: /, `sb: tasks[${effect.item}]: `)) : out;
+			if (effect.status === "deleted") shadow.delete(effect.id);
+			else shadow.set(effect.id, { id: effect.id, status: effect.status, ...(effect.metadata ? { metadata: effect.metadata } : {}) });
+			if (effect.status === "in_progress" && shadow.get(effect.id)) begun.push(effect.id);
+		}
+		for (const id of begun) if (rows.find((r) => r.id === id)?.status !== "in_progress" || !starts.has(id)) starts.set(id, env.now());
+		return [];
+	}
+
+	/** The refusals of one todo a call creates or changes, against the list as the call's earlier todos left it. */
+	function step(effect: Effect, shadow: Map<number, Row>, me: TrainId, info: Manifest | undefined, ctx: Ctx): string[] {
+		const before = shadow.get(effect.id);
+		if (effect.status === "deleted") return before && isStep(before) && before.status !== "pending" ? [startedWord(effect.id, before.status)] : [];
+		const sb = effect.metadata?.sb;
+		if (sb === undefined) return [STEP_REQUIRED];
+		const steps = [...shadow.values()].flatMap((r) => { const s = sbOf(r); return s && Number.isInteger(s.round) ? [{ id: r.id, status: r.status, round: s.round as number, app: s.app }] : []; });
+		const current = steps.reduce((top, s) => Math.max(top, s.round), 0);
+		const prev = sbOf(before), asked = isObject(sb) ? sb : {};
+		let round = Math.max(current, 1);
+		if (!effect.created && prev && Number.isInteger(prev.round)) round = prev.round as number;
+		else if (current >= 1 && asked.round === current + 1) {
+			if (asked.kind !== "assemble") return [`sb: a new round starts with an assemble step: step #${effect.id} names round ${String(asked.round)}, and this train is in round ${current}`];
+			const open = steps.filter((s) => s.round <= current && s.status !== "completed").sort((a, b) => a.id - b.id)[0];
+			if (open) return [`sb: round ${current} still has step #${open.id} ${open.status}; complete it (void) first`];
+			round = current + 1;
+		}
+		const app = steps.find((s) => typeof s.app === "string")?.app ?? info?.app ?? (typeof asked.app === "string" ? asked.app : "unknown");
+		const refusals = validateStep(sb, { status: effect.status, id: effect.id, expect: { project: me.project, app: String(app), train: me.code, round } });
+		if (refusals.length) return refusals.map((r) => (/result|completed needs/.test(r) && !r.includes("step #") ? r.replace(/^sb: /, `sb: step #${effect.id}: `) : r));
+		const spec = asked.spec as Json, check = spec.check as Json;
+		// A manifest car that asks for acceptance is left out of round 1, and no step carries it (D13, §5.4).
+		for (const out of info?.leftOut ?? []) {
+			const removed = Array.isArray(spec.removed) ? (spec.removed as Json[]).some((r) => r.ticket === out.ticket) : false;
+			if (asked.kind === "assemble" && asked.round === 1 && !removed) return [`${out.word} Put ${out.ticket} in this assemble's spec.removed and set it returned with train_car; no step carries it.`];
+			const carried = (Array.isArray(spec.cars) && spec.cars.includes(out.ticket)) || (check.type === "notice" && (check.cars as string[]).includes(out.ticket)) || (check.type === "git" && out.head !== "" && (check.contains as string[]).includes(out.head));
+			if (carried) return [`sb: car ${out.ticket} was left out of round 1: it asks the train for acceptance; no step carries it`];
+		}
+		if (effect.status === "in_progress" && before?.status !== "in_progress" && check.type !== "run" && isObject(spec.holds)) {
+			const read = others(me.project);
+			if ("error" in read) return [`sb: step #${effect.id} cannot start: ${read.error}`];
+			const own: TrainFacts = { project: me.project, code: me.code, state: "live", steps: [factStep(effect.id, asked)] };
+			const waits = stepWaits(own, own.steps[0]!, { trains: [own, ...read.trains.filter((t) => t.code !== me.code)] });
+			if (waits.length) return [`sb: step #${effect.id} ${waitMessage(waits)}; start it when it is free`];
+		}
+		const result = asked.result;
+		if (effect.status === "completed" && isObject(result) && result.outcome === "passed") return passRefusals(effect.id, asked, ctx, me);
+		return [];
+	}
+
+	// ---- the integrator's `train` todo (§7.4)
+
+	function integratorTodo(input: Json, ctx: Ctx): string[] {
+		if (input.action !== "create" && input.action !== "update") return [];
+		const { rows, nextId } = rowsOfSnapshot(snapshotOfBranch(ctx.sessionManager.getBranch()));
+		const project = rows.map(sbOf).find((s) => s?.kind === "train")?.project;
+		const batch = input.action === "create" && Array.isArray(input.tasks);
+		for (const effect of todoEffects(input, rows, nextId)) {
+			const sb = effect.metadata?.sb;
+			if (sb === undefined || effect.status === "deleted") continue;
+			const refusals = validateTrainTodo(sb, { status: effect.status, id: effect.id, ...(typeof project === "string" ? { project } : {}) });
+			if (!refusals.length && isObject(sb) && isObject(sb.spec)) refusals.push(...evidenceRefusals((sb.spec.cars as CarRow[]) ?? [], ctx));
+			if (refusals.length) return batch ? refusals.map((r) => r.replace(/^sb: /, `sb: tasks[${effect.item}]: `)) : refusals;
+		}
+		return [];
+	}
+	/** `train check --accept` on each car's evidence: the evidence is complete for what the file says, names the car's head, and asks the train for nothing (§5.2, §5.4). */
+	function evidenceRefusals(cars: readonly CarRow[], ctx: Ctx): string[] {
+		const out: string[] = [], read = readText(ctx);
+		for (const car of cars) {
+			if (car.accept.trim().toLowerCase() === "none") continue;
+			const text = read(car.accept);
+			if (text === undefined) { out.push(`sb: car ${car.tickets[0]}: cannot read the evidence file ${car.accept}`); continue; }
+			const cwd = ctx.cwd ?? process.cwd();
+			const options: EvidenceOptions = { appAccept: [], head: car.head, exists: (path) => existsSync(expand(path, ctx)), isAncestor: (older, newer) => { try { git(cwd, ["merge-base", "--is-ancestor", older, newer]); return true; } catch { return false; } } };
+			out.push(...checkEvidence(text, options));
+		}
+		return out;
+	}
+
+	// ---- monitor calls
+
+	function monitorCall(event: Json, input: Json, ctx: Ctx, me: TrainId): string | undefined {
+		if (input.herdrPaneId !== undefined) return "sb: a train's monitor runs a step's command; herdrPaneId is refused";
+		const generic = GENERIC(me.code), found = /^train (\S+) #(\d+) (\S+)$/.exec(typeof input.description === "string" ? input.description.trim() : "");
+		if (!found || (found[1] !== shortCode(me.code) && found[1] !== me.code) || typeof input.command !== "string") return generic;
+		const id = Number(found[2]), { rows } = rowsOfSnapshot(snapshotOfBranch(ctx.sessionManager.getBranch())), row = rows.find((r) => r.id === id), sb = sbOf(row);
+		if (!row || !sb || sb.kind !== found[3]) return generic;
+		if (row.status !== "in_progress") return `sb: step #${id} is ${row.status}; a monitor starts only for an in_progress step`;
+		const round = rows.flatMap((r) => { const s = sbOf(r); return s && Number.isInteger(s.round) ? [s.round as number] : []; }).reduce((top, r) => Math.max(top, r), 1);
+		const app = typeof sb.app === "string" ? sb.app : "unknown";
+		const refusals = validateStep(sb, { status: "in_progress", id, expect: { project: me.project, app, train: me.code, round } });
+		if (refusals.length) return refusals[0];
+		const check = (sb.spec as Json).check as Json;
+		if (check.type !== "run") return `sb: step #${id} is a ${String(check.type)} check; a monitor runs a run check`;
+		if (input.command !== check.run) return `sb: step #${id} runs ${JSON.stringify(check.run)}, not this command`;
+		const running = book.active(id);
+		if (running) return `sb: step #${id} already has a running monitor (#${running.monitor ?? "starting"})`;
+		const text = frozenText(sb);
+		let file: string;
+		try { file = freezeStep(env.stateDir, me.project, me.code, id, text); } catch (error) { return `sb: step #${id} cannot be frozen: ${(error as Error).message}`; }
+		// Rewritten in place (spike (b)): pi hands this same object to the tool, with no new validation, so the types stay and `description` is left alone.
+		input.command = gateCommand(env.node, env.cli, file);
+		input.timeout = Math.max(MIN_TIMEOUT_MS, typeof input.timeout === "number" && Number.isFinite(input.timeout) ? input.timeout : 0);
+		book.begin({ step: id, frozen: createHash("sha256").update(text).digest("hex"), command: input.command as string, description: String(input.description), call: String(event.toolCallId) });
+		return undefined;
+	}
+
+	// ---- the files
+
+	/** The board of this train, or the yard of this integrator, from the todo list after a call; a failure to write is told once and never fails the call. */
+	function publish(rows: Row[], ctx: Ctx) {
+		const me = env.train();
+		try {
+			if (me) {
+				const info = manifestOf(ctx), steps = rows.flatMap((r) => { const s = sbOf(r); return s ? [s] : []; });
+				const app = String(steps.find((s) => typeof s.app === "string")?.app ?? info?.app ?? "unknown");
+				const removed = new Set(steps.flatMap((s) => (isObject(s.spec) && Array.isArray(s.spec.removed) ? (s.spec.removed as Json[]).map((r) => String(r.ticket)) : [])));
+				const left = new Set(info?.leftOut.map((l) => l.ticket));
+				const cars = (info?.cars ?? []).flatMap((c) => (c.row && !removed.has(c.ticket) && !left.has(c.ticket) ? [c.row] : []));
+				const file = boardPath(env.stateDir, me.project, me.code), existing = readBoard(file);
+				const read = others(me.project), load = env.load ? env.load() : { now: loadavg()[0]!, cores: availableParallelism() };
+				const waits = (s: BoardStep): Wait[] => {
+					if ("error" in read) return [];
+					const own: TrainFacts = { project: me.project, code: me.code, state: "live", steps: [] };
+					const fact: FactStep = { id: s.id, kind: s.kind, status: "in_progress", round: s.round, ...(s.holds ? { holds: s.holds } : {}), ...(s.load ? { load: s.load } : {}), ...(s.lock ? { lock: s.lock } : {}) };
+					const w = stepWaits(own, fact, { trains: read.trains.filter((t) => t.code !== me.code), ...(load && s.load ? { load } : {}) });
+					return w.filter((x) => !("lock" in x));
+				};
+				const board = buildBoard({ project: me.project, code: me.code, app, rows, cars, writer: writer(), now: env.now(), ...(existing.ok && existing.board.clears ? { clears: existing.board.clears } : {}), waits: (s) => waits(s) });
+				writeBoard(env.stateDir, capBoard(board));
+			} else if (env.isMain()) {
+				const project = rows.map(sbOf).find((s) => s?.kind === "train")?.project;
+				if (typeof project === "string") writeYard(env.stateDir, buildYard({ project, rows, writer: writer(), now: env.now() }));
+			}
+		} catch (error) {
+			const text = `Straw Boss: the trainboard could not be written (${(error as Error).message}); the train goes on, and other trains cannot see it`;
+			if (!toldBoard.has(text)) (toldBoard.add(text), env.tell(text, "warning"));
+		}
+	}
+
+	// ---- pi
+
+	pi.on("tool_call", (event, ctx) => {
+		const input = event.input;
+		if (!isObject(input) || (event.toolName !== "todo" && event.toolName !== "MonitorCreate")) return undefined;
+		const me = env.train();
+		let reasons: string[] = [];
+		try {
+			if (me) reasons = event.toolName === "todo" ? trainTodo(input, ctx, me) : [monitorCall(event, input, ctx, me)].flatMap((r) => (r ? [r] : []));
+			else if (event.toolName === "todo" && env.isMain() && (hasSb(input) || changesTrainTodo(input, ctx))) reasons = integratorTodo(input, ctx);
+		} catch (error) {
+			// A guard that fails does not let the call through: the train's checks are enforcement.
+			reasons = [`sb: the train guard could not check this call (${(error as Error).message}); try again`];
+		}
+		return reasons.length ? ({ block: true, reason: reasons.join("\n") } satisfies Block) : undefined;
+	});
+	/** Whether a todo call carries a `metadata.sb`, in its own metadata or in a batch's. */
+	function hasSb(input: Json): boolean {
+		const meta = (m: unknown) => isObject(m) && m.sb !== undefined;
+		return meta(input.metadata) || (Array.isArray(input.tasks) && input.tasks.some((t) => isObject(t) && meta(t.metadata)));
+	}
+	/** Whether an update reaches a `train` todo of the integrator's list, whatever metadata it carries: completing one needs its result too. */
+	function changesTrainTodo(input: Json, ctx: Ctx): boolean {
+		const { rows } = rowsOfSnapshot(snapshotOfBranch(ctx.sessionManager.getBranch()));
+		return input.action === "update" && sbOf(rows.find((r) => r.id === input.id))?.kind === "train";
+	}
+	pi.on("tool_result", (event, ctx) => {
+		if (event.toolName === "MonitorCreate" && event.isError === true && typeof event.toolCallId === "string") book.failedToStart(event.toolCallId);
+		if (event.toolName !== "todo" || event.isError === true || (!env.train() && !env.isMain())) return;
+		const fromDetails = isObject(event.details) ? rowsOfSnapshot(event.details) : undefined;
+		publish((fromDetails && Array.isArray((event.details as Json).tasks) ? fromDetails : rowsOfSnapshot(snapshotOfBranch(ctx.sessionManager.getBranch()))).rows, ctx);
+	});
+	pi.on("turn_end", (_event, ctx) => {
+		if (!env.train() && !env.isMain()) return;
+		const { rows } = rowsOfSnapshot(snapshotOfBranch(ctx.sessionManager.getBranch()));
+		if (rows.some(isStep)) publish(rows, ctx);
+	});
+	pi.events?.on("monitor:started", (d) => isObject(d) && book.started(d));
+	pi.events?.on("monitor:output", (d) => isObject(d) && book.output(d));
+	pi.events?.on("monitor:finished", (d) => { const me = env.train(); if (isObject(d) && me) book.finished(d, me.code); });
+	return { book };
+}
+export type TrainGuard = ReturnType<typeof createTrainGuard>;
+
+/** The guard of this session, unless the merge train is off (§14.8: with it off nothing of this loads). */
+export function registerTrainGuard(kit: Kit): TrainGuard | undefined {
+	const { s, cfg } = kit;
+	if (integrationOff(cfg.env, kit.guiDir)) return undefined;
+	return createTrainGuard(kit.pi as unknown as GuardPi, {
+		stateDir: kit.guiDir, train: () => (s.isTrain ? s.train : undefined), isMain: () => kit.role() === "main", session: () => ({ id: kit.me(), ...(s.at?.paneId ? { pane: s.at.paneId } : {}) }), now: () => cfg.now(),
+		node: process.execPath, cli: serverCli(), home: homedir(), tell: kit.tell,
+	});
+}

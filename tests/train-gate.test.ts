@@ -76,7 +76,10 @@ test("a gate waits on load, prints a waiting line each 30 s, runs when the load 
 	await until(() => g.lines.length === 1, "the first waiting line");
 	assert.equal(g.lines[0]!.progress.message, "waiting: load <=30 (now 42)");
 	assert.deepEqual(g.lines[0]!.progress.load, { max: 30, now: 42 });
-	assert.deepEqual(g.lines[0]!.sb, { v: 1, train: CODE, step: 4, kind: "full-check", state: "waiting", since: "2026-11-07T08:00:00.000Z", waits: [{ load: { max: 30, now: 42 } }] });
+	const { spec, run, ...first } = g.lines[0]!.sb as Record<string, unknown>;
+	assert.deepEqual(first, { v: 1, train: CODE, step: 4, kind: "full-check", state: "waiting", since: "2026-11-07T08:00:00.000Z", waits: [{ load: { max: 30, now: 42 } }] });
+	assert.match(String(spec), /^[0-9a-f]{64}$/, "every line names the step file it read");
+	assert.match(String(run), /^[0-9a-f]{32}$/, "and the run it belongs to");
 	assert.equal(readGate(join(codeDir(w), "gate-4.json"))?.state, "waiting");
 	await w.clock.advance(30_000);
 	await until(() => g.lines.length === 2, "the second waiting line");
@@ -95,7 +98,10 @@ test("a gate waits on load, prints a waiting line each 30 s, runs when the load 
 	assert.equal(await g.done, 0);
 	const end = last(g);
 	assert.deepEqual(end.monitorOutcome, { status: "passed", message: "exit 0 in 30s" });
-	assert.deepEqual(end.sb, { v: 1, train: CODE, step: 4, kind: "full-check", state: "passed", exit: 0 });
+	const { spec: endSpec, run: endRun, ...endRest } = end.sb as Record<string, unknown>;
+	assert.deepEqual(endRest, { v: 1, train: CODE, step: 4, kind: "full-check", state: "passed", exit: 0 });
+	assert.deepEqual([endSpec, endRun], [(g.lines[0]!.sb as Record<string, unknown>).spec, (g.lines[0]!.sb as Record<string, unknown>).run], "the end names the same file and run as the first line");
+	assert.ok(g.lines.every((l) => (l.sb as Record<string, unknown> | undefined)?.run === endRun), "every line of a run carries its nonce");
 	assert.equal(g.lines.filter((l) => l.monitorOutcome).length, 1, "one outcome line");
 	assert.equal(readFileSync(join(w.work, "step-4.log"), "utf8"), "hello\ndone\n");
 });

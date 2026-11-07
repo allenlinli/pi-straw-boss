@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { serverCli } from "../src/server/version.ts";
 import { acceptanceWord } from "../src/train/spec.ts";
 import { boardPath, boardState, readBoard, validateBoard, writeBoard } from "../src/train/board.ts";
-import { frozenText, gateCommand, RUN_ENTRY, specHash } from "../src/trainguard.ts";
+import { frozenText, gateCommand, specHash } from "../src/trainguard.ts";
 import { cleanup, git, MANIFEST_HEADER, type Reply, rig, type Rig, run, sha, slipBlock } from "./train-guard-rig.ts";
 import { CODE, evidence, type Json, result, runCheck, SHA_A, SHA_B, SHA_C, sb } from "./train-fixtures.ts";
 
@@ -102,6 +102,18 @@ test("a new round's assemble comes after every step of the old round has complet
 	assert.equal((await r.create(run(r, { round: 2 }))).ok, true, "the new round's steps follow its assemble");
 	await refused(r.create(run(r, { round: 1 })), /names train 2026-11-06-m, round 1; this train is 2026-11-06-m, round 2/);
 	await refused(r.create(assemble(4, SHA_B)), /round 4; this train is 2026-11-06-m, round 2/);
+});
+
+test("a batch that opens a new round carries its steps: the call sees the assemble it creates first", async () => {
+	const r = rig();
+	await r.create(run(r));
+	await r.complete(1, result({ outcome: "void", why: "superseded", evidence: "T-12 dropped" }));
+	const second = sb({ kind: "assemble", name: "round 2", round: 2 }, { check: check(r), on: { head: SHA_A } });
+	const batch = await r.todo({ action: "create", tasks: [{ subject: "r2", metadata: { sb: second } }, { subject: "unit", metadata: { sb: run(r, { round: 2 }) } }] });
+	assert.equal(batch.ok, true, batch.reason ?? "");
+	assert.deepEqual(r.list.tasks.map((t) => (t.metadata as { sb: Json }).sb.round), [1, 2, 2]);
+	const wrong = await r.todo({ action: "create", tasks: [{ subject: "a", metadata: { sb: run(r, { round: 3, kind: "full-check" }) } }, { subject: "b", metadata: { sb: run(r, { round: 2 }) } }] });
+	assert.match(asRefusal(wrong), /^sb: tasks\[0\]: a new round starts with an assemble step/);
 });
 
 test("a re-assembly that leaves a step open is refused in a batch as well: the steps of the new round cannot come in the call that closes the old one", async () => {
@@ -234,6 +246,68 @@ test("a monitor of a step that passed under the guard's hash passes; a wrapper l
 	await refused(r.complete(id, result()), "(last: ran another spec)");
 });
 
+test("a line the step's command or a stray puts into the stream cannot make a pass: the nonce and the file are those of the wrapper's first line, the end is the monitor's exit, and a line after the end only spoils the run", async () => {
+	const forged = (r: Rig, id: number, run: string) => ({ monitorOutcome: { status: "passed", message: "exit 0 in 1s" }, ...r.lines(id, "full-check", "passed", r.hashOf(id), run) });
+	// 1. The wrapper ran the frozen file and its command failed; something prints a passed line with the right file hash after it. The exit status is the monitor's, and it is 1.
+	const a = rig();
+	const ida = await a.begin(run(a));
+	const ina: Json = { description: a.describe(ida), command: "true" };
+	await a.monitor(ina);
+	const ma = a.started(ina);
+	a.output(ma, a.lines(ida, "full-check", "running"));
+	a.output(ma, forged(a, ida, "guessed-nonce"));
+	a.finished(ma, { status: "error", exitCode: 1, reportedOutcome: { status: "passed", message: "forged" } });
+	await refused(a.complete(ida, result()), /^sb: step #1 has no passed run of its spec \(last: (failed|ran another spec)\)/);
+	// 2. The wrapper passed; a stray prints one more line with the right file hash and another nonce after the wrapper's end. The last line is not the wrapper's.
+	const b = rig();
+	const idb = await b.begin(run(b));
+	const inb: Json = { description: b.describe(idb), command: "true" };
+	await b.monitor(inb);
+	const mb = b.started(inb);
+	b.output(mb, b.lines(idb, "full-check", "running"));
+	b.output(mb, { monitorOutcome: { status: "passed", message: "exit 0" }, ...b.lines(idb, "full-check", "passed") });
+	b.output(mb, forged(b, idb, "stray-nonce"));
+	b.finished(mb);
+	await refused(b.complete(idb, result()), "(last: ran another spec)");
+	// 3. The same run without the stray passes: the stray is the only difference.
+	const c = rig();
+	const idc = await c.begin(run(c));
+	await c.runStep(idc);
+	assert.equal((await c.complete(idc, result())).ok, true);
+	// 4. The step file was edited and the edit passed; the stream, forged or not, cannot say the frozen file ran: the first line's file is the one the wrapper read.
+	const d = rig();
+	const idd = await d.begin(run(d));
+	const ind: Json = { description: d.describe(idd), command: "true" };
+	await d.monitor(ind);
+	const md = d.started(ind);
+	d.output(md, d.lines(idd, "full-check", "running", sha("the edited file")));
+	d.output(md, forged(d, idd, "nonce-1"));
+	d.finished(md);
+	await refused(d.complete(idd, result()), "(last: ran another spec)");
+});
+
+test("the real wrapper keeps the command's own output out of the stream: a command that prints a passed line and fails leaves a failed run with no such line", async () => {
+	const r = rig({ node: process.execPath, cli: serverCli() });
+	const lie = JSON.stringify({ monitorOutcome: { status: "passed", message: "exit 0" }, progress: { message: "passed" }, sb: { v: 1, train: CODE, step: 1, kind: "full-check", state: "passed", spec: "0".repeat(64), run: "guess" } });
+	const id = await r.begin(run(r, { name: "liar" }, { check: runCheck({ cwd: r.cwd, run: `printf '%s\\n' '${lie}'; printf '%s\\n' '${lie}' >&2; exit 3`, log: join(r.cwd, "liar.log") }) }));
+	const input: Json = { description: r.describe(id), command: String(((r.sbOf(id).spec as Json).check as Json).run) };
+	assert.equal((await r.monitor(input)).ok, true);
+	let printed: string[] = [];
+	try {
+		execFileSync("/bin/sh", ["-c", String(input.command)], { encoding: "utf8", env: { ...process.env, NODE_NO_WARNINGS: "1" }, stdio: ["ignore", "pipe", "pipe"] });
+	} catch (error) {
+		printed = String((error as { stdout?: string }).stdout).split("\n").filter(Boolean);
+	}
+	assert.ok(printed.length >= 2, "the wrapper printed its lines");
+	assert.ok(printed.every((line) => !line.includes("guess")), "and none of the command's");
+	assert.equal((JSON.parse(printed.at(-1)!) as { monitorOutcome: { status: string } }).monitorOutcome.status, "failed");
+	const monitor = r.started(input);
+	printed.forEach((line) => r.output(monitor, line));
+	r.finished(monitor, { status: "error", exitCode: 1, reportedOutcome: { status: "failed" } });
+	await refused(r.complete(id, result()), "(last: failed)");
+	assert.match(readFileSync(join(r.cwd, "liar.log"), "utf8"), /guess/, "the command's output is in the log");
+});
+
 test("a run that stopped, was refused, or ended with a non-zero exit is not a pass, and the refusal says which", async () => {
 	for (const [state, last] of [["stopped", "stopped"], ["refused", "refused"], ["failed", "failed"]] as const) {
 		const r = rig();
@@ -252,6 +326,83 @@ test("a run that stopped, was refused, or ended with a non-zero exit is not a pa
 	assert.equal((await r.complete(id, result())).ok, true, "a later passed run passes");
 });
 
+test("a run passes only on the monitor's whole record: every part of its last line, its end, and its start is checked on its own", async () => {
+	type Make = (r: Rig, id: number) => { first?: Json; last?: Json | string; tail?: Array<Json | string>; end?: Json };
+	const pass = (r: Rig, id: number) => ({ first: r.lines(id, "full-check", "running"), last: { monitorOutcome: { status: "passed", message: "exit 0" }, ...r.lines(id, "full-check", "passed") } });
+	const cases: Array<[string, Make, string]> = [
+		["the baseline", pass, "passed"],
+		["a last line of another step", (r, id) => ({ ...pass(r, id), last: { monitorOutcome: { status: "passed" }, ...r.lines(id + 7, "full-check", "passed", r.hashOf(id), `nonce-${id}`) } }), "ran another spec"],
+		["a last line of another train", (r, id) => ({ ...pass(r, id), last: { monitorOutcome: { status: "passed" }, sb: { ...(r.lines(id, "full-check", "passed").sb as Json), train: "2026-11-05-x" } } }), "ran another spec"],
+		["a last line that is not an end", (r, id) => ({ ...pass(r, id), last: r.lines(id, "full-check", "passed") }), "unverified"],
+		["a last line that says failed", (r, id) => ({ ...pass(r, id), last: { monitorOutcome: { status: "failed" }, ...r.lines(id, "full-check", "failed") } }), "ran another spec"],
+		["a last line with another nonce", (r, id) => ({ ...pass(r, id), last: { monitorOutcome: { status: "passed" }, ...r.lines(id, "full-check", "passed", r.hashOf(id), "other") } }), "ran another spec"],
+		["a last line of another file", (r, id) => ({ ...pass(r, id), last: { monitorOutcome: { status: "passed" }, ...r.lines(id, "full-check", "passed", sha("x")) } }), "ran another spec"],
+		["a plain line after the end", (r, id) => ({ ...pass(r, id), tail: ["done"] }), "ran another spec"],
+		["a line over 4000 characters after the end", (r, id) => ({ ...pass(r, id), tail: [JSON.stringify({ ...pass(r, id).last, pad: "x".repeat(4100) })] }), "ran another spec"],
+		["no line at all", () => ({}), "unverified"],
+		["an end the monitor reports as failed with exit 0", (r, id) => ({ ...pass(r, id), end: { reportedOutcome: { status: "failed" } } }), "ran another spec"],
+		["an end that is an error with exit 0", (r, id) => ({ ...pass(r, id), end: { status: "error", reportedOutcome: { status: "failed" } } }), "failed"],
+		["an end that is stopped", (r, id) => ({ ...pass(r, id), end: { status: "stopped", exitCode: undefined, reportedOutcome: undefined } }), "stopped"],
+	];
+	for (const [name, make, state] of cases) {
+		const r = rig();
+		const id = await r.begin(run(r));
+		const input: Json = { description: r.describe(id), command: "true" };
+		await r.monitor(input);
+		const monitor = r.started(input), parts = make(r, id);
+		if (parts.first) r.output(monitor, parts.first);
+		if (parts.last) r.output(monitor, parts.last);
+		for (const line of parts.tail ?? []) r.output(monitor, line);
+		r.finished(monitor, parts.end ?? {});
+		if (state === "passed") assert.equal((await r.complete(id, result())).ok, true, name);
+		else await refused(r.complete(id, result()), `(last: ${state})`).catch((error: Error) => { throw new Error(`${name}: ${error.message}`); });
+	}
+});
+
+test("a monitor the guard did not start for a step is none of its runs: another command, another description, a second end, or another train's code", async () => {
+	const r = rig();
+	const id = await r.begin(run(r));
+	const input: Json = { description: r.describe(id), command: "true" };
+	await r.monitor(input);
+	// A start event of another command or description does not take the run, so its lines and end are nobody's.
+	for (const odd of [{ ...input, command: "false" }, { ...input, description: "something else" }]) {
+		const stray = r.started(odd);
+		r.output(stray, r.lines(id, "full-check", "running"));
+		r.output(stray, { monitorOutcome: { status: "passed" }, ...r.lines(id, "full-check", "passed") });
+		r.finished(stray);
+		await refused(r.complete(id, result()), "(last: starting)");
+	}
+	// The run, then a second end for the same monitor: the first end stands.
+	const monitor = r.started(input);
+	r.output(monitor, r.lines(id, "full-check", "running"));
+	r.output(monitor, { monitorOutcome: { status: "passed" }, ...r.lines(id, "full-check", "passed") });
+	r.finished(monitor);
+	r.finished(monitor, { status: "error", exitCode: 1, reportedOutcome: { status: "failed" } });
+	assert.equal((await r.complete(id, result())).ok, true);
+	// A description with another train's code is refused, whatever the step.
+	const other = await r.monitor({ description: `train 9999z #${id} full-check`, command: "true" });
+	assert.equal(other.ok, false);
+	assert.match(other.reason ?? "", /^sb: a train's monitor runs one step: describe it "train 1106m #<id> <kind>"/);
+});
+
+test("a guard that fails on a call blocks it, a session that is neither a train nor a main is not checked, and a todo call that failed writes no board", async () => {
+	const r = rig();
+	const ctx = { cwd: r.cwd, sessionManager: { getBranch: () => { throw new Error("branch unreadable"); } } };
+	const blocked = await r.handlers.get("tool_call")![0]!({ type: "tool_call", toolName: "todo", toolCallId: "x", input: { action: "create", subject: "s" } }, ctx) as { block?: boolean; reason?: string };
+	assert.equal(blocked.block, true);
+	assert.match(blocked.reason ?? "", /^sb: the train guard could not check this call \(branch unreadable\); try again/);
+	const member = rig({ train: false, main: false });
+	assert.equal((await member.todo({ action: "create", subject: "train", metadata: { sb: { v: 1, kind: "merge" } } })).ok, true);
+	assert.equal(existsSync(member.yardFile), false);
+	const failing = rig();
+	await failing.create(sb({ kind: "assemble", name: "a" }, { check: check(failing), on: { head: SHA_A } }));
+	rmSync(failing.boardFile);
+	await failing.fire("tool_result", { toolName: "todo", toolCallId: "c1", input: {}, content: [], isError: true, details: failing.snapshot() });
+	assert.equal(existsSync(failing.boardFile), false, "an error result writes nothing");
+	await failing.fire("tool_result", { toolName: "todo", toolCallId: "c1", input: {}, content: [], isError: false, details: failing.snapshot() });
+	assert.equal(existsSync(failing.boardFile), true);
+});
+
 test("a run that was stopped by the inactivity timeout reads as stale, a monitor that errored on start as error", async () => {
 	const r = rig();
 	const id = await r.begin(run(r));
@@ -262,15 +413,16 @@ test("a run that was stopped by the inactivity timeout reads as stale, a monitor
 	await refused(r.complete(id, result()), "(last: stale)");
 });
 
-test("the passed runs survive a /reload: they are on the branch, written by the guard, and a guard that starts again reads them", async () => {
+test("a /reload forgets the runs: they are in the guard's memory only, so a pass written into the session file is no evidence and the step runs again", async () => {
 	const r = rig();
 	const id = await r.begin(run(r));
 	await r.runStep(id);
-	const saved = r.entries.filter((e) => e.customType === RUN_ENTRY);
-	assert.equal(saved.length, 1, "one entry per run that ended");
-	assert.deepEqual(Object.keys(saved[0]!.data as Json).sort(), ["at", "hash", "monitor", "state", "step"]);
+	assert.deepEqual(r.entries.filter((e) => e.customType !== "rpiv-todo-state"), [], "the guard wrote nothing to the session file: the train's shell can edit it");
+	r.entries.push({ type: "custom", customType: "straw-boss-train-run", data: { step: id, hash: specHash(r.sbOf(id)), state: "passed", monitor: "m1", at: r.iso() }, timestamp: r.iso() });
 	const again = rig({ reuse: r });
-	assert.equal((await again.complete(id, result())).ok, true);
+	await refused(again.complete(id, result()), "sb: step #1 has no passed run of its spec (last: none)");
+	await again.runStep(id);
+	assert.equal((await again.complete(id, result())).ok, true, "frozen again and run again, it passes");
 });
 
 test("a passed run is for the step it ran: the same hash under another step number does not pass that step", async () => {
@@ -309,12 +461,14 @@ test("a `git` pass is read from the repository: HEAD is result.head and every `c
 	assert.equal((await r.complete(ref, result({ head: first }))).ok, true, "ref side is first");
 	const wrongRef = await r.begin(meta({ ref: "side", contains: [head] }, first));
 	await refused(r.complete(wrongRef, result({ head: first })), /git check: [0-9a-f]{12} is not an ancestor of side/);
+	const dash = await r.begin(meta({ ref: "--output=x" }));
+	await refused(r.complete(dash, result({ head })), "sb: step #5: git check: a ref does not begin with -");
 	const gone = await r.begin(sb({ kind: "assemble", name: "gone" }, { check: { type: "git", cwd: join(r.cwd, "nope"), contains: [first] }, on: { head } }));
-	await refused(r.complete(gone, result({ head })), /^sb: step #5: git check: git failed in .*nope/);
+	await refused(r.complete(gone, result({ head })), /^sb: step #6: git check: git failed in .*nope/);
 	const plain = join(r.cwd, "plain");
 	mkdirSync(plain);
 	const notRepo = await r.begin(sb({ kind: "assemble", name: "plain" }, { check: { type: "git", cwd: plain, contains: [first] }, on: { head } }));
-	await refused(r.complete(notRepo, result({ head })), /^sb: step #6: git check: git failed in .*plain/);
+	await refused(r.complete(notRepo, result({ head })), /^sb: step #7: git check: git failed in .*plain/);
 });
 
 test("a `git` check reads the repository the cwd names; a `~` is the home folder and a relative cwd is the session's", async () => {
@@ -354,17 +508,24 @@ test("a `report` pass is refused for a file that is missing, empty, or older tha
 	await refused(r.complete(m, result({ verdict: "P0=0 P1=0" })), `sb: step #3: report ${missing} does not exist`);
 });
 
-test("a `report` step that was never seen in_progress cannot pass: the time it started is the guard's, from the branch", async () => {
+test("a `report` step that was never seen in_progress cannot pass: the time it started is the guard's, in its memory", async () => {
 	const r = rig();
 	const path = join(r.cwd, "review.md");
 	writeFileSync(path, "x\nP0=0 P1=0\n");
 	utimesSync(path, new Date(r.now() + 60_000), new Date(r.now() + 60_000));
 	assert.equal((await r.create(sb({ kind: "review", name: "review" }, { check: { type: "report", path, expect: "P0=0 P1=0" }, on: { head: SHA_A } }))).ok, true);
-	await refused(r.complete(1, result({ verdict: "P0=0 P1=0" })), "sb: step #1: report check: the step was never seen in_progress; start it before it completes");
+	const never = "sb: step #1: report check: the step was never seen in_progress by this session; set it in_progress before it completes";
+	await refused(r.complete(1, result({ verdict: "P0=0 P1=0" })), never);
 	assert.equal((await r.update(1, "in_progress")).ok, true);
-	r.tick(5000);
-	utimesSync(path, new Date(r.now() + 60_000), new Date(r.now() + 60_000));
-	assert.equal((await r.complete(1, result({ verdict: "P0=0 P1=0" }))).ok, true);
+	// A /reload forgets when it started, and a branch entry cannot say it again.
+	const again = rig({ reuse: r });
+	await refused(again.complete(1, result({ verdict: "P0=0 P1=0" })), never);
+	assert.equal((await again.update(1, "in_progress")).ok, true, "set in_progress again, it starts from now");
+	utimesSync(path, new Date(again.now() - 1000), new Date(again.now() - 1000));
+	await refused(again.complete(1, result({ verdict: "P0=0 P1=0" })), /was not changed since the step went in_progress/);
+	again.tick(5000);
+	utimesSync(path, new Date(again.now() + 60_000), new Date(again.now() + 60_000));
+	assert.equal((await again.complete(1, result({ verdict: "P0=0 P1=0" }))).ok, true);
 });
 
 function carFiles(r: Rig, notice?: Json) {
@@ -420,12 +581,18 @@ test("a manifest car that asks for acceptance is left out of round 1: the assemb
 	assert.ok(asRefusal(await r.create(assembleOf(r, { cars: ["T-15"], removed: [{ ticket: "T-15", why: "x" }] }))).startsWith(ASKED), "removing another car is not it");
 	assert.equal(r.list.tasks.length, 0);
 	const ok = await r.create(assembleOf(r, { cars: ["T-15"], removed: [{ ticket: "T-16", why: ASKED, evidence: "/r/checkpoints.md" }] }));
-	assert.equal(ok.ok, true, ok.reason);
+	assert.equal(ok.ok, true, ok.reason ?? "");
 	// No step carries the car.
 	await refused(r.create(sb({ kind: "land", name: "land" }, { check: { type: "notice", cars: ["T-15", "T-16"], state: "landed" } })), "sb: car T-16 was left out of round 1: it asks the train for acceptance; no step carries it");
-	await refused(r.create(sb({ kind: "assemble", name: "again" }, { check: check(r, { contains: [SHA_B] }), on: { head: SHA_A } })), "sb: car T-16 was left out of round 1: it asks the train for acceptance; no step carries it");
+	await refused(r.create(sb({ kind: "assemble", name: "again" }, { check: check(r, { contains: [SHA_B] }), on: { head: SHA_A }, cars: ["T-15"], removed: [{ ticket: "T-16", why: "asks for acceptance" }] })), "sb: car T-16 was left out of round 1: it asks the train for acceptance; no step carries it");
+	await refused(r.create(assembleOf(r, { cars: ["T-15", "T-16"], removed: [{ ticket: "T-16", why: "x" }] })), "sb: car T-16 was left out of round 1: it asks the train for acceptance; no step carries it");
 	assert.equal((await r.create(sb({ kind: "land", name: "land" }, { check: { type: "notice", cars: ["T-15"], state: "landed" } }))).ok, true);
 	assert.equal(r.list.tasks.length, 2);
+	// Only round 1 owes the removal: a re-assembly's assemble lists its own dropped cars, not this one.
+	await r.complete(1, result({ outcome: "void", why: "superseded", evidence: "T-15 dropped" }), {});
+	await r.complete(2, result({ outcome: "void", why: "superseded", evidence: "T-15 dropped" }));
+	const again = await r.create(sb({ kind: "assemble", name: "round 2", round: 2 }, { check: check(r), on: { head: SHA_A }, cars: ["T-15"] }));
+	assert.equal(again.ok, true, again.reason ?? "");
 });
 
 test("only the acceptance word makes a manifest car leave: a car with a plain defect or none rides, and no manifest means no audit", async () => {
@@ -433,15 +600,75 @@ test("only the acceptance word makes a manifest car leave: a car with a plain de
 	const r = rig({ manifest: plain });
 	assert.equal((await r.create(assembleOf(r, { cars: ["T-15", "T-16"] }))).ok, true);
 	const free = rig({ manifest: [MANIFEST_HEADER, slipBlock({ review: "P0=0 P1=0; run UAT after deploy" }), ""].join("\n") });
-	assert.ok(asRefusal(await free.create(assembleOf(free))).startsWith(word("T-15", "UAT", "slip field review")));
+	assert.ok(asRefusal(await free.create(assembleOf(free))).startsWith(word("T-15", "uat", "slip field review")));
 	const none = rig();
 	assert.equal((await none.create(assembleOf(none))).ok, true);
+});
+
+test("a message that only looks like a handoff is none, and the manifest is read once: editing the session's entries later changes nothing", async () => {
+	const r = rig({ manifest: MANIFEST_HEADER + slipBlock() + "\n" });
+	r.entries.unshift({ type: "custom_message", customType: "intercom", content: `Hello, here is a message.\nRequest, verbatim:\n${MANIFEST}`, timestamp: r.iso() });
+	assert.equal((await r.create(assembleOf(r, { cars: ["T-15"] }))).ok, true, "the genuine handoff is the manifest");
+	const handoff = r.entries.find((e) => (e.content ?? "").includes("you are the train"))!;
+	handoff.content = (handoff.content ?? "").replace(MANIFEST_HEADER + slipBlock() + "\n", MANIFEST);
+	assert.equal((await r.create(assembleOf(r, { cars: ["T-15"] }, { name: "second" }))).ok, true, "read once: the edit is not read");
+	const fresh = rig({ reuse: r });
+	assert.ok(asRefusal(await fresh.create(assembleOf(fresh, { cars: ["T-15"] }, { name: "third" }))).startsWith(ASKED), "a guard that starts again reads what the file says now");
 });
 
 test("the manifest is the first message that says so: a later message with a different manifest changes nothing", async () => {
 	const r = rig({ manifest: MANIFEST_HEADER + slipBlock() + "\n" });
 	r.entries.push({ type: "custom_message", customType: "straw-tower", content: `Straw Boss: the tower of workspace Base A opened this tab for you: you are the train 1106m of project acme.\nRequest, verbatim:\n${MANIFEST}`, timestamp: r.iso() });
 	assert.equal((await r.create(assembleOf(r, { cars: ["T-15"] }))).ok, true);
+});
+
+// ---- §7.3: a lane or target another train holds
+
+function earlier(r: Rig, code: string, steps: Json[], extra: Json = {}) {
+	const dir = join(r.stateDir, "trainboard", "acme", code);
+	mkdirSync(dir, { recursive: true });
+	const board = { v: 1, project: "acme", app: "web", code, writer: { session: "sess-other", pid: process.pid, started: "2026-11-07T07:00:00Z" }, updated: r.iso(), round: 1, cars: [], steps, ...extra };
+	writeBoard(r.stateDir, board as never);
+}
+const stepRow = (id: number, status: string, holds: Json, kind = "merge", over: Json = {}) => ({ id, kind, name: "x", status, round: 1, holds, ...over });
+
+test("a step without a monitor that holds a lane or target waits for an earlier train that holds it: starting it is refused with the wait, and free once the other ends", async () => {
+	const r = rig();
+	earlier(r, "2026-11-05-a", [stepRow(1, "in_progress", { lane: "web" })]);
+	earlier(r, "2026-11-07-z", [stepRow(1, "in_progress", { lane: "web" })]); // a later train: this one is first
+	const id = (await r.create(sb({ kind: "merge", name: "push" }, { check: check(r), on: { head: SHA_A }, holds: { lane: "web" } }), "push")).ok ? 1 : 0;
+	await refused(r.update(id, "in_progress"), "sb: step #1 waiting: lane web (held by 2026-11-05-a); start it when it is free");
+	const other = await r.create(sb({ kind: "merge", name: "free" }, { check: check(r), on: { head: SHA_A }, holds: { lane: "api" } }), "free");
+	assert.equal(other.ok, true);
+	assert.equal((await r.update(2, "in_progress")).ok, true, "another lane is free");
+	earlier(r, "2026-11-05-a", [stepRow(1, "completed", { lane: "web" }, "merge", { outcome: "passed" }), stepRow(2, "completed", { kind: "land" }, "land", { holds: undefined, outcome: "passed" })]);
+	assert.equal((await r.update(id, "in_progress")).ok, true, "the other train is done with the lane");
+	// It is the start that waits: a step already going is not asked again.
+	earlier(r, "2026-11-05-a", [stepRow(1, "in_progress", { lane: "web" })]);
+	assert.equal((await r.update(id, "in_progress", { sb: { ...r.sbOf(id), name: "push again" } })).ok, true);
+	// A target is held apart from a lane.
+	earlier(r, "2026-11-05-b", [stepRow(1, "in_progress", { target: "t1" }, "deploy")]);
+	const dep = await r.create(sb({ kind: "deploy", name: "d" }, { check: check(r), on: { head: SHA_A }, holds: { target: "t1" } }), "d");
+	assert.equal(dep.ok, true);
+	await refused(r.update(3, "in_progress"), "sb: step #3 waiting: target t1 (held by 2026-11-05-b); start it when it is free");
+});
+
+test("a board that cannot be read holds every lane of its project, and a project folder that cannot be listed refuses the start", async () => {
+	const r = rig();
+	mkdirSync(join(r.stateDir, "trainboard", "acme", "2026-11-05-a"), { recursive: true });
+	writeFileSync(join(r.stateDir, "trainboard", "acme", "2026-11-05-a", "board.json"), "{ not json");
+	await r.create(sb({ kind: "merge", name: "push" }, { check: check(r), on: { head: SHA_A }, holds: { lane: "web" } }));
+	await refused(r.update(1, "in_progress"), "sb: step #1 waiting: lane web (held by 2026-11-05-a, unreadable); start it when it is free");
+	if (process.getuid?.() === 0) return;
+	const unlisted = rig();
+	mkdirSync(join(unlisted.stateDir, "trainboard", "acme"), { recursive: true });
+	await unlisted.create(sb({ kind: "merge", name: "push" }, { check: check(unlisted), on: { head: SHA_A }, holds: { lane: "web" } }));
+	chmodSync(join(unlisted.stateDir, "trainboard", "acme"), 0o000);
+	try {
+		await refused(unlisted.update(1, "in_progress"), /^sb: step #1 cannot start: what trains of project acme hold cannot be known: cannot list/);
+	} finally {
+		chmodSync(join(unlisted.stateDir, "trainboard", "acme"), 0o700);
+	}
 });
 
 // ---- §7.2: MonitorCreate
@@ -451,7 +678,7 @@ test("a run step's monitor is rewritten in place to the wrapper: command, timeou
 	const id = await r.begin(run(r));
 	const input = { description: r.describe(id), command: "true", timeout: 5000, onDone: "go on" };
 	const reply = await r.monitor(input);
-	assert.equal(reply.ok, true, reply.reason);
+	assert.equal(reply.ok, true, reply.reason ?? "");
 	assert.equal(reply.input, input, "the same object, changed in place");
 	assert.equal(input.description, "train 1106m #1 full-check");
 	assert.equal(input.onDone, "go on");

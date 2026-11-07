@@ -1,13 +1,13 @@
 import { ENTRY, type Kit, type Role } from "./state.ts";
 import { type PromptSet, promptSet } from "./trainswitch.ts";
 
-const PROMPTS = ["main", "tower", "member", "member-no-main"];
+const PROMPTS = ["main", "tower", "member", "member-no-main", "train"];
 
 /** The role prompt: a system prompt section, set when a run starts, and a steer when the role changes during one. */
 export function createBriefing({ pi, cfg, s, role, guiDir, tell }: Kit) {
 	let prompts: Record<string, string> = {}, files: PromptSet | undefined;
-	// A train has no prompt of its own yet (prompts/train.md arrives with the train's session, task 4 of docs/specs/2026-11-07-train-workers.md): until then it works from the main's.
-	const promptOf = (current = role()) => (current === "member" && !s.mainId ? "member-no-main" : current === "train" ? "main" : current);
+	// A train has a prompt of its own (docs/specs/2026-11-07-train-workers.md §13.1): the main's would tell it to plan, dispatch and ask the boss.
+	const promptOf = (current = role()) => (current === "member" && !s.mainId ? "member-no-main" : current);
 	// The role's prompt is a system prompt section, set when a run starts. A role that changes during a run (a member promoted as it
 	// dispatches a subagent, mains demoted as their tower quits) reaches the agent at its next step as a steer; an idle session gets it with its next run.
 	let briefed: Role | undefined, running = false;

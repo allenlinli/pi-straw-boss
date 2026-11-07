@@ -31,6 +31,7 @@ import { createBossPaths } from "./bosspaths.ts";
 import { type Config, createKit, type Deps } from "./state.ts";
 import { createTools } from "./tools.ts";
 import { createTower } from "./tower.ts";
+import { registerTrainGuard } from "./trainguard.ts";
 import { registerTrust } from "./trust/ask.ts";
 
 export type { Deps } from "./state.ts";
@@ -71,6 +72,7 @@ export function createStrawBoss({ run: given, world: reading, api = herdrApi(), 
 		closeSelf = createClosing(kit);
 		const control = createCloseMain(kit, { closeSelf, check: bridge.stashCheck, turn: bridge.turn });
 		registerSession(kit, { integration: createIntegrationWatch(kit), runMode, briefing, roles, presence, membership, guard, host, reach, digest, control, startTower: createTower(kit, { membership, presence, tools, control, digest, roles, reach }) });
+		registerTrainGuard(kit); // a train's todo and MonitorCreate calls, and the integrator's train todos (nothing loads with the merge train off)
 		registerBoss(kit, { runMode, host, membership, reach, closeSelf, stashing: createStashing(kit, { host }), server: look, paths: createBossPaths(kit, { host, server: look, closeSelf, here: host.here }) });
 	};
 }

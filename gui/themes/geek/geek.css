@@ -54,6 +54,10 @@
 	--aura-2: transparent;
 	--grid: none;
 	--sans: var(--mono);
+	/* pi-better-show's tokens (spec §7): black, square, monospace; every line is the plain 3 : 1 line. */
+	--pbs-bg: var(--surface-0); --pbs-fg: var(--text); --pbs-muted: var(--dim); --pbs-surface: var(--surface-1); --pbs-line: var(--line); --pbs-control: var(--line-c);
+	--pbs-accent: var(--accent); --pbs-on-accent: var(--ink); --pbs-note: var(--violet); --pbs-ok: var(--ok); --pbs-warn: var(--gold); --pbs-risk: var(--err);
+	--pbs-radius: 0; --pbs-gap: 10px; --pbs-font: var(--mono); --pbs-font-display: var(--mono); --pbs-mono: var(--mono); --pbs-font-size: 13px;
 }
 [data-view="geek"] body { font-size: 13px; }
 /* A state's tint stays at 12 percent or less so text on it keeps 7 : 1, and its ring is the plain line, never a coloured border. */

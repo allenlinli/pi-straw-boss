@@ -10,6 +10,11 @@
 	--paper: var(--zen-ash); --paper-hi: var(--zen-paper); --paper-ink: var(--zen-ground); --paper-edge: var(--zen-line);
 	--sans: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; --serif: ui-serif, "Iowan Old Style", "Songti TC", "Noto Serif TC", PMingLiU, serif; --soft: var(--zen-ash);
 	--zen-ease: cubic-bezier(0.4, 0, 0.2, 1);
+	/* pi-better-show's tokens (spec §7): ink and paper, soft corners, a serif for the titles. */
+	color-scheme: dark;
+	--pbs-bg: var(--zen-soft); --pbs-fg: var(--zen-paper); --pbs-muted: var(--zen-ash); --pbs-surface: var(--zen-sunken); --pbs-line: var(--zen-line); --pbs-control: var(--zen-line);
+	--pbs-accent: var(--zen-paper); --pbs-on-accent: var(--zen-ground); --pbs-note: var(--zen-ochre); --pbs-ok: var(--zen-moss); --pbs-warn: var(--zen-ochre); --pbs-risk: var(--zen-clay);
+	--pbs-radius: 14px; --pbs-gap: 14px; --pbs-font: var(--sans); --pbs-font-display: var(--serif); --pbs-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; --pbs-font-size: 15px;
 	--zen-glow: rgba(235, 227, 211, 0.045); --zen-tint: rgba(235, 227, 211, 0.035); --zen-veil: rgba(12, 10, 8, 0.82); --zen-seal-glow: rgba(196, 85, 58, 0.3); /* the visual language (Z-D15): a lit line, a faint ground for code, the veil an overlay lays on the page, the keys' ring around a dot */
 	--zen-edge: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 10px), transparent); --zen-edge-more: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 40px), transparent); /* the soft edges of what scrolls inside the card; deeper at the foot while more lies below */
 }

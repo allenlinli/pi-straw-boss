@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import type { Plugin } from "vite";
 import { VIEWS } from "../src/views.ts";
 
@@ -71,10 +71,12 @@ export function themes(root: string): Plugin {
 		},
 		outputOptions(options) {
 			// A chunk or asset belongs to a theme only when every module in it does, and to the same one.
-			const viewOfAll = (ids: string[]) => {
-				const views = new Set(ids.map((id) => owned.get(id)));
+			const viewOfAll = (ids: string[], home: (id: string) => string | undefined = (id) => owned.get(id)) => {
+				const views = new Set(ids.map(home));
 				return views.size === 1 ? [...views][0] : undefined;
 			};
+			// A file only a stylesheet or the build names (the backdrop, a favicon) is no module the graph knows: it is the theme's when it lies in the theme's own folder.
+			const folderOf = (path: string) => owned.get(path) ?? THEME_VIEWS.find((view) => path.startsWith(`${join(root, "themes", view).replace(/\\/g, "/")}/`));
 			return {
 				...options,
 				// A theme's entry chunk is the theme's, with whatever rolldown merged into it (message modules only themes load); any other chunk is when every module in it is.
@@ -84,7 +86,8 @@ export function themes(root: string): Plugin {
 				},
 				assetFileNames: (asset) => {
 					const origin = (asset.originalFileNames ?? []).map((f) => join(root, f).replace(/\\/g, "/"));
-					return `${dirOf(origin.length ? viewOfAll(origin) : undefined)}[name]-[hash][extname]`;
+					const favicon = THEME_VIEWS.find((view) => (asset.names ?? []).includes(`favicon-${view}.svg`)); // emitted above, under that name
+					return `${dirOf(favicon ?? (origin.length ? viewOfAll(origin, folderOf) : undefined))}[name]-[hash][extname]`;
 				},
 			};
 		},
@@ -98,6 +101,12 @@ export function themes(root: string): Plugin {
 					}
 					return undefined;
 				};
+				// Vite writes a stylesheet's url() as if the sheet sat in assets/ (`../themes/raven/x.webp`); a theme's sheet is loaded from themes/<view>/, so each url is made relative to the sheet's own folder.
+				for (const file of Object.values(bundle)) {
+					if (file.type !== "asset" || !new RegExp(`^${THEMES_DIR}/[^/]+/.+\\.css$`).test(file.fileName)) continue;
+					const from = posix.dirname(file.fileName);
+					file.source = String(file.source).replace(/url\((["']?)(\.{1,2}\/[^)"']+)\1\)/g, (_all, quote: string, url: string) => `url(${quote}${posix.relative(from, posix.join("assets", url))}${quote})`);
+				}
 				const map = themeMap(Object.keys(bundle), (view, kind) => chunkOf(view, kind as "css" | "module"));
 				this.emitFile({ type: "asset", fileName: "themes.json", source: `${JSON.stringify(map, null, "\t")}\n` });
 				const page = bundle["index.html"];

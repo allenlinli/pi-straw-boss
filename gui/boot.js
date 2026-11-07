@@ -26,7 +26,7 @@
 		return contrast && names.indexOf("geek") >= 0 ? "geek" : "standard";
 	}
 	// The theme-color of each view that has one of its own (gui/view.ts THEME); Standard keeps the color the page came with.
-	var colors = { geek: "#000000", zen: "#14110e" };
+	var colors = { geek: "#000000", zen: "#14110e", raven: "#0d0a10" };
 	globalThis.sbBoot = { resolve: resolve, colors: colors };
 	try {
 		var stored = null;

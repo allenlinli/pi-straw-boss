@@ -619,8 +619,8 @@ test("BR-F006: Zen mounts a box's unit's answer panel as a remote page's, with t
 		box.bases[0]!.box = { device: "d", short: "s", label: "box", team: "A", scope: "team", can: ["input"], state: "live" };
 		for (const n of [box, local]) await shown(n);
 		assert.equal(mounted.length, 2);
-		assert.deepEqual([mounted[0]![2], mounted[0]![6]], [true, true], "a box's unit");
-		assert.equal(mounted[1]![6], false, "a local unit: the pane choice is open");
+		assert.equal((mounted[0]![6] as () => boolean)(), true, "a box's unit");
+		assert.equal((mounted[1]![6] as () => boolean)(), false, "a local unit: the pane choice is open");
 	} finally {
 		spy.ask = undefined;
 	}

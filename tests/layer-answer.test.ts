@@ -154,11 +154,17 @@ test("BR-F006: the dock's dialog of a box's unit disables the choices only this 
 	const SEL = { title: "Allow?", choices: [{ label: "Allow", hereOnly: true as const }, { label: "Open a pane", next: "pane" as const }, { label: "Put it in my prompt", next: "terminal" as const }, { label: "Deny" }] };
 	const dialog: Pending = { callId: "c9", tool: "dialog", answer: { dialog: "m9", digest: selectDigest(SEL), select: SEL } };
 	const mine = { ...alert, pending: dialog };
-	for (const [net, want] of [[boxNet("live"), [true, true, false, false]], [boxNet(undefined), [true, false, false, false]]] as const) { // this fake page is not at 127.0.0.1, so it counts as a paired device: hereOnly is off for it in either case, and only the box also takes the pane choice away
-		const layer = mount();
-		netNow = net;
-		layer.alerts([mine], new Map([[mine.key, mine]]), netNow as never);
-		layer.stack.show(mine);
-		assert.deepEqual([0, 1, 2, 3].map((i) => choice(i).disabled), want, net.bases[0]!.box ? "a box's unit" : "a local unit");
+	const was = (globalThis as { location?: unknown }).location;
+	Object.assign(globalThis, { location: { hostname: "127.0.0.1" } }); // the Mac's own page: nothing is a paired device's here but a box's unit
+	try {
+		for (const [net, want] of [[boxNet("live"), [true, true, false, false]], [boxNet(undefined), [false, false, false, false]]] as const) {
+			const layer = mount();
+			netNow = net;
+			layer.alerts([mine], new Map([[mine.key, mine]]), netNow as never);
+			layer.stack.show(mine);
+			assert.deepEqual([0, 1, 2, 3].map((i) => choice(i).disabled), want, net.bases[0]!.box ? "a box's unit" : "a local unit");
+		}
+	} finally {
+		Object.assign(globalThis, { location: was });
 	}
 });

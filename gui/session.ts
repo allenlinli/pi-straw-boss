@@ -56,7 +56,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 		const opener = (path: string, card = docFor(locate(scene.net, key)?.u.docs, scene.info?.header?.cwd, path)) => card && (() => openTile(docTile(who().name, card)));
 		chat = mountChat(view.querySelector(".chat-root")!, data(key), { who, link, docFor: opener, page: true, away: () => !can(locate(scene.net, key)?.base, "input") });
 		const send = answerPost(key, () => data(key).post);
-		[composer, asker] = [mountComposer(view.querySelector(".composer-root")!, key, send), mountAnswer(view.querySelector(".ask-root")!, { key, post: send, box: Boolean(locate(scene.net, key)?.base.box), show: () => setMode("term") })];
+		[composer, asker] = [mountComposer(view.querySelector(".composer-root")!, key, send), mountAnswer(view.querySelector(".ask-root")!, { key, post: send, box: () => Boolean(locate(scene.net, key)?.base.box), show: () => setMode("term") })];
 		mountQueueEdit(view, () => composer?.takeQueue() ?? Promise.resolve());
 		mountQueueFold(view);
 		view.querySelectorAll<HTMLButtonElement>(".modes button").forEach((b) => (b.onclick = () => setMode(b.dataset.mode as "chat" | "term")));

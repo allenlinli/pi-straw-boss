@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Answer } from "../gui/post.ts";
 
-// What a reply to the boss's answer meant (gui/asks.ts): the one table every view reads, over the shapes the server's routes give for the same intent (a dialog answer, a trust answer, a message to a tower, a dismissed wait).
+// What a reply to the boss's answer meant (gui/asks.ts): the one table every view reads, over the shapes the server's routes give for the same intent (a dialog answer, a trust answer, a message to a tower, a pressed wait).
 
 const { joined, outcome, waitActions } = await import("../gui/asks.ts");
 const r = (status: number, body: Answer["body"]): Answer => ({ ok: status < 400, status, body });
@@ -30,16 +30,19 @@ test("a reply reads as accepted, unknown, or refused by the one table, whichever
 	for (const [what, reply, want] of table) assert.equal(outcome(reply), want, what);
 });
 
-test("the wait's actions are plain requests: tell is the tower's session input, dismiss drops the wait at the memory route (the head's at head/memory), goto is the tower's comms", async () => {
+test("the wait's actions are plain requests: tell is the tower's session input, press posts a card's button at the memory route (the head's at head/memory) and read reads the memory, goto is the tower's comms", async () => {
 	const sent: [string, unknown][] = [];
 	Object.assign(globalThis, { document: { querySelector: () => ({ content: "CSRF" }) }, fetch: async (path: string, init: { body: string }) => (sent.push([path, JSON.parse(init.body)]), { ok: true, status: 200, json: async () => ({}) }) });
 	const told: [string, Record<string, unknown>][] = [];
 	const acts = waitActions({ ws: "w", id: "W2", tower: "sb-tower-w" }, async (action, body) => (told.push([action, body]), { ok: true, status: 200, body: { accepted: true } }));
 	assert.equal(outcome(await acts.tell("Use the staging token")), "accepted");
 	assert.deepEqual(told, [["input", { text: "Use the staging token", as: "send", answers: "W2" }]], "through the send the caller gives (answerPost of the tower's key, or the demo's stand-in); `answers` names the wait, which the server marks answered");
-	await acts.dismiss();
-	await waitActions({ ws: "@head", id: "W9", tower: "sb-head" }, async () => ({ ok: true, status: 200, body: {} })).dismiss();
-	assert.deepEqual(sent, [["api/tower/w/memory", { op: "drop", id: "W2" }], ["api/head/memory", { op: "drop", id: "W9" }]]);
+	await acts.press("done");
+	await acts.press("choose", { option: 1 });
+	await acts.press("decline", { reason: "later" });
+	await acts.read();
+	await waitActions({ ws: "@head", id: "W9", tower: "sb-head" }, async () => ({ ok: true, status: 200, body: {} })).press("restate");
+	assert.deepEqual(sent, [["api/tower/w/memory", { op: "press", id: "W2", act: "done" }], ["api/tower/w/memory", { op: "press", id: "W2", act: "choose", option: 1 }], ["api/tower/w/memory", { op: "press", id: "W2", act: "decline", reason: "later" }], ["api/tower/w/memory", { op: "read" }], ["api/head/memory", { op: "press", id: "W9", act: "restate" }]]);
 	assert.deepEqual(acts.goto, { view: "session", ws: "w", key: "sb-tower-w" });
 });
 

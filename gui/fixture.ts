@@ -8,6 +8,7 @@ import { isLinkState, linkDemo } from "./demo-link.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
 import { headDemo, headDraft, headHistory, headInput, headReport, type HeadState, isHeadState } from "./demo-head.ts";
+import { cardsReply, cardWaits } from "./demo-waits.ts";
 import { docHooks } from "./doc.ts";
 import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
@@ -114,14 +115,14 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	/** The terminal card's script (democard.ts): `?card=<state>` starts one; an answer that leaves a terminal step starts the default one (a pane types its command, "Run it" runs it). */
 	let card = isCard(cardParam) ? demoCard(cardParam, (type, payload) => current?.send(type, payload)) : undefined;
 	let net = demo(), step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
-	// `?wait=fresh|stale|both`: the tower records a wait on the boss (20 minutes old: an alert; three days old: only the card's line, marked as out of date); the memory route's drop is this stand-in's.
-	const waitDemo = new URLSearchParams(location.search).get("wait") ?? (zen === "blocking" ? "fresh" : null);
+	// `?waits=cards` (demo-waits.ts: the fonstar case, then one card of each kind and state; its presses are answered there). `?wait=fresh|stale|both`: the tower records a wait on the boss (20 minutes old: an alert; three days old: only the card's line, marked as out of date); the memory route's drop is this stand-in's.
+	const waitDemo = new URLSearchParams(location.search).get("wait") ?? (new URLSearchParams(location.search).get("waits") === "cards" ? "cards" : zen === "blocking" ? "fresh" : null);
 	const waitRefuse = new URLSearchParams(location.search).has("waitrefuse");
 	/** The server's `answers` on a message to the tower: the wait is marked answered, and the next snapshot says so (the alert goes). */
 	const answerWait = (id: unknown) => { const w = net.bases[0]!.tower?.service?.memory?.bossWaits.find((x) => x.id === id); return w ? ((w.answered = new Date().toISOString()), (net = structuredClone(net)), current?.send("message", net), w.id) : false; }; // `&waitrefuse`: the tower refuses what the boss sends it (the wait panel's refusal)
 	if (waitDemo) {
 		const old = { id: "W1", text: "Boss token needed to add the Tailscale ACL cloud-pub to gx10:443", at: new Date(Date.now() - 3 * 86_400_000).toISOString() }, fresh = { id: "W2", text: "api-fix asks: deploy ws01?", at: new Date(Date.now() - 20 * 60_000).toISOString() };
-		const bossWaits = waitDemo === "stale" ? [old] : waitDemo === "fresh" ? [fresh] : [old, fresh];
+		const bossWaits = waitDemo === "cards" ? cardWaits(Date.now()) : waitDemo === "stale" ? [old] : waitDemo === "fresh" ? [fresh] : [old, fresh];
 		net.bases[0]!.tower!.service = { ...towerService("standing").service!, memory: { rev: 3, standing: 0, decisions: 0, waits: bossWaits.length, bossWaits, proposals: [] } };
 		const real = globalThis.fetch;
 		globalThis.fetch = async (input, init) => {
@@ -130,6 +131,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 			if (/api\/sessions\/[^/]+\/input$/.test(url) && decodeURIComponent(url.split("/").at(-2)!) === net.bases[0]!.tower!.key) return new Response(JSON.stringify(waitRefuse ? { error: "refused", reason: "The sb server stands in for no tower of workspace w1" } : { accepted: true, woke: true, answered: answerWait((JSON.parse(String(init?.body)) as { answers?: string }).answers) }), { status: waitRefuse ? 409 : 200, headers: { "content-type": "application/json" } });
 			if (!/api\/tower\/\w+\/memory$/.test(url)) return real(input, init);
 			const memory = net.bases[0]!.tower!.service!.memory!, id = (JSON.parse(String(init?.body)) as { id: string }).id;
+			if (waitDemo === "cards") { const r = cardsReply(memory.bossWaits, init?.body, Date.now()); return ((net = structuredClone(net)), current?.send("message", net), r); }
 			memory.bossWaits = memory.bossWaits.filter((w) => w.id !== id);
 			(net = structuredClone(net)), current?.send("message", net);
 			return new Response(JSON.stringify({ rev: memory.rev, proposals: [], entries: [] }), { status: 200, headers: { "content-type": "application/json" } }); // the memory route answers the memory it now holds

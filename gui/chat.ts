@@ -8,7 +8,7 @@ import { h, replay } from "./dom.ts";
 import { createFollow, reach } from "./follow.ts";
 import { mount, parse } from "./markdown.ts";
 import type { Post } from "./composer.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./paraglide/messages.js"; import { iconRef } from "./icons.ts"; import { noun } from "./nouns.ts";
 import { getLocale } from "./paraglide/runtime.js";
 import { html, ICON, roleName } from "./render.ts";
 import { conversationDivider } from "./towermodel.ts";
@@ -91,13 +91,15 @@ export type ConversationRun = NonNullable<TowerService["localRuns"]>[number];
 /** Who an assistant message is from, as its header says: the unit's role, since the page header already names the session. */
 /** The chapter divider's reason in the page's language: by the server's code, the raw text only for a code this page does not know. */
 export const chapterWhy = (code?: string, text?: string) => ({ first: m.head_why_first, new: m.head_why_new, size: m.head_why_size, unreadable: m.head_why_unreadable } as Record<string, (() => string) | undefined>)[code ?? ""]?.() ?? text ?? "";
-export const speaker = (who: { role: string; head?: boolean }) => (who.head ? m.head_tower() : roleName(who.role));
+export const speaker = (who: { role: string; head?: boolean }) => (who.head ? noun("head_tower") : roleName(who.role));
 const clock = (at?: string) => (at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
 const size = (n: number) => (n >= 1024 ? `${(n / 1024).toFixed(n >= 10240 ? 0 : 1)} KB` : `${n} B`);
 const NOTICE: Record<string, () => string> = { intercom_message: m.notice_intercom, subagent_result: m.notice_result, subagent_ping: m.notice_ping, subagent_status: m.notice_status, "pi-loop-monitor": m.notice_monitor, "memory-context": m.notice_memory, "doc-review": m.notice_doc_review, "straw-tower": m.notice_tower, "straw-link": m.notice_straw_link };
 const icon = (name: string) => {
 	const span = html(`<span class="ava"><svg><use/></svg></span>`);
-	span.querySelector("use")!.setAttribute("href", `#i-${ICON[name] ?? name}`);
+	const use = span.querySelector("use")!, role = ICON[name] ?? name;
+	use.dataset.icon = role;
+	use.setAttribute("href", iconRef(role));
 	return span;
 };
 
@@ -181,7 +183,7 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 	}
 	const stamp = (it: Item) => h("time", null, clock(it.at));
 	/** The boss's own message: a YOU bubble. `raw` is the whole text, kept as the tooltip when the server's marker lines were taken off. */
-	const you = (it: Item, body: string, crashed: boolean | undefined, raw: string) => h("article", { class: "tx you" }, h("header", null, stamp(it), h("b", null, m.you()), icon("user")), h("div", { class: "bubble", title: raw }, crashed ? h("small", { class: "boss-flag" }, m.boss_crash_flag()) : null, ...plain(body), thumbs(it.id, it.images)));
+	const you = (it: Item, body: string, crashed: boolean | undefined, raw: string) => h("article", { class: "tx you" }, h("header", null, stamp(it), h("b", null, noun("you")), icon("user")), h("div", { class: "bubble", title: raw }, crashed ? h("small", { class: "boss-flag" }, m.boss_crash_flag()) : null, ...plain(body), thumbs(it.id, it.images)));
 	/** An incoming message: its label on one collapsed line, its text (and the crash flag, or the verified header folded behind "details") inside. */
 	const notice = (it: Item, label: (Node | string)[], body: string, more: { crashed?: boolean; raw?: string } = {}) => h("article", { class: "tx sys" }, h("details", { class: "notice" }, h("summary", null, icon("comms"), h("em", null, m.incoming()), ...label, stamp(it)), more.crashed ? h("small", { class: "boss-flag" }, m.boss_crash_flag()) : null, h("pre", null, body), more.raw ? h("details", { class: "notice-raw" }, h("summary", null, m.notice_details()), h("pre", { class: "raw" }, more.raw)) : null));
 	/** A message from a session on this computer: its name (a link to it when the net lists it), its id, and where it comes from; a teammate's message through Straw Link says so too, so the two never read alike. */

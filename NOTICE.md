@@ -64,3 +64,13 @@ Straw Link's safety words are drawn from the BIP-39 English word list (2048 word
 ## Zen view lines
 
 The short lines under the Zen view's idle circle (`gui/zenlines.ts`) are one sentence or less each, shown with their source. Their sources, with the book, page, or chapter of each, are named in the comment above every entry: Thich Nhat Hanh, *Peace Is Every Step* (Bantam, 1991; 橡實文化 for the Chinese); Tara Brach and Mindful.org (mindful.org); Sharon Salzberg (sharonsalzberg.com); 華人正念減壓中心 (mindfulness.com.tw); 陳德中 and 台灣正念工坊 (Firstory); Zen Mind, Beginner's Mind by Shunryu Suzuki (Weatherhill, 1970); and the Japanese works whose originals are shown in small type under a line: Matsuo Bashō (おくのほそ道, haiku), Yosa Buson and Kobayashi Issa (haiku), Kamo no Chōmei (方丈記), Yoshida Kenkō (徒然草), Sei Shōnagon (枕草子), the waka of Fujiwara no Teika (新古今和歌集), Ki no Tomonori (古今和歌集), Yamabe no Akahito (万葉集), and Dōgen (傘松道詠), 利休百首 (Urasenke's text), Ii Naosuke (茶湯一会集), Tanizaki Jun'ichirō (陰翳礼讃), Masaoka Shiki and Natsume Sōseki (haiku), and Taneda Santōka (草木塔); the texts of Aozora Bunko, Wikisource, the Nara Manyo Culture Museum database, and Urasenke are named in the comments. A Chinese line marked `zh: our translation`, and an English line marked `en: our translation`, are ours.
+
+## Raven Keep view (`gui/themes/raven/`)
+
+The Raven Keep (鴉閣) view's art is original to this project. Its ten role icons and its crest favicon were drawn as an ink-engraving sheet with an image generator (Codex image generation) and traced to single-colour SVG with [potrace](https://potrace.sourceforge.net/) (`sprite.svg`, `favicon.svg`); the backdrop illustration (`backdrop.webp`) was made with the same generator and resized; so was the perched raven (`perch.webp`, one strip of two frames, profile and head turned: the head of the second frame is blended onto the body of the first). The Zen ensō and Geek `>_` tab icons (`gui/themes/zen/favicon.svg`, `gui/themes/geek/favicon.svg`) are drawn for this project. Nothing in them is copied from a published setting.
+
+Its three sounds are released under Creative Commons Zero (CC0 1.0), trimmed and converted to mono MP3 (`sounds/`):
+
+- `ask.mp3`, a crow's caw: "crow caw" by zeroisnotnull, https://opengameart.org/content/crow-caw
+- `done.mp3`, one church-bell strike, trimmed to 1.5 s with a fade: "Church bell" by kgeshev, https://freesound.org/people/kgeshev/sounds/378799/
+- `error.mp3`, an old wooden door creaking: "An old wooden door creaking" by soundofsong, https://freesound.org/people/soundofsong/sounds/647646/

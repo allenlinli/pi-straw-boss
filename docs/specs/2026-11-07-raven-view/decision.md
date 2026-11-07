@@ -20,6 +20,7 @@ Actors: the boss (any device), the sb server, the GUI build.
 
 | Question | Answer | Basis | Status |
 |---|---|---|---|
+| Server memory after RV-F001 | Read the whole bundle at start, themes included; per-theme byte caps keep it small (Geek 6 KB, Zen 124 KB, Raven ≤ 450 KB) | review RV-F001; boss 2026-11-07 「server 改回啟動時全讀」 | confirmed |
 | Can a view load alone? | Yes: Zen already does (`gui/main.ts:90`); Geek is in the entry CSS (`gui/style.css`), the icons inline in `gui/index.html:21-30` | source | grounded |
 | Does front-end splitting keep the server light? | No: the server reads all of `dist/gui` into memory at start (`src/gui.ts:77`); theme folders must be read on first request | source | grounded |
 | Depth of the raven view | A skin of Standard: palette, icons, role nouns, light motion; same layout and interaction | boss, 2026-11-07 「全部照你的建議」 | confirmed |

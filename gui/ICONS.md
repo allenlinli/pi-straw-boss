@@ -16,3 +16,24 @@ The browser view's icons come from [game-icons.net](https://game-icons.net), lic
 | Document tile | Scroll Unfurled | Lorc | https://game-icons.net/1x1/lorc/scroll-unfurled.html |
 
 Changes: the black background square of each SVG was removed and the fill set to `currentColor`, so state colors apply; the paths are inlined as an SVG sprite in `index.html`. The icon set's license text: https://github.com/game-icons/icons/blob/master/license.txt
+
+## Raven Keep view
+
+The Raven Keep view draws its own icons (`gui/themes/raven/sprite.svg`), original to this project: one ink-engraving sheet made with an image generator (Codex image generation), each icon traced to single-colour SVG with potrace (fill `currentColor`, path text only reformatted). The game-icons credit above stays for Standard's icons, which every view keeps as its fallback.
+
+| Used for | Raven Keep icon |
+|---|---|
+| You, in the comms log | the Count |
+| Head tower | the keep (castle) |
+| Tower | a steward's key ring |
+| Main agent | a hooded spawn |
+| Member | a wolf |
+| Subagent | a bat |
+| Sub workspace (outpost) | a coffin |
+| Pi pane outside the net | a ghost |
+| Comms channel | a raven |
+| Document tile | a tome |
+
+The head page's backdrop (`gui/themes/raven/backdrop.webp`) and the raven perched on its gate (`gui/themes/raven/perch.webp`) are raster art made with the same image generator (Codex image generation) for this project, resized and cut; nothing in them is copied.
+
+The tab icons (`gui/themes/<view>/favicon.svg`) are drawn for this project: Zen an ensō, Geek `>_`, Raven Keep the crest (a raven before a shield holding a castle, bone and crimson on near-black). The view's sounds are CC0 clips credited in `NOTICE.md`.

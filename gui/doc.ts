@@ -1,6 +1,7 @@
 import type { DocCard } from "../src/documents.ts";
 import type { Net } from "../src/net.ts";
 import { h } from "./dom.ts";
+import { iconRef } from "./icons.ts";
 import type { Tile } from "./layer.ts";
 import { mount, parse } from "./markdown.ts";
 import { m } from "./paraglide/messages.js";
@@ -56,7 +57,7 @@ export function docTile(unit: string, card: DocCard): Tile {
 	const body = frame ?? h("div", { class: "doc-text" }, h("p", { class: "chat-empty" }, m.loading())), state = h("span", { class: "term-state", role: "status" }), off = h("em", { class: "doc-off" }, m.off_screen());
 	const wrap = h("div", { class: "doc-tile" }, h("div", { class: "term-bar doc-bar" }, h("span", { class: "doc-why" }, card.reason), off, state, h("span", { class: "doc-acts" }, reload, tab)), body);
 	const io = new IntersectionObserver(([e]) => ((o.shown = Boolean(e?.isIntersecting)), o.shown && !o.gone && (o.failed || o.loaded !== o.card.revision) && load(o)));
-	const tile: Tile = { id: `doc:${card.cap}`, title: `${name} · ${unit}`, path: card.display, icon: "i-doc", body: () => wrap, closed: () => (open.delete(card.cap), io.disconnect()) };
+	const tile: Tile = { id: `doc:${card.cap}`, title: `${name} · ${unit}`, path: card.display, body: () => wrap, closed: () => (open.delete(card.cap), io.disconnect()) };
 	const o: Open = { card, tile, loaded: 0, seq: 0, shown: false, gone: false, body, state, off, ...(frame && { frame }) };
 	reload.onclick = () => !o.gone && load(o);
 	off.hidden = card.onScreen;
@@ -96,11 +97,19 @@ export function refreshDocs(cards: Map<string, DocCard>) {
 	}
 }
 
+/** The list row's role icon (iconRef `doc`), drawn by a view that has art for it (raven.css); Standard draws its paper sheet in the row's background and hides this. */
+function docIcon(): SVGSVGElement {
+	const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg"), use = document.createElementNS(ns, "use");
+	svg.setAttribute("class", "d-doc-ico"), svg.setAttribute("aria-hidden", "true");
+	use.dataset.icon = "doc", use.setAttribute("href", iconRef("doc"));
+	svg.append(use);
+	return svg;
+}
 /** The dossier's list of a unit's documents; a click opens one beside the comms. */
 export function docList(root: HTMLElement, cards: DocCard[] | undefined, cut: boolean | undefined, show: (card: DocCard) => void) {
 	root.hidden = !cards?.length && !cut;
 	root.querySelector(".d-doc-list")!.replaceChildren(...(cards ?? []).map((c) => {
-		const b = h("button", { type: "button", class: "d-doc", title: c.reason }, h("b", null, c.display), h("small", null, c.onScreen ? c.reason : m.off_screen_short({ reason: c.reason })));
+		const b = h("button", { type: "button", class: "d-doc", title: c.reason }, docIcon(), h("b", null, c.display), h("small", null, c.onScreen ? c.reason : m.off_screen_short({ reason: c.reason })));
 		b.onclick = () => show(c);
 		return b;
 	}));

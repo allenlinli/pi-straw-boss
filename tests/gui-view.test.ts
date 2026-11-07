@@ -118,7 +118,7 @@ test("an unknown value is refused and changes nothing", async () => {
 	for (const view of ["sparkly", "GEEK", "", 1, null, ["geek"], { view: "geek" }]) {
 		const reply = await h.ask("gui-view", { view });
 		assert.equal(reply.ok, false, JSON.stringify(view));
-		assert.match(String(reply.error), /auto, standard, geek, or zen/);
+		assert.match(String(reply.error), /auto, standard, geek, zen, or raven/);
 	}
 	assert.deepEqual(JSON.parse(readFileSync(prefs(h), "utf8")), { v: 1, view: "geek" });
 	assert.equal(metaOf(await pageOf(h)), "geek");
@@ -200,7 +200,7 @@ test("/boss gui view <auto|standard|geek> in a pi session sets the server's defa
 	assert.match(viewer.notices.at(-1)!.text, /now Standard/);
 	await viewer.command("gui view sparkly");
 	assert.equal(viewer.notices.at(-1)!.level, "error");
-	assert.match(viewer.notices.at(-1)!.text, /auto, standard, geek, or zen/);
+	assert.match(viewer.notices.at(-1)!.text, /auto, standard, geek, zen, or raven/);
 	assert.equal(metaOf(await pageOf(h)), "standard", "a wrong value changed nothing");
 	await viewer.command("gui view auto");
 	assert.equal(metaOf(await pageOf(h)), "auto");
@@ -259,7 +259,7 @@ test("zen is stored, served in the meta, told in hello and as a view event, and 
 	assert.deepEqual(s.heard.filter(([e]) => e === "view").map(([, d]) => JSON.parse(d)), ["zen"]);
 	const reply = await h.ask("gui-view", { view: "zen2" });
 	assert.equal(reply.ok, false);
-	assert.equal(reply.error, "The default view is auto, standard, geek, or zen");
+	assert.equal(reply.error, "The default view is auto, standard, geek, zen, or raven");
 	assert.equal(metaOf(await pageOf(h)), "zen", "the refusal changed nothing");
 });
 
@@ -271,6 +271,28 @@ test("/boss gui view zen in a pi session sets the default and says Zen", async (
 	assert.match(viewer.notices.at(-1)!.text, /default view is now Zen/);
 	assert.notEqual(viewer.notices.at(-1)!.level, "error");
 	assert.equal(metaOf(await pageOf(h)), "zen");
+});
+
+test("raven is stored, served in the meta, told in hello and as a view event, and written into gui.json; an older build's reading of it is auto, and /boss gui view raven says Raven Keep", async () => {
+	const h = await startHosted(world);
+	const s = stream(h);
+	await until(() => helloOf(s.heard).length > 0, "the stream's hello");
+	assert.deepEqual(await h.ask("gui-view", { view: "raven" }), { ok: true, view: "raven", changed: true });
+	await until(() => s.heard.some(([e]) => e === "view"), "a view event");
+	assert.deepEqual(JSON.parse(readFileSync(prefs(h), "utf8")), { v: 1, view: "raven" });
+	assert.equal(metaOf(await pageOf(h)), "raven");
+	assert.equal(h.gui().view, "raven", "gui.json carries it for a shell");
+	const late = stream(h);
+	await until(() => helloOf(late.heard).length > 0, "a later stream's hello");
+	assert.equal(helloOf(late.heard)[0]!.view, "raven");
+	late.close();
+	assert.deepEqual(s.heard.filter(([e]) => e === "view").map(([, d]) => JSON.parse(d)), ["raven"]);
+	const viewer = world.agent({ id: "viewer", pane: "wA:p1", tab: "wA:t1", deps });
+	await viewer.start();
+	await viewer.command("gui view standard");
+	await viewer.command("gui view raven");
+	assert.match(viewer.notices.at(-1)!.text, /default view is now Raven Keep/);
+	assert.equal(metaOf(await pageOf(h)), "raven");
 });
 
 test("a stored value this build reads as auto (a newer or older build's) is rewritten by an explicit set, and zen returns after a restart if nothing rewrote it", async () => {

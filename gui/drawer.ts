@@ -4,7 +4,7 @@ import type { Net } from "../src/net.ts";
 import { h } from "./dom.ts";
 import { headDot, seenAt } from "./headpage.ts";
 import { MODAL } from "./hotkeys.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
 import type { Locale } from "./paraglide/runtime.js";
 import { aimUnit, dismiss, showDismissAll } from "./quit.ts";
 import { aim, aimOpening, fillPlate, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
@@ -33,7 +33,7 @@ export function groupUnits(net: Net): Section[] {
 		const groups: Group[] = [
 			{ id: "tower", rows: b.tower ? rows(b.id, [{ ...b.tower, role: "tower" }]) : [] },
 			...b.tabs.map((t) => ({ id: t.id, label: m.tab_label({ label: t.label }), rows: rows(b.id, t.units) })),
-			{ id: "outside", label: m.outside_net(), rows: rows(b.id, b.outside) },
+			{ id: "outside", label: noun("outside_net"), rows: rows(b.id, b.outside) },
 		].filter((g) => g.rows.length);
 		return groups.length ? [{ id: b.id, label: b.label, mark: b.mark, groups }] : [];
 	});
@@ -57,7 +57,7 @@ export function mountDrawer(off: () => boolean = () => false) {
 	// Below the list, stuck to the bottom within a thumb's reach: the HUD's own Dismiss finished (quit.ts: the same click, the same request), there while a finished subagent is, and under it the way back to the map.
 	const home = h("a", { class: "drawer-map" }, m.drawer_map()), sweep = h("button", { type: "button", class: "pair-btn", "data-close": "dismiss-all", hidden: "" }), top = h("div", { class: "drawer-sweep", hidden: "" }, sweep);
 	aim(home, { view: "map" });
-	const front = html(`<a class="drawer-head"><svg viewBox="0 0 512 512" aria-hidden="true"><use href="#i-crown"/></svg><span class="name"></span><b class="dstate"></b></a>`);
+	const front = html(`<a class="drawer-head"><svg viewBox="0 0 512 512" aria-hidden="true"><use data-icon="crown"/></svg><span class="name"></span><b class="dstate"></b></a>`);
 	front.hidden = true;
 	aim(front, { view: "head" });
 	const panel = h("aside", { class: "drawer", "aria-label": m.drawer_label() }, h("header", null, h("b", null, m.drawer_title()), close), front, body, h("footer", { class: "drawer-foot" }, top, home)), veil = h("div", { class: "drawer-veil" });
@@ -66,7 +66,7 @@ export function mountDrawer(off: () => boolean = () => false) {
 	const draw = () => {
 		const entry = headEntry(latest);
 		front.hidden = !entry;
-		if (entry) (mark(front, entry.mark), text(front, ".name", m.head_tower()), text(front, ".dstate", entry.word), front.classList.toggle("current", atHead), front.toggleAttribute("data-news", headDot(latest?.head, seenAt()) && !atHead));
+		if (entry) (mark(front, entry.mark), text(front, ".name", noun("head_tower")), text(front, ".dstate", entry.word), front.classList.toggle("current", atHead), front.toggleAttribute("data-news", headDot(latest?.head, seenAt()) && !atHead));
 		showDismissAll(sweep, latest ?? { bases: [] });
 		top.hidden = sweep.hidden;
 		const fillRow = (el: HTMLElement, r: Row & { subs?: Row[] }) => {

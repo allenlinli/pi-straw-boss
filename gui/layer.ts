@@ -6,7 +6,7 @@ import { tabLabels } from "./doctabs.ts";
 import { keypad } from "./keypad.ts";
 import { mountTerminals } from "./mirror.ts";
 import { rankOf, unitOf } from "./alerts.ts";
-import { prefs } from "./prefs.ts";
+import { iconRef } from "./icons.ts"; import { prefs } from "./prefs.ts";
 import { type Alert, createStack, tally } from "./overlay.ts";
 import { m } from "./paraglide/messages.js";
 import { aim, byId, doing, fillPlate, hang, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
@@ -19,7 +19,7 @@ import { waitDialog } from "./waitpanel.ts";
 // view's width side by side and turn into tabs when it runs out. Opening a tile never covers or closes a dialog, and a tile that
 // arrives on its own shows beside the view without taking focus or the active tab.
 
-/** `icon` names the header's symbol (a document by default); `closed` runs when the tile closes, by its × or pushed out by a fifth, or is refused. */
+/** `icon` names the header's role icon (iconRef: `doc` by default); `closed` runs when the tile closes, by its × or pushed out by a fifth, or is refused. */
 export interface Tile { id: string; title: string; path?: string; body(): HTMLElement; icon?: string; closed?(): void }
 export interface TilesIO { render(tiles: Tile[], active: string | undefined): void; enter(tile: Tile): void }
 export { type Intel, intel };
@@ -60,7 +60,7 @@ export function createTiles(io: TilesIO) {
 export interface PanelDeps { label(ws: string): string; recent(key: string): Promise<Item[]>; post?(key: string): SessionPost | undefined; trust?: TrustPost; stream(): string; showTerminal(ws: string, key: string): void }
 const dialogEl = () => html(`<section class="dialog" role="dialog" aria-modal="false" tabindex="-1"><header><b class="tag">${m.dialog_alert()}</b><span class="where"></span><button class="zoom" type="button"></button><button class="x" type="button" aria-label="${m.close()}">×</button></header><div class="who">${PLATE}<div><h3></h3><p><em class="role"></em> <span class="state"></span></p></div></div><div class="intel"><h4>${m.last_transmission()}</h4><p class="said">…</p><p class="pending" hidden><b>${m.waiting_on()}</b> <span></span></p></div><div class="ask-root"></div><footer><a class="go">${m.open_comms()}</a><button class="later" type="button">${m.later()}</button><span class="queued"></span></footer></section>`);
 const doneEl = () => html(`<li><a class="done-go">${PLATE}<span><b class="name"></b><small></small></span></a></li>`);
-const tileEl = () => html(`<section class="tile" tabindex="-1"><header><svg><use href="#i-doc"/></svg><b></b><button class="x" type="button" aria-label="${m.close_document()}">×</button></header><div class="tile-body"></div></section>`);
+const tileEl = () => html(`<section class="tile" tabindex="-1"><header><svg><use data-icon="doc"/></svg><b></b><button class="x" type="button" aria-label="${m.close_document()}">×</button></header><div class="tile-body"></div></section>`);
 
 export function mountPanels(deps: PanelDeps) {
 	const [dock, work, row, tabs, button] = [byId("dock", HTMLElement), byId("work", HTMLElement), byId("tiles", HTMLElement), byId("tile-tabs", HTMLElement), byId("alerts", HTMLButtonElement)];
@@ -205,7 +205,7 @@ export function mountPanels(deps: PanelDeps) {
 			row.hidden = !list.length;
 			sync(row, list, (t) => {
 				const el = tileEl();
-				el.querySelector("use")!.setAttribute("href", `#${t.icon ?? "i-doc"}`);
+				{ const use = el.querySelector("use")!, role = t.icon ?? "doc"; use.dataset.icon = role; use.setAttribute("href", iconRef(role)); }
 				el.querySelector(".x")!.setAttribute("aria-label", m.close_tile({ title: t.title }));
 				el.querySelector(".tile-body")!.append(t.body());
 				el.querySelector(".x")!.addEventListener("click", () => tiles.close(t.id));

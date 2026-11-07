@@ -178,7 +178,9 @@ test("the header says Head tower with its state, or that the first message opens
 	const root = new El("div"), icon = new El("use"), title = new El("span"), small = new El("small"), line = new El("p"), absent = new El("p");
 	icon.className = "head-icon"; title.className = "head-title"; small.className = "head-kicker"; line.className = "head-line"; absent.className = "head-absent";
 	root.append(icon, title, small, line, absent);
+	small.dataset.m = "comms"; // the session template's kicker word, which retranslate() would write back on a view switch (RRB2-F001)
 	fillHeadTitle(root as unknown as HTMLElement, head({ state: "absent", service: undefined }));
+	assert.equal(small.dataset.m, undefined, "the head's kicker stays empty under every view");
 	assert.deepEqual([title.textContent, small.textContent, absent.hidden, absent.textContent, icon.getAttribute("href")], ["Head tower", "", false, "The head tower opens with your first message", "#i-crown"]);
 	fillHeadTitle(root as unknown as HTMLElement, head({ state: "standing" }));
 	assert.equal(absent.hidden, true, "the line is for the head that is not open");
@@ -253,7 +255,7 @@ test("the sheet: no self-referencing --c, no head Info, no uppercase chapter lin
 test("the head's marks: the map node and the chat avatar carry the crown in the crown's colour, one row of buttons in the conversation box, and no empty ⋯ in the page header", async () => {
 	const { readFileSync } = await import("node:fs");
 	const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8"), html = readFileSync(new URL("../gui/index.html", import.meta.url), "utf8"), chat = readFileSync(new URL("../gui/chat.ts", import.meta.url), "utf8");
-	assert.match(html, /id="head-node"[^>]*><span class="tower">(?:(?!<\/span>).)*<use href="#i-crown"\/>/, "the head node's tower mark is the crown");
+	assert.match(html, /id="head-node"[^>]*><span class="tower">(?:(?!<\/span>).)*<use data-icon="crown" href="#i-crown"\/>/, "the head node's tower mark is the crown");
 	assert.match(css, /\.head-node \.tower svg, \.tx\.in\.head \.ava \{[^}]*color: var\(--gold\)/);
 	assert.match(chat, /icon\(me\.head \? "crown" : me\.role\)/, "the head's messages wear the crown");
 	assert.match(css, /\.comms-head\[data-head\] \.head-menu \{ display: none; \}/);

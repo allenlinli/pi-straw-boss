@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { themes } from "../scripts/vite-themes.ts";
 
 // `npm run gui:build` bundles the page into dist/gui, the static bundle `/boss gui` serves and the package ships.
 // `npm run gui:dev` serves it with hot reload against a demo fixture; GUI_LIVE=<url printed by /boss gui> feeds it that live stream instead.
@@ -17,7 +18,7 @@ export default defineConfig(({ command }) => {
 		base: "./",
 		// The live server writes <base href> into the page it serves; the dev server does the same so routes like /w/<id>/s/<key> load.
 		// The demo has no server to write it, so its build carries the base it is served under.
-		plugins: [{ name: "dev-base", apply: demo === undefined ? "serve" : "build", transformIndexHtml: (html: string) => html.replace("<head>", `<head>\n<base href="${demo ?? "/"}">`) }],
+		plugins: [themes(import.meta.dirname), { name: "dev-base", apply: demo === undefined ? "serve" : "build", transformIndexHtml: (html: string) => html.replace("<head>", `<head>\n<base href="${demo ?? "/"}">`) }],
 		define: { __LIVE__: JSON.stringify((command === "build" && demo === undefined) || Boolean(live)) },
 		// Sounds stay files, fetched when one first plays, instead of inlined into the map's chunk.
 		build: { outDir: demo === undefined ? "../dist/gui" : "../dist/demo", emptyOutDir: true, sourcemap: false, modulePreload: false, assetsInlineLimit: (file: string) => (file.endsWith(".mp3") ? false : undefined) },

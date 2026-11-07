@@ -5,7 +5,7 @@ import type { HeadUnit } from "../src/nethead.ts";
 import { mountCalm } from "./calm.ts";
 import { menuAround, nameMenu } from "./menu.ts";
 import { replay } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./paraglide/messages.js"; import { repoint, iconRef } from "./icons.ts"; import { type NounKey, noun } from "./nouns.ts";
 import { closed } from "./scene.ts";
 import { allyMark, mergeAllies, stateName, unitCards, type AllyCard, type UnitCard } from "./linkmodel.ts";
 import { fillAllies } from "./towerallies.ts";
@@ -22,13 +22,13 @@ import { formatRoute, type Route } from "./router.ts";
 
 export const ICON: Record<string, string> = { main: "main", member: "member", subagent: "subagent", outpost: "outpost", outside: "outside", tower: "tower", ally: "tower", run: "tower" };
 export const LABEL: Record<Mark, () => string> = { commanding: m.mark_commanding, working: m.mark_working, waiting: m.mark_waiting, idle: m.mark_idle, done: m.mark_done, error: m.mark_error, unknown: m.mark_unknown };
-const ROLE: Record<string, () => string> = { ally: m.role_ally, run: m.role_run, main: m.role_main, member: m.role_member, subagent: m.role_subagent, tower: m.role_tower, outpost: m.role_outpost, outside: m.role_outside, session: m.role_session };
+const ROLE: Record<string, NounKey> = { ally: "role_ally", run: "role_run", main: "role_main", member: "role_member", subagent: "role_subagent", tower: "role_tower", outpost: "role_outpost", outside: "role_outside", session: "role_session" };
 /** The server's fixed status words; any other note (a subagent's tool or phase) shows as it is. */
 const NOTE: Record<string, () => string> = { thinking: m.note_thinking, "watching a monitor": m.note_monitoring, idle: m.mark_idle, "waiting on a question": m.mark_waiting, finished: m.mark_done };
 /** A role as the page names it; one it does not know shows as it is. */
 /** The agent of a unit that is not a pi session (src/net.ts `Unit.agent`): its badge, and its name in the composer's notice. */
 export const AGENT = { claude: "Claude", codex: "Codex" } as const;
-export const roleName = (role: string) => (Object.hasOwn(ROLE, role) ? ROLE[role]!() : role);
+export const roleName = (role: string) => (Object.hasOwn(ROLE, role) ? noun(ROLE[role]!) : role);
 /** A wait's title, in the page's language: the unit's role and its place, once (the unit's raw name is English and says the same). Zen's card and the dialog share it. */
 export const waitTitle = (role: string, place: string) => `${roleName(role)} · ${place}`;
 /** Marks that ask for the user: a click on such a unit opens its alert instead of its route. */
@@ -38,7 +38,9 @@ export const urgent = (m: Mark) => m === "waiting" || m === "error";
 export const html = (markup: string): HTMLElement => {
 	const root = new DOMParser().parseFromString(markup.trim(), "text/html").body.firstElementChild;
 	if (!(root instanceof HTMLElement)) throw new Error("bad template");
-	return document.importNode(root, true);
+	const el = document.importNode(root, true);
+	repoint(el); // a theme's icons, where it has them
+	return el;
 };
 export const byId = <T extends Element>(id: string, kind: new () => T): T => {
 	const el = document.getElementById(id);
@@ -83,11 +85,12 @@ export const hang = (pop: HTMLElement, button: HTMLElement) => {
 	pop.style.left = `${Math.max(8, Math.min(at.right - width, innerWidth - width - 8))}px`;
 };
 /** The round unit token: icon, spinning ring, ping, and state badge. */
-export const PLATE = `<div class="plate"><i class="ring"></i><svg><use href="#i-main"/></svg><b class="badge"></b></div>`;
+export const PLATE = `<div class="plate"><i class="ring"></i><svg><use data-icon="main"/></svg><b class="badge"></b></div>`;
 /** `docs`: the unit's documents; those on screen in its terminal show as a scroll badge with their count. */
 export function fillPlate(plate: HTMLElement, role: string, m: Mark, docs?: { onScreen: boolean }[]) {
 	mark(plate, m);
-	const use = plate.querySelector("use")!, href = `#i-${ICON[role] ?? "member"}`, n = docs?.filter((d) => d.onScreen).length;
+	const use = plate.querySelector("use")!, icon = ICON[role] ?? "member", href = iconRef(icon), n = docs?.filter((d) => d.onScreen).length;
+	use.dataset.icon = icon;
 	if (use.getAttribute("href") !== href) use.setAttribute("href", href);
 	if (n) plate.dataset.docs = String(n);
 	else delete plate.dataset.docs;
@@ -168,7 +171,7 @@ export function aimOpening(button: HTMLElement, b: Base, tab?: string) {
 	if (button.textContent !== (kind === "main" ? m.open_main() : m.open_member())) button.textContent = kind === "main" ? m.open_main() : m.open_member();
 }
 
-const baseMarkup = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${m.outposts()}"></div></section>`);
+const baseMarkup = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use data-icon="tower"/></svg><b class="badge"></b></div><div class="title"><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${noun("outposts")}"></div></section>`);
 /** A phone keeps a base's Quit behind a `⋯` in its header (style.css, "A phone's menus"); above 640 px the menu is `display: contents`, so the button stays where it was. */
 const baseEl = () => {
 	const el = baseMarkup();
@@ -206,12 +209,12 @@ function fillBase(el: HTMLElement, b: Base) {
 		aimOpening(tab.querySelector(".tab-add")!, b, t.id);
 		sync(tab.querySelector(".units")!, t.units, unitEl, fillUnit);
 	});
-	sync(el.querySelector(".outposts")!, b.outposts.map((o) => ({ id: o.id, name: o.label, role: "outpost" as const, mark: o.mark, note: o.mark === "unknown" ? m.no_agent() : undefined, since: o.since, ticks: o.ticks })), unitEl, fillUnit);
+	el.querySelector<HTMLElement>(".outposts")!.dataset.label = noun("outposts"), sync(el.querySelector(".outposts")!, b.outposts.map((o) => ({ id: o.id, name: o.label, role: "outpost" as const, mark: o.mark, note: o.mark === "unknown" ? m.no_agent() : undefined, since: o.since, ticks: o.ticks })), unitEl, fillUnit);
 }
 
 // A teammate's workspace on a bound project (Straw Link, from its last presence), beside the local bases: a card of its own, not openable (its units are
 // another computer's), with the device's label and short id, the team, whether it is online, its tower's state, and its tabs' states. No wire reaches it.
-export const allyEl = () => html(`<section class="base ally"><header><div class="tower"><i class="pulse"></i><svg><use href="#i-tower"/></svg><b class="badge"></b></div><div class="title"><span class="crown"><svg><use href="#i-main"/></svg><em class="ally-tag"></em></span><h2></h2><p><span class="tstate"></span></p><p class="ally-teams" hidden></p></div></header><ul class="ally-tabs"></ul><ul class="ally-units"></ul></section>`);
+export const allyEl = () => html(`<section class="base ally"><header><div class="tower"><i class="pulse"></i><svg><use data-icon="tower"/></svg><b class="badge"></b></div><div class="title"><span class="crown"><svg><use data-icon="main"/></svg><em class="ally-tag"></em></span><h2></h2><p><span class="tstate"></span></p><p class="ally-teams" hidden></p></div></header><ul class="ally-tabs"></ul><ul class="ally-units"></ul></section>`);
 // The questions an unattended device forwarded are answered on its card (allyasks.ts, with the question panel): loaded with the first one, so the page's start does not carry it; a load that failed is tried again at the next snapshot.
 let allyAsks: ReturnType<typeof import("./allyasks.ts").mountAllyAsks> | undefined, loadingAsks = false;
 const waitingAsks = new Map<HTMLElement, [AllyCard, LinkSummary]>();
@@ -275,9 +278,9 @@ export function fillHeadNode(el: HTMLElement, head: HeadUnit | undefined) {
 	tower.classList.toggle("ghost", !open);
 	mark(tower, head.mark);
 	el.setAttribute("href", "head");
-	text(el, ".head-name", m.head_tower());
+	text(el, ".head-name", noun("head_tower"));
 	text(el, ".tstate", open ? statusLine(head.service, head.mark, (mk) => LABEL[mk]()) : m.head_state_absent());
-	el.title = `${m.head_tower()} · ${el.querySelector<HTMLElement>(".tstate")!.textContent}`; // the node shows no state words: a hover reads them
+	el.title = `${noun("head_tower")} · ${el.querySelector<HTMLElement>(".tstate")!.textContent}`; // the node shows no state words: a hover reads them
 }
 type Spot = readonly [number, number];
 /** The wires of the head node: one curve from its centre to each base's tower; none without a hub. */

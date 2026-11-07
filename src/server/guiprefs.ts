@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { type Choice, isChoice } from "../views.ts";
 import { readOwnedText, writeJson } from "./record.ts";
 
 // The server's default view of the page (`/boss gui view`, docs/how-it-works.md Browser view): which view a device that follows the server gets. It is a presentation setting of the whole server, kept in `gui-prefs.json`
@@ -6,9 +7,8 @@ import { readOwnedText, writeJson } from "./record.ts";
 
 export const PREFS_FILE = "gui-prefs.json";
 /** What the default can be: `auto` leaves each device to its own screen's contrast preference. */
-export const VIEWS = ["auto", "standard", "geek", "zen"] as const;
-export type ServerView = (typeof VIEWS)[number];
-export const isView = (value: unknown): value is ServerView => typeof value === "string" && (VIEWS as readonly string[]).includes(value);
+export type ServerView = Choice;
+export const isView = isChoice;
 
 /** The stored default; a missing file, a file another account owns, a link, and anything this code did not write read as Auto. */
 export function readView(dir: string): ServerView {

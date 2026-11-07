@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { contrast, declarations, mix, type Rule, rulesOf, split } from "./css-rules.ts";
 
-// The Geek view's palette (gui/style.css, the `[data-view="geek"]` block) must hold WCAG AAA for text (7 : 1) on every surface, and 3 : 1 for borders
+// The Geek view's palette (gui/themes/geek/geek.css, the `[data-view="geek"]` block) must hold WCAG AAA for text (7 : 1) on every surface, and 3 : 1 for borders
 // (non-text), including text on a state tint as the CSS mixes it. No browser runs here: the block is parsed and the arithmetic done on its values.
 const GEEK = '[data-view="geek"]';
-const rules = rulesOf(readFileSync(new URL("../gui/style.css", import.meta.url), "utf8"));
+const rules = rulesOf(readFileSync(new URL("../gui/themes/geek/geek.css", import.meta.url), "utf8")), entryRules = rulesOf(readFileSync(new URL("../gui/style.css", import.meta.url), "utf8"));
 const must = <T>(value: T | undefined, what: string): T => (assert.ok(value, what), value as T);
 const block = must(rules.find((r) => r.selector === GEEK), "the Geek token block exists");
-const root = must(rules.find((r) => r.selector === ":root"), "the palette block exists");
+const root = must(entryRules.find((r) => r.selector === ":root"), "the palette block exists");
 const colours = (rule: Rule) =>
 	Object.fromEntries(declarations(rule.body).filter(([p, v]) => p.startsWith("--") && /^#[0-9a-f]{6}$/i.test(v)).map(([p, v]) => [p.slice(2), v.toLowerCase()])) as Record<string, string>;
 const geek = colours(block);

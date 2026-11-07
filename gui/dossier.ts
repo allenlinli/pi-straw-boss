@@ -1,6 +1,6 @@
 import type { Tile } from "./layer.ts";
 import { docList, docTile } from "./doc.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
 import { fillPlate, html, LABEL, liveMark, mark, PLATE, roleName, say, sync, text } from "./render.ts";
 import { closed, locate, type Scene, type Subject, wsOf } from "./scene.ts";
 import { fillToken, linkTo, tokenEl } from "./tokens.ts";
@@ -9,7 +9,7 @@ import { statusLine } from "./towermodel.ts";
 // The dossier in a session route's side column (a phone's Info opens it full-screen): the unit's plate and state, its specs, its documents, the
 // subagents it dispatched, and, for a tower, each squad of its base.
 
-const DOSSIER = () => `<div class="dossier-in"><span class="tag">${m.unit_dossier()}</span><button class="x d-x" type="button" aria-label="${m.close()}">×</button><div class="portrait">${PLATE}</div><h3></h3><p class="d-line"><em class="role"></em> <span class="state"></span></p><p class="d-note" hidden></p><dl class="specs"></dl><div class="d-docs" hidden><h4>${m.documents()}</h4><div class="d-doc-list"></div><p class="d-docs-cut" hidden>${m.docs_cut()}</p></div><div class="d-drones" hidden><h4>${m.dispatched()}</h4><div class="formation"></div></div><div class="d-squads" hidden><h4>${m.under_tower()}</h4><div class="d-squad-list"></div></div></div>`;
+const DOSSIER = () => `<div class="dossier-in"><span class="tag">${m.unit_dossier()}</span><button class="x d-x" type="button" aria-label="${m.close()}">×</button><div class="portrait">${PLATE}</div><h3></h3><p class="d-line"><em class="role"></em> <span class="state"></span></p><p class="d-note" hidden></p><dl class="specs"></dl><div class="d-docs" hidden><h4 data-m="documents">${noun("documents")}</h4><div class="d-doc-list"></div><p class="d-docs-cut" hidden>${m.docs_cut()}</p></div><div class="d-drones" hidden><h4>${m.dispatched()}</h4><div class="formation"></div></div><div class="d-squads" hidden><h4>${m.under_tower()}</h4><div class="d-squad-list"></div></div></div>`;
 const droneOf = (el: HTMLElement) => el.classList.add("drone");
 
 export interface DossierDeps { openTile(tile: Tile, focus?: boolean): void; fullScreen(on: boolean): void }
@@ -31,7 +31,7 @@ export function mountDossier(host: HTMLElement, scene: Readonly<Scene>, { openTi
 		if (info?.successor) note.append(` ${m.successor()} `, linkTo({ view: "session", ws, key: info.successor }, locate(net, info.successor)?.u.name ?? m.new_session()));
 		const rows: [string, string | Node | undefined][] = [
 			[m.spec_model(), model], [m.spec_context(), ctx ? m.tokens({ count: ctx.toLocaleString() }) : undefined], [m.spec_directory(), info?.header?.cwd],
-			[m.spec_base(), hit && linkTo({ view: "workspace", ws: hit.base.id }, hit.base.label)], [m.spec_squad(), hit?.squad],
+			[noun("spec_base"), hit && linkTo({ view: "workspace", ws: hit.base.id }, hit.base.label)], [m.spec_squad(), hit?.squad],
 			[m.spec_launcher(), hit?.launcher && linkTo({ view: "session", ws: hit.base.id, key: hit.launcher.key }, hit.launcher.name)],
 			[m.spec_unreadable(), info?.unreadable ? m.entry_count({ count: info.unreadable }) : undefined],
 		];

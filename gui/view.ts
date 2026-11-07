@@ -1,3 +1,4 @@
+import { type Choice, viewOf, type View } from "../src/views.ts";
 import { createPrefs, KEYS } from "./prefs.ts";
 
 // The page's view: Standard (the Tokyo Night palette with its motion), Geek (black, monospace, AAA contrast, nothing moves; style.css `[data-view="geek"]`), or Zen (ink; one waiting item at a time, docs/specs/2026-11-01-zen-view.md; until its layer lands a Zen page shows Standard's page).
@@ -8,16 +9,15 @@ import { createPrefs, KEYS } from "./prefs.ts";
 // thing main.ts does, before any render, and the browser's theme-color follows it, so an installed app's bar matches.
 // A page that is showing Zen is never switched out of it by a change of the server's default (Z-D20, 「永遠不要打斷」): the new default applies at its next load, and at once to a page on Auto that is not in Zen.
 
-export type Choice = "auto" | "standard" | "geek" | "zen";
-export type View = "standard" | "geek" | "zen";
+export type { Choice, View };
 /** What moved the view: the person chose one (`pick`: here or on another page of this device), or the page's own Auto followed the server's default or the screen (`follow`). */
 export type Cause = "pick" | "follow";
 export const KEY: string = KEYS.view;
-/** The theme-color of the Geek and Zen views (Zen: the ink ground); Standard keeps the color the page came with (index.html). */
-export const THEME = { geek: "#000000", zen: "#14110e" } as const;
+/** The theme-color of the Geek, Zen, and Raven Keep views (Zen: the ink ground; Raven: the near-black violet); Standard keeps the color the page came with (index.html). */
+export const THEME = { geek: "#000000", zen: "#14110e", raven: "#0d0a10" } as const;
 
-/** The stored value as a choice: only the three views are choices of their own, anything else (missing, invalid) is Auto. */
-export const choiceOf = (stored: string | null | undefined): Choice => (stored === "standard" || stored === "geek" || stored === "zen" ? stored : "auto");
+/** The stored value as a choice: only a named view is a choice of its own (src/views.ts), anything else (missing, invalid) is Auto. */
+export const choiceOf = (stored: string | null | undefined): Choice => viewOf(stored) ?? "auto";
 /** What Auto means now: the server's default when it names a view, else what the screen asks for. */
 export const autoView = (contrast: boolean, server: Choice = "auto"): View => (server === "auto" ? (contrast ? "geek" : "standard") : server);
 export const resolve = (choice: Choice, contrast: boolean, server: Choice = "auto"): View => (choice === "auto" ? autoView(contrast, server) : choice);

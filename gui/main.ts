@@ -1,5 +1,5 @@
 import "./style.css";
-import { domEnv, KEY, mountPick, mountView, mountZenBack } from "./view.ts";
+import { domEnv, KEY, mountPick, mountView, mountZenBack, type View } from "./view.ts";
 import { createPage } from "./pagecore.ts";
 import { localeNames, setLocale, startI18n } from "./i18n.ts";
 import { followLabel } from "./viewlabel.ts";
@@ -27,7 +27,9 @@ import { CONNECTING, createStream, type Source, type Status } from "./stream.ts"
 import { onStep } from "./terminalthen.ts";
 import { mountTimeline } from "./timeline.ts";
 import type { mountFocus } from "./views.ts";
-import { iconHref, plainOf } from "./tabicon.ts";
+import { iconHref, iconOf, plainOf } from "./tabicon.ts";
+import { loadTheme, onTheme, showTheme } from "./themes/registry.ts";
+import type { ThemeParts } from "./themes/theme.ts";
 import type { mountZen } from "./zen.ts";
 import type { TermKit } from "./zentypes.ts";
 
@@ -87,7 +89,7 @@ const openTile = (tile: Tile, take?: boolean) => withPanels((p) => p.tiles.open(
 type Zen = ReturnType<typeof mountZen>;
 let zen: Zen | undefined, zenLoading: Promise<Zen> | undefined;
 const withZen = (call: (z: Zen) => void) => {
-	zenLoading ??= import("./zenchunk.ts").then(({ mountZen, zenPage }) => {
+	zenLoading ??= loadTheme("zen").then(({ mountZen, zenPage }) => {
 		const host = zenPage({ sound: notify.sound, api: fixture?.api ?? api, snapshot: core.newest }); // the effects, the music, and the companion readers (zenpage.ts) are built in the chunk
 		return (zen = mountZen(el("zen"), {
 			data, recent, label, online: core.online,
@@ -112,12 +114,19 @@ const openSection = (section: Section) => (core.current.view === "settings" ? wi
 // The header, the alert queue, and the focus views follow every snapshot. A hidden page keeps only the newest snapshot and draws it
 // when it comes back, so a background tab does no DOM work; the timeline follows on every route, the map is drawn only while in view.
 // The tab's icon carries the count of units waiting on an answer, a hidden tab's above all; a browser that keeps the first icon shows it plain.
-const tabIcon = document.querySelector<HTMLLinkElement>('link[rel="icon"]'), plain = tabIcon ? plainOf(tabIcon.href) : undefined;
-let badged = 0;
-function icon(n: number) {
-	if (!tabIcon || !plain || n === badged) return;
+// Each view has its own icon (the build's theme map, boot.js leaves Standard's file name in data-standard); the waiting badge is drawn over the shown view's, in the theme's colours.
+const tabIcon = document.querySelector<HTMLLinkElement>('link[rel="icon"]'), homeIcon = tabIcon && (tabIcon.dataset.standard ?? tabIcon.getAttribute("href") ?? ""), themeMap = document.querySelector<HTMLMetaElement>('meta[name="sb-themes"]')?.content;
+const plains = new Map<string, Promise<string | undefined>>();
+const plainFor = (shown: View) => {
+	const href = new URL(iconOf(themeMap, shown) ?? homeIcon ?? "", document.baseURI).href;
+	if (!plains.has(href)) plains.set(href, plainOf(href));
+	return plains.get(href)!;
+};
+let plain = tabIcon ? plainFor(view.view()) : undefined, badge: ThemeParts["badge"], badged = 0;
+function icon(n: number, again = false) {
+	if (!tabIcon || !plain || (n === badged && !again)) return;
 	badged = n;
-	void plain.then((svg) => svg && n === badged && (tabIcon.href = iconHref(svg, n)));
+	void plain.then((svg) => svg && n === badged && (tabIcon.href = iconHref(svg, n, badge)));
 }
 /** A phone's `⋯` in the header shows only while something is behind it (Dismiss finished, Stashed); when both go, its panel closes. */
 function moreActs() {
@@ -165,6 +174,15 @@ const core = createPage({
 	icon, link: (link) => linkBar.net(link), signal: (fresh) => notify.signal(fresh), draw, map: page.show, navigate, layout: () => requestAnimationFrame(page.layout),
 	panels: () => panels, withPanels, withFocus, go: (route) => router.go(route), modal, chime: () => notify.chime(),
 });
+// A view's theme (stylesheet, sprite, nouns) loads the first time the page shows it; its parts take effect, and the tab takes its icon with the badge in its colours (themes/registry.ts).
+onTheme((shown, parts) => {
+	badge = parts?.badge;
+	if (tabIcon) plain = plainFor(shown);
+	icon(badged, true);
+	if (core.latest) core.snapshot(core.latest); // the words and icons are drawn again in the shown view's, a switch back to Standard included (RRB2-F001)
+});
+view.onChange((shown) => void showTheme(shown));
+void showTheme(view.view());
 onStep(core.openStep); // the step an accepted answer left (terminalthen.ts)
 const linkBar = mountLinkBar(() => openSection("teams"), core.news);
 const notify = mountNotify(core.notified);

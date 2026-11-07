@@ -14,7 +14,7 @@ import { proposalText } from "./towermodel.ts";
 import { confirmPanel, pairPanel, proposalPanel } from "./zendecide.ts";
 import { hasHistory, mountHistory } from "./zenhistory.ts";
 import { intel } from "./intel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
 import type { Answer } from "./post.ts";
 import { roleName, waitTitle } from "./render.ts";
 import { composerUnit } from "./sessionfacts.ts";
@@ -273,7 +273,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (view !== "companion" || company?.key !== c.key) openCompany(c);
 		view = "companion";
 		const u = locate(net, c.key), over = live ? undefined : u && !("ended" in u.u && u.u.ended) ? "lost" : "ended";
-		if (live || !over) company!.name.textContent = histOpen ? m.head_tower() : (u?.u.name ?? c.key);
+		if (live || !over) company!.name.textContent = histOpen ? noun("head_tower") : (u?.u.name ?? c.key);
 		if (live) company!.where.textContent = u && !histOpen ? deps.label(u.base.id) : "";
 		company!.cue.set(model.queued().length); // a card never takes this screen by itself: the cue says how many wait, and a tap on it takes one
 		markOver(company!, over);

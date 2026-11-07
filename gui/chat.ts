@@ -120,10 +120,12 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 	root.replaceChildren(scroller, pill);
 	const follow = createFollow();
 	let loading = false, loaded = false, target: string | undefined, held: HTMLElement | undefined, release = 0, down = false, coast: ReturnType<typeof setTimeout> | undefined;
-	// A finger on the log, or its fling still coasting (no scroll for 250 ms ends it), holds the log where the finger put it: nothing pulls it to the bottom.
+	// A finger on the log, a wheel or key moving it up, or the fling after them still coasting (no input and no scroll for 250 ms ends it), hold the log where the user put it: nothing pulls it to the bottom, and
+	// when it ends a log still following lands there in one jump. A wheel down at the end holds nothing: the entry lands at once, so the tail of that fling has no new room to glide into.
 	const touching = () => down || coast !== undefined, coasting = () => (clearTimeout(coast), (coast = setTimeout(() => ((coast = undefined), follow.pinned && !model.detached && toBottom()), 250)));
 	const button = (label = follow.button(model.detached)) => ((pill.hidden = !label), (pill.textContent = label ?? ""));
-	const toBottom = () => (follow.jump(), (held = undefined), (scroller.scrollTop = scroller.scrollHeight), button());
+	const park = () => ((scroller.scrollTop = scroller.scrollHeight), follow.parked(scroller.scrollTop));
+	const toBottom = () => (follow.jump(), (held = undefined), park(), button());
 	/** Scrolls the anchor into view and lights it; older pages load first when it is not mounted. Gone from the history, the log opens at the end. */
 	async function anchor(at: string) {
 		loading = true;
@@ -301,13 +303,15 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 	const sentries = [new IntersectionObserver((seen) => seen.some((s) => s.isIntersecting) && void older(), { root: scroller }), new IntersectionObserver((seen) => scroller.clientHeight && (follow.scrolled(seen.at(-1)!.isIntersecting), button()), { root: scroller, rootMargin: "0px 0px 67px" })] /* 80 px from the scroll end: the end line sits above 12 px of padding */;
 	let watching: ReturnType<typeof setTimeout> | undefined;
 	const watch = () => (watching ?? (sentries[0]!.observe(top), sentries[1]!.observe(foot)), clearTimeout(watching), (watching = setTimeout(() => ((watching = undefined), sentries.forEach((s) => s.disconnect())), 600)));
-	scroller.addEventListener("scroll", () => (watch(), !down && coast !== undefined && coasting()), { passive: true });
+	scroller.addEventListener("scroll", () => (watch(), follow.moved(scroller.scrollTop, () => scroller.scrollHeight - scroller.clientHeight) && button(), !down && coast !== undefined && coasting()), { passive: true });
+	scroller.addEventListener("wheel", (e) => e.deltaY < 0 && coasting(), { passive: true });
+	scroller.addEventListener("keydown", (e) => ["ArrowUp", "PageUp", "Home"].includes(e.key) && coasting(), { passive: true });
 	scroller.addEventListener("touchstart", () => ((down = true), clearTimeout(coast), (coast = undefined)), { passive: true });
 	for (const end of ["touchend", "touchcancel"]) scroller.addEventListener(end, () => ((down = false), coasting()), { passive: true });
 	// The user's own scroll ends the hold, and a later reconnect then opens at the end instead of at the anchor again.
 	for (const input of ["wheel", "touchstart", "pointerdown", "keydown"]) scroller.addEventListener(input, () => (held = target = undefined), { passive: true });
 	// Entries change height as they render (content-visibility estimates the rest), so a pinned log is kept at the bottom, and a held anchor in view.
-	const keep = new ResizeObserver(() => (touching() ? undefined : follow.pinned && !model.detached ? (scroller.scrollTop = scroller.scrollHeight) : held?.scrollIntoView({ block: "center" })));
+	const keep = new ResizeObserver(() => (touching() ? follow.parked(scroller.scrollTop) : follow.pinned && !model.detached ? park() : held?.scrollIntoView({ block: "center" })));
 	keep.observe(list);
 	keep.observe(scroller);
 

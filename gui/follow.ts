@@ -10,22 +10,34 @@ type Chat = ReturnType<typeof createChat>;
  * anchor). While reading, a floating button offers the way back: "N new" once entries arrived, else "jump to latest".
  */
 export function createFollow() {
-	let pinned = true, unseen = 0;
+	let pinned = true, unseen = 0, near = true, last = 0;
 	return {
 		get pinned() { return pinned; },
-		/** The user scrolled: at the bottom pins again. */
+		/** The end sentinel crossed its margin (80 px from the end): inside pins, outside reads. */
 		scrolled(bottom: boolean) {
-			pinned = bottom;
+			near = pinned = bottom;
 			if (bottom) unseen = 0;
 		},
+		/** The log put itself at `top` (following): the scroll event that lands there is not the user's. */
+		parked: (top: number) => void (last = top),
+		/**
+		 * A scroll event at `top`; `end` reads the largest offset, and is called only when it decides. A user's move up leaves the end at once, not 80 px later when the sentinel does, so no entry pulls a reader
+		 * back; a move down that reaches the very end pins again. A log that shrank clamps its offset to the end, which is not a move up. True when whether the log follows changed.
+		 */
+		moved(top: number, end: () => number) {
+			const dy = top - last;
+			last = top;
+			if (dy < -0.5 && pinned && end() - top > 1) return !(pinned = false);
+			return dy > 0.5 && !pinned && near && end() - top <= 1 && ((pinned = true), (unseen = 0), true);
+		},
 		/** Opening at an anchor reads from there. */
-		hold: () => void (pinned = false),
+		hold: () => void (near = pinned = false),
 		/** Entries arrived; true when the log should follow them to the bottom. */
 		arrived(n: number) {
 			if (!pinned) unseen += n;
 			return pinned;
 		},
-		jump: () => void ((pinned = true), (unseen = 0)),
+		jump: () => void ((near = pinned = true), (unseen = 0)),
 		/** The button's text, or undefined when it hides. A detached log (its end not mounted) always offers it. */
 		button: (detached: boolean) => (pinned && !detached ? undefined : unseen && !detached ? m.new_entries({ count: unseen }) : m.jump_latest()),
 	};

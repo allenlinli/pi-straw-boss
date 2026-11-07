@@ -51,8 +51,8 @@ function rig() {
 			for (let next = [...timers].filter(([, t]) => t.at <= to).sort((a, b) => a[1].at - b[1].at)[0]; next; next = [...timers].filter(([, t]) => t.at <= to).sort((a, b) => a[1].at - b[1].at)[0]) (timers.delete(next[0]), (clock = next[1].at), next[1].fn());
 			clock = to;
 		},
-		/** The log shrinks (an entry takes its real height): the browser clamps the offset and sends its scroll event; the observers run. */
-		shrink(by: number) { content -= by; if (top > end()) rigged.scroll(end()); frame(); },
+		/** The log shrinks (an entry takes its real height): the browser clamps the offset, the observers run, and the clamp's scroll event follows a frame later (`late`) or at once. */
+		shrink(by: number, late = false) { content -= by; const clamped = top > end(); if (clamped) top = end(); if (clamped && !late) log.bubble("scroll"); frame(); },
 		done: () => void Object.assign(globals, saved),
 	};
 	chat.apply({ key: "a1", reset: true, items: [user(1), user(2), user(3)] });
@@ -103,7 +103,7 @@ test("a fling up from the end is never fought, and entries arriving during it do
 	const r = rig();
 	try {
 		const tops: number[] = [];
-		for (let v = 90; v >= 1; v *= 0.9) {
+		for (let v = 40; v >= 1; v *= 0.9) {
 			r.wheel(-v);
 			r.scroll(r.top - v);
 			tops.push(r.top);
@@ -120,18 +120,33 @@ test("a fling up from the end is never fought, and entries arriving during it do
 	}
 });
 
-test("at the end, the tail of a wheel fling that has nowhere to go holds the log; one jump lands the entries after it, then nothing moves", () => {
+test("at the end, the tail of a wheel fling down has nowhere to go: the entry lands at once, and nothing moves after it", () => {
 	const r = rig();
 	try {
 		for (let i = 0; i < 20; i++) {
 			r.wheel(30 * 0.9 ** i);
 			r.tick(16);
 			if (i === 5) r.arrive();
+			if (i === 5) assert.equal(r.top, r.end, "landed in the frame it arrived");
 		}
-		assert.equal(r.writes.length, 0, "no write while the tail runs");
-		r.tick(300);
-		assert.deepEqual([r.writes.length, r.top], [1, r.end], "one jump to the end when it is over");
 		assert.equal(r.end, 800);
+		const n = r.writes.length;
+		r.tick(300);
+		assert.deepEqual([r.writes.length, r.top], [n, 800], "no second jump when the tail is over");
+		quiet(r);
+	} finally {
+		r.done();
+	}
+});
+
+test("a wheel up that its scroll has not followed yet holds the log: an entry that arrives then waits, and lands in one jump if the user did not leave the end", () => {
+	const r = rig();
+	try {
+		r.wheel(-40);
+		r.arrive();
+		assert.deepEqual([r.writes.length, r.top], [0, 700], "held");
+		r.tick(300);
+		assert.deepEqual([r.writes.length, r.top], [1, 800], "the wheel moved nothing (no room above, say): one jump");
 		quiet(r);
 	} finally {
 		r.done();
@@ -173,6 +188,22 @@ test("scrolling back to the very end follows again, and an entry that shrinks th
 		r.tick(300);
 		r.arrive();
 		assert.deepEqual([r.top, r.end], [r.end, 940], "a log that shrank under its end still follows");
+		quiet(r);
+	} finally {
+		r.done();
+	}
+});
+
+test("a log under a finger that shrinks and then grows before the clamp's scroll event arrives is not read as a scroll up", () => {
+	const r = rig();
+	try {
+		r.log.bubble("touchstart");
+		r.shrink(50, true);
+		r.arrive();
+		r.scroll(r.top);
+		r.log.bubble("touchend");
+		r.tick(300);
+		assert.deepEqual([r.top, r.end], [r.end, 750], "still following: it lands at the end when the finger is gone");
 		quiet(r);
 	} finally {
 		r.done();

@@ -1113,6 +1113,7 @@
 	"head_ask_handled": "handled",
 	"head_ask_received": "received",
 	"head_ask_handled_note": "answered someone else, not the head",
+	"head_ask_missed_note": "its reply did not reach the head",
 	"head_replaces": "corrects {count} earlier",
 	"head_replaced_by": "corrected by the next",
 	"head_replaced_fold": "Replaced orders ({count})",

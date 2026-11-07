@@ -332,7 +332,7 @@ const taking = async (s: Running, ws: string, label: string, id: string, n = 1) 
 	return { run, ev };
 };
 
-test("HLC-R-F004: a tower's tower_reply to the head answers the ask through the server (it did not answer someone else)", async () => {
+test("HLC-R3-F001: a tower's tower_reply to the head is refused at the tool, before anything is sent, and says how to answer; the ask records nothing but that the tower took the message", async () => {
 	const s = await world.start();
 	await s.handle.ready;
 	await world.expose!.head.ensure();
@@ -340,24 +340,34 @@ test("HLC-R-F004: a tower's tower_reply to the head answers the ask through the 
 	const a = openAsk(world.slot, Date.now(), { workspace: "wA", label: "Alpha", first: "do it" });
 	const state = (id: string) => headSeam(world.slot, () => Date.now()).asks().find((r) => r.id === id)!.state;
 	const one = await taking(s, "wA", "Alpha", a.id);
+	const sentBefore = world.client("sb-head")!.sent.length;
 	const reply = await tool(s, one.run.token, "tower_reply", { to: "sb-head", message: "landed" }, { turn: one.ev.id });
-	assert.equal(reply.ok, true, JSON.stringify(reply));
-	assert.equal(state(a.id), "answered", "a reply to the head is an answer, not an answer to someone else");
-	assert.equal(readAsks(world.slot, Date.now())[0]!.answers.at(-1)!.first, "landed");
+	assert.equal(reply.ok, false, JSON.stringify(reply));
+	assert.match(String(reply.error), /not delivered/i);
+	assert.match(String(reply.error), /tower_send/);
+	assert.match(String(reply.error), /head: true/);
+	assert.match(String(reply.error), /inReplyTo/);
+	assert.equal(world.client("sb-head")!.sent.length, sentBefore, "nothing was sent to the head");
+	assert.equal(readAsks(world.slot, Date.now())[0]!.answers.length, 0, "no answer is recorded for a reply the head never got");
+	assert.equal(state(a.id), "received", "a failed call records nothing beyond what the run's taking noted");
 });
 
-test("HLC-R-F004: which calls of a tower's turn count: a send or reply to anyone but the head, and boss_open_main, are handled; one to the head is an answer; a tool that is not an act is nothing", () => {
+test("HLC-R-F004: which calls of a tower's turn count: a send or reply to anyone, and boss_open_main, are handled; a tower_reply to the head is handled and marked as not reaching it, never an answer; a tool that is not an act is nothing", () => {
 	const slot = slotIn(), head = headId(slot), event = (id: string) => ({ from: { id: head }, text: `[straw net from="head tower" id=${head} role=tower head=yes workspace=head kind=tower_send scope=tower to=x reply=expected ask=${id}] go` });
-	const [a, b, c, d, e, f] = ["wA", "wB", "wC", "wD", "wE", "wF"].map((ws) => send(slot, T0, ws, "go"));
+	const [a, b, c, d, e, f, g, h] = ["wA", "wB", "wC", "wD", "wE", "wF", "wG", "wH"].map((ws) => send(slot, T0, ws, "go"));
 	const state = (id: string) => headSeam(slot, () => T0 + MIN).asks().find((r) => r.id === id)!.state;
 	noteToolCall(slot, T0 + 1, "wA", event(a!.id), { name: "boss_open_main", args: { request: "x", sender: "y" }, details: { tab: "t1" } });
 	noteToolCall(slot, T0 + 1, "wB", event(b!.id), { name: "tower_reply", args: { to: "main-1", message: "m" }, details: { to: "main-1" } });
 	noteToolCall(slot, T0 + 1, "wC", event(c!.id), { name: "tower_reply", args: { to: head, message: "landed it" }, details: { to: head } });
+	noteToolCall(slot, T0 + 1, "wG", event(g!.id), { name: "tower_reply", args: { to: "main-1", message: "m" } });
+	noteToolCall(slot, T0 + 1, "wH", event(h!.id), { name: "tower_send", args: { head: true, inReplyTo: h!.id, message: "m" } });
 	noteToolCall(slot, T0 + 1, "wD", event(d!.id), { name: "tower_list", args: {}, details: {} });
 	noteToolCall(slot, T0 + 1, "wE", event(e!.id), { name: "tower_send", args: { head: true, inReplyTo: e!.id, message: "m" }, details: { to: "head", ask: e!.id } });
 	noteToolCall(slot, T0 + 1, "wF", { from: { id: "main-9" }, text: event(f!.id).text }, { name: "tower_send", args: { message: "m" }, details: {} });
-	assert.deepEqual([a, b, c, d, e, f].map((x) => state(x!.id)), ["handled", "handled", "answered", "waiting", "handled", "waiting"], "wE's answer reaches the head by its own intake, which records it; the head's header from anyone else marks nothing");
-	assert.equal(readAsks(slot, T0).find((x) => x.id === c!.id)!.answers.at(-1)!.first, "landed it");
+	assert.deepEqual([a, b, c, d, e, f, g, h].map((x) => state(x!.id)), ["handled", "handled", "handled", "waiting", "handled", "waiting", "waiting", "waiting"], "wE's answer reaches the head by its own intake, which records it; the head's header from anyone else marks nothing; a call with no result (it failed) marks nothing");
+	assert.equal(readAsks(slot, T0).find((x) => x.id === c!.id)!.answers.length, 0, "a tower_reply to the head is not an answer: the head's gate refuses it");
+	const rows = headSeam(slot, () => T0 + MIN).asks();
+	assert.deepEqual([b, c, e].map((x) => rows.find((r) => r.id === x!.id)!.missed), [undefined, true, undefined], "only the reply to the head is marked as not reaching it");
 	// an ask that is no longer open cannot take an answer: the reply to the head is still an act
 	closeAsk(slot, a!.id);
 	noteToolCall(slot, T0 + 2, "wA", event(a!.id), { name: "tower_reply", args: { to: head, message: "late" }, details: { to: head } });

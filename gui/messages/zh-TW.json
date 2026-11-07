@@ -931,6 +931,7 @@
 	"head_ask_handled": "已處理",
 	"head_ask_received": "已收到",
 	"head_ask_handled_note": "回給了別人，沒回報主塔台",
+	"head_ask_missed_note": "回覆沒送到主塔台",
 	"head_replaces": "更正了前 {count} 則",
 	"head_replaced_by": "已被下一則更正",
 	"head_replaced_fold": "被取代的舊指令（{count}）",

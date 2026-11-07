@@ -36,6 +36,8 @@ export interface HeadAsk {
 	/** When the tower of the workspace took the message into a run (`read`), and when it first sent something in a turn that message started (`acted`): what the server saw of the tower, whatever the tower answered. */
 	read?: number;
 	acted?: number;
+	/** When the tower's reply to the head was refused at its tool (a `tower_reply` to the head does not pass the head's gate), so the head never got an answer from it. */
+	missed?: number;
 	/** `boss:<event id>`: the forward was the boss's instruction relayed. */
 	relay?: string;
 	/** The id of the first ask of the broadcast this one belongs to (docs/specs/2026-11-06-head-page-minimal.md); a file from before it has none, and `groupsOf` derives it. */
@@ -58,8 +60,8 @@ const valid = (a: unknown): a is HeadAsk => {
  * an `H<n>` for `supersedes`, a finite time for `read` and `acted`. A field of the wrong type is dropped and the ask stays.
  */
 function clean(a: HeadAsk): HeadAsk {
-	const { group, sent, boss, supersedes, read, acted, closed, ...rest } = a;
-	return { ...rest, ...(typeof group === "string" ? { group } : {}), ...(typeof sent === "string" ? { sent } : {}), ...(typeof boss === "string" ? { boss } : {}), ...(typeof supersedes === "string" && /^H\d+$/.test(supersedes) ? { supersedes } : {}), ...(typeof read === "number" && Number.isFinite(read) ? { read } : {}), ...(typeof acted === "number" && Number.isFinite(acted) ? { acted } : {}), ...(closed === true ? { closed } : {}) };
+	const { group, sent, boss, supersedes, read, acted, missed, closed, ...rest } = a;
+	return { ...rest, ...(typeof group === "string" ? { group } : {}), ...(typeof sent === "string" ? { sent } : {}), ...(typeof boss === "string" ? { boss } : {}), ...(typeof supersedes === "string" && /^H\d+$/.test(supersedes) ? { supersedes } : {}), ...(typeof read === "number" && Number.isFinite(read) ? { read } : {}), ...(typeof acted === "number" && Number.isFinite(acted) ? { acted } : {}), ...(typeof missed === "number" && Number.isFinite(missed) ? { missed } : {}), ...(closed === true ? { closed } : {}) };
 }
 function load(slot: Slot): File {
 	try {
@@ -133,12 +135,13 @@ export function answerAsk(slot: Slot, now: number, d: { id: string; workspace: s
  * Records what the server saw the tower of `workspace` do with the ask: it `read` it (a run took the message) or `acted` (it sent something in the turn the message started; acting is reading). The ask's 24 hours do not move.
  * False for an ask that is not there or is another workspace's.
  */
-export function noteAsk(slot: Slot, now: number, d: { id: string; workspace: string; what: "read" | "acted" }): boolean {
+export function noteAsk(slot: Slot, now: number, d: { id: string; workspace: string; what: "read" | "acted" | "missed" }): boolean {
 	const file = load(slot), ask = file.asks.find((a) => a.id === d.id);
 	if (!ask || ask.workspace !== d.workspace) return false;
-	if (ask.read !== undefined && (d.what === "read" || ask.acted !== undefined)) return true;
+	if (ask.read !== undefined && (d.what === "read" || (ask.acted !== undefined && (d.what === "acted" || ask.missed !== undefined)))) return true;
 	ask.read ??= now;
-	if (d.what === "acted") ask.acted ??= now;
+	if (d.what !== "read") ask.acted ??= now;
+	if (d.what === "missed") ask.missed ??= now;
 	save(slot, file);
 	return true;
 }
@@ -156,17 +159,17 @@ export function noteEvent(slot: Slot, now: number, workspace: string, event: { f
 const ACTS = new Set(["tower_send", "tower_reply", "boss_open_main"]);
 export const isAct = (name: string): boolean => ACTS.has(name);
 /**
- * What a workspace tower's run did with its tool in the turn an event of the head started (`event`, the event that started the turn): a send or a reply to the head itself is its answer, recorded as its own words (an ask that is no longer
- * open takes `acted` instead, so the tower is not left waiting); any other send, a reply to someone else, or an order handed to a main is `acted`; anything else is nothing. `{head: true}` answers through the head's own intake, which records it.
- * Nothing throws: a note must not break the call it is about.
+ * What a workspace tower's run did with its tool in the turn an event of the head started (`event`, the event that started the turn): any send, a reply, or an order handed to a main that succeeded is `acted`. An answer to the head is
+ * never recorded here: `tower_send {head: true, inReplyTo}` reaches the head's own intake, which records it, and a `tower_reply` to the head is refused by the head's gate, so it is `acted` with `missed` (the head got nothing). A call with
+ * no result (it failed) records nothing. Nothing throws: a note must not break the call it is about.
  */
 export function noteToolCall(slot: Slot, now: number, workspace: string, event: { from?: { id: string }; text: string } | undefined, call: { name: string; args: Record<string, unknown>; details?: unknown }): void {
 	try {
-		if (!isAct(call.name)) return;
-		const to = call.details as { to?: unknown; towerId?: unknown } | undefined, toHead = call.args.head !== true && (to?.to === headId(slot) || to?.towerId === headId(slot));
+		if (!isAct(call.name) || call.details === undefined) return;
+		const to = call.details as { to?: unknown; towerId?: unknown }, toHead = call.name === "tower_reply" && (to.to === headId(slot) || to.towerId === headId(slot));
 		const id = event?.from?.id === headId(slot) ? fieldsOf(event.text)?.ask : undefined;
 		if (!id || !/^H\d+$/.test(id)) return;
-		if (!(toHead && answerAsk(slot, now, { id, workspace, text: typeof call.args.message === "string" ? call.args.message : "" }))) noteAsk(slot, now, { id, workspace, what: "acted" });
+		noteAsk(slot, now, { id, workspace, what: toHead ? "missed" : "acted" });
 	} catch { /* the ask is a convenience of the page */ }
 }
 /** Closes an ask: the forward it was opened for was not delivered. */

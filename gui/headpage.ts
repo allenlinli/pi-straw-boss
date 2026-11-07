@@ -62,7 +62,7 @@ export function fillHeadTitle(root: HTMLElement, head: HeadUnit) {
 }
 
 /** One tower's line in a broadcast: the newest word it gave (visible text, not a tooltip), the route to its comms when the net knows the tower, and the message the head sent it. */
-export interface AskTower { workspace: string; label: string; state: HeadAskRow["state"]; said?: string; route?: string; sent?: string }
+export interface AskTower { workspace: string; label: string; state: HeadAskRow["state"]; said?: string; route?: string; sent?: string; missed?: true }
 /**
  * One broadcast as a card (docs/specs/2026-11-07-head-log-cards.md): what the boss said (`boss`, when the server kept it), what the head sent (`sent`, whole; `first` its first line), the towers it went to, when it began and when
  * anything last happened. `supersedes` is the earlier ask or group the head named as the one this corrects; `replaces` the groups of the chain folded under this card, newest first, and `replacedBy` the group that folded this one.
@@ -84,7 +84,7 @@ export function askGroups(asks: HeadAskRow[], now: number, net: Net | undefined)
 	const groups = [...by].map(([id, rows]): AskGroup => {
 		const lead = rows[0]!, list = [...new Set(rows.map((a) => a.workspace))].map((workspace): AskTower => {
 			const mine = rows.filter((a) => a.workspace === workspace), best = mine.reduce((x, y) => (RANK[y.state] > RANK[x.state] ? y : x)), said = mine.filter((a) => a.last).sort((x, y) => y.at - x.at)[0]?.last, key = net?.bases.find((b) => b.id === workspace)?.tower?.key, sent = mine.at(-1)!.sent ?? lead.sent ?? mine.at(-1)!.first;
-			return { workspace, label: mine.at(-1)!.label, state: best.state, ...(said ? { said } : {}), ...(key ? { route: formatRoute({ view: "session", ws: workspace, key }) } : {}), sent };
+			return { workspace, label: mine.at(-1)!.label, state: best.state, ...(said ? { said } : {}), ...(key ? { route: formatRoute({ view: "session", ws: workspace, key }) } : {}), sent, ...(best.missed ? { missed: true as const } : {}) };
 		});
 		const boss = rows.find((a) => a.boss)?.boss, supersedes = rows.find((a) => a.supersedes && a.supersedes !== id)?.supersedes;
 		return { id, first: lead.first, sent: lead.sent ?? lead.first, ...(boss ? { boss } : {}), towers: list, handled: list.filter((t) => handled(t.state)).length, since: Math.min(...rows.map((a) => a.since)), active: Math.max(...rows.map((a) => a.at)), ...(supersedes ? { supersedes } : {}), replaces: [] };
@@ -157,7 +157,7 @@ export function fillHeadAsks(box: HTMLElement, head: HeadUnit | undefined, net: 
 	const tower = (g: AskGroup) => (t: AskTower) => h("li", { class: "ask-tower", "data-state": gone(t) ? "none" : t.state },
 		h("span", { class: "ask-line" }, t.route ? h("a", { class: "ask-name", href: t.route || "./", "data-route": t.route }, t.label) : h("b", { class: "ask-name" }, t.label), h("span", { class: gone(t) ? "ask-none" : "ask-state" }, towerState(t)), ...(t.route || gone(t) ? [] : [h("span", { class: "ask-none" }, m.head_ask_no_tower())])),
 		...(t.said ? [h("p", { class: "ask-said" }, t.said)] : []),
-		...(t.state === "handled" ? [h("p", { class: "ask-note" }, m.head_ask_handled_note())] : []),
+		...(t.state === "handled" ? [h("p", { class: "ask-note" }, (t.missed ? m.head_ask_missed_note : m.head_ask_handled_note)())] : []),
 		...(t.sent && t.sent !== g.sent ? [h("p", { class: "ask-sent", "data-tag": m.head_part_sent() }, t.sent)] : []));
 	const group = (g: AskGroup): HTMLElement => {
 		// What the boss reads says how many orders and in which direction; the ids are the tooltip's (and the card's `data-id`).

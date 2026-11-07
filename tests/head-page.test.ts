@@ -354,6 +354,15 @@ test("the head's line with the boss's own words taken out: only an exact copy of
 	assert.equal(sentLine({ ...g, sent: "「電腦重開了」." }), "「電腦重開了」.", "nothing but the copy in quotes: the head's line is whole, not empty");
 });
 
+test("HLC-R3-F001: a tower whose reply to the head did not reach it is handled with a note of its own, in both languages, not the note of having answered someone else", () => {
+	const net = towers("wA", "wB"), box = new El("div"), el = box as unknown as HTMLElement;
+	const rows = [ask({ id: "H1", group: "H1", workspace: "wA", label: "Alpha", state: "handled", missed: true }), ask({ id: "H2", group: "H1", workspace: "wB", label: "Beta", state: "handled" })];
+	fillHeadAsks(el, head({ asks: rows }), net, NOW);
+	const lines = box.children[0]!.find((x) => x.classes.has("ask-tower"));
+	assert.deepEqual(lines.map((l) => textOf(l, "ask-note")), ["its reply did not reach the head", "answered someone else, not the head"]);
+	assert.equal(m.head_ask_missed_note({}, zh), "回覆沒送到主塔台");
+});
+
 test("a tower that took the message or acted on it is not waiting: `received` and `handled` have words of their own, handled counts as a reply and says it answered someone else, and a tower the net lost keeps what it did", () => {
 	const net = towers("wA", "wB", "wC", "wD"), box = new El("div"), el = box as unknown as HTMLElement;
 	const rows = [

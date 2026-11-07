@@ -974,7 +974,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Review fixes of the remote stop (USC-F003): 109,075 / 39,378 measured, +39 / +29 over the figure above: `choose`'s danger tone and its focus on Cancel (quit.ts). Cap = measured.
 	// Head log cards (todo #124): 111,772 / 40,252 measured, +2,697 / +874 over the figure above: headpage.ts (the card's parts, `sentLine`, the chain) and its fourteen messages in two languages. Cap = measured.
 	// Head log cards, fix round: 112,072 / 40,457 measured, +300 / +205 over the figure above: `sentLine`'s quotation marks and the chain's count and title. Cap = measured.
-	assert.ok(eagerBytes <= 112_072 && eagerGz <= 40_457, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Head log cards, round 3 (HLC-R3-F001): 112,219 / 40,500 measured, +147 / +43 over the figure above: the missed-reply note's message in two languages and `missed` on the tower (headpage.ts). Cap = measured.
+	assert.ok(eagerBytes <= 112_219 && eagerGz <= 40_500, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1138,7 +1139,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Review fixes of the remote stop (USC-F003): 323,885 / 132,298 measured, +14 / +45 over the figure above: `choose`'s danger tone and its focus on Cancel (quit.ts), the lazy chunks' share. Cap = measured.
 	// Z-D22 and the remote stop controller merged on main: 324,954 / 132,612. Cap = measured.
 	// Head log cards, fix round: 324,954 / 132,616 measured, +0 / +4 over the figure above (the same bytes compress four bytes worse). Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 324_954 && total(chunks, gz) <= 132_616, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Head log cards, round 3: 324,954 / 132,617 measured, +0 / +1 (the same bytes compress one byte worse). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 324_954 && total(chunks, gz) <= 132_617, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

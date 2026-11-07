@@ -1,4 +1,5 @@
 import { subagents } from "./netdata.ts";
+import { isCode, shortCode } from "./train/spec.ts";
 import { ALLY_MARK, ARROW, type HerdrRun, type HerdrTab, type HerdrWorld, isHead, isSub, MARK, type Pane, type Place, report, type Workspace, worldOf } from "./herdr.ts";
 
 // Five display tokens for the sidebar plugin and for Herdr's own Agents rows, written next to `sb_role`:
@@ -12,6 +13,7 @@ import { ALLY_MARK, ARROW, type HerdrRun, type HerdrTab, type HerdrWorld, isHead
 //    A member's keeps the `sb_tab` name it has had since 0.7.2, so a row reading it works with sessions that have not reloaded; 0.13.3's `sb_member_tab` is cleared.
 //  - `sb_indent`: a tree branch on a subagent alone, like Herdr's Spaces panel draws a worktree: `├─` while a later subagent of the same launcher is marked, `└─` on the last. A row put before the state icon shows it as the
 //    indent under the launcher. A tower, a main agent and a member carry none.
+//  - `sb_step`: a train's current step (a state glyph and the step's kind, at most 24 characters), on a train alone.
 //  - `sb_name`: a subagent's own name, as pi-herdr-agents shows it. Herdr's pane label held it until a new server dropped the label; a row can show the token instead. A subagent alone carries one.
 // A session writes them for itself and for the subagents it launched, which never join and write nothing, on the same 4 minute refresh as `sb_role`.
 // A launched subagent whose pi Herdr has not detected yet is marked as soon as Herdr reports it (presence.ts), not at the next refresh.
@@ -24,18 +26,31 @@ const NAME_MAX = 24;
 const part = (n: number, width = 3) => String(n).padStart(width, "0");
 const short = (name: string) => (name.length > NAME_MAX ? `${name.slice(0, NAME_MAX - 1)}…` : name);
 
+/** What a session is besides its role, as far as its key and mark go: a train's code, or whether it is the integrator (a main that owns the project's `train` todos). */
+export interface Who { code?: string; integrator?: boolean }
+
 /**
  * The key of a session that is in the net, or undefined when Herdr cannot place it. Workspaces count among the base ones (a sub workspace is a
  * linked worktree whose sessions hang under their launcher); the head tower's workspace is no base: its pane is keyed `000.0` by the head service wherever the workspace stands, and while it exists the
  * bases are numbered from 001, so no base ties with it (HH1-F005). A pane's slot is its place among its tab's panes, so every member has a key of its own.
+ * The integrator's tab sits right after the tower and its subagents (`WWW.05.R.PPP`), the trains after it by code (`WWW.06.YYMMDDLL`, the letters left-padded with `0`), the other tabs after both (`WWW.1`):
+ * a code's key does not depend on the trains beside it, so a train ending moves no other row (docs/specs/2026-11-07-train-workers.md §12).
  */
-export function orderKey(role: "tower" | "main" | "member" | "train", pane: Pane, ps: Pane[], all: Workspace[], tabList: HerdrTab[]): string | undefined {
+export function orderKey(role: "tower" | "main" | "member" | "train", pane: Pane, ps: Pane[], all: Workspace[], tabList: HerdrTab[], who: Who = {}): string | undefined {
 	const index = all.filter((w) => !isSub(w) && !isHead(w)).findIndex((w) => w.workspace_id === pane.workspace_id), base = index + (all.some(isHead) ? 1 : 0);
 	if (index < 0) return undefined;
 	if (role === "tower") return `${part(base)}.0`;
+	if (role === "train") return who.code !== undefined && isCode(who.code) ? `${part(base)}.06.${who.code.slice(2, 4)}${who.code.slice(5, 7)}${who.code.slice(8, 10)}${shortCode(who.code).slice(4).padStart(2, "0")}` : undefined;
 	const tab = tabList.findIndex((t) => t.tab_id === pane.tab_id), slot = ps.filter((p) => p.tab_id === pane.tab_id).findIndex((p) => p.pane_id === pane.pane_id);
-	return tab < 0 || slot < 0 ? undefined : `${part(base)}.1.${part(tab)}.${role === "main" ? 0 : 1}.${part(slot)}`;
+	if (tab < 0 || slot < 0) return undefined;
+	return who.integrator ? `${part(base)}.05.${role === "main" ? 0 : 1}.${part(slot)}` : `${part(base)}.1.${part(tab)}.${role === "main" ? 0 : 1}.${part(slot)}`;
 }
+
+/** Whether the main of a pane's tab is the integrator, as that main's own tokens say (its role is `main` and its mark is the integrator's): a member of that tab sorts beside it. */
+const integratorTab = (pane: Pane, ps: Pane[]) => ps.some((p) => p.tab_id === pane.tab_id && p.tokens?.sb_role === "main" && p.tokens.sb_mark === MARK.integrator);
+
+/** A step token from text that came from a board file: control and bidi characters out, at most 24 characters. */
+const clean = (text: string) => Array.from(text.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\n]/g, " ")).slice(0, 24).join("").trim();
 
 /**
  * The tokens of the live subagents below a session, each keyed after its launcher, at any depth. Subagents that finished have no pane to mark;
@@ -76,18 +91,24 @@ export function allyKids(towerKey: string, allies: { pane: string; label: string
 	return allies.map((ally, i) => ({ pane: ally.pane, order: `${towerKey}.${part(i)}`, mark: `${ALLY_MARK} ${short(ally.label)}`, indent: i < allies.length - 1 ? INDENT.more : INDENT.last, name: "ally run" }));
 }
 
+/** The mark of a role: none for a tower (its tab carries the glyph), the code-fork for the integrator, the train glyph and the short code for a train (none when the code is no code). */
+const markOf = (role: "tower" | "main" | "member" | "train", who: Who): string | null =>
+	role === "tower" ? null : role === "train" ? (who.code ? `${MARK.train} ${shortCode(who.code)}` : null) : role === "main" && who.integrator ? MARK.integrator : MARK[role];
+
 /**
  * What a session publishes besides its role: its own tokens (null clears them when Herdr cannot place the session, a tower has no mark, and none
  * has an indent or a name, which clears the ones a pane keeps from when it ran a subagent) and those of the subagents it launched, and whether one of those
  * has no pi pane yet (`waiting`). Reads Herdr only.
  */
-export async function netTokens(run: HerdrRun, place: Place, role: "tower" | "main" | "member" | "train", name: string, now = Date.now(), world: HerdrWorld = worldOf(run)): Promise<{ own: Record<string, string | null>; kids: Kid[]; joined: Set<string>; waiting: boolean }> {
+export async function netTokens(run: HerdrRun, place: Place, role: "tower" | "main" | "member" | "train", name: string, now = Date.now(), world: HerdrWorld = worldOf(run), who: Who & { step?: string } = {}): Promise<{ own: Record<string, string | null>; kids: Kid[]; joined: Set<string>; waiting: boolean }> {
 	const { panes: ps, workspaces: all, tabs: tabList } = await world(place.workspaceId);
-	const pane = ps.find((p) => p.pane_id === place.paneId), key = pane && orderKey(role, pane, ps, all, tabList);
+	const pane = ps.find((p) => p.pane_id === place.paneId);
+	const mine: Who = { ...(role === "train" && who.code !== undefined && isCode(who.code) ? { code: who.code } : {}), ...(role === "main" && who.integrator ? { integrator: true } : {}), ...(role === "member" && pane && integratorTab(pane, ps) ? { integrator: true } : {}) };
+	const key = pane && orderKey(role, pane, ps, all, tabList, mine);
 	const joined = new Set(ps.filter((p) => p.tokens?.sb_role).map((p) => p.pane_id));
 	const tab = tabList.find((t) => t.tab_id === pane?.tab_id)?.label || null;
 	const labels = { sb_main_tab: role === "main" ? tab : null, sb_tab: role === "member" ? tab : null, sb_member_tab: null };
-	return { own: { sb_order: key ?? null, sb_mark: role === "tower" ? null : MARK[role], sb_indent: null, sb_name: null, ...labels }, kids: key ? descendants(pane, key, name, ps, now) : [], joined, waiting: Boolean(key) && unplaced(pane, ps, now) };
+	return { own: { sb_order: key ?? null, sb_mark: markOf(role, mine), sb_indent: null, sb_name: null, sb_step: role === "train" && key && who.step ? clean(who.step) || null : null, ...labels }, kids: key ? descendants(pane, key, name, ps, now) : [], joined, waiting: Boolean(key) && unplaced(pane, ps, now) };
 }
 
 /**
@@ -102,4 +123,4 @@ export async function markKids(run: HerdrRun, kids: Kid[], before: Set<string>, 
 }
 
 /** Removes the four tokens from panes, ignoring a pane that has already closed. */
-export const clearOrder = (run: HerdrRun, paneIds: string[]) => Promise.all(paneIds.map((id) => report(run, "pane", id, { sb_order: null, sb_mark: null, sb_indent: null, sb_name: null }).catch(() => {})));
+export const clearOrder = (run: HerdrRun, paneIds: string[]) => Promise.all(paneIds.map((id) => report(run, "pane", id, { sb_order: null, sb_mark: null, sb_indent: null, sb_name: null, sb_step: null }).catch(() => {})));

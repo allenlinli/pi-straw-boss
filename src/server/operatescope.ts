@@ -122,6 +122,7 @@ const claimed = (token: string | undefined): string | undefined => (typeof token
  *   - a live ally pane: matched by pane id, its record's team;
  *   - a main an ally run opened, and the member or subagent panes in its tab: the `opened` row's team, only when the pane token (`sb_opened_by=link:<device>`) of the tab names the row's device: two witnesses. Any disagreement (a row for
  *     another device, two panes naming two devices, a token that is no device) makes the unit nobody's, which is the box's. One witness alone attributes nothing;
+ *   - the head tower: nobody's, so no scope holds it (BR-F003);
  *   - the tower service, its runs, a session opened at the box, a worker in a tab of its own, anything else: the box's;
  *   - a main, member or subagent when Herdr's listing could not be read: nobody's (no scope holds it, the box part included) until a read succeeds. An ally run's key and a live ally pane need no listing.
  *
@@ -131,6 +132,7 @@ const claimed = (token: string | undefined): string | undefined => (typeof token
 export function ownerOf(w: OwnerWorld, key: string, settled = false): Owner | undefined {
 	const ref = w.ref(key);
 	if (!ref) return undefined;
+	if (ref.role === "head") return undefined; // the head tower is box-wide and never an operate session's (§6.2): no scope holds it, the box part included
 	if (ref.role === "ally") {
 		const id = ref.key.startsWith("ally-") ? ref.key.slice("ally-".length) : undefined, run = id ? w.run(ref.base, id) : undefined;
 		return run?.kind === "ally" && run.team ? { team: run.team } : BOX;

@@ -110,7 +110,7 @@ export function plan(method: "GET" | "POST", parts: string[], body: Record<strin
 		tab = { workspace: json.workspace, tab: json.tab };
 	}
 	if (keys.some((key) => !scope.has(key))) return no("out-of-scope", "That unit is not one this session reaches.");
-	if (row.path.startsWith("sessions/") && keys.some((key) => roleOf(key) === "head")) return no("route", "The head tower is box-wide: an operate session does not steer it.");
+	if (keys.some((key) => roleOf(key) === "head")) return no("route", "The head tower is box-wide: an operate session does not reach it."); // every row that names a unit, not only sessions/*
 	if (row.path.startsWith("sessions/") && !scope.box && keys.some((key) => roleOf(key) === "tower")) return no("out-of-scope", "That belongs to the box itself, which this grant does not reach.");
 	if (row.path === "sessions/*/input" && typeof json.text === "string") {
 		if (SHELL_LINE.test(json.text)) return no("shell", "A shell line (`!`) is not run from here: the box takes no arbitrary shell over the link.");

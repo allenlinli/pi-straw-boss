@@ -102,7 +102,7 @@ type ChannelEvent = { type: string; fromSessionId?: string; payload?: unknown };
 
 export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer, unitStop, operate, operateWatch, controller, onRoster, onHolder }: ServiceOptions) {
 	const { pi, cfg } = kit;
-	const store = new LinkStore(join(stateDir, "link"));
+	const store = new LinkStore(join(stateDir, "link"), { unattended: () => policy().mode === "unattended" }); // an unattended box keeps its operate audit in link.log longer (decision 16)
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
 	/** The policy file's reading, with this server's home and agent folder for the projects of its teams. */
 	const policyDeps: PolicyDeps = { home, agentDir, ...opts.policy };

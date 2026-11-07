@@ -67,7 +67,7 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 	const foreground = async (pane: string) => piInForeground(await call?.("pane.process_info", { pane_id: pane }).then((r) => (r as { process_info?: unknown })?.process_info as Parameters<typeof piInForeground>[0], () => undefined));
 	const FLAGS: Flags = { remote: true, secure: true, operate: true, foreground };
 	/** The registry as this scope sees it: a key out of scope is unknown, so nothing of it is read from the file system. */
-	const scoped = (at: () => OperateScope, transcripts?: Transcripts): Files => ({ lookup: (key) => (at().has(key) ? files.lookup(key) : undefined), workspace: (id) => files.workspace(id).filter((r) => at().has(r.key)), readers: files.readers, ...(transcripts ? { transcripts } : {}) });
+	const scoped = (at: () => OperateScope, transcripts?: Transcripts): Files => ({ lookup: (key) => { const r = at().has(key) ? files.lookup(key) : undefined; return r?.role === "head" ? undefined : r; }, workspace: (id) => files.workspace(id).filter((r) => at().has(r.key) && r.role !== "head"), readers: files.readers, ...(transcripts ? { transcripts } : {}) });
 	const TKEY = /^t[0-9a-f]{16}$/;
 	const roleOf = (key: string) => files.lookup(key)?.role;
 
@@ -133,6 +133,7 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 						if (ended || newest.get(id) !== mine) return no(409, "superseded", "The session ended, or this watch was asked for again meanwhile.");
 						if (epoch !== began) held.scope = reads(latest!); // a `rescope` ran meanwhile
 						if (held.key !== undefined && !held.scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." }); // the scope may have narrowed while the net was read
+						if (held.key !== undefined && roleOf(held.key) === "head") return refusalReply({ ok: false, why: "route", reason: "The head tower is box-wide: an operate session does not reach it." }); // the registry is filled by the reading above
 						const send = (event: string, data: unknown) => sink(id, event, data), hub = scoped(() => held.scope, transcripts);
 						held.w = workspace ? watchWorkspace(hub, at.slice(2), send) : watchSession(hub, at, send);
 						watches.set(id, held);

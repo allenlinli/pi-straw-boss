@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { LinkStore, LockTimeout, TeamFileError, type InboxItem, type TeamFile } from "../src/link/store.ts";
+import { AUDIT_LOG, LinkStore, LockTimeout, TeamFileError, type InboxItem, type TeamFile } from "../src/link/store.ts";
 
 // Straw Link's files (docs/specs/2026-10-25-straw-link.md, Storage and policy): modes, the lock, the holder record, device keys and the saved
 // sequence number, team files (R-F021 fails closed), and the inbox.
@@ -172,6 +172,32 @@ test("the link log appends one JSON line per entry and keeps itself bounded", as
 	assert.ok(lines.every((l) => l.event === "drop" && typeof l.t === "number"));
 	assert.ok(existsSync(join(store.dir, "link.log.1")), "rotated once past the cap");
 	assert.ok(statSync(join(store.dir, "link.log")).size <= 400 + 120);
+});
+
+test("BR-F004 (decision 16): an unattended device's link.log rotates at 8 MiB and keeps four old copies; an attended one still 1 MiB and one", async () => {
+	assert.deepEqual(AUDIT_LOG, { max: 8 * 1024 * 1024, copies: 4 });
+	const rotate = (store: LinkStore, rounds: number) => {
+		for (let i = 0; i < rounds; i++) store.log({ event: "drop", reason: "stale-seq", i });
+		return [1, 2, 3, 4, 5, 6].filter((n) => existsSync(join(store.dir, `link.log.${n}`)));
+	};
+	assert.deepEqual(rotate(open({ logMax: 300 }), 60), [1], "attended: one old copy");
+	const store = open({ logMax: 100, unattended: () => true, auditLog: { max: 300, copies: 4 } });
+	assert.deepEqual(rotate(store, 120), [1, 2, 3, 4], "unattended: four old copies, the oldest dropped");
+	const firsts = [1, 2, 3, 4].map((n) => (JSON.parse(readFileSync(join(store.dir, `link.log.${n}`), "utf8").split("\n")[0]!) as { i: number }).i);
+	assert.ok(firsts[0]! > firsts[1]! && firsts[1]! > firsts[2]! && firsts[2]! > firsts[3]!, "`.1` is the newest copy and `.4` the oldest");
+});
+
+test("BR-F004: the policy is asked only once the log has passed the attended size, and a device that stops being unattended rotates by the short rule", async () => {
+	let unattended = true, asked = 0;
+	const store = open({ logMax: 300, unattended: () => (asked++, unattended), auditLog: { max: 900, copies: 4 } });
+	for (let i = 0; i < 4; i++) store.log({ event: "drop", i });
+	assert.equal(asked, 0, "a small log does not read the policy");
+	for (let i = 0; i < 40; i++) store.log({ event: "drop", i });
+	assert.ok(asked > 0);
+	assert.ok(statSync(join(store.dir, "link.log")).size <= 900 + 120, "kept within the audit size");
+	unattended = false;
+	for (let i = 0; i < 40; i++) store.log({ event: "drop", i });
+	assert.ok(statSync(join(store.dir, "link.log")).size <= 300 + 120, "attended again: the short rule");
 });
 
 test("SLH-F005: the outbox keeps envelopes private, one file per envelope, listed in seq order, written and removed only under the lock", { skip: !POSIX && "no modes" }, async () => {

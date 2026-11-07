@@ -119,9 +119,18 @@ export interface StoreOptions {
 	staleMs?: number;
 	/** Told after each flush to disk (`file` before a rename, `dir` after it); for tests. */
 	synced?: (kind: "file" | "dir", path: string) => void;
-	/** The log rotates once it passes this many bytes (default 1 MiB). */
+	/** The log rotates once it passes this many bytes (default 1 MiB), keeping one old copy (`link.log.1`). */
 	logMax?: number;
+	/**
+	 * Whether this device is unattended now (its policy file says so). An unattended box's log is its operate audit (docs/specs/2026-11-07-link-operate.md §10, decision 16), so it rotates by `auditLog` instead. Asked only when the log has passed
+	 * `logMax`, so a log line does not read the policy file.
+	 */
+	unattended?: () => boolean;
+	/** What an unattended device's log rotates by (default `AUDIT_LOG`). */
+	auditLog?: { max: number; copies: number };
 }
+/** An unattended device's link.log: 8 MiB, and four old copies (`link.log.1` newest to `.4`). An hour of typing through operate would otherwise push a week of audit out of a 1 MiB log. */
+export const AUDIT_LOG = { max: 8 * 1024 * 1024, copies: 4 } as const;
 
 const pidAlive = (pid: number) => {
 	try {
@@ -146,6 +155,8 @@ export class LinkStore {
 	private readonly now: () => number;
 	private readonly staleMs: number;
 	private readonly logMax: number;
+	private readonly unattended: (() => boolean) | undefined;
+	private readonly auditLog: { max: number; copies: number };
 	private readonly synced: ((kind: "file" | "dir", path: string) => void) | undefined;
 	private readonly scope = new AsyncLocalStorage<symbol>();
 	private held: symbol | undefined;
@@ -159,6 +170,8 @@ export class LinkStore {
 		this.now = o.now ?? Date.now;
 		this.staleMs = o.staleMs ?? LOCK_STALE_MS;
 		this.logMax = o.logMax ?? 1024 * 1024;
+		this.unattended = o.unattended;
+		this.auditLog = o.auditLog ?? AUDIT_LOG;
 		this.synced = o.synced;
 	}
 
@@ -648,7 +661,16 @@ export class LinkStore {
 	log(entry: Record<string, unknown>): void {
 		try {
 			const file = this.path("link.log");
-			if ((statSync(file, { throwIfNoEntry: false })?.size ?? 0) > this.logMax) renameSync(file, `${file}.1`);
+			const size = statSync(file, { throwIfNoEntry: false })?.size ?? 0;
+			if (size > this.logMax) {
+				let audit = false;
+				try { audit = this.unattended?.() === true; } catch { /* a policy that cannot be read keeps the short rule */ }
+				const keep = audit ? this.auditLog : { max: this.logMax, copies: 1 };
+				if (size > keep.max) {
+					for (let n = keep.copies - 1; n >= 1; n--) if (existsSync(`${file}.${n}`)) renameSync(`${file}.${n}`, `${file}.${n + 1}`);
+					renameSync(file, `${file}.1`);
+				}
+			}
 			appendFileSync(file, `${JSON.stringify({ t: this.now(), ...entry })}\n`, { mode: 0o600 });
 		} catch { /* nothing to do about a log that cannot be written */ }
 	}

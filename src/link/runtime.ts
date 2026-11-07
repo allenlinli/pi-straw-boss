@@ -57,7 +57,7 @@ export { type RemoteTower, remoteTowers };
 export function createLink({ pi, cfg, s, guiDir, me, tell }: Kit) {
 	const opts: LinkDeps = cfg.link ?? {};
 	const stateDir = cfg.stateDir ?? guiDir;
-	const store = new LinkStore(join(stateDir, "link"));
+	const store = new LinkStore(join(stateDir, "link"), { unattended: () => readPolicy(policyDeps).mode === "unattended" }); // the same log as the server's: an unattended box keeps it longer (decision 16)
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
 	const policyDeps: PolicyDeps = { home, agentDir, ...opts.policy };
 	/** The teams and trust every reader sees: the policy file's on an unattended device, config.json's otherwise (policy.ts `readEffectiveConfig`). */

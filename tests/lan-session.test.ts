@@ -309,7 +309,7 @@ test("a pending request is shown above the face without its number; the number i
 	waiting = [{ id: "a1", label: "iPhone · Safari", peer: "192.168.1.23", iface: "en0", number: "4821" }];
 	await r.tick();
 	const screen = r.screen();
-	assert.match(screen, /^Pair request: iPhone · Safari from 192\.168\.1\.23 \(en0\)\nType the number your phone shows, then Enter, to allow it\. {3}n {2}deny all {3}Esc {2}decide later\nNumber: █\n/, "above everything else");
+	assert.match(screen, /^Pair request: iPhone · Safari from 192\.168\.1\.23 \(en0\)\nType the number your phone shows, then Enter, to allow it\. {3}n {2}deny all {3}Esc {2}decide later\nNumber: █\nd {2}deny this request\n/, "above everything else");
 	assert.doesNotMatch(screen, /4821/, "the number is not printed even when a server sent it");
 	assert.equal(r.cmds("gui-lan-approve").length, 0, "left alone, nothing is allowed");
 	await r.tick();
@@ -333,10 +333,41 @@ test("a pending request is shown above the face without its number; the number i
 	assert.deepEqual((await r.key("n")).map((c) => [c.cmd, c.face, c.deny]), [["gui-lan-approve", "face-1", "all"]]);
 	waiting.push({ id: "a2", label: "Android · Chrome", peer: "192.168.1.40", iface: "en0" });
 	await r.tick();
-	assert.match(r.screen(), /^More than one device used a code: only one of them can be your phone\.\nPair request: iPhone · Safari from 192\.168\.1\.23 \(en0\)\nPair request: Android · Chrome from 192\.168\.1\.40 \(en0\)\n/);
+	assert.match(r.screen(), /^More than one device used a code: only one of them can be your phone\.\n▸ Pair request: iPhone · Safari from 192\.168\.1\.23 \(en0\)\n {2}Pair request: Android · Chrome from 192\.168\.1\.40 \(en0\)\nType the number your phone shows[^\n]*\nNumber: █\nd {2}deny the marked request \(Up\/Down moves the mark\)\n/);
 	r.overlay.handleInput!(ESC);
 	assert.equal(await r.settled, "closed");
 	assert.equal(r.cmds("gui-lan-approve").filter((c) => c.number).length, 1, "only the number the boss typed was ever sent");
+});
+
+test("d denies the one request: the only one, or the marked one (Up and Down move the mark); the others stay, n still denies all, and a refusal is said", async () => {
+	let waiting: Record<string, unknown>[] = [{ id: "a1", label: "iPhone · Safari", peer: "192.168.1.23", iface: "en0" }, { id: "a2", label: "Android · Chrome", peer: "192.168.1.40", iface: "en0" }];
+	let approve: LanReply = { ok: true, denied: 1 };
+	const r = rig({ start: { screen: "pairing", facts: FACTS }, handler: (req) => (req.cmd === "gui-lan-pending" ? { ok: true, ...FACTS, pending: waiting, events: [] } : req.cmd === "gui-lan-approve" ? approve : undefined) });
+	await r.ready();
+	await r.settle();
+	await r.tick();
+	assert.match(r.screen(), /^More than one device[^\n]*\n▸ Pair request: iPhone/, "the first row is marked");
+	await r.key("\x1b[B"); // Down
+	assert.match(r.screen(), /\n {2}Pair request: iPhone[^\n]*\n▸ Pair request: Android/);
+	await r.key("\x1b[B"); // wraps
+	assert.match(r.screen(), /▸ Pair request: iPhone/);
+	await r.key("\x1b[A"); // Up wraps back
+	assert.deepEqual((await r.key("d")).map((c) => [c.cmd, c.face, c.deny, c.number]), [["gui-lan-approve", "face-1", "a2", undefined]]);
+	assert.match(r.screen(), /Denied Android · Chrome from 192\.168\.1\.40/);
+	waiting = [waiting[0]!];
+	await r.tick();
+	assert.match(r.screen(), /^Pair request: iPhone[^\n]*\nType the number your phone shows[^\n]*\nNumber: █\nd {2}deny this request\n/, "one row: no mark, no Up/Down");
+	assert.deepEqual((await r.key("d")).map((c) => c.deny), ["a1"], "the one left");
+	approve = { ok: false, error: "unknown_face" };
+	await r.key("d");
+	assert.match(r.screen(), /no longer live/);
+	approve = { ok: true, denied: 1 };
+	assert.deepEqual((await r.key("n")).map((c) => c.deny), ["all"]);
+	waiting = [];
+	await r.tick();
+	assert.deepEqual(await r.key("d"), [], "nothing waits: d means nothing");
+	r.overlay.handleInput!(ESC);
+	await r.settled;
 });
 
 test("the events the server reports are told to the session once, and the overlay lists the latest", async () => {

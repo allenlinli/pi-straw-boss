@@ -1,7 +1,7 @@
 import { runHeadCommand, parseHeadArgs } from "./headcmd.ts";
 import { workspaces } from "./herdr.ts";
 import { memoryLang, runMemoryCommand } from "./memorycmd.ts";
-import { parseTowerArgs, runTowerCommand } from "./towercmd.ts";
+import { parseTowerArgs, parseTowerLine, runTowerCommand, sayToTower, type TowerCmdDeps, towerUsage } from "./towercmd.ts";
 import { towerRunsEnabled } from "./server/towerruns.ts";
 import type { createHost } from "./host.ts";
 import type { Membership } from "./membership.ts";
@@ -12,19 +12,19 @@ import type { createStashing } from "./stashing.ts";
 import { type createBossPaths, parseStash } from "./bosspaths.ts";
 
 /** What Tab completes after /boss; a bare /boss (take over as the main agent) has nothing to complete. */
-const BOSS_ARGUMENTS = Object.entries({ status: "Show the coordinators", close: "Quit this session and close its pane", "close all": "Quit this base's tower, mains, and members and close it", tower: "Open and focus the workspace tower (tower <prompt> writes to it as the boss, with no focus change)", "tower status": "Show the tower's service, boss conversation, notices, and parked events", "tower parked": "List the events parked after two crashes", "tower retry": "Wake the tower again after a crash loop", "tower leave": "Leave the boss conversation (it ends with a note)", "tower new": "Start over: the next boss conversation is a new session", head: "Open and focus the head tower (head <message> writes to it as the boss, with no focus change)", "head status": "Show the head tower's service and notices", "head leave": "Leave the head tower's boss conversation (it ends with a note)", "head new": "Start over: the head tower's next conversation is a new chapter", "head close": "Close the head tower (its conversation and memory are kept)", gui: "Open the net in the browser", "gui stop": "Close the browser GUI", "gui rotate": "Give the GUI a new address and unpair every phone", "gui remote": "Open the GUI to your phone over Tailscale", "gui remote off": "Close the Tailscale entry", "gui lan": "Open the GUI to your phone on the same Wi-Fi", "gui lan off": "Close the Wi-Fi entry", "gui lan reset": "Make a new Wi-Fi certificate (renew, or unpair every Wi-Fi device)", "gui view": "Show the GUI's default view", "gui view auto": "Default view: each device follows its screen's contrast setting", "gui view standard": "Default view: Standard for devices that follow the server", "gui view geek": "Default view: Geek (black, monospace, no motion) for devices that follow the server", "gui view zen": "Default view: Zen (one waiting item at a time, then a session for company) for devices that follow the server", "gui devices": "List the paired phones (id, label, when paired and last seen, Tailscale or Wi-Fi)", "gui unpair all": "Unpair every phone (the address does not change; asks first)", server: "Show the sb server, and start it when it is down", "server stop": "Stop the sb server on purpose", "server restart": "Restart the sb server", "server logs": "Show the last lines of the sb server log (server logs 50: at most 200)", memory: "Show the tower's memory (standing instructions, decisions, waits) and what the tower proposes", "memory confirm": "Confirm a proposal of the tower: memory confirm P1", "memory reject": "Reject a proposal of the tower: memory reject P1", "memory add standing": "Keep a standing instruction in your words", "memory add decision": "Keep a decision in your words", stash: "Put this base away: its tower, mains, and members", "stash --workspace": "Put another base away: stash [name] --workspace <label|id> (asks first)", pop: "Open a stashed base again", dismiss: "Hide every finished subagent (dismiss <name> hides one)", "dismiss all": "Hide every finished subagent", "open base": "Open a new base with one member: open base <dir> [label]", "open member": "Add a member beside this session, or in a tab of its own in <dir>: open member [dir]", "open main": "Open a main in a new tab of this base: open main <dir> [prompt]", link: "Show this device's teams and the join requests waiting", "link status": "Show this device's teams and the join requests waiting", "link decide": "Approve or refuse a join request: link decide <id> approve|refuse" }).map(([value, description]) => ({ value, label: value, description }));
+const BOSS_ARGUMENTS = Object.entries({ status: "Show the coordinators", close: "Quit this session and close its pane", "close all": "Quit this base's tower, mains, and members and close it", tower: "Open and focus the workspace tower (tower <prompt> writes to it as the boss, with no focus change)", "tower -w": "Act on another workspace's tower: tower -w <workspace id | label | head> [--answers W3] <message | status | retry | parked | deliver <id> | drop <id> | leave | new>", "tower --answers": "Write to the tower and mark a wait for you answered once it took the message: tower --answers W3 <message>", "tower status": "Show the tower's service, boss conversation, notices, and parked events", "tower parked": "List the events parked after two crashes", "tower retry": "Wake the tower again after a crash loop", "tower leave": "Leave the boss conversation (it ends with a note)", "tower new": "Start over: the next boss conversation is a new session", head: "Open and focus the head tower (head <message> writes to it as the boss, with no focus change)", "head status": "Show the head tower's service and notices", "head retry": "Wake the head tower again after a crash loop", "head parked": "List the events parked after two crashes", "head deliver": "Deliver a parked event again: head deliver <id>", "head drop": "Drop a parked event: head drop <id>", "head --answers": "Write to the head tower and mark a wait for you answered once it took the message: head --answers W3 <message>", "head leave": "Leave the head tower's boss conversation (it ends with a note)", "head new": "Start over: the head tower's next conversation is a new chapter", "head close": "Close the head tower (its conversation and memory are kept)", send: "Write to a session as the boss: send <name|key> [--after] <text> (--after queues it for when the session is idle)", stop: "Press Esc in a session, as the page's Stop does: stop <name|key>", gui: "Open the net in the browser", "gui stop": "Close the browser GUI", "gui rotate": "Give the GUI a new address and unpair every phone", "gui remote": "Open the GUI to your phone over Tailscale", "gui remote off": "Close the Tailscale entry", "gui lan": "Open the GUI to your phone on the same Wi-Fi", "gui lan off": "Close the Wi-Fi entry", "gui lan reset": "Make a new Wi-Fi certificate (renew, or unpair every Wi-Fi device)", "gui view": "Show the GUI's default view", "gui view auto": "Default view: each device follows its screen's contrast setting", "gui view standard": "Default view: Standard for devices that follow the server", "gui view geek": "Default view: Geek (black, monospace, no motion) for devices that follow the server", "gui view zen": "Default view: Zen (one waiting item at a time, then a session for company) for devices that follow the server", "gui devices": "List the paired phones (id, label, when paired and last seen, Tailscale or Wi-Fi)", "gui unpair all": "Unpair every phone (the address does not change; asks first)", server: "Show the sb server, and start it when it is down", "server stop": "Stop the sb server on purpose", "server restart": "Restart the sb server", "server logs": "Show the last lines of the sb server log (server logs 50: at most 200)", memory: "Show the tower's memory (standing instructions, decisions, waits) and what the tower proposes", "memory confirm": "Confirm a proposal of the tower: memory confirm P1", "memory reject": "Reject a proposal of the tower: memory reject P1", "memory add standing": "Keep a standing instruction in your words", "memory add decision": "Keep a decision in your words", stash: "Put this base away: its tower, mains, and members", "stash --workspace": "Put another base away: stash [name] --workspace <label|id> (asks first)", pop: "Open a stashed base again", dismiss: "Hide every finished subagent (dismiss <name> hides one)", "dismiss all": "Hide every finished subagent", "open base": "Open a new base with one member: open base <dir> [label]", "open member": "Add a member beside this session, or in a tab of its own in <dir>: open member [dir]", "open main": "Open a main in a new tab of this base: open main <dir> [prompt]", link: "Show this device's teams and the join requests waiting", "link status": "Show this device's teams and the join requests waiting", "link decide": "Approve or refuse a join request: link decide <id> approve|refuse" }).map(([value, description]) => ({ value, label: value, description }));
 
 /** The /boss command. */
 export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host, membership, reach, closeSelf, stashing, server, paths }: { runMode?: { active(): boolean }; host: ReturnType<typeof createHost>; membership: Membership; reach: Reach; closeSelf(keepPane: boolean): string | undefined; stashing: ReturnType<typeof createStashing>; server?: ServerLook; paths: ReturnType<typeof createBossPaths> }) {
 	// D15: `/boss tower <prompt>` ensures the tower as a bare `/boss tower` does, then posts the prompt as a `boss` event, the way the GUI's composer does. Nothing is typed anywhere and focus stays.
-	const handToTower = async (prompt: string) => {
+	const handToTower = async (prompt: string, answers?: string) => {
 		if (!server || !towerRunsEnabled(guiDir)) return tell("/boss tower <prompt> needs the tower runs (towerRuns.enabled in the state directory's config.json): the tower is a resident session now, so open it with /boss tower and write to it there.", "warning");
 		if (prompt.length > 16_384) return tell("The prompt is longer than 16,384 characters; hand the tower a shorter one and name a file for the rest.", "error");
 		await membership.joinNet();
 		const tower = await reach.openTower(undefined, true, true);
-		const answer = await server.ask({ cmd: "tower-event", workspace: tower.target.workspace_id, text: prompt, present: true }, { start: "boss" });
+		const answer = await server.ask({ cmd: "tower-event", workspace: tower.target.workspace_id, text: prompt, present: true, ...(answers ? { answers } : {}) }, { start: "boss" });
 		if (!answer.ok) return tell(`The tower did not take the prompt: ${String(answer.error ?? "no answer")}`, "error");
-		tell(`Handed to the tower${tower.opened ? " (it was opened for this)" : ""}: it reads the prompt as the boss's instruction in the boss conversation, which stays open while you write (/boss tower leave ends it).`);
+		tell(`Handed to the tower${tower.opened ? " (it was opened for this)" : ""}: it reads the prompt as the boss's instruction in the boss conversation, which stays open while you write (/boss tower leave ends it).${answers ? (answer.answered === answers ? ` ${answers} is marked answered.` : ` ${answers} was not marked answered: the memory no longer has it as a wait for you.`) : ""}`);
 	};
 	// `/boss memory`: the boss's own interface to the tower's memory (memorycmd.ts); the GUI's panel is the same server op. It is the boss's typed input only: a tower run takes no /boss command.
 	const memory = (args: string, interactive: boolean) => server
@@ -37,9 +37,20 @@ export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host,
 		})
 		: Promise.resolve(tell("The sb server is not available in this session.", "warning"));
 	// `/boss tower status | retry | parked | deliver <id> | drop <id> | leave | new` (towercmd.ts): the pi twins of the tower card's and composer's buttons, one control command each.
-	const towerCommand = (parsed: NonNullable<ReturnType<typeof parseTowerArgs>>, interactive: boolean) => server
-		? runTowerCommand(parsed, { lang: memoryLang(cfg.env), interactive, own: s.at?.workspaceId, tell, ask: async (request) => ({ ...(await server.ask(request, { start: "never" })) }) })
+	// `-w <workspace | head>` names another tower (G4): the confirm names it, and the server keeps every check.
+	const towerDeps = (server: ServerLook, interactive: boolean): TowerCmdDeps => ({
+		lang: memoryLang(cfg.env), interactive, own: s.at?.workspaceId, tell, ask: async (request) => ({ ...(await server.ask(request, { start: "never" })) }),
+		workspaces: () => workspaces(cfg.run), confirm: async (title, body) => (await s.ui?.confirm(title, body)) === true,
+	});
+	const towerCommand = (parsed: NonNullable<ReturnType<typeof parseTowerArgs>>, interactive: boolean, at?: string) => server
+		? runTowerCommand(parsed, towerDeps(server, interactive), at)
 		: Promise.resolve(tell("The sb server is not available in this session.", "warning"));
+	// `/boss tower -w <workspace> <message>`: the boss's words to another tower, with no opening and no focus change.
+	const sayAt = async (text: string, at: string, answers: string | undefined, interactive: boolean) => {
+		if (!server || !towerRunsEnabled(guiDir)) return tell("/boss tower -w <workspace> <message> needs the tower runs (towerRuns.enabled in the state directory's config.json).", "warning");
+		if (text.length > 16_384) return tell("The message is longer than 16,384 characters; hand the tower a shorter one and name a file for the rest.", "error");
+		return sayToTower(text, at, answers, towerDeps(server, interactive));
+	};
 	// `/boss head [status | leave | new | close | <message>]` (headcmd.ts): the pi twins of the head page's composer and buttons, one control command each; a bare one makes the head workspace and focuses its tab.
 	const headCommand = (args: string, interactive: boolean) => server
 		? runHeadCommand(parseHeadArgs(args), { lang: memoryLang(cfg.env), interactive, tell, ask: async (request, start) => ({ ...(await server.ask(request, { start })) }), focus: async (tab) => void (await cfg.run(["tab", "focus", tab])) })
@@ -58,6 +69,10 @@ export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host,
 			if (runMode?.active()) return tell("A tower run takes no /boss command: it is the server's, and it ends with tower_done.", "warning");
 			try {
 				const line = args.trim(), unpair = /^gui\s+unpair\s+(\S+)$/.exec(line), logs = /^server\s+logs(?:\s+(\S+))?$/.exec(line), sub = /^close\s+all\s+(.+)$/.exec(line), other = /^close\s+(.+)$/.exec(line), dismiss = /^dismiss(?:\s+(.+))?$/.exec(line), open = /^open(?:\s+([\s\S]*))?$/.exec(line), link = /^link(?:\s+(.*))?$/.exec(line);
+				const send = /^send\s+(\S+)(?:\s+(--after))?\s+([\s\S]+)$/.exec(line), stop = /^stop\s+(\S+)$/.exec(line);
+				if (/^(send|stop)(\s|$)/.test(line) && !send && !stop) return await (line.startsWith("send") ? paths.send("", false, "") : paths.stop(""));
+				if (send) return await paths.send(send[1]!, send[2] !== undefined, send[3]!);
+				if (stop) return await paths.stop(stop[1]!);
 				if (/^gui\s+devices$/.test(line)) return await paths.devices();
 				if (unpair) return await paths.unpair(unpair[1]!);
 				if (logs) return await paths.logs(logs[1]);
@@ -82,10 +97,20 @@ export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host,
 				if (flag?.workspace) return await paths.stashOther(flag.name, flag.workspace);
 				const stash = /^(stash|pop)(?:\s+(.+))?$/.exec(args.trim());
 				if (stash) return await (stash[1] === "stash" ? stashing.stash(stash[2]) : stashing.pop(stash[2]));
-				const words = /^tower\s+([\s\S]+)$/.exec(args.trim())?.[1], found = words === undefined ? undefined : parseTowerArgs(words);
-				if (found) return await towerCommand(found, ctx.hasUI);
-				const prompt = /^tower\s+([\s\S]+)$/.exec(args.trim());
-				if (prompt) return await handToTower(prompt[1]!);
+				const words = /^tower\s+([\s\S]+)$/.exec(args.trim())?.[1];
+				if (words !== undefined) {
+					const line = parseTowerLine(words);
+					if ("usage" in line) return tell(towerUsage(memoryLang(cfg.env)), "warning");
+					const found = line.answers ? undefined : parseTowerArgs(line.rest);
+					if (found) return await towerCommand(found, ctx.hasUI, line.workspace);
+					if (line.workspace === "head") {
+						// The head tower's words are `/boss head`'s: a message that is one of its command words alone is no message here.
+						if (parseHeadArgs(line.rest).op !== "say") return tell("Write the message to the head tower with more words (or use /boss head): that one word is a command of its own.", "error");
+						return await headCommand(`${line.answers ? `--answers ${line.answers} ` : ""}${line.rest}`, ctx.hasUI);
+					}
+					if (line.workspace) return await sayAt(line.rest, line.workspace, line.answers, ctx.hasUI);
+					return await handToTower(line.rest, line.answers);
+				}
 				if (s.isTower) throw new Error("This session is the tower, not a main agent");
 				if (args.trim() !== "tower") return tell((await membership.promote(true)).text);
 				await membership.joinNet();

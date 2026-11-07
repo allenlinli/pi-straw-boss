@@ -48,6 +48,11 @@ const WORDS = {
 		unpairedAll: (n: unknown) => `Unpaired ${String(n)} device${n === 1 ? "" : "s"}`,
 		unpaired: (n: string) => `Unpaired ${n}`,
 		needWorkspace: "stash --workspace needs a label or id: stash [name] --workspace <label|id>",
+		noSend: "Nothing was sent: name the session and the words: /boss send <name|key> [--after] <text>",
+		sendSelf: "That is this session: type it here instead",
+		sent: (n: string, after: boolean) => `Sent to ${n}${after ? " as a follow-up" : ""}`,
+		confirmSend: "Send it?", confirmSendBody: (n: string, text: string) => `${n} would end or replace its session with this: ${text}`,
+		escSent: (n: string) => `Sent Esc to ${n}`,
 		noLines: "Ask for 1 to 200 lines",
 		emptyLog: "(the log is empty)",
 		noAnswer: "the GUI server did not answer",
@@ -87,6 +92,11 @@ const WORDS = {
 		unpairedAll: (n: unknown) => `已解除 ${String(n)} 個裝置的配對`,
 		unpaired: (n: string) => `已解除 ${n} 的配對`,
 		needWorkspace: "stash --workspace 需要工作區的標籤或 id：stash [名稱] --workspace <標籤|id>",
+		noSend: "沒有送出：請指定工作階段與內容：/boss send <名稱|key> [--after] <內容>",
+		sendSelf: "這就是目前的工作階段：直接在這裡輸入",
+		sent: (n: string, after: boolean) => `已送給 ${n}${after ? "（排在目前工作之後）" : ""}`,
+		confirmSend: "要送出嗎？", confirmSendBody: (n: string, text: string) => `${n} 會因為這段話結束或換掉它的工作階段：${text}`,
+		escSent: (n: string) => `已對 ${n} 送出 Esc`,
 		noLines: "請給 1 到 200 行",
 		emptyLog: "（記錄是空的）",
 		noAnswer: "GUI 伺服器沒有回應",
@@ -146,6 +156,23 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 		return hit.length === 1 ? hit[0]! : hit.length ? t().many(query, hit.map(label)) : t().none(query);
 	}
 
+	/** Every unit the page's composer reaches: the tower, mains, members, and subagents. */
+	function sendables(n: Net): Target[] {
+		const out: Target[] = [];
+		for (const b of n.bases) for (const u of [...(b.tower ? [b.tower, ...flat(b.tower.subs)] : []), ...b.tabs.flatMap((tab) => flat(tab.units)), ...flat(b.outside)]) {
+			if (!("role" in u) || u.role !== "outside") out.push({ kind: "unit", key: u.key, workspace: b.id, name: u.name, base: b.label, members: [] });
+		}
+		return out;
+	}
+	/** `/boss send <name|key> [--after] <text>` and `/boss stop <name|key>`: the composer's Send, After this, and Stop (the same routes, so the server keeps its guards). */
+	async function toSession(query: string, post1: (key: string) => Promise<Reply>, said: (name: string) => string) {
+		const found = pick(sendables(await net()), query);
+		if (typeof found === "string") return tell(found, "error");
+		if (found.key === me()) return tell(t().sendSelf, "error");
+		const reply = await post1(found.key);
+		reply.status === 200 ? tell(said(found.name)) : tell(why(reply), "error");
+	}
+
 	return {
 		...createBossOpen(kit, { record, post, why, confirm, noScreen: () => t().noScreen, lang, baseName: async (id) => (await workspaces(cfg.run).catch(() => [])).find((w) => w.workspace_id === id)?.label, pollMs }),
 		/** The refusal for `/boss stash --workspace` with no value. */
@@ -198,6 +225,25 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 			if (hit.length > 1) return tell(t().manySubs(q, hit.map((u) => `  ${u.name} [${u.key}]`)), "error");
 			const reply = await post(await record(), "dismiss", { key: hit[0]!.key }, 10_000);
 			reply.status === 200 ? tell(t().dismissedOne(hit[0]!.name)) : tell(why(reply), "error");
+		},
+
+		/** `/boss send <name|key> [--after] <text>`: as the composer's Send (idle: submit, working: steer) or After this (a follow-up). A command that ends the session asks first, as the page does. */
+		async send(query: string, after: boolean, text: string) {
+			if (!query || !text.trim()) return tell(t().noSend, "error");
+			const as = after ? "followUp" : "send";
+			await toSession(query, async (key) => {
+				const r = await record(), body = { text, as };
+				const first = await post(r, `sessions/${encodeURIComponent(key)}/input`, body, 30_000);
+				if (first.status !== 409 || first.body.error !== "confirm") return first;
+				if (!s.ui || !(await confirm(t().confirmSend, t().confirmSendBody(key, text.slice(0, 200))))) return { status: 0, body: { reason: t().declined } };
+				return post(r, `sessions/${encodeURIComponent(key)}/input`, { ...body, confirmed: true }, 30_000);
+			}, (name) => t().sent(name, after));
+		},
+
+		/** `/boss stop <name|key>`: the page's Stop, an Esc into that session's editor. */
+		async stop(query: string) {
+			if (!query) return tell(t().noSend, "error");
+			await toSession(query, async (key) => post(await record(), `sessions/${encodeURIComponent(key)}/keys`, { keys: ["esc"] }, 30_000), t().escSent);
 		},
 
 		/** `/boss gui devices`: the paired devices, newest pairing last as the server lists them. */

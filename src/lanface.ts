@@ -109,7 +109,7 @@ export async function showLan(ui: ExtensionContext["ui"], d: LanDeps, start: Lan
 	// One code surface for the whole overlay, kept across a reopen of its mark: a new code voids the earlier one.
 	const surface = randomBytes(16).toString("hex");
 	let face = "", settleUntil = 0, okSent = -Infinity, dead = "", said = "", busy = false, closed = false, polling = false;
-	let screen: LanScreen = start.screen, facts: Record<string, unknown> = start.facts ?? {}, cert: LanCert | undefined, entered = "", pending: Pending[] = [], events: string[] = [], seen: string[] | undefined;
+	let screen: LanScreen = start.screen, facts: Record<string, unknown> = start.facts ?? {}, cert: LanCert | undefined, entered = "", pending: Pending[] = [], marked = 0, events: string[] = [], seen: string[] | undefined;
 	let code: { qr: string[]; url: string } | { typed: string } | undefined, pick = 0;
 	let finish = () => {}, redraw = () => {};
 
@@ -126,6 +126,7 @@ export async function showLan(ui: ExtensionContext["ui"], d: LanDeps, start: Lan
 	const absorb = (r: LanReply) => {
 		facts = { ...facts, ...Object.fromEntries(["url", "port", "addresses", "on", "note"].filter((k) => k in r || k === "note").map((k) => [k, r[k]])) };
 		if (Array.isArray(r.pending)) pending = (r.pending as Pending[]).slice(0, 8);
+		marked = Math.min(marked, Math.max(0, pending.length - 1));
 		if (Array.isArray(r.events)) {
 			const next = (r.events as unknown[]).map(String);
 			if (seen) {
@@ -208,8 +209,8 @@ export async function showLan(ui: ExtensionContext["ui"], d: LanDeps, start: Lan
 		return out;
 	}
 	const pendingRows = (): Part[] => (pending.length && (screen === "certificate" || screen === "pairing")
-		? [...(pending.length > 1 ? ["More than one device used a code: only one of them can be your phone."] : []), ...pending.map((p) => `Pair request: ${p.label} from ${p.peer}${p.iface ? ` (${p.iface})` : ""}`),
-			"Type the number your phone shows, then Enter, to allow it.   n  deny all   Esc  decide later", `Number: ${entered}█`, ""]
+		? [...(pending.length > 1 ? ["More than one device used a code: only one of them can be your phone."] : []), ...pending.map((p, i) => `${pending.length > 1 ? (i === marked ? "▸ " : "  ") : ""}Pair request: ${p.label} from ${p.peer}${p.iface ? ` (${p.iface})` : ""}`),
+			"Type the number your phone shows, then Enter, to allow it.   n  deny all   Esc  decide later", `Number: ${entered}█`, pending.length > 1 ? "d  deny the marked request (Up/Down moves the mark)" : "d  deny this request", ""]
 		: []);
 	const status = (): string[] => [
 		...(!live() && !dead && !closed ? [d.now() < settleUntil ? "keys wait 1.5 s" : "No answer from the sb server: keys wait; Esc closes."] : []),
@@ -279,6 +280,12 @@ export async function showLan(ui: ExtensionContext["ui"], d: LanDeps, start: Lan
 					if (r.error === "no_match") return void (said = "No request has that number");
 					answered(r);
 				});
+			}
+			if (is("up") || is("down")) return void ((marked = (marked + (is("down") ? 1 : pending.length - 1)) % pending.length), redraw());
+			// One request (the page's Deny): the marked row's id; the server keeps the others.
+			if (is("d")) {
+				const at = pending[marked];
+				return at && act(async () => void (answered(await d.ask({ cmd: "gui-lan-approve", face, deny: at.id })) && (said = `Denied ${at.label} from ${at.peer}`)));
 			}
 			if (is("n")) return act(async () => void (answered(await d.ask({ cmd: "gui-lan-approve", face, deny: "all" })) && (said = "Denied every request")));
 		}

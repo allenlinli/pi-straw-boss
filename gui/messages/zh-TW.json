@@ -988,5 +988,10 @@
 	"zen_company_lost": "已失去控制",
 	"zen_term_working": "單位繼續工作了，可以回到禪",
 	"zen_term_gone": "這個窗格已關閉，可以回到禪",
-	"zen_update": "有新版本，回到呼吸時會更新"
+	"zen_update": "有新版本，回到呼吸時會更新",
+  "alert_note": "備註",
+  "alert_tip": "提示",
+  "alert_important": "重要",
+  "alert_warning": "警告",
+  "alert_caution": "注意"
 }

@@ -43,6 +43,11 @@ export function offersOf(holder: { list(): AllyTeam[]; capsFor(team: string, dev
 	return holder.list().flatMap((t) => t.devices.filter((d) => d.unattended && holder.capsFor(t.team, d.id).includes("operate/1")).map((d): BoxOffer => ({ team: t.team, teamName: t.name, device: d.id, short: d.short, label: d.label })));
 }
 
+/** The boxes this computer may operate: the offers of its holder while it is attended; none on an unattended device (one device is never both ends of operate) or while no holder runs. */
+export function boxesOf(link: { attended(): boolean; holder: Parameters<typeof offersOf>[0] | undefined } | undefined): BoxOffer[] {
+	return link?.attended() && link.holder ? offersOf(link.holder) : [];
+}
+
 export type Send = (event: string, data: unknown) => void;
 export interface Watch { refresh(): Promise<void>; stop(): void }
 export interface OperateHostDeps {
@@ -56,6 +61,10 @@ export interface OperateHostDeps {
 	log(entry: Record<string, unknown>): void;
 	/** The tick of the clock (default 1 s); `false` leaves it to the caller (`tick()`), as a test with a fake clock does. */
 	interval?: number | false;
+	/** The boss turned operate off here (`/boss link operate off`, kept until `on`): no session opens or stays while it says so, and the clock stops when none is left. */
+	paused?(): boolean;
+	/** Whether this computer can operate a box at all: a link holder runs here and the device is attended. The clock runs only while it says so, so a computer with no Link, or an unattended one, ticks nothing and reads no policy (read when a page comes or leaves, and when the caller says `on`). Default: yes. */
+	enabled?(): boolean;
 }
 /** A claimed request: what the page asked of a unit that belongs to a box. `send` takes the body again only for an upload's bytes. */
 export interface Claim { send(bytes?: Buffer): Promise<Reply> }
@@ -115,7 +124,7 @@ const marksOf = (b: Pick<Base, "tower" | "tabs" | "outposts" | "outside">) => [.
 
 /** What kind of answer a request on a box's unit gets, by the route. */
 function kindOf(method: "GET" | "POST", parts: string[]): ReplyKind {
-	if (method === "GET") return parts[0] === "image" ? "image" : parts[0] === "entry" ? "entry" : "history";
+	if (method === "GET") return parts[0] === "image" ? "image" : parts[0] === "entry" ? "entry" : parts[0] === "transcripts" ? "transcripts" : "history";
 	if (parts[0] === "sessions") return ({ input: "input", keys: "keys", answer: "answer", dequeue: "dequeue", commands: "commands", upload: "upload", mirror: "mirror" } as Record<string, ReplyKind>)[parts[2] ?? ""] ?? "plain";
 	return parts[0] === "tower" && parts[2] === "memory" ? "memory" : "plain";
 }
@@ -123,7 +132,7 @@ function kindOf(method: "GET" | "POST", parts: string[]): ReplyKind {
 export function createOperateHost(deps: OperateHostDeps) {
 	const sessions = new Map<string, Sess>(), pending = new Map<string, Pending>(), groups = new Map<string, Group>(), mirrorGroups = new Map<string, MirrorGroup>();
 	const streams = new Map<string, Send>(), frameAt = new Map<string, number>(), keysSent = new Map<string, number[]>(), told = new Set<string>(), listeners = new Set<() => void>();
-	let stopped = false, pages = 0, leftAt: number | undefined, offUntil = 0, version = 0, counter = 0, timer: ReturnType<typeof setInterval> | undefined, cache: { version: number; bases: Base[]; events: NonNullable<Net["events"]>; dialogs: Map<string, Set<string>> } | undefined;
+	let stopped = false, pages = 0, leftAt: number | undefined, version = 0, counter = 0, timer: ReturnType<typeof setInterval> | undefined, cache: { version: number; bases: Base[]; events: NonNullable<Net["events"]>; dialogs: Map<string, Set<string>> } | undefined;
 	const now = () => deps.now();
 	const changed = () => { version++; for (const l of [...listeners]) try { l(); } catch { /* a listener's failure is not the host's */ } };
 
@@ -351,15 +360,16 @@ export function createOperateHost(deps: OperateHostDeps) {
 		});
 	}
 
-	function claimed(method: "GET" | "POST", parts: string[], json: Record<string, unknown>): { x: string; sess: Sess }[] {
+	function claimed(method: "GET" | "POST", parts: string[], json: Record<string, unknown>, query: URLSearchParams): { x: string; sess: Sess }[] {
 		const head = parts[0], at: unknown[] = [];
+		if (method === "GET" && head === "transcripts") at.push(query.get("base")); // the list of one box's finished runs: asked of the session that shows the base the page names
 		if (head === "sessions" || head === "tower" || head === "history" || head === "entry" || head === "image") at.push(parts[1]);
 		if (method === "POST" && (head === "close" || head === "dismiss" || head === "open" || head === "dirs")) at.push(json.key, json.workspace, json.base);
 		return at.flatMap((x) => { const s = typeof x === "string" ? sessionFor(x) : undefined; return s ? [{ x: x as string, sess: s }] : []; });
 	}
 
 	function claim(method: "GET" | "POST", parts: string[], json: Record<string, unknown> = {}, query = new URLSearchParams()): Claim | undefined {
-		const hits = claimed(method, parts, json);
+		const hits = claimed(method, parts, json, query);
 		if (!hits.length) return undefined;
 		return { send: (bytes) => forward(method, parts, json, query, hits, bytes) };
 	}
@@ -373,7 +383,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 		if (row.cross === "mirror") return mirrorRequest(hits[0]!.x, json, sess);
 		const x = hits[0]!.x, raw = rawOf(sess, x)!;
 		let out: string[] = parts.slice(), body: Record<string, unknown> | string = json;
-		if (parts[0] === "sessions" || parts[0] === "history" || parts[0] === "entry" || parts[0] === "image") out[1] = raw;
+		if (parts[0] === "transcripts") { /* the box's own list: no key to rewrite */ } else if (parts[0] === "sessions" || parts[0] === "history" || parts[0] === "entry" || parts[0] === "image") out[1] = raw;
 		else if (parts[0] === "tower") out[1] = raw;
 		else if (parts[0] === "dismiss" || (parts[0] === "close" && parts[1] === "unit")) {
 			if (!sess.keys.has(x) && !sess.extra.has(x)) return no(404, "not_found", "No such unit.");
@@ -394,7 +404,13 @@ export function createOperateHost(deps: OperateHostDeps) {
 			body = bytes.toString("base64");
 		}
 		const q: Record<string, string> = {};
-		for (const [k, v] of [...query].slice(0, 8)) if (k.length <= 32 && v.length <= (k === "name" ? NAME_ENCODED : 200)) q[k] = v;
+		for (const [k, v] of [...query].filter(([k]) => parts[0] !== "transcripts" || (k !== "base" && k !== "before")).slice(0, 8)) if (k.length <= 32 && v.length <= (k === "name" ? NAME_ENCODED : 200)) q[k] = v;
+		if (parts[0] === "transcripts" && query.has("before")) {
+			// The page's cursor is `<last>:<key of the last row>`; the box's is `<last>:<its own id>`, which the page never held. A key this session did not give is no cursor.
+			const m = /^(\d{1,16}):(x[0-9a-f]{16})$/.exec(query.get("before")!), id = m ? /^t([0-9a-f]{16})$/.exec(rawOf(sess, m[2]!) ?? "")?.[1] : undefined;
+			if (!m || !id) return no(400, "bad_request", "`before` is the cursor a page gave.");
+			q.before = `${m[1]}:${id}`;
+		}
 		return ask(sess, kindOf(method, parts), method, out, q, body);
 	}
 
@@ -545,6 +561,8 @@ export function createOperateHost(deps: OperateHostDeps) {
 			if (s.deferred !== undefined && s.session) { const raw = s.deferred; s.snapAt = 0; snap(s, raw); }
 		}
 		for (const [id, p] of [...pending]) if (t - p.at >= REQUEST_MS) (pending.delete(id), p.done(no(504, "timeout", "The box did not answer; check before sending again.")));
+		if (deps.paused?.()) { for (const s of [...sessions.values()]) close(s, "off"); return pulse(); }
+		if (!(deps.enabled?.() ?? true)) { for (const s of [...sessions.values()]) close(s, "gone"); return pulse(); }
 		if (pages === 0 && leftAt !== undefined && t - leftAt >= IDLE_MS) { for (const s of [...sessions.values()]) close(s, "idle"); leftAt = undefined; return; }
 		if (pages === 0 && leftAt === undefined) return;
 		const offered = deps.boxes(), ids = new Set(offered.map((o) => `${o.team}/${o.device}`));
@@ -557,15 +575,17 @@ export function createOperateHost(deps: OperateHostDeps) {
 				sessions.set(id, s);
 			}
 			s.offer = offer;
-			if (s.session || t < s.retryAt || t < s.refusedUntil || t < offUntil) continue;
+			if (s.session || t < s.retryAt || t < s.refusedUntil) continue;
 			open(s);
 		}
 		for (const s of sessions.values()) if (s.ghostUntil !== undefined && s.ghostUntil > 0 && t >= s.ghostUntil) (s.ghostUntil = -1, changed());
 	}
 	const pulse = () => {
 		if (stopped || deps.interval === false) return;
-		if (sessions.size + pages > 0 && !timer) timer = setInterval(tick, deps.interval ?? OPERATE_LIMITS.tickMs).unref();
-		if (sessions.size + pages === 0 && timer) (clearInterval(timer), (timer = undefined));
+		// While operate is off here nothing opens, so the clock runs only for a session that is still closing.
+		const wanted = (deps.enabled?.() ?? true) && (deps.paused?.() ? [...sessions.values()].some((s) => s.session) : sessions.size + pages > 0);
+		if (wanted && !timer) timer = setInterval(tick, deps.interval ?? OPERATE_LIMITS.tickMs).unref();
+		if (!wanted && timer) (clearInterval(timer), (timer = undefined));
 	};
 
 	return {
@@ -599,14 +619,19 @@ export function createOperateHost(deps: OperateHostDeps) {
 			return { ...net, bases: [...net.bases, ...m.bases], ...(events.length ? { events } : {}), ...(link ? { link } : {}) };
 		},
 		onChange(fn: () => void): () => void { listeners.add(fn); return () => void listeners.delete(fn); },
-		/** The sessions open now, for `/boss link operate`. */
-		status: () => [...sessions.values()].map((s) => ({ team: s.offer.team, device: s.offer.device, label: s.offer.label, scope: s.scope.box ? "box" : "team", state: s.state, since: s.openedAt, pages })),
+		/** The sessions open now (not one that has not opened yet, or that has been closed and waits for a page), for `/boss link operate`. */
+		status: () => [...sessions.values()].filter((s) => s.state !== "idle").map((s) => ({ team: s.offer.team, device: s.offer.device, label: s.offer.label, short: s.offer.short, teamName: s.offer.teamName, scope: s.scope.box ? "box" : "team", state: s.state, since: s.openedAt, pages })),
 		/** A team stopped (removal, fork, leave): its sessions end now. */
 		closeTeam(team: string): void { for (const s of [...sessions.values()]) if (s.offer.team === team) close(s, "team-stopped"); },
-		/** `/boss link operate off`: every session ends, and none opens again for a minute (the pages that stay would else reopen them at the next tick). */
+		/** `/boss link operate off`: every session ends (the caller has the `paused` answer say so first), and none opens until `on`. */
 		off(): void {
-			offUntil = now() + 60_000;
 			for (const s of [...sessions.values()]) close(s, "off");
+			pulse();
+		},
+		/** `/boss link operate on`: the clock runs again for the pages that are connected, and the sessions open at its next tick. */
+		on(): void {
+			pulse();
+			queueMicrotask(tick);
 		},
 		stop(): void {
 			stopped = true;

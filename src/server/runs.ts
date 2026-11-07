@@ -1759,9 +1759,21 @@ export function createRuns(o: RunsOptions) {
 		tick,
 		/** What the GUI shows of a tower the server runs: the service's state, its waiting events as queued rows (kind, sender, first line), the session file of its comms, and the files of its live ally runs (by run id; the net turns each into a read-only unit and keeps the path off the page). */
 		view(workspace: string): TowerView | undefined {
+			/** `start` only while a start is under way (waking, or standing with a wake armed); a tower that will not wake says why its messages wait. */
+			const waitOf = (ws: string, state: ServiceState): { as: "start" | "followUp"; why?: "off" | "refused" | "full" | "offline" | "unproven" } => {
+				const svc = find(ws);
+				if (state === "waking") return { as: "start" };
+				if (state !== "standing" || !svc) return { as: "followUp" };
+				if (!o.enabled()) return { as: "followUp", why: "off" };
+				if (svc.refusedAt !== undefined && now() - svc.refusedAt < t.refuse) return { as: "followUp", why: "refused" };
+				if (svc.wake) return { as: "start" };
+				if (blocked.has(svc) || slots >= o.max()) return { as: "followUp", why: "full" };
+				if (!svc.ref.live()) return { as: "followUp", why: "offline" };
+				return { as: "followUp", why: "unproven" };
+			};
 			const status = api.status(workspace);
 			if (!status) return undefined;
-			const rows = api.queue(workspace).map((e) => ({ text: phrase(`${e.kind}${e.from?.name ?? e.from?.id ? ` · ${e.from?.name ?? e.from?.id}` : ""}: ${e.text.split("\n").find((l) => l.trim()) ?? ""}`, 240), as: "followUp" as const }));
+			const rows = api.queue(workspace).map((e) => ({ text: phrase(`${e.kind}${e.from?.name ?? e.from?.id ? ` · ${e.from?.name ?? e.from?.id}` : ""}: ${e.text.split("\n").find((l) => l.trim()) ?? ""}`, 240), ...waitOf(workspace, status.state) }));
 			const file = api.file(workspace), allyFiles = Object.fromEntries([...(find(workspace)?.allies.values() ?? [])].filter((a) => !a.ended).flatMap((a) => (a.rec.file ? [[a.rec.id, a.rec.file]] : [])));
 			// The event runs among the last local runs are read-only units of their own; the conversation's file is the tower unit's.
 			const eventFiles = Object.fromEntries(listRuns(slot, workspace).filter((r) => r.kind === "local" && !r.conversation && r.file).slice(-RUNS_SHOWN).map((r) => [r.id, r.file!]));

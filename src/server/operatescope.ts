@@ -124,8 +124,11 @@ const claimed = (token: string | undefined): string | undefined => (typeof token
  *     another device, two panes naming two devices, a token that is no device) makes the unit nobody's, which is the box's. One witness alone attributes nothing;
  *   - the tower service, its runs, a session opened at the box, a worker in a tab of its own, anything else: the box's;
  *   - a main, member or subagent when Herdr's listing could not be read: nobody's (no scope holds it, the box part included) until a read succeeds. An ally run's key and a live ally pane need no listing.
+ *
+ * `settled` is for a reading that is kept (the transcript ledger, which keeps the owner it first reads): a unit whose pane the listing does not hold yet, or that has one witness only (the pane's token with no `opened` row yet, or the row with
+ * no token yet: an ally run writes them one after the other), is nobody's for now and not the box's, so it is attributed on a later read. A unit with no witness at all, or two that disagree, is the box's as before.
  */
-export function ownerOf(w: OwnerWorld, key: string): Owner | undefined {
+export function ownerOf(w: OwnerWorld, key: string, settled = false): Owner | undefined {
 	const ref = w.ref(key);
 	if (!ref) return undefined;
 	if (ref.role === "ally") {
@@ -138,15 +141,16 @@ export function ownerOf(w: OwnerWorld, key: string): Owner | undefined {
 	const panes = w.panes();
 	if (!panes) return undefined; // no listing, no witness: neither a team's nor the box's, so no session's scope holds it (the ally cases above need none)
 	const mine = panes.find((p) => p.pane_id === ref.pane);
-	if (!mine) return BOX;
+	if (!mine) return settled ? undefined : BOX;
 	const tab = panes.filter((p) => p.tab_id === mine.tab_id), tabIds = new Set(tab.map((p) => p.pane_id));
 	const named = tab.flatMap((p) => { const token = p.tokens?.sb_opened_by; return typeof token === "string" && token.startsWith("link:") ? [claimed(token)] : []; });
 	const devices = new Set(named);
 	const device = devices.size === 1 ? [...devices][0] : undefined;
-	if (device === undefined || !DEVICE_ID.test(device)) return BOX;
 	const mains = new Set([...w.refs()].filter((r) => r.role === "main" && r.base === ref.base && r.pane !== undefined && tabIds.has(r.pane)).map((r) => r.key));
 	const rows = w.opened(ref.base).filter((r) => mains.has(r.to) || (r.pane !== undefined && tabIds.has(r.pane)));
-	if (!rows.length || rows.some((r) => r.device !== device || !r.team || r.team !== rows[0]!.team)) return BOX;
+	if (device === undefined || !DEVICE_ID.test(device)) return settled && rows.length && !named.length ? undefined : BOX;
+	if (!rows.length) return settled ? undefined : BOX;
+	if (rows.some((r) => r.device !== device || !r.team || r.team !== rows[0]!.team)) return BOX;
 	return { team: rows[0]!.team };
 }
 

@@ -108,19 +108,11 @@ test("USC-F001: at phone width a main's Stop is 44 px tall and wide after the ca
 	assert.equal(phoneValue("quit-btn", "min-height"), "44px");
 });
 
-test("the map's head pill stays 36 px to look at but its ::before reaches 44 px on a phone, inside the map's 36 px top band", () => {
-	const pill = topRule(".head-node"), band = topRule(".map:has(> .head-node:not([hidden]))");
-	assert.match(pill, /height:\s*36px/, "the pill keeps its look");
-	assert.match(pill, /box-sizing:\s*border-box/);
-	const hit = body(".head-node::before");
-	assert.match(hit, /content:\s*""/);
-	assert.match(hit, /position:\s*absolute/);
-	const reach = Number(hit.match(/inset:\s*-(\d+)px 0/)?.[1]);
-	// inset counts from the padding box: 36 - 2 border + 2 * reach.
-	assert.ok(36 - 2 + 2 * reach >= 44, `the hit box is ${36 - 2 + 2 * reach} px tall`);
-	assert.doesNotMatch(topRule(".head-node"), /::before/);
-	// It sits a quarter of its height above the map's edge (translate -25%), so it ends 27 px below it plus the reach; the first base row starts at the band's end.
-	assert.ok(36 * 0.75 + reach + 1 <= Number(band.match(/padding-top:\s*(\d+)px/)?.[1]), "the hit area does not run into the first base row");
+test("the map's head band is 44 px tall, so a tap on a phone lands (the whole band is the link)", () => {
+	const band = topRule(".head-node");
+	assert.match(band, /height:\s*44px/);
+	assert.match(band, /box-sizing:\s*border-box/);
+	assert.doesNotMatch(body(".head-node::before") || "", /position:\s*absolute/, "no hit-box trick: the band itself is the target");
 });
 
 test("the composer's key row is 48 px and Send is wide enough to hit", () => {
@@ -221,9 +213,9 @@ test("the settings page's controls are 44 px on a phone: the rows, the sections'
 	assert.match(topRule(".lan"), /overflow-wrap:\s*anywhere/);
 });
 
-test("the head page's rows are tap targets of 44 px: each broadcast's row, the older fold, a tower's line and its link, and the buttons beside the composer (the shared phone rule covers `.pair-btn` and `.quit-btn`)", () => {
+test("the head page's rows are tap targets of 44 px: the log's fold line, each broadcast's row, the older fold, a tower's line and its link, and the buttons beside the composer (the shared phone rule covers `.pair-btn` and `.quit-btn`)", () => {
 	const rule = (selector: string) => css.split("\n").flatMap((l) => (l.startsWith(`${selector} {`) ? [l] : [])).join(" ");
-	for (const selector of [".ask-group > summary, .ask-older > summary, .ask-replaced > summary", ".ask-line", "a.ask-name"]) assert.match(rule(selector) || css.split("\n").find((l) => l.includes(`${selector} {`)) || "", /min-height:\s*44px/, selector);
+	for (const selector of [".ask-group > summary, .ask-older > summary, .ask-replaced > summary", ".ask-line", "a.ask-name", ".head-log > summary"]) assert.match(rule(selector) || css.split("\n").find((l) => l.includes(`${selector} {`)) || "", /min-height:\s*44px/, selector);
 	const shared = rules.find(([s]) => s.startsWith(":is(.pair-btn, .alerts"))!;
 	assert.ok(shared[0].includes(".pair-btn") && shared[0].includes(".quit-btn") && /min-height:\s*44px/.test(shared[1]), "End and New are `.pair-btn`, Close is `.quit-btn`");
 	assert.match(css, /\.head-acts \{[^}]*flex-wrap:\s*wrap/, "the row wraps instead of cutting a button off a 360 px screen");

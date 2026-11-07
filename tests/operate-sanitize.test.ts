@@ -94,6 +94,14 @@ test("a mark, a role, a state or an agent outside its set refuses the unit; an o
 	assert.deepEqual([u.badtodo!.todo, u.badtodo!.ticks, u.badtodo!.queued], [undefined, [{ at: 1, mark: "idle" }], [{ text: "t", as: "steer" }]]);
 });
 
+test("R-F002: a box's queued rows keep `start` and a `why` of the set; a `why` outside it is left out and the row stays", async () => {
+	const w = await shown(netOf(baseOf("wA", [["t1", [
+		unit("q", { queued: [{ text: "a", as: "start" }, { text: "b", as: "followUp", why: "off" }, { text: "c", as: "followUp", why: "rm -rf" as never }] }),
+	]]])));
+	const u = Object.fromEntries(unitsOf(w.host.merge(LOCAL)).map((x) => [x.name, x]));
+	assert.deepEqual(u.q!.queued, [{ text: "a", as: "start" }, { text: "b", as: "followUp", why: "off" }, { text: "c", as: "followUp" }]);
+});
+
 test("a net shaped to exhaust the page is cut: many bases, deep subagents, long lists", async () => {
 	const deep = (n: number): Unit => unit(`d${n}`, { subs: n > 0 ? [deep(n - 1)] : [] });
 	const w = await shown({ bases: [...Array.from({ length: 200 }, (_, i) => baseOf(`w${i}`, [["t", [unit(`u${i}`)]]])), baseOf("deep", [["t", [deep(30)]]])], events: Array.from({ length: 500 }, (_, i) => ({ at: i, ws: "w0", name: "n", mark: "idle", kind: "mark" })) });
@@ -295,4 +303,19 @@ test("a tower's memory reply (a shape the controller does not know) is bounded: 
 	for (let o = body.deep as Record<string, unknown> | undefined; o; o = o.n as Record<string, unknown> | undefined) depth++;
 	assert.ok(depth <= 5);
 	void settled;
+});
+
+test("RR disposition: a box's train unit and its subagents reach the controller with their train id; a train id that is no project and code is left out", async () => {
+	const w = await shown(netOf(baseOf("wA", [["t1", [
+		unit("train 1106m", { role: "train" as never, train: { project: "moldplan", code: "2026-11-06-m" } as never, subs: [unit("helper", { role: "subagent" })] }),
+		unit("badtrain", { role: "train" as never, train: { project: "../x", code: "nope" } as never }),
+		unit("odd", { role: "member", train: "moldplan/2026-11-06-m" as never }),
+	]]])));
+	const u = Object.fromEntries(unitsOf(w.host.merge(LOCAL)).flatMap(flat).map((x) => [x.name, x]));
+	assert.deepEqual(Object.keys(u).sort(), ["badtrain", "helper", "odd", "train 1106m"]);
+	assert.equal(u["train 1106m"]!.role, "train");
+	assert.deepEqual(u["train 1106m"]!.train, { project: "moldplan", code: "2026-11-06-m" });
+	assert.deepEqual(u["train 1106m"]!.subs.map((s) => s.name), ["helper"]);
+	assert.equal(u.badtrain!.train, undefined);
+	assert.equal(u.odd!.train, undefined);
 });

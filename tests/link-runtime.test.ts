@@ -38,7 +38,7 @@ afterEach(async () => {
 const FAST = { tickMs: 15, drainMs: 20, presenceMs: 40, pumpMs: 10, offerAgainMs: 60_000 };
 
 /** One computer: its own Herdr, intercom broker, state directory, and link files, and the link holder of its sb server (`start: false` leaves the server's first look to the test). */
-function computer(name: "a" | "b", o: { configured?: boolean; entries?: ReturnType<typeof rosterOf>; start?: boolean; policy?: (project: string) => string; operate?: ServiceOptions["operate"]; onRoster?: ServiceOptions["onRoster"] } = {}) {
+function computer(name: "a" | "b", o: { configured?: boolean; entries?: ReturnType<typeof rosterOf>; start?: boolean; policy?: (project: string) => string; operate?: ServiceOptions["operate"]; onRoster?: ServiceOptions["onRoster"]; onHolder?: ServiceOptions["onHolder"] } = {}) {
 	const world = new World();
 	worlds.push(world);
 	const keys = name === "a" ? alice : bob, home = join(root, `home-${name}`), project = join(root, `project-${name}`);
@@ -55,7 +55,7 @@ function computer(name: "a" | "b", o: { configured?: boolean; entries?: ReturnTy
 	// A policy file owned by root and not writable by this user, read from memory.
 	const policy: PolicyDeps | undefined = o.policy && { path: "/etc/straw-link/policy.json", uid: 501, stat: () => ({ uid: 0, symlink: false }), writable: () => false, read: () => o.policy!(project) };
 	const service = { ...FAST, home, relay: clientFor(relay), alive: (r: { session: string }) => !world.gone.has(r.session), ...(policy ? { policy } : {}) };
-	const server = linkServer(world, { deps: service, start: o.start, ...(o.operate ? { operate: o.operate } : {}), ...(o.onRoster ? { onRoster: o.onRoster } : {}) });
+	const server = linkServer(world, { deps: service, start: o.start, ...(o.operate ? { operate: o.operate } : {}), ...(o.onRoster ? { onRoster: o.onRoster } : {}), ...(o.onHolder ? { onHolder: o.onHolder } : {}) });
 	const deps = { link: { ...service, ask: server.ask } };
 	const tower = (id: string, ws = "wA") => {
 		const t = world.tower(id, `${ws}:t7`, `${ws}:p7`, false, deps);
@@ -513,4 +513,16 @@ test("operate wiring: the sink and the roster hook reach the holder of an unatte
 	assert.equal(hooks(seat).operate, undefined, "an attended device takes no operate");
 	assert.equal(hooks(seat).onRoster, onRoster);
 	assert.equal(seat.server.service.policyNow().mode, "attended");
+});
+
+// The operate host's clock follows the holder (review RR-F002): a holder gained after a page is connected, or lost, is told to the server, which pulses the host.
+test("RR-F002: the service tells the server when it has a holder and when it has none, after the holder runs and after it is gone", async () => {
+	const seen: (boolean | undefined)[] = [];
+	const c = computer("b", { start: false, onHolder: () => void seen.push(c.server.service.holder?.active) });
+	await c.server.service.start();
+	await holding(c);
+	assert.deepEqual(seen, [true], "told once, with the holder already running");
+	await c.server.service.stop();
+	assert.deepEqual(seen.slice(0, 2), [true, undefined], "and again when the holder is gone");
+	assert.equal(seen.at(-1), undefined);
 });

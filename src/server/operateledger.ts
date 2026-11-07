@@ -6,10 +6,11 @@ import { canonical } from "../history.ts";
 import type { Found, Ref } from "../net.ts";
 import type { Transcripts } from "../watch.ts";
 import type { Owner, Scope } from "./operatescope.ts";
+import { UNIT_ROLES } from "./operateroles.ts";
 import { writeDurableText } from "./towerstore.ts";
 
 // The transcripts of finished runs (docs/specs/2026-11-07-link-operate.md §9). The net shows a session for 10 minutes after it ends, so no list reaches back further; the box's server therefore keeps `link/operate-ledger.jsonl`, mode 600
-// and append-only: one line the first time a unit with a session file is seen (with its owner, §4), one when it ends, and one when a resumed unit is seen live again. A line holds no content: the owner, who dispatched it, its role, a scrubbed
+// and append-only: one line the first time a unit with a session file is seen (with its owner, §4), one when a live run's owner reads differently (the owner is read from records that are written one after the other, so the first reading may be early), one when it ends, and one when a resumed unit is seen live again. A line holds no content: the owner, who dispatched it, its role, a scrubbed
 // name and workspace label, the path of its session file (the box keeps it; it never leaves), and when it was first and last seen. Compacted at start: lines folded into one row per session file, 30 days, at most 2,000 rows.
 //
 // What a request names is a key `t<id>`, `id` being 16 hex of a hash of the file's path. The box looks the id up in the ledger and never takes a path from the request; the row's scope is checked again on every read, and the file must
@@ -17,14 +18,17 @@ import { writeDurableText } from "./towerstore.ts";
 
 /** How long a row is kept, and how many: both applied when the ledger is opened. */
 export const KEEP_MS = 30 * 24 * 3_600_000, MAX_ROWS = 2000, MAX_LIST = 50;
-const ID = /^[0-9a-f]{16}$/, KEY = /^t([0-9a-f]{16})$/, CURSOR = /^(\d{1,16}):([0-9a-f]{16})$/, ROLE = /^[a-z]{2,12}$/, DEVICE = /^[a-z2-7]{26}$/, TEAM = /^[A-Za-z0-9_-]{1,64}$/;
+const ID = /^[0-9a-f]{16}$/, KEY = /^t([0-9a-f]{16})$/, CURSOR = /^(\d{1,16}):([0-9a-f]{16})$/, DEVICE = /^[a-z2-7]{26}$/, TEAM = /^[A-Za-z0-9_-]{1,64}$/;
 /** What a ledger row says of an owner, in place of `{ box: true }`: no team id is the word `box`. */
 const BOX = "box";
 
 /** One session file as the ledger knows it. `team` is the owning team's id, or `box`; `ended` is set while the latest line says the unit is over. */
 export interface Row { id: string; team: string; device?: string; role: string; name: string; workspace: string; file: string; first: number; last: number; ended?: true }
-/** A unit of a net reading, as `observe` takes it: only one with a session file is kept. `live: false` is a unit the net still shows but whose run is over (a finished subagent). */
-export interface Seen { role: string; name: string; workspace: string; file: string; owner: Owner; device?: string; live?: boolean }
+/**
+ * A unit of a net reading, as `observe` takes it: only one with a session file is kept. `live: false` is a unit the net still shows but whose run is over (a finished subagent). `owner` is none while the reading cannot say whose it is yet
+ * (operatescope.ts `ownerOf` with `settled`): such a unit is present, so its row does not end, but no row is made for it and none changes owner.
+ */
+export interface Seen { role: string; name: string; workspace: string; file: string; owner?: Owner; device?: string; live?: boolean }
 export const transcriptKey = (id: string) => `t${id}`;
 /** The id a session file is known by: the first 8 bytes of a hash of its path, as hex. */
 export const idOf = (file: string) => createHash("sha256").update("straw-link/operate-ledger/1\0").update(file).digest("hex").slice(0, 16);
@@ -44,12 +48,12 @@ export interface LedgerDeps {
 const isRow = (v: unknown): v is Row => {
 	const r = v as Partial<Row> | null;
 	return typeof r === "object" && r !== null && typeof r.id === "string" && ID.test(r.id) && typeof r.team === "string" && (r.team === BOX || TEAM.test(r.team)) && (r.device === undefined || (typeof r.device === "string" && DEVICE.test(r.device)))
-		&& typeof r.role === "string" && ROLE.test(r.role) && typeof r.name === "string" && r.name.length <= 200 && typeof r.workspace === "string" && r.workspace.length <= 200 && typeof r.file === "string" && r.file.length > 0 && r.file.length <= 4096
+		&& typeof r.role === "string" && (UNIT_ROLES as readonly string[]).includes(r.role) && typeof r.name === "string" && r.name.length <= 200 && typeof r.workspace === "string" && r.workspace.length <= 200 && typeof r.file === "string" && r.file.length > 0 && r.file.length <= 4096
 		&& Number.isSafeInteger(r.first) && Number.isSafeInteger(r.last) && (r.ended === undefined || r.ended === true) && idOf(r.file) === r.id;
 };
 const text = (row: Row) => `${JSON.stringify(row)}\n`;
 
-/** The ledger's lines folded into one row per id: the first line's owner, device, role, names and file stand; the latest line's `last` and `ended` do. A line that is not a row is dropped. */
+/** The ledger's lines folded into one row per id: the first line's role, names and file stand; the latest line's owner, device, `last` and `ended` do (a line is written whenever the owner of a live run changes, and never after its end line). A line that is not a row is dropped. */
 function fold(source: string): { rows: Map<string, Row>; lines: number } {
 	const rows = new Map<string, Row>();
 	let lines = 0;
@@ -60,7 +64,7 @@ function fold(source: string): { rows: Map<string, Row>; lines: number } {
 		try { found = JSON.parse(line); } catch { continue; }
 		if (!isRow(found)) continue;
 		const old = rows.get(found.id), { ended: _ended, ...rest } = found;
-		rows.set(found.id, old ? { ...(({ ended: _o, ...base }) => base)(old), first: Math.min(old.first, found.first), last: Math.max(old.last, found.last), ...(found.ended ? { ended: true as const } : {}) } : { ...rest, ...(found.ended ? { ended: true as const } : {}) });
+		rows.set(found.id, old ? { ...(({ ended: _o, device: _d, ...base }) => base)(old), ...(old.ended ? { team: old.team, ...(old.device ? { device: old.device } : {}) } : { team: found.team, ...(found.device ? { device: found.device } : {}) }), first: Math.min(old.first, found.first), last: Math.max(old.last, found.last), ...(found.ended ? { ended: true as const } : {}) } : { ...rest, ...(found.ended ? { ended: true as const } : {}) });
 	}
 	return { rows, lines };
 }
@@ -123,9 +127,11 @@ export function openLedger(d: LedgerDeps): Ledger {
 			if (!u.file) continue;
 			const file = canonical(u.file) ?? u.file, id = idOf(file), old = book.get(id), over = u.live === false;
 			if (!old) {
-				const prior = owners.get(id), team = prior?.team ?? ("team" in u.owner ? u.owner.team : BOX), device = prior ? prior.device : u.device;
+				const prior = owners.get(id), mine = u.owner && ("team" in u.owner ? u.owner.team : BOX);
+				if (!prior && !mine) continue; // whose it is cannot be said yet: it is not the box's, nor a team's, so it has no row until a reading can say (its run is then seen from there on)
+				const team = prior?.team ?? mine!, device = prior ? prior.device : u.device;
 				if (team !== BOX && !TEAM.test(team)) continue;
-				const row: Row = { id, team, ...(device && DEVICE.test(device) ? { device } : {}), role: ROLE.test(u.role) ? u.role : "main", name: clean(u.name), workspace: clean(u.workspace), file, first: at, last: at };
+				const row: Row = { id, team, ...(device && DEVICE.test(device) ? { device } : {}), role: (UNIT_ROLES as readonly string[]).includes(u.role) ? u.role : "main", name: clean(u.name), workspace: clean(u.workspace), file, first: at, last: at };
 				put(row);
 				if (over) put({ ...row, ended: true });
 				else live.add(id);
@@ -134,8 +140,16 @@ export function openLedger(d: LedgerDeps): Ledger {
 			} else {
 				live.add(id);
 				const { ended: _ended, ...base } = old;
-				if (old.ended) put({ ...base, last: at }); // seen live again: a resumed session
-				else book.set(id, { ...base, last: at }); // `last` moves in memory; the end line carries it
+				if (old.ended) put({ ...base, last: at }); // seen live again: a resumed session keeps the owner it ended with
+				else {
+					// A live run's owner is read again at each reading until it ends: the first one may have come before the records that say whose it is (review OW-F004). A reading that cannot say changes nothing, and a team's run is never
+					// moved to the box's by a reading (the box part of a session reaches a wider book than a team's admin does).
+					const team = u.owner && ("team" in u.owner ? u.owner.team : BOX), device = u.device && DEVICE.test(u.device) ? u.device : undefined;
+					if (team !== undefined && (team === BOX ? old.team === BOX : TEAM.test(team)) && (team !== old.team || (device !== undefined && device !== old.device))) {
+						const { device: _device, ...rest } = base;
+						put({ ...rest, team, ...(device ? { device } : {}), last: at });
+					} else book.set(id, { ...old, last: at }); // `last` moves in memory; the end line carries it
+				}
 			}
 		}
 		for (const old of [...book.values()]) if (!old.ended && !live.has(old.id)) put({ ...old, ended: true });
@@ -179,12 +193,12 @@ export function openLedger(d: LedgerDeps): Ledger {
 	};
 }
 
-/** The units of a net reading that have a session file, for `observe`: `refs` are the registry's entries (every unit the net holds), `owner` is operatescope.ts's reading, `device` the dispatcher of a unit (dispatcher.ts), and a unit with no owner is left out. */
+/** The units of a net reading that have a session file, for `observe`: `refs` are the registry's entries (every unit the net holds), `owner` is operatescope.ts's reading of whose a unit is (settled: none while it cannot be said), and `device` the dispatcher of a unit (dispatcher.ts). A unit whose owner cannot be said is still in the reading, so its row does not end. */
 export function seenFrom(d: { refs: Iterable<Ref>; workspace(base: string): string; owner(key: string): Owner | undefined; device(key: string): string | undefined; live?(key: string): boolean }): Seen[] {
 	const out: Seen[] = [];
 	for (const r of d.refs) {
 		const owner = r.file ? d.owner(r.key) : undefined;
-		if (r.file && owner) out.push({ role: r.role, name: r.name, workspace: d.workspace(r.base), file: r.file, owner, ...(d.device(r.key) ? { device: d.device(r.key)! } : {}), ...(d.live && !d.live(r.key) ? { live: false } : {}) });
+		if (r.file) out.push({ role: r.role, name: r.name, workspace: d.workspace(r.base), file: r.file, ...(owner ? { owner } : {}), ...(d.device(r.key) ? { device: d.device(r.key)! } : {}), ...(d.live && !d.live(r.key) ? { live: false } : {}) });
 	}
 	return out;
 }

@@ -43,3 +43,8 @@ On the page the groups of one chain are one card: the newest on top says how man
 ## Tests and demo
 
 `tests/head-cards.test.ts` (kept text and boss words, `supersedes` validation before any tower is opened, the fields' types on read, states, `read`/`acted` and the calls that count through the server including a forged header and two boss events in one head run, the one copy of a message and the text budget with its measured worst case, the head's tool texts) and `tests/head-page.test.ts` (parts, `sentLine`, the states' words and counts, the chain model and DOM, the sheet). `?head=answers` and `?head=waiting` carry the chain of the boss's screenshot (an order, its correction, the correction of that; three towers that answered, handled, received, or wait). Pictures: `~/.local/share/sbd-review/head-log-cards/` (first round) and `r2/` (after the review: no ids, the cut line, handled counts, the aligned when line).
+
+## The log is a fold (todo #130)
+
+The cards sit in `<details class="head-log">` (session.ts) under the conversation: closed, one 44 px line with `Orders sent (N)` (N = the cards on the page, replaced orders not counted) and the newest card's `sentLine`; hidden when there are no orders. Open, `.head-asks` scrolls inside 30% of the panel (`--vvh`, `--hud` as `.comms-in .ask`), so the conversation row (`1fr` of the panel's grid) keeps the rest. The open state is the element's own: a redraw (`fillHeadLog`, which only sets text) leaves it. An unfolded card hides its clamped summary parts (`.ask-part`): its texts are in full below, and the summary keeps the when line. Chosen over a capped always-open box: the boss's report was the log taking the panel, and a cap still takes its share on every visit.
+

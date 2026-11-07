@@ -20,9 +20,10 @@ import { type IntercomModule, loadIntercom, LoaderError } from "./intercom.ts";
 import { DialogForwarder } from "../link/dialogs-out.ts";
 import { dispatcherLookup, unitLabel } from "./dispatcher.ts";
 import { towerOpener } from "./opentower.ts";
-import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
-import type { OperateBox } from "./operatebox.ts";
-import { operateWire } from "./operatewire.ts";
+import { createLinkService, type LinkService, operateGranted, type ServiceDeps } from "../link/service.ts";
+import { boxesOf, createOperateHost, type OperateHost } from "./operatehost.ts";
+import { operateOff } from "./operateoff.ts";
+import { operateWire, type OperateWire } from "./operatewire.ts";
 import { createLog, tailLog } from "./log.ts";
 import { procsReply, startProcs, type StartProcs } from "./procsops.ts";
 import { gateRun, type RunInfo } from "./rungate.ts";
@@ -285,7 +286,31 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	// The dialog forwarder (src/link/dialogs-out.ts) and the unit reporter (src/link/unitstatus.ts) are built later, with the link; they are declared here so a start that gives up early can shut down before either exists.
 	let forwarder: DialogForwarder | undefined;
 	let reporter: UnitReporter | undefined;
-	let operateBox: OperateBox | undefined;
+	let operateBox: OperateWire | undefined;
+	// The controller's end of operate (operatehost.ts), one per GUI that runs: the GUI owns and stops it, so a GUI that starts again asks for a new one. It opens sessions only while this device is attended and a page is connected; an unattended device's
+	// offers are empty (one device is never both ends), and the holder's operate sink is the box's there (link/service.ts).
+	let operateHost: OperateHost | undefined;
+	// The boss's switch (`/boss link operate off`, kept until `on`): it is this device's own state and outlives the GUI and the server (operateoff.ts).
+	const operateSwitch = operateOff(join(slot.stateDir, "link", "operate-off.json"), now);
+	const makeOperateHost = (): OperateHost => (operateHost = createOperateHost({
+		now, device: () => link?.holder?.deviceId,
+		boxes: () => boxesOf(link), paused: () => operateSwitch.since() !== undefined, enabled: () => Boolean(link?.holder) && link!.attended(),
+		send: (team, device, message) => { const holder = link?.holder; return holder ? holder.sendLive(team, device, message) : Promise.reject(new Error("The link holder is not running")); },
+		log: (entry) => link?.store.log(entry),
+	}));
+	/** The box's bridge (operatewire.ts), built by the first message the holder hands it or the first read of a policy that grants operate, and never while the server leaves (a stopped bridge refuses opens itself) or while the policy grants nobody. An attended computer never gets one. */
+	const boxOf = (): OperateWire | undefined => {
+		if (operateBox) return operateBox;
+		if (leaving || !link || !operateGranted(link.policyNow())) return undefined;
+		return (operateBox = operateWire({ ended: dropBox, slot, now, run: cfg.run, gui: () => guiHost?.operate(), allyPanes: () => towers?.runs.allyPanes() ?? [], link: () => link, ...(o.link?.operateNetMs ? { netMs: o.link.operateNetMs } : {}) }));
+	};
+	/** A box that lost its last grant and has no session left drops the bridge and its policy watch; `boxOf` builds a new one at the next grant. Called when the grant goes and when a session ends. */
+	const dropBox = () => {
+		const box = operateBox;
+		if (!box || box.net.running() || box.sessions().length || (link && operateGranted(link.policyNow()))) return;
+		operateBox = undefined;
+		box.stop();
+	};
 	const shutdown = (code: number): Promise<void> => (leaving ??= (async () => {
 		const began = now();
 		timers.forEach(clearInterval);
@@ -293,6 +318,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		// The link holder's record goes before the server does, so the next server takes it at its first look and no relay stream is left half open.
 		forwarder?.stop();
 		operateBox?.stop(); // each operate session says `close` to its operator while the holder still runs
+		operateHost?.stop(); // and each session of this computer's own to a box
 		await Promise.race([link?.stop().catch((error: Error) => log.line("error", { code: "link", text: phrase(error.message, 300) })), sleep(LINK_STOP_MS)]);
 		// The GUI listeners and the remote entry go before the intercom ids are released.
 		await Promise.race([guiHost?.leave(phase === "stopping").catch(() => {}), sleep(GUI_LEAVE_MS)]);
@@ -531,6 +557,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		failed: (code, text) => recordError(code, text), tailscale: gui.tailscale, bundle: gui.bundle, bindWaitMs: gui.bindWaitMs, ...(gui.lan ? { lan: gui.lan } : {}),
 		// The page's tower units: the service's state and queue in the net, the composer as a boss event, and the notices' buttons (towers is built below, after the GUI host, and may be absent).
 		tower: towerPanel(() => towers), head: headSeam(slot, now),
+		...(slot.primary ? { operateHost: makeOperateHost } : {}),
 	});
 	// The tower service (behind `towerRuns.enabled`): it stands in for each workspace's tower, and finds the tabs again when a new Herdr server takes over.
 	// What `boss_server` does for a run (runtools.ts): the server answers it itself, so it can refuse an ally run's token and keep the restart limit.
@@ -621,8 +648,16 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	const startLink = () => {
 		if (link || !slot.primary || leaving) return;
 		link = createLinkService({
-			// The operate bridge (operatewire.ts) is built by the first message the holder hands it (never while the server leaves: a stopped bridge refuses opens itself); an attended computer never gets one.
-			operate: (m) => { if (operateBox || !leaving) (operateBox ??= operateWire({ slot, now, run: cfg.run, gui: () => guiHost?.operate(), allyPanes: () => towers?.runs.allyPanes() ?? [], link: () => link })).take(m); }, onRoster: (team) => operateBox?.onRoster(team),
+			// The operate bridge (operatewire.ts) is built by the first message the holder hands it while the policy grants operate (never while the server leaves: a stopped bridge refuses opens itself); an attended computer never gets one.
+			operate: (m) => boxOf()?.take(m),
+			// The policy gained or lost an `operate` grant (the holder reads it at each tick): the ledger's slow reading of the net runs only while someone may operate here, and a box that grants nobody builds nothing.
+			operateWatch: (on) => (on && !leaving ? boxOf()?.net.start() : (operateBox?.net.stop(), dropBox())),
+			// An attended computer's holder takes operate as the controller (the box's `accept`, `refuse` and frames go to the host of the GUI that runs, which a box's caps check requires the holder to list); `/boss link operate` reads and ends its sessions.
+			controller: { receive: (m) => operateHost?.receive(m), status: () => operateHost?.status() ?? [], offSince: () => operateSwitch.since(), off: () => { const done = operateSwitch.off(now()); operateHost?.off(); return done; }, on: () => { const done = operateSwitch.on(); if (done.saved) operateHost?.on(); return done; } },
+			// A roster change or a stopped team: the box side rechecks its sessions, and the controller side closes the sessions of a team this device no longer runs (the holder answers nothing for it).
+			onRoster: (team) => { operateBox?.onRoster(team); const holder = link?.holder, self = holder?.deviceId; if (operateHost && (!holder || !self || !holder.member(team, self))) operateHost.closeTeam(team); },
+			// The host's clock follows the holder: one gained after a page is connected (or lost) pulses it.
+			onHolder: () => operateHost?.on(),
 			kit, stateDir: slot.stateDir, version, pid, started: () => own.started,
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
 			dialogAnswer: (a) => dialogsOut().answer(a),
@@ -634,6 +669,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 					failed: (from, project, error) => void unitsOut().notify(`tower-open/${from}/${project}/${Math.floor(now() / 600_000)}`, { kind: "tower-open-failed", unit: allyLabel(project), text: `Could not open a tower for ${project}: ${error.message}` }, { device: from }) }) },
 		});
 		linkFirst = link.start();
+		void linkFirst.then(() => operateHost?.on(), () => undefined); // a page that was connected before Link came up gets its clock now
 	};
 	let connecting = false, resolveFirst!: (ok: boolean) => void;
 	const first = new Promise<boolean>((resolve) => (resolveFirst = resolve));

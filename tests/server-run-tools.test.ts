@@ -192,12 +192,55 @@ test("the server keeps the once-a-minute restart limit itself: a restart that as
 	assert.equal(world.record()?.restarting, undefined, "nothing began");
 });
 
+test("view: a queued row says `start` only while a start is under way (waking, or a wake armed); a tower that will not wake says why its messages wait (R-F001)", async () => {
+	const rows = () => towers!.runs.view("wA")!.queue.map((q) => [q.as, q.why]);
+	// waking: the settings check holds the run between standing and running
+	let release!: () => void;
+	world.settingsHold = new Promise<void>((r) => (release = r));
+	const s = await started();
+	world.client("sb-tower-wa")!.incoming(from, msg("m0", "go"));
+	assert.deepEqual(rows(), [["start", undefined]], "a wake is armed: the message is on its way");
+	await until(() => towers!.runs.view("wA")!.state === "waking", "the wake");
+	assert.deepEqual(rows(), [["start", undefined]], "waking");
+	release();
+	void s;
+});
+
+test("view: with the service off no wake is armed and the row says the message is kept", async () => {
+	await started();
+	world.setFlag(false);
+	world.client("sb-tower-wa")!.incoming(from, msg("m0", "off"));
+	await until(() => towers!.runs.view("wA")!.queued === 1, "the event");
+	assert.deepEqual(towers!.runs.view("wA")!.queue.map((q) => [q.as, q.why]), [["followUp", "off"]]);
+});
+
+test("view: a settings refusal keeps the message and the row says the tower could not start", async () => {
+	world.settingsError = new Error(".pi/settings.json is a link to /dev/zero");
+	world.runTimers = { refuse: 60_000 };
+	await started();
+	world.client("sb-tower-wa")!.incoming(from, msg("m0", "x"));
+	await until(() => towers!.runs.view("wA")!.notices.some((n) => n.kind === "settings"), "the refusal");
+	assert.deepEqual(towers!.runs.view("wA")!.queue.map((q) => [q.as, q.why]), [["followUp", "refused"]]);
+});
+
+test("view: with every run slot taken the second tower's message waits and the row says the slots are full", async () => {
+	world.runMax = 1;
+	const s = await started();
+	world.herdr.workspaces[1]!.worktree = { checkout_path: "/w/beta" };
+	await ask(s, { cmd: "ensure-tower", workspace: "wB" });
+	world.client("sb-tower-wa")!.incoming(from, msg("m1", "a"));
+	await until(() => world.pis.size === 1, "the first run");
+	world.client("sb-tower-wb")!.incoming(from, msg("m1", "b"));
+	await until(() => towers!.runs.view("wB")!.queue[0]?.why === "full", "the second tower to be blocked");
+	assert.deepEqual(towers!.runs.view("wB")!.queue.map((q) => [q.as, q.why]), [["followUp", "full"]]);
+});
+
 test("view: the GUI's reading of a service is its state, its waiting events as queued rows (kind, sender, first line), the run, and the file of the run's comms", async () => {
 	const s = await started();
 	world.client("sb-tower-wa")!.incoming(from, msg("m0", "[straw net from=docs-main] first line\nsecond line"));
 	const before = towers!.runs.view("wA")!;
 	assert.equal(before.queued, 1);
-	assert.deepEqual(before.queue, [{ text: "intercom · docs-main: [straw net from=docs-main] first line", as: "followUp" }]);
+	assert.deepEqual(before.queue, [{ text: "intercom · docs-main: [straw net from=docs-main] first line", as: "start" }], "a tower that has not started waits for the start: nothing is queued behind a turn");
 	assert.equal(towers!.runs.view("wZ"), undefined);
 	const token = await localToken(s);
 	await ask(s, { cmd: "run-file", token, file: "/s/run.jsonl" });
@@ -205,4 +248,5 @@ test("view: the GUI's reading of a service is its state, its waiting events as q
 	assert.equal(during.state, "running");
 	assert.equal(during.run?.kind, "local");
 	assert.equal(during.file, "/s/run.jsonl");
+	assert.deepEqual(during.queue.map((q) => q.as), ["followUp"], "once the run is up, what is left waits for the next run");
 });

@@ -7,6 +7,7 @@ import type { OperateGrant, Policy } from "../src/link/policy.ts";
 import type { Reply } from "../src/control.ts";
 import type { Base, Net, Unit } from "../src/net.ts";
 import type { Operate, OperateSession as Seam, Sink } from "../src/operateseam.ts";
+import type { Transcripts } from "../src/watch.ts";
 import { type OperateScope } from "../src/operateroutes.ts";
 import { sliceNet } from "../src/operateslice.ts";
 import { createOperateBox, type BoxDeps } from "../src/server/operatebox.ts";
@@ -36,16 +37,16 @@ const OWNERS: Record<string, Owner> = { "a-main": { team: A }, "b-main": { team:
 export const keysOf = (net: Net): string[] => net.bases.flatMap((b) => [...(b.tower ? [b.tower.key] : []), ...b.tabs.flatMap((t) => t.units.map((u) => u.key))]).sort();
 export const settle = async () => { for (let i = 0; i < 6; i++) await new Promise<void>((r) => setImmediate(r)); };
 
-interface Recorded { watches: [string, string, boolean][]; mirrors: [string, boolean][]; requests: { method: string; parts: string[]; body: unknown; scope: OperateScope }[]; rescoped: OperateScope[]; stopped: boolean; sink: Sink }
+interface Recorded { /** What the box gave this session as its transcripts (undefined when it gave none). */ transcripts: Transcripts | undefined; watches: [string, string, boolean][]; mirrors: [string, boolean][]; requests: { method: string; parts: string[]; body: unknown; scope: OperateScope }[]; rescoped: OperateScope[]; stopped: boolean; sink: Sink }
 function fakeOperate(replies: { request?: (parts: string[]) => Reply } = {}) {
 	const sessions: (Recorded & Seam)[] = [], listeners = new Set<() => void>();
 	let snapshots = 0, net = NET();
 	const api: Operate = {
 		async snapshot(scope) { snapshots++; return sliceNet(JSON.parse(JSON.stringify(net)) as Net, scope); },
 		changed: (l) => (listeners.add(l), () => void listeners.delete(l)),
-		open(sink) {
+		open(sink, transcripts) {
 			const s: Recorded & Seam = {
-				watches: [], mirrors: [], requests: [], rescoped: [], stopped: false, sink,
+				transcripts, watches: [], mirrors: [], requests: [], rescoped: [], stopped: false, sink,
 				async watch(id, target, on) { s.watches.push([id, target, on]); return { status: 200, body: { watching: on } }; },
 				async mirror(key, on) { s.mirrors.push([key, on]); return { status: 200, body: { attached: on } }; },
 				async request(method, parts, _q, body, scope) { s.requests.push({ method, parts, body, scope }); return replies.request?.(parts) ?? { status: 200, body: { ok: true } }; },
@@ -60,7 +61,7 @@ function fakeOperate(replies: { request?: (parts: string[]) => Reply } = {}) {
 }
 
 interface State { policy: Policy; roster: Record<string, { role: "admin" | "member" }>; gui: boolean; membersGone: boolean; /** The relay does not answer: a send never settles. */ stall: boolean }
-export function world(o: { budget?: number } = {}) {
+export function world(o: { budget?: number; transcripts?: BoxDeps["transcripts"]; observe?: BoxDeps["observe"] } = {}) {
 	const clock = fakeClock(1_800_000_000_000);
 	const fo = fakeOperate();
 	const state: State = {
@@ -87,6 +88,8 @@ export function world(o: { budget?: number } = {}) {
 		log: (entry) => void logs.push(entry), now: clock.now, every,
 		watch: (onChange) => (order.push("watch"), (policyWatch = onChange), { stop: () => void (watchStopped = true) }),
 		...(o.budget !== undefined ? { budget: o.budget } : {}),
+		...(o.transcripts ? { transcripts: o.transcripts } : {}),
+		...(o.observe ? { observe: o.observe } : {}),
 	};
 	const box = createOperateBox(deps);
 	const ctls: Ctl[] = [], sent: { team: string; device: string; message: OperateMessage; at: number }[] = [];

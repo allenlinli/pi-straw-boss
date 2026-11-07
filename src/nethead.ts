@@ -14,10 +14,10 @@ import type { Queued, Ref, TowerService, TowerView } from "./net.ts";
 export interface HeadAskRow { id: string; group: string; workspace: string; label: string; since: number; at: number; first: string; state: "waiting" | "answered" | "handled" | "received" | "silent"; answers: number; last?: string; sent?: string; boss?: string; supersedes?: string; missed?: true }
 /** One chapter of the head's conversation (server/headchapters.ts): its pi session file and why it began. */
 export interface HeadChapter { n: number; file: string; from: string; to?: string; why: string }
-/** What the net needs of the server to show the head: its key (the identity), its asks and chapters, and the time of its newest assistant text in a conversation file. */
-export interface HeadSeam { key: string; asks(): HeadAskRow[]; chapters(): HeadChapter[]; said(file: string | undefined): number | undefined }
-/** `state` is `absent` until the head exists. `mark` is the tower unit's rule, so an idle conversation is `idle`, never `waiting`. `said` drives the crown's dot. */
-export interface HeadUnit { key: string; name: string; mark: Mark; state: "absent" | TowerService["state"]; service?: TowerService; queued?: Queued[]; asks: HeadAskRow[]; said?: number }
+/** What the net needs of the server to show the head: its key (the identity), its asks and chapters, the time of its newest assistant text in a conversation file, and that text's first line. */
+export interface HeadSeam { key: string; asks(): HeadAskRow[]; chapters(): HeadChapter[]; said(file: string | undefined): number | undefined; line(file: string | undefined): string | undefined }
+/** `state` is `absent` until the head exists. `mark` is the tower unit's rule, so an idle conversation is `idle`, never `waiting`. `said` drives the crown's dot; `line` is the first line (≤ 160) of the head's newest assistant text, the head band's line when no ask is live (docs/specs/2026-11-07-head-band.md). */
+export interface HeadUnit { key: string; name: string; mark: Mark; state: "absent" | TowerService["state"]; service?: TowerService; queued?: Queued[]; asks: HeadAskRow[]; said?: number; line?: string }
 
 /** What a tower the sb server runs shows as its mark: the live run is working unless the boss is the one being waited for, a service with no run is idle; no service, the pane's own mark. */
 export const serviceMark = (service: TowerService | undefined, towerMark: Mark): Mark => (!service ? towerMark : service.run ? (towerMark === "idle" || towerMark === "unknown" ? (service.conversation?.idle && !service.conversation.closing ? "idle" : "working") : towerMark) : towerMark === "commanding" ? towerMark : "idle");
@@ -42,6 +42,6 @@ export function headUnit({ all, sessions, ps, services, seam, readable, keep }: 
 	const chapters = seam.chapters().flatMap((c) => { const file = readable(c.file); return file ? [{ ...c, file }] : []; });
 	const file = chapters.at(-1)?.file ?? (view ? readable(runFile) : undefined), name = me?.name ?? "head tower";
 	keep({ key: seam.key, base: workspace?.workspace_id ?? HEAD_KEY, name, role: "head", file, pane: pane?.pane_id, chapters });
-	const service = view ? (rest as TowerService) : undefined, said = seam.said(file);
-	return { head: { key: seam.key, name, mark: service ? serviceMark(service, me ? sessionMark(me, pane) : "unknown") : "idle", state: service?.state ?? "absent", ...(service ? { service: { ...service, allyRuns: [] } } : {}), ...(queue?.length ? { queued: queue } : {}), asks: seam.asks(), ...(said !== undefined ? { said } : {}) } };
+	const service = view ? (rest as TowerService) : undefined, said = seam.said(file), line = seam.line(file);
+	return { head: { key: seam.key, name, mark: service ? serviceMark(service, me ? sessionMark(me, pane) : "unknown") : "idle", state: service?.state ?? "absent", ...(service ? { service: { ...service, allyRuns: [] } } : {}), ...(queue?.length ? { queued: queue } : {}), asks: seam.asks(), ...(said !== undefined ? { said } : {}), ...(line ? { line } : {}) } };
 }

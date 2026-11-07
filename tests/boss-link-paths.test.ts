@@ -6,7 +6,7 @@ import { after, test } from "node:test";
 import { LINK_ARGUMENTS, parseLinkMore } from "../src/bosslink.ts";
 import { registerBoss } from "../src/boss.ts";
 import { createBossPaths, type Post } from "../src/bosspaths.ts";
-import { localOnlyText, type ControlDeps } from "../src/control.ts";
+import { createControl, localOnlyText, type ControlDeps } from "../src/control.ts";
 import { startGui, type Gui } from "../src/gui.ts";
 import { encodeInvite } from "../src/link/join.ts";
 import type { Kit } from "../src/state.ts";
@@ -530,7 +530,7 @@ function boss(active: boolean) {
 	registerBoss(kit, { runMode: { active: () => active }, host: never as never, membership: never as never, reach: never as never, closeSelf: () => undefined, stashing: never as never, paths: { link } as never });
 	return { run: (line: string) => handler!(line, { ui: {}, hasUI: true, cwd: "/work" }), called, told };
 }
-const LINES = ["link confirms", "link confirm c1aa allow", "link asks", "link answer a1b2 2", "link invite cancel ab12", "link invite show ab12", "link join cancel", "link leave Forked --force", "link create https://r.example ~/p --share status", "link join @/tmp/i.txt --project ~/p"];
+const LINES = ["link operate", "link operate off", "link operate on", "link confirms", "link confirm c1aa allow", "link asks", "link answer a1b2 2", "link invite cancel ab12", "link invite show ab12", "link join cancel", "link leave Forked --force", "link create https://r.example ~/p --share status", "link join @/tmp/i.txt --project ~/p"];
 
 test("each new line reaches the link path with the session's folder", async () => {
 	const b = boss(false);
@@ -774,4 +774,97 @@ test("PLP-F006: a /boss link answer with line breaks in its text reaches the lin
 	await b.run("link answer a1b2 first line\nsecond line");
 	await b.run("link answer a1b2 \n  starts with a break");
 	assert.deepEqual(b.called, [`link ${JSON.stringify(["answer a1b2 first line\nsecond line", "/work"])}`, `link ${JSON.stringify(["answer a1b2 \n  starts with a break", "/work"])}`]);
+});
+
+// ---- /boss link operate (todo #121 wiring, docs/specs/2026-11-07-link-operate.md §8): the sessions this computer holds on unattended boxes, and ending them ------------------------------------------------
+
+test("parseLinkMore reads `operate`, `operate off` and `operate on`, and says usage for anything after them", () => {
+	assert.deepEqual([parseLinkMore("operate"), parseLinkMore(" operate "), parseLinkMore("operate off"), parseLinkMore("operate   off"), parseLinkMore("operate on"), parseLinkMore("operate  on ")], [{ action: "operate" }, { action: "operate" }, { action: "operate-off" }, { action: "operate-off" }, { action: "operate-on" }, { action: "operate-on" }]);
+	for (const bad of ["operate on now", "operate off now", "operate box", "operate --force", "operate onn"]) assert.equal(parseLinkMore(bad), "usage", bad);
+	assert.ok(LINK_ARGUMENTS.some((a) => a.value === "link operate") && LINK_ARGUMENTS.some((a) => a.value === "link operate off") && LINK_ARGUMENTS.some((a) => a.value === "link operate on"));
+});
+
+test("/boss link operate lists each session with the box's label as the boss reads it, in both languages; with none it says so", async () => {
+	const sessions = [
+		{ team: "t1", teamName: "Shop floor", device: "d1", label: "agent-tower-01\u202eevil", short: "AGT01", scope: "box", state: "live", since: Date.now() - 125_000, pages: 2 },
+		{ team: "t1", teamName: "Shop floor", device: "d2", label: "cell-2", short: "CEL02", scope: "team", state: "unreachable", pages: 1 },
+	];
+	for (const lang of ["en", "zh-TW"]) {
+		const w = world({ lang });
+		w.reply("link/operate", { status: 200, body: { sessions } });
+		await w.run("operate");
+		assert.deepEqual(w.at("link/operate").map((p) => p.json), [{}]);
+		const said = w.last().text;
+		assert.ok(said.includes("AGT01") && said.includes("CEL02") && said.includes("Shop floor"), said);
+		assert.ok(!said.includes("\u202e"), "a label a teammate wrote shows with its controls escaped");
+		assert.match(said, lang === "en" ? /2 pages connected/ : /2 個頁面連著/);
+		assert.match(said, /operate off/);
+		const none = world({ lang });
+		none.reply("link/operate", { status: 200, body: { sessions: [] } });
+		await none.run("operate");
+		assert.match(none.last().text, lang === "en" ? /No operate session is open/ : /沒有開著的操作連線/);
+	}
+	const refused = world();
+	refused.reply("link/operate", { status: 409, body: { error: "link_failed" } });
+	await refused.run("operate");
+	assert.equal(refused.told.at(-1)!.level, "error");
+});
+
+test("/boss link operate off posts the route that ends them, tells so in both languages, and says usage for a malformed line", async () => {
+	for (const lang of ["en", "zh-TW"]) {
+		const w = world({ lang });
+		await w.run("operate off");
+		assert.deepEqual(w.at("link/operate-off").map((p) => p.json), [{}]);
+		assert.match(w.last().text, lang === "en" ? /Every operate session from this computer was ended/ : /操作連線都已結束/);
+		assert.match(w.last().text, lang === "en" ? /stays off.*until \/boss link operate on/ : /保持關閉.*\/boss link operate on/, "it says how long, and what turns it on");
+		await w.run("operate onn");
+		assert.equal(w.at("link/operate-off").length, 1);
+		assert.equal(w.told.at(-1)!.level, "error");
+		assert.match(w.last().text, /\/boss link operate \[off\|on\]/);
+	}
+});
+
+test("/boss link operate off says so when the switch could not be written down, and operate on posts its own route, tells so, and says when it could not be removed", async () => {
+	for (const lang of ["en", "zh-TW"]) {
+		const unsaved = world({ lang });
+		unsaved.reply("link/operate-off", { status: 200, body: { saved: false } });
+		await unsaved.run("operate off");
+		assert.equal(unsaved.told.at(-1)!.level, "warning");
+		assert.match(unsaved.last().text, lang === "en" ? /could not be written down/ : /沒能寫進狀態資料夾/);
+		const on = world({ lang });
+		await on.run("operate on");
+		assert.deepEqual(on.at("link/operate-on").map((p) => p.json), [{}]);
+		assert.equal(on.at("link/operate-off").length, 0);
+		assert.match(on.last().text, lang === "en" ? /Operate is on/ : /操作功能已開啟/);
+		const stuck = world({ lang });
+		stuck.reply("link/operate-on", { status: 200, body: { saved: false } });
+		await stuck.run("operate on");
+		assert.equal(stuck.told.at(-1)!.level, "error");
+		assert.match(stuck.last().text, lang === "en" ? /Operate stays off/ : /仍然關閉/);
+		const refused = world({ lang });
+		refused.reply("link/operate-on", { status: 409, body: { error: "link_failed" } });
+		await refused.run("operate on");
+		assert.equal(refused.told.at(-1)!.level, "error");
+	}
+});
+
+test("/boss link operate says since when operate is off, with no list of sessions", async () => {
+	const at = new Date(2026, 10, 7, 14, 3).getTime();
+	for (const lang of ["en", "zh-TW"]) {
+		const w = world({ lang });
+		w.reply("link/operate", { status: 200, body: { sessions: [], off: at } });
+		await w.run("operate");
+		assert.match(w.last().text, lang === "en" ? /Operate is off since 2026-11-07 14:03 \(turn it on with \/boss link operate on\)/ : /操作功能已關閉，自 2026-11-07 14:03 起.*\/boss link operate on/);
+	}
+});
+
+test("live: link/operate and link/operate-off are routes of this computer's own page only; a paired device's request is refused", async () => {
+	const calls: string[] = [];
+	const link: ControlDeps["link"] = { enable: async () => {}, call: async (name) => (calls.push(name), { ok: true, sessions: [] }) };
+	const control = createControl({ link, lookup: () => undefined, csrf: "c", canonical: () => undefined });
+	assert.equal((await control.run(["link", "operate"], {}, { remote: false, secure: false })).status, 200);
+	assert.equal((await control.run(["link", "operate-off"], {}, { remote: false, secure: false })).status, 200);
+	assert.equal((await control.run(["link", "operate-on"], {}, { remote: false, secure: false })).status, 200);
+	for (const name of ["operate", "operate-off", "operate-on"]) assert.equal((await control.run(["link", name], {}, { remote: true, secure: false })).status, 403, name);
+	assert.deepEqual(calls, ["operate", "operate-off", "operate-on"]);
 });

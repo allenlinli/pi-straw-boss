@@ -5,6 +5,7 @@ import { OperateRegistry, OperateSession, type OperateEnd, type OperateInner } f
 import type { Policy } from "../link/policy.ts";
 import type { Reply } from "../control.ts";
 import type { Net } from "../net.ts";
+import type { Transcripts } from "../watch.ts";
 import { type OperateScope, routeOf, type Row } from "../operateroutes.ts";
 import { MAX_WATCHES, type Operate, type OperateSession as Seam } from "../operateseam.ts";
 import { createOperateGuard, type GuardSession } from "./operateguard.ts";
@@ -57,6 +58,8 @@ export interface BoxDeps {
 	every(ms: number, fn: () => void): () => void;
 	/** The policy file's watch (policy.ts `watchPolicy`). */
 	watch(onChange: () => void): { stop(): void };
+	/** Told after each session has ended (the owner may drop a bridge that has nothing left to do). */
+	ended?(): void;
 	/** Envelopes a minute across all sessions (default `BOX_BUDGET`). */
 	budget?: number;
 	/**
@@ -64,6 +67,8 @@ export interface BoxDeps {
 	 * and a scoped hub for `api/transcripts` plug in here and in `gui.operate` when task 8 merges; nothing in this file reads them.
 	 */
 	observe?(net: Net, scope: Scope): void;
+	/** The finished runs a session's scope reaches (operateledger.ts `within`, §9): the seam's hub for that session lists them and reads their `t<id>` keys; `scope` is read at every call, so it follows the session's. */
+	transcripts?(scope: () => Scope): Transcripts;
 }
 
 type Say = (entry: Record<string, unknown>) => void;
@@ -90,9 +95,11 @@ const REASON = (word: Refusal): Reply => ({ status: 403, body: { error: "operate
 const ACTIONS: [RegExp, string][] = [[/^sessions\/\*\/input$/, "input"], [/^sessions\/\*\/keys$/, "keys"], [/^sessions\/\*\/answer$/, "answer"], [/^sessions\/\*\/dequeue$/, "dequeue"], [/^sessions\/\*\/upload$/, "upload"], [/^close\/unit$/, "close-unit"], [/^close\/tab$/, "close-tab"], [/^dismiss$/, "dismiss"]];
 // The action of a state-changing request for the log: the table's row; a tower row takes its action from the request's own path (its third part), since the row's pattern lists every action.
 const actionOf = (route: string, parts: string[]): string => (route.startsWith("tower/") ? (parts[2] === "memory" ? "memory" : "tower") : ACTIONS.find(([re]) => re.test(route))?.[1] ?? "request");
-const READS: Record<string, string> = { "history/*": "history", "entry/*/*": "entry", "image/*/*/*": "image", "sessions/*/commands": "commands" };
+const READS: Record<string, string> = { "history/*": "history", "entry/*/*": "entry", "image/*/*/*": "image", "sessions/*/commands": "commands", transcripts: "transcripts" };
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const sane = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
+/** A key the ledger names a finished run by (operateledger.ts): owned by no unit of the registry, so the guard's unit check does not apply to it; the seam's hub answers for it by the session's scope (404 when it is not in it). */
+const TKEY = /^t[0-9a-f]{16}$/;
 const errorName = (error: unknown): string => (error as Error)?.name ?? "Error";
 
 /** The class of a key request for the log: what kind of input it was, never its text. */
@@ -172,6 +179,7 @@ export function createOperateBox(d: BoxDeps) {
 		if (s.ended) return;
 		s.ended = true;
 		live.delete(s.id);
+		queueMicrotask(() => { try { d.ended?.(); } catch { /* the owner's own */ } });
 		try { s.unlisten?.(); } catch { /* the entry is going away */ }
 		try { s.seam.stop(); } catch { /* the seam ends what it held */ }
 		s.screens.clear();
@@ -333,7 +341,8 @@ export function createOperateBox(d: BoxDeps) {
 		else if (isObject(m.body)) body = m.body;
 		else return reply(s, id, { status: 400, body: { error: "bad_request", reason: "The body is a JSON object." } });
 		const query = new URLSearchParams(Object.entries((m.q ?? {}) as Record<string, unknown>).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : [])));
-		const unit = unitOf(row, parts as string[], upload ? {} : body), stays = !row || row.cross === "refused" || row.cross === "local";
+		const named = unitOf(row, parts as string[], upload ? {} : body), stays = !row || row.cross === "refused" || row.cross === "local";
+		const unit = d.transcripts && method === "GET" && named !== undefined && TKEY.test(named) && (parts[0] === "history" || parts[0] === "entry" || parts[0] === "image") ? undefined : named;
 		const v = await checked(s, env, { ...(unit !== undefined ? { unit } : {}), ...(stays ? { localOnly: true } : {}) });
 		if (!v.ok) return refused(s, route, v.reason, REASON(v.reason), id);
 		if (s.ended) return;
@@ -341,7 +350,7 @@ export function createOperateBox(d: BoxDeps) {
 		const done = await s.seam.request(method, parts as string[], query, body, s.opScope);
 		const denied = done.status === 403 && isObject(done.body) && done.body.error === "operate_refused";
 		if (denied) say({ event: "operate-refused", session: s.id, from: s.from, route, reason: String((done.body as { why?: unknown }).why ?? "refused").slice(0, 32) });
-		else if (method === "GET" || row?.path === "sessions/*/commands") say({ event: "operate-read", session: s.id, from: s.from, ...(unit !== undefined ? { unit } : {}), what: READS[route] ?? "read" });
+		else if (method === "GET" || row?.path === "sessions/*/commands") say({ event: "operate-read", session: s.id, from: s.from, ...(named !== undefined ? { unit: named } : {}), what: READS[route] ?? "read" });
 		else {
 			const action = actionOf(route, parts as string[]), pane = unit !== undefined ? d.pane(unit) : undefined;
 			const cls = classOf(action, body as Record<string, unknown>);
@@ -359,7 +368,7 @@ export function createOperateBox(d: BoxDeps) {
 	async function watch(s: Live, env: Live["envelope"], m: Record<string, unknown>): Promise<void> {
 		const id = m.id, target = m.target;
 		if (!sane(id, 64) || !sane(target, 200) || typeof m.on !== "boolean") return void (sane(id, 64) && reply(s, id, { status: 400, body: { error: "bad_request", reason: "A watch names an id, a target and on or off." } }));
-		const unit = target.startsWith("w:") ? undefined : target;
+		const unit = target.startsWith("w:") || (d.transcripts && TKEY.test(target)) ? undefined : target;
 		const v = await checked(s, env, unit !== undefined ? { unit } : {});
 		if (!v.ok) return refused(s, "watch", v.reason, REASON(v.reason), id);
 		if (s.ended) return;
@@ -449,7 +458,7 @@ export function createOperateBox(d: BoxDeps) {
 		ref.s = s;
 		live.set(id, s);
 		try {
-			s.seam = gui.open(sink(s));
+			s.seam = gui.open(sink(s), d.transcripts?.(() => s.scope));
 		} catch {
 			live.delete(id);
 			core.close("unavailable");

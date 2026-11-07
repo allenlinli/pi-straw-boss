@@ -61,6 +61,19 @@ test("the backdrop is a WebP of at most 120 KB, and the three sounds are mono MP
 	}
 });
 
+test("the perched raven is one WebP strip of two frames (profile, head turned) with alpha, at most 40 KB, and is credited as Codex-generated art", () => {
+	const buf = readFileSync(join(root, "gui/themes/raven/perch.webp"));
+	assert.ok(buf.length <= 40_000, `perch.webp is ${buf.length} bytes`);
+	assert.equal(buf.subarray(0, 4).toString(), "RIFF");
+	assert.equal(buf.subarray(8, 12).toString(), "WEBP");
+	assert.equal(buf.subarray(12, 16).toString(), "VP8X", "an extended WebP, which carries alpha");
+	assert.ok((buf[20]! & 0x10) !== 0, "the alpha flag is set");
+	const width = 1 + (buf[24]! | (buf[25]! << 8) | (buf[26]! << 16)), height = 1 + (buf[27]! | (buf[28]! << 8) | (buf[29]! << 16));
+	assert.equal(width, 2 * Math.round(height * 260 / 239), `two square-ish frames side by side (${width} x ${height})`);
+	const notice = at("NOTICE.md") + at("gui/ICONS.md");
+	assert.match(notice, /perch\.webp/);
+});
+
 test("the sounds are credited with their sources and CC0 licences, and the icons as original work traced with potrace", () => {
 	const notice = at("NOTICE.md") + at("gui/ICONS.md");
 	for (const credit of ["zeroisnotnull", "kgeshev", "soundofsong", "CC0", "potrace", "opengameart.org/content/crow-caw", "freesound.org/people/kgeshev/sounds/378799", "freesound.org/people/soundofsong/sounds/647646"]) assert.ok(notice.includes(credit), credit);
@@ -92,7 +105,7 @@ test("every motion rule of the theme sits under prefers-reduced-motion: no-prefe
 	const blocks = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{/g)];
 	assert.ok(blocks.length >= 1, "a no-preference block exists");
 	const outside = raw.replace(/@media \(prefers-reduced-motion: no-preference\) \{(?:[^{}]|\{[^{}]*\})*\}/g, "");
-	assert.ok(!/animation(-name)?\s*:/.test(outside), "no animation declared outside the no-preference block");
+	assert.ok(![...outside.matchAll(/animation(?:-name)?\s*:\s*([^;}]*)/g)].some((m) => !/^none\b/.test(m[1]!.trim())), "no animation declared outside the no-preference block (forced colours only stop one with `animation: none`)");
 	for (const rule of css.filter((r) => /animation\s*:/.test(r.body) && !/animation\s*:\s*none/.test(r.body))) assert.ok(/:not\(\[data-calm\]\)/.test(rule.selector), `${rule.selector} stops at data-calm`);
 	assert.match(raw, /@media \(forced-colors: active\)/);
 });
@@ -107,9 +120,65 @@ test("the lightning comes at most once a minute and never washes the screen: its
 	assert.ok(!/(#fff\b|#ffffff|white)[^;]*var\(--rk-bolt\)/i.test(raw), "never a white flash");
 });
 
+// The lightning (boss, 2026-11-07): at rest the picture is near black; a strike lights it with a double flicker and it fades back to dark in one to two seconds. Photosensitivity: at most 3 flashes in any second, strikes at least 60 s apart.
+/** The frames of `@keyframes name` that set `prop` (a number): [{ at: percent, v }] in time order. */
+const framesOf = (name: string, prop: string) => {
+	const body = new RegExp(`@keyframes ${name} \\{([\\s\\S]*?)\\n\\}`).exec(raw)?.[1] ?? "";
+	return [...body.matchAll(new RegExp(`([\\d.%,\\s]+?)\\{\\s*${prop}:\\s*([\\d.]+)\\s*;?\\s*\\}`, "g"))].flatMap((m) => m[1]!.split(",").map((t) => ({ at: parseFloat(t), v: Number(m[2]) }))).filter((f) => !Number.isNaN(f.at)).sort((a, b) => a.at - b.at);
+};
+const boltFrames = () => framesOf("rk-bolt", "--rk-bolt");
+test("the lightning lights the picture with at most 3 flashes in any second, strikes 60 s or more apart, and a fade of 1 to 2 s", () => {
+	const cycle = Number(/animation:[^;]*\brk-bolt\s+(\d+)s/.exec(raw)?.[1]), frames = boltFrames();
+	assert.ok(cycle >= 60, `rk-bolt cycle ${cycle} s`);
+	assert.ok(frames.length >= 5, "the keyframes were read");
+	const sec = (f: { at: number }) => (f.at / 100) * cycle;
+	// a flash is a local peak of at least 0.6
+	const peaks = frames.filter((f, i) => f.v >= 0.6 && (frames[i - 1]?.v ?? 0) <= f.v && (frames[i + 1]?.v ?? 0) < f.v);
+	assert.ok(peaks.length >= 2 && peaks.length <= 3, `${peaks.length} flashes in a strike`);
+	for (const a of peaks) assert.ok(peaks.filter((b) => sec(b) >= sec(a) && sec(b) < sec(a) + 1).length <= 3, "at most 3 flashes in any second");
+	const last = peaks[peaks.length - 1]!, after = frames.find((f) => f.at > last.at && f.v === 0)!, fade = sec(after) - sec(last);
+	assert.ok(fade >= 1 && fade <= 2.2, `the fade back to dark takes ${fade.toFixed(2)} s`);
+	assert.ok(sec(frames.find((f) => f.v >= 0.6)!) - sec(frames.find((f) => f.v === 0 && f.at > 0 && f.at < peaks[0]!.at) ?? { at: 0 }) <= 0.6, "it rises fast");
+});
+
+test("at rest the picture is near black: a veil of at least 0.7 over everything but the moon, and the lightning takes it away", () => {
+	const rest = /radial-gradient\(circle [^,]*at 16\.8% 15\.3%, transparent [\d.]+%, rgb\(\d+ \d+ \d+ \/ calc\(\(1 - var\(--rk-bolt\)\) \* ([\d.]+)\)\)/.exec(raw);
+	assert.ok(rest, "the rest veil, clear over the moon, scaled by (1 - the bolt)");
+	assert.ok(Number(rest[1]) >= 0.7, `the rest veil is ${rest[1]} at most`);
+	assert.match(raw, /--rk-bolt:\s*1\b/);
+});
+
+test("the perched raven sits on the head page only, in two frames of one strip, dark at rest and lit by the strike with the picture, turning its head by an opacity cycle", () => {
+	assert.match(raw, /\.stage\[data-view="head"\]::before/);
+	assert.match(raw, /\.stage\[data-view="head"\]::after/);
+	const perch = css.filter((r) => /\.stage\[data-view="head"\]::(before|after)/.test(r.selector));
+	assert.ok(perch.length >= 3, "base rules, plus the animation");
+	assert.ok(perch.some((r) => /url\("\.\/perch\.webp"\)/.test(r.body)), "the strip is the layer's image");
+	assert.ok(perch.some((r) => /filter:\s*brightness\(/.test(r.body)), "dark at rest through a brightness filter");
+	for (const name of ["rk-perch-lit", "rk-perch-turn"]) assert.match(raw, new RegExp(`@keyframes ${name}\\b`), name);
+	const cycle = Number(/rk-perch-turn\s+(\d+)s/.exec(raw)?.[1]), t = framesOf("rk-perch-turn", "opacity");
+	assert.ok(t.length >= 4 && t.some((f) => f.v === 1) && t.some((f) => f.v === 0), "the keyframes were read");
+	const first = t.find((f) => f.v === 1)!, last = [...t].reverse().find((f) => f.v === 1)!;
+	const from = [...t].reverse().find((f) => f.at < first.at && f.v === 0)!, to = t.find((f) => f.at > last.at && f.v === 0)!;
+	const holdTurned = ((last.at - first.at) / 100) * cycle, holdProfile = ((100 - to.at + from.at) / 100) * cycle;
+	assert.ok(holdTurned >= 2 && holdTurned <= 4.5, `turned for ${holdTurned.toFixed(1)} s`);
+	assert.ok(holdProfile >= 8 && holdProfile <= 15.5, `in profile for ${holdProfile.toFixed(1)} s`);
+	assert.ok(((first.at - from.at) / 100) * cycle <= 1.2 && ((to.at - last.at) / 100) * cycle <= 1.2, "the head turns in a dissolve of about a second at most");
+	// a 600 px phone and forced colours do not draw it
+	for (const query of ["(max-width: 600px)", "(forced-colors: active)"]) {
+		const block = new RegExp(`@media ${query.replace(/[()]/g, "\\$&")} \\{([^\\n]*)\\}`).exec(raw)?.[1] ?? "";
+		assert.match(block, /\.stage\[data-view="head"\]::before/, `${query} hides the perch`);
+		assert.match(block, /\.stage\[data-view="head"\]::after/, `${query} hides the turned frame`);
+	}
+	// reduced motion and calm: its animations sit in the no-preference block outside data-calm, so the profile frame stands still in the dark light
+	const inMotion = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{((?:[^{}]|\{[^{}]*\})*)\}/g)].map((m) => m[1]).join("\n");
+	assert.match(inMotion, /:not\(\[data-calm\]\)[^{]*\.stage\[data-view="head"\]::before[^{]*\{[^}]*rk-perch-lit/);
+	assert.match(inMotion, /:not\(\[data-calm\]\)[^{]*\.stage\[data-view="head"\]::after[^{]*\{[^}]*rk-perch-turn/);
+});
+
 test("the backdrop belongs to the head page only, and fog, flicker, bats, and the raven are all in the stylesheet", () => {
 	assert.match(raw, /html\[data-view="raven"\]:has\(#stage\[data-view="head"\]\)::before/);
-	for (const name of ["rk-fog", "rk-bat", "rk-raven", "rk-lit-a", "rk-lit-b", "rk-candle", "rk-bolt"]) assert.match(raw, new RegExp(`@keyframes ${name}\\b`), name);
+	for (const name of ["rk-fog", "rk-bat", "rk-raven", "rk-lit-a", "rk-lit-b", "rk-bolt"]) assert.match(raw, new RegExp(`@keyframes ${name}\\b`), name);
 });
 
 test("no selector of the theme puts a pseudo-element inside :is() (it matches nothing there)", () => {
@@ -133,6 +202,30 @@ test("the head page's veil over the moon keeps the crumb row's text at 4.5 : 1 a
 		const [hi, lo] = [lum(text), lum(ground)].sort((a, b) => b - a);
 		assert.ok((hi! + 0.05) / (lo! + 0.05) >= 4.5, `${name} on the moon under the veil`);
 	}
+});
+
+// The model stacks only the layers that reach the crumb row at the peak: the picture, the plain veil, the violet wash, and the moon veil. The foot veil
+// is clear above 40% of the picture's height (the text sits at 12–17%), the rest veil is (1 − bolt) × 0.8, so 0 at the peak, with a hole over the moon,
+// and the lights sit nowhere near the row (RL-F001).
+test("at the brightest lightning frame the moon veil, under the violet wash, still keeps the crumb row's text at 4.5 : 1", () => {
+	// the flash adds at most the violet wash (rgb 190 170 255, alpha = bolt * k, fading over the top 60 percent of the picture) over the moon's veils; the rest veil is gone at the flash but has a hole over the moon in any case
+	const wash = /linear-gradient\(rgb\((\d+) (\d+) (\d+) \/ calc\(var\(--rk-bolt\) \* ([\d.]+)\)\), transparent (\d+)%\)/.exec(raw);
+	assert.ok(wash, "the violet wash");
+	const k = Number(wash[4]), fadeAt = Number(wash[5]) / 100, rgb = [Number(wash[1]), Number(wash[2]), Number(wash[3])];
+	assert.ok(k <= 0.2, "the wash is faint");
+	const moon = /at 16\.4% 17%, rgb\(13 10 16 \/ ([\d.]+)\) 55%/.exec(raw)!;
+	assert.ok(raw.indexOf("0.62) 55%") < raw.indexOf("var(--rk-bolt) * 0.16"), "the moon's veil is listed (painted) above the wash");
+	const plain = 0.68 - (0.68 - 0.3) * (104 / 324), m = Number(moon[1]);
+	// the rows the text covers, y 88 to 122 of 721: the wash is strongest at the top of them. The layers, bottom to top: the plain veil, the wash, the moon's veil.
+	const washAlpha = k * (1 - 88 / 721 / fadeAt);
+	const lin = (v: number) => ((v / 255 + 0.055) / 1.055) ** 2.4, lum = (c: number[]) => 0.2126 * lin(c[0]!) + 0.7152 * lin(c[1]!) + 0.0722 * lin(c[2]!);
+	const veiled = [243, 217, 194].map((v, i) => (1 - plain) * v + plain * [13, 10, 16][i]!), washed = veiled.map((v, i) => (1 - washAlpha) * v + washAlpha * rgb[i]!);
+	const lit = washed.map((v, i) => (1 - m) * v + m * [13, 10, 16][i]!);
+	for (const [name, text] of Object.entries({ dim: [0xb0, 0xa6, 0xbc], gold: [0xe6, 0xb3, 0x4e], accent: [0xbb, 0xa9, 0xea] })) {
+		const [hi, lo] = [lum(text), lum(lit)].sort((a, b) => b - a);
+		assert.ok((hi! + 0.05) / (lo! + 0.05) >= 4.5, `${name} on the moon at the flash (${lit.map(Math.round)})`);
+	}
+	assert.ok(lum(lit) < 0.35, "never pure white at the peak");
 });
 
 test("no page source reads a role noun straight from the messages: every one goes through the noun chokepoint (a view's pack could not rename it otherwise)", () => {

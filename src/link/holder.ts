@@ -91,6 +91,13 @@ export interface HolderOptions {
 	/** Where a taken `operate` message goes. A build with no sink does not list `operate/1` in its caps and drops what it is sent. */
 	operate?: (message: OperateIn) => void;
 	/**
+	 * An unattended device: whether its policy grants anyone `operate` now. `operate/1` is in its caps only while this says so (a box that grants nobody is offered to nobody), and a change is sent as new caps at the next tick. Read at each tick
+	 * and when caps are built; one that throws reads as no. Not given: the sink alone decides (an attended device).
+	 */
+	operateOn?: () => boolean;
+	/** Told at the first tick, and at each tick that reads `operateOn` differently than the one before. Must not throw (one that does is logged without its message). */
+	operateChanged?: (on: boolean) => void;
+	/**
 	 * Told right after a team's roster changed on this device (entries applied and stored) and when the team stops (the box removed, a fork): the operate guard rechecks its sessions then (docs/specs/2026-11-07-link-operate.md §5.6).
 	 * `member` already answers from the new roster. Called outside the holder's lock, except from a team's stopping; it must not throw, and one that does is logged without its message and ignored.
 	 */
@@ -209,6 +216,8 @@ export const CAPS_STALE_MS = 2 * 3600_000;
 const LIVE_POST_MS = 5000;
 /** A live envelope is delivered now: the holder takes none whose `ts` is older than this. */
 const LIVE_FRESH_MS = 60_000;
+/** The word in this holder's first `caps` after it started (not a feature): see `capsSent`. */
+const HELLO = "hello";
 const CAPS_REFRESH_MS = 3600_000, CAPS_MIN_MS = 15_000, CAPS_OFF_MS = 3600_000, REPLY_OFF_MS = 3600_000, FALLBACK_LOG_MS = 3600_000;
 
 /** The default wait for the relay in `send`; the tower waits for the holder's answer longer than this plus the lock wait (runtime.ts `ASK_MS`), or it would give up on a message that was sent. */
@@ -243,8 +252,11 @@ interface TeamRun {
 	liveTs: number;
 	liveChain: Promise<unknown>;
 	liveOffUntil: number;
-	/** What this holder last sent as `caps` to the team: when, the `ts` used, and until when a relay that refused the kind is left alone. */
-	capsSent: { at: number; ts: number; offUntil: number };
+	/**
+	 * What this holder last sent as `caps` to the team: when, the `ts` used, and until when a relay that refused the kind is left alone. `due`: a peer that has just started (it said `hello`) or came back after a gap has not heard ours, so one
+	 * goes at the next tick the minimum spacing allows. `hello`: the first `caps` after this holder started carries the word `hello` until one is posted.
+	 */
+	capsSent: { at: number; ts: number; offUntil: number; due: boolean; hello: boolean };
 	/** Until when a relay that refused `tower-reply` is not sent one (a plain `tower` goes instead). */
 	replyOffUntil: number;
 	presenceTimer: ReturnType<typeof setInterval> | undefined;
@@ -292,6 +304,8 @@ export class LinkHolder {
 	private waiting = new Map<string, Waiting>();
 	/** When a `tower-reply` last fell back to a plain `tower`, by device, so the log tells it once an hour. */
 	private fellBack = new Map<string, number>();
+	/** What `operateOn` read at the last tick (nothing before the first). */
+	private operateRead: boolean | undefined;
 	/** `tower-reply`s that stopped waiting for the relay (they answered "queued"), by envelope id: what to send instead when the relay refuses the kind. */
 	private lateReplies = new Map<string, () => void>();
 	/** What the GUI does to teams (admin.ts). */
@@ -381,7 +395,32 @@ export class LinkHolder {
 		this.takeJoinFile();
 		await this.drain();
 		await this.sendBoards();
+		this.watchOperate();
 		await this.sendCaps();
+	}
+
+	/** Whether this holder lists `operate/1`: it has a sink, and (an unattended device) its policy grants someone operate now. */
+	private operateListed(): boolean {
+		if (!this.o.operate) return false;
+		if (!this.o.operateOn) return true;
+		try {
+			return this.o.operateOn();
+		} catch {
+			return false;
+		}
+	}
+	/** A policy that gained or lost `operate` changes the caps at once (the peers stop or start offering this box), and the operate side is told. */
+	private watchOperate(): void {
+		if (!this.o.operateOn) return;
+		const on = this.operateListed(), first = this.operateRead === undefined;
+		if (on === this.operateRead) return;
+		this.operateRead = on;
+		if (!first) for (const run of this.runs.values()) run.capsSent.due = true;
+		try {
+			this.o.operateChanged?.(on);
+		} catch (error) {
+			this.o.store.log({ event: "operate-changed-failed", error: (error as Error)?.name ?? "Error" });
+		}
 	}
 
 	/** Starts the teams that have a team file and a config entry, stops the ones that lost either, and tells about the rest once. */
@@ -481,7 +520,7 @@ export class LinkHolder {
 			},
 			onRetry: (_item, error) => store.log({ event: "send-retry", team, error: String(error) }),
 		});
-		const run: TeamRun = { team, teamId, client, outbox, stream: undefined, presences: new Map(), boards: new Map(), boardSent: { hash: undefined, looked: 0, at: 0, ts: 0, epoch: 0, offUntil: 0, wasEmpty: false }, lastEphemeral: new Map(), caps: new Map(), units: new Map(), unitTs: 0, liveTs: 0, liveChain: Promise.resolve(), liveOffUntil: 0, capsSent: { at: 0, ts: 0, offUntil: 0 }, replyOffUntil: 0, presenceTimer: undefined, dead: undefined, settled, haltTimer: undefined, gone, waiters, downSince: undefined, headDiff: new Map() };
+		const run: TeamRun = { team, teamId, client, outbox, stream: undefined, presences: new Map(), boards: new Map(), boardSent: { hash: undefined, looked: 0, at: 0, ts: 0, epoch: 0, offUntil: 0, wasEmpty: false }, lastEphemeral: new Map(), caps: new Map(), units: new Map(), unitTs: 0, liveTs: 0, liveChain: Promise.resolve(), liveOffUntil: 0, capsSent: { at: 0, ts: 0, offUntil: 0, due: false, hello: true }, replyOffUntil: 0, presenceTimer: undefined, dead: undefined, settled, haltTimer: undefined, gone, waiters, downSince: undefined, headDiff: new Map() };
 		this.runs.set(team, run);
 		// What an earlier holder (or this one before a restart) built and did not see land goes first, in order, before anything new is accepted.
 		for (const item of store.outboxPending(team)) {
@@ -575,9 +614,19 @@ export class LinkHolder {
 		run.lastEphemeral = recordTaken(this.state(run, tf, roster), opened.header).lastEphemeral;
 		if (opened.header.kind === "board") run.boards.set(opened.header.from, { at: this.now(), ts: opened.header.ts, board: opened.message as Board });
 		if (opened.header.kind === "unit-status") this.takeUnitStatus(run, roster, opened.header, opened.message as { units: UnitStatus[]; mains?: MainStatus[] });
-		if (opened.header.kind === "caps") run.caps.set(opened.header.from, { at: this.now(), features: (opened.message as Caps).features });
+		if (opened.header.kind === "caps") {
+			// The word is the sender's own start, not a feature of it: a peer that just started has missed ours (the relay replays a `caps` only past the cursor it resumes from, and a queued envelope moves that past ours), so ours goes once.
+			// The answer has no word, so two devices never answer each other more than once, and it keeps the minimum spacing.
+			const features = (opened.message as Caps).features;
+			run.caps.set(opened.header.from, { at: this.now(), features: features.filter((f) => f !== HELLO) });
+			if (features.includes(HELLO) && opened.header.from !== this.device?.keys.id) run.capsSent.due = true;
+		}
 		if (opened.header.kind === "presence") {
 			const presence = opened.message as Presence;
+			// A device that was not here a moment ago (it was away over `PRESENCE_ONLINE_MS`: a stream that was down) may have missed this device's `caps`: they are sent again, once, at the next tick the minimum spacing allows. A device that keeps
+			// sending presence does not cause it again. (A device that restarts says `hello`, above.)
+			const prior = run.presences.get(opened.header.from);
+			if (prior && this.now() - prior.at > PRESENCE_ONLINE_MS) run.capsSent.due = true;
 			run.presences.set(opened.header.from, { at: this.now(), presence });
 			this.compareHead(run, opened.header.from, presence, roster);
 		}
@@ -1106,26 +1155,29 @@ export class LinkHolder {
 
 	// ---- Caps (Replies for a main) ------------------------------------------------------------------------------------------------------
 
-	/** `caps` goes to each team at a stream start, then once an hour (never twice within 15 s); a relay that refuses the kind is left alone for an hour, as the board is. */
+	/** `caps` goes to each team at a stream start, then once an hour and when they are due (a peer said `hello`, a peer came back after a gap, the operate listing changed), never twice within 15 s; a relay that refuses the kind is left alone for an hour, as the board is. */
 	private async sendCaps(): Promise<void> {
 		if (!this.running || !this.device) return;
-		const now = this.now(), min = this.o.capsMinMs ?? CAPS_MIN_MS, every = this.o.capsMs ?? CAPS_REFRESH_MS;
+		const now = this.now(), min = this.o.capsMinMs ?? CAPS_MIN_MS, every = this.o.capsMs ?? CAPS_REFRESH_MS, listed = this.operateListed();
 		for (const run of [...this.runs.values()]) {
 			const sent = run.capsSent;
-			if (run.dead || now < sent.offUntil || (sent.at !== 0 && now - sent.at < every) || now - sent.at < min) continue;
+			if (run.dead || now < sent.offUntil || (sent.at !== 0 && !sent.due && now - sent.at < every) || now - sent.at < min) continue;
 			try {
 				const { state } = this.loadTeam(run.team), key = state.keys.get(state.epoch);
 				if (!key) continue;
 				const ts = Math.max(now, sent.ts + 1);
-				sent.at = now; // a failed post is tried again after the spacing, not at every tick
-				const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: CAPS_FEATURES.filter((f) => (f !== "unit-stop" || this.o.unitStop) && (f !== "operate/1" || this.o.operate)) }) });
+				sent.at = now; // a failed post is tried again after the spacing (`due` is set again by the catch), not at every tick
+				sent.due = false;
+				const hello = sent.hello;
+				const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: (CAPS_FEATURES as readonly string[]).filter((f) => (f !== "unit-stop" || this.o.unitStop) && (f !== "operate/1" || listed)).concat(hello ? [HELLO] : []) }) });
 				await run.client.postEnvelope(run.teamId, envelope);
 				sent.ts = ts;
+				if (hello) sent.hello = false; // the word goes once: a post that failed carries it in the next
 			} catch (error) {
 				if (error instanceof RelayError && error.code === "unknown-kind") {
 					sent.offUntil = now + CAPS_OFF_MS;
 					this.o.store.log({ event: "caps-unsupported", team: run.team });
-				} else this.o.store.log({ event: "caps-failed", team: run.team, error: String(error) });
+				} else (sent.due = true, this.o.store.log({ event: "caps-failed", team: run.team, error: String(error) }));
 			}
 		}
 	}

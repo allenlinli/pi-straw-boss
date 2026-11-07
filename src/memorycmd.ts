@@ -112,6 +112,8 @@ export interface MemoryCmdDeps {
 	interactive: boolean;
 	tell(text: string, level?: "info" | "warning" | "error"): void;
 }
+/** The workspaces a typed id or label names (`-w <id | label>` of `/boss memory` and `/boss tower`): one means it is found. */
+export const matchWorkspaces = <T extends { workspace_id: string; label: string }>(all: T[], query: string): T[] => all.filter((x) => x.workspace_id === query || x.label === query);
 /** `/boss memory <args>`. */
 export async function runMemoryCommand(args: string, d: MemoryCmdDeps): Promise<void> {
 	const w = WORDS[d.lang], parsed = parseMemoryArgs(args);
@@ -121,7 +123,7 @@ export async function runMemoryCommand(args: string, d: MemoryCmdDeps): Promise<
 		let ws = d.own;
 		if (parsed.workspace === "head") ws = HEAD_KEY;
 		else if (parsed.workspace) {
-			const all = await d.workspaces(), found = all.filter((x) => x.workspace_id === parsed.workspace || x.label === parsed.workspace);
+			const all = await d.workspaces(), found = matchWorkspaces(all, parsed.workspace);
 			if (found.length !== 1) throw new Error(w.noMatch(parsed.workspace, all.map((x) => `${x.workspace_id} (${x.label})`).join(", ")));
 			ws = found[0]!.workspace_id;
 		}

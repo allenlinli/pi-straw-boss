@@ -5,13 +5,25 @@
 
 import { clean } from "./board.ts";
 import type { Lang } from "./memorycmd.ts";
+import { runTowerCommand, type TowerArgs } from "./towercmd.ts";
 
-export type HeadArgs = { op: "open" | "status" | "leave" | "new" | "close" } | { op: "say"; text: string };
-/** The words after `/boss head`: none opens it; exactly `status`, `leave`, `new`, or `close` is a command; anything else is the message, so a message that is one of these words alone is written with more words, or in the GUI. */
+export type HeadArgs = { op: "open" | "status" | "leave" | "new" | "close" | "retry" | "parked" } | { op: "deliver" | "drop"; id: string } | { op: "say"; text: string; answers?: string } | { op: "usage" };
+/**
+ * The words after `/boss head`: none opens it; exactly `status`, `leave`, `new`, `close`, `retry`, or `parked`, or `deliver`/`drop` with an event id, is a command; anything else is the message, so a message that is one of these
+ * words alone is written with more words, or in the GUI. `--answers W3` first marks that wait answered once the head took the message; the rest is then always the message.
+ */
 export function parseHeadArgs(input: string): HeadArgs {
-	const rest = input.trim().replace(/\s+/g, " ");
+	const text = input.trim();
+	const flag = /^--answers(?:\s+(\S+))?(?:\s+|$)/.exec(text);
+	if (flag) {
+		if (!flag[1] || !/^W\d+$/i.test(flag[1]) || !text.slice(flag[0].length)) return { op: "usage" };
+		return { op: "say", text: text.slice(flag[0].length), answers: flag[1].toUpperCase() };
+	}
+	const rest = text.replace(/\s+/g, " ");
 	if (!rest) return { op: "open" };
-	return /^(status|leave|new|close)$/i.test(rest) ? { op: rest.toLowerCase() as "status" } : { op: "say", text: input.trim() };
+	if (/^(status|leave|new|close|retry|parked)$/i.test(rest)) return { op: rest.toLowerCase() as "status" };
+	const m = /^(deliver|drop) ([A-Za-z0-9_.-]{1,64})$/i.exec(rest);
+	return m ? { op: m[1]!.toLowerCase() as "deliver", id: m[2]! } : { op: "say", text };
 }
 
 /** The part of the server's `status` row for the head this command reads (towers.ts `TowerRow`, runs.ts `ServiceStatus`). */
@@ -22,6 +34,8 @@ interface Row {
 }
 const WORDS = {
 	en: {
+		usage: "Usage: /boss head [status | retry | parked | deliver <id> | drop <id> | leave | new | close | [--answers W<n>] <message for the head tower>]",
+		answered: (id: string) => `${id} is marked answered.`, notAnswered: (id: string) => `${id} was not marked answered: the memory no longer has it as a wait for you.`,
 		noUi: "/boss head acts only in a pi session with a screen (a person at the keyboard): this one has none, so only status is allowed.",
 		absent: "The head tower is not open: its first message opens it.",
 		states: { standing: "standing by", waking: "waking up", running: "running", closing: "closing", held: "held (a crash loop)" } as Record<string, string>,
@@ -37,6 +51,8 @@ const WORDS = {
 		closed: "Closed the head tower. Its conversation and memory are kept.", notOpen: "The head tower was not open.",
 	},
 	"zh-TW": {
+		usage: "用法：/boss head [status | retry | parked | deliver <id> | drop <id> | leave | new | close | [--answers W<n>] <給主塔台的訊息>]",
+		answered: (id: string) => `${id} 已標為回覆。`, notAnswered: (id: string) => `${id} 沒有標為回覆：記憶裡已經沒有這個等你的等待。`,
 		noUi: "/boss head 只在有畫面的 pi session（有人在鍵盤前）裡動作：這個 session 沒有畫面，只能用 status。",
 		absent: "主塔台還沒有開：第一則訊息會開啟它。",
 		states: { standing: "待命中", waking: "喚醒中", running: "執行中", closing: "收尾中", held: "已擱置（連續當機）" } as Record<string, string>,
@@ -66,7 +82,12 @@ export interface HeadCmdDeps {
 /** `/boss head <args>`. */
 export async function runHeadCommand(parsed: HeadArgs, d: HeadCmdDeps): Promise<void> {
 	const w = WORDS[d.lang];
-	if (parsed.op !== "status" && !d.interactive) return d.tell(w.noUi, "error");
+	if (parsed.op === "usage") return d.tell(w.usage, "warning");
+	if (parsed.op !== "status" && parsed.op !== "parked" && !d.interactive) return d.tell(w.noUi, "error");
+	// The head's notices and parked events are a tower service's: towercmd.ts runs them with the head as target (`head-retry`, `head-deliver`, `head-drop`).
+	if (parsed.op === "retry" || parsed.op === "parked" || parsed.op === "deliver" || parsed.op === "drop") {
+		return runTowerCommand(parsed as TowerArgs, { lang: d.lang, own: undefined, interactive: d.interactive, tell: d.tell, ask: (request) => d.ask(request, "never"), confirm: async () => true }, "head");
+	}
 	try {
 		const call = async (request: Record<string, unknown>, start: "boss" | "never" = "never") => {
 			const r = await d.ask(request, start);
@@ -94,7 +115,10 @@ export async function runHeadCommand(parsed: HeadArgs, d: HeadCmdDeps): Promise<
 				if (typeof r.tab === "string") await d.focus(r.tab);
 				return d.tell(r.opened === true ? w.opened : w.already);
 			}
-			case "say": return void (await call({ cmd: "head-event", text: parsed.text }, "boss"), d.tell(w.handed()));
+			case "say": {
+				const r = await call({ cmd: "head-event", text: parsed.text, ...(parsed.answers ? { answers: parsed.answers } : {}) }, "boss");
+				return d.tell([w.handed(), ...(parsed.answers ? [r.answered === parsed.answers ? w.answered(parsed.answers) : w.notAnswered(parsed.answers)] : [])].join(" "));
+			}
 			case "leave": return d.tell((await call({ cmd: "head-leave" })).already === true ? w.leftAlready : w.left);
 			case "new": return d.tell(w.fresh((await call({ cmd: "head-new" })).left === true));
 			case "close": return d.tell((await call({ cmd: "head-close" })).closed === true ? w.closed : w.notOpen);

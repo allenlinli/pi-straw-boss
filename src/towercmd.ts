@@ -4,7 +4,8 @@
 // with a screen, as `/boss memory` does. Its own words come in English and Traditional Chinese; the server's refusals stay as it wrote them.
 
 import { clean } from "./board.ts";
-import type { Lang } from "./memorycmd.ts";
+import { HEAD_KEY } from "./headkey.ts";
+import { type Lang, matchWorkspaces } from "./memorycmd.ts";
 
 export type TowerArgs = { op: "status" | "retry" | "parked" | "leave" | "new" } | { op: "deliver" | "drop"; id: string };
 /**
@@ -17,6 +18,30 @@ export function parseTowerArgs(input: string): TowerArgs | undefined {
 	const m = /^(deliver|drop) ([A-Za-z0-9_.-]{1,64})$/i.exec(rest);
 	return m ? { op: m[1]!.toLowerCase() as "deliver", id: m[2]! } : undefined;
 }
+
+/** The flags before a tower message or command: `-w <workspace id | label | head>` names another tower, `--answers W3` marks that wait answered once the tower took the message. */
+export interface TowerLine { workspace?: string; answers?: string; rest: string }
+/**
+ * `/boss tower [-w <workspace>] [--answers W<n>] <words>`: the flags in either order, only at the front. `usage` when a flag has no value or the id is no wait's, or when nothing follows the flags. With `--answers` the
+ * rest is always the message (a command word is a message then); without it the rest is a command when `parseTowerArgs` knows it, else a message.
+ */
+export function parseTowerLine(input: string): TowerLine | { usage: true } {
+	let rest = input.trim(), workspace: string | undefined, answers: string | undefined;
+	for (;;) {
+		const w = /^-w(?:\s+(\S+))?(?:\s+|$)/.exec(rest), a = /^--answers(?:\s+(\S+))?(?:\s+|$)/.exec(rest), m = w ?? a;
+		if (!m) break;
+		if (!m[1] || (w ? workspace : answers) !== undefined) return { usage: true };
+		if (w) workspace = m[1];
+		else if (/^W\d+$/i.test(m[1])) answers = m[1].toUpperCase();
+		else return { usage: true };
+		rest = rest.slice(m[0].length);
+	}
+	if (!rest) return { usage: true };
+	return { ...(workspace ? { workspace } : {}), ...(answers ? { answers } : {}), rest };
+}
+
+/** The usage line, in the boss's language. */
+export const towerUsage = (lang: Lang): string => WORDS[lang].usage;
 
 /** The part of the server's `status` row for a tower this command reads (runs.ts `ServiceStatus`, as the control socket answers it). */
 interface Row {
@@ -34,7 +59,15 @@ interface Row {
 }
 const WORDS = {
 	en: {
-		usage: "Usage: /boss tower [status | retry | parked | deliver <id> | drop <id> | leave | new | <message for the tower>]",
+		usage: "Usage: /boss tower [-w <workspace id | label | head>] [--answers W<n>] [status | retry | parked | deliver <id> | drop <id> | leave | new | <message for the tower>]",
+		noMatch: (q: string, all: string) => `No workspace matches "${q}". Workspaces: ${all}`,
+		many: (q: string, list: string[]) => `"${q}" names more than one workspace; nothing was done. Name the id:\n${list.join("\n")}`,
+		confirm: "Act on another tower?", confirmBody: (what: string, label: string, id: string, head: boolean) => head ? `${what} for the head tower.` : `${what} for the tower of ${label} (${id}).`,
+		saySelfHead: "A message to the head tower is /boss head's: /boss head [--answers W<n>] <message>",
+		declined: "Nothing was done.", noConfirm: "Acting on another tower needs the pi screen to confirm it.",
+		what: { retry: "Wake it again", deliver: "Deliver a parked event again", drop: "Drop a parked event", leave: "Leave the boss conversation", new: "Start the boss conversation over", say: "Write to it as the boss" } as Record<string, string>,
+		said: (label: string) => `Handed to the tower of ${label}: it reads the prompt as the boss's instruction (it was not opened or focused).`,
+		answered: (id: string) => `${id} is marked answered.`, notAnswered: (id: string) => `${id} was not marked answered: the memory no longer has it as a wait for you.`,
 		noUi: "/boss tower retry, deliver, drop, leave, and new act only in a pi session with a screen (a person at the keyboard): this one has none, so only status and parked are allowed.",
 		noWorkspace: "This session is not in a Herdr workspace, so it has no tower here.",
 		noTower: (ws: string, why: string) => `No tower service for ${ws}: ${why}`,
@@ -54,7 +87,15 @@ const WORDS = {
 		fresh: (left: boolean) => (left ? "Started over: the conversation ended, and the next one is a new session." : "Started over: the next conversation is a new session."),
 	},
 	"zh-TW": {
-		usage: "用法：/boss tower [status | retry | parked | deliver <id> | drop <id> | leave | new | <給塔台的訊息>]",
+		usage: "用法：/boss tower [-w <workspace id | 名稱 | head>] [--answers W<n>] [status | retry | parked | deliver <id> | drop <id> | leave | new | <給塔台的訊息>]",
+		noMatch: (q: string, all: string) => `沒有符合「${q}」的 workspace。現有：${all}`,
+		many: (q: string, list: string[]) => `「${q}」對到不只一個 workspace，什麼都沒做。請指明 id：\n${list.join("\n")}`,
+		confirm: "要對另一個塔台動作嗎？", confirmBody: (what: string, label: string, id: string, head: boolean) => head ? `對主塔台：${what}。` : `對 ${label}（${id}）的塔台：${what}。`,
+		saySelfHead: "給主塔台的訊息走 /boss head：/boss head [--answers W<n>] <訊息>",
+		declined: "什麼都沒做。", noConfirm: "對另一個塔台動作需要 pi 畫面來確認。",
+		what: { retry: "重新喚醒", deliver: "重新送出擱置的事件", drop: "丟棄擱置的事件", leave: "離開老闆對話", new: "重新開始老闆對話", say: "以老闆的身分寫給它" } as Record<string, string>,
+		said: (label: string) => `已交給 ${label} 的塔台：它會把這段話當成老闆的指示（沒有開啟或切換分頁）。`,
+		answered: (id: string) => `${id} 已標為回覆。`, notAnswered: (id: string) => `${id} 沒有標為回覆：記憶裡已經沒有這個等你的等待。`,
 		noUi: "/boss tower 的 retry、deliver、drop、leave、new 只在有畫面的 pi session（有人在鍵盤前）裡動作：這個 session 沒有畫面，只能用 status 和 parked。",
 		noWorkspace: "這個 session 不在任何 Herdr workspace 裡，這裡沒有塔台。",
 		noTower: (ws: string, why: string) => `${ws} 沒有塔台服務可用：${why}`,
@@ -84,17 +125,66 @@ export interface TowerCmdDeps {
 	/** True when the pi session has a screen (`ctx.hasUI`). */
 	interactive: boolean;
 	tell(text: string, level?: "info" | "warning" | "error"): void;
+	/** The workspaces Herdr has, for `-w <id | label>`; the head tower's carries the `sb_head` token. */
+	workspaces?(): Promise<{ workspace_id: string; label: string; tokens?: Record<string, string> }[]>;
+	/** Asks the boss on the pi screen; false when declined. Needed for a write at another tower (`-w`). */
+	confirm?(title: string, body: string): Promise<boolean>;
 }
 const WRITES = new Set(["retry", "deliver", "drop", "leave", "new"]);
-/** `/boss tower <args>` for the words `parseTowerArgs` knows. */
-export async function runTowerCommand(parsed: TowerArgs, d: TowerCmdDeps): Promise<void> {
+interface Target { ws: string | undefined; label: string; head: boolean; other: boolean }
+/** The tower a command acts on: this session's own, or what `-w` names (`head` is the head tower). */
+async function resolveTarget(d: TowerCmdDeps, at: string | undefined): Promise<Target> {
+	const w = WORDS[d.lang];
+	if (at === undefined) return { ws: d.own, label: d.own ?? "", head: false, other: false };
+	if (at === "head") return { ws: HEAD_KEY, label: "head", head: true, other: true };
+	const all = (await d.workspaces?.()) ?? [], found = matchWorkspaces(all, at);
+	if (found.length > 1) throw new Error(w.many(at, found.map((x) => `  ${x.workspace_id} (${x.label})`)));
+	if (found.length < 1) throw new Error(w.noMatch(at, all.map((x) => `${x.workspace_id} (${x.label})`).join(", ")));
+	// The head tower's own workspace is the head, whichever way it is named (as the page maps it).
+	if (found[0]!.tokens?.sb_head) return { ws: HEAD_KEY, label: "head", head: true, other: true };
+	return { ws: found[0]!.workspace_id, label: found[0]!.label, head: false, other: found[0]!.workspace_id !== d.own };
+}
+/** `-w <q>` as the tower line should read it: `head` when it is that word or names the head tower's own Herdr workspace (id or label) uniquely, else as typed (a refusal comes from `resolveTarget`). */
+export async function headAlias(q: string, d: Pick<TowerCmdDeps, "workspaces">): Promise<string> {
+	if (q === "head") return q;
+	const found = matchWorkspaces((await d.workspaces?.()) ?? [], q);
+	return found.length === 1 && found[0]!.tokens?.sb_head ? "head" : q;
+}
+/** A write at another tower names it in the confirm; false when the boss declines (and says so). */
+async function confirmed(d: TowerCmdDeps, target: Target, what: string): Promise<boolean> {
+	const w = WORDS[d.lang];
+	if (!target.other) return true;
+	if (!d.confirm) return d.tell(w.noConfirm, "error"), false;
+	if (await d.confirm(w.confirm, w.confirmBody(w.what[what] ?? what, target.label, target.ws!, target.head))) return true;
+	return d.tell(w.declined), false;
+}
+/** `/boss tower -w <workspace> [--answers W3] <message>`: the boss's words to another tower, the control command the GUI's composer reaches (`tower-event`); the head tower's are `/boss head` (`head-event`). */
+export async function sayToTower(text: string, at: string, answers: string | undefined, d: TowerCmdDeps): Promise<void> {
+	const w = WORDS[d.lang];
+	if (!d.interactive) return d.tell(w.noUi, "error");
+	try {
+		const target = await resolveTarget(d, at);
+		if (target.head) throw new Error(w.saySelfHead); // the head's words are `head-event`, which `/boss head` sends
+		if (!target.ws) throw new Error(w.noWorkspace);
+		if (!(await confirmed(d, target, "say"))) return;
+		const r = await d.ask({ cmd: "tower-event", workspace: target.ws, text, present: true, ...(answers ? { answers } : {}) });
+		if (!r.ok) throw new Error(r.error ?? "no answer");
+		d.tell([w.said(target.label), ...(answers ? [r.answered === answers ? w.answered(answers) : w.notAnswered(answers)] : [])].join(" "));
+	} catch (error) {
+		d.tell((error as Error).message, "error");
+	}
+}
+/** `/boss tower <args>` for the words `parseTowerArgs` knows; `at` is the `-w` target (`head` for the head tower). */
+export async function runTowerCommand(parsed: TowerArgs, d: TowerCmdDeps, at?: string): Promise<void> {
 	const w = WORDS[d.lang];
 	if (WRITES.has(parsed.op) && !d.interactive) return d.tell(w.noUi, "error");
 	try {
-		const ws = d.own;
+		const target = await resolveTarget(d, at), ws = target.ws;
 		if (!ws) throw new Error(w.noWorkspace);
+		if (WRITES.has(parsed.op) && !(await confirmed(d, target, parsed.op))) return;
+		// The head tower's service has its own control commands (headcmds.ts); a workspace tower's carry the workspace.
 		const call = async (request: Record<string, unknown>) => {
-			const r = await d.ask({ ...request, workspace: ws });
+			const r = await d.ask(target.head ? { ...request, cmd: String(request.cmd).replace(/^tower-/, "head-") } : { ...request, workspace: ws });
 			if (!r.ok) throw new Error(r.error ?? "no answer");
 			return r;
 		};
@@ -104,9 +194,9 @@ export async function runTowerCommand(parsed: TowerArgs, d: TowerCmdDeps): Promi
 		};
 		switch (parsed.op) {
 			case "status": case "parked": {
-				const row = ((await d.ask({ cmd: "status" })).towers as Row[] | undefined)?.find((x) => x.workspace === ws);
+				const status = await d.ask({ cmd: "status" }), row = target.head ? (status.head as Row | null | undefined) ?? undefined : (status.towers as Row[] | undefined)?.find((x) => x.workspace === ws);
 				const s = row?.service;
-				if (!row || !s) throw new Error(w.noTower(ws, "the sb server runs no tower service for it"));
+				if (!row || !s) throw new Error(w.noTower(target.head ? "head" : ws, "the sb server runs no tower service for it"));
 				const parked = s.parked ?? [], list = parked.length ? [w.parked(parked.length), ...parked.map((p) => `  ${w.parkedRow({ ...p, id: clean(p.id, 64), kind: clean(p.kind, 20), first: clean(p.first, 160), ...(p.from ? { from: clean(p.from, 60) } : {}) })}`)] : [w.noParked];
 				if (parsed.op === "parked") return d.tell(list.join("\n"));
 				const line = [

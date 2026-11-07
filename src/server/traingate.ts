@@ -308,7 +308,8 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 
 	/** Runs a command through the shell in a group of its own; ends when it exits, or when a signal came (the group is then killed). */
 	async function runChild(command: string, stdout: number, stderr: number, beat: () => void): Promise<Ended> {
-		const child = spawn("/bin/sh", ["-c", command], { cwd, detached: true, stdio: ["ignore", stdout, stderr], env: d.env });
+		const file = "/bin/sh"; // a literal absolute path: the gate runs where there are process groups, which is where this is
+		const child = spawn(file, ["-c", command], { cwd, detached: true, stdio: ["ignore", stdout, stderr], env: d.env });
 		const exited = new Promise<Ended>((done) => {
 			child.once("exit", (code, signal) => done({ code, signal }));
 			child.once("error", (error) => done({ code: null, signal: null, error }));

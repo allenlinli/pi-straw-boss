@@ -32,8 +32,10 @@ export const OPERATE_LIMITS = {
 	maxParts: 64,
 	/** The longest `t` of an inner message. */
 	typeChars: 16,
-	/** How long the box remembers a session id it admitted, which covers the holder's 60 s freshness window with room for skew. */
+	/** How long the box remembers a session id after it was admitted (and again after its release): the holder's 60 s freshness window and 60 s of a fast sender clock. An id that is still open is remembered for as long as it is open. */
 	seenMs: 120_000,
+	/** The box ends a session this long after the controller would: the controller's own `rekey` always comes first, and its `close` is what the box then sees. */
+	rekeyGraceMs: 60_000,
 	/** The host's tick interval. */
 	tickMs: 1000,
 	/** At most this many sessions per operator device per team and per box (§5.2). */
@@ -54,6 +56,7 @@ export type DropReason = "from" | "session" | "role" | "state" | "hash" | "repla
 export interface OperateDrop { reason: DropReason; type?: string }
 
 export interface OperateDeps {
+	/** The wall clock will do: a session and the registry make it non-decreasing themselves (`steady`), so a step back counts as no time passed. */
 	now: () => number;
 	/** One outer message to the peer, in order. A throw or a rejection goes to `onTransportError` and does not end the session: a lost frame is lost, and the silence timer decides. */
 	send: (message: OperateMessage) => void | Promise<void>;
@@ -63,9 +66,23 @@ export interface OperateDeps {
 	onInner: (inner: OperateInner) => void;
 	onEnd: (end: OperateEnd) => void;
 	onDrop?: (drop: OperateDrop) => void;
-	/** For the test vectors: the ephemeral key and the session id. Without them every open is random. */
-	ephemeral?: () => { key: KeyObject; pub: Buffer };
-	sessionId?: () => Buffer;
+}
+
+/**
+ * For the test vectors: a key under which `open` and `accept` take a fixed ephemeral key and session id. It is a symbol only this module and the tests name (a test scans `src/` for it), so no
+ * host's options or deps can carry it by accident: a host that fixed both would reuse a (key, nonce) pair in every session.
+ */
+export const TEST_ENTROPY: unique symbol = Symbol("operate test entropy");
+interface Entropy { [TEST_ENTROPY]?: { ephemeral?: () => { key: KeyObject; pub: Buffer }; sessionId?: () => Buffer } }
+
+/** A clock that never goes back: a step of `now` below its last reading is added to an offset, so the step counts as no time passed (a forward step still counts, which ends a session the peer has ended too). */
+export function steady(now: () => number): () => number {
+	let last = -Infinity, skew = 0;
+	return () => {
+		let t = now() + skew;
+		if (t < last) (skew += last - t, t = last);
+		return (last = t);
+	};
 }
 
 type Opening = Extract<OperateMessage, { type: "open" }>;
@@ -80,7 +97,7 @@ const innerOk = (v: unknown): v is OperateInner => typeof v === "object" && v !=
 const isInt = (v: unknown, min: number, max: number): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= min && v <= max;
 
 /** The two keys in one buffer (operator → box, then box → operator), so one `fill(0)` at the end drops both; the derivation's own copies are zeroed here. */
-function join(k: { toBox: Buffer; toOperator: Buffer }): Buffer {
+export function joinKeys(k: { toBox: Buffer; toOperator: Buffer }): Buffer {
 	const both = Buffer.concat([k.toBox, k.toOperator]);
 	k.toBox.fill(0);
 	k.toOperator.fill(0);
@@ -94,6 +111,8 @@ export class OperateSession {
 	readonly self: string;
 	readonly peer: string;
 	private readonly deps: OperateDeps;
+	private readonly clock: () => number;
+	private readonly registry: OperateRegistry | undefined;
 	private status: OperateState;
 	private startedAt: number;
 	private lastSent: number;
@@ -108,15 +127,17 @@ export class OperateSession {
 	private pending = new Map<number, Assembling>();
 	private pendingBytes = 0;
 
-	private constructor(role: OperateRole, deps: OperateDeps, o: { team: Buffer; id: Buffer; self: string; peer: string }, status: OperateState) {
+	private constructor(role: OperateRole, deps: OperateDeps, o: { team: Buffer; id: Buffer; self: string; peer: string }, status: OperateState, registry?: OperateRegistry) {
 		this.role = role;
 		this.deps = deps;
+		this.clock = steady(deps.now);
+		this.registry = registry;
 		this.team = o.team;
 		this.id = o.id;
 		this.self = o.self;
 		this.peer = o.peer;
 		this.status = status;
-		this.startedAt = this.lastSent = this.lastRecv = deps.now();
+		this.startedAt = this.lastSent = this.lastRecv = this.clock();
 	}
 
 	get state(): OperateState {
@@ -124,10 +145,10 @@ export class OperateSession {
 	}
 
 	/** The controller's side: a fresh ephemeral key and session id, an `open` to the box. Throws for a team or a device id that cannot be a session's. */
-	static open(deps: OperateDeps, o: { team: Buffer; self: string; peer: string; want: "team" | "box" }): OperateSession {
+	static open(deps: OperateDeps, o: { team: Buffer; self: string; peer: string; want: "team" | "box" } & Entropy): OperateSession {
 		if (o.team.length !== TEAM_ID_BYTES) throw new RangeError("an operate session names a 16-byte team id");
 		if (!idOk(o.self) || !idOk(o.peer)) throw new RangeError("an operate session names two device ids");
-		const eph = (deps.ephemeral ?? operateEphemeral)(), id = (deps.sessionId ?? (() => randomBytes(16)))();
+		const seam = o[TEST_ENTROPY], eph = (seam?.ephemeral ?? operateEphemeral)(), id = (seam?.sessionId ?? (() => randomBytes(16)))();
 		const s = new OperateSession("operator", deps, { team: o.team, id, self: o.self, peer: o.peer }, "opening");
 		s.mine = eph.key;
 		s.opening = { session: id, type: "open", eph: eph.pub, caps: ["operate/1"], want: o.want };
@@ -136,21 +157,26 @@ export class OperateSession {
 	}
 
 	/**
-	 * The box's side: takes an `open` the host has admitted (a team's admin, a session id not seen, under the limits: `OperateRegistry`) and answers it. A fresh ephemeral key; an `accept`
-	 * with the hash of the open body, so the box's signature covers the operator's key. An ephemeral key that is a low-order point makes no session: the box sends `refuse` and this
-	 * returns undefined. `from` is the open's signer, the operator's device id.
+	 * The box's side: takes an `open` whose signer the host has found allowed (a team's admin), and answers it. The registry's book is kept here and nowhere else: `accept` admits the session id
+	 * (a seen id, the per-operator and per-box limits: the box sends `refuse` with the registry's word), makes a session that releases its slot when it ends, and gives the slot back itself
+	 * when it makes none. The host calls neither `admit` nor `release`. A fresh ephemeral key; an `accept` with the hash of the open body, so the box's signature covers the operator's key.
+	 * An ephemeral key that is a low-order point makes no session: the box sends `refuse` (`bad-key`). Both return undefined. `from` is the open's signer, the operator's device id.
 	 */
-	static accept(deps: OperateDeps, o: { team: Buffer; self: string; from: string; open: Opening; scope: Accepting["scope"]; limits: Accepting["limits"] }): OperateSession | undefined {
-		const eph = (deps.ephemeral ?? operateEphemeral)();
+	static accept(deps: OperateDeps, o: { team: Buffer; self: string; from: string; open: Opening; scope: Accepting["scope"]; limits: Accepting["limits"]; registry: OperateRegistry } & Entropy): OperateSession | undefined {
+		const refused = o.registry.admit(o.team.toString("hex"), o.from, o.open.session);
+		if (refused !== "ok") return (refuseOpen(deps, o.open.session, refused), undefined);
 		let keys: { toBox: Buffer; toOperator: Buffer };
+		let eph: { key: KeyObject; pub: Buffer };
 		try {
+			eph = (o[TEST_ENTROPY]?.ephemeral ?? operateEphemeral)();
 			keys = operateKeys({ team: o.team, session: o.open.session, operator: o.from, box: o.self, ephOp: o.open.eph, ephBox: eph.pub, mine: eph.key, theirs: o.open.eph });
 		} catch {
+			o.registry.release(o.open.session);
 			refuseOpen(deps, o.open.session, "bad-key");
 			return undefined;
 		}
-		const s = new OperateSession("box", deps, { team: o.team, id: o.open.session, self: o.self, peer: o.from }, "open");
-		s.keys = join(keys);
+		const s = new OperateSession("box", deps, { team: o.team, id: o.open.session, self: o.self, peer: o.from }, "open", o.registry);
+		s.keys = joinKeys(keys);
 		s.emit({ session: o.open.session, type: "accept", eph: eph.pub, openHash: sha256(operateBody(o.open)), scope: o.scope, limits: o.limits });
 		return s;
 	}
@@ -196,9 +222,9 @@ export class OperateSession {
 	/** The clock's work, for the host to call about once a second: the open's answer, the 12 h rekey, the 45 s silence, parts that stopped coming, a ping when nothing was sent for 15 s. */
 	tick(): void {
 		if (this.status === "closed") return;
-		const now = this.deps.now();
+		const now = this.clock();
 		if (this.status === "opening") return now - this.startedAt >= OPERATE_LIMITS.openWaitMs ? this.endWith("no-answer") : undefined;
-		if (now - this.startedAt >= OPERATE_LIMITS.rekeyMs) return this.endWith("rekey");
+		if (now - this.startedAt >= OPERATE_LIMITS.rekeyMs + (this.role === "box" ? OPERATE_LIMITS.rekeyGraceMs : 0)) return this.endWith("rekey");
 		if (now - this.lastRecv >= OPERATE_LIMITS.silenceMs) return this.endWith("silence");
 		for (const [of, a] of [...this.pending]) {
 			if (now - a.last < OPERATE_LIMITS.partMs) continue;
@@ -217,13 +243,14 @@ export class OperateSession {
 		if (this.status !== "opening" || !this.mine || !this.opening) return this.drop("state", "accept");
 		if (!equalBytes(m.openHash, sha256(operateBody(this.opening)))) return this.drop("hash", "accept");
 		try {
-			this.keys = join(operateKeys({ team: this.team, session: this.id, operator: this.self, box: this.peer, ephOp: this.opening.eph, ephBox: m.eph, mine: this.mine, theirs: m.eph }));
+			this.keys = joinKeys(operateKeys({ team: this.team, session: this.id, operator: this.self, box: this.peer, ephOp: this.opening.eph, ephBox: m.eph, mine: this.mine, theirs: m.eph }));
 		} catch {
 			return this.endWith("bad-key");
 		}
 		this.mine = this.opening = undefined;
 		this.status = "open";
-		this.startedAt = this.lastRecv = this.lastSent = this.deps.now();
+		// `startedAt` stays the open's: the operator's 12 h runs from its open, which comes before the box's accept, so it ends first (the box has a grace period besides).
+		this.lastRecv = this.lastSent = this.clock();
 		this.deps.onOpen?.({ scope: m.scope, limits: m.limits });
 	}
 
@@ -234,7 +261,7 @@ export class OperateSession {
 		if (!plain) return this.drop("unsealed", "frame");
 		// Only a frame that opens moves the counter and counts as a sign of life: a team member's junk costs the real peer nothing.
 		this.recvCtr = m.ctr;
-		this.lastRecv = this.deps.now();
+		this.lastRecv = this.clock();
 		this.take(plain, false);
 	}
 
@@ -270,7 +297,7 @@ export class OperateSession {
 		a.parts.set(i, chunk);
 		a.bytes += chunk.length;
 		this.pendingBytes += chunk.length;
-		a.last = this.deps.now();
+		a.last = this.clock();
 		if (a.parts.size < a.n) return;
 		const whole = Buffer.concat(Array.from({ length: a.n }, (_, k) => a!.parts.get(k)!));
 		this.discard(of);
@@ -288,16 +315,16 @@ export class OperateSession {
 	private frame(deflated: Buffer): void {
 		const keys = this.keys!, toBox = this.role === "operator";
 		const ctr = ++this.sentCtr;
-		this.lastSent = this.deps.now();
+		this.lastSent = this.clock();
 		this.emit({ session: this.id, type: "frame", ctr, ct: operateSeal({ key: toBox ? keys.subarray(0, 32) : keys.subarray(32), dir: toBox ? "toBox" : "toOperator", session: this.id, ctr, plaintext: deflated }) });
 	}
 
 	private emit(message: OperateMessage): void {
 		try {
 			const out = this.deps.send(message);
-			if (out) out.catch((error) => this.deps.onTransportError(error));
+			if (out) out.catch((error) => report(this.deps, error));
 		} catch (error) {
-			this.deps.onTransportError(error);
+			report(this.deps, error);
 		}
 	}
 
@@ -313,7 +340,20 @@ export class OperateSession {
 		this.keys = this.mine = this.opening = undefined;
 		this.pending.clear();
 		this.pendingBytes = 0;
+		this.registry?.release(this.id);
 		this.deps.onEnd(end);
+	}
+}
+
+/**
+ * A transport error goes to the host's handler, and a handler that throws is the host's bug, not ours to raise: on the async path a throw would be an unhandled rejection, which ends the server.
+ * `onEnd`, `onDrop` and `onInner` are called from `receive` and `tick` and must not throw either; the holder's sink catches the first, and the host's timer must catch around `tick`.
+ */
+function report(deps: Pick<OperateDeps, "onTransportError">, error: unknown): void {
+	try {
+		deps.onTransportError(error);
+	} catch {
+		// the handler's own failure has nowhere to go
 	}
 }
 
@@ -321,15 +361,16 @@ export class OperateSession {
 export function refuseOpen(deps: Pick<OperateDeps, "send" | "onTransportError">, session: Buffer, reason: string): void {
 	try {
 		const out = deps.send({ session, type: "refuse", reason });
-		if (out) out.catch((error) => deps.onTransportError(error));
+		if (out) out.catch((error) => report(deps, error));
 	} catch (error) {
-		deps.onTransportError(error);
+		report(deps, error);
 	}
 }
 
 /**
  * The box's book of sessions (§5.2, Replay): a session id it has seen is refused, and so is a third open session for one operator device in one team or a seventh on the box. An id is
- * remembered for `seenMs` after it was admitted, released or not, so a replay of an old `open` finds it; the holder drops an `open` older than 60 s on its own.
+ * remembered while its session is open and for `seenMs` after it was admitted and again after its release, so a replay of an old `open` finds it; the holder drops an `open` older than 60 s on its own.
+ * `OperateSession.accept` is its only caller.
  */
 export class OperateRegistry {
 	private readonly now: () => number;
@@ -337,7 +378,7 @@ export class OperateRegistry {
 	private readonly open = new Map<string, string>();
 
 	constructor(now: () => number) {
-		this.now = now;
+		this.now = steady(now);
 	}
 
 	/** How many ids it remembers. */
@@ -349,7 +390,7 @@ export class OperateRegistry {
 	admit(team: string, operator: string, session: Buffer): "ok" | "seen" | "operator-limit" | "box-limit" {
 		const now = this.now(), id = session.toString("hex");
 		for (const [k, until] of this.seen) if (until <= now) this.seen.delete(k);
-		if (this.seen.has(id)) return "seen";
+		if (this.seen.has(id) || this.open.has(id)) return "seen";
 		this.seen.set(id, now + OPERATE_LIMITS.seenMs);
 		const owner = `${team}/${operator}`;
 		if ([...this.open.values()].filter((o) => o === owner).length >= OPERATE_LIMITS.perOperator) return "operator-limit";
@@ -358,8 +399,9 @@ export class OperateRegistry {
 		return "ok";
 	}
 
-	/** Frees the slot of a session that ended. Its id stays seen. */
+	/** Frees the slot of a session that ended. Its id stays seen for `seenMs` more. */
 	release(session: Buffer): void {
-		this.open.delete(session.toString("hex"));
+		const id = session.toString("hex");
+		if (this.open.delete(id)) this.seen.set(id, this.now() + OPERATE_LIMITS.seenMs);
 	}
 }

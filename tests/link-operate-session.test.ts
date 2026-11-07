@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { operateEphemeral, operateKeys, operateOpen, operateSeal, sha256 } from "../src/link/crypto.ts";
 import { operateBody, type OperateMessage } from "../src/link/kinds.ts";
-import { OPERATE_LIMITS, OperateRegistry, OperateSession, refuseOpen, type OperateDeps, type OperateDrop, type OperateEnd, type OperateInner } from "../src/link/operate.ts";
+import { joinKeys, OPERATE_LIMITS, OperateRegistry, OperateSession, refuseOpen, TEST_ENTROPY, type OperateDeps, type OperateDrop, type OperateEnd, type OperateInner } from "../src/link/operate.ts";
 import { fakeClock } from "./fake-clock.ts";
 import { DEVICES, TEAM } from "./link/scenario.ts";
 
@@ -38,10 +38,10 @@ function end(clock: ReturnType<typeof fakeClock>, extra: Partial<OperateDeps> = 
 
 /** An operator (alice) and a box (dave) that have run the handshake. `deliver` hands everything one sent to the other; `a` is the operator and `b` the box. */
 function pair(clock = fakeClock(1_800_000_000_000)) {
-	const a = end(clock), b = end(clock);
+	const a = end(clock), b = end(clock), registry = new OperateRegistry(clock.now);
 	const op = OperateSession.open(a.deps, { team: TEAM, self: alice.id, peer: dave.id, want: "team" });
 	const opening = a.sent[0] as Opening;
-	const box = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open: opening, scope: SCOPE, limits: LIMITS })!;
+	const box = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open: opening, scope: SCOPE, limits: LIMITS, registry })!;
 	const accepted = b.sent[0] as Accepted;
 	op.receive(accepted, dave.id);
 	const mark = { a: 1, b: 1 };
@@ -51,7 +51,7 @@ function pair(clock = fakeClock(1_800_000_000_000)) {
 		mark.a = a.sent.length;
 		mark.b = b.sent.length;
 	};
-	return { clock, a, b, op, box, opening, accepted, deliver };
+	return { clock, a, b, op, box, opening, accepted, deliver, registry };
 }
 
 /** Both ends tick and trade what they sent, `steps` times, `ms` apart. */
@@ -121,7 +121,7 @@ test("an accept for another open, a wrong hash, another session or another sende
 	const clock = fakeClock(), a = end(clock), b = end(clock);
 	const op = OperateSession.open(a.deps, { team: TEAM, self: alice.id, peer: dave.id, want: "team" });
 	const opening = a.sent[0] as Opening;
-	OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open: opening, scope: SCOPE, limits: LIMITS });
+	OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open: opening, scope: SCOPE, limits: LIMITS, registry: new OperateRegistry(clock.now) });
 	const good = b.sent[0] as Accepted;
 	op.receive({ ...good, openHash: Buffer.alloc(32, 1) }, dave.id);
 	assert.equal(a.drops.at(-1)?.reason, "hash");
@@ -155,7 +155,7 @@ test("a low-order ephemeral key is refused, never thrown: an open names one, or 
 		const clock = fakeClock(), b = end(clock);
 		const open: Opening = { session: Buffer.alloc(16, 9), type: "open", eph, caps: ["operate/1"], want: "team" };
 		let got: OperateSession | undefined;
-		assert.doesNotThrow(() => (got = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open, scope: SCOPE, limits: LIMITS })), eph.toString("hex"));
+		assert.doesNotThrow(() => (got = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open, scope: SCOPE, limits: LIMITS, registry: new OperateRegistry(clock.now) })), eph.toString("hex"));
 		assert.equal(got, undefined);
 		assert.deepEqual(b.sent, [{ session: open.session, type: "refuse", reason: "bad-key" }]);
 		assert.deepEqual(b.ended, [], "no session was made, so none ends");
@@ -294,10 +294,10 @@ test("an inner message is JSON compressed with deflateRaw, and a frame that infl
 
 /** A box session whose two ephemeral keys and session id are fixed, with the operator's side of the keys derived the way the spec says. */
 function knownBox(clock: ReturnType<typeof fakeClock>, session: Buffer, seedOp: Buffer, seedBox: Buffer) {
-	const b = end(clock, { ephemeral: () => operateEphemeral(seedBox) });
+	const b = end(clock);
 	const op = operateEphemeral(seedOp), boxEph = operateEphemeral(seedBox);
 	const open: Opening = { session, type: "open", eph: op.pub, caps: ["operate/1"], want: "team" };
-	const box = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open, scope: SCOPE, limits: LIMITS })!;
+	const box = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open, scope: SCOPE, limits: LIMITS, registry: new OperateRegistry(clock.now), [TEST_ENTROPY]: { ephemeral: () => operateEphemeral(seedBox) } })!;
 	const keys = operateKeys({ team: TEAM, session, operator: alice.id, box: dave.id, ephOp: op.pub, ephBox: boxEph.pub, mine: op.key, theirs: boxEph.pub });
 	return { b, box, keys };
 }
@@ -549,9 +549,9 @@ test("the session ends at 12 h so the controller can open a new one: operator fi
 	assert.equal(next.state, "opening");
 });
 
-test("the box ends a session that the controller leaves open past 12 h, by its own clock", () => {
+test("the box ends a session that the controller leaves open past 12 h, by its own clock, after the grace period", () => {
 	const p = pair();
-	for (let t = 0; t < 12 * 3600_000 && p.box.state === "open"; t += 15_000) {
+	for (let t = 0; t < OPERATE_LIMITS.rekeyMs + OPERATE_LIMITS.rekeyGraceMs && p.box.state === "open"; t += 15_000) {
 		p.clock.advance(15_000);
 		p.op.send({ t: "req" });
 		p.deliver();
@@ -560,7 +560,7 @@ test("the box ends a session that the controller leaves open past 12 h, by its o
 	}
 	assert.equal(p.box.state, "closed");
 	assert.deepEqual(p.b.ended, [{ reason: "rekey" }]);
-	assert.equal(p.clock.elapsed(), 12 * 3600_000);
+	assert.equal(p.clock.elapsed(), OPERATE_LIMITS.rekeyMs + OPERATE_LIMITS.rekeyGraceMs);
 });
 
 // ---- the transport ----------------------------------------------------------------------------------------------------------------------------------------
@@ -571,7 +571,7 @@ test("a send that fails is reported and does not end the session: a lost frame i
 	const deps: OperateDeps = { ...a.deps, send: (m) => { if (fail) return Promise.reject(new Error("429")); a.sent.push(m); } };
 	const op = OperateSession.open(deps, { team: TEAM, self: alice.id, peer: dave.id, want: "team" });
 	const b = end(clock);
-	const box = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open: a.sent[0] as Opening, scope: SCOPE, limits: LIMITS })!;
+	const box = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open: a.sent[0] as Opening, scope: SCOPE, limits: LIMITS, registry: new OperateRegistry(clock.now) })!;
 	op.receive(b.sent[0]!, dave.id);
 	fail = true;
 	assert.equal(op.send({ t: "req", id: 1 }), true);
@@ -602,13 +602,12 @@ test("vectors: a session built from the fixed seeds derives the vectors' keys at
 	const c = V.keys[0], clock = fakeClock(1_800_000_000_000);
 	const session = h(c.session), team = h(c.team);
 	const opSeed = h(c.ephOpSeed), boxSeed = h(c.ephBoxSeed);
-	const a = end(clock, { ephemeral: () => operateEphemeral(opSeed), sessionId: () => session });
-	const b = end(clock, { ephemeral: () => operateEphemeral(boxSeed) });
-	const op = OperateSession.open(a.deps, { team, self: c.operatorId, peer: c.boxId, want: "team" });
+	const a = end(clock), b = end(clock);
+	const op = OperateSession.open(a.deps, { team, self: c.operatorId, peer: c.boxId, want: "team", [TEST_ENTROPY]: { ephemeral: () => operateEphemeral(opSeed), sessionId: () => session } });
 	const opening = a.sent[0] as Opening;
 	assert.equal(opening.eph.toString("hex"), c.ephOp);
 	assert.deepEqual(opening.session, session);
-	const box = OperateSession.accept(b.deps, { team, self: c.boxId, from: c.operatorId, open: opening, scope: SCOPE, limits: LIMITS })!;
+	const box = OperateSession.accept(b.deps, { team, self: c.boxId, from: c.operatorId, open: opening, scope: SCOPE, limits: LIMITS, registry: new OperateRegistry(clock.now), [TEST_ENTROPY]: { ephemeral: () => operateEphemeral(boxSeed) } })!;
 	assert.equal((b.sent[0] as Accepted).eph.toString("hex"), c.ephBox);
 	assert.deepEqual((b.sent[0] as Accepted).openHash, sha256(operateBody(opening)));
 	op.receive(b.sent[0]!, c.boxId);
@@ -663,4 +662,197 @@ test("the registry forgets a session id after the replay window, so its memory i
 	clock.advance(OPERATE_LIMITS.seenMs);
 	assert.equal(reg.admit(team, alice.id, Buffer.alloc(16, 200)), "ok");
 	assert.equal(reg.size, 1);
+});
+
+// ---- review round r2 (OSR-F001 to F007) -------------------------------------------------------------------------------------------------------------------------
+
+type Internals = { keys?: Buffer; pending: Map<number, unknown>; pendingBytes: number };
+const inside_ = (s: OperateSession) => s as unknown as Internals;
+const zero = (b: Buffer) => b.every((v) => v === 0);
+
+test("OSR-F001: a wall clock that steps back does not stop the pings or end a healthy session", () => {
+	const p = pair();
+	p.clock.advance(-60_000);
+	idle(p, 1000, 120);
+	assert.equal(p.op.state, "open");
+	assert.equal(p.box.state, "open");
+	assert.deepEqual([p.a.ended, p.b.ended], [[], []]);
+	assert.ok(frames(p.a.sent).length >= 7, "the operator kept pinging every 15 s of real time");
+});
+
+test("OSR-F001: a step back does not keep a dead session alive for the length of the step", () => {
+	const p = pair();
+	p.clock.advance(-60_000);
+	// The peer is gone: nothing is delivered. 45 s of ticks end the box's silence, not 105 s.
+	for (let i = 0; i < 46; i++) { p.clock.advance(1000); p.box.tick(); }
+	assert.equal(p.box.state, "closed");
+	assert.deepEqual(p.b.ended, [{ reason: "silence" }]);
+});
+
+test("OSR-F001: the registry's clock does not step back either: an id is forgotten after seenMs of real time", () => {
+	const clock = fakeClock(), reg = new OperateRegistry(clock.now), team = TEAM.toString("hex"), sid = Buffer.alloc(16, 3);
+	assert.equal(reg.admit(team, alice.id, sid), "ok");
+	reg.release(sid);
+	clock.advance(-60_000);
+	reg.admit(team, DEVICES.bob.id, Buffer.alloc(16, 4)); // a read of the clock after the step
+	clock.advance(OPERATE_LIMITS.seenMs - 1);
+	assert.equal(reg.admit(team, alice.id, sid), "seen");
+	clock.advance(1);
+	assert.equal(reg.admit(team, alice.id, sid), "ok", "the 60 s step added nothing to the id's life");
+});
+
+test("OSR-F002: the operator counts its 12 h from its open, so a slow accept never lets the box end first; the box gives it a grace period", () => {
+	const clock = fakeClock(1_800_000_000_000), a = end(clock), b = end(clock), registry = new OperateRegistry(clock.now);
+	const op = OperateSession.open(a.deps, { team: TEAM, self: alice.id, peer: dave.id, want: "team" });
+	clock.advance(1300);
+	const box = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open: a.sent[0] as Opening, scope: SCOPE, limits: LIMITS, registry })!;
+	clock.advance(1300); // the accept's trip
+	op.receive(b.sent[0]!, dave.id);
+	const p = { clock, a, b, op, box, deliver: () => { for (const m of a.sent.slice(mark.a)) box.receive(m, alice.id); for (const m of b.sent.slice(mark.b)) op.receive(m, dave.id); mark.a = a.sent.length; mark.b = b.sent.length; } };
+	const mark = { a: 1, b: 1 };
+	// 12 h after the open (the 2.6 s the handshake took are in the box's budget, not the operator's).
+	const opened = clock.now() - 2600;
+	while (op.state === "open") {
+		clock.advance(1000);
+		op.tick();
+		box.tick();
+		p.deliver();
+	}
+	assert.deepEqual(a.ended, [{ reason: "rekey" }], "the controller ends on its own word");
+	assert.deepEqual(b.ended, [{ reason: "peer-closed", peer: "rekey" }], "the box learns it from the controller's close");
+	assert.ok(clock.now() - opened < OPERATE_LIMITS.rekeyMs + 1000, "the operator ended within a tick of 12 h after its open, not after the accept");
+	assert.ok(clock.now() - opened >= OPERATE_LIMITS.rekeyMs);
+});
+
+test("OSR-F003: a refused open (a bad key, a seen id, a limit) holds no slot: six bad opens do not lock the box", () => {
+	const clock = fakeClock(), registry = new OperateRegistry(clock.now);
+	for (let n = 1; n <= 6; n++) {
+		const b = end(clock);
+		const open: Opening = { session: Buffer.alloc(16, n), type: "open", eph: Buffer.alloc(32), caps: ["operate/1"], want: "team" };
+		assert.equal(OperateSession.accept(b.deps, { team: Buffer.alloc(16, n), self: dave.id, from: alice.id, open, scope: SCOPE, limits: LIMITS, registry }), undefined);
+		assert.deepEqual(b.sent, [{ session: open.session, type: "refuse", reason: "bad-key" }]);
+	}
+	const a = end(clock), b = end(clock);
+	OperateSession.open(a.deps, { team: TEAM, self: alice.id, peer: dave.id, want: "team" });
+	const box = OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: alice.id, open: a.sent[0] as Opening, scope: SCOPE, limits: LIMITS, registry });
+	assert.equal(box?.state, "open", "no slot leaked");
+});
+
+test("OSR-F003: accept admits and the session's end releases; the registry's refusals go out as a refuse and make no session", () => {
+	const clock = fakeClock(), registry = new OperateRegistry(clock.now);
+	const mk = (n: number, who = alice.id) => {
+		const a = end(clock), b = end(clock);
+		OperateSession.open(a.deps, { team: TEAM, self: who, peer: dave.id, want: "team" });
+		const open = a.sent[0] as Opening;
+		return { open, b, box: OperateSession.accept(b.deps, { team: TEAM, self: dave.id, from: who, open, scope: SCOPE, limits: LIMITS, registry }) };
+	};
+	const one = mk(1), two = mk(2), three = mk(3);
+	assert.equal(one.box?.state, "open");
+	assert.equal(two.box?.state, "open");
+	assert.equal(three.box, undefined);
+	assert.deepEqual(three.b.sent, [{ session: three.open.session, type: "refuse", reason: "operator-limit" }]);
+	assert.equal(OperateSession.accept(one.b.deps, { team: TEAM, self: dave.id, from: alice.id, open: one.open, scope: SCOPE, limits: LIMITS, registry }), undefined);
+	assert.deepEqual(one.b.sent.at(-1), { session: one.open.session, type: "refuse", reason: "seen" });
+	one.box!.close("bye");
+	assert.equal(mk(4).box?.state, "open", "the end of a session frees its slot with no call by the host");
+});
+
+test("OSR-F004: an id that is still open is never admitted again, however long it has run, and stays seen for seenMs after its release", () => {
+	const clock = fakeClock(), reg = new OperateRegistry(clock.now), t = TEAM.toString("hex"), sid = Buffer.alloc(16, 1);
+	assert.equal(reg.admit(t, alice.id, sid), "ok");
+	clock.advance(OPERATE_LIMITS.seenMs * 3);
+	assert.equal(reg.admit(t, alice.id, sid), "seen");
+	assert.equal(reg.admit(t, alice.id, Buffer.alloc(16, 2)), "ok");
+	assert.equal(reg.admit(t, alice.id, Buffer.alloc(16, 3)), "operator-limit", "the replayed id did not take a second slot");
+	reg.release(sid);
+	clock.advance(OPERATE_LIMITS.seenMs - 1);
+	assert.equal(reg.admit(t, alice.id, sid), "seen", "seen counts from the release");
+	clock.advance(1);
+	assert.equal(reg.admit(t, alice.id, sid), "ok");
+});
+
+test("OSR-F005: an onTransportError that throws is swallowed, on a rejected send, a thrown send and a refuse", async () => {
+	const rejections: unknown[] = [], on = (e: unknown) => void rejections.push(e);
+	process.on("unhandledRejection", on);
+	try {
+		const clock = fakeClock(), bug = () => { throw new Error("host bug"); };
+		assert.doesNotThrow(() => OperateSession.open({ now: clock.now, send: () => Promise.reject(new Error("429")), onTransportError: bug, onInner: () => {}, onEnd: () => {} }, { team: TEAM, self: alice.id, peer: dave.id, want: "team" }));
+		assert.doesNotThrow(() => OperateSession.open({ now: clock.now, send: () => { throw new Error("boom"); }, onTransportError: bug, onInner: () => {}, onEnd: () => {} }, { team: TEAM, self: alice.id, peer: dave.id, want: "team" }));
+		assert.doesNotThrow(() => refuseOpen({ send: () => Promise.reject(new Error("429")), onTransportError: bug }, Buffer.alloc(16, 1), "seen"));
+		assert.doesNotThrow(() => refuseOpen({ send: () => { throw new Error("boom"); }, onTransportError: bug }, Buffer.alloc(16, 1), "seen"));
+		await new Promise((r) => setImmediate(r));
+		await new Promise((r) => setImmediate(r));
+		assert.deepEqual(rejections, []);
+	} finally {
+		process.off("unhandledRejection", on);
+	}
+});
+
+test("OSR-F006: the keys are zeroed at every end: close, silence, rekey, a peer's close, an accept that fails to derive nothing is left", () => {
+	for (const how of ["close", "silence", "rekey", "peer-close"] as const) {
+		const p = pair(), keys = inside_(p.box).keys!, opKeys = inside_(p.op).keys!;
+		assert.ok(!zero(keys) && !zero(opKeys), "live keys are not zero");
+		if (how === "close") p.box.close("page-left");
+		else if (how === "silence") { p.clock.advance(OPERATE_LIMITS.silenceMs); p.box.tick(); }
+		else if (how === "rekey") { p.clock.advance(OPERATE_LIMITS.rekeyMs + OPERATE_LIMITS.rekeyGraceMs); p.box.tick(); }
+		else p.box.receive({ session: p.opening.session, type: "close", reason: "x" }, alice.id);
+		assert.equal(p.box.state, "closed", how);
+		assert.ok(zero(keys), `the box's keys are zero after ${how}`);
+		assert.equal(inside_(p.box).keys, undefined);
+		p.op.close("done");
+		assert.ok(zero(opKeys), "and the operator's");
+	}
+});
+
+test("OSR-F006: joinKeys zeroes the derivation's own two copies and returns both keys in one buffer", () => {
+	const x = Buffer.alloc(32, 1), y = Buffer.alloc(32, 2), both = joinKeys({ toBox: x, toOperator: y });
+	assert.deepEqual(both, Buffer.concat([Buffer.alloc(32, 1), Buffer.alloc(32, 2)]));
+	assert.ok(zero(x) && zero(y));
+});
+
+test("OSR-F006: the bytes of a finished multi-part message are given back, so a long session takes message after message", () => {
+	const p = pair();
+	const noise = Buffer.alloc(3_000_000);
+	for (let i = 0; i < noise.length; i += 32) sha256(Buffer.from(String(i))).copy(noise, i);
+	const body = noise.toString("base64");
+	for (let k = 1; k <= 3; k++) {
+		assert.equal(p.op.send({ t: "ev", id: `m:${k}`, d: body }), true);
+		p.deliver();
+		assert.equal(p.b.inner.length, k, `message ${k} arrived whole`);
+		assert.equal(inside_(p.box).pendingBytes, 0);
+	}
+	assert.equal(p.b.drops.filter((d) => d.reason === "part-limit").length, 0);
+});
+
+test("OSR-F006: the reassembly of a message half-received is dropped at the end of the session", () => {
+	const p = pair();
+	const noise = Buffer.alloc(400_000);
+	for (let i = 0; i < noise.length; i += 32) sha256(Buffer.from(String(i))).copy(noise, i);
+	p.op.send({ t: "ev", id: "m:1", d: noise.toString("base64") });
+	const fs = frames(p.a.sent);
+	assert.ok(fs.length > 2);
+	p.box.receive(fs[0]!, alice.id);
+	assert.equal(inside_(p.box).pending.size, 1);
+	assert.ok(inside_(p.box).pendingBytes > 0);
+	p.box.close("page-left");
+	assert.equal(inside_(p.box).pending.size, 0);
+	assert.equal(inside_(p.box).pendingBytes, 0);
+});
+
+test("OSR-F007: the test hooks are no part of OperateDeps, and no file of src/ outside operate.ts names the seam", async () => {
+	const { readdirSync, readFileSync: read, statSync } = await import("node:fs");
+	const walk = (dir: string): string[] => readdirSync(dir).flatMap((n) => (statSync(join(dir, n)).isDirectory() ? walk(join(dir, n)) : [join(dir, n)]));
+	const src = join(import.meta.dirname, "..", "src");
+	const users = walk(src).filter((f) => f.endsWith(".ts") && read(f, "utf8").includes("TEST_ENTROPY")).map((f) => f.slice(src.length + 1));
+	assert.deepEqual(users, [join("link", "operate.ts")]);
+	const source = read(join(src, "link", "operate.ts"), "utf8");
+	const deps = /export interface OperateDeps \{[\s\S]*?\n\}/.exec(source)![0];
+	assert.ok(!/ephemeral|sessionId/.test(deps));
+	// Without the seam every session is random: two boxes given one open make different keys.
+	const clock = fakeClock(), a = end(clock), registry = new OperateRegistry(clock.now);
+	OperateSession.open(a.deps, { team: TEAM, self: alice.id, peer: dave.id, want: "team" });
+	const open = a.sent[0] as Opening, b1 = end(clock), b2 = end(clock);
+	OperateSession.accept(b1.deps, { team: TEAM, self: dave.id, from: alice.id, open, scope: SCOPE, limits: LIMITS, registry: new OperateRegistry(clock.now) });
+	OperateSession.accept(b2.deps, { team: TEAM, self: dave.id, from: alice.id, open, scope: SCOPE, limits: LIMITS, registry });
+	assert.notDeepEqual((b1.sent[0] as Accepted).eph, (b2.sent[0] as Accepted).eph);
 });

@@ -136,3 +136,15 @@ test("unlock() is false when resume() resolves but the context stays suspended",
 	r.ac.resume = async () => {}; // an iPhone that resolves and stays suspended or interrupted
 	assert.equal(await r.a.unlock(), false);
 });
+
+test("a clip that fails to fetch or decode plays the fallback clip instead (a theme's clip falls back to Standard's)", async () => {
+	const r = rig(true);
+	r.a.play("theme.mp3", "base.mp3");
+	await r.settle();
+	assert.equal(r.log.filter((l) => l === "start").length, 1, "the base clip played once");
+	assert.equal(r.fetches(), 2, "theme.mp3 failed, base.mp3 fetched");
+	const none = rig(true);
+	none.a.play("theme.mp3");
+	await none.settle();
+	assert.equal(none.log.filter((l) => l === "start").length, 0, "no fallback: silent, as before");
+});

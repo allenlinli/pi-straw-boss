@@ -2,13 +2,14 @@ import type { View } from "../../src/views.ts";
 import { retranslate } from "../i18n.ts";
 import { useIcons } from "../icons.ts";
 import { usePack } from "../nouns.ts";
+import { useSounds } from "../themesounds.ts";
 import type { ThemeParts } from "./theme.ts";
 
 // The theme registry (docs/specs/2026-11-07-raven-view/spec.md §1.2, §6.1): every view but Standard is a theme, one entry module `gui/themes/<view>/index.ts` with its stylesheet, parts, and code, reached only through the
 // `import()` here. A theme loads the first time the page shows its view and stays loaded, so switching back costs no request. Standard is the base the page entry carries.
 
 export type ThemeView = Exclude<View, "standard">;
-const LOADERS = { geek: () => import("./geek/index.ts"), zen: () => import("./zen/index.ts") } satisfies Record<ThemeView, () => Promise<{ theme: ThemeParts }>>;
+const LOADERS = { geek: () => import("./geek/index.ts"), zen: () => import("./zen/index.ts"), raven: () => import("./raven/index.ts") } satisfies Record<ThemeView, () => Promise<{ theme: ThemeParts }>>;
 export const isTheme = (view: View): view is ThemeView => view in LOADERS;
 
 const loaded = new Map<ThemeView, Promise<unknown>>();
@@ -30,6 +31,7 @@ export async function showTheme(view: View): Promise<void> {
 	const parts = isTheme(view) ? (await loadTheme(view).catch(() => undefined))?.theme : undefined;
 	if (wanted !== view) return;
 	usePack(parts?.nouns);
+	useSounds(parts?.sounds);
 	useIcons(view, parts?.sprite);
 	retranslate();
 	for (const fn of heard) fn(view, parts);

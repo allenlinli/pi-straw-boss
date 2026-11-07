@@ -26,7 +26,7 @@ const roleName = (role: string) => (role === "admin" ? m.link_role_admin() : m.l
 const levelName = (level: string) => ({ reply: m.link_level_reply, forward: m.link_level_forward, dispatch: m.link_level_dispatch })[level as "reply"]();
 
 export function linkTile(): Tile {
-	return { id: "link", title: m.link_tile_title(), icon: "i-tower", body: mount };
+	return { id: "link", title: m.link_tile_title(), icon: "tower", body: mount };
 }
 
 function mount(): HTMLElement {

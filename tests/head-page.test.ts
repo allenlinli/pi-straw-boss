@@ -178,7 +178,9 @@ test("the header says Head tower with its state, or that the first message opens
 	const root = new El("div"), icon = new El("use"), title = new El("span"), small = new El("small"), line = new El("p"), absent = new El("p");
 	icon.className = "head-icon"; title.className = "head-title"; small.className = "head-kicker"; line.className = "head-line"; absent.className = "head-absent";
 	root.append(icon, title, small, line, absent);
+	small.dataset.m = "comms"; // the session template's kicker word, which retranslate() would write back on a view switch (RRB2-F001)
 	fillHeadTitle(root as unknown as HTMLElement, head({ state: "absent", service: undefined }));
+	assert.equal(small.dataset.m, undefined, "the head's kicker stays empty under every view");
 	assert.deepEqual([title.textContent, small.textContent, absent.hidden, absent.textContent, icon.getAttribute("href")], ["Head tower", "", false, "The head tower opens with your first message", "#i-crown"]);
 	fillHeadTitle(root as unknown as HTMLElement, head({ state: "standing" }));
 	assert.equal(absent.hidden, true, "the line is for the head that is not open");

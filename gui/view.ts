@@ -13,8 +13,8 @@ export type { Choice, View };
 /** What moved the view: the person chose one (`pick`: here or on another page of this device), or the page's own Auto followed the server's default or the screen (`follow`). */
 export type Cause = "pick" | "follow";
 export const KEY: string = KEYS.view;
-/** The theme-color of the Geek and Zen views (Zen: the ink ground); Standard keeps the color the page came with (index.html). */
-export const THEME = { geek: "#000000", zen: "#14110e" } as const;
+/** The theme-color of the Geek, Zen, and Raven Keep views (Zen: the ink ground; Raven: the near-black violet); Standard keeps the color the page came with (index.html). */
+export const THEME = { geek: "#000000", zen: "#14110e", raven: "#0d0a10" } as const;
 
 /** The stored value as a choice: only a named view is a choice of its own (src/views.ts), anything else (missing, invalid) is Auto. */
 export const choiceOf = (stored: string | null | undefined): Choice => viewOf(stored) ?? "auto";

@@ -8,6 +8,6 @@ import type { View } from "./view.ts";
  */
 export interface Rules { count: boolean; signal: boolean; announce: "arrivals" | "current"; keys: "dialogs" | "zen"; drawer: boolean; calm: boolean; chime: boolean; escape: "stay" | "blur" }
 const standard: Rules = { count: true, signal: true, announce: "arrivals", keys: "dialogs", drawer: true, calm: true, chime: true, escape: "stay" };
-export const RULES: Record<View, Rules> = { standard, geek: { ...standard, calm: false }, zen: { count: false, signal: false, announce: "current", keys: "zen", drawer: false, calm: true, chime: false, escape: "blur" } };
+export const RULES: Record<View, Rules> = { standard, raven: standard, geek: { ...standard, calm: false }, zen: { count: false, signal: false, announce: "current", keys: "zen", drawer: false, calm: true, chime: false, escape: "blur" } };
 /** The rules of the view the page shows: a page that left Zen (`away`: Esc, the corner control, or the settings page) follows Standard's. */
 export const rulesOf = (view: View, away: boolean): Rules => RULES[view === "zen" && away ? "standard" : view];

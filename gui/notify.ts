@@ -2,6 +2,7 @@ import { m } from "./paraglide/messages.js";
 import type { Alert } from "./alerts.ts";
 import { audio } from "./audio.ts";
 import { prefs } from "./prefs.ts";
+import { soundOf } from "./themesounds.ts";
 import doneUrl from "./sounds/done.mp3";
 import errorUrl from "./sounds/error.mp3";
 import waitingUrl from "./sounds/waiting.mp3";
@@ -61,7 +62,7 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	vol.oninput = () => setVolume(Number(vol.value));
 	vol.onchange = () => play("done");
 	$("sound-try").onclick = () => play("done");
-	const play = (kind: Kind) => audio.play(SOUNDS[kind]);
+	const play = (kind: Kind) => audio.play(soundOf(kind, SOUNDS[kind]));
 	/** The system notification of an alert, while the page is hidden or unfocused and Remind is on and allowed. */
 	function notice(a: Alert, k: Kind) {
 		if (!remind || !can || Notification.permission !== "granted" || (!document.hidden && document.hasFocus())) return;

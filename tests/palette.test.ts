@@ -192,7 +192,7 @@ test("entriesOf lists the page's actions, then the preferences the menu has: vie
 	});
 	assert.deepEqual(labels(list), [
 		"Open Harbor's session", "Open Harbor's terminal", "Back to the breath", "Previous companion", "Next companion", "Settings", "Back to the Standard view",
-		"View: Auto (Zen)", "View: Standard", "View: Geek", "View: Zen", "Language: English", "Language: 繁體中文", "Sound", "Volume up", "Volume down",
+		"View: Auto (Zen)", "View: Standard", "View: Geek", "View: Zen", "View: Raven Keep", "Language: English", "Language: 繁體中文", "Sound", "Volume up", "Volume down",
 	]);
 	assert.equal(new Set(list.map((e) => e.id)).size, list.length, "ids are unique");
 	const by = (label: string) => list.find((e) => e.label === label)!;

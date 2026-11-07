@@ -1,0 +1,131 @@
+/* The Raven Keep theme (view.ts sets data-view="raven" on <html>; gui/themes/raven/index.ts loads this file the first time a page shows it, or boot.js links it before the first frame).
+   Dark only: a near-black ground with a cold violet cast, bone text, candle gold for what waits, blood crimson for what failed, fog grey for what rests. Every text colour is at least 4.5 : 1 on every surface and every border
+   at least 3 : 1 (tests/raven-contrast.test.ts reads the block below). The art direction is gothic castle, mist, and candlelight, as reference only; nothing official is copied. */
+[data-view="raven"] {
+	color-scheme: dark;
+	--bg: #0d0a10;
+	--bg-2: #130e18;
+	--surface-0: #181220;
+	--surface-1: #1f1829;
+	--raised: #181220;
+	--sunken: #09070c;
+	--well: rgba(9, 7, 12, 0.62);
+	--panel: rgba(24, 18, 32, 0.94);
+	--plate: #130e18;
+	--plate-hi: #2a2036;
+	--term-bg: #0a080d;
+	--term-fg: #e6dcc2;
+	--line-c: #8d809c;
+	--line: rgba(141, 128, 156, 0.32);
+	--hi: #ffffff;
+	--shadow: #030204;
+	--text: #e6dcc2;
+	--dim: #b0a6bc;
+	--ink: #0d0a10;
+	--accent: #bba9ea;
+	--accent-hi: #dacdf7;
+	--working: #bba9ea;
+	--gold: #e6b34e;
+	--amber: #e0904a;
+	--ok: #9cc080;
+	--err: #ee6b76;
+	--err-soft: #f592a0;
+	--violet: #b994dc;
+	--idle: #aaa4b8;
+	--unknown: #a29cb0;
+	--paper-hi: #f1e4bc;
+	--paper: #d4bb86;
+	--paper-ink: #33250a;
+	--paper-edge: #8a6f33;
+	--aura-1: color-mix(in srgb, #8a1c24 18%, transparent);
+	--aura-2: color-mix(in srgb, var(--violet) 8%, transparent);
+	--grid: none;
+	--sans: system-ui, -apple-system, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+	--serif: "Cormorant Garamond", "Iowan Old Style", "Palatino Linotype", Palatino, "Songti TC", "Noto Serif TC", PMingLiU, Georgia, serif;
+	/* pi-better-show's tokens (spec §7): a pbs element in a document or the chat takes the keep's colours. */
+	--pbs-bg: var(--surface-0); --pbs-fg: var(--text); --pbs-muted: var(--dim); --pbs-surface: var(--surface-1); --pbs-line: var(--line); --pbs-control: var(--line-c);
+	--pbs-accent: var(--accent); --pbs-on-accent: var(--ink); --pbs-note: var(--violet); --pbs-ok: var(--ok); --pbs-warn: var(--gold); --pbs-risk: var(--err);
+	--pbs-radius: 6px; --pbs-gap: 12px; --pbs-font: var(--sans); --pbs-font-display: var(--serif); --pbs-mono: var(--mono); --pbs-font-size: 14px;
+	/* The backdrop's frame: the illustration is 1280 by 721, drawn at the page's width up to 1600 px, so each light and flyer below sits at a place of it that does not move with the window. */
+	--rk-w: min(100vw, 1600px);
+	--rk-r: calc(var(--rk-w) * 0.018);
+}
+[data-view="raven"] :is(.brand h1, h2, h3) { font-family: var(--serif); letter-spacing: 0.04em; }
+[data-view="raven"] .brand h1 { font-weight: 700; }
+/* A state keeps its tint under 14 percent so text on it holds its 4.5 : 1. */
+[data-view="raven"] [data-mark] { --c1: color-mix(in srgb, var(--c) 13%, transparent); }
+[data-view="raven"] ::selection { background: color-mix(in srgb, var(--accent) 38%, transparent); color: var(--text); }
+
+/* The head page's backdrop (the castle above the mist, the crypt gate): four fixed layers behind the page, each in the illustration's frame. The page's panels keep their translucent well, so the picture shows through and the text keeps its ground. */
+@property --rk-a { syntax: "<number>"; inherits: false; initial-value: 0.7; }
+@property --rk-b { syntax: "<number>"; inherits: false; initial-value: 0.7; }
+@property --rk-bolt { syntax: "<number>"; inherits: false; initial-value: 0; }
+html[data-view="raven"]:has(#stage[data-view="head"])::before,
+html[data-view="raven"]:has(#stage[data-view="head"]) body::before,
+html[data-view="raven"]:has(#stage[data-view="head"]) body::after,
+html[data-view="raven"]:has(#stage[data-view="head"])::after { content: ""; position: fixed; z-index: -1; top: 0; left: 50%; translate: -50% 0; width: var(--rk-w); aspect-ratio: 1280 / 721; pointer-events: none; }
+/* The picture, under a veil, with the lit windows and lanterns (two groups that flicker apart) and, over the sky, the far lightning. */
+html[data-view="raven"]:has(#stage[data-view="head"])::before {
+	background:
+		linear-gradient(rgb(190 170 255 / calc(var(--rk-bolt) * 0.22)), transparent 60%),
+		radial-gradient(circle var(--rk-r) at 15.9% 28.8%, rgb(255 190 92 / calc(var(--rk-a) * 0.55)), transparent),
+		radial-gradient(circle var(--rk-r) at 12.3% 33.7%, rgb(255 190 92 / calc(var(--rk-a) * 0.55)), transparent),
+		radial-gradient(circle var(--rk-r) at 9.6% 33.3%, rgb(255 190 92 / calc(var(--rk-a) * 0.5)), transparent),
+		radial-gradient(circle var(--rk-r) at 18.8% 39.2%, rgb(255 190 92 / calc(var(--rk-a) * 0.55)), transparent),
+		radial-gradient(circle var(--rk-r) at 23.4% 39.2%, rgb(255 190 92 / calc(var(--rk-a) * 0.5)), transparent),
+		radial-gradient(circle var(--rk-r) at 21.1% 56.9%, rgb(255 190 92 / calc(var(--rk-a) * 0.45)), transparent),
+		radial-gradient(circle var(--rk-r) at 19.3% 65.2%, rgb(255 190 92 / calc(var(--rk-a) * 0.45)), transparent),
+		radial-gradient(circle var(--rk-r) at 56.3% 74.9%, rgb(255 190 92 / calc(var(--rk-b) * 0.6)), transparent),
+		radial-gradient(circle var(--rk-r) at 72.7% 70%, rgb(255 190 92 / calc(var(--rk-b) * 0.6)), transparent),
+		radial-gradient(circle var(--rk-r) at 84.8% 68.7%, rgb(255 190 92 / calc(var(--rk-b) * 0.5)), transparent),
+		radial-gradient(circle var(--rk-r) at 90.5% 68.9%, rgb(255 190 92 / calc(var(--rk-b) * 0.5)), transparent),
+		linear-gradient(rgb(13 10 16 / 0.68), rgb(13 10 16 / 0.3) 45%, rgb(13 10 16 / 0.3)),
+		url("./backdrop.webp") center / 100% 100% no-repeat;
+	mask-image: linear-gradient(#000 62%, transparent);
+}
+/* Two layers of mist drift across it, one each way, a whole tile in two and a half minutes. */
+html[data-view="raven"]:has(#stage[data-view="head"]) body::before {
+	background:
+		radial-gradient(ellipse 34% 13% at 50% 70%, rgb(176 166 196 / 0.2), transparent 70%) 0 0 / 70% 100% repeat-x,
+		radial-gradient(ellipse 30% 10% at 50% 86%, rgb(176 166 196 / 0.16), transparent 70%) 0 0 / 55% 100% repeat-x;
+	mask-image: linear-gradient(transparent, #000 35%, #000 70%, transparent);
+}
+/* Bats cross in front of the moon now and then (two, a little apart), and a raven crosses the sky, its wings beating. */
+html[data-view="raven"]:has(#stage[data-view="head"]) body::after {
+	background:
+		url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2040%2018%27%3E%3Cpath%20fill=%27%230b080e%27%20d=%27M20%2011%2017%205%2011%202%208%207%202%205%208%2013%2014%2011%2018%2014%2020%2010%2022%2014%2026%2011%2032%2013%2038%205%2032%207%2029%202%2023%205Z%27/%3E%3C/svg%3E") -12% 12% / calc(var(--rk-w) * 0.034) auto no-repeat,
+		url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2040%2018%27%3E%3Cpath%20fill=%27%230b080e%27%20d=%27M20%2011%2017%205%2011%202%208%207%202%205%208%2013%2014%2011%2018%2014%2020%2010%2022%2014%2026%2011%2032%2013%2038%205%2032%207%2029%202%2023%205Z%27/%3E%3C/svg%3E") -12% 12% / calc(var(--rk-w) * 0.026) auto no-repeat;
+}
+html[data-view="raven"]:has(#stage[data-view="head"])::after {
+	top: calc(var(--rk-w) * 0.06); left: 0; translate: -20vw 0; width: calc(var(--rk-w) * 0.07); aspect-ratio: 96 / 34; opacity: 0;
+	background: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2096%2034%27%3E%3Cg%20fill=%27%230b080e%27%3E%3Cpath%20d=%27M2%2017%208%2014.5C12%2012.5%2016%2013.5%2019%2015.5L38%2016.5%2047%2020.5%2037%2020C30%2023%2020%2023%2013%2020L8%2019.5Z%27/%3E%3Cpath%20d=%27M18%2016C16%2010%2019%204%2026%201%2026%206%2028%2010%2031%2013%2034%208%2038%205%2044%204%2042%2010%2040%2014%2037%2017Z%27/%3E%3Cg%20transform=%27translate(48%200)%27%3E%3Cpath%20d=%27M2%2017%208%2014.5C12%2012.5%2016%2013.5%2019%2015.5L38%2016.5%2047%2020.5%2037%2020C30%2023%2020%2023%2013%2020L8%2019.5Z%27/%3E%3Cpath%20transform=%27translate(0%2034)%20scale(1%20-1)%27%20d=%27M18%2016C16%2010%2019%204%2026%201%2026%206%2028%2010%2031%2013%2034%208%2038%205%2044%204%2042%2010%2040%2014%2037%2017Z%27/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") 0 0 / 200% 100% no-repeat;
+}
+@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="head"]) :is(body::after, ::after) { display: none; } }
+
+@media (prefers-reduced-motion: no-preference) {
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::before { animation: rk-lit-a 4.7s ease-in-out infinite alternate, rk-lit-b 6.1s ease-in-out infinite alternate, rk-bolt 61s linear infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::before { animation: rk-fog 150s linear infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::after { animation: rk-bat 47s linear infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::after { animation: rk-flap 0.46s steps(1, end) infinite, rk-raven 83s linear 21s infinite; }
+	/* A unit that waits burns like a candle: its ring flickers instead of pinging. */
+	html[data-view="raven"]:not([data-calm]) .tower[data-mark="waiting"] .pulse, html[data-view="raven"]:not([data-calm]) .plate[data-mark="waiting"]::after { animation: rk-candle 2.9s ease-in-out infinite; }
+}
+@keyframes rk-lit-a { 0% { --rk-a: 0.55; } 18% { --rk-a: 0.9; } 33% { --rk-a: 0.5; } 52% { --rk-a: 0.85; } 71% { --rk-a: 0.62; } 100% { --rk-a: 0.78; } }
+@keyframes rk-lit-b { 0% { --rk-b: 0.8; } 22% { --rk-b: 0.5; } 40% { --rk-b: 0.95; } 63% { --rk-b: 0.58; } 81% { --rk-b: 0.9; } 100% { --rk-b: 0.66; } }
+/* Once in 61 seconds the sky lights: a double flicker in about a second, at most a fifth of a violet wash over the upper half of the picture. */
+@keyframes rk-bolt { 0%, 94% { --rk-bolt: 0; } 94.6% { --rk-bolt: 0.9; } 95.1% { --rk-bolt: 0.15; } 95.7% { --rk-bolt: 1; } 96.8% { --rk-bolt: 0; } 100% { --rk-bolt: 0; } }
+@keyframes rk-fog { to { background-position: calc(var(--rk-w) * 0.7) 0, calc(var(--rk-w) * -0.55) 0; } }
+/* The bats are over the moon for the first seven seconds of 47: the first goes up and across, the second follows a moment later, lower. */
+@keyframes rk-bat {
+	0% { background-position: -12% 12%, -12% 12%; }
+	4% { background-position: 4% 15%, -12% 12%; }
+	8% { background-position: 16% 9%, 2% 18%; }
+	12% { background-position: 30% 12%, 14% 12%; }
+	16% { background-position: 44% 6%, 28% 16%; }
+	20%, 100% { background-position: 112% 6%, 112% 16%; }
+}
+@keyframes rk-flap { 0% { background-position: 0 0; } 50% { background-position: 100% 0; } }
+@keyframes rk-raven { 0% { translate: -20vw 0; opacity: 0; } 1% { opacity: 1; } 7% { translate: calc(var(--rk-w) * 0.3) calc(var(--rk-w) * 0.012); } 12% { translate: calc(var(--rk-w) * 0.62) calc(var(--rk-w) * -0.006); opacity: 1; } 13%, 100% { translate: calc(var(--rk-w) + 10vw) 0; opacity: 0; } }
+@keyframes rk-candle { 0%, 100% { opacity: 0.5; transform: scale(1.12); } 18% { opacity: 0.85; transform: scale(1.3); } 33% { opacity: 0.4; transform: scale(1.1); } 52% { opacity: 0.9; transform: scale(1.32); } 71% { opacity: 0.55; transform: scale(1.18); } 86% { opacity: 0.75; transform: scale(1.25); } }
+/* Forced colours draw the page in system colours: the picture and its weather go. */
+@media (forced-colors: active) { html[data-view="raven"]:has(#stage[data-view="head"]) :is(::before, ::after, body::before, body::after) { display: none; } }

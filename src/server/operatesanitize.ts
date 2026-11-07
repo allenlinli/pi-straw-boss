@@ -79,10 +79,10 @@ const option = shape({ title: str(200) }, { description: str(600), preview: yes 
 const ask = shape({ question: str(4000, true), options: list(option, 50), multiple: bool, freeform: bool }, { header: str(200), context: str(8000, true) });
 const choice = shape({ label: str(300) }, { note: str(600), localOnly: yes, hereOnly: yes, next: lit("terminal", "pane"), tagged: yes });
 const selectShape = shape<{ title: string; choices: unknown[]; copy?: string; confirm?: true }>({ title: str(600, true), choices: list(choice, 20) }, { copy: str(4000, true), confirm: yes });
-/** The text Copy command puts on this computer's clipboard comes from the box: it is offered only when it is one line and stands whole in the title the page shows, so what is copied is what was read (a box cannot show `ls` and copy a script). */
+/** The text Copy command puts on this computer's clipboard comes from the box: it is offered only when it is the whole title the page shows, on one line (the button shows no text of its own, and a title box scrolls), so what is copied is what was read (a box cannot show `ls` and copy a script). */
 const select: P<unknown> = (v, rw) => {
 	const r = selectShape(v, rw);
-	if (r?.copy === undefined || (!/[\r\n]/.test(r.copy) && r.title.includes(r.copy))) return r;
+	if (r?.copy === undefined || (!/[\r\n\t]/.test(r.copy) && r.title === r.copy)) return r;
 	rw.bad("copy");
 	const { copy: _copy, ...rest } = r;
 	return rest;

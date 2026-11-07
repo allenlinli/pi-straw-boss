@@ -106,6 +106,10 @@ const no = (status: number, error: string, reason: string, extra: Record<string,
 const refusal = (why: string, reason: string): Reply => ({ status: 403, body: { error: "operate_refused", why, reason } });
 const UNREACHABLE = no(503, "unreachable", "The box is not answering; its operate session will reopen on its own.");
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+/** How long a session must have lived before its failures are forgotten. */
+const LIVED_MS = 60_000;
+/** A file name travels URI-encoded: room for the 120 characters a local upload keeps, each up to 9 encoded (a CJK character is 9). */
+const NAME_ENCODED = 1100;
 const str = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 200;
 const marksOf = (b: Pick<Base, "tower" | "tabs" | "outposts" | "outside">) => [...(b.tower ? [b.tower.mark, ...b.tower.subs.map((c) => c.mark)] : []), ...b.tabs.flatMap((t) => t.units.flatMap((u) => [u.mark, ...u.subs.map((c) => c.mark)])), ...b.outside.flatMap((u) => [u.mark, ...u.subs.map((c) => c.mark)]), ...b.outposts.map((o) => o.mark)];
 
@@ -186,7 +190,6 @@ export function createOperateHost(deps: OperateHostDeps) {
 		s.limits = { mirrors: clamp(a.limits.mirrors, LIMIT_CAPS.mirrors), watches: clamp(a.limits.watches, LIMIT_CAPS.watches), budget: clamp(a.limits.budget, LIMIT_CAPS.budget) };
 		s.state = "live";
 		s.reopening = false;
-		s.fails = 0;
 		s.why = undefined;
 		s.ghostUntil = undefined;
 		s.openedAt = s.seen = now();
@@ -197,7 +200,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 	function ended(s: Sess, session: OperateSession, end: OperateEnd) {
 		if (s.session !== session) return;
 		s.session = undefined;
-		const t = now(), word = end.peer !== undefined && WHY.has(end.peer) ? end.peer : end.peer !== undefined ? "other" : undefined;
+		const t = now(), lived = s.state === "live" && s.openedAt !== undefined ? t - s.openedAt : 0, word = end.peer !== undefined && WHY.has(end.peer) ? end.peer : end.peer !== undefined ? "other" : undefined;
 		settle((p) => p.sess === s && p.session === session, UNREACHABLE);
 		deps.log({ event: "operate-close", team: s.offer.team, device: s.offer.device, by: end.peer !== undefined ? "box" : "controller", reason: LOCAL.has(end.reason) ? end.reason : word ?? (WHY.has(end.reason) || end.reason === "rekey" ? end.reason : "other"), seconds: s.openedAt === undefined ? 0 : Math.round((t - s.openedAt) / 1000) });
 		if (end.reason === "rekey") { s.reopening = true; return open(s); } // the base never greys, and the terminals and watches ask again at once: the new session's first snapshot replaces the old
@@ -225,6 +228,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 		// Silence, no answer, a key that would not derive, a box that stopped or is overloaded, a transient refusal: the base greys (`unreachable`) and the session reopens, later each time.
 		s.state = s.net ? "unreachable" : "idle"; // a box that never answered has nothing to grey
 		if (end.reason === "silence") s.seen = t - OPERATE_LIMITS.silenceMs;
+		if (lived >= LIVED_MS) s.fails = 0; // a box that accepts and closes at once keeps its growing wait; only a session that stayed a while starts it over
 		s.fails++;
 		s.retryAt = t + Math.min(300_000, 5000 * 2 ** Math.min(s.fails - 1, 6));
 		changed();
@@ -316,7 +320,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 	/** The box's answer to a watch is only heard when it refuses (its watch cap, a unit out of scope): the page is told the view is unknown, and the watch is asked again after a wait. */
 	function refused(s: Sess, id: string, status: unknown) {
 		const g = groups.get(id);
-		if (!g || g.sess !== s || !g.issued || typeof status !== "number" || status < 400) return;
+		if (!g || g.sess !== s || !g.issued || typeof status !== "number" || status < 400 || status === 409) return; // 409 is a watch replaced by a later `on` of the same id: the later one answers for itself
 		g.issued = false;
 		g.retryAt = now() + WATCH_RETRY_MS;
 		unknown(g);
@@ -390,7 +394,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 			body = bytes.toString("base64");
 		}
 		const q: Record<string, string> = {};
-		for (const [k, v] of [...query].slice(0, 8)) if (k.length <= 32 && v.length <= 200) q[k] = v;
+		for (const [k, v] of [...query].slice(0, 8)) if (k.length <= 32 && v.length <= (k === "name" ? NAME_ENCODED : 200)) q[k] = v;
 		return ask(sess, kindOf(method, parts), method, out, q, body);
 	}
 

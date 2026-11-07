@@ -14,14 +14,14 @@ import type { MemberOf, Owner } from "../src/server/operatescope.ts";
 import { fakeClock } from "./fake-clock.ts";
 import { DEVICES } from "./link/scenario.ts";
 
-// A copy of the world of tests/server-operate-box.test.ts (task 5), exported, so the controller's host can run against the real box bridge (tests/server-operate-host-wire.test.ts). The original header follows.
+// The box test world (task 5), shared by tests/server-operate-box.test.ts and the controller host's wire test (tests/server-operate-host-wire.test.ts), so both run against the same one.
 // The box's bridge (docs/specs/2026-11-07-link-operate.md §11 row 5, §5.4, §5.5, §10): the holder's operate sink, a session per operator whose grant the guard checks on every request, the sliced net, the mirror at most twice a second as whole
 // screens, a budget that stretches the mirror first, and link.log lines that never carry what was typed. Both ends are real `OperateSession`s over a transport the test pumps, so the frames are really sealed; Herdr's GUI is a fake of
 // the seam, and the clock is the test's.
 
 export const { alice, bob, dave } = DEVICES;
 export const A = "a".repeat(32), B = "b".repeat(32);
-const MARKER = "zq7-marker-should-never-be-logged";
+export const MARKER = "zq7-marker-should-never-be-logged";
 const tp = (name: string): TeamPolicy => ({ project: "/srv/work", share: "status", name });
 const unit = (key: string): Unit => ({ id: key, key, control: true, name: key, role: "main", mark: "idle", subs: [] });
 /** Base wA: a team A main, a team B main, a box-own main in a tab, and the box's tower. */
@@ -33,7 +33,7 @@ const NET = (): Net => ({
 	} as Base],
 });
 const OWNERS: Record<string, Owner> = { "a-main": { team: A }, "b-main": { team: B }, "box-main": { box: true }, tower: { box: true } };
-const keysOf = (net: Net): string[] => net.bases.flatMap((b) => [...(b.tower ? [b.tower.key] : []), ...b.tabs.flatMap((t) => t.units.map((u) => u.key))]).sort();
+export const keysOf = (net: Net): string[] => net.bases.flatMap((b) => [...(b.tower ? [b.tower.key] : []), ...b.tabs.flatMap((t) => t.units.map((u) => u.key))]).sort();
 export const settle = async () => { for (let i = 0; i < 6; i++) await new Promise<void>((r) => setImmediate(r)); };
 
 interface Recorded { watches: [string, string, boolean][]; mirrors: [string, boolean][]; requests: { method: string; parts: string[]; body: unknown; scope: OperateScope }[]; rescoped: OperateScope[]; stopped: boolean; sink: Sink }

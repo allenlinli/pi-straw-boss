@@ -21,11 +21,11 @@ const FIELDS: Record<CarState, { name: string; ok: (v: unknown) => boolean; help
 		{ name: "train", ok: isCode, help: "must be YYYY-MM-DD-<letters>" },
 		{ name: "departs", ok: (v) => text(v, 300), help: "must be the departure conditions in words, at most 300 characters" },
 	],
-	returned: [{ name: "reason", ok: (v) => text(v, MAX_REASON), help: `is longer than ${MAX_REASON} characters` }],
+	returned: [{ name: "reason", ok: (v) => text(v, MAX_REASON), help: `must be 1 to ${MAX_REASON} characters` }],
 	dropped: [
 		{ name: "round", ok: (v) => typeof v === "number" && Number.isInteger(v) && v >= 1, help: "must be a whole number from 1" },
-		{ name: "reason", ok: (v) => text(v, MAX_REASON), help: `is longer than ${MAX_REASON} characters` },
-		{ name: "evidence", ok: (v) => text(v, 1024), help: "must be a path" },
+		{ name: "reason", ok: (v) => text(v, MAX_REASON), help: `must be 1 to ${MAX_REASON} characters` },
+		{ name: "evidence", ok: (v) => text(v, 1024), help: "must be a path of 1 to 1024 characters" },
 	],
 	landed: [
 		{ name: "version", ok: (v) => text(v, 128), help: "must be a non-empty string" },
@@ -153,11 +153,21 @@ export function noticeStatus(record: NoticeRecord | undefined, state: CarState):
 	return last ? { kind: "pending", attempts: attempts.length, last: last.answer ?? last.outcome } : { kind: "pending", attempts: 0 };
 }
 
-/** The `notice` check (§6.3): every named car's terminal state is `state` and its notice is told. Returns what is still missing, in words; an empty list passes. */
-export function noticeSatisfied(cars: readonly { file: CarFile; notice?: NoticeRecord }[], tickets: readonly string[], state: TerminalState): string[] {
+/** The latest time a car file was changed; a file with no state yet is the oldest. */
+const latest = (file: CarFile) => file.states.reduce((at, s) => (s.at > at ? s.at : at), "");
+
+/**
+ * The `notice` check (§6.3): every named car's terminal state is `state` and its notice is told. Returns what is still missing, in words; an empty list passes.
+ * A ticket whose car came back is in several car files (§5.5: a new head, a new file); the one changed last is its current life, and two changed at the same time are refused, not guessed. `app` leaves out another app's car of the same ticket.
+ */
+export function noticeSatisfied(cars: readonly { file: CarFile; notice?: NoticeRecord }[], tickets: readonly string[], state: TerminalState, opts: { app?: string } = {}): string[] {
 	return tickets.flatMap((ticket) => {
-		const found = cars.find((c) => c.file.car.tickets.includes(ticket));
-		if (!found) return [`sb: car ${ticket} has no car file`];
+		const files = cars.filter((c) => c.file.car.tickets.includes(ticket) && (opts.app === undefined || c.file.app === opts.app));
+		if (files.length === 0) return [`sb: car ${ticket} has no car file`];
+		const newest = files.reduce((top, c) => (latest(c.file) > latest(top.file) ? c : top));
+		const tied = files.filter((c) => latest(c.file) === latest(newest.file));
+		if (tied.length > 1) return [`sb: car ${ticket} has ${tied.length} car files with the same latest state (heads ${tied.map((c) => c.file.car.head.slice(0, 12)).join(", ")}); one of them must change first`];
+		const found = newest;
 		const terminal = found.file.states.find((s) => isTerminal(s.state));
 		if (!terminal) return [`sb: car ${ticket} has no terminal state yet`];
 		if (terminal.state !== state) return [`sb: car ${ticket} is ${terminal.state}, not ${state}`];

@@ -1,4 +1,4 @@
-import { acceptanceWord, isObject, isoTime, isName, kb, SHA_RE } from "./spec.ts";
+import { acceptanceToken, acceptanceWord, isObject, isoTime, isName, kb, SHA_RE, spokenText } from "./spec.ts";
 
 // What a coordinator hands the train and what `train check --accept` proves about it (docs/specs/2026-11-07-train-workers.md §5.1 to §5.4): the slip's `departs` and `accept` lines, the acceptance evidence file, and
 // `integration.accept` and `stages` of apps.json. Acceptance happens before loading (D11), so a slip or evidence that asks the train for any is refused at once with `acceptanceWord` (D13). Pure: the files and git come in as functions.
@@ -11,37 +11,62 @@ const ENTRY_FIELDS = ["kind", "label", "what", "on", "result", "evidence", "at",
 /** Fields of an entry that name something still to be run: a request, not evidence. */
 const TO_DO = ["check", "run", "page", "checkpoints"];
 const PENDING = /^(pending|todo|tbd|waiting|open|not[ _-]?run)$/i;
+const ON_FIELDS = ["head"];
 const present = (value: unknown) => value !== undefined;
 const text = (value: unknown, max = 1000): value is string => typeof value === "string" && value.trim() !== "" && value.length <= max;
 
 // ---- the slip
 
-export interface ParsedSlip { fields: Record<string, string>; tickets: string[] }
+/** The keys of a slip (the receive-car playbook's block); any other key refuses the slip. */
+export const SLIP_KEYS = ["car", "tickets", "branch", "head", "tested-on", "review", "light", "migrations", "lane", "deploy", "departs", "accept", "uat", "auth", "coordinator"];
+/** One `key: value` of a slip, in the order written; a segment with no key has `key` empty. Every entry is read for a request, including a repeated key and a keyless line. */
+export interface SlipEntry { key: string; value: string; line: number }
+export interface ParsedSlip { fields: Record<string, string>; tickets: string[]; entries: SlipEntry[]; problems: string[] }
 
-/** Splits at ` | ` outside double quotes and parentheses, so a quoted `auth` or a parenthesised `light` keeps its pipes. */
-function segments(line: string): string[] {
-	const out: string[] = [];
+/** Splits at ` | ` outside double quotes and parentheses, so a quoted `auth` or a parenthesised `light` keeps its pipes; says when a quote or a parenthesis is left open at the end of the line. */
+function segments(line: string): { parts: string[]; open?: "quote" | "parenthesis" } {
+	const parts: string[] = [];
 	let depth = 0, quoted = false, from = 0;
 	for (let i = 0; i < line.length; i++) {
 		const c = line[i];
 		if (c === '"') quoted = !quoted;
 		else if (!quoted && c === "(") depth++;
 		else if (!quoted && c === ")") depth = Math.max(0, depth - 1);
-		else if (!quoted && depth === 0 && c === "|" && line[i - 1] === " " && line[i + 1] === " ") out.push(line.slice(from, i - 1)), (from = i + 2);
+		else if (!quoted && depth === 0 && c === "|" && line[i - 1] === " " && line[i + 1] === " ") parts.push(line.slice(from, i - 1)), (from = i + 2);
 	}
-	out.push(line.slice(from));
-	return out;
+	parts.push(line.slice(from));
+	return { parts, ...(quoted ? { open: "quote" as const } : depth > 0 ? { open: "parenthesis" as const } : {}) };
 }
 
-/** The slip's block: lines of `key: value` segments joined by ` | `. A key seen again is ignored (the first stands); a segment with no key belongs to nothing. */
+const shown = (text: string) => JSON.stringify(text.length > 40 ? `${text.slice(0, 40)}…` : text);
+
+/**
+ * The slip's block: lines of `key: value` segments joined by ` | `. The parse fails closed (D13): the first of a repeated key is the field, but every segment is kept in `entries` to be read, and a repeated key, a key that is not
+ * a slip's, a segment with no key, and a quote or parenthesis left open (which would fold the rest of the line into one field) each leave a refusal in `problems`.
+ */
 export function parseSlip(slip: string): ParsedSlip {
-	const fields: Record<string, string> = {};
-	for (const line of slip.split(/\r?\n/)) for (const segment of segments(line)) {
-		const m = /^\s*([a-z][a-z0-9-]*):[ \t]*([^]*)$/.exec(segment);
-		if (m && !(m[1]! in fields)) fields[m[1]!] = m[2]!.trim();
-	}
+	const fields: Record<string, string> = {}, entries: SlipEntry[] = [], problems: string[] = [];
+	slip.split(/\r?\n/).forEach((line, index) => {
+		if (line.trim() === "") return;
+		const at = `sb: slip line ${index + 1}:`, { parts, open } = segments(line);
+		if (open) problems.push(`${at} unbalanced ${open === "quote" ? 'quote (")' : "parenthesis"}: the rest of the line cannot be told apart from its field`);
+		for (const part of parts) {
+			if (part.trim() === "") continue;
+			const m = /^\s*([A-Za-z][A-Za-z0-9-]*):[ \t]*([^]*)$/.exec(part);
+			if (!m) {
+				entries.push({ key: "", value: part.trim(), line: index + 1 });
+				problems.push(`${at} ${shown(part.trim())} has no key (key: value | key: value)`);
+				continue;
+			}
+			const key = m[1]!.toLowerCase(), value = m[2]!.trim();
+			entries.push({ key, value, line: index + 1 });
+			if (!SLIP_KEYS.includes(key)) problems.push(`${at} ${key} is not a slip field (${SLIP_KEYS.join(", ")})`);
+			if (key in fields) problems.push(`${at} ${key} twice`);
+			else fields[key] = value;
+		}
+	});
 	const tickets = (fields.tickets ?? "").replace(/\([^)]*\)/g, " ").split(/[\s,]+/).filter(Boolean);
-	return { fields, tickets };
+	return { fields, tickets, entries, problems };
 }
 
 export interface Departs { mode: "next" | "alone" | "with"; with?: string; after?: string; by?: string }
@@ -81,22 +106,31 @@ export function checkAcceptRef(value: string | undefined, appAccept: readonly st
 	return [];
 }
 
-/** Whether free text asks the train to accept a car, on the train or after deploy; returns the word it asked for. A target named `uat-env` or a light check that ran e2e asks nothing. */
-function asksTrain(value: string): string | undefined {
-	const what = /\b(?:uat|e2e|acceptance|accept)\b|驗收/i.exec(value)?.[0];
-	const where = /\b(?:after|post)[- ]?(?:the )?(?:deploy(?:ment)?|merge|landing|release)\b|\b(?:on|by) the train\b|\btrain (?:runs?|does|to run|to do|should|must|will|handles?)\b|\bat deploy\b|部署後|上線後|合併後|火車/i;
-	return what && where.test(value) ? what : undefined;
+const FILL = "(?:(?:the|it|we|they|is|are|was|were|has|have|had|been|being|that|this|a|an|its|their|our|ever|gets?|got|be) )*";
+const STAGE = "(?:deploy\\w*|merg\\w*|land\\w*|releas\\w*|ship\\w*|launch\\w*|rollout|roll out|go live|goes live|went live)";
+const WHERE = new RegExp([
+	`\\b(?:after|post|once|when|upon|following|before|during|until|while|at|on) ?${FILL}${STAGE}\\b`,
+	"\\b(?:on|by|in|via|at|from|with|through|during|using|for|to|before|after) (?:the )?train\\b",
+	"\\btrain (?:runs?|does|to run|to do|should|must|will|handles?|can|would|executes?|performs?|accepts?)\\b",
+	"部署[之後后]|上線[之後后]|合併[之後后]|合并[之后]|落地後|火車|火车|上車|上车|到站",
+].join("|"), "u");
+
+/** Whether free text asks the train to accept a car: an acceptance word (`acceptanceToken`) together with the train or a stage after loading (`after deploy`, `once deployed`, `on the train`, 部署後, 火車). Returns the word it asked for. A target named `uat-env` or a light check that ran e2e asks nothing; `fixed e2e flake; merge after deploy freeze` is refused, and the rewrite is the price of a rule no model text can step around (§18). */
+export function asksTrain(value: string): string | undefined {
+	const what = acceptanceToken(value);
+	return what !== undefined && WHERE.test(spokenText(value)) ? what : undefined;
 }
 
-const NOT_SCANNED = new Set(["car", "branch", "head", "tested-on", "auth", "coordinator", "departs", "accept", "uat"]);
+/** Slip keys whose value is read by its own rule and not as free text: the commit and id fields, `departs` and `accept` (parsed to a closed grammar and a `.json` name), and `uat` (always refused). */
+const NOT_SCANNED = new Set(["head", "tested-on", "coordinator", "departs", "accept", "uat"]);
 const base = (path: string) => path.split(/[\\/]/).pop() ?? path;
 const namesCheckpoints = (path: string) => base(path).toLowerCase().split(/[^a-z0-9]+/).some((token) => /^(checkpoints?|conditions?)$/.test(token));
 
 export interface SlipOptions { appAccept: readonly string[] }
 
-/** The refusals of the slip itself: its head and tickets, `departs`, `accept`, an old `uat:` line, and free text that asks the train for acceptance. */
+/** The refusals of the slip itself: how it parses, its head and tickets, `departs`, `accept`, an old `uat:` line, and free text that asks the train for acceptance. */
 export function checkSlip(slip: string, { appAccept }: SlipOptions): string[] {
-	const { fields, tickets } = parseSlip(slip), out: string[] = [], car = tickets[0] ?? fields.branch ?? "unknown";
+	const { fields, tickets, entries, problems } = parseSlip(slip), out: string[] = [...problems], car = tickets[0] ?? fields.branch ?? "unknown";
 	if (!SHA_RE.test(fields.head ?? "")) out.push("sb: slip head must be 40 hex");
 	if (tickets.length === 0) out.push("sb: slip tickets is empty");
 	if (present(fields.uat)) {
@@ -112,9 +146,9 @@ export function checkSlip(slip: string, { appAccept }: SlipOptions): string[] {
 		const parsed = parseDeparts(fields.departs);
 		if (!parsed.ok) out.push(parsed.refusal);
 	}
-	for (const [key, value] of Object.entries(fields)) {
+	for (const { key, value, line } of entries) {
 		const what = NOT_SCANNED.has(key) ? undefined : asksTrain(value);
-		if (what !== undefined) out.push(acceptanceWord({ car, what, where: `slip field ${key}` }));
+		if (what !== undefined) out.push(acceptanceWord({ car, what, where: key === "" ? `slip line ${line}` : `slip field ${key}` }));
 	}
 	return out;
 }
@@ -142,9 +176,14 @@ function entryRefusals(entry: unknown, n: number, car: string, ref: string | und
 	else if (entry.kind === "other" && !text(entry.label, 64)) out.push(`${at} kind other needs a label`);
 	if (!text(entry.what, 300)) out.push(`${at} what is empty`);
 	const result = entry.result;
-	if (!present(result) || (typeof result === "string" && PENDING.test(result))) out.push(acceptanceWord({ car, what: kind, where: `evidence entry ${n}: result ${present(result) ? String(result) : "missing"}` }));
+	if (!present(result) || (typeof result === "string" && PENDING.test(result.trim()))) out.push(acceptanceWord({ car, what: kind, where: `evidence entry ${n}: result ${present(result) ? String(result) : "missing"}` }));
 	else if (result !== "passed" && result !== "accepted") out.push(`${at} result must be passed or accepted (got ${JSON.stringify(result)})`);
+	for (const key of ["what", "label", "nod"]) {
+		const asked = typeof entry[key] === "string" ? asksTrain(entry[key] as string) : undefined;
+		if (asked !== undefined) out.push(acceptanceWord({ car, what: asked, where: `evidence entry ${n}: ${key}` }));
+	}
 	const on = isObject(entry.on) ? entry.on : undefined;
+	for (const key of Object.keys(on ?? {})) if (present(on![key]) && !ON_FIELDS.includes(key)) out.push(`${at} on.${key} is not a field`);
 	if (!SHA_RE.test(String(on?.head))) out.push(`${at} on.head must be 40 hex`);
 	else if (ref !== undefined) {
 		const same = on!.head === ref;

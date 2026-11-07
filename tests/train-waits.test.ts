@@ -121,3 +121,12 @@ test("the English message of a wait is the monitor line's progress.message", () 
 	assert.equal(waitMessage([{ lane: { app: "web", holder: A } }, { target: { target: "t1", holder: B, why: "stale" } }]), `waiting: lane web (held by ${A}); target t1 (held by ${B}, stale)`);
 	assert.equal(waitMessage([]), "");
 });
+
+test("F005: a clear releases a stale train's holds only; a live train that resumed holds again", () => {
+	const clears = [{ lane: "web", reason: "read back", by: "boss", at: "2026-11-01T08:00:00Z" }];
+	const steps = () => [step("completed", { holds: lane("web") }), step("in_progress", { holds: lane("web") })];
+	assert.deepEqual(holding(train(A, steps(), { state: "stale", clears })).lanes, [], "stale and cleared");
+	assert.deepEqual(holding(train(A, steps(), { state: "live", clears })).lanes, ["web"], "live: the clear is not honored");
+	const ahead = train(A, steps(), { state: "live", clears }), mine = train(B, [step("in_progress", { holds: lane("web") })]);
+	assert.deepEqual(holders([ahead, mine], { project: "acme", lane: "web", before: B }), [{ code: A }]);
+});

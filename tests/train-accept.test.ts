@@ -117,6 +117,8 @@ test("the slip parser reads the block format, keeps quoted and parenthesised pip
 	assert.deepEqual(parsed.tickets, ["T-15"]);
 	assert.deepEqual(parseSlip(slip({ tickets: "T-1, T-2 T-3" })).tickets, ["T-1", "T-2", "T-3"]);
 	assert.deepEqual(parseSlip("nonsense").fields, {});
+	assert.deepEqual(parseSlip(slip()).problems, [], "a plain slip has no problem");
+	assert.match(parseSlip("nonsense").problems.join("\n"), /^sb: slip line 1: .*no key/);
 	assert.equal(parseSlip("light: pass | light: fail").fields.light, "pass", "a key seen again is ignored");
 	assert.equal(parseSlip('auth: "he said | then left" | coordinator: c').fields.coordinator, "c", "a quote closes");
 });

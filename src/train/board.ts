@@ -1,6 +1,6 @@
 import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { FOLDER_CODE_RE, compareCodes, isCode, isObject, isoTime, KINDS, kb, type Holds, type Kind, type LoadSpec, isName, SHA_RE } from "./spec.ts";
+import { FOLDER_CODE_RE, compareCodes, isCode, isObject, isoTime, jsonBytes, KINDS, MAX_SB_BYTES, type Holds, type Kind, type LoadSpec, isName, SHA_RE, kb } from "./spec.ts";
 import type { Clear, FactStep, StepStatus, TrainFacts, TrainState, Wait } from "./waits.ts";
 
 // The trainboard (docs/specs/2026-11-07-train-workers.md §10, §11.1): Straw Boss's derived state, one file per writer. A train's extension writes `<state>/trainboard/<project>/<code>/board.json` from its todo list, the integrator's
@@ -100,9 +100,10 @@ function clearRefusals(clear: unknown, path: string): string[] {
 	return out;
 }
 
+/** The refusal of a board or yard that is nested too deep (never walked), not JSON, or over the file's size. */
 const tooBig = (value: unknown, what: string) => {
-	const bytes = Buffer.byteLength(JSON.stringify(value));
-	return bytes > MAX_BOARD_BYTES ? [`sb: ${what} is ${kb(bytes)} KB, more than ${MAX_BOARD_BYTES / 1024}`] : [];
+	const size = jsonBytes(value, what, MAX_BOARD_BYTES);
+	return size.refusal ? [size.refusal] : [];
 };
 
 /** What a train's board is refused for; the writer checks it before it writes and the reader after it reads, so both agree on what a board is. */
@@ -138,6 +139,8 @@ export function validateBoard(value: unknown): string[] {
 	return out;
 }
 
+const validDeparts = (d: unknown) => isObject(d) && whole(d.maxCars, 1) && whole(d.maxWaitMin, 0) && isoTime(d.oldest) && Object.keys(d).length === 3;
+
 /** What the integrator's yard is refused for: the forming and departed trains of one project, each with its cars. */
 export function validateYard(value: unknown): string[] {
 	if (!isObject(value)) return ["sb: yard must be an object"];
@@ -164,11 +167,45 @@ export function validateYard(value: unknown): string[] {
 		else if (present(train.session) && !text(train.session, CAP.session)) out.push(`sb: ${path}.session must be a non-empty string`);
 		if (!Array.isArray(train.cars) || train.cars.length > MAX_CARS) out.push(`sb: ${path}.cars must be a list of at most ${MAX_CARS}`);
 		else train.cars.forEach((car, j) => out.push(...carRefusals(car, `${path}.cars[${j}]`)));
-		if (present(train.departs)) {
-			const d = train.departs;
-			if (!(isObject(d) && whole(d.maxCars, 1) && whole(d.maxWaitMin, 0) && isoTime(d.oldest) && Object.keys(d).length === 3)) out.push(`sb: ${path}.departs must be maxCars, maxWaitMin and oldest`);
-		}
+		if (present(train.departs) && !validDeparts(train.departs)) out.push(`sb: ${path}.departs must be maxCars, maxWaitMin and oldest`);
 	});
+	return out;
+}
+
+/** The integrator's `train` todo (§7.4): the cars a forming train carries and when it leaves, as the yard holds them. The guard of the integrator reads a todo with `metadata.sb` of kind `train` through this. */
+export function validateTrainTodo(value: unknown, opts: { status?: string; id?: number; project?: string } = {}): string[] {
+	if (!isObject(value)) return ["sb: metadata.sb must be an object"];
+	const size = jsonBytes(value, "metadata.sb", MAX_SB_BYTES);
+	if (size.refusal) return [size.refusal];
+	const out = unknown(value, ["v", "project", "app", "train", "kind", "spec", "result"], "metadata.sb");
+	if (value.v !== 1) out.push("sb: metadata.sb.v must be 1");
+	for (const key of ["project", "app"]) if (!(typeof value[key] === "string" && isName(value[key]))) out.push(`sb: metadata.sb.${key} must be a path-safe name`);
+	if (!isCode(value.train)) out.push("sb: metadata.sb.train must be YYYY-MM-DD-<letters> (a real date, one or two lowercase letters)");
+	if (value.kind !== "train") out.push('sb: metadata.sb.kind must be train');
+	const spec = value.spec;
+	if (!isObject(spec)) out.push("sb: metadata.sb.spec must be an object");
+	else {
+		out.push(...unknown(spec, ["cars", "departs"], "metadata.sb.spec"));
+		if (!Array.isArray(spec.cars) || spec.cars.length < 1 || spec.cars.length > MAX_CARS) out.push(`sb: metadata.sb.spec.cars must be a list of 1 to ${MAX_CARS} cars`);
+		else spec.cars.forEach((car, i) => out.push(...carRefusals(car, `metadata.sb.spec.cars[${i}]`)));
+		if (present(spec.departs) && !validDeparts(spec.departs)) out.push("sb: metadata.sb.spec.departs must be maxCars, maxWaitMin and oldest");
+	}
+	if (opts.project !== undefined && typeof value.project === "string" && value.project !== opts.project) out.push(`sb: step #${opts.id ?? "?"} names project ${value.project}; this integrator's is ${opts.project}`);
+	if (opts.status !== undefined) {
+		if (opts.status === "completed" && !present(value.result)) out.push("sb: completed needs a result in metadata.sb.result");
+		else if (opts.status !== "completed" && present(value.result)) out.push("sb: metadata.sb.result is set only on completed");
+	}
+	if (present(value.result)) {
+		const at = "metadata.sb.result", result = value.result;
+		if (!isObject(result)) out.push(`sb: ${at} must be an object`);
+		else {
+			out.push(...unknown(result, ["outcome", "session", "refusal", "at"], at));
+			if (result.outcome !== "passed" && result.outcome !== "failed") out.push(`sb: ${at}.outcome must be passed or failed`);
+			else if (result.outcome === "passed" && !text(result.session, CAP.session)) out.push(`sb: passed needs result.session, the train's session id`);
+			else if (result.outcome === "failed" && !text(result.refusal, CAP.reason)) out.push(`sb: failed needs result.refusal, the tower's refusal`);
+			if (!isoTime(result.at)) out.push(`sb: ${at}.at must be an ISO time with its zone`);
+		}
+	}
 	return out;
 }
 
@@ -220,14 +257,33 @@ export function writeYard(stateDir: string, yard: Yard): string {
 	return file;
 }
 
-/** Cuts a board to its caps (long strings, long lists, then the derived waits) so the writer never fails on size; a board within them is returned equal. */
+const cut = (text: string, n: number) => (text.length > n ? text.slice(0, n) : text);
+const bytesOf = (board: Board) => Buffer.byteLength(JSON.stringify(board));
+
+/**
+ * Cuts a board to what its readers accept, so the writer never fails on size: first every field to its cap and every list to its length (a step's waits to 8), then, while the file is still over 64 KB, the derived waits, then
+ * the text of cars, clears and step names to shorter caps, then whole cars from the last. A board within every cap and the size is returned equal. Only a board whose 256 steps each hold two 64-character names stays too big for the writer to take.
+ */
 export function capBoard(board: Board): Board {
-	const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
-	const cars = board.cars.slice(0, MAX_CARS).map((c) => ({ ...c, tickets: c.tickets.slice(0, CAP.tickets).map((t) => cut(t, CAP.ticket)), branch: cut(c.branch, CAP.branch), coordinator: cut(c.coordinator, CAP.coordinator), departs: cut(c.departs, CAP.departs), accept: cut(c.accept, CAP.accept) }));
-	const steps = board.steps.slice(0, MAX_STEPS).map((s) => ({ ...s, name: cut(s.name, CAP.name) }));
-	const clears = board.clears?.slice(0, MAX_CLEARS).map((c) => ({ ...c, reason: cut(c.reason, CAP.reason), by: cut(c.by, CAP.by) }));
-	let out: Board = { ...board, cars, steps, ...(clears ? { clears } : {}) };
-	if (Buffer.byteLength(JSON.stringify(out)) > MAX_BOARD_BYTES) out = { ...out, steps: steps.map(({ waits: _, ...rest }) => rest) };
+	const car = (c: CarRow, t: { tickets: number; ticket: number; branch: number; coordinator: number; departs: number; accept: number; accepted: number }): CarRow => {
+		const { accepted, ...rest } = c;
+		return { ...rest, tickets: c.tickets.slice(0, t.tickets).map((x) => cut(x, t.ticket)), branch: cut(c.branch, t.branch), coordinator: cut(c.coordinator, t.coordinator), departs: cut(c.departs, t.departs), accept: cut(c.accept, t.accept), ...(accepted ? { accepted: accepted.slice(0, t.accepted).map((k) => cut(k, CAP.kind)) } : {}) };
+	};
+	const full = { tickets: CAP.tickets, ticket: CAP.ticket, branch: CAP.branch, coordinator: CAP.coordinator, departs: CAP.departs, accept: CAP.accept, accepted: 8 };
+	const short = { tickets: 4, ticket: 32, branch: 80, coordinator: 64, departs: 80, accept: 120, accepted: 4 };
+	const build = (cars: CarRow[], carCaps: typeof full, stepName: number, reason: number, waits: boolean, by = CAP.by, ref = 128): Board => ({
+		...board,
+		cars: cars.slice(0, MAX_CARS).map((c) => car(c, carCaps)),
+		steps: board.steps.slice(0, MAX_STEPS).map(({ waits: w, ...s }) => ({ ...s, name: cut(s.name, stepName), ...(waits && w ? { waits: w.slice(0, 8) } : {}) })),
+		...(board.clears ? { clears: board.clears.slice(0, MAX_CLEARS).map((c) => ({ ...c, ...(c.lane !== undefined ? { lane: cut(c.lane, ref) } : {}), ...(c.target !== undefined ? { target: cut(c.target, ref) } : {}), reason: cut(c.reason, reason), by: cut(c.by, by) })) } : {}),
+	});
+	const tiers = [() => build(board.cars, full, CAP.name, CAP.reason, true), () => build(board.cars, full, CAP.name, CAP.reason, false), () => build(board.cars, short, 32, 120, false), () => build(board.cars, short, 16, 40, false, 32), () => build(board.cars, short, 8, 16, false, 16, 64)];
+	let out = tiers[0]!();
+	for (const tier of tiers.slice(1)) {
+		if (bytesOf(out) <= MAX_BOARD_BYTES) return out;
+		out = tier();
+	}
+	while (bytesOf(out) > MAX_BOARD_BYTES && out.cars.length > 0) out = { ...out, cars: out.cars.slice(0, -1) };
 	return out;
 }
 
@@ -258,7 +314,16 @@ function readFile(file: string): { ok: true; value: unknown } | { ok: false; rea
 
 const reasonOf = (list: string[]) => list.map((r) => r.replace(/^sb: /, "")).join("; ");
 
-export function readBoard(file: string): FileRead<{ board: Board }> {
+/** A read never throws: whatever goes wrong in it is that file's reason, so one bad file cannot fail the others (a throw in the guard is no refusal). */
+function safely<T>(read: () => FileRead<T>): FileRead<T> {
+	try {
+		return read();
+	} catch (error) {
+		return { ok: false, reason: `cannot read: ${(error as Error).message}` };
+	}
+}
+
+export const readBoard = (file: string): FileRead<{ board: Board }> => safely(() => {
 	const read = readFile(file);
 	if (!read.ok) return read;
 	const refusals = validateBoard(read.value);
@@ -267,9 +332,9 @@ export function readBoard(file: string): FileRead<{ board: Board }> {
 	if (board.code !== code) return { ok: false, reason: `code ${board.code} is not the folder's ${code}` };
 	if (board.project !== project) return { ok: false, reason: `project ${board.project} is not the folder's ${project}` };
 	return { ok: true, board };
-}
+});
 
-export function readYard(file: string): FileRead<{ yard: Yard }> {
+export const readYard = (file: string): FileRead<{ yard: Yard }> => safely(() => {
 	const read = readFile(file);
 	if (!read.ok) return read;
 	const refusals = validateYard(read.value);
@@ -277,7 +342,7 @@ export function readYard(file: string): FileRead<{ yard: Yard }> {
 	const yard = read.value as Yard, project = basename(dirname(file));
 	if (yard.project !== project) return { ok: false, reason: `project ${yard.project} is not the folder's ${project}` };
 	return { ok: true, yard };
-}
+});
 
 export type BoardRead = { project: string; code: string; file: string } & FileRead<{ board: Board }>;
 

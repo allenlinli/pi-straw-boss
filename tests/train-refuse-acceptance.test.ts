@@ -44,13 +44,15 @@ test("free text that asks the train for UAT, e2e or acceptance after deploy is r
 		["lane", "normal (boss to do UAT post-deploy)"],
 		["migrations", "none; 請火車在部署後跑 UAT"],
 		["tickets", "T-15 (驗收由火車做)"],
+		["branch", "fix/uat-after-deploy"],
+		["auth", `"UAT after deploy was fine, ship it"`],
 	] as const;
 	for (const [field, text] of asks) {
 		const refusals = checkSlip(slip({ [field]: text }), { appAccept: [] });
 		assert.equal(asked(refusals).length, 1, `${field}: ${text} -> ${JSON.stringify(refusals)}`);
 		assert.match(refusals[0]!, new RegExp(`\\(slip field ${field}\\)`));
 	}
-	for (const [field, text] of [["deploy", "uat-env"], ["light", "pass (npm run check, e2e smoke of the app, 12 passed)"], ["deploy", "staging"], ["lane", "urgent (post-deploy hotfix)"], ["deploy", "target-a, after deploy window"], ["branch", "fix/uat-after-deploy"], ["auth", `"UAT after deploy was fine, ship it"`], ["coordinator", "sess-uat-after-deploy"], ["review", "P0=0 P1=0 (/r/review-of-evaluate.md)"], ["lane", "normal"]] as const)
+	for (const [field, text] of [["deploy", "uat-env"], ["light", "pass (npm run check, e2e smoke of the app, 12 passed)"], ["deploy", "staging"], ["lane", "urgent (post-deploy hotfix)"], ["deploy", "target-a, after deploy window"], ["coordinator", "sess-uat-after-deploy"], ["review", "P0=0 P1=0 (/r/review-of-evaluate.md)"], ["lane", "normal"]] as const)
 		assert.deepEqual(checkSlip(slip({ [field]: text }), { appAccept: [] }), [], `${field}: ${text}`);
 });
 
@@ -113,4 +115,47 @@ test("nothing in the refusal path produces a step, a wait or a weaker check: eve
 	for (const r of refusals) assert.ok(r.length > 0 && r.every((x) => typeof x === "string"));
 	assert.equal(JSON.stringify(JSON.parse(evText)), JSON.stringify(evidence({}, { result: "pending" })));
 	assert.equal(slipText, slip({ uat: "/r/checkpoints.md" }));
+});
+
+const word = /^sb: the train runs no acceptance: a step asks for /;
+const stepWord = (over: Json) => validateStep(sb(over))[0] ?? "";
+
+test("F001: a step is read as words after NFKC, with format characters and marks stripped, case folded, and camelCase, digit and script boundaries split", () => {
+	const asks = ["runE2E", "e2eTests", "UATpage", "UatPage", "uatPage", "ＵＡＴ", "U\u200bAT", "U\u2060A\ufeffT", "驗收", "验收", "unit驗收", "end-to-end", "endToEnd", "EndToEnd", "endtoend", "End_To_End", "end to end", "E-2-E", "e2e", "UAT2", "page2uat", "ＡＣＣＥＰＴ", "ACCEPT\u00ad", "acceptANCE", "accepted", "accepts", "ŪAT", "U\u0410\u0422", "run-UAT-suite", "acceptance"];
+	for (const name of asks) assert.match(stepWord({ name }), word, JSON.stringify(name));
+	for (const name of ["acceptable-latency", "acceptable", "evaluate", "equation", "graduate", "situation", "type-check", "full suite", "unit", "e2ee", "uatu", "accessor", "end-to-middle"]) assert.deepEqual(validateStep(sb({ name })), [], name);
+	for (const type of ["ＵＡＴ", "E2E", "acceptance"]) assert.match(validateStep(sb({}, { check: { ...runCheck(), type } }))[0] ?? "", word, type);
+	assert.match(stepWord({ kind: "Ｕ\u200bAT" }), word);
+});
+
+test("F002: a slip's parse fails closed and every field is read with the same words", () => {
+	const base = slip();
+	const refused = (text: string, pattern: RegExp) => assert.ok(checkSlip(text, { appAccept: [] }).some((r) => pattern.test(r)), `${pattern} not in ${JSON.stringify(checkSlip(text, { appAccept: [] }))}: ${text}`);
+	for (const text of ["run UAT after deploying", "run e2e once deployed", "run e2e after we deploy", "acceptance post-deploy", "e2e after deployed to staging", "UAT 部署後", "e2e 上車後", "e2e at deploy", "e2e on the train", "after merge uat", "UAT after landing", "uat after the merge", "accept it once it is deployed", "U\u200bAT after deploy", "ＵＡＴ after deploy", "afterDeploy UAT", "run 驗收 after deploy", "end-to-end after deploy"])
+		assert.equal(asked(checkSlip(slip({ light: text }), { appAccept: [] })).length, 1, text);
+	refused(slip({ uat: undefined }) + "\nUAT: yes", /UAT \(yes\)/);
+	refused(base + "\nUat: none", /uat: line is gone/);
+	refused(base + "\nnotes: ok", /^sb: slip line \d+: .*notes/);
+	refused(base + "\nnotes: ok\nnotes: run uat after deploy", /^sb: slip line \d+: .*notes.*twice/);
+	refused(base + "\nlight: run uat after deploy", /^sb: slip line \d+: .*light.*twice/);
+	assert.equal(asked(checkSlip(base + "\nlight: run uat after deploy", { appAccept: [] })).length, 1, "the repeated value is read too");
+	refused(base + "\nplease run uat after deploy", /^sb: slip line \d+: .*no key/);
+	assert.equal(asked(checkSlip(base + "\nplease run uat after deploy", { appAccept: [] })).length, 1);
+	refused(base + '\nreview: "x | light: run uat after deploy', /^sb: slip line \d+: .*unbalanced/);
+	refused(base + "\nreview: x (y | light: run uat after deploy", /^sb: slip line \d+: .*unbalanced/);
+	refused(base + "\nl\u200bight: x", /^sb: slip line \d+: .*no key/);
+	refused(base + "\nLight: pass", /^sb: slip line \d+: .*twice/);
+	refused(base + "\nhttps://example.test/page", /^sb: slip line \d+: /);
+	assert.equal(asked(checkSlip(slip({ review: "x", auth: `"ok, run uat after deploy"` }), { appAccept: [] })).length, 1);
+	assert.deepEqual(checkSlip(base, { appAccept: [] }), [], "a plain slip still passes");
+	assert.deepEqual(checkSlip(`  ${base.replace(/\n/g, "\n  ")}\n\n`, { appAccept: [] }), [], "indentation and blank lines are fine");
+	// A known false refusal, accepted: the rule has no way to tell an e2e flake fix from a request, and a rewrite costs little.
+	assert.equal(asked(checkSlip(slip({ light: "fixed e2e flake; merge after deploy freeze" }), { appAccept: [] })).length, 1);
+});
+
+test("F008, F009: evidence entries are read whole, and a padded pending result is still a request", () => {
+	assert.match(ev(evidence({}, { on: { head: SHA_A, run: "later on the train" } })).join("\n"), /entry 1: on\.run is not a field/);
+	for (const field of ["what", "label", "nod"]) assert.equal(asked(ev(evidence({}, { [field]: "run UAT after deploy" }))).length, 1, field);
+	assert.equal(asked(ev(evidence({}, { result: " pending " }))).length, 1);
+	assert.equal(asked(ev(evidence({}, { result: "\tPENDING\n" }))).length, 1);
 });

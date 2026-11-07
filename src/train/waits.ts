@@ -14,17 +14,19 @@ export interface Holder { code: string; why?: "stale" | "unreadable" }
 
 /**
  * What a train holds: a lane or target from the start of the first step that declares it until every step that declares it has completed, in any round, so a re-assembly's new steps keep the hold across the gap.
- * An ended train holds nothing; a stale one holds what it held until `train clear`; a board that cannot be read holds everything of its project, since what it held cannot be known.
+ * An ended train holds nothing; a stale one holds what it held until `train clear`; a board that cannot be read holds everything of its project, since what it held cannot be known. A clear is honored only while the
+ * train is stale: one that resumed (live) holds again, so a step it runs later never shares the lane with another train.
  */
 export function holding(train: TrainFacts): Holding {
 	if (train.state === "unreadable") return { lanes: [], targets: [], all: true };
 	if (train.state === "ended") return { lanes: [], targets: [], all: false };
+	const clears = train.state === "stale" ? train.clears ?? [] : [];
 	const held = (key: "lane" | "target") => {
 		const names = new Set<string>();
 		for (const step of train.steps) if (step.holds?.[key] !== undefined) names.add(step.holds[key]!);
 		return [...names].filter((name) => {
 			const declaring = train.steps.filter((s) => s.holds?.[key] === name);
-			return declaring.some((s) => s.status !== "pending") && declaring.some((s) => s.status !== "completed") && !(train.clears ?? []).some((c) => c[key] === name);
+			return declaring.some((s) => s.status !== "pending") && declaring.some((s) => s.status !== "completed") && !clears.some((c) => c[key] === name);
 		}).sort();
 	};
 	return { lanes: held("lane"), targets: held("target"), all: false };

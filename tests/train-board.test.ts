@@ -3,7 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { boardPath, boardState, type Board, capBoard, carsDir, expired, factsOf, MAX_BOARD_BYTES, MAX_TRAINS, readBoard, readTrainboards, readYard, validateBoard, validateYard, writeBoard, writeYard, yardPath, type Yard } from "../src/train/board.ts";
+import { boardPath, boardState, type Board, capBoard, carsDir, expired, factsOf, MAX_BOARD_BYTES, MAX_TRAINS, readBoard, readTrainboards, readYard, validateBoard, validateTrainTodo, validateYard, writeBoard, writeYard, yardPath, type Yard } from "../src/train/board.ts";
 import { CODE, SHA_A } from "./train-fixtures.ts";
 
 // §10 and §11.1: the trainboard Straw Boss derives from a train's todos, how it is written (atomic, private) and read (bounded, strict, never guessed).
@@ -281,4 +281,82 @@ test("facts: a read board becomes the facts waits reads, and an unreadable one h
 	assert.equal(good!.state, "stale");
 	assert.deepEqual(good!.steps, [{ id: 1, kind: "merge", status: "in_progress", round: 1, holds: { lane: "web" } }]);
 	assert.ok(existsSync(root));
+});
+
+const deep = (levels: number) => `${"[".repeat(levels)}${"]".repeat(levels)}`;
+
+test("F003: a nested board or yard is an unreadable one, never a throw, and the other boards still read", () => {
+	const root = state();
+	writeBoard(root, board({ code: "2026-11-06-b" }));
+	const folder = join(root, "trainboard", "acme", "2026-11-06-a");
+	mkdirSync(folder, { recursive: true });
+	writeFileSync(join(folder, "board.json"), `{"v":1,"x":${deep(30_000)}}`);
+	const read = readBoard(join(folder, "board.json"));
+	assert.equal(read.ok, false);
+	assert.match(read.ok ? "" : read.reason, /nested more than 32 levels/);
+	const all = readTrainboards(root);
+	assert.deepEqual(all.trains.map((t) => `${t.code}/${t.ok}`), ["2026-11-06-a/false", "2026-11-06-b/true"]);
+	assert.doesNotThrow(() => factsOf(all.trains[0]!, { now: T0, alive: () => false }));
+	writeFileSync(yardPath(root, "acme"), `{"v":1,"x":${deep(30_000)}}`);
+	assert.match((readYard(yardPath(root, "acme")) as { reason: string }).reason, /nested more than 32 levels/);
+	for (const check of [() => validateBoard({ ...board(), extra: JSON.parse(deep(20_000)) }), () => validateYard({ ...yard(), extra: JSON.parse(deep(20_000)) })]) {
+		const out = check();
+		assert.equal(out.length, 1);
+		assert.match(out[0]!, /nested more than 32 levels/);
+	}
+	const cyclic: Record<string, unknown> = {};
+	cyclic.self = cyclic;
+	assert.match(validateBoard({ ...board(), extra: cyclic })[0]!, /nested more than 32 levels/);
+});
+
+test("F004: capBoard of a board at every cap still writes; clears' lane and target and a step's waits are cut too", () => {
+	const cars = Array.from({ length: 40 }, (_, i) => ({ tickets: Array.from({ length: 20 }, (_, j) => `T-${i}-${j}-${"t".repeat(80)}`), branch: "b".repeat(300), head: SHA_A, coordinator: "c".repeat(200), departs: "d".repeat(400), accept: "a".repeat(1100), arrived: "2026-11-07T06:00:00Z", accepted: Array.from({ length: 8 }, () => "k".repeat(32)) }));
+	const clears = Array.from({ length: 70 }, () => ({ lane: "l".repeat(500), reason: "r".repeat(900), by: "b".repeat(200), at: "2026-11-07T08:00:00Z" }));
+	const waits = Array.from({ length: 12 }, () => ({ lane: { app: "a".repeat(64), holder: "2026-11-06-zz", why: "unreadable" as const } }));
+	const steps = Array.from({ length: 256 }, (_, i) => ({ id: i + 1, kind: "full-check" as const, name: "n".repeat(64), status: "pending" as const, round: 1, holds: { lane: "l".repeat(20) }, lock: "k".repeat(32), load: { max: 30, weight: 4 }, waits }));
+	const capped = capBoard({ ...board(), cars, clears, steps });
+	assert.deepEqual(validateBoard(capped), []);
+	assert.ok(capped.cars.length >= 1, "some car stays");
+	assert.equal(capped.steps.length, 256);
+	assert.ok(Buffer.byteLength(JSON.stringify(capped)) <= MAX_BOARD_BYTES);
+	const root = state();
+	assert.doesNotThrow(() => writeBoard(root, capped));
+	const small = capBoard({ ...board(), clears: [{ lane: "l".repeat(500), reason: "r", by: "b", at: "2026-11-07T08:00:00Z" }], steps: [{ id: 1, kind: "merge", name: "n", status: "pending", round: 1, waits }] });
+	assert.deepEqual(validateBoard(small), []);
+	assert.equal(small.clears![0]!.lane!.length, 128);
+	assert.equal(small.steps[0]!.waits!.length, 8);
+	const onlyWaits = capBoard({ ...board(), cars: [{ ...board().cars[0]!, branch: "b".repeat(255) }], steps: Array.from({ length: 256 }, (_, i) => ({ id: i + 1, kind: "merge" as const, name: "n", status: "pending" as const, round: 1, waits })) });
+	assert.equal(onlyWaits.steps[0]!.waits, undefined, "the waits go first");
+	assert.equal(onlyWaits.cars[0]!.branch.length, 255, "and a board that fits without them keeps its car text");
+});
+
+test("F007: the integrator's train todo (§7.4) has its own validator", () => {
+	const train = (over: Record<string, unknown> = {}, spec: Record<string, unknown> = {}) => ({
+		v: 1, project: "acme", app: "web", train: CODE, kind: "train",
+		spec: { cars: board().cars, departs: { maxCars: 4, maxWaitMin: 60, oldest: "2026-11-07T06:00:00Z" }, ...spec }, ...over,
+	});
+	assert.deepEqual(validateTrainTodo(train()), []);
+	assert.deepEqual(validateTrainTodo(train({}, { departs: undefined })), []);
+	const bad: [unknown, RegExp][] = [
+		["x", /metadata\.sb must be an object/], [train({ v: 2 }), /metadata\.sb\.v must be 1/], [train({ kind: "merge" }), /kind must be train/], [train({ project: "a/b" }), /metadata\.sb\.project/],
+		[train({ app: "" }), /metadata\.sb\.app/], [train({ train: "x" }), /metadata\.sb\.train must be YYYY-MM-DD/], [train({ round: 1 }), /round is not a field/],
+		[train({ spec: undefined }), /metadata\.sb\.spec must be an object/], [train({}, { cars: [] }), /spec\.cars must be a list of 1 to 32 cars/], [train({}, { cars: [{ ...board().cars[0], head: "x" }] }), /spec\.cars\[0\]\.head must be 40 hex/],
+		[train({}, { cars: Array.from({ length: 33 }, () => board().cars[0]) }), /spec\.cars must be a list of 1 to 32 cars/], [train({}, { departs: { maxCars: 0, maxWaitMin: 1, oldest: "2026-11-07T06:00:00Z" } }), /spec\.departs must be maxCars, maxWaitMin and oldest/],
+		[train({}, { extra: 1 }), /spec\.extra is not a field/], [train({ extra: JSON.parse(deep(5000)) }), /nested more than 32 levels/],
+	];
+	for (const [value, pattern] of bad) {
+		const out = validateTrainTodo(value);
+		assert.ok(out.some((r) => pattern.test(r)), `${pattern} not in ${JSON.stringify(out)}`);
+		for (const r of out) assert.match(r, /^sb: /);
+	}
+	const done = { outcome: "passed", session: "sess-train-1", at: "2026-11-07T08:00:00Z" };
+	assert.deepEqual(validateTrainTodo(train({ result: done }), { status: "completed", id: 7 }), []);
+	assert.deepEqual(validateTrainTodo(train({ result: { outcome: "failed", refusal: "sb: no", at: done.at } }), { status: "completed" }), []);
+	const need: [Record<string, unknown>, string, RegExp][] = [
+		[{}, "completed", /completed needs a result/], [{ result: done }, "pending", /result is set only on completed/], [{ result: { ...done, session: undefined } }, "completed", /passed needs result\.session/],
+		[{ result: { outcome: "failed", at: done.at } }, "completed", /failed needs result\.refusal/], [{ result: { ...done, outcome: "void" } }, "completed", /outcome must be passed or failed/], [{ result: { ...done, at: "now" } }, "completed", /result\.at must be an ISO time/],
+		[{ result: { ...done, extra: 1 } }, "completed", /result\.extra is not a field/],
+	];
+	for (const [over, status, pattern] of need) assert.ok(validateTrainTodo(train(over), { status }).some((r) => pattern.test(r)), `${status} ${pattern}`);
+	assert.ok(validateTrainTodo(train(), { project: "other" }).some((r) => /names project acme; this integrator's is other/.test(r)));
 });

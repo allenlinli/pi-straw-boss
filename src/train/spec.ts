@@ -26,6 +26,34 @@ const isText = (value: unknown, max: number): value is string => typeof value ==
 const isWhole = (value: unknown, min: number, max = Number.MAX_SAFE_INTEGER): value is number => typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
 export const kb = (bytes: number) => (bytes / 1024).toFixed(1);
 
+export const MAX_DEPTH = 32;
+const MAX_NODES = 200_000;
+
+/** Whether a value nests deeper than `limit` levels (a cycle always does) or holds an absurd number of nodes, found without recursion so no input can overflow the stack; JSON.stringify, which does recurse, comes only after this says no. */
+export function tooDeep(value: unknown, limit = MAX_DEPTH): boolean {
+	const stack: [unknown, number][] = [[value, 0]];
+	let nodes = 0;
+	while (stack.length) {
+		const [node, depth] = stack.pop()!;
+		if (typeof node !== "object" || node === null) continue;
+		if (depth >= limit || ++nodes > MAX_NODES) return true;
+		for (const child of Array.isArray(node) ? node : Object.values(node)) stack.push([child, depth + 1]);
+	}
+	return false;
+}
+
+/** The bytes of a value as JSON, or a refusal in the words of `what`: too nested (never walked), not JSON (a BigInt, a throwing toJSON), or larger than `max`. */
+export function jsonBytes(value: unknown, what: string, max: number): { bytes: number; refusal?: undefined } | { refusal: string; bytes?: undefined } {
+	if (tooDeep(value)) return { refusal: `sb: ${what} is nested more than ${MAX_DEPTH} levels` };
+	let bytes: number;
+	try {
+		bytes = Buffer.byteLength(JSON.stringify(value) ?? "");
+	} catch (error) {
+		return { refusal: `sb: ${what} is not JSON (${(error as Error).message})` };
+	}
+	return bytes > max ? { refusal: `sb: ${what} is ${kb(bytes)} KB, more than ${max / 1024}` } : { bytes };
+}
+
 const realDate = (y: number, m: number, d: number) => {
 	const date = new Date(Date.UTC(y, m - 1, d));
 	return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
@@ -67,10 +95,47 @@ export function compareCodes(a: string, b: string): number {
 export const acceptanceWord = ({ car, what, where }: { car?: string; what: string; where: string }) =>
 	`sb: the train runs no acceptance: ${car === undefined ? "a step" : `car ${car}`} asks for ${what} (${where}); rewrite its acceptance criteria and run them before loading, then send the evidence in accept:`;
 
-/** The acceptance word in a name, if it holds one as a word of its own (`run-e2e`, `UAT page`, `accepts order`): not `evaluate` or `equation`, which only contain `uat`. */
+// One rule for "does this text ask for acceptance", used by the step's kind, name and check type, by the slip's free text and by the evidence's free text (§5.4, §18): the text is folded (NFKD, marks and format characters
+// stripped, a few Cyrillic and Greek look-alikes mapped to Latin), cut into words at non-alphanumerics, camelCase and letter or digit boundaries, and read in lower case. A refusal costs only a rewrite, so the rule leans to refusing.
+const LOOKALIKES: Record<string, string> = { а: "a", А: "A", е: "e", Е: "E", с: "c", С: "C", р: "p", Р: "P", т: "t", Т: "T", о: "o", О: "O", х: "x", Х: "X", у: "y", α: "a", Α: "A", ε: "e", Ε: "E", ο: "o", Ο: "O", ρ: "p", Ρ: "P", τ: "t", Τ: "T", υ: "u", Υ: "Y", ս: "u" };
+const INVISIBLE = /[\p{M}\p{Cf}]|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu;
+
+/** The text as it is read: compatibility-decomposed, without marks, format or control characters, look-alike letters made Latin. Case is kept (camelCase needs it). */
+export const foldText = (text: string): string => text.normalize("NFKD").replace(INVISIBLE, "").replace(/[^\u0000-\u007f]/g, (c) => LOOKALIKES[c] ?? c);
+
+/** The words of a text in each reading of its capitals: `UATpage` is `uat page` where an all-caps run stands whole and `ua tpage` where its last capital leads the next word; digits split off in the second pair of readings. */
+function wordLists(text: string): string[][] {
+	const folded = foldText(text);
+	const std = folded.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+	const whole = folded.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)(?=[a-z])/g, "$1 ").replace(/([a-z])([A-Z])/g, "$1 $2");
+	const out: string[][] = [];
+	for (const reading of [std, whole]) for (const digits of [false, true]) {
+		const spaced = digits ? reading.replace(/([A-Za-z])(\d)/g, "$1 $2").replace(/(\d)([A-Za-z])/g, "$1 $2") : reading;
+		out.push((spaced.toLowerCase().match(/[a-z0-9]+/g) ?? []));
+	}
+	return out;
+}
+
+/** The text as lower-case words separated by single spaces, camelCase split and punctuation gone, other scripts kept: the string the phrases of a request (`after deploy`, 部署後) are looked for in. */
+export const spokenText = (text: string): string => foldText(text).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const ACCEPT_WORD = /^accept(?:s|ed|ing|ance|ances)?$/;
+const HAN_ACCEPT = /驗收|验收/;
+
+/** The acceptance word in a text, if it holds one: `uat`, `e2e`, `accept` (and `accepts`, `accepted`, `acceptance`, not `acceptable`), `end-to-end`, or 驗收 anywhere, in any case, width, camelCase or spacing: `runE2E`, `UATpage`, `ＵＡＴ`, `U\u200bAT`. Not `evaluate` or `equation`, which only contain `uat`. */
 export function acceptanceToken(text: unknown): string | undefined {
 	if (typeof text !== "string") return undefined;
-	return text.toLowerCase().split(/[^a-z0-9]+/).find((token) => token === "uat" || token === "e2e" || token.startsWith("accept"));
+	const han = HAN_ACCEPT.exec(foldText(text))?.[0];
+	if (han) return han;
+	for (const words of wordLists(text)) {
+		for (let i = 0; i < words.length; i++) {
+			const w = words[i]!;
+			if (w === "uat" || w === "e2e" || ACCEPT_WORD.test(w)) return w;
+			if (w === "endtoend") return "end-to-end";
+			if (w === "end" && words[i + 1] === "to" && words[i + 2] === "end") return "end-to-end";
+			if (w === "e" && words[i + 1] === "2" && words[i + 2] === "e") return "e2e";
+		}
+	}
+	return undefined;
 }
 
 // ---- the step
@@ -211,8 +276,8 @@ export function validateStep(value: unknown, opts: StepOptions = {}): string[] {
 		const token = acceptanceToken(text);
 		if (token !== undefined) return [acceptanceWord({ what: String(text), where })];
 	}
-	const bytes = Buffer.byteLength(JSON.stringify(value));
-	if (bytes > MAX_SB_BYTES) return [`sb: metadata.sb is ${kb(bytes)} KB, more than ${MAX_SB_BYTES / 1024}`];
+	const size = jsonBytes(value, "metadata.sb", MAX_SB_BYTES);
+	if (size.refusal) return [size.refusal];
 	const out = unknownKeys(value, FIELDS, "metadata.sb");
 	if (value.v !== 1) out.push("sb: metadata.sb.v must be 1");
 	for (const key of ["project", "app"] as const) if (!(typeof value[key] === "string" && isName(value[key]))) out.push(`sb: metadata.sb.${key} must be ${NAME_HELP}`);
@@ -255,7 +320,8 @@ export function validateStep(value: unknown, opts: StepOptions = {}): string[] {
 
 export type Metadata = Record<string, unknown>;
 export interface TodoRow { id: number; status: string; metadata?: Metadata }
-export interface Effect { id: number; created: boolean; status: string; metadata?: Metadata }
+/** `item` is the index in a batch create's `tasks`, which a non-object item before it does not shift. */
+export interface Effect { id: number; created: boolean; status: string; metadata?: Metadata; item?: number }
 
 /** rpiv-todo's merge of an update's metadata: top-level keys are replaced whole, a `null` deletes one, and an empty result is no metadata. */
 export function mergeMetadata(current: Metadata | undefined, patch: Metadata | undefined): Metadata | undefined {
@@ -274,7 +340,7 @@ export function todoEffects(input: unknown, current: readonly TodoRow[], nextId 
 	const meta = (value: unknown) => (isObject(value) ? { ...value } : undefined);
 	if (input.action === "create") {
 		const items = Array.isArray(input.tasks) ? input.tasks : [input];
-		return items.filter(isObject).map((item, i) => ({ id: nextId + i, created: true, status: "pending", metadata: meta(item.metadata) }));
+		return items.flatMap((item, index) => (isObject(item) ? [{ item: index, metadata: meta(item.metadata) }] : [])).map(({ item, metadata }, i): Effect => ({ id: nextId + i, created: true, status: "pending", metadata, ...(Array.isArray(input.tasks) ? { item } : {}) }));
 	}
 	if (input.action === "update" && typeof input.id === "number") {
 		const task = current.find((t) => t.id === input.id);
@@ -287,11 +353,11 @@ export function todoEffects(input: unknown, current: readonly TodoRow[], nextId 
 /** The refusals of a `todo` call in a train: every todo it creates or updates must be a step (D8), and a valid one. A batch names the item (`tasks[1]`). */
 export function checkTodoCall(input: unknown, current: readonly TodoRow[], here: Here, nextId?: number): string[] {
 	const batch = isObject(input) && input.action === "create" && Array.isArray(input.tasks);
-	return todoEffects(input, current, nextId).flatMap((effect, i) => {
+	return todoEffects(input, current, nextId).flatMap((effect) => {
 		if (effect.status === "deleted") return [];
 		const sb = effect.metadata?.sb;
 		const refusals = sb === undefined ? [STEP_REQUIRED] : validateStep(sb, { status: effect.status, id: effect.id, expect: here });
-		return batch ? refusals.map((r) => r.replace(/^sb: /, `sb: tasks[${i}]: `)) : refusals;
+		return batch ? refusals.map((r) => r.replace(/^sb: /, `sb: tasks[${effect.item}]: `)) : refusals;
 	});
 }
 

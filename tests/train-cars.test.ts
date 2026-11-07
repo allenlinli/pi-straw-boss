@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { addState, CAR_STATES, type CarFile, carFileName, emptyCar, noticeSatisfied, noticeStatus, type NoticeRecord, noticeText, RETRY_MS, type Setter, TERMINAL_STATES, validateCarFile, validateStateFields } from "../src/train/cars.ts";
-import { CODE, SHA_A, SHA_B } from "./train-fixtures.ts";
+import { CODE, SHA_A, SHA_B, SHA_C } from "./train-fixtures.ts";
 
 // §5.5: a car's states and what each carries, the car file's shape, the text of each notice, and when a notice counts as told. The sender is the sb server (task 5a); nothing here sends.
 
@@ -21,7 +21,7 @@ test("each state's fields: received needs the train and its departure words, ret
 		["received", { train: CODE, departs: "when 4 cars or 60 minutes" }, null],
 		["received", { departs: "x" }, /received needs train/], ["received", { train: "1106m", departs: "x" }, /received\.train must be/], ["received", { train: CODE }, /received needs departs/],
 		["returned", { reason: "sb: the train runs no acceptance: car T-15 asks for UAT" }, null],
-		["returned", {}, /returned needs reason/], ["returned", { reason: "" }, /returned needs reason/], ["returned", { reason: "r".repeat(601) }, /returned\.reason is longer than 600/],
+		["returned", {}, /returned needs reason/], ["returned", { reason: "" }, /returned needs reason/], ["returned", { reason: "r".repeat(601) }, /returned\.reason must be 1 to 600 characters/],
 		["dropped", { round: 1, reason: "unit red", evidence: "/r/unit.log" }, null],
 		["dropped", { reason: "x", evidence: "/e" }, /dropped needs round/], ["dropped", { round: 0, reason: "x", evidence: "/e" }, /dropped\.round must be a whole number from 1/],
 		["dropped", { round: 1, evidence: "/e" }, /dropped needs reason/], ["dropped", { round: 1, reason: "x" }, /dropped needs evidence/],
@@ -117,4 +117,24 @@ test("the notice check: every named car's terminal state is the one asked and it
 	assert.match(run([{ file: landed, notice: told }], ["T-15"], "returned").join("\n"), /car T-15 is landed, not returned/);
 	assert.match(run([{ file: landed, notice: told }], ["T-15", "T-99"]).join("\n"), /car T-99 has no car file/);
 	assert.deepEqual(run([], []), [], "no cars asked, nothing to wait for");
+});
+
+test("F006: two car files of one ticket: the newest life counts, a tie is refused, and an app narrows the choice", () => {
+	const at = (n: number) => `2026-11-07T0${n}:00:00Z`;
+	const told = (state: "landed" | "returned"): NoticeRecord => ({ v: 1, states: { [state]: { attempts: [], deliveredAt: at(9) } } as NoticeRecord["states"] });
+	const old = addState(car(), { state: "returned", fields: { reason: "no accept" }, by: integ, at: at(1) });
+	const fresh = addState(emptyCar({ project: "acme", app: "web", tickets: ["T-15"], branch: "fix/t-15", head: SHA_B, coordinator: "sess-coord-1" }), { state: "landed", fields: { version: "1", commit: SHA_C }, by, at: at(5) });
+	for (const order of [[old, fresh], [fresh, old]]) assert.deepEqual(noticeSatisfied(order.map((file) => ({ file, notice: told(file === old ? "returned" : "landed") })), ["T-15"], "landed"), [], "the new car's land passes whatever the read order");
+	const twin = { ...fresh, car: { ...fresh.car, head: SHA_A } };
+	assert.match(noticeSatisfied([{ file: fresh, notice: told("landed") }, { file: twin, notice: told("landed") }], ["T-15"], "landed").join("\n"), /^sb: car T-15 has 2 car files with the same latest state/);
+	const api = addState(emptyCar({ project: "acme", app: "api", tickets: ["T-15"], branch: "b", head: SHA_C, coordinator: "c" }), { state: "returned", fields: { reason: "x" }, by, at: at(7) });
+	assert.match(noticeSatisfied([{ file: fresh, notice: told("landed") }, { file: api }], ["T-15"], "landed").join("\n"), /is returned, not landed/, "without an app the newest wins");
+	assert.deepEqual(noticeSatisfied([{ file: fresh, notice: told("landed") }, { file: api }], ["T-15"], "landed", { app: "web" }), []);
+});
+
+test("F011: a wrong-typed reason or evidence says what it must be, not that it is too long", () => {
+	assert.match(validateStateFields("returned", { reason: 5 }).join("\n"), /returned\.reason must be 1 to 600 characters/);
+	assert.match(validateStateFields("dropped", { round: 1, reason: ["x"], evidence: "/e" }).join("\n"), /dropped\.reason must be 1 to 600 characters/);
+	assert.match(validateStateFields("dropped", { round: 1, reason: "x", evidence: 5 }).join("\n"), /dropped\.evidence must be a path of 1 to 1024 characters/);
+	assert.match(validateStateFields("returned", { reason: "r".repeat(601) }).join("\n"), /returned\.reason must be 1 to 600 characters/);
 });

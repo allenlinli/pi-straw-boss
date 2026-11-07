@@ -256,3 +256,32 @@ test("a todo call is checked for what it leaves in the list: a todo without a st
 	assert.match(mixed[0]!, /^sb: tasks\[1\]: every todo of a train is a step/);
 	assert.match(mixed[1]!, /^sb: tasks\[2\]: kind "answer" is not a step kind/);
 });
+
+const deep = (levels: number): unknown => {
+	let value: unknown = [];
+	for (let i = 0; i < levels; i++) value = [value];
+	return value;
+};
+
+test("F003: a nested step is refused, never thrown, and the refusal comes before any walk of it", () => {
+	for (const levels of [33, 20_000]) {
+		const out = validateStep(sb({ extra: deep(levels) }));
+		assert.equal(out.length, 1, String(levels));
+		assert.match(out[0]!, /^sb: metadata\.sb is nested more than 32 levels$/);
+	}
+	const here = { project: "acme", app: "web", train: CODE, round: 1 };
+	const refusals = checkTodoCall({ action: "create", subject: "s", metadata: { sb: sb({ extra: deep(20_000) }) } }, [], here);
+	assert.match(refusals.join("\n"), /nested more than 32 levels/);
+	assert.deepEqual(validateStep(sb({ extra: deep(5) })).map((r) => r.replace(/ .*/, "")), ["sb:"], "shallow nesting is only an unknown field");
+	const cyclic: Json = {};
+	cyclic.self = cyclic;
+	assert.match(validateStep(sb({ extra: cyclic }))[0]!, /nested more than 32 levels/);
+	assert.match(validateStep(sb({ extra: 10n }))[0]!, /^sb: metadata\.sb is not JSON/);
+});
+
+test("F010: a batch's refusal names the item's own index, whatever precedes it", () => {
+	const here = { project: "acme", app: "web", train: CODE, round: 1 };
+	const refusals = checkTodoCall({ action: "create", tasks: [5, { subject: "s", metadata: { sb: sb({ round: 0 }) } }] }, [], here);
+	assert.ok(refusals.length > 0);
+	for (const r of refusals) assert.match(r, /^sb: tasks\[1\]: /);
+});

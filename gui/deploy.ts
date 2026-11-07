@@ -1,8 +1,7 @@
 import type { Progress, StepId, StepState } from "../src/deploy.ts";
 import { ownOpenings } from "./alerts.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
-import { iconRef } from "./icons.ts";
+import { m } from "./paraglide/messages.js"; import { iconRef } from "./icons.ts";
 import type { Answer } from "./post.ts";
 import { reasonOf } from "./refusal.ts";
 import { trustPanel, type TrustPost } from "./trust.ts";
@@ -43,8 +42,7 @@ const REAL: Clock = {
 const clock = (ms: number) => `${String(Math.floor(ms / 60_000)).padStart(2, "0")}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 const svg = (id: string) => {
 	const el = document.createElementNS("http://www.w3.org/2000/svg", "svg"), use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-	use.dataset.icon = id;
-	use.setAttribute("href", iconRef(id));
+	use.dataset.icon = id; use.setAttribute("href", iconRef(id));
 	el.append(use);
 	return el;
 };

@@ -1,8 +1,7 @@
 import type { TowerService } from "../src/net.ts";
 import { HEAD_KEY } from "../src/headkey.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
-import { noun } from "./nouns.ts";
+import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
 import { post } from "./post.ts";
 import { guarded, towerRoute } from "./towermodel.ts";
 

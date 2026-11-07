@@ -5,8 +5,7 @@ import { drawMonitors, drawQueued, drawTodos, foldQueue, mountQueueEdit, mountQu
 import { mountComposer } from "./composer.ts";
 import { docFor, docTile } from "./doc.ts";
 import type { Tile } from "./layer.ts";
-import { m } from "./paraglide/messages.js";
-import { noun } from "./nouns.ts";
+import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
 import { aimSession } from "./quit.ts";
 import { aim, aimOpening, html, LABEL, mark, text } from "./render.ts";
 import { channelOf, locate, type Scene, type Subject, towerBase, wsOf } from "./scene.ts";

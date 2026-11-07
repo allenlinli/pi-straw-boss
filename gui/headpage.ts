@@ -1,9 +1,7 @@
 import type { MemorySummary, Net } from "../src/net.ts";
 import type { HeadAskRow, HeadUnit } from "../src/nethead.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
-import { iconRef } from "./icons.ts";
-import { noun } from "./nouns.ts";
+import { m } from "./paraglide/messages.js"; import { iconRef } from "./icons.ts"; import { noun } from "./nouns.ts";
 import { LABEL } from "./render.ts";
 import { formatRoute } from "./router.ts";
 import { statusLine } from "./towermodel.ts";

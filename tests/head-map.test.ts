@@ -22,7 +22,7 @@ const node = () => {
 };
 
 test("no base carries a crown any more: the base card and the zoomed base have none, and the map's styles keep no `.base.head`", () => {
-	for (const file of ["gui/render.ts", "gui/workspace.ts"]) assert.doesNotMatch(read(file), /class="crown"><svg><use href="#i-crown"/, `${file} draws no crown on a base`);
+	for (const file of ["gui/render.ts", "gui/workspace.ts"]) assert.doesNotMatch(read(file), /class="crown"><svg><use (?:data-icon="crown"|href="#i-crown")/, `${file} draws no crown on a base`);
 	assert.doesNotMatch(read("gui/style.css"), /\.base\.head\b|\.base:not\(\.head\) \.crown/, "the dead rules go with the crown");
 	assert.match(read("gui/index.html"), /id="head-node"/, "the head node is in the map's markup, before the bases");
 	const map = read("gui/index.html");

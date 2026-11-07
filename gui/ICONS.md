@@ -34,4 +34,6 @@ The Raven Keep view draws its own icons (`gui/themes/raven/sprite.svg`), origina
 | Comms channel | a raven |
 | Document tile | a tome |
 
+The head page's backdrop (`gui/themes/raven/backdrop.webp`) and the raven perched on its gate (`gui/themes/raven/perch.webp`) are raster art made with the same image generator (Codex image generation) for this project, resized and cut; nothing in them is copied.
+
 The tab icons (`gui/themes/<view>/favicon.svg`) are drawn for this project: Zen an ensō, Geek `>_`, Raven Keep the crest (a raven before a shield holding a castle, bone and crimson on near-black). The view's sounds are CC0 clips credited in `NOTICE.md`.

@@ -970,7 +970,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merged with the head's fill (0.60.3, #117): 107,892 / 39,065 measured, +0 / +2: the two branches' eager modules compress together slightly worse. Cap = measured.
 		// Remote stop, the controller (todo #100 task 4): 109,036 / 39,349 measured, +1,144 / +284 over the figure above: `MainCard` and `mainCards` with the one message of the pending row (linkmodel.ts), and the `choose` sheet the entry shares with the lazy chunk (quit.ts). The fold's code and words are in the lazy chunks. Cap = measured.
 	// Review fixes of the remote stop (USC-F003): 109,075 / 39,378 measured, +39 / +29 over the figure above: `choose`'s danger tone and its focus on Cancel (quit.ts). Cap = measured.
-	assert.ok(eagerBytes <= 109_075 && eagerGz <= 39_378, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Operate seam (todo #121 task 4): the page's words for `operate_refused` (the map chunk carries every message): 109,075 bytes unchanged, 39,378 to 39,381 gzipped.
+	assert.ok(eagerBytes <= 109_075 && eagerGz <= 39_381, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1133,7 +1134,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Remote stop, the controller (todo #100 task 4): 323,871 / 132,253 measured, +2,717 / +1,144 over the figure above: the Mains fold (allyunits.ts), mainstop.ts, the choose sheet (quit.ts), the demo scenes, and the eight messages in both languages. Cap = measured.
 	// Review fixes of the remote stop (USC-F003): 323,885 / 132,298 measured, +14 / +45 over the figure above: `choose`'s danger tone and its focus on Cancel (quit.ts), the lazy chunks' share. Cap = measured.
 	// Z-D22 and the remote stop controller merged on main: 324,954 / 132,612. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 324_954 && total(chunks, gz) <= 132_612, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Operate seam (todo #121 task 4): 325,227 / 132,754 measured, +273 / +142 over the 324,954 / 132,612 above: the shared message module gained the page's words for `operate_refused` (gui/termwords.ts). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 325_227 && total(chunks, gz) <= 132_754, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

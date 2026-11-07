@@ -1,3 +1,4 @@
+import { enc, str } from "../../src/link/canon.ts";
 import { aeadSeal, CONTEXT, signBytes, signedBytes } from "../../src/link/crypto.ts";
 import { encodeEnvelope, encodeHeader, ephemeralKey, type Envelope, type Header, type ReceiveReason, type ReceiveState } from "../../src/link/envelope.ts";
 import { encodePlaintext, KINDS, type Kind, type Plaintexts } from "../../src/link/kinds.ts";
@@ -34,6 +35,7 @@ export function receiveState(spec: StateSpec): ReceiveState {
 
 /** An ask id: 16 random bytes in hex. */
 export const ASK_ID = "00112233445566778899aabbccddeeff";
+export const HANDLE = "0123456789abcdef";
 export const SAMPLE: { [K in Kind]: Plaintexts[K] } = {
 	tower: { fromWorkspace: "main", toWorkspace: "", replyExpected: true, text: "Please look at the failing build." },
 	presence: { label: "alice-mac", headSeq: 7, headHash: entryHash(mainLog()[7]!), workspaces: [{ label: "moldplan", tower: "idle", tabs: [{ label: "tower", state: "idle" }, { label: "api", state: "working" }] }] },
@@ -47,6 +49,7 @@ export const SAMPLE: { [K in Kind]: Plaintexts[K] } = {
 	notice: { kind: "failure", unit: "build", text: "The build turn failed." },
 	caps: { features: ["tower.awaitsReply", "tower-reply"] },
 	"tower-reply": { inReplyTo: ASK_ID, text: "Done: the build is green again." },
+	"unit-stop": { stopId: ASK_ID, handle: HANDLE, mode: "quit", reason: "forgotten idle main" },
 };
 
 interface Forge {
@@ -115,6 +118,11 @@ export function envelopeCases(): EnvelopeCase[] {
 	add("a board no newer than the last", forge({ kind: "board" }), "stale-ephemeral", baseState({ lastEphemeral: { [ephemeralKey(D.alice.id, "board")]: NOW - MIN } }));
 	add("a caps no newer than the last", forge({ kind: "caps" }), "stale-ephemeral", baseState({ lastEphemeral: { [ephemeralKey(D.alice.id, "caps")]: NOW - MIN } }));
 	add("a caps marked queued", forge({ kind: "caps", header: { ephemeral: false, seq: 1 } }), "ephemeral-mismatch");
+	add("a unit-stop from an unattended device", forge({ kind: "unit-stop", from: "dave" }), "kind-not-allowed");
+	add("a unit-stop marked ephemeral", forge({ kind: "unit-stop", header: { ephemeral: true, seq: 0 } }), "ephemeral-mismatch");
+	add("a unit-stop sent to the whole team", forge({ kind: "unit-stop", header: { to: [] } }), "whole-team-not-allowed");
+	add("a unit-stop with a seq equal to the last one taken", forge({ kind: "unit-stop", header: { seq: 5 } }), "stale-seq", baseState({ lastSeq: { [D.alice.id]: 5 } }));
+	add("a unit-stop plaintext with a handle that is not 16 hex digits", forge({ kind: "unit-stop", plaintext: enc(str(ASK_ID), str("XYZ"), str("quit"), str("")) }), "bad-plaintext");
 	add("a tower-reply marked ephemeral", forge({ kind: "tower-reply", header: { ephemeral: true, seq: 0 } }), "ephemeral-mismatch");
 	add("a tower-reply sent to the whole team", forge({ kind: "tower-reply", header: { to: [] } }), "whole-team-not-allowed");
 	add("a tower-reply with a seq equal to the last one taken", forge({ kind: "tower-reply", header: { seq: 5 } }), "stale-seq", baseState({ lastSeq: { [D.alice.id]: 5 } }));

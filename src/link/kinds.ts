@@ -4,7 +4,7 @@ import { CanonError, bool, cutBytes, cutChars, dec, enc, int, list, readBool, re
 // whole team, and its plaintext as a canonical structure. Every text field is cut to its limit, on the way out and on the way in, and a
 // plaintext never becomes a header.
 
-export type Kind = "tower" | "presence" | "board" | "confirm-request" | "confirm-answer" | "dialog-open" | "dialog-answer" | "dialog-close" | "unit-status" | "notice" | "caps" | "tower-reply";
+export type Kind = "tower" | "presence" | "board" | "confirm-request" | "confirm-answer" | "dialog-open" | "dialog-answer" | "dialog-close" | "unit-status" | "notice" | "caps" | "tower-reply" | "unit-stop";
 /** Which devices may send a kind: any member, only an attended one, or only an unattended one. */
 export type Sender = "any" | "attended" | "unattended";
 export interface KindRule { ephemeral: boolean; wholeTeam: boolean; sender: Sender }
@@ -26,6 +26,8 @@ export const KINDS: Record<Kind, KindRule> = {
 	notice: { ephemeral: false, wholeTeam: false, sender: "unattended" },
 	caps: { ephemeral: true, wholeTeam: true, sender: "any" },
 	"tower-reply": { ephemeral: false, wholeTeam: false, sender: "any" },
+	/** A controller's request that an unattended box stop one main (docs/specs/2026-11-07-link-remote-stop.md): queued, addressed to one box, from attended senders only. */
+	"unit-stop": { ephemeral: false, wholeTeam: false, sender: "attended" },
 };
 export const kindOk = (kind: unknown): kind is Kind => typeof kind === "string" && Object.hasOwn(KINDS, kind);
 
@@ -50,6 +52,9 @@ export const LIMITS = {
 	boardItem: 80,
 	/** Not in the spec: a `caps` lists at most this many features; the rest is cut when it is decoded. */
 	capsFeatures: 16,
+	/** The spec's: a `unit-status` names at most this many mains, each by a name of at most `boardLabel` characters; a stop's reason is at most this many bytes. */
+	mains: 20,
+	stopReason: 200,
 } as const;
 const short = (s: string) => cutBytes(s, LIMITS.short);
 
@@ -70,6 +75,14 @@ export interface ConfirmAnswer { dialogId: string; digest: string; allow: boolea
 export interface DialogOpen { dialogId: string; digest: string; owner: string; dialog: string }
 export interface DialogAnswer { dialogId: string; digest: string; answer: string; answerId: string }
 export interface DialogClose { dialogId: string; by: string }
+/** One main of a box a controller may stop: `handle` is the first 8 bytes of sha256(box device id ‖ main session id), hex, so no session id leaves the box. `by` is the dispatcher's device id. */
+export interface MainStatus { handle: string; unit: string; name: string; state: string; by: string; stopping: boolean }
+/** `mode` is read as sent: a value the box does not take is refused there, not at decoding. */
+export interface UnitStop { stopId: string; handle: string; mode: string; reason: string }
+/** A main's handle as it travels. */
+export const handleOk = (handle: string): boolean => /^[0-9a-f]{16}$/.test(handle);
+/** A stop's reason is one line: line breaks and other control characters become spaces, and it is cut to its limit. */
+const oneLine = (text: string) => cutBytes(text.replace(/[\u0000-\u001f\u007f]/g, " "), LIMITS.stopReason);
 export interface UnitStatus { unit: string; state: string; monitors: string[]; report: string }
 export interface Notice { kind: string; unit: string; text: string }
 
@@ -82,10 +95,12 @@ export interface Plaintexts {
 	"dialog-open": DialogOpen;
 	"dialog-answer": DialogAnswer;
 	"dialog-close": DialogClose;
-	"unit-status": { units: UnitStatus[] };
+	/** `mains` is the optional second field, written only to a controller whose `caps` list `unit-status.mains`. */
+	"unit-status": { units: UnitStatus[]; mains?: MainStatus[] };
 	notice: Notice;
 	caps: Caps;
 	"tower-reply": TowerReply;
+	"unit-stop": UnitStop;
 }
 
 // `toWorkspace` is empty when absent: a workspace label is never empty.
@@ -108,13 +123,22 @@ const encoders: { [K in Kind]: (p: Plaintexts[K]) => Buffer } = {
 	"dialog-open": (p) => enc(str(short(p.dialogId)), str(short(p.digest)), str(short(p.owner)), str(cutBytes(p.dialog, LIMITS.dialog))),
 	"dialog-answer": (p) => enc(str(short(p.dialogId)), str(short(p.digest)), str(cutBytes(p.answer, LIMITS.dialog)), str(short(p.answerId))),
 	"dialog-close": (p) => enc(str(short(p.dialogId)), str(short(p.by))),
-	"unit-status": (p) => enc(list(p.units.map((u) => enc(str(short(u.unit)), str(short(u.state)), list(u.monitors.map((m) => str(short(m)))), str(cutBytes(u.report, LIMITS.report)))))),
+	"unit-status": (p) => {
+		const units = list(p.units.map((u) => enc(str(short(u.unit)), str(short(u.state)), list(u.monitors.map((m) => str(short(m)))), str(cutBytes(u.report, LIMITS.report)))));
+		if (p.mains === undefined) return enc(units);
+		return enc(units, list(p.mains.slice(0, LIMITS.mains).map((m) => enc(str(short(m.handle)), str(short(m.unit)), str(cutChars(m.name, LIMITS.boardLabel)), str(short(m.state)), str(short(m.by)), bool(m.stopping)))));
+	},
 	notice: (p) => enc(str(short(p.kind)), str(short(p.unit)), str(cutBytes(p.text, LIMITS.noticeText))),
 	caps: (p) => enc(list(p.features.slice(0, LIMITS.capsFeatures).map((f) => str(short(f))))),
 	// Sending holds `inReplyTo` to an ask id; decoding only cuts it, since a malformed one just matches no ask and the reply is a plain tower.
 	"tower-reply": (p) => {
 		if (!askIdOk(p.inReplyTo)) throw new RangeError("an ask id is 32 lowercase hex digits");
 		return enc(str(p.inReplyTo), str(cutBytes(p.text, LIMITS.towerText)));
+	},
+	"unit-stop": (p) => {
+		if (!askIdOk(p.stopId)) throw new RangeError("a stop id is 32 lowercase hex digits");
+		if (!handleOk(p.handle)) throw new RangeError("a main's handle is 16 lowercase hex digits");
+		return enc(str(p.stopId), str(p.handle), str(short(p.mode)), str(oneLine(p.reason)));
 	},
 };
 
@@ -175,11 +199,20 @@ const decoders: { [K in Kind]: (b: Buffer) => Plaintexts[K] } = {
 		return { dialogId: s(id), by: s(by) };
 	},
 	"unit-status": (b) => {
-		const [units] = dec(b, 1) as [Buffer];
-		return { units: readList(units).map((u) => {
+		const fields = dec(b);
+		if (fields.length !== 1 && fields.length !== 2) throw new CanonError(`a unit-status has 1 or 2 fields, got ${fields.length}`);
+		const [units, mains] = fields as [Buffer, Buffer | undefined];
+		const out: Plaintexts["unit-status"] = { units: readList(units).map((u) => {
 			const [unit, state, monitors, report] = dec(u, 4) as [Buffer, Buffer, Buffer, Buffer];
 			return { unit: s(unit), state: s(state), monitors: readList(monitors).map((m) => s(m)), report: s(report, LIMITS.report) };
 		}) };
+		if (mains) {
+			out.mains = readList(mains).slice(0, LIMITS.mains).map((m) => {
+				const [handle, unit, name, state, by, stopping] = dec(m, 6) as [Buffer, Buffer, Buffer, Buffer, Buffer, Buffer];
+				return { handle: s(handle), unit: s(unit), name: cutChars(readStr(name), LIMITS.boardLabel), state: s(state), by: s(by), stopping: readBool(stopping) };
+			});
+		}
+		return out;
 	},
 	notice: (b) => {
 		const [kind, unit, text] = dec(b, 3) as [Buffer, Buffer, Buffer];
@@ -192,6 +225,13 @@ const decoders: { [K in Kind]: (b: Buffer) => Plaintexts[K] } = {
 	"tower-reply": (b) => {
 		const [inReplyTo, text] = dec(b, 2) as [Buffer, Buffer];
 		return { inReplyTo: s(inReplyTo), text: s(text, LIMITS.towerText) };
+	},
+	"unit-stop": (b) => {
+		const [stopId, handle, mode, reason] = dec(b, 4) as [Buffer, Buffer, Buffer, Buffer];
+		const id = readStr(stopId), h = readStr(handle);
+		if (!askIdOk(id)) throw new CanonError("a stop id is 32 lowercase hex digits");
+		if (!handleOk(h)) throw new CanonError("a main's handle is 16 lowercase hex digits");
+		return { stopId: id, handle: h, mode: s(mode), reason: oneLine(readStr(reason)) };
 	},
 };
 

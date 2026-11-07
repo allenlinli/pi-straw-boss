@@ -210,7 +210,8 @@ test("the summary the GUI snapshot carries: counts, the rev, the waits for the b
 // --- the tool a run calls: it proposes, and the boss confirms ------------------------------------------------------------------------------------------------------------------------------
 
 const toolEnv = (slot: Slot, over: Partial<Parameters<typeof memoryTool>[0]> = {}) => ({
-	slot, workspace: "wA", run: "r1", now: () => NOW, bossEvents: () => [{ id: "e1", text: "Standing: ship the beta.67 build to ws01.\nYes." }], session: async (q: string) => ({ id: `id-${q}`, name: q }), log: { line() {}, hide() {} }, ...over,
+	slot, workspace: "wA", run: "r1", now: () => NOW, bossEvents: () => [{ id: "e1", text: "Standing: ship the beta.67 build to ws01.\nYes." }], session: async (q: string) => ({ id: `id-${q}`, name: q }), log: { line() {}, hide() {} },
+	intercomEvents: () => [], raiser: async () => undefined, locale: () => "en" as const, ...over,
 });
 const live = (slot: Slot) => loadMemory(slot, "wA").memory.entries;
 const pending = (slot: Slot) => loadMemory(slot, "wA").memory.proposals;
@@ -247,7 +248,7 @@ test("tower_memory retire is a proposal to retire an entry that is there: it hol
 	const [p] = pending(slot);
 	assert.deepEqual([p!.op, p!.kind, p!.target, p!.text], ["retire", "standing", "S1", "Never deploy to production without asking me"]);
 	await assert.rejects(tool(slot, { op: "retire", id: "S9" }), /No such entry S9/);
-	await tool(slot, { op: "add", kind: "wait", text: "api-fix to answer", for: "boss" });
+	await tool(slot, { op: "add", kind: "wait", text: "api-fix to answer", for: "agent", on: "api-fix" });
 	await assert.rejects(tool(slot, { op: "retire", id: "W1" }), /standing instruction or a decision/);
 	await assert.rejects(tool(slot, { op: "add", kind: "standing", text: "Never deploy to production without asking me" }), /already kept as S1/);
 	assert.equal(pending(slot).length, 1);
@@ -405,7 +406,7 @@ test("a run cannot change the live standing instructions or decisions at all: no
 
 test("tower_memory waits: the run words them, names the session it waits on (resolved by the server), and resolves or drops them; no quote is asked", async () => {
 	const slot = slotIn();
-	await memoryTool(toolEnv(slot, { bossEvents: () => [] }), { op: "add", kind: "wait", text: "api-fix asks: deploy ws01?", for: "boss", due: 30 });
+	await memoryTool(toolEnv(slot, { bossEvents: () => [] }), { op: "add", kind: "wait", for: "boss", type: "choice", from: "self", happened: "api-fix asks whether ws01 may get the new build.", do: "Say whether api-fix may deploy to ws01.", options: [{ label: "Deploy", then: "api-fix deploys to ws01." }, { label: "Hold", then: "api-fix waits." }], due: 30 });
 	await memoryTool(toolEnv(slot, { bossEvents: () => [] }), { op: "add", kind: "wait", text: "docs to answer", for: "agent", on: "docs-main" });
 	const [w1, w2] = loadMemory(slot, "wA").memory.entries;
 	assert.deepEqual([w1!.for, w1!.due, w2!.on], ["boss", new Date(NOW + 30 * 60_000).toISOString(), { id: "id-docs-main", name: "docs-main" }]);

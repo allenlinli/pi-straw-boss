@@ -245,3 +245,16 @@ Tasks 1–3 and 5 touch the server and prompts. Task 4 starts from task 3's comm
 | WC-D2 | Legacy waits | Shown with the tower's old text and 請塔台重寫 (**Legacy waits**). |
 | WC-D3 | The card's language | No detection from the boss's messages: 「不需要吧，有可能是英文，而且我的sb是雙語言的啊..........明明就有 i18n」. The tower writes in sb's locale, named in its brief, and sb never refuses on language (**Language**). |
 | WC-D4 | A secret card on a paired phone | Shown with 「請到電腦上輸入」 and no start button (**Buttons by kind and state**). |
+
+## Implementation notes (tasks 1 to 3)
+
+Choices the record left open:
+
+- **Where the code is.** `src/server/waitcard.ts` (pure field checks and the stored shapes), `src/server/waitpress.ts` (the press), `src/waitbudget.ts` (`CARD_TEXTS`, pure so the net can use it). `towers.ts` sends a press through `reach.post` of the tower's identity and queues the event with `runs.boss(…, { press: true })`; the queued boss event carries `press: true` for the comms (task 4).
+- **`towers.memory` can now return a promise**, since a press waits for the raiser's notice (at most 5 s). The memory route, the control socket, and `/boss memory` already await it.
+- **`from` of a carried raiser.** A `restates` that names a legacy wait has no raiser to carry, so `from` is still required then; a card's `from` is carried.
+- **Locale of the done label.** The tower's event names the button in the card's own `lang` (`我做完了` or `I'm done`), and a second press names it the same way.
+- **A secret card's step 1** leaves the wait `open` with `press: { act: "secret", secretAsked }`; the brief row then reads `ready to enter <name>`.
+- **Cut cards.** The page is shown `cut: true` for cards after the budget; reading one whole is the memory route's `read`, which now carries `card` and `press` on every entry.
+- **Raiser key.** `buildNet` swaps the raiser's session id for the unit `key` when the session is a unit of the net, so a session id never reaches the page; a raiser that is not a unit has no key (the card has no 打開 button).
+- **Mutation check.** Each refusal of tasks 1 and 2 was removed in turn and the tests failed, except `self gets no notice` (equivalent: a card with no raiser has no notice).

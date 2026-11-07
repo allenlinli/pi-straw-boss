@@ -1,4 +1,5 @@
 import type { Net } from "../src/net.ts";
+import { can } from "./boxmodel.ts";
 import { locate } from "./scene.ts";
 import { termCard } from "./termcard.ts";
 import type { StepOpen } from "./terminalthen.ts";
@@ -45,6 +46,7 @@ export function mountStepSlot({ dock, kit, showTerminal, openPane }: SlotDeps) {
 				watch: (w) => kit.watch(s.key, name, w),
 				post: kit.post(s.key),
 				stream: kit.stream,
+				away: () => !can(locate(last, s.asker)?.base, "input"), // a remote base's box takes no input unreachable or ended, as the pad does (layer.ts)
 				held: () => (s.key.startsWith("grant:") ? undefined : termHold(locate(last, s.key)?.u.service)),
 				over: (why) => (why === "full" && full(s), end(why !== "full")),
 			});

@@ -589,3 +589,22 @@ test("a card the layer let go of says nothing more: its late reply does not clos
 	await r.settle();
 	assert.ok(r.layer(), "the pane's layer stands after the old Enter was taken");
 });
+
+test("the card in the layer of a unit on an unreachable or ended remote base is off with the reason, and follows the snapshots back to live", async () => {
+	const remote = (state: string): Net => { const n = item(); (n.bases[0] as unknown as { box: object }).box = { state, can: ["input"] }; return n; };
+	const p = await shown(remote("unreachable"));
+	p.z.step(step());
+	await p.settle();
+	assert.ok((goOf(p) as unknown as { disabled: boolean }).disabled, "Run is off");
+	assert.ok(p.text().includes(m.box_keys_blocked()));
+	click(goOf(p));
+	await p.settle();
+	assert.equal(p.calls.posts.length, 0, "nothing reaches the box");
+	p.feed(remote("live"));
+	await p.settle();
+	assert.ok(!(goOf(p) as unknown as { disabled: boolean }).disabled, "back with the box");
+	const l = await shown();
+	l.z.step(step());
+	await l.settle();
+	assert.ok(!(goOf(l) as unknown as { disabled: boolean }).disabled, "a local base is unchanged");
+});

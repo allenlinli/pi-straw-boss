@@ -67,7 +67,7 @@ export const HEAD_LABEL = "\u{f01a5}";
 /** The two kinds of tower service: a workspace's tower and the head tower. Each is seated only in a tab with its own glyph (typegate.ts `seatGate`). */
 export type ServiceKind = "tower" | "head";
 export const SEAT_LABEL: Record<ServiceKind, string> = { tower: TOWER_LABEL, head: HEAD_LABEL };
-export const MARK = { main: "\uf005", member: "\uf007", train: "\uf238" } as const;
+export const MARK = { main: "\uf005", member: "\uf007", train: "\uf238", integrator: "\uf126" } as const;
 export const ARROW = "[sub]";
 /** The `sb_mark` prefix of an ally run's pane; the device's label follows it. */
 export const ALLY_MARK = "[ally]";

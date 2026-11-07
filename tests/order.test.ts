@@ -177,9 +177,9 @@ test("netTokens reads Herdr for a session's own tokens (a tower has no mark) and
 	assert.equal(ARROW, "[sub]", "a subagent is tagged in words, then its launcher");
 	assert.equal(MARK.member, "\uf007", "a member is marked by the person glyph alone");
 	assert.deepEqual(INDENT, { more: "├─", last: "└─" }, "a subagent hangs on a tree branch, like a worktree in Herdr's Spaces panel");
-	assert.deepEqual(main, { own: { sb_order: "000.1.000.0.000", sb_mark: MARK.main, sb_indent: null, sb_name: null, sb_main_tab: "work", sb_tab: null, sb_member_tab: null }, kids: [{ pane: "wS:p1", order: "000.1.000.0.000.000", mark: `${ARROW} Main`, indent: INDENT.last, name: "aaa" }], joined: new Set(), waiting: true }, "a main agent carries no indent; its only subagent has the last branch, and the launch records of that subagent (left by the first test) name two with no pane");
-	assert.deepEqual((await netTokens(run, place, "tower", "Main")).own, { sb_order: "000.0", sb_mark: null, sb_indent: null, sb_name: null, sb_main_tab: null, sb_member_tab: null, sb_tab: null }, "a tower's tab already carries the glyph, and a tower is not indented");
-	assert.deepEqual((await netTokens(run, { ...place, paneId: "wA:p99" }, "member", "Main")).own, { sb_order: null, sb_mark: MARK.member, sb_indent: null, sb_name: null, sb_main_tab: null, sb_member_tab: null, sb_tab: null }, "a pane Herdr does not list has no key");
+	assert.deepEqual(main, { own: { sb_order: "000.1.000.0.000", sb_mark: MARK.main, sb_indent: null, sb_name: null, sb_step: null, sb_main_tab: "work", sb_tab: null, sb_member_tab: null }, kids: [{ pane: "wS:p1", order: "000.1.000.0.000.000", mark: `${ARROW} Main`, indent: INDENT.last, name: "aaa" }], joined: new Set(), waiting: true }, "a main agent carries no indent; its only subagent has the last branch, and the launch records of that subagent (left by the first test) name two with no pane");
+	assert.deepEqual((await netTokens(run, place, "tower", "Main")).own, { sb_order: "000.0", sb_mark: null, sb_indent: null, sb_name: null, sb_step: null, sb_main_tab: null, sb_member_tab: null, sb_tab: null }, "a tower's tab already carries the glyph, and a tower is not indented");
+	assert.deepEqual((await netTokens(run, { ...place, paneId: "wA:p99" }, "member", "Main")).own, { sb_order: null, sb_mark: MARK.member, sb_indent: null, sb_name: null, sb_step: null, sb_main_tab: null, sb_member_tab: null, sb_tab: null }, "a pane Herdr does not list has no key");
 
 	// The presence refresh reads the same world from one session.snapshot instead of three listings.
 	const requests: string[] = [], snapshot = herdrWorld(async (method) => (requests.push(method), { snapshot: { panes: world.herdr.panes, workspaces: world.herdr.workspaces, tabs: world.herdr.tabs } }));
@@ -318,4 +318,122 @@ test("a refresh already running when the session shuts down writes no token afte
 	await a.fire("session_shutdown");
 	await settle();
 	assert.deepEqual([raw("wA:p1"), raw("wS:p1")], [{}, {}]);
+});
+
+// ---- trains and the integrator (docs/specs/2026-11-07-train-workers.md §12)
+
+const keyOf = (role: Parameters<typeof orderKey>[0], p: Pane, ps: Pane[], all: Workspace[], tabs: HerdrTab[], who?: Parameters<typeof orderKey>[5]) => orderKey(role, p, ps, all, tabs, who);
+
+test("D11: the tower's subagents come first, then the integrator and its members, then trains by code, then the tabs", () => {
+	const all = [ws("wA")], tabs = ["wA:t0", "wA:t1", "wA:t2", "wA:t3", "wA:t4", "wA:t5"].map(tab);
+	const ps = [pane("tower", "wA:t0"), pane("integ", "wA:t1"), pane("integ-m", "wA:t1"), pane("t-m", "wA:t2"), pane("t-aa", "wA:t3"), pane("t-z", "wA:t4"), pane("main", "wA:t5")];
+	const keys: Record<string, string | undefined> = {
+		tower: keyOf("tower", ps[0]!, ps, all, tabs),
+		integ: keyOf("main", ps[1]!, ps, all, tabs, { integrator: true }),
+		"integ-m": keyOf("member", ps[2]!, ps, all, tabs, { integrator: true }),
+		"t-m": keyOf("train", ps[3]!, ps, all, tabs, { code: "2026-11-06-m", project: "acme" }),
+		"t-aa": keyOf("train", ps[4]!, ps, all, tabs, { code: "2026-11-06-aa", project: "acme" }),
+		"t-z": keyOf("train", ps[5]!, ps, all, tabs, { code: "2026-11-07-a", project: "acme" }),
+		main: keyOf("main", ps[6]!, ps, all, tabs),
+	};
+	const ally = descendants(ps[0], keys.tower!, "Tower", [], 0);
+	assert.deepEqual(ally, []);
+	assert.deepEqual(keys, { tower: "000.0", integ: "000.05.001.0.000", "integ-m": "000.05.001.1.001", "t-m": "000.06.2611060m.822b33ad", "t-aa": "000.06.261106aa.822b33ad", "t-z": "000.06.2611070a.822b33ad", main: "000.1.005.0.000" });
+	const subagent = `${keys.tower}.000`;
+	assert.deepEqual(byKey({ ...keys, subagent }), ["tower", "subagent", "integ", "integ-m", "t-m", "t-aa", "t-z", "main"], "tower, its subagents, integrator, its members, trains by code (one letter before two, a later day after), then tabs");
+});
+
+test("D6: a train ending moves no other row: a code's key does not depend on the trains that stand beside it", () => {
+	const all = [ws("wA")], tabs = ["wA:t0", "wA:t1", "wA:t2", "wA:t3"].map(tab);
+	const [a, b, c] = ["wA:t1", "wA:t2", "wA:t3"].map((t, i) => pane(`p${i}`, t));
+	const codes = ["2026-11-06-a", "2026-11-06-b", "2026-11-06-c"];
+	const withAll = [a!, b!, c!].map((p, i) => keyOf("train", p, [a!, b!, c!], all, tabs, { code: codes[i], project: "acme" }));
+	const withoutB = [keyOf("train", a!, [a!, c!], all, tabs, { code: codes[0], project: "acme" }), keyOf("train", c!, [a!, c!], all, tabs, { code: codes[2], project: "acme" })];
+	assert.deepEqual([withAll[0], withAll[2]], withoutB, "the rows left keep their keys when the middle train's pane is gone");
+	assert.equal(keyOf("train", a!, [a!], all, tabs), undefined, "a train without a code has no key");
+	assert.equal(keyOf("train", a!, [a!], all, tabs, { code: "not a code", project: "acme" }), undefined, "nor with a code that is not one");
+	assert.equal(keyOf("train", a!, [a!], all, tabs, { code: codes[0] }), undefined, "nor without a project");
+	assert.equal(keyOf("train", a!, [a!], all, tabs, { code: codes[0], project: "../x\u001b[31m" }), undefined, "nor with a project that is no name");
+});
+
+test("a reviewer under its train sits one segment below the train's key, with the mark of its launcher", () => {
+	const key = "000.06.2611060m.822b33ad";
+	const file = launch("train-parent", [{ id: "rev-a", name: "reviewer" }]);
+	const parent = pane("wA:tp", "wA:t2", { agent_session: { value: file } });
+	const kid = kidPane("wA:rv", "wA:t3", "rev-a", "reviewer");
+	const kids = descendants(parent, key, "train 1106m", [parent, kid], Date.now());
+	assert.deepEqual(kids, [{ pane: "wA:rv", order: `${key}.000`, mark: `${ARROW} train 1106m`, indent: INDENT.last, name: "reviewer" }]);
+	assert.ok(kids[0]!.order > key && kids[0]!.order < "000.06.2611060n", "after the train, before the next train");
+});
+
+test("the tokens of an integrator, a train and a member of the integrator's tab", async () => {
+	world.herdr.addPane("wA:p1", "wA:t1");
+	world.herdr.addPane("wA:p2", "wA:t1");
+	world.herdr.addTab("wA:t2", "train 1106m", "wA:p3");
+	const run = world.herdr.runFor("wA:p1"), place = (paneId: string, tabId: string) => ({ paneId, tabId, workspaceId: "wA" });
+	const integ = await netTokens(run, place("wA:p1", "wA:t1"), "main", "Integ", Date.now(), undefined, { integrator: true });
+	assert.equal(MARK.integrator, "\uf126");
+	assert.equal(integ.own.sb_order, "000.05.000.0.000");
+	assert.equal(integ.own.sb_mark, MARK.integrator);
+	assert.equal(integ.own.sb_step, null);
+	const member = await netTokens(run, place("wA:p2", "wA:t1"), "member", "M", Date.now(), undefined, { integratorPanes: ["wA:p1"] });
+	assert.equal(member.own.sb_order, "000.05.000.1.001", "a member whose tab holds the pane of a session a yard names takes the integrator's place, beside it");
+	assert.equal(member.own.sb_mark, MARK.member);
+	const train = await netTokens(run, place("wA:p3", "wA:t2"), "train", "train 1106m", Date.now(), undefined, { code: "2026-11-06-m", project: "acme", step: `${"\uF04B"} deploy` });
+	assert.equal(MARK.train, "\uf238");
+	assert.deepEqual([train.own.sb_order, train.own.sb_mark, train.own.sb_step, train.own.sb_name], ["000.06.2611060m.822b33ad", "\uf238 1106m", "\uF04B deploy", null]);
+});
+
+test("a train's step token is bounded and carries no control characters; the mark comes from the code, not from text", async () => {
+	world.herdr.addTab("wA:t2", "train 1106m", "wA:p3");
+	const run = world.herdr.runFor("wA:p3");
+	const own = (await netTokens(run, { paneId: "wA:p3", tabId: "wA:t2", workspaceId: "wA" }, "train", "x", Date.now(), undefined, { code: "2026-11-06-m", project: "acme", step: `\u001b[31m${"x".repeat(80)}\n\u202eevil` })).own;
+	assert.ok(Array.from(own.sb_step!).length <= 24);
+	assert.doesNotMatch(own.sb_step!, /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
+	const bad = (await netTokens(run, { paneId: "wA:p3", tabId: "wA:t2", workspaceId: "wA" }, "train", "x", Date.now(), undefined, { code: "2026-11-06-m\u001b[31m", project: "acme" })).own;
+	assert.equal(bad.sb_order, null, "a code that is not a code gives no key and no mark");
+	assert.equal(bad.sb_mark, null);
+});
+
+test("TT-F001: two integrators in one workspace each keep their tab's place, and a member stays right under its own main", () => {
+	const all = [ws("wA")], tabs = ["wA:t0", "wA:t1", "wA:t2"].map(tab);
+	const ps = [pane("tower", "wA:t0"), pane("main-1", "wA:t1"), pane("main-2", "wA:t2"), pane("mem-1", "wA:t1"), pane("mem-2", "wA:t2")];
+	const keys = {
+		"main-1": keyOf("main", ps[1]!, ps, all, tabs, { integrator: true }),
+		"main-2": keyOf("main", ps[2]!, ps, all, tabs, { integrator: true }),
+		"mem-1": keyOf("member", ps[3]!, ps, all, tabs, { integrator: true }),
+		"mem-2": keyOf("member", ps[4]!, ps, all, tabs, { integrator: true }),
+	};
+	assert.equal(new Set(Object.values(keys)).size, 4, "no two share a key");
+	assert.deepEqual(keys, { "main-1": "000.05.001.0.000", "main-2": "000.05.002.0.000", "mem-1": "000.05.001.1.001", "mem-2": "000.05.002.1.001" });
+	assert.deepEqual(byKey(keys), ["main-1", "mem-1", "main-2", "mem-2"], "each integrator tab is one block: the main, then its members");
+});
+
+test("TT-F002: a member takes the integrator's place from a pane a yard's writer sits in, never from a token on a pane", async () => {
+	world.herdr.addPane("wA:p1", "wA:t1");
+	world.herdr.addPane("wA:p2", "wA:t1");
+	world.herdr.addPane("wA:p3", "wA:t2");
+	const run = world.herdr.runFor("wA:p2"), here = { paneId: "wA:p2", tabId: "wA:t1", workspaceId: "wA" };
+	world.herdr.pane("wA:p1").tokens = { sb_role: "main", sb_mark: MARK.integrator };
+	const forged = await netTokens(run, here, "member", "M");
+	assert.equal(forged.own.sb_order, "000.1.000.1.001", "a main's role and mark tokens move nobody");
+	assert.equal((await netTokens(run, here, "member", "M", Date.now(), undefined, { integratorPanes: [] })).own.sb_order, "000.1.000.1.001", "no pane named: none moves");
+	assert.equal((await netTokens(run, here, "member", "M", Date.now(), undefined, { integratorPanes: ["wA:p3"] })).own.sb_order, "000.1.000.1.001", "a named pane in another tab moves nobody");
+	assert.equal((await netTokens(run, here, "member", "M", Date.now(), undefined, { integratorPanes: ["wA:p9"] })).own.sb_order, "000.1.000.1.001", "a named pane Herdr does not list moves nobody");
+	assert.equal((await netTokens(run, here, "member", "M", Date.now(), undefined, { integratorPanes: ["wA:p1"] })).own.sb_order, "000.05.000.1.001", "the pane of the yard's writer in its own tab does");
+	assert.equal((await netTokens(run, here, "main", "M", Date.now(), undefined, { integratorPanes: ["wA:p1"] })).own.sb_order, "000.1.000.0.001", "the list is a member's alone: a main is the integrator by its own flag");
+});
+
+test("TT-F004: trains of two projects with the same code each have a key, ordered by a fixed-width tie after the code; a reviewer stays under its own train", () => {
+	const all = [ws("wA")], tabs = ["wA:t0", "wA:t1", "wA:t2", "wA:t3", "wA:t4"].map(tab);
+	const ps = ["wA:t1", "wA:t2", "wA:t3", "wA:t4"].map((t, i) => pane(`p${i}`, t));
+	const code = "2026-11-06-m", projects = ["acme", "acme-x", "acme2", "beta"];
+	const keys = Object.fromEntries(projects.map((project, i) => [project, keyOf("train", ps[i]!, ps, all, tabs, { code, project })]));
+	assert.equal(new Set(Object.values(keys)).size, 4, "four projects, four keys");
+	for (const key of Object.values(keys)) assert.match(key!, /^000\.06\.2611060m\.[0-9a-f]{8}$/, "a code, then eight hex digits and nothing from the project's text");
+	assert.equal(keys.acme, "000.06.2611060m.822b33ad");
+	assert.equal(keyOf("train", ps[0]!, ps, all, tabs, { code, project: "acme" }), keys.acme, "stable: the same project gives the same key");
+	const rows = Object.entries(keys).flatMap(([project, key]) => [[project, key!], [`${project}/reviewer`, `${key}.000`]] as const);
+	const order = rows.sort(([, a], [, b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([name]) => name);
+	for (const project of projects) assert.equal(order.indexOf(`${project}/reviewer`), order.indexOf(project) + 1, `${project}'s reviewer sits right after it`);
 });

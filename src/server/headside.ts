@@ -4,7 +4,8 @@ import type { Session } from "../herdr.ts";
 import { isHead, isSub, type HerdrRun, workspaces } from "../herdr.ts";
 import { type Incoming } from "../agent/kit.ts";
 import { answerAsk, asked, openAsks } from "./headasks.ts";
-import { buildHeadBrief, HEAD_TOOLS, type HeadWorkspace } from "./headbrief.ts";
+import type { Locale } from "../towerprompt/messages.ts";
+import { buildHeadBrief, headTools, type HeadWorkspace } from "./headbrief.ts";
 import { headGate } from "./headgate.ts";
 import { refuseHead } from "./head.ts";
 import type { Log } from "./log.ts";
@@ -84,6 +85,8 @@ export interface HeadBriefDeps {
 	sessions(): Promise<Session[]>;
 	/** A workspace's tower as the brief says it: `standing by`, `running`, `closing`, `held`, `an older tower`, or `none`. */
 	towerState(workspace: string, tokens: Record<string, string> | undefined): string;
+	/** sb's locale: the brief names it as the language of a wait for the boss. */
+	locale: Locale;
 }
 /** The brief of a head run: the chapter, the workspaces now (each base's tower and mains), the open asks, the memory, and the last handoff note (headbrief.ts). */
 export async function headBrief(d: HeadBriefDeps, input: { woken: number; run: RunRecord }): Promise<{ text: string; digestKeys: string[]; expired?: string[] }> {
@@ -102,7 +105,7 @@ export async function headBrief(d: HeadBriefDeps, input: { woken: number; run: R
 			identity: d.record().id, woken: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`, boss: Boolean(input.run.conversation), chapter,
 			workspaces: rows,
 			asks: openAsks(d.slot, d.now()).map((a) => ({ id: a.id, label: phrase(a.label, 60), age: ageOf(d.now() - a.at), first: a.first, ...(a.answers.at(-1) ? { answer: a.answers.at(-1)!.first } : {}) })),
-			memory: section.text, lapsed: kept.memory.entries.filter((e) => e.for === "boss" && lapsed(e, d.now())).map((e) => e.id), ...(note ? { note: { text: note.note, age: ageOf(d.now() - Date.parse(note.at)) } } : {}), tools: HEAD_TOOLS, flags: [],
+			memory: section.text, lapsed: kept.memory.entries.filter((e) => e.for === "boss" && lapsed(e, d.now())).map((e) => e.id), ...(note ? { note: { text: note.note, age: ageOf(d.now() - Date.parse(note.at)) } } : {}), tools: headTools(d.locale), flags: [],
 		}),
 	};
 }

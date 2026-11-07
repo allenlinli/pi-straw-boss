@@ -13,7 +13,9 @@ export const memoryLang = (env: NodeJS.ProcessEnv): Lang => (/^zh[_-](TW|HK|MO|H
 type Id = { id: string };
 export type MemoryArgs =
 	| { op: "list" } | ({ op: "confirm" | "reject" } & Id) | { op: "add"; kind: "standing" | "decision"; text: string }
-	| ({ op: "edit"; text: string } & Id) | ({ op: "delete" } & Id) | ({ op: "resolve"; outcome?: string } & Id);
+	| ({ op: "edit"; text: string } & Id) | ({ op: "delete" } & Id) | ({ op: "resolve"; outcome?: string } & Id)
+	// The acts on a wait card (docs/specs/2026-11-07-wait-cards.md, The press); `choose` takes the option's number as the list shows it, from 1.
+	| ({ op: "done" } & Id) | ({ op: "choose"; option: number } & Id) | ({ op: "decline"; reason?: string } & Id) | ({ op: "restate" } & Id);
 /** The command's arguments after `memory`: an optional `-w <workspace id or label>`, then the operation. `usage` when they are not one. */
 export function parseMemoryArgs(input: string): ({ workspace?: string } & MemoryArgs) | { usage: true } {
 	const usage = { usage: true as const };
@@ -33,18 +35,23 @@ export function parseMemoryArgs(input: string): ({ workspace?: string } & Memory
 	if ((m = /^edit\s+([SDW]\d+)\s+(\S[\s\S]*)$/i.exec(rest))) return found({ op: "edit", id: id(m[1]), text: m[2]!.trim() });
 	if ((m = /^delete\s+([SDW]\d+)$/i.exec(rest))) return found({ op: "delete", id: id(m[1]) });
 	if ((m = /^resolve\s+(W\d+)(?:\s+(\S[\s\S]*))?$/i.exec(rest))) return found({ op: "resolve", id: id(m[1]), ...(m[2] ? { outcome: m[2].trim() } : {}) });
+	if ((m = /^done\s+(W\d+)$/i.exec(rest))) return found({ op: "done", id: id(m[1]) });
+	if ((m = /^choose\s+(W\d+)\s+([1-9]\d*)$/i.exec(rest))) return found({ op: "choose", id: id(m[1]), option: Number(m[2]) });
+	if ((m = /^decline\s+(W\d+)(?:\s+(\S[\s\S]*))?$/i.exec(rest))) return found({ op: "decline", id: id(m[1]), ...(m[2] ? { reason: m[2].trim() } : {}) });
+	if ((m = /^restate\s+(W\d+)$/i.exec(rest))) return found({ op: "restate", id: id(m[1]) });
 	return usage;
 }
 
+interface ViewCard { type: string; do: string; url?: string; command?: string; after?: string; options?: { label: string; then: string }[]; secret?: { name: string }; from?: { name: string } }
 interface View {
 	rev: number;
-	entries: { id: string; kind: "standing" | "decision" | "wait"; text: string; for?: "boss" | "agent"; on?: string; state?: string; outcome?: string }[];
+	entries: { id: string; kind: "standing" | "decision" | "wait"; text: string; for?: "boss" | "agent"; on?: string; state?: string; outcome?: string; card?: ViewCard; press?: { act: string; secretAsked?: string } }[];
 	proposals: { id: string; op: "add" | "retire"; kind: "standing" | "decision"; text: string; target?: string; cites?: string }[];
 }
 const KIND = { en: { standing: "standing", decision: "decision" }, "zh-TW": { standing: "常駐指示", decision: "決定" } } as const;
 const WORDS = {
 	en: {
-		usage: "Usage: /boss memory [-w workspace] [list | confirm P1 | reject P1 | add standing|decision <text> | edit S1 <text> | delete D1 | resolve W1 [outcome]]",
+		usage: "Usage: /boss memory [-w workspace] [list | confirm P1 | reject P1 | add standing|decision <text> | edit S1 <text> | delete D1 | resolve W1 [outcome] | done W1 | choose W1 <n> | decline W1 [reason] | restate W1]",
 		noWorkspace: "This session is not in a Herdr workspace: name one with -w <workspace id or label>.",
 		noMatch: (q: string, all: string) => `No workspace matches "${q}". Workspaces: ${all}`,
 		noTower: (ws: string, why: string) => `No tower memory for ${ws}: ${why}`,
@@ -61,9 +68,14 @@ const WORDS = {
 		confirmedAdd: (p: string, ws: string, id: string, text: string) => `${p} confirmed (${ws}): ${id} kept: ${text}`,
 		confirmedRetire: (p: string, ws: string, id: string | undefined, text: string) => `${p} confirmed (${ws}): ${id} retired: ${text}`,
 		rejected: (p: string, ws: string, text: string) => `${p} rejected (${ws}): ${text}`, kept: (id: string, text: string) => `${id} kept: ${text}`, edited: (id: string) => `${id} edited.`, deleted: (id: string) => `${id} deleted.`, resolved: (id: string) => `${id} resolved.`,
+		where: "where", run: "run", after: "after", secretName: "secret",
+		pressed: (id: string, what: string, note: string) => `${id} ${what}${note ? `: ${note}` : "."}`,
+		didDone: "done", didChose: (label: string) => `chose "${label}"`, didDecline: "declined", didRestate: "asked the tower to record it again",
+		told: (name: string) => `${name} was told.`, notReached: (name: string, status: string) => `${name} was not reached (${status}): tell it yourself.`,
+		noOption: (id: string, n: number) => `${id} has no option ${n}`,
 	},
 	"zh-TW": {
-		usage: "用法：/boss memory [-w workspace] [list | confirm P1 | reject P1 | add standing|decision <內容> | edit S1 <內容> | delete D1 | resolve W1 [結果]]",
+		usage: "用法：/boss memory [-w workspace] [list | confirm P1 | reject P1 | add standing|decision <內容> | edit S1 <內容> | delete D1 | resolve W1 [結果] | done W1 | choose W1 <第幾個> | decline W1 [原因] | restate W1]",
 		noWorkspace: "這個 session 不在任何 Herdr workspace 裡：用 -w <workspace id 或名稱> 指定。",
 		noMatch: (q: string, all: string) => `沒有符合「${q}」的 workspace。現有：${all}`,
 		noTower: (ws: string, why: string) => `${ws} 沒有塔台記憶可用：${why}`,
@@ -80,20 +92,35 @@ const WORDS = {
 		confirmedAdd: (p: string, ws: string, id: string, text: string) => `${p} 已確認（${ws}）：${id} 已保存：${text}`,
 		confirmedRetire: (p: string, ws: string, id: string | undefined, text: string) => `${p} 已確認（${ws}）：${id} 已撤掉：${text}`,
 		rejected: (p: string, ws: string, text: string) => `${p} 已駁回（${ws}）：${text}`, kept: (id: string, text: string) => `${id} 已保存：${text}`, edited: (id: string) => `${id} 已改。`, deleted: (id: string) => `${id} 已刪。`, resolved: (id: string) => `${id} 已處理。`,
+		where: "在哪裡", run: "指令", after: "做完之後", secretName: "密鑰",
+		pressed: (id: string, what: string, note: string) => `${id} 已按下：${what}${note ? `。${note}` : "。"}`,
+		didDone: "我做完了", didChose: (label: string) => `選了「${label}」`, didDecline: "略過", didRestate: "請塔台重寫成卡片",
+		told: (name: string) => `已通知 ${name}。`, notReached: (name: string, status: string) => `沒通知到 ${name}（${status}）：請自己告訴它。`,
+		noOption: (id: string, n: number) => `${id} 沒有第 ${n} 個選項`,
 	},
 };
+
+const tidyCard = (c: ViewCard): ViewCard => ({
+	type: clean(c.type, 20), do: clean(c.do, 1_000_000),
+	...(c.url !== undefined ? { url: clean(c.url, 1_000) } : {}), ...(c.command !== undefined ? { command: c.command.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028-\u202e\u2060-\u206f\ufeff]/gu, " ") } : {}), ...(c.after !== undefined ? { after: clean(c.after, 1_000_000) } : {}),
+	...(c.options ? { options: c.options.map((o) => ({ label: clean(o.label, 200), then: clean(o.then, 1_000_000) })) } : {}), ...(c.secret ? { secret: { name: clean(c.secret.name, 400) } } : {}), ...(c.from ? { from: { name: clean(c.from.name, 200) } } : {}),
+});
 
 /** Everything the file holds is cleaned again before it is shown, as the brief does (a writer of memory.json could put escapes or line breaks there to disguise what a confirm applies). */
 const tidy = (v: View): View => ({
 	...v,
-	entries: v.entries.map((e) => ({ ...e, id: clean(e.id, 20), text: clean(e.text, 1_000_000), ...(e.on !== undefined ? { on: clean(e.on, 100) } : {}), ...(e.outcome !== undefined ? { outcome: clean(e.outcome, 1_000) } : {}) })),
+	entries: v.entries.map((e) => ({ ...e, id: clean(e.id, 20), text: clean(e.text, 1_000_000), ...(e.on !== undefined ? { on: clean(e.on, 100) } : {}), ...(e.outcome !== undefined ? { outcome: clean(e.outcome, 1_000) } : {}), ...(e.card ? { card: tidyCard(e.card) } : {}) })),
 	proposals: v.proposals.map((p) => ({ ...p, id: clean(p.id, 20), text: clean(p.text, 1_000_000), ...(p.target !== undefined ? { target: clean(p.target, 20) } : {}), ...(p.cites !== undefined ? { cites: clean(p.cites, 1_000_000) } : {}) })),
 });
 
 /** The memory as text: the proposals waiting for the boss first, then standing instructions, decisions, and waits. */
 function render(ws: string, v: View, lang: Lang): string {
 	const w = WORDS[lang], of = (kind: string) => v.entries.filter((e) => e.kind === kind), part = (title: string, rows: string[]) => (rows.length ? [title, ...rows] : []);
-	const row = (e: View["entries"][number]) => `${e.id}  ${e.kind === "wait" ? `${e.for === "boss" ? w.forBoss : w.forAgent(e.on ?? "?")}: ` : ""}${e.text}${e.kind === "wait" ? w.state(e.state, e.outcome, e.for === "boss") : ""}`;
+	const detail = (c: ViewCard) => [
+		...(c.url ? [`    ${w.where}: ${c.url}`] : []), ...(c.command ? [`    ${w.run}:`, ...c.command.split("\n").map((l) => `      ${l}`)] : []), ...(c.after ? [`    ${w.after}: ${c.after}`] : []),
+		...(c.secret ? [`    ${w.secretName}: ${c.secret.name}`] : []), ...(c.options ?? []).map((o, i) => `    ${i + 1}) ${o.label} — ${o.then}`),
+	];
+	const row = (e: View["entries"][number]) => `${e.id}  ${e.kind === "wait" ? `${e.for === "boss" ? w.forBoss : w.forAgent(e.on ?? "?")}${e.card ? ` (${e.card.type}${e.card.from ? `, ${lang === "zh-TW" ? "由" : "from"} ${e.card.from.name}` : ""})` : ""}: ` : ""}${e.text}${e.kind === "wait" ? w.state(e.state, e.outcome, e.for === "boss") : ""}${e.card ? `\n${detail(e.card).join("\n")}`.trimEnd() : ""}`;
 	return [
 		w.head(ws, [of("standing").length, of("decision").length, of("wait").length, v.proposals.length]), ...(v.entries.length || v.proposals.length ? [] : [w.none]),
 		...part(w.proposals(v.proposals[0]?.id ?? "P1", ws), v.proposals.flatMap((p) => [p.op === "add" ? w.propAdd(p.id, KIND[lang][p.kind], p.text) : w.propRetire(p.id, p.target, p.text), ...(p.cites ? [w.cites(p.cites)] : [])])),
@@ -154,6 +181,18 @@ export async function runMemoryCommand(args: string, d: MemoryCmdDeps): Promise<
 			case "edit": return void (await call({ op: "edit", id: parsed.id, text: parsed.text, rev: view.rev }), say(w.edited(parsed.id)));
 			case "delete": return void (await call({ op: "delete", id: parsed.id, rev: view.rev }), say(w.deleted(parsed.id)));
 			case "resolve": return void (await call({ op: "resolve", id: parsed.id, ...(parsed.outcome ? { outcome: parsed.outcome } : {}), rev: view.rev }), say(w.resolved(parsed.id)));
+			case "done": case "choose": case "decline": case "restate": {
+				const entry = view.entries.find((x) => x.id === parsed.id), name = entry?.card?.from?.name ?? "";
+				const option = parsed.op === "choose" ? parsed.option - 1 : undefined, picked = option === undefined ? undefined : entry?.card?.options?.[option];
+				if (parsed.op === "choose" && !picked) throw new Error(w.noOption(parsed.id, parsed.option));
+				// In pi the boss is at the terminal: the first step of a secret card is taken for them, so `done` closes it (the server's table wants it before `done`).
+				if (parsed.op === "done" && entry?.card?.type === "secret" && !entry.press?.secretAsked) await call({ op: "press", id: parsed.id, act: "secret" });
+				const act = parsed.op, done = await call({ op: "press", id: parsed.id, act, ...(option !== undefined ? { option } : {}), ...(parsed.op === "decline" && parsed.reason ? { reason: parsed.reason } : {}) });
+				const status = (done.press as { main?: { status: string } } | undefined)?.main?.status;
+				const note = !name || !status ? "" : status === "delivered" || status === "queued" ? w.told(name) : w.notReached(name, status);
+				const what = act === "done" ? w.didDone : act === "choose" ? w.didChose(picked!.label) : act === "decline" ? w.didDecline : w.didRestate;
+				return say(w.pressed(parsed.id, what, note));
+			}
 		}
 	} catch (error) {
 		d.tell((error as Error).message, "error");

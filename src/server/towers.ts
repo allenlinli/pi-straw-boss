@@ -23,7 +23,7 @@ import { headBrief, headIntake, relayOnlyFromHead, stateWord } from "./headside.
 import { headHost, headTool } from "./headtools.ts";
 import type { Allows } from "./allows.ts";
 import type { Asks } from "./asks.ts";
-import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, LOCAL_TOOLS } from "./towerbrief.ts";
+import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, localTools } from "./towerbrief.ts";
 import { createStanding, type PromptReply, type StandingTimers } from "./standing.ts";
 import { claimGate, proofGate, seatGate, type SeatVerdict } from "./typegate.ts";
 import { addAnswer, addRoute, answeredAsks, ALLY_LEDGER, dropAsk, dropOpened, type Peer, readAnswers, readRoutes, removeAnswer, openedFor, routeOf, setStop, spendRoute } from "./allyroute.ts";
@@ -34,6 +34,8 @@ import { type AllyItem, type AllyPort, createRuns, type Runs, type RunsOptions, 
 import { type ConversationInfo, sessionsRoot } from "./bossconv.ts";
 import { addExpect, clearExpect, lastNote, listRuns, readExpects, readNotes, readTimer } from "./towerrunstore.ts";
 import { runTool, type ServerTools } from "./runtools.ts";
+import { localeOf } from "../towerprompt/messages.ts";
+import { pressRequest } from "./waitpress.ts";
 import { hasWaitOn, markShown, memoryRequest, memorySection, memorySummary, memoryTool, noteMessage, readMemory } from "./towermemory.ts";
 import { openSeen, type Seen } from "./towerseen.ts";
 import { readTowerRuns } from "./towerruns.ts";
@@ -145,7 +147,8 @@ export interface Towers {
 	/** Messages wait in the link inbox for this tower identity: ally runs are started for them. */
 	allyWaiting(identity: string): void;
 	/** The GUI panel's request on a workspace's memory (`POST tower/<workspace>/memory`, towermemory.ts `memoryRequest`). */
-	memory(workspace: string, json: Record<string, unknown>): { status: number; body: Record<string, unknown> };
+	/** The boss's request on a tower's memory; a `press` waits for the raiser's notice (waitpress.ts), the rest answer at once. */
+	memory(workspace: string, json: Record<string, unknown>): { status: number; body: Record<string, unknown> } | Promise<{ status: number; body: Record<string, unknown> }>;
 	/** A tool a run calls (`run-tool`): checked against the token's kind, done as the tower identity. */
 	runTool(request: Record<string, unknown>): Promise<{ text: string; details?: unknown }>;
 	/** The identities leave the broker; tokens and files stay. */
@@ -255,7 +258,7 @@ export function createTowers(o: TowersOptions): Towers {
 		async brief({ events, woken, run: rec, refresh }) {
 			const ws = l.record.workspace, all = await workspaces(run), target = all.find((w) => w.workspace_id === ws);
 			if (!target || !l.client) throw new Error("the tower's workspace or its intercom connection is gone");
-			if (isHeadL(l)) return headBrief({ slot, run, now, record: () => l.record, sessions: () => l.client!.listSessions(), towerState }, { woken, run: rec });
+			if (isHeadL(l)) return headBrief({ slot, run, now, record: () => l.record, sessions: () => l.client!.listSessions(), towerState, locale: localeOf(o.env) }, { woken, run: rec });
 			const mains = await gatherMains({ run, now, sessions: () => l.client!.listSessions(), boardDir: join(slot.stateDir, "board"), workspace: target, ledger: readLedger(slot, ws, now()) });
 			const lines = await digest.peek(ws).catch(() => []), note = lastNote(slot, ws, "local"), timer = readTimer(slot, ws);
 			const counts: Record<string, number> = {};
@@ -277,7 +280,7 @@ export function createTowers(o: TowersOptions): Towers {
 						...(crashed.length ? [`${crashed.length} event${crashed.length > 1 ? "s were" : " was"} possibly handled by a run that crashed: check before acting.`] : []),
 						...(oldest !== undefined && oldest > 10 * 60_000 ? [`The oldest event waiting is ${ageOf(oldest)} old.`] : []),
 					],
-					tools: LOCAL_TOOLS,
+					tools: localTools(localeOf(o.env)),
 				}),
 			};
 		},
@@ -1098,7 +1101,14 @@ export function createTowers(o: TowersOptions): Towers {
 				return named.some((x) => /^sb-tower-/.test(x.id) || net.ps.find((p) => p.pane_id === x.herdrLocation?.paneId)?.tokens?.sb_role === "tower");
 			},
 			memory: (margs: Record<string, unknown>) => memoryTool({
-				slot, workspace: ws, run: who.id, now, log, bossEvents: () => runs.bossEvents(request.token),
+				slot, workspace: ws, run: who.id, now, log, bossEvents: () => runs.bossEvents(request.token), intercomEvents: () => runs.intercomEvents(request.token), locale: () => localeOf(o.env),
+				// The session with this id in the net now: never found by name, since a subagent shows on intercom as `subagent-chat-<id>` (todo #49).
+				raiser: async (id: string) => {
+					const net = await l.reach!.read(), x = net.sessions.find((s) => s.id === id);
+					if (!x) return undefined;
+					const pane = net.ps.find((p) => p.pane_id === x.herdrLocation?.paneId), token = pane?.tokens?.sb_role;
+					return { id, name: phrase(nameOf(x), 40), role: token === "main" || token === "member" || token === "tower" ? token : "session", ...(x.herdrLocation?.workspace?.label ? { workspace: phrase(x.herdrLocation.workspace.label, 40) } : {}), ...(x.herdrLocation?.tab?.label ? { tab: phrase(x.herdrLocation.tab.label, 40) } : {}) };
+				},
 				session: async (query: string) => {
 					const net = await l.reach!.read(), named = net.sessions.filter((x) => x.id === query || nameOf(x) === query);
 					if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${query}"`);
@@ -1141,6 +1151,16 @@ export function createTowers(o: TowersOptions): Towers {
 		memory: (workspace, json) => {
 			// The head's constant key reaches head/ whether or not a head service stands (towerstore.ts `HEAD_KEY`).
 			if (workspace !== HEAD_KEY && !services.has(workspace)) throw new Error(`The sb server stands in for no tower of workspace ${workspace}`);
+			if (json.op === "press") {
+				const l = workspace === HEAD_KEY ? headLive() : services.get(workspace);
+				if (!l) return Promise.resolve({ status: 409, body: { error: "refused", reason: "The tower service is not running, so nothing can be pressed" } });
+				return pressRequest({
+					slot, now, log, locale: localeOf(o.env),
+					live: async (id) => (await l.reach!.read()).sessions.some((x) => x.id === id),
+					send: (to, text, wait) => l.reach!.post(to, text, "wait_card", "session", false, undefined, undefined, { wait }),
+					boss: (text) => void runs.boss(l.record.workspace, text, "the boss (wait card)", { press: true }),
+				}, workspace, json);
+			}
 			return memoryRequest(slot, workspace, now(), json, log);
 		},
 		allyWaiting: (identity) => runs.pokeAllies(identity),

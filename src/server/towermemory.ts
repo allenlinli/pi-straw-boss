@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { clean } from "../board.ts";
 import type { MemorySummary } from "../net.ts";
+import type { Locale } from "../towerprompt/messages.ts";
+import { checkCard, type Card, DONE_LABEL, isCard, isPress, type Press, type Raiser, refusalText } from "./waitcard.ts";
 import { lapsedWait } from "../waitlapse.ts";
 import type { Log } from "./log.ts";
 import type { Slot } from "./record.ts";
@@ -40,6 +42,10 @@ export interface Entry {
 	ended?: string;
 	/** An expired wait a brief has shown once. */
 	shown?: true;
+	/** A wait for the boss recorded as a card (docs/specs/2026-11-07-wait-cards.md); `text` is then the card's `do`. One without it is a legacy wait. */
+	card?: Card;
+	/** What the boss pressed on the card. */
+	press?: Press;
 }
 /** What a run asks of the boss: to keep a standing instruction or a decision (`add`, `text`), or to retire one (`retire`, `target` and the entry's `text` as it was). `event` and `cites`: the boss message it came from, shown to the boss as context. */
 export interface Proposal { id: string; op: "add" | "retire"; kind: "standing" | "decision"; text: string; target?: string; run: string; event?: string; cites?: string; at: string }
@@ -49,10 +55,10 @@ export class Refused extends Error {}
 
 export const emptyMemory = (): Memory => ({ v: 1, rev: 0, next: { S: 1, D: 1, W: 1, P: 1 }, entries: [], proposals: [] });
 const LETTER = { standing: "S", decision: "D", wait: "W" } as const;
-const iso = (ms: number) => new Date(ms).toISOString();
+export const iso = (ms: number) => new Date(ms).toISOString();
 const chars = (text: string) => Array.from(text).length;
-const cut = (text: string, max: number) => (chars(text) > max ? `${Array.from(text).slice(0, max - 1).join("").trimEnd()}…` : text);
-const hhmm = (at: string) => { const d = new Date(at); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+export const cut = (text: string, max: number) => (chars(text) > max ? `${Array.from(text).slice(0, max - 1).join("").trimEnd()}…` : text);
+export const hhmm = (at: string) => { const d = new Date(at); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 
 /** One line of cleaned text, as the board cleans it (controls and format characters removed, whitespace folded); refused when empty or over `max`. */
 function tidy(what: string, text: unknown, max: number): string {
@@ -89,6 +95,12 @@ export function loadMemory(slot: Slot, workspace: string): { memory: Memory; pro
 	const proposals = raw?.proposals ?? [];
 	if (!raw || raw.v !== 1 || !Number.isInteger(raw.rev) || !Array.isArray(raw.entries) || !raw.entries.every(isEntry) || !Array.isArray(proposals) || !proposals.every(isProposal)) return { memory: emptyMemory(), problem: "memory.json is unreadable (not the format this server writes); fix or remove it" };
 	// An entry a run kept in the branch builds (`by: "run"`, a standing instruction or a decision) was never the boss's word: it comes back as a proposal, to be confirmed or rejected (a wait is a run's own note and stays).
+	// A card or a press that fails its check (a newer build's, or damaged) is dropped on read, so the wait reads as a legacy one; nothing is written here.
+	for (const e of raw.entries) {
+		if (e.card !== undefined && !isCard(e.card)) (delete e.card, delete e.press);
+		else if (e.press !== undefined && !isPress(e.press)) delete e.press;
+		if (e.kind !== "wait" || e.for !== "boss") (delete e.card, delete e.press);
+	}
 	const entries = raw.entries.filter((e) => e.kind === "wait" || e.by !== "run");
 	const revived = raw.entries.filter((e) => e.kind !== "wait" && e.by === "run");
 	// A counter is never below the largest id in the file, whatever the file says.
@@ -175,12 +187,31 @@ export function addWait(m: Memory, now: number, run: string, input: WaitInput): 
 	m.entries.push(entry);
 	return entry;
 }
+/** A boss wait a run may restate: open or answered, legacy or card. */
+export const restatable = (m: Memory, id: string): Entry | undefined => m.entries.find((e) => e.id === id && e.kind === "wait" && e.for === "boss" && (e.state === "open" || e.state === "answered"));
+/**
+ * A wait for the boss as a card (docs/specs/2026-11-07-wait-cards.md): `checked` is `checkCard`'s pass, `raiser` the session the net named for its `from` (undefined for `self`). `text` is the card's `do`, so every reader of `text` keeps working.
+ * A card that `restates` a wait drops the old one in the same write, and the old one's place is free for it under the cap.
+ */
+export function addCardWait(m: Memory, now: number, run: string, checked: Extract<ReturnType<typeof checkCard>, { ok: true }>, raiser: Raiser | undefined): Entry {
+	if (checked.restates) {
+		const old = restatable(m, checked.restates);
+		if (!old) throw new Refused(`No such wait ${checked.restates} to restate`);
+		m.entries.splice(m.entries.indexOf(old), 1);
+	}
+	if (m.entries.filter((e) => e.kind === "wait" && e.state === "open").length >= MEM.wait) throw new Refused(`${MEM.wait} open waits are kept already: resolve or drop one`);
+	const from = typeof checked.from === "object" && "carried" in checked.from ? checked.from.carried : raiser;
+	const card: Card = { ...checked.card, ...(from ? { from } : {}) };
+	const entry: Entry = { id: idFor(m, "wait"), kind: "wait", text: card.do, by: "run", via: "run", at: iso(now), run, for: "boss", state: "open", card, ...(checked.dueMin !== undefined ? { due: iso(now + checked.dueMin * 60_000) } : {}) };
+	m.entries.push(entry);
+	return entry;
+}
 const find = (m: Memory, id: unknown, what = "entry"): Entry => {
 	const found = typeof id === "string" ? m.entries.find((e) => e.id === id) : undefined;
 	if (!found) throw new Refused(`No such ${what} ${String(id)}`);
 	return found;
 };
-const findWait = (m: Memory, id: unknown): Entry => {
+export const findWait = (m: Memory, id: unknown): Entry => {
 	const found = typeof id === "string" ? m.entries.find((e) => e.id === id && e.kind === "wait") : undefined;
 	if (!found) throw new Refused(`No such wait ${String(id)}`);
 	return found;
@@ -210,6 +241,7 @@ export function dropWait(m: Memory, id: unknown): Entry {
 /** The boss edits an entry's text; from then on it is the boss's own words. */
 export function editEntry(m: Memory, id: unknown, text: unknown): Entry {
 	const e = find(m, id);
+	if (e.card) throw new Refused(`${e.id} is a card: the tower records it again (restate), or answer it, decline it, or drop it`);
 	const line = tidy("The text", text, e.kind === "wait" ? MEM.waitText : MEM.text);
 	if (e.kind === "standing") fitsBrief(m, line, e);
 	Object.assign(e, { text: line, by: "boss", via: "gui" });
@@ -297,12 +329,33 @@ export function noteMessage(slot: Slot, workspace: string, now: number, session:
 
 // A standing instruction or a decision is shown whole (300 characters at most); a wait's line adds its words around its 200. A text is cleaned again as it is read, whatever the file holds: no control or format character and no line break reaches a brief.
 const row = (id: string, text: string, cap: number = MEM.text) => `- [${id}] ${cut(clean(text, 1_000_000), cap)}`;
+/** A card wait's row: its type and raiser, what the boss is asked to do, or after a press what they did and what to check. */
+function cardRow(e: Entry, card: Card, now: number, due: string, open: string): string {
+	const who = `for boss (${card.type}, ${card.from ? `from ${card.from.name}` : "self"})`;
+	const p = e.press;
+	if (e.state === "answered" && p) {
+		const at = hhmm(p.at);
+		const said = p.act === "choose" && p.option !== undefined && card.options?.[p.option]
+			? `chose "${card.options[p.option]!.label}" at ${at}: ${card.options[p.option]!.then}`
+			: p.act === "restate" ? `asked you to record it again as a card at ${at}`
+			: p.act === "secret" || p.secretAsked ? `ready to enter ${card.secret?.name ?? "the secret"} at ${hhmm(p.secretAsked ?? p.at)}; ${card.from?.name ?? "the raiser"} was told to call secret_drop`
+			: `pressed ${DONE_LABEL[card.lang]} at ${at}${card.after ? `; check: ${card.after}` : ""}`;
+		return row(e.id, `${who}: ${said}${due}${open}`, CARD_ROW);
+	}
+	if (e.state === "answered") return row(e.id, `${who}: answered by the boss at ${hhmm(e.answered ?? e.at)}, check their message: ${card.do}${due}${open}`, CARD_ROW);
+	if (e.state === "open" && p?.act === "secret") return row(e.id, `${who}: ready to enter ${card.secret?.name ?? "the secret"} at ${hhmm(p.secretAsked ?? p.at)}; ${card.from?.name ?? "the raiser"} was told to call secret_drop${due}${open}`, CARD_ROW);
+	return row(e.id, `${who}: ${card.do}${due}${open}`, CARD_ROW);
+}
+const CARD_ROW = 350;
 function waitRow(e: Entry, now: number): string {
 	if (e.state === "expired") return row(e.id, `expired (open for 7 days): ${e.text}`, MEM.waitText + 60);
 	const who = e.for === "boss" ? "for boss" : `for ${e.on?.name ?? "a session"}`;
 	const due = e.due ? (Date.parse(e.due) <= now ? ` (overdue ${ageOf(now - Date.parse(e.due))})` : ` (due in ${ageOf(Date.parse(e.due) - now)})`) : "";
 	// A wait a day old or more says so, so that the run checks whether it still holds (prompts/tower-run.md).
 	const open = now - Date.parse(e.at) >= 86_400_000 ? ` (open ${ageOf(now - Date.parse(e.at))})` : "";
+	if (e.card) return cardRow(e, e.card, now, due, open);
+	// A legacy wait for the boss (free text, before the cards): the run restates it as a card.
+	if (e.for === "boss" && e.state === "open") return row(e.id, `${cut(`${who}: ${e.text}${due}${open}`, MEM.waitText + 140)} (old free-text wait: record it again as a card with restates: "${e.id}")`, MEM.waitText + 140 + 80);
 	const answered = e.for === "boss" ? `${who}: answered by the boss at ${hhmm(e.answered ?? e.at)}, check their message: ${e.text}${due}${open}` : `answered? message from ${e.on?.name ?? "the session"} ${hhmm(e.answered ?? e.at)} · ${who}: ${e.text}${due}${open}`;
 	return row(e.id, e.state === "answered" ? answered : `${who}: ${e.text}${due}${open}`, MEM.waitText + 140);
 }
@@ -364,7 +417,8 @@ export function memorySummary(m: Memory, now?: number): MemorySummary {
 	const shown = (e: Entry) => isOpen(e) && !(now !== undefined && e.for === "boss" && lapsed(e, now));
 	return {
 		rev: m.rev, standing: m.entries.filter((e) => e.kind === "standing").length, decisions: m.entries.filter((e) => e.kind === "decision").length, waits: m.entries.filter(shown).length,
-		bossWaits: m.entries.filter((e) => shown(e) && e.for === "boss").map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}) })), proposals: m.proposals.map(proposalView),
+		// A boss wait that was resolved or declined stays until the sweep drops it (24 h): the page draws it struck through, with what became of it.
+		bossWaits: m.entries.filter((e) => e.for === "boss" && (shown(e) || (e.kind === "wait" && e.state === "resolved"))).map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}), ...(e.state === "resolved" ? { state: "resolved" as const, ...(e.outcome ? { outcome: e.outcome } : {}), ...(e.ended ? { ended: e.ended } : {}) } : {}), ...(e.card ? { card: e.card } : {}), ...(e.press ? { press: e.press } : {}) })), proposals: m.proposals.map(proposalView),
 	};
 }
 /** The memory as the panel reads it, swept as of `now`. */
@@ -374,9 +428,9 @@ export function readMemory(slot: Slot, workspace: string, now: number): { memory
 	return found;
 }
 const proposalView = ({ id, op, kind, text, target, cites }: Proposal) => ({ id, op, kind, text, ...(target ? { target } : {}), ...(cites ? { cites } : {}) });
-const view = (m: Memory) => ({
+export const memoryView = (m: Memory) => ({
 	rev: m.rev, proposals: m.proposals.map((p) => ({ ...proposalView(p), at: p.at })),
-	entries: m.entries.map((e) => ({ id: e.id, kind: e.kind, text: e.text, by: e.by, via: e.via, at: e.at, ...(e.for ? { for: e.for } : {}), ...(e.on ? { on: e.on.name } : {}), ...(e.state ? { state: e.state } : {}), ...(e.due ? { due: e.due } : {}), ...(e.answered ? { answered: e.answered } : {}), ...(e.outcome ? { outcome: e.outcome } : {}), ...(e.ended ? { ended: e.ended } : {}) })),
+	entries: m.entries.map((e) => ({ id: e.id, kind: e.kind, text: e.text, by: e.by, via: e.via, at: e.at, ...(e.for ? { for: e.for } : {}), ...(e.on ? { on: e.on.name } : {}), ...(e.state ? { state: e.state } : {}), ...(e.due ? { due: e.due } : {}), ...(e.answered ? { answered: e.answered } : {}), ...(e.outcome ? { outcome: e.outcome } : {}), ...(e.ended ? { ended: e.ended } : {}), ...(e.card ? { card: e.card } : {}), ...(e.press ? { press: e.press } : {}) })),
 });
 
 /**
@@ -388,7 +442,7 @@ export function memoryRequest(slot: Slot, workspace: string, now: number, json: 
 	const op = json.op, no = (status: number, error: string, reason: string, extra: Record<string, unknown> = {}) => ({ status, body: { error, reason, ...extra } });
 	if (op === "read") {
 		const { memory, problem } = readMemory(slot, workspace, now);
-		return problem ? no(409, "unreadable", problem) : { status: 200, body: view(memory) };
+		return problem ? no(409, "unreadable", problem) : { status: 200, body: memoryView(memory) };
 	}
 	const change: Record<string, (m: Memory) => { id: string } | void> = {
 		add: (m) => {
@@ -410,10 +464,10 @@ export function memoryRequest(slot: Slot, workspace: string, now: number, json: 
 	try {
 		const done = updateMemory(slot, workspace, now, change[op]!, byId ? undefined : (json.rev as number));
 		log?.line("tower-memory", { workspace, op, by: "boss", ...(done.value ? { id: done.value.id } : {}), ...(op === "confirm" ? { proposal: String(json.proposal) } : {}) });
-		return { status: 200, body: { ...view(done.memory), ...(done.value ? { id: done.value.id } : {}) } };
+		return { status: 200, body: { ...memoryView(done.memory), ...(done.value ? { id: done.value.id } : {}) } };
 	} catch (cause) {
 		const error = cause as Error & { code?: string; memory?: Memory };
-		if (error.code === "rev") return no(409, "rev", "The memory changed since you read it; it is shown again.", view(error.memory!));
+		if (error.code === "rev") return no(409, "rev", "The memory changed since you read it; it is shown again.", memoryView(error.memory!));
 		return error instanceof Refused ? no(409, "refused", error.message) : no(/memory\.json/.test(error.message) ? 409 : 400, /memory\.json/.test(error.message) ? "unreadable" : "bad_request", error.message);
 	}
 }
@@ -429,6 +483,12 @@ export interface ToolEnv {
 	bossEvents(): { id: string; text: string }[];
 	/** The live session named by an id or a name; rejects when there is none or several. */
 	session(query: string): Promise<{ id: string; name: string }>;
+	/** The intercom events this run took, oldest first: the senders a boss wait's `from` may name (the broker's id, as the event's marker shows it). */
+	intercomEvents(): { id: string; from: { id: string; name?: string } }[];
+	/** The session with this id in the net now (never by name: a subagent shows on intercom under another name, todo #49), with its name, role, workspace, and tab; undefined when it is not live. */
+	raiser(id: string): Promise<Raiser | undefined>;
+	/** The sb server's locale (`localeOf(env)`): the language the brief told the run to write a card in, kept on the card. */
+	locale(): Locale;
 	log: Log;
 }
 const str = (args: Record<string, unknown>, name: string): string => {
@@ -460,6 +520,26 @@ export async function memoryTool(env: ToolEnv, args: Record<string, unknown>): P
 		const { value } = updateMemory(slot, workspace, now, (m) => asked(m, () => proposeAdd(m, now, from, kind, text)));
 		logged("propose", value.p);
 		return proposed(value.p, value.existing);
+	}
+	if (op === "add" && args.kind === "wait" && args.for === "boss") {
+		const ctxOf = (m: Memory) => ({ senders: new Set(env.intercomEvents().map((e) => e.from.id)), lang: env.locale(), restates: (id: string) => { const old = restatable(m, id); return old && { ...(old.card?.from ? { from: old.card.from } : {}) }; } });
+		const first = readMemory(slot, workspace, now);
+		if (first.problem) throw new Error(first.problem);
+		const checked = checkCard(args, ctxOf(first.memory));
+		if (!checked.ok) throw new Error(refusalText(checked.lines));
+		// The raiser is read from the net by id once, before the write; one that is not live is stored with the event's name and marked gone.
+		let raiser: Raiser | undefined;
+		if (typeof checked.from === "object" && "id" in checked.from) {
+			const id = checked.from.id, seen = env.intercomEvents().find((e) => e.from.id === id), found = await env.raiser(id).catch(() => undefined);
+			raiser = found ? { ...found, name: clean(found.name, 40) || id, ...(found.workspace ? { workspace: clean(found.workspace, 40) } : {}), ...(found.tab ? { tab: clean(found.tab, 40) } : {}) } : { id, name: clean(seen?.from.name ?? id, 40) || id, role: "session", gone: true };
+		}
+		const { value } = updateMemory(slot, workspace, now, (m) => {
+			const again = checkCard(args, ctxOf(m));
+			if (!again.ok) throw new Error(refusalText(again.lines));
+			return addCardWait(m, now, env.run, again, raiser);
+		});
+		logged("add", value);
+		return { text: `Noted [${value.id}]: the boss sees it as a card (${value.card!.type}) and it shows in your brief until you resolve or drop it${checked.restates ? `; ${checked.restates} was replaced` : ""}.`, details: { id: value.id } };
 	}
 	if (op === "add" && args.kind === "wait") {
 		const on = args.on === undefined ? undefined : await env.session(str(args, "on"));

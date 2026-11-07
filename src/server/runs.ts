@@ -1568,10 +1568,10 @@ export function createRuns(o: RunsOptions) {
 			if (!pendingTakeovers) herdrLostAt = undefined;
 		},
 		/** The boss writes to the tower (the GUI's composer, `/boss tower <prompt>`, the tower prompt): an event ahead of the rest; a held service wakes again. */
-		boss(workspace: string, text: string, from = "the boss", opts: { present?: boolean } = {}): QueuedEvent {
+		boss(workspace: string, text: string, from = "the boss", opts: { present?: boolean; press?: true } = {}): QueuedEvent {
 			const svc = services.get(workspace);
 			if (!svc) throw new Error(`The sb server stands in for no tower of workspace ${workspace}`);
-			const written = append(slot, svc.ref.record(), { kind: "boss", from: { id: "boss", name: from }, text, at: iso(now()) });
+			const written = append(slot, svc.ref.record(), { kind: "boss", from: { id: "boss", name: from }, text, at: iso(now()), ...(opts.press ? { press: true as const } : {}) });
 			if (svc.state === "held") (svc.state = svc.run ? "running" : "standing", (svc.crashes = []), (svc.paneBusy = undefined), (svc.notices = svc.notices.filter((n) => n.id !== "loop" && n.id !== "start")));
 			// At the tower prompt the boss is at the pane: the run this wakes is one they are in, from its claim (or from now, when a run is live already).
 			if (opts.present) {
@@ -1690,6 +1690,12 @@ export function createRuns(o: RunsOptions) {
 			const a = of(token);
 			if (!a || a.ended || a.rec.kind !== "local") return [];
 			return readQueue(slot, a.rec.workspace).filter((e) => e.kind === "boss" && e.taken?.run === a.rec.id).map((e) => ({ id: e.id, text: e.text }));
+		},
+		/** The intercom events a local run took, oldest first: the senders (by the broker's id) a wait for the boss may name as the session that raised it (towermemory.ts). */
+		intercomEvents(token: unknown): { id: string; from: { id: string; name?: string } }[] {
+			const a = of(token);
+			if (!a || a.ended || a.rec.kind !== "local") return [];
+			return readQueue(slot, a.rec.workspace).flatMap((e) => (e.kind === "intercom" && e.from && e.taken?.run === a.rec.id ? [{ id: e.id, from: e.from }] : []));
 		},
 		/**
 		 * The pi session file the run's pane reports, kept in the record. An ally run's file is kept only when it is named for the pi session the run reports (`<time>_<session id>.jsonl`, as pi names it), so a run cannot

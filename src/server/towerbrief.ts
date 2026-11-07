@@ -6,6 +6,7 @@ import { nameOf, netMembers } from "../reach.ts";
 import type { HerdrRun } from "../herdr.ts";
 import type { LedgerRow } from "../opener.ts";
 import { inside } from "../link/routing.ts";
+import type { Locale } from "../towerprompt/messages.ts";
 
 // The brief of a local run (docs/specs/2026-10-26-sb-backend.md, The brief): short plain text in the run's role section, built by the server and never by a model, with a hard cap of 8,000
 // characters. Each section has its own cap, and a section that was cut says how much it left out. The events are not part of it: they arrive as messages.
@@ -156,15 +157,24 @@ export async function gatherMains(d: GatherDeps): Promise<{ rows: MainRow[]; ope
 	return { rows, opened };
 }
 
+/**
+ * The sentence that closes the `tower_memory` line (docs/specs/2026-11-07-wait-cards.md, Language): the language of a wait for the boss is sb's own locale, named by the code so that it is there even when the memory is empty. sb does not judge the words.
+ */
+export const waitLanguage = (locale: Locale): string => `Write a wait for the boss in ${locale === "zh-TW" ? "Traditional Chinese" : "English"} (sb's locale is ${locale}).`;
+/** `lines` with the locale sentence at the end of the `tower_memory` line. */
+export const withWaitLanguage = (lines: readonly string[], locale: Locale): string[] => lines.map((l) => (l.startsWith("- tower_memory") ? `${l} ${waitLanguage(locale)}` : l));
 /** The tools of a local run, one line each (the fixed text of the brief's section 6). */
 export const LOCAL_TOOLS = [
-	"- tower_list: every workspace's tower and what it works on; board_read: what each main works on now and how far it is.",
-	"- boss_status and call_tower route inside your workspace; tower_send writes to another tower (workspace) or, with device, to a teammate's tower; tower_reply answers one local session by id or name.",
+	"- tower_list: every workspace's tower and what it works on; board_read: what each main works on now.",
+	"- boss_status and call_tower route inside your workspace; tower_send writes to another tower or, with device, a teammate's tower; tower_reply answers one local session by id or name.",
 	"- boss_open_main opens a main for a request no session owns; boss_close_main closes one you opened, after its done report.",
 	"- boss_server: the sb server's status, its log, and its restart.",
-	"- tower_memory keeps what outlives runs: you only propose the boss's standing instruction or decision (the boss confirms it in the GUI or /boss memory), and you keep your waits (add, resolve, drop); read lists it all.",
+	"- tower_memory keeps what outlives runs: you propose the boss's standing instructions and decisions (the boss confirms them) and keep your waits (add, resolve, drop); read lists it all.",
 	"- tower_done ends your run. A main's result comes back as a new event, so do not wait for it.",
 ];
+
+/** The tools of a local run for sb's locale. */
+export const localTools = (locale: Locale): string[] => withWaitLanguage(LOCAL_TOOLS, locale);
 
 // --- the brief of an ally run (docs/specs/2026-10-26-sb-backend.md, The brief, Ally run) ----------------------------------------------------------------------------------------------------------
 

@@ -36,8 +36,9 @@ function lastWords(file: string): { at?: number; line?: string } {
 			if (!raw.includes('"assistant"')) continue;
 			const entry: Json | undefined = parse(raw), item = entry && toItem(entry, raw.length), at = item?.kind === "assistant" && item.text ? Date.parse(item.at ?? "") : NaN;
 			if (!Number.isFinite(at)) continue;
-			const first = item!.text!.split("\n").map((l) => l.trim()).find(Boolean);
-			return { at, ...(first ? { line: first.length > LINE ? `${first.slice(0, LINE - 1)}…` : first } : {}) };
+			// a fence line is no words; a heading's, quote's, or list's marks and bold go; the cut counts characters, so an emoji is never split
+			const first = item!.text!.split("\n").map((l) => l.trim()).filter((l) => !l.startsWith("```")).map((l) => l.replace(/^(?:[#>]+\s*|[-*+]\s+)+/, "").replaceAll("**", "").trim()).find(Boolean), chars = first ? Array.from(first) : [];
+			return { at, ...(first ? { line: chars.length > LINE ? `${chars.slice(0, LINE - 1).join("")}…` : first } : {}) };
 		}
 	} catch {
 		// a file that is not there yet, or that cannot be read, has said nothing

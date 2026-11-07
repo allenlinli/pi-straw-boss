@@ -91,6 +91,14 @@ test("the seam's newest line: the first line of the newest assistant text, by th
 		assert.equal(seam.line(conversation), "Older text", "a tool-only assistant entry, a notice, and a user entry are not the head's words");
 		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text("x".repeat(400))])]));
 		assert.equal(seam.line(conversation), `${"x".repeat(159)}…`, "cut to 160 with an ellipsis");
+		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text(`${"x".repeat(158)}😀${"y".repeat(10)}`)])]));
+		assert.equal(seam.line(conversation), `${"x".repeat(158)}😀…`, "the cut counts characters, so an emoji is never split (HB-F001)");
+		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text("```ts\nconst a = 1;\n```")])]));
+		assert.equal(seam.line(conversation), "const a = 1;", "a fence line is no words");
+		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text("## **Done**: merged\nmore")])]));
+		assert.equal(seam.line(conversation), "Done: merged", "a heading's marks and bold are dropped (HB-F002)");
+		writeFileSync(conversation, lines([header("s"), assistant("a1", null, [text("> - quoted item")])]));
+		assert.equal(seam.line(conversation), "quoted item", "quote and list marks are dropped");
 		writeFileSync(conversation, lines([header("s"), user("u1", null, "go")]));
 		assert.equal(seam.line(conversation), undefined, "a file with no assistant text has no line");
 	} finally {

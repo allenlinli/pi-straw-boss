@@ -1,6 +1,7 @@
 import { confirmBar } from "./confirmbar.ts";
 import { confirmReason } from "./confirmwords.ts";
 import { h } from "./dom.ts";
+import { keepFocus } from "./focusback.ts";
 import { keywriter } from "./keywriter.ts";
 import type { Post, TermState } from "./mirror.ts";
 import { m } from "./paraglide/messages.js";
@@ -77,7 +78,9 @@ export function keypad({ name, state, post, stream, blip, taken, enterConfirms, 
 		if (gone) say(m.box_keys_blocked());
 		else if (offered) say("");
 		offered = gone;
-		for (const b of buttons) b.disabled = gone || s === "off" || (s === "hidden" && b.dataset.key !== "esc"); // not while a write is on its way: the keys would flicker as you type
+		const switches = () => { for (const b of buttons) b.disabled = gone || s === "off" || (s === "hidden" && b.dataset.key !== "esc"); }; // not while a write is on its way: the keys would flicker as you type
+		if (away) keepFocus(el, switches); // a remote base's pad gives the focus back when its box returns; a local one is as it was
+		else switches();
 	}
 	update();
 	return { el, update, type, key, text, paste };

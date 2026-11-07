@@ -92,6 +92,14 @@ test("a mark, a role, a state or an agent outside its set refuses the unit; an o
 	assert.deepEqual([u.badtodo!.todo, u.badtodo!.ticks, u.badtodo!.queued], [undefined, [{ at: 1, mark: "idle" }], [{ text: "t", as: "steer" }]]);
 });
 
+test("R-F002: a box's queued rows keep `start` and a `why` of the set; a `why` outside it is left out and the row stays", async () => {
+	const w = await shown(netOf(baseOf("wA", [["t1", [
+		unit("q", { queued: [{ text: "a", as: "start" }, { text: "b", as: "followUp", why: "off" }, { text: "c", as: "followUp", why: "rm -rf" as never }] }),
+	]]])));
+	const u = Object.fromEntries(unitsOf(w.host.merge(LOCAL)).map((x) => [x.name, x]));
+	assert.deepEqual(u.q!.queued, [{ text: "a", as: "start" }, { text: "b", as: "followUp", why: "off" }, { text: "c", as: "followUp" }]);
+});
+
 test("a net shaped to exhaust the page is cut: many bases, deep subagents, long lists", async () => {
 	const deep = (n: number): Unit => unit(`d${n}`, { subs: n > 0 ? [deep(n - 1)] : [] });
 	const w = await shown({ bases: [...Array.from({ length: 200 }, (_, i) => baseOf(`w${i}`, [["t", [unit(`u${i}`)]]])), baseOf("deep", [["t", [deep(30)]]])], events: Array.from({ length: 500 }, (_, i) => ({ at: i, ws: "w0", name: "n", mark: "idle", kind: "mark" })) });

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { type IncomingMessage, request } from "node:http";
 import { tmpdir } from "node:os";
@@ -15,8 +16,8 @@ import { canonical } from "../src/history.ts";
 import type { Found, Ref } from "../src/net.ts";
 import { plan } from "../src/operateroutes.ts";
 
-// A Markdown document's blocks answer on the page's own request (docs/specs/2026-11-07-better-show-host.md): POST api/doc/<capability>/answer {answerId, answer, rev} reaches a v1 owner as the same form message an HTML
-// document's pi-answer form sends, once per answer id, behind the page's origin and CSRF checks, and only for a Markdown document. A text document's sibling images are served by the capability route (a review block's images), and only images.
+// A Markdown document's blocks answer on the page's own request (docs/specs/2026-11-07-better-show-host.md): POST api/doc/<capability>/answer {answerId, answer, rev} reaches a v2 owner (pi-better-show) as the package's Answer,
+// once per answer id, behind the page's origin and CSRF checks, and only for a Markdown document; a v1 Markdown document draws its blocks but its owner takes no answers, so the route refuses it up front. A text document's sibling images are served by the capability route (a review block's images), and only images.
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), "psb-docanswer-test-")));
 const bundle = join(scratch, "bundle"), dir = join(scratch, "work", "docs");
@@ -66,69 +67,85 @@ const body = (answerId: string, fields: unknown, extra: Record<string, unknown> 
 const json = (r: Res) => JSON.parse(r.body) as { accepted?: boolean; error?: string; reason?: string };
 const ID = "a".repeat(32);
 
-test("a block's answer reaches a v1 owner as the form message a pi-answer form sends, and the page is told it was accepted", async () => {
+// The owner is a v2 document's (pi-better-show): its text is read from its page server (a stand-in `fetch` here) and an answer is held to it (BSR-F003), so these tests drive `createDocs` itself with a hub stand-in.
+const BLOCKS = Array.from({ length: 320 }, (_, i) => `\`\`\`suggest\n- Go ${i}\n\`\`\``).join("\n\n"), TEXT_REV = createHash("sha256").update(BLOCKS).digest("hex").slice(0, 16), CAP = "c".repeat(32);
+const V2: Doc = { id: "d", v: 2, kind: "blocks", display: "docs/notes.md", reason: "r", revision: 1, onScreen: true, capability: "http://127.0.0.1:41234/t/doc/d/notes.md", assets: "http://127.0.0.1:41234/t/doc/d/" };
+type Result = { accepted: boolean; reason?: string } | undefined;
+function owner(reply: (fields: [string, string][]) => Result | Promise<Result> = (fields) => ({ accepted: fields.length > 0, ...(fields.length ? {} : { reason: "empty" }) })) {
+	const calls: [string, [string, string][]][] = [];
+	const hub = { doc: (cap: string) => (cap === CAP ? { key: "S", doc: V2 } : undefined), form: async (_cap: string, answerId: string, fields: [string, string][]) => (calls.push([answerId, fields]), reply(fields)) } as unknown as Parameters<typeof createDocs>[0];
+	return { calls, docs: createDocs(hub, () => "billing", { fetch: (async () => new Response(BLOCKS)) as typeof fetch }) };
+}
+const v2body = (answerId: string, fields: unknown, block = 0) => body(answerId, fields, { rev: TEXT_REV }, block);
+
+test("BSR-F005: a block's answer in a v1 Markdown document is refused up front, with the reason that its owner (pi-herdr-doc-review) takes no block answers: nothing reaches the owner and nothing is recorded", async () => {
 	const { gui, forms, text } = await serve();
 	const r = await answer(gui, text, body(ID, [["store", "SQLite"], ["why", "simple"]]));
-	assert.equal(r.status, 200);
-	assert.deepEqual(json(r), { accepted: true });
-	assert.equal(forms.length, 1);
-	assert.deepEqual([forms[0]!.version, forms[0]!.type, forms[0]!.id, forms[0]!.answerId, forms[0]!.fields], [1, "form", "text-1", ID, [["store", "SQLite"], ["why", "simple"]]]);
-	assert.equal((forms[0] as { answer?: unknown }).answer, undefined, "a v1 owner is sent the v1 message and nothing else");
+	assert.equal(r.status, 409);
+	assert.equal(json(r).error, "refused");
+	assert.match(json(r).reason ?? "", /pi-better-show/);
+	assert.doesNotMatch(json(r).reason ?? "", /no longer open/);
+	assert.deepEqual(forms, []);
+});
+
+test("a block's answer reaches a v2 owner once, and the page is told it was accepted", async () => {
+	const { docs, calls } = owner();
+	const r = await docs.answer(CAP, v2body(ID, [["store", "SQLite"], ["why", "simple"]]));
+	assert.deepEqual([r.status, r.body], [200, { accepted: true }]);
+	assert.deepEqual(calls, [[ID, [["store", "SQLite"], ["why", "simple"]]]]);
 });
 
 test("one answer id is sent once: the same id again gets the first outcome and reaches the owner no more", async () => {
-	const { gui, forms, text } = await serve();
-	const a = await answer(gui, text, body(ID, [["q", "1"]])), b = await answer(gui, text, body(ID, [["q", "2"]], {}, 1));
+	const { docs, calls } = owner();
+	const a = await docs.answer(CAP, v2body(ID, [["q", "1"]])), b = await docs.answer(CAP, v2body(ID, [["q", "2"]], 1));
 	assert.deepEqual([a.status, b.status, b.body], [200, 200, a.body]);
-	assert.equal(forms.length, 1);
-	const c = await answer(gui, text, body("b".repeat(32), [["q", "3"]], {}, 1));
+	assert.equal(calls.length, 1);
+	const c = await docs.answer(CAP, v2body("b".repeat(32), [["q", "3"]], 1));
 	assert.equal(c.status, 200);
-	assert.equal(forms.length, 2, "another answer id is another answer");
+	assert.equal(calls.length, 2, "another answer id is another answer");
 });
 
 test("BS-F005: an answer id is not sent again for as long as its outcome is kept, whatever else was answered meanwhile", async () => {
-	const { gui, forms, text } = await serve();
-	assert.equal((await answer(gui, text, body(ID, [["q", "1"]]))).status, 200);
-	for (let i = 0; i < 300; i++) assert.equal((await answer(gui, text, body(`${String(i).padStart(4, "0")}${"c".repeat(28)}`, [["q", String(i)]], {}, i + 1))).status, 200);
-	const replay = await answer(gui, text, body(ID, [["q", "1"]]));
+	const { docs, calls } = owner();
+	assert.equal((await docs.answer(CAP, v2body(ID, [["q", "1"]]))).status, 200);
+	for (let i = 0; i < 300; i++) assert.equal((await docs.answer(CAP, v2body(`${String(i).padStart(4, "0")}${"c".repeat(28)}`, [["q", String(i)]], i + 1))).status, 200);
+	const replay = await docs.answer(CAP, v2body(ID, [["q", "1"]]));
 	assert.equal(replay.status, 200);
-	assert.equal(forms.length, 301, "the 301 answers went once each: the first id is still remembered after 300 others");
+	assert.equal(calls.length, 301, "the 301 answers went once each: the first id is still remembered after 300 others");
 });
 
 test("BS-F005: an owner's failure to deliver is not kept as an outcome: the same id is tried again, and the page is told 500 meanwhile", async () => {
 	let fail = true;
-	const calls: string[] = [];
-	const hub = { doc: () => ({ key: "S", doc: DOCS[1]! }), form: async (_cap: string, answerId: string) => { calls.push(answerId); if (fail) throw new Error("bridge went"); return { accepted: true }; } } as unknown as Parameters<typeof createDocs>[0];
-	const docs = createDocs(hub, () => "billing");
-	const first = await docs.answer("c".repeat(32), body(ID, [["q", "1"]]));
+	const { docs, calls } = owner(() => { if (fail) throw new Error("bridge went"); return { accepted: true }; });
+	const first = await docs.answer(CAP, v2body(ID, [["q", "1"]]));
 	assert.equal(first.status, 500);
 	fail = false;
-	const second = await docs.answer("c".repeat(32), body(ID, [["q", "1"]]));
+	const second = await docs.answer(CAP, v2body(ID, [["q", "1"]]));
 	assert.deepEqual([second.status, calls.length], [200, 2], "the failed send was not cached as done");
-	assert.equal((await docs.answer("c".repeat(32), body(ID, [["q", "1"]]))).status, 200);
+	assert.equal((await docs.answer(CAP, v2body(ID, [["q", "1"]]))).status, 200);
 	assert.equal(calls.length, 2, "and a delivered one is");
 });
 
 test("what the owner refuses comes back as a refusal with its reason, and is not retried under the same id", async () => {
-	const { gui, forms, text } = await serve();
-	const r = await answer(gui, text, body(ID, []));
+	const { docs, calls } = owner();
+	const r = await docs.answer(CAP, v2body(ID, []));
 	assert.equal(r.status, 409);
-	assert.deepEqual([json(r).error, /no fields/i.test(json(r).reason ?? "")], ["refused", true]);
-	assert.equal((await answer(gui, text, body(ID, [["q", "1"]]))).status, 409);
-	assert.equal(forms.length, 1);
-	const retry = await answer(gui, text, body("d".repeat(32), [["q", "1"]]));
+	assert.deepEqual([(r.body as { error: string }).error, /no fields/i.test((r.body as { reason: string }).reason)], ["refused", true]);
+	assert.equal((await docs.answer(CAP, v2body(ID, [["q", "1"]]))).status, 409);
+	assert.equal(calls.length, 1);
+	const retry = await docs.answer(CAP, v2body("d".repeat(32), [["q", "1"]]));
 	assert.equal(retry.status, 200, "a refusal cancels the record: the block is open again, under another answer id");
-	assert.equal(forms.length, 2);
+	assert.equal(calls.length, 2);
 });
 
 test("an owner that stays silent is not confirmed (504) and a document that is no longer open is 404", async () => {
-	const { gui, text } = await serve({ reply: () => undefined });
-	const silent = await answer(gui, text, body(ID, [["q", "1"]]));
+	const { docs } = owner(() => undefined);
+	const silent = await docs.answer(CAP, v2body(ID, [["q", "1"]]));
 	assert.equal(silent.status, 504);
-	assert.equal(json(silent).error, "not_confirmed");
-	const gone = await answer(gui, "f".repeat(32), body(ID, [["q", "1"]]));
+	assert.equal((silent.body as { error: string }).error, "not_confirmed");
+	const gone = await docs.answer("f".repeat(32), v2body(ID, [["q", "1"]]));
 	assert.equal(gone.status, 404);
-	assert.equal((await answer(gui, "not-a-capability", body(ID, [["q", "1"]]))).status, 404);
+	assert.equal((await docs.answer("not-a-capability", v2body(ID, [["q", "1"]]))).status, 404);
 });
 
 test("BS-F003: only a Markdown document takes block answers: an HTML document and a plain text one are refused before the owner is asked", async () => {
@@ -147,7 +164,8 @@ test("a body that is not an answer is refused before the owner is asked", async 
 	const bad: unknown[] = [{}, ok(undefined), body("short", [["a", "b"]]), { answerId: ID, answer: { kind: "form", fields: [["a", "b"]], ref: { block: 0 } } }, body(ID, [["a", "b"]], { rev: "nope" }), body(ID, [["a", "b"]], { rev: undefined }), ok({ kind: "form", fields: [["a", "b"]] }), ok({ kind: "form", fields: [["a", "b"]], ref: { block: -1 } }), ok({ kind: "form", fields: [["a", "b"]], ref: { block: 100_000 } }), ok({ kind: "other", fields: [["a", "b"]], ref: { block: 0 } }), body(ID, "x"), body(ID, [["a"]]), body(ID, [["a", 1]]), body(ID, [["a", "x\u0007y"]]), body(ID, Array.from({ length: 65 }, (_, i) => [`f${i}`, "v"])), body(ID, [["a", "x".repeat(13_000)]])];
 	for (const b of bad) assert.equal((await answer(gui, text, b)).status, 400, JSON.stringify(b).slice(0, 80));
 	assert.deepEqual(forms, []);
-	assert.equal((await answer(gui, text, body(ID, [["a", "line\nbreak\tand tab"]]))).status, 200, "a text box's line break and a tab are fine");
+	const well = await answer(gui, text, body(ID, [["a", "line\nbreak\tand tab"]]));
+	assert.deepEqual([well.status, json(well).error], [409, "refused"], "a well-formed body (a line break and a tab are fine) is refused only for what the document is: v1");
 });
 
 test("the answer route takes the page's own origin, content type, and CSRF secret, as every write does", async () => {

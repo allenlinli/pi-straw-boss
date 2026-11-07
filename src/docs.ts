@@ -174,8 +174,8 @@ export function createDocs(hub: Pick<Hub, "doc" | "form">, name: (key: string) =
 			const found = CAP.test(cap) ? hub.doc(cap) : undefined;
 			if (!found) return no(404, "closed", "The document is no longer open in its session.");
 			if (!isBlocksDoc(found.doc)) return no(409, "refused", "This document takes no answers from its blocks.");
-			if (found.doc.v !== 2) return no(409, "refused", "This document comes from pi-herdr-doc-review, which takes no answers from its blocks: they need the document package pi-better-show (contract v2). Answer in the session instead.");
 			if (typeof answerId !== "string" || !ANSWER_ID.test(answerId) || !answerOk(answer) || answer.ref === undefined || typeof rev !== "string" || !REV.test(rev)) return no(400, "bad_request", "The answer is not a block's answer: at most 64 text fields, under 12 KB, with no control characters, the block's index, and the hash of the text it was drawn from.");
+			if (found.doc.v !== 2) return no(409, "refused", "This document comes from pi-herdr-doc-review, which takes no answers from its blocks: they need the document package pi-better-show (contract v2). Answer in the session instead.");
 			const now = Date.now(), k = `${cap}\n${answerId}`, { block } = answer.ref, doc = found.doc;
 			for (const [id, v] of answers) if (v.until < now) answers.delete(id); else break; // the window is one length for all, so they expire in the order they came
 			const had = answers.get(k);

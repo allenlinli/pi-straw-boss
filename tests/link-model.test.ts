@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AllyBase, LinkAlert } from "../src/link/holder.ts";
+import type { MainStatus } from "../src/link/kinds.ts";
 import { alertLine, allyMark, countdown, mergeAllies, CRASH_FRESH_MS, dialogState, hasLinkNews, lastSeen, reportPeek, stateName, unitCards, unitsFor, unitWord, urgentFirst } from "../gui/linkmodel.ts";
 import { asksOf } from "../gui/allyasks.ts";
 import { dialogStateLine, remoteAnswer, remoteDialog } from "../gui/linkdialogmodel.ts";
@@ -329,4 +330,39 @@ test("AOR-F002: units of a team that lists no workspace, matching none of the de
 	const rows = [rowOf("t1", 3, "W1"), rowOf("t2", 3, "W2"), rowOf("t3", 3, "X", "W2")];
 	assert.deepEqual(cards.map((c) => unitsFor(rows, { ...whoOf(c), spare: c.spare }).map((u) => u.unit)), [["W1", "X"], ["W2"]]);
 	assert.deepEqual(unitsFor(rows, whoOf(mergeAllies([mate("t3", null)])[0]!)).map((u) => u.unit), ["X", "W2"], "no workspace anywhere: all of them");
+});
+
+// ---- a box's mains on the unit card (docs/specs/2026-11-07-link-remote-stop.md §6) ----------------------------------------------------------------------------
+
+const MAIN: MainStatus = { handle: "0123456789abcdef", unit: "moldplan", name: "docs", state: "idle", by: "d-me", stopping: false };
+const mainsRow = (over: object = {}, mains: MainStatus[] = [MAIN, { ...MAIN, handle: "fedcba9876543210", name: "api", state: "working", by: "d-bob" }, { ...MAIN, handle: "1111111111111111", unit: "other", name: "elsewhere" }]) =>
+	[{ team: "t", device: "d1", at: 5_000, units: [{ unit: "moldplan", state: "running", monitors: [], report: "" }], mains, canStop: true as const, dispatchers: { "d-me": { label: "my-mac", self: true as const }, "d-bob": { label: "bob-mac" } }, ...over }];
+
+test("a unit's card lists the mains the box named for that unit: name, state in words, the dispatcher's label only for a main this computer did not dispatch, and where the stop request goes", () => {
+	const [u] = unitCards(mainsRow(), [], ME, 6_000);
+	assert.deepEqual(u!.mains.map((x) => [x.handle, x.name, x.word, x.tone, x.byLabel, x.stopping, x.canStop]), [
+		["0123456789abcdef", "docs", stateName("idle"), "idle", undefined, false, true],
+		["fedcba9876543210", "api", stateName("working"), "working", "bob-mac", false, true],
+	], "the main of another unit is not this card's");
+	assert.deepEqual([u!.team, u!.device], ["t", "d1"], "the page posts the stop to the box of this row, in this row's team");
+	assert.equal(unitCards(status("running"), [], ME, 6_000)[0]!.mains.length, 0, "a status with no mains has none");
+});
+
+test("a main whose stop is pending reads 'stopping…' with no button; a box that lists no unit-stop shows its mains with no button; a dispatcher the page cannot name shows its short id", () => {
+	const [pending] = unitCards(mainsRow({}, [{ ...MAIN, stopping: true }]), [], ME, 6_000);
+	assert.deepEqual([pending!.mains[0]!.word, pending!.mains[0]!.canStop, pending!.mains[0]!.stopping], [m.link_main_stopping(), false, true]);
+	const [old] = unitCards(mainsRow({ canStop: undefined }), [], ME, 6_000);
+	assert.deepEqual(old!.mains.map((x) => [x.name, x.canStop]), [["docs", false], ["api", false]]);
+	const [unknown] = unitCards(mainsRow({ dispatchers: undefined }, [{ ...MAIN, by: "d-stranger-0001" }]), [], ME, 6_000);
+	assert.equal(unknown!.mains[0]!.byLabel, "d-stra", "the label is the first six characters of the device id when no roster label came");
+});
+
+test("a stale box's mains cannot be stopped from its last status: the card keeps them without a button", () => {
+	const [u] = unitCards(mainsRow({ stale: true }), [], ME, 6_000);
+	assert.deepEqual(u!.mains.map((x) => x.canStop), [false, false]);
+});
+
+test("a main's state word is one the page knows, and an unknown one is shown as it is", () => {
+	const [u] = unitCards(mainsRow({}, [{ ...MAIN, state: "done" }, { ...MAIN, handle: "2222222222222222", state: "reticulating" }]), [], ME, 6_000);
+	assert.deepEqual(u!.mains.map((x) => [x.word, x.tone]), [[stateName("done"), "idle"], ["reticulating", "other"]]);
 });

@@ -1,4 +1,5 @@
-import { reportPeek, type UnitCard } from "./linkmodel.ts";
+import { reportPeek, type MainCard, type UnitCard } from "./linkmodel.ts";
+import { requested, stopMain } from "./mainstop.ts";
 import { m } from "./paraglide/messages.js";
 import { ago, html, sync, text } from "./render.ts";
 
@@ -7,7 +8,7 @@ import { ago, html, sync, text } from "./render.ts";
 // through the page's Markdown, which parses no HTML). The report's Markdown is made when the fold first opens, in a chunk of its own, and again while it is open when the report changes.
 
 type Row = UnitCard & { id: string; named: boolean };
-const make = () => html(`<li class="ally-unit"><div class="au-head"><i class="au-dot"></i><b class="au-word"></b><span class="au-name"></span><span class="au-time" hidden><span class="au-pre"></span><span class="age"></span><span class="au-ago"></span></span><em class="au-stale" hidden></em></div><p class="au-mons" hidden><b></b><span></span></p><details class="au-crash" hidden><summary><b></b><span class="au-time"><span class="age"></span><span class="au-ago"></span></span></summary><pre></pre><p class="au-hint" hidden></p></details><details class="au-report" hidden><summary><b class="au-label"></b><span class="au-peek"></span></summary><div class="md au-md"></div></details></li>`);
+const make = () => html(`<li class="ally-unit"><div class="au-head"><i class="au-dot"></i><b class="au-word"></b><span class="au-name"></span><span class="au-time" hidden><span class="au-pre"></span><span class="age"></span><span class="au-ago"></span></span><em class="au-stale" hidden></em></div><p class="au-mons" hidden><b></b><span></span></p><details class="au-mains" hidden><summary><b class="au-mains-label"></b></summary><ul class="au-main-list"></ul></details><details class="au-crash" hidden><summary><b></b><span class="au-time"><span class="age"></span><span class="au-ago"></span></span></summary><pre></pre><p class="au-hint" hidden></p></details><details class="au-report" hidden><summary><b class="au-label"></b><span class="au-peek"></span></summary><div class="md au-md"></div></details></li>`);
 
 type Markdown = typeof import("./markdown.ts");
 let markdown: Markdown | undefined;
@@ -31,8 +32,41 @@ function clock(box: HTMLElement, since: number, pre = "", post = m.link_unit_ago
 	box.querySelector<HTMLElement>(".au-ago")!.textContent = post;
 }
 
-/** Draws the units of one ally base. `named`: the base is a whole device (no workspace of its own), so a unit says its name; otherwise the card's title is the unit. */
-export function fillAllyUnits(list: Element, cards: UnitCard[], named: boolean) {
+type MainRow = MainCard & { id: string };
+const makeMain = () => html(`<li class="au-main"><span class="au-mdot"></span><b class="au-mname"></b><span class="au-mstate"></span><span class="au-mby" hidden></span><button type="button" class="au-stop" hidden></button></li>`);
+/** The mains of a unit, in a fold of their own: name, state word, the dispatcher for a main another device dispatched, and Stop where the box takes one (a pending stop reads "stopping…" in its place). */
+function fillMains(li: HTMLElement, u: UnitCard, box: string) {
+	const fold = li.querySelector<HTMLDetailsElement>(".au-mains")!;
+	fold.hidden = !u.mains.length;
+	if (!u.mains.length) return;
+	text(fold, ".au-mains-label", m.link_mains({ count: u.mains.length }));
+	sync(fold.querySelector(".au-main-list")!, u.mains.map((c): MainRow => ({ ...c, id: c.handle })), makeMain, (row, c) => {
+		const pending = c.stopping || requested(u, c), word = pending ? m.link_main_stopping() : c.word;
+		row.dataset.tone = pending ? "other" : c.tone;
+		text(row, ".au-mname", c.name);
+		text(row, ".au-mstate", word);
+		const by = row.querySelector<HTMLElement>(".au-mby")!;
+		by.hidden = c.byLabel === undefined;
+		by.textContent = c.byLabel === undefined ? "" : m.link_main_by({ who: c.byLabel });
+		const button = row.querySelector<HTMLButtonElement>(".au-stop")!;
+		button.hidden = !c.canStop || pending;
+		button.textContent = m.link_main_stop();
+		button.setAttribute("aria-label", m.link_main_stop_aria({ name: c.name }));
+		button.onclick = () => {
+			button.disabled = true;
+			void stopMain(u, c, box).then((went) => {
+				button.disabled = false;
+				if (!went) return;
+				row.dataset.tone = "other";
+				text(row, ".au-mstate", m.link_main_stopping());
+				button.hidden = true;
+			});
+		};
+	});
+}
+
+/** Draws the units of one ally base. `named`: the base is a whole device (no workspace of its own), so a unit says its name; otherwise the card's title is the unit. `box` is the device's label, for the Stop's question. */
+export function fillAllyUnits(list: Element, cards: UnitCard[], named: boolean, box = "") {
 	sync(list, cards.map((u) => ({ ...u, id: u.unit, named })) as Row[], make, (li, u) => {
 		li.dataset.state = u.state;
 		li.dataset.tone = u.tone;
@@ -54,6 +88,7 @@ export function fillAllyUnits(list: Element, cards: UnitCard[], named: boolean) 
 			text(mons, "span", u.monitors.join(" · "));
 			mons.title = u.monitors.join("\n");
 		}
+		fillMains(li, u, box);
 		const crash = li.querySelector<HTMLDetailsElement>(".au-crash")!;
 		crash.hidden = !u.crash;
 		crash.toggleAttribute("data-trust", u.crash?.trust === true);

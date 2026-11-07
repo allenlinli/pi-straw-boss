@@ -10,7 +10,7 @@ import { until } from "./fakes.ts";
 const { fillAllyUnits } = await import("../gui/allyunits.ts");
 const { m } = await import("../gui/paraglide/messages.js");
 
-const card = (over: Partial<UnitCard> = {}): UnitCard => ({ unit: "Harbor API", state: "running", tone: "working", word: m.link_unit_running(), at: Date.now() - 40_000, stale: false, monitors: [], report: "", ...over });
+const card = (over: Partial<UnitCard> = {}): UnitCard => ({ unit: "Harbor API", state: "running", tone: "working", word: m.link_unit_running(), at: Date.now() - 40_000, stale: false, monitors: [], report: "", team: "t", device: "d1", mains: [], ...over });
 const draw = (cards: UnitCard[], named = false) => {
 	const list = new El("ul");
 	page.body.replaceChildren(list);
@@ -234,4 +234,95 @@ test("the demo's teams scene puts the ci-box, a teammate's computer and their un
 	assert.deepEqual(withUnits.units.map((u) => u.team), ["t", "t2"]);
 	assert.equal(withUnits.alerts.filter((a) => a.kind === "notice").length, 2, "the box's notice reaches both teams");
 	assert.equal(new Set(withUnits.alerts.map((a) => a.id)).size, withUnits.alerts.length, "with ids of their own");
+});
+
+// ---- the Mains fold of a unit (docs/specs/2026-11-07-link-remote-stop.md §6) ---------------------------------------------------------------------------------
+
+const { io } = await import("../gui/mainstop.ts");
+const mainCard = (over: object = {}) => ({ handle: "0123456789abcdef", name: "docs", state: "idle", tone: "idle" as const, word: m.mark_idle(), stopping: false, canStop: true, ...over });
+const mains = (...cards: object[]) => card({ mains: cards as UnitCard["mains"] });
+
+test("a unit with no mains has no fold; with mains the fold counts them and each row says its name, its state word, and the dispatcher of a main another device dispatched", () => {
+	assert.equal(draw([card()]).querySelector(".au-mains")!.hidden, true);
+	const list = draw([mains(mainCard(), mainCard({ handle: "fedcba9876543210", name: "api", state: "working", tone: "working", word: m.mark_working(), byLabel: "bob-mac" }))]);
+	assert.equal(one(list, ".au-mains").hidden, false);
+	assert.equal(one(list, ".au-mains-label").textContent, m.link_mains({ count: 2 }));
+	const rows = list.querySelectorAll(".au-main");
+	assert.deepEqual(rows.map((r) => [r.querySelector(".au-mname")!.textContent, r.querySelector(".au-mstate")!.textContent, r.querySelector(".au-mby")!.hidden, r.querySelector(".au-mby")!.textContent]), [
+		["docs", m.mark_idle(), true, ""],
+		["api", m.mark_working(), false, m.link_main_by({ who: "bob-mac" })],
+	]);
+	assert.equal(rows[1]!.dataset.tone, "working");
+	assert.ok(rows.every((r) => r.querySelector(".au-stop")!.hidden === false && r.querySelector(".au-stop")!.textContent === m.link_main_stop()));
+	assert.equal(rows[0]!.querySelector(".au-stop")!.getAttribute("aria-label"), m.link_main_stop_aria({ name: "docs" }));
+});
+
+test("a main whose stop is pending reads 'stopping…' with no Stop; a box that takes no stop shows the same rows with no button; a teammate's words are text", () => {
+	const list = draw([mains(mainCard({ stopping: true, canStop: false, word: m.link_main_stopping(), tone: "other" }), mainCard({ handle: "2222222222222222", name: "<b>x</b>", canStop: false, byLabel: "<img src=x>" }))]);
+	const [pending, plain] = list.querySelectorAll(".au-main");
+	assert.deepEqual([pending!.querySelector(".au-mstate")!.textContent, pending!.querySelector(".au-stop")!.hidden], [m.link_main_stopping(), true]);
+	assert.equal(plain!.querySelector(".au-stop")!.hidden, true, "no button without the box's caps");
+	assert.equal(plain!.querySelector(".au-mname")!.textContent, "<b>x</b>");
+	assert.equal(plain!.querySelector(".au-mby")!.textContent, m.link_main_by({ who: "<img src=x>" }));
+	assert.equal(list.querySelectorAll(".au-mname b").length + list.querySelectorAll(".au-mby img").length, 0);
+});
+
+test("Stop asks in the page's confirm with Stop and Interrupt and stop, posts link/unit-stop of the row's team and box with the chosen mode, and the row then reads 'stopping…' with no button", async () => {
+	const asked: { text: string; labels: string[] }[] = [], posted: { path: string; body: Record<string, unknown> }[] = [];
+	let choice: string | undefined = "interrupt";
+	io.choose = (async (text: string, choices: { label: string; value: string }[]) => (asked.push({ text, labels: choices.map((c) => c.label) }), choices.length ? choice : undefined)) as typeof io.choose;
+	io.post = async (path, body) => (posted.push({ path, body }), { ok: true, status: 200, body: { status: "sent" } });
+	const list = draw([mains(mainCard({ handle: "aaaaaaaaaaaaaaaa", name: "docs-sent" }))]);
+	fillAllyUnits(list as unknown as HTMLElement, [mains(mainCard({ handle: "aaaaaaaaaaaaaaaa", name: "docs-sent" }))], false, "ci-box");
+	const button = one(list, ".au-stop");
+	button.click();
+	await until(() => posted.length === 1, "the post");
+	assert.deepEqual(asked.map((a) => a.labels), [[m.link_main_stop(), m.link_main_interrupt()]]);
+	assert.equal(asked[0]!.text, m.link_main_stop_ask({ box: "ci-box", name: "docs-sent" }));
+	assert.deepEqual(posted, [{ path: "link/unit-stop", body: { team: "t", device: "d1", handle: "aaaaaaaaaaaaaaaa", mode: "interrupt", reason: "" } }]);
+	await until(() => one(list, ".au-mstate").textContent === m.link_main_stopping(), "the row reads stopping");
+	assert.equal(button.hidden, true);
+	// A redraw before the box's own status says so keeps it pending, and does not offer Stop again.
+	fillAllyUnits(list as unknown as HTMLElement, [mains(mainCard({ handle: "aaaaaaaaaaaaaaaa", name: "docs-sent" }))], false, "ci-box");
+	assert.deepEqual([one(list, ".au-mstate").textContent, one(list, ".au-stop").hidden], [m.link_main_stopping(), true]);
+});
+
+test("a cancelled confirm posts nothing and leaves the button; a refusal is said in the page's dialog with the box and the reason, and the button comes back", async () => {
+	const asked: string[][] = [], texts: string[] = [], posted: unknown[] = [];
+	let choice: string | undefined;
+	io.choose = (async (text: string, choices: { label: string; value: string }[]) => (texts.push(text), asked.push(choices.map((c) => c.label)), choices.length ? choice : undefined)) as typeof io.choose;
+	let reply: { ok: boolean; status: number; body: { reason?: string } } = { ok: false, status: 409, body: { reason: "The relay does not take stop requests yet" } };
+	io.post = async (_path, body) => (posted.push(body), reply);
+	const list = draw([mains(mainCard({ handle: "bbbbbbbbbbbbbbbb", name: "docs-refused" }))]);
+	one(list, ".au-stop").click();
+	await until(() => asked.length === 1, "the question");
+	await new Promise((r) => setTimeout(r, 5));
+	assert.deepEqual([posted.length, one(list, ".au-stop").hidden, one(list, ".au-stop").disabled], [0, false, false], "cancelled: nothing was sent");
+	choice = "quit";
+	one(list, ".au-stop").click();
+	await until(() => asked.length === 3, "the refusal's dialog");
+	assert.deepEqual(asked[2], [], "a notice, not a question");
+	assert.equal(texts[2], m.link_main_refused({ box: "", reason: "The relay does not take stop requests yet" }));
+	assert.deepEqual(posted.length, 1);
+	await until(() => one(list, ".au-stop").disabled === false, "the button comes back");
+	assert.equal(one(list, ".au-stop").hidden, false);
+	reply = { ok: false, status: 0, body: {} };
+	one(list, ".au-stop").click();
+	await until(() => asked.length === 5, "the no-answer dialog");
+	assert.equal(texts[4], m.link_main_refused({ box: "", reason: m.no_answer() }));
+});
+
+test("the demo's mains scenes: mains is the dispatcher's own two with Stop, admin adds a teammate's two named by their dispatcher, stopping has one pending, nostop is a box that takes no stop; no scene leaves the unit as it was", async () => {
+	const { allyDemo } = await import("../gui/demo-ally.ts");
+	const { unitCards } = await import("../gui/linkmodel.ts");
+	const cards = (scene: string | null) => {
+		const link = { allies: [], alerts: [], confirms: [], units: [{ team: "t", device: "d1", at: 0, units: [{ unit: "Harbor API", state: "running", monitors: [], report: "" }] }] };
+		allyDemo(link as never, scene, 1_000_000);
+		return unitCards(link.units, [], { teams: ["t"], device: "d1", workspace: "Harbor API" }, 1_000_000)[0]!.mains;
+	};
+	assert.equal(cards("idle").length, 0);
+	assert.deepEqual(cards("mains").map((c) => [c.name, c.byLabel, c.canStop]), [["docs · ledger fix", undefined, true], ["docs · release notes", undefined, true]]);
+	assert.deepEqual(cards("mains,admin").map((c) => [c.byLabel, c.canStop]), [[undefined, true], [undefined, true], ["Mei's Mac", true], ["Mei's Mac", true]]);
+	assert.deepEqual(cards("mains,stopping").map((c) => [c.stopping, c.canStop]), [[true, false], [false, true]]);
+	assert.deepEqual(cards("mains,nostop").map((c) => c.canStop), [false, false]);
 });

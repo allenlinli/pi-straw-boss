@@ -998,3 +998,29 @@ test("a paired device's hereOnly choice is still refused, and a refused or faile
 	assert.equal(o.sent.length, 0);
 	o.close();
 });
+
+test("link/unit-stop (an admin's remote stop of one main): this computer's page and a paired phone both post it, the holder hears the team, box, handle, mode, and reason as sent, its answer (sent, queued, or a refusal with the reason) comes back, and the page's secret is needed", async () => {
+	const seen: [string, Record<string, unknown>][] = [];
+	const link = {
+		enable: async () => undefined,
+		call: async (name: string, args: Record<string, unknown>) => {
+			seen.push([name, args]);
+			if (name !== "unit-stop") return { ok: true };
+			if (args.handle === "ffffffffffffffff") return { ok: false, error: "The relay does not take stop requests yet" };
+			return { ok: true, status: args.mode === "interrupt" ? "queued" : "sent", stopId: "s".repeat(32), id: "abcd" };
+		},
+	};
+	const { gui } = await setup({ link });
+	const body = { team: "t1", device: "box", handle: "0123456789abcdef", mode: "quit", reason: "idle for a day" };
+	const here = await send(gui, "link/unit-stop", body);
+	assert.deepEqual([here.status, (here.body as Record<string, unknown>).status, (here.body as Record<string, unknown>).stopId], [200, "sent", "s".repeat(32)]);
+	assert.equal(((await send(gui, "link/unit-stop", { ...body, mode: "interrupt" })).body as Record<string, unknown>).status, "queued");
+	const refused = await send(gui, "link/unit-stop", { ...body, handle: "ffffffffffffffff" });
+	assert.deepEqual([refused.status, refused.body.error, refused.body.reason], [409, "link_failed", "The relay does not take stop requests yet"]);
+	assert.equal((await send(gui, "link/unit-stop", body, { "x-sb-csrf": "wrong" })).status, 403, "a stop needs the page's secret");
+	const phone = await paired(gui);
+	const remote = await phone.post("link/unit-stop", body);
+	assert.deepEqual([remote.status, (remote.body as Record<string, unknown>).status], [200, "sent"], "a paired phone may stop a main, as it may quit a unit and answer a forwarded dialog (decision 10)");
+	assert.deepEqual(seen.map(([n]) => n), ["unit-stop", "unit-stop", "unit-stop", "unit-stop"]);
+	assert.deepEqual(seen[0]![1], body, "the holder is asked with the request as posted");
+});

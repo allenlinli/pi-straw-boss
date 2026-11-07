@@ -3,6 +3,7 @@ import type { GuiRecord } from "./handover.ts";
 import { firstWord, folderOf } from "./bossopen.ts";
 import type { Here } from "./heremark.ts";
 import { hereOnlyOpts } from "./intercept.ts";
+import { line, plain } from "./safetext.ts";
 import { decodeInvite } from "./link/join.ts";
 import type { LinkView } from "./link/holder.ts";
 import type { Lang } from "./memorycmd.ts";
@@ -29,7 +30,7 @@ export type LinkMore =
 
 const VERBS = ["confirms", "confirm", "asks", "answer", "invite", "join", "create", "leave"];
 /** What Tab completes for these (boss.ts adds them after the page's `link status` and `link decide`). */
-export const LINK_ARGUMENTS = Object.entries({ "link confirms": "List the confirms teammates' towers wait on (the call's arguments in full)", "link confirm": "Allow or deny a teammate tower's call: link confirm <id> allow|deny", "link asks": "List the questions unattended devices forwarded to you", "link answer": "Answer a forwarded question: link answer <id> <choice number | text> (or --cancel)", "link invite show": "Show an open invite's text on this screen only: link invite show <hash>", "link invite cancel": "Cancel an open invite: link invite cancel <hash>", "link join": "Join a team: link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>]", "link join cancel": "Cancel the join in progress", "link create": "Create a team: link create <relay> <dir> [--share status|presence] [--label <name>] (asks for the relay's token privately)", "link leave": "Leave a team on this computer: link leave <team> [--force]" }).map(([value, description]) => ({ value, label: value, description }));
+export const LINK_ARGUMENTS = Object.entries({ "link confirms": "List the confirms teammates' towers wait on (the call's arguments in full)", "link confirm": "Allow or deny a teammate tower's call: link confirm <id> allow|deny", "link asks": "List the questions unattended devices forwarded to you", "link answer": "Answer a forwarded question: link answer <id> <choice number | text> (or --cancel)", "link invite show": "Show an open invite's text on this screen only: link invite show <hash>", "link invite cancel": "Cancel an open invite: link invite cancel <hash>", "link join": "Join a team: link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>]", "link join cancel": "Cancel the join in progress", "link create": "Create a team: link create <relay> <dir> [--share status|presence] [--label <name>] (asks for the relay's token privately)", "link leave": "Leave a team on this computer: link leave <team> [--force]", "link units": "List the units and mains the unattended boxes reported: link units [box]", "link stop": "Ask a box to stop one of its mains: link stop <box> <main | handle start> [--interrupt] [reason]" }).map(([value, description]) => ({ value, label: value, description }));
 
 /** The words of a typed line (a quoted run is one word), flags `--name value` or `--name=value` split off; undefined for a flag that is not allowed or has no value. */
 function split(text: string, allowed: readonly string[], bare: readonly string[] = []): { pos: string[]; flag: Record<string, string> } | undefined {
@@ -79,13 +80,8 @@ export function parseLinkMore(rest: string | undefined): LinkMore | "usage" | un
 	}
 }
 
-// ---- What a teammate's device wrote, as the boss reads it ----------------------------------------------------------------------------------
+// ---- What a teammate's device wrote, as the boss reads it (`plain` and `line` are safetext.ts) ----------------------------------------------
 
-const UNSAFE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g;
-/** `text` with every control, bidi, and invisible formatting character written out (`\x1b`, `\u202e`); line breaks stay (for arguments and question text, which have lines). */
-const plain = (text: string) => text.replace(/\r\n/g, "\n").replace(/\t/g, "  ").replace(UNSAFE, (c) => (c.charCodeAt(0) < 256 ? `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}` : `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`));
-/** `text` as one line: as `plain`, with its line breaks written out too (`\n`), so a field that is one line of a screen cannot start another. */
-const line = (text: string) => plain(text).replace(/\n/g, "\\n");
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isText = (v: unknown): v is string => typeof v === "string";
 interface Question { question: string; multiple: boolean; options: string[] }

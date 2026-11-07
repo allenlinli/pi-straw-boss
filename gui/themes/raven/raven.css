@@ -59,7 +59,8 @@
 /* The head band on the map is the keep: a crenellated edge on a squared tower, the name in the serif. */
 [data-view="raven"] .head-node { border-radius: 3px 3px 12px 12px; border-top: 4px double color-mix(in srgb, var(--gold) 55%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 9%, transparent), transparent 70%), var(--surface-0); }
 [data-view="raven"] .head-node .head-name { font-family: var(--serif); font-size: 15px; letter-spacing: 0.06em; }
-/* The head page's backdrop (the castle above the mist, the crypt gate): four fixed layers behind the page, each in the illustration's frame. The page's panels keep their translucent well, so the picture shows through and the text keeps its ground. */
+/* The head page's backdrop (the castle above the mist, the crypt gate): fixed layers behind the page, each in the illustration's frame. The page's panels keep their translucent well, so the picture shows through and the text keeps its ground.
+   The picture rests in the dark (boss, 2026-11-07: the shadows blacker, the picture lit only by the lightning): a near-black veil over all of it but the moon, so only the moon, the lit windows and lanterns, and the rim lights read. --rk-bolt (0 at rest, 1 at a flash) takes that veil away from the sky down and lays a faint violet wash; the perched raven below takes the same light as a brightness. */
 @property --rk-a { syntax: "<number>"; inherits: false; initial-value: 0.7; }
 @property --rk-b { syntax: "<number>"; inherits: false; initial-value: 0.7; }
 @property --rk-bolt { syntax: "<number>"; inherits: false; initial-value: 0; }
@@ -67,22 +68,24 @@ html[data-view="raven"]:has(#stage[data-view="head"])::before,
 html[data-view="raven"]:has(#stage[data-view="head"]) body::before,
 html[data-view="raven"]:has(#stage[data-view="head"]) body::after,
 html[data-view="raven"]:has(#stage[data-view="head"])::after { content: ""; position: fixed; z-index: -1; top: 0; left: 50%; translate: -50% 0; width: var(--rk-w); aspect-ratio: 1280 / 721; pointer-events: none; }
-/* The picture, under a veil, with the lit windows and lanterns (two groups that flicker apart) and, over the sky, the far lightning. The moon sits behind the header strip and the crumb row: a second veil over it (0.62 at its centre) lifts the 0.56 the plain veil leaves at the crumb row to 0.83, where the moon's brightest pixel, rgb(243 217 194), becomes about rgb(52 45 46) and the dim text on it is 5.8 : 1, the gold 7 : 1. The rest of the picture, the filigree corners of the frame included, keeps the plain veil. */
+/* The picture, under its veils, with the lit windows and lanterns (two groups that flicker apart). From the top: the lights; the moon's own veil (0.62 at its centre) behind the header strip and the crumb row, which lifts the 0.56 the plain veil leaves at the crumb row to 0.83, where the moon's brightest pixel, rgb(243 217 194), becomes about rgb(52 45 46) and the dim text on it is 5.8 : 1, the gold 7 : 1, and it holds under the lightning's wash too (tests/raven-theme.test.ts); the strike's faint violet wash over the sky; the rest veil, near black everywhere but the moon and gone at the strike; the strike's veil at the foot, which keeps a third of the dark there, so the light falls from the sky; the plain veil; the picture. */
 html[data-view="raven"]:has(#stage[data-view="head"])::before {
 	background:
-		linear-gradient(rgb(190 170 255 / calc(var(--rk-bolt) * 0.22)), transparent 60%),
-		radial-gradient(circle var(--rk-r) at 15.9% 28.8%, rgb(255 190 92 / calc(var(--rk-a) * 0.55)), transparent),
-		radial-gradient(circle var(--rk-r) at 12.3% 33.7%, rgb(255 190 92 / calc(var(--rk-a) * 0.55)), transparent),
-		radial-gradient(circle var(--rk-r) at 9.6% 33.3%, rgb(255 190 92 / calc(var(--rk-a) * 0.5)), transparent),
-		radial-gradient(circle var(--rk-r) at 18.8% 39.2%, rgb(255 190 92 / calc(var(--rk-a) * 0.55)), transparent),
-		radial-gradient(circle var(--rk-r) at 23.4% 39.2%, rgb(255 190 92 / calc(var(--rk-a) * 0.5)), transparent),
-		radial-gradient(circle var(--rk-r) at 21.1% 56.9%, rgb(255 190 92 / calc(var(--rk-a) * 0.45)), transparent),
-		radial-gradient(circle var(--rk-r) at 19.3% 65.2%, rgb(255 190 92 / calc(var(--rk-a) * 0.45)), transparent),
-		radial-gradient(circle var(--rk-r) at 56.3% 74.9%, rgb(255 190 92 / calc(var(--rk-b) * 0.6)), transparent),
-		radial-gradient(circle var(--rk-r) at 72.7% 70%, rgb(255 190 92 / calc(var(--rk-b) * 0.6)), transparent),
-		radial-gradient(circle var(--rk-r) at 84.8% 68.7%, rgb(255 190 92 / calc(var(--rk-b) * 0.5)), transparent),
-		radial-gradient(circle var(--rk-r) at 90.5% 68.9%, rgb(255 190 92 / calc(var(--rk-b) * 0.5)), transparent),
+		radial-gradient(circle var(--rk-r) at 15.9% 28.8%, rgb(255 190 92 / calc(var(--rk-a) * 0.7)), transparent),
+		radial-gradient(circle var(--rk-r) at 12.3% 33.7%, rgb(255 190 92 / calc(var(--rk-a) * 0.7)), transparent),
+		radial-gradient(circle var(--rk-r) at 9.6% 33.3%, rgb(255 190 92 / calc(var(--rk-a) * 0.65)), transparent),
+		radial-gradient(circle var(--rk-r) at 18.8% 39.2%, rgb(255 190 92 / calc(var(--rk-a) * 0.7)), transparent),
+		radial-gradient(circle var(--rk-r) at 23.4% 39.2%, rgb(255 190 92 / calc(var(--rk-a) * 0.65)), transparent),
+		radial-gradient(circle var(--rk-r) at 21.1% 56.9%, rgb(255 190 92 / calc(var(--rk-a) * 0.6)), transparent),
+		radial-gradient(circle var(--rk-r) at 19.3% 65.2%, rgb(255 190 92 / calc(var(--rk-a) * 0.6)), transparent),
+		radial-gradient(circle var(--rk-r) at 56.3% 74.9%, rgb(255 190 92 / calc(var(--rk-b) * 0.75)), transparent),
+		radial-gradient(circle var(--rk-r) at 72.7% 70%, rgb(255 190 92 / calc(var(--rk-b) * 0.75)), transparent),
+		radial-gradient(circle var(--rk-r) at 84.8% 68.7%, rgb(255 190 92 / calc(var(--rk-b) * 0.65)), transparent),
+		radial-gradient(circle var(--rk-r) at 90.5% 68.9%, rgb(255 190 92 / calc(var(--rk-b) * 0.65)), transparent),
 		radial-gradient(ellipse calc(var(--rk-w) * 0.17) calc(var(--rk-w) * 0.1) at 16.4% 17%, rgb(13 10 16 / 0.62) 55%, transparent),
+		linear-gradient(rgb(190 170 255 / calc(var(--rk-bolt) * 0.16)), transparent 60%),
+		linear-gradient(transparent 40%, rgb(3 2 5 / calc(var(--rk-bolt) * 0.3))),
+		radial-gradient(circle calc(var(--rk-w) * 0.16) at 16.8% 15.3%, transparent 44%, rgb(3 2 5 / calc((1 - var(--rk-bolt)) * 0.8)) 100%),
 		linear-gradient(rgb(13 10 16 / 0.68), rgb(13 10 16 / 0.3) 45%, rgb(13 10 16 / 0.3)),
 		url("./backdrop.webp") center / 100% 100% no-repeat;
 	mask-image: linear-gradient(#000 62%, transparent);
@@ -104,20 +107,34 @@ html[data-view="raven"]:has(#stage[data-view="head"])::after {
 	top: calc(var(--rk-w) * 0.06); left: 0; translate: -20vw 0; width: calc(var(--rk-w) * 0.07); aspect-ratio: 96 / 34; opacity: 0;
 	background: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2096%2034%27%3E%3Cg%20fill=%27%230b080e%27%3E%3Cpath%20d=%27M2%2017%208%2014.5C12%2012.5%2016%2013.5%2019%2015.5L38%2016.5%2047%2020.5%2037%2020C30%2023%2020%2023%2013%2020L8%2019.5Z%27/%3E%3Cpath%20d=%27M18%2016C16%2010%2019%204%2026%201%2026%206%2028%2010%2031%2013%2034%208%2038%205%2044%204%2042%2010%2040%2014%2037%2017Z%27/%3E%3Cg%20transform=%27translate(48%200)%27%3E%3Cpath%20d=%27M2%2017%208%2014.5C12%2012.5%2016%2013.5%2019%2015.5L38%2016.5%2047%2020.5%2037%2020C30%2023%2020%2023%2013%2020L8%2019.5Z%27/%3E%3Cpath%20transform=%27translate(0%2034)%20scale(1%20-1)%27%20d=%27M18%2016C16%2010%2019%204%2026%201%2026%206%2028%2010%2031%2013%2034%208%2038%205%2044%204%2042%2010%2040%2014%2037%2017Z%27/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") 0 0 / 200% 100% no-repeat;
 }
-@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
+/* A raven perched on the crypt gate's centre cross (boss, 2026-11-07), in two frames of one strip (perch.webp, 2 x 260 x 239: profile, head turned to the viewer; the body is the same in both, so only the head changes). ::before shows the profile and stays; ::after shows the turned frame over it and dissolves in and out. Its claws sit on the cross at 65 percent across the picture and 0.361 of its width down, its width is 0.074 of the picture's. Dark at rest like the picture (a brightness filter, so the rim light on its feathers stays), lit by the strike with the picture. */
+html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after {
+	--rk-pw: calc(var(--rk-w) * 0.074);
+	content: ""; position: fixed; z-index: -1; pointer-events: none; width: var(--rk-pw); aspect-ratio: 260 / 239;
+	left: calc(50% - var(--rk-w) * 0.5 + var(--rk-w) * 0.65 - var(--rk-pw) * 0.435); top: calc(var(--rk-w) * 0.361 - var(--rk-pw) * 0.806);
+	background: url("./perch.webp") 0 0 / 200% 100% no-repeat; filter: brightness(0.34);
+}
+html[data-view="raven"] .stage[data-view="head"]::after { background-position: 100% 0; opacity: 0; }
+@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::after, html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after { display: none; } }
 
 @media (prefers-reduced-motion: no-preference) {
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::before { animation: rk-lit-a 4.7s ease-in-out infinite alternate, rk-lit-b 6.1s ease-in-out infinite alternate, rk-bolt 61s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::before { animation: rk-fog 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::after { animation: rk-bat 47s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::after { animation: rk-flap 0.46s steps(1, end) infinite, rk-raven 83s linear 21s infinite; }
+	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"]::before { animation: rk-perch-lit 61s linear infinite; }
+	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"]::after { animation: rk-perch-lit 61s linear infinite, rk-perch-turn 17s linear infinite; }
 	/* A unit that waits burns like a candle: its ring flickers instead of pinging. */
 	html[data-view="raven"]:not([data-calm]) .tower[data-mark="waiting"] .pulse, html[data-view="raven"]:not([data-calm]) .plate[data-mark="waiting"]::after { animation: rk-candle 2.9s ease-in-out infinite; }
 }
 @keyframes rk-lit-a { 0% { --rk-a: 0.55; } 18% { --rk-a: 0.9; } 33% { --rk-a: 0.5; } 52% { --rk-a: 0.85; } 71% { --rk-a: 0.62; } 100% { --rk-a: 0.78; } }
 @keyframes rk-lit-b { 0% { --rk-b: 0.8; } 22% { --rk-b: 0.5; } 40% { --rk-b: 0.95; } 63% { --rk-b: 0.58; } 81% { --rk-b: 0.9; } 100% { --rk-b: 0.66; } }
-/* Once in 61 seconds the sky lights: a double flicker in about a second, at most a fifth of a violet wash over the upper half of the picture. */
-@keyframes rk-bolt { 0%, 94% { --rk-bolt: 0; } 94.6% { --rk-bolt: 0.9; } 95.1% { --rk-bolt: 0.15; } 95.7% { --rk-bolt: 1; } 96.8% { --rk-bolt: 0; } 100% { --rk-bolt: 0; } }
+/* Once in 61 seconds the sky lights: the picture rises out of the dark in a quarter of a second, flickers back to a fifth, rises again, and fades to dark in 1.2 s (two flashes within 0.9 s). */
+@keyframes rk-bolt { 0%, 94% { --rk-bolt: 0; } 94.4% { --rk-bolt: 1; } 94.9% { --rk-bolt: 0.2; } 95.4% { --rk-bolt: 1; } 97.4%, 100% { --rk-bolt: 0; } }
+/* The perched raven takes the strike's light in step with the picture (same 61 s, same instants as rk-bolt; both start when the head page appears): brightness 0.34 at rest, 0.85 at a flash (the picture is under its plain veil there). */
+@keyframes rk-perch-lit { 0%, 94% { filter: brightness(0.34); } 94.4% { filter: brightness(0.85); } 94.9% { filter: brightness(0.45); } 95.4% { filter: brightness(0.85); } 97.4%, 100% { filter: brightness(0.34); } }
+/* It holds the profile for 12.6 s of 17, dissolves to the turned head in 0.7 s, looks at the viewer for 3 s, and dissolves back. */
+@keyframes rk-perch-turn { 0%, 64% { opacity: 0; } 68%, 86% { opacity: 1; } 90%, 100% { opacity: 0; } }
 @keyframes rk-fog { to { background-position: calc(var(--rk-w) * 0.7) 0, calc(var(--rk-w) * -0.55) 0; } }
 /* The bats are over the moon for the first seven seconds of 47: the first goes up and across, the second follows a moment later, lower. */
 @keyframes rk-bat {
@@ -132,7 +149,7 @@ html[data-view="raven"]:has(#stage[data-view="head"])::after {
 @keyframes rk-raven { 0% { translate: -20vw 0; opacity: 0; } 1% { opacity: 1; } 7% { translate: calc(var(--rk-w) * 0.3) calc(var(--rk-w) * 0.012); } 12% { translate: calc(var(--rk-w) * 0.62) calc(var(--rk-w) * -0.006); opacity: 1; } 13%, 100% { translate: calc(var(--rk-w) + 10vw) 0; opacity: 0; } }
 @keyframes rk-candle { 0%, 100% { opacity: 0.5; transform: scale(1.12); } 18% { opacity: 0.85; transform: scale(1.3); } 33% { opacity: 0.4; transform: scale(1.1); } 52% { opacity: 0.9; transform: scale(1.32); } 71% { opacity: 0.55; transform: scale(1.18); } 86% { opacity: 0.75; transform: scale(1.25); } }
 /* Forced colours draw the page in system colours: the picture and its weather go. */
-@media (forced-colors: active) { html[data-view="raven"]:has(#stage[data-view="head"]) body::before, html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
+@media (forced-colors: active) { html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after, html[data-view="raven"]:has(#stage[data-view="head"]) body::before, html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
 /* The documents list in the dossier: the tome icon (sprite `doc`, set by docList) stands where Standard's paper sheet is drawn in the row's background. */
 html[data-view="raven"] .d-doc { position: relative; background-image: none; }
 html[data-view="raven"] .d-doc-ico { display: block; position: absolute; left: 8px; top: 50%; translate: 0 -50%; width: 16px; height: 16px; fill: currentColor; color: var(--accent); }

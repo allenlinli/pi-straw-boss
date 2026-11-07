@@ -40,6 +40,7 @@ import { hasWaitOn, markShown, memoryRequest, memorySection, memorySummary, memo
 import { openSeen, type Seen } from "./towerseen.ts";
 import { readTowerRuns } from "./towerruns.ts";
 import type { CarBook } from "./carbook.ts";
+import { noteTrains } from "./trainnote.ts";
 import { appendEvent, bindDir, deleteService, HEAD_KEY, headDir, listServices, purgeAll, purgeQueues, putLedger, queueLength, readHeadService, readQueue, readLedger, readService, type ServiceRecord, towerDir, unbindDir, writeService } from "./towerstore.ts";
 
 // The tower service without runs (docs/specs/2026-10-26-sb-backend.md, The tower service; build step B4), behind `towerRuns.enabled`. The server stands in for a workspace's tower:
@@ -107,7 +108,7 @@ export interface TowersOptions {
 	/** The asks the towers made for their mains. */
 	asks?: Asks;
 	/** The car book (carbook.ts): a forward the tower stamps and a train it opens are noted there, for the checks of the server to rest on. */
-	cars?: Pick<CarBook, "noteForward" | "noteTrain">;
+	cars?: Pick<CarBook, "noteForward" | "noteTrain" | "remoteOf">;
 	/** Hands the service to a test as soon as it is built. */
 	expose?: (towers: Towers) => void;
 }
@@ -398,7 +399,7 @@ export function createTowers(o: TowersOptions): Towers {
 						tower: () => ({ id: l.record.id, name: l.record.name }), trustDir: trustDir(slot.stateDir), integrationOff: () => integrationOff(o.env, slot.stateDir), stateDir: slot.stateDir,
 						ledger: { entries: () => readLedger(slot, l.record.workspace, now(), file), put: (row) => { try { putLedger(slot, l.record.workspace, row, now(), file); } catch (cause) { error("ledger", (cause as Error).message); } } },
 					});
-					if (!isHeadL(l)) (l.open = noteTrain(openerFor()), l.openAlly = openerFor(ALLY_LEDGER));
+					if (!isHeadL(l)) (l.open = noteTrains(openerFor(), { cars: o.cars, checkout: async () => (await workspaces(run)).find((w) => w.workspace_id === l.record.workspace)?.worktree?.checkout_path ?? l.record.cwd, error }), l.openAlly = openerFor(ALLY_LEDGER));
 				}
 				l.kit.attach(client);
 				l.client = client;
@@ -414,17 +415,6 @@ export function createTowers(o: TowersOptions): Towers {
 		}
 		return false;
 	})());
-
-	/** A train the opener opened is noted in the car book with the manifest's `base:`: the server reads what a landed car is checked against from what the integrator sent here, not from a train's word (carbook.ts). */
-	const noteTrain = (open: ReturnType<typeof opener>): ReturnType<typeof opener> => async (input) => {
-		const opened = await open(input);
-		if (opened.train) {
-			const head = input.request.split(/\r?\n(?=\s*car:)/i)[0] ?? input.request;
-			const base = /(?:^|\n)[ \t>*-]*["']?base["']?[ \t]*[:=][ \t]*["']?([A-Za-z0-9][A-Za-z0-9._/-]{0,199})/i.exec(head)?.[1];
-			try { o.cars?.noteTrain({ project: opened.train.project, code: opened.train.code, session: opened.main, pane: opened.pane, integrator: opened.sender, ...(base ? { base } : {}) }); } catch (cause) { error("cars", (cause as Error).message); }
-		}
-		return opened;
-	};
 
 	const reconnect = async (l: Live, dropped: IntercomLike) => {
 		if (l.stopped || stopped || dropped !== l.client) return;

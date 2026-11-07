@@ -1,3 +1,4 @@
+import { parseSlip, slipBlocks } from "./accept.ts";
 import { isCode, isObject, isName, isoTime, SHA_RE, shortCode } from "./spec.ts";
 
 // A car's states and notices (docs/specs/2026-11-07-train-workers.md §5.5, D14), as data: which states a car has, the fields each carries, the car file they are appended to, the text of each notice, and when a notice counts as told.
@@ -234,6 +235,19 @@ export const forwardsFor = (forwards: readonly Forward[], head: string): Forward
 
 /** The heads a text carries as `head: <40 hex>` fields: what the server registers a forward under. */
 export const headsIn = (text: string): string[] => [...new Set([...text.matchAll(/(?:^|[\s|])head:\s*([0-9a-f]{40})(?![0-9a-f])/gim)].map((m) => m[1]!))];
+
+/** One slip of a forwarded text, as the server reads it: the car's app, tickets, branch and head, and the coordinator the slip names. */
+export interface SlipFacts { app: string; tickets: string[]; branch: string; head: string; coordinator?: string }
+
+/** The slips a forwarded text carries: a `car: <app> | tickets: …` that follows the tower's own words starts a block of its own line. Only a slip that parses and names app, tickets, branch and a 40-hex head is returned. */
+export function slipsInText(body: string): SlipFacts[] {
+	const lines = body.replace(/(\S)[ \t]+(car:[ \t]*[A-Za-z0-9._-]+[ \t]*\|[ \t]*tickets:)/gi, "$1\n$2");
+	return slipBlocks(lines).blocks.flatMap((block) => {
+		const parsed = parseSlip(block), f = parsed.fields;
+		if (!f.car || !isName(f.car) || !parsed.tickets.length || !f.branch || !SHA_RE.test(f.head ?? "")) return [];
+		return [{ app: f.car, tickets: parsed.tickets.slice(0, 16), branch: f.branch, head: f.head!, ...(f.coordinator ? { coordinator: f.coordinator } : {}) }];
+	});
+}
 
 /** The word for a slip whose `coordinator` is not the session that sent it (§5.5). */
 export const coordinatorWord = (ticket: string, coordinator: string, sender: string) => `sb: car ${ticket} names coordinator ${coordinator}, but ${sender} sent it; the slip is refused`;

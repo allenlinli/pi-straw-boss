@@ -83,11 +83,25 @@ export function createCarClient(d: CarClientDeps) {
 				throw failure(reply, "the state");
 			}
 		},
-		/** The cars of a project as the server has them (the guard's source). */
+		/** Asks the server whether it still holds this process's secret, and registers again when it does not (a server that restarted knows none). True when the session is registered afterwards. */
+		async verify(): Promise<boolean> {
+			const secret = held.get(keyOf());
+			if (!secret) return this.register();
+			const reply = await d.call({ cmd: "cars-check", secret });
+			if (reply?.ok) return true;
+			if (!reply) return false; // no answer: the server may be starting; the secret stays
+			held.delete(keyOf());
+			return this.register();
+		},
+		/** The cars of a project the server shows this session (the guard's source): a train's own, the integrator's own. */
 		async read(project: string): Promise<CarView[]> {
-			const reply = await d.call({ cmd: "cars-read", project });
-			if (!reply?.ok || !Array.isArray(reply.cars)) throw failure(reply, "reading the cars");
-			return reply.cars as CarView[];
+			for (let attempt = 0; ; attempt++) {
+				const secret = await ensure();
+				const reply = await d.call({ cmd: "cars-read", project, secret });
+				if (reply?.ok && Array.isArray(reply.cars)) return reply.cars as CarView[];
+				if (attempt === 0 && reply && /not from a registered session/.test(String(reply.error))) { held.delete(keyOf()); continue; }
+				throw failure(reply, "reading the cars");
+			}
 		},
 	};
 }
@@ -204,7 +218,9 @@ export function trainCarTool(kit: Kit, guard: () => TrainGuard | undefined, link
 	};
 }
 
-/** The client of this session and the early registration: the secret is asked for as soon as the session has an id and a pane, before a shell of the model can ask, and again after a server restart. Inert without a server link. */
+const CHECK_MS = 15_000;
+
+/** The client of this session and the early registration: the secret is asked for as soon as the session has an id and a pane, before a shell of the model can ask, and again after a server restart (a check every 15 s finds that the server forgot it). Inert without a server link. */
 export function carLink(kit: Kit, delays: readonly number[] = [500, 1000, 2000, 5000, 10_000, 30_000]) {
 	const { cfg, pi } = kit;
 	const call: ServerCall = cfg.server ? callServer(cfg.env, kit.guiDir) : async () => undefined;
@@ -213,11 +229,11 @@ export function carLink(kit: Kit, delays: readonly number[] = [500, 1000, 2000, 
 	return {
 		client,
 		enabled: () => !integrationOff(cfg.env, kit.guiDir) && cfg.server !== null && cfg.server !== undefined,
-		/** Asks to register at once and again until it works, quickly at first (the secret is asked for before a shell of the model can ask), then once a minute; the server restarting is the next attempt's business. */
+		/** Asks to register at once and again until it works, quickly at first (the secret is asked for before a shell of the model can ask), then once a minute; once it works it asks the server every 15 s whether it still knows the secret. */
 		keepRegistering() {
 			stopped = false;
-			const attempt = (n: number) => {
-				timer = setTimeout(() => void client.register().then((ok) => { if (!ok && !stopped) attempt(n + 1); }), delays[Math.min(n, delays.length - 1)] ?? 60_000);
+			const attempt = (n: number, ok = false) => {
+				timer = setTimeout(() => void client.verify().then((now) => { if (!stopped) attempt(now ? 0 : n + 1, now); }), ok ? CHECK_MS : (delays[Math.min(n, delays.length - 1)] ?? 60_000));
 				timer.unref?.();
 			};
 			attempt(0);

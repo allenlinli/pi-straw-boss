@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { coordinatorWord } from "../src/train/cars.ts";
@@ -115,7 +115,8 @@ test("train_car is for a train and the integrator: another session, and a state 
 
 async function ridden() {
 	const w = world();
-	w.opened();
+	repo(w);
+	await w.opened();
 	await receive(w);
 	const r = rig({ manifest: MANIFEST });
 	return { w, r, deps: trainDeps(w, r), ctx: r.ctx as unknown as CarCtx };
@@ -125,7 +126,7 @@ const assemble = (r: Rig, round: number, removed: unknown[]) => r.create(sb({ ki
 test("landed: the commit is on the remote branch of the manifest's base, read by the server's git; one only in the train's clone is refused", async () => {
 	const { w, deps, ctx } = await ridden();
 	const { pushed, local } = repo(w);
-	await refused(trainCar(deps, { car: "T-15", state: "landed", version: "1.2.0", commit: local }, ctx), `sb: landed.commit ${local.slice(0, 12)} is not on origin/develop`);
+	await refused(trainCar(deps, { car: "T-15", state: "landed", version: "1.2.0", commit: local }, ctx), `sb: landed.commit ${local.slice(0, 12)} is not on develop of the project's remote`);
 	assert.deepEqual(w.book.read("acme")[0]!.file.states.map((s) => s.state), ["received"]);
 	const out = await trainCar(deps, { car: "T-15", state: "landed", version: "1.2.0", commit: pushed }, ctx);
 	assert.match(out.text, /^Car T-15 is landed\. sb tells its coordinator \(sess-coord-1\) by session id and confirms the delivery; the land step waits for that\./);
@@ -137,10 +138,10 @@ test("landed: the commit is on the remote branch of the manifest's base, read by
 
 test("landed: the base is the manifest's, held by the server from the open; a train that names none, or a server that did not open it, cannot land a car", async () => {
 	const w = world();
-	w.opened(null);
+	const { pushed } = repo(w);
+	await w.opened(null);
 	await receive(w);
 	const r = rig({ manifest: MANIFEST });
-	const { pushed } = repo(w);
 	await refused(trainCar(trainDeps(w, r), { car: "T-15", state: "landed", version: "1", commit: pushed }, r.ctx as never), "sb: the manifest of train 2026-11-06-m names no usable base (base: <branch>)");
 	const w2 = world();
 	w2.forwarded();
@@ -155,14 +156,21 @@ test("a car not in the train's manifest, one the integrator never received, and 
 	const { pushed } = repo(w);
 	await refused(trainCar(deps, { car: "T-99", state: "landed", version: "1", commit: pushed }, ctx), "sb: car T-99 is not in this train's manifest");
 	const w2 = world();
-	w2.opened();
+	await w2.opened();
 	await refused(trainCar(trainDeps(w2, r), { car: "T-15", state: "landed", version: "1", commit: pushed }, ctx), "is not in the book of project acme: only a car the integrator received can be set");
-	// The integrator received it for another train.
+	// The integrator received it, but the manifest the server read at the open does not list its head: the received entry's `train` is a claim and gives no right.
 	const w3 = world();
-	w3.opened();
+	await w3.opened("develop", [SHA_B]);
 	w3.forwarded();
-	await trainCar(integratorDeps(w3), { ...received, train: "2026-11-06-n" }, integratorCtx(forwardEntry(COORD)));
-	await refused(trainCar(trainDeps(w3, r), { car: "T-15", state: "landed", version: "1", commit: pushed }, ctx), `sb: car T-15 rides train 2026-11-06-n, not ${CODE}`);
+	await trainCar(integratorDeps(w3), received, integratorCtx(forwardEntry(COORD)));
+	await refused(trainCar(trainDeps(w3, r), { car: "T-15", state: "landed", version: "1", commit: pushed }, ctx), `is not in the manifest of train ${CODE}`);
+	// And the other way: whatever train the received entry names, the manifest of the train that sets decides.
+	const w4 = world();
+	repo(w4);
+	await w4.opened();
+	w4.forwarded();
+	await trainCar(integratorDeps(w4), { ...received, train: "2026-11-06-n" }, integratorCtx(forwardEntry(COORD)));
+	assert.equal((await trainCar(trainDeps(w4, r), { car: "T-15", state: "landed", version: "1", commit: repo(w4).pushed }, ctx)).details !== undefined, true);
 });
 
 test("a second terminal state is refused: landed, then dropped or returned or landed again", async () => {
@@ -215,9 +223,9 @@ test("returned from the manifest: only when round 1's assemble lists the car in 
 
 test("a raw client, as a shell would be, cannot set a state: no secret, a made-up secret, and registering after the pi all fail, and nothing is recorded", async () => {
 	const w = world();
-	w.opened();
-	await receive(w);
 	const { pushed } = repo(w);
+	await w.opened();
+	await receive(w);
 	const raw = (secret: unknown) => w.call({ cmd: "cars-set", secret, state: "landed", car: { app: "web", head: SHA_A }, fields: { version: "1", commit: pushed } });
 	for (const secret of [undefined, "", "secret-99", "0".repeat(64), { x: 1 }]) {
 		const reply = await raw(secret);
@@ -225,12 +233,12 @@ test("a raw client, as a shell would be, cannot set a state: no secret, a made-u
 		assert.match(String(reply?.error), /not from a registered session/);
 	}
 	// The pi registered first (the integrator's receipt above); a shell that asks later for the same process gets no secret.
-	const second = await w.call({ cmd: "cars-register", session: INTEG, pid: 111, pane: "wA:p1" });
+	const second = await w.call({ cmd: "cars-register", session: INTEG, pid: 111, pane: "wA:p1", started: "start-111" });
 	assert.equal(second?.ok, false);
-	assert.match(String(second?.error), /already registered to this process; its secret is held in that process's memory and is not given twice/);
+	assert.match(String(second?.error), /already registered to a live process \(pid 111\); a registration is not replaced while that process runs/);
 	// A shell cannot register as the train either: it is not a foreground process of the pane, and its pid is not the pi's.
 	for (const pid of [4242, 111]) {
-		const reply = await w.call({ cmd: "cars-register", session: TRAIN, pid, pane: "wA:p2" });
+		const reply = await w.call({ cmd: "cars-register", session: TRAIN, pid, pane: "wA:p2", started: `start-${pid}` });
 		assert.equal(reply?.ok, false, String(pid));
 		assert.match(String(reply?.error), /is not a foreground process of pane wA:p2; only the pi of the pane registers/);
 	}
@@ -248,13 +256,13 @@ test("the secret does not reach the model: the tool's text and details and the l
 
 test("a pi that started again (a new pid) registers anew and the old secret stops working; a pi that moved panes is not the registered process", async () => {
 	const w = world();
-	w.opened();
+	await w.opened();
 	await receive(w);
 	const old = [...(w.integ as unknown as { ensure(): Promise<string> }).ensure ? [await w.integ.ensure()] : []][0]!;
 	w.looks.set(INTEG, { ...w.looks.get(INTEG)!, foreground: [333] });
 	const moved = await w.call({ cmd: "cars-set", secret: old, state: "returned", car: { app: "web", head: SHA_A }, fields: { reason: "x" } });
 	assert.match(String(moved?.error), /is not the process that registered \(it ended or moved\)/, "pid 111 is no longer the pane's pi");
-	const again = await w.call({ cmd: "cars-register", session: INTEG, pid: 333, pane: "wA:p1" });
+	const again = await w.call({ cmd: "cars-register", session: INTEG, pid: 333, pane: "wA:p1", started: "start-333" });
 	assert.equal(again?.ok, true);
 	assert.notEqual(again?.secret, old);
 	const reply = await w.call({ cmd: "cars-set", secret: old, state: "returned", car: { app: "web", head: SHA_A }, fields: { reason: "x" } });
@@ -279,7 +287,7 @@ test("a server that started again knows no secret: the client registers again on
 
 test("a train's role is read by the server from Herdr, not from the request: a pane that is no train's cannot set a train's states", async () => {
 	const w = world();
-	w.opened();
+	await w.opened();
 	await receive(w);
 	const r = rig({ manifest: MANIFEST });
 	w.looks.set(TRAIN, { ...w.looks.get(TRAIN)!, role: "member" });
@@ -289,16 +297,17 @@ test("a train's role is read by the server from Herdr, not from the request: a p
 	await refused(trainCar(trainDeps(w, r), { car: "T-15", state: "landed", version: "1", commit: pushed }, r.ctx as never), "sb: this server did not open train 2026-11-06-n of project acme for session sess-train-1");
 });
 
-test("the book survives a restart: car files and notice records are read at the start, the forwards and trains the server noted with them", async () => {
+test("the car file is written for the yard and private, and a book started again reads none of it (CR-F003)", async () => {
 	const w = world();
-	w.opened();
+	await w.opened();
 	await receive(w);
+	assert.equal(existsSync(join(w.stateDir, "trainboard", "acme", "cars", `web-${SHA_A.slice(0, 12)}.json`)), true, "written");
+	assert.equal((statSync(join(w.stateDir, "trainboard", "acme", "cars")).mode & 0o077), 0, "folder 700");
 	const { CarBook } = await import("../src/server/carbook.ts");
-	const again = new CarBook({ stateDir: w.stateDir, dir: w.dir, now: w.now, look: async () => undefined, git: async () => "", exists: () => false });
-	assert.deepEqual(again.read("acme").map((v) => v.file.states.map((s) => s.state)), [["received"]]);
-	assert.equal(again.forwardOf(SHA_A, INTEG)?.from, COORD);
-	assert.equal(again.trainOf("acme", CODE)?.base, "develop");
-	assert.equal(existsAndIsPrivate(join(w.stateDir, "trainboard", "acme", "cars")), true);
+	const again = new CarBook({ ...w.deps } as never);
+	assert.deepEqual(again.read("acme"), []);
+	assert.equal(again.forwardOf(SHA_A, INTEG), undefined);
+	assert.equal(again.trainOf("acme", CODE), undefined);
 });
 function existsAndIsPrivate(dir: string) {
 	mkdirSync(dir, { recursive: true });

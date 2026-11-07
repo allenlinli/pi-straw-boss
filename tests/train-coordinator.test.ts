@@ -110,7 +110,7 @@ test("the header writes fwd and fwd-from together, from ids it can read: a half,
 	void SHA_A;
 });
 
-test("a raw client of the control socket, as a shell is (it holds the server's secret), cannot register as a session or set a car state, and reads only what the server holds", async () => {
+test("a raw client of the control socket, as a shell is (it holds the server's secret), cannot register as a session, set a car state, or read the cars", async () => {
 	const s = await world.start();
 	await s.handle.ready;
 	const set = await ask(s, { cmd: "cars-set", state: "landed", car: { app: "web", head: SHA_A }, fields: { version: "1", commit: SHA_A } });
@@ -120,8 +120,10 @@ test("a raw client of the control socket, as a shell is (it holds the server's s
 	const registered = await ask(s, { cmd: "cars-register", session: "sess-train-1", pid: process.pid, pane: "wA:p2" });
 	assert.equal(registered.ok, false, "a session the broker does not show cannot register");
 	assert.equal(registered.secret, undefined);
+	// Reading takes a registered session too: the socket's secret alone shows no car.
 	const read = await ask(s, { cmd: "cars-read", project: "acme" });
-	assert.deepEqual([read.ok, read.cars], [true, []]);
-	assert.equal((await ask(s, { cmd: "cars-read", project: "../x" })).ok, true, "a name that is no folder reads nothing");
+	assert.deepEqual([read.ok, read.cars], [false, undefined]);
+	assert.match(String(read.error), /not from a registered session/);
+	assert.equal((await ask(s, { cmd: "cars-read", project: "../x", secret: "x".repeat(64) })).ok, false);
 	assert.equal((await ask(s, { cmd: "cars-read" })).ok, false);
 });

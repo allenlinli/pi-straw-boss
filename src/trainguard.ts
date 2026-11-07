@@ -7,7 +7,7 @@ import { startMs, writerAlive } from "./server/traingate.ts";
 import { serverCli } from "./server/version.ts";
 import { startOf } from "./startof.ts";
 import { snapshotOfBranch } from "./todo.ts";
-import { checkCar, checkEvidence, type EvidenceOptions, parseSlip } from "./train/accept.ts";
+import { checkCar, checkEvidence, type EvidenceOptions, parseSlip, slipBlocks } from "./train/accept.ts";
 import { type BoardRead, type BoardStep, boardPath, capBoard, type CarRow, factsOf, readBoard, readTrainboards, validateTrainTodo, type Writer, writeBoard, writeYard } from "./train/board.ts";
 import { type CarView, coordinatorWord, forwardsFor, forwardsOf, noticeSatisfied, receivedTold, type TerminalState } from "./train/cars.ts";
 import { fieldsOf } from "./headerfields.ts";
@@ -64,20 +64,7 @@ export function manifestText(entries: readonly unknown[]): string | undefined {
 	return undefined;
 }
 
-/** A slip block starts at a `car:` line and runs over the lines of `key: value | key: value` segments up to a blank line or the next `car:` line; what comes before the first block is the manifest's header. */
-export function slipBlocks(text: string): { header: string; blocks: string[] } {
-	const header: string[] = [], blocks: string[][] = [];
-	let open = false;
-	for (const line of text.split(/\r?\n/)) {
-		if (/^\s*car:/i.test(line)) (blocks.push([line]), (open = true));
-		else if (open && line.trim() !== "" && /^\s*[A-Za-z][A-Za-z0-9-]*:/.test(line)) blocks.at(-1)!.push(line);
-		else {
-			open = false;
-			if (!blocks.length) header.push(line);
-		}
-	}
-	return { header: header.join("\n"), blocks: blocks.map((b) => b.join("\n")) };
-}
+export { slipBlocks };
 
 export function parseManifest(text: string, read: (path: string) => string | undefined): Manifest {
 	const { header, blocks } = slipBlocks(text), cars: ManifestCar[] = [], leftOut: LeftOut[] = [];

@@ -1,21 +1,33 @@
 import { randomBytes } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { carsDir, trainboardDir } from "../train/board.ts";
-import { addState, type CarFile, carFileName, type CarState, type CarView, coordinatorWord, emptyCar, headsIn, type NoticeRecord, type Setter, type StateEntry, type StateNotice, validateStateFields } from "../train/cars.ts";
+import { addState, type CarFile, carFileName, type CarState, type CarView, coordinatorWord, emptyCar, headsIn, type NoticeRecord, type Setter, type SlipFacts, slipsInText, type StateEntry, type StateNotice, validateStateFields } from "../train/cars.ts";
 import { isCode, isName, isObject, SHA_RE } from "../train/spec.ts";
-import { readCars, writePrivate } from "../trainboard.ts";
+import { writePrivate } from "../trainboard.ts";
 
-// The server's book of cars (docs/specs/2026-11-07-train-workers.md §5.5, §23; todo #125 task 5a). Every car state is set here, and every check that rests on a state or a notice asks here. The train's shell runs as the same user and can open the
-// control socket and write any file under the state folder, so nothing is taken on a caller's word:
-//   - A request carries a per-session secret that `register` handed to the pi process once. The secret lives only in that process's memory (never env, argv, a file or tool output), and `register` answers it only once per process: a shell that asks later is
-//     refused. Who sets a state is read from the registration and from Herdr's own record of the session's pane, never from the payload.
-//   - The facts of each state are read by the server: a car belongs to a train when the integrator's `received` named that train; `received` and the receipt `returned` need a tower's forward of that very slip to the setter (the server stamped it); `landed`
-//     is a commit that git, run here, finds on the remote branch of the base the server read from the manifest it was handed at the open.
-//   - The car files and notice records on disk are this server's journal. It reads them at its start and never again while it runs; the guard asks the server (`read`), never the files.
+// The server's book of cars (docs/specs/2026-11-07-train-workers.md §5.5, §23; todo #125 task 5a). Every car state is set here, and every check that rests on a state or a notice asks here. The train's shell runs as the same user as pi and this server: it can
+// open the control socket, name any session, pid and pane, and write any file under the state folder. Node gives the server no peer credentials of a socket. So no secret and no file proves who a caller is, and nothing the guard or the integrator relies on
+// rests on a caller's word. The book holds three kinds of thing:
+//   - Facts the server establishes itself. A car's identity (app, tickets, branch, head, coordinator) is read from the slip the tower forwarded, which the tower's code stamped (the forward record, in memory). `landed` is a commit that git finds on the real
+//     remote branch of the base, fetched into a repository this server owns from a URL the server read at the open. The cars a train may touch are the heads of the manifest the server was handed at the open. A notice is told when the broker answered.
+//   - Claims, each limited to the claimer's own train and granting nothing: `dropped` and `returned` of a car on the claimer's train (it only ends that car's ride), the `version` text of `landed`, and the integrator's `train`, `departs` and `reason` text. A
+//     process that claims a role it is not can, at worst, end the rides of the cars of the train it registered as (it must be that train's session by Herdr's pane record and the server's own open), or put those words in the notice of a car the tower
+//     forwarded to the integrator it registered as.
+//   - A per-session secret that `register` hands the pi process, once. It is defense in depth, not proof: a registration is not replaced while its process lives, the start time of the process is required, and nothing above depends on it.
+// The car files and notice records on disk are a display journal for the yard (they are written here, never read here). A restart starts with an empty book: what the disk holds, a train could have written.
 
-const KEEP_MS = 24 * 3600_000, MAX_FORWARDS = 512, MAX_FILES = 256, MAX_TRAIN_RECORDS = 256;
+const KEEP_MS = 24 * 3600_000, MAX_FORWARDS = 512, MAX_FILES = 256;
 const BASE_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
+/** What the server fetches from: an https, ssh or git URL, an scp-like `user@host:path`, or an absolute local path. Anything else (`ext::`, `fd::`, an option, a host that begins with a dash, white space) is no remote. */
+const URL_OK = [/^https?:\/\/[^\s]+$/i, /^ssh:\/\/[^\s]+$/i, /^git:\/\/[^\s]+$/i, /^file:\/\/\/[^\s]+$/i, /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s]+$/, /^\/[^\s]*$/];
+export const safeUrl = (url: string): string | undefined => (url.length <= 500 && !/:\/\/(?:[^/@]*@)?-/.test(url) && URL_OK.some((re) => re.test(url)) ? url : undefined);
+/** What the server reads from the manifest text the tower opens a train on: the base it names and the heads of its cars. */
+export function openingFacts(request: string): { base?: string; heads: string[] } {
+	const head = request.split(/\r?\n(?=\s*car:)/i)[0] ?? request;
+	const base = /(?:^|\n)[ \t>*-]*["']?base["']?[ \t]*[:=][ \t]*["']?([A-Za-z0-9][A-Za-z0-9._/-]{0,199})/i.exec(head)?.[1];
+	return { ...(base ? { base } : {}), heads: headsIn(request).slice(0, 64) };
+}
 
 export const refusal = (text: string) => new Error(text);
 
@@ -23,15 +35,15 @@ export const refusal = (text: string) => new Error(text);
 export interface Look { id: string; name: string; role?: string; train?: { project: string; code: string }; pane: string; workspace?: string; cwd?: string; foreground: number[] }
 
 export interface BookDeps {
-	/** The state folder: the trainboard (the journal) lives under it. */
+	/** The state folder: the trainboard (the display journal) lives under it. */
 	stateDir: string;
-	/** The server's own folder: where the book keeps what a restart must not lose (forwards, trains). */
+	/** The server's own folder: the mirrors the `landed` check fetches into live under it. */
 	dir: string;
 	now(): number;
 	look(session: string): Promise<Look | undefined>;
-	/** The start time of a process, in the form `register` was given; undefined when it cannot be told. */
-	startOf?(pid: number): string | undefined;
-	/** git in a folder; rejects when git exits non-zero. */
+	/** The start time of a process, in the form `register` is given; undefined when it cannot be told. */
+	startOf(pid: number): string | undefined;
+	/** git in a folder, with the folder's own configuration kept out of it (carops.ts `runGit`); rejects when git exits non-zero. */
 	git(cwd: string, args: string[]): Promise<string>;
 	exists(path: string): boolean;
 	log?(event: string, facts: Record<string, string | number | boolean>): void;
@@ -41,13 +53,17 @@ export interface BookDeps {
 	onChange?(): void;
 }
 
-/** A train the tower opened: what the server read from the manifest the integrator sent (§5.3) and the open's own result. */
-export interface TrainRecord { project: string; code: string; session: string; pane: string; integrator: string; base?: string; at: string }
-/** A forward the tower's code stamped (runtools.ts): the event it came in, the session that sent it there, the sessions it went to, and the slip heads it carries. */
-export interface ForwardRecord { fwd: string; from: string; to: string[]; heads: string[]; at: number }
-interface Registration { session: string; pid: number; started?: string; pane: string; cwd?: string; at: number }
+/**
+ * A train the tower opened: what the server read from the manifest it was handed (the base and the heads of the cars) and from the tower's checkout (the remote), both before the train's process existed, and the open's own result.
+ * `url` is absent for a train the server only learns of from a repeated open after a restart: the checkout may have been changed by the train since.
+ */
+export interface TrainRecord { project: string; code: string; session: string; pane: string; integrator: string; base?: string; heads: string[]; url?: string; at: string }
+/** A forward the tower's code stamped (runtools.ts): the event it came in, the session that sent it there, the sessions it went to, and the slips it carries as the server read them. */
+export interface ForwardRecord { fwd: string; from: string; to: string[]; slips: SlipFacts[]; at: number }
+interface Registration { session: string; pid: number; started: string; pane: string; at: number }
 
-export interface CarRef { project?: string; app: string; head: string; tickets?: string[]; branch?: string; coordinator?: string }
+/** What a caller says of a car. For the integrator only the head (and the project) count: the rest is read from the forward, and a claim that differs from it is refused. */
+export interface CarRef { project?: string; app?: string; head: string; tickets?: string[]; branch?: string; coordinator?: string }
 export interface SetRequest { secret: unknown; state: CarState; car: CarRef; fields?: Record<string, unknown> }
 export interface SetResult { state: CarState; at: string; file: string; coordinator: string }
 interface Held { file: CarFile; notice?: NoticeRecord }
@@ -56,6 +72,9 @@ const text = (v: unknown, max: number): v is string => typeof v === "string" && 
 const iso = (ms: number) => new Date(ms).toISOString();
 const noticeName = (name: string) => name.replace(/\.json$/, ".notice.json");
 const firstLine = (error: unknown) => String((error as { stderr?: unknown }).stderr || (error as Error).message).trim().split("\n")[0]!.slice(0, 200);
+const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+/** The mirror's own configuration: nothing but what makes it a bare repository. It is written again before every use. */
+const MIRROR_CONFIG = "[core]\n\trepositoryformatversion = 0\n\tbare = true\n";
 
 export class CarBook {
 	private readonly cars = new Map<string, Map<string, Held>>();
@@ -63,90 +82,82 @@ export class CarBook {
 	private readonly bySession = new Map<string, string>();
 	private forwards: ForwardRecord[] = [];
 	private readonly trains = new Map<string, TrainRecord>();
+	/** The remote the first train of each project was opened on: a later open that read another one is not trusted for `landed`. */
+	private readonly remotes = new Map<string, string>();
 	private chain: Promise<unknown> = Promise.resolve();
 	private readonly d: BookDeps;
 
-	constructor(deps: BookDeps) {
-		this.d = deps;
-		this.loadState();
-		this.loadCars();
-	}
+	constructor(deps: BookDeps) { this.d = deps; }
 
-	// ---- what a restart keeps
+	// ---- the display journal: written here, read by the yard, never read back (CR-F003)
 
-	private get stateFile() { return join(this.d.dir, "cars-book.json"); }
-	private loadState() {
-		try {
-			const value = JSON.parse(readFileSync(this.stateFile, "utf8")) as unknown;
-			if (!isObject(value) || value.v !== 1) return;
-			if (Array.isArray(value.forwards)) this.forwards = value.forwards.filter((f): f is ForwardRecord => isObject(f) && text(f.fwd, 32) && text(f.from, 128) && Array.isArray(f.to) && Array.isArray(f.heads) && typeof f.at === "number").slice(-MAX_FORWARDS);
-			if (Array.isArray(value.trains)) for (const t of value.trains) if (isObject(t) && isName(t.project) && isCode(t.code) && text(t.session, 128) && text(t.pane, 64) && text(t.integrator, 128)) this.trains.set(`${t.project}/${t.code}`, t as unknown as TrainRecord);
-		} catch { /* a book that was never written */ }
-	}
-	private saveState() {
-		const trains = [...this.trains.values()].slice(-MAX_TRAIN_RECORDS);
-		try { writePrivate(this.stateFile, `${JSON.stringify({ v: 1, forwards: this.forwards, trains })}\n`, this.d.dir); } catch (error) { this.d.log?.("cars-state", { error: (error as Error).message.slice(0, 200) }); }
-	}
-	private loadCars() {
-		let projects: string[] = [];
-		try { projects = readdirSync(trainboardDir(this.d.stateDir)).filter((n) => isName(n)); } catch { return; }
-		for (const project of projects) {
-			const held = new Map<string, Held>();
-			for (const view of readCars(this.d.stateDir, project)) held.set(carFileName(view.file.app, view.file.car.head), { file: view.file, ...(view.notice ? { notice: view.notice } : {}) });
-			if (held.size) this.cars.set(project, held);
-		}
-	}
 	private writeCar(project: string, name: string, held: Held) {
 		const dir = carsDir(this.d.stateDir, project), root = trainboardDir(this.d.stateDir);
-		writePrivate(join(dir, name), `${JSON.stringify(held.file)}\n`, root);
-		if (held.notice) writePrivate(join(dir, noticeName(name)), `${JSON.stringify(held.notice)}\n`, root);
+		try {
+			writePrivate(join(dir, name), `${JSON.stringify(held.file)}\n`, root);
+			if (held.notice) writePrivate(join(dir, noticeName(name)), `${JSON.stringify(held.notice)}\n`, root);
+		} catch (error) { this.d.log?.("cars-journal", { error: (error as Error).message.slice(0, 200) }); }
 	}
 
 	// ---- facts the server itself records
 
-	/** A forward the tower's code stamped. Called by the tower tools of the server, never by a session. */
+	/** A forward the tower's code stamped. Called by the tower tools of the server, never by a session. Only a text that carries slips is kept. */
 	noteForward(f: { fwd: string; from: string; to: string[]; text: string }): void {
-		const heads = headsIn(f.text);
-		if (!heads.length) return;
-		this.forwards = [...this.forwards.filter((x) => this.d.now() - x.at < KEEP_MS), { fwd: f.fwd, from: f.from, to: f.to.slice(0, 20), heads, at: this.d.now() }].slice(-MAX_FORWARDS);
-		this.saveState();
+		const slips = slipsInText(f.text);
+		if (!slips.length) return;
+		this.forwards = [...this.forwards.filter((x) => this.d.now() - x.at < KEEP_MS), { fwd: f.fwd, from: f.from, to: f.to.slice(0, 20), slips, at: this.d.now() }].slice(-MAX_FORWARDS);
 	}
-	/** The newest forward of this head to this session. */
-	forwardOf(head: string, to: string): ForwardRecord | undefined {
-		return [...this.forwards].reverse().find((f) => this.d.now() - f.at < KEEP_MS && f.heads.includes(head) && f.to.includes(to));
+	/** The newest forward of this head to this session, with the slip it carries. */
+	forwardOf(head: string, to: string): (ForwardRecord & { slip: SlipFacts }) | undefined {
+		for (const f of [...this.forwards].reverse()) {
+			const slip = f.slips.find((x) => x.head === head);
+			if (slip && this.d.now() - f.at < KEEP_MS && f.to.includes(to)) return { ...f, slip };
+		}
+		return undefined;
 	}
-	/** A train the tower opened (the open's result and the manifest's `base:`). */
+	/** The remote of the project whose checkout is `checkout`, read the way `landed` will fetch it; undefined when there is none or it is no safe URL. Read at the open, before the train exists. */
+	async remoteOf(checkout: string | undefined): Promise<string | undefined> {
+		if (!checkout || !isAbsolute(checkout)) return undefined;
+		try { return safeUrl((await this.d.git(checkout, ["config", "--get", "remote.origin.url"])).trim()); } catch { return undefined; }
+	}
+	/** A train the tower opened. The first note of a code is kept: a repeated open (the opener's ledger answers it) does not change what was read at the first. */
 	noteTrain(t: Omit<TrainRecord, "at">): void {
-		this.trains.set(`${t.project}/${t.code}`, { ...t, at: iso(this.d.now()) });
-		this.saveState();
+		const key = `${t.project}/${t.code}`;
+		if (this.trains.has(key)) return;
+		this.trains.set(key, { ...t, heads: [...new Set(t.heads)].slice(0, 64), at: iso(this.d.now()) });
+		if (t.url && !this.remotes.has(t.project)) this.remotes.set(t.project, t.url);
 	}
 	trainOf(project: string, code: string): TrainRecord | undefined { return this.trains.get(`${project}/${code}`); }
 
-	// ---- the proof
+	// ---- the registration: defense in depth
 
 	/**
-	 * Hands the pi process its secret, once. The session must be live, in a pane Herdr knows, and `pid` one of that pane's foreground processes (pi is; a shell the model started is not) with the start time given; and nothing may be registered for that same
-	 * process already. A pi that started again (a new pid) replaces the old registration.
+	 * Hands the pi process its secret, once. The session must be live, in a pane Herdr knows, and `pid` one of that pane's foreground processes with the start time the server reads for it. A registration whose process still runs in the pane is not replaced
+	 * (by that process or by another); a pi that started again (a new pid) replaces the old one. This proves nothing about who asks (the caller can name all of it); see the header.
 	 */
 	async register(req: { session: unknown; pid: unknown; started?: unknown; pane: unknown }): Promise<{ secret: string }> {
 		const session = req.session, pid = req.pid, pane = req.pane;
 		if (!text(session, 128) || !Number.isSafeInteger(pid) || (pid as number) <= 1 || !text(pane, 64)) throw refusal("sb: cars-register needs the session id, the pid of the pi and its pane");
-		const started = typeof req.started === "string" && req.started ? req.started : undefined;
+		if (!text(req.started, 128)) throw refusal("sb: cars-register needs the start time of the pi process (started)");
+		const started = req.started;
 		const look = await this.d.look(session);
 		if (!look) throw refusal(`sb: session ${session} is not live on the net, so it cannot register`);
 		if (look.pane !== pane) throw refusal(`sb: session ${session} does not run in pane ${pane}`);
 		if (!look.foreground.includes(pid as number)) throw refusal(`sb: pid ${pid} is not a foreground process of pane ${pane}; only the pi of the pane registers`);
-		const real = this.d.startOf?.(pid as number);
-		if (real !== undefined && started !== undefined && real !== started) throw refusal(`sb: pid ${pid} started at ${real}, not ${started}`);
+		const real = this.d.startOf(pid as number);
+		if (real === undefined) throw refusal(`sb: the start time of pid ${pid} cannot be read, so it cannot register`);
+		if (real !== started) throw refusal(`sb: pid ${pid} started at ${real}, not ${started}`);
 		const known = this.bySession.get(session), old = known ? this.regs.get(known) : undefined;
-		if (old && old.pid === pid && old.started === started) throw refusal(`sb: session ${session} is already registered to this process; its secret is held in that process's memory and is not given twice`);
+		if (old && look.foreground.includes(old.pid) && this.d.startOf(old.pid) === old.started) throw refusal(`sb: session ${session} is already registered to a live process (pid ${old.pid}); a registration is not replaced while that process runs`);
 		if (known) this.regs.delete(known);
 		const secret = this.d.secret?.() ?? randomBytes(32).toString("hex");
-		this.regs.set(secret, { session, pid: pid as number, ...(started ? { started } : {}), pane, ...(look.cwd ? { cwd: look.cwd } : {}), at: this.d.now() });
+		this.regs.set(secret, { session, pid: pid as number, started, pane, at: this.d.now() });
 		this.bySession.set(session, secret);
 		this.d.log?.("cars-register", { session: session.slice(0, 40), pid: pid as number });
 		return { secret };
 	}
+	/** Whether the server holds this secret (a pi asks, to register again after a restart). */
+	check(secret: unknown): boolean { return typeof secret === "string" && this.regs.has(secret); }
 
 	/** Who a secret is: the registration, checked against what Herdr and the broker say now. */
 	private async who(secret: unknown): Promise<{ reg: Registration; setter: Setter; train?: { project: string; code: string } }> {
@@ -164,9 +175,24 @@ export class CarBook {
 
 	// ---- reading
 
-	/** Every car file of a project with its notice record, as the guard reads them (`cars-read`). */
+	/** Every car file of a project with its notice record, unbounded: for the sender's own bookkeeping and the tests. A caller over the socket gets `readFor`. */
 	read(project: string): CarView[] {
 		return [...(this.cars.get(project)?.values() ?? [])].slice(0, MAX_FILES).map((h) => ({ file: structuredClone(h.file), ...(h.notice ? { notice: structuredClone(h.notice) } : {}) }));
+	}
+	/**
+	 * The cars a registered session may see (`cars-read`): a train sees, in its own project, the cars of its manifest; the integrator sees the cars a tower forwarded to it and the ones it set. The guard asks for nothing else.
+	 */
+	async readFor(req: { secret: unknown; project: unknown }): Promise<CarView[]> {
+		const { setter, train } = await this.who(req.secret);
+		if (!isName(req.project)) throw refusal("sb: cars-read needs a project (a path-safe name)");
+		const project = req.project;
+		let visible: (view: CarView) => boolean;
+		if (setter.role === "train") {
+			if (project !== train!.project) throw refusal(`sb: this train works for project ${train!.project}, not ${project}`);
+			const heads = new Set(this.trainOf(project, train!.code)?.heads ?? []);
+			visible = (v) => heads.has(v.file.car.head);
+		} else visible = (v) => v.file.states.some((s) => s.by.session === setter.session) || this.forwardOf(v.file.car.head, setter.session) !== undefined;
+		return this.read(project).filter(visible);
 	}
 	/** Every state whose notice is not yet told, oldest first, for the sender. */
 	pending(): { project: string; name: string; file: CarFile; entry: StateEntry; notice?: StateNotice }[] {
@@ -205,46 +231,53 @@ export class CarBook {
 	}
 
 	private async setNow(req: SetRequest): Promise<SetResult> {
-		const { setter, train, reg } = await this.who(req.secret);
+		const { setter, train } = await this.who(req.secret);
 		const state = req.state, fields = isObject(req.fields) ? { ...req.fields } : {};
 		const bad = validateStateFields(state, fields);
 		if (bad.length) throw refusal(bad.join("; "));
 		const car = req.car;
-		if (!isObject(car) || !isName(car.app) || !SHA_RE.test(String(car.head))) throw refusal("sb: car needs an app and a 40-hex head");
+		if (!isObject(car) || !SHA_RE.test(String(car.head))) throw refusal("sb: car needs a 40-hex head");
+		const head = car.head;
 		const project = setter.role === "train" ? train!.project : car.project;
 		if (!isName(project)) throw refusal("sb: car needs a project (a path-safe name)");
 		if (setter.role === "train" && car.project !== undefined && car.project !== project) throw refusal(`sb: this train works for project ${project}, not ${String(car.project)}`);
 		if (setter.role === "main" && (state === "dropped" || state === "landed")) throw refusal(`sb: only a train sets ${state}; the integrator sets received and returned`);
 		if (setter.role === "train" && state === "received") throw refusal("sb: only the integrator sets received");
-		const name = carFileName(car.app, car.head), held = this.cars.get(project)?.get(name);
-		let file = held?.file;
-		const label = file?.car.tickets[0] ?? (Array.isArray(car.tickets) && car.tickets.length ? String(car.tickets[0]) : name);
 
+		let file: CarFile | undefined, name: string, held: Held | undefined, label: string;
 		if (setter.role === "main") {
-			// The integrator's: the slip arrived as a tower's forward to this session, and the session that sent it there is the coordinator.
+			// The integrator's: the slip arrived as a tower's forward to this session; the car is what that slip says, and the session that sent it to the tower is the coordinator. Nothing of the car comes from the caller.
+			const sent = this.forwardOf(head, setter.session);
+			if (!sent) throw refusal(`sb: no forward by a tower carries head ${head.slice(0, 12)} to this session: a car slip reaches the integrator only as the tower's tower_send or tower_reply with forward: (the code stamps fwd-from)`);
+			const slip = sent.slip;
+			name = carFileName(slip.app, head);
+			held = this.cars.get(project)?.get(name);
+			file = held?.file;
+			label = slip.tickets[0] ?? name;
+			const claims: [string, boolean][] = [["app", car.app === undefined || car.app === slip.app], ["tickets", car.tickets === undefined || same(car.tickets, slip.tickets)], ["branch", car.branch === undefined || car.branch === slip.branch], ["coordinator", car.coordinator === undefined || car.coordinator === slip.coordinator]];
+			const off = claims.find(([, ok]) => !ok);
+			if (off) throw refusal(`sb: car ${label} does not match the forwarded slip: ${off[0]} differs from what the slip the tower forwarded says`);
 			if (file?.states.some((s) => s.state === "received")) throw refusal(`sb: car ${label} is already received${state === "returned" ? "; the integrator returns a car at receipt only" : ""}`);
-			const sent = this.forwardOf(car.head, setter.session);
-			if (!sent) throw refusal(`sb: no forward by a tower carries head ${car.head.slice(0, 12)} to this session: a car slip reaches the integrator only as the tower's tower_send or tower_reply with forward: (the code stamps fwd-from)`);
-			const claimed = car.coordinator ?? file?.coordinator;
-			if (!text(claimed, 128)) throw refusal("sb: car needs the slip's coordinator");
-			const tickets = Array.isArray(car.tickets) && car.tickets.length && car.tickets.every((t) => text(t, 64)) ? (car.tickets as string[]) : file?.car.tickets;
-			const branch = car.branch ?? file?.car.branch;
-			if (!tickets || !text(branch, 255)) throw refusal("sb: car needs its tickets and branch");
-			if (claimed !== sent.from) {
-				const word = coordinatorWord(tickets[0]!, claimed, sent.from);
+			if (!slip.coordinator) throw refusal("sb: the slip names no coordinator");
+			if (slip.coordinator !== sent.from) {
+				const word = coordinatorWord(label, slip.coordinator, sent.from);
 				if (state === "received") throw refusal(word);
 				// A returned car goes to the session that really sent it, with the word.
 				fields.reason = word;
 			}
-			file ??= emptyCar({ project, app: car.app, tickets, branch, head: car.head, coordinator: sent.from });
+			file ??= emptyCar({ project, app: slip.app, tickets: slip.tickets, branch: slip.branch, head, coordinator: sent.from });
 		} else {
-			// A train's: the car is one the integrator received for this train.
-			if (!file) throw refusal(`sb: car with head ${car.head.slice(0, 12)} is not in the book of project ${project}: only a car the integrator received can be set`);
-			const received = file.states.find((s) => s.state === "received");
-			if (!received) throw refusal(`sb: car ${label} was never received, so it is on no train`);
-			if (received.train !== train!.code) throw refusal(`sb: car ${label} rides train ${String(received.train)}, not ${train!.code}`);
+			// A train's claim, limited to its own train: the car is one of the manifest the server was handed at the open, and the integrator received it.
+			const record = this.trainOf(project, train!.code)!;
+			if (!record.heads.includes(head)) throw refusal(`sb: car with head ${head.slice(0, 12)} is not in the manifest of train ${train!.code}: the server read the cars of the manifest at the open, and a train sets only those`);
+			held = [...(this.cars.get(project)?.entries() ?? [])].find(([, h]) => h.file.car.head === head)?.[1];
+			file = held?.file;
+			name = file ? carFileName(file.app, head) : head;
+			label = file?.car.tickets[0] ?? head.slice(0, 12);
+			if (!file) throw refusal(`sb: car with head ${head.slice(0, 12)} is not in the book of project ${project}: only a car the integrator received can be set`);
+			if (!file.states.some((s) => s.state === "received")) throw refusal(`sb: car ${label} was never received, so it is on no train`);
 			if (state === "dropped" && (!isAbsolute(String(fields.evidence)) || !this.d.exists(String(fields.evidence)))) throw refusal(`sb: dropped.evidence ${String(fields.evidence).slice(0, 200)} is not a file that exists (give its absolute path)`);
-			if (state === "landed") await this.landed(project, train!.code, reg, String(fields.commit), label);
+			if (state === "landed") await this.landed(project, record, String(fields.commit), label);
 		}
 		let next: CarFile;
 		try { next = addState(file, { state, fields, by: setter, at: iso(this.d.now()) }); } catch (error) { throw refusal((error as Error).message); }
@@ -258,14 +291,26 @@ export class CarBook {
 		return { state, at: entry.at, file: name, coordinator: next.coordinator };
 	}
 
-	/** A commit is landed when git, run here, finds it on the remote branch of the base named in the manifest this server was handed at the open. */
-	private async landed(project: string, code: string, reg: Registration, commit: string, label: string): Promise<void> {
-		const record = this.trainOf(project, code);
-		if (!record) throw refusal(`sb: this server did not open train ${code} of project ${project}, so it has no manifest to read the base from`);
+	/**
+	 * A commit is landed when git, run here, finds it on the real remote's branch of the base. The remote is the one the server read from the tower's checkout at the open; the base is the one the manifest named; the repository is the mirror
+	 * under the server's folder, whose configuration is written again for each check and which git reads with no replace refs and none of the global, system or hook settings. A push the train makes itself to the base counts: the train runs the merge (§3.3).
+	 */
+	private async landed(project: string, record: TrainRecord, commit: string, label: string): Promise<void> {
+		const code = record.code;
 		if (!record.base || !BASE_RE.test(record.base) || record.base.includes("..")) throw refusal(`sb: the manifest of train ${code} names no usable base (base: <branch>)`);
-		if (!reg.cwd) throw refusal(`sb: the folder of the train's pane is not known, so ${label}'s commit cannot be checked`);
-		const ref = `refs/remotes/origin/${record.base}`;
-		try { await this.d.git(reg.cwd, ["fetch", "--no-tags", "origin", `+refs/heads/${record.base}:${ref}`]); } catch (error) { throw refusal(`sb: git fetch of ${record.base} failed in ${reg.cwd}: ${firstLine(error)}`); }
-		try { await this.d.git(reg.cwd, ["merge-base", "--is-ancestor", commit, ref]); } catch { throw refusal(`sb: landed.commit ${commit.slice(0, 12)} is not on origin/${record.base}: a car has landed only when its commit is on the base's remote branch`); }
+		if (!record.url) throw refusal(`sb: the remote of project ${project} was not read when train ${code} opened (the open names none, or this server learned of the train after a restart), so ${label}'s commit cannot be checked`);
+		const first = this.remotes.get(project);
+		if (first !== undefined && first !== record.url) throw refusal(`sb: the remote of project ${project} changed between two opens of this server (${first.slice(0, 120)}, then ${record.url.slice(0, 120)}); landed is not checked against a remote that moved`);
+		const parent = join(this.d.dir, "cars-mirror"), mirror = join(parent, project), ref = `refs/sb/base/${code}`;
+		try {
+			mkdirSync(parent, { recursive: true, mode: 0o700 });
+			chmodSync(parent, 0o700);
+			if (!existsSync(join(mirror, "HEAD"))) await this.d.git(parent, ["init", "--bare", "-q", mirror]);
+			writeFileSync(join(mirror, "config"), MIRROR_CONFIG, { mode: 0o600 });
+			for (const stale of ["shallow", join("info", "grafts"), join("objects", "info", "alternates")]) rmSync(join(mirror, stale), { force: true });
+		} catch (error) { throw refusal(`sb: the server's mirror for project ${project} cannot be made: ${firstLine(error)}`); }
+		const inMirror = (...args: string[]) => this.d.git(mirror, ["--git-dir", mirror, ...args]);
+		try { await inMirror("fetch", "--no-tags", "--no-recurse-submodules", "--", record.url, `+refs/heads/${record.base}:${ref}`); } catch (error) { throw refusal(`sb: git fetch of ${record.base} from the project's remote failed: ${firstLine(error)}`); }
+		try { await inMirror("merge-base", "--is-ancestor", commit, ref); } catch { throw refusal(`sb: landed.commit ${commit.slice(0, 12)} is not on ${record.base} of the project's remote: a car has landed only when its commit is on the base's branch there`); }
 	}
 }

@@ -6,7 +6,7 @@ import { CarNotices, type Intercom } from "../src/server/carnotices.ts";
 import { noticeStatus, noticeSatisfied } from "../src/train/cars.ts";
 import { forwardEntry } from "./train-guard-rig.ts";
 import { type CarCtx, trainCar } from "../src/traincar.ts";
-import { carWorld, type CarWorld, COORD, INTEG } from "./train-car-rig.ts";
+import { carWorld, type CarWorld, COORD, INTEG, repo } from "./train-car-rig.ts";
 import { SHA_A } from "./train-fixtures.ts";
 
 // The sender of car notices (docs/specs/2026-11-07-train-workers.md §5.5, D14): one intercom message per (car, state) to the coordinator's session id, the broker's answer recorded, retries at 30 s, 2 min and 5 min on a clock the test moves, one `blocked` to the
@@ -21,7 +21,8 @@ class FakeIntercom implements Intercom {
 	answers: Answer[] = [];
 	fallback: Answer = { delivered: true, delivery: "socket_delivered" };
 	listing: Error | undefined;
-	listSessions = async () => { if (this.listing) throw this.listing; return this.sessions as never; };
+	lists = 0;
+	listSessions = async () => { this.lists++; if (this.listing) throw this.listing; return this.sessions as never; };
 	send = async (to: string, options: { text: string; messageId?: string }) => {
 		this.sent.push({ to, text: options.text, ...(options.messageId ? { messageId: options.messageId } : {}) });
 		const answer = this.answers.shift() ?? this.fallback;
@@ -33,7 +34,8 @@ class FakeIntercom implements Intercom {
 async function setup() {
 	const w = carWorld();
 	worlds.push(w);
-	w.opened();
+	repo(w);
+	await w.opened();
 	w.forwarded();
 	const ic = new FakeIntercom();
 	const sender = new CarNotices({ book: w.book, now: w.now, intercom: () => ic, tower: (ws) => `sb-tower-${ws.toLowerCase()}` });
@@ -123,6 +125,7 @@ test("a coordinator that is not live: one blocked to the tower naming the car, t
 	assert.equal(ic.to("sb-tower-wa").length, 1, "once");
 	assert.equal(ic.to(COORD).length, 0);
 	ic.sessions = [{ id: COORD }, { id: "sb-tower-wa" }];
+	w.tick(10 * 60 * SECOND);
 	await sender.tick();
 	assert.equal(ic.to(COORD).length, 1);
 	assert.deepEqual(w.book.read("acme")[0]!.notice!.states.received!.deliveredAt !== undefined, true);
@@ -151,24 +154,28 @@ test("the broker cannot be asked: nothing is recorded and nothing is escalated; 
 	assert.equal(status().kind, "escalated");
 });
 
-test("a server restart resumes from the records: a delivered state is not sent again, a pending one waits for its retry time", async () => {
+test("a server restart forgets: what the disk holds is read by nobody, nothing is sent from it, and nothing is sent from it (CR-F003)", async () => {
 	const { w, ic, sender } = await setup();
-	ic.answers = [{ delivered: true, delivery: "queued" }];
 	await sender.tick();
-	assert.equal(ic.sent.length, 1);
-	const again = new CarBook({ stateDir: w.stateDir, dir: w.dir, now: w.now, look: async () => undefined, git: async () => "", exists: () => false });
+	assert.equal(ic.sent.length, 1, "delivered");
+	const again = new CarBook({ ...w.deps } as never);
 	const ic2 = new FakeIntercom();
 	const second = new CarNotices({ book: again, now: w.now, intercom: () => ic2, tower: (ws) => `sb-tower-${ws}` });
-	await second.tick();
-	assert.equal(ic2.sent.length, 0, "the attempt is on record: wait for 30 s");
-	w.tick(30 * SECOND);
-	await second.tick();
-	assert.equal(ic2.to(COORD).length, 1);
-	assert.equal(again.read("acme")[0]!.notice!.states.received!.deliveredAt !== undefined, true);
-	const third = new CarNotices({ book: new CarBook({ stateDir: w.stateDir, dir: w.dir, now: w.now, look: async () => undefined, git: async () => "", exists: () => false }), now: w.now, intercom: () => ic2, tower: (ws) => ws });
 	w.tick(3600 * SECOND);
-	await third.tick();
-	assert.equal(ic2.sent.length, 1, "delivered: never again after a restart");
+	await second.tick();
+	assert.equal(ic2.sent.length, 0, "the journal is display only: the new server sends nothing it did not set itself");
+	assert.deepEqual(again.read("acme"), []);
+});
+
+test("a coordinator that stays away is looked for less and less often: listing the sessions backs off instead of running every tick for 24 h (CR-F005)", async () => {
+	const { w, ic, sender } = await setup();
+	ic.sessions = [{ id: "sb-tower-wa" }];
+	for (let i = 0; i < 120; i++) (w.tick(5 * SECOND), await sender.tick());
+	assert.ok(ic.lists <= 20, `${ic.lists} listings in ten minutes`);
+	ic.sessions = [{ id: COORD }, { id: "sb-tower-wa" }];
+	w.tick(15 * 60 * SECOND);
+	await sender.tick();
+	assert.equal(ic.to(COORD).length, 1, "a coordinator that comes back is still told, within the back-off");
 });
 
 test("an attempt is written before the send: a server that stops in the middle leaves an unknown outcome and retries, never a send nobody wrote down", async () => {
@@ -186,7 +193,6 @@ test("each state of a car is told on its own: landed after received is a second 
 	const { w, ic, sender } = await setup();
 	await sender.tick();
 	assert.equal(ic.sent.length, 1);
-	const { repo } = await import("./train-car-rig.ts");
 	const { pushed } = repo(w);
 	const { rig, MANIFEST_HEADER, slipBlock } = await import("./train-guard-rig.ts").then((m) => ({ rig: m.rig, MANIFEST_HEADER: m.MANIFEST_HEADER, slipBlock: m.slipBlock }));
 	const r = rig({ manifest: `${MANIFEST_HEADER}  base: develop\n${slipBlock()}\n` });

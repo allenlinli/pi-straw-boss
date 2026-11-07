@@ -10,6 +10,8 @@ import type { CarBook } from "./carbook.ts";
 
 export const TICK_MS = 5000;
 const KEEP_MS = 24 * 3600_000, TOWER_RETRY_MS = 30_000, TOWER_TRIES = 10, SEND_TRIES = 1 + RETRY_MS.length;
+/** A coordinator found not live is looked for again after 30 s, then at twice the wait each time, up to every 10 min (CR-F005). */
+const AWAY_MS = 30_000, MAX_AWAY_MS = 600_000;
 
 export type Intercom = Pick<IntercomLike, "listSessions" | "send">;
 
@@ -29,6 +31,7 @@ const short = (text: string, n = 160) => text.replace(/[\u0000-\u001f\u007f-\u00
 export class CarNotices {
 	private busy = false;
 	private again = false;
+	private readonly away = new Map<string, { next: number; wait: number }>();
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private readonly d: NoticeDeps;
 	constructor(deps: NoticeDeps) { this.d = deps; }
@@ -62,8 +65,12 @@ export class CarNotices {
 		if (record.deliveredAt || now - Date.parse(entry.at) > KEEP_MS) return;
 		const intercom = this.d.intercom();
 		if (!intercom) return;
+		const key = `${project}/${name}/${state}`, gone = this.away.get(key);
+		if (gone && now < gone.next) return;
 		let live: boolean;
 		try { live = (await intercom.listSessions()).some((s) => s.id === file.coordinator); } catch { return; } // the broker cannot be asked: not the coordinator's absence
+		if (live) this.away.delete(key);
+		else { const wait = gone ? Math.min(gone.wait * 2, MAX_AWAY_MS) : AWAY_MS; this.away.set(key, { next: now + wait, wait }); }
 		const sends = record.attempts.filter((a) => a.outcome !== "not-live");
 		const change = (fn: (r: StateNotice) => void) => this.d.book.updateNotice(project, name, state, fn);
 		if (!live) {

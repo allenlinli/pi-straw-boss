@@ -1238,7 +1238,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head band newest-line fallback (measured, node 24): 253,316 / 104,012, +0 / +6 (the chunk names' hashes moved with the rebuilt map chunk). Cap = measured.
 	// Head page (todo #130, measured, node 24) on the head band: 254,244 / 104,284, +928 / +272 over the 253,316 / 104,012 above: the `queued_start`, `head_log_title`, and five `queued_wait_*` words in both languages (the chat chunks carry the shared message module). Cap = measured.
 	// Raven status motion on the head page (measured, node 24): 254,244 / 104,288, +0 / +4 (the chunk names' hashes moved with raven.css's hash). Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 254_244 && total(chunks, gz) <= 104_288, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Raven status motion, compositor only (fix/raven-motion-perf; measured, node 24): 254,244 / 104,297, +0 / +9 over the figure above (the chunk names' hashes moved with raven.css's hash). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 254_244 && total(chunks, gz) <= 104_297, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1399,7 +1400,8 @@ test("each theme's folder stays within its byte cap", () => {
 	// Head page review round (todo #130, measured): zen 39,697 to 39,703 gzipped (+6): the five `queued_wait_*` words in the Zen chunk's message module.
 	// Raven status motion (measured, node 24): raven 259,792 / 177,106 to 266,509 / 178,103 (+6,717 / +997: raven.css, which grew with the seal, mist, soul-fire, and bat figures, their keyframes, and the forced-colours rules; the candle keyframes left). Standard's stylesheet and Geek and Zen are as they were. Cap = measured.
 	// Merge of raven status motion with the head page round (measured, node 24): raven 266,505 / 178,095 (the chunk name in raven's entry moved). Caps = measured.
-	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [125_735, 39_703], raven: [266_505, 178_095] };
+	// Raven status motion, compositor only (fix/raven-motion-perf; measured, node 24): raven 266,505 / 178,095 to 268,348 / 178,325 (+1,843 / +230: raven.css, whose seal is a ring-shaped mask over a rising fill and whose mist is two fixed layers, in place of the animated registered numbers). Geek and Zen are as they were. Cap = measured.
+	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [125_735, 39_703], raven: [268_348, 178_325] };
 	// Raven Keep review round 2 (measured, node 24): raven 227,821 / 152,777 to 236,417 / 155,182 (+8,596 / +2,405: the crest brand symbol in the sprite, the moon veil, the tome in the documents list). Cap = measured.
 	assert.deepEqual(readdirSync(dir).sort(), Object.keys(caps).sort(), "a folder per theme and no other");
 	assert.ok(caps.raven![0] <= 450_000, "Raven Keep stays within the spec's 450 KB (spec §1.5)");

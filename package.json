@@ -63,7 +63,7 @@
     "@types/node": "26.6.5",
     "esbuild": "0.28.2",
     "jsqr": "1.4.0",
-    "pi-better-show": "file:/Users/weihung/.local/share/sbd-review/better-show/pi-better-show-0.1.0.tgz",
+    "pi-better-show": "file:/Users/weihung/.local/share/sbd-review/better-show/0644277/pi-better-show-0.1.0.tgz",
     "typebox": "1.3.27",
     "typescript": "7.0.2",
     "vite": "8.3.4"

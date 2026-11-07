@@ -13,6 +13,7 @@ import { baseFolder, type DeskRecord, deskLockFor, ensureIntegration, makeBase, 
 import { ensureTowerVia } from "./towerclient.ts";
 import { onFatal } from "./fatal.ts";
 import { runProcs } from "./procscli.ts";
+import { runTrain, type TrainIo } from "./traincmds.ts";
 import { callControl, ControlError } from "./socket.ts";
 import { logSize, readFrom, tailLog } from "./log.ts";
 import { clearStartError, clearStopped, fileOf, readRecord, readStartError, type ServerRecord, slotOf, type StartError } from "./record.ts";
@@ -35,19 +36,33 @@ const USAGE = `usage: cli.mjs up [--dir FOLDER --label NAME] [--timeout SECONDS]
        cli.mjs logs [--lines N] [--follow]
        cli.mjs procs [list]
        cli.mjs procs reap (--owner ID | --checkout PATH)   (kill what an ended worker left; refused while a live worker works in the checkout)
+       cli.mjs train gate --spec FILE   (the wrapper of a train's run step; its monitor runs it)
+       cli.mjs train check (--step FILE | --accept FILE [--app-accept K,K] [--slip FILE])
+       cli.mjs train status [--project P] [--json]
+       cli.mjs train clear --project P --train CODE (--lane APP | --target NAME) --reason TEXT
        cli.mjs prompt --workspace ID [--state-dir DIR]   (the tower prompt of a standing pane: the server types it)`;
 export class UsageError extends Error {}
 const FLAGS: Record<string, { value: string[]; switch: string[] }> = {
 	up: { value: ["timeout", "dir", "label"], switch: ["exact"] }, serve: { value: [], switch: [] }, stop: { value: [], switch: [] }, status: { value: [], switch: [] },
-	restart: { value: ["reason", "by"], switch: ["downgrade"] }, logs: { value: ["lines"], switch: ["follow"] }, prompt: { value: ["workspace", "state-dir"], switch: [] }, procs: { value: ["owner", "checkout"], switch: [] }, run: { value: ["by", "detach", "detach-reason", "acl-token"], switch: ["detached"] },
+	restart: { value: ["reason", "by"], switch: ["downgrade"] }, logs: { value: ["lines"], switch: ["follow"] }, prompt: { value: ["workspace", "state-dir"], switch: [] }, procs: { value: ["owner", "checkout"], switch: [] }, train: { value: [], switch: [] }, run: { value: ["by", "detach", "detach-reason", "acl-token"], switch: ["detached"] },
+};
+// `train` has a word of its own, and each word its flags.
+const TRAIN: Record<string, { value: string[]; switch: string[] }> = {
+	gate: { value: ["spec"], switch: [] }, check: { value: ["step", "accept", "app-accept", "slip"], switch: [] }, status: { value: ["project"], switch: ["json"] }, clear: { value: ["project", "train", "lane", "target", "reason"], switch: [] },
 };
 export interface Args { command: string; flags: Record<string, string | true> }
 export function parseArgs(argv: string[]): Args {
 	const [command, ...rest] = argv;
 	if (!command) throw new UsageError(USAGE);
-	const allowed = FLAGS[command];
+	let allowed = FLAGS[command];
 	if (!allowed) throw new UsageError(`unknown command ${command}\n${USAGE}`);
 	const flags: Record<string, string | true> = {};
+	if (command === "train") {
+		const sub = rest.shift() ?? "";
+		if (!TRAIN[sub]) throw new UsageError(`train needs gate, check, status or clear\n${USAGE}`);
+		allowed = TRAIN[sub]!;
+		flags.sub = sub;
+	}
 	// `procs` has a word of its own: `list` (the default) or `reap`.
 	if (command === "procs") {
 		const sub = rest[0] !== undefined && !rest[0].startsWith("--") ? rest.shift()! : "list";
@@ -76,6 +91,8 @@ export interface CliDeps {
 	/** Replaces the context requesters work in (clock, spawn, liveness); the slot and package are filled in. */
 	ctx?: Partial<Ctx>;
 	stateDir?: string;
+	/** Replaces parts of what `train` works with (the clock, the load, liveness, the wrapper's output and signals). */
+	train?: Partial<TrainIo>;
 	version?: string;
 	cli?: string; // the file the server is started from; this file by default
 	out?: (text: string) => void;
@@ -162,6 +179,7 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
 			case "run": return await runDetached();
 			case "prompt": return await promptCommand();
 			case "procs": return await runProcs(ctx, flags, { out: json, err });
+			case "train": return await runTrain(flags, { out, err, env, stateDir: slot.stateDir, slotDir: slot.dir, ...deps.train });
 		}
 	} catch (error) {
 		if (error instanceof ServerError) return fail(error);

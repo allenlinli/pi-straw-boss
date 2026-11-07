@@ -8,7 +8,7 @@
 		"HKDF-SHA256 uses an empty salt. A seal is enc(ephemeral public key, ciphertext ‖ tag) with AEAD associated data empty and a zero nonce. A label or table under a team key is nonce ‖ ciphertext ‖ tag with associated data 'straw-link/labels/1' ‖ team ‖ 8-byte epoch.",
 		"A join request is nonce ‖ AEAD(join key, enc(key record, label, mac)) with empty associated data; mac = HMAC-SHA256(secret, 'straw-link/join/1' ‖ team ‖ enc(key record, label)).",
 		"A relay request signs 'straw-link/request/1' ‖ team ‖ enc(method, path with query, time, sha256(body)).",
-		"operate (a live kind, docs/specs/2026-11-07-link-operate.md §5.2): the outer plaintext is enc(int version 1, 16 session bytes, type text, body); a body is enc of its fields, an `accept` scope is enc(list of 16-byte team ids, bool box) and its limits enc(mirrors, watches, budget as ints). The session keys are HKDF-SHA256(X25519, empty salt, info 'straw-link/operate/1' ‖ team ‖ session ‖ operator id text ‖ box id text ‖ ephOp ‖ ephBox) of 64 bytes, the first 32 operator → box. A frame's nonce is a 4-byte direction tag (00000001 operator → box, 00000002 box → operator) ‖ 8-byte ctr; its AAD is session ‖ 8-byte ctr.",
+		"operate (a live kind, docs/specs/2026-11-07-link-operate.md §5.2): the outer plaintext is enc(int version 1, 16 session bytes, type text, body); a body is enc of its fields, an `accept` scope is enc(list of 16-byte team ids, bool box) and its limits enc(mirrors, watches, budget as ints). The session keys are HKDF-SHA256(X25519, empty salt, info 'straw-link/operate/1' ‖ team ‖ session ‖ operator id text ‖ box id text ‖ ephOp ‖ ephBox) of 64 bytes, the first 32 operator → box. A frame's nonce is a 4-byte direction tag (00000001 operator → box, 00000002 box → operator) ‖ 8-byte ctr; its AAD is session ‖ 8-byte ctr. Both device ids in that info are 26-character ids, so it needs no length prefixes.",
 		"A failed replay reports the position of the entry in the log (the index equals its seq in an honest log)."
 	],
 	"notes": "Straw Link core vectors (docs/specs/2026-10-25-straw-link.md). All bytes are hex. Integers are 8-byte big-endian inside a length-prefixed field; a list is a field holding count ‖ item fields. See src/link/*.ts for the reference implementation; where the spec leaves a choice, vectors fix it.",
@@ -2161,7 +2161,7 @@
 			"expect": "ok"
 		},
 		{
-			"name": "a operate from alice is taken",
+			"name": "an operate from alice is taken",
 			"envelope": "000000dc000000080000000000000001000000100f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f00000008000000000000000300000008000000000000000700000020972289081df7e18a9a5634425928ade1e2fd6ace1da03d303b9fe3d642a191620000001a67723271376766356c6836707a66646e75726e6b76707574686d00000008000000000000000000000010e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e100000008000001a3185b65a0000000076f70657261746500000022000000010000001a6e693461687670716c6769637568646e7636366a786a6473736900000001010000000c00112233445566778899aabb0000007d56d72f3cf9ef7f4fe291a0e1e79a0027da4e01ac87691e86b151e239339358aebf971a7a7213290339a00d27859494b14ad1ca0e44e2dc8fa980e1f50437fed25c84e1a43fe38c712525103319c9f96add26860368af9d662f36c61cc130f8056487dfb916c6b795cec1f285f0ec70229c0ec4e7baec6f05abf42ebe9d00000040723b29787a30b3ccfbc63060e5e85c2c8d2446bf3f4785abc802bd9dea1028b02203943da98f687dfe640094ebd7b769161025bd38b27c103163f0e743a9160e",
 			"state": {
 				"self": "bob",

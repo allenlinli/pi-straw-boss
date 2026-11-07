@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createCipheriv } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -10,19 +10,20 @@ import { buildEnvelope, encodeEnvelope, openEnvelope } from "../src/link/envelop
 import { CAPS_FEATURES, LinkHolder, type OperateIn } from "../src/link/holder.ts";
 import { decodePlaintext, encodePlaintext, KINDS, operateBody, operateDirectionOk, type Kind, type OperateMessage } from "../src/link/kinds.ts";
 import { RelayClient, RateLimitedError } from "../src/link/relay.ts";
+import type { DeviceKeys } from "../src/link/device.ts";
 import { addEntry, createEntry, type RosterEntry } from "../src/link/roster.ts";
 import { decodeRelayEvent, EventStream, SseParser, type RelayEvent } from "../src/link/sse.ts";
 import { LinkStore } from "../src/link/store.ts";
 import { receiveState, baseState, NOW } from "./link/envelope-cases.ts";
 import { FakeRelay } from "./link/fake-relay.ts";
 import { liveStream, until } from "./link/fakes.ts";
-import { clientFor, netOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
+import { netOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
 import { DEVICES, det, LABELS, TEAM, teamKey, view } from "./link/scenario.ts";
 
 // The wire of Straw Link operate (docs/specs/2026-11-07-link-operate.md §5.1, §5.2, §11 row 1): the `live` class of kind, the `operate` kind and its
 // outer structure, the session key and frame AEAD, the SSE `live` event, `postLive`, and the holder's caps-gated, serial send.
 
-const { alice, bob, dave } = DEVICES;
+const { alice, bob, carol, dave } = DEVICES;
 const SESSION = Buffer.alloc(16, 0x11), EPH = Buffer.alloc(32, 0x22);
 const open: OperateMessage = { session: SESSION, type: "open", eph: EPH, caps: ["operate/1"], want: "team" };
 
@@ -113,6 +114,13 @@ test("a live event decodes, carries the dropped hint, ignores an inherited id, a
 	assert.equal(bad?.type === "malformed" && bad.id, undefined, "nothing is acknowledged for a live event");
 	const flag = decodeRelayEvent({ event: "live", data: JSON.stringify({ ...JSON.parse(data), ephemeral: false }) });
 	assert.equal(flag?.type, "malformed");
+	// The event's own fields have to match the envelope's header.
+	const mismatch = (patch: Record<string, unknown>) => decodeRelayEvent({ event: "live", data: JSON.stringify({ ...JSON.parse(data), ...patch }) });
+	assert.equal(mismatch({ id: "ff".repeat(16) })?.type, "malformed", "id differs from the header's");
+	assert.equal(mismatch({ from: bob.id })?.type, "malformed", "from differs from the header's");
+	const stored = buildEnvelope({ team: TEAM, epoch: 1, teamKey: teamKey(1), head: receiveState(baseState()).roster.head, from: alice, seq: 5, ts: NOW, kind: "tower", to: [bob.id], plaintext: encodePlaintext("tower", { fromWorkspace: "a", toWorkspace: "b", replyExpected: false, text: "x" }) });
+	assert.equal(stored.header.ephemeral, false);
+	assert.equal(mismatch({ id: stored.header.id.toString("hex"), envelope: encodeEnvelope(stored).toString("base64url") })?.type, "malformed", "the envelope itself is not ephemeral");
 });
 
 test("a live event reaches the handler but is never acknowledged and never moves the resume cursor", async () => {
@@ -154,10 +162,10 @@ beforeEach(() => { root = mkdtempSync(join(tmpdir(), "psb-operate-wire-")); rela
 afterEach(async () => { for (const stop of cleanup.splice(0)) await stop(); rmSync(root, { recursive: true, force: true }); });
 const entries: RosterEntry[] = (() => {
 	const log: RosterEntry[] = [createEntry({ team: TEAM, founder: alice, label: LABELS.alice, teamKey: teamKey(1), ...det("create") })];
-	for (const [who, attended] of [["bob", true], ["dave", false]] as const) log.push(addEntry({ state: view(log), signer: alice, record: DEVICES[who], label: LABELS[who], attended, ...det(`add-${who}`) }));
+	for (const [who, attended] of [["bob", true], ["dave", false], ["carol", false]] as const) log.push(addEntry({ state: view(log), signer: alice, record: DEVICES[who], label: LABELS[who], attended, ...det(`add-${who}`) }));
 	return log;
 })();
-function rig(who: "alice" | "dave", withOperate: boolean) {
+function rig(who: "alice" | "bob" | "carol" | "dave", withOperate: boolean, now?: () => number) {
 	const keys = DEVICES[who], dir = join(root, who, "link"), project = join(root, `${who}-p`);
 	mkdirSync(project, { recursive: true });
 	const store = new LinkStore(dir, { alive: () => true });
@@ -166,7 +174,7 @@ function rig(who: "alice" | "dave", withOperate: boolean) {
 	writeTeam(store, entries, keys);
 	const got: OperateIn[] = [];
 	const holder = new LinkHolder({
-		store, isHolder: () => true, attended: () => who === "alice", net: async () => netOf([[`tower-${who}`, `w-${who}`, `l-${who}`, project]]), relay: clientFor(relay),
+		store, isHolder: () => true, attended: () => who === "alice" || who === "bob", ...(now ? { now } : {}), net: async () => netOf([[`tower-${who}`, `w-${who}`, `l-${who}`, project]]), relay: (url: string, device: DeviceKeys) => new RelayClient({ url, device, fetch: (i, init) => relay.fetch(i, init), timeoutMs: 2000 }),
 		config: () => ({ teams: new Map([[TEAM_HEX, { project, share: "status" as const, name: "moldplan" }]]), trust: new Map(), problems: [] }),
 		offer: () => {}, notify: () => {}, backoff: () => 5, drainMs: 20, presenceMs: 60_000, postWaitMs: 2000, capsMs: 3600_000, capsMinMs: 5,
 		...(withOperate ? { operate: (m: OperateIn) => void got.push(m) } : {}),
@@ -177,7 +185,7 @@ function rig(who: "alice" | "dave", withOperate: boolean) {
 
 test("operate/1 is in the caps only of a build that takes it; an old peer's caps are unchanged", async () => {
 	assert.ok(CAPS_FEATURES.includes("operate/1"));
-	relay.addTeam(TEAM, [alice.id, bob.id, dave.id], entries);
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
 	const a = rig("alice", true), d = rig("dave", false);
 	await Promise.all([a.holder.start(), d.holder.start()]);
 	await until(() => a.holder.capsFor(TEAM_HEX, dave.id).length > 0 && d.holder.capsFor(TEAM_HEX, alice.id).length > 0, 3000, "caps");
@@ -186,7 +194,7 @@ test("operate/1 is in the caps only of a build that takes it; an old peer's caps
 });
 
 test("sendLive is refused up front without the peer's operate/1; with it, frames arrive in order with a rising ts, and are never stored", async () => {
-	relay.addTeam(TEAM, [alice.id, bob.id, dave.id], entries);
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
 	const a = rig("alice", true), d = rig("dave", true);
 	await Promise.all([a.holder.start(), d.holder.start()]);
 	await until(() => a.holder.capsFor(TEAM_HEX, dave.id).includes("operate/1"), 3000, "caps");
@@ -202,7 +210,7 @@ test("sendLive is refused up front without the peer's operate/1; with it, frames
 });
 
 test("a peer without operate/1 is told so; a relay without the kind is told so, left alone, and tried again on a new stream", async () => {
-	relay.addTeam(TEAM, [alice.id, bob.id, dave.id], entries);
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
 	const a = rig("alice", true), d = rig("dave", false);
 	await Promise.all([a.holder.start(), d.holder.start()]);
 	await until(() => a.holder.capsFor(TEAM_HEX, dave.id).length > 0, 3000, "dave's caps");
@@ -221,7 +229,7 @@ test("a peer without operate/1 is told so; a relay without the kind is told so, 
 });
 
 test("a live event from the wrong direction, or with no sink, is dropped and logged; one in direction reaches the sink", async () => {
-	relay.addTeam(TEAM, [alice.id, bob.id, dave.id], entries);
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
 	const a = rig("alice", true), d = rig("dave", true);
 	await Promise.all([a.holder.start(), d.holder.start()]);
 	await until(() => d.holder.capsFor(TEAM_HEX, alice.id).includes("operate/1"), 3000, "caps");
@@ -231,9 +239,152 @@ test("a live event from the wrong direction, or with no sink, is dropped and log
 	const roster = view(entries);
 	const forged = buildEnvelope({ team: TEAM, epoch: roster.epoch, teamKey: teamKey(roster.epoch), head: roster.head, from: dave, seq: 0, ts: Date.now() - 1000, kind: "operate", to: [alice.id], plaintext: encodePlaintext("operate", open) });
 	assert.equal(relay.injectLive(TEAM_HEX, forged, alice.id), 1);
-	await new Promise((r) => setTimeout(r, 100));
-	assert.equal(a.got.length, 0);
 	await d.holder.sendLive(TEAM_HEX, alice.id, { session: SESSION, type: "refuse", reason: "no" });
 	await until(() => a.got.length === 1, 3000, "the refuse");
+	assert.deepEqual(a.got.map((m) => m.message.type), ["refuse"], "the forged open, which came first, was dropped");
 	assert.equal(a.got[0]!.fromAttended, false);
+	assert.ok(logOf("alice").some((l) => l.event === "drop" && l.reason === "operate-direction" && l.type === "open"));
 });
+
+// ---- the review round (RV-F001 to RV-F013) --------------------------------------------------------------------------------------------------------------------
+
+function logOf(who: string) {
+	const file = join(root, who, "link", "link.log");
+	return existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) : [];
+}
+const envFor = (from: typeof alice, to: string[], ts: number, m: OperateMessage = open, kind: Kind = "operate") => {
+	const r = view(entries);
+	return buildEnvelope({ team: TEAM, epoch: r.epoch, teamKey: teamKey(r.epoch), head: r.head, from, seq: 0, ts, kind, to, plaintext: encodePlaintext(kind, kind === "operate" ? m : ({ features: [] } as never)) });
+};
+const streamOf = (who: typeof alice) => until(() => relay.opened.some((o) => o.device === who.id), 3000, `${who.id}'s stream`);
+/** A close sent last, newer than everything before it: events of one stream are handled in order, so once it is taken the ones before it were decided. */
+const marker = async (to: typeof alice, from: typeof alice, got: OperateIn[]) => {
+	relay.injectLive(TEAM_HEX, envFor(from, [to.id], Date.now() + 5, { session: SESSION, type: "close", reason: "marker" }), to.id);
+	await until(() => got.some((m) => m.message.type === "close" && (m.message as { reason: string }).reason === "marker"), 3000, "the marker");
+};
+const types = (got: OperateIn[]) => got.map((m) => m.message.type);
+
+test("RV-F001: a relay that answers a live post in the stored shape is posted to once, then left alone (fail closed)", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
+	const a = rig("alice", true), d = rig("dave", true);
+	await Promise.all([a.holder.start(), d.holder.start()]);
+	await until(() => a.holder.capsFor(TEAM_HEX, dave.id).includes("operate/1"), 3000, "caps");
+	const orig = relay.fetch;
+	let posts = 0;
+	relay.fetch = async (input, init) => {
+		if (init?.method === "POST" && String(input).endsWith("/envelopes")) return (posts++, new Response(JSON.stringify({ id: "00".repeat(16), duplicate: false }), { status: 201 }));
+		return orig(input, init);
+	};
+	await assert.rejects(a.holder.sendLive(TEAM_HEX, dave.id, open), (e: Error & { reason?: string }) => e.reason === "relay");
+	await assert.rejects(a.holder.sendLive(TEAM_HEX, dave.id, open), (e: Error & { reason?: string }) => e.reason === "relay");
+	assert.equal(posts, 1, "the second send never reaches the relay");
+	assert.equal(logOf("alice").filter((l) => l.event === "operate-relay-not-live").length, 1);
+});
+
+test("RV-F002: a live envelope older than 60 s is a replay and is dropped; one 30 s old is taken", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
+	const d = rig("dave", true);
+	await d.holder.start();
+	await streamOf(dave);
+	relay.injectLive(TEAM_HEX, envFor(alice, [dave.id], Date.now() - 3600_000), dave.id);
+	relay.injectLive(TEAM_HEX, envFor(alice, [dave.id], Date.now() - 61_000, { session: SESSION, type: "close", reason: "late" }), dave.id);
+	relay.injectLive(TEAM_HEX, envFor(alice, [dave.id], Date.now() - 30_000, { session: SESSION, type: "close", reason: "fresh enough" }), dave.id);
+	await until(() => d.got.length === 1, 3000, "the 30 s one");
+	assert.equal((d.got[0]!.message as { reason: string }).reason, "fresh enough");
+	assert.equal(logOf("dave").filter((l) => l.reason === "stale-live").length, 2);
+});
+
+test("RV-F003: the same live envelope twice in one run is taken once, and a frozen clock still sends a strictly rising ts", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
+	const T = Date.now(), a = rig("alice", true, () => T), d = rig("dave", true);
+	await Promise.all([a.holder.start(), d.holder.start()]);
+	await until(() => a.holder.capsFor(TEAM_HEX, dave.id).includes("operate/1"), 3000, "caps");
+	for (let ctr = 1; ctr <= 3; ctr++) await a.holder.sendLive(TEAM_HEX, dave.id, { session: SESSION, type: "frame", ctr, ct: Buffer.alloc(32, ctr) });
+	assert.deepEqual(relay.liveTs, [T, T + 1, T + 2]);
+	await until(() => d.got.length === 3, 3000, "three frames");
+	const again = envFor(alice, [dave.id], Date.now() + 1, { session: SESSION, type: "close", reason: "twice" });
+	relay.injectLive(TEAM_HEX, again, dave.id);
+	relay.injectLive(TEAM_HEX, again, dave.id);
+	await marker(dave, alice, d.got);
+	assert.deepEqual(types(d.got), ["frame", "frame", "frame", "close", "close"], "one `twice` and the marker");
+});
+
+test("RV-F004: an operate envelope names exactly one addressee; two are dropped by each of them", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
+	const b = rig("bob", true), d = rig("dave", true);
+	await Promise.all([b.holder.start(), d.holder.start()]);
+	await Promise.all([streamOf(bob), streamOf(dave)]);
+	const two = envFor(alice, [dave.id, bob.id], Date.now(), { session: SESSION, type: "close", reason: "fan-out" });
+	relay.injectLive(TEAM_HEX, two, dave.id);
+	relay.injectLive(TEAM_HEX, two, bob.id);
+	await marker(dave, alice, d.got);
+	await marker(bob, alice, b.got);
+	assert.deepEqual(types(d.got), ["close"]);
+	assert.deepEqual(types(b.got), ["close"]);
+	assert.ok(logOf("dave").some((l) => l.reason === "operate-addressees"));
+});
+
+test("RV-F005: the session keys are only derived for two real device ids", () => {
+	const op = operateEphemeral(Buffer.alloc(32, 1)), box = operateEphemeral(Buffer.alloc(32, 2));
+	const common = { team: TEAM, session: SESSION, ephOp: op.pub, ephBox: box.pub, mine: op.key, theirs: box.pub };
+	assert.throws(() => operateKeys({ ...common, operator: "ab", box: "c" }), RangeError);
+	assert.throws(() => operateKeys({ ...common, operator: alice.id, box: dave.id.slice(1) }), RangeError);
+	assert.throws(() => operateKeys({ ...common, operator: alice.id.toUpperCase(), box: dave.id }), RangeError);
+});
+
+test("RV-F007: operateOpen answers null, never throws, for a counter 0 or a session of 15 bytes", () => {
+	const key = Buffer.alloc(32, 4), ct = operateSeal({ key, dir: "toBox", session: SESSION, ctr: 1, plaintext: Buffer.from("x") });
+	assert.equal(operateOpen({ key, dir: "toBox", session: SESSION, ctr: 0, ct }), null);
+	assert.equal(operateOpen({ key, dir: "toBox", session: Buffer.alloc(15), ctr: 1, ct }), null);
+	assert.equal(operateOpen({ key, dir: "toBox", session: SESSION, ctr: 1, ct: ct.subarray(0, 5) }), null);
+});
+
+test("RV-F008: the encoder holds a message to the decoder's limits: a session of 16 bytes and a frame between 16 B and 200 KB", () => {
+	assert.throws(() => encodePlaintext("operate", { ...open, session: Buffer.alloc(15) }), RangeError);
+	assert.throws(() => encodePlaintext("operate", { session: SESSION, type: "frame", ctr: 1, ct: Buffer.alloc(15) }), RangeError);
+	assert.throws(() => encodePlaintext("operate", { session: SESSION, type: "frame", ctr: 1, ct: Buffer.alloc(200 * 1024 + 1) }), RangeError);
+	for (const n of [16, 200 * 1024]) assert.ok(decodePlaintext("operate", encodePlaintext("operate", { session: SESSION, type: "frame", ctr: 1, ct: Buffer.alloc(n) })), String(n));
+});
+
+test("RV-F009: an open is for the unattended box and an accept or refuse for the attended controller, whoever sent it", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
+	const b = rig("bob", true), c = rig("carol", true);
+	await Promise.all([b.holder.start(), c.holder.start()]);
+	await Promise.all([streamOf(bob), streamOf(carol)]);
+	relay.injectLive(TEAM_HEX, envFor(alice, [bob.id], Date.now()), bob.id);
+	relay.injectLive(TEAM_HEX, envFor(dave, [carol.id], Date.now(), { session: SESSION, type: "refuse", reason: "x" }), carol.id);
+	relay.injectLive(TEAM_HEX, envFor(alice, [carol.id], Date.now()), carol.id);
+	await marker(bob, alice, b.got);
+	await marker(carol, alice, c.got);
+	assert.deepEqual(types(b.got), ["close"], "attended bob takes no open");
+	assert.deepEqual(types(c.got), ["open", "close"], "unattended carol takes the open, not a refuse");
+	assert.equal(logOf("bob").filter((l) => l.reason === "operate-role").length, 1);
+});
+
+test("RV-F010: an operate that arrives as a stored envelope is dropped unopened and logged, and does not move the replay record", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
+	const d = rig("dave", true);
+	await d.holder.start();
+	await streamOf(dave);
+	const ts = Date.now();
+	relay.injectStored(TEAM_HEX, envFor(alice, [dave.id], ts), dave.id);
+	relay.injectLive(TEAM_HEX, envFor(alice, [dave.id], ts, { session: SESSION, type: "close", reason: "same ts" }), dave.id);
+	await until(() => d.got.length === 1, 3000, "the live one");
+	assert.deepEqual(d.got.map((m) => (m.message as { reason?: string }).reason), ["same ts"]);
+	assert.ok(logOf("dave").some((l) => l.event === "drop" && l.reason === "live-on-stored-path"));
+});
+
+test("RV-F011: a live envelope at a build with no sink, or of another kind, is dropped with its own reason and never reaches a sink", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, carol.id, dave.id], entries);
+	const d = rig("dave", false), c = rig("carol", true);
+	await Promise.all([d.holder.start(), c.holder.start()]);
+	await Promise.all([streamOf(dave), streamOf(carol)]);
+	relay.injectLive(TEAM_HEX, envFor(alice, [dave.id], Date.now()), dave.id);
+	relay.injectLive(TEAM_HEX, envFor(alice, [carol.id], Date.now(), open, "caps"), carol.id);
+	await marker(carol, alice, c.got);
+	await until(() => logOf("dave").some((l) => l.reason === "operate-unsupported"), 3000, "the no-sink drop");
+	assert.deepEqual(types(c.got), ["close"], "a live caps never reaches the sink");
+	assert.ok(logOf("carol").some((l) => l.reason === "live-kind" && l.kind === "caps"));
+	assert.ok(!logOf("dave").some((l) => l.event === "operate-sink-failed"));
+});
+

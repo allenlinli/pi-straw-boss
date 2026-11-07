@@ -90,6 +90,12 @@ export class FakeRelay {
 	injectLive(team: string, envelope: Envelope, to: string): number {
 		return this.deliverLive(team, envelope, new Set([to]));
 	}
+	/** An ephemeral envelope written to `to`'s open streams as a plain `envelope` event, as a relay that stores the kind would replay it (a stored class where a live one is meant). */
+	injectStored(team: string, envelope: Envelope, to: string): number {
+		const live = this.streams.filter((x) => x.team === team && !x.closed && x.device === to);
+		for (const s of live) this.send(s, "envelope", { id: hex(envelope.header.id), from: envelope.header.from, ephemeral: true, envelope: Buffer.from(encodeEnvelope(envelope)).toString("base64url") });
+		return live.length;
+	}
 	private deliver(s: Stream, st: Stored) {
 		this.send(s, "envelope", { id: st.id, from: st.envelope.header.from, ephemeral: st.ephemeral, envelope: Buffer.from(encodeEnvelope(st.envelope)).toString("base64url") });
 	}

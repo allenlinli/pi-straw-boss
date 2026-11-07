@@ -95,7 +95,7 @@ export function envelopeCases(): EnvelopeCase[] {
 
 	for (const kind of Object.keys(KINDS) as Kind[]) {
 		const sender: Who = KINDS[kind].sender === "unattended" ? "dave" : "alice";
-		add(`a ${kind} from ${sender} is taken`, forge({ kind, from: sender }), "ok");
+		add(`${kind === "operate" ? "an" : "a"} ${kind} from ${sender} is taken`, forge({ kind, from: sender }), "ok");
 	}
 	add("a presence carries no seq and still passes beside queued seqs", forge({ kind: "presence" }), "ok", baseState({ lastSeq: { [D.alice.id]: 40 } }));
 	add("the epoch before the current one, written before the rotation was known", forge({ header: { epoch: 2, head: { seq: 6, hash: entryHash(log[6]!) } }, from: "carol" }), "ok");

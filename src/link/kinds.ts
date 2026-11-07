@@ -138,6 +138,7 @@ export function operateBody(m: OperateMessage): Buffer {
 		case "refuse": return enc(str(short(m.reason)));
 		case "frame":
 			if (!Number.isSafeInteger(m.ctr) || m.ctr < 1) throw new RangeError("a frame counter starts at 1");
+			if (m.ct.length < 16 || m.ct.length > LIMITS.operateFrame) throw new RangeError("a frame's ciphertext holds a tag and at most 200 KB");
 			return enc(int(m.ctr), m.ct);
 		case "close": return enc(str(short(m.reason)));
 	}

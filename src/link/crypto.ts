@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, createPrivateKey, createPublicKey, diffieHellman, hkdfSync, randomBytes, sign, timingSafeEqual, verify, type KeyObject } from "node:crypto";
 import { dec, enc, exact, int, str } from "./canon.ts";
+import { idOk } from "./device.ts";
 
 // The primitives of Straw Link (docs/specs/2026-10-25-straw-link.md, Cryptography), Node's built-in crypto only. Every function that
 // needs a nonce or an ephemeral key takes it as an optional argument, so the test vectors can fix it; without one it is random.
@@ -128,6 +129,8 @@ export function operateEphemeral(seed: Uint8Array = randomBytes(32)): { key: Key
  * 64 bytes. The first 32 key operator → box, the last 32 box → operator. Both ends compute the same pair: `mine` is this end's ephemeral private key, `theirs` the other's public one.
  */
 export function operateKeys(o: { team: Uint8Array; session: Uint8Array; operator: string; box: string; ephOp: Uint8Array; ephBox: Uint8Array; mine: KeyObject; theirs: Uint8Array }): { toBox: Buffer; toOperator: Buffer } {
+	// The info holds the two ids with no length prefix; that is unambiguous only while both are 26 characters.
+	if (!idOk(o.operator) || !idOk(o.box)) throw new RangeError("an operate session names two device ids");
 	const info = concat(Buffer.from(OPERATE_INFO, "utf8"), exact(o.team, TEAM_ID_BYTES, "a team id"), exact(o.session, 16, "a session id"), Buffer.from(o.operator, "utf8"), Buffer.from(o.box, "utf8"), exact(o.ephOp, 32, "an ephemeral key"), exact(o.ephBox, 32, "an ephemeral key"));
 	const k = hkdf(diffieHellman({ privateKey: o.mine, publicKey: publicKeyOf("x25519", o.theirs) }), info, 64);
 	return { toBox: k.subarray(0, 32), toOperator: k.subarray(32) };

@@ -8,8 +8,8 @@ import type { Session } from "../herdr.ts";
 import type { LinkConfig, Share } from "./config.ts";
 import { shortId, type DeviceKeys } from "./device.ts";
 import { buildEnvelope, openEnvelope, parseEnvelope, recordTaken, type Header, type ReceiveState } from "./envelope.ts";
-import { PayloadTooLargeError, RelayError, UnauthorizedError } from "./errors.ts";
-import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, handleOk, LIMITS, type MainStatus, type Notice, type OperateMessage, operateDirectionOk, type Presence, type TowerMessage, type TowerReply, type UnitStatus, type UnitStop, type WorkspaceState } from "./kinds.ts";
+import { PayloadTooLargeError, ProtocolError, RelayError, UnauthorizedError } from "./errors.ts";
+import { askIdOk, type Board, type BoardWireEntry, type Caps, type ConfirmAnswer, type ConfirmRequest, type DialogAnswer, type DialogClose, type DialogOpen, encodePlaintext, handleOk, KINDS, kindOk, LIMITS, type MainStatus, type Notice, type OperateMessage, operateDirectionOk, type Presence, type TowerMessage, type TowerReply, type UnitStatus, type UnitStop, type WorkspaceState } from "./kinds.ts";
 import { type AdminRun, type InviteView, type JoinRequestView, type JoinView, type Prefill, TeamAdmin, type TeamView } from "./admin.ts";
 import { Outbox, type QueuedEnvelope } from "./outbox.ts";
 import { Requests } from "./request.ts";
@@ -176,6 +176,8 @@ const BOARD_MIN_MS = 15_000, BOARD_REFRESH_MS = 3600_000, BOARD_OFF_MS = 3600_00
 /** What this build takes (docs/specs/2026-10-26-sb-backend.md, Replies for a main). A `caps` older than 2 hours counts as none. */
 export const CAPS_FEATURES = ["tower.awaitsReply", "tower-reply", "unit-stop", "unit-status.mains", "operate/1"] as const;
 export const CAPS_STALE_MS = 2 * 3600_000;
+/** A live envelope is delivered now: the holder takes none whose `ts` is older than this. */
+const LIVE_FRESH_MS = 60_000;
 const CAPS_REFRESH_MS = 3600_000, CAPS_MIN_MS = 15_000, CAPS_OFF_MS = 3600_000, REPLY_OFF_MS = 3600_000, FALLBACK_LOG_MS = 3600_000;
 
 /** The default wait for the relay in `send`; the tower waits for the holder's answer longer than this plus the lock wait (runtime.ts `ASK_MS`), or it would give up on a message that was sent. */
@@ -524,6 +526,8 @@ export class LinkHolder {
 
 	/** Presence and the other ephemeral kinds: checked and kept in memory, never queued, never acknowledged. */
 	private async ephemeral(run: TeamRun, event: EnvelopeEvent): Promise<Disposition> {
+		// A live kind never comes as a stored one: a relay that does that keeps what the client sends it, so the envelope is dropped unopened and the drop is the signal.
+		if (kindOk(event.envelope.header.kind) && KINDS[event.envelope.header.kind].live) return (this.o.store.log({ event: "drop", team: run.team, reason: "live-on-stored-path", from: event.from, kind: event.envelope.header.kind }), "ack");
 		const { tf, state: roster } = this.loadTeam(run.team);
 		const opened = openEnvelope(event.envelope, this.state(run, tf, roster));
 		if (!opened.ok) {
@@ -548,11 +552,17 @@ export class LinkHolder {
 		if (header.kind !== "operate") return (this.o.store.log({ event: "drop", team: run.team, reason: "live-kind", from: event.from, kind: header.kind }), "ack");
 		const sink = this.o.operate;
 		if (!sink) return (this.o.store.log({ event: "drop", team: run.team, reason: "operate-unsupported", from: event.from, kind: "operate" }), "ack");
+		// One addressee, and delivered now: a live envelope older than a minute is a replay, whatever the 7-day window of the other kinds says.
+		if (header.to.length !== 1) return (this.o.store.log({ event: "drop", team: run.team, reason: "operate-addressees", from: event.from, kind: "operate" }), "ack");
+		if (header.ts < this.now() - LIVE_FRESH_MS) return (this.o.store.log({ event: "drop", team: run.team, reason: "stale-live", from: event.from, kind: "operate" }), "ack");
 		const opened = openEnvelope(event.envelope, this.state(run, tf, roster));
 		if (!opened.ok) return (this.o.store.log({ event: "drop", team: run.team, reason: opened.reason, from: event.from, kind: "operate" }), "ack");
 		run.lastEphemeral = recordTaken(this.state(run, tf, roster), opened.header).lastEphemeral;
 		const message = opened.message as OperateMessage, attended = roster.members.get(header.from)?.attended === true;
 		if (!operateDirectionOk(message.type, attended)) return (this.o.store.log({ event: "drop", team: run.team, reason: "operate-direction", from: header.from, kind: "operate", type: message.type }), "ack");
+		// The receiving end's role: an `open` is for the unattended box, an `accept` or `refuse` for the attended controller.
+		const self = this.o.attended?.() ?? true;
+		if ((message.type === "open" && self) || ((message.type === "accept" || message.type === "refuse") && !self)) return (this.o.store.log({ event: "drop", team: run.team, reason: "operate-role", from: header.from, kind: "operate", type: message.type }), "ack");
 		try {
 			sink({ team: run.team, from: header.from, fromAttended: attended, message, ts: header.ts, dropped: event.dropped });
 		} catch (error) {
@@ -1184,6 +1194,12 @@ export class LinkHolder {
 			try {
 				return { delivered: (await run.client.postLive(run.teamId, envelope)).delivered };
 			} catch (error) {
+				// A relay that answers without `delivered` stored the envelope as a plain ephemeral kind: fail closed on the first answer, and say so once.
+				if (error instanceof ProtocolError) {
+					run.liveOffUntil = now + CAPS_OFF_MS;
+					this.o.store.log({ event: "operate-relay-not-live", team });
+					throw new OperateSendError("relay", "The relay does not take operate as a live kind yet");
+				}
 				if (error instanceof RelayError && error.code === "unknown-kind") {
 					run.liveOffUntil = now + CAPS_OFF_MS;
 					this.o.store.log({ event: "operate-unsupported", team });

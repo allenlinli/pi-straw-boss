@@ -13,6 +13,7 @@ import { alive } from "../remote.ts";
 import { answers, boundedWait, type GuiRecord, listening, postServer, readRecord as readGuiJson, writeRecordFile } from "../handover.ts";
 import type { Session } from "../herdr.ts";
 import { type GuiLink } from "../link/guiport.ts";
+import type { OperateHost } from "./operatehost.ts";
 import { type Net, netSource, type TowerView } from "../net.ts";
 import type { TowerPanel } from "../control.ts";
 import type { HeadSeam } from "../nethead.ts";
@@ -87,6 +88,8 @@ export interface GuiHostOptions {
 	listen?: boolean;
 	/** The GUI's way to the link holder. */
 	link: GuiLink;
+	/** The controller's end of operate (operatehost.ts): the boxes this computer operates show in the net the pages read. Only a primary, attended server has one. */
+	operateHost?: OperateHost;
 	/** The tower service of a workspace for the net, and the composer's and notices' way to it (towers.ts). */
 	tower?: { view(workspace: string): TowerView | undefined } & TowerPanel & Partial<TowerEnd>;
 	/** The head tower in the net: its key, asks, and chapters (headnet.ts). */
@@ -232,7 +235,7 @@ export function createGuiHost(o: GuiHostOptions) {
 			},
 			net, call: cfg.call, hub, dir: o.bundle ?? BUNDLE, paired: join(dir, "paired.json"), port: prefer.port, remotePort: prefer.remotePort, ...(prefer.keep ? { keep: prefer.keep } : {}), bindWaitMs: wait, desk: cfg.env.STRAW_BOSS_DESK === "1", view, music: musicDirOf(cfg.env),
 			lan: { panel: host.panel, overlay: host.faces, ...(slot.primary ? { file: join(dir, "lan.json") } : {}), notify: host.event, log: (event, fields) => log.line(event, Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? v : JSON.stringify(v)]))) },
-			link: { call: (name, args) => o.link.call(name, args), enable: () => o.link.enable() }, ...(o.tower ? { tower: o.tower } : {}), trust: { answer: trust.answer, watch: trust.watch },
+			link: { call: (name, args) => o.link.call(name, args), enable: () => o.link.enable() }, ...(o.operateHost ? { operateHost: o.operateHost } : {}), ...(o.tower ? { tower: o.tower } : {}), trust: { answer: trust.answer, watch: trust.watch },
 			server: { status: () => o.status(), log: (lines) => tailLog(fileOf(slot, "log"), lines), restart: async (reason) => (o.restart ? o.restart(reason) : { status: 501, body: { error: "unavailable", reason: "This server cannot restart itself." } }) },
 			// An older build's /boss gui stop: the GUI stops, and nothing starts it again but the boss's own command. Its takeover is refused (409): that build reports the GUI as stale and leaves it alone.
 			refuseTake: true,

@@ -50,7 +50,13 @@ export interface TowerService {
 	parked: { id: string; kind: string; from?: string; first: string }[];
 }
 export type TowerView = TowerService & { queue: Queued[]; file?: string; /** The session files of the live ally runs, by run id. */ allyFiles?: Record<string, string>; /** The session files of the recent event runs, by run id. */ eventFiles?: Record<string, string> };
-export interface Base { id: string; label: string; mark: Mark; tower: ({ name: string; mark: Mark; key: string; control: boolean; service?: TowerService; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; subs: Unit[] } & Shelf & Lately) | null; tabs: Tab[]; outposts: Outpost[]; outside: Unit[] }
+/**
+ * A base that is an unattended box's, shown through an operate session (docs/specs/2026-11-07-link-operate.md §6.4; src/server/operatehost.ts makes it): the controller's own net reading adds it, the box never sends it. `device` and `short` are the
+ * box's id and short id and `label` its roster label; `team` names the team (or teams) the sessions came on; `scope` says whether the box's own units are in; `can` lists the page actions the box lets through, so the ⋯ menus hide the rest. `state`:
+ * `live`, `unreachable` (no frame for 45 s: greyed, `seen` is the last frame's time in epoch ms) or `ended` (the box refused or closed the session: an otherwise empty base with `why`, a word of a known set).
+ */
+export interface RemoteBox { device: string; short: string; label: string; team: string; scope: "team" | "box"; can: string[]; state: "live" | "unreachable" | "ended"; why?: string; seen?: number }
+export interface Base { id: string; label: string; mark: Mark; /** Only on a base of an unattended box (RemoteBox). */ box?: RemoteBox; tower: ({ name: string; mark: Mark; key: string; control: boolean; service?: TowerService; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; subs: Unit[] } & Shelf & Lately) | null; tabs: Tab[]; outposts: Outpost[]; outside: Unit[] }
 /** `stashed`: the bases put away with /boss stash, waiting to be popped (stash.ts). `trust`: the folders whose agents wait for a trust decision (trust/serve.ts). */
 /** `link`: Straw Link's teammates' bases, the notices it raises, and the confirms waiting for the boss; absent when Straw Link is not set up or says nothing. */
 export interface Net { bases: Base[]; /** The head tower (nethead.ts); present when the server runs the tower service. */ head?: HeadUnit; stashed?: Stashed[]; trust?: TrustAsk[]; events?: NetEvent[]; link?: LinkSummary }

@@ -257,6 +257,26 @@ test("a short scroll up in a quiet log (the sentinels disconnected, no entries) 
 	}
 });
 
+test("a reader a little above the end whose log shrinks under them, clamped to the very end, follows again", () => {
+	const r = rig();
+	try {
+		r.tick(1000);
+		r.wheel(-30);
+		r.scroll(r.end - 30);
+		r.tick(1000);
+		assert.equal(r.pill.hidden, false, "30 px up: the way back is offered");
+		r.shrink(60);
+		r.tick(16);
+		assert.equal(r.top, r.end, "the browser put the log at its end");
+		r.arrive();
+		r.tick(300);
+		assert.deepEqual([r.top, r.pill.hidden], [r.end, true], "at the end it follows: the entry is shown, no way back offered");
+		quiet(r);
+	} finally {
+		r.done();
+	}
+});
+
 test("a return to the end in steps of half a pixel follows again", () => {
 	const r = rig();
 	try {

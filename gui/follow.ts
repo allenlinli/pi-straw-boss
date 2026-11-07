@@ -23,13 +23,14 @@ export function createFollow() {
 		parked: (top: number) => void (last = top),
 		/**
 		 * A scroll event at `top`; `end` reads the largest offset, and is called only when it decides. A user's move up leaves the end at once, not 80 px later when the sentinel does, so no entry pulls a reader
-		 * back; a move down that reaches the very end pins again. A log that shrank clamps its offset to the end, which is not a move up. True when whether the log follows changed.
+		 * back; any move that reaches the very end pins again. A log that shrank clamps its offset to the end, which is not a move up: a user's own move up never lands at the end, so a
+		 * move up that does is the clamp, and a reader it puts there follows. True when whether the log follows changed.
 		 */
 		moved(top: number, end: () => number) {
 			const dy = top - last;
 			last = top;
 			if (dy < -0.5 && pinned && end() - top > 1) return !(pinned = false);
-			return dy > 0 && !pinned && near && end() - top <= 1 && ((pinned = true), (unseen = 0), true);
+			return dy !== 0 && !pinned && near && end() - top <= 1 && ((pinned = true), (unseen = 0), true);
 		},
 		/** Opening at an anchor reads from there. */
 		hold: () => void (near = pinned = false),

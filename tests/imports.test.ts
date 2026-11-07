@@ -577,8 +577,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// 0.6.1 to 152 for a panel refused as busy that answers again once the other answer was refused, an outcome that lingers six seconds from the
 	// unit's leaving instead of from the latest update, and a focus that comes back to the control a disconnect or a Send on its way disabled (unless the user went elsewhere).
 	// The comms log's scroll rules (pinned to the end, reaching an anchor) are pure and live beside it.
-	// Chat scroll inertia (todo #123; measured): chat.ts 345 to 349 (`park`, the wheel up and the keys up that hold the log, the scroll event's `moved`), follow.ts 50 to 57 (`parked` and `moved`: a user's move up leaves the end at once; `scrolled` acts on a crossing only).
-	assert.ok(count("gui/follow.ts") <= 57, `gui/follow.ts has ${count("gui/follow.ts")} lines`);
+	// Chat scroll inertia (todo #123; measured): chat.ts 345 to 349 (`park`, the wheel up and the keys up that hold the log, the scroll event's `moved`), follow.ts 50 to 57 (`parked` and `moved`: a user's move up leaves the end at once; `scrolled` acts on a crossing only); 58 with the clamp to the end re-pinning (CSR-F006).
+	assert.ok(count("gui/follow.ts") <= 58, `gui/follow.ts has ${count("gui/follow.ts")} lines`);
 	// Unreleased (project trust): layer.ts 250 to 264 (the trust question's dialog: its panel in place of the transmission, no history read for it), deploy.ts 124 to 139 (the trust step's label and inline question, the give-up that waits, the openings
 	// this page runs), spawn.ts 59 to 60 (the answer route handed to the panel), and the question's own module (gui/trust.ts, 73: the panel, its choices, outcomes, and the line where the agents run).
 	assert.ok(count("gui/trust.ts") <= 80, `gui/trust.ts has ${count("gui/trust.ts")} lines`);
@@ -1134,7 +1134,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Z-D22 and the remote stop controller merged on main: 324,954 / 132,612. Cap = measured.
 	// Chat scroll inertia (todo #123): 325,331 / 132,799 measured, +377 / +187 over the figure above: follow.ts's `parked` and `moved`, and chat.ts's `park`, the wheel-up and key-up holds, and the scroll event's call. Cap = measured.
 	// Chat scroll inertia round 2 (CSR-F001, F003, F005): 325,366 / 132,836 measured, +35 / +37: `scrolled` acts on a crossing only, any move down re-pins at the end, Shift+Space holds. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 325_366 && total(chunks, gz) <= 132_836, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Round 3 (CSR-F006): 325,368 / 132,793 measured: a clamp to the very end re-pins (`dy !== 0`). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 325_368 && total(chunks, gz) <= 132_836, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

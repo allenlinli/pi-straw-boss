@@ -376,7 +376,7 @@ test("a tower that took the message or acted on it is not waiting: `received` an
 	const g = askGroups(rows, NOW, net).recent[0]!;
 	assert.equal(g.handled, 3, "answered and handled count as handled; received is not yet");
 	assert.equal(groupLine(g, NOW), "12m ago · 3/5 handled");
-	assert.equal(groupLine(g, NOW, zh), "12 分前・已處理 3/5", "an answer is a handling: the count never says 回覆 for what a tower only handled");
+	assert.equal(groupLine(g, NOW, zh), "12 分鐘前・已處理 3/5", "an answer is a handling: the count never says 回覆 for what a tower only handled");
 	fillHeadAsks(el, head({ asks: rows }), net, NOW);
 	const lines = box.children[0]!.find((x) => x.classes.has("ask-tower"));
 	assert.deepEqual(lines.map((l) => [l.getAttribute("data-state"), textOf(l, "ask-state"), textOf(l, "ask-note"), textOf(l, "ask-none")]), [

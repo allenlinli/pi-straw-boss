@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Item } from "../src/items.ts";
+import { createFollow } from "../gui/follow.ts";
 import { El } from "./fake-dom.ts";
 
 // The comms log's follow against a scroller with real clamping and a clock the test moves (todo #123): at the bottom nothing keeps moving once input and inertia end, new output lands in one instant jump,
@@ -16,12 +17,18 @@ const user = (n: number): Item => ({ id: `u${n}`, kind: "user", text: `message $
 /** Mounts a chat over a log of 1000 px, following its end; `tick` moves the clock the chat's timers run on. Restores the globals with `done`. */
 function rig() {
 	let clock = 0, nextTimer = 1;
-	const timers = new Map<number, { at: number; fn: () => void }>(), sentries: ((seen: { isIntersecting: boolean }[]) => void)[] = [], resizes: (() => void)[] = [];
+	const timers = new Map<number, { at: number; fn: () => void }>(), sentries: ((seen: { isIntersecting: boolean }[]) => void)[] = [], resizes: (() => void)[] = [], firsts: (() => void)[] = [];
 	const globals = globalThis as unknown as Record<string, unknown>, saved = { setTimeout: globals.setTimeout, clearTimeout: globals.clearTimeout, IntersectionObserver: globals.IntersectionObserver, ResizeObserver: globals.ResizeObserver };
 	Object.assign(globals, {
 		setTimeout: (fn: () => void, ms = 0) => (timers.set(nextTimer, { at: clock + ms, fn }), nextTimer++),
 		clearTimeout: (id: number) => void timers.delete(id),
-		IntersectionObserver: class { constructor(f: (seen: { isIntersecting: boolean }[]) => void) { sentries.push(f); } observe() {} disconnect() {} },
+		// As a browser's: a target that is observed gets a first notice with where it stands (on the next frame), and observing it again while connected is nothing.
+		IntersectionObserver: class {
+			on = false; index = sentries.length;
+			constructor(f: (seen: { isIntersecting: boolean }[]) => void) { sentries.push(f); }
+			observe() { if (!this.on && this.index === 1) firsts.push(() => this.on && sentries[1]!([{ isIntersecting: end() - top <= 80 }])); this.on = true; }
+			disconnect() { this.on = false; }
+		},
 		ResizeObserver: class { constructor(f: () => void) { resizes.push(f); } observe() {} },
 	});
 	const root = new El("div"), data = { older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined };
@@ -45,8 +52,9 @@ function rig() {
 		/** The sentinel at the log's end, as the observer reports it. */
 		sentinel: (isIntersecting: boolean) => sentries.at(-1)!([{ isIntersecting }]),
 		/** An entry arrives: the log grows, the page is told, the frame's resize observers run. */
-		arrive() { content += ROW; chat.apply({ key: "a1", items: [user(++rows + 100)] }); frame(); },
+		arrive(by = ROW) { content += by; chat.apply({ key: "a1", items: [user(++rows + 100)] }); frame(); },
 		tick(ms: number) {
+			for (const first of firsts.splice(0)) first();
 			const to = clock + ms;
 			for (let next = [...timers].filter(([, t]) => t.at <= to).sort((a, b) => a[1].at - b[1].at)[0]; next; next = [...timers].filter(([, t]) => t.at <= to).sort((a, b) => a[1].at - b[1].at)[0]) (timers.delete(next[0]), (clock = next[1].at), next[1].fn());
 			clock = to;
@@ -199,11 +207,11 @@ test("a log under a finger that shrinks and then grows before the clamp's scroll
 	try {
 		r.log.bubble("touchstart");
 		r.shrink(50, true);
-		r.arrive();
+		r.arrive(50); // back to where it was: still inside the sentinel's margin (a first notice from a reconnected observer says so)
 		r.scroll(r.top);
 		r.log.bubble("touchend");
 		r.tick(300);
-		assert.deepEqual([r.top, r.end], [r.end, 750], "still following: it lands at the end when the finger is gone");
+		assert.deepEqual([r.top, r.end], [r.end, 700], "still following: it lands at the end when the finger is gone");
 		quiet(r);
 	} finally {
 		r.done();
@@ -229,4 +237,113 @@ test("a log read from higher up follows only once the end is reached again", () 
 	} finally {
 		r.done();
 	}
+});
+
+test("a short scroll up in a quiet log (the sentinels disconnected, no entries) stays where the reader left it: the sentinel's first notice on reconnecting is not a crossing", () => {
+	for (const up of [10, 50]) {
+		const r = rig();
+		try {
+			r.tick(1000);
+			r.wheel(-up);
+			r.scroll(r.end - up);
+			r.tick(16);
+			assert.equal(r.pill.hidden, false, `${up} px up: the way back is offered`);
+			r.tick(400);
+			assert.deepEqual([r.top, r.writes.length], [700 - up, 0], `${up} px up: nothing pulls the log back`);
+			quiet(r);
+		} finally {
+			r.done();
+		}
+	}
+});
+
+test("a return to the end in steps of half a pixel follows again", () => {
+	const r = rig();
+	try {
+		r.wheel(-10);
+		r.scroll(690);
+		r.tick(400);
+		for (let at = 690.5; at <= 700; at += 0.5) r.scroll(at);
+		assert.equal(r.pill.hidden, true, "it follows again");
+		r.arrive();
+		assert.equal(r.top, r.end, "and the entry is shown");
+	} finally {
+		r.done();
+	}
+});
+
+test("every key that moves the log up holds it, and Space down does not", () => {
+	for (const key of [{ key: "ArrowUp" }, { key: "PageUp" }, { key: "Home" }, { key: " ", shiftKey: true }]) {
+		const r = rig();
+		try {
+			r.log.bubble("keydown", key);
+			r.arrive();
+			assert.equal(r.writes.length, 0, `${JSON.stringify(key)} holds the log`);
+			r.tick(300);
+			assert.equal(r.writes.length, 1, "and it lands in one jump when the hold ends");
+		} finally {
+			r.done();
+		}
+	}
+	const r = rig();
+	try {
+		r.log.bubble("keydown", { key: " ", shiftKey: false });
+		r.log.bubble("keydown", { key: "ArrowDown" });
+		r.arrive();
+		assert.equal(r.top, r.end, "Space and Down hold nothing: the entry lands at once");
+	} finally {
+		r.done();
+	}
+});
+
+test("the hold lasts 250 ms after the last input: still held at 249, over at 250", () => {
+	const r = rig();
+	try {
+		r.wheel(-40);
+		r.tick(200);
+		r.arrive();
+		assert.equal(r.writes.length, 0, "held at 200 ms");
+		r.tick(49);
+		assert.equal(r.writes.length, 0, "held at 249 ms");
+		r.tick(1);
+		assert.equal(r.writes.length, 1, "over at 250 ms");
+	} finally {
+		r.done();
+	}
+});
+
+test("an anchor opened on the last entry (`hold`) is not re-pinned by a move down to the end until the sentinel has seen the end", () => {
+	const f = createFollow(), end = () => 700;
+	f.parked(700);
+	f.hold();
+	assert.equal(f.pinned, false);
+	assert.equal(f.moved(699, end), false);
+	assert.equal(f.moved(700, end), false, "a scroll down onto the end, with the sentinel unheard: still reading");
+	assert.equal(f.pinned, false);
+	f.scrolled(true);
+	assert.equal(f.pinned, true, "the sentinel's crossing pins it");
+});
+
+test("the sentinel acts on a crossing only: the same report again changes nothing", () => {
+	const f = createFollow(), end = () => 700;
+	f.parked(700);
+	assert.equal(f.moved(690, end), true, "a move up unpins");
+	f.scrolled(true);
+	assert.equal(f.pinned, false, "a report of 'inside' that is nothing new does not re-pin");
+	f.scrolled(false);
+	f.scrolled(true);
+	assert.equal(f.pinned, true, "a crossing out and back in does");
+});
+
+test("a return to the very end drops the count of entries seen from above, and the tolerance is one pixel", () => {
+	const f = createFollow(), end = () => 700;
+	f.parked(700);
+	f.moved(690, end);
+	f.arrived(2);
+	assert.equal(f.button(false), m.new_entries({ count: 2 }));
+	assert.equal(f.moved(698.5, end), false, "1.5 px above the end is not the end");
+	assert.equal(f.moved(699.5, end), true, "0.5 px above it is");
+	assert.equal(f.button(false), undefined);
+	f.moved(600, end);
+	assert.equal(f.button(false), m.jump_latest(), "no count carried over");
 });

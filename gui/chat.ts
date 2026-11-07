@@ -305,7 +305,7 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 	const watch = () => (watching ?? (sentries[0]!.observe(top), sentries[1]!.observe(foot)), clearTimeout(watching), (watching = setTimeout(() => ((watching = undefined), sentries.forEach((s) => s.disconnect())), 600)));
 	scroller.addEventListener("scroll", () => (watch(), follow.moved(scroller.scrollTop, () => scroller.scrollHeight - scroller.clientHeight) && button(), !down && coast !== undefined && coasting()), { passive: true });
 	scroller.addEventListener("wheel", (e) => e.deltaY < 0 && coasting(), { passive: true });
-	scroller.addEventListener("keydown", (e) => ["ArrowUp", "PageUp", "Home"].includes(e.key) && coasting(), { passive: true });
+	scroller.addEventListener("keydown", (e) => (["ArrowUp", "PageUp", "Home"].includes(e.key) || (e.key === " " && e.shiftKey)) && coasting(), { passive: true });
 	scroller.addEventListener("touchstart", () => ((down = true), clearTimeout(coast), (coast = undefined)), { passive: true });
 	for (const end of ["touchend", "touchcancel"]) scroller.addEventListener(end, () => ((down = false), coasting()), { passive: true });
 	// The user's own scroll ends the hold, and a later reconnect then opens at the end instead of at the anchor again.

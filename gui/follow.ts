@@ -13,8 +13,9 @@ export function createFollow() {
 	let pinned = true, unseen = 0, near = true, last = 0;
 	return {
 		get pinned() { return pinned; },
-		/** The end sentinel crossed its margin (80 px from the end): inside pins, outside reads. */
+		/** The end sentinel crossed its margin (80 px from the end): inside pins, outside reads. A report of where it already stands (an observer's first notice on connecting) is not a crossing. */
 		scrolled(bottom: boolean) {
+			if (bottom === near) return;
 			near = pinned = bottom;
 			if (bottom) unseen = 0;
 		},
@@ -28,7 +29,7 @@ export function createFollow() {
 			const dy = top - last;
 			last = top;
 			if (dy < -0.5 && pinned && end() - top > 1) return !(pinned = false);
-			return dy > 0.5 && !pinned && near && end() - top <= 1 && ((pinned = true), (unseen = 0), true);
+			return dy > 0 && !pinned && near && end() - top <= 1 && ((pinned = true), (unseen = 0), true);
 		},
 		/** Opening at an anchor reads from there. */
 		hold: () => void (near = pinned = false),

@@ -525,3 +525,10 @@ test("Z-D21 (fill): the quiet strip is as it was: three lines, two on a phone or
 	const short = zen.slice(zen.indexOf("@media (max-height: 560px) {", zen.indexOf("@media (max-width: 600px), (max-height: 560px) {")), zen.indexOf("@media (prefers-reduced-motion: reduce) { /* no fade"));
 	assert.match(short, /\.zen-stage:has\(\.zen-head\[data-fill\]:not\(\[hidden\]\)\) \{ gap: 10px; \}/, "a short window keeps its 10 px gap in the awake layout too");
 });
+
+test("the comms log keeps a fling to itself in every view: at its end or top the momentum stops there and does not chain to the page (todo #123)", () => {
+	const base = rulesOf(css).find((r) => r.parts.length === 1 && r.parts[0] === ".chat-scroll" && /overflow-y: auto/.test(r.body));
+	assert.ok(base, "the log's base rule");
+	assert.match(base.body, /(^|[;\s])overscroll-behavior: contain\b/, "the base rule, not only the phone's: the Standard and Geek page is taller than the window (the footer follows the log's panel)");
+	assert.ok(!rulesOf(css).some((r) => r.parts.some((p) => /\.chat-scroll\b/.test(p)) && /(^|[;\s])overscroll-behavior: auto\b/.test(r.body)), "no view takes it back");
+});

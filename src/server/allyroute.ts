@@ -18,6 +18,8 @@ const MAX_OPENED_PER_DEVICE = 8, MAX_OPENED = 20, DEAD_GRACE_MS = 10 * 60_000;
 
 /** The sender an ally run serves, as a route and an answer keep it (the ally brief and the header need these). */
 export interface Peer { device: string; label: string; short: string; team: string; teamName: string }
+/** A stop the box accepted for an `opened` route (docs/specs/2026-11-07-link-remote-stop.md, section 5): who asked (`by`, a device id), when the box took it (`at`), its id, and its mode (`quit` or `interrupt`). The revoker carries it out. */
+export interface Stop { by: string; at: number; stopId: string; mode: string }
 export interface Route extends Peer {
 	/** The local session id the run wrote to or opened. */
 	to: string;
@@ -31,6 +33,8 @@ export interface Route extends Peer {
 	ask?: string;
 	/** An `opened` route: the level the run had when it opened the main. A main opened at `dispatch` is ended when the device loses it (revoke.ts); a row without a level counts as `dispatch`. */
 	level?: string;
+	/** An `opened` route: a stop the box accepted. It stays through renewals and rewrites of the row, and the row caps drop a row with one last. */
+	stop?: Stop;
 }
 export interface Answer extends Peer {
 	id: string;
@@ -66,9 +70,12 @@ export const readRoutes = (slot: Slot, workspace: string, now: number) => read<R
 export function addRoute(slot: Slot, workspace: string, row: Route, now: number, live?: ReadonlySet<string>, panes?: ReadonlySet<string>): void {
 	const was = readRoutes(slot, workspace, now);
 	if (row.kind === "expect" && was.some((r) => r.to === row.to && r.kind === "opened")) return;
+	// An opened row written again for the same main and device keeps the stop that was put on it.
+	const before = was.find((r) => r.to === row.to && r.device === row.device && r.kind === "opened")?.stop;
+	if (before && row.kind === "opened" && !row.stop) row = { ...row, stop: before };
 	const rest = [...was.filter((r) => !(r.to === row.to && r.device === row.device)), row], dead = (r: Route) => live !== undefined && !live.has(r.to) && !(r.pane !== undefined && (panes === undefined || panes.has(r.pane)));
-	// Dead rows first, then the oldest; the row being added is never the one to go.
-	const order = (a: Route, b: Route) => Number(dead(b)) - Number(dead(a)) || a.at - b.at;
+	// Rows without a stop go before rows with one, whatever their age (a stop is a request nobody has seen carried out); then dead rows first, then the oldest; the row being added is never the one to go.
+	const order = (a: Route, b: Route) => Number(a.stop !== undefined) - Number(b.stop !== undefined) || Number(dead(b)) - Number(dead(a)) || a.at - b.at;
 	const gone = new Set<Route>(rest.filter((r) => r.kind === "opened" && r !== row && dead(r) && now - r.at > DEAD_GRACE_MS));
 	const trim = (rows: Route[], keep: number) => rows.filter((r) => r !== row).sort(order).slice(0, Math.max(0, rows.length - keep)).forEach((r) => gone.add(r));
 	const kept = () => rest.filter((r) => r.kind === "opened" && !gone.has(r));
@@ -81,6 +88,17 @@ export const routeOf = (slot: Slot, workspace: string, session: string, now: num
 	const rows = readRoutes(slot, workspace, now).filter((r) => r.to === session);
 	return rows.find((r) => r.kind === "opened") ?? rows.at(-1);
 };
+/**
+ * Writes an accepted stop on the `opened` row of `session`; `name` (the main's own, read from the broker) replaces the row's name, which an ally run's open leaves generic. A row that already has a stop is left as it is and its stop answered
+ * (a second stop of a pending main is a no-op). Throws when no `opened` row names the session: the main was let go meanwhile.
+ */
+export function setStop(slot: Slot, workspace: string, session: string, stop: Stop, now: number, name?: string): { set: true } | { set: false; stop: Stop } {
+	const rows = readRoutes(slot, workspace, now), at = rows.find((r) => r.to === session && r.kind === "opened");
+	if (!at) throw new Error(`no opened route names the session ${session}`);
+	if (at.stop) return { set: false, stop: at.stop };
+	write(slot, workspace, ROUTES, rows.map((r) => (r === at ? { ...r, stop, ...(name ? { name } : {}) } : r)));
+	return { set: true };
+}
 /** A main closed: its `opened` row goes with it. */
 export function dropOpened(slot: Slot, workspace: string, session: string, now: number): void {
 	const rows = readRoutes(slot, workspace, now);

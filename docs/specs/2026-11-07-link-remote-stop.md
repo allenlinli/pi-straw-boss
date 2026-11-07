@@ -74,7 +74,7 @@ The box answers through the existing `notice` (unattended → controller, which 
 
 | Notice kind | When |
 |---|---|
-| `unit-stop-refused` | The stop is refused, with its reason word: `not-recipient`, `gone`, `stale`, `level`, `mode` |
+| `unit-stop-refused` | The stop is refused, with its reason word: `not-recipient`, `gone`, `stale`, `level`, `mode`, or `failed` (the box could not carry out its own checks, as when the pane cannot be read; added in the build, UW-F007) |
 | `main-stop-pending` | Once, when the main refuses as busy |
 | `main-stopped` | The main quit |
 | `main-stop-manual` | The box cannot end it; close it by hand |
@@ -106,14 +106,15 @@ Only mains in the route table can be stopped (decision 4): mains an ally run ope
 **Audit.**
 
 - `link.log` gets `unit-stop-in` (team, from, stopId, handle, verdict) on receipt, then `unit-stop-pending` and `unit-stop-done` (stopId, workspace, main), never the reason text.
-- Every outcome is a notice in the scope `{ device: row.device, team: row.team }`, which reaches the dispatcher and that team's admins (`reaches`, `src/link/scope.ts:9-14`). The requester is always one of them.
-- A refused attempt (`not-recipient`) is told to the requester's scope too, so the team's admins see that someone tried.
+- Every outcome of an accepted stop is a notice in the scope `{ device: row.device, team: row.team }`, which reaches the dispatcher and that team's admins (`reaches`, `src/link/scope.ts:9-14`). The requester is always one of them.
+- A refused attempt (`not-recipient`) is told to the requester's scope too, so the team's admins see that someone tried. The other server refusals have no row to scope by and go to the sender alone: `gone` (also for a handle of another team's row and for a pane token that names another device) and `failed`.
+- `link.log` also gets `unit-stop-refused` (team, from, stopId, verdict), `unit-stop-noop` and `unit-stop-failed` from the box's server half, so who tried to stop what is kept in the same log as `unit-stop-in`.
 
 **Residual, unchanged from section 2 of the shared-box spec.** The box's units share one Unix account, and the pane token is Herdr state any process of it can write. This change decides whom the box obeys over the link. It is no wall between two devs who both hold a shell on the box.
 
 ## 5. Semantics on the box
 
-- **Accepting writes the stop down.** An accepted stop is written on the route row as `stop: { by, at, stopId, mode }`. The file is durable and server-written, so a server restart keeps it. Renewing a row's `at` (each report) must keep the field, and the row caps (`addRoute`) must never drop a row that has a pending stop before rows without one.
+- **Accepting writes the stop down.** An accepted stop is written on the route row as `stop: { by, at, stopId, mode }`. The row's `name` (generic, "opened main", from the open) becomes the main's own name, read at the same time, so the notices and the `mains` list name it. The file is durable and server-written, so a server restart keeps it. Renewing a row's `at` (each report) must keep the field, and the row caps (`addRoute`) must never drop a row that has a pending stop before rows without one.
 - **The revoker carries it out.** The revoker takes stopped rows as a second reason, beside "the device lost dispatch" (`src/server/revoke.ts:42-84`). There are three differences:
   - It acts on the **first** sweep after acceptance; the server also triggers a sweep at once. The two-look rule guards against bad reads of the policy or roster, and a signed stop is no read.
   - It ignores `level`.

@@ -24,8 +24,10 @@ import type { Asks } from "./asks.ts";
 import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, LOCAL_TOOLS } from "./towerbrief.ts";
 import { createStanding, type PromptReply, type StandingTimers } from "./standing.ts";
 import { claimGate, proofGate, seatGate, type SeatVerdict } from "./typegate.ts";
-import { addAnswer, addRoute, answeredAsks, ALLY_LEDGER, dropAsk, dropOpened, type Peer, readAnswers, readRoutes, removeAnswer, openedFor, routeOf, spendRoute } from "./allyroute.ts";
-import { createRevoker } from "./revoke.ts";
+import { addAnswer, addRoute, answeredAsks, ALLY_LEDGER, dropAsk, dropOpened, type Peer, readAnswers, readRoutes, removeAnswer, openedFor, routeOf, setStop, spendRoute } from "./allyroute.ts";
+import { createRevoker, type OpenedMain } from "./revoke.ts";
+import { createUnitStop, type MainFact } from "./unitstop.ts";
+import type { UnitStopInput } from "../link/holder.ts";
 import { type AllyItem, type AllyPort, createRuns, type Runs, type RunsOptions, type ServiceRef, type ServiceStatus } from "./runs.ts";
 import { type ConversationInfo, sessionsRoot } from "./bossconv.ts";
 import { addExpect, clearExpect, lastNote, listRuns, readExpects, readNotes, readTimer } from "./towerrunstore.ts";
@@ -117,6 +119,10 @@ export interface Towers {
 	openMain(request: { workspace: string; request: string; sender: string; label?: string }): Promise<Opened>;
 	/** The `close-main` ask from the workspace's tower identity. */
 	closeMain(request: { workspace: string; query: string }): ReturnType<Control["closeMain"]>;
+	/** The holder's sink for a `unit-stop` that passed its checks (unitstop.ts): decides it from the route table and writes it on the route, which the revoker then carries out. Never rejects. */
+	unitStop(stop: UnitStopInput): Promise<void>;
+	/** The mains ally runs opened that are on record, with the name and pane state the broker and Herdr give them now (the `mains` of a unit-status). */
+	mains(): Promise<MainFact[]>;
 	/** A new Herdr server took over: finds the tower tabs again and writes the tokens. */
 	takeover(): Promise<void>;
 	status(): TowerRow[];
@@ -1005,12 +1011,36 @@ export function createTowers(o: TowersOptions): Towers {
 	/** A main that accepted the close has no use for its opened route (a main the boss closes is let go when the next one opens, or after a week). A route file that cannot be written does not undo the close. */
 	const forgetClosed = <T extends { main?: string }>(ws: string, closed: T): T => { try { if (closed.main) dropOpened(slot, ws, closed.main, now()); } catch (cause) { error("ally-route", (cause as Error).message); } return closed; };
 	/** The mains ally runs opened end with their controller's dispatch (revoke.ts): asked to quit as `boss_close_main` asks, the admins told through the same notice channel as a run's end. */
+	/** The `opened` rows of every live service: a main an ally run opened for a device, with the stop the box accepted for it, if any. */
+	const openedRows = (): OpenedMain[] => (o.ally ? [...services.values()].filter((l) => !l.stopped && l.state === "live" && l.control && !isHeadL(l)).flatMap((l) => readRoutes(slot, l.record.workspace, now()).filter((r) => r.kind === "opened").map((r) => ({ workspace: l.record.workspace, label: l.record.label, main: r.to, name: r.name, device: r.device, deviceLabel: r.label, team: r.team, ...(r.level ? { level: r.level } : {}), ...(r.pane ? { pane: r.pane } : {}), ...(r.stop ? { stop: r.stop } : {}) }))) : []);
 	const revoker = createRevoker({
-		opened: () => (o.ally ? [...services.values()].filter((l) => !l.stopped && l.state === "live" && l.control && !isHeadL(l)).flatMap((l) => readRoutes(slot, l.record.workspace, now()).filter((r) => r.kind === "opened").map((r) => ({ workspace: l.record.workspace, label: l.record.label, main: r.to, name: r.name, device: r.device, deviceLabel: r.label, team: r.team, ...(r.level ? { level: r.level } : {}), ...(r.pane ? { pane: r.pane } : {}) }))) : []),
+		opened: openedRows,
 		known: (team) => o.ally?.known?.(team) ?? true, standing: (device, team) => o.ally?.standing(device, team),
-		close: async (workspace, main) => void (await need(workspace).control!.closeMain(main)), paneGone: async (workspace, pane) => { if (!pane) return false; try { const net = await need(workspace).reach!.read(); return !net.ps.some((p) => p.pane_id === pane); } catch { return false; } }, // Herdr's listing is the second witness that a main is gone; no pane or a failed read confirms nothing
+		close: async (workspace, main, mode) => void (await need(workspace).control!.closeMain(main, mode === "interrupt" ? { interrupt: true } : undefined)), paneGone: async (workspace, pane) => { if (!pane) return false; try { const net = await need(workspace).reach!.read(); return !net.ps.some((p) => p.pane_id === pane); } catch { return false; } }, // Herdr's listing is the second witness that a main is gone; no pane or a failed read confirms nothing
 		forget: (workspace, main) => void forgetClosed(workspace, { main }), signal: (s) => o.runs?.signal?.(s), log: ({ event, ...rest }) => log.line(String(event), rest as Record<string, string>),
+		label: (team, device) => o.ally?.label?.(team, device) ?? device.slice(0, 6), audit: (entry) => o.ally?.audit?.(entry),
 	});
+	/** A remote stop (unitstop.ts): which main and whose is decided from the route table, the roster, and the main's pane token; an accepted stop is written on the route and the revoker sweeps at once. */
+	const unitStop = createUnitStop({
+		box: () => o.ally?.box?.(), opened: openedRows, admin: (team, device) => o.ally?.admin?.(team, device) ?? false,
+		witness: async (row) => {
+			const net = await need(row.workspace).reach!.read(), session = net.sessions.find((x) => x.id === row.main);
+			const token = net.ps.find((p) => p.pane_id === (session?.herdrLocation?.paneId ?? row.pane))?.tokens?.sb_opened_by;
+			return { ...(typeof token === "string" && token.startsWith("link:") ? { device: token.replace(/^(link:)+/, "") } : {}), ...(session ? { name: nameOf(session) } : {}) };
+		},
+		record: (row, stop, name) => setStop(slot, row.workspace, row.main, stop, now(), name), sweep: () => void revoker.sweep(), signal: (s) => o.runs?.signal?.(s),
+		tell: async (team, device, notice) => { if (!o.ally?.tell) throw new Error("This server has no link holder to tell the sender"); await o.ally.tell(team, device, notice); },
+		label: (team, device) => o.ally?.label?.(team, device) ?? device.slice(0, 6), audit: (entry) => o.ally?.audit?.(entry), now,
+	});
+	const mains = async (): Promise<MainFact[]> => {
+		const out: MainFact[] = [];
+		for (const row of openedRows()) {
+			const net = await need(row.workspace).reach!.read().catch(() => undefined), session = net?.sessions.find((x) => x.id === row.main);
+			const pane = net?.ps.find((p) => p.pane_id === (session?.herdrLocation?.paneId ?? row.pane));
+			out.push({ row, name: session ? nameOf(session) : row.name, state: pane?.agent_status ?? "unknown" });
+		}
+		return out;
+	};
 	const answered = answeredAsks(now); // run id → asks it answered: kept out of a route, as the Mac closes an answered ask
 	/** The tools a run calls, done as the workspace's tower identity (runtools.ts). A failure that comes after the run has gone is told to the next run as a notice. */
 	const runToolFor = async (request: Record<string, unknown>) => {
@@ -1120,6 +1150,8 @@ export function createTowers(o: TowersOptions): Towers {
 		},
 		openMain: ({ workspace, request, sender, label }) => need(workspace).open!({ request, sender, ...(label ? { label } : {}) }),
 		closeMain: async ({ workspace, query }) => forgetClosed(workspace, await need(workspace).control!.closeMain(query)),
+		unitStop: (stop) => unitStop.handle(stop),
+		mains,
 		async takeover() {
 			// A new Herdr server has no tokens and no pane environment: the tabs are looked for (for a minute, since a restore brings them back one by one), and the marks are written again.
 			recoverUntil = now() + (o.recoverMs ?? RECOVER_MS);

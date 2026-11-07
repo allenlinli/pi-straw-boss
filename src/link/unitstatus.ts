@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { allyLabel } from "../boardauto.ts";
 import { cutBytes } from "./canon.ts";
 import type { RunSignal } from "../server/runs.ts";
-import { LIMITS, type Notice, type UnitStatus } from "./kinds.ts";
+import { LIMITS, type MainStatus, type Notice, type UnitStatus } from "./kinds.ts";
 import { reaches, type Scope } from "./scope.ts";
 
 // What an unattended device tells its dispatch controllers beside the dialogs (docs/specs/2026-10-25-straw-link.md, Unattended devices): a `unit-status` (ephemeral) with each unit's
@@ -19,7 +19,10 @@ export interface UnitReporterDeps {
 	units(team: string): Promise<UnitFacts[]>;
 	/** The last `tower_done` summary of the unit, or the last `tower_send` text to this controller, whichever came later. */
 	report(unit: string, device: string, team: string): string;
-	status(team: string, device: string, units: UnitStatus[]): Promise<void>;
+	/** The unit-status to one controller; `mains` are the mains it may stop (src/server/unitstop.ts `mainsFor`), sent only against its `caps`. */
+	status(team: string, device: string, units: UnitStatus[], mains?: MainStatus[]): Promise<void>;
+	/** The mains this controller may stop: its own, or every main of the team for an admin. Absent: none are told (an old box, a test). */
+	mains?(team: string, device: string): Promise<MainStatus[]>;
 	notice(team: string, device: string, notice: Notice): Promise<void>;
 	/** Whether `device` is an admin of `team`'s roster now: an admin is told every notice. Absent: nobody is. */
 	admin?(team: string, device: string): boolean;
@@ -51,10 +54,13 @@ export class UnitReporter {
 			// One reading per team in a pass, however many controllers it has.
 			let mine = facts.get(c.team);
 			if (!mine) facts.set(c.team, (mine = await this.d.units(c.team)));
-			const k = `${c.team}\n${c.device}`, units = mine.map((u) => ({ ...u, report: cutBytes(this.d.report(u.unit, c.device, c.team), LIMITS.report) })), sig = JSON.stringify(units), before = this.sent.get(k);
+			const k = `${c.team}\n${c.device}`, units = mine.map((u) => ({ ...u, report: cutBytes(this.d.report(u.unit, c.device, c.team), LIMITS.report) }));
+			// A controller's mains depend on who it is; a failed look at them leaves the status without (and a changed list is a changed status).
+			const mains = this.d.mains ? await this.d.mains(c.team, c.device).catch((error: Error) => (this.d.log({ event: "unit-mains-failed", error: String(error.message).slice(0, 200) }), undefined)) : undefined;
+			const sig = JSON.stringify(mains ? { units, mains } : units), before = this.sent.get(k);
 			if (before && before.sig === sig && now - before.at < STATUS_EVERY_MS) continue;
 			try {
-				await this.d.status(c.team, c.device, units);
+				await this.d.status(c.team, c.device, units, mains);
 				this.sent.set(k, { at: now, sig });
 			} catch (error) {
 				this.d.log({ event: "unit-status-post-failed", device: c.device, error: String((error as Error).message).slice(0, 200) });
@@ -86,6 +92,7 @@ export function runNotice(s: RunSignal): { key: string; notice: Notice; scope: S
 	const who = s.ally ? "An ally run" : "A run";
 	// The key goes into the log, and a refusal's text can carry a path or a line of the project's settings: the key holds a hash of it.
 	if (s.kind === "revoked") return { key: `revoked/${s.main}/${s.ended ? "ended" : s.manual ? "manual" : "pending"}`, notice: { kind: s.ended ? "main-revoked" : "main-revoke-pending", unit: allyLabel(s.label), text: s.text }, scope };
+	if (s.kind === "main-stop") return { key: s.outcome === "refused" ? `stop-refused/${s.stopId}` : `stop/${s.main}/${s.outcome}`, notice: { kind: { pending: "main-stop-pending", stopped: "main-stopped", manual: "main-stop-manual", refused: "unit-stop-refused" }[s.outcome], unit: allyLabel(s.label), text: s.text }, scope };
 	if (s.kind === "refused") return { key: `refused/${s.workspace}/${createHash("sha256").update(s.text).digest("hex").slice(0, 16)}`, notice: { kind: "run-refused", unit: allyLabel(s.label), text: s.text }, scope };
 	const trust = s.detail?.startsWith("No trust decision");
 	const kind = trust ? "trust-unanswered" : s.outcome === "quit" ? "run-quit" : s.outcome === "timeout" ? "run-timeout" : "run-crashed";

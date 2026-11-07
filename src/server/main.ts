@@ -31,6 +31,7 @@ import {
 import { AFTER, endpointFor, helloOf, listenControl, newSecret, PROTOCOL, type Reply, type Request } from "./socket.ts";
 import { promptCommand } from "./standing.ts";
 import { UnitReporter, runNotice } from "../link/unitstatus.ts";
+import { mainsFor, type MainFact } from "./unitstop.ts";
 import { readNotes } from "./towerrunstore.ts";
 import { createTowers, type Towers, type TowersOptions } from "./towers.ts";
 import { headCommand } from "./headcmds.ts";
@@ -570,6 +571,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	}));
 	/** `team\nlabel` a unit is told under (scrubbed) → its workspace id, for the report lookup: two workspaces may share a label, and a team reads only its own. */
 	const unitWorkspaces = new Map<string, string>();
+	let mainFacts: { at: number; facts: Promise<MainFact[]> } | undefined;
 	const unitsOut = () => (reporter ??= new UnitReporter({
 		controllers: () => link?.holder?.dialogControllers() ?? [], admin: (team, device) => link?.holder?.isAdmin(team, device) ?? false,
 		// Per team: the units whose workspace has a pane inside that team's project, when its policy shares status. Labels and monitor commands leave this computer, so they pass the same scrub as a board's.
@@ -593,7 +595,14 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			const ws = unitWorkspaces.get(`${team}\n${unit}`), note = ws ? readNotes(slot, ws).at(-1) : undefined, sent = ws ? link?.holder?.lastSentTo(ws, device) : undefined;
 			return note && (!sent || Date.parse(note.at) >= sent.at) ? note.note : sent?.text ?? "";
 		},
-		status: async (team, device, units) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendUnitStatus(team, device, units); },
+		// The mains this controller may stop (unitstop.ts): its own, or the whole team's for an admin; only where the units are shared too. One reading of the broker and Herdr serves a pass (two seconds).
+		mains: async (team, device) => {
+			const box = link?.holder?.deviceId;
+			if (!box || !towers || link?.holder?.policyOf(team)?.share !== "status") return [];
+			if (!mainFacts || now() - mainFacts.at > 2000) mainFacts = { at: now(), facts: towers.mains() };
+			return mainsFor(await mainFacts.facts, { team, device }, { box, admin: (t, d) => link?.holder?.isAdmin(t, d) ?? false });
+		},
+		status: async (team, device, units, mains) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendUnitStatus(team, device, units, mains); },
 		notice: async (team, device, n) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, "notice", n); },
 		now, log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),
 	}));
@@ -603,6 +612,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			kit, stateDir: slot.stateDir, version, pid, started: () => own.started,
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
 			dialogAnswer: (a) => dialogsOut().answer(a),
+			// A `unit-stop` that passed the holder's checks: the tower service decides which main and whose, and the revoker carries it out (unitstop.ts). Its presence puts `unit-stop` in this box's caps.
+			unitStop: (a) => (towers ? towers.unitStop(a) : Promise.reject(new Error("The tower service is not running"))),
 			// The tower service takes part in the holder's work (B6): an ask answered by a `tower-reply` is the main's, messages for a tower identity the server runs wake an ally run, and a `forward` answer reaches its run.
 			tower: { asks: { take: (q) => asks.take(q) }, served: (identity) => towers?.allyWaiting(identity), confirmed: (to, dialogId, allow) => towers?.runs.confirmed(dialogId, allow) ?? false,
 				openTower: async (project, toWorkspace, from) => {

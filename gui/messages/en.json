@@ -1241,5 +1241,18 @@
   "wc_ended_plain": "The tower closed this wait.",
   "wc_reading": "Reading the whole card…",
   "wc_legacy_note": "This wait was written before cards: it has only the tower's words.",
-  "wc_refused": "Not taken: {reason}"
+  "wc_refused": "Not taken: {reason}",
+  "box_team": "Team {team}",
+  "box_unreachable": "unreachable",
+  "box_seen_pre": "last seen ",
+  "box_ended_revoked": "Operate permission was withdrawn",
+  "box_ended_refused": "This machine does not let this device operate it",
+  "box_ended_other": "Operating this machine has ended",
+  "box_runs": "Earlier runs ({count})",
+  "box_runs_more": "Show more",
+  "box_run_aria": "Open {name}, an earlier run",
+  "box_ally": "This machine's status card",
+  "box_blocked": "This machine cannot be reached right now; sending waits until it can.",
+  "box_keys_blocked": "This machine cannot be reached right now; keys wait until it can.",
+  "box_answer_blocked": "This machine cannot be reached right now; answers wait until it can."
 }

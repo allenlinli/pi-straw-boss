@@ -28,11 +28,13 @@ export interface CardDeps {
 	close?: boolean;
 	/** Zen's card (Z-D20): Enter acts on the primary control. The focus goes to Run, and to the confirm's yes (never held or repeated Enter: confirmbar.ts), not to Cancel. */
 	enter?: boolean;
+	/** The unit is a remote base's and its box takes no input now (unreachable, ended, or no `input`): the card is off and says why, like the key pad. Read at every draw. */
+	away?(): boolean;
 }
 const OK: CardState[] = ["live", "secret", "running", "refused"], WORDS: Partial<Record<CardState, () => string>> = { connecting: m.connecting, secret: m.card_secret, sending: m.card_sending, stale: m.card_stale, paused: m.paused_hidden, hidden: m.mirror_hidden };
 let ids = 0;
 
-export function termCard({ step, watch, post, stream, held, over: owner, escape = true, close = true, enter = false }: CardDeps) {
+export function termCard({ step, watch, post, stream, held, over: owner, escape = true, close = true, enter = false, away }: CardDeps) {
 	const pane = step.kind === "pane", id = `tcard-${++ids}`, fine = () => Boolean(globalThis.matchMedia?.("(pointer: fine)").matches);
 	let stopped = false, tries = 0, nextAt = 0, retrying: ReturnType<typeof setTimeout> | undefined, focused = false;
 	// A card that is gone says nothing more: a late reply to what it sent must not close the card or layer that took its place.
@@ -79,6 +81,7 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 	const ask = () => confirmBar(status, sentence(confirm!), m.card_confirm_yes(), () => (writer.confirm("enter", confirm!.token), (confirm = undefined), draw()), () => ((confirm = undefined), draw(), focus()), { enter });
 	function draw() {
 		if (!link && !held()) attach();
+		if (away?.()) confirm = undefined; // a confirm bar would post its Enter: it goes with the box
 		const s = state(), secret = pane && conn.phase === "live" && secretPrompt(conn.rows);
 		const next = pane ? maskStep(mask, { secret, empty: input.value === "" }) : mask;
 		if (conn.phase === "live") [tries, nextAt] = [0, 0];
@@ -92,16 +95,18 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 		input.type = mask.on ? "password" : "text";
 		maskBtn.setAttribute("aria-pressed", String(mask.on));
 		go.textContent = s === "sending" ? m.card_sending() : pane ? m.send_enter() : m.card_run();
-		go.disabled = !OK.includes(s) || s === "confirm";
+		const gone = away?.() === true;
+		go.disabled = !OK.includes(s) || s === "confirm" || gone;
+		input.disabled = maskBtn.disabled = gone;
 		if (enter && !pane && !go.disabled && !focused && fine()) {
 			focused = true; // the card's primary control takes the focus once, when it can act (Zen's Enter presses it)
 			if (!at || at === document.body || el.contains(at)) go.focus();
 		}
 		el.dataset.state = s;
 		el.classList.toggle("stale", s === "stale");
-		const words = s === "held" ? held() : s === "refused" ? refusal || conn.why : s === "ended" ? conn.why : (WORDS[s]?.() ?? (sent ? m.card_sent() : ""));
+		const words = gone ? m.box_keys_blocked() : s === "held" ? held() : s === "refused" ? refusal || conn.why : s === "ended" ? conn.why : (WORDS[s]?.() ?? (sent ? m.card_sent() : ""));
 		const key = s === "confirm" ? `ask:${confirm?.token}` : `${s}:${words}`;
-		if (key !== shown) ((shown = key), s === "confirm" ? ask() : (status.replaceChildren(words ?? ""), (status.dataset.tone = s === "refused" ? "error" : "")));
+		if (key !== shown) ((shown = key), s === "confirm" && !gone ? ask() : (status.replaceChildren(words ?? ""), (status.dataset.tone = s === "refused" ? "error" : "")));
 	}
 	/** A refused attach is tried again from the button, at most once a second and doubling to 8 s while it keeps failing; the card says it is connecting meanwhile. */
 	function reattach() {
@@ -118,7 +123,7 @@ export function termCard({ step, watch, post, stream, held, over: owner, escape 
 		draw();
 	}
 	function press() {
-		if (!OK.includes(state()) || busy()) return;
+		if (away?.() || !OK.includes(state()) || busy()) return;
 		if (conn.phase === "refused") return reattach();
 		[refusal, confirm, sent] = ["", undefined, false];
 		if (!pane) (writer.push({ key: "enter", ...(step.run ? { run: step.run } : {}) }), (step.run = undefined));

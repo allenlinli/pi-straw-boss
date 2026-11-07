@@ -15,6 +15,7 @@ import { mountMinimap } from "./minimap.ts";
 import { bandModel, gutter, routePackets } from "./headband.ts";
 import { aimBase, aimSquad, aimStash, aimTower, aimUnit } from "./quit.ts";
 import { formatRoute, type Route } from "./router.ts";
+import { arrange, can, canIn } from "./boxmodel.ts";
 
 // Draws a net into the page by diffing: elements are keyed by id, created once, updated in place, and reordered, so only what changed
 // is touched and CSS transitions play on state changes. Motion is CSS on transform and opacity only. The unit token (plate, icon, ring,
@@ -157,21 +158,21 @@ export function fillUnit(el: HTMLElement, u: Omit<Unit, "id" | "key" | "control"
 	todo.hidden = !u.todo;
 	if (u.todo) (text(todo, "b", `${u.todo.done < u.todo.total ? "◐" : "✓"} ${u.todo.done}/${u.todo.total}`), text(todo, "span", u.todo.now ?? ""));
 	ticks(el.querySelector(":scope > .card")!, u.ticks);
-	aimUnit(el.querySelector(":scope > .card > .quit-btn")!, u);
+	aimUnit(el.querySelector(":scope > .card > .quit-btn")!, u, (a) => canIn(el, a)); // a unit of a remote base has Quit and Dismiss only when its box lists them (boxmodel.ts)
 	sync(el.querySelector(".subs")!, u.subs ?? [], unitEl, fillUnit);
 }
 
 /** Points an opening button at its base (main.ts opens the tile): a base with a tower takes mains, one without takes members, a squad only members. */
 export function aimOpening(button: HTMLElement, b: Base, tab?: string) {
 	const kind = b.tower ? "main" : "member";
-	button.hidden = Boolean(tab && b.tower);
+	button.hidden = Boolean((tab && b.tower) || b.box); // a remote base is not opened into (decision 9)
 	button.dataset.open = kind;
 	button.dataset.ws = b.id;
 	if (tab) button.dataset.tab = tab;
 	if (button.textContent !== (kind === "main" ? m.open_main() : m.open_member())) button.textContent = kind === "main" ? m.open_main() : m.open_member();
 }
 
-const baseMarkup = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use data-icon="tower"/></svg><b class="badge"></b></div><div class="title"><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${noun("outposts")}"></div></section>`);
+const baseMarkup = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use data-icon="tower"/></svg><b class="badge"></b></div><div class="title"><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><p class="box-line" hidden><b class="box-dev"></b><span class="box-team"></span><span class="box-seen" hidden><span class="bs-state"></span><span class="bs-when"> · <span class="bs-pre"></span><span class="age"></span><span class="bs-post"></span></span></span></p><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${noun("outposts")}"></div><p class="box-ended" role="status" hidden></p><details class="box-runs" hidden><summary></summary><ul class="box-run-list"></ul><button type="button" class="pair-btn box-more" hidden></button></details><details class="box-ally" hidden><summary></summary><div class="box-ally-in"></div></details></section>`);
 /** A phone keeps a base's Quit behind a `⋯` in its header (style.css, "A phone's menus"); above 640 px the menu is `display: contents`, so the button stays where it was. */
 const baseEl = () => {
 	const el = baseMarkup();
@@ -180,8 +181,19 @@ const baseEl = () => {
 };
 /** The tower's state as the map says it: the service's own word (standing by, waking, held…) and how its last run ended, or the mark's word for a tower with no service. */
 const towerLine = (t: NonNullable<Base["tower"]>) => statusLine(t.service, t.mark, (mk) => LABEL[mk]());
-function fillBase(el: HTMLElement, b: Base) {
+export { baseEl };
+// A remote (operate) base's own parts (box.ts: the badge, the states, Earlier runs, the box's ally card) are a chunk of their own, loaded with the first remote base; a card that waits for it is drawn from its latest reading, and a load that failed is tried again at the next snapshot.
+let boxes: typeof import("./box.ts") | undefined, loadingBox: Promise<void> | undefined;
+const waitingBoxes = new Map<HTMLElement, [Base, AllyCard[] | undefined, LinkSummary | undefined]>();
+export const loadBox = (): Promise<void> => (loadingBox ??= import("./box.ts").then((x) => ((boxes = x), waitingBoxes.forEach((args, card) => x.fillBox(card, ...args)), waitingBoxes.clear()), () => void (loadingBox = undefined)));
+/** `under`: the ally cards a live remote base takes in (boxmodel.ts `arrange`), with the link summary they are drawn from. */
+export function fillBase(el: HTMLElement, b: Base, { under, link }: { under?: AllyCard[]; link?: LinkSummary } = {}) {
 	mark(el, b.mark);
+	el.classList.toggle("remote", Boolean(b.box));
+	if (b.box) (el.dataset.box = b.box.state, (el.dataset.can = b.box.can.join(" "))); // before the units: they read it (boxmodel.ts `canIn`)
+	else (delete el.dataset.box, delete el.dataset.can);
+	el.querySelector<HTMLElement>("header > .menu")!.hidden = el.querySelector<HTMLElement>(".spawn-btns")!.hidden = Boolean(b.box); // a remote base is not closed, stashed or opened into from here (decision 9)
+	if (b.box) (boxes ? boxes.fillBox(el, b, under, link) : (waitingBoxes.set(el, [b, under, link]), void loadBox()));
 	const tower = el.querySelector<HTMLElement>(".tower")!;
 	tower.classList.toggle("ghost", !b.tower);
 	mark(tower, b.tower?.mark ?? "unknown");
@@ -194,7 +206,7 @@ function fillBase(el: HTMLElement, b: Base) {
 	aimBase(el.querySelector("header .menu-pop > .quit-btn")!, b);
 	nameMenu(el.querySelector("header > .menu")!, b.label);
 	aimStash(el.querySelector(".spawn-btns [data-close=stash]")!, b);
-	aimTower(el.querySelector(".tower-quit")!, b.tower);
+	aimTower(el.querySelector(".tower-quit")!, b.tower, (a) => can(b, a));
 	sync(el.querySelector(".tower-subs")!, b.tower?.subs ?? [], unitEl, fillUnit);
 	fillAllies(el.querySelector(".title .allies")!, b.id, b.tower?.service);
 	fillNotices(el.querySelector(".tower-notices")!, b.id, b.tower?.service, b.tower?.key);
@@ -205,6 +217,7 @@ function fillBase(el: HTMLElement, b: Base) {
 	}, (tab, t) => {
 		text(tab, "h3 span", m.tab_label({ label: t.label }));
 		aimSquad(tab.querySelector(".menu-pop > .quit-btn")!, b, t);
+		tab.querySelector<HTMLElement>("h3 > .menu")!.hidden = !can(b, "close-tab"); // no empty ⋯
 		nameMenu(tab.querySelector("h3 > .menu")!, m.tab_label({ label: t.label }));
 		aimOpening(tab.querySelector(".tab-add")!, b, t.id);
 		sync(tab.querySelector(".units")!, t.units, unitEl, fillUnit);
@@ -319,7 +332,7 @@ function wire(map: HTMLElement, bases: HTMLElement, svg: SVGSVGElement, dots: HT
 	const [col, gap] = [parseFloat(style.gridTemplateColumns), parseFloat(style.columnGap) || 20];
 	band?.style.setProperty("--col", Number.isFinite(col) ? `${col}px` : ""); // the band is one grid column wide: the width the masonry resolved for its tracks
 	const left = (el: HTMLElement) => el.getBoundingClientRect().x - box.x, first = Math.min(...cards.map(left));
-	const wired = cards.filter((c) => !c.classList.contains("ally")).map((c) => ({ c, t: c.querySelector<HTMLElement>(".tower")! }));
+	const wired = cards.filter((c) => !c.classList.contains("ally") && !c.classList.contains("remote")).map((c) => ({ c, t: c.querySelector<HTMLElement>(".tower")! }));
 	const r = band?.getBoundingClientRect(), hub = r ? ([Math.round(r.x + r.width / 2 - box.x), Math.round(r.bottom - box.y)] as const) : undefined;
 	const ends = wired.map(({ c, t }) => {
 		const q = t.getBoundingClientRect();
@@ -366,9 +379,9 @@ export function mountPage(): Page {
 			for (const [id, value] of [["s-bases", String(net.bases.length)], ["s-agents", count()], ["s-working", count("working")], ["s-commanding", count("commanding")], ["s-waiting", count("waiting")]] as const) byId(id, HTMLElement).textContent = value;
 		},
 		show(net) {
-			const allies = mergeAllies(net.link?.allies ?? []).map((a) => ({ ...a, id: `ally/${a.id}`, ally: true as const }));
+			const { bases: ordered, loose, under } = arrange(net, mergeAllies(net.link?.allies ?? [])), allies = loose.map((a) => ({ ...a, id: `ally/${a.id}`, ally: true as const })); // local bases, remote bases, then the ally cards no live remote base holds
 			fillHeadNode(byId("head-node", HTMLElement), net.head);
-			sync(bases, [...net.bases, ...allies], (item) => ("ally" in item ? allyEl() : baseEl()), (el, item) => ("ally" in item ? fillAlly(el, item, net.link) : fillBase(el, item)));
+			sync(bases, [...ordered, ...allies], (item) => ("ally" in item ? allyEl() : baseEl()), (el, item) => ("ally" in item ? fillAlly(el, item, net.link) : fillBase(el, item, { under: under.get(item.id), link: net.link })));
 			for (const el of bases.children) if (!packed.has(el)) (packed.add(el), pack.observe(el));
 			for (const el of packed) if (!el.isConnected) (packed.delete(el), pack.unobserve(el));
 			requestAnimationFrame(layout);

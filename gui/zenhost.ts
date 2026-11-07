@@ -9,7 +9,7 @@ type Mode = "card" | "full";
 /** How a step ended: its Enter was taken, the unit worked again (an armed terminal), or the pane is gone. */
 export type Done = "taken" | "working" | "gone";
 /** `kind`: what ends the step (`plain`: a terminal opened to look at, which only the boss ends). `drawn`: what the host holds now. `held`: the sentence for a tower with no run live. */
-export interface Open { name: string; key: string; kind: StepKind | "plain"; mode: Mode; /** The step is over (`done`): the layer stays, with a quiet line in its bar, until the boss goes back (Z-D20, never interrupted). */ done?: Done; command?: string; run?: string; asker?: string; kit?: TermKit; card?: ReturnType<typeof termCard>; drawn?: "card" | "full" | "hold"; held?: string; layer: HTMLElement; host: HTMLElement; hint: HTMLElement; note: HTMLElement; back: HTMLElement; off?: () => void }
+export interface Open { name: string; key: string; kind: StepKind | "plain"; mode: Mode; /** The step is over (`done`): the layer stays, with a quiet line in its bar, until the boss goes back (Z-D20, never interrupted). */ done?: Done; command?: string; run?: string; asker?: string; /** The unit's box takes no input now (remote base: unreachable or ended), read by the card at every draw. */ away?: () => boolean; kit?: TermKit; card?: ReturnType<typeof termCard>; drawn?: "card" | "full" | "hold"; held?: string; layer: HTMLElement; host: HTMLElement; hint: HTMLElement; note: HTMLElement; back: HTMLElement; off?: () => void }
 export interface Layer {
 	/** Whether `c` is the layer on show. */
 	live(c: Open): boolean;
@@ -39,6 +39,7 @@ export function draw(c: Open, on: Layer) {
 			watch: (w) => kit.watch(key, c.name, w),
 			post: kit.post(key),
 			stream: kit.stream,
+			away: () => c.away?.() === true,
 			held: () => c.held,
 			over: (why) => on.live(c) && (why === "full" ? toFull(c, on) : why !== "closed" && on.done(c, why)),
 			escape: false,

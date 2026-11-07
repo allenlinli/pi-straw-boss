@@ -23,7 +23,9 @@ const trust = { key: "trust:/p", ws: "", name: "p", role: "none", mark: "waiting
 
 let dock: El;
 const calls = { posts: [] as string[], trusts: [] as unknown[], shown: [] as string[] };
+let netNow: unknown;
 const mount = () => {
+	netNow = undefined;
 	page.body.replaceChildren();
 	delete page.body.dataset.stale;
 	for (const id of ["dock", "work", "tiles", "tile-tabs", "alerts", "done", "done-pop", "done-list", "done-clear"]) {
@@ -35,7 +37,7 @@ const mount = () => {
 	}
 	Object.assign(page.body.find((el) => el.id === "done-pop")[0]!, { matches: () => false, hidePopover() {}, getClientRects: () => [] });
 	return mountPanels({
-		label: (ws) => ws, recent: async () => [], stream: () => "s1", showTerminal: (_ws, key) => void calls.shown.push(key),
+		label: (ws) => ws, net: () => netNow as never, recent: async () => [], stream: () => "s1", showTerminal: (_ws, key) => void calls.shown.push(key),
 		post: (key) => (action, body) => (calls.posts.push(`${key} ${action} ${body.dialog}`), Promise.resolve({ ok: true, status: 200, body: { outcome: "accepted" } })),
 		trust: (body) => (calls.trusts.push(body), Promise.resolve({ ok: true, status: 200, body: { outcome: "accepted" } })),
 	});
@@ -107,4 +109,29 @@ test("a dock dialog the page cannot answer sends the user to the unit's terminal
 	assert.ok(show, "the dialog offers the terminal");
 	show.click();
 	assert.deepEqual(calls.shown, ["u1"], "the unit's terminal");
+});
+
+const boxNet = (state: "live" | "unreachable" | "ended" | undefined) => ({ bases: [{ id: "w", label: "Work", mark: "idle", tower: null, tabs: [{ id: "t1", label: "t", units: [{ id: "u1", key: "u1", control: true, name: "Ada", role: "main", mark: "waiting", subs: [] }] }], outposts: [], outside: [], ...(state ? { box: { device: "dev1", short: "a1b2c3", label: "agent-tower-01", team: "moldplan", scope: "team", can: ["input"], state, ...(state === "unreachable" ? { seen: 1 } : {}) } } : {}) }] });
+
+test("the dock's dialog of a remote base's unit is off while its box is unreachable or ended, with the reason shown; a live box and a local base answer, and the next snapshot follows the box", async () => {
+	const { m } = await import("../gui/paraglide/messages.js");
+	for (const [state, off] of [["unreachable", true], ["ended", true], ["live", false], [undefined, false]] as const) {
+		const layer = mount();
+		netNow = boxNet(state);
+		layer.alerts([alert], new Map([[alert.key, alert]]), netNow as never);
+		layer.stack.show(alert);
+		assert.deepEqual([choice(0).disabled, choice(1).disabled], [off, off], String(state));
+		assert.equal(dock.textContent.includes(m.box_answer_blocked()), off, `${state}: the reason`);
+	}
+	const layer = mount();
+	netNow = boxNet("live");
+	layer.alerts([alert], new Map([[alert.key, alert]]), netNow as never);
+	layer.stack.show(alert);
+	netNow = boxNet("unreachable");
+	layer.alerts([], new Map([[alert.key, alert]]), netNow as never);
+	assert.deepEqual([choice(0).disabled, choice(1).disabled], [true, true], "the box went away: the open dialog follows the next snapshot");
+	netNow = boxNet("live");
+	layer.alerts([], new Map([[alert.key, alert]]), netNow as never);
+	assert.deepEqual([choice(0).disabled, choice(1).disabled], [false, false], "and back");
+	assert.ok(!dock.textContent.includes(m.box_answer_blocked()));
 });

@@ -48,10 +48,10 @@ Object.assign(globalThis, { document: { createElement: () => new El() }, getSele
 const mod = await import("../gui/keypad.ts");
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function pad(state: "live" | "hidden" | "off" = "live", enter = false) {
+function pad(state: "live" | "hidden" | "off" = "live", enter = false, away?: () => boolean) {
 	const heard: string[] = [], posts: Record<string, unknown>[] = [], replies: ((r: { ok: boolean; status: number; body: Record<string, unknown> }) => void)[] = [];
 	const s = { state };
-	const p = mod.keypad({ name: "billing", enterConfirms: () => enter, state: () => s.state, stream: () => "st", taken: () => void heard.push("taken"), post: (action, body) => (assert.equal(action, "keys"), posts.push(body), new Promise((resolve) => replies.push(resolve))) });
+	const p = mod.keypad({ name: "billing", away, enterConfirms: () => enter, state: () => s.state, stream: () => "st", taken: () => void heard.push("taken"), post: (action, body) => (assert.equal(action, "keys"), posts.push(body), new Promise((resolve) => replies.push(resolve))) });
 	const el = p.el as unknown as El;
 	const key = (k: string) => el.all().find((b) => b.dataset.key === k)!;
 	const reply = async (status: number, body: Record<string, unknown> = {}) => (replies.shift()!({ ok: status < 300, status, body }), await tick());
@@ -259,4 +259,33 @@ test("ZNR-F007: in Zen the confirm's Send waits 400 ms: the second tap of a doub
 		if (real) Object.defineProperty(performance, "now", real);
 		else delete (performance as { now?: unknown }).now;
 	}
+});
+
+test("a pad of an unreachable or ended remote base is off: every key disabled with the reason shown, nothing from the keyboard, text or paste goes, and it returns with the box", async () => {
+	const { m } = await import("../gui/paraglide/messages.js");
+	const gone = { on: true };
+	const { p, el, key, press, posts, keys } = pad("live", false, () => gone.on);
+	const note = () => el.all().find((x) => x.attrs.get("class") === "pad-note")!;
+	p.update();
+	assert.ok(keys().every((k) => key(k!).disabled), "every pad key is disabled");
+	assert.equal(note().text, m.box_keys_blocked(), "and it says why, not only greyed");
+	press("up");
+	assert.equal(p.type({ key: "ArrowUp", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false } as unknown as KeyboardEvent), true, "the key is kept from the page");
+	p.key("enter");
+	p.text("hello");
+	p.paste("hello");
+	assert.equal(posts.length, 0, "no key, typed text or paste reaches the box");
+	gone.on = false;
+	p.update();
+	assert.ok(keys().every((k) => !key(k!).disabled));
+	assert.equal(note().text, "", "the reason goes with the cause");
+	press("up");
+	assert.equal(posts.length, 1, "back with the box");
+	assert.match(m.box_keys_blocked({}, { locale: "zh-TW" }), /[\u4e00-\u9fff]/);
+});
+
+test("a local pad (no away fact) is unchanged", () => {
+	const { p, keys, key } = pad();
+	p.update();
+	assert.ok(keys().every((k) => !key(k!).disabled));
 });

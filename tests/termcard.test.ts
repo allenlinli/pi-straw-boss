@@ -15,7 +15,7 @@ type Phase = "connecting" | "live" | "hidden" | "paused" | "refused";
 interface Reply { ok: boolean; status: number; body: Record<string, unknown> }
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "billing-main", escape, run, enter }: { command?: string; name?: string; escape?: boolean; run?: string; /** Zen's card: Enter acts on the primary control (Z-D20). */ enter?: boolean } = {}) {
+function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "billing-main", escape, run, enter, away }: { command?: string; name?: string; escape?: boolean; run?: string; /** Zen's card: Enter acts on the primary control (Z-D20). */ enter?: boolean; /** The unit is a remote base's and its box takes no input now. */ away?: () => boolean } = {}) {
 	mock.timers.reset();
 	mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });
 	page.fine = true;
@@ -32,6 +32,7 @@ function rig(kind: "prompt" | "pane", { command = "sudo apt update", name = "bil
 		over: (why) => void overs.push(why),
 		...(escape === undefined ? {} : { escape }),
 		...(enter === undefined ? {} : { enter }),
+		...(away ? { away } : {}),
 	});
 	const el = card.el as unknown as El;
 	const at = (c: string) => el.byClass(c)!;
@@ -704,4 +705,48 @@ test("Z-D20: Zen's card (enter): Run takes the focus once it can act, the confir
 		q.card.focus();
 		assert.equal(page.focus, q.input(), "a pane's card: the line takes the focus, and Enter in it is Send Enter");
 	} finally { q.done(); }
+});
+
+test("a card of an unreachable or ended remote base is off: Run, Send Enter, the line and the mask are disabled, the reason shows, nothing is sent, a confirm bar is withdrawn, and it returns with the box", () => {
+	const gone = { on: true };
+	const p = rig("prompt", { away: () => gone.on });
+	const q = rig("pane", { away: () => gone.on });
+	try {
+		assert.ok(p.go().disabled, "Run is disabled");
+		assert.equal(p.status().textContent, m.box_keys_blocked(), "and the card says why");
+		p.press();
+		assert.equal(p.posts.length, 0);
+		assert.ok(q.go().disabled && q.input().disabled && q.mask().disabled, "a pane's line, mask and Send Enter are off too");
+		q.input().value = "x";
+		q.press();
+		assert.equal(q.posts.length, 0);
+		gone.on = false;
+		p.card.update();
+		assert.ok(!p.go().disabled);
+		assert.equal(p.status().textContent, "", "the reason goes with the cause");
+		p.press();
+		assert.equal(p.posts.length, 1, "back with the box");
+	} finally { p.done(); }
+});
+
+test("a local card (no away fact) is unchanged", () => {
+	const p = rig("prompt");
+	try {
+		assert.ok(!p.go().disabled);
+		assert.equal(p.status().textContent, "");
+	} finally { p.done(); }
+});
+
+test("a confirm bar showing when the box goes away is withdrawn: its Send it is not left to post an Enter to an unreachable box", async () => {
+	const gone = { on: false };
+	const p = rig("prompt", { away: () => gone.on });
+	try {
+		p.press();
+		await p.reply(409, { error: "confirm", confirm: "command", reason: "x" });
+		assert.ok(p.ask().yes, "the confirm shows while the box is live");
+		gone.on = true;
+		p.card.update();
+		assert.equal(p.ask().yes, undefined, "and is gone with the box");
+		assert.equal(p.status().textContent, m.box_keys_blocked());
+	} finally { p.done(); }
 });

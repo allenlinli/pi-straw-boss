@@ -117,9 +117,22 @@ export function mergeAllies(allies: AllyBase[]): AllyCard[] {
 export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyCard, "device" | "workspace" | "spare"> & { teams: string[] }) {
 	const rows = (units ?? []).filter((u) => u.device === a.device && a.teams.includes(u.team)).sort((p, q) => a.teams.indexOf(p.team) - a.teams.indexOf(q.team));
 	const out = new Map<string, ReturnType<typeof tag>>();
-	const tag = (u: DeviceUnits["units"][number], row: DeviceUnits) => ({ ...u, at: row.at, stale: row.stale === true });
+	const tag = (u: DeviceUnits["units"][number], row: DeviceUnits) => ({ ...u, at: row.at, stale: row.stale === true, team: row.team, device: row.device, mains: mainCards(u.unit, row) });
 	for (const row of rows) for (const u of row.units) if (a.workspace === null || u.unit === a.workspace || (a.spare?.teams.includes(row.team) && !a.spare.named.includes(u.unit))) { const had = out.get(u.unit); if (!had || row.at > had.at) out.set(u.unit, tag(u, row)); }
 	return [...out.values()];
+}
+
+/**
+ * One main of an ally base's unit that this computer may stop (docs/specs/2026-11-07-link-remote-stop.md §6): `handle` names it to the box, `byLabel` is the dispatcher's label for a main another device dispatched (an admin sees those; a
+ * dispatcher's own are not labelled), `stopping` that a stop is pending, and `canStop` whether the page offers a Stop: the box lists `unit-stop`, its status is lately, and no stop is pending. A teammate's words only ever become text.
+ */
+export interface MainCard { handle: string; name: string; state: string; tone: UnitTone; word: string; byLabel?: string; stopping: boolean; canStop: boolean }
+/** The mains a status row names for one unit. */
+function mainCards(unit: string, row: DeviceUnits): MainCard[] {
+	return (row.mains ?? []).filter((x) => x.unit === unit).map((x) => {
+		const who = row.dispatchers?.[x.by], base = x.stopping ? { tone: "other" as UnitTone, word: m.link_main_stopping() } : { tone: x.state === "working" ? "working" as UnitTone : x.state === "idle" || x.state === "done" ? "idle" as UnitTone : "other" as UnitTone, word: stateName(x.state) };
+		return { handle: x.handle, name: x.name, state: x.state, ...base, ...(who?.self ? {} : { byLabel: who?.label ?? x.by.slice(0, 6) }), stopping: x.stopping, canStop: row.canStop === true && row.stale !== true && !x.stopping };
+	});
 }
 
 /** How long a crash notice still makes a unit that is not running read as crashed: the wire carries no outcome, so an old crash says nothing of the unit now. */
@@ -128,7 +141,7 @@ export const CRASH_FRESH_MS = 30 * 60_000;
 const CRASH_KINDS = ["run-crashed", "trust-unanswered"];
 export type UnitTone = "working" | "idle" | "waiting" | "crashed" | "other";
 /** One unit of an ally base as its card draws it. `word` is the state in words, `crash` the notice that says why it stopped (`trust`: a trust question nobody answered, which the box's settings fix, not its code). */
-export interface UnitCard { unit: string; state: string; tone: UnitTone; word: string; at: number; stale: boolean; monitors: string[]; report: string; crash?: { at: number; text: string; trust?: true } }
+export interface UnitCard { unit: string; state: string; tone: UnitTone; word: string; at: number; stale: boolean; monitors: string[]; report: string; crash?: { at: number; text: string; trust?: true }; /** The team of the status row this unit came in and the box's device id: where a stop request goes. */ team: string; device: string; mains: MainCard[] }
 
 /** A unit's state word: the tower service's states (standing, waking, running, closing, held) and the marks a plain unit has; one the page does not know is shown as it is. A held unit was paused after repeated crashes: trouble. */
 export function unitWord(state: string): { tone: UnitTone; word: string } {
@@ -154,7 +167,7 @@ export function unitCards(units: DeviceUnits[] | undefined, alerts: LinkAlert[] 
 		const crash = alerts?.filter((x) => x.kind === "notice" && CRASH_KINDS.includes(String(x.data.what)) && a.teams.includes(x.team) && x.data.device === a.device && x.data.unit === u.unit && Number(x.data.at) > 0).map((x) => ({ at: Number(x.data.at), text: String(x.data.text ?? ""), trust: x.data.what === "trust-unanswered" })).sort((p, q) => q.at - p.at)[0];
 		const told = crash !== undefined && base.tone !== "working" && now - crash.at < CRASH_FRESH_MS && crash.at > (seen.get(key) ?? 0) ? { at: crash.at, text: crash.text, ...(crash.trust ? { trust: true as const } : {}) } : undefined;
 		const state = !told ? base : base.tone === "crashed" ? base : told.trust ? { tone: "waiting" as const, word: m.link_unit_trust() } : { tone: "crashed" as const, word: m.link_unit_crashed() };
-		return { unit: u.unit, state: u.state, ...state, ...(told ? { crash: told } : {}), at: u.at, stale: u.stale, monitors: u.monitors, report: u.report };
+		return { unit: u.unit, state: u.state, ...state, ...(told ? { crash: told } : {}), at: u.at, stale: u.stale, monitors: u.monitors, report: u.report, team: u.team, device: u.device, mains: u.mains };
 	});
 }
 

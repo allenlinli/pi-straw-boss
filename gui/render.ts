@@ -226,14 +226,14 @@ function fillAsks(el: HTMLElement, a: AllyCard, link: LinkSummary | undefined) {
 }
 // The units an unattended device reported are drawn by allyunits.ts, loaded with the first unit (a computer with no such device never fetches it); a card that waits for the load is drawn from its latest reading, and a load that failed is tried again at the next snapshot.
 let drawUnits: typeof import("./allyunits.ts").fillAllyUnits | undefined, loadingUnits = false;
-const waitingUnits = new Map<HTMLElement, [UnitCard[], boolean]>();
-function fillUnits(el: HTMLElement, cards: UnitCard[], named: boolean) {
-	if (drawUnits) return void drawUnits(el.querySelector(".ally-units")!, cards, named);
+const waitingUnits = new Map<HTMLElement, [UnitCard[], boolean, string]>();
+function fillUnits(el: HTMLElement, cards: UnitCard[], named: boolean, box: string) {
+	if (drawUnits) return void drawUnits(el.querySelector(".ally-units")!, cards, named, box);
 	if (!cards.length) return void waitingUnits.delete(el);
-	waitingUnits.set(el, [cards, named]);
+	waitingUnits.set(el, [cards, named, box]);
 	if (loadingUnits) return;
 	loadingUnits = true;
-	void import("./allyunits.ts").then(({ fillAllyUnits }) => ((drawUnits = fillAllyUnits), waitingUnits.forEach(([c, n], card) => fillAllyUnits(card.querySelector(".ally-units")!, c, n)), waitingUnits.clear()), () => void (loadingUnits = false));
+	void import("./allyunits.ts").then(({ fillAllyUnits }) => ((drawUnits = fillAllyUnits), waitingUnits.forEach(([c, n, b], card) => fillAllyUnits(card.querySelector(".ally-units")!, c, n, b)), waitingUnits.clear()), () => void (loadingUnits = false));
 }
 /** When each unit of the ally bases was last seen running (`device/unit` to the time of that status): a run after a crash notice ends the crash (linkmodel.ts `unitCards`). Kept for the page's life. */
 const unitsSeen = new Map<string, number>();
@@ -259,7 +259,7 @@ export function fillAlly(el: HTMLElement, a: AllyCard, link: LinkSummary | undef
 		li.dataset.state = t.state; // a state that waits makes a row a way into the question panel, a unit's or the summary line's too
 	});
 	el.classList.toggle("has-units", cards.length > 0);
-	fillUnits(el, cards, a.workspace === null);
+	fillUnits(el, cards, a.workspace === null, a.label);
 	fillAsks(el, a, link);
 }
 

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import type { TrustPrompt } from "./deploy.ts";
 import type { GuiRecord } from "./handover.ts";
-import type { LinkView } from "./link/holder.ts";
+import type { DeviceUnits, LinkView } from "./link/holder.ts";
 import { hereOnlyOpts } from "./intercept.ts";
 import type { Lang } from "./memorycmd.ts";
 import type { Kit } from "./state.ts";
@@ -62,6 +62,27 @@ const WORDS = {
 		linkJoined: (label: string, team: string) => `${label} joined ${team}`,
 		linkRefused: (label: string) => `Refused ${label}: nobody joined`,
 		linkDeclined: "Nothing was decided",
+		stopUsage: "/boss link units [box] | link stop <box> <main name | handle start> [--interrupt] [reason]",
+		unitsNone: "No unattended box has reported its units yet",
+		unitsBox: (label: string, short: string, team: string, stale: boolean) => `${label} (${short}) · team ${team}${stale ? " · no status lately: this is its last one" : ""}`,
+		unitsUnit: (name: string, state: string) => `  unit ${name} · ${state}`,
+		unitsMain: (name: string, state: string, by: string | undefined, handle: string) => `    main ${name} · ${state}${by ? ` · by ${by}` : ""} · ${handle}`,
+		unitsNoStop: "  this box takes no stop requests yet: it needs a pi-straw-boss that lists unit-stop",
+		noBox: (q: string, boxes: string[]) => `No box "${q}" has reported its units. Boxes that did:\n${boxes.join("\n")}`,
+		manyBoxes: (q: string, boxes: string[]) => `More than one box matches "${q}"; nothing was sent. Give more of its name:\n${boxes.join("\n")}`,
+		noMain: (q: string, box: string, mains: string[]) => `No main "${q}" on ${box}. Its mains:\n${mains.join("\n")}`,
+		manyMains: (q: string, mains: string[]) => `More than one main matches "${q}"; nothing was sent. Give more of its name or its handle:\n${mains.join("\n")}`,
+		candidateBox: (label: string, short: string) => `  ${label} (${short})`,
+		candidateMain: (name: string, unit: string, handle: string) => `  ${name} (unit ${unit}) ${handle}`,
+		stopNoMains: (box: string) => `${box} lists no mains this computer may stop`,
+		stopNoCap: (box: string) => `${box} does not take stop requests yet: it needs a pi-straw-boss that lists unit-stop in its caps`,
+		stopAlready: (main: string, box: string) => `${main} on ${box} is already stopping`,
+		stopQuiet: (box: string) => `${box} sent no status lately, so its mains may have changed. Look again with /boss link units`,
+		stopTitle: "Stop this main?",
+		stopModes: { quit: "quit: it quits when it is idle", interrupt: "interrupt: the turn in progress is aborted, then it quits" } as Record<string, string>,
+		stopBody: (box: string, main: string, unit: string, by: string, mode: string, reason: string) => `Ask ${box} to stop the main ${main} (unit ${unit}), dispatched by ${by}. Mode: ${mode}.${reason ? ` Reason: ${reason}` : ""} The box decides; it tells you what happened.`,
+		stopSelf: "you",
+		stopSent: (box: string, main: string, queued: boolean) => `${queued ? "Queued" : "Sent"} the request to stop ${main} on ${box}${queued ? ": the relay has not taken it yet, and it is sent again until it does" : ""}. The box's notice tells what came of it`,
 	},
 	"zh-TW": {
 	openUsage: "/boss open base <資料夾> [名稱] | open member [資料夾] | open main <資料夾> [提示]：開新基地（含一位成員）、加一位成員（在本工作階段旁，或在 <資料夾> 的新分頁），或在本基地開一位主智慧體",
@@ -107,6 +128,27 @@ const WORDS = {
 		linkJoined: (label: string, team: string) => `${label} 已加入 ${team}`,
 		linkRefused: (label: string) => `已拒絕 ${label}：沒有人加入`,
 		linkDeclined: "什麼都沒有決定",
+		stopUsage: "/boss link units [無人機] | link stop <無人機> <主智慧體名稱 | 代號開頭> [--interrupt] [原因]",
+		unitsNone: "還沒有無人值守的機器回報過它的單位",
+		unitsBox: (label: string, short: string, team: string, stale: boolean) => `${label}（${short}）· 團隊 ${team}${stale ? " · 最近沒有狀態：這是它最後一次的回報" : ""}`,
+		unitsUnit: (name: string, state: string) => `  單位 ${name} · ${state}`,
+		unitsMain: (name: string, state: string, by: string | undefined, handle: string) => `    主智慧體 ${name} · ${state}${by ? ` · 派工者 ${by}` : ""} · ${handle}`,
+		unitsNoStop: "  這台機器還不接受停止請求：它需要在 caps 列出 unit-stop 的 pi-straw-boss",
+		noBox: (q: string, boxes: string[]) => `沒有名為「${q}」的機器回報過單位。回報過的有：\n${boxes.join("\n")}`,
+		manyBoxes: (q: string, boxes: string[]) => `不只一台機器符合「${q}」，什麼都沒送出。請多給幾個字：\n${boxes.join("\n")}`,
+		noMain: (q: string, box: string, mains: string[]) => `${box} 上沒有「${q}」這個主智慧體。它有：\n${mains.join("\n")}`,
+		manyMains: (q: string, mains: string[]) => `不只一個主智慧體符合「${q}」，什麼都沒送出。請多給幾個字的名稱或代號：\n${mains.join("\n")}`,
+		candidateBox: (label: string, short: string) => `  ${label}（${short}）`,
+		candidateMain: (name: string, unit: string, handle: string) => `  ${name}（單位 ${unit}）${handle}`,
+		stopNoMains: (box: string) => `${box} 沒有這台電腦可以停止的主智慧體`,
+		stopNoCap: (box: string) => `${box} 還不接受停止請求：它需要在 caps 列出 unit-stop 的 pi-straw-boss`,
+		stopAlready: (main: string, box: string) => `${box} 上的 ${main} 已經在停止中`,
+		stopQuiet: (box: string) => `${box} 最近沒有回報狀態，它的主智慧體可能已經變了。請先用 /boss link units 重新看一次`,
+		stopTitle: "要停止這個主智慧體嗎？",
+		stopModes: { quit: "quit：等它閒下來就結束", interrupt: "interrupt：先中止進行中的回合，再結束" } as Record<string, string>,
+		stopBody: (box: string, main: string, unit: string, by: string, mode: string, reason: string) => `請 ${box} 停止主智慧體 ${main}（單位 ${unit}），派工者是 ${by}。模式：${mode}。${reason ? `原因：${reason}。` : ""}由那台機器決定，結果會通知你。`,
+		stopSelf: "你",
+		stopSent: (box: string, main: string, queued: boolean) => `${queued ? "已排入佇列" : "已送出"}停止 ${box} 上 ${main} 的請求${queued ? "：中繼站還沒收下，會一直重送到收下為止" : ""}。結果看那台機器回的通知`,
 	},
 } as const;
 
@@ -126,13 +168,31 @@ export function parseOpen(rest: string | undefined): { kind: "base" | "main" | "
 	return { kind: kind.word, ...(dir.word ? { dir: dir.word } : {}), text: dir.rest };
 }
 
-/** `/boss link [status]` or `link decide <id> approve|refuse`. */
-export function parseLink(rest: string | undefined): { action: "status" } | { action: "decide"; id: string; verdict: "approve" | "refuse" } | undefined {
+/** `/boss link [status]`, `link decide <id> approve|refuse`, `link units [box]`, or `link stop <box> <main> [--interrupt] [reason]`; "usage" for a malformed units or stop. */
+export function parseLink(rest: string | undefined): { action: "status" } | { action: "decide"; id: string; verdict: "approve" | "refuse" } | { action: "units"; device?: string } | { action: "stop"; device: string; main: string; interrupt: boolean; reason: string } | "usage" | undefined {
 	const text = (rest ?? "").trim();
 	if (!text || text === "status") return { action: "status" };
+	const units = /^units(?:\s+([\s\S]*))?$/.exec(text);
+	if (units) {
+		const device = firstWord((units[1] ?? "").trim());
+		return device.rest ? "usage" : { action: "units", ...(device.word ? { device: device.word } : {}) };
+	}
+	const stop = /^stop(?:\s+([\s\S]*))?$/.exec(text);
+	if (stop) {
+		const device = firstWord((stop[1] ?? "").trim()), main = firstWord(device.rest);
+		if (!device.word || !main.word) return "usage";
+		let after = main.rest, interrupt = false;
+		for (let next = firstWord(after); next.word === "--interrupt"; next = firstWord(after)) (interrupt = true, after = next.rest);
+		return { action: "stop", device: device.word, main: main.word, interrupt, reason: after };
+	}
 	const m = /^decide\s+(\S+)\s+(approve|refuse)$/.exec(text);
 	return m ? { action: "decide", id: m[1]!, verdict: m[2] as "approve" | "refuse" } : undefined;
 }
+
+/** A box that reported its units, as the boss names it: the roster's label and short id of the device, or the start of its id when no team lists it. */
+interface Box { device: string; label: string; short: string }
+/** One main a box listed, with the row (team, caps, freshness) it came in. */
+interface Listed { row: DeviceUnits; main: NonNullable<DeviceUnits["mains"]>[number] }
 
 /** A typed folder against the session's own: `~` is home, a relative path starts at the session's folder. */
 export function folderOf(typed: string, cwd: string): string {
@@ -170,6 +230,53 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 		if (outcome === "stale") return tell(reply.body.by === "gone" ? t().trustGone : reply.body.by === "changed" ? t().trustChanged : t().trustStale, "warning");
 		if (outcome === "busy") return tell(t().trustBusy, "warning");
 		tell(outcome === "unknown" || reply.status === 504 || reply.status === 0 ? t().trustUnknown : why(reply), "error");
+	}
+
+	/** The boxes whose units this computer was told lately, one per device. */
+	const boxesOf = (view: LinkView): Box[] => {
+		const labels = new Map(view.teams.flatMap((x) => x.members.map((mem) => [mem.id, mem] as const))), seen = new Set<string>();
+		return (view.units ?? []).flatMap((row) => (seen.has(row.device) ? [] : (seen.add(row.device), [{ device: row.device, label: labels.get(row.device)?.label ?? row.device.slice(0, 6), short: labels.get(row.device)?.short ?? row.device.slice(0, 6) }])));
+	};
+	/** A box named as typed: its exact label (any case), short id or device id; else the start of one (a label, or four or more characters of an id). Text in a message names the candidates when it is not one. */
+	function pickBox(view: LinkView, query: string): Box | string {
+		const all = boxesOf(view), low = query.toLowerCase(), exact = all.filter((b) => b.label.toLowerCase() === low || b.short.toLowerCase() === low || b.device === query);
+		const hit = exact.length ? exact : all.filter((b) => b.label.toLowerCase().startsWith(low) || (query.length >= 4 && (b.short.toLowerCase().startsWith(low) || b.device.startsWith(query))));
+		const list = (xs: Box[]) => xs.map((b) => t().candidateBox(b.label, b.short));
+		return hit.length === 1 ? hit[0]! : hit.length ? t().manyBoxes(query, list(hit)) : t().noBox(query, list(all));
+	}
+	const byLabel = (row: DeviceUnits, by: string) => (row.dispatchers?.[by]?.self ? undefined : (row.dispatchers?.[by]?.label ?? by.slice(0, 6)));
+	/** `/boss link units [box]` and `/boss link stop <box> <main> [--interrupt] [reason]`: the units a box reported and the mains this computer may stop, and the page's Stop. */
+	async function units(r: GuiRecord, view: LinkView, parsed: Extract<NonNullable<ReturnType<typeof parseLink>>, { action: "units" | "stop" }>) {
+		const rows = (view.units ?? []).filter((row) => row.units.length);
+		if (!rows.length) return tell(t().unitsNone, "warning");
+		const found = pickBox({ ...view, units: rows }, parsed.device ?? "");
+		if (parsed.device !== undefined && typeof found === "string") return tell(found, "error");
+		if (parsed.action === "units") {
+			const lines = rows.filter((row) => !parsed.device || (found as Box).device === row.device).flatMap((row) => {
+				const box = boxesOf({ ...view, units: [row] })[0]!, teamName = view.teams.find((x) => x.team === row.team)?.name ?? row.team.slice(0, 6);
+				const mains = row.mains ?? [];
+				return [t().unitsBox(box.label, box.short, teamName, row.stale === true), ...row.units.flatMap((u) => [t().unitsUnit(u.unit, u.state), ...mains.filter((x) => x.unit === u.unit).map((x) => t().unitsMain(x.name, x.state, byLabel(row, x.by), x.handle.slice(0, 6)))]), ...(mains.length && !row.canStop ? [t().unitsNoStop] : [])];
+			});
+			return tell(lines.join("\n"));
+		}
+		if (typeof found === "string") return tell(found, "error");
+		const box = found, boxRows = rows.filter((row) => row.device === box.device), listed: Listed[] = [];
+		for (const row of boxRows) for (const main of row.mains ?? []) if (!listed.some((x) => x.main.handle === main.handle)) listed.push({ row, main });
+		const cands = (xs: Listed[]) => xs.map((x) => t().candidateMain(x.main.name, x.main.unit, x.main.handle.slice(0, 6)));
+		if (!listed.length) return tell(t().stopNoMains(box.label), "error");
+		const low = parsed.main.toLowerCase(), hit = listed.filter((x) => x.main.name.toLowerCase() === low || (parsed.main.length >= 4 && x.main.handle.startsWith(parsed.main)));
+		if (!hit.length) return tell(t().noMain(parsed.main, box.label, cands(listed)), "error");
+		if (hit.length > 1) return tell(t().manyMains(parsed.main, cands(hit)), "error");
+		const { row, main } = hit[0]!, mode = parsed.interrupt ? "interrupt" : "quit";
+		if (main.stopping) return tell(t().stopAlready(main.name, box.label), "error");
+		if (!row.canStop) return tell(t().stopNoCap(box.label), "error");
+		if (row.stale) return tell(t().stopQuiet(box.label), "error");
+		if (!s.ui) return tell(noScreen(), "error");
+		const by = byLabel(row, main.by) ?? `${row.dispatchers?.[main.by]?.label ?? main.by.slice(0, 6)} (${t().stopSelf})`;
+		if (!(await confirm(t().stopTitle, t().stopBody(box.label, main.name, main.unit, by, t().stopModes[mode]!, parsed.reason), true))) return tell(t().linkDeclined);
+		const reply = await post(r, "link/unit-stop", { team: row.team, device: box.device, handle: main.handle, mode, reason: parsed.reason }, 30_000);
+		if (reply.status !== 200) return tell(why(reply), "error");
+		tell(t().stopSent(box.label, main.name, reply.body.status === "queued"));
 	}
 
 	return {
@@ -211,11 +318,13 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 		/** `/boss link [status]`: this device's teams and the join requests waiting; `link decide <id> approve|refuse`: the page's Approve / Refuse. */
 		async link(rest: string | undefined) {
 			const parsed = parseLink(rest);
+			if (parsed === "usage") return tell(t().stopUsage, "error");
 			if (!parsed) return tell(t().linkUsage, "error");
 			const r = await record(), state = await post(r, "link/state", {}, 10_000);
 			if (state.status !== 200) return tell(why(state), "error");
 			const view = state.body.view as LinkView | undefined;
 			if (!view) return tell(t().linkOff, "warning");
+			if (parsed.action === "units" || parsed.action === "stop") return await units(r, view, parsed);
 			if (parsed.action === "status") {
 				const role = (x: string) => (x === "admin" ? t().linkRoleAdmin : t().linkRoleMember);
 				const teams = view.teams.flatMap((x) => [t().linkTeam(x.name, role(x.self.role), x.status === "running", x.stoppedWhy ?? ""), ...x.members.map((m) => t().linkMember(m.label, m.short, role(m.role), m.attended, m.online, m.self))]);

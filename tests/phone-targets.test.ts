@@ -50,6 +50,12 @@ test("the folds of an ally card's unit (its report, a crash's notice) are 44 px 
 	assert.equal(size(".ally-unit summary", "min-height"), 44);
 });
 
+test("a main's Stop and its row in the Mains fold are 44 px each way on a phone, and the sheet's buttons (Stop, Interrupt and stop, Cancel) keep their 44 px and wrap", () => {
+	assert.deepEqual([size(".au-stop", "min-height"), size(".au-stop", "min-width"), size(".au-main", "min-height")], [44, 44, 44]);
+	assert.ok(rules.some(([sel]) => sel.includes(".sheet-yes") && sel.includes(".later")), "the sheet's buttons are in the phone rule");
+	assert.match(css, /\.sheet-row\s*\{\s*flex-wrap:\s*wrap;/, "three buttons wrap on a narrow screen");
+});
+
 test("the map's head pill stays 36 px to look at but its ::before reaches 44 px on a phone, inside the map's 36 px top band", () => {
 	const pill = topRule(".head-node"), band = topRule(".map:has(> .head-node:not([hidden]))");
 	assert.match(pill, /height:\s*36px/, "the pill keeps its look");

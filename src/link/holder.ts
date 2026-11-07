@@ -118,7 +118,19 @@ export interface AllyBase { id: string; team: string; teamName: string; device: 
 /** The compact reading the net snapshot carries: it changes only when something worth redrawing does. */
 /** What an unattended device last said about its units (`unit-status`, kept in memory): shown beside its ally bases while it keeps saying it. */
 /** `at` is when this computer took the status (epoch ms), for the card's clock; `stale` is set when the device has sent no status for `UNITS_FRESH_MS`: what is shown is its last one. */
-export interface DeviceUnits { team: string; device: string; units: UnitStatus[]; /** The mains this computer may stop, when the box sent them (it does so only against this device's `caps`). */ mains?: MainStatus[]; at: number; stale?: true }
+export interface DeviceUnits {
+	team: string;
+	device: string;
+	units: UnitStatus[];
+	/** The mains this computer may stop, when the box sent them (it does so only against this device's `caps`). */
+	mains?: MainStatus[];
+	/** With `mains`: the box's fresh `caps` list `unit-stop`, so a stop request is worth sending (the page shows a Stop button, `/boss link stop` goes on); absent for a box that lists mains and no stop. */
+	canStop?: true;
+	/** With `mains`: the dispatchers the mains name (`by`), as this team's roster labels them; this computer's own is `self`. */
+	dispatchers?: Record<string, { label: string; self?: true }>;
+	at: number;
+	stale?: true;
+}
 export interface LinkSummary { allies: AllyBase[]; alerts: LinkAlert[]; confirms: ConfirmView[]; units: DeviceUnits[] }
 /** Units a peer's `unit-status` may carry that are kept; how long one counts as current; how many notices are kept, and for how long. */
 const UNITS_MAX = 32, UNITS_FRESH_MS = 3 * 60_000, UNITS_GONE_MS = 30 * 60_000, NOTICES_KEPT = 20, NOTICE_KEEP_MS = 24 * 3600_000;
@@ -1460,7 +1472,12 @@ export class LinkHolder {
 		const now = this.now(), out: DeviceUnits[] = [];
 		for (const run of this.runs.values()) {
 			if (run.dead) continue;
-			for (const [device, seen] of run.units) if (now - seen.at <= UNITS_GONE_MS && seen.units.length) out.push({ team: run.team, device, units: seen.units, ...(seen.mains ? { mains: seen.mains } : {}), at: seen.at, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
+			for (const [device, seen] of run.units) {
+				if (now - seen.at > UNITS_GONE_MS || !seen.units.length) continue;
+				const mine = this.device?.keys.id, dispatchers: NonNullable<DeviceUnits["dispatchers"]> = {};
+				for (const by of new Set(seen.mains?.map((x) => x.by))) dispatchers[by] = { label: this.memberLabel(run.team, by), ...(by === mine ? { self: true as const } : {}) };
+				out.push({ team: run.team, device, units: seen.units, ...(seen.mains ? { mains: seen.mains, dispatchers, ...(this.capsOf(run, device).includes("unit-stop") ? { canStop: true as const } : {}) } : {}), at: seen.at, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
+			}
 		}
 		return out;
 	}

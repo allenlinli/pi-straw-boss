@@ -259,6 +259,8 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 			case "trust": return h.admin.trust({ device: text("device"), level: text("level") as "reply" });
 			case "leave": return h.admin.leave({ team: text("team"), force: a.force === true });
 			case "dialog-answer": return typeof a.answer === "object" && a.answer !== null && !Array.isArray(a.answer) ? h.answerDialog(text("device"), text("dialogId"), text("digest"), JSON.stringify(a.answer)) : { ok: false, error: "Answer the question" };
+			// An admin's (or a dispatcher's) request that an unattended box stop one main: the holder keeps the checks (an attended asker, an unattended member, the box's caps, the handle, the mode), the box decides.
+			case "unit-stop": return typeof a.reason === "string" || a.reason === undefined ? h.requestUnitStop(text("team"), text("device"), { handle: text("handle"), mode: text("mode"), reason: text("reason") }) : { ok: false, error: "A reason is text" };
 			case "confirm-answer": return typeof a.allow !== "boolean" ? { ok: false, error: "Allow or deny" } : typeof a.digest !== "string" ? { ok: false, error: "Look at the request again" } : h.answerConfirm(text("dialogId"), a.allow, a.digest); // the page names the request it showed: a body without its digest is refused
 			default: return { ok: false, error: "unknown request" };
 		}

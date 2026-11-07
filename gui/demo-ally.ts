@@ -1,9 +1,9 @@
 import type { LinkSummary } from "../src/link/holder.ts";
 
-// The demo's states of an unattended device's ally base (`?ally=idle|crashed|trust|held|closing|rerun|stale|long|gone|mate|units|teams`, a comma list applies each: `crashed,teams`), for the card of its units (gui/render.ts `fillAlly`): the fixture's own is a unit at work with two monitors,
+// The demo's states of an unattended device's ally base (`?ally=idle|crashed|trust|held|closing|rerun|stale|long|gone|mate|units|teams|mains|admin|stopping|nostop`, a comma list applies each: `crashed,teams`), for the card of its units (gui/render.ts `fillAlly`): the fixture's own is a unit at work with two monitors,
 // and every state is a change to that one. The times are relative to the page's load, so the card's clock reads as it would live.
 
-export const ALLY_SCENES = ["idle", "crashed", "trust", "held", "closing", "rerun", "stale", "long", "gone", "mate", "units", "teams"] as const;
+export const ALLY_SCENES = ["idle", "crashed", "trust", "held", "closing", "rerun", "stale", "long", "gone", "mate", "units", "teams", "mains", "admin", "stopping", "nostop"] as const;
 export type AllyScene = (typeof ALLY_SCENES)[number];
 export const isAllyScene = (s: string | null): s is AllyScene => ALLY_SCENES.includes(s as AllyScene);
 
@@ -55,6 +55,15 @@ export function allyDemo(link: LinkSummary, name: string | null, now = Date.now(
 			{ unit: "Lighthouse Web", state: "standing", monitors: [], report: "Idle since the 14:10 build; nothing queued." },
 			{ unit: "Orchard Data", state: "standing", monitors: [], report: "" },
 		] });
+	}
+	// The Mains fold of the unit (docs/specs/2026-11-07-link-remote-stop.md §6): `mains` is a dispatcher's own two mains with Stop; `admin` adds teammates' mains, named by their dispatcher; `stopping` has one stop pending; `nostop` is a box whose build takes no stop request (the rows, no buttons).
+	if (scene("mains") || scene("admin") || scene("stopping") || scene("nostop")) {
+		const own = (handle: string, name: string, state: string) => ({ handle, unit: unit.unit, name, state, by: "d-me", stopping: false });
+		const theirs = (handle: string, name: string, state: string, by: string) => ({ handle, unit: unit.unit, name, state, by, stopping: false });
+		d1.mains = [own("0a1b2c3d4e5f6a7b", "docs · ledger fix", "working"), own("1b2c3d4e5f6a7b8c", "docs · release notes", "idle"), ...(scene("admin") ? [theirs("2c3d4e5f6a7b8c9d", "api · retries", "working", "d-mei"), theirs("3d4e5f6a7b8c9d0e", "api · schema", "idle", "d-mei")] : [])];
+		if (scene("stopping")) d1.mains[0]!.stopping = true;
+		d1.dispatchers = { "d-me": { label: "Boss Mac", self: true as const }, "d-mei": { label: "Mei's Mac" } };
+		if (!scene("nostop")) d1.canStop = true;
 	}
 	if (scene("teams")) {
 		const second = { team: "t2", teamName: "agent-tower-team" };

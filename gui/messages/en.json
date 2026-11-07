@@ -749,6 +749,14 @@
 	"link_unit_trust": "needs trust",
 	"link_unit_trust_why": "Why it stopped",
 	"link_unit_trust_hint": "Add the project to the box's trust.json",
+	"link_mains": "Mains ({count})",
+	"link_main_by": "by {who}",
+	"link_main_stopping": "stopping…",
+	"link_main_stop": "Stop",
+	"link_main_stop_aria": "Stop the main {name}",
+	"link_main_stop_ask": "Ask {box} to stop the main {name}? Stop lets it quit when it is idle; Interrupt and stop aborts the turn it is in first. The box decides and tells you what happened.",
+	"link_main_interrupt": "Interrupt and stop",
+	"link_main_refused": "{box} was not asked: {reason}",
 	"link_unit_summary": [
 		{
 			"declarations": [

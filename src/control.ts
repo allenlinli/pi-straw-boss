@@ -13,7 +13,8 @@ import { linkRequest as linkRequestOwner } from "./owners.ts";
 import type { createMirrors } from "./mirror.ts";
 import type { Found } from "./net.ts";
 import { upload } from "./upload.ts";
-import { ENDING } from "./probe.ts";
+import { ENDING, operateTextRefusal } from "./probe.ts";
+import { OPERATE_REFUSED } from "./operateroutes.ts";
 import { qr } from "./qr.ts";
 import { parseOpen } from "./bossopen.ts";
 import { parseSend } from "./bosssend.ts";
@@ -50,6 +51,10 @@ import { answersOf, commandReply, headRoutes, markAnswered } from "./headroutes.
 // One request per session is in flight at a time. Typed text is never logged; a Herdr timeout is not retried: it does not prove nothing arrived.
 
 export const MAX_TEXT = 16_384, MAX_BODY = 65_536;
+/** The first parts of every path this control answers (gui.ts routes them here); operateroutes.ts has a row for each. */
+export const SCOPES = ["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "head", "lan"];
+/** Who is asking, as the guards need it: `remote` a paired device (or an operate session), `secure` a page served over https (which says where a secret is answered), `operate` an operate session's request, which also meets the box's own refusals (docs/specs/2026-11-07-link-operate.md §7). */
+export interface Flags { remote: boolean; secure: boolean; operate?: true }
 export { ENDING };
 
 export interface Reply { status: number; body: unknown }
@@ -171,9 +176,9 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 	};
 	// A link_request is open when the session file shows its call or the runtime that owns the approval relays its dialog (a call nested in codemode is not in the file).
 	const requested = async (key: string, found: Found) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, found));
-	const runs = createRuns(), pad = createKeys({ overlay, run: runs, fresh: (id, key, pane) => mirrors?.fresh(id, key, pane) ?? false, secret, answerable: async (key) => Boolean(await answers?.target(key)), linkRequest: async (found, key) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, { pane: found.pane, file: found.file })), probe: async (key, nonce) => answers?.probe(key, nonce) });
-	/** The origin checks, then the session checks, then one Herdr call. `parts` is the path after api/: sessions/<key>/<action>, remote/pair, or server/stop. */
-	return async function handle(req: IncomingMessage, origin: string, [scope, key = "", action = ""]: string[], remote = false): Promise<Reply> {
+	const runs = createRuns(), pad = createKeys({ overlay, run: runs, fresh: (id, key, pane) => mirrors?.fresh(id, key, pane) ?? false, secret, answerable: async (key) => Boolean(await answers?.target(key)), linkRequest: async (found, key) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, { pane: found.pane, file: found.file })), probe: async (key, nonce, flags) => answers?.probe(key, nonce, flags) });
+	/** The HTTP shell: the origin, the content type, and the CSRF secret, then the body as JSON, which `run` takes from there. `parts` is the path after api/: sessions/<key>/<action>, remote/pair, or server/stop. */
+	async function handle(req: IncomingMessage, origin: string, [scope, key = "", action = ""]: string[], remote = false): Promise<Reply> {
 		if (req.method !== "POST") return no(405, "method", "Use POST.");
 		const site = req.headers["sec-fetch-site"], type = String(req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
 		if (req.headers.origin !== origin || (site !== undefined && site !== "same-origin")) return no(403, "origin", "Only the page itself may send input.");
@@ -183,27 +188,35 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 		if (file) return upload(req, lookup(key)); // its own size limit and reader (upload.ts)
 		const read = await body(req);
 		if ("status" in read) return read;
+		return run([scope, key, action], read.json, { remote, secure: origin.startsWith("https:") });
+	}
+
+	/**
+	 * One request past the HTTP shell: the session checks, then one Herdr call. Everything a guard decides is decided here, so a request that does not come over HTTP (an operate session's, gui.ts `operate`) meets the very guards a paired
+	 * device does; `operate` adds the box's own (docs/specs/2026-11-07-link-operate.md §7), which the table of operateroutes.ts has already applied to the route and the text.
+	 */
+	async function run([scope, key = "", action = ""]: string[], json: Record<string, unknown>, { remote, secure, operate }: Flags): Promise<Reply> {
 		if (scope === "server") {
 			if (panel && !action && key === "status") return { status: 200, body: panel.status() };
 			if (panel && !action && key === "log") {
-				const lines = read.json.lines === undefined ? 200 : read.json.lines;
+				const lines = json.lines === undefined ? 200 : json.lines;
 				return Number.isInteger(lines) && (lines as number) >= 1 && (lines as number) <= 200 ? { status: 200, body: { lines: panel.log(lines as number) } } : no(400, "bad_request", "Ask for 1 to 200 lines.");
 			}
 			if (panel && !action && key === "restart") {
-				const reason = read.json.reason === undefined || read.json.reason === "" ? "from the GUI" : read.json.reason;
+				const reason = json.reason === undefined || json.reason === "" ? "from the GUI" : json.reason;
 				return typeof reason === "string" && reason.length <= 200 && !/[\r\n]/.test(reason) ? panel.restart(reason) : no(400, "bad_request", "A reason is one line of at most 200 characters.");
 			}
-			const { by, take } = read.json;
+			const { by, take } = json;
 			if (key !== "stop" || action || !stop) return no(404, "not_found", "No such action.");
 			return typeof by === "string" && by.length <= 200 && typeof take === "boolean" ? (stop({ by, take }) === false ? no(409, "refused", "This server is not taken over.") : { status: 202, body: { stopping: true } }) : no(400, "bad_request", "A stop names who asks.");
 		}
-		if (scope === "trust") return trust && key === "answer" && !action ? trust(read.json) : no(trust ? 404 : 503, trust ? "not_found" : "unavailable", trust ? "No such action." : "This server takes no trust answers.");
+		if (scope === "trust") return trust && key === "answer" && !action ? trust(json) : no(trust ? 404 : 503, trust ? "not_found" : "unavailable", trust ? "No such action." : "This server takes no trust answers.");
 		if (scope === "link") {
 			if (!link) return no(503, "unavailable", "This server has no Straw Link.");
 			if (!LINK_NAMES.includes(key) || action) return no(404, "not_found", "No such action.");
 			if (remote && !REMOTE_LINK.includes(key)) return no(403, "local_only", "Straw Link's team settings are changed on this computer's own page.");
 			if (key === "enable") return link.enable().then(() => ({ status: 200, body: {} }), (error: Error) => no(502, "link_failed", error.message));
-			const done = await link.call(key, read.json);
+			const done = await link.call(key, json);
 			if (!done.ok) return no(409, done.code ?? "link_failed", done.error ?? "Straw Link refused it.");
 			const { ok: _ok, ...body } = done;
 			// An invite is drawn as a QR on the page: the rows come from the text the holder made, which never travels any other way.
@@ -213,10 +226,10 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			if (remote && view?.prefill) delete view.prefill.text;
 			return { status: 200, body };
 		}
-		if (scope === "panes") return panes({ grants, mirrors, pad, call, busy, refused }, key, action, read.json, remote);
+		if (scope === "panes") return panes({ grants, mirrors, pad, call, busy, refused }, key, action, json, remote);
 		if (scope === "tower") {
 			if (key.startsWith("@") || tower?.isHead?.(key)) return no(404, "not_found", "No such tower.");
-			if (action === "memory") return tower?.memory && tower.has(key) ? tower.memory(key, read.json) : no(404, "not_found", "No such tower.");
+			if (action === "memory") return tower?.memory && tower.has(key) ? tower.memory(key, json) : no(404, "not_found", "No such tower.");
 			if (action === "leave" || action === "new") {
 				if (!tower?.conversation || !tower.has(key)) return no(404, "not_found", "No such tower.");
 				const done = await tower.conversation(key, action);
@@ -224,17 +237,17 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			}
 			const what = ["retry", "deliver", "drop"].find((w) => w === action);
 			if (!tower || !what || !tower.has(key)) return no(404, "not_found", "No such tower.");
-			const id = typeof read.json.id === "string" && read.json.id.length <= 64 ? read.json.id : undefined;
+			const id = typeof json.id === "string" && json.id.length <= 64 ? json.id : undefined;
 			if (what !== "retry" && !id) return no(400, "bad_request", "Name the parked event.");
 			const done = await tower.act(key, what as "retry" | "deliver" | "drop", id);
 			return done.ok ? { status: 200, body: {} } : no(409, "refused", done.error ?? "The tower refused it.");
 		}
 		// A tower unit of the sb server's service: the composer's Send is a boss event for its next run, and with no run live there is no terminal to key into or show.
 		const unit = tower && scope === "sessions" ? lookup(key) : undefined, ws = unit?.role === "tower" && tower?.has(unit.base) ? unit.base : undefined;
-		if (scope === "head" || unit?.role === "head") { const head = await headRoutes(tower, [scope, key, action], read.json, checkText); if (head) return head; }
+		if (scope === "head" || unit?.role === "head") { const head = await headRoutes(tower, [scope, key, action], json, checkText); if (head) return head; }
 		if (tower && ws) {
 			if (action === "input") {
-				const text = checkText(read.json.text), answers = answersOf(read.json);
+				const text = checkText(json.text), answers = answersOf(json);
 				if (typeof text !== "string") return text;
 				if (typeof answers === "object") return answers;
 				// The conversation's two commands, as at the tower prompt: exactly `/quit` leaves it and `/new` starts over (the Leave and New buttons post to tower/<ws>/leave and /new).
@@ -250,7 +263,6 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			// Wi-Fi access changes who may command this computer: only its own page does it, and the gui.ts router has refused a paired device already (this is the second lock).
 			if (remote) return no(403, "local_only", "Wi-Fi access is set on this computer's own page.");
 			if (!lan || action) return no(lan ? 404 : 503, lan ? "not_found" : "unavailable", lan ? "No such action." : "This server serves no Wi-Fi access.");
-			const json = read.json;
 			if (key === "on") return lan.on(json);
 			if (key === "off") return lan.off();
 			if (key === "pair") return lan.pair(json);
@@ -258,11 +270,11 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			if (key === "ca") return lan.ca();
 			return no(404, "not_found", "No such action.");
 		}
-		if (scope === "dismiss" && !key && read.json.all === true) return dismissAll ? { status: 200, body: { dismissed: await dismissAll() } } : no(503, "unavailable", "This server dismisses nothing.");
-		if (scope === "dismiss" && !key) return (await dismiss?.(read.json.key)) ? { status: 200, body: {} } : no(404, "not_found", "Only a finished subagent on the net can be dismissed.");
-		if (scope === "close") return close && !action ? close(key, read.json) : no(close ? 404 : 503, close ? "not_found" : "unavailable", close ? "No such action." : "This server closes nothing.");
-		if (remote && scope === "open" && typeof read.json.prompt === "string" && localOnlyText(read.json.prompt)) return no(403, "local_only", LOCAL_ONLY);
-		if (scope === "dirs" || scope === "open") return spawn && !action ? spawn([scope, key], read.json) : no(spawn ? 404 : 503, spawn ? "not_found" : "unavailable", spawn ? "No such action." : "This server opens nothing.");
+		if (scope === "dismiss" && !key && json.all === true) return dismissAll ? { status: 200, body: { dismissed: await dismissAll() } } : no(503, "unavailable", "This server dismisses nothing.");
+		if (scope === "dismiss" && !key) return (await dismiss?.(json.key)) ? { status: 200, body: {} } : no(404, "not_found", "Only a finished subagent on the net can be dismissed.");
+		if (scope === "close") return close && !action ? close(key, json) : no(close ? 404 : 503, close ? "not_found" : "unavailable", close ? "No such action." : "This server closes nothing.");
+		if (remote && scope === "open" && typeof json.prompt === "string" && localOnlyText(json.prompt)) return no(403, "local_only", LOCAL_ONLY);
+		if (scope === "dirs" || scope === "open") return spawn && !action ? spawn([scope, key], json) : no(spawn ? 404 : 503, spawn ? "not_found" : "unavailable", spawn ? "No such action." : "This server opens nothing.");
 		if (scope === "remote" && key === "on" && !action) {
 			if (!remoteOn) return no(503, "unavailable", "This server cannot turn remote access on.");
 			const failed = await remoteOn().then(() => undefined, (error: Error) => error.message);
@@ -276,25 +288,24 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			if (key === "devices") return { status: 200, body: { on: paired.on(), devices: paired.list() } };
 			if (key === "off") return remoteOff ? remoteOff().then(() => lost() ?? { status: 200, body: {} }, (error: Error) => no(502, "remote_failed", error.message)) : no(503, "unavailable", "This server cannot turn remote access off.");
 			if (key === "unpair-all") return ((n) => lost() ?? { status: 200, body: { unpaired: n } })(paired.unpairAll());
-			const { id } = read.json;
+			const { id } = json;
 			return typeof id !== "string" || !id || id.length > 64 ? no(400, "bad_request", "Name the device to unpair.") : paired.unpair(id) ? (lost() ?? { status: 200, body: {} }) : no(404, "not_found", "No such paired device.");
 		}
 		if (scope === "remote") {
 			const pairing = key === "pair" && !action ? pair?.() : undefined;
 			return pairing ? { status: 200, body: pairing } : key === "pair" && !action ? no(409, "remote_off", "Remote access is off.") : no(404, "not_found", "No such action.");
 		}
-		if (action === "mirror") return mirrors ? mirrors.toggle(key, read.json) : no(503, "unavailable", "This server shows no terminals.");
+		if (action === "mirror") return mirrors ? mirrors.toggle(key, json) : no(503, "unavailable", "This server shows no terminals.");
 		if (!["input", "keys", "focus", "answer", "commands", "dequeue"].includes(action)) return no(404, "not_found", "No such action.");
 		const found = lookup(key);
 		if (!found) return no(404, "not_found", "No such session.");
 		if (!found.live || !found.pane || !found.file) return no(409, "not_live", "This session is no longer live in a pane.");
 		if (action === "commands") { // a read: no Herdr call, and it never waits for or blocks a send
-			const { prefix } = read.json;
+			const { prefix } = json;
 			if (typeof prefix !== "string" || prefix.length > MAX_PREFIX || /\s/.test(prefix)) return no(400, "bad_request", "A prefix is the start of a command name.");
 			return { status: 200, body: { commands: (await answers?.commands(key, prefix)) ?? null } };
 		}
 		if (!call) return no(503, "unavailable", "This server cannot reach Herdr.");
-		const { json } = read;
 		let job: () => Promise<unknown>, direct: Reply | undefined;
 		if (action === "input") {
 			const text = checkText(json.text);
@@ -306,6 +317,10 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			if (ENDING.test(text) && json.confirmed !== true) return no(409, "confirm", "This command ends or replaces the session; confirm to send it.");
 			job = async () => {
 				const pane = await live(found);
+				if (operate) { // the text joins whatever draft the editor holds (pasted at the cursor, then Enter), so it goes only into an empty one (probe.ts)
+					const barred = operateTextRefusal(await answers?.probe(key, undefined, true));
+					if (barred) throw no(403, OPERATE_REFUSED, barred.reason, { why: barred.why });
+				}
 				if (guarded && (await requested(key, found))) throw no(403, "local_only", remote ? LINK_LOCAL : GUARDED); // a prompt's Enter would be taken by its terminal dialog as Yes
 				if (pane.agent_status === "blocked") throw no(409, "blocked", "It is waiting on a dialog; answer it in the terminal.");
 				if (guarded) guardOverlay(found, remote); // right before the write: the composer's text and Enter would answer the overlay
@@ -316,7 +331,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			};
 		} else if (action === "keys") {
 			if (busy.has(key)) return no(429, "busy", "Another input to this session is still on its way.");
-			const asked = pad.check(key, json, remote);
+			const asked = pad.check(key, json, remote, operate === true);
 			if ("status" in asked) return asked;
 			job = async () => {
 				const plan = await pad.send(key, found, await live(found), asked);
@@ -359,7 +374,7 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			const { dialog, digest, answerId } = json;
 			if (typeof dialog !== "string" || dialog.length > 64 || typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest) || typeof answerId !== "string" || !ANSWER_ID.test(answerId)) return no(400, "bad_request", "The answer does not name its dialog.");
 			if (!answers) return no(503, "unavailable", "This server takes no answers.");
-			if ("value" in json) return no(origin.startsWith("https:") ? 403 : 400, origin.startsWith("https:") ? "local_only" : "terminal_only", "A secret cannot be entered from a page; answer it in the terminal."); // from no page (SB-F001): nothing of it is read, kept, or looked up
+			if ("value" in json) return no(secure ? 403 : 400, secure ? "local_only" : "terminal_only", "A secret cannot be entered from a page; answer it in the terminal."); // from no page (SB-F001): nothing of it is read, kept, or looked up
 			const known = answers.replay(answerId, key); // the same answer sent again (Check again) gets the outcome it had
 			if (known) return known;
 			job = async () => {
@@ -371,7 +386,9 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 				if (remote && "choice" in checked && target.answer.select?.choices[checked.choice]?.hereOnly) throw no(403, "local_only", "This choice is approved on this computer's own page or terminal; a paired device can only deny."); // decided by the listener and the stored dialog, never the body
 				if (remote && "cancel" in checked && target.answer.select?.choices.every((c) => c.hereOnly)) throw no(403, "local_only", "This dialog is answered on this computer's own page or terminal; a paired device cannot cancel it."); // cancelling is a refusal: a paired device may where it may pick some choice (a link approval's Deny), not where every choice is this computer's
 				// A choice that leaves a step in a terminal (its `next`, from the stored dialog): the panes of the tab are noted before the answer goes out, so the one it opens can be told after.
-				const picked = "choice" in checked ? target.answer.select?.choices[checked.choice] : undefined, next = picked?.next, tag = picked?.tagged ? answerId : undefined, noted = next === "pane" ? await grants?.before(at.pane_id) : undefined;
+				const picked = "choice" in checked ? target.answer.select?.choices[checked.choice] : undefined, next = picked?.next, tag = picked?.tagged ? answerId : undefined;
+				if (operate && next === "pane") throw no(403, OPERATE_REFUSED, "An answer that opens a pane (it runs a shell) is not given from here.", { why: "route" }); // decision 8: nothing of a pane crosses
+				const noted = next === "pane" ? await grants?.before(at.pane_id) : undefined;
 				const sent = await answers.send(key, target, { id: dialog, answerId, digest, ...checked });
 				if (sent.body.outcome === "accepted" && next) sent.body.then = await thenOf(grants, next, key, at.pane_id, noted, tag); // on the stored object, so Check again replays it with the same `then`
 				// The command the answer put in the prompt may run in one tap (runs.ts): the page is told, and the grant waits for its Enter.
@@ -389,7 +406,8 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 		} finally {
 			busy.delete(key);
 		}
-	};
+	}
+	return Object.assign(handle, { run });
 
 	/** A paired device's write is about to go to `found`'s pane: refused while a `/boss gui lan` face holds a mark on it, else noted (a face that opens within 1.5 s refuses its own answers after it). Nothing is awaited between this and the Herdr call. */
 	function guardOverlay(found: Found, remote = true) {

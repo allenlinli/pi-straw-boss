@@ -1067,6 +1067,7 @@
 	"refuse_busy": "Another key to this terminal is still on its way; wait a moment.",
 	"refuse_run_unknown": "That command was already run, or no answer here put it in the prompt; press Run again to confirm it.",
 	"refuse_run_expired": "The command waited too long to run in one tap; press Run again to confirm it.",
+	"refuse_operate_refused": "This box does not let a remote session do that (a shell line, a /boss command, or something it keeps for itself); do it on the box.",
 	"refuse_run_changed": "The prompt no longer holds the command that was put there, so nothing was sent. Read it in the terminal.",
 	"ended_not_live": "The session is no longer live in this pane.",
 	"ended_other": "The pane runs something else now.",

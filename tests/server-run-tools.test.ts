@@ -122,13 +122,15 @@ test("an ally run's token: the free reads, tower_send to its sender, and the gat
 	for (const name of ["call_tower", "boss_server", "link_request"]) assert.match(String((await tool(s, token, name, { message: "x", action: "restart", reason: "x" })).error), /not available in an ally run/, name);
 	assert.match(String((await tool(s, token, "tower_send", { message: "x" })).error), /sender only/, "a local target is refused outright");
 	world.sessions = [{ id: "main-1", name: "docs-main" }]; // a target that exists reaches the gate: one that does not reaches it as well (RR3-F002)
-	for (const [name, args] of [["tower_reply", { to: "main-1", message: "x" }], ["boss_open_main", { request: "x", sender: "x" }], ["boss_close_main", { main: "x" }]] as const) {
+	for (const [name, args] of [["tower_reply", { to: "main-1", message: "x" }], ["boss_open_main", { request: "x", sender: "x" }]] as const) {
 		const got = await tool(s, token, name, { ...args });
 		assert.equal(got.ok, false, name);
 		assert.match(String(got.error), /needs the boss's confirm/, name);
 		const withId = await ask(s, { cmd: "run-tool", token, tool: name, args, toolCallId: "tc-1" });
 		assert.match(String(withId.error), /was not allowed/, `${name}: no Allow was given`);
 	}
+	// Decision 7 of docs/specs/2026-11-07-link-remote-stop.md: a main no ally route holds is refused before the gate, with or without a call id (tests/ally-close-scope.test.ts holds the cases).
+	for (const extra of [{}, { toolCallId: "tc-1" }]) assert.match(String((await ask(s, { cmd: "run-tool", token, tool: "boss_close_main", args: { main: "main-1" }, ...extra })).error), /boss_close_main has no such target/);
 	// RV6-F007: a device other than the sender is refused outright, with or without a call id, so no Allow can turn it into a send to the sender.
 	for (const extra of [{}, { toolCallId: "tc-2" }]) {
 		const other = await ask(s, { cmd: "run-tool", token, tool: "tower_send", args: { device: "someone-else", message: "x" }, ...extra });

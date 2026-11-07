@@ -621,8 +621,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	const startLink = () => {
 		if (link || !slot.primary || leaving) return;
 		link = createLinkService({
-			// The operate bridge (operatewire.ts) is built by the first message the holder hands it; an attended computer never gets one.
-			operate: (m) => (operateBox ??= operateWire({ slot, now, run: cfg.run, gui: () => guiHost?.operate(), allyPanes: () => towers?.runs.allyPanes() ?? [], link: () => link })).take(m), onRoster: (team) => operateBox?.onRoster(team),
+			// The operate bridge (operatewire.ts) is built by the first message the holder hands it (never while the server leaves: a stopped bridge refuses opens itself); an attended computer never gets one.
+			operate: (m) => { if (operateBox || !leaving) (operateBox ??= operateWire({ slot, now, run: cfg.run, gui: () => guiHost?.operate(), allyPanes: () => towers?.runs.allyPanes() ?? [], link: () => link })).take(m); }, onRoster: (team) => operateBox?.onRoster(team),
 			kit, stateDir: slot.stateDir, version, pid, started: () => own.started,
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
 			dialogAnswer: (a) => dialogsOut().answer(a),

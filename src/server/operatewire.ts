@@ -20,17 +20,28 @@ export interface OperateWireDeps {
 	link(): LinkService | undefined;
 }
 
+/**
+ * The facts a unit's owner is read from, and the refresh that reads Herdr's listing for them. A listing that cannot be read is no listing: it is dropped rather than kept or emptied, and until a read succeeds a main, member
+ * or subagent is nobody's, for the box part as well as for a team's (a failed read must not hand a team's units to a `box` session). Never rejects.
+ */
+export function operateFacts(o: Pick<OperateWireDeps, "slot" | "now" | "run" | "gui" | "allyPanes">) {
+	let listing: Pane[] | undefined;
+	return {
+		owner: (key: string) => ownerOf(storeOwnerWorld({ slot: o.slot, now: o.now, refs: () => o.gui()?.refs() ?? [], panes: () => listing, allyPanes: o.allyPanes }), key),
+		refresh: async (): Promise<void> => void (listing = await panes(o.run).catch(() => undefined)),
+	};
+}
+
 export function operateWire(o: OperateWireDeps) {
-	let listing: Pane[] = [];
+	const facts = operateFacts(o);
 	return createOperateBox({
 		gui: () => o.gui()?.api,
 		send: (team, device, message) => { const holder = o.link()?.holder; return holder ? holder.sendLive(team, device, message) : Promise.reject(new Error("The link holder is not running")); },
 		device: () => o.link()?.holder?.deviceId,
 		policy: () => o.link()!.policyNow(),
 		member: (team, device) => o.link()?.holder?.member(team, device),
-		owner: (key) => ownerOf(storeOwnerWorld({ slot: o.slot, now: o.now, refs: () => o.gui()?.refs() ?? [], panes: () => listing, allyPanes: o.allyPanes }), key),
-		// A listing that cannot be read is no listing: a unit whose tab is unknown belongs to the box alone, so a team's session loses it (fail closed).
-		refresh: async () => void (listing = await panes(o.run).catch(() => [])),
+		owner: facts.owner,
+		refresh: facts.refresh,
 		pane: (key) => o.gui()?.lookup(key)?.pane,
 		log: (entry) => o.link()?.store.log(entry),
 		now: o.now,

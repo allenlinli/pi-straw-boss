@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import type { Level, TeamPolicy } from "../src/link/config.ts";
 import type { OperateIn } from "../src/link/holder.ts";
@@ -75,11 +76,11 @@ function world(o: { budget?: number } = {}) {
 	const logs: Record<string, unknown>[] = [], out: { team: string; device: string; message: OperateMessage; at: number }[] = [], order: string[] = [];
 	const member: MemberOf = (team, device) => { const m = state.membersGone ? undefined : state.roster[`${team}:${device}`]; return m && { role: m.role, attended: true }; };
 	const every = (ms: number, fn: () => void) => { let live = true; const arm = () => clock.at(clock.elapsed() + ms, () => { if (!live) return; fn(); arm(); }); arm(); return () => void (live = false); };
-	let policyWatch: (() => void) | undefined, watchStopped = false;
+	let policyWatch: (() => void) | undefined, watchStopped = false, gui: Operate = fo.api;
 	/** How often the facts an owner is read from were read again. */
 	const facts = { reads: 0 };
 	const deps: BoxDeps = {
-		gui: () => (state.gui ? fo.api : undefined),
+		gui: () => (state.gui ? gui : undefined),
 		send: async (team, device, message) => { out.push({ team, device, message, at: clock.elapsed() }); return state.stall ? new Promise(() => undefined) : { delivered: 1 }; },
 		device: () => dave.id,
 		policy: () => (order.push("policy"), state.policy),
@@ -95,6 +96,8 @@ function world(o: { budget?: number } = {}) {
 		clock, fo, state, logs, out, sent, order, box, ctls, facts,
 		edit: (fn: (p: Extract<Policy, { mode: "unattended" }>) => void) => { fn(state.policy as Extract<Policy, { mode: "unattended" }>); policyWatch?.(); },
 		watchStopped: () => watchStopped,
+		/** The GUI restarts under the sessions: a new entry object answers `gui()` from now on, and the old one is still around. */
+		swapGui: () => void (gui = fakeOperate().api),
 		/** An operator's session on `team`: its open goes to the box on the next `pump`. */
 		controller(who = alice, team = A, want: "team" | "box" = "team"): Ctl {
 			const c = { who, team, inner: [], at: [], ended: [], toBox: [], opened: [] } as unknown as Ctl;
@@ -539,4 +542,139 @@ test("stopping the box ends every session and the policy watch", async () => {
 	assert.equal(w.fo.sessions.every((s) => s.stopped), true);
 	assert.equal(w.watchStopped(), true);
 	assert.deepEqual(logsOf(w, "operate-close").map((l) => l.by), ["box", "box"]);
+});
+
+// ---- Review of task 5 (OBX-F001 to F005) --------------------------------------------------------------------------------------------------------------
+
+/** An `open` envelope as the holder hands it over: a fresh session id each time unless one is given. */
+const openFrom = (w: W, who: typeof alice, team: string, id = randomBytes(16)) => w.box.take({ team, from: who.id, fromAttended: true, message: { session: id, type: "open", eph: randomBytes(32), caps: ["operate/1"], want: "team" }, ts: w.clock.now(), dropped: 0 } as OperateIn);
+const refusals = (w: W) => [...w.sent, ...w.out].filter((m) => m.message.type === "refuse");
+
+test("OBX-F001: refusals of a member who is not granted are throttled per (team, sender) and do not spend the box's budget, so a granted session's mirror goes on and link.log keeps its audit", async () => {
+	const w = world({ budget: 40 });
+	const c = await w.open(alice, A);
+	w.req(c, "m1", "POST", ["sessions", "a-main", "mirror"], { on: true });
+	await w.run(2500);
+	pushScreen(w, 1);
+	await w.run(750);
+	const before = mirrorFrames(c).length;
+	assert.ok(before >= 1, "the mirror flows while the budget is calm");
+	w.edit((p) => p.operate.delete(bob.id));
+	w.logs.length = 0;
+	for (let i = 0; i < 60; i++) openFrom(w, bob, A);
+	await settle();
+	assert.equal(refusals(w).length, 1, "one refuse in the window; the controller remembers it for 10 minutes anyway");
+	assert.equal(logsOf(w, "operate-open").length, 1, "one operate-open line, not sixty");
+	for (let n = 2; n < 10; n++) { pushScreen(w, n); await w.run(500); }
+	assert.ok(mirrorFrames(c).length - before >= 4, "the granted session's mirror still flows after the flood");
+});
+
+test("OBX-F001: the window closes after 10 s, the next refusal goes out, and one operate-open-throttled line counts what was dropped", async () => {
+	const w = world();
+	w.edit((p) => p.operate.delete(bob.id));
+	for (let i = 0; i < 5; i++) openFrom(w, bob, A);
+	await settle();
+	assert.equal(refusals(w).length, 1);
+	w.clock.advance(9_000);
+	openFrom(w, bob, A);
+	await settle();
+	assert.equal(refusals(w).length, 1, "still inside the window");
+	w.clock.advance(1_500);
+	openFrom(w, bob, A);
+	await settle();
+	assert.equal(refusals(w).length, 2, "the window passed: refused again");
+	assert.deepEqual(logsOf(w, "operate-open-throttled").map((l) => [l.team, l.from, l.dropped]), [[A, bob.id, 5]]);
+	assert.equal(logsOf(w, "operate-open").length, 2);
+});
+
+test("OBX-F001: a window still open when the box stops logs what it dropped", async () => {
+	const w = world();
+	w.edit((p) => p.operate.delete(bob.id));
+	for (let i = 0; i < 4; i++) openFrom(w, bob, A);
+	await settle();
+	assert.deepEqual(logsOf(w, "operate-open-throttled"), []);
+	w.box.stop();
+	assert.deepEqual(logsOf(w, "operate-open-throttled").map((l) => [l.team, l.from, l.dropped]), [[A, bob.id, 3]]);
+});
+
+test("OBX-F001: a refusal that comes from the registry (a third open session of one operator on one team) opens the window as well", async () => {
+	const w = world();
+	await w.open(alice, A);
+	await w.open(alice, A);
+	for (let i = 0; i < 6; i++) openFrom(w, alice, A);
+	await settle();
+	assert.equal(refusals(w).length, 1, "the third open is refused by the registry once; the five after it are dropped in the window");
+	assert.equal(logsOf(w, "operate-open").filter((l) => l.verdict !== "accepted").length, 1);
+});
+
+test("OBX-F001: another team's open from the same sender, and another sender's, are not held by a window", async () => {
+	const w = world();
+	w.edit((p) => p.operate.delete(alice.id));
+	for (let i = 0; i < 3; i++) openFrom(w, alice, A);
+	for (let i = 0; i < 3; i++) openFrom(w, bob, A); // bob is no admin on A (not-admin): refused, in a window of its own
+	await settle();
+	assert.deepEqual(refusals(w).map((m) => m.device).sort(), [alice.id, bob.id].sort(), "one refuse for each (team, sender)");
+	const c = await w.open(bob, B);
+	assert.equal(c.opened.length, 1, "bob's open on team B, which he admins and is granted, is not held by the window on A");
+});
+
+test("OBX-F001: a refuse is not counted against the budget (the budget keeps room for the granted session's frames)", async () => {
+	const w = world({ budget: 6 });
+	const c = await w.open(alice, A);
+	w.req(c, "m1", "POST", ["sessions", "a-main", "mirror"], { on: true });
+	await w.pump();
+	w.edit((p) => p.operate.delete(bob.id));
+	for (let k = 0; k < 4; k++) { openFrom(w, bob, A); await w.run(10_500); }
+	assert.equal(refusals(w).length, 4, "four refusals went out, a window apart");
+	const before = mirrorFrames(c).length;
+	pushScreen(w, 1);
+	await w.run(1_000);
+	assert.ok(mirrorFrames(c).length > before, "a mirror frame still goes: the refusals took none of the budget");
+});
+
+test("OBX-F003: after stop(), an open is refused and nothing arms again; another frame of a session is dropped", async () => {
+	const w = world();
+	const c0 = await w.open(alice, A);
+	w.box.stop();
+	const orderAfterStop = [...w.order], logsAfterStop = w.logs.length;
+	const c = await w.open(alice, A);
+	assert.equal(c.opened.length, 0, "no session after stop");
+	assert.deepEqual(c.ended, [{ reason: "refused", peer: "unavailable" }]);
+	assert.deepEqual(w.box.sessions(), []);
+	assert.deepEqual(w.order, orderAfterStop, "no policy read and no policy watch began after stop");
+	assert.equal(w.fo.sessions.length, 1, "the GUI opened no second seam session");
+	assert.ok(w.logs.length >= logsAfterStop, "the refusal is logged as an operate-open line");
+	assert.deepEqual(c0.ended, [{ reason: "peer-closed", peer: "stopped" }]);
+});
+
+test("OBX-F004: a tower memory request is logged as the action memory, any other tower route as tower", async () => {
+	const w = world();
+	const c = await w.open(alice, A, "box");
+	w.req(c, "t1", "POST", ["tower", "wA", "memory"], { text: MARKER });
+	w.req(c, "t2", "POST", ["tower", "wA", "leave"], {});
+	await w.pump();
+	assert.deepEqual(logsOf(w, "operate-input").map((l) => l.action), ["memory", "tower"]);
+	assert.equal(JSON.stringify(w.logs).includes(MARKER), false);
+});
+
+test("OBX-F005 (M12): a GUI that restarted under a session, a new entry while the old one is still there, ends it as unavailable", async () => {
+	const w = world();
+	const c = await w.open(alice, A);
+	w.swapGui();
+	await w.run(500);
+	assert.deepEqual(c.ended, [{ reason: "peer-closed", peer: "unavailable" }]);
+	assert.equal(w.fo.sessions[0]!.stopped, true);
+	assert.deepEqual(w.box.sessions(), []);
+});
+
+test("OBX-F005: a request that names no unit (close/tab), right after a demotion and before any pulse, reaches the seam under the narrowed scope", async () => {
+	const w = world();
+	const c = await w.open(alice, A, "box");
+	w.state.roster[`${A}:${alice.id}`] = { role: "member" }; // the roster moved; neither onRoster nor a pulse has run
+	w.req(c, "q1", "POST", ["close", "tab"], { tab: "t1" });
+	await w.pump();
+	const seen = w.fo.sessions[0]!.requests.filter((r) => r.parts[0] === "close");
+	assert.equal(seen.length, 1);
+	assert.equal(seen[0]!.scope.has("a-main"), false, "team A's part is gone from the scope the seam runs under");
+	assert.equal(seen[0]!.scope.has("box-main"), true, "a box grant keeps the box part");
 });

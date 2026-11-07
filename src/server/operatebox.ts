@@ -17,7 +17,8 @@ import { type EndReason, type MemberOf, type Owner, type Refusal, type Scope } f
 //   req       the table's row and the unit it names, then the guard's four checks against the roster and the policy now (bound to the envelope's sender and team), then the seam; the reply goes back as `rep`.
 //   watch     as req, to `watch` of the seam; its events go back as `ev` under the watch's id.
 //   pacing    the mirror's frames are folded into whole screens and sent at most twice a second, and an empty "current" frame every 2 s when the screen is calm; snapshots at most one per 2 s, and only when the sliced net moved.
-//   budget    one budget for the box (900 envelopes a minute across all sessions, below the relay's own limit): the mirror is stretched first (1 s, then 2 s), then the snapshots. `rep`, `accept`, `refuse` and `close` are never held.
+//   budget    one budget for the box (900 envelopes a minute across all sessions, below the relay's own limit): the mirror is stretched first (1 s, then 2 s), then the snapshots. `rep`, `accept`, `refuse` and `close` are never held, and a `refuse` is not counted:
+//             a member who is not granted cannot spend the budget by opening, and its refusals are throttled to one per (team, sender) in 10 s, with their `operate-open` lines.
 //   teardown  the guard's `end` (a policy or roster change, a request whose grant is gone) closes the session at once and synchronously: nothing here waits for the holder's lock. The operator's `close`, 45 s of silence and the 12 h rekey
 //             end it too; the policy watch (policy.ts `watchPolicy`) starts before the first open is admitted.
 // link.log lines (§10) carry words, ids and counts: never typed text, a key's value, a choice, or file content.
@@ -28,6 +29,8 @@ export const MIRROR_MS = 500, MIRROR_SLOW_MS = 1000, MIRROR_CALM_MS = 2000;
 /** The snapshot's cadence, and what it stretches to when the budget is nearly spent. */
 export const SNAP_MS = 2000, SNAP_SLOW_MS = 4000;
 const WINDOW_MS = 60_000, PULSE_MS = 250, REFRESH_MS = 2000;
+/** A sender whose open was refused is not answered again, nor logged again, for this long (the controller remembers a refusal for 10 minutes, §5.6). */
+const REFUSE_WINDOW_MS = 10_000;
 /** Bulk (mirror, snapshot, events) waits while this many sends are in flight; at `STALLED` nothing but a close or refuse is handed on (a relay that does not answer). Events queued over `EV_QUEUE` end the session. */
 const BULK_INFLIGHT = 32, STALLED = 256, EV_QUEUE = 256, REQUESTS = 16, MAX_ROWS = 120;
 const WORD = /^[a-z0-9._-]{1,32}$/;
@@ -84,7 +87,9 @@ const TEXT: Record<Refusal, string> = {
 	policy: "This box's policy does not allow operate.",
 };
 const REASON = (word: Refusal): Reply => ({ status: 403, body: { error: "operate_refused", why: word, reason: TEXT[word] } });
-const ACTIONS: [RegExp, string][] = [[/^sessions\/\*\/input$/, "input"], [/^sessions\/\*\/keys$/, "keys"], [/^sessions\/\*\/answer$/, "answer"], [/^sessions\/\*\/dequeue$/, "dequeue"], [/^sessions\/\*\/upload$/, "upload"], [/^close\/unit$/, "close-unit"], [/^close\/tab$/, "close-tab"], [/^dismiss$/, "dismiss"], [/^tower\/\*\/memory$/, "memory"], [/^tower\//, "tower"]];
+const ACTIONS: [RegExp, string][] = [[/^sessions\/\*\/input$/, "input"], [/^sessions\/\*\/keys$/, "keys"], [/^sessions\/\*\/answer$/, "answer"], [/^sessions\/\*\/dequeue$/, "dequeue"], [/^sessions\/\*\/upload$/, "upload"], [/^close\/unit$/, "close-unit"], [/^close\/tab$/, "close-tab"], [/^dismiss$/, "dismiss"]];
+// The action of a state-changing request for the log: the table's row; a tower row takes its action from the request's own path (its third part), since the row's pattern lists every action.
+const actionOf = (route: string, parts: string[]): string => (route.startsWith("tower/") ? (parts[2] === "memory" ? "memory" : "tower") : ACTIONS.find(([re]) => re.test(route))?.[1] ?? "request");
 const READS: Record<string, string> = { "history/*": "history", "entry/*/*": "entry", "image/*/*/*": "image", "sessions/*/commands": "commands" };
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const sane = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
@@ -106,7 +111,9 @@ function classOf(action: string, body: Record<string, unknown>): string | undefi
 export function createOperateBox(d: BoxDeps) {
 	const budget = d.budget ?? BOX_BUDGET, registry = new OperateRegistry(d.now), live = new Map<string, Live>();
 	const sent: number[] = [];
-	let inflight = 0, stopPulse: (() => void) | undefined, watcher: { stop(): void } | undefined, refreshedAt = -Infinity, refreshing = false;
+	/** Per (team, sender): when its last refused open was answered, and how many opens the window dropped since. */
+	const refusedAt = new Map<string, { team: string; from: string; at: number; dropped: number }>();
+	let inflight = 0, stopped = false, stopPulse: (() => void) | undefined, watcher: { stop(): void } | undefined, refreshedAt = -Infinity, refreshing = false;
 	const say: Say = (entry) => { try { d.log(entry); } catch { /* a log that fails is not the session's problem */ } };
 
 	// ---- The budget -----------------------------------------------------------------------------------------------------------------------------------
@@ -125,7 +132,7 @@ export function createOperateBox(d: BoxDeps) {
 	const transport = (team: string, device: string, onError: (error: unknown) => void) => (message: OperateMessage): Promise<void> | undefined => {
 		const control = message.type === "close" || message.type === "refuse";
 		if (inflight >= STALLED && !control) return undefined;
-		sent.push(d.now());
+		if (message.type !== "refuse") sent.push(d.now()); // a refusal is for whoever asked: it takes nothing from the sessions' budget
 		inflight++;
 		let out: Promise<unknown>;
 		try {
@@ -336,7 +343,7 @@ export function createOperateBox(d: BoxDeps) {
 		if (denied) say({ event: "operate-refused", session: s.id, from: s.from, route, reason: String((done.body as { why?: unknown }).why ?? "refused").slice(0, 32) });
 		else if (method === "GET" || row?.path === "sessions/*/commands") say({ event: "operate-read", session: s.id, from: s.from, ...(unit !== undefined ? { unit } : {}), what: READS[route] ?? "read" });
 		else {
-			const action = ACTIONS.find(([re]) => re.test(route))?.[1] ?? "request", pane = unit !== undefined ? d.pane(unit) : undefined;
+			const action = actionOf(route, parts as string[]), pane = unit !== undefined ? d.pane(unit) : undefined;
 			const cls = classOf(action, body as Record<string, unknown>);
 			say({ event: "operate-input", session: s.id, from: s.from, team: s.team, ...(unit !== undefined ? { unit } : {}), ...(pane ? { pane } : {}), action, ...(cls ? { class: cls } : {}), status: done.status });
 		}
@@ -375,16 +382,39 @@ export function createOperateBox(d: BoxDeps) {
 	// ---- Open and receive ---------------------------------------------------------------------------------------------------------------------------------
 
 	const LIMITS = { mirrors: 2, watches: MAX_WATCHES, budget };
+	/** The line for what a closed window dropped: one per window, with the count. */
+	const flushWindow = (key: string): void => {
+		const hold = refusedAt.get(key);
+		refusedAt.delete(key);
+		if (hold?.dropped) say({ event: "operate-open-throttled", team: hold.team, from: hold.from, dropped: hold.dropped });
+	};
+	/** An open from a sender whose last open was refused less than a window ago is dropped, silently and counted: it takes no answer, no budget and no log line. The first one after the window logs the count. */
+	const throttled = (team: string, from: string): boolean => {
+		const key = `${team}:${from}`, hold = refusedAt.get(key);
+		if (!hold) return false;
+		if (d.now() - hold.at < REFUSE_WINDOW_MS) return (hold.dropped++, true);
+		flushWindow(key);
+		return false;
+	};
+	/** A refused open opens the sender's window; windows that have run out go (their counts are logged) so the book stays as small as the senders now refused. */
+	const refuseWindow = (team: string, from: string): void => {
+		const now = d.now();
+		for (const [key, hold] of refusedAt) if (now - hold.at >= REFUSE_WINDOW_MS) flushWindow(key);
+		refusedAt.set(`${team}:${from}`, { team, from, at: now, dropped: 0 });
+	};
 	function open(i: OperateIn): void {
 		const m = i.message;
 		if (m.type !== "open") return;
+		if (throttled(i.team, i.from)) return;
 		const device = d.device(), id = m.session.toString("hex");
 		let word: string | undefined;
 		const fail = (reason: string): void => {
+			refuseWindow(i.team, i.from);
 			const send = transport(i.team, i.from, () => undefined);
 			void send({ session: m.session, type: "refuse", reason })?.catch(() => undefined);
 			say({ event: "operate-open", team: i.team, from: i.from, session: id, want: m.want, verdict: reason });
 		};
+		if (stopped) return fail("unavailable"); // the server is going down: nothing is armed again (no watch, no pulse)
 		// The policy is watched before the first admit reads it: a change after that is not missed.
 		watcher ??= d.watch(() => { guard.onPolicy(); sync(); });
 		if (!device) return fail("unavailable");
@@ -408,6 +438,7 @@ export function createOperateBox(d: BoxDeps) {
 		}, { team: Buffer.from(i.team, "hex"), self: device, from: i.from, open: m, scope: { teams: admitted.scope.teams.map((t) => Buffer.from(t, "hex")), box: admitted.scope.box }, limits: LIMITS, registry });
 		if (!core) {
 			guard.release(id);
+			refuseWindow(i.team, i.from);
 			say({ event: "operate-open", team: i.team, from: i.from, session: id, want: m.want, verdict: word ?? "refused" });
 			return;
 		}
@@ -443,6 +474,7 @@ export function createOperateBox(d: BoxDeps) {
 		/** The holder's `operate` sink: an `open` makes a session, anything else is a frame or close of one. A message under another device's name or on another team is not the session's and is dropped. */
 		take(i: OperateIn): void {
 			if (i.message.type === "open") return open(i);
+			if (stopped) return;
 			const s = live.get(i.message.session.toString("hex"));
 			if (!s) return;
 			if (s.team !== i.team || s.from !== i.from) return say({ event: "operate-drop", reason: "wrong-sender", team: i.team, from: i.from });
@@ -458,6 +490,8 @@ export function createOperateBox(d: BoxDeps) {
 		sessions: () => [...live.values()].map((s) => ({ session: s.id, team: s.team, from: s.from, since: s.since, scope: copy(s.scope) })),
 		/** The server stops: every session ends with a `close`, and the policy watch stops. */
 		stop(): void {
+			stopped = true;
+			for (const key of [...refusedAt.keys()]) flushWindow(key);
 			for (const s of [...live.values()]) close(s, "stopped");
 			watcher?.stop();
 			watcher = undefined;

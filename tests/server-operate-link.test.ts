@@ -29,7 +29,8 @@ afterEach(async () => {
 	await sw.close();
 });
 
-test("an open from a granted admin is accepted through the server, and a roster change that demotes the admin ends the session with a close", async () => {
+/** The box (a server with the bridge) and bob's open session on it, accepted. */
+async function accepted() {
 	const project = join(sw.root, "home", "project");
 	mkdirSync(project, { recursive: true });
 	const dave = DEVICES.dave, real = realpathSync(project), boxStore = new LinkStore(join(sw.stateDir, "link")), entries = rosterOf();
@@ -68,10 +69,23 @@ test("an open from a granted admin is accepted through the server, and a roster 
 	const log = () => (existsSync(join(sw.stateDir, "link", "link.log")) ? readFileSync(join(sw.stateDir, "link", "link.log"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) : []);
 	assert.deepEqual(log().filter((l) => l.event === "operate-open").map((l) => [l.team, l.from, l.want, l.verdict]), [[TEAM_HEX, bob.id, "team", "accepted"]]);
 
+	return { s, relay, entries, ended, log };
+}
+
+test("an open from a granted admin is accepted through the server, and a roster change that demotes the admin ends the session with a close", async () => {
+	const { entries, ended, log } = await accepted();
 	// Bob is demoted by the founder: the roster event reaches the box's holder, whose hook ends the session.
 	relay.pushRoster(TEAM, roleEntry({ state: stateOf(entries, alice), signer: alice, subjectId: bob.id, role: "member" }));
 	await until(() => ended.length > 0, "the close");
 	assert.deepEqual(ended, [{ reason: "peer-closed", peer: "roster" }]);
 	await until(() => log().some((l) => l.event === "operate-close"), "the box's log line");
 	assert.deepEqual(log().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason, l.from]), [["box", "roster", bob.id]]);
+});
+
+test("OBX-F005 (M22): stopping the server ends the session with a close that reaches the operator, and the box logs it", async () => {
+	const { s, ended, log } = await accepted();
+	await s.handle.shutdown(0);
+	await until(() => ended.length > 0, "the close");
+	assert.deepEqual(ended, [{ reason: "peer-closed", peer: "stopped" }]);
+	assert.deepEqual(log().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason, l.from]), [["box", "stopped", bob.id]]);
 });

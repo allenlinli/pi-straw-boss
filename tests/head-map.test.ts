@@ -20,10 +20,10 @@ test("no base carries a crown any more: the base card and the zoomed base have n
 
 const rule = (css: string, selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.[\]()|*+?^$]/g, "\\$&")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
 
-test("the band takes a row of its own in the flow: centred above the bases, at most a column wide and 44 px tall, with the grid's own gap under it; Geek stays flat", () => {
+test("the band takes a row of its own in the flow: centred above the bases, at most a column wide and 44 px tall, with 32 px under it; Geek stays flat", () => {
 	const css = read("gui/style.css"), own = rule(css, ".head-node");
 	assert.match(own, /position: relative;/, "in the flow, not out of it");
-	assert.match(own, /margin: 0 auto 20px;/, "centred, the bases start under it with the grid's own 20 px gap");
+	assert.match(own, /margin: 0 auto 32px;/, "centred, the bases start 32 px under it (the approved mockup: room for the wires' bus halfway)");
 	assert.match(own, /width: var\(--col, min\(100%, 330px\)\);/, "one grid column wide (render.ts sets --col to the masonry's column)");
 	assert.match(own, /max-width: 100%;/);
 	assert.match(own, /height: 44px;/, "44 px: at most that on a desktop, at least that to tap on a phone");

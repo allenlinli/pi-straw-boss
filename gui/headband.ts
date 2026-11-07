@@ -11,10 +11,10 @@ type Spot = readonly [number, number];
 /** The waits for the boss, counted as the head page's rows are (towermodel.ts `noticeRows`): the server leaves the lapsed ones out of the head's `bossWaits`, and a wait that has a state has no row. */
 export const bossWaits = (head: HeadUnit | undefined) => (head?.service?.memory?.bossWaits ?? []).filter((w) => !w.state).length;
 
-/** The newest broadcast's one-line summary (the card's own line, headpage.ts `sentLine`) while it has had activity in the last day; none otherwise. */
+/** The newest broadcast's one-line summary (the card's own line, headpage.ts `sentLine`) while it has had activity in the last day; else the first line of the head's newest words; none otherwise. */
 export function newestLine(head: HeadUnit, now: number): string {
 	const newest = askGroups(head.asks, now, undefined).recent[0];
-	return newest ? sentLine(newest) : "";
+	return newest ? sentLine(newest) : head.line ?? "";
 }
 
 export interface Band { absent: boolean; name: string; state: string; line: string; waits: number; /** The accessible name and the hover: the name, the state, the waits, and the whole line the band ellipsises. */ label: string }

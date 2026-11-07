@@ -1039,7 +1039,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Raven Keep re-review (RRB-F002, measured, node 24): 120,800 / 44,040, +135 / +23: the page words `comms`, `outposts`, and `outside_net` through noun() and the base card's outposts label set on every draw, so a theme that lands later renames them. Cap = measured.
 	// Raven Keep re-review 2 (RRB2-F001, measured, node 24): 120,837 / 44,052, +37 / +12: the head's kicker drops the comms template's data-m, and a theme switch always redraws. Cap = measured.
 	// Head band (measured, node 24): 122,069 / 44,492, +1,232 / +440: headband.ts and the routing in render.ts (headpage.ts's ask grouping now loads with the map), less the old curve code; the stylesheet rules for the band. Cap = measured.
-	assert.ok(eagerBytes <= 122_069 && eagerGz <= 44_492, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Head band newest-line fallback (measured, node 24): 122,077 / 44,493, +8 / +1 over the 122,069 / 44,492 above: `HeadUnit.line` through newestLine (demo-head.ts is not in the built page), the band's 32 px room under it, and the unused `packets()` dropped. Cap = measured.
+	assert.ok(eagerBytes <= 122_077 && eagerGz <= 44_493, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1226,7 +1227,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Raven Keep review round 2 (measured, node 24): 253,223 / 103,982, +318 / +88 (the dossier's documents list takes iconRef("doc") and the tiles name a role for their icon). Cap = measured.
 	// Raven Keep re-review (RRB-F002, measured, node 24): 253,311 / 104,001, +88 / +19: `data-m` on the nouns the dossier, comms, and zoom templates print, so a theme that lands later renames them. Cap = measured.
 	// Head band (measured, node 24): 253,311 / 104,001 to 253,316 / 104,006 (+5 / +5): headpage.ts now loads with the map, so the chunks that shared it with the map are split differently. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 253_316 && total(chunks, gz) <= 104_006, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Head band newest-line fallback (measured, node 24): 253,316 / 104,012, +0 / +6 (the chunk names' hashes moved with the rebuilt map chunk). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 253_316 && total(chunks, gz) <= 104_012, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

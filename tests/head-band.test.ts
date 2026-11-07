@@ -41,6 +41,15 @@ test("the newest line is the newest ask's one-line summary while it is not lapse
 	assert.equal(newestLine(head({ asks: two }), NOW), "Later order", "the newest broadcast wins");
 });
 
+test("with no live ask the newest line falls back to the head's newest words, and an ask still wins", () => {
+	assert.equal(newestLine(head({ asks: [], line: "On it, handing the fix over." }), NOW), "On it, handing the fix over.");
+	const old = [row({ id: "H1", group: "H1", since: NOW - 40 * HOUR, at: NOW - 40 * HOUR, first: "Old order" })];
+	assert.equal(newestLine(head({ asks: old, line: "Idle words" }), NOW), "Idle words", "a lapsed ask gives way to the head's words");
+	const fresh = [row({ id: "H2", group: "H2", since: NOW - HOUR, at: NOW - HOUR, first: "Fresh order" })];
+	assert.equal(newestLine(head({ asks: fresh, line: "Idle words" }), NOW), "Fresh order", "a live ask wins");
+	assert.equal(newestLine(head({ asks: [] }), NOW), "", "neither: nothing");
+});
+
 test("the band's model over the head's states: waiting, asks, talk, absent", () => {
 	const waiting = bandModel(headDemo("waiting", NOW), NOW);
 	assert.deepEqual([waiting.absent, waiting.waits, waiting.name], [false, 1, m.head_tower()]);
@@ -52,7 +61,9 @@ test("the band's model over the head's states: waiting, asks, talk, absent", () 
 	assert.deepEqual([answers.waits, answers.line === newestLine(headDemo("answers", NOW), NOW)], [0, true]);
 	assert.ok(!answers.label.includes(m.memory_wait_boss()), "no waits, no chip words");
 	const talk = bandModel(headDemo("talk", NOW), NOW);
-	assert.deepEqual([talk.waits, talk.line], [0, ""], "a head with nothing handed out and nothing waiting has a name and a state, no line");
+	assert.equal(talk.waits, 0);
+	assert.ok(talk.line.length > 0 && talk.line === headDemo("talk", NOW).line, "a head with nothing handed out shows its own newest words");
+	assert.equal(bandModel(head({ asks: [] }), NOW).line, "", "and with no words either, no line");
 	const absent = bandModel(headDemo("absent", NOW), NOW);
 	assert.deepEqual([absent.absent, absent.waits, absent.line, absent.state], [true, 0, m.head_state_absent(), m.head_state_absent()], "not open: the name and `not open`, no line, no chip");
 	assert.equal(absent.label, `${m.head_tower()} · ${m.head_state_absent()}`);

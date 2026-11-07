@@ -67,7 +67,7 @@ The short lines under the Zen view's idle circle (`gui/zenlines.ts`) are one sen
 
 ## pi-better-show (`dist/gui/assets/blockschunk-*.js`)
 
-The GUI's block chunk bundles [pi-better-show](https://github.com/wayne930242/pi-better-show) 0.1.0 (its parser, its answer encoding, and its thirteen elements), and with it the [yaml](https://github.com/eemeli/yaml) library 2.9.1.
+The GUI's block chunk bundles [pi-better-show](https://github.com/wayne930242/pi-better-show) 0.1.2 (its parser, its answer encoding, and its thirteen elements), and with it the [yaml](https://github.com/eemeli/yaml) library 2.9.1.
 
 pi-better-show: MIT License, Copyright (c) 2026 wayne930242
 

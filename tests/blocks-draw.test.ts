@@ -155,6 +155,20 @@ test("BS-F004: the server's record seeds the lock: a block it says was answered 
 	assert.deepEqual(wraps.map((w) => w.hasAttribute("inert")), [false, true, false]);
 	lockFor("S9", "seeded").seed({ done: [], pending: [] });
 	assert.deepEqual(els.map((e) => e.answered === undefined), [false, true, true], "a seed that says nothing about a block never reopens one");
+	lockFor("S9", "seeded").seed({ done: [], pending: [0] });
+	assert.deepEqual(els[0]!.answered, [["text", "Go"]], "a seed that says a finished block is on its way does not take its answer back");
+	assert.equal(wraps[0]!.hasAttribute("inert"), false);
+});
+
+test("BS-F004: a block that is answered, or on its way, sends nothing when its element fires again (another drawing of it, a double click)", async () => {
+	const text = "```suggest\n- Go\n```\n\n```suggest\n- Stop\n```";
+	const sent: string[] = [];
+	const h = host(async (_a, t) => (sent.push(t), { ok: true }), { scope: ["S9", "locked"] });
+	lockFor("S9", "locked").seed({ done: [[0, [["text", "Go"]]]], pending: [1] });
+	const els = elementsOf(drawn(text, h)) as unknown as El[];
+	for (const [i, el] of els.entries()) fire(el, { kind: "suggest", fields: [["text", "Later"]], ref: { block: i } });
+	await settle();
+	assert.deepEqual(sent, [], "neither the finished nor the pending block sends");
 });
 
 test("BS-F004: when the record could not be read the blocks show their source state with a note saying so, and can still be answered (the server refuses a block it knows is answered)", async () => {

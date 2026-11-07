@@ -35,7 +35,8 @@ const files = new Map<string, { type: string; body: string | Buffer; status?: nu
 	[`/doc/d-html/app.js`, { type: "text/javascript", body: "alert(1)" }],
 	[`/doc/d-text/notes.txt`, { type: "text/plain; charset=utf-8", body: "plain notes" }],
 	[`/doc/d-big/big.md`, { type: "text/plain; charset=utf-8", body: "x".repeat(2 * 1024 * 1024 + 1) }],
-	[`/doc/d-redirect/r.md`, { type: "text/plain", body: "", status: 302, location: "http://127.0.0.1:1/elsewhere" }],
+	[`/doc/d-redirect/r.md`, { type: "text/plain", body: "", status: 302, location: `/${TOKEN}/doc/d-redirect/real.md` }],
+	[`/doc/d-redirect/real.md`, { type: "text/plain", body: "# Elsewhere" }],
 	[`/doc/d-down/down.md`, { type: "text/plain", body: "boom", status: 500 }],
 ]);
 const hits: string[] = [];
@@ -108,7 +109,7 @@ test("a blocks document is read from the owner's page server by its capability: 
 test("a capability is fetched with care: over 2 MB, a redirect, and an error status are no document, and nothing leaves the owner's loopback server", async () => {
 	const { gui, caps } = await serve();
 	for (const name of ["big.md", "r.md", "down.md"]) assert.equal((await ask(gui, `api/doc/${caps[name]}`)).status, 404, name);
-	assert.ok(!hits.some((h) => h.includes("elsewhere")), "the redirect was not followed");
+	assert.ok(!hits.some((h) => h.includes("real.md")), "the redirect was not followed (its target is a good page: following it would have served it)");
 });
 
 test("an HTML document is the owner's page served as a v1 one is: its forms answer here, the owner's frame hook is gone, and its folder's pictures and style load through the owner's assets", async () => {

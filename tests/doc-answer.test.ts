@@ -116,6 +116,9 @@ test("what the owner refuses comes back as a refusal with its reason, and is not
 	assert.deepEqual([json(r).error, /no fields/i.test(json(r).reason ?? "")], ["refused", true]);
 	assert.equal((await answer(gui, text, body(ID, [["q", "1"]]))).status, 409);
 	assert.equal(forms.length, 1);
+	const retry = await answer(gui, text, body("d".repeat(32), [["q", "1"]]));
+	assert.equal(retry.status, 200, "a refusal cancels the record: the block is open again, under another answer id");
+	assert.equal(forms.length, 2);
 });
 
 test("an owner that stays silent is not confirmed (504) and a document that is no longer open is 404", async () => {

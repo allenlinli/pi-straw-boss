@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import { createAnswered } from "../src/answered.ts";
 import { type Gui, startGui } from "../src/gui.ts";
+import { HerdrError } from "../src/herdr.ts";
 import type { Found } from "../src/net.ts";
 
 // A chat block's answer is recorded by the server in the very request that sends it (docs/specs/2026-11-07-better-show-host.md, "Answered"): `sessions/<key>/input` with a `block {entry, index, fields}` is begun as pending before
@@ -21,12 +22,13 @@ after(async () => {
 });
 
 const FILE = "/s/2026_sess-1.jsonl";
-async function setup({ disk = { text: undefined as string | undefined, fail: false }, status = "idle" }: { disk?: { text: string | undefined; fail: boolean }; status?: string } = {}) {
+async function setup({ disk = { text: undefined as string | undefined, fail: false }, status = "idle", timeout = false }: { disk?: { text: string | undefined; fail: boolean }; status?: string; timeout?: boolean } = {}) {
 	const calls: [string, Record<string, unknown>][] = [];
 	let hold: Promise<void> | undefined;
 	const call = async (method: string, params: Record<string, unknown>) => {
 		calls.push([method, params]);
 		if (method === "pane.get") return { pane: { pane_id: "wA:p1", agent: "pi", agent_status: status, agent_session: { value: FILE } } };
+		if (timeout && method === "agent.prompt") throw new HerdrError("timeout", "no answer");
 		await hold;
 		return {};
 	};
@@ -94,6 +96,16 @@ test("a message the unit did not take leaves the block open: the record is cance
 	const refused = await send(t.gui, { text: "/boss gui stop" });
 	assert.equal(refused.status, 403, "the guards are the composer's own");
 	assert.deepEqual((await ask(t.gui, "answered/sess-1")).body.done, []);
+});
+
+test("a message Herdr did not confirm (504) leaves the block pending, not open: the message may have gone, so no device sends it again", async () => {
+	const t = await setup({ timeout: true });
+	const first = await send(t.gui);
+	assert.equal(first.status, 504);
+	assert.deepEqual((await ask(t.gui, "answered/sess-1")).body, { done: [], pending: [["e7", 1]], unreadable: false });
+	const again = await send(t.gui, { text: "Stop" });
+	assert.deepEqual([again.status, again.body.error], [409, "pending"]);
+	assert.equal(t.typed().length, 1);
 });
 
 test("the record outlives the server: a new server on the same file reads what was answered", async () => {

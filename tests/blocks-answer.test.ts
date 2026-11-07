@@ -63,7 +63,13 @@ test("a chat block already answered elsewhere comes back as the fields that went
 	assert.deepEqual(r, { ok: false, reason: "This block was answered already.", answered: [["text", "Go"]] });
 });
 
-test("a document block's answer is posted to the document's answer route as the Answer, with the hash of the text it drew and one answer id of its own", async () => {
+test("only the server's `answered` 409 locks a block: any other refusal, even one that carries fields, leaves it open", async () => {
+	const other: Posted = { ok: false, status: 409, body: { error: "blocked", reason: "It is waiting on a dialog.", fields: [["text", "Go"]] } };
+	const r = await deliverToUnit(async () => other, { entry: "e", index: 0, fields: [] })("Later");
+	assert.deepEqual(r, { ok: false, reason: "It is waiting on a dialog." });
+});
+
+test("a document block\'s answer is posted to the document's answer route as the Answer, with the hash of the text it drew and one answer id of its own", async () => {
 	const posts: [string, Record<string, unknown>][] = [];
 	const to = deliverToDoc(async (path, body) => (posts.push([path, body]), ok()), "cap/with space", "0123456789abcdef");
 	const answer = { kind: "form" as const, fields: [["a", "1"]] as [string, string][], ref: { doc: "cap/with space", block: 3 } };

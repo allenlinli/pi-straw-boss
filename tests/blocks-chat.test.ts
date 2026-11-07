@@ -116,6 +116,12 @@ test("a block the record says is on its way comes up locked and pending, one it 
 	assert.deepEqual(find(unsure, "pbs-suggest")[0]!.answered, [["text", "Go ahead"]]);
 });
 
+test("a record the server marks unreadable comes up open with the note, even though the request itself went through", async () => {
+	record = { done: [], pending: [], unreadable: true };
+	const root = await mount("S1").show(reply(DEMO_CHAT_BLOCKS));
+	assert.ok(root.find((el) => el.getAttribute("class") === "pbs-note").every((el) => /could not be read/i.test(el.textContent)));
+});
+
 test("a message redrawn while its answer is on its way (a tool result, a reconnect) comes up locked, and locks with the fields when the unit has taken the message", async () => {
 	let release!: (r: Posted) => void, started = false;
 	const data = { older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined, post: async () => ((started = true), await new Promise<Posted>((r) => (release = r))) };

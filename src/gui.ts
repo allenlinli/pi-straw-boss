@@ -6,13 +6,14 @@ import { createServer, type IncomingMessage, type RequestListener, type Server, 
 import type { AddressInfo } from "node:net";
 import { extname, join } from "node:path";
 import { waitsForLinkRequest, waitsForSecret } from "./ask.ts";
-import { type ControlDeps, createControl, type LanPanel, type Reply } from "./control.ts";
+import { type ControlDeps, createControl, type LanPanel, type Reply, SCOPES } from "./control.ts";
 import type { HerdrCall } from "./herdr.ts";
 import type { Hub } from "./dialogs.ts";
 import { createDocs } from "./docs.ts";
 import { canonical, readers } from "./history.ts";
 import { createGrants } from "./answerpane.ts";
 import { createMirrors } from "./mirror.ts";
+import { createOperate, type Operate } from "./operateseam.ts";
 import type { Found, Net, Ref } from "./net.ts";
 import { qr } from "./qr.ts";
 import { createEntry, zhOf } from "./appentry.ts";
@@ -56,7 +57,7 @@ const HEADERS = {
 const REPLACED = "This address does not work here (the sb server may have restarted, or the link expired): on this computer open /boss gui; on a phone scan a new QR code.";
 const REPLACED_ZH = "這個網址在這裡無法使用（sb server 可能重新啟動過，或連結已過期）：在這台電腦請開啟 /boss gui；在手機請重新掃描新的 QR code。";
 /** `kept` says the listener runs under the `keep` secrets it was given (it got both of their ports back); otherwise its token and CSRF secret are new. `lan` is the handler of kind "lan" for the LAN listeners guihost.ts binds. */
-export interface Gui { url: string; port: number; remotePort: number; token: string; csrf: string; kept: boolean; access: Access; lan: LanHandler; stop(): Promise<void>; /** The server's default view the pages follow now. */ view(): ServerView; /** Changes it: the pages served from now on carry it, and every open stream is told with a `view` event. False when it was that already. */ setView(next: ServerView): boolean }
+export interface Gui { /** The box's way in for an operate session (docs/specs/2026-11-07-link-operate.md §6.1): in process, scoped, with no listener of its own (operateseam.ts). */ operate: Operate; url: string; port: number; remotePort: number; token: string; csrf: string; kept: boolean; access: Access; lan: LanHandler; stop(): Promise<void>; /** The server's default view the pages follow now. */ view(): ServerView; /** Changes it: the pages served from now on carry it, and every open stream is told with a `view` event. False when it was that already. */ setView(next: ServerView): boolean }
 /** What the sb server hands the GUI for Wi-Fi access: the page's panel (the `lan/*` routes), the overlay marks the writing routes look at, lan.json, and where the access reports to (events, log lines). */
 export interface LanOptions { panel: LanPanel; overlay: Overlay; file?: string; notify?(event: LanEvent): void; log?(event: string, fields: Record<string, unknown>): void }
 /** `net` is the registry behind the net reading (the allow list of session keys); without it no session can be watched. `call` reaches Herdr for input. */
@@ -152,9 +153,11 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 	const tick = () => (inflight ??= (async () => {
 		try {
 			const net = await read(), json = JSON.stringify(net);
-			if (json !== last || problem) push((last = json));
+			const moved = json !== last;
+			if (moved || problem) push((last = json));
 			problem = undefined;
-			await Promise.all([...clients.values()].map((w) => w?.refresh().catch(() => {})));
+			if (moved) operate.notify();
+			await Promise.all([...clients.values()].map((w) => w?.refresh().catch(() => {})).concat(operate.refresh()));
 		} catch (error) {
 			// The stream stays up and says why the net is unreadable, once per distinct reason.
 			const message = (error as Error).message;
@@ -162,6 +165,22 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 			problem = message;
 		}
 	})().finally(() => (inflight = undefined)));
+	// The net is read every `pollMs` while a page's stream or an operate session listens, and the pings go to the pages' streams only.
+	const pulse = () => {
+		const listening = clients.size + operate.size() > 0;
+		if (listening && !poll) poll = setInterval(() => void tick(), pollMs).unref();
+		if (!listening && poll) (clearInterval(poll), (poll = undefined));
+		if (clients.size && !beat) beat = setInterval(() => push("", "ping"), pingMs).unref();
+		if (!clients.size && beat) (clearInterval(beat), (beat = undefined));
+	};
+	const operate = createOperate({
+		control, files, mirrors, active: () => pulse(),
+		net: async (fresh) => {
+			if (fresh || last === undefined) await tick();
+			if (last === undefined) throw new Error(problem ?? "The net cannot be read yet.");
+			return JSON.parse(last) as Net;
+		},
+	});
 	const events = (req: IncomingMessage, res: ServerResponse, target: string | null, remote?: { device: string; net: Network }) => {
 		res.writeHead(200, { ...HEADERS, "content-type": "text/event-stream", connection: "keep-alive" });
 		if (remote) remotes.set(res, remote);
@@ -172,10 +191,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		const watch = target?.startsWith("w:") ? watchWorkspace(files, target.slice(2), to) : target ? watchSession(files, target, to) : undefined;
 		clients.set(res, watch);
 		if (last) res.write(`data: ${last}\n\n`);
-		if (clients.size === 1) {
-			poll = setInterval(() => void tick(), pollMs).unref();
-			beat = setInterval(() => push("", "ping"), pingMs).unref();
-		}
+		pulse();
 		// The registry is filled by reading the net, so a watched page starts once a reading exists, and an attach finds its session then.
 		const first = !last;
 		void (clients.size === 1 || first ? tick() : watch?.refresh())?.catch(() => {}).finally(() => first && hello());
@@ -184,10 +200,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 			remotes.delete(res);
 			mirrors.close(stream);
 			watch?.stop();
-			if (!clients.size) {
-				clearInterval(poll);
-				clearInterval(beat);
-			}
+			pulse();
 		});
 	};
 	// One handler per listener: `kind` is the listener a request arrived on, which alone decides whether it may count as local. A request of kind "lan" comes from a LAN listener (guihost.ts) with `at`, what that listener tells of it.
@@ -239,7 +252,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 				const file = parts.length === 3 && parts[1] === "ca" ? lan.panel.file(parts[2]!) : undefined;
 				return void (file ? res.writeHead(200, { ...HEADERS, "content-type": file.type, "content-disposition": `attachment; filename="${parts[2]}"` }).end(file.bytes) : fail(404));
 			}
-			if (["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "head", "lan"].includes(parts[0]!)) return void control(req, who.origin, parts, who.remote).then(answer, () => answer({ status: 500, body: { error: "internal", reason: "The request could not be handled." } }));
+			if (SCOPES.includes(parts[0]!)) return void control(req, who.origin, parts, who.remote).then(answer, () => answer({ status: 500, body: { error: "internal", reason: "The request could not be handled." } }));
 			// An entry never changes once written, so its image is cached for a day; the token in the URL keeps it to this page.
 			if (req.method === "GET" && parts[0] === "image") return void image(files, parts.slice(1)).then((p) => (p ? res.writeHead(200, { ...HEADERS, "content-type": p.type, "cache-control": "private, max-age=86400" }).end(p.bytes) : fail(404)), () => fail(404));
 			// Zen's music: the list, and one track with range requests (music.ts). Same token and paired-device checks as the reads around it; the folder's files are the only thing it reads.
@@ -288,6 +301,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		return new Promise<void>((done) => {
 			hub?.stop();
 			unwatch?.();
+			operate.stop();
 			mirrors.stop();
 			clearInterval(poll);
 			clearInterval(beat);
@@ -301,7 +315,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		});
 	}
 	return {
-		url: `http://127.0.0.1:${bound}/${token}/`, port: bound, remotePort: boundRemote, token, csrf, kept, access, lan: lanHandler, stop: halt,
+		operate: operate.api, url: `http://127.0.0.1:${bound}/${token}/`, port: bound, remotePort: boundRemote, token, csrf, kept, access, lan: lanHandler, stop: halt,
 		view: () => view,
 		setView(next) {
 			if (next === view) return false;

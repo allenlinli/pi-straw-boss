@@ -1,7 +1,7 @@
 import { DEQUEUE_KEY } from "./dequeuekey.ts";
 import type { Overlay } from "./lan/faces.ts";
 import type { Found } from "./net.ts";
-import type { Editor } from "./probe.ts";
+import { type Editor, operateRefusal } from "./probe.ts";
 import type { Taken } from "./runs.ts";
 
 // The key pad's keys (POST …/sessions/<key>/keys {key, stream, confirmed?}), checked in order after the write guards and the registry:
@@ -31,9 +31,9 @@ export const RATE = 8, RATE_MS = 1000, DOUBLE_MS = 1000, PAIR_MS = 450, MAX_TYPE
 /** C0 and C1 controls and DEL: what could end a line, start an escape sequence, or signal; typed text holds none, a paste only line breaks and tabs. */
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/, PASTE_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 export interface Reply { status: number; body: unknown }
-export interface KeyDeps { /** The marks of the `/boss gui lan` overlay (lan/faces.ts): a paired device sends Escape only to a marked pane. */ overlay?: Overlay; fresh(stream: string, key: string, pane: string): boolean; secret(file: string): Promise<boolean>; answerable(key: string): Promise<boolean>; linkRequest?(found: Found, session: string): Promise<boolean>; /** The editor class; with a `nonce` the bridge also tells the MAC of a command line under it (probe.ts). */ probe(key: string, nonce?: string): Promise<Editor | undefined>; /** The one-tap grants (runs.ts): the nonce to probe with, and what an answer id says of the prompt line's MAC. */ run?: { nonce(session: string, answerId: string): string | undefined; take(session: string, answerId: string, mac: string | undefined): Taken }; now?(): number }
+export interface KeyDeps { /** The marks of the `/boss gui lan` overlay (lan/faces.ts): a paired device sends Escape only to a marked pane. */ overlay?: Overlay; fresh(stream: string, key: string, pane: string): boolean; secret(file: string): Promise<boolean>; answerable(key: string): Promise<boolean>; linkRequest?(found: Found, session: string): Promise<boolean>; /** The editor class; with a `nonce` the bridge also tells the MAC of a command line under it (probe.ts). */ probe(key: string, nonce?: string, flags?: boolean): Promise<Editor | undefined>; /** The one-tap grants (runs.ts): the nonce to probe with, and what an answer id says of the prompt line's MAC. */ run?: { nonce(session: string, answerId: string): string | undefined; take(session: string, answerId: string, mac: string | undefined): Taken }; now?(): number }
 /** `text`: typed characters, sent as they are, or a paste already inside its markers (key is then "text" or "paste"). */
-export interface Asked { key: string; stream?: string; confirmed?: unknown; text?: string; remote?: boolean; /** The answer id of a one-tap run (Enter only). */ run?: string }
+export interface Asked { key: string; stream?: string; confirmed?: unknown; text?: string; remote?: boolean; /** An operate session's key (docs/specs/2026-11-07-link-operate.md §7): Enter and Alt+Enter are probed for a shell line or a /boss command, and Ctrl+M is never sent. */ operate?: true; /** The answer id of a one-tap run (Enter only). */ run?: string }
 type Pane = { pane_id: string; agent_status?: string };
 /** The keys to send, the Herdr calls that send them, and whether they are the confirmed double-Escape. */
 export interface Plan { keys: string[]; calls: [string, Record<string, unknown>][]; double: boolean }
@@ -83,19 +83,21 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 			return { keys: [key], double: false, calls: [["pane.send_input", { pane_id: pane.pane_id, keys: [key] }]] };
 		},
 		/** The body as one pad key (or Stop's Escape), or why not, before Herdr is asked; a request that passes counts toward the rate. */
-		check(session: string, json: Record<string, unknown>, remote = false): Asked | Reply {
+		check(session: string, json: Record<string, unknown>, remote = false, operate = false): Asked | Reply {
 			const stop = json.key === undefined && Array.isArray(json.keys) && json.keys.length === 1 && json.keys[0] === "esc";
 			const alone = json.key === undefined && json.keys === undefined, typed = alone && json.text !== undefined && json.paste === undefined, pasted = alone && json.paste !== undefined && json.text === undefined;
 			if (typed && (typeof json.text !== "string" || !json.text || [...json.text].length > MAX_TYPED || CONTROL.test(json.text))) return no(400, "text", `Typed text is 1 to ${MAX_TYPED} printable characters, without line breaks, tabs, or control keys.`);
 			if (pasted && (typeof json.paste !== "string" || !json.paste || [...json.paste].length > MAX_PASTE || PASTE_CONTROL.test(json.paste))) return no(400, "paste", `A paste is 1 to ${MAX_PASTE} characters, with line breaks and tabs but no other control character.`);
 			if (json.key === "ctrl+z") return no(400, "key", "Ctrl+Z is never sent: it would stop pi in the background, where nothing here can bring it back.");
+			if (operate && json.key === "ctrl+m") return no(403, "operate_refused", "Ctrl+M is Enter without the editor check; send Enter.", { why: "enter-chord" }); // a terminal reads it as a carriage return
 			if (!stop && !typed && !pasted && (json.text !== undefined || json.paste !== undefined || typeof json.key !== "string" || !(PAD.includes(json.key) || json.key === "delete" || COMBOS.test(json.key)) || json.keys !== undefined)) return no(400, "key", "One key at a time: a pad key, Delete, or a Ctrl or Alt chord (never a letter alone).");
 			if (json.run !== undefined && (json.key !== "enter" || typeof json.run !== "string" || !RUN_ID.test(json.run) || json.confirmed !== undefined)) return no(400, "key", "`run` names the answer that put a command in the prompt, on Enter alone and without a confirm.");
 			if (!stop && (typeof json.stream !== "string" || !json.stream)) return no(400, "bad_request", "Name this page's stream; reload the page if it reconnected.");
 			const limited = counted(session);
 			if (limited) return limited;
-			if (pasted) return { key: "paste", text: `\x1b[200~${json.paste as string}\x1b[201~`, stream: json.stream as string, remote };
-			return stop ? { key: "esc", remote } : typed ? { key: "text", text: json.text as string, stream: json.stream as string, remote } : { key: json.key as string, stream: json.stream as string, confirmed: json.confirmed, remote, ...(json.run !== undefined && { run: json.run as string }) };
+			const op = operate ? { operate: true as const } : {};
+			if (pasted) return { key: "paste", text: `\x1b[200~${json.paste as string}\x1b[201~`, stream: json.stream as string, remote, ...op };
+			return stop ? { key: "esc", remote, ...op } : typed ? { key: "text", text: json.text as string, stream: json.stream as string, remote, ...op } : { key: json.key as string, stream: json.stream as string, confirmed: json.confirmed, remote, ...op, ...(json.run !== undefined && { run: json.run as string }) };
 		},
 		/**
 		 * The calls that send a checked key to a pane an answer opened (answerpane.ts), which is no pi session (`live` has just refused it, ending its grant, if it runs an agent or carries `sb_role`): only the mirror precondition (this page's stream holds that pane's mirror, live) and the keys `check` let through.
@@ -117,9 +119,12 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 		/** The guards, then the keys: one, or Escape twice for a confirmed double-Escape (`double`: this was the double, sent or paired). */
 		async keys(session: string, found: Found, pane: Pane, a: Asked): Promise<{ keys: string[]; double: boolean }> {
 			await guard(session, found, pane, a);
-			if (a.key === "enter") {
-				const e = await probe(session, a.run === undefined ? undefined : run?.nonce(session, a.run)); // the grant's nonce goes with a `run` Enter's probe only: no other Enter has a MAC of the draft made
+			// Alt+Enter acts as Enter in pi while it is not streaming (it submits the draft, a `!` line included), so an operate session's is probed like Enter.
+			if (a.key === "enter" || (a.operate && a.key === "alt+enter")) {
+				const e = await probe(session, a.run === undefined ? undefined : run?.nonce(session, a.run), a.operate); // the grant's nonce goes with a `run` Enter's probe only: no other Enter has a MAC of the draft made
 				await guard(session, found, pane, a); // the probe took up to a second: a secret or a dialog may have opened meanwhile
+				const barred = a.operate ? operateRefusal(e) : undefined; // an operate session's Enter never runs a shell line or a /boss command, and no confirm lifts that
+				if (barred) throw no(403, "operate_refused", barred.reason, { why: barred.why });
 				let need = !e || e.editor === "unknown" ? "unread" : (e.ending ?? (e.editor === "command" ? "command" : undefined));
 				if (a.run !== undefined) {
 					const taken = run?.take(session, a.run, e?.mac) ?? "unknown";

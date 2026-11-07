@@ -876,6 +876,7 @@
 	"refuse_busy": "上一個按鍵還在送出；請稍候。",
 	"refuse_run_unknown": "這個指令已經執行過，或不是這裡的回答放進提示列的；再按一次「執行」確認。",
 	"refuse_run_expired": "指令等太久，不能一鍵執行；再按一次「執行」確認。",
+	"refuse_operate_refused": "這台機器不讓遠端連線做這件事；請在機器本身操作。",
 	"refuse_run_changed": "提示列裡已不是當初放進去的指令，所以沒有送出；請到終端機查看。",
 	"ended_not_live": "session 已不在這個窗格中即時執行。",
 	"ended_other": "這個窗格現在執行別的程式。",

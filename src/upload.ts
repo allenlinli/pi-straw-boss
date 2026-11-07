@@ -24,9 +24,21 @@ export function safeName(raw: unknown) {
 	return basename(name.replace(/\\/g, "/")).replace(/[^\p{L}\p{N}._ -]/gu, "_").replace(/^[.\s]+/, "").slice(-120) || "file";
 }
 
+/** Writes the bytes to a file of its own in the private folder: its path, or the reply that refuses an empty file. */
+export async function store(bytes: Buffer, rawName: unknown, dir = UPLOADS): Promise<Reply> {
+	if (!bytes.length) return no(400, "bad_request", "The file is empty.");
+	await mkdir(dir, { recursive: true, mode: 0o700 });
+	const path = join(dir, `${Date.now()}-${randomUUID().slice(0, 8)}-${safeName(rawName)}`);
+	await writeFile(path, bytes, { mode: 0o600, flag: "wx" });
+	return { status: 200, body: { path } };
+}
+
+/** The session an upload goes to, or why not. */
+export const target = (found: Found | undefined): Reply | undefined => (!found ? no(404, "not_found", "No such session.") : !found.live || !found.pane ? no(409, "not_live", "This session is no longer live in a pane.") : undefined);
+
 export async function upload(req: IncomingMessage, found: Found | undefined, dir = UPLOADS): Promise<Reply> {
-	if (!found) return no(404, "not_found", "No such session.");
-	if (!found.live || !found.pane) return no(409, "not_live", "This session is no longer live in a pane.");
+	const refused = target(found);
+	if (refused) return refused;
 	if (Number(req.headers["content-length"] ?? 0) > MAX_UPLOAD) return (req.resume(), no(413, "too_large", "The file is larger than 20 MB."));
 	const parts: Buffer[] = [];
 	let size = 0;
@@ -36,9 +48,5 @@ export async function upload(req: IncomingMessage, found: Found | undefined, dir
 		req.on("error", () => done(false));
 	});
 	if (!whole) return no(413, "too_large", "The file is larger than 20 MB, or it did not arrive whole.");
-	if (!size) return no(400, "bad_request", "The file is empty.");
-	await mkdir(dir, { recursive: true, mode: 0o700 });
-	const path = join(dir, `${Date.now()}-${randomUUID().slice(0, 8)}-${safeName(req.headers["x-sb-name"])}`);
-	await writeFile(path, Buffer.concat(parts), { mode: 0o600, flag: "wx" });
-	return { status: 200, body: { path } };
+	return store(Buffer.concat(parts), req.headers["x-sb-name"], dir);
 }

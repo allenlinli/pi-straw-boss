@@ -43,16 +43,26 @@ test("the notice for messages with no tower open says who, how many, how long, w
 	assert.match(inbox({ workspace: undefined, ageMin: 2880 }), /the oldest 2d ago, for the tower of project moldplan-center\. /);
 	assert.match(inbox({ others: 2 }), /^Team moldplan: box n2knna and 2 more sent 4 messages/);
 	const zh = (over: Record<string, string | number> = {}) => m.link_a_inbox({ team: "moldplan", count: 4, who: "box n2knna", ago: "3 小時", where: "「MP Center」工作區的塔台", drop: "11/13", ...over }, { locale: "zh-TW" });
-	assert.equal(zh(), "團隊 moldplan：box n2knna 傳來 4 則訊息，最早的在 3 小時前就到了，要交給「MP Center」工作區的塔台，還沒送達。塔台能接手時就會自動送達；最早一則會在 11/13 丟棄。");
+	assert.equal(zh(), "團隊 moldplan：box n2knna 傳來 4 則訊息，3 小時前起就在等，要交給「MP Center」工作區的塔台，還沒送達。塔台能接手時就會自動送達；11/13 起會開始丟棄。");
+	// zh-TW has no singular, so one sentence serves one message and many (IWR-F007): nothing in it says "the oldest".
+	assert.equal(zh({ count: 1, ago: "3 分鐘" }), "團隊 moldplan：box n2knna 傳來 1 則訊息，3 分鐘前起就在等，要交給「MP Center」工作區的塔台，還沒送達。塔台能接手時就會自動送達；11/13 起會開始丟棄。");
+	assert.doesNotMatch(zh(), /最早/);
+	assert.equal(m.age_m({ n: "3" }, { locale: "zh-TW" }), "3 分鐘", "「3 分鐘前」, not 「3 分前」");
+	assert.equal(m.link_seen_ago({ ago: m.age_m({ n: "3" }, { locale: "zh-TW" }) }, { locale: "zh-TW" }), "3 分鐘前見到");
 	assert.equal(m.link_a_inbox_who_many({ label: "box n2knna", others: 2 }, { locale: "zh-TW" }), "box n2knna 和另外 2 位");
 	for (const text of [inbox(), inbox({ workspace: undefined }), zh(), m.link_a_held({ count: 2, team: "T" }, { locale: "zh-TW" }), m.link_a_served({ count: 2, team: "T" }, { locale: "zh-TW" }), alertLine(alert("served", { count: 2 }, "info")), alertLine(alert("held", { count: 2 }, "info"))]) assert.doesNotMatch(text, /inbox|收件匣|\bopen\b|開著|找不到|關/i, text);
 	// This computer tried to wake the tower of a workspace it has (todo #122): the notice says what the boss can do, in plain words, with no "open tower" wording.
-	const none = inbox({ wake: "none" }), failed = inbox({ wake: "failed", reason: "the tower service is not running yet" });
+	const none = inbox({ wake: "none" }), failed = inbox({ wake: "failed", reason: "service" }), off = inbox({ wake: "off" });
 	assert.ok(none.endsWith(" This computer has no workspace for it to wake the tower of. Open the project's workspace and the messages go through."), none);
-	assert.ok(failed.endsWith(" Waking the tower did not work (the tower service is not running yet); it is tried again every minute."), failed);
+	assert.ok(failed.endsWith(" Waking the tower did not work (the tower service is still starting); it is tried again later."), failed);
+	assert.ok(off.endsWith(" Tower runs are switched off on this computer, so nothing can wake the tower. Switch them on and the messages go through."), off);
+	// The reason is a code the page has words for, never the server's own English (IWR-F007); an unknown code reads as the general one.
+	assert.ok(inbox({ wake: "failed", reason: "project" }).endsWith("(the team's project folder is missing or not allowed on this computer); it is tried again later."));
+	assert.ok(inbox({ wake: "failed", reason: "towerRuns.enabled is off in config.json" }).endsWith("(something went wrong; link.log has the details); it is tried again later."));
+	assert.equal(m.link_a_inbox_wake_failed({ reason: m.link_a_inbox_why_service({}, { locale: "zh-TW" }) }, { locale: "zh-TW" }), "叫醒塔台沒有成功（塔台服務還在啟動）；稍後會再試。");
+	assert.equal(m.link_a_inbox_wake_off({}, { locale: "zh-TW" }), "這台電腦停用了塔台執行功能，所以沒有東西能叫醒塔台。啟用後訊息就會送達。");
 	assert.equal(m.link_a_inbox_wake_none({}, { locale: "zh-TW" }), "這台電腦上沒有可以叫醒塔台的工作區。開啟專案的工作區，訊息就會送達。");
-	assert.equal(m.link_a_inbox_wake_failed({ reason: "x" }, { locale: "zh-TW" }), "叫醒塔台沒有成功（x）；每分鐘會再試一次。");
-	for (const text of [none, failed, m.link_a_inbox_wake_none({}, { locale: "zh-TW" }), m.link_a_inbox_wake_failed({ reason: "x" }, { locale: "zh-TW" })]) assert.doesNotMatch(text, /inbox|收件匣|tower is (open|closed)|no tower|開著|找不到|關/i, text);
+	for (const text of [none, failed, off, m.link_a_inbox_wake_none({}, { locale: "zh-TW" }), m.link_a_inbox_wake_off({}, { locale: "zh-TW" }), m.link_a_inbox_wake_failed({ reason: "x" }, { locale: "zh-TW" })]) assert.doesNotMatch(text, /inbox|收件匣|tower is (open|closed)|no tower|開著|找不到|關/i, text);
 	// The teammate's words and the workspace's label are text, never markup or a placeholder.
 	assert.match(inbox({ from: "<b>x</b>", workspace: "{ws}" }), /^Team moldplan: <b>x<\/b> sent 4 messages.*“\{ws\}”/);
 });

@@ -28,8 +28,8 @@ export function alertLine(a: LinkAlert): string {
 				where: d.workspace !== undefined ? m.link_a_inbox_where_workspace({ workspace: text(d.workspace) }) : m.link_a_inbox_where_project({ project: text(d.project) }),
 				drop: new Date(Number(d.drop) || 0).toLocaleDateString(getLocale(), { month: "numeric", day: "numeric" }),
 			});
-			// What the boss can do when this computer tried to wake the tower and could not: no workspace to wake, or the wake failed.
-			return d.wake === "none" ? `${line} ${m.link_a_inbox_wake_none()}` : d.wake === "failed" ? `${line} ${m.link_a_inbox_wake_failed({ reason: text(d.reason) })}` : line;
+			// What the boss can do when this computer tried to wake the tower and could not: no workspace to wake, tower runs switched off, or the wake failed (the reason is one of three codes, in words; the server's own English stays in link.log).
+			return d.wake === "none" ? `${line} ${m.link_a_inbox_wake_none()}` : d.wake === "off" ? `${line} ${m.link_a_inbox_wake_off()}` : d.wake === "failed" ? `${line} ${m.link_a_inbox_wake_failed({ reason: d.reason === "service" ? m.link_a_inbox_why_service() : d.reason === "project" ? m.link_a_inbox_why_project() : m.link_a_inbox_why_other() })}` : line;
 		}
 		case "held": return m.link_a_held({ count: Number(d.count) || 0, team });
 		case "served": return m.link_a_served({ count: Number(d.count) || 0, team });

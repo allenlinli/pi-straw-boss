@@ -5,7 +5,7 @@ import { cleanText, clean, BOARD, forAllies, purge, readEntries, wireId, type En
 import { MAX_BODY_BYTES } from "./wire.ts";
 import { restrictLabel, restrictOwner } from "./text.ts";
 import { createHash, randomBytes } from "node:crypto";
-import type { Session } from "../herdr.ts";
+import { isHead, isSub, type Session } from "../herdr.ts";
 import { type Level, LEVELS, type LinkConfig, type Share } from "./config.ts";
 import { shortId, type DeviceKeys } from "./device.ts";
 import { buildEnvelope, openEnvelope, parseEnvelope, recordTaken, type Header, type ReceiveState } from "./envelope.ts";
@@ -115,12 +115,26 @@ const SERVED_TOWER = /^sb-tower-/;
 const OPEN_BACKOFF_MS = 60_000;
 /** A wake that worked hides the notice for this long, counted from the first of the wakes that worked in a row; a tower that has not taken the message by then is the boss's to hear of. */
 const WAKE_GRACE_MS = 2 * 60_000;
-/** How a wake of an existing workspace's tower stands: `waking` is in flight, `woke` worked, `failed` and `none` (no such workspace) are what the notice tells. */
-interface WakeState { at: number; first: number; state: "waking" | "woke" | "failed" | "none"; reason?: string }
+/**
+ * A wake backs off by what it ended in, doubling from a minute for each time in a row it ended the same way: a tower the net never shows and a computer with no workspace to wake are not tried every minute for a week
+ * (each try is two Herdr calls and two lines of link.log, which rotates at 1 MiB). A failed wake waits at most 10 minutes, the others 30.
+ */
+const WAKE_BACKOFF_MS = 60_000;
+const WAKE_CAP_MS = { none: 30 * 60_000, woke: 30 * 60_000, failed: 10 * 60_000 } as const;
+/** How many towers one sender's messages wake at once: the rest wait their turn (a sender names workspaces, and each wake is a Herdr round trip). */
+const WAKES_PER_SENDER = 3;
+/** Why a wake failed, in the words the boss reads (the server's own words stay in link.log): the page maps the same three codes. */
+type WakeReason = "service" | "project" | "other";
+const WAKE_WHY: Record<WakeReason, string> = { service: "the tower service is still starting", project: "the team's project folder is missing or not allowed on this computer", other: "something went wrong; link.log has the details" };
+/**
+ * How a wake of an existing workspace's tower stands: `queued` waits for one of its sender's wakes to end, `waking` is in flight, `woke` worked; `failed`, `none` (nothing to wake) and `off` (tower runs are switched off, which no wake can change)
+ * are what the notice tells. `streak` counts the times in a row it ended the same way; `sig` is the workspaces of the project a `none` saw, to try again when they change.
+ */
+interface WakeState { at: number; first: number; state: "queued" | "waking" | "woke" | "failed" | "none" | "off"; streak: number; reason?: WakeReason; sig?: string }
 /** The pi the server started for a run, which sits in the standing pane while the run lives: the message is the tower's, even if the run's pi is the session found there. */
 const SERVED_RUN = /^tower run · /;
 /** A message in the inbox that has not reached a tower, as the notices read it: who sent it and when it came, and (once a drain found no tower for it) the workspace label or project the notice names. */
-interface Waiting { team: string; from: string; fromId: string; since: number; toWorkspace: string; offered: boolean; served?: boolean; identity?: string; workspace?: string; project?: string; wakeKey?: string }
+interface Waiting { team: string; from: string; fromId: string; since: number; toWorkspace: string; offered: boolean; served?: boolean; identity?: string; workspace?: string; project?: string; target?: string; wakeKey?: string; local?: "none" | "off" }
 export interface LinkAlert { id: string; kind: AlertKind; level: "info" | "warning" | "error"; team: string; teamName: string; data: Record<string, string | number> }
 /** A teammate's workspace as the map shows it beside the local bases (spec, GUI). */
 /** `unattended`: the device is an unattended box (the roster says so): its card says how many units are online, not its mains; absent for a teammate's computer, whose mains and workers the card lists. */
@@ -245,8 +259,9 @@ export class LinkHolder {
 	/** Projects a tower is being opened for, and when an open of a project last ended, whether it worked or not (it is not tried again for `OPEN_BACKOFF_MS`: a tower that is slow to show in the net must not be opened again in a loop). */
 	private opening = new Map<string, Promise<void>>();
 	private openEnded = new Map<string, number>();
-	/** The wakes of an attended device, by project and named workspace (`wakeKey`). */
+	/** The wakes of an attended device, by project and the id of the workspace asked for (`wakeKey`); who started each one in flight. */
 	private wakes = new Map<string, WakeState>();
+	private wakingFor = new Map<string, string>();
 	private waiting = new Map<string, Waiting>();
 	/** When a `tower-reply` last fell back to a plain `tower`, by device, so the log tells it once an hour. */
 	private fellBack = new Map<string, number>();
@@ -695,7 +710,7 @@ export class LinkHolder {
 		const wanted = new Set([...this.waiting.values()].map((w) => w.wakeKey));
 		for (const key of this.wakes.keys()) if (!wanted.has(key) && !this.opening.has(key)) this.wakes.delete(key);
 		if (ids.length === 0) return;
-		const config = this.o.config(), net = await this.o.net(), servedNow = new Set<string>();
+		const config = this.o.config(), net = await this.o.net(), servedNow = new Set<string>(), runsOn = towerRunsEnabled(this.o.stateDir ?? "");
 		for (const id of ids) {
 			const item = store.readInbox(id);
 			if (!item) {
@@ -748,16 +763,21 @@ export class LinkHolder {
 			}
 			const picks = towersFor(net, policy.project, item.toWorkspace), first = picks[0];
 			if (!first) {
-				// The notice names the workspace the sender asked for when it is a workspace of this computer, else the project: an id of a workspace that is gone is no word for the boss.
-				const asked = item.toWorkspace && (net.workspaces.find((w) => w.workspace_id === item.toWorkspace) ?? net.workspaces.find((w) => w.label === item.toWorkspace));
-				const where = asked ? restrictLabel(asked.label) : undefined, project = basename(policy.project) || policy.project;
-				const wakeKey = this.openFor(policy.project, item.from, item.toWorkspace || undefined, config.trust.get(item.from) ?? "reply");
-				Object.assign(this.waiting.get(id)!, { offered: false, workspace: where, project, wakeKey });
+				// The notice names the workspace the sender asked for when it is a workspace of this computer that a tower could be woken in (not the head, not a sub workspace), else the project: an id of a workspace that is gone is no word for the boss.
+				const byId = !!item.toWorkspace && net.workspaces.some((w) => w.workspace_id === item.toWorkspace);
+				const asked = item.toWorkspace ? net.workspaces.find((w) => !isSub(w) && !isHead(w) && (byId ? w.workspace_id === item.toWorkspace : w.label === item.toWorkspace)) : undefined;
+				const where = asked ? restrictLabel(asked.label) : undefined, project = basename(policy.project) || policy.project, ghost = !!item.toWorkspace && !asked;
+				const level = config.trust.get(item.from) ?? "reply", mode = this.towerMode(level);
+				if (mode === "open") this.openFor(policy.project, item.from, item.toWorkspace || undefined);
+				const ref = mode === "wake" ? this.wakeFor(policy.project, item.from, asked?.workspace_id, ghost, runsOn, net) : undefined;
+				const target = ghost ? "?" : (asked?.workspace_id ?? "");
+				Object.assign(this.waiting.get(id)!, { offered: false, workspace: where, project, target, wakeKey: ref?.key, local: ref?.local });
 				// On an attended device the wake comes first: the boss hears of the message only when it did not work.
-				const wake = wakeKey === undefined ? undefined : this.wakes.get(wakeKey);
-				if (wake && (wake.state === "waking" || wake.state === "woke")) continue;
-				const why = wake?.state === "none" ? "; no workspace is open for it on this computer (open the project's workspace and it goes through)" : wake?.state === "failed" ? `; waking its tower did not work: ${wake.reason} (it is tried again in a minute)` : "";
-				this.tellOnce(`inbox/${id}`, `Straw Link: a message from ${item.fromLabel} is not delivered yet; it waits for the tower of ${where ? `workspace ${where}` : `project ${project}`}${why}`, "info");
+				const wake = this.wakeOf(this.waiting.get(id)!);
+				if (wake && this.wakeHides(wake, this.now())) continue;
+				const why = wake?.state === "none" ? "; no workspace is open for it on this computer (open the project's workspace and it goes through)" : wake?.state === "off" ? "; tower runs are switched off on this computer, so nothing can wake it (switch them on and it goes through)" : wake?.state === "failed" ? `; waking its tower did not work (${WAKE_WHY[wake.reason ?? "other"]}); it is tried again later` : "";
+				// Messages for names that are no workspace here make one notice, not one each.
+				this.tellOnce(ghost ? `inbox/${item.team}/ghost` : `inbox/${id}`, `Straw Link: a message from ${item.fromLabel} is not delivered yet; it waits for the tower of ${where ? `workspace ${where}` : `project ${project}`}${why}`, "info");
 				continue;
 			}
 			if (SERVED_TOWER.test(first.session.id) || (towerRunsEnabled(this.o.stateDir ?? "") && SERVED_RUN.test(first.session.name ?? ""))) {
@@ -783,41 +803,96 @@ export class LinkHolder {
 		}
 	}
 
+	/** What a message that found no tower may do: an attended device wakes (a teammate at `reply` or higher, every member the roster holds), an unattended one opens (a `dispatch` sender); with no seam, nothing. */
+	private towerMode(level: string): "wake" | "open" | undefined {
+		if (!this.o.openTower) return undefined;
+		return (this.o.attended?.() ?? true) ? (LEVELS.includes(level as Level) ? "wake" : undefined) : level === "dispatch" ? "open" : undefined;
+	}
+
 	/**
-	 * A message found no tower. On an unattended device a controller at `dispatch` gets one opened for the project (docs/specs/2026-10-26-sb-backend.md, Unattended devices). On an attended device a teammate at `reply` or
-	 * higher (every member the roster still holds) gets the tower of a workspace this device already has woken, and nothing else: no workspace, base or tab is made (the boss's ruling of 2026-11-07, No tower service for the
-	 * team's project). One at a time per project (per project and named workspace for a wake), and not again for 60 s after one ended; the drain runs again when it is done, and the message then finds the tower the server runs.
-	 * Returns the key the outcome of a wake is kept under, for the notice; `undefined` when nothing is woken.
+	 * A message found no tower. On an unattended device a controller at `dispatch` gets one opened for the project (docs/specs/2026-10-26-sb-backend.md, Unattended devices): a workspace of the project, or a new one. One at a time per
+	 * project, and not again for 60 s after one ended; the drain runs again when it is done, and the message then finds the tower the server runs.
 	 */
-	private openFor(project: string, from: string, toWorkspace: string | undefined, level: string): string | undefined {
-		const { openTower, store } = this.o, attended = this.o.attended?.() ?? true, mode = attended ? "wake" : "open";
-		if (!openTower || (attended ? !LEVELS.includes(level as Level) : level !== "dispatch")) return undefined;
-		const key = mode === "wake" ? `${project}\n${toWorkspace ?? ""}` : project, wakeKey = mode === "wake" ? key : undefined;
-		if (this.opening.has(key)) return wakeKey;
-		const ended = this.openEnded.get(key);
-		if (ended !== undefined && this.now() - ended < OPEN_BACKOFF_MS) return wakeKey;
-		store.log({ event: mode === "wake" ? "tower-wake" : "tower-open", project, from, ...(mode === "wake" && toWorkspace ? { workspace: toWorkspace } : {}) });
-		// A wake that failed stays on the notice while it is tried again, and one that worked stays as it was (its grace is not restarted); only a first wake shows as in flight.
-		const before = wakeKey === undefined ? undefined : this.wakes.get(wakeKey);
-		if (wakeKey !== undefined && !before) this.wakes.set(wakeKey, { at: this.now(), first: this.now(), state: "waking" });
+	private openFor(project: string, from: string, toWorkspace: string | undefined): void {
+		const { openTower, store } = this.o;
+		if (!openTower || this.opening.has(project)) return;
+		const ended = this.openEnded.get(project);
+		if (ended !== undefined && this.now() - ended < OPEN_BACKOFF_MS) return;
+		store.log({ event: "tower-open", project, from });
 		const attempt = (async () => {
 			try {
-				const outcome = await openTower(project, toWorkspace, from, mode);
-				if (wakeKey === undefined) store.log({ event: "tower-opened", project });
-				else if (outcome === "no-workspace") (store.log({ event: "tower-wake-none", project }), this.wakes.set(wakeKey, { at: this.now(), first: this.now(), state: "none" }));
-				else (store.log({ event: "tower-woke", project }), this.wakes.set(wakeKey, { at: this.now(), first: before?.state === "woke" ? before.first : this.now(), state: "woke" }));
+				await openTower(project, toWorkspace, from, "open");
+				store.log({ event: "tower-opened", project });
 			} catch (error) {
-				const reason = (error as Error).message;
-				store.log({ event: wakeKey === undefined ? "tower-open-failed" : "tower-wake-failed", project, error: reason });
-				if (wakeKey !== undefined) this.wakes.set(wakeKey, { at: this.now(), first: this.now(), state: "failed", reason: restrictLabel(reason).slice(0, 160) });
+				store.log({ event: "tower-open-failed", project, error: (error as Error).message });
 			}
 		})().finally(() => {
-			this.openEnded.set(key, this.now());
+			this.openEnded.set(project, this.now());
+			this.opening.delete(project);
+			if (this.running) void this.drain();
+		});
+		this.opening.set(project, attempt);
+	}
+
+	/** How long after it ended a wake is not tried again. */
+	private wakeBackoff(w: WakeState): number {
+		const cap = w.state === "none" || w.state === "woke" || w.state === "failed" ? WAKE_CAP_MS[w.state] : 0;
+		return Math.min(cap, WAKE_BACKOFF_MS * 2 ** Math.min(w.streak, 16));
+	}
+
+	/** Whether the notice waits for this wake: it is queued or in flight, or it worked less than two minutes ago (counted from the first of the wakes that worked in a row); a tower that has not taken the message by then is the boss's to hear of. */
+	private wakeHides(w: WakeState, now: number): boolean {
+		return w.state === "queued" || w.state === "waking" || (w.state === "woke" && now - w.first < WAKE_GRACE_MS);
+	}
+
+	/** How the wake a message waits on stands: kept under its key, or (for a name that is no workspace here, and for tower runs switched off) read afresh at each drain, as no wake is made. */
+	private wakeOf(w: { wakeKey?: string; local?: "none" | "off" }): WakeState | undefined {
+		return w.local !== undefined ? { at: 0, first: 0, state: w.local, streak: 0 } : w.wakeKey === undefined ? undefined : this.wakes.get(w.wakeKey);
+	}
+
+	/**
+	 * A message found no tower on an attended device. The tower of a workspace this device already has is woken, and nothing else is made: no workspace and no base, only (by `ensure-tower`) the tower's tab in that existing workspace, with no
+	 * focus and nothing typed into another pane (the boss's rulings of 2026-11-07, No tower service for the team's project). A name that is no workspace here, and tower runs switched off, are answered without a call. One wake at a time per
+	 * project and workspace asked for (by id, so no name a sender makes up makes another), at most `WAKES_PER_SENDER` in flight for one sender, and again only after a back-off by outcome (`wakeBackoff`; a `none` also when the workspaces of
+	 * the project changed). Returns the key the wake is kept under for the notice, or the answer that needed none; `undefined` when nothing is woken.
+	 */
+	private wakeFor(project: string, from: string, asked: string | undefined, ghost: boolean, runsOn: boolean, net: NetView): { key?: string; local?: "none" | "off" } {
+		if (!runsOn) return { local: "off" };
+		if (ghost) return { local: "none" };
+		const { openTower, store } = this.o, key = `${project}\n${asked ?? ""}`, now = this.now(), before = this.wakes.get(key), prior = before?.state === "queued" ? undefined : before;
+		if (this.opening.has(key)) return { key };
+		// The workspaces of the project that could take a tower: when they change, a wake that found none has something new to look at.
+		const sig = () => net.workspaces.filter((w) => !isSub(w) && !isHead(w) && (asked === undefined || w.workspace_id === asked) && net.panes.some((p) => p.workspace_id === w.workspace_id && p.cwd !== undefined && inside(p.cwd, project))).map((w) => w.workspace_id).sort().join(",");
+		if (prior && now - prior.at < this.wakeBackoff(prior) && !(prior.state === "none" && prior.sig !== sig())) return { key };
+		if ([...this.wakingFor.values()].filter((f) => f === from).length >= WAKES_PER_SENDER) {
+			if (!before) this.wakes.set(key, { at: now, first: now, state: "queued", streak: 0 });
+			return { key };
+		}
+		// A wake that failed stays on the notice while it is tried again, and one that worked stays as it was (its grace is not restarted); only a first wake shows as in flight. The log has a line when the state changes, not at each try.
+		if (!prior) {
+			store.log({ event: "tower-wake", project, from, ...(asked ? { workspace: asked } : {}) });
+			this.wakes.set(key, { at: now, first: now, state: "waking", streak: 0 });
+		}
+		const settle = (state: "woke" | "failed" | "none", reason?: WakeReason, error?: string) => {
+			const same = prior?.state === state && prior.reason === reason;
+			this.wakes.set(key, { at: this.now(), first: state === "woke" && prior?.state === "woke" ? prior.first : this.now(), state, streak: same ? prior!.streak + 1 : 0, ...(reason ? { reason } : {}), ...(state === "none" ? { sig: sig() } : {}) });
+			if (!same) store.log(state === "woke" ? { event: "tower-woke", project } : state === "none" ? { event: "tower-wake-none", project } : { event: "tower-wake-failed", project, error });
+		};
+		const attempt = (async () => {
+			try {
+				settle((await openTower!(project, asked, from, "wake")) === "no-workspace" ? "none" : "woke");
+			} catch (error) {
+				const code = (error as { code?: unknown }).code;
+				settle("failed", code === "service" || code === "project" ? code : "other", restrictLabel((error as Error).message).slice(0, 200));
+			}
+		})().finally(() => {
+			this.wakingFor.delete(key);
 			this.opening.delete(key);
 			if (this.running) void this.drain();
 		});
 		this.opening.set(key, attempt);
-		return wakeKey;
+		this.wakingFor.set(key, from);
+		return { key };
 	}
 
 	/** Threads older than 7 days go, and so does the thread of a device that is no member of any team this computer still has a file for (it left, was removed, or this computer left the team). Under the lock. */
@@ -1492,12 +1567,12 @@ export class LinkHolder {
 		const waits = new Map<string, { kind: "inbox" | "held" | "served"; team: string; items: Waiting[] }>();
 		for (const w of this.waiting.values()) {
 			// A message for a tower the server runs waits for an ally run slot: the boss hears of it after 10 minutes.
-			const wake = w.wakeKey === undefined ? undefined : this.wakes.get(w.wakeKey);
-			// A wake of an attended device that is in flight, or worked less than two minutes ago, is the answer: no notice until it did not work.
-			const kind = w.served ? (now - w.since > HELD_MS ? "served" : undefined) : w.offered ? (now - w.since > HELD_MS ? "held" : undefined) : wake && (wake.state === "waking" || (wake.state === "woke" && now - wake.first < WAKE_GRACE_MS)) ? undefined : "inbox";
+			const wake = this.wakeOf(w);
+			// A wake of an attended device that is queued, in flight, or worked less than two minutes ago, is the answer: no notice until it did not work.
+			const kind = w.served ? (now - w.since > HELD_MS ? "served" : undefined) : w.offered ? (now - w.since > HELD_MS ? "held" : undefined) : wake && this.wakeHides(wake, now) ? undefined : "inbox";
 			if (!kind) continue;
-			// Messages that wait for different towers are different notices: what the boss reads names one tower.
-			const key = kind === "inbox" ? `inbox/${w.team}/${w.toWorkspace}` : `${kind}/${w.team}`, hit = waits.get(key);
+			// Messages that wait for different towers, or say different things about it, are different notices: what the boss reads names one tower. The tower is the workspace's own id, never the name a sender wrote (a made-up name is no tower).
+			const key = kind === "inbox" ? `inbox/${w.team}/${w.target ?? ""}/${wake?.state === "none" || wake?.state === "off" || wake?.state === "failed" ? wake.state : ""}` : `${kind}/${w.team}`, hit = waits.get(key);
 			if (hit) hit.items.push(w);
 			else waits.set(key, { kind, team: w.team, items: [w] });
 		}
@@ -1509,12 +1584,12 @@ export class LinkHolder {
 	 * What the notice for messages that wait for a tower says: the sender whose message came first (and how many other senders there are), how many messages, the oldest one's arrival,
 	 * how long ago that was (whole minutes under an hour, whole hours under a day, else whole days, so the notice changes only when its words do), the tower asked for, and when the oldest goes.
 	 */
-	private inboxData(items: { from: string; fromId: string; since: number; workspace?: string; project?: string; wakeKey?: string }[], now: number): Record<string, string | number> {
+	private inboxData(items: { from: string; fromId: string; since: number; workspace?: string; project?: string; wakeKey?: string; local?: "none" | "off" }[], now: number): Record<string, string | number> {
 		const oldest = [...items].sort((x, y) => x.since - y.since), senders = new Map<string, string>(oldest.map((w) => [w.fromId, w.from]));
 		const since = oldest[0]!.since, workspace = items.find((w) => w.workspace !== undefined)?.workspace;
 		const minutes = Math.max(1, Math.floor((now - since) / 60_000)), ageMin = minutes < 60 ? minutes : minutes < 1440 ? Math.floor(minutes / 60) * 60 : Math.floor(minutes / 1440) * 1440;
-		const wakeKey = items.find((w) => w.wakeKey !== undefined)?.wakeKey, wake = wakeKey === undefined ? undefined : this.wakes.get(wakeKey);
-		return { count: items.length, from: [...senders.values()][0]!, others: senders.size - 1, since, drop: since + INBOX_MAX_AGE_MS, ageMin, ...(workspace !== undefined ? { workspace } : {}), project: items.find((w) => w.project !== undefined)?.project ?? "", ...(wake?.state === "none" ? { wake: "none" } : wake?.state === "failed" ? { wake: "failed", reason: wake.reason ?? "" } : {}) };
+		const wake = this.wakeOf(items[0]!);
+		return { count: items.length, from: [...senders.values()][0]!, others: senders.size - 1, since, drop: since + INBOX_MAX_AGE_MS, ageMin, ...(workspace !== undefined ? { workspace } : {}), project: items.find((w) => w.project !== undefined)?.project ?? "", ...(wake?.state === "none" || wake?.state === "off" ? { wake: wake.state } : wake?.state === "failed" ? { wake: "failed", reason: wake.reason ?? "other" } : {}) };
 	}
 
 	/** The units unattended peers reported lately; a device that stopped reporting for `UNITS_FRESH_MS` shows its last ones marked stale, and none after `UNITS_GONE_MS`. */

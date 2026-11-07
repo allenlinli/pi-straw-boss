@@ -585,7 +585,11 @@
 	"link_a_inbox_where_workspace": "the tower of workspace “{workspace}”",
 	"link_a_inbox_where_project": "the tower of project {project}",
 	"link_a_inbox_wake_none": "This computer has no workspace for it to wake the tower of. Open the project's workspace and the messages go through.",
-	"link_a_inbox_wake_failed": "Waking the tower did not work ({reason}); it is tried again every minute.",
+	"link_a_inbox_wake_off": "Tower runs are switched off on this computer, so nothing can wake the tower. Switch them on and the messages go through.",
+	"link_a_inbox_wake_failed": "Waking the tower did not work ({reason}); it is tried again later.",
+	"link_a_inbox_why_service": "the tower service is still starting",
+	"link_a_inbox_why_project": "the team's project folder is missing or not allowed on this computer",
+	"link_a_inbox_why_other": "something went wrong; link.log has the details",
 	"link_a_held": [
 		{
 			"declarations": [

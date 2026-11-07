@@ -1314,25 +1314,33 @@ proposal, or a proposal that no longer applies is 409 `refused`; a bad request i
   and keeps the device's own guards. This is stricter than "the full tower tools" an earlier draft promised, and the code is the reference.
 - A run whose claim names no sender (no peer, or a session with no link module to pin the turn) shuts down at once: it never runs unpinned with every tool.
 - **No tower service for the team's project.** On an attended device, a link message for a project in which no workspace has a tower
-  service waits in the inbox for 7 days. **Ruling of 2026-11-07 (the boss, todo #122):** the server wakes the tower of a workspace the
+  service waits in the inbox for 7 days. **Ruling of 2026-11-07 (the boss, todo #122; the boss confirmed the tab the same day: 「可以新增塔台分頁」):** the server wakes the tower of a workspace the
   device *already has*. A message from a teammate whose trust on this device is `reply` or higher (a member the roster still holds with
   no `link.trust` entry is at `reply`, so every member qualifies; a sender that is no member is dropped before this) makes the holder
   ask the server to give that workspace its tower, the same `ensure-tower` an unattended device calls. Only `openTowerFor`'s `found`
-  branch runs: an existing workspace with a pane inside the project, or the workspace the sender named (id first, else label). The
-  server never makes a workspace or a base, and never a tab beyond what `ensure-tower` does for an existing workspace; with no such
-  workspace the wake answers `no-workspace` and nothing is made, whatever the level. One wake runs at a time per project and named
-  workspace, and the next waits 60 s after one ended, whether it worked or not. Each wake and its outcome is a `link.log` line
-  (`tower-wake`, then `tower-woke`, `tower-wake-none` or `tower-wake-failed` with the error; no message content). The boss's framing:
-  to the boss a workspace's tower always exists, so while a wake is in flight, or for two minutes after the first of the wakes that
-  worked in a row, there is no notice at all. The inbox notice and the pi notice appear only when the wake failed (the notice gives
-  the reason and says it is tried again every minute), when no workspace exists (the notice says to open the project's workspace),
-  or when a wake that worked has not got the message taken after those two minutes (the plain copy). A failed wake is not told to
-  the sender (the unit notice of a failed `open` is for an unattended device's controllers). Unattended devices are unchanged: only
-  a `dispatch` sender opens, and it may make a workspace (**Unattended devices**).
+  branch runs: an existing workspace with a pane inside the project (not the head, not a sub workspace), or the workspace the sender named
+  (id first, else label). A wake **may add the tower's tab to that existing workspace** (`ensure-tower` makes it when the workspace has no
+  tower tab: `tab create --no-focus`, moved first, and its pane started with `pane run … prompt`); it never makes a workspace or a base, never
+  moves focus, and types nothing into any other pane. With no such workspace the wake answers `no-workspace` and nothing is made, whatever the
+  level. A name that matches no workspace of this computer (or only the head or a sub workspace) costs no wake and no log line: the holder
+  answers `none` itself. Wakes are keyed by project and the id of the workspace asked for, so no name a sender makes up makes another wake, and
+  at most 3 wakes are in flight for one sender (the others wait their turn, with no notice). A wake backs off by its outcome, doubling from a
+  minute for each time in a row it ended the same way: `none` and `woke` up to 30 minutes, `failed` up to 10; a `none` is tried again at
+  once when the set of workspaces of the project that have a pane inside it changes. With `towerRuns.enabled` false nothing is woken (the
+  holder answers `off` itself). Each state change is a `link.log` line (`tower-wake` for a new wake, then `tower-woke`, `tower-wake-none` or
+  `tower-wake-failed` with the error; no message content), not each try. The boss's framing: to the boss a workspace's tower always exists,
+  so while a wake is queued or in flight, or for two minutes after the first of the wakes that worked in a row, there is no notice at all. The
+  inbox notice and the pi notice appear only when the wake failed (the notice gives the reason in plain words, one of three codes `service`,
+  `project`, `other`, and says it is tried again later), when no workspace exists or tower runs are off (the notice says what to do), or when a
+  wake that worked has not got the message taken after those two minutes (the plain copy), the pi notice with it. The inbox notice is one per
+  team, tower (the workspace's id, never the name the sender wrote) and state; messages for names that are no workspace here make one notice.
+  A failed wake is not told to the sender (the unit notice of a failed `open` is for an unattended device's controllers). Unattended devices
+  are unchanged: only a `dispatch` sender opens, and it may make a workspace (**Unattended devices**).
 - A `confirm-request` from an ally's gate at `forward` stays a GUI alert for the boss and wakes nothing (D5). The wait for the sender's answer is the requesting run's: only that run may forget it, and the server drops it when the holder refuses the request or the run ends.
 - The Straw Link spec's rule "an attended device never opens a tab or a session for a remote message" is amended by the boss's
-  decision D1: an attended device opens a session, an ally run in the tower tab of a workspace it already has, never a tab or a
-  workspace (**Addressing and delivery**, Straw Link spec, amended in the same change).
+  decision D1: an attended device opens a session, an ally run in the tower tab of a workspace it already has; it never makes a
+  workspace, and the one tab it may make is that tower tab, when a wake finds the workspace without one (the boss's ruling of
+  2026-11-07, above; **Addressing and delivery**, Straw Link spec, amended in the same change).
 
 ### Questions to local sessions
 

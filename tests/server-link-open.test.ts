@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Level } from "../src/link/config.ts";
 import { LinkStore } from "../src/link/store.ts";
-import { openTowerFor } from "../src/server/opentower.ts";
+import { openTowerFor, towerOpener } from "../src/server/opentower.ts";
 import { FakeRelay } from "./link/fake-relay.ts";
 import { alice, bob, clientFor, rosterOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
 import { TEAM } from "./link/scenario.ts";
@@ -126,7 +126,10 @@ test("a workspace the sender named that is not open gets no workspace either (to
 	const s = await world.start({ link: u.link });
 	await s.handle.ready;
 	await u.message("not a workspace of mine");
-	await until(() => u.log().some((e) => e.event === "tower-wake-none"), "the outcome");
+	const record = world.record()!;
+	const notices = async () => ((await callControl(record.socket, record.secret, { cmd: "status" })).reply as unknown as { link: { notices: { text: string }[] } }).link.notices;
+	await until(async () => (await notices()).some((n) => /no workspace is open for it on this computer/.test(n.text)), "the notice: a name that is no workspace here is answered without a wake (IWR-F002)");
+	assert.deepEqual(wakeLines(u), [], "no Herdr call and no log line for it");
 	assert.equal(world.herdr.workspaces.length, base + 1);
 	assert.ok(!world.expose?.status().some((r) => r.workspace === "wMine"), "the other workspace is not woken for a name it does not have");
 });
@@ -195,6 +198,36 @@ test("with `existing`, no workspace is made for a project or a name that has non
 	Object.assign(world.herdr.pane("wQ:p1"), { cwd: realpathSync(project) });
 	assert.deepEqual(await openTowerFor(deps(), realpathSync(project), undefined, true), { workspace: "wQ", created: false });
 	await assert.rejects(openTowerFor(deps(), join(world.root, "home", "missing"), undefined, true), /does not exist/);
+});
+
+test("a sub workspace with a pane in the project is not woken, and neither is its parent, which `ensure` would give the tower to (IWR-F006, M06)", async () => {
+	const s = await world.start();
+	await s.handle.ready;
+	const project = join(world.root, "home", "project");
+	mkdirSync(project, { recursive: true });
+	world.herdr.workspaces.push({ workspace_id: "wParent", label: "parent", tokens: {}, worktree: { checkout_path: "/r/parent", is_linked_worktree: false, repo_key: "/r/shared" } });
+	world.herdr.addTab("wParent:t1", "work");
+	world.herdr.addPane("wParent:p1", "wParent:t1");
+	Object.assign(world.herdr.pane("wParent:p1"), { cwd: join(world.root, "elsewhere") });
+	world.herdr.workspaces.push({ workspace_id: "wSub", label: "feature", tokens: {}, worktree: { checkout_path: realpathSync(project), is_linked_worktree: true, repo_key: "/r/shared" } });
+	world.herdr.addTab("wSub:t1", "work");
+	world.herdr.addPane("wSub:p1", "wSub:t1");
+	Object.assign(world.herdr.pane("wSub:p1"), { cwd: realpathSync(project) });
+	assert.equal(await openTowerFor(deps(), realpathSync(project), undefined, true), null);
+	assert.equal(await openTowerFor(deps(), realpathSync(project), "wSub", true), null);
+	assert.ok(!world.expose!.status().some((r) => r.workspace === "wParent" || r.workspace === "wSub"), "no tower for either");
+});
+
+test("a failed open is told to the controller whose message found no tower, a failed wake is told to nobody; the error reaches the holder with the code its notice maps (IWR-F006, M14; IWR-F007)", async () => {
+	const told: string[][] = [];
+	const opener = towerOpener({ run: world.herdr.runFor("none"), towers: () => undefined, now: () => Date.now(), home: join(world.root, "home"), agentDir: join(world.root, "home", ".pi", "agent"), failed: (from, project, error) => void told.push([from, project, error.message]) });
+	await assert.rejects(opener("/p", undefined, "bob", "wake"), (e: Error & { code?: string }) => e.code === "service");
+	assert.deepEqual(told, [], "the boss hears of a failed wake in the notice of the waiting message");
+	await assert.rejects(opener("/p", undefined, "bob", "open"), (e: Error & { code?: string }) => e.code === "service");
+	assert.deepEqual(told, [["bob", "/p", "the tower service is not running yet"]]);
+	const s = await world.start();
+	await s.handle.ready;
+	await assert.rejects(openTowerFor(deps(), join(world.root, "home", "missing")), (e: Error & { code?: string }) => e.code === "project");
 });
 
 test("a project that now leads to the home folder, to ~/.pi, or to the agent folder gets no workspace, however it is spelled", async () => {

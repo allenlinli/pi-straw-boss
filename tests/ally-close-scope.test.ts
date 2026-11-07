@@ -35,7 +35,7 @@ for (const level of ["dispatch", "forward"]) {
 		const { h, closes, allows } = host(level);
 		await close(h, "s-mine");
 		await close(h, "Mine");
-		assert.deepEqual(closes, ["s-mine", "Mine"]);
+		assert.deepEqual(closes, ["s-mine", "s-mine"], "closeMain gets the session id the check resolved, never the name again");
 		assert.equal(allows.length, level === "dispatch" ? 0 : 2);
 	});
 	test(`at ${level}: another device's main, a main no route holds, an ambiguous or missing name, and a token naming another device are refused before the gate`, async () => {

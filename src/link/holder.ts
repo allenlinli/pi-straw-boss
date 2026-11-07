@@ -925,7 +925,7 @@ export class LinkHolder {
 				if (!key) continue;
 				const ts = Math.max(now, sent.ts + 1);
 				sent.at = now; // a failed post is tried again after the spacing, not at every tick
-				const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: [...CAPS_FEATURES] }) });
+				const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: CAPS_FEATURES.filter((f) => f !== "unit-stop" || this.o.unitStop) }) });
 				await run.client.postEnvelope(run.teamId, envelope);
 				sent.ts = ts;
 			} catch (error) {

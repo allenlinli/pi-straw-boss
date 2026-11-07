@@ -90,12 +90,13 @@ const NO_CLOSE = "boss_close_main has no such target: no main opened for this ru
  * An ally run closes only a main opened for its own device (docs/specs/2026-11-07-link-remote-stop.md, decision 7). Unlike `refuseTarget`, a target that is missing, ambiguous, or held by no ally route is refused too:
  * the route table must name this run's device, and the pane token, when it names a device, must agree. It runs before the gate, so a refusal spends no Allow, and the one message does not tell which case it was.
  */
-async function refuseClose(host: ToolHost, query: string): Promise<void> {
+async function refuseClose(host: ToolHost, query: string): Promise<string> {
 	const net = await host.reach.read(), named = net.sessions.filter((s) => s.id === query || s.name === query);
-	if (named.length !== 1) throw new Error(NO_CLOSE);
+	if (named.length !== 1 || !host.who.device) throw new Error(NO_CLOSE);
 	const token = net.ps.find((p) => p.pane_id === named[0]!.herdrLocation?.paneId)?.tokens?.sb_opened_by;
 	const byToken = typeof token === "string" && token.startsWith("link:") ? token.replace(/^(link:)+/, "") : undefined;
 	if (host.openedFor?.(named[0]!.id) !== host.who.device || (byToken !== undefined && byToken !== host.who.device)) throw new Error(NO_CLOSE);
+	return named[0]!.id;
 }
 
 /** The tools an ally run may call at all; `call_tower`, `boss_server`, and `link_request` are refused by its kind. */
@@ -290,7 +291,8 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			return { text, details: opened };
 		}
 		case "boss_close_main": {
-			const closed = await host.closeMain(str(args, "main", 300));
+			// An ally run closes the session its own check resolved, not the name again: the name may have been reused since.
+			const main = str(args, "main", 300), closed = await host.closeMain(ally ? await refuseClose(host, main) : main);
 			return { text: closed.text, details: closed };
 		}
 		case "link_request":

@@ -16,6 +16,7 @@ import { DEVICES, det, LABELS, TEAM, teamKey, view } from "./link/scenario.ts";
 
 // The holder's half of §4 of docs/specs/2026-11-07-link-remote-stop.md: dave is the unattended box; alice (attended, dispatch), bob (attended, reply) and eve (unattended) are the others. The server's half
 // (a main's handle, its team, its dispatcher, the second witness) lives with the box in task 3 of the spec.
+// UW-F007 (for task 3): the sink runs in a microtask inside the locked receive, so a lock takeover can run it twice on a redelivery, and a sink that rejects after the ack loses the stop. The box's `unitstop.ts` must be idempotent per stopId and per pending handle, and must send `main-stop-manual` or `unit-stop-refused` when its sink fails; test both there.
 
 const { alice, bob, dave, eve } = DEVICES;
 const STOP = "00112233445566778899aabbccddeeff", HANDLE = "0123456789abcdef", REASON = "the secret reason of the stop";
@@ -36,7 +37,7 @@ const entries: RosterEntry[] = (() => {
 	return log;
 })();
 
-type Who = "alice" | "bob" | "dave";
+type Who = "alice" | "bob" | "dave" | "eve";
 interface Rig { holder: LinkHolder; store: LinkStore; stops: UnitStopInput[] }
 function rig(who: Who, trust: Record<string, "reply" | "forward" | "dispatch"> = {}, sink = true): Rig {
 	const keys = DEVICES[who], dir = join(root, who, "link"), project = join(root, `${who}-project`);
@@ -47,7 +48,7 @@ function rig(who: Who, trust: Record<string, "reply" | "forward" | "dispatch"> =
 	writeTeam(store, entries, keys);
 	const stops: UnitStopInput[] = [];
 	const holder = new LinkHolder({
-		store, isHolder: () => true, attended: () => who !== "dave", net: async () => netOf([[`tower-${who}`, `w-${who}`, `label-${who}`, project]]), relay: clientFor(relay),
+		store, isHolder: () => true, attended: () => who !== "dave" && who !== "eve", net: async () => netOf([[`tower-${who}`, `w-${who}`, `label-${who}`, project]]), relay: clientFor(relay),
 		config: () => ({ teams: new Map([[TEAM_HEX, { project, share: "status" as const, name: "moldplan" }]]), trust: new Map(Object.entries(trust)), problems: [] }),
 		offer: () => {}, notify: () => {}, backoff: () => 5, drainMs: 20, presenceMs: 60_000, postWaitMs: 2000, capsMs: 3600_000, capsMinMs: 5,
 		...(sink ? { unitStop: (a: UnitStopInput) => void stops.push(a) } : {}),
@@ -138,8 +139,10 @@ test("an attended device takes no stop at all: it drops it and tells no one", as
 	await forge(bob, 50, alice);
 	await until(() => drops(a, "unit-stop-attended-device") === 1, 3000, "the drop on alice");
 	assert.equal(a.stops.length, 0);
-	await new Promise((r) => setTimeout(r, 100));
-	assert.deepEqual(noticesOf(b), []);
+	// A positive marker instead of a wait: dave refuses bob's stop (reply level) and tells bob once; by then alice's drop has long been answered, and had she told bob, there would be two.
+	await forge(bob, 51, dave);
+	await until(() => noticesOf(b).length === 1, 3000, "dave's notice on bob");
+	assert.equal(noticesOf(b).length, 1, "only dave's: alice told no one");
 });
 
 test("a box with no server sink drops an otherwise valid stop as unhandled", async () => {
@@ -155,7 +158,15 @@ test("a second request with the same seq is dropped by the sequence guard: a rep
 	await forge(alice, 50, dave);
 	await until(() => d.stops.length === 1, 3000, "the first");
 	await forge(alice, 50, dave);
-	await new Promise((r) => setTimeout(r, 150));
+	await until(() => drops(d, "stale-seq") >= 1, 3000, "the replay's drop");
 	assert.equal(d.stops.length, 1);
-	assert.ok(drops(d, "stale-seq") >= 1);
+});
+
+test("a box lists unit-stop in its caps only when a server sink is wired to act on it", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, dave.id, eve.id], entries);
+	const d = rig("dave", { [alice.id]: "dispatch" }, false), e = rig("eve", {}, true), a = rig("alice");
+	await Promise.all([d.holder.start(), e.holder.start(), a.holder.start()]);
+	await until(() => a.holder.capsFor(TEAM_HEX, eve.id).includes("unit-stop"), 3000, "eve's caps");
+	await until(() => a.holder.capsFor(TEAM_HEX, dave.id).includes("tower-reply"), 3000, "dave's caps");
+	assert.ok(!a.holder.capsFor(TEAM_HEX, dave.id).includes("unit-stop"), "dave has no sink: no unit-stop");
 });

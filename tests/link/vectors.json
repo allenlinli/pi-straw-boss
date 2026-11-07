@@ -1014,6 +1014,61 @@
 			}
 		},
 		{
+			"name": "a unit-stop reason loses C1 controls (NEL, the 8-bit CSI)",
+			"kind": "unit-stop",
+			"plaintext": "000000203030313132323333343435353636373738383939616162626363646465656666000000103031323334353637383961626364656600000004717569740000000a78c28579c29b33316d7a",
+			"expect": {
+				"stopId": "00112233445566778899aabbccddeeff",
+				"handle": "0123456789abcdef",
+				"mode": "quit",
+				"reason": "x y 31mz"
+			}
+		},
+		{
+			"name": "a unit-stop reason loses U+2028 and U+2029",
+			"kind": "unit-stop",
+			"plaintext": "000000203030313132323333343435353636373738383939616162626363646465656666000000103031323334353637383961626364656600000004717569740000000961e280a862e280a963",
+			"expect": {
+				"stopId": "00112233445566778899aabbccddeeff",
+				"handle": "0123456789abcdef",
+				"mode": "quit",
+				"reason": "a b c"
+			}
+		},
+		{
+			"name": "a unit-stop reason loses bidi overrides, embeddings, and isolates",
+			"kind": "unit-stop",
+			"plaintext": "000000203030313132323333343435353636373738383939616162626363646465656666000000103031323334353637383961626364656600000004717569740000001861e280aa62e280ae63e281a664e281a965e2808e66d89c67",
+			"expect": {
+				"stopId": "00112233445566778899aabbccddeeff",
+				"handle": "0123456789abcdef",
+				"mode": "quit",
+				"reason": "a b c d e f g"
+			}
+		},
+		{
+			"name": "a unit-stop reason loses invisible characters",
+			"kind": "unit-stop",
+			"plaintext": "000000203030313132323333343435353636373738383939616162626363646465656666000000103031323334353637383961626364656600000004717569740000001561e2808b62e281a063efbbbf64c2ad65f3a0818166",
+			"expect": {
+				"stopId": "00112233445566778899aabbccddeeff",
+				"handle": "0123456789abcdef",
+				"mode": "quit",
+				"reason": "a b c d e f"
+			}
+		},
+		{
+			"name": "a unit-stop reason cut at 200 bytes inside a multibyte character keeps whole characters",
+			"kind": "unit-stop",
+			"plaintext": "00000020303031313232333334343535363637373838393961616262636364646565666600000010303132333435363738396162636465660000000471756974000000f161e4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ade4b8ad",
+			"expect": {
+				"stopId": "00112233445566778899aabbccddeeff",
+				"handle": "0123456789abcdef",
+				"mode": "quit",
+				"reason": "a中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中"
+			}
+		},
+		{
 			"name": "a unit-stop with an upper-case stop id",
 			"kind": "unit-stop",
 			"plaintext": "0000002030303131323233333434353536363737383839394141424243434444454546460000001030313233343536373839616263646566000000047175697400000000",

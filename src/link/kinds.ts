@@ -81,8 +81,9 @@ export interface MainStatus { handle: string; unit: string; name: string; state:
 export interface UnitStop { stopId: string; handle: string; mode: string; reason: string }
 /** A main's handle as it travels. */
 export const handleOk = (handle: string): boolean => /^[0-9a-f]{16}$/.test(handle);
-/** A stop's reason is one line: line breaks and other control characters become spaces, and it is cut to its limit. */
-const oneLine = (text: string) => cutBytes(text.replace(/[\u0000-\u001f\u007f]/g, " "), LIMITS.stopReason);
+/** A stop's reason is one line: line breaks, C0 and C1 controls (NEL, the 8-bit CSI), U+2028/2029, bidi overrides and isolates, and invisible or zero-width characters become spaces, and it is cut to its limit. */
+const LINE_BREAKERS = /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u2028-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e0fff}]/gu;
+const oneLine = (text: string) => cutBytes(text.replace(LINE_BREAKERS, " "), LIMITS.stopReason);
 export interface UnitStatus { unit: string; state: string; monitors: string[]; report: string }
 export interface Notice { kind: string; unit: string; text: string }
 

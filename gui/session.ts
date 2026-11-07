@@ -161,7 +161,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 			if (notes) (fillHeadActs(view.querySelector<HTMLElement>(".head-acts")!, isHead ? u?.service : undefined, isHead && headUnit?.state !== "absent"), fillConversation(view.querySelector<HTMLElement>(".tower-conv")!, hit?.base.id ?? wsOf(scene), isHead ? undefined : u?.service), fillNotices(notes, hit?.base.id ?? wsOf(scene), u?.service, u?.key, (k) => locate(scene.net, k)?.base.id), fillMemory(view.querySelector<HTMLElement>(".tower-memory")!, hit?.base.id ?? wsOf(scene), isHead ? headMemory(u?.service?.memory) : u?.service?.memory)); // the head's page is the conversation and its composer: its actions sit beside the composer (headacts.ts), it has no conversation line and its memory shows only when there is something to read (headpage.ts)
 			if (shown === "term" && holdOf(u?.key ?? "") !== held) setMode("term"); // the tower woke or went to stand by: the terminal or its sentence changes
 			composer?.update(composerUnit(u, { name, mk, state, online: online() && can(hit?.base, "input"), away: !can(hit?.base, "input"), role: scene.info?.role, head: isHead }));
-			asker?.update(u?.pending, canAnswer(mk, Boolean(u?.control), online() && can(hit?.base, "input"))); // its dialog above the composer, answerable or not
+			asker?.update(u?.pending, canAnswer(mk, Boolean(u?.control), online() && can(hit?.base, "input")), can(hit?.base, "input") ? undefined : m.box_answer_blocked()); // its dialog above the composer, answerable or not; an away box's says why, as Zen's and the dock's do
 		},
 	};
 }

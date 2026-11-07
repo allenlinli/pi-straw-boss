@@ -1,20 +1,21 @@
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { run } from "../src/server/cli.ts";
 import { slotOf } from "../src/server/record.ts";
 import { trainStatus } from "../src/server/traincmds.ts";
-import { cleanTail, fit, GRACE_MS, KILL_WAIT_MS, lastBytes, lastLine, type GateDeps, readGate, readSpec, runGate, startMs, writerAlive } from "../src/server/traingate.ts";
+import { cleanTail, fit, gateDeps, GRACE_MS, KILL_WAIT_MS, lastBytes, lastLine, type GateDeps, readGate, readSpec, runGate, startMs, writerAlive } from "../src/server/traingate.ts";
 import { heldLocks, holderAlive, holderOf, lockDirOf, takeLock } from "../src/server/trainlock.ts";
 import { startOf } from "../src/startof.ts";
-import { type Board, boardPath, readBoard, writeBoard } from "../src/train/board.ts";
+import { type Board, boardPath, readBoard, readTrainboards, writeBoard } from "../src/train/board.ts";
 import { holders } from "../src/train/waits.ts";
 import { factsOf } from "../src/train/board.ts";
 import { CODE, evidence, SHA_A, sb, slip } from "./train-fixtures.ts";
+import { stallWatch } from "./server-world.ts";
 import { TickClock, turn, until } from "./tick-clock.ts";
 
 // docs/specs/2026-11-07-train-workers.md §8, §9: the gate wrapper, the named lock and the `train` commands. The wrapper runs on a clock the test moves and a load it sets; its children are real, and work only inside the test root.
@@ -383,27 +384,32 @@ test("a lock body that cannot be read is waited for while fresh and taken once i
 	const old = new Date(Date.now() - 60_000);
 	utimesSync(file, old, old);
 	// a marker of a looker that is at work: back off
-	writeFileSync(`${file}.looking`, "");
+	writeFileSync(`${file}.looking.1`, "");
 	const busy = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 });
 	assert.deepEqual([busy.ok, !busy.ok && busy.why], [false, "looking"]);
 	assert.equal(readFileSync(file, "utf8"), "{half", "the lock was not touched under another's marker");
 	// a marker a crashed looker left
-	utimesSync(`${file}.looking`, old, old);
+	utimesSync(`${file}.looking.1`, old, old);
 	const taken = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 });
 	assert.ok(taken.ok);
-	assert.equal(existsSync(`${file}.looking`), false, "the marker is gone");
+	assert.deepEqual(markersOf(w.lockDir), [], "the marker is gone");
 	assert.equal(readdirSync(w.lockDir).filter((n) => n.endsWith(".tmp") || n.endsWith(".old")).length, 0);
 });
 
-function workers(w: World, count: number, base: Record<string, unknown>): { procs: ChildProcess[]; exits: Promise<number>[] } {
-	const procs = Array.from({ length: count }, (_, i) => spawn(process.execPath, [WORKER, JSON.stringify({ ...base, id: i + 1 })], { stdio: ["ignore", "inherit", "pipe"] }));
-	cleanup.push(() => procs.forEach((p) => p.kill("SIGKILL")));
-	const exits = procs.map((p) => new Promise<number>((done) => {
+const markersOf = (dir: string) => readdirSync(dir).filter((n) => /\.lock\.looking\.\d+$/.test(n)).sort();
+function worker(base: Record<string, unknown>): { proc: ChildProcess; exit: Promise<number> } {
+	const proc = spawn(process.execPath, [WORKER, JSON.stringify(base)], { stdio: ["ignore", "inherit", "pipe"] });
+	cleanup.push(() => proc.kill("SIGKILL"));
+	const exit = new Promise<number>((done) => {
 		let stderr = "";
-		p.stderr!.on("data", (d) => (stderr += d));
-		p.once("exit", (code) => done((code !== 0 && console.error(stderr), code ?? -1)));
-	}));
-	return { procs, exits };
+		proc.stderr!.on("data", (d) => (stderr += d));
+		proc.once("exit", (code) => done((code !== 0 && console.error(stderr), code ?? -1)));
+	});
+	return { proc, exit };
+}
+function workers(w: World, count: number, base: Record<string, unknown>): { procs: ChildProcess[]; exits: Promise<number>[] } {
+	const all = Array.from({ length: count }, (_, i) => worker({ ...base, id: i + 1 }));
+	return { procs: all.map((x) => x.proc), exits: all.map((x) => x.exit) };
 }
 
 test("two lookers of the same dead holder do not both win: overlapping real processes, dead pids and reused pids, round after round", async () => {
@@ -416,6 +422,7 @@ test("two lookers of the same dead holder do not both win: overlapping real proc
 	for (let r = 1; r <= rounds; r++) {
 		// odd rounds: the holder's pid is gone; even rounds: the pid is the test's own (alive), with another start time
 		writeFileSync(lockFile, JSON.stringify(r % 2 ? { train: "dead", step: 1, pid: dead(), started: "Sat Nov  7 08:00:00 2026", since: "2026-11-07T08:00:00.000Z" } : { train: "reused", step: 1, pid: process.pid, started: "Thu Jan  1 00:00:00 1970", since: "2026-11-07T08:00:00.000Z" }));
+		writeFileSync(`${lockFile}.looking.${r}`, JSON.stringify({ pid: dead(), started: "Sat Nov  7 08:00:01 2026" })); // a looker killed inside its takeover
 		writeFileSync(join(sync, `go-${r}`), "");
 		await until(() => readdirSync(sync).filter((n) => n.startsWith(`res-${r}-`)).length === count, `round ${r}'s answers`);
 		const answers = Array.from({ length: count }, (_, i) => JSON.parse(readFileSync(join(sync, `res-${r}-${i + 1}`), "utf8")) as { ok: boolean; why?: string });
@@ -427,6 +434,7 @@ test("two lookers of the same dead holder do not both win: overlapping real proc
 		writeFileSync(join(sync, `rel-${r}`), "");
 		await until(() => readdirSync(sync).filter((n) => n.startsWith(`fin-${r}-`)).length === count, `round ${r}'s end`);
 		assert.equal(existsSync(lockFile), false, "the winner released it");
+		assert.deepEqual(markersOf(w.lockDir), [], `round ${r}: no marker is left, the crashed looker's included`);
 	}
 	assert.deepEqual(await Promise.all(exits), [0, 0, 0]);
 });
@@ -681,7 +689,7 @@ function cliGate(env: NodeJS.ProcessEnv, file: string) {
 
 test("two overlapping gate processes: the second waits on the lock the first holds, never runs meanwhile, and both end by signal or exit code", async () => {
 	const w = world();
-	const lockFile = join(lockDirOf(slotOf(w.stateDir, process.env).dir), "heavy.lock");
+	const lockFile = join(lockDirOf(w.stateDir), "heavy.lock");
 	const ran = join(w.work, "second-ran");
 	const a = cliGate(process.env, step(w, 1, { run: `echo $$ > '${join(w.work, "a.pid")}'; ${waitFor(w.flag)}` }, { lock: "heavy" }));
 	await until(() => a.lines.some((l) => l.sb.state === "running") && existsSync(lockFile), "the first gate's lock");
@@ -703,7 +711,7 @@ test("two overlapping gate processes: the second waits on the lock the first hol
 
 test("SIGTERM to a gate process kills the command's group, frees the lock and exits 143; a gate that is killed outright loses its lock to the next one", async () => {
 	const w = world();
-	const lockFile = join(lockDirOf(slotOf(w.stateDir, process.env).dir), "heavy.lock");
+	const lockFile = join(lockDirOf(w.stateDir), "heavy.lock");
 	const pids = join(w.work, "pids");
 	const a = cliGate(process.env, step(w, 1, { run: `sleep 300 & echo "$$ $!" > '${pids}'; wait` }, { lock: "heavy" }));
 	await until(() => existsSync(pids) && readFileSync(pids, "utf8").includes(" ") && existsSync(lockFile), `the command (${a.stderr()})`);
@@ -721,8 +729,8 @@ test("SIGTERM to a gate process kills the command's group, frees the lock and ex
 	b.proc.kill("SIGKILL");
 	await b.exit;
 	assert.equal(existsSync(lockFile), true, "a killed wrapper leaves its lock file");
-	assert.equal(holderOf(lockDirOf(slotOf(w.stateDir, process.env).dir), "heavy"), undefined, "but it has no live holder");
-	const c = start(w, step(w, 3, { run: "true" }, { lock: "heavy" }), { lockDir: () => lockDirOf(slotOf(w.stateDir, process.env).dir) });
+	assert.equal(holderOf(lockDirOf(w.stateDir), "heavy"), undefined, "but it has no live holder");
+	const c = start(w, step(w, 3, { run: "true" }, { lock: "heavy" }), { lockDir: () => lockDirOf(w.stateDir) });
 	assert.equal(await c.done, 0);
 	assert.equal(kinds(c).includes("waiting"), false);
 });
@@ -821,14 +829,14 @@ test("train status lists every train with its steps, waits and holders, the lock
 	writeBoard(w.stateDir, board(CODE, { writer: { session: "sess-train-1", pid: dead(), started: "2026-11-07T07:00:00.000Z" }, updated: "2026-11-07T07:00:00.000Z", steps: [{ id: 1, kind: "merge", name: "merge", status: "in_progress", round: 1, holds: { lane: "web" }, load: { max: 30 }, lock: "heavy" }] }));
 	mkdirSync(codeDir(w, "2026-11-06-b"), { recursive: true });
 	writeFileSync(join(codeDir(w, "2026-11-06-b"), "board.json"), "garbage");
-	const taken = takeLock(lockDirOf(slotOf(w.stateDir, process.env).dir), "heavy", { train: "2026-11-05-a", step: 1 });
+	const taken = takeLock(lockDirOf(w.stateDir), "heavy", { train: "2026-11-05-a", step: 1 });
 	assert.ok(taken.ok);
 	const g = start(w, step(w, 1, { run: waitFor(w.flag) }, { lock: "heavy", load: { max: 30 }, holds: { lane: "web" } }), { alive: () => true });
 	await until(() => g.lines.length === 1, "a gate file");
 	g.leave("SIGTERM");
 	await g.done;
 	const now = () => Date.parse("2026-11-07T08:00:00Z");
-	const status = trainStatus({ stateDir: w.stateDir, slotDir: slotOf(w.stateDir, process.env).dir, now, load: () => ({ now: 42, cores: 8 }) });
+	const status = trainStatus({ stateDir: w.stateDir, now, load: () => ({ now: 42, cores: 8 }) });
 	assert.deepEqual(status.load, { now: 42, cores: 8 });
 	assert.deepEqual(status.locks.map((l) => [l.name, l.train, l.step]), [["heavy", "2026-11-05-a", 1]]);
 	assert.deepEqual(status.trains.map((t) => [t.code, t.state]), [["2026-11-05-a", "live"], ["2026-11-06-b", "unreadable"], [CODE, "stale"]]);
@@ -938,7 +946,7 @@ test("G-F002: a read of the project's boards that was cut holds everything: the 
 test("G-F002: train status shows the newest 64 trains, not the oldest, and says it cut", () => {
 	const w = world();
 	for (let day = 1; day <= 6; day++) for (const letter of "abcdefghijk") writeBoard(w.stateDir, board(`2026-10-${String(day).padStart(2, "0")}-${letter}`));
-	const status = trainStatus({ stateDir: w.stateDir, slotDir: join(w.base, "slot"), now: () => Date.parse("2026-11-07T08:00:00Z"), alive: () => true, load: () => undefined });
+	const status = trainStatus({ stateDir: w.stateDir, now: () => Date.parse("2026-11-07T08:00:00Z"), alive: () => true, load: () => undefined });
 	assert.equal(status.trains.length, 64);
 	assert.equal(status.truncated, true);
 	assert.equal(status.trains.at(-1)!.code, "2026-10-06-k");
@@ -952,18 +960,20 @@ const longAgo = () => new Date(Date.now() - 60_000);
 test("G-F003: a live looker's marker is never robbed by age, a dead looker's marker goes at once", () => {
 	const w = world();
 	mkdirSync(w.lockDir, { recursive: true });
-	const file = join(w.lockDir, "heavy.lock"), marker = `${file}.looking`;
+	const file = join(w.lockDir, "heavy.lock"), marker = `${file}.looking.1`;
 	writeFileSync(file, deadHolder());
 	writeFileSync(marker, liveBody());
 	utimesSync(marker, longAgo(), longAgo());
-	const stalled = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 });
+	let made = false;
+	const stalled = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 }, { beforeMarker: () => (made = true) });
 	assert.deepEqual([stalled.ok, !stalled.ok && stalled.why], [false, "looking"], "a looker that is alive keeps its marker however long it takes");
+	assert.equal(made, false, "a marker that is visibly busy makes a looker back off before it makes one of its own");
 	assert.equal(readFileSync(marker, "utf8"), liveBody());
 	assert.equal(JSON.parse(readFileSync(file, "utf8")).train, "2026-11-05-a", "the lock was not touched");
 	writeFileSync(marker, JSON.stringify({ pid: dead(), started: "Sat Nov  7 08:00:00 2026" }));
 	const taken = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 });
 	assert.ok(taken.ok, "the marker of a dead looker does not wait for its age");
-	assert.equal(existsSync(marker), false);
+	assert.deepEqual(markersOf(w.lockDir), []);
 	// a pid reused by another process is not the looker either
 	taken.ok && taken.release();
 	writeFileSync(file, deadHolder());
@@ -978,30 +988,104 @@ test("G-F003: a looker that stalls in a takeover is not robbed, however long: tw
 	mkdirSync(w.lockDir, { recursive: true });
 	const file = join(w.lockDir, "heavy.lock");
 	writeFileSync(file, deadHolder());
-	const { exits } = workers(w, 1, { mode: "stall", dir: w.lockDir, name: "heavy", sync });
-	await until(() => existsSync(join(sync, "in-marker")), "the looker to stand inside its takeover");
-	utimesSync(`${file}.looking`, longAgo(), longAgo()); // it has stood there for a minute
+	const { exit } = worker({ mode: "stall", at: "replace", dir: w.lockDir, name: "heavy", sync, id: 1 });
+	await until(() => existsSync(join(sync, "in-1")), "the looker to stand inside its takeover");
+	const [marker] = markersOf(w.lockDir);
+	assert.ok(marker, "it holds a marker");
+	utimesSync(join(w.lockDir, marker), longAgo(), longAgo()); // it has stood there for a minute
 	const rival = takeLock(w.lockDir, "heavy", { train: CODE, step: 9 });
 	assert.deepEqual([rival.ok, !rival.ok && rival.why], [false, "looking"], "the second looker backs off");
 	rival.ok && rival.release();
-	writeFileSync(join(sync, "go"), "");
-	await until(() => existsSync(join(sync, "res-stall")), "the stalled looker's answer");
-	assert.equal(JSON.parse(readFileSync(join(sync, "res-stall"), "utf8")).ok, true);
+	writeFileSync(join(sync, "go-1"), "");
+	await until(() => existsSync(join(sync, "res-1")), "the stalled looker's answer");
+	assert.equal(JSON.parse(readFileSync(join(sync, "res-1"), "utf8")).ok, true);
 	assert.equal(JSON.parse(readFileSync(file, "utf8")).step, 1, "the lock is the stalled looker's, taken once");
-	writeFileSync(join(sync, "rel"), "");
-	assert.deepEqual(await Promise.all(exits), [0]);
+	assert.deepEqual(markersOf(w.lockDir), [], "its marker went when it left the takeover");
+	writeFileSync(join(sync, "rel-1"), "");
+	assert.equal(await exit, 0);
 });
 
-test("G-F003: a marker that was moved aside and turns out to be a live looker's is put back", () => {
+test("RR-F002: a looker that judged a dead marker and stands still while another takes over never makes a second holder, and no marker is put back or left", () => {
 	const w = world();
 	mkdirSync(w.lockDir, { recursive: true });
-	const file = join(w.lockDir, "heavy.lock"), marker = `${file}.looking`;
+	const file = join(w.lockDir, "heavy.lock");
 	writeFileSync(file, deadHolder());
-	writeFileSync(marker, JSON.stringify({ pid: dead(), started: "Sat Nov  7 08:00:00 2026" }));
-	const r = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 }, { beforeMoveAside: () => writeFileSync(marker, liveBody()) });
-	assert.deepEqual([r.ok, !r.ok && r.why], [false, "looking"]);
-	assert.equal(readFileSync(marker, "utf8"), liveBody(), "the live looker's marker is back in place");
-	assert.equal(readdirSync(w.lockDir).filter((n) => n.endsWith(".old") || n.endsWith(".tmp")).length, 0);
+	writeFileSync(`${file}.looking.1`, JSON.stringify({ pid: dead(), started: "Sat Nov  7 08:00:00 2026" })); // a looker killed inside its takeover
+	const got: Record<string, ReturnType<typeof takeLock>> = {};
+	got.B = takeLock(w.lockDir, "heavy", { train: CODE, step: 2 }, {
+		// B has read the markers and found the only one dead; while it stands still, A takes the lock, and C looks while A is inside.
+		beforeMarker: () => {
+			got.A = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 }, { beforeReplace: () => { got.C = takeLock(w.lockDir, "heavy", { train: CODE, step: 3 }); } });
+		},
+	});
+	assert.equal(got.A!.ok, true);
+	assert.deepEqual([got.C!.ok, !got.C!.ok && got.C!.why], [false, "looking"], "C finds A's marker, alive");
+	assert.equal(got.B!.ok, false, "B's view was stale: the lock it judged dead is A's now");
+	assert.equal(JSON.parse(readFileSync(file, "utf8")).step, 1);
+	assert.deepEqual(readdirSync(w.lockDir).sort(), ["heavy.lock"], "no marker is left: A's went with A, the crashed looker's with A's takeover");
+});
+
+test("RR-F002: a looker whose view of the markers went stale backs off when it finds a live marker after making its own, and takes its own away", () => {
+	const w = world();
+	mkdirSync(w.lockDir, { recursive: true });
+	const file = join(w.lockDir, "heavy.lock"), crashed = `${file}.looking.1`;
+	writeFileSync(file, deadHolder());
+	writeFileSync(crashed, JSON.stringify({ pid: dead(), started: "Sat Nov  7 08:00:00 2026" }));
+	// Y has read one dead marker and stands still. Meanwhile a looker (here the test, as this process) stands in a takeover of the same, unchanged lock, under a marker with another number than the one Y will make.
+	const y = takeLock(w.lockDir, "heavy", { train: CODE, step: 2 }, {
+		beforeMarker: () => {
+			unlinkSync(crashed);
+			writeFileSync(crashed, liveBody());
+		},
+	});
+	assert.deepEqual([y.ok, !y.ok && y.why], [false, "looking"]);
+	assert.equal(readFileSync(crashed, "utf8"), liveBody(), "the live looker's marker is untouched");
+	assert.equal(JSON.parse(readFileSync(file, "utf8")).step, 3, "the lock is untouched");
+	assert.deepEqual(readdirSync(w.lockDir).sort(), ["heavy.lock", "heavy.lock.looking.1"], "Y's own marker is gone");
+});
+
+test("RR-F002: three real lookers, a crashed looker's marker and a dead holder: one holder; the stale looker and the late one back off; no marker is left", async () => {
+	const w = world();
+	const sync = join(w.base, "sync-three");
+	mkdirSync(sync, { recursive: true });
+	mkdirSync(w.lockDir, { recursive: true });
+	const file = join(w.lockDir, "heavy.lock");
+	writeFileSync(file, deadHolder());
+	writeFileSync(`${file}.looking.1`, JSON.stringify({ pid: dead(), started: "Sat Nov  7 08:00:01 2026" }));
+	const base = { mode: "stall", dir: w.lockDir, name: "heavy", sync };
+	const b = worker({ ...base, id: 2, at: "marker" }); // judges the crashed marker dead, then stands still
+	await until(() => existsSync(join(sync, "in-2")), "B to stand still");
+	const a = worker({ ...base, id: 1, at: "replace" }); // takes over and stands still inside it
+	await until(() => existsSync(join(sync, "in-1")), "A to stand inside its takeover");
+	const c = worker({ ...base, id: 3, at: "none" });
+	await until(() => existsSync(join(sync, "res-3")), "C's answer");
+	assert.deepEqual(JSON.parse(readFileSync(join(sync, "res-3"), "utf8")), { ok: false, why: "looking" });
+	writeFileSync(join(sync, "go-2"), ""); // B goes on with its old view
+	await until(() => existsSync(join(sync, "res-2")), "B's answer");
+	assert.deepEqual(JSON.parse(readFileSync(join(sync, "res-2"), "utf8")), { ok: false, why: "looking" });
+	writeFileSync(join(sync, "go-1"), "");
+	await until(() => existsSync(join(sync, "res-1")), "A's answer");
+	assert.deepEqual(JSON.parse(readFileSync(join(sync, "res-1"), "utf8")), { ok: true });
+	assert.equal(JSON.parse(readFileSync(file, "utf8")).step, 1, "the lock is A's, and only A's");
+	assert.deepEqual(markersOf(w.lockDir), [], "nothing is left of the takeover");
+	writeFileSync(join(sync, "rel-1"), "");
+	assert.deepEqual(await Promise.all([a.exit, b.exit, c.exit]), [0, 0, 0]);
+});
+
+test("RR-F002: a marker is never written without the looker's start time: a looker that cannot tell its own waits", () => {
+	const w = world();
+	mkdirSync(w.lockDir, { recursive: true });
+	const file = join(w.lockDir, "heavy.lock");
+	writeFileSync(file, deadHolder());
+	const blind = takeLock(w.lockDir, "heavy", { train: CODE, step: 1 }, { startOf: () => undefined });
+	assert.deepEqual([blind.ok, !blind.ok && blind.why], [false, "looking"]);
+	assert.deepEqual(readdirSync(w.lockDir), ["heavy.lock"], "no marker was written");
+	assert.equal(JSON.parse(readFileSync(file, "utf8")).step, 3, "the lock was not touched");
+	// A looker that was told its start time by the caller writes it into the marker.
+	let body = "";
+	const told = takeLock(w.lockDir, "heavy", { train: CODE, step: 1, started: "Sat Nov  7 09:00:00 2026" }, { startOf: () => undefined, beforeReplace: () => { body = readFileSync(join(w.lockDir, markersOf(w.lockDir)[0]!), "utf8"); } });
+	assert.ok(told.ok);
+	assert.deepEqual(JSON.parse(body), { pid: process.pid, started: "Sat Nov  7 09:00:00 2026" });
 });
 
 test("G-F004: a gate-file write error while the command runs ends the command's group, frees the lock after it, and still prints the outcome line", async () => {
@@ -1110,4 +1194,184 @@ test("G-F012: a step file that is a symlink is refused", () => {
 	const read = readSpec(join(dir, "step-9.json"));
 	assert.equal(read.ok, false);
 	assert.match(!read.ok ? read.refusals.join(" ") : "", /not a regular file|cannot read/);
+});
+
+// ---- re-review fixes (todo #125 task 2, round 2: RR-F001 to RR-F006, G-F013)
+
+const eperm = () => Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+const killAtCleanup = (pids: string) => cleanup.push(() => { try { for (const p of readFileSync(pids, "utf8").trim().split(" ")) process.kill(Number(p), "SIGKILL"); } catch { /* gone */ } });
+const pidsOf = (pids: string) => readFileSync(pids, "utf8").trim().split(" ").map(Number) as [number, number];
+
+test("RR-F001: a stop while the group holds only a dead leader nobody has reaped (macOS answers EPERM to every signal) ends stopped, exit 143, lock free", async () => {
+	const w = world();
+	const pids = join(w.work, "pids");
+	let zombie = false;
+	// The real SIGTERM ends the group; from then on the kernel answers EPERM, as it does for a group whose leader is dead and not yet waited for.
+	const kill = (pid: number, signal: "SIGTERM" | "SIGKILL" | 0) => {
+		if (zombie) throw eperm();
+		process.kill(pid, signal);
+		if (signal === "SIGTERM") zombie = true;
+	};
+	const g = start(w, step(w, 1, { run: `sleep 300 & echo "$$ $!" > '${pids}'; wait` }, { lock: "heavy" }), { kill });
+	killAtCleanup(pids);
+	await until(() => existsSync(pids) && readFileSync(pids, "utf8").includes(" ") && holderOf(w.lockDir, "heavy"), "the command under its lock");
+	g.leave("SIGTERM");
+	// The fake clock is not moved: a group that answers EPERM is gone, so the stop does not wait for the grace.
+	await until(() => last(g).monitorOutcome, "the stopped line", 5000);
+	assert.equal(await g.done, 143, JSON.stringify(last(g)));
+	assert.equal(last(g).monitorOutcome.status, "stopped");
+	assert.equal(holderOf(w.lockDir, "heavy"), undefined);
+});
+
+test("RR-F001: a verify that hangs past its poll, with the group answering EPERM after SIGTERM, still ends `verify was still running`", async () => {
+	const w = world();
+	const pids = join(w.work, "vpids");
+	let zombie = false;
+	const kill = (pid: number, signal: "SIGTERM" | "SIGKILL" | 0) => {
+		if (zombie) throw eperm();
+		process.kill(pid, signal);
+		if (signal === "SIGTERM") zombie = true;
+	};
+	const g = start(w, step(w, 1, { run: "true", verify: `sleep 300 & echo "$$ $!" > '${pids}'; wait`, expect: "success", poll: { everySec: 10, forMin: 1 } }, { lock: "heavy" }), { kill });
+	killAtCleanup(pids);
+	await until(() => existsSync(pids) && readFileSync(pids, "utf8").includes(" "), "the hung verify");
+	await w.clock.advance(70_000);
+	await until(() => last(g).monitorOutcome, "the outcome line", 5000);
+	assert.equal(await g.done, 1, JSON.stringify(last(g)));
+	assert.match(last(g).monitorOutcome.message, /^verify was still running after .+ of polling; its group was ended$/);
+	assert.equal(holderOf(w.lockDir, "heavy"), undefined);
+});
+
+test("RR-F001: an EPERM that answers the signal itself is not a failure either", async () => {
+	const w = world();
+	const pids = join(w.work, "pids");
+	const kill = (pid: number, signal: "SIGTERM" | "SIGKILL" | 0) => {
+		process.kill(pid, signal);
+		if (signal === "SIGTERM") throw eperm();
+	};
+	const g = start(w, step(w, 1, { run: `sleep 300 & echo "$$ $!" > '${pids}'; wait` }, { lock: "heavy" }), { kill });
+	killAtCleanup(pids);
+	await until(() => existsSync(pids) && readFileSync(pids, "utf8").includes(" ") && holderOf(w.lockDir, "heavy"), "the command under its lock");
+	g.leave("SIGTERM");
+	// The group is gone after the signal, whose answer was an error: the stop does not wait for the grace either.
+	await until(() => last(g).monitorOutcome, "the stopped line", 5000);
+	assert.equal(await g.done, 143, JSON.stringify(last(g)));
+	assert.equal(last(g).monitorOutcome.status, "stopped");
+});
+
+test("RR-F003: train status without --project keeps the newest 64 of every project, not those of the last projects by name", () => {
+	const w = world();
+	const ended = [{ id: 1, kind: "land" as const, name: "land", status: "completed" as const, round: 1, outcome: "passed" as const }];
+	for (let day = 1; day <= 8; day++) for (const letter of "abcdefgh") writeBoard(w.stateDir, board(`2026-10-0${day}-${letter}`, { project: "zzz", steps: ended }));
+	writeBoard(w.stateDir, board("2026-11-07-a", { project: "aaa" }));
+	const status = trainStatus({ stateDir: w.stateDir, now: () => Date.parse("2026-11-07T08:00:00Z"), alive: () => true, load: () => undefined });
+	assert.equal(status.trains.length, 64);
+	assert.equal(status.truncated, true);
+	assert.deepEqual([status.trains[0]!.project, status.trains[0]!.code], ["aaa", "2026-11-07-a"], "the live train of an earlier-named project is shown");
+	assert.equal(status.trains.some((t) => t.project === "zzz" && t.code === "2026-10-01-a"), false, "the oldest of the 65 is the one cut");
+	const keys = status.trains.map((t) => [t.project, t.code]);
+	assert.deepEqual(keys, [...keys].sort((x, y) => (x[0]! === y[0]! ? x[1]!.localeCompare(y[1]!) : x[0]!.localeCompare(y[0]!))), "listed by project, then code");
+});
+
+test("RR-F004: a project folder that cannot be listed is reported, and the gate refuses instead of running beside a train it did not see", async () => {
+	const w = world();
+	writeBoard(w.stateDir, board("2026-11-05-a"));
+	const ran = join(w.work, "ran");
+	const file = step(w, 1, { run: `touch '${ran}'` }, { holds: { lane: "web" } });
+	const projectDir = join(w.stateDir, "trainboard", PROJECT);
+	chmodSync(projectDir, 0o300); // it can be passed through, not listed
+	cleanup.push(() => chmodSync(projectDir, 0o700));
+	const read = readTrainboards(w.stateDir, { project: PROJECT });
+	assert.equal(read.unlisted.length, 1);
+	assert.match(read.unlisted[0]!, /EACCES/);
+	assert.match(read.unlisted[0]!, new RegExp(PROJECT));
+	assert.deepEqual(readTrainboards(w.stateDir, { project: "nobody" }).unlisted, [], "a project with no folder has no boards, which is not a failure");
+	const g = start(w, file, { alive: () => true });
+	assert.equal(await g.done, 3, JSON.stringify(last(g)));
+	assert.match(last(g).monitorOutcome.message, /^refused: .*cannot list.*EACCES/);
+	assert.equal(existsSync(ran), false, "the command did not run");
+});
+
+test("RR-F005: the refusal for too many trainboards names a remedy that lowers the count", async () => {
+	const w = world();
+	for (const letter of "abcdef") writeBoard(w.stateDir, board(`2026-11-01-${letter}`, { steps: [{ id: 1, kind: "land", name: "land", status: "completed", round: 1, outcome: "passed" }] }));
+	const g = start(w, step(w, 1, { run: "true" }), { alive: () => true, maxBoards: 5 });
+	assert.equal(await g.done, 3);
+	const message: string = last(g).monitorOutcome.message;
+	assert.match(message, /more than 5 trainboards/);
+	assert.ok(message.includes(`remove the folders of ended trains under ${join(w.stateDir, "trainboard", PROJECT)}`), message);
+	assert.doesNotMatch(message, /clear old trains/, "`train clear` only appends to a board; it removes nothing");
+});
+
+test("RR-F006: a stop of a command that ignores SIGTERM, on a real clock, ends inside MonitorStop's 5 s: SIGKILL at the grace, the line out, the lock free", async () => {
+	const w = world();
+	const pids = join(w.work, "pids");
+	const real = { now: Date.now, sleep: (ms: number) => new Promise<void>((done) => setTimeout(done, ms)) };
+	const g = start(w, step(w, 1, { run: `trap '' TERM; sleep 300 & echo "$$ $!" > '${pids}'; wait` }, { lock: "heavy" }), { clock: real });
+	killAtCleanup(pids);
+	await until(() => existsSync(pids) && readFileSync(pids, "utf8").includes(" ") && holderOf(w.lockDir, "heavy"), "the command under its lock");
+	const [shell, sleeper] = pidsOf(pids), stalls = stallWatch(), began = Date.now();
+	g.leave("SIGTERM");
+	assert.equal(await g.done, 143);
+	const took = Date.now() - began;
+	stalls.stop();
+	assert.equal(last(g).monitorOutcome.status, "stopped");
+	assert.ok(took >= 3900, `the command had its grace: ${took} ms`);
+	assert.ok(took < 5000 - 500 + stalls.worst(), `from SIGTERM to the outcome line: ${took} ms (this process stood still for ${stalls.worst()} ms)`);
+	assert.ok(gone(shell) && gone(sleeper), "the group is gone when the line is out");
+	assert.equal(holderOf(w.lockDir, "heavy"), undefined);
+});
+
+test("RR-F006: when SIGKILL does not end the group, the stop waits 0.5 s more and no longer", async () => {
+	const w = world();
+	const pids = join(w.work, "pids");
+	// No signal reaches the group; probes do.
+	const kill = (pid: number, signal: "SIGTERM" | "SIGKILL" | 0) => { if (signal === 0) process.kill(pid, 0); };
+	const g = start(w, step(w, 1, { run: `sleep 300 & echo "$$ $!" > '${pids}'; wait` }, { lock: "heavy" }), { kill });
+	killAtCleanup(pids);
+	await until(() => existsSync(pids) && readFileSync(pids, "utf8").includes(" ") && holderOf(w.lockDir, "heavy"), "the command under its lock");
+	g.leave("SIGTERM");
+	await turn();
+	const stalls = stallWatch(), began = Date.now();
+	await w.clock.advance(GRACE_MS);
+	assert.equal(await g.done, 143);
+	const took = Date.now() - began;
+	stalls.stop();
+	assert.ok(took >= KILL_WAIT_MS - 50, `it waited for the group: ${took} ms`);
+	assert.ok(took < KILL_WAIT_MS + 250 + stalls.worst(), `and then no longer: ${took} ms (this process stood still for ${stalls.worst()} ms)`);
+});
+
+test("RR-F006: a step file that is a FIFO is refused without blocking", () => {
+	const w = world();
+	const dir = codeDir(w);
+	mkdirSync(dir, { recursive: true });
+	const fifo = join(dir, "step-3.json");
+	assert.equal(spawnSync("mkfifo", [fifo]).status, 0);
+	// A read that opened it would block for ever: it runs in a process of its own, with a bound.
+	const url = new URL("../src/server/traingate.ts", import.meta.url).href;
+	const code = `import(${JSON.stringify(url)}).then(({ readSpec }) => { const r = readSpec(${JSON.stringify(fifo)}); console.log(JSON.stringify(r)); process.exit(0); });`;
+	const r = spawnSync(process.execPath, ["-e", code], { timeout: 20_000, encoding: "utf8", env: process.env });
+	assert.equal(r.status, 0, `${r.status} ${r.signal} ${r.stderr}`);
+	const read = JSON.parse(r.stdout);
+	assert.equal(read.ok, false);
+	assert.match(read.refusals.join(" "), /not a regular file/);
+});
+
+test("G-F013 (D5): every slot of the computer uses one lock folder, the primary slot's: two slots contend for one name", () => {
+	const w = world();
+	const envA = { ...process.env, HERDR_SOCKET_PATH: join(w.base, "a.sock") }, envB = { ...process.env, HERDR_SOCKET_PATH: join(w.base, "b.sock") };
+	const primary = { ...process.env, HERDR_SOCKET_PATH: undefined, HERDR_SESSION: undefined };
+	const slots = [envA, envB, primary].map((env) => slotOf(w.stateDir, env));
+	assert.equal(new Set(slots.map((s) => s.dir)).size, 3, "three slot folders");
+	const dirs = [envA, envB, primary].map((env) => gateDeps(env).lockDir(w.stateDir));
+	assert.deepEqual(new Set(dirs).size, 1);
+	assert.equal(dirs[0], lockDirOf(w.stateDir));
+	assert.equal(dirs[0], join(slots[2]!.dir, "locks"), "the primary slot's folder");
+	const a = takeLock(dirs[0]!, "heavy", { train: CODE, step: 1 });
+	assert.ok(a.ok);
+	const b = takeLock(dirs[1]!, "heavy", { train: "2026-11-07-a", step: 2 });
+	assert.deepEqual([b.ok, !b.ok && b.why], [false, "held"]);
+	const status = trainStatus({ stateDir: w.stateDir, now: () => Date.parse("2026-11-07T08:00:00Z"), alive: () => true, load: () => undefined });
+	assert.deepEqual(status.locks.map((l) => l.name), ["heavy"], "status reads the same folder whichever slot asks");
+	a.ok && a.release();
 });

@@ -9,7 +9,6 @@ import { startOf as realStartOf } from "../startof.ts";
 import { factsOf, readTrainboards, type Writer } from "../train/board.ts";
 import { type Json, isObject, validateStep } from "../train/spec.ts";
 import { loadLimit, stepWaits, type FactStep, type TrainFacts, type Wait, waitMessage } from "../train/waits.ts";
-import { slotOf } from "./record.ts";
 import { holderAlive, holderOf, lockDirOf, takeLock, type Taken } from "./trainlock.ts";
 
 // The train gate wrapper (docs/specs/2026-11-07-train-workers.md §8): `cli.mjs train gate --spec <file>` is the process a train's `MonitorCreate` runs for a `run` step. It reads the step's frozen spec, waits while a load, lock, lane or target
@@ -45,6 +44,8 @@ export interface GateDeps {
 	graceMs?: number;
 	/** How many trainboards of the project a wait round reads before it holds everything (`GATE_MAX_BOARDS`). */
 	maxBoards?: number;
+	/** How a signal (or, with 0, a probe) reaches a process group; a negative pid is a group. The default is the guarded `process.kill`. */
+	kill?: (pid: number, signal: "SIGTERM" | "SIGKILL" | 0) => void;
 }
 
 /** A start time as an instant: the text `ps` prints is read in UTC and carries no zone (Date.parse would take it as local time), and the ISO text Windows gives carries its own. */
@@ -71,7 +72,7 @@ export const gateDeps = (env: NodeJS.ProcessEnv = process.env, over: Partial<Gat
 	platform: process.platform,
 	home: env.HOME || homedir(),
 	pid: process.pid,
-	lockDir: (stateDir) => lockDirOf(slotOf(stateDir, env).dir),
+	lockDir: (stateDir) => lockDirOf(stateDir),
 	...over,
 });
 
@@ -221,14 +222,9 @@ export const long = (ms: number) => {
 const r1 = (x: number) => Math.round(x * 10) / 10;
 const expand = (path: string, home: string) => (path === "~" ? home : path.startsWith("~/") ? join(home, path.slice(2)) : path);
 
-const groupAlive = (pid: number) => {
-	try {
-		process.kill(-pid, 0);
-		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "EPERM";
-	}
-};
+/** What a signal to a group answers when nothing in it can take it any more: the group is gone (ESRCH), or macOS holds only a dead leader that has not been waited for (EPERM). */
+const GONE = new Set(["ESRCH", "EPERM"]);
+const killGroup = (pid: number, signal: "SIGTERM" | "SIGKILL" | 0) => (signal === 0 ? process.kill(pid, 0) : sendSignal(pid, signal));
 const realSleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 /** The last line of the output, trimmed: the pipeline's conclusion or the version a target runs. */
@@ -237,7 +233,15 @@ export const lastLine = (text: string) => text.split(/\r?\n/).map((l) => l.trim(
 interface Ended { code: number | null; signal: string | null; error?: Error; stopped?: boolean; timedOut?: boolean }
 
 export async function runGate(specFile: string, deps: GateDeps): Promise<number> {
-	const d = { ...deps, beatMs: deps.beatMs ?? BEAT_MS, graceMs: deps.graceMs ?? GRACE_MS };
+	const d = { ...deps, beatMs: deps.beatMs ?? BEAT_MS, graceMs: deps.graceMs ?? GRACE_MS, kill: deps.kill ?? killGroup };
+	const groupAlive = (pid: number) => {
+		try {
+			d.kill(-pid, 0);
+			return true;
+		} catch {
+			return false; // see GONE
+		}
+	};
 	const clock = d.clock;
 	const read = readSpec(specFile);
 	const refuse = (reason: string, sb?: Json, id?: number) => {
@@ -314,7 +318,7 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 	/** SIGTERM to the child's group; SIGKILL to what is left of it after the grace (4 s, and at most 0.5 s more: MonitorStop's own SIGKILL comes 5 s after its SIGTERM). */
 	async function terminate(child: { pid: number; exited: Promise<Ended> }) {
 		const signal = (name: "SIGTERM" | "SIGKILL") => {
-			try { sendSignal(-child.pid, name); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+			try { d.kill(-child.pid, name); } catch (error) { if (!GONE.has((error as NodeJS.ErrnoException).code ?? "")) throw error; }
 		};
 		if (!groupAlive(child.pid)) return; // it ended while the signal was on its way
 		signal("SIGTERM");
@@ -384,7 +388,9 @@ export async function runGate(specFile: string, deps: GateDeps): Promise<number>
 			const l = readLoad();
 			const boards = readTrainboards(stateDir, { project, max: d.maxBoards ?? GATE_MAX_BOARDS });
 			// A read that was cut cannot say who holds what: everything is held, which for a gate is a refusal (it would otherwise run beside a train it did not see).
-			if (boards.truncated) return refuse(`more than ${d.maxBoards ?? GATE_MAX_BOARDS} trainboards of project ${project}, so what is held cannot be known; end or clear old trains`, sb, id);
+			if (boards.truncated) return refuse(`more than ${d.maxBoards ?? GATE_MAX_BOARDS} trainboards of project ${project}, so what is held cannot be known; remove the folders of ended trains under ${join(stateDir, "trainboard", project)}`, sb, id);
+			// The same for a folder that could not be listed: what is in it is unknown.
+			if (boards.unlisted.length) return refuse(`what trains of project ${project} hold cannot be known: ${boards.unlisted.join("; ")}`, sb, id);
 			const trains = boards.trains.map((b) => factsOf(b, { now: clock.now(), alive: d.alive }));
 			const step: FactStep = { id, kind: String(sb.kind), status: "in_progress", round: Number(sb.round), ...(holds ? { holds } : {}), ...(load ? { load } : {}), ...(lockName ? { lock: lockName } : {}) };
 			const own: TrainFacts = trains.find((t) => t.code === code) ?? { project, code, state: "live", steps: [step] };

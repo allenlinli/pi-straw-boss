@@ -16,9 +16,8 @@ export interface TrainIo {
 	out(text: string): void;
 	err(text: string): void;
 	env: NodeJS.ProcessEnv;
-	/** The state folder (`<state>/trainboard/…`) and the slot's folder (`<slot dir>/locks/…`). */
+	/** The state folder (`<state>/trainboard/…`, and `<state>/locks/…`: the locks are the computer's, whichever slot asks). */
 	stateDir: string;
-	slotDir: string;
 	cwd?: string;
 	now?: () => number;
 	alive?: (writer: Writer) => boolean;
@@ -111,15 +110,15 @@ export interface TrainRow {
 	project: string; app?: string; code: string; state: TrainFacts["state"]; reason?: string; session?: { id: string; pid: number; live: boolean }; round?: number; steps: StepRow[];
 	cars: { tickets: string[]; branch: string; head: string; coordinator: string }[]; holds?: { lanes: string[]; targets: string[] };
 }
-export interface Status { load?: { now: number; cores: number }; locks: { name: string; train: string; step: number; pid: number; since: string }[]; trains: TrainRow[]; truncated: boolean }
+export interface Status { load?: { now: number; cores: number }; locks: { name: string; train: string; step: number; pid: number; since: string }[]; trains: TrainRow[]; truncated: boolean; unlisted: string[] }
 
 /** Every train on this computer from the trainboards: its state, its steps with the wait each is in and the wrapper's last word, the load now, and the locks held. */
-export function trainStatus(io: Pick<TrainIo, "stateDir" | "slotDir" | "now" | "alive" | "load">, project?: string): Status {
+export function trainStatus(io: Pick<TrainIo, "stateDir" | "now" | "alive" | "load">, project?: string): Status {
 	const now = (io.now ?? Date.now)(), alive = io.alive ?? ((w: Writer) => writerAlive(w));
-	const { trains: reads, truncated } = readTrainboards(io.stateDir, project !== undefined ? { project } : {});
+	const { trains: reads, truncated, unlisted } = readTrainboards(io.stateDir, project !== undefined ? { project } : {});
 	const facts = reads.map((r) => factsOf(r, { now, alive }));
 	const load = (io.load ?? (() => ({ now: loadavg()[0]!, cores: availableParallelism() })))();
-	const locks = heldLocks(lockDirOf(io.slotDir)).map(({ name, holder }) => ({ name, train: holder.train, step: holder.step, pid: holder.pid, since: holder.since }));
+	const locks = heldLocks(lockDirOf(io.stateDir)).map(({ name, holder }) => ({ name, train: holder.train, step: holder.step, pid: holder.pid, since: holder.since }));
 	const held = Object.fromEntries(locks.map((l) => [l.name, { train: l.train, step: l.step }]));
 	const trains = reads.map((read, i): TrainRow => {
 		const train = facts[i]!;
@@ -138,7 +137,7 @@ export function trainStatus(io: Pick<TrainIo, "stateDir" | "slotDir" | "now" | "
 			cars: board.cars.map((c) => ({ tickets: c.tickets, branch: c.branch, head: c.head, coordinator: c.coordinator })), holds: { lanes: held2.lanes, targets: held2.targets },
 		};
 	});
-	return { ...(load ? { load } : {}), locks, trains, truncated };
+	return { ...(load ? { load } : {}), locks, trains, truncated, unlisted };
 }
 
 const waitText = (w: Wait) => ("load" in w ? `load <=${w.load.max} (now ${w.load.now})` : "lock" in w ? `lock ${w.lock.name}${w.lock.holder ? ` held by ${w.lock.holder.train} #${w.lock.holder.step}` : ""}`
@@ -152,6 +151,7 @@ function render(s: Status): string {
 		for (const st of t.steps) lines.push(`  #${st.id} ${st.kind} ${st.name}: ${st.status}${st.outcome ? ` ${st.outcome}` : ""}${st.gate ? ` [${st.gate.state}: ${st.gate.message}]` : ""}${st.waits.length ? ` waits ${st.waits.map(waitText).join("; ")}` : ""}`);
 	}
 	if (s.truncated) lines.push("(more trains than the 64 shown)");
+	for (const u of s.unlisted) lines.push(`(${u}; the trains in it are not shown)`);
 	return `${lines.join("\n")}\n`;
 }
 

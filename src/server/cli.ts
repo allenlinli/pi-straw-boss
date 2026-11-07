@@ -179,7 +179,7 @@ export async function run(argv: string[], deps: CliDeps = {}): Promise<number> {
 			case "run": return await runDetached();
 			case "prompt": return await promptCommand();
 			case "procs": return await runProcs(ctx, flags, { out: json, err });
-			case "train": return await runTrain(flags, { out, err, env, stateDir: slot.stateDir, slotDir: slot.dir, ...deps.train });
+			case "train": return await runTrain(flags, { out, err, env, stateDir: slot.stateDir, ...deps.train });
 		}
 	} catch (error) {
 		if (error instanceof ServerError) return fail(error);

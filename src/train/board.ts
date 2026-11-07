@@ -346,29 +346,34 @@ export const readYard = (file: string): FileRead<{ yard: Yard }> => safely(() =>
 
 export type BoardRead = { project: string; code: string; file: string } & FileRead<{ board: Board }>;
 
-const dirs = (path: string) => {
+/** The folders in a folder; one that is not there has none, and one that cannot be listed for another reason is told in `failed`. */
+const dirs = (path: string, failed: string[]) => {
 	try {
 		return readdirSync(path, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-	} catch {
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code !== "ENOENT" && code !== "ENOTDIR") failed.push(`cannot list ${path}: ${code ?? (error as Error).message}`);
 		return [];
 	}
 };
 
 /**
- * Every train's board under the state folder, in project and code order, the newest `max` (64 unless asked for more) when there are more, and `truncated` then: a folder that does not read shows as unreadable with its reason. Folders that are not
- * trains (the car files, the yard) are skipped.
+ * Every train's board under the state folder, the newest `max` (64 unless asked for more) by code, then listed by project and code; `truncated` when there are more. A folder that does not read shows as unreadable with its reason. Folders that are
+ * not trains (the car files, the yard) are skipped. A folder that exists and cannot be listed (a permission, a descriptor limit, an I/O error) is in `unlisted` with the reason: what is in it is unknown, which the gate takes as a refusal.
  */
-export function readTrainboards(stateDir: string, opts: { project?: string; max?: number } = {}): { trains: BoardRead[]; truncated: boolean } {
-	const root = trainboardDir(stateDir), found: { project: string; code: string }[] = [];
-	const projects = dirs(root).filter((p) => isName(p) && (opts.project === undefined || p === opts.project)).sort();
-	for (const project of projects) for (const code of dirs(join(root, project)).filter((c) => FOLDER_CODE_RE.test(c)).sort(compareCodes)) found.push({ project, code });
+export function readTrainboards(stateDir: string, opts: { project?: string; max?: number } = {}): { trains: BoardRead[]; truncated: boolean; unlisted: string[] } {
+	const root = trainboardDir(stateDir), found: { project: string; code: string }[] = [], unlisted: string[] = [];
+	const projects = (opts.project === undefined ? dirs(root, unlisted).filter(isName).sort() : isName(opts.project) ? [opts.project] : []);
+	for (const project of projects) for (const code of dirs(join(root, project), unlisted).filter((c) => FOLDER_CODE_RE.test(c)).sort(compareCodes)) found.push({ project, code });
 	const max = opts.max ?? MAX_TRAINS;
-	const trains = found.slice(Math.max(0, found.length - max)).map(({ project, code }): BoardRead => {
+	// The newest by departure order, whatever the project; shown by project, then code.
+	const kept = [...found].sort((a, b) => compareCodes(a.code, b.code) || (a.project < b.project ? -1 : a.project > b.project ? 1 : 0)).slice(Math.max(0, found.length - max));
+	const trains = kept.sort((a, b) => (a.project < b.project ? -1 : a.project > b.project ? 1 : compareCodes(a.code, b.code))).map(({ project, code }): BoardRead => {
 		const file = join(root, project, code, "board.json");
 		const read = readBoard(file);
 		return { project, code, file, ...(read.ok ? read : { ok: false, reason: read.reason.replace(/^cannot read: ENOENT$/, "no board.json") }) } as BoardRead;
 	});
-	return { trains, truncated: found.length > max };
+	return { trains, truncated: found.length > max, unlisted };
 }
 
 // ---- life of a board

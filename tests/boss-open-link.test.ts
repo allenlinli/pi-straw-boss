@@ -57,7 +57,7 @@ function world({ ui = true, selects = [] as (string | undefined)[], confirm = tr
 		s: { at: at ? { workspaceId: "wA", tabId: "wA:t1", paneId: "wA:p1" } : undefined, ui: ui ? { confirm: async (title: string, body: string) => (asked.push([title, body]), confirm), select: async (title: string, options: string[], opts?: { signal?: AbortSignal }) => (selected.push({ title, options, ...(opts?.signal ? { signal: opts.signal } : {}) }), typeof selects === "function" ? selects(title, options, opts?.signal) : queue.shift()), notify: () => {} } : undefined },
 		guiDir: scratch, me: () => "m1", tell: (text: string, level?: string) => void told.push({ text, level }),
 	} as unknown as Kit;
-	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, post, pollMs });
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, here: (fn) => fn(), post, pollMs });
 	return { paths, told, posted, selected, asked, reply: (path: string, r: Reply[] | Reply | ((json: Record<string, unknown>) => Reply | Promise<Reply>)) => replies.set(path, r), at: (path: string) => posted.filter((p) => p.path === path) };
 }
 
@@ -362,7 +362,7 @@ async function live() {
 		s: { at: { workspaceId: "wA", tabId: "wA:t1", paneId: "wA:p1" }, ui: { confirm: async () => true, select: async () => selects.shift(), notify: () => {} } },
 		guiDir: scratch, me: () => "m1", tell: (text: string, level?: string) => void told.push({ text, level }),
 	} as unknown as Kit;
-	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: gui.port, token: gui.token, csrf: gui.csrf, pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, pollMs: 20 });
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: gui.port, token: gui.token, csrf: gui.csrf, pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, here: (fn) => fn(), pollMs: 20 });
 	return { gui, paths, told, opened, decided };
 }
 

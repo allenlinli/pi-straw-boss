@@ -32,7 +32,7 @@ function world({ ui = true, answer = true, lang = "en" }: { ui?: boolean; answer
 		guiDir: dir, me: () => "m1", tell: (text: string, level?: string) => void told.push({ text, level }),
 	} as unknown as Kit;
 	const logs: number[] = [];
-	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, server: { logs: async (n?: number) => (logs.push(n ?? 0), ["line a", "line b"]) }, closeSelf: (keep) => (self.push(keep), undefined), post, read: async () => NET });
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, server: { logs: async (n?: number) => (logs.push(n ?? 0), ["line a", "line b"]) }, closeSelf: (keep) => (self.push(keep), undefined), here: (fn) => fn(), post, read: async () => NET });
 	return { paths, told, posted, asked, self, logs, dir, reply: (r: typeof reply, path?: string) => (path ? replies.set(path, r) : (reply = r)), done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
@@ -228,7 +228,7 @@ test("each typed line reaches its path", async () => {
 	for (const line of ["close api-member", "close all Beta", "close unit:dup", "stash mine --workspace Beta", "dismiss", "dismiss builder", "gui devices", "gui unpair all", "gui unpair abc", "server logs", "server logs 20", "open base ~/x My base", "open member", "open main ../y do it\nthen this", "link", "link status", "link decide ab12 approve"]) await b.run(line);
 	assert.deepEqual(b.called, [
 		'close ["api-member"]', 'close ["Beta",true]', 'close ["unit:dup"]', 'stashOther ["mine","Beta"]', 'dismiss [null]', 'dismiss ["builder"]', "devices []", 'unpair ["all"]', 'unpair ["abc"]', "logs [null]", 'logs ["20"]',
-		'open ["base ~/x My base","/work"]', 'open ["member","/work"]', 'open ["main ../y do it\\nthen this","/work"]', "link [null]", 'link ["status"]', 'link ["decide ab12 approve"]',
+		'open ["base ~/x My base","/work"]', 'open ["member","/work"]', 'open ["main ../y do it\\nthen this","/work"]', 'link [null,"/work"]', 'link ["status","/work"]', 'link ["decide ab12 approve","/work"]',
 	]);
 });
 

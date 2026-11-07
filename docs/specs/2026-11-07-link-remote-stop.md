@@ -43,7 +43,7 @@ An ally run's `boss_close_main` has no device check. `allyTool` (`src/server/run
 
 `unit-status` grows from one top-level field (`units`) to two: `units` and `mains`. This follows the precedent of `tower`'s optional fifth field. The decoder takes 1 or 2 fields (`src/link/kinds.ts:177-183`).
 
-`mains` is a list of at most 20 entries, each with:
+`mains` is a list of at most 20 entries, empty for a team that does not share `status`, and read from the broker and Herdr once per pass for all rows. Each entry has:
 
 - `handle`: the first 8 bytes of `sha256(box device id ‖ main session id)`, in hex. This is the construction of the board's wire id, so no session id leaves the box.
 - `unit`: the workspace's scrubbed label, the `unit` of its row.
@@ -114,13 +114,13 @@ Only mains in the route table can be stopped (decision 4): mains an ally run ope
 
 ## 5. Semantics on the box
 
-- **Accepting writes the stop down.** An accepted stop is written on the route row as `stop: { by, at, stopId, mode }`. The row's `name` (generic, "opened main", from the open) becomes the main's own name, read at the same time, so the notices and the `mains` list name it. The file is durable and server-written, so a server restart keeps it. Renewing a row's `at` (each report) must keep the field, and the row caps (`addRoute`) must never drop a row that has a pending stop before rows without one.
+- **Accepting writes the stop down.** An accepted stop is written on the route row as `stop: { by, at, stopId, mode, reason? }`; the reason (one line, at most 200 bytes) stays in the route file, which is not `link.log`. The row's `name` (generic, "opened main", from the open) becomes the main's own name, read at the same time, so the notices and the `mains` list name it. The file is durable and server-written, so a server restart keeps it. Renewing a row's `at` (each report) must keep the field, and the row caps (`addRoute`) must never drop a row that has a pending stop before rows without one.
 - **The revoker carries it out.** The revoker takes stopped rows as a second reason, beside "the device lost dispatch" (`src/server/revoke.ts:42-84`). There are three differences:
-  - It acts on the **first** sweep after acceptance; the server also triggers a sweep at once. The two-look rule guards against bad reads of the policy or roster, and a signed stop is no read.
+  - It acts on the **first** sweep after acceptance; the server also triggers a sweep at once, and when a sweep is already in flight (it read the rows before the stop was written) one more pass follows it. The two-look rule guards against bad reads of the policy or roster, and a signed stop is no read.
   - It ignores `level`.
-  - Its notices are the `main-stop-*` kinds above.
+  - Its notices are the `main-stop-*` kinds above; their text names the requester's label and the reason, and never a session id (a broker miss is told as "the broker no longer lists it but its pane is still open").
 
-  Everything else is the existing machinery: busy is asked again every 15 s and told once; gone takes two sweeps plus an absent pane; a main still in Herdr is reported; a notice nobody was told of is tried again.
+  Everything else is the existing machinery: busy is asked again every 15 s and told once; gone takes two sweeps plus an absent pane; a main still in Herdr is reported; a stop that ends as gone is audited as `unit-stop-done` with `outcome: gone` and told as `main-stopped`; a notice nobody was told of is tried again.
 - **`mode: quit`** is `boss_close_main` exactly. The tower side refuses a main that is not idle (`src/closemain.ts:80`), and the main refuses for anything running.
 - **`mode: interrupt`** (decision 5) carries `interrupt: true` in the `close-main` payload. A main of this build that is not idle then calls `ctx.abort()` and answers busy; the next sweep finds it idle and quits it. The tower side skips its idle pre-check for this mode. Subagents, monitors and open dialogs still refuse, because they are work the abort does not end. An older main ignores the extra field (`onEvent`, `:47-52`) and behaves as `quit`. Whether `abort()` also drops pi's queued messages is unverified against the pinned pi. A queue that survives is just another busy answer.
 - **No forced stop.** Nothing kills a pane or a pid. Even the box's own page Quit asks the session (`src/closer.ts:30-40`), and section 3 of the shared-box spec ruled out `kill` for a revoked controller.

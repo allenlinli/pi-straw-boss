@@ -11,7 +11,7 @@ import type { RunSignal } from "./runs.ts";
 //   1. its handle (the first 8 bytes of sha256(this device's id ‖ the main's session id)) names exactly one `opened` row among the live services' routes, and that row's team is the team the envelope came on: a row of another team does not match;
 //   2. the sender is the row's device (the dispatcher) or an admin of the row's team in the roster now: an admin of another team is no recipient (g346-F001);
 //   3. the main's pane token, the second witness, does not name another device (`refuseTarget`'s two-witness rule).
-// An accepted stop is written on the route row and the box asks the revoker for a sweep at once; the revoker carries it out (revoke.ts). A refusal writes and spends nothing. Neither a notice nor a log line carries the requester's `reason`.
+// An accepted stop is written on the route row and the box asks the revoker for a sweep at once; the revoker carries it out (revoke.ts). A refusal writes and spends nothing. The requester's `reason` is kept on the route row and told in the `main-stop-*` notices; no log line and no key carries it.
 
 export type { Stop };
 export interface UnitStopDeps {
@@ -56,6 +56,12 @@ export function mainsFor(facts: MainFact[], controller: { team: string; device: 
 		.map((f): MainStatus => ({ handle: handleOf(d.box, f.row.main), unit: allyLabel(f.row.label), name: allyLabel(f.name, 40), state: f.state || "unknown", by: f.row.device, stopping: f.row.stop !== undefined }));
 }
 
+/** What `controller` is told in `mains`: nothing until the holder runs and the tower service stands, and nothing where the team's units are not shared as `status`. */
+export async function mainsOf(controller: { team: string; device: string }, d: { box: string | undefined; share: string | undefined; admin(team: string, device: string): boolean; facts?: () => Promise<MainFact[]> }): Promise<MainStatus[]> {
+	if (!d.box || !d.facts || d.share !== "status") return [];
+	return mainsFor(await d.facts(), controller, { box: d.box, admin: d.admin });
+}
+
 export function createUnitStop(d: UnitStopDeps) {
 	/** A refusal that only the sender is told (there is no main or no row of a team to scope it by). */
 	const tell = (a: UnitStopInput, word: string) => d.tell(a.team, a.from, { kind: "unit-stop-refused", unit: "", text: `Stop ${a.stopId.slice(0, 6)} was refused: ${word}.` }).catch((error: Error) => d.audit({ event: "unit-stop-notice-failed", stopId: a.stopId, error: error.message }));
@@ -75,7 +81,7 @@ export function createUnitStop(d: UnitStopDeps) {
 				if (a.from !== row.device && !d.admin(row.team, a.from)) return await refuse(a, "not-recipient", row);
 				const seen = await d.witness(row);
 				if (seen?.device !== undefined && seen.device !== row.device) return await refuse(a, "gone");
-				const stop: Stop = { by: a.from, at: d.now(), stopId: a.stopId, mode: a.mode }, set = d.record(row, stop, seen?.name ? allyLabel(seen.name, 40) : undefined);
+				const stop: Stop = { by: a.from, at: d.now(), stopId: a.stopId, mode: a.mode, ...(a.reason ? { reason: a.reason } : {}) }, set = d.record(row, stop, seen?.name ? allyLabel(seen.name, 40) : undefined);
 				if (!set.set) return d.audit({ event: "unit-stop-noop", team: a.team, from: a.from, stopId: a.stopId, first: set.stop.stopId });
 				d.audit({ event: "unit-stop-pending", team: a.team, from: a.from, stopId: a.stopId, workspace: row.workspace, main: row.main });
 				d.sweep();

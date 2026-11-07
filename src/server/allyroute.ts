@@ -18,8 +18,8 @@ const MAX_OPENED_PER_DEVICE = 8, MAX_OPENED = 20, DEAD_GRACE_MS = 10 * 60_000;
 
 /** The sender an ally run serves, as a route and an answer keep it (the ally brief and the header need these). */
 export interface Peer { device: string; label: string; short: string; team: string; teamName: string }
-/** A stop the box accepted for an `opened` route (docs/specs/2026-11-07-link-remote-stop.md, section 5): who asked (`by`, a device id), when the box took it (`at`), its id, and its mode (`quit` or `interrupt`). The revoker carries it out. */
-export interface Stop { by: string; at: number; stopId: string; mode: string }
+/** A stop the box accepted for an `opened` route (docs/specs/2026-11-07-link-remote-stop.md, section 5): who asked (`by`, a device id), when the box took it (`at`), its id, its mode (`quit` or `interrupt`), and the requester's reason, if one was given. The revoker carries it out. */
+export interface Stop { by: string; at: number; stopId: string; mode: string; /** The requester's reason, one line of at most 200 bytes; it goes into the `main-stop-*` notices and never into link.log. */ reason?: string }
 export interface Route extends Peer {
 	/** The local session id the run wrote to or opened. */
 	to: string;

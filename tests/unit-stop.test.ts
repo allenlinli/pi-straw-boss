@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { wireId } from "../src/board.ts";
+import { selectDigest } from "../src/owners.ts";
 import { addRoute, dropOpened, readRoutes, setStop, spendRoute } from "../src/server/allyroute.ts";
 import { createRevoker, type OpenedMain } from "../src/server/revoke.ts";
+import { mainsOf } from "../src/server/unitstop.ts";
 import type { RunSignal } from "../src/server/runs.ts";
 import { callControl } from "../src/server/socket.ts";
 import { readRun } from "../src/server/towerrunstore.ts";
@@ -13,7 +18,7 @@ import { until as untilWorld, World } from "./fakes.ts";
 // Todo #100 task 3 (docs/specs/2026-11-07-link-remote-stop.md, section 5): a stop the box accepted is written on the route row and carried out by the revoker as a second reason, on its first sweep and whatever
 // the device's level is; the main of this build answers an `interrupt` by aborting its turn; the route keeps the stop through renewals, restarts, and the row caps.
 
-const DEV = "n".repeat(26), ADM = "m".repeat(26), T = "t".repeat(16), BOX = "x".repeat(26);
+const DEV = "n".repeat(26), ADM = "m".repeat(26), OTHER = "o".repeat(26), T = "t".repeat(16), BOX = "x".repeat(26);
 const STOP = { by: ADM, at: 1_000, stopId: "0".repeat(32), mode: "quit" };
 const main = (over: Partial<OpenedMain> = {}): OpenedMain => ({ workspace: "wA", label: "Alpha", main: "m-1", name: "main", device: DEV, team: T, deviceLabel: "dev-mac", level: "dispatch", stop: STOP, ...over });
 const stopSignals = (signals: RunSignal[]) => signals.flatMap((s) => (s.kind === "main-stop" ? [[s.outcome, s.main, s.stopId, s.device, s.team] as const] : []));
@@ -68,14 +73,14 @@ test("a stop that is busy is told once as pending, asked again at every sweep, a
 	assert.equal(r.closes.length, 4, "a forgotten main is asked no more");
 });
 
-test("a stopped main that is gone needs two sweeps and its pane absent, then goes without a notice; a pane Herdr still lists keeps it, and the admins are told it still runs", async () => {
+test("a stopped main that is gone needs two sweeps and its pane absent, then goes (told as gone); a pane Herdr still lists keeps it, and the admins are told it still runs", async () => {
 	const gone = rig([main({ pane: "p-1" })]);
 	gone.world.closeError = "No live session is named or has the id \"m-1\"";
 	await gone.revoker.sweep();
 	assert.deepEqual(gone.forgot, [], "one miss forgets nothing");
 	await gone.revoker.sweep();
 	assert.deepEqual(gone.forgot, ["wA/m-1"]);
-	assert.deepEqual(gone.signals, []);
+	assert.deepEqual(stopSignals(gone.signals).map((x) => x[0]), ["stopped"], "told as gone, since the requester sees the main leave the list");
 	const still = rig([main({ pane: "p-1" })]);
 	still.world.closeError = "No live session is named or has the id \"m-1\"";
 	still.world.paneGone = false;
@@ -110,6 +115,112 @@ test("a main that lost its device's dispatch and has a stop is told by the stop'
 	await r.revoker.sweep();
 	await r.revoker.sweep();
 	assert.deepEqual(r.signals.map((s) => s.kind), ["main-stop"]);
+});
+
+test("USB-F001: the requester's label and reason are in the pending, manual and stopped notices, never in a key or an audit line", async () => {
+	const stop = { ...STOP, reason: "the build is wedged" };
+	const r = rig([main({ stop })]);
+	r.world.closeError = "main is working; try again when it is idle";
+	await r.revoker.sweep();
+	r.world.closeError = undefined;
+	await r.revoker.sweep();
+	const texts = r.signals.map((x) => (x as { text: string }).text);
+	assert.equal(texts.length, 2);
+	for (const text of texts) assert.match(text, /admin-mac|Reason: the build is wedged/);
+	assert.ok(texts.every((t) => /Reason: the build is wedged$/.test(t)), texts.join("|"));
+	assert.ok(!JSON.stringify([r.audits, r.logs]).includes("wedged"), "link.log and the server log hold no reason");
+	const manual = rig([main({ stop, pane: "p-1" })]);
+	manual.world.closeError = "main was not opened by a tower (the boss opened it), so only the boss closes it";
+	manual.world.paneGone = false;
+	await manual.revoker.sweep();
+	await manual.revoker.sweep();
+	assert.match((manual.signals[0] as { text: string }).text, /Close it by hand\. Reason: the build is wedged$/);
+	const none = rig([main()]);
+	await none.revoker.sweep();
+	assert.ok(!/Reason/.test((none.signals[0] as { text: string }).text), "a stop with no reason says none");
+});
+
+test("USB-F003: a notice never carries the raw session id the broker's miss names", async () => {
+	for (const stop of [STOP, undefined]) {
+		const r = rig([main({ main: "sess-secret-id", ...(stop ? { stop } : { stop: undefined }) })], { [DEV]: "reply" });
+		r.world.closeError = 'No live session is named or has the id "sess-secret-id"';
+		r.world.paneGone = false;
+		for (let i = 0; i < 4; i++) await r.revoker.sweep();
+		assert.ok(r.signals.length >= 1);
+		assert.ok(!r.signals.map((x) => (x as { text: string }).text).join("|").includes("sess-secret-id"));
+		assert.ok(r.signals.every((x) => /pane is still open/.test((x as { text: string }).text)));
+		assert.ok(!r.signals.some((x) => /busy/.test((x as { text: string }).text)), "nothing is busy");
+	}
+});
+
+test("USB-F004: a stop that ends as gone is audited as unit-stop-done (outcome gone) and told as main-stopped", async () => {
+	const r = rig([main({ pane: "p-1", stop: { ...STOP, reason: "why" } })]);
+	r.world.closeError = 'No live session is named or has the id "m-1"';
+	await r.revoker.sweep();
+	assert.deepEqual([r.audits, r.signals], [[], []], "one miss ends nothing");
+	await r.revoker.sweep();
+	assert.deepEqual(r.audits.map((a) => [a.event, a.stopId, a.main, a.outcome]), [["unit-stop-done", STOP.stopId, "m-1", "gone"]]);
+	assert.deepEqual(stopSignals(r.signals), [["stopped", "m-1", STOP.stopId, DEV, T]]);
+	assert.match((r.signals[0] as { text: string }).text, /gone.*Reason: why/);
+	assert.ok(!JSON.stringify(r.audits).includes("why"));
+	const plain = rig([main({ pane: "p-1", stop: undefined })], { [DEV]: undefined });
+	plain.world.closeError = 'No live session is named or has the id "m-1"';
+	for (let i = 0; i < 3; i++) await plain.revoker.sweep();
+	assert.deepEqual([plain.audits, plain.signals], [[], []], "a revoke that ends as gone is as it was");
+});
+
+test("USB-F005: a revoke's pending notice does not swallow the stop's pending notice", async () => {
+	const r = rig([main({ stop: undefined })], { [DEV]: "reply" });
+	r.world.closeError = "main is working; try again when it is idle";
+	await r.revoker.sweep();
+	await r.revoker.sweep();
+	assert.deepEqual(r.signals.map((x) => x.kind), ["revoked"]);
+	r.world.rows = [main()];
+	await r.revoker.sweep();
+	await r.revoker.sweep();
+	assert.deepEqual(r.signals.map((x) => x.kind), ["revoked", "main-stop"]);
+});
+
+test("USB-F006: a stop written while a sweep is in flight is followed by one more pass that reads it; a plain sweep joins as before", async () => {
+	let release!: () => void;
+	const gate = new Promise<void>((res) => (release = res));
+	const closes: string[] = [];
+	const world = { rows: [main({ main: "other" })] };
+	const revoker = createRevoker({
+		opened: () => world.rows.slice(), known: () => true, standing: () => ({ level: "dispatch" }),
+		close: async (_w, m) => { closes.push(m); if (m === "other" && closes.length === 1) await gate; throw new Error("main is working; try again when it is idle"); },
+		paneGone: async () => false, forget: () => {}, signal: () => true, log: () => {},
+	});
+	const first = revoker.sweep();
+	world.rows.push(main({ main: "new" }));
+	assert.equal(revoker.sweep(), first, "a timer sweep joins the pass in flight and adds none");
+	const followed = revoker.sweep(true);
+	assert.equal(followed, first, "the one chain of passes");
+	release();
+	await followed;
+	assert.deepEqual(closes, ["other", "other", "new"], "the second pass read the row written after the first began");
+	await revoker.sweep();
+	assert.equal(closes.length, 5, "an idle revoker starts a pass at once");
+});
+
+test("USB-F008: a stop ignores the device's level: a row opened at reply, held at reply, is asked on the first sweep", async () => {
+	const r = rig([main({ level: "reply" })], { [DEV]: "reply" });
+	await r.revoker.sweep();
+	assert.deepEqual(r.closes, ["wA/m-1/quit"]);
+	const plain = rig([main({ level: "reply", stop: undefined })], { [DEV]: "reply" });
+	await plain.revoker.sweep();
+	await plain.revoker.sweep();
+	assert.deepEqual(plain.closes, [], "without a stop a row opened below dispatch is left alone");
+});
+
+test("USB-F008: mains is empty unless the box is known, the tower service stands, and the team shares status", async () => {
+	const facts = async () => [{ row: main({ stop: undefined }), name: "tester", state: "idle" }];
+	const ask = (over: Partial<Parameters<typeof mainsOf>[1]>) => mainsOf({ team: T, device: DEV }, { box: BOX, share: "status", admin: () => false, facts, ...over });
+	assert.equal((await ask({})).length, 1);
+	assert.deepEqual(await ask({ share: "none" }), []);
+	assert.deepEqual(await ask({ share: undefined }), []);
+	assert.deepEqual(await ask({ box: undefined }), []);
+	assert.deepEqual(await ask({ facts: undefined }), []);
 });
 
 // The route row: the stop is written on it and outlives a server restart (it is on the file), a report that renews the row, a re-add, and the caps.
@@ -160,6 +271,21 @@ test("the row caps never drop a row with a pending stop before rows without one,
 	const live = new Set<string>();
 	addRoute(world.slot, "wA", opened(DEV, "late", now + 30), now + 30, live, new Set());
 	assert.ok(readRoutes(world.slot, "wA", now + 40).some((r) => r.to === "stopped"));
+});
+
+test("USB-F008: a server restart keeps the stop: a revoker with no memory, reading the same route file, asks the main with the stop's mode on its first sweep", async () => {
+	const now = Date.now();
+	addRoute(world.slot, "wA", opened(DEV, "m-1", now), now);
+	setStop(world.slot, "wA", "m-1", { ...STOP, mode: "interrupt", at: now }, now, "tester");
+	const closes: string[] = [];
+	const restarted = createRevoker({
+		opened: () => readRoutes(world.slot, "wA", Date.now()).filter((r) => r.kind === "opened").map((r) => ({ workspace: "wA", label: "Alpha", main: r.to, name: r.name, device: r.device, deviceLabel: r.label, team: r.team, ...(r.stop ? { stop: r.stop } : {}) })),
+		known: () => false, standing: () => undefined, close: async (_w, m, mode) => void closes.push(`${m}/${mode}`), paneGone: async () => false,
+		forget: (w, m) => dropOpened(world.slot, w, m, Date.now()), signal: () => true, log: () => {},
+	});
+	await restarted.sweep();
+	assert.deepEqual(closes, ["m-1/interrupt"]);
+	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()), [], "and the route goes with the quit");
 });
 
 // The end of the chain on the box: the sink of the holder, the route, the immediate sweep, the ask with its mode, and the notices.
@@ -214,6 +340,8 @@ test("an accepted stop goes on the row, sweeps at once (no wait for the 15 s), a
 	await until(() => readRoutes(world.slot, "wA", Date.now()).length === 0, "the route to go");
 	assert.deepEqual(world.ally.audits.map((a) => a.event), ["unit-stop-pending", "unit-stop-done"]);
 	assert.ok(!JSON.stringify(world.ally.audits).includes("the stuck main"), "no reason text in link.log");
+	assert.match((world.signals.find((x) => x.kind === "main-stop" && x.outcome === "stopped") as { text: string }).text, /admin-mac.*Reason: the stuck main/s, "the notice names the requester and the reason");
+	assert.equal(readRoutes(world.slot, "wA", Date.now()).length, 0);
 });
 
 test("a quit stop does not interrupt: a working main is refused before it is even asked, and the notice says it is still pending", async () => {
@@ -223,6 +351,48 @@ test("a quit stop does not interrupt: a working main is refused before it is eve
 	assert.deepEqual(closeAsks(), [], "the tower's own check says the main is working");
 });
 
+test("USB-F002: the pane's own token is a witness: a main whose pane names another device is refused as gone, with no stop written and no close asked", async () => {
+	await boxWithMain();
+	const pane = world.sessions.find((x) => x.id === "opened-1")!.herdrLocation!.paneId!;
+	world.herdr.pane(pane).tokens.sb_opened_by = `link:${OTHER}`;
+	await world.expose!.unitStop!({ team: T, from: DEV, stopId: "c".repeat(32), handle: HANDLE(), mode: "quit", reason: "", at: Date.now() });
+	assert.deepEqual(world.ally.told.map((t) => [t.device, t.notice.kind, /refused: gone/.test(t.notice.text)]), [[DEV, "unit-stop-refused", true]]);
+	assert.equal(readRoutes(world.slot, "wA", Date.now())[0]!.stop, undefined);
+	assert.deepEqual([closeAsks(), world.ally.audits.map((a) => a.event)], [[], ["unit-stop-refused"]]);
+	world.herdr.pane(pane).tokens.sb_opened_by = `link:${DEV}`;
+	await world.expose!.unitStop!({ team: T, from: DEV, stopId: "d".repeat(32), handle: HANDLE(), mode: "quit", reason: "", at: Date.now() });
+	assert.ok(readRoutes(world.slot, "wA", Date.now())[0]!.stop, "the row's own device passes");
+});
+
+test("USB-F008: two opened rows for one handle are refused as gone, and the pane's state is in mains", async () => {
+	await boxWithMain();
+	const now = Date.now();
+	const before = (await world.expose!.mains()).map((f) => [f.row.main, f.name, f.state]);
+	assert.deepEqual(before, [["opened-1", "tester", "working"]], "the pane's agent_status and the main's own name");
+	addRoute(world.slot, "wA", { ...peer(OTHER), to: "opened-1", name: "twin", kind: "opened" as const, at: now }, now);
+	assert.equal(readRoutes(world.slot, "wA", now).filter((r) => r.to === "opened-1").length, 2);
+	await world.expose!.unitStop!({ team: T, from: DEV, stopId: "e".repeat(32), handle: HANDLE(), mode: "quit", reason: "", at: now });
+	assert.deepEqual(world.ally.told.map((t) => [t.notice.kind, /refused: gone/.test(t.notice.text)]), [["unit-stop-refused", true]]);
+	assert.ok(readRoutes(world.slot, "wA", now).every((r) => !r.stop));
+});
+
+test("USB-F007: mains reads the broker and Herdr once for all the opened rows, and not at all when none is opened", async () => {
+	await boxWithMain();
+	const now = Date.now();
+	addRoute(world.slot, "wA", { ...peer(OTHER), to: "opened-2", name: "second", kind: "opened" as const, at: now }, now);
+	addRoute(world.slot, "wA", { ...peer(ADM), to: "opened-3", name: "third", kind: "opened" as const, at: now }, now);
+	let reads = 0, list = world.sessions;
+	Object.defineProperty(world, "sessions", { configurable: true, get: () => (reads++, list), set: (v) => void (list = v) });
+	const facts = await world.expose!.mains();
+	assert.equal(facts.length, 3);
+	assert.equal(reads, 1, "one read of the net for three rows");
+	for (const r of readRoutes(world.slot, "wA", now)) dropOpened(world.slot, "wA", r.to, now);
+	reads = 0;
+	assert.deepEqual(await world.expose!.mains(), []);
+	assert.equal(reads, 0);
+});
+
+const SELECT = { title: "Robot Hand — List it\n\n  ! ls", choices: [{ label: "Run it in a new Herdr pane" }, { label: "No, thanks" }], copy: "ls" };
 // The main's side of `interrupt`: a main of this build that is not idle aborts its turn and answers busy; the next ask finds it idle.
 let fake = new World();
 afterEach(async () => {
@@ -270,4 +440,33 @@ test("an interrupt does not end what an abort does not: a running subagent, a mo
 	assert.equal(m.aborted, 0);
 	assert.match(results()[0]!.reason!, /monitor/);
 	assert.equal(results()[0]!.accepted, false);
+});
+
+test("an interrupt does not end a running subagent: the main refuses and nothing is aborted", async () => {
+	const { m } = await openedMain();
+	const file = join(tmpdir(), `sbstop-${process.pid}`, "sessions", "2026-11-07T00-00-00-000Z_parent.jsonl"), dir = join(dirname(file), "artifacts", "parent");
+	mkdirSync(join(dir, "subagent-activity"), { recursive: true });
+	writeFileSync(join(dir, "subagent-activity", "kid.json"), JSON.stringify({ phase: "active" }));
+	writeFileSync(file, "");
+	Object.assign(fake.herdr.pane("wA:p101"), { agent_session: { value: file } });
+	// The child is a live pi pane whose session file is named for it (the dashboard's rule for a running subagent).
+	fake.herdr.addTab("wA:t9", "kid", "wA:p9", "pi");
+	Object.assign(fake.herdr.pane("wA:p9"), { agent: "pi", agent_status: "working", agent_session: { value: join(dirname(file), "2026-11-07T00-00-00-000Z_kid-1a2b3c4d-5e6f7a8b-9c0d.jsonl") } });
+	m.idle = false;
+	askMain(m, "r1", { interrupt: true });
+	await untilWorld(() => results().length === 1, "the refusal");
+	assert.equal(m.aborted, 0);
+	assert.match(results()[0]!.reason!, /subagent/);
+	assert.deepEqual([results()[0]!.accepted, results()[0]!.busy], [false, true]);
+});
+
+test("an interrupt does not close an open dialog: the main refuses and nothing is aborted", async () => {
+	const { m } = await openedMain();
+	m.idle = false;
+	await m.fire("tool_execution_start", { toolCallId: "c1", toolName: "robot_hand", args: {} });
+	m.emit("robot-hand:pending", { version: 1, id: "d1", toolCallId: "c1", digest: selectDigest(SELECT), select: SELECT });
+	askMain(m, "r1", { interrupt: true });
+	await untilWorld(() => results().length === 1, "the refusal");
+	assert.equal(m.aborted, 0);
+	assert.match(results()[0]!.reason!, /dialog/);
 });

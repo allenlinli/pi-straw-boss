@@ -7,7 +7,7 @@ import type { RunSignal } from "./runs.ts";
 // already ends it when its sender leaves the roster or loses `dispatch` (runs.ts, the watcher's tick).
 //
 // A second reason: a stop (docs/specs/2026-11-07-link-remote-stop.md, section 5). A row with a `stop` on it, put there by unitstop.ts for a signed request of the dispatcher or a team admin, is asked on the first sweep after it was accepted, whatever
-// the device's level is and whether or not the holder can read the roster: a signed stop is no read of the policy. Its notices are the `main-stop` ones (pending once, stopped, manual) and everything else is the machinery above.
+// the device's level is and whether or not the holder can read the roster: a signed stop is no read of the policy. Its notices are the `main-stop` ones (pending once, stopped, manual), which name the requester and the reason and everything else is the machinery above.
 
 /** A main an ally run opened for a device, as the route table keeps it. `level` is the level the run had when it opened the main; a row from before the level was kept counts as `dispatch`. */
 export interface OpenedMain { workspace: string; label: string; main: string; name: string; device: string; deviceLabel: string; team: string; level?: string; /** The main's Herdr pane, when the route kept it: a second witness that it is gone. */ pane?: string; /** A stop the box accepted for this main: a second reason to ask it to quit. */ stop?: Stop }
@@ -29,7 +29,7 @@ export interface RevokerDeps {
 	log(entry: Record<string, unknown>): void;
 	/** What a requester's label is in a stop's notices (the roster's); absent: the device's short id. */
 	label?(team: string, device: string): string;
-	/** The holder's link.log: a stop that was carried out (`unit-stop-done`: ids, never the reason). */
+	/** The holder's link.log: a stop that was carried out or ended as gone (`unit-stop-done`: ids and an outcome, never the reason). */
 	audit?(entry: Record<string, unknown>): void;
 }
 
@@ -46,7 +46,7 @@ export function createRevoker(d: RevokerDeps) {
 	let low = new Set<string>();
 	/** The mains whose close was answered "gone" at the last sweeps, and how many sweeps in a row. */
 	let goneSeen = new Map<string, number>();
-	let running: Promise<void> | undefined;
+	let running: Promise<void> | undefined, again = false;
 	const pass = async (): Promise<void> => {
 		const now = new Set<string>(), gone = new Map<string, number>();
 		for (const row of d.opened()) {
@@ -61,7 +61,7 @@ export function createRevoker(d: RevokerDeps) {
 			}
 			const standing = stop ? undefined : d.standing(row.device, row.team);
 			const why = stop ? "a stop was asked" : standing ? "the device lost dispatch" : "the device left the team", who = `The main "${row.name}" opened for ${row.deviceLabel}`;
-			const by = stop ? (d.label?.(row.team, stop.by) ?? stop.by.slice(0, 6)) : "";
+			const by = stop ? (d.label?.(row.team, stop.by) ?? stop.by.slice(0, 6)) : "", because = stop?.reason ? ` Reason: ${stop.reason}` : "";
 			try {
 				await d.close(row.workspace, row.main, stop?.mode === "interrupt" ? "interrupt" : "quit");
 			} catch (cause) {
@@ -74,16 +74,22 @@ export function createRevoker(d: RevokerDeps) {
 						d.log({ event: "revoke-gone", workspace: row.workspace, main: row.main });
 						d.forget(row.workspace, row.main);
 						gone.delete(row.main);
+						if (stop) {
+							d.audit?.({ event: "unit-stop-done", workspace: row.workspace, main: row.main, stopId: stop.stopId, outcome: "gone" });
+							d.signal({ kind: "main-stop", workspace: row.workspace, label: row.label, ally: true, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main, outcome: "stopped", stopId: stop.stopId, text: `${who} is gone (stop asked by ${by}).${because}` });
+						}
 						continue;
 					}
 				}
-				const manual = /was not opened by a tower/.test(reason), key = `${row.main}/${manual ? "manual" : "pending"}`;
+				const manual = /was not opened by a tower/.test(reason), key = `${row.main}/${stop ? "stop-" : ""}${manual ? "manual" : "pending"}`;
+				// The broker's miss names the session id, which stays on the box.
+				const unlisted = GONE.test(reason) && !manual, shown = unlisted ? "" : reason;
 				d.log({ event: "revoke-waiting", workspace: row.workspace, main: row.main, why });
 				if (!told.has(key)) {
 					const peer = { workspace: row.workspace, label: row.label, ally: true as const, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main };
 					const sent = await d.signal(stop
-						? { kind: "main-stop", ...peer, outcome: manual ? "manual" : "pending", stopId: stop.stopId, text: manual ? `${who} was asked to stop by ${by} but still runs and cannot be ended by the box (${reason}). Close it by hand.` : `${who} is being stopped at ${by}'s request (${stop.mode}), and it is busy (${reason}). The box asks again until it quits.` }
-						: { kind: "revoked", ...peer, ended: false, ...(manual ? { manual: true } : {}), text: manual ? `${who} still runs and cannot be ended by the box (${reason}). Close it by hand.` : `${who} could not be ended yet (${reason}). The box asks again until it quits.` });
+						? { kind: "main-stop", ...peer, outcome: manual ? "manual" : "pending", stopId: stop.stopId, text: manual ? `${who} was asked to stop by ${by} but still runs and cannot be ended by the box (${shown}). Close it by hand.${because}` : `${who} is being stopped at ${by}'s request (${stop.mode}), ${unlisted ? "and the broker no longer lists it but its pane is still open" : `and it is busy (${shown})`}. The box asks again until it quits.${because}` }
+						: { kind: "revoked", ...peer, ended: false, ...(manual ? { manual: true } : {}), text: manual ? `${who} still runs and cannot be ended by the box (${shown}). Close it by hand.` : `${who} could not be ended yet (${unlisted ? "the broker no longer lists it but its pane is still open" : shown}). The box asks again until it quits.` });
 					if (sent !== false) {
 						told.add(key);
 						while (told.size > 256) told.delete(told.values().next().value!);
@@ -96,14 +102,29 @@ export function createRevoker(d: RevokerDeps) {
 			const peer = { workspace: row.workspace, label: row.label, ally: true as const, device: row.device, ...(row.team ? { team: row.team } : {}), main: row.main };
 			if (stop) {
 				d.audit?.({ event: "unit-stop-done", workspace: row.workspace, main: row.main, stopId: stop.stopId });
-				d.signal({ kind: "main-stop", ...peer, outcome: "stopped", stopId: stop.stopId, text: `${who} was stopped at ${by}'s request.` });
+				d.signal({ kind: "main-stop", ...peer, outcome: "stopped", stopId: stop.stopId, text: `${who} was stopped at ${by}'s request.${because}` });
 			} else d.signal({ kind: "revoked", ...peer, ended: true, text: `${who} was ended: ${why}.` });
 		}
 		low = now;
 		goneSeen = gone;
 	};
+	const loop = async (): Promise<void> => {
+		do {
+			again = false;
+			await pass().catch((cause: Error) => d.log({ event: "revoke-failed", error: cause.message.slice(0, 200) }));
+		} while (again);
+		running = undefined;
+	};
 	return {
-		/** One look at every opened main; looks that overlap share the one in flight. A failure is logged and the next sweep tries again. */
-		sweep: (): Promise<void> => (running ??= pass().catch((cause: Error) => d.log({ event: "revoke-failed", error: cause.message.slice(0, 200) })).finally(() => (running = undefined))),
+		/**
+		 * One look at every opened main; looks that overlap share the one in flight. With `follow` (a stop was just written) a pass already in flight, which read the rows before it, is followed by one more. A failure is logged and the next sweep tries again.
+		 */
+		sweep: (follow = false): Promise<void> => {
+			if (running) {
+				if (follow) again = true;
+				return running;
+			}
+			return (running = loop());
+		},
 	};
 }

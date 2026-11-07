@@ -192,15 +192,15 @@ function stopRig(rows: OpenedMain[] = [row()], admins: Record<string, string[]> 
 		label: (_team, device) => (device === ADMIN ? "admin-mac" : device === THIRD ? "third-mac" : "dev-mac"), audit: (e) => void out.audits.push(e), now: () => 1_000_000,
 	});
 	const nothingSpent = () => assert.deepEqual([out.records.length, out.sweeps, out.audits.filter((e) => e.event === "unit-stop-pending").length], [0, 0, 0], "a refusal writes no stop, asks for no sweep, and audits no pending stop");
-	const noReason = () => assert.ok(!JSON.stringify(out).includes("secret reason"), "the reason text is nowhere: not in a notice, a signal, an audit line, or a log");
+	const noReason = () => assert.ok(!JSON.stringify({ ...out, records: [] }).includes("secret reason"), "the reason text is in no notice, signal, audit line, or log (the stop recorded on the route keeps it)");
 	return { ...out, out, world, unit, nothingSpent, noReason };
 }
 const refused = (r: ReturnType<typeof stopRig>) => r.out.told.map((t) => [t.device, t.notice.kind, t.notice.text.match(/refused: ([a-z-]+)/)?.[1]] as const);
 
-test("server: the dispatcher's own main is accepted; the stop goes on the route as {by, at, stopId, mode} with the main's real name, the box sweeps at once, and link.log gets unit-stop-pending", async () => {
+test("server: the dispatcher's own main is accepted; the stop goes on the route as {by, at, stopId, mode, reason} with the main's real name, the box sweeps at once, and link.log gets unit-stop-pending", async () => {
 	const r = stopRig();
 	await r.unit.handle(input());
-	assert.deepEqual(r.records, [{ main: "sess-1", stop: { by: DISP, at: 1_000_000, stopId: "5".repeat(32), mode: "quit" }, name: "tester" }]);
+	assert.deepEqual(r.records, [{ main: "sess-1", stop: { by: DISP, at: 1_000_000, stopId: "5".repeat(32), mode: "quit", reason: REASON }, name: "tester" }]);
 	assert.equal(r.out.sweeps, 1);
 	assert.deepEqual(r.audits.map((a) => [a.event, a.stopId, a.workspace, a.main]), [["unit-stop-pending", "5".repeat(32), "wA", "sess-1"]]);
 	assert.deepEqual([r.out.told, r.out.signals], [[], []]);

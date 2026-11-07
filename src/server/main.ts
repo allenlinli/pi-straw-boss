@@ -31,7 +31,7 @@ import {
 import { AFTER, endpointFor, helloOf, listenControl, newSecret, PROTOCOL, type Reply, type Request } from "./socket.ts";
 import { promptCommand } from "./standing.ts";
 import { UnitReporter, runNotice } from "../link/unitstatus.ts";
-import { mainsFor, type MainFact } from "./unitstop.ts";
+import { mainsOf, type MainFact } from "./unitstop.ts";
 import { readNotes } from "./towerrunstore.ts";
 import { createTowers, type Towers, type TowersOptions } from "./towers.ts";
 import { headCommand } from "./headcmds.ts";
@@ -596,12 +596,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			return note && (!sent || Date.parse(note.at) >= sent.at) ? note.note : sent?.text ?? "";
 		},
 		// The mains this controller may stop (unitstop.ts): its own, or the whole team's for an admin; only where the units are shared too. One reading of the broker and Herdr serves a pass (two seconds).
-		mains: async (team, device) => {
-			const box = link?.holder?.deviceId;
-			if (!box || !towers || link?.holder?.policyOf(team)?.share !== "status") return [];
-			if (!mainFacts || now() - mainFacts.at > 2000) mainFacts = { at: now(), facts: towers.mains() };
-			return mainsFor(await mainFacts.facts, { team, device }, { box, admin: (t, d) => link?.holder?.isAdmin(t, d) ?? false });
-		},
+		mains: (team, device) => mainsOf({ team, device }, { box: link?.holder?.deviceId, share: link?.holder?.policyOf(team)?.share, admin: (tm, d) => link?.holder?.isAdmin(tm, d) ?? false, facts: towers && (() => (mainFacts = !mainFacts || now() - mainFacts.at > 2000 ? { at: now(), facts: towers!.mains() } : mainFacts).facts) }),
 		status: async (team, device, units, mains) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendUnitStatus(team, device, units, mains); },
 		notice: async (team, device, n) => { if (!link?.holder) throw new Error("The link holder is not running"); await link.holder.sendDialog(team, device, "notice", n); },
 		now, log: ({ event, ...rest }) => log.line(String(event), Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === "number" || typeof v === "boolean" ? v : phrase(v, 200)]))),

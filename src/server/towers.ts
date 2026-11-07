@@ -1028,14 +1028,16 @@ export function createTowers(o: TowersOptions): Towers {
 			const token = net.ps.find((p) => p.pane_id === (session?.herdrLocation?.paneId ?? row.pane))?.tokens?.sb_opened_by;
 			return { ...(typeof token === "string" && token.startsWith("link:") ? { device: token.replace(/^(link:)+/, "") } : {}), ...(session ? { name: nameOf(session) } : {}) };
 		},
-		record: (row, stop, name) => setStop(slot, row.workspace, row.main, stop, now(), name), sweep: () => void revoker.sweep(), signal: (s) => o.runs?.signal?.(s),
+		record: (row, stop, name) => setStop(slot, row.workspace, row.main, stop, now(), name), sweep: () => void revoker.sweep(true), signal: (s) => o.runs?.signal?.(s),
 		tell: async (team, device, notice) => { if (!o.ally?.tell) throw new Error("This server has no link holder to tell the sender"); await o.ally.tell(team, device, notice); },
 		label: (team, device) => o.ally?.label?.(team, device) ?? device.slice(0, 6), audit: (entry) => o.ally?.audit?.(entry), now,
 	});
 	const mains = async (): Promise<MainFact[]> => {
-		const out: MainFact[] = [];
-		for (const row of openedRows()) {
-			const net = await need(row.workspace).reach!.read().catch(() => undefined), session = net?.sessions.find((x) => x.id === row.main);
+		const out: MainFact[] = [], rows = openedRows();
+		// The read is of the whole computer (the broker's sessions and Herdr's panes), so one serves every row.
+		const net = rows[0] ? await need(rows[0].workspace).reach!.read().catch(() => undefined) : undefined;
+		for (const row of rows) {
+			const session = net?.sessions.find((x) => x.id === row.main);
 			const pane = net?.ps.find((p) => p.pane_id === (session?.herdrLocation?.paneId ?? row.pane));
 			out.push({ row, name: session ? nameOf(session) : row.name, state: pane?.agent_status ?? "unknown" });
 		}

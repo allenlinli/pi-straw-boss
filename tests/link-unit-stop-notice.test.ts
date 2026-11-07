@@ -93,7 +93,7 @@ test("the reporter gives each controller its own mains and sends a status again 
 	assert.deepEqual(seen(), [[ADMIN, 1, true], [DISP, 1, true]].sort(), "only those who see the main are told it is stopping");
 });
 
-test("the whole chain keeps the reason text out of every notice, signal, audit line and log", async () => {
+test("the whole chain puts the reason in the notices only: not in an audit line, a log line, or a key", async () => {
 	const out: unknown[] = [], signals: RunSignal[] = [];
 	let stop: OpenedMain["stop"];
 	let busy: string | undefined = "main is working; try again when it is idle";
@@ -111,6 +111,8 @@ test("the whole chain keeps the reason text out of every notice, signal, audit l
 	await revoker.sweep();
 	const notices = signals.map((s) => runNotice(s).notice);
 	assert.deepEqual(notices.map((n) => n.kind), ["main-stop-pending", "main-stopped"]);
-	assert.ok(!JSON.stringify([out, signals, notices]).includes("secret reason"));
-	assert.ok(notices.every((n) => /admin-mac/.test(n.text)), "the notice names the requester's label");
+	assert.ok(!JSON.stringify(out).includes("secret reason"), "no audit line, log line or told notice of the box carries it");
+	assert.ok(!JSON.stringify(notices.map((n) => n.kind)).includes("secret"));
+	assert.ok(notices.every((n) => /admin-mac/.test(n.text) && n.text.endsWith(`Reason: ${REASON}`)), "the notice names the requester's label and the reason");
+	assert.ok(runNotice(signals[0]!).key.indexOf("secret") < 0, "the key has no reason");
 });

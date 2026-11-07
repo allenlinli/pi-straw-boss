@@ -805,7 +805,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Remote stop, the controller (todo #100 task 4) to 6999 (measured, +95 over 6904): linkmodel.ts (`MainCard`, `mainCards`), allyunits.ts (the Mains fold), mainstop.ts (new), quit.ts (`choose`), demo-ally.ts (the four scenes), render.ts (the box label passed on). Cap = measured.
 	// Review fixes of the remote stop (USC-F003) to 7001 (measured, +2 over 6999): quit.ts `choose` (the danger tone, the focus on Cancel).
 	// Z-D22 and the remote stop controller merged on main: 7020 lines (measured). Cap = measured.
-	assert.ok(page <= 7020, `the page's TypeScript has ${page} lines`);
+	// The notice for messages that wait (todo #122) to 7031 (measured, +11 over 7020): linkmodel.ts (`ageWord`, shared with `lastSeen`; the inbox notice's sender, tower and date). Cap = measured.
+	assert.ok(page <= 7031, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -968,7 +969,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merged with the head's fill (0.60.3, #117): 107,892 / 39,065 measured, +0 / +2: the two branches' eager modules compress together slightly worse. Cap = measured.
 		// Remote stop, the controller (todo #100 task 4): 109,036 / 39,349 measured, +1,144 / +284 over the figure above: `MainCard` and `mainCards` with the one message of the pending row (linkmodel.ts), and the `choose` sheet the entry shares with the lazy chunk (quit.ts). The fold's code and words are in the lazy chunks. Cap = measured.
 	// Review fixes of the remote stop (USC-F003): 109,075 / 39,378 measured, +39 / +29 over the figure above: `choose`'s danger tone and its focus on Cancel (quit.ts). Cap = measured.
-	assert.ok(eagerBytes <= 109_075 && eagerGz <= 39_378, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// The notice for messages that wait (todo #122): 110,094 / 39,827 measured, +1,019 / +449 over the figure above: the inbox notice's words in both languages (four messages, the longer sentence in both), `ageWord` and the notice's sender, tower and date (linkmodel.ts). Cap = measured.
+	assert.ok(eagerBytes <= 110_094 && eagerGz <= 39_827, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).

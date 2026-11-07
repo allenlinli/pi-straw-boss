@@ -9,13 +9,16 @@ import { m } from "../gui/paraglide/messages.js";
 
 // What the page says about Straw Link (gui/linkmodel.ts): the notices in words, an invite's countdown, a teammate's last presence, and the marks of an ally base.
 
+const noon = (day: number) => new Date(2026, 10, day, 12).getTime();
+const INBOX = { count: 4, from: "box n2knna", others: 0, since: noon(6), drop: noon(13), ageMin: 180, workspace: "MP Center", project: "moldplan-center" };
+
 const alert = (kind: LinkAlert["kind"], data: LinkAlert["data"], level: LinkAlert["level"] = "warning"): LinkAlert => ({ id: kind, kind, level, team: "t", teamName: "moldplan", data });
 
 test("every notice kind reads in English and in Chinese, with the teammate's words only as data", () => {
 	const all: LinkAlert[] = [
 		alert("join-request", { label: "bob-mac", short: "abc123", unattended: 0 }), alert("join-request", { label: "ci-box", short: "def456", unattended: 1 }),
 		alert("confirm", { label: "bob-mac", short: "abc123", tool: "bash" }), alert("fork", { reason: "entry 4 is invalid" }, "error"),
-		alert("mismatch", { label: "bob-mac", short: "abc123" }, "error"), alert("unreachable", { minutes: 3 }), alert("inbox", { count: 2 }, "info"), alert("held", { count: 1 }, "info"), alert("served", { count: 3 }, "info"),
+		alert("mismatch", { label: "bob-mac", short: "abc123" }, "error"), alert("unreachable", { minutes: 3 }), alert("inbox", INBOX, "info"), alert("held", { count: 1 }, "info"), alert("served", { count: 3 }, "info"),
 	];
 	const en = all.map(alertLine), zh = all.map((a) => ((l) => l)(alertLine(a)));
 	assert.deepEqual(en.slice(0, 3), [
@@ -24,13 +27,27 @@ test("every notice kind reads in English and in Chinese, with the teammate's wor
 		"bob-mac (abc123) asks you to confirm a bash call from its tower",
 	]);
 	assert.equal(alertLine(alert("confirm", { label: "bob-mac", short: "abc123", tool: "bash", tower: "Delta" })), "bob-mac (abc123) asks you to confirm a bash call from its tower Delta, which acts on a message you sent");
-	assert.match(alertLine(alert("served", { count: 3 }, "info")), /^3 Straw Link messages have waited more than 10 minutes in the inbox of team moldplan for an ally run\. Look at the tower's card/);
+	assert.match(alertLine(alert("served", { count: 3 }, "info")), /^3 Straw Link messages have waited more than 10 minutes for an ally run in team moldplan\. Look at the tower's card/);
 	assert.match(en[3]!, /^Team moldplan stopped: entry 4 is invalid$/);
 	assert.match(en[5]!, /unreachable for 3 minutes/);
 	assert.match(m.link_a_join({ label: "bob-mac", short: "abc123", team: "moldplan" }, { locale: "zh-TW" }), /bob-mac（abc123）要求加入團隊 moldplan/);
 	assert.ok(zh.every((t) => t.length > 0));
 	// Markup in a teammate's label stays text: the function returns a string and the page puts it in a text node.
 	assert.equal(alertLine(alert("join-request", { label: "<img src=x onerror=1>", short: "abc123", unattended: 0 })), "<img src=x onerror=1> (abc123) asks to join team moldplan");
+});
+
+test("the notice for messages with no tower open says who, how many, how long, which tower, and when the oldest goes (todo #122)", () => {
+	const inbox = (over: Record<string, string | number | undefined> = {}) => alertLine(alert("inbox", Object.fromEntries(Object.entries({ ...INBOX, ...over }).filter(([, v]) => v !== undefined)) as LinkAlert["data"], "info"));
+	assert.equal(inbox(), "Team moldplan: box n2knna sent 4 messages, the oldest 3h ago, for the tower of workspace “MP Center”. They are not delivered yet; they go through as soon as the tower can take them, and the oldest is dropped on 11/13.");
+	assert.equal(inbox({ count: 1, ageMin: 7 }), "Team moldplan: box n2knna sent 1 message 7m ago, for the tower of workspace “MP Center”. It is not delivered yet; it goes through as soon as the tower can take it, and it is dropped on 11/13.");
+	assert.match(inbox({ workspace: undefined, ageMin: 2880 }), /the oldest 2d ago, for the tower of project moldplan-center\. /);
+	assert.match(inbox({ others: 2 }), /^Team moldplan: box n2knna and 2 more sent 4 messages/);
+	const zh = (over: Record<string, string | number> = {}) => m.link_a_inbox({ team: "moldplan", count: 4, who: "box n2knna", ago: "3 小時", where: "「MP Center」工作區的塔台", drop: "11/13", ...over }, { locale: "zh-TW" });
+	assert.equal(zh(), "團隊 moldplan：box n2knna 傳來 4 則訊息，最早的在 3 小時前就到了，要交給「MP Center」工作區的塔台，還沒送達。塔台能接手時就會自動送達；最早一則會在 11/13 丟棄。");
+	assert.equal(m.link_a_inbox_who_many({ label: "box n2knna", others: 2 }, { locale: "zh-TW" }), "box n2knna 和另外 2 位");
+	for (const text of [inbox(), inbox({ workspace: undefined }), zh(), m.link_a_held({ count: 2, team: "T" }, { locale: "zh-TW" }), m.link_a_served({ count: 2, team: "T" }, { locale: "zh-TW" }), alertLine(alert("served", { count: 2 }, "info")), alertLine(alert("held", { count: 2 }, "info"))]) assert.doesNotMatch(text, /inbox|收件匣|\bopen\b|開著|找不到|關/i, text);
+	// The teammate's words and the workspace's label are text, never markup or a placeholder.
+	assert.match(inbox({ from: "<b>x</b>", workspace: "{ws}" }), /^Team moldplan: <b>x<\/b> sent 4 messages.*“\{ws\}”/);
 });
 
 test("the worst notice comes first", () => {

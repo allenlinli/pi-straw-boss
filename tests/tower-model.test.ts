@@ -167,14 +167,14 @@ test("a button that asks the server is off and says so while it waits, and comes
 });
 
 test("Straw Link notices agree with their number", () => {
-	const note = (kind: "inbox" | "held" | "served", count: number) => alertLine({ id: "a", kind, level: "info", team: "t", teamName: "Moldplan", data: { count } } as never);
-	assert.match(note("served", 1), /^1 Straw Link message has waited more than 10 minutes in the inbox/);
-	assert.match(note("served", 2), /^2 Straw Link messages have waited more than 10 minutes in the inbox/);
-	assert.match(note("inbox", 1), /^1 message waits in the inbox/);
-	assert.match(note("inbox", 3), /^3 messages wait in the inbox/);
+	const note = (kind: "inbox" | "held" | "served", count: number) => alertLine({ id: "a", kind, level: "info", team: "t", teamName: "Moldplan", data: { count, from: "box", others: 0, since: 0, drop: 0, ageMin: 5, project: "p" } } as never);
+	assert.match(note("served", 1), /^1 Straw Link message has waited more than 10 minutes for an ally run in team Moldplan/);
+	assert.match(note("served", 2), /^2 Straw Link messages have waited more than 10 minutes for an ally run in team Moldplan/);
+	assert.match(note("inbox", 1), /^Team Moldplan: box sent 1 message /);
+	assert.match(note("inbox", 3), /^Team Moldplan: box sent 3 messages, the oldest /);
 	assert.match(note("held", 1), /^1 message has waited/);
 	assert.match(note("held", 4), /^4 messages have waited/);
-	assert.match(m.link_a_served({ count: 2, team: "T" }, zh), /^團隊 T 的收件匣有 2 則/);
+	assert.match(m.link_a_served({ count: 2, team: "T" }, zh), /^團隊 T 有 2 則 Straw Link 訊息/);
 });
 
 // The stylesheet, where a fix is a rule: no test browser here, so the rules are read as text.

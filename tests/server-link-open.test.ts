@@ -64,7 +64,7 @@ for (const level of ["reply", "forward", undefined] as const) {
 		await u.message();
 		const record = () => world.record()!;
 		const notices = async () => ((await callControl(record().socket, record().secret, { cmd: "status" })).reply as unknown as { link: { notices: { text: string }[] } }).link.notices;
-		await until(async () => (await notices()).some((n) => /waits in the inbox/.test(n.text)), "the inbox notice");
+		await until(async () => (await notices()).some((n) => /is not delivered yet; it waits for the tower of/.test(n.text)), "the inbox notice");
 		assert.equal(world.herdr.workspaces.length, base);
 		assert.equal(u.log().some((e) => /^tower-open/.test(String(e.event))), false);
 	});

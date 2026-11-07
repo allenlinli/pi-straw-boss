@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { basename } from "node:path";
 import { allyLabel } from "../boardauto.ts";
 import { cleanText, clean, BOARD, forAllies, purge, readEntries, wireId, type Entry } from "../board.ts";
 import { MAX_BODY_BYTES } from "./wire.ts";
@@ -111,6 +112,8 @@ const SERVED_TOWER = /^sb-tower-/;
 const OPEN_BACKOFF_MS = 60_000;
 /** The pi the server started for a run, which sits in the standing pane while the run lives: the message is the tower's, even if the run's pi is the session found there. */
 const SERVED_RUN = /^tower run · /;
+/** A message in the inbox that has not reached a tower, as the notices read it: who sent it and when it came, and (once a drain found no tower for it) the workspace label or project the notice names. */
+interface Waiting { team: string; from: string; fromId: string; since: number; toWorkspace: string; offered: boolean; served?: boolean; identity?: string; workspace?: string; project?: string }
 export interface LinkAlert { id: string; kind: AlertKind; level: "info" | "warning" | "error"; team: string; teamName: string; data: Record<string, string | number> }
 /** A teammate's workspace as the map shows it beside the local bases (spec, GUI). */
 /** `unattended`: the device is an unattended box (the roster says so): its card says how many units are online, not its mains; absent for a teammate's computer, whose mains and workers the card lists. */
@@ -235,7 +238,7 @@ export class LinkHolder {
 	/** Projects a tower is being opened for, and when an open of a project last ended, whether it worked or not (it is not tried again for `OPEN_BACKOFF_MS`: a tower that is slow to show in the net must not be opened again in a loop). */
 	private opening = new Map<string, Promise<void>>();
 	private openEnded = new Map<string, number>();
-	private waiting = new Map<string, { team: string; from: string; since: number; offered: boolean; served?: boolean; identity?: string }>();
+	private waiting = new Map<string, Waiting>();
 	/** When a `tower-reply` last fell back to a plain `tower`, by device, so the log tells it once an hour. */
 	private fellBack = new Map<string, number>();
 	/** `tower-reply`s that stopped waiting for the relay (they answered "queued"), by envelope id: what to send instead when the relay refuses the kind. */
@@ -692,7 +695,7 @@ export class LinkHolder {
 			}
 			const policy = config.teams.get(item.team), run = this.runs.get(item.team);
 			if (!policy || !run || run.dead) continue;
-			this.waiting.set(id, this.waiting.get(id) ?? { team: item.team, from: item.fromLabel, since: item.received, offered: false });
+			this.waiting.set(id, this.waiting.get(id) ?? { team: item.team, from: item.fromLabel, fromId: item.from, since: item.received, toWorkspace: item.toWorkspace, offered: false });
 			// The sender's membership is checked again at the moment a tower would get the message.
 			let roster: RosterState;
 			try {
@@ -734,9 +737,12 @@ export class LinkHolder {
 			}
 			const picks = towersFor(net, policy.project, item.toWorkspace), first = picks[0];
 			if (!first) {
-				this.waiting.get(id)!.offered = false;
+				// The notice names the workspace the sender asked for when it is a workspace of this computer, else the project: an id of a workspace that is gone is no word for the boss.
+				const asked = item.toWorkspace && (net.workspaces.find((w) => w.workspace_id === item.toWorkspace) ?? net.workspaces.find((w) => w.label === item.toWorkspace));
+				const where = asked ? restrictLabel(asked.label) : undefined, project = basename(policy.project) || policy.project;
+				Object.assign(this.waiting.get(id)!, { offered: false, workspace: where, project });
 				this.openFor(policy.project, item.from, item.toWorkspace || undefined, config.trust.get(item.from));
-				this.tellOnce(`inbox/${id}`, `Straw Link: a message from ${item.fromLabel} waits in the inbox; no tower is open on ${policy.project}${item.toWorkspace ? ` in workspace ${restrictLabel(item.toWorkspace)}` : ""}`, "info");
+				this.tellOnce(`inbox/${id}`, `Straw Link: a message from ${item.fromLabel} is not delivered yet; it waits for the tower of ${where ? `workspace ${where}` : `project ${project}`}`, "info");
 				continue;
 			}
 			if (SERVED_TOWER.test(first.session.id) || (towerRunsEnabled(this.o.stateDir ?? "") && SERVED_RUN.test(first.session.name ?? ""))) {
@@ -1456,16 +1462,29 @@ export class LinkHolder {
 				if (now - since > HEAD_DIFF_MS && seen && now - seen.at <= PRESENCE_ONLINE_MS) out.push({ id: `heads/${run.team}/${device}`, kind: "mismatch", level: "error", team: run.team, teamName: name(run.team), data: { label: seen.presence.label, short: shortId(device) } });
 			}
 		}
-		const waits = new Map<string, { kind: "inbox" | "held" | "served"; team: string; n: number }>();
+		const waits = new Map<string, { kind: "inbox" | "held" | "served"; team: string; items: Waiting[] }>();
 		for (const w of this.waiting.values()) {
 			// A message for a tower the server runs waits for an ally run slot: the boss hears of it after 10 minutes.
 			const kind = w.served ? (now - w.since > HELD_MS ? "served" : undefined) : w.offered ? (now - w.since > HELD_MS ? "held" : undefined) : "inbox";
 			if (!kind) continue;
-			const key = `${kind}/${w.team}`, hit = waits.get(key);
-			waits.set(key, { kind, team: w.team, n: (hit?.n ?? 0) + 1 });
+			// Messages that wait for different towers are different notices: what the boss reads names one tower.
+			const key = kind === "inbox" ? `inbox/${w.team}/${w.toWorkspace}` : `${kind}/${w.team}`, hit = waits.get(key);
+			if (hit) hit.items.push(w);
+			else waits.set(key, { kind, team: w.team, items: [w] });
 		}
-		for (const [key, w] of waits) out.push({ id: key, kind: w.kind, level: "info", team: w.team, teamName: name(w.team), data: { count: w.n } });
+		for (const [key, w] of waits) out.push({ id: key, kind: w.kind, level: "info", team: w.team, teamName: name(w.team), data: w.kind === "inbox" ? this.inboxData(w.items, now) : { count: w.items.length } });
 		return out;
+	}
+
+	/**
+	 * What the notice for messages that wait for a tower says: the sender whose message came first (and how many other senders there are), how many messages, the oldest one's arrival,
+	 * how long ago that was (whole minutes under an hour, whole hours under a day, else whole days, so the notice changes only when its words do), the tower asked for, and when the oldest goes.
+	 */
+	private inboxData(items: { from: string; fromId: string; since: number; workspace?: string; project?: string }[], now: number): Record<string, string | number> {
+		const oldest = [...items].sort((x, y) => x.since - y.since), senders = new Map<string, string>(oldest.map((w) => [w.fromId, w.from]));
+		const since = oldest[0]!.since, workspace = items.find((w) => w.workspace !== undefined)?.workspace;
+		const minutes = Math.max(1, Math.floor((now - since) / 60_000)), ageMin = minutes < 60 ? minutes : minutes < 1440 ? Math.floor(minutes / 60) * 60 : Math.floor(minutes / 1440) * 1440;
+		return { count: items.length, from: [...senders.values()][0]!, others: senders.size - 1, since, drop: since + INBOX_MAX_AGE_MS, ageMin, ...(workspace !== undefined ? { workspace } : {}), project: items.find((w) => w.project !== undefined)?.project ?? "" };
 	}
 
 	/** The units unattended peers reported lately; a device that stopped reporting for `UNITS_FRESH_MS` shows its last ones marked stale, and none after `UNITS_GONE_MS`. */

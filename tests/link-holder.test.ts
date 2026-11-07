@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { buildEnvelope, parseEnvelope } from "../src/link/envelope.ts";
 import { LinkHolder } from "../src/link/holder.ts";
@@ -126,10 +126,10 @@ test("a tower is offered a message only if its pane is in the team's project; wi
 	await Promise.all([a.start(), b.start()]);
 	await send(a, "wait for me");
 	await until(() => relay.ackedBy(bob.id).length === 1, 3000, "the ack");
-	await until(() => b.notices.some((n) => /waits in the inbox/.test(n)), 3000, "the inbox notice");
+	await until(() => b.notices.some((n) => /is not delivered yet; it waits for the tower of/.test(n)), 3000, "the inbox notice");
 	assert.equal(b.offers.length, 0);
 	for (let i = 0; i < 3; i++) await b.holder.drain();
-	assert.equal(b.notices.filter((n) => /waits in the inbox/.test(n)).length, 1, "the notice is not repeated");
+	assert.equal(b.notices.filter((n) => /is not delivered yet; it waits for the tower of/.test(n)).length, 1, "the notice is not repeated");
 	assert.equal(b.store.inboxIds().length, 1);
 	// A tower in some other folder is no tower of this project.
 	b.net = netOf([["tower-else", "w-else", "else", join(root, "elsewhere")]]);
@@ -169,13 +169,40 @@ test("an open that works but whose tower does not show in the net is not repeate
 	await until(() => b.opens.length === 2, 3000, "another open after the 60 s");
 });
 
+test("the notice for messages with no tower open says who sent them, how many, how long they have waited, which tower they wait for, and when the oldest is dropped (todo #122)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false })];
+	// A workspace that is open and has no tower in it: a message for it by id names it by its label; one for a workspace that is not open names the project.
+	b.net = { ...netOf([]), workspaces: [{ workspace_id: "w-live", label: "MP Center", tokens: {} }] };
+	await Promise.all([a.start(), b.start()]);
+	const inbox = () => b.holder.summary().alerts.filter((x) => x.kind === "inbox").sort((x, y) => (x.id < y.id ? -1 : 1));
+	await send(a, "one", { workspace: "w-live" });
+	await send(a, "two", { workspace: "w-live" });
+	await send(a, "three", { workspace: "w-gone" });
+	await until(() => b.store.inboxIds().length === 3 && b.notices.length === 3, 3000, "three notices");
+	await b.holder.drain();
+	const [live, gone] = ((alerts) => [alerts.find((x) => x.data.workspace !== undefined)!, alerts.find((x) => x.data.workspace === undefined)!])(inbox());
+	assert.equal(inbox().length, 2, "one notice per team and tower asked for, not one per message");
+	assert.notEqual(live.id, gone.id);
+	const since = Math.min(...b.store.inboxIds().map((id) => b.store.readInbox(id)!.received));
+	assert.deepEqual({ ...live.data, since: undefined, drop: undefined }, { count: 2, from: "alice-mac", others: 0, workspace: "MP Center", project: basename(b.project), since: undefined, drop: undefined, ageMin: 1 });
+	assert.deepEqual([gone.data.count, gone.data.project, gone.data.workspace], [1, basename(b.project), undefined], "a workspace that is not open is not named: its id is no word for the boss");
+	assert.ok(Number(live.data.since) >= since && Number(live.data.since) <= since + 5000, "the oldest message's arrival, epoch ms");
+	assert.equal(Number(live.data.drop) - Number(live.data.since), 7 * 24 * 3600_000, "the store's 7 days");
+	b.skew = 3 * 3600_000 + 20 * 60_000;
+	await b.holder.drain();
+	assert.equal(inbox().find((x) => x.id === live.id)!.data.ageMin, 180, "whole hours once an hour has passed, so the notice changes only when its words do");
+	b.skew = 2 * 24 * 3600_000 + 5 * 3600_000;
+	await b.holder.drain();
+	assert.equal(inbox().find((x) => x.id === live.id)!.data.ageMin, 2 * 1440);
+});
+
 test("no tower is opened below dispatch, on an attended device, or when the seam is absent", async () => {
 	for (const [level, unattended] of [["forward", true], [undefined, true], ["dispatch", false], ["dispatch", undefined]] as const) {
 		const a = rig("a"), b = rig("b", { towers: false, ...(unattended === undefined ? {} : { unattended }) });
 		b.level = level;
 		await Promise.all([a.start(), b.start()]);
 		await send(a, "build it");
-		await until(() => b.notices.some((n) => /waits in the inbox/.test(n)), 3000, `the inbox notice at ${String(level)}/${String(unattended)}`);
+		await until(() => b.notices.some((n) => /is not delivered yet; it waits for the tower of/.test(n)), 3000, `the inbox notice at ${String(level)}/${String(unattended)}`);
 		for (let i = 0; i < 3; i++) await b.holder.drain();
 		assert.equal(b.opens.length, 0, `${String(level)}/${String(unattended)}`);
 		await Promise.all([a.holder.stop(), b.holder.stop()]);

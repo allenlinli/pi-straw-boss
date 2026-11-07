@@ -20,6 +20,8 @@ const net = (units: Unit[]): Net => ({ bases: [{ id: "w", label: "Harbor", mark:
 const select = (): Pending => ({ callId: "c1", tool: "robot_hand", answer: { dialog: "d1", digest: "0".repeat(64), select: { title: "Robot Hand: deploy", choices: [{ label: "Put it in my prompt" }, { label: "No thanks" }] } } });
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 
+/** The arguments Zen mounted its answer panels with, for a test that reads them. */
+const spy: { ask?: (args: unknown[]) => void } = {};
 function rig() {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
@@ -73,7 +75,7 @@ function rig() {
 			return () => void (timers.includes(e) && timers.splice(timers.indexOf(e), 1));
 		},
 	};
-	const mounts = { ...real, composer: ((root: El) => (root.replaceChildren(new El("textarea")), { box: new El("textarea"), update() {} })) as never, chat: async () => () => ({ apply() {}, setLive() {}, reveal() {}, box() {} }) as never };
+	const mounts = { ...real, ask: ((...a: Parameters<typeof real.ask>) => (spy.ask?.(a), real.ask(...a))) as never, composer: ((root: El) => (root.replaceChildren(new El("textarea")), { box: new El("textarea"), update() {} })) as never, chat: async () => () => ({ apply() {}, setLive() {}, reveal() {}, box() {} }) as never };
 	const root = new El("section");
 	page.body.replaceChildren(root);
 	[page.focused, page.hidden, page.focus] = [undefined, false, true];
@@ -607,4 +609,19 @@ test("the card in the layer of a unit on an unreachable or ended remote base is 
 	l.z.step(step());
 	await l.settle();
 	assert.ok(!(goOf(l) as unknown as { disabled: boolean }).disabled, "a local base is unchanged");
+});
+
+test("BR-F006: Zen mounts a box's unit's answer panel as a remote page's, with the pane choice refused; a local unit's with neither", async () => {
+	const mounted: unknown[][] = [];
+	spy.ask = (args) => void mounted.push(args);
+	try {
+		const local = item(), box = item();
+		box.bases[0]!.box = { device: "d", short: "s", label: "box", team: "A", scope: "team", can: ["input"], state: "live" };
+		for (const n of [box, local]) await shown(n);
+		assert.equal(mounted.length, 2);
+		assert.deepEqual([mounted[0]![2], mounted[0]![6]], [true, true], "a box's unit");
+		assert.equal(mounted[1]![6], false, "a local unit: the pane choice is open");
+	} finally {
+		spy.ask = undefined;
+	}
 });

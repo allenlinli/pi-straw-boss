@@ -226,3 +226,51 @@ test("BR-F001: a workspace watch of a base two sessions show is asked of both, a
 	assert.equal(w.box(A).watches().filter((i) => i.on === false).length, 1, "stopped on A");
 	assert.equal(w.box(B).watches().filter((i) => i.on === false).length, 1, "stopped on B");
 });
+
+// ---- BR-F006: a merged base's state and scope follow the session that owns the unit shown -----------------------------------------------------------------
+
+test("BR-F006: while one of a box's two sessions is unreachable, its units say so and the other's stay live; the base is live", async () => {
+	const { w, base: before } = await twoTeams();
+	assert.equal(before.box!.units, undefined, "both live: nothing to say per unit");
+	w.box(B).close("overload");
+	await w.pump();
+	const base = w.host.merge(LOCAL).bases.find((b) => b.label === "billing")!;
+	assert.equal(base.box!.state, "live", "the base: one session is live");
+	const keyOf = (name: string) => base.tabs.flatMap((t) => t.units).find((u) => u.name === name)!.key;
+	assert.deepEqual(Object.keys(base.box!.units ?? {}), [keyOf("b-main")]);
+	assert.equal(base.box!.units![keyOf("b-main")]!.state, "unreachable");
+});
+
+test("BR-F006: the scope of a merged base is the live sessions': an unreachable box session does not offer what the live team-only one would refuse", async () => {
+	const w = hostWorld({ teams: [A, B] });
+	w.box(B).scope.box = false; // B is a team-only session
+	await w.page();
+	w.box(A).snap(netOf(baseOf("wA", [["t1", [unit("a-main")]]], { label: "billing" })));
+	w.box(B).snap(netOf(baseOf("wA", [["t2", [unit("b-main")]]], { label: "billing" })));
+	await w.pump();
+	let base = w.host.merge(LOCAL).bases.find((b) => b.label === "billing")!;
+	assert.equal(base.box!.scope, "box");
+	const keyOf = (name: string) => base.tabs.flatMap((t) => t.units).find((u) => u.name === name)!.key;
+	assert.equal(base.box!.units![keyOf("b-main")]!.scope, "team", "a unit only the team session shows has the team session's reach");
+	assert.ok(!base.box!.units![keyOf("b-main")]!.can.includes("tower"));
+	w.box(A).close("overload");
+	await w.pump();
+	base = w.host.merge(LOCAL).bases.find((b) => b.label === "billing")!;
+	assert.equal(base.box!.scope, "team", "the box session is unreachable: only the team session is live, so the base offers no tower action");
+	assert.ok(!base.box!.can.includes("tower"));
+});
+
+// ---- BR-F008: a request admitted before the session ended does not write after it ---------------------------------------------------------------------------
+
+test("BR-F008: a write whose session ends while the box looks at the terminal is not sent", async () => {
+	const scope = scopeOf(["sess-1"]), send = (x: Awaited<ReturnType<typeof world>>) => x.session.request("POST", ["sessions", "sess-1", "input"], Q, { text: "hi", as: "send" }, scope);
+	const x = await world();
+	assert.equal((await send(x)).status, 200, "control: the same request goes while the session lives");
+	assert.ok(x.typed().length > 0);
+	const y = await world();
+	y.w.onProbe = () => y.session.stop(); // the session ends (a revoke) during the looks before the write
+	const done = await send(y);
+	assert.equal(done.status, 403);
+	assert.equal((done.body as { why?: string }).why, "ended");
+	assert.deepEqual(y.typed(), [], "nothing reached the pane");
+});

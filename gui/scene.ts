@@ -17,7 +17,15 @@ const headFound = (net: Net | undefined, key: string): Found | undefined => {
 	const head = net?.head;
 	return head?.key === key ? { u: { key, name: head.name, role: "tower", head: true, mark: head.mark, control: true, queued: head.queued, service: head.service, subs: [] }, base: { id: HEAD_KEY, label: head.name, mark: head.mark, tower: null, tabs: [], outposts: [], outside: [] } } : undefined;
 };
+/** A unit of a remote base two of a box's sessions show: its base as the session that shows the unit sees it (`box.units`, net.ts), so `can(base, …)` answers for that session. */
+const owned = (hit: Found | undefined, key: string): Found | undefined => {
+	const own = hit?.base.box?.units?.[key];
+	return hit && own ? { ...hit, base: { ...hit.base, box: { ...hit.base.box!, state: own.state, scope: own.scope, can: own.can } } } : hit;
+};
 export function locate(net: Net | undefined, key: string): Found | undefined {
+	return owned(find(net, key), key);
+}
+function find(net: Net | undefined, key: string): Found | undefined {
 	const head = headFound(net, key);
 	if (head) return head;
 	for (const base of net?.bases ?? []) {

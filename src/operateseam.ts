@@ -191,7 +191,7 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 					}
 					if (Buffer.isBuffer(body)) return no(400, "bad_request", "The body is not a JSON object.");
 					// The pad's keys need this session's own live mirror (keys.ts): the controller's page names its own stream, which means nothing here.
-					return control.run(parts, p.row.path === "sessions/*/keys" && typeof body.stream === "string" ? { ...body, stream } : body, FLAGS);
+					return control.run(parts, p.row.path === "sessions/*/keys" && typeof body.stream === "string" ? { ...body, stream } : body, { ...FLAGS, alive: () => !ended });
 				},
 			} satisfies OperateSession;
 		},

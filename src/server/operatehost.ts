@@ -603,8 +603,19 @@ export function createOperateHost(deps: OperateHostDeps) {
 			tower = { ...tower, service: { ...tower.service, allyRuns: [...runs.values()] } };
 		}
 		const state: RemoteBox["state"] = items.some((i) => i.s.state === "live") ? "live" : "unreachable", teams = [...new Set(items.map((i) => i.s.offer.teamName))].join(", ");
-		const seen = Math.max(...items.map((i) => i.s.seen ?? 0)), scope = items.some((i) => i.s.scope.box) ? "box" : "team";
-		const box: RemoteBox = { device: first.s.offer.device, short: first.s.offer.short, label: first.s.offer.label, team: teams, scope, can: scope === "box" ? [...CAN, "tower"] : CAN, state, ...(state === "unreachable" ? { seen } : {}) };
+		// The base's reach is that of the sessions that answer: while the box scope's session is unreachable, the team-only one that is live would refuse Quit tower.
+		const answering = items.filter((i) => i.s.state === "live"), seen = Math.max(...items.map((i) => i.s.seen ?? 0)), scope = (answering.length ? answering : items).some((i) => i.s.scope.box) ? "box" : "team";
+		const canOf = (sc: "team" | "box") => (sc === "box" ? [...CAN, "tower"] : CAN);
+		// A unit is asked of the session that shows it (`sessionFor`: a live one, the box scope's first): where that session differs from the base, the unit says so.
+		const units: NonNullable<RemoteBox["units"]> = {};
+		for (const { s, b } of [...items].sort((a, c) => Number(c.s.state === "live") - Number(a.s.state === "live") || Number(c.s.scope.box) - Number(a.s.scope.box)))
+			for (const u of unitsOf(b)) {
+				if (u.key in units) continue;
+				const own = s.state === "live" ? "live" : "unreachable", sc = s.scope.box ? "box" : "team";
+				units[u.key] = { state: own, scope: sc, can: canOf(sc) };
+			}
+		for (const [k, v] of Object.entries(units)) if (v.state === (state === "live" ? "live" : "unreachable") && v.scope === scope) delete units[k];
+		const box: RemoteBox = { device: first.s.offer.device, short: first.s.offer.short, label: first.s.offer.label, team: teams, scope, can: canOf(scope), state, ...(state === "unreachable" ? { seen } : {}), ...(Object.keys(units).length ? { units } : {}) };
 		const parts = { tower, tabs: [...tabs.values()], outposts: [...outposts.values()], outside: [...outside.values()] }, marks = marksOf(parts);
 		return { id: first.b.id, label: first.b.label, mark: marks.includes("waiting") ? "waiting" : marks.includes("working") ? "working" : "idle", box, ...parts };
 	}

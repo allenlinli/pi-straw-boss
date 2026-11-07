@@ -156,8 +156,10 @@ Its GUI shows the box's workspaces as bases of its own, with the terminal and th
 It is reachable from the controller's paired phone through the controller's GUI, over the same Link channel and nothing else: the box opens no port for it.
 What a session reaches is its scope (the policy section above): a `team` operator sees the units of the team it administers, and a `box` operator also the box's own.
 The box refuses, whatever the page asks: `!` shell lines, `/boss` commands, `hereOnly` choices and secret values, opening a main or a bare pane, closing a base, trust, Link and server settings, documents, and any key that pi's own keybindings do not confirm as an editor action.
+The head tower is never in an operate session's reach, the `box` grant included.
 Typing into a main still drives a pi session at full rights, so an operator can ask the model for anything the box's hooks and sandbox allow; that is no more than `dispatch` gives.
 Every attach and every input is a line in `link/link.log` (`operate-open`, `operate-close`, `operate-input` with the action and the pane, `operate-read`, `operate-refused`), never with the text typed or read.
+On an unattended box `link/link.log` rotates at 8 MiB and keeps four old copies (`link.log.1`, newest, to `link.log.4`), so an hour of typing does not push a week of audit out; an attended computer keeps 1 MiB and one old copy.
 `/boss link operate` on the controller lists its sessions, and `/boss link operate off` ends them and keeps operate off there until `/boss link operate on`.
 
 ## 8. When a controller is removed

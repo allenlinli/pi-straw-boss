@@ -69,7 +69,7 @@ function cue(el: HTMLElement) {
 	if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(check);
 }
 
-export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: { key: string; show(): void }, accepted?: (opened: boolean) => void, terminalLabel: () => string = m.show_terminal) {
+export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.hostname !== "127.0.0.1", terminal?: { key: string; show(): void }, accepted?: (opened: boolean) => void, terminalLabel: () => string = m.show_terminal, box = false) {
 	// `cur` is the panel on show, drawn for `shown`; `kept` is the newest one that answers, which comes back as it was when its dialog does.
 	let shown: Pending | undefined, cur: Panel | undefined, kept: Panel | undefined, ready = false, why: string | undefined, busy = false, leave: ReturnType<typeof setTimeout> | undefined;
 	for (const type of ["focusin", "pointerdown"]) document.addEventListener(type, (e) => cur && !cur.el.contains(e.target as Node) && (cur.lost = undefined)); // the user went elsewhere
@@ -114,7 +114,8 @@ export function mountAsk(root: HTMLElement, post: AnswerPost, remote = location.
 		const opts = offered(a).map((c) => option("radio", visible(c.label), [c.note && visible(c.note)], () => ((chosen = c.i), opts.forEach((o, k) => o.setAttribute("aria-checked", String(offered(a)[k]!.i === c.i))), draw()), c.i + 1)); // the terminal's numbers
 		const copy = a.select?.copy !== undefined && h("button", { type: "button", class: "cmp-link" }, m.copy_command());
 		if (copy) (copy.disabled = !navigator.clipboard), (copy.onclick = () => void navigator.clipboard.writeText(a.select!.copy!).then(() => say(x.note, "ok", m.copied()), () => say(x.note, "error", m.clipboard_refused())));
-		const usable = opts.filter((_, k) => !(remote && offered(a)[k]!.hereOnly)); // a choice only this computer may give is shown on a paired device, disabled and out of `controls`, which draw() enables, but in the key group so the numbers keep their places (control.ts refuses it as well)
+		const refused = (c: { hereOnly?: true; next?: string }) => (remote && c.hereOnly === true) || (box && c.next === "pane"); // on a box's unit the box refuses what only this computer may give, and an answer that opens a pane (decisions 7 and 8)
+		const usable = opts.filter((_, k) => !refused(offered(a)[k]!)); // a choice only this computer may give is shown on a paired device, disabled and out of `controls`, which draw() enables, but in the key group so the numbers keep their places (control.ts refuses it as well)
 		opts.forEach((o) => !usable.includes(o) && (o.disabled = true));
 		x.pick = () => (chosen === undefined ? undefined : { choice: chosen });
 		x.first = wire(x.el, [{ opts, multiple: false, answered: () => chosen !== undefined }], () => x.send);

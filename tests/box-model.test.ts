@@ -75,3 +75,14 @@ test("the rows of Earlier runs: the box's reply read defensively, newest first a
 	assert.deepEqual(runRows({ rows: [row()], before: 7 }), { rows: [row()].map(({ key, name, role, workspace, first, last, size }) => ({ key, name, role, workspace, first, last, size })) }, "a cursor that is not text is none");
 	assert.equal(runRows({ rows: Array.from({ length: 80 }, (_, i) => row({ key: `x${String(i).padStart(16, "0")}` })) }).rows.length, 50, "at most one page of the box's 50");
 });
+
+test("BR-F006: locate answers a unit of a merged base with the base as the session that shows the unit sees it", async () => {
+	const { locate } = await import("../gui/scene.ts");
+	const { can } = await import("../gui/boxmodel.ts");
+	const u = (key: string) => ({ id: key, key, control: true, name: key, role: "main" as const, mark: "idle" as const, subs: [] });
+	const net = { bases: [{ id: "w", label: "Work", mark: "idle" as const, tower: null, outposts: [], outside: [], tabs: [{ id: "t", label: "t", units: [u("xa"), u("xb")] }], box: { device: "d", short: "s", label: "box", team: "A, B", scope: "box" as const, can: ["input", "tower"], state: "live" as const, units: { xb: { state: "unreachable" as const, scope: "team" as const, can: ["input"] } } } }] };
+	assert.equal(can(locate(net, "xa")?.base, "input"), true);
+	assert.equal(can(locate(net, "xb")?.base, "input"), false, "the unit's own session is unreachable");
+	assert.equal(locate(net, "xb")?.base.box?.scope, "team");
+	assert.equal(net.bases[0]!.box.state, "live", "the net itself is not changed");
+});

@@ -17,9 +17,9 @@ const pending: Pending = { callId: "c1", tool: "dialog", answer: { dialog: "m1",
 const unit = (extra: object = {}) => ({ key: "k", name: "billing", role: "session", mark: "waiting" as const, subs: [], control: true, pending, ...extra });
 const settle = () => new Promise((done) => setImmediate(done));
 
-async function mounted(u: object | undefined, info: object = { name: "billing", role: "session", state: "live" }) {
+async function mounted(u: object | undefined, info: object = { name: "billing", role: "session", state: "live" }, box?: object) {
 	const posts: string[] = [], embeds: string[] = [], online = { on: true };
-	const scene = { route: { view: "session", ws: "w1", key: "k" }, net: { bases: [{ id: "w1", label: "w1", tabs: [], outside: u ? [u] : [] }] }, cards: {}, info } as never;
+	const scene = { route: { view: "session", ws: "w1", key: "k" }, net: { bases: [{ id: "w1", label: "w1", tabs: [], outside: u ? [u] : [], ...(box ? { box } : {}) }] }, cards: {}, info } as never;
 	const data = { older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined, post: async (action: string, body: Record<string, unknown>) => (posts.push(`${action} ${body.dialog}`), { ok: true, status: 200, body: { outcome: "accepted" } }) };
 	const view = new El("div");
 	page.body.replaceChildren(view);
@@ -69,4 +69,12 @@ test("a dialog the page cannot answer sends the user to the unit's terminal: Sho
 	show.click();
 	await settle();
 	assert.deepEqual(w.embeds, ["k"], "the unit's terminal is embedded");
+});
+
+test("BR-F006: a box's unit in the session view disables the choices only this computer may give and the ones that open a pane", async () => {
+	const SEL = { title: "Allow?", choices: [{ label: "Allow", hereOnly: true as const }, { label: "Open a pane", next: "pane" as const }, { label: "Deny" }] };
+	const dialog: Pending = { callId: "c9", tool: "dialog", answer: { dialog: "m9", digest: selectDigest(SEL), select: SEL } };
+	const box = { device: "d", short: "s", label: "box", team: "A", scope: "team", can: ["input"], state: "live" };
+	assert.deepEqual((await mounted(unit({ pending: dialog }), undefined, box)).choices().map((c) => c.disabled), [true, true, false], "a box's unit");
+	assert.equal((await mounted(unit({ pending: dialog }))).choices()[1]!.disabled, false, "a local unit may open a pane");
 });

@@ -203,7 +203,8 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		};
 		const dialog = () => {
 			slot.replaceChildren((hold = h("div", { class: "zen-ask" })));
-			return mounts.ask(hold, answer, deps.remote, { key, show: () => openTerm(key, true) }, undefined, m.zen_open_terminal); // the unit waits on this dialog now: its next work ends the step
+			const box = Boolean(locate(net, key)?.base.box); // a box's unit: the box refuses what only this computer may give
+			return mounts.ask(hold, answer, deps.remote || box, { key, show: () => openTerm(key, true) }, undefined, m.zen_open_terminal, box); // the unit waits on this dialog now: its next work ends the step
 		};
 		return {
 			key: a.key, sig: cardSig(a), el, said, out, skip, hist, toggle, collapse: () => hist?.close(ctx), enter: () => Boolean(ask?.enter()) || focusOn(ask ? hold?.querySelector<HTMLElement>(".ask-acts .cmp-link") : openBtn) || (Boolean(ask) && !hold?.querySelector(".ask-send") && focusOn(skip)), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),

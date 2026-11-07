@@ -55,13 +55,21 @@ WantedBy=default.target
 {
   "unattended": true,
   "trust": { "<controller device id>": "dispatch" },
-  "teams": { "<team id>": { "project": "/srv/work/moldplan-center", "share": "status" } }
+  "teams": { "<team id>": { "project": "/srv/work/moldplan-center", "share": "status" } },
+  "operate": { "<controller device id>": "team" }
 }
 ```
 
 - 控制端的值寫 `true` 而不是等級，就是 `dispatch`。沒列出來的人預設是 `reply`。
 - `project` 要是絕對路徑，並通過和 `link.teams` 同一套檢查（不能是家目錄，也不能是 pi 的資料夾）。`share` 預設 `status`。
 - 無人值守裝置會**忽略** `config.json` 的 `link` 區段，連中繼站（relay）也是：中繼站來自邀請。
+- `operate` 是選填的，讓控制端能從自己的 GUI 看到這台裝置的 Herdr 窗格並在裡面打字（見[控制端看到什麼](#7-控制端看到什麼)）。它把控制端 26 個字元的裝置 id 對應到 `"team"` 或 `"box"`：
+  - `team`：只有該裝置身為名冊管理員的那些團隊的單位，其他都看不到。
+  - `box`：同上，再加上這台裝置自己的單位（塔台服務、本機的 run、在裝置上直接開的 session、自成一個分頁的 worker）。這是裝置擁有者的授權。
+  - 列在 `operate` 的裝置，在 `trust` 裡也必須是 `dispatch`。沒達到的，operate 不會生效，裝置會記一次紀錄（`policy-operate-idle`）。
+  - `operate` 格式有誤（不是物件、鍵不是裝置 id、值不是 `team` 或 `box`）時，整台裝置的 operate 都會關掉，並記一次紀錄（`policy-operate-refused`）；policy 的其餘部分照常生效。
+  - 沒有 `operate` 欄位、或是空的，就什麼都不對外宣告：裝置的能力（capabilities）不列 `operate/1`，不建立橋接、不監看 policy 檔、也不為它寫任何紀錄，控制端不會對它開 session。
+  - hq 簽發的授權不能帶 `operate`；授權同步會把基礎 policy 裡的 `operate` 原樣複製過去。
 - 檔案寫了 `unattended: true` 卻沒通過檢查，或 `teams` 格式有誤，就會**拒絕**無人值守模式：不啟動持有者、每個寄件者都是 `reply`、團隊清單是空的。原因只會寫一次到 `link/link.log`（`policy-refused`），並以 server 的一行紀錄通知顯示。
 
 ## 3. 控制端這一邊：團隊、邀請、核准
@@ -129,6 +137,22 @@ pi 啟動的資料夾不只有專案：
 
 控制端的頁面像顯示盟友（ally）一樣顯示這台裝置的基地，附上每個單位的狀態、正在跑的監看（monitor），以及它最後一次的報告（最後一次 `tower_done` 摘要，或最後一次 `tower_send` 給該控制端的文字，截成 4 KB），每分鐘送一次，有變化時也送。只列出位在團隊專案之內的工作區的單位，團隊只分享 `presence` 時一個都不列；裝置超過 3 分鐘沒送東西，就把它最後的單位標成「no status lately」。連結列會收到 `notice`（1 KB），情況有：盟友或主智慧體的執行當掉、逾時或被結束；轉送出去的對話框 30 分鐘沒人回答（只通知一次）；對話框太大無法轉送；塔台開不起來；執行被設定檢查拒絕，或信任詢問沒人回答。清掉通知只影響那一個頁面。
 
+有 `operate` 授權的控制端還能即時查看並輸入。它的 GUI 會把這台裝置的工作區顯示成自己的基地，每個單位都有終端機和完整對話、按鍵面板、輸入框、排隊中的訊息、待辦、監看、Zen 裡的等待事項，以及一個摺疊區「Earlier runs」，裡面是已結束的 run 的逐字稿（保存 30 天、最多 2,000 筆，記在 `link/operate-ledger.jsonl`，檔案裡不含內容）。
+控制端用配對的手機也能透過控制端的 GUI 連上；走的是同一條 Link 通道，沒有別的路，裝置不會為它開任何 port。
+一個 session 能碰到的範圍就是它的 scope（見上面的政策檔一節）：`team` 的操作者看得到自己擔任管理員的那些團隊的單位，`box` 的操作者再加上裝置自己的單位。
+不論頁面怎麼要求，裝置都會拒絕：`!` 開頭的 shell 行、`/boss` 指令、`hereOnly` 的選項與機密值、開啟主智慧體或單獨的窗格、關閉基地、信任、Link 與 server 設定、文件，以及任何 pi 自己的快捷鍵設定不認得是編輯器動作的按鍵。
+主塔台（head tower）對任何 operate session 都不在範圍內，連 `box` 授權也一樣。
+在主智慧體裡打字，等於以完整權限驅動一個 pi session，所以操作者能請模型做裝置的 hooks 與沙箱允許的任何事；這不比 `dispatch` 多。
+每一次連線與每一次輸入都是 `link/link.log` 的一行（`operate-open`、`operate-close`、`operate-input`，含動作與窗格、`operate-read`、`operate-refused`），絕不含打了或讀了什麼內容。
+無人值守裝置的 `link/link.log` 在 8 MiB 時輪替並保留四份舊檔（`link.log.1` 最新，到 `link.log.4`），所以打一小時的字不會把一週的稽核紀錄擠掉；有人值守的電腦維持 1 MiB、一份舊檔。
+控制端上的 `/boss link operate` 會列出它的 session，`/boss link operate off` 會結束它們，並讓那裡的 operate 保持關閉，直到 `/boss link operate on`。
+
 ## 8. 移除控制端時
 
 把控制端從 policy 的 `trust` 拿掉（或改成 `reply`），或把它從團隊移除，裝置就會結束它啟動過的東西：以 `dispatch` 領用的 ally run 幾秒內被要求結束，這類 run 開出來的每個主智慧體，每 15 秒被要求結束一次，直到它結束。主智慧體正在進行一輪、或有子智慧體在做事時會拒絕，等到閒下來為止；團隊的管理員會收到一則通知，說它還在跑（一次），以及它已經結束（一次）。以低於 `dispatch` 的等級、靠 Allow 開出來的主智慧體不會被結束。裝置讀不到 policy 或團隊名冊時，什麼都不會結束，而且變動要連續看到兩次（最長 30 秒）才會動手。目前還沒有遠端停掉單一單位的功能：一個永遠不閒下來的主智慧體，得在裝置上關掉。離開得不愉快的控制端留下的憑證，是 infra 的事，不是連結（link）的事。
+
+Operate 結束得更快，而且只要讀一次。
+把控制端從 `operate` 拿掉、降到 `dispatch` 以下、讓 policy 讀不到或不再是 `unattended`、把它從團隊移除，或拿掉它在某個團隊的管理員身分，裝置就會立刻關閉那個 session（policy 檔被改時，在下一次 2 秒一次的檢查內；其他情況在名冊變動送達時）：停掉該 session 的監看與終端機、丟掉它的按鍵，並把 `operate-close` 寫進 `link/link.log`。
+範圍只縮小的情況（某個團隊的管理員被降級、`box` 被降成 `team`）會留下剩下的範圍，session 繼續。
+控制端的頁面會把那個基地變成一行字（「操作權限已撤銷」，被拒絕時是「這台機器不讓這部裝置操作」），並在一分鐘後再試。
+Session 絕不會比它的授權活得久：不像停掉主智慧體要看兩次，只要有一次讀 policy 或名冊失敗，operate 就結束，因為結束一個檢視不會讓任何工作遺失。

@@ -526,3 +526,12 @@ test("RR-F002: the service tells the server when it has a holder and when it has
 	assert.deepEqual(seen.slice(0, 2), [true, undefined], "and again when the holder is gone");
 	assert.equal(seen.at(-1), undefined);
 });
+
+test("BR-F004: the server's link log keeps the audit size on an unattended device and the short size on an attended one", async () => {
+	const fill = (dir: string) => { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "link.log"), `${JSON.stringify({ t: 1, event: "old" })}\n${"x".repeat(1024 * 1024 + 10)}\n`); };
+	const off = computer("a", { start: false }), on = computer("b", { start: false, policy: unattended() });
+	for (const c of [off, on]) { fill(c.dir); c.server.service.store.log({ event: "probe" }); }
+	assert.ok(existsSync(join(off.dir, "link.log.1")), "attended: past 1 MiB it rotates");
+	assert.ok(!existsSync(join(on.dir, "link.log.1")), "unattended: the same size is kept");
+	assert.match(readFileSync(join(on.dir, "link.log"), "utf8"), /"event":"probe"/);
+});

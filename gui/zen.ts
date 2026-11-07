@@ -164,7 +164,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (a.wait) {
 			// The card's buttons press at the memory route and its reply box goes where Standard's composer sends it: the tower's session `input` (asks.ts `waitActions`); the card never leaves Zen, and an ending press plays the card's outcome through `send`.
 			const entry = (x: Alert): BossWait => x.wait!.entry ?? { id: x.wait!.id, text: x.wait!.text, at: new Date(x.since ?? x.at).toISOString() };
-			const wc = waitCard({ host: "zen", wait: entry(a), actions: waitActions({ ws: a.ws, id: a.wait.id, tower: key }, to(key)), remote, main: (raiser) => ((ws) => (raiser && ws ? { view: "session" as const, ws, key: raiser } : undefined))(locate(net, raiser)?.base.id), go: (route) => deps.leave({ route }), send: (reply) => tell(a.key, reply) });
+			const wc = waitCard({ host: "zen", wait: entry(a), actions: waitActions({ ws: a.ws, id: a.wait.id, tower: key }, to(key)), remote, ...(locate(net, key)?.base.box ? { box: true } : {}), main: (raiser) => ((ws) => (raiser && ws ? { view: "session" as const, ws, key: raiser } : undefined))(locate(net, raiser)?.base.id), go: (route) => deps.leave({ route }), send: (reply) => tell(a.key, reply) });
 			const secretOpen = (x: Alert) => () => { const k = x.wait?.entry?.card?.from?.key; return Boolean(k && net && locate(net, k)?.u.pending?.tool === "secret_drop"); }; // the raiser's `secret_drop` dialog is pending: the second step of a secret card says to enter it in the terminal
 			slot.replaceChildren(wc.el);
 			return { key: a.key, sig: cardSig(a), el, said, out, skip, toggle: () => false, collapse() {}, enter: wc.enter, cancel: () => false, sending: () => wc.sending(), replying: wc.isOpen, foldReply: () => wc.foldReply(), update: (x, outcome) => (wc.secretWhen(secretOpen(x)), wc.update(entry(x), online() && !endedOf(outcome), endedOf(outcome), deps.online() ? why() : undefined), say(out, outcome, x)) };
@@ -203,7 +203,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		};
 		const dialog = () => {
 			slot.replaceChildren((hold = h("div", { class: "zen-ask" })));
-			return mounts.ask(hold, answer, deps.remote, { key, show: () => openTerm(key, true) }, undefined, m.zen_open_terminal); // the unit waits on this dialog now: its next work ends the step
+			return mounts.ask(hold, answer, deps.remote, { key, show: () => openTerm(key, true) }, undefined, m.zen_open_terminal, () => Boolean(locate(net, key)?.base.box)); // a box's unit: the box refuses what only this computer may give // the unit waits on this dialog now: its next work ends the step
 		};
 		return {
 			key: a.key, sig: cardSig(a), el, said, out, skip, hist, toggle, collapse: () => hist?.close(ctx), enter: () => Boolean(ask?.enter()) || focusOn(ask ? hold?.querySelector<HTMLElement>(".ask-acts .cmp-link") : openBtn) || (Boolean(ask) && !hold?.querySelector(".ask-send") && focusOn(skip)), cancel: () => Boolean(ask?.cancel()), sending: () => Boolean(ask?.sending()),

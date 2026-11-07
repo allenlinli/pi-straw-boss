@@ -127,7 +127,7 @@ test("the answer box alone (Zen's card mounts it inside the card) has the reply 
 
 test("every caller of the notices passes the workspace, the service and the tower's key, and nothing else: the card has no comms link to hide", () => {
 	const call = (f: string) => readFileSync(new URL(`../gui/${f}`, import.meta.url), "utf8").split("\n").find((l) => l.includes("fillNotices(") && !l.includes("import"))!;
-	for (const f of ["render.ts", "workspace.ts"]) assert.match(call(f), /fillNotices\(.*\.key\)[;,]/, `${f} passes four arguments`);
-	assert.match(call("session.ts"), /fillNotices\(.*u\?\.key, \(k\) => locate\(scene\.net, k\)\?\.base\.id\)[;,]/, "the session view adds the finder of a raiser's workspace: the head's page is on no workspace");
+	for (const f of ["render.ts", "workspace.ts"]) assert.match(call(f), /fillNotices\(.*\.key, undefined, Boolean\(\w+\.box\)\)[;,]/, `${f} passes its tower's key and whether the base is a box's`);
+	assert.match(call("session.ts"), /fillNotices\(.*u\?\.key, \(k\) => locate\(scene\.net, k\)\?\.base\.id, Boolean\(hit\?\.base\.box\)\)[;,]/, "the session view adds the finder of a raiser's workspace (the head's page is on no workspace) and whether its base is a box's");
 	assert.doesNotMatch(call("session.ts"), /u\?\.key, true\)/);
 });

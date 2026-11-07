@@ -27,6 +27,8 @@ export interface WaitCardOptions {
 	wait: BossWait;
 	/** A paired device cannot start a secret card (WC-D4): by the page's host name unless the host says. */
 	remote?: boolean;
+	/** The wait is a box's (operate): nothing in it is a link, its URL is text only. */
+	box?: boolean;
 	/** The route of the raiser's session, when the page can open it: the card then offers Open <name>. */
 	main?(key: string): NetRoute | undefined;
 	/** A host that is not a page of routes (Zen leaves its layer for the session) takes the click of Open <raiser> itself; the router never sees it. */
@@ -118,7 +120,7 @@ export function waitCard(o: WaitCardOptions) {
 		if (p.url) {
 			const href = safeHref(p.url);
 			body.push(h("span", { class: "wc-text wc-url", lang }, href ?? p.url));
-			if (href) body.push(h("a", { class: "pair-btn wc-open", href, target: "_blank", rel: "noopener noreferrer" }, m.wc_b_link()));
+			if (href && !o.box) body.push(h("a", { class: "pair-btn wc-open", href, target: "_blank", rel: "noopener noreferrer" }, m.wc_b_link()));
 		}
 		if (p.command !== undefined) {
 			const pre = h("pre", { class: "wc-cmd", lang }, p.command), said = h("small", { class: "wc-copied", role: "status" }), copy = h("button", { type: "button", class: "pair-btn wc-copy" }, m.wc_b_copy());
@@ -258,7 +260,7 @@ const cards = new WeakMap<HTMLElement, ReturnType<typeof waitCard>>();
 /** The dock's dialog of a wait takes the focus on its card's primary button (else its first option); false when it has none. */
 export const enterWait = (el: HTMLElement) => cards.get(el)?.enter() ?? false;
 /** A wait's dialog in the dock: the card in the answer slot, the link to the comms, Later and Skip in the footer's row, and none of the tower's old transmission; a wait that is over says so. */
-export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () => void, send: SessionPost, more: { remote?: boolean; /** The tower is a remote base's and its box takes no input now: the card answers nothing. */ away?: boolean; secretOpen?(): boolean; /** The workspace of the raiser's unit, found by its key (a head wait's alert is on the head's base, not the raiser's). */ where?(key: string): string | undefined } = {}) {
+export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () => void, send: SessionPost, more: { remote?: boolean; box?: boolean; /** The tower is a remote base's and its box takes no input now: the card answers nothing. */ away?: boolean; secretOpen?(): boolean; /** The workspace of the raiser's unit, found by its key (a head wait's alert is on the head's base, not the raiser's). */ where?(key: string): string | undefined } = {}) {
 	const over = Boolean(a.gone), go = el.querySelector<HTMLElement>(".go")!;
 	el.dataset.wait = ""; // the footer's link is the secondary act here (style.css): the card's buttons answer
 	el.querySelector<HTMLElement>(".intel")!.hidden = true;
@@ -269,7 +271,7 @@ export function waitDialog(el: HTMLElement, a: Alert, place: string, close: () =
 	text(el, ".state", over ? m.tower_wait_over() : m.memory_wait_boss());
 	let card = cards.get(el);
 	const entry = entryOf(a);
-	if (!card) cards.set(el, (card = waitCard({ host: "dialog", wait: entry, actions: waitActions({ ws: a.ws, id: entry.id, tower: unitOf(a) }, send), main: (key) => ((ws) => (key && ws ? { view: "session", ws, key } : undefined))(more.where?.(key) ?? (a.ws === HEAD_KEY ? undefined : a.ws)), skipOutside: true, done: close, ...(more.remote !== undefined ? { remote: more.remote } : {}) })));
+	if (!card) cards.set(el, (card = waitCard({ host: "dialog", wait: entry, actions: waitActions({ ws: a.ws, id: entry.id, tower: unitOf(a) }, send), main: (key) => ((ws) => (key && ws ? { view: "session", ws, key } : undefined))(more.where?.(key) ?? (a.ws === HEAD_KEY ? undefined : a.ws)), skipOutside: true, done: close, ...(more.remote !== undefined ? { remote: more.remote } : {}), ...(more.box ? { box: true } : {}) })));
 	card.secretWhen(more.secretOpen);
 	if (!el.querySelector(".wait-card")) el.querySelector(".ask-root")!.replaceChildren(card.el);
 	// The comms link, Later and Skip in one row of the dialog's footer, the quiet one last.

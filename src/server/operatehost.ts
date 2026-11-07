@@ -5,6 +5,7 @@ import { type OperateEnd, type OperateInner, OPERATE_LIMITS, OperateSession } fr
 import type { AllyTeam, OperateIn } from "../link/holder.ts";
 import type { Base, Net, RemoteBox, Tab, Unit } from "../net.ts";
 import { routeOf } from "../operateroutes.ts";
+import { isHeadKey } from "./operateroles.ts";
 import { type ReplyKind, type Rewrite, sanitizeCards, sanitizeHistory, sanitizeMirror, sanitizeNet, sanitizeReply } from "./operatesanitize.ts";
 
 // The controller's end of Straw Link operate (docs/specs/2026-11-07-link-operate.md §5.6, §6.4, §11.2): while a GUI page is connected, one operate session per (box, team) to each unattended box this device may try to operate. What a box
@@ -35,6 +36,8 @@ const REVOKED = new Set(["policy", "roster"]);
 const TRANSIENT = new Set(["unavailable", "operator-limit", "box-limit", "seen"]);
 /** How long a refused watch waits before it is asked again, and how often a failed send is written to the log (per session). */
 const WATCH_RETRY_MS = 10_000, SEND_LOG_MS = 60_000;
+/** The most rows one page of Earlier runs holds (the box's own page is 50 as well, operateledger.ts `MAX_LIST`). */
+const TRANSCRIPT_PAGE = 50;
 
 /** An unattended device of a team, which this one may try to operate: its fresh `caps` list `operate/1`. */
 export interface BoxOffer { team: string; teamName: string; device: string; short: string; label: string }
@@ -106,8 +109,12 @@ interface Sess {
 	badLogged: number;
 }
 interface Pending { sess: Sess; session: OperateSession; kind: ReplyKind; at: number; done(reply: Reply): void; rw: Rewrite }
-/** `raw` is the box's own target the watch was started with (what its stop must name), `retryAt` the earliest time a refused watch is asked again. */
-interface Group { id: string; target: string; subs: Set<Send>; sess?: Sess; issued: boolean; raw?: string; retryAt: number }
+/**
+ * A watch the pages share. `at` holds the sessions it runs on, each with the box's own target it was started with (what its stop must name) and whether it is on: a unit's watch runs on the one session that shows the unit, a workspace's
+ * (`w:`) on every live session that shows the base, since two sessions of one box (two teams) show different units of it. `retryAt` is the earliest time a refused watch is asked again.
+ */
+interface Group { id: string; target: string; subs: Set<Send>; at: Map<Sess, { raw: string; issued: boolean }>; retryAt: number }
+const anyIssued = (g: Group) => [...g.at.values()].some((e) => e.issued);
 interface MirrorGroup { device: string; x: string; raw: string; viewers: Map<string, Send>; sess: Sess }
 
 const sha = (...parts: string[]) => createHash("sha256").update(parts.join("\0")).digest("hex").slice(0, 16);
@@ -145,7 +152,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 	function rewrite(s: Sess, into: { keys: Map<string, string>; bases: Map<string, string>; tabs: Map<string, { ws: string; tab: string }> }, capped = false): Rewrite {
 		const device = s.offer.device;
 		return {
-			key: (raw) => { const x = SHOW + sha(device, "key", raw); if (capped && into.keys.size >= MAX_KEYS && !into.keys.has(x)) return x; into.keys.set(x, raw); return x; },
+			key: (raw) => { const x = SHOW + sha(device, "key", raw); if (isHeadKey(raw)) return (bad(s, "head"), x); /* the head tower is never an operate session's: its key is not registered, so no request or watch names it (BR-F003) */ if (capped && into.keys.size >= MAX_KEYS && !into.keys.has(x)) return x; into.keys.set(x, raw); return x; },
 			base: (raw) => { const x = SHOW + sha(device, "base", raw); into.bases.set(x, raw); return x; },
 			tab: (ws, raw) => { const x = SHOW + sha(device, "tab", ws, raw); into.tabs.set(x, { ws, tab: raw }); return x; },
 			bad: (why) => bad(s, why),
@@ -157,6 +164,14 @@ export function createOperateHost(deps: OperateHostDeps) {
 	function sessionFor(x: string): Sess | undefined {
 		const have = [...sessions.values()].filter((s) => holds(s, x));
 		return have.filter((s) => s.state === "live").sort((a, b) => Number(b.scope.box) - Number(a.scope.box))[0] ?? have[0];
+	}
+	/** The sessions that show a unit or base, the live ones first and the box scope's first among them. */
+	function sessionsFor(x: string): Sess[] {
+		return [...sessions.values()].filter((s) => holds(s, x)).sort((a, b) => Number(b.state === "live") - Number(a.state === "live") || Number(b.scope.box) - Number(a.scope.box));
+	}
+	/** The session to ask about a squad: the one that shows its tab in its base (a base two sessions show has a tab each, or one both show: the live one, the box scope's first). */
+	function sessionForTab(workspace: string, tab: string): Sess | undefined {
+		return sessionsFor(workspace).find((s) => s.tabs.has(tab));
 	}
 	const rawOf = (s: Sess, x: string) => s.keys.get(x) ?? s.extra.get(x) ?? s.bases.get(x);
 
@@ -250,7 +265,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 	function forget(s: Sess) {
 		sessions.delete(s.id);
 		s.state = "idle";
-		for (const g of groups.values()) if (g.sess === s) (g.issued = false, g.sess = undefined); // a session that opens in its place asks for what the pages still watch
+		for (const g of groups.values()) g.at.delete(s); // a session that opens in its place asks for what the pages still watch
 		changed();
 		pulse();
 	}
@@ -261,7 +276,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 
 	/** After a (re)open, the watches and mirrors this session can serve are asked for again: the box starts none of its own. */
 	function resume(s: Sess) {
-		for (const g of groups.values()) if (!g.issued || g.sess === s || !g.sess || g.sess.state !== "live") issue(g);
+		for (const g of groups.values()) if (!anyIssued(g) || g.at.has(s) || ![...g.at.keys()].some((o) => o.state === "live")) issue(g);
 		for (const g of mirrorGroups.values()) if (g.sess === s) void mirrorOn(g);
 	}
 
@@ -290,7 +305,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 		s.net = net;
 		[s.keys, s.bases, s.tabs] = [into.keys, into.bases, into.tabs];
 		if (s.state === "unreachable") s.state = "live";
-		for (const g of groups.values()) if (!g.issued) issue(g); // a page that was loaded for a unit before it was shown
+		for (const g of groups.values()) if (!anyIssued(g) || g.target.startsWith("w:")) issue(g, true); // a page that was loaded for a unit before it was shown, and a base this session shows now
 		changed();
 	}
 	function event(s: Sess, inner: OperateInner) {
@@ -309,7 +324,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 			return;
 		}
 		const g = groups.get(id);
-		if (!g || g.sess !== s) return; // a late event of a watch that has stopped
+		if (!g || !g.at.has(s)) return; // a late event of a watch that has stopped
 		const out = e === "history" ? sanitizeHistory(d, rw) : e === "cards" ? sanitizeCards(d, rw) : undefined;
 		if (out === undefined) return bad(s, "ev");
 		for (const send of g.subs) send(e, out);
@@ -328,9 +343,9 @@ export function createOperateHost(deps: OperateHostDeps) {
 	}
 	/** The box's answer to a watch is only heard when it refuses (its watch cap, a unit out of scope): the page is told the view is unknown, and the watch is asked again after a wait. */
 	function refused(s: Sess, id: string, status: unknown) {
-		const g = groups.get(id);
-		if (!g || g.sess !== s || !g.issued || typeof status !== "number" || status < 400 || status === 409) return; // 409 is a watch replaced by a later `on` of the same id: the later one answers for itself
-		g.issued = false;
+		const g = groups.get(id), on = g?.at.get(s);
+		if (!g || !on?.issued || typeof status !== "number" || status < 400 || status === 409) return; // 409 is a watch replaced by a later `on` of the same id: the later one answers for itself
+		on.issued = false;
 		g.retryAt = now() + WATCH_RETRY_MS;
 		unknown(g);
 	}
@@ -362,7 +377,14 @@ export function createOperateHost(deps: OperateHostDeps) {
 
 	function claimed(method: "GET" | "POST", parts: string[], json: Record<string, unknown>, query: URLSearchParams): { x: string; sess: Sess }[] {
 		const head = parts[0], at: unknown[] = [];
-		if (method === "GET" && head === "transcripts") at.push(query.get("base")); // the list of one box's finished runs: asked of the session that shows the base the page names
+		if (method === "GET" && head === "transcripts") { // the list of one box's finished runs: asked of every session that shows the base the page names, and the lists put together
+			const base = query.get("base");
+			return base === null ? [] : sessionsFor(base).map((sess) => ({ x: base, sess }));
+		}
+		if (method === "POST" && head === "close" && parts[1] === "tab" && typeof json.workspace === "string" && typeof json.tab === "string") { // a squad is the session's that shows its tab
+			const sess = sessionForTab(json.workspace, json.tab);
+			if (sess) return [{ x: json.workspace, sess }];
+		}
 		if (head === "sessions" || head === "tower" || head === "history" || head === "entry" || head === "image") at.push(parts[1]);
 		if (method === "POST" && (head === "close" || head === "dismiss" || head === "open" || head === "dirs")) at.push(json.key, json.workspace, json.base);
 		return at.flatMap((x) => { const s = typeof x === "string" ? sessionFor(x) : undefined; return s ? [{ x: x as string, sess: s }] : []; });
@@ -377,13 +399,14 @@ export function createOperateHost(deps: OperateHostDeps) {
 	async function forward(method: "GET" | "POST", parts: string[], json: Record<string, unknown>, query: URLSearchParams, hits: { x: string; sess: Sess }[], bytes?: Buffer): Promise<Reply> {
 		const row = routeOf(method, parts);
 		if (!row || row.cross === "refused" || row.cross === "local" || row.cross === "snap" || row.cross === "watch") return refusal("route", row?.note ?? "An operate session does not offer this.");
+		if (parts[0] === "transcripts") return transcripts(hits, query);
 		const sess = hits[0]!.sess;
 		if (row.without?.some((field) => json[field] !== undefined)) return refusal("route", row.note); // `dismiss {all}` would reach every team's finished units
 		if (row.box && !sess.scope.box) return refusal("out-of-scope", "That belongs to the box itself, which this grant does not reach.");
 		if (row.cross === "mirror") return mirrorRequest(hits[0]!.x, json, sess);
 		const x = hits[0]!.x, raw = rawOf(sess, x)!;
 		let out: string[] = parts.slice(), body: Record<string, unknown> | string = json;
-		if (parts[0] === "transcripts") { /* the box's own list: no key to rewrite */ } else if (parts[0] === "sessions" || parts[0] === "history" || parts[0] === "entry" || parts[0] === "image") out[1] = raw;
+		if (parts[0] === "sessions" || parts[0] === "history" || parts[0] === "entry" || parts[0] === "image") out[1] = raw;
 		else if (parts[0] === "tower") out[1] = raw;
 		else if (parts[0] === "dismiss" || (parts[0] === "close" && parts[1] === "unit")) {
 			if (!sess.keys.has(x) && !sess.extra.has(x)) return no(404, "not_found", "No such unit.");
@@ -404,14 +427,41 @@ export function createOperateHost(deps: OperateHostDeps) {
 			body = bytes.toString("base64");
 		}
 		const q: Record<string, string> = {};
-		for (const [k, v] of [...query].filter(([k]) => parts[0] !== "transcripts" || (k !== "base" && k !== "before")).slice(0, 8)) if (k.length <= 32 && v.length <= (k === "name" ? NAME_ENCODED : 200)) q[k] = v;
-		if (parts[0] === "transcripts" && query.has("before")) {
-			// The page's cursor is `<last>:<key of the last row>`; the box's is `<last>:<its own id>`, which the page never held. A key this session did not give is no cursor.
-			const m = /^(\d{1,16}):(x[0-9a-f]{16})$/.exec(query.get("before")!), id = m ? /^t([0-9a-f]{16})$/.exec(rawOf(sess, m[2]!) ?? "")?.[1] : undefined;
-			if (!m || !id) return no(400, "bad_request", "`before` is the cursor a page gave.");
-			q.before = `${m[1]}:${id}`;
-		}
+		for (const [k, v] of [...query].slice(0, 8)) if (k.length <= 32 && v.length <= (k === "name" ? NAME_ENCODED : 200)) q[k] = v;
 		return ask(sess, kindOf(method, parts), method, out, q, body);
+	}
+
+	/**
+	 * The finished runs of a base: asked of every live session that shows it and put together (two sessions of one box, one per team, list their own team's runs and the box's, so a run both list is one row). The page's cursor is
+	 * `<last>:<key of the last row>`; the box's is `<last>:<its own id>`, which the page never held: each session gets the id of the key if it gave that run, else the largest id (the rows at that time it already gave come again, and the page
+	 * drops a row it has). A key no session gave is no cursor.
+	 */
+	async function transcripts(hits: { x: string; sess: Sess }[], query: URLSearchParams): Promise<Reply> {
+		const live = hits.filter((h) => h.sess.state === "live");
+		if (!live.length) return UNREACHABLE;
+		const idOf = (s: Sess, x: string) => /^t([0-9a-f]{16})$/.exec(rawOf(s, x) ?? "")?.[1];
+		let cut: { last: string; key: string } | undefined;
+		if (query.has("before")) {
+			const m = /^(\d{1,16}):(x[0-9a-f]{16})$/.exec(query.get("before")!);
+			if (!m || !live.some((h) => idOf(h.sess, m[2]!) !== undefined)) return no(400, "bad_request", "`before` is the cursor a page gave.");
+			cut = { last: m[1]!, key: m[2]! };
+		}
+		const q: Record<string, string> = {};
+		for (const [k, v] of [...query].filter(([k]) => k !== "base" && k !== "before").slice(0, 8)) if (k.length <= 32 && v.length <= 200) q[k] = v;
+		const replies = await Promise.all(live.map(({ sess }) => ask(sess, "transcripts", "GET", ["transcripts"], cut ? { ...q, before: `${cut.last}:${idOf(sess, cut.key) ?? "f".repeat(16)}` } : q, {})));
+		if (replies.length === 1) return replies[0]!;
+		const ok = replies.filter((r) => r.status === 200);
+		if (!ok.length) return replies[0]!;
+		type Row = { key: string; last: number };
+		const rows = new Map<string, Row>();
+		let more = false;
+		for (const r of ok) {
+			const body = r.body as { rows: Row[]; before?: string };
+			for (const row of body.rows) if (!rows.has(row.key)) rows.set(row.key, row);
+			more ||= body.before !== undefined;
+		}
+		const all = [...rows.values()].sort((a, b) => b.last - a.last || (a.key < b.key ? 1 : -1)), page = all.slice(0, TRANSCRIPT_PAGE), last = page.at(-1);
+		return { status: 200, body: { rows: page, ...((more || all.length > page.length) && last ? { before: `${last.last}:${last.key}` } : {}) } };
 	}
 
 	/** The pad's rate (4 a second per unit, §5.5) and its precondition: the page's stream shows the unit's terminal, with a frame in the last 5 s (§6.4). Stop's Escape alone needs neither. */
@@ -429,33 +479,41 @@ export function createOperateHost(deps: OperateHostDeps) {
 
 	// ---- watches and terminals --------------------------------------------------------------------------------------------------------------------------------------------------
 
-	/** Ends a watch where it runs: the box's stop names the target it was started with. */
-	function unissue(g: Group) {
-		if (g.issued && g.raw !== undefined && g.sess?.state === "live") g.sess.session?.send({ t: "watch", id: g.id, target: g.raw, on: false });
-		g.issued = false;
+	/** Ends a watch where it runs, on `only` or on every session it runs on: the box's stop names the target it was started with. */
+	function unissue(g: Group, only?: Sess) {
+		for (const [s, e] of g.at) {
+			if (only && s !== only) continue;
+			if (e.issued && s.state === "live") s.session?.send({ t: "watch", id: g.id, target: e.raw, on: false });
+			e.issued = false;
+		}
 	}
-	function issue(g: Group) {
-		const x = g.target.startsWith("w:") ? g.target.slice(2) : g.target, s = sessionFor(x);
-		if (g.sess !== s) unissue(g); // the watch moves to another session: it ends on the one that had it
-		g.sess = s;
-		g.issued = false;
-		if (!s || s.state !== "live" || !s.session || now() < g.retryAt) return;
-		const raw = rawOf(s, x);
-		if (raw === undefined) return;
-		if ([...groups.values()].filter((h) => h !== g && h.issued && h.sess === s).length >= s.limits.watches) return (g.retryAt = now() + WATCH_RETRY_MS, unknown(g)); // the box's own limit (accept.limits), asked about no further
-		g.raw = g.target.startsWith("w:") ? `w:${raw}` : raw;
-		g.issued = s.session.send({ t: "watch", id: g.id, target: g.raw, on: true });
+	/** Asks for the watch where it runs (see `Group`); with `missing`, only on sessions that do not have it on yet. */
+	function issue(g: Group, missing = false) {
+		const x = g.target.startsWith("w:") ? g.target.slice(2) : g.target;
+		const want = g.target.startsWith("w:") ? sessionsFor(x) : sessionsFor(x).slice(0, 1);
+		for (const s of [...g.at.keys()]) if (!want.includes(s)) (unissue(g, s), g.at.delete(s)); // the watch moves to another session: it ends on the one that had it
+		for (const s of want) {
+			const on = g.at.get(s) ?? (g.at.set(s, { raw: "", issued: false }), g.at.get(s)!);
+			if (missing && on.issued) continue;
+			on.issued = false;
+			if (s.state !== "live" || !s.session || now() < g.retryAt) continue;
+			const raw = rawOf(s, x);
+			if (raw === undefined) continue;
+			if ([...groups.values()].filter((h) => h !== g && h.at.get(s)?.issued).length >= s.limits.watches) { g.retryAt = now() + WATCH_RETRY_MS; unknown(g); continue; } // the box's own limit (accept.limits), asked about no further
+			on.raw = g.target.startsWith("w:") ? `w:${raw}` : raw;
+			on.issued = s.session.send({ t: "watch", id: g.id, target: on.raw, on: true });
+		}
 	}
 	/** A box's key or base (`x` and 16 hex, in a page's address, which may load before the session's first snapshot): the watch starts when the session shows it. Any other target is a local one. */
 	function watch(target: string, send: Send): Watch | undefined {
 		if (!/^(w:)?x[0-9a-f]{16}$/.test(target)) return undefined;
 		let g = [...groups.values()].find((h) => h.target === target);
-		if (!g) (g = { id: `w${++counter}`, target, subs: new Set(), issued: false, retryAt: 0 }, groups.set(g.id, g));
+		if (!g) (g = { id: `w${++counter}`, target, subs: new Set(), at: new Map(), retryAt: 0 }, groups.set(g.id, g));
 		g.subs.add(send);
 		issue(g); // a page that joins a running watch gets the first page of history again: the box restarts the watch under the same id
 		const group = g;
 		return {
-			refresh: async () => { if (!group.issued && group.subs.size) issue(group); },
+			refresh: async () => { if (group.subs.size && (!anyIssued(group) || group.target.startsWith("w:"))) issue(group, true); },
 			stop() {
 				group.subs.delete(send);
 				if (group.subs.size) return;
@@ -545,8 +603,19 @@ export function createOperateHost(deps: OperateHostDeps) {
 			tower = { ...tower, service: { ...tower.service, allyRuns: [...runs.values()] } };
 		}
 		const state: RemoteBox["state"] = items.some((i) => i.s.state === "live") ? "live" : "unreachable", teams = [...new Set(items.map((i) => i.s.offer.teamName))].join(", ");
-		const seen = Math.max(...items.map((i) => i.s.seen ?? 0)), scope = items.some((i) => i.s.scope.box) ? "box" : "team";
-		const box: RemoteBox = { device: first.s.offer.device, short: first.s.offer.short, label: first.s.offer.label, team: teams, scope, can: scope === "box" ? [...CAN, "tower"] : CAN, state, ...(state === "unreachable" ? { seen } : {}) };
+		// The base's reach is that of the sessions that answer: while the box scope's session is unreachable, the team-only one that is live would refuse Quit tower.
+		const answering = items.filter((i) => i.s.state === "live"), seen = Math.max(...items.map((i) => i.s.seen ?? 0)), scope = (answering.length ? answering : items).some((i) => i.s.scope.box) ? "box" : "team";
+		const canOf = (sc: "team" | "box") => (sc === "box" ? [...CAN, "tower"] : CAN);
+		// A unit is asked of the session that shows it (`sessionFor`: a live one, the box scope's first): where that session differs from the base, the unit says so.
+		const units: NonNullable<RemoteBox["units"]> = {};
+		for (const { s, b } of [...items].sort((a, c) => Number(c.s.state === "live") - Number(a.s.state === "live") || Number(c.s.scope.box) - Number(a.s.scope.box)))
+			for (const u of unitsOf(b)) {
+				if (u.key in units) continue;
+				const own = s.state === "live" ? "live" : "unreachable", sc = s.scope.box ? "box" : "team";
+				units[u.key] = { state: own, scope: sc, can: canOf(sc) };
+			}
+		for (const [k, v] of Object.entries(units)) if (v.state === (state === "live" ? "live" : "unreachable") && v.scope === scope) delete units[k];
+		const box: RemoteBox = { device: first.s.offer.device, short: first.s.offer.short, label: first.s.offer.label, team: teams, scope, can: canOf(scope), state, ...(state === "unreachable" ? { seen } : {}), ...(Object.keys(units).length ? { units } : {}) };
 		const parts = { tower, tabs: [...tabs.values()], outposts: [...outposts.values()], outside: [...outside.values()] }, marks = marksOf(parts);
 		return { id: first.b.id, label: first.b.label, mark: marks.includes("waiting") ? "waiting" : marks.includes("working") ? "working" : "idle", box, ...parts };
 	}

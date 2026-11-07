@@ -231,8 +231,11 @@ receiver or the relay lacks it (amended 2026-10-26 with [2026-10-26-sb-backend.m
 | `board` | Any member → whole team | the device's work board entries bound to the team's project (**Work board**) | Ephemeral, like presence; read only by towers, as remote content. |
 | `caps` | Any member → whole team | the features this device takes (`tower.awaitsReply`, `tower-reply`), at most 16, cut on decode | Ephemeral, like presence; sent at each stream start, on a build change, and hourly; one older than 2 h counts as none. |
 | `tower-reply` | Any member → the device that asked | inReplyTo (an ask id the asker sent), text (at most 192 KB) | Queued and addressed, like `tower`. Sent only to a device whose `caps` list it, else a plain `tower`; taken as a reply only for an open ask from that device, once, and goes to the main that asked (sb server D4). A sender refuses an `inReplyTo` that is not an ask id; a receiver only cuts it, so a malformed one decodes, matches no ask, and is handled as a plain `tower`. |
+| `operate` | A controller → an unattended box, and back | An outer structure `v`, `session` (16 random bytes), `type` and `body`: `open` (ephemeral key, caps, scope wanted), `accept` (key, scope, limits), `refuse` and `close` (a reason word), and `frame` (a counter and a ChaCha20-Poly1305 ciphertext of an inner message: `snap`, `watch`, `ev`, `req`, `rep`, `part`, `ping`) | **Live**: addressed to exactly one member, never stored, queued, replayed or acknowledged (**Relay**). An attended sender sends only `open`, `frame` and `close`; an unattended one only `accept`, `refuse`, `frame` and `close`. Sent only to a device whose fresh `caps` list `operate/1`. Specified in [2026-11-07-link-operate.md](2026-11-07-link-operate.md) §5. |
 
 Read acknowledgements go to the relay as relay requests, not as envelopes.
+A kind is queued, ephemeral, or (`operate` only) live; **Relay** says what each class means.
+`operate` is the one kind a plain stored path must never carry: a holder drops an `operate` that arrives as a stored event, and a live one older than 60 s, or one that does not name a single addressee.
 
 ## Roster
 
@@ -442,8 +445,18 @@ it checks Ed25519 signatures with the standard library, checks roster entries, a
   canonical(method, path with query, time, sha256(body))`. The relay accepts it only from a current, non-removed member within 5 minutes of its
   clock. The path is the request target the relay receives, so a relay URL is an origin with no path, and an ingress in front of it
   must not rewrite paths.
-- Envelopes are kept 7 days or until every addressee has acknowledged them; ephemeral ones keep only the last per device and kind and are
-  never queued.
+- Envelopes are kept 7 days or until every addressee has acknowledged them; ephemeral ones keep only the last per sender, kind and set of
+  addressees (so two controllers each keep their own `unit-status`) and are never queued.
+- **Live kinds** (today `operate`; the kind table's `live` rule) are a third class. The relay checks one as it checks an ephemeral kind
+  (signature, membership, epoch, `seq` 0, the `ts` window), with exactly one addressee that is a member and not the sender (else 422), and
+  holds it in memory only: it is never written to SQLite, never counted against the 50 MB, never replayed on a new or resumed stream, and
+  never acknowledged. It is written, as an SSE `live` event with no `id:` line (so `Last-Event-ID` never moves), to the addressee's streams
+  open now. The post answers `201 {id, delivered}`, `delivered` the number of those streams (0 when none). Each stream has a bounded queue
+  (64 envelopes or 4 MB, 16 MB for a team and 64 MB for the relay); on overflow the oldest are dropped, and the next envelope delivered
+  carries `dropped: n`, a resync hint. Envelopes from one sender to one addressee are written in arrival order.
+- A live post has its own limiter, decided after the envelope is decoded: 1,200 envelopes and 8 MB a minute for each (team, sender) and
+  3,000 envelopes a minute for a team, apart from the 600 a minute that queued kinds share. Over it the answer is 429 and the client does not
+  retry. Live traffic adds no stored content, so the storage cap is untouched.
 - Caps per team: 50 MB stored, 256 KB per envelope, 600 envelopes a minute. Per invite: one join request. Over the storage or rate cap
   the relay answers 429 and the client retries later and tells the tower; a single envelope over 256 KB is 413, refused for good.
 - An SSE stream sends a comment every 25 seconds to keep proxies from closing it.

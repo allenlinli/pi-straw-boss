@@ -1254,5 +1254,6 @@
   "box_ally": "This machine's status card",
   "box_blocked": "This machine cannot be reached right now; sending waits until it can.",
   "box_keys_blocked": "This machine cannot be reached right now; keys wait until it can.",
+  "ask_here_only": "Choices that act on the machine's own screen are not available from here.",
   "box_answer_blocked": "This machine cannot be reached right now; answers wait until it can."
 }

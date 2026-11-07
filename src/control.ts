@@ -57,7 +57,7 @@ export const MAX_TEXT = 16_384, MAX_BODY = 65_536, MAX_REMOTE_UPLOAD = 2 * 1024 
 /** The first parts of every path this control answers (gui.ts routes them here); operateroutes.ts has a row for each. */
 export const SCOPES = ["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "head", "lan", "doc"];
 /** Who is asking, as the guards need it: `remote` a paired device (or an operate session), `secure` a page served over https (which says where a secret is answered), `operate` an operate session's request, which also meets the box's own refusals (docs/specs/2026-11-07-link-operate.md §7). */
-export interface Flags { remote: boolean; secure: boolean; operate?: true; /** An operate session's look at the pane's foreground (foreground.ts), made inside the job right before each write: whether pi, and nothing a pi key opened in its place, holds the pane's terminal. Without it an operate write is refused. */ foreground?(pane: string): Promise<boolean> }
+export interface Flags { remote: boolean; secure: boolean; operate?: true; /** An operate session's look at the pane's foreground (foreground.ts), made inside the job right before each write: whether pi, and nothing a pi key opened in its place, holds the pane's terminal. Without it an operate write is refused. */ foreground?(pane: string): Promise<boolean>; /** Whether the operate session that asked is still there: looked at last, after every await before a write, so a request admitted before a revoke does not write after the session ended (docs/specs/2026-11-07-link-operate.md §11.8, BR-F008). */ alive?(): boolean }
 export { ENDING };
 
 export interface Reply { status: number; body: unknown }
@@ -190,10 +190,11 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 	};
 	// A link_request is open when the session file shows its call or the runtime that owns the approval relays its dialog (a call nested in codemode is not in the file).
 	/** An operate session's write goes only while pi is in the pane's foreground and holds the terminal, looked at right before it (the box's own refusal, the last of the guards): Herdr's process list, then pi's raw mode again. An editor that pi starts sits in pi's own group, beside pi, so the list cannot see it; only `raw` can, and an earlier probe may be a second old. */
-	const foremost = async (foreground: Flags["foreground"], pane: string, session: string) => {
+	const foremost = async (foreground: Flags["foreground"], pane: string, session: string, alive?: Flags["alive"]) => {
 		if (!(await foreground?.(pane).catch(() => false))) throw no(403, OPERATE_REFUSED, "Something other than pi may hold the pane's terminal (or Herdr cannot say), so nothing is sent from here.", { why: "foreground" });
 		const barred = operateRawRefusal(await answers?.probe(session, undefined, true));
 		if (barred) throw no(403, OPERATE_REFUSED, barred.reason, { why: barred.why });
+		if (alive && !alive()) throw no(403, OPERATE_REFUSED, "The session ended, so nothing is sent from it.", { why: "ended" });
 	};
 	const requested = async (key: string, found: Found) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, found));
 	const runs = createRuns(), pad = createKeys({ overlay, run: runs, fresh: (id, key, pane) => mirrors?.fresh(id, key, pane) ?? false, secret, answerable: async (key) => Boolean(await answers?.target(key)), linkRequest: async (found, key) => (await linkRequest(found.file!)) || Boolean(answers?.has(key, linkRequestOwner.name, { pane: found.pane, file: found.file })), probe: async (key, nonce, flags) => answers?.probe(key, nonce, flags) });
@@ -224,7 +225,7 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 	 * One request past the HTTP shell: the session checks, then one Herdr call. Everything a guard decides is decided here, so a request that does not come over HTTP (an operate session's, gui.ts `operate`) meets the very guards a paired
 	 * device does; `operate` adds the box's own (docs/specs/2026-11-07-link-operate.md §7), which the table of operateroutes.ts has already applied to the route and the text.
 	 */
-	async function run([scope, key = "", action = ""]: string[], json: Record<string, unknown>, { remote, secure, operate, foreground }: Flags): Promise<Reply> {
+	async function run([scope, key = "", action = ""]: string[], json: Record<string, unknown>, { remote, secure, operate, foreground, alive }: Flags): Promise<Reply> {
 		// A unit of a box this computer operates (operatehost.ts): the guards that belong to this end come first (the composer's text as a paired device's, a secret never from a page), and the box runs its own again (§7).
 		// A chat block's answer (gui/blockanswer.ts) is recorded as answered in the very request that sends it, a box's unit included (the record is this server's).
 		if (answered && !operate && scope === "sessions" && action === "input" && json.block !== undefined) return recordBlock(answered, key, json, (rest) => run([scope, key, action], rest, { remote, secure, operate, foreground }));
@@ -370,7 +371,7 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 				if (guarded && (await requested(key, found))) throw no(403, "local_only", remote ? LINK_LOCAL : GUARDED); // a prompt's Enter would be taken by its terminal dialog as Yes
 				if (pane.agent_status === "blocked") throw no(409, "blocked", "It is waiting on a dialog; answer it in the terminal.");
 				if (guarded) guardOverlay(found, remote); // right before the write: the composer's text and Enter would answer the overlay
-				if (operate) await foremost(foreground, pane.pane_id, key);
+				if (operate) await foremost(foreground, pane.pane_id, key, alive);
 				// Enter sends a prompt when idle and a steering message while it works; Alt+Enter queues a follow-up, which only means something while it works.
 				return json.as === "followUp" && pane.agent_status === "working"
 					? call("pane.send_input", { pane_id: pane.pane_id, text, keys: ["alt+enter"] }, 15_000)
@@ -388,7 +389,7 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 					if (i) await new Promise((r) => setTimeout(r, 60));
 					if (remote && asked.key !== "esc" && (await requested(key, found))) throw no(403, "local_only", LINK_LOCAL);
 					if (remote && asked.key !== "esc") guardOverlay(found); // and the overlay's mark, looked at last with nothing awaited before the write
-					if (operate) await foremost(foreground, found.pane!, key); // and, for an operate session, pi's hold of the terminal
+					if (operate) await foremost(foreground, found.pane!, key, alive); // and, for an operate session, pi's hold of the terminal
 					await call(method, params, 15_000);
 				}
 				pad.sent(key, plan);
@@ -415,7 +416,7 @@ export function createControl({ bridge, lan, overlay, link, server: panel, looku
 				for (const [method, params] of plan.calls) {
 					if (remote && (await requested(key, found))) throw no(403, "local_only", LINK_LOCAL); // as in keys: a link_request may have opened since the guard looked
 					if (remote) guardOverlay(found);
-					if (operate) await foremost(foreground, found.pane!, key);
+					if (operate) await foremost(foreground, found.pane!, key, alive);
 					await call(method, params, 15_000);
 				}
 				const done = await answers.pull(key, "finish", begun.ticket);

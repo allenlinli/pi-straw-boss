@@ -115,11 +115,11 @@ export function mountPanels(deps: PanelDeps) {
 		text(el, ".queued", queue.length ? m.also_queued({ tally: tally(queue) }) : "");
 		el.querySelector<HTMLElement>(".later")!.hidden = rankOf(a) !== 0; // a finished one is read once opened: nothing to keep for later
 		if (a.trust) return fillTrust(el, a);
-		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)), { away: !can(locate(deps.net?.(), unitOf(a))?.base, "input"), where: (key) => locate(deps.net?.(), key)?.base.id, secretOpen: () => queue.some((x) => x.key === a.wait?.entry?.card?.from?.key && x.pending?.tool === "secret_drop") });
+		if (a.wait) return waitDialog(el, a, deps.label(a.ws), () => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close()), to(unitOf(a)), { away: !can(locate(deps.net?.(), unitOf(a))?.base, "input"), box: Boolean(locate(deps.net?.(), unitOf(a))?.base.box), where: (key) => locate(deps.net?.(), key)?.base.id, secretOpen: () => queue.some((x) => x.key === a.wait?.entry?.card?.from?.key && x.pending?.tool === "secret_drop") });
 		if (!intels.has(a.key)) learn(a);
 		tell(el, a);
 		let ask = asks.get(el);
-		if (!ask) asks.set(el, (ask = mountAnswer(el.querySelector(".ask-root")!, { key: unitOf(a), post: to(unitOf(a)), show: () => deps.showTerminal(a.ws, unitOf(a)), accepted: (opened) => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close(opened ? "go" : "close"), opened && slot.focus()) }))); // a dialog that sent the user to a terminal reveals nothing queued over it, and the card it opened keeps the focus the closing dialog would give back
+		if (!ask) asks.set(el, (ask = mountAnswer(el.querySelector(".ask-root")!, { key: unitOf(a), post: to(unitOf(a)), box: () => Boolean(locate(deps.net?.(), unitOf(a))?.base.box), show: () => deps.showTerminal(a.ws, unitOf(a)), accepted: (opened) => el.isConnected && !el.classList.contains("leaving") && (stack.raise(el.dataset.key!), stack.close(opened ? "go" : "close"), opened && slot.focus()) }))); // a dialog that sent the user to a terminal reveals nothing queued over it, and the card it opened keeps the focus the closing dialog would give back
 		const input = can(locate(deps.net?.(), unitOf(a))?.base, "input");
 		ask.update(a.pending, canAnswer(a.mark, document.body.dataset.stale !== "true", input), input ? undefined : m.box_answer_blocked()); // what it waits on, answerable or not; the stream state redraws it (report in main.ts)
 	};

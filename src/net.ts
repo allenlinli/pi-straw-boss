@@ -68,7 +68,11 @@ export type TowerView = TowerService & { queue: Queued[]; file?: string; /** The
  * box's id and short id and `label` its roster label; `team` names the team (or teams) the sessions came on; `scope` says whether the box's own units are in; `can` lists the page actions the box lets through, so the ⋯ menus hide the rest. `state`:
  * `live`, `unreachable` (no frame for 45 s: greyed, `seen` is the last frame's time in epoch ms) or `ended` (the box refused or closed the session: an otherwise empty base with `why`, a word of a known set).
  */
-export interface RemoteBox { device: string; short: string; label: string; team: string; scope: "team" | "box"; can: string[]; state: "live" | "unreachable" | "ended"; why?: string; seen?: number }
+export interface RemoteBox {
+	device: string; short: string; label: string; team: string; scope: "team" | "box"; can: string[]; state: "live" | "unreachable" | "ended"; why?: string; seen?: number;
+	/** A base two sessions of the box show (one per team) whose sessions differ: the units whose own session's state, scope or reach differs from the base's, by unit key (a unit's actions go to the session that shows it). */
+	units?: Record<string, { state: "live" | "unreachable"; scope: "team" | "box"; can: string[] }>;
+}
 export interface Base { id: string; label: string; mark: Mark; /** Only on a base of an unattended box (RemoteBox). */ box?: RemoteBox; tower: ({ name: string; mark: Mark; key: string; control: boolean; service?: TowerService; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; subs: Unit[] } & Shelf & Lately) | null; tabs: Tab[]; outposts: Outpost[]; outside: Unit[] }
 /** `stashed`: the bases put away with /boss stash, waiting to be popped (stash.ts). `trust`: the folders whose agents wait for a trust decision (trust/serve.ts). */
 /** `link`: Straw Link's teammates' bases, the notices it raises, and the confirms waiting for the boss; absent when Straw Link is not set up or says nothing. */

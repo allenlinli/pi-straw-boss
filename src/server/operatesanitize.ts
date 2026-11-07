@@ -96,7 +96,26 @@ const pending = shape({ callId: str(200), tool: str(200) }, { ask, asks: list(as
 const doc = shape<{ display: string; kind: "html" | "text" | "blocks"; reason: string; revision: number; onScreen: boolean; cap: string }>({ display: str(1024), kind: lit("html", "text", "blocks"), reason: str(2048, true), revision: int(1, 1e9), onScreen: bool });
 const shelf = { docs: (v: unknown, rw: Rewrite) => { const r = list(doc, 64)(v, rw); return r?.map((d) => ({ ...d, cap: "" })); }, docsCut: yes };
 
-const memory = shape({ rev: int(0, 1e9), standing: int(0, 1e6), decisions: int(0, 1e6), waits: int(0, 1e6), bossWaits: list(shape({ id: str(64), text: str(2000, true), at: str(64) }, { answered: str(64) }), 50), proposals: list(shape({ id: str(64), op: lit("add", "retire"), kind: lit("standing", "decision"), text: str(2000, true) }, { target: str(64), cites: str(200) }), 50) }, { problem: str(600, true) });
+/** A wait card's address (wait-cards spec, Security): `http:` or `https:` with no userinfo, on one line and at most 300 characters; anything else is no address, and the card shows without one. */
+const waitUrl: P<string> = (v) => {
+	if (typeof v !== "string" || v.length > 300 || /\s/u.test(v) || HAS_INVISIBLE.test(v)) return undefined;
+	try {
+		const u = new URL(v);
+		return (u.protocol === "http:" || u.protocol === "https:") && !u.username && !u.password ? v : undefined;
+	} catch {
+		return undefined;
+	}
+};
+/** A command the boss runs themselves: at most 300 characters in at most 4 lines; shown as text with a copy button and never run. */
+const waitCommand: P<string> = (v, rw) => { const r = str(300, true)(v, rw); return r !== undefined && r.split("\n").length <= 4 ? r : undefined; };
+const waitOption = shape({ label: str(24), then: str(120) });
+const waitFrom = shape({ name: str(200), role: str(40) }, { workspace: str(200), tab: str(200), gone: yes, key });
+const waitCard = shape({ type: lit("action", "choice", "secret"), lang: lit("zh-TW", "en"), happened: str(160), do: str(160) }, { url: waitUrl, command: waitCommand, after: str(160), options: list(waitOption, 4), secret: shape({ name: str(60) }), from: waitFrom });
+const waitPress = shape({ act: lit("done", "choose", "secret", "decline", "restate"), at: str(64) }, { option: int(0, 3), reason: str(600, true), main: shape({ status: lit("delivered", "queued", "gone", "failed"), at: str(64) }), secretAsked: str(64) });
+/** A wait for the boss as the net shows it (net.ts `BossWait`): the card, the press, and the end of a resolved one cross like any other field, so a box's resolved wait is not shown open and a card is not shown as a wait written before cards. */
+const bossWait = shape({ id: str(64), text: str(2000, true), at: str(64) }, { answered: str(64), state: lit("resolved"), outcome: str(200), ended: str(64), card: waitCard, press: waitPress, cut: yes });
+
+const memory = shape({ rev: int(0, 1e9), standing: int(0, 1e6), decisions: int(0, 1e6), waits: int(0, 1e6), bossWaits: list(bossWait, 50), proposals: list(shape({ id: str(64), op: lit("add", "retire"), kind: lit("standing", "decision"), text: str(2000, true) }, { target: str(64), cites: str(200) }), 50) }, { problem: str(600, true) });
 const conversation = shape({ since: str(64), resumed: bool, turns: int(0, 1e9), idle: bool, idleMs: num, capAt: num }, { why: str(200), idleAt: num, closing: yes });
 const service: P<TowerService> = shape(
 	{ state: lit(...TOWER_STATES), queued: int(0, 1e6), allyRuns: list(shape({ id: str(64), device: str(64), label: str(80), startedAt: str(64) }, { key }), 50), notices: list(shape({ id: str(64), level: lit("info", "warning", "error"), kind: str(64), text: str(1000, true), at: num }, { detail: str(1000, true) }), 50), parked: list(shape({ id: str(64), kind: str(64), first: str(64) }, { from: str(80) }), 50) },

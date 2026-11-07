@@ -6,7 +6,7 @@ import { canonical } from "../history.ts";
 import type { Found, Ref } from "../net.ts";
 import type { Transcripts } from "../watch.ts";
 import type { Owner, Scope } from "./operatescope.ts";
-import { UNIT_ROLES } from "./operateroles.ts";
+import { isHeadKey, UNIT_ROLES } from "./operateroles.ts";
 import { writeDurableText } from "./towerstore.ts";
 
 // The transcripts of finished runs (docs/specs/2026-11-07-link-operate.md §9). The net shows a session for 10 minutes after it ends, so no list reaches back further; the box's server therefore keeps `link/operate-ledger.jsonl`, mode 600
@@ -21,6 +21,8 @@ export const KEEP_MS = 30 * 24 * 3_600_000, MAX_ROWS = 2000, MAX_LIST = 50;
 const ID = /^[0-9a-f]{16}$/, KEY = /^t([0-9a-f]{16})$/, CURSOR = /^(\d{1,16}):([0-9a-f]{16})$/, DEVICE = /^[a-z2-7]{26}$/, TEAM = /^[A-Za-z0-9_-]{1,64}$/;
 /** What a ledger row says of an owner, in place of `{ box: true }`: no team id is the word `box`. */
 const BOX = "box";
+/** The role of the head tower's units, which no scope reaches (operateroles.ts `isHeadKey`). */
+const HEAD = "head";
 
 /** One session file as the ledger knows it. `team` is the owning team's id, or `box`; `ended` is set while the latest line says the unit is over. */
 export interface Row { id: string; team: string; device?: string; role: string; name: string; workspace: string; file: string; first: number; last: number; ended?: true }
@@ -101,6 +103,8 @@ export function openLedger(d: LedgerDeps): Ledger {
 	let source = "";
 	try { source = readFileSync(d.file, "utf8"); } catch { /* none yet */ }
 	const { rows, lines } = fold(source), at = d.now();
+	// The head tower is nobody's (RR-F001): a 0.62.x or 0.63.x box filed its chapters as the box's own. Such rows are not loaded, so no list, lookup or owner memory holds one, and the next compaction leaves them out of the file.
+	for (const [id, r] of rows) if (r.role === HEAD) rows.delete(id);
 	// Who owned every session the ledger has ever held, kept after its row left the book (30 days, the 2,000 cap): a session seen again keeps that owner, never the one of the moment (review OL-F004).
 	const owners = new Map([...rows.values()].map((r) => [r.id, { team: r.team, device: r.device }] as const));
 	try { chmodSync(d.file, 0o600); } catch { /* none yet */ } // an append sets a mode only on create
@@ -124,7 +128,7 @@ export function openLedger(d: LedgerDeps): Ledger {
 	function observe(units: Iterable<Seen>): void {
 		const at = d.now(), live = new Set<string>();
 		for (const u of units) {
-			if (!u.file) continue;
+			if (!u.file || u.role === HEAD) continue;
 			const file = canonical(u.file) ?? u.file, id = idOf(file), old = book.get(id), over = u.live === false;
 			if (!old) {
 				const prior = owners.get(id), mine = u.owner && ("team" in u.owner ? u.owner.team : BOX);
@@ -197,6 +201,7 @@ export function openLedger(d: LedgerDeps): Ledger {
 export function seenFrom(d: { refs: Iterable<Ref>; workspace(base: string): string; owner(key: string): Owner | undefined; device(key: string): string | undefined; live?(key: string): boolean }): Seen[] {
 	const out: Seen[] = [];
 	for (const r of d.refs) {
+		if (isHeadKey(r.key)) continue; // the head tower leaves no ledger row (RR-F001)
 		const owner = r.file ? d.owner(r.key) : undefined;
 		if (r.file) out.push({ role: r.role, name: r.name, workspace: d.workspace(r.base), file: r.file, ...(owner ? { owner } : {}), ...(d.device(r.key) ? { device: d.device(r.key)! } : {}), ...(d.live && !d.live(r.key) ? { live: false } : {}) });
 	}

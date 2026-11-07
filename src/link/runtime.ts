@@ -10,7 +10,7 @@ import { ASK_MS, HolderSlow, NO_HOLDER, SUMMARY_KEEP_MS, SUMMARY_MS } from "./gu
 import type { AllyBoard, AllyTeam, ConfirmView, LinkSummary } from "./holder.ts";
 import { createRemoteTurns } from "./hooks.ts";
 import { HERE_ONLY } from "./request.ts";
-import { type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
+import { POLICY_PATH, type PolicyDeps, policyStamp, readEffectiveConfig, readPolicy, unattendedNow } from "./policy.ts";
 import { type ServiceDeps } from "./service.ts";
 import { type InboxItem, LinkStore } from "./store.ts";
 import { type RemoteTower, remoteTowers } from "./remotelist.ts";
@@ -57,7 +57,7 @@ export { type RemoteTower, remoteTowers };
 export function createLink({ pi, cfg, s, guiDir, me, tell }: Kit) {
 	const opts: LinkDeps = cfg.link ?? {};
 	const stateDir = cfg.stateDir ?? guiDir;
-	const store = new LinkStore(join(stateDir, "link"));
+	const store = new LinkStore(join(stateDir, "link"), { unattended: () => unattendedNow(policyDeps), unattendedStamp: () => policyStamp(policyDeps.path ?? POLICY_PATH) }); // the same log as the server's: an unattended box keeps it longer (decision 16)
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
 	const policyDeps: PolicyDeps = { home, agentDir, ...opts.policy };
 	/** The teams and trust every reader sees: the policy file's on an unattended device, config.json's otherwise (policy.ts `readEffectiveConfig`). */

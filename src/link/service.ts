@@ -9,7 +9,7 @@ import type { DeviceKeys } from "./device.ts";
 import { holderAlive, LinkElection } from "./election.ts";
 import { LinkHolder, type HolderOptions, type RelayPort, type SendResult } from "./holder.ts";
 import { createLevelOf } from "./level.ts";
-import { createOperateNotes, type Policy, type PolicyDeps, readEffectiveConfig, readPolicy } from "./policy.ts";
+import { createOperateNotes, type Policy, type PolicyDeps, POLICY_PATH, policyStamp, readEffectiveConfig, readPolicy, unattendedNow } from "./policy.ts";
 import { RelayClient } from "./relay.ts";
 import type { NetView } from "./routing.ts";
 import { type HolderRecord, LinkStore } from "./store.ts";
@@ -102,7 +102,7 @@ type ChannelEvent = { type: string; fromSessionId?: string; payload?: unknown };
 
 export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer, unitStop, operate, operateWatch, controller, onRoster, onHolder }: ServiceOptions) {
 	const { pi, cfg } = kit;
-	const store = new LinkStore(join(stateDir, "link"));
+	const store = new LinkStore(join(stateDir, "link"), { unattended: () => unattendedNow(policyDeps), unattendedStamp: () => policyStamp(policyDeps.path ?? POLICY_PATH) }); // an unattended box keeps its operate audit in link.log longer (decision 16)
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
 	/** The policy file's reading, with this server's home and agent folder for the projects of its teams. */
 	const policyDeps: PolicyDeps = { home, agentDir, ...opts.policy };

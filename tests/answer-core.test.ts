@@ -15,6 +15,7 @@ Object.assign(globalThis, {
 });
 const { onStep } = await import("../gui/terminalthen.ts");
 const { answerPost, canAnswer, mountAnswer, trustPost } = await import("../gui/answer.ts");
+const { m } = await import("../gui/paraglide/messages.js");
 const { outcome: outcomeOf } = await import("../gui/asks.ts");
 
 const SELECT = { title: "MCP: scratch wants to run echo", choices: [{ label: "Allow once" }, { label: "Run on this computer", hereOnly: true as const }, { label: "Deny" }], copy: "echo hi" };
@@ -87,6 +88,23 @@ test("mountAnswer posts a panel's answer by the post it is given (the unit's rou
 	button("Send answer")!.click();
 	await settle();
 	assert.deepEqual([own, fetched.length], [["answer m1"], 1], "an answer goes by the post it was given, not the default route");
+});
+
+test("a box's dialog says why its this-computer-only choices are disabled, once, and the disabled choices point at it", () => {
+	const mount = (extra: { box?: boolean; remote?: boolean }) => {
+		page.body.replaceChildren((root = new El("div")));
+		mountAnswer(root as unknown as HTMLElement, { key: "m", post: answerPost("m"), show: () => {}, ...extra }).update(pending(), true);
+	};
+	const notes = () => root.all((el) => el.classes.has("ask-reason"));
+	mount({ box: true });
+	assert.equal(notes().length, 1);
+	assert.equal(notes()[0]!.textContent, m.ask_here_only());
+	const disabled = choices().filter((c) => c.disabled);
+	assert.ok(disabled.length > 0);
+	for (const c of disabled) assert.equal(c.getAttribute("aria-describedby"), notes()[0]!.getAttribute("id"));
+	for (const c of choices().filter((x) => !x.disabled)) assert.equal(c.getAttribute("aria-describedby") ?? undefined, undefined);
+	mount({});
+	assert.equal(notes().length, 0, "nothing disabled, no line");
 });
 
 test("mountAnswer keeps the answering rules: a paired device sees a hereOnly choice disabled and no Cancel when every choice is hereOnly, a secret_drop is read-only, and a card that cannot answer disables its controls", () => {

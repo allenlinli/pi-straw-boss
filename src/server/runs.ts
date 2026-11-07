@@ -16,6 +16,7 @@ import { isShell, nestedShells, programName, programProcs } from "./standing.ts"
 import { retryGate, runEndGate, tableGate } from "./typegate.ts";
 import { chain, isWrapper, leafOf, type Proc, type Procs, readProcs } from "./lineage.ts";
 import type { Log } from "./log.ts";
+import { noteEvent } from "./headasks.ts";
 import type { Slot } from "./record.ts";
 import { addNote, clearTimer, listRuns, pruneRuns, readNotes, readTimer, type Outcome, type RunRecord, writeRun, writeTimer } from "./towerrunstore.ts";
 import { appendEvent, dropParked, parkEvent, type QueuedEvent, readQueue, removeEvent, type ServiceRecord, unparkEvent, updateEvent } from "./towerstore.ts";
@@ -1297,7 +1298,7 @@ export function createRuns(o: RunsOptions) {
 		if (!a || a.ended) return unknown;
 		const event = typeof req.id === "string" ? a.offered.get(req.id) : undefined;
 		if (!event) return { ok: false as const, error: "that event was not offered to this run" };
-		if (a.rec.kind === "local") updateEvent(slot, a.rec.workspace, { ...event, taken: { run: a.rec.id, at: iso(now()) } });
+		if (a.rec.kind === "local") (updateEvent(slot, a.rec.workspace, { ...event, taken: { run: a.rec.id, at: iso(now()) } }), noteEvent(slot, now(), a.rec.workspace, event, "read"));
 		a.offered.delete(event.id);
 		a.rec.events.push(event.id);
 		writeRun(slot, a.rec);

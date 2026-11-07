@@ -88,7 +88,7 @@ export function buildHeadBrief(i: HeadBriefInput): string {
 
 /** The tools of a head run, one line each (the fixed text of the brief). */
 export const HEAD_TOOLS = [
-	"- tower_send {workspace, message}: forward to the tower of one workspace (id or exact label); a workspace with no tower is given one. It opens an ask (H<n>); the tower's answer comes back as a new event. You have no broadcast, no device, and no way to open a main or a tab.",
+	"- tower_send {workspace, message, supersedes?}: forward to the tower of one workspace (id or exact label); a workspace with no tower is given one. It opens an ask (H<n>); the tower's answer comes back as a new event. When the boss corrects an instruction you already sent, name an ask (H<n>) of the earlier broadcast in supersedes on each call of the new one. You have no broadcast, no device, and no way to open a main or a tab.",
 	"- tower_list: every workspace's tower and its checkout folder; board_read: what each main works on now; read, grep, find, ls: project files by absolute path.",
 	"- tower_memory keeps what outlives runs: the boss's standing instructions and decisions are proposals the boss confirms; your waits are yours (add, resolve, drop). boss_server: the sb server's status, log, and restart.",
 ];

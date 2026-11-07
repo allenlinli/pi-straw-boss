@@ -27,16 +27,33 @@ const WORKSPACES = [["w1", "Harbor API"], ["w2", "Lighthouse Web"], ["w3", "Orch
 
 /** The head words its message to each tower after the boss's quote, so the first lines of one broadcast differ (the boss's own file does: docs/specs/2026-11-06-head-page-minimal.md, Asks). */
 const TAILS = ["Pass it to your mains.", "No reply needed.", "Check your mains for processes.", "Report when it is done."] as const;
+/**
+ * The chain of the boss's screenshot (todo #124): an order, its correction, and the correction of that, each a broadcast to three towers with the boss's own words kept; the towers took it, acted on it and answered someone else, or answered the head.
+ * `ago` is how long ago it went out; `says` what each of the three towers did (an answer, `handled`, `received`, or `waiting`), `over` the index of the broadcast it replaces.
+ */
+const CHAIN = [
+	{ ago: 40 * 60_000, says: ["answered", "received", "waiting"], over: undefined },
+	{ ago: 20 * 60_000, says: ["answered", "handled", "waiting"], over: 0 },
+	{ ago: 11 * 60_000, says: ["answered", "handled", "received"], over: 1 },
+] as const;
 /** The head's asks for the page: five broadcasts to four workspaces, in the rows the server writes (src/server/headnet.ts): a state that says answered only with an answer, and silent after a day without one. */
 export function headAsks(now: number): HeadAskRow[] {
 	const w = words();
-	return [...BROADCASTS].reverse().flatMap((b, g) => {
+	const chain = CHAIN.flatMap((c, g): HeadAskRow[] => WORKSPACES.slice(0, 3).map(([workspace, label], i) => {
+		const id0 = 21 + g * 3, since = now - c.ago, says = c.says[i]!, answered = says === "answered", sent = w.chain[g]!.sent;
+		return {
+			id: `H${id0 + i}`, group: `H${id0}`, workspace, label, since, at: answered ? since + 4 * 60_000 : since, first: sent.split("\n")[0]!, sent: i === 1 ? w.chain[g]!.other : sent,
+			state: says, answers: answered ? 1 : 0, ...(answered ? { last: w.chain[g]!.reply } : {}),
+			...(i === 0 ? { boss: w.chain[g]!.boss } : {}), ...(c.over !== undefined ? { supersedes: `H${21 + c.over * 3}` } : {}),
+		};
+	}));
+	return [...[...BROADCASTS].reverse().flatMap((b, g) => {
 		const first = w.broadcasts[b.key], id0 = g * 4 + 1, since = now - b.ago;
 		return WORKSPACES.map(([workspace, label], i): HeadAskRow => {
 			const said = (b.replies as Record<string, string>)[workspace], answered = said !== undefined, state = answered ? "answered" : b.ago < 24 * HOUR ? "waiting" : "silent";
 			return { id: `H${id0 + i}`, group: `H${id0}`, workspace, label, since, at: answered ? since + 20 * 60_000 : since, first: `${first} ${TAILS[i]}`, state, answers: answered ? 1 : 0, ...(answered ? { last: w.answers[said as "a1" | "a2" | "a3"] } : {}) };
 		});
-	});
+	}), ...chain];
 }
 
 /** The head's waits for the boss as the demo's memory holds them (`due`, when it has one, is what the server filters by): one past its due and one still fresh. */
@@ -62,8 +79,16 @@ export function headDemo(state: HeadState, now = Date.now()): HeadUnit {
 
 /** The demo's words by page language (the lines are the conversation's own, so the pictures in Traditional Chinese read in it). */
 const WORDS = {
-	en: { first: "the first conversation", u1: "Ask Harbor API to fix the ledger rounding, and have Lighthouse Web rerun the checkout test.", a1: "On it. I am handing the rounding fix to the Harbor API tower and the checkout rerun to Lighthouse Web.", n1: "Answer to H2: Checkout test is green on main.", a2: "Lighthouse Web finished: the checkout test is green on main. Harbor API is still on the rounding fix.", a3: "Should I also ask Orchard Data to rerun the ETL tonight, or wait until the ledger fix lands?", busy: "The head tower is busy with another message.", n2: "Answer to H3: The ledger rounding fix is merged.", a4: "Harbor API merged the rounding fix on its own; nothing is needed from you.", wait: "Rerun the Orchard ETL tonight?", reply: "Handed to Harbor API. I will say when it answers." , wait_old: "Roll the ledger fix out tonight, or wait for Friday?", broadcasts: { b1: "I'm up, tell me what needs me", b2: "Going out for lunch, keep the builds going", b3: "Continue, I'm studying", b4: "I'm back", b5: "Going to sleep, only wake me for blockers" }, answers: { a1: "Nothing needs you; the rounding fix is in review.", a2: "Checkout test is green on main.", a3: "ETL rerun done, 0 rows lost." } },
-	zh: { first: "第一次對話", u1: "請 Harbor API 修掉帳本的進位問題，再請 Lighthouse Web 重跑結帳測試。", a1: "收到。進位問題我交給 Harbor API 塔台，結帳重跑交給 Lighthouse Web。", n1: "H2 的回覆：main 上的結帳測試全綠。", a2: "Lighthouse Web 做完了：main 上的結帳測試全綠。Harbor API 還在修進位問題。", a3: "晚上要不要也請 Orchard Data 重跑 ETL？還是等帳本修好再說？", busy: "主塔台正在處理另一則訊息。", n2: "H3 的回覆：帳本進位的修正已合併。", a4: "Harbor API 自己把進位修正合併了，不需要你處理。", wait: "今晚要重跑 Orchard 的 ETL 嗎？", reply: "已轉給 Harbor API 塔台，它回覆了我再告訴你。" , wait_old: "帳本修正今晚上線，還是等到週五？", broadcasts: { b1: "我起床了，告訴我有什麼要我處理", b2: "我出門吃午餐，繼續跑建置", b3: "繼續，我在讀書", b4: "我回來了", b5: "我要睡了，只有卡住才叫醒我" }, answers: { a1: "沒有事要你處理，進位修正在審查中。", a2: "main 上的結帳測試全綠。", a3: "ETL 重跑完成，沒有漏資料。" } },
+	en: { first: "the first conversation", u1: "Ask Harbor API to fix the ledger rounding, and have Lighthouse Web rerun the checkout test.", a1: "On it. I am handing the rounding fix to the Harbor API tower and the checkout rerun to Lighthouse Web.", n1: "Answer to H2: Checkout test is green on main.", a2: "Lighthouse Web finished: the checkout test is green on main. Harbor API is still on the rounding fix.", a3: "Should I also ask Orchard Data to rerun the ETL tonight, or wait until the ledger fix lands?", busy: "The head tower is busy with another message.", n2: "Answer to H3: The ledger rounding fix is merged.", a4: "Harbor API merged the rounding fix on its own; nothing is needed from you.", wait: "Rerun the Orchard ETL tonight?", reply: "Handed to Harbor API. I will say when it answers." , wait_old: "Roll the ledger fix out tonight, or wait for Friday?", chain: [
+		{ boss: "Keep the machine awake and keep working until about six", sent: "Boss: \u300cKeep the machine awake and keep working until about six\u300d. Keep working until 06:00 if you have anything to do.", other: "Boss: \u300cKeep the machine awake and keep working until about six\u300d. Keep the caffeinate running to 06:00 and pass it to your mains.", reply: "caffeinate -dims -t 58150 started (PID 26822), until 06:00." },
+		{ boss: "I never said I would be away. You misled everyone, and I meant six in the evening", sent: "Boss CORRECTION: \u300cI never said I would be away. You misled everyone, and I meant six in the evening\u300d. My earlier message was wrong: the boss is present, the deadline is 18:00 today.", other: "Boss CORRECTION: \u300cI never said I would be away. You misled everyone, and I meant six in the evening\u300d. Tell your mains the boss is present; deadline 18:00 today.", reply: "Told 4 mains the boss is present; deadline 18:00 today." },
+		{ boss: "I did not ask for a safe stop; I only wanted to be sure it never sleeps by itself. Why did you add a time limit?", sent: "Boss CORRECTION 2: \u300cI did not ask for a safe stop; I only wanted to be sure it never sleeps by itself. Why did you add a time limit?\u300d. Remove the time limit.\nKeep the machine awake until the boss says stop; report the new PID.", other: "Boss CORRECTION 2: \u300cI did not ask for a safe stop; I only wanted to be sure it never sleeps by itself. Why did you add a time limit?\u300d. Remove the time limit; report the new PID.", reply: "New caffeinate PID 55235, until 18:00 today. The old PID 26822 is gone." },
+	], broadcasts: { b1: "I'm up, tell me what needs me", b2: "Going out for lunch, keep the builds going", b3: "Continue, I'm studying", b4: "I'm back", b5: "Going to sleep, only wake me for blockers" }, answers: { a1: "Nothing needs you; the rounding fix is in review.", a2: "Checkout test is green on main.", a3: "ETL rerun done, 0 rows lost." } },
+	zh: { first: "第一次對話", u1: "請 Harbor API 修掉帳本的進位問題，再請 Lighthouse Web 重跑結帳測試。", a1: "收到。進位問題我交給 Harbor API 塔台，結帳重跑交給 Lighthouse Web。", n1: "H2 的回覆：main 上的結帳測試全綠。", a2: "Lighthouse Web 做完了：main 上的結帳測試全綠。Harbor API 還在修進位問題。", a3: "晚上要不要也請 Orchard Data 重跑 ETL？還是等帳本修好再說？", busy: "主塔台正在處理另一則訊息。", n2: "H3 的回覆：帳本進位的修正已合併。", a4: "Harbor API 自己把進位修正合併了，不需要你處理。", wait: "今晚要重跑 Orchard 的 ETL 嗎？", reply: "已轉給 Harbor API 塔台，它回覆了我再告訴你。" , wait_old: "帳本修正今晚上線，還是等到週五？", chain: [
+		{ boss: "幫我打個咖啡因吧，大概到六點以前都要持續工作", sent: "Boss: \u300c幫我打個咖啡因吧，大概到六點以前都要持續工作\u300d. Keep working until 06:00 if you have anything to do.", other: "Boss: \u300c幫我打個咖啡因吧，大概到六點以前都要持續工作\u300d. Keep the caffeinate running to 06:00 and pass it to your mains.", reply: "caffeinate -dims -t 58150 已啟動（PID 26822），到 06:00。" },
+		{ boss: "我沒說我人不會在……你讓大家誤會了，而且我是說晚上六點", sent: "Boss CORRECTION: \u300c我沒說我人不會在……你讓大家誤會了，而且我是說晚上六點\u300d. My earlier message was wrong: the boss is present, the deadline is 18:00 today.", other: "Boss CORRECTION: \u300c我沒說我人不會在……你讓大家誤會了，而且我是說晚上六點\u300d. Tell your mains the boss is present; deadline 18:00 today.", reply: "已告知 4 個 main：老闆在場，期限今天 18:00。" },
+		{ boss: "我沒說要道安全點收尾，我只是要確定不會自動休眠。到底為什麼你幫我加了時間限制？", sent: "Boss CORRECTION 2: \u300c我沒說要道安全點收尾，我只是要確定不會自動休眠。到底為什麼你幫我加了時間限制？\u300d. Remove the time limit.\nKeep the machine awake until the boss says stop; report the new PID.", other: "Boss CORRECTION 2: \u300c我沒說要道安全點收尾，我只是要確定不會自動休眠。到底為什麼你幫我加了時間限制？\u300d. Remove the time limit; report the new PID.", reply: "新的 caffeinate PID 55235，到今天 18:00；舊的 PID 26822 已停止。" },
+	], broadcasts: { b1: "我起床了，告訴我有什麼要我處理", b2: "我出門吃午餐，繼續跑建置", b3: "繼續，我在讀書", b4: "我回來了", b5: "我要睡了，只有卡住才叫醒我" }, answers: { a1: "沒有事要你處理，進位修正在審查中。", a2: "main 上的結帳測試全綠。", a3: "ETL 重跑完成，沒有漏資料。" } },
 };
 const words = () => WORDS[getLocale() === "zh-TW" ? "zh" : "en"];
 

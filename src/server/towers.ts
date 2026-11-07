@@ -16,7 +16,7 @@ import type { IntercomModule } from "./intercom.ts";
 import type { Log } from "./log.ts";
 import { secretDir, type Slot, towerId, towerName } from "./record.ts";
 import { createHead, HEAD_ORDER, HEAD_TOKEN, type HeadEnsured } from "./head.ts";
-import { asked, closeAsk, openAsk, openAsks } from "./headasks.ts";
+import { asked, closeAsk, noteEvent, openAsk, openAsks } from "./headasks.ts";
 import { headBrief, headIntake, relayOnlyFromHead, stateWord } from "./headside.ts";
 import { headHost, headTool } from "./headtools.ts";
 import type { Allows } from "./allows.ts";
@@ -1117,10 +1117,13 @@ export function createTowers(o: TowersOptions): Towers {
 					ensureTower: async (workspace) => { const got = await ensure({ workspace }); return { id: got.id, opened: got.opened }; },
 					openAsk: (d) => openAsk(slot, now(), d), closeAsk: (id) => closeAsk(slot, id),
 					relay: (turn) => (typeof request.token === "string" && turn !== undefined && runs.bossTaken(request.token, turn) ? `boss:${turn}` : undefined),
+					boss: (turn) => (typeof request.token === "string" && turn !== undefined ? runs.bossEvents(request.token).find((e) => e.id === turn)?.text : undefined),
 				});
 				return await headTool(head, name, args, { ...(typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {}), ...(typeof request.turn === "string" ? { turn: request.turn } : {}) });
 			}
 			const done = await runTool(host, who.kind, name, args, typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {});
+			// A tower that sends anything in the turn the head's message started has acted on it, whoever it answered (the head's page does not call that waiting).
+			if (who.kind === "local" && (name === "tower_send" || name === "tower_reply") && typeof request.turn === "string") noteEvent(slot, now(), ws, readQueue(slot, ws).find((e) => e.id === request.turn), "acted");
 			// The ask a run answered is spent on the asking computer: a report of a main the run opened must not name it again.
 			if (peer && name === "tower_send" && typeof args.inReplyTo === "string") try { answered.add(who.id, args.inReplyTo); dropAsk(slot, ws, peer.device, args.inReplyTo, now()); } catch (cause) { error("ally-route", (cause as Error).message); }
 			return done;

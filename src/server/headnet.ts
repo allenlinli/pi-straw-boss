@@ -50,7 +50,10 @@ export function headSeam(slot: Slot, now: () => number): HeadSeam {
 				used += sizes.get(g)!;
 				kept.add(g);
 			}
-			return all.filter((a) => kept.has(groups.get(a.id)!)).map((a) => ({ id: a.id, group: groups.get(a.id)!, workspace: a.workspace, label: a.label, since: a.at, at: a.last, first: a.first, state: a.answers.length ? "answered" : open.has(a.id) ? "waiting" : "silent", answers: a.answers.length, ...(a.answers.at(-1) ? { last: a.answers.at(-1)!.first } : {}) }));
+			return all.filter((a) => kept.has(groups.get(a.id)!)).map((a) => {
+				const replaced = a.supersedes ? groups.get(a.supersedes) ?? a.supersedes : undefined, state: HeadAskRow["state"] = a.answers.length ? "answered" : a.acted !== undefined ? "handled" : a.read !== undefined ? "received" : open.has(a.id) ? "waiting" : "silent";
+				return { id: a.id, group: groups.get(a.id)!, workspace: a.workspace, label: a.label, since: a.at, at: a.last, first: a.first, state, answers: a.answers.length, ...(a.answers.at(-1) ? { last: a.answers.at(-1)!.first } : {}), ...(a.sent ? { sent: a.sent } : {}), ...(a.boss ? { boss: a.boss } : {}), ...(replaced && replaced !== groups.get(a.id) ? { supersedes: replaced } : {}) };
+			});
 		},
 		chapters: () => readChapters(slot),
 		said: (file) => {

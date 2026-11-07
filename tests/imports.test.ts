@@ -406,7 +406,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Unreleased 817 to 818 (join retry): index.ts alone, for the `joinRetryMs` seam (state.ts, membership.ts, and session.ts have budgets of their own above).
 	// Pi paths for the tower (todo #34, measured) 818 to 842: headcmd.ts 105 to 129 (`/boss head retry | parked | deliver | drop`, `--answers`, their words).
 	// Review fixes of the pi paths (measured) 842 to 863: bosssend.ts (21, new: the words of `/boss send` and `/boss stop`, read by boss.ts and by control.ts's text guard).
-	assert.ok(rest <= 863, `the rest of src has ${rest} lines`);
+	// Head log cards (todo #124, docs/specs/2026-11-07-head-log-cards.md) 863 to 865 (measured): headasks.ts has its own figure; the rest is nethead.ts (the row's `sent`, `boss`, `supersedes`, and two states) and runhead.ts (`supersedes`, the description as a constant). Cap = measured.
+	assert.ok(rest <= 865, `the rest of src has ${rest} lines`);
 	// Unreleased (settings check, probe): settings.ts is the lstat gate, the child's program (refuses a link it cannot follow, stats before opening; review SR5), and its runner (160); it no longer walks links. settings.ts 92 (new: the look before pi starts in a folder), raised 92 to 135 for the link walk (every hop of .pi and settings.json, refusing /proc, /dev, /sys; review SP-R001).
 	// Unreleased raised trust/ask.ts from 182 to 183 (RC3-F001): the recorded server's start time is read when the handler registers.
 	// Unreleased raised trust/ask.ts from 183 to 201 (RC4-F001, F002): `warmServerStart` (the early read only for a live server that reads trust requests) and `guiUp` (what the handler's `up` asks) are exported for their tests, and `registerTrust` takes the terminal it answers on.
@@ -487,7 +488,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Worker process hygiene (sb procs T2, after its review): the owner registry is procs.ts (403, new), its socket ops and wiring procsops.ts (82, new), the cli command procscli.ts (32, new); main.ts keeps seven lines of it (the import, the option, the variable, the ops hook, the start call; 676 to 682), cli.ts eleven (usage, the flag table, the `sub` word and its check, the case; 446 to 457).
 	// Merge of origin/main (0.57.0, process hygiene) into the head tower: main.ts is 686 (main's 682 plus the head's 4), cli.ts 457 (main's figure), and the row keeps the procs files' entries.
 	// Shared box (docs/specs/2026-11-05-link-shared-box.md): main.ts is 687 (686 plus the dispatcher.ts import; the dispatcher lookup, the admin seam, and the scope on the notices ride on lines that were there), towers.ts 1178 (the `delivered` and `known` seams of the ally port, and the sweep that ends a controller's opened mains: the revoker, its timer, the `level` a route keeps; revoke.ts holds the rule).
-	for (const [name, max] of [["record.ts", 485], ["log.ts", 135], ["version.ts", 28], ["acl.ts", 402], ["socket.ts", 275], ["client.ts", 829], ["intercom.ts", 120], ["main.ts", 706], ["cli.ts", 457], ["winprep.ts", 509], ["breakaway.ts", 251], ["testguard.ts", 115], ["towers.ts", 1212], ["towerstore.ts", 287], ["towerruns.ts", 28], ["towerclient.ts", 78], ["desk.ts", 125], ["procs.ts", 485], ["procsops.ts", 82], ["procscli.ts", 32]] as const) assert.ok(count(`src/server/${name}`) <= max, `src/server/${name} has ${count(`src/server/${name}`)} lines`);
+	// Head log cards (todo #124): towers.ts 1212 to 1215 (the head port's `boss`, and the note that a tower acted). Cap = measured.
+	for (const [name, max] of [["record.ts", 485], ["log.ts", 135], ["version.ts", 28], ["acl.ts", 402], ["socket.ts", 275], ["client.ts", 829], ["intercom.ts", 120], ["main.ts", 706], ["cli.ts", 457], ["winprep.ts", 509], ["breakaway.ts", 251], ["testguard.ts", 115], ["towers.ts", 1215], ["towerstore.ts", 287], ["towerruns.ts", 28], ["towerclient.ts", 78], ["desk.ts", 125], ["procs.ts", 485], ["procsops.ts", 82], ["procscli.ts", 32]] as const) assert.ok(count(`src/server/${name}`) <= max, `src/server/${name} has ${count(`src/server/${name}`)} lines`);
 	// The page: the files the spec budgets one by one, then this round's own figures (no figure in the spec): the focus views, the overlay
 	// layer (alert spotting and the stack model in the map's chunk, the layer's DOM and tiles in a chunk of their own), the dev-only demo, and everything else.
 	// 0.18.1 raised mirror.ts to 154 for embed, a terminal shown inside the session view instead of a tile.
@@ -805,7 +807,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Remote stop, the controller (todo #100 task 4) to 6999 (measured, +95 over 6904): linkmodel.ts (`MainCard`, `mainCards`), allyunits.ts (the Mains fold), mainstop.ts (new), quit.ts (`choose`), demo-ally.ts (the four scenes), render.ts (the box label passed on). Cap = measured.
 	// Review fixes of the remote stop (USC-F003) to 7001 (measured, +2 over 6999): quit.ts `choose` (the danger tone, the focus on Cancel).
 	// Z-D22 and the remote stop controller merged on main: 7020 lines (measured). Cap = measured.
-	assert.ok(page <= 7020, `the page's TypeScript has ${page} lines`);
+	// Head log cards (todo #124, docs/specs/2026-11-07-head-log-cards.md) 7020 to 7100 (measured, +80): headpage.ts (the card's parts, `sentLine`, the chain of corrections folded under the newest) and demo-head.ts (the chain of the boss's screenshot, in both languages). Cap = measured.
+	assert.ok(page <= 7100, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -968,7 +971,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merged with the head's fill (0.60.3, #117): 107,892 / 39,065 measured, +0 / +2: the two branches' eager modules compress together slightly worse. Cap = measured.
 		// Remote stop, the controller (todo #100 task 4): 109,036 / 39,349 measured, +1,144 / +284 over the figure above: `MainCard` and `mainCards` with the one message of the pending row (linkmodel.ts), and the `choose` sheet the entry shares with the lazy chunk (quit.ts). The fold's code and words are in the lazy chunks. Cap = measured.
 	// Review fixes of the remote stop (USC-F003): 109,075 / 39,378 measured, +39 / +29 over the figure above: `choose`'s danger tone and its focus on Cancel (quit.ts). Cap = measured.
-	assert.ok(eagerBytes <= 109_075 && eagerGz <= 39_378, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Head log cards (todo #124): 111,772 / 40,252 measured, +2,697 / +874 over the figure above: headpage.ts (the card's parts, `sentLine`, the chain) and its fourteen messages in two languages. Cap = measured.
+	assert.ok(eagerBytes <= 111_772 && eagerGz <= 40_252, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1262,7 +1266,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merged with the ally card (0.60.3): 166,131 / 33,628 measured on the merged build. Cap = measured.
 		// Remote stop, the controller (todo #100 task 4): 167,157 / 33,782 measured, +1,026 / +154 over the figure above: the Mains fold's rows and Stop button, the phone's 44 px line, and the sheet row's wrap. Cap = measured.
 	// Review fixes of the remote stop (USC-F001, F003): 167,304 / 33,812 measured, +147 / +30 over the figure above: the base `.au-stop` as `:where()` and the sheet's `.sheet-danger`. Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 167_304 && total(css, gz) <= 33_812, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Head log cards (todo #124): 168,568 / 34,054 measured, +1,264 / +242 over the figure above: the card's parts, its unfolded texts, the fold of replaced orders, and the struck cards. Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 168_568 && total(css, gz) <= 34_054, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen chunk's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

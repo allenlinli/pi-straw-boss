@@ -21,6 +21,8 @@ import { DialogForwarder } from "../link/dialogs-out.ts";
 import { dispatcherLookup, unitLabel } from "./dispatcher.ts";
 import { towerOpener } from "./opentower.ts";
 import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
+import type { OperateBox } from "./operatebox.ts";
+import { operateWire } from "./operatewire.ts";
 import { createLog, tailLog } from "./log.ts";
 import { procsReply, startProcs, type StartProcs } from "./procsops.ts";
 import { gateRun, type RunInfo } from "./rungate.ts";
@@ -283,12 +285,14 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	// The dialog forwarder (src/link/dialogs-out.ts) and the unit reporter (src/link/unitstatus.ts) are built later, with the link; they are declared here so a start that gives up early can shut down before either exists.
 	let forwarder: DialogForwarder | undefined;
 	let reporter: UnitReporter | undefined;
+	let operateBox: OperateBox | undefined;
 	const shutdown = (code: number): Promise<void> => (leaving ??= (async () => {
 		const began = now();
 		timers.forEach(clearInterval);
 		stops.forEach((stop) => stop());
 		// The link holder's record goes before the server does, so the next server takes it at its first look and no relay stream is left half open.
 		forwarder?.stop();
+		operateBox?.stop(); // each operate session says `close` to its operator while the holder still runs
 		await Promise.race([link?.stop().catch((error: Error) => log.line("error", { code: "link", text: phrase(error.message, 300) })), sleep(LINK_STOP_MS)]);
 		// The GUI listeners and the remote entry go before the intercom ids are released.
 		await Promise.race([guiHost?.leave(phase === "stopping").catch(() => {}), sleep(GUI_LEAVE_MS)]);
@@ -617,6 +621,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	const startLink = () => {
 		if (link || !slot.primary || leaving) return;
 		link = createLinkService({
+			// The operate bridge (operatewire.ts) is built by the first message the holder hands it; an attended computer never gets one.
+			operate: (m) => (operateBox ??= operateWire({ slot, now, run: cfg.run, gui: () => guiHost?.operate(), allyPanes: () => towers?.runs.allyPanes() ?? [], link: () => link })).take(m), onRoster: (team) => operateBox?.onRoster(team),
 			kit, stateDir: slot.stateDir, version, pid, started: () => own.started,
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
 			dialogAnswer: (a) => dialogsOut().answer(a),

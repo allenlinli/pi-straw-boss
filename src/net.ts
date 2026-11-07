@@ -165,6 +165,7 @@ export function netSource(env: { services?(workspace: string): TowerView | undef
 			return old && { ...old, live: false, successor: old.pane ? [...refs.values()].find((r) => r.pane === old.pane)?.key : undefined };
 		},
 		workspace: (id: string): Ref[] => [...refs.values()].filter((r) => r.base === id),
+		refs: (): Ref[] => [...refs.values()], // every unit of the last reading: the operate scope reads the owner of each (operatescope.ts)
 		/** Hides a finished subagent from every page until it leaves the net; false for anything else. */
 		dismiss: (key: string) => ended.has(key) && Boolean(dismissed.add(key)),
 		/** Hides every finished subagent now on the net at once; how many were newly hidden. */

@@ -152,9 +152,7 @@ export function createOperateHost(deps: OperateHostDeps) {
 	function open(s: Sess) {
 		const self = deps.device();
 		if (!self) return;
-		const was = s.state;
-		s.state = s.reopening ? "live" : "opening";
-		if (s.state !== was) changed(); // a greyed base that is being reopened stays in the net as one
+		s.state = s.reopening ? "live" : "opening"; // `merged()` shows an `opening` session's net as `unreachable`, so a greyed base stays in the net while its reopen waits
 		try {
 			const session = OperateSession.open({
 				now: deps.now,
@@ -573,7 +571,6 @@ export function createOperateHost(deps: OperateHostDeps) {
 		} } satisfies RemoteBridge,
 		/** A page's stream connected: the sessions open at the next tick. Returns the call that tells the host it left. */
 		page(): () => void {
-			if (stopped) return () => undefined;
 			pages++;
 			leftAt = undefined;
 			pulse();

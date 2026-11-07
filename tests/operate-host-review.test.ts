@@ -163,6 +163,7 @@ test("OHR-F008: a refused watch (the box's 429) is told to the page and asked ag
 	assert.ok(told, "the page was told");
 	assert.equal((told![1] as { state: string }).state, "unknown");
 	assert.equal(w.logs.filter((l) => l.event === "operate-bad-frame").length, 0);
+	w.box().snap(SNAP()); // a snapshot is what asks a watch again
 	await w.run(2000);
 	assert.equal(w.box().watches().filter((m) => m.on === true).length, 1, "not asked again at once");
 	await w.run(15_000);
@@ -184,19 +185,27 @@ test("OHR-F008: accept.limits.watches caps the watches a session is asked for", 
 	assert.ok(heard.includes("c:history:unknown"), heard.join(" "));
 });
 
-test("OHR-F009: stop() is final: no tick, page or clock opens a session afterwards", async () => {
-	const sent: string[] = [];
-	const host = createOperateHost({ now: Date.now, device: () => "a".repeat(26), boxes: () => [offer(A)], log: () => {}, interval: 15, send: async (_t, _d, m) => void sent.push(m.type) });
-	host.page();
-	await new Promise((r) => setTimeout(r, 50));
-	const n = sent.filter((t) => t === "open").length;
-	assert.equal(n, 1);
-	host.stop();
-	host.page();
-	host.tick();
-	await new Promise((r) => setTimeout(r, 120));
-	assert.equal(sent.filter((t) => t === "open").length, n);
-	assert.deepEqual(host.status(), []);
+test("OHR-F009: stop() is final: no tick, page or clock opens a session afterwards, and no clock is armed", async () => {
+	const sent: string[] = [], armed: number[] = [], real = globalThis.setInterval;
+	globalThis.setInterval = ((fn: () => void, ms?: number) => (armed.push(ms ?? 0), real(fn, ms))) as typeof setInterval;
+	try {
+		const host = createOperateHost({ now: Date.now, device: () => "a".repeat(26), boxes: () => [offer(A)], log: () => {}, interval: 15, send: async (_t, _d, m) => void sent.push(m.type) });
+		host.page();
+		await new Promise((r) => setImmediate(r)); // the microtask that ticks once
+		assert.equal(armed.length, 1);
+		const n = sent.filter((t) => t === "open").length;
+		assert.equal(n, 1);
+		const armedBefore = armed.length;
+		host.stop();
+		host.page();
+		host.tick();
+		await new Promise((r) => setImmediate(r));
+		assert.equal(armed.length, armedBefore, "no interval is armed after stop()");
+		assert.equal(sent.filter((t) => t === "open").length, n);
+		assert.deepEqual(host.status(), []);
+	} finally {
+		globalThis.setInterval = real;
+	}
 });
 
 test("OHR-F010: Stop's Escape is not held back by the pad's rate", async () => {
@@ -212,6 +221,13 @@ test("OHR-F010: Stop's Escape is not held back by the pad's rate", async () => {
 	assert.equal(sends(), 5, "Stop reached the box");
 	const sixth = w.host.bridge.claim("POST", ["sessions", key, "keys"], { key: "up" })!.send();
 	assert.equal((await settled(sixth) as { status: number }).status, 429, "and it did not widen the pad's rate");
+	await w.run(1500);
+	for (let i = 0; i < 3; i++) void w.host.bridge.claim("POST", ["sessions", key, "keys"], { key: "up" })!.send();
+	void w.host.bridge.claim("POST", ["sessions", key, "keys"], { keys: ["esc"] })!.send();
+	const fourth = w.host.bridge.claim("POST", ["sessions", key, "keys"], { key: "down" })!.send();
+	await w.pump();
+	assert.equal(await settled(fourth), "pending", "forwarded to the box (a 429 would have answered at once)");
+	assert.equal(w.box().reqs().length, 5 + 3 + 1 + 1, "Stop did not count against the pad: its fourth key still went");
 });
 
 test("OHR-F011: a relay that refuses every send writes one operate-send-failed line a minute for a session, with the count", async () => {
@@ -358,7 +374,6 @@ test("H16: an upload over HTTP is read up to 2 MB; what is over never reaches th
 		await w.pump();
 		w.box().snap(SNAP());
 		await w.pump();
-		await new Promise((r) => setTimeout(r, 100));
 		const key = unitsOf(w.host.merge(LOCAL)).find((u) => u.name === "a-main")!.key;
 		const status = await new Promise<number>((resolve, reject) => {
 			const req = request(`${gui.url}api/sessions/${key}/upload`, { method: "POST", headers: { host: `127.0.0.1:${gui.port}`, origin: `http://127.0.0.1:${gui.port}`, "content-type": "application/octet-stream", "x-sb-csrf": gui.csrf, "x-sb-name": "big.bin" } }, (res) => (res.resume(), resolve(res.statusCode!)));

@@ -16,7 +16,7 @@ import type { IntercomModule } from "./intercom.ts";
 import type { Log } from "./log.ts";
 import { secretDir, type Slot, towerId, towerName } from "./record.ts";
 import { createHead, HEAD_ORDER, HEAD_TOKEN, type HeadEnsured } from "./head.ts";
-import { asked, closeAsk, openAsk, openAsks } from "./headasks.ts";
+import { asked, checkSupersedes, closeAsk, isAct, noteToolCall, openAsk, openAsks } from "./headasks.ts";
 import { headBrief, headIntake, relayOnlyFromHead, stateWord } from "./headside.ts";
 import { headHost, headTool } from "./headtools.ts";
 import type { Allows } from "./allows.ts";
@@ -1115,12 +1115,15 @@ export function createTowers(o: TowersOptions): Towers {
 			if (who.kind === "head") {
 				const head = headHost(host, {
 					ensureTower: async (workspace) => { const got = await ensure({ workspace }); return { id: got.id, opened: got.opened }; },
-					openAsk: (d) => openAsk(slot, now(), d), closeAsk: (id) => closeAsk(slot, id),
+					openAsk: (d) => openAsk(slot, now(), d), closeAsk: (id) => closeAsk(slot, id), checkSupersedes: (id) => checkSupersedes(slot, id),
 					relay: (turn) => (typeof request.token === "string" && turn !== undefined && runs.bossTaken(request.token, turn) ? `boss:${turn}` : undefined),
+					boss: (turn) => (typeof request.token === "string" && turn !== undefined ? runs.bossEvents(request.token).find((e) => e.id === turn)?.text : undefined),
 				});
 				return await headTool(head, name, args, { ...(typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {}), ...(typeof request.turn === "string" ? { turn: request.turn } : {}) });
 			}
 			const done = await runTool(host, who.kind, name, args, typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {});
+			// What a tower did in the turn the head's message started is noted on the head's ask (headasks.ts `noteToolCall`).
+			if (who.kind === "local" && isAct(name) && typeof request.turn === "string") noteToolCall(slot, now(), ws, readQueue(slot, ws).find((e) => e.id === request.turn), { name, args, details: done.details });
 			// The ask a run answered is spent on the asking computer: a report of a main the run opened must not name it again.
 			if (peer && name === "tower_send" && typeof args.inReplyTo === "string") try { answered.add(who.id, args.inReplyTo); dropAsk(slot, ws, peer.device, args.inReplyTo, now()); } catch (cause) { error("ally-route", (cause as Error).message); }
 			return done;

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Slot } from "./record.ts";
+import { fieldsOf } from "../header.ts";
+import { headId, type Slot } from "./record.ts";
 import { ensureDir, HEAD_KEY, towerDir, writeDurable } from "./towerstore.ts";
 
 // The head tower's asks (docs/specs/2026-11-04-head-tower.md, Forwarding, and the answers): each forward to a workspace tower opens an ask `H<n>` in `head/asks.json`. An ask stays open for 24 hours after its last forward or
@@ -12,6 +13,8 @@ export const ASK_CAP = 40;
 /** Closed and expired asks stay in the file for the brief and the page; the oldest beyond this go. */
 const ASK_KEEP = 100;
 const FIRST = 120;
+/** The most of the head's message, and of the boss's words, an ask keeps whole for the card that unfolds (docs/specs/2026-11-07-head-log-cards.md): the page draws every kept ask of a snapshot, so the text is cut here, not at the page. */
+const TEXT_KEEP = 1500;
 /** The head has no broadcast tool, so one boss instruction is several `tower_send` calls: asks with one `relay` are one broadcast; asks with none (before the relay existed, the head's own notes) are one when they have the same first line, each within this long of the newest member before it. */
 export const GROUP_MS = 60_000;
 
@@ -24,6 +27,17 @@ export interface HeadAsk {
 	at: number;
 	last: number;
 	first: string;
+	/** The message the head sent, whole (cut at `TEXT_KEEP`); a file from before it has none, and the page shows `first`. */
+	sent?: string;
+	/** The boss's own words of the event `relay` names, kept on the first ask of the broadcast only (every ask of one instruction has the same); never the model's text. */
+	boss?: string;
+	/** The earlier ask (`H<n>`) the head named as the one this correction replaces; the page folds that broadcast under this one. */
+	supersedes?: string;
+	/** When the tower of the workspace took the message into a run (`read`), and when it first sent something in a turn that message started (`acted`): what the server saw of the tower, whatever the tower answered. */
+	read?: number;
+	acted?: number;
+	/** When the tower's reply to the head was refused at its tool (a `tower_reply` to the head does not pass the head's gate), so the head never got an answer from it. */
+	missed?: number;
 	/** `boss:<event id>`: the forward was the boss's instruction relayed. */
 	relay?: string;
 	/** The id of the first ask of the broadcast this one belongs to (docs/specs/2026-11-06-head-page-minimal.md); a file from before it has none, and `groupsOf` derives it. */
@@ -35,15 +49,24 @@ export interface HeadAsk {
 interface File { next: number; asks: HeadAsk[] }
 
 const fileOf = (slot: Slot) => join(towerDir(slot, HEAD_KEY), "asks.json");
-const line = (text: string) => Array.from(text.split("\n").find((l) => l.trim()) ?? "").join("").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, FIRST);
+const cut = (text: string | undefined) => { const t = (text ?? "").trim(); return t ? Array.from(t).slice(0, TEXT_KEEP).join("") : undefined; };
+const line = (text: string) => Array.from(text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").split("\n").map((l) => l.replace(/\s+/g, " ").trim()).find(Boolean) ?? "").join("").slice(0, FIRST);
 const valid = (a: unknown): a is HeadAsk => {
 	const v = a as Partial<HeadAsk> | null;
 	return typeof v === "object" && v !== null && typeof v.id === "string" && /^H\d+$/.test(v.id) && typeof v.workspace === "string" && typeof v.label === "string" && Number.isFinite(v.at) && Number.isFinite(v.last) && typeof v.first === "string" && Array.isArray(v.answers);
 };
+/**
+ * An ask as the file holds it, with each optional field of the cards kept only when it has its type (a hand-edited or damaged file must not reach the page as a number where text is drawn): text for `group`, `sent`, and `boss`,
+ * an `H<n>` for `supersedes`, a finite time for `read` and `acted`. A field of the wrong type is dropped and the ask stays.
+ */
+function clean(a: HeadAsk): HeadAsk {
+	const { group, sent, boss, supersedes, read, acted, missed, closed, ...rest } = a;
+	return { ...rest, ...(typeof group === "string" ? { group } : {}), ...(typeof sent === "string" ? { sent } : {}), ...(typeof boss === "string" ? { boss } : {}), ...(typeof supersedes === "string" && /^H\d+$/.test(supersedes) ? { supersedes } : {}), ...(typeof read === "number" && Number.isFinite(read) ? { read } : {}), ...(typeof acted === "number" && Number.isFinite(acted) ? { acted } : {}), ...(typeof missed === "number" && Number.isFinite(missed) ? { missed } : {}), ...(closed === true ? { closed } : {}) };
+}
 function load(slot: Slot): File {
 	try {
 		const f = JSON.parse(readFileSync(fileOf(slot), "utf8")) as Partial<File>;
-		const asks = Array.isArray(f.asks) ? f.asks.filter(valid).map((a) => (typeof a.group === "string" ? a : (({ group: _g, ...rest }) => rest)(a))) : [];
+		const asks = Array.isArray(f.asks) ? f.asks.filter(valid).map(clean) : [];
 		return { next: Number.isInteger(f.next) && f.next! >= 1 ? f.next! : 1 + Math.max(0, ...asks.map((a) => Number(a.id.slice(1)))), asks };
 	} catch {
 		return { next: 1, asks: [] };
@@ -75,10 +98,23 @@ export const readAsks = (slot: Slot, _now: number): HeadAsk[] => load(slot).asks
 /** The asks that are open now, oldest first. */
 export const openAsks = (slot: Slot, now: number): HeadAsk[] => load(slot).asks.filter((a) => isOpen(a, now));
 
-/** Opens an ask for a forward; the 41st open ask closes the oldest open one. */
-export function openAsk(slot: Slot, now: number, d: { workspace: string; label: string; first: string; relay?: string }): HeadAsk {
-	const file = load(slot), id = `H${file.next}`, ask: HeadAsk = { id, workspace: d.workspace, label: d.label, at: now, last: now, first: line(d.first), ...(d.relay ? { relay: d.relay } : {}), answers: [] };
+/** Throws for a `supersedes` that is not the id (`H<n>`) of an ask of the file older than the one about to open: the head's forward asks this before it opens a tower for it. */
+function refuseSupersedes(file: File, supersedes: string): void {
+	if (!(/^H\d+$/.test(supersedes) && Number(supersedes.slice(1)) < file.next && file.asks.some((a) => a.id === supersedes))) throw new Error(`supersedes has to be the id (H12) of an earlier ask you sent; ${JSON.stringify(supersedes)} is not one`);
+}
+export const checkSupersedes = (slot: Slot, supersedes: string): void => refuseSupersedes(load(slot), supersedes);
+
+/**
+ * Opens an ask for a forward; the 41st open ask closes the oldest open one. `first` is the message: its first line and the whole of it (`sent`) are kept. `boss` is the boss's words (the first ask of a relayed broadcast keeps them),
+ * `supersedes` the earlier ask this one corrects: it has to be an `H<n>` of the file and older than this ask, or the call throws and opens nothing.
+ */
+export function openAsk(slot: Slot, now: number, d: { workspace: string; label: string; first: string; relay?: string; boss?: string; supersedes?: string }): HeadAsk {
+	const file = load(slot), id = `H${file.next}`;
+	if (d.supersedes !== undefined) refuseSupersedes(file, d.supersedes);
+	const sent = cut(d.first), ask: HeadAsk = { id, workspace: d.workspace, label: d.label, at: now, last: now, first: line(d.first), ...(sent ? { sent } : {}), ...(d.relay ? { relay: d.relay } : {}), ...(d.supersedes ? { supersedes: d.supersedes } : {}), answers: [] };
 	ask.group = groupsOf([...file.asks, ask]).get(id)!;
+	const boss = ask.group === id ? cut(d.boss) : undefined;
+	if (boss) ask.boss = boss;
 	file.next++;
 	file.asks.push(ask);
 	const open = file.asks.filter((a) => isOpen(a, now));
@@ -94,6 +130,47 @@ export function answerAsk(slot: Slot, now: number, d: { id: string; workspace: s
 	ask.last = now;
 	save(slot, file);
 	return ask;
+}
+/**
+ * Records what the server saw the tower of `workspace` do with the ask: it `read` it (a run took the message) or `acted` (it sent something in the turn the message started; acting is reading). The ask's 24 hours do not move.
+ * False for an ask that is not there or is another workspace's.
+ */
+export function noteAsk(slot: Slot, now: number, d: { id: string; workspace: string; what: "read" | "acted" | "missed" }): boolean {
+	const file = load(slot), ask = file.asks.find((a) => a.id === d.id);
+	if (!ask || ask.workspace !== d.workspace) return false;
+	if (ask.read !== undefined && (d.what === "read" || (ask.acted !== undefined && (d.what === "acted" || ask.missed !== undefined)))) return true;
+	ask.read ??= now;
+	if (d.what !== "read") ask.acted ??= now;
+	if (d.what === "missed") ask.missed ??= now;
+	save(slot, file);
+	return true;
+}
+/**
+ * What a workspace tower did with an event in its queue, noted on the head's ask the event carries: only an event the head identity sent (`from`), whose header names an `ask=H<n>` of this workspace, counts; the header of anyone else's
+ * message is its sender's own word. Nothing happens for any other event, and nothing throws: a note must not break the run it is about.
+ */
+export function noteEvent(slot: Slot, now: number, workspace: string, event: { from?: { id: string }; text: string } | undefined, what: "read" | "acted"): void {
+	try {
+		const id = event?.from?.id === headId(slot) ? fieldsOf(event.text)?.ask : undefined;
+		if (id && /^H\d+$/.test(id)) noteAsk(slot, now, { id, workspace, what });
+	} catch { /* the ask is a convenience of the page */ }
+}
+/** The tools of a tower run that count as acting on the head's message: it sent something, or handed the order to a main. Others (listing, memory, reading the board) are not acts. */
+const ACTS = new Set(["tower_send", "tower_reply", "boss_open_main"]);
+export const isAct = (name: string): boolean => ACTS.has(name);
+/**
+ * What a workspace tower's run did with its tool in the turn an event of the head started (`event`, the event that started the turn): any send, a reply, or an order handed to a main that succeeded is `acted`. An answer to the head is
+ * never recorded here: `tower_send {head: true, inReplyTo}` reaches the head's own intake, which records it, and a `tower_reply` to the head is refused by the head's gate, so it is `acted` with `missed` (the head got nothing). A call with
+ * no result (it failed) records nothing. Nothing throws: a note must not break the call it is about.
+ */
+export function noteToolCall(slot: Slot, now: number, workspace: string, event: { from?: { id: string }; text: string } | undefined, call: { name: string; args: Record<string, unknown>; details?: unknown }): void {
+	try {
+		if (!isAct(call.name) || call.details === undefined) return;
+		const to = call.details as { to?: unknown; towerId?: unknown }, toHead = call.name === "tower_reply" && (to.to === headId(slot) || to.towerId === headId(slot));
+		const id = event?.from?.id === headId(slot) ? fieldsOf(event.text)?.ask : undefined;
+		if (!id || !/^H\d+$/.test(id)) return;
+		noteAsk(slot, now, { id, workspace, what: toHead ? "missed" : "acted" });
+	} catch { /* the ask is a convenience of the page */ }
 }
 /** Closes an ask: the forward it was opened for was not delivered. */
 export function closeAsk(slot: Slot, id: string): void {

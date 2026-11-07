@@ -5,6 +5,7 @@ import { remoteTowers } from "../link/remotelist.ts";
 import type { AllyBoard, AllyTeam } from "../link/holder.ts";
 import { clean } from "../board.ts";
 import type { Reach } from "../reach.ts";
+import { headIdOf } from "../reachhead.ts";
 import type { Kind, RunWho } from "./rungate.ts";
 import type { TakeResult } from "./allows.ts";
 import { randomBytes } from "node:crypto";
@@ -278,6 +279,8 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			const named = net.sessions.filter((s) => s.id === to || s.name === to);
 			if (named.length !== 1) throw new Error(`${named.length ? "Several sessions are named" : "No live session is named or has the id"} "${to}"`);
 			const target = named[0]!, shown = clean(target.name ?? target.id, 40);
+			// The head's gate takes a `tower_send` that names its ask, never a `tower_reply`: say so here, before anything is sent, instead of leaving the run to read a refused receipt (or none) as an answer given.
+			if (!ally && target.id === headIdOf(net.all)) throw new Error("Not delivered: the head tower takes no tower_reply. Answer it with tower_send {head: true, inReplyTo: \"H<n>\", message} (H<n> is the ask id in the header of its message).");
 			// The server stamps `origin=remote:<device id>` on what an ally run sends to a local session, so the receiver knows a peer's text started it.
 			const result = await reach.post(target.id, message, "tower_reply", "session", args.reply === true, ally && host.who.device ? `remote:${host.who.device}` : undefined);
 			if (result.status !== "sent") throw new Error(`${shown} did not take the message: ${result.status} ${result.code ?? ""} ${result.detail ?? ""}`.trim());

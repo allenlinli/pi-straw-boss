@@ -250,7 +250,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		if (claim!.kind !== "ally") pi.registerTool({ name: "tower_memory", label: "tower_memory", description: MEMORY_DESCRIPTION, parameters: memoryParameters(), execute: async (id, params) => ({ content: [{ type: "text", text: (await tool("tower_memory", params, id)).text }], details: undefined }) });
 		if (claim!.kind !== "head") pi.registerTool({
 			name: "tower_reply", label: "tower_reply",
-			description: "Answer one local session (a main or a member) by its intercom name or session id. It goes out under the tower's header, as the tower identity, so the answer reaches the session that asked. In a run this replaces intercom send.",
+			description: "Answer one local session (a main or a member) by its intercom name or session id. It goes out under the tower's header, as the tower identity, so the answer reaches the session that asked. In a run this replaces intercom send. Not for the head tower: it takes only tower_send with head: true and inReplyTo.",
 			parameters: Type.Object({
 				to: Type.String({ description: "The session's intercom name or session id." }),
 				message: Type.String({ description: "The answer, terse: what the session needs to know or do." }),

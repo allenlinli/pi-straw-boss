@@ -29,6 +29,8 @@ The head's brief: when any open wait is lapsed, the brief gains one line after t
 
 ## Asks: one row per broadcast
 
+> The row, its state words, and the order of cards are changed by `2026-11-07-head-log-cards.md` (labelled parts, `handled` and `received`, corrections folded under the newest).
+
 The head has no broadcast tool; one boss instruction becomes several `tower_send` calls with the same message. Each call still opens one ask.
 
 - **Data.** `asks.json` asks gain `group?: string`, the id of the first ask of the broadcast (`H12`). One function (`groupsOf`) decides it, for a new ask and for a file without the field: an ask with a `relay` (`boss:<event id>`, the same for every ask of one boss instruction, however the head worded the message to each tower) joins the newest earlier ask with that `relay`, at any distance in time; an ask without one (a file from before the relay, the head's own notes) joins the newest earlier ask without one whose first line is identical and whose `at` is 0 to under 60 s before it (chained: a later member keeps the group alive; a prior `at` in the future, from clock skew, is no member); otherwise the ask is its own group. Relayed and unrelayed asks never join each other. The boss's own file (20 asks) is 6 broadcasts by this rule; grouped by first line alone it was 11. Nothing else in the file changes, `next` and the cap behave as before, and an ask file with no `group` anywhere still reads: the reader derives the same grouping (by the rule above) for asks that lack the field. Readers of `asks.json`: the GUI row source (`headnet.ts`) and the head brief (`headside.ts`, open asks, unchanged); nothing else (checked with `grep readAsks openAsks`).

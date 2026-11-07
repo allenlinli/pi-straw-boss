@@ -147,7 +147,7 @@ test("src/server/main.ts reaches no value import of pi's packages, and none of t
 // whole, so a page module whose value imports reach a `node:` builtin breaks the dev page (0.54.0 to 0.59.5: termcard.ts and
 // confirmwords.ts took ENDING from src/probe.ts, which loads src/runs.ts and node:crypto).
 test("no page module reaches a node: builtin through its value imports", () => {
-	const pages = readdirSync(join(root, "gui")).filter((name) => name.endsWith(".ts") && !name.endsWith(".d.ts")).map((name) => `gui/${name}`);
+	const pages = readdirSync(join(root, "gui")).filter((name) => name.endsWith(".ts") && !name.endsWith(".d.ts") && name !== "vite.config.ts").map((name) => `gui/${name}`); // vite.config.ts is the build, not a page module
 	const hits: string[] = [];
 	for (const entry of pages) {
 		const seen = new Set<string>();

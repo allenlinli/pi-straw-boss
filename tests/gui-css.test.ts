@@ -7,6 +7,9 @@ import { declarations, rulesOf } from "./css-rules.ts";
 // and text boxes and menus are themed.
 const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8");
 const rule = (selector: string) => css.split("\n").flatMap((line) => (line.includes(selector) ? [line] : [])).join("\n");
+// Geek's rules live in its theme file (gui/themes/geek/geek.css), loaded after this sheet; the entry sheet holds none of them.
+const geekCss = readFileSync(new URL("../gui/themes/geek/geek.css", import.meta.url), "utf8");
+const geekRule = (selector: string) => geekCss.split("\n").flatMap((line) => (line.includes(selector) ? [line] : [])).join("\n");
 
 test("`.slash[hidden]` is display none", () => {
 	assert.match(css, /\.slash\[hidden\]\s*\{\s*display:\s*none/);
@@ -77,8 +80,8 @@ test("forced colors: disabled controls and placeholders take GrayText, and the m
 });
 
 test("Geek: a disabled Send is dim words in a dashed outline, a focused timeline tick has a ring, and the settings page drops the bar's chips", () => {
-	assert.match(rule('[data-view="geek"] :is(.composer, .ask) button:disabled'), /opacity:\s*1[^}]*dashed/);
-	assert.match(rule('[data-view="geek"] .tl-mark:focus-visible'), /outline:\s*2px solid var\(--text\)/);
+	assert.match(geekRule('[data-view="geek"] :is(.composer, .ask) button:disabled'), /opacity:\s*1[^}]*dashed/);
+	assert.match(geekRule('[data-view="geek"] .tl-mark:focus-visible'), /outline:\s*2px solid var\(--text\)/);
 	assert.match(rule('body[data-route="settings"]'), /display:\s*none/);
 });
 
@@ -104,7 +107,7 @@ test("Zen's first frame in style.css is scoped to the Zen view, so Standard and 
 	assert.match(css, /#zen:empty:not\(\[hidden\]\)::after \{[^}]*animation: zen-breath 10s infinite/);
 	assert.match(css, /\[data-view="zen"\]\[data-calm\] #zen:empty:not\(\[hidden\]\)::after \{ animation: none; \}/);
 	assert.match(css, /40% \{ transform: scale\(1\)/, "4 s in of the 10 s breath");
-	assert.ok(!/zen/.test(css.slice(css.indexOf('[data-view="geek"] {'))), "nothing of Zen's after the Geek block opens");
+	assert.ok(!/zen/.test(geekCss), "nothing of Zen's in the Geek theme");
 });
 
 test("zen.css: the visual language (Z-D15): no boxes, selection is light with a dot, the seal marks only the keys and never as a ring around a box, overlays let the page recede", () => {
@@ -194,7 +197,7 @@ test("the terminal card is the dock's other box: a dialog's box rules, the confi
 	assert.match(css, /\(pointer: coarse\) \{ \.pad-key, \.pad-yes, \.pad-no, \.tcard-mask, \.tcard-go, \.tcard-input, \.tcard \.x, \.tcard-full \{ min-height: 44px; \}/, "44 px targets, in the pad's phone rule");
 	assert.match(css, /@media \(max-width: 640px\) \{ \.tcard \{[^}]*env\(safe-area-inset-bottom\)/, "a sheet clear of the home bar");
 	assert.match(css, /\.dock > \.dialog \{ z-index: 1; \}/, "a dialog opened over the card covers it");
-	assert.match(css, /\[data-view="geek"\] :is\([^)]*\.tcard[^)]*\) \{ background: var\(--surface-0\); \}/, "flat in Geek");
+	assert.match(geekCss, /\[data-view="geek"\] :is\([^)]*\.tcard[^)]*\) \{ background: var\(--surface-0\); \}/, "flat in Geek");
 	assert.match(css, /forced-colors: active\) \{[\s\S]*\.tcard \{ border: 1px solid CanvasText; \}/);
 	assert.match(zen, /\.tcard > header \{ position: absolute;[^}]*clip-path/, "Zen's layer names the unit: the card's header is for readers only");
 	assert.match(zen, /\.zen-term-host :is\(\.pad-yes, \.pad-no, \.tcard-mask, \.tcard-go\) \{ min-height: 44px/);
@@ -421,12 +424,12 @@ test("a queued row's label (排隊中・插話, Queued · steer) never breaks in
 	assert.ok(on(".queue-list p").some(([p, v]) => p === "overflow-wrap" && v === "anywhere"), "a long path or URL breaks anywhere instead of pulling the label apart");
 });
 
-test("an ally card's unit is flat in Geek: a stale one is not dimmed (its pill and its words say it), and the card's unit rules sit once, before the Geek block", () => {
-	assert.match(css, /\[data-view="geek"\] :is\([^)]*\.ally-unit\.stale[^)]*\) \{ opacity: 1; \}/);
-	assert.match(css, /\[data-view="geek"\] \.ally-unit \{ background: none; \}/, "and not tinted");
+test("an ally card's unit is flat in Geek: a stale one is not dimmed (its pill and its words say it), and the card's unit rules sit once in the entry sheet", () => {
+	assert.match(geekCss, /\[data-view="geek"\] :is\([^)]*\.ally-unit\.stale[^)]*\) \{ opacity: 1; \}/);
+	assert.match(geekCss, /\[data-view="geek"\] \.ally-unit \{ background: none; \}/, "and not tinted");
 	assert.match(css, /^\.ally-unit \{[^}]*grid-template-columns: minmax\(0, 1fr\)/m, "a long monospace line (a monitor, a report's first line) cannot widen the unit past its card");
 	assert.equal([...css.matchAll(/^\.ally-unit \{/gm)].length, 1);
-	assert.ok(css.indexOf(".ally-unit {") < css.indexOf('[data-view="geek"] {'));
+	assert.ok(css.split("\n").every((l) => !/\[data-view="geek"\][^)]*\{/.test(l.replace(/:not\(\[data-view="geek"\]\)/g, ""))), "the entry sheet has no Geek rule");
 });
 
 test("the drawer's current row keeps its chevron's strip clear of a Quit button: the card's right padding is the chevron's inset plus a glyph (Geek's wider one) and a gap", () => {

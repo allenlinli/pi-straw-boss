@@ -188,7 +188,8 @@ test("a page whose script never ran is already blocked: index.html ships the ove
 
 test("the overlay's ring rests with calm and in Geek, the page has a still sign without motion, and the overlay covers the page", () => {
 	const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8");
-	assert.match(css, /:is\(\[data-calm\], \[data-view="geek"\]\) :is\([^)]*\.connect-ring/);
+	assert.match(css, /^\[data-calm\] :is\([^)]*\.connect-ring/m);
+	assert.match(readFileSync(new URL("../gui/themes/geek/geek.css", import.meta.url), "utf8"), /^\[data-view="geek"\] :is\([^)]*\.connect-ring/m, "and Geek keeps the still ring always (its own sheet)");
 	assert.match(css, /\.connect-ring \{[^}]*animation: spin [\d.]+s linear infinite/);
 	assert.match(css, /\.connect-ring \{[^}]*border-top-color: var\(--accent\)/, "a ring with a bright arc is a sign that reads without motion");
 	assert.match(css, /\.connect\[open\] \{[^}]*position: fixed[^}]*inset: 0|\.connect \{[^}]*position: fixed[^}]*inset: 0/);

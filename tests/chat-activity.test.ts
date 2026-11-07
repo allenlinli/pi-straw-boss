@@ -121,7 +121,9 @@ test("the motion exists only where the page allows it: not under reduced motion,
 	assert.match(css, /@keyframes ring-run \{[^}]*background-position/, "the sweep");
 	const moving = ring.filter((r) => /animation/.test(r.body));
 	assert.ok(moving.length > 0);
-	assert.ok(moving.every((r) => r.parts.every((p) => /:not\(\[data-calm\]\)/.test(p) && /:not\(\[data-view="geek"\]\)/.test(p) && /:not\(\[data-view="zen"\]\)/.test(p))), "the sweep is drawn only outside calm, Geek and Zen (Zen has its own line)");
+	assert.ok(moving.every((r) => r.parts.every((p) => /:not\(\[data-calm\]\)/.test(p) && /:not\(\[data-view="zen"\]\)/.test(p))), "the sweep is drawn only outside calm and Zen (Zen has its own line)");
+	const geek = readFileSync(new URL("../gui/themes/geek/geek.css", import.meta.url), "utf8");
+	assert.ok(geek.includes('html[data-view="geek"] .composer:is([data-activity="working"], [data-activity="commanding"]) .cmp-row::before { background: color-mix(in srgb, var(--ring) 55%, transparent) !important; }'), "and Geek's own sheet puts the flat ring back over it");
 	const block = css.match(/@media \(prefers-reduced-motion: no-preference\) \{[^@]*?cmp-row::before[\s\S]*?\n\}/);
 	assert.ok(block, "the sweep sits in a no-preference block, so reduced motion gets the still ring and the global stop is a second guard");
 	assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \*:not\(\.zen-hl\), \*::before, \*::after \{ animation: none !important/, "and the page's own stop remains");

@@ -7,7 +7,10 @@ import type { Found, Ref } from "./net.ts";
 // What a page watching one session or one workspace receives on the stream, and the paged API behind it. Everything is read
 // through the registry (net.lookup): a key it does not know, or that has no file yet, never reaches the file system.
 
-export interface Hub { lookup(key: string): Found | undefined; workspace(id: string): Ref[]; readers: ReturnType<typeof makeReaders> }
+/** The finished runs an operate session reaches (docs/specs/2026-11-07-link-operate.md §9, server/operateledger.ts), narrowed to its scope: a key `t<id>` is looked up here (the ledger holds the path, a request never does) and `GET api/transcripts` is answered from it. Only the box's operate hub has one. */
+export interface Transcripts { has(key: string): boolean; lookup(key: string): Found | undefined; list(query: URLSearchParams): Promise<{ status: number; body: unknown }> }
+export interface Hub { lookup(key: string): Found | undefined; workspace(id: string): Ref[]; readers: ReturnType<typeof makeReaders>; transcripts?: Transcripts }
+const foundOf = (hub: Pick<Hub, "lookup" | "transcripts">, key: string): Found | undefined => hub.transcripts?.lookup(key) ?? hub.lookup(key);
 export type Send = (event: string, data: unknown) => void;
 /** `refresh` runs after every net reading: it retries what could not attach yet and reports changes the file events missed. */
 export interface Watch { refresh(): Promise<void>; stop(): void }
@@ -81,7 +84,7 @@ export function watchWorkspace(hub: Hub, id: string, send: Send): Watch {
  * page shows it with <img> instead of carrying base64 in the history.
  */
 export async function image(hub: Hub, [key, id, n]: string[]): Promise<{ type: string; bytes: Buffer } | undefined> {
-	const found = key ? hub.lookup(key) : undefined, i = Number(n), file = found?.file && id ? await fileOfEntry(hub, found, id) : undefined;
+	const found = key ? foundOf(hub, key) : undefined, i = Number(n), file = found?.file && id ? await fileOfEntry(hub, found, id) : undefined;
 	if (!file || !id || !Number.isInteger(i) || i < 0) return undefined;
 	const reader = hub.readers.acquire(file);
 	try {
@@ -92,9 +95,10 @@ export async function image(hub: Hub, [key, id, n]: string[]): Promise<{ type: s
 	}
 }
 
-/** GET /api/history/<key>?before=<entry id>&limit=<n> and GET /api/entry/<key>/<entry id>. */
+/** GET /api/history/<key>?before=<entry id>&limit=<n>, GET /api/entry/<key>/<entry id>, and (an operate hub only) GET /api/transcripts?before=<cursor>&limit=<n>. */
 export async function api(hub: Hub, [kind, key, id]: string[], query: URLSearchParams): Promise<{ status: number; body: unknown }> {
-	const found = key ? hub.lookup(key) : undefined;
+	if (kind === "transcripts" && key === undefined) return hub.transcripts ? hub.transcripts.list(query) : { status: 404, body: { error: "not found" } };
+	const found = key ? foundOf(hub, key) : undefined;
 	if (!found?.file || !["history", "entry"].includes(kind ?? "")) return { status: 404, body: { error: "not found" } };
 	if (kind === "history") return { status: 200, body: await pageThrough(hub, found, query.get("before") ?? undefined, Math.min(300, Math.max(1, Number(query.get("limit")) || PAGE))) };
 	const file = id ? await fileOfEntry(hub, found, id) : undefined, reader = file && hub.readers.acquire(file);

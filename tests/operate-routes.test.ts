@@ -10,7 +10,7 @@ const Q = new URLSearchParams();
 type Verdict = "request" | "box" | "mirror" | "refused";
 /** The spec's table, typed in again: the test is the second reader of §6.3. */
 const SPEC: [method: "GET" | "POST", path: string, want: Verdict][] = [
-	["GET", "history/k", "request"], ["GET", "entry/k/e", "request"], ["GET", "image/k/e/0", "request"],
+	["GET", "history/k", "request"], ["GET", "transcripts", "request"], ["GET", "transcripts/x", "refused"], ["GET", "entry/k/e", "request"], ["GET", "image/k/e/0", "request"],
 	["POST", "sessions/k/input", "request"], ["POST", "sessions/k/keys", "request"], ["POST", "sessions/k/answer", "request"], ["POST", "sessions/k/dequeue", "request"], ["POST", "sessions/k/commands", "request"], ["POST", "sessions/k/upload", "request"],
 	["POST", "sessions/k/mirror", "mirror"], ["POST", "sessions/k/focus", "refused"],
 	["POST", "dismiss", "request"], ["POST", "close/unit", "request"], ["POST", "close/tab", "request"],
@@ -33,7 +33,7 @@ test("§6.3: every scope control.ts serves has a row in the table, and the table
 	const named = new Set(ROUTES.filter((r) => r.method !== "STREAM").map((r) => r.path.split("/")[0]!));
 	for (const scope of SCOPES) assert.ok(named.has(scope), `no row for ${scope}`);
 	for (const scope of ["sessions", "panes", "remote", "server", "dirs", "open", "close", "dismiss", "trust", "link", "tower", "head", "lan"]) assert.ok(SCOPES.includes(scope), `${scope} left control.ts`);
-	for (const s of named) assert.ok(SCOPES.includes(s) || ["history", "entry", "image", "music", "doc"].includes(s), `a row for ${s}, which nothing serves`);
+	for (const s of named) assert.ok(SCOPES.includes(s) || ["history", "entry", "image", "transcripts", "music", "doc"].includes(s), `a row for ${s}, which nothing serves`);
 });
 
 test("§6.3: a path with an empty or odd segment never matches a row's wildcard", () => {

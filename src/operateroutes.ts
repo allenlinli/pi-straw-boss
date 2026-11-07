@@ -24,6 +24,7 @@ export const ROUTES: readonly Row[] = [
 	{ method: "GET", path: "history/*", cross: "request", names: { part: 1 }, note: "A page of a session's history." },
 	{ method: "GET", path: "entry/*/*", cross: "request", names: { part: 1 }, note: "One entry in full." },
 	{ method: "GET", path: "image/*/*/*", cross: "request", names: { part: 1 }, note: "An entry's image." },
+	{ method: "GET", path: "transcripts", cross: "request", note: "The box's finished runs, in the session's scope (watch.ts, server/operateledger.ts, §9)." },
 	{ method: "GET", path: "music/**", cross: "local", note: "The controller plays its own." },
 	{ method: "GET", path: "doc/**", cross: "refused", note: "Documents are never served over operate (decision 12)." },
 	{ method: "GET", path: "lan/**", cross: "refused", note: "Wi-Fi access is this computer's own." },

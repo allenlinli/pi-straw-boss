@@ -433,6 +433,18 @@ Order: R1 can land alone. Task 1 and R2 go together, with the vectors first in t
 - **Start order.** Start `watchPolicy` before the first `admit`: a change before that is caught only by the next request.
 - **Duplicate ids.** `admit` throws on a session id already in use, and the id is remote-chosen: the session layer catches the throw and answers with a refusal.
 
+### 11.3 Notes from task 8 (transcripts as built)
+
+**Files.** `src/server/operateledger.ts` (`openLedger`, `seenFrom`, `idOf`), `src/watch.ts` (`Transcripts` on the hub, `foundOf`, the `transcripts` list in `api`), and the `GET transcripts` row of `operateroutes.ts`.
+
+- **Lines and rows.** A line is a row of `id`, `team` (`box` for the box's own), `device`, `role`, `name`, `workspace`, `file`, `first`, `last`, and `ended: true` on an end line. The ledger writes a line when a unit with a session file is first seen, one when it is missing from a reading (or shown not live), and one when a session it had ended is seen live again (a resumed session: `first` stays, the row is open again). `last` is the last time a reading saw it live and is kept in memory; the end line carries it, so a crash loses at most the tail of a run's time. The owner is fixed at the first line (§4: a finished run keeps the owner it had).
+- **Compaction at start.** Lines fold into one row per `id`; rows whose `last` is over 30 days old go, then the newest 2,000 stay. The file is rewritten whole (`writeDurableText`, mode 600) only when something changed; a torn, foreign or id-mismatched line (the id must be the hash of the row's own `file`) is dropped. While running, the memory book is capped at 2,000 rows too, dropping the oldest finished.
+- **No path from a request.** `api/history`, `api/entry` and `api/image` take `t<id>` (lowercase 16 hex, exactly). The ledger resolves it, the scope is checked again at that call, and `readable` demands that the row's file is, by its real path, a regular `.jsonl` inside pi's session folder (`sessionDir`): a symlink out, or a tampered ledger row, is not read. A key that is not `t<id>` falls to the registry as before.
+- **Scope.** `within(() => Scope)` reads the scope at every call; a team session sees its team's rows only, `box` rows only with the box part. Not found (404), never a refusal word, for a row out of scope, so a key's existence is not told.
+- **Listing.** `before` is the cursor `<last>:<id>` a page returned (`before` is absent on the last page); anything else is a 400. `limit` is 1 to 50 (default 50). A row whose file is gone is skipped and never counted in the page.
+- **Wiring left to task 5.** Call `ledger.observe(seenFrom({...}))` on each net reading with the box's whole registry (the ledger needs the unfiltered reading, owners from `ownerOf`, devices from `dispatcherOf`, `live: false` for a net `ended` subagent), open it with `file: <stateDir>/link/operate-ledger.jsonl`, `root: sessionDir`, and the roster's label for `label`, and give each operate session's hub `transcripts: ledger.within(() => session.scope)`. The seam's `scoped` hub in `operateseam.ts` must pass `transcripts` through (it builds `{lookup, workspace, readers}` today); that file is another worker's, so task 8 stops at the hub's type.
+- **Audit.** `operate-read` with `what: transcripts` is the bridge's to write (§10); the ledger logs nothing but a failed write (`failed`), which the server should report by error name only.
+
 ## 12. Open decisions
 
 | # | Decision | Options | Recommendation |

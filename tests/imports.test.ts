@@ -975,7 +975,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head log cards (todo #124): 111,772 / 40,252 measured, +2,697 / +874 over the figure above: headpage.ts (the card's parts, `sentLine`, the chain) and its fourteen messages in two languages. Cap = measured.
 	// Head log cards, fix round: 112,072 / 40,457 measured, +300 / +205 over the figure above: `sentLine`'s quotation marks and the chain's count and title. Cap = measured.
 	// Head log cards, round 3 (HLC-R3-F001): 112,219 / 40,500 measured, +147 / +43 over the figure above: the missed-reply note's message in two languages and `missed` on the tower (headpage.ts). Cap = measured.
-	assert.ok(eagerBytes <= 112_219 && eagerGz <= 40_500, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Head log cards, round 4 (HLC-R2-F003): 112,277 / 40,532 measured, +58 / +32 over the figure above: `sentLine` strips control characters before it picks the first line. Cap = measured.
+	assert.ok(eagerBytes <= 112_277 && eagerGz <= 40_532, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).

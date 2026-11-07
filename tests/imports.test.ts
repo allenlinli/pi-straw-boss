@@ -1004,7 +1004,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Operate seam (todo #121 task 4): the page's words for `operate_refused` (the map chunk carries every message): 109,075 bytes unchanged, 39,378 to 39,381 gzipped.
 	// #121 task 4 merged on main after 0.61.1: 114,624 / 41,481 measured (+0 / +1, the operate words compress with the rest). Cap = measured.
 	// Operate re-review round (todo #121 task 4): three more refusal words in the shared catalogue, 114,624 / 41,485 measured (+0 / +4). Cap = measured.
-	assert.ok(eagerBytes <= 114_624 && eagerGz <= 41_485, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Document tabs (todo #128): eager gzip 41,485 to 41,489 (the tab strip rules sit in the eager stylesheet; node 24).
+	assert.ok(eagerBytes <= 114_624 && eagerGz <= 41_489, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).

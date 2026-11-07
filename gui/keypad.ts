@@ -27,12 +27,13 @@ const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator
 const spoken = (key: string) => key.split("+").map((part) => (part.length === 1 ? part.toUpperCase() : part[0]!.toUpperCase() + part.slice(1))).join("+");
 
 /** The pad of one terminal tile; `update` follows the mirror's state. */
-export function keypad({ name, state, post, stream, blip, taken, enterConfirms }: { name: string; state(): TermState; post: Post; stream(): string; blip?(): void; taken?(): void; /** Zen's pad: Enter confirms the server's confirm (confirmbar.ts); the others keep it on Cancel. Read when the confirm shows. */ enterConfirms?(): boolean }) {
+export function keypad({ name, state, post, stream, blip, taken, enterConfirms, away }: { name: string; /** The unit is a remote base's and its box takes no keys now (unreachable or ended): the pad is off and says why. */ away?(): boolean; state(): TermState; post: Post; stream(): string; blip?(): void; taken?(): void; /** Zen's pad: Enter confirms the server's confirm (confirmbar.ts); the others keep it on Cancel. Read when the confirm shows. */ enterConfirms?(): boolean }) {
+	let offered = false;
 	const buttons: HTMLButtonElement[] = [], note = h("p", { class: "pad-note", role: "status" });
 	const writer = keywriter({ post, stream, busy: () => update(), clear: () => say(""), ask: (w, reason, token) => ask(w.key, reason, token), error: (text) => say(text, "error"), taken: (w) => "key" in w && w.key === "enter" && taken?.() });
 	const button = ([key, label, spoken]: [string, string, () => string]) => {
 		const b = h("button", { type: "button", class: "pad-key", "data-key": key, "aria-label": spoken() }, label);
-		b.onclick = (e) => e.isTrusted && writer.push({ key }); // a key pressed while one is on its way waits its turn
+		b.onclick = (e) => e.isTrusted && !away?.() && writer.push({ key }); // a key pressed while one is on its way waits its turn
 		buttons.push(b);
 		return b;
 	};
@@ -50,7 +51,7 @@ export function keypad({ name, state, post, stream, blip, taken, enterConfirms }
 		return letter ? `${mod}+${letter}` : { Enter: mod === "alt" ? "alt+enter" : undefined, Backspace: mod === "alt" ? "alt+backspace" : undefined, ArrowLeft: `${mod}+left`, ArrowRight: `${mod}+right` }[e.key];
 	};
 	/** True when the pane may take what the keyboard sends now; a key that cannot go is still kept from the page. */
-	const open = (key?: string) => ((s) => s === "live" || (s === "hidden" && key === "esc"))(state());
+	const open = (key?: string) => !away?.() && ((s) => s === "live" || (s === "hidden" && key === "esc"))(state());
 	/** A keydown in the focused terminal: true when it is the pane's (the caller prevents the browser's default), false for the browser's own. Characters come through `text`. */
 	function type(e: KeyboardEvent): boolean {
 		if (e.metaKey || e.isComposing || e.key === "Process") return false; // ⌘ is the browser's; an input method is composing
@@ -72,8 +73,11 @@ export function keypad({ name, state, post, stream, blip, taken, enterConfirms }
 	const text = (typed: string) => open() && writer.text(typed) && blip?.();
 	const paste = (pasted: string) => open() && writer.paste(pasted) && blip?.();
 	function update() {
-		const s = state();
-		for (const b of buttons) b.disabled = s === "off" || (s === "hidden" && b.dataset.key !== "esc"); // not while a write is on its way: the keys would flicker as you type
+		const s = state(), gone = away?.() === true;
+		if (gone) say(m.box_keys_blocked());
+		else if (offered) say("");
+		offered = gone;
+		for (const b of buttons) b.disabled = gone || s === "off" || (s === "hidden" && b.dataset.key !== "esc"); // not while a write is on its way: the keys would flicker as you type
 	}
 	update();
 	return { el, update, type, key, text, paste };

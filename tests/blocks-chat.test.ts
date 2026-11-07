@@ -170,3 +170,53 @@ test("a chip whose text is a command line is not sent: the page says so and post
 	assert.equal(chips!.answered, undefined);
 	assert.ok(root.find((el) => el.className === "pbs-note")[0]!.textContent.length > 0);
 });
+
+// A unit of a remote base whose box is unreachable or ended takes no answer: its blocks in the log are off with the reason, nothing is posted, and they follow the box back (todo #121 task 7 fix round 4, R-F001).
+const { m } = await import("../gui/paraglide/messages.js");
+const mountAway = (key: string, gate: { away: boolean }) => {
+	const root = new El("div"), sent: Sent[] = [];
+	const data = { older: async () => ({ items: [] }), latest: async () => ({ items: [] }), entry: async () => undefined, post: async (action: string, body: Record<string, unknown>) => (sent.push([action, body]), { ok: true, status: 200, body: { accepted: true } }) };
+	const chat = mountChat(root as unknown as HTMLElement, data as never, { who: () => ({ key, name: "billing-main", role: "main", mark: "idle" as const }), link: () => undefined, away: () => gate.away });
+	return { root, sent, chat, show: async (...items: Item[]) => (chat.apply({ key, reset: true, items }), await whenDrawn(), root) };
+};
+const notes = (root: El) => root.find((el) => el.className === "pbs-note").map((el) => el.textContent);
+
+test("R-F001: a block in the log of a unit whose box is away cannot be submitted: off with box_answer_blocked, nothing posted, and the box coming back turns it on", async () => {
+	const gate = { away: true }, { show, sent, chat } = mountAway("S1", gate);
+	const root = await show(reply(DEMO_CHAT_BLOCKS));
+	const [chips] = find(root, "pbs-suggest"), [form] = find(root, "pbs-form");
+	assert.equal(chips!.hasAttribute("inert") && form!.hasAttribute("inert"), true, "drawn off");
+	assert.deepEqual(notes(root), [m.box_answer_blocked(), m.box_answer_blocked(), ""], "with the reason under the form and the chips, and none under the table, which has nothing to submit");
+	assert.equal(find(root, "pbs-table")[0]!.hasAttribute("inert"), false);
+	fire(chips!, { kind: "suggest", fields: [["text", "Go ahead"]], ref: { block: 1 } });
+	fire(form!, { kind: "form", fields: [["when", "now"]], ref: { block: 0 } });
+	await settle();
+	assert.deepEqual(sent, [], "nothing is posted");
+	assert.equal(chips!.answered, undefined);
+	gate.away = false;
+	chat.box();
+	assert.equal(chips!.hasAttribute("inert") || form!.hasAttribute("inert"), false, "back: on");
+	assert.deepEqual(notes(root).filter(Boolean), []);
+	fire(chips!, { kind: "suggest", fields: [["text", "Go ahead"]], ref: { block: 1 } });
+	await settle();
+	assert.equal(sent.length, 1);
+	assert.deepEqual(chips!.answered, [["text", "Go ahead"]]);
+});
+
+test("R-F001: a box going away turns the blocks already drawn off at the next box() call, and a block answered before stays answered", async () => {
+	const gate = { away: false }, { show, chat } = mountAway("S1", gate);
+	const root = await show(reply(DEMO_CHAT_BLOCKS));
+	const [chips] = find(root, "pbs-suggest");
+	fire(chips!, { kind: "suggest", fields: [["text", "Go ahead"]], ref: { block: 1 } });
+	await settle();
+	gate.away = true;
+	chat.box();
+	assert.equal(find(root, "pbs-form")[0]!.hasAttribute("inert"), true, "the open form is off");
+	assert.equal(chips!.hasAttribute("inert"), false, "the answered chips stay as they are");
+	assert.deepEqual(chips!.answered, [["text", "Go ahead"]]);
+	for (const away of [false, true, false, true]) {
+		gate.away = away;
+		chat.box();
+		assert.equal(find(root, "pbs-form")[0]!.hasAttribute("inert"), away, `box() again, away ${away}: each call reads the box anew`);
+	}
+});

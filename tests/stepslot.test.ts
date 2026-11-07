@@ -162,3 +162,25 @@ test("a replaced card's late reply closes nothing of the card that took its plac
 		assert.notEqual(r.cards()[0], old);
 	} finally { r.done(); }
 });
+
+test("a step of a unit on an unreachable or ended remote base is off in the slot, with the reason, and follows the box back to live; a local base is unchanged", () => {
+	const r = rig();
+	try {
+		const remote = (state: string, can: string[] = ["input"]): Net => { const n = net(unit("a", "ops-main")); (n.bases[0] as never as { box: object }).box = { state, can }; return n; };
+		const go = () => r.cards()[0]!.byClass("tcard-go")!, say = () => r.cards()[0]!.byClass("tcard-status")!.textContent;
+		r.slot.step({ kind: "prompt", key: "a", asker: "a", command: "! ls" }, N);
+		assert.ok(!go().disabled, "local: Run is on");
+		r.slot.step({ kind: "prompt", key: "a", asker: "a", command: "! ls" }, remote("unreachable"));
+		assert.ok(go().disabled, "unreachable: Run is off");
+		assert.equal(say(), m.box_keys_blocked());
+		r.slot.follow(remote("live"));
+		assert.ok(!go().disabled, "back with the box");
+		r.slot.follow(remote("ended"));
+		assert.ok(go().disabled);
+		r.slot.follow(remote("live", []));
+		assert.ok(go().disabled, "a box that lets no input through");
+		r.slot.follow(remote("live"));
+		assert.ok(!go().disabled);
+		assert.equal(say(), "");
+	} finally { r.done(); }
+});

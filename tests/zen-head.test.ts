@@ -43,7 +43,7 @@ function rig(o: { head?: HeadUnit | null; items?: Item[]; offline?: boolean; mus
 			calls.composers.push({ key, box });
 			return { box, update() {} };
 		}) as never,
-		chat: async () => (_root: El, _data: unknown, _deps: unknown) => (calls.logs.push("mounted"), { apply: (e: HistoryEvent) => calls.applied.push(e), setLive() {}, reveal() {} } as unknown as Chat),
+		chat: async () => (_root: El, _data: unknown, _deps: unknown) => (calls.logs.push("mounted"), { apply: (e: HistoryEvent) => calls.applied.push(e), setLive() {}, reveal() {}, box() {} } as unknown as Chat),
 	};
 	const deps = {
 		data: (key: string) => ({ older: async () => ({ items: [] }), latest: async () => ({ items: key === "sb-head" ? items : [] }), entry: async () => undefined }),

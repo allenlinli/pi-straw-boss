@@ -1059,5 +1059,18 @@
   "wc_ended_plain": "塔台已結束這項等待。",
   "wc_reading": "正在讀取完整的卡片…",
   "wc_legacy_note": "這項等待是卡片出現前寫的，只有塔台的原話。",
-  "wc_refused": "沒有送出：{reason}"
+  "wc_refused": "沒有送出：{reason}",
+  "box_team": "團隊 {team}",
+  "box_unreachable": "連不上",
+  "box_seen_pre": "最後看到 ",
+  "box_ended_revoked": "操作權限已撤銷",
+  "box_ended_refused": "這台機器不讓這部裝置操作",
+  "box_ended_other": "對這台機器的操作已結束",
+  "box_runs": "先前的執行（{count}）",
+  "box_runs_more": "顯示更多",
+  "box_run_aria": "開啟先前的執行 {name}",
+  "box_ally": "這台機器的狀態卡",
+  "box_blocked": "現在連不上這台機器；連上之後才能傳送。",
+  "box_keys_blocked": "現在連不上這台機器；連上之後才能送按鍵。",
+  "box_answer_blocked": "現在連不上這台機器；連上之後才能回答。"
 }

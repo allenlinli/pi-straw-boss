@@ -24,7 +24,10 @@ export interface BlockHost {
 	ready?(): Promise<boolean>;
 	/** Delivers an answer: `text` is what the agent reads (`encodeAnswer`). */
 	send(answer: Answer, text: string): Promise<Delivery>;
+	/** Whether the unit these blocks are the words of can take an answer now: a unit of a remote base whose box is unreachable or ended cannot. `why` is the reason, or undefined when it can; `watch` registers a drawing to be told (`refresh`) when that changes, held weakly. A host without one (a document's) is never away. */
+	away?: Away;
 }
+export interface Away { why(): string | undefined; watch(view: { refresh(): void }): void }
 
 // The URLs the host resolved are the only ones an element may load: the package's default admits any http(s) or data image.
 const resolved = new Set<string>();
@@ -54,6 +57,9 @@ function hidden(seg: BlockSegment, fields: Answer["fields"]): boolean {
 	return seg.data.questions.some((q) => (differs(q.name, q.label) && !HANDLE.test(q.name)) || q.choices.some((c) => differs(c.value, c.label) && fields.some(([name, value]) => name === q.name && value.includes(c.value))));
 }
 
+/** The kinds whose element sends a `pbs-answer`. */
+const ANSWERS = new Set<string>(["form", "review", "options", "suggest", "checklist"]);
+
 function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement {
 	const el = document.createElement(TAGS[seg.kind]) as PbsElement, lock = lockFor(...(host.scope ?? [])), index = seg.index;
 	const note = h("p", { class: "pbs-note", role: "status", "aria-live": "polite" }), wrap = h("div", { class: "pbs-block", "data-kind": seg.kind }, el, note);
@@ -64,6 +70,9 @@ function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement 
 	const closeConfirm = () => (confirming?.remove(), (confirming = undefined));
 	/** The note a state brings, unless the delivery that ended it has put its own words there. */
 	const say = (text: string, tone?: string) => ((note.textContent = text), tone ? (note.dataset.tone = tone) : delete note.dataset.tone);
+	/** Why the block takes no answer now: its unit's box is away. Only an open block that can be answered is off for it (a table, a diagram or a card has nothing to submit); an answered one stays as it is, and one on its way stays on its way. */
+	const off = () => (ANSWERS.has(seg.kind) && lock.get(index).state === "open" ? host.away?.why() : undefined);
+	let reason: string | undefined;
 	const view = {
 		show(cell: Cell) {
 			wrap.toggleAttribute("inert", cell.state === "pending");
@@ -71,9 +80,23 @@ function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement 
 			if (cell.state === "done") el.answered = cell.fields;
 			if (cell.state === "pending") say(m.block_sending());
 			else if (!sending && (cell.state === "done" || note.textContent === m.block_sending())) say(cell.state === "open" && !known ? m.block_unsure_state() : "");
+			view.refresh();
+		},
+		/** The box came or went: the block's controls are off with the reason under it while it is away, and on again, with the note it had, when it is back. */
+		gate: off,
+		refresh() {
+			const now = off();
+			el.toggleAttribute("inert", now !== undefined);
+			wrap.toggleAttribute("data-away", now !== undefined);
+			if (now !== undefined) {
+				closeConfirm();
+				say(now);
+			} else if (reason !== undefined && lock.get(index).state === "open") say(known ? "" : m.block_unsure_state());
+			reason = now;
 		},
 	};
 	lock.watch(index, view);
+	host.away?.watch(view);
 	say(known ? "" : m.block_unsure_state());
 	view.show(lock.get(index));
 	const deliver = (answer: Answer, text: string) => {
@@ -94,7 +117,7 @@ function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement 
 		const go = h("button", { type: "button", class: "pbs-confirm-send" }, m.block_confirm_send()), back = h("button", { type: "button", class: "pbs-confirm-back" }, m.block_confirm_back());
 		const panel = (confirming = h("div", { class: "pbs-confirm", role: "group", "aria-label": m.block_confirm_title() }, h("p", { class: "pbs-confirm-title" }, m.block_confirm_title()), h("pre", { class: "pbs-confirm-text" }, text), h("div", { class: "pbs-confirm-row" }, go, back)));
 		go.addEventListener("click", () => {
-			if (confirming !== panel) return; // the step goes by itself when the block is locked or sending, so a stale Send finds none
+			if (confirming !== panel) return; // the step goes by itself when the block is locked, sending or away, so a stale Send finds none
 			closeConfirm();
 			deliver(answer, text);
 		});
@@ -106,7 +129,7 @@ function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement 
 	el.addEventListener("pbs-answer", (event) => {
 		const sent = (event as CustomEvent<Answer>).detail, answer: Answer = { ...sent, ref: { ...sent.ref, block: index } }; // the block's address is the block's own, whatever the element says
 		event.preventDefault(); // the host takes the answer: the element stays open until the owner has it
-		if (sending || lock.get(index).state !== "open") return;
+		if (sending || lock.get(index).state !== "open" || view.gate()) return; // a unit whose box is away takes nothing, whatever the element let through
 		const text = encodeAnswer(answer);
 		if (hidden(seg, answer.fields)) confirm(answer, text);
 		else deliver(answer, text);

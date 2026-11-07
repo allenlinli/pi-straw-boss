@@ -4,6 +4,7 @@ import type { Net, TowerService, Unit } from "../src/net.ts";
 import type { Data, Page } from "./chat.ts";
 import { demoCard, isCard, stepOf } from "./democard.ts";
 import { allyDemo } from "./demo-ally.ts";
+import { boxDemo } from "./demo-box.ts";
 import { isLinkState, linkDemo } from "./demo-link.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_BLOCKS_DOC, demoImage } from "./demo-blocks.ts";
@@ -54,7 +55,8 @@ const demo = (): Net => ({
 
 // Where each state can go next: work mostly continues, sometimes asks a question or finishes; an error is rare.
 const NEXT: Record<Mark, Mark[]> = { working: ["working", "waiting", "idle", "done", "commanding"], commanding: ["working", "commanding", "idle"], waiting: ["working"], idle: ["working"], done: ["working"], error: ["working"], unknown: ["working"] };
-const units = (net: Net) => net.bases.flatMap((b) => [...(b.tower?.subs ?? []), ...b.tabs.flatMap((t) => t.units.flatMap((u) => [u, ...u.subs]))]);
+const units = (net: Net) => net.bases.filter((b) => !b.box).flatMap((b) => [...(b.tower?.subs ?? []), ...b.tabs.flatMap((t) => t.units.flatMap((u) => [u, ...u.subs]))]); // the local bases' (the demo's clock and the Zen states move these); a remote base (`?operate=`, demo-box.ts) stands still
+const everyUnit = (net: Net) => net.bases.flatMap((b) => [...(b.tower?.subs ?? []), ...b.tabs.flatMap((t) => t.units.flatMap((u) => [u, ...u.subs]))]);
 
 // The harbor tower as the sb server's service shows it in each state of the boss conversation (src/server/runs.ts): `?tower=<state>` starts the demo in one, and the toolbar's "tower" button steps through them.
 // The runs' times match the demo history of the tower's comms (demo-chat.ts), so the dividers fall between its rounds.
@@ -117,6 +119,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	/** The terminal card's script (democard.ts): `?card=<state>` starts one; an answer that leaves a terminal step starts the default one (a pane types its command, "Run it" runs it). */
 	let card = isCard(cardParam) ? demoCard(cardParam, (type, payload) => current?.send(type, payload)) : undefined;
 	let net = demo(), step = 0, waits = 0, dropped = false, silent = false, current: FixtureSource | undefined, live = 0, notes = 0;
+	const boxes = boxDemo(net, new URLSearchParams(location.search).get("operate")); // `?operate=live,unreachable,revoked,refused|more|all`: remote bases of an unattended box (demo-box.ts)
 	// `?waits=cards` (demo-waits.ts: the fonstar case, then one card of each kind and state; its presses are answered there). `?wait=fresh|stale|both`: the tower records a wait on the boss (20 minutes old: an alert; three days old: only the card's line, marked as out of date); the memory route's drop is this stand-in's.
 	const waitDemo = new URLSearchParams(location.search).get("wait") ?? (new URLSearchParams(location.search).get("waits") === "cards" ? "cards" : zen === "blocking" ? "fresh" : null);
 	const waitRefuse = new URLSearchParams(location.search).has("waitrefuse");
@@ -170,7 +173,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 			if (dropped) return;
 			if (watch?.startsWith("w:")) this.timers.push(setTimeout(() => this.send("cards", { a1: "I merged the billing branch and the tests pass.", a3: "Waiting for your answer about the deploy window." }), 250));
 			else if (watch) {
-				this.timers.push(setTimeout(() => this.send("history", { key: watch, state: "live", reset: true, ...page(undefined, watch), ...(watch.startsWith("run-") ? { role: "run", name: watch.slice(4, 12) } : {}), header: { id: watch, ...(watch === "sb-head" ? {} : { cwd: "/work/harbor-api" }) }, unreadable: 0, todos: watch === "sb-head" ? undefined : [{ id: 1, subject: "Find where the rounding happens", status: "completed" }, { id: 2, subject: "Fix the ledger rounding before tax", status: "in_progress", activeForm: "fixing the ledger rounding" }, { id: 3, subject: "Add a regression test for credit notes", status: "pending" }] }), 250));
+				this.timers.push(setTimeout(() => this.send("history", { key: watch, state: "live", reset: true, ...page(undefined, watch), ...(watch.startsWith("run-") ? { role: "run", name: watch.slice(4, 12) } : {}), ...boxes.info(watch), header: { id: watch, ...(watch === "sb-head" ? {} : { cwd: "/work/harbor-api" }) }, unreadable: 0, todos: watch === "sb-head" ? undefined : [{ id: 1, subject: "Find where the rounding happens", status: "completed" }, { id: 2, subject: "Fix the ledger rounding before tax", status: "in_progress", activeForm: "fixing the ledger rounding" }, { id: 3, subject: "Add a regression test for credit notes", status: "pending" }] }), 250));
 				// A new reply every few seconds, so the page shows a live chat.
 				if (watch !== "sb-head") this.timers.push(setInterval(() => {
 					const n = ++live, call = `live-c${n}`;
@@ -287,7 +290,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	});
 	/** A demo terminal: its screen once a second while a tile shows it, every row first, then the two rows that change. */
 	const panes = new Map<string, ReturnType<typeof setInterval>>();
-	const mirror = (key: string, on: boolean, n = 0, name = units(net).find((u) => u.key === key)?.name ?? key) => {
+	const mirror = (key: string, on: boolean, n = 0, name = everyUnit(net).find((u) => u.key === key)?.name ?? key) => {
 		clearInterval(panes.get(key));
 		const beat = (rows = demoScreen(name, n++)) => current?.send("mirror", { key, seq: n, rows: rows.length, cols: 60, ...(n === 1 && { whole: true }), set: n === 1 ? rows.map((r, i) => [i, r]) : [5, 8].map((i) => [i, rows[i]]) });
 		if (on) (beat(), panes.set(key, setInterval(beat, 1000)));
@@ -297,16 +300,16 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	const answered = (key: string, body: Record<string, unknown> = {}) => {
 		// The unit is found when the answer lands: the tick clones the net meanwhile.
 		// What the choice leaves to do in a terminal is read from the dialog, as the server does (src/control.ts): a new pane (a grant), or the session's own prompt.
-		const choice = (units(net).find((x) => x.key === key)?.pending?.answer?.select?.choices ?? [])[Number(body.choice)], next = choice?.next, then = next === "pane" ? { pane: "demo-pane" } : next === "terminal" ? { terminal: true as const } : undefined;
+		const choice = (everyUnit(net).find((x) => x.key === key)?.pending?.answer?.select?.choices ?? [])[Number(body.choice)], next = choice?.next, then = next === "pane" ? { pane: "demo-pane" } : next === "terminal" ? { terminal: true as const } : undefined;
 		if (then && !isCard(cardParam)) card = demoCard(next === "pane" ? (choice?.label.startsWith("Run") ? "run" : "type") : "prompt", (type, payload) => current?.send(type, payload));
-		setTimeout((u = units(net).find((x) => x.key === key)) => u && ((u.mark = "working"), (u.note = "thinking"), (u.pending = undefined), (net = structuredClone(net)), current?.send("message", net)), 1500);
+		setTimeout((u = everyUnit(net).find((x) => x.key === key)) => u && ((u.mark = "working"), (u.note = "thinking"), (u.pending = undefined), (net = structuredClone(net)), current?.send("message", net)), 1500);
 		return { ok: true, status: 200, body: { outcome: "accepted", ...(then ? { then } : {}) } };
 	};
 	/** A trust answer settles the question: it leaves the net a moment later. */
 	const trust = async (body: { id: string }): Promise<Answer> => (setTimeout(() => ((net = structuredClone({ ...net, trust: (net.trust ?? []).filter((t) => t.id !== body.id) })), current?.send("message", net)), 900), { ok: true, status: 200, body: { outcome: "accepted" } });
 	/** The page's `api/<path>` reads the demo answers itself: the music folder (`?music=<n>`). */
 	const tracks = Array.from({ length: Math.min(6, Number(new URLSearchParams(location.search).get("music")) || 0) }, (_, i) => ({ file: ["Morning ink.mp3", "Rain on the roof.mp3", "Slow tea.mp3", "Temple bell.mp3", "Late harbour.mp3", "Paper lantern.mp3"][i]!, size: 3_400_000 + i * 410_000 }));
-	const api = async (path: string) => (path === "music" ? { tracks } : Promise.reject(new Error("404")));
+	const api = async (path: string) => (path === "music" ? { tracks } : (boxes.api(path) ?? Promise.reject(new Error("404"))));
 	return { open: (watch) => new FixtureSource(watch), data, control, trust, api, start: zenStart };
 }
 

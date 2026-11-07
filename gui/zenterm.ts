@@ -1,4 +1,5 @@
 import type { Net } from "../src/net.ts";
+import { can } from "./boxmodel.ts";
 import { type StepEvent, stepRule } from "./cardmodel.ts";
 import { h } from "./dom.ts";
 import { m } from "./paraglide/messages.js";
@@ -37,6 +38,7 @@ export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
 		if (c.card) (c.card.el.contains(document.activeElement) && c.back.focus(), c.card.el.setAttribute("inert", "")); // the keyboard is not left on a button that went inert
 	}
 	/** The layer goes and its terminal is let go; whether Zen is told is the caller's. */
+	let last: Net | undefined; // the newest snapshot, for the card's box fact
 	function drop() {
 		if (!cur) return false;
 		const c = cur;
@@ -56,6 +58,7 @@ export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
 	const on: Layer = { live: (c) => c === cur, close, done: finish, step: (c: Open, e: StepEvent) => void (c === cur && c.kind !== "plain" && stepRule(c.kind, e) === "close" && finish(c, e.type === "taken" ? "taken" : e.type === "mark" ? "working" : "gone")) };
 	/** A snapshot reached the layer: the unit's name, a tower's held sentence, and an armed terminal's first work. */
 	function follow(net: Net | undefined) {
+		last = net;
 		const c = cur;
 		if (!c) return;
 		const hit = locate(net, c.asker ?? c.key);
@@ -66,6 +69,7 @@ export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
 		if (c.kind === "armed" && mark && !isPane(c.key)) on.step(c, { type: "mark", mark });
 	}
 	function mount(c: Open, net: Net | undefined) {
+		last = net;
 		drop();
 		c.back.onclick = close;
 		cur = c;
@@ -85,7 +89,7 @@ export function mountZenTerm(root: HTMLElement, deps: ZenTermDeps) {
 		/** The terminal card of a step an accepted answer left (a prompt's or a pane's), replacing the layer on show. */
 		step(s: StepOpen, net: Net | undefined) {
 			const name = locate(net, s.asker)?.u.name ?? s.asker;
-			mount(fresh(s.key, name, s.kind, "card", { command: s.command, asker: s.asker, run: s.run }), net);
+			mount(fresh(s.key, name, s.kind, "card", { command: s.command, asker: s.asker, run: s.run, away: () => !can(locate(last, s.asker)?.base, "input") }), net);
 		},
 		/** The full terminal of `t.key` (a session's, or a pane an answer opened: `grant:<id>`), or the one on show brought forward. `armed`: the unit waits on this terminal now, so its next work ends the step. */
 		terminal(t: Term, net: Net | undefined) {

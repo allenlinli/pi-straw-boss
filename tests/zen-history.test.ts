@@ -40,7 +40,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 			calls.composers.push(c);
 			return { box, update: (u: unknown) => c.updates.push(u) };
 		}) as never,
-		chat: async () => (root: El, _data: unknown, _deps: unknown) => (calls.logs.push("mounted"), { apply: (e: HistoryEvent) => calls.applied.push(e), setLive() {}, reveal() {} } as unknown as Chat),
+		chat: async () => (root: El, _data: unknown, _deps: unknown) => (calls.logs.push("mounted"), { apply: (e: HistoryEvent) => calls.applied.push(e), setLive() {}, reveal() {}, box() {} } as unknown as Chat),
 	};
 	const deps = {
 		data: () => ({ older: async () => ({ items: [] }), latest: o.latest ?? (async () => ({ items })), entry: async () => undefined }),

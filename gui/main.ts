@@ -245,6 +245,7 @@ function live(watch: string | null): Source {
 const api = (path: string) => fetch(`api/${path}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))));
 const history = (key: string, query = "") => api(`history/${encodeURIComponent(key)}${query}`);
 const fixture = __LIVE__ ? undefined : (await import("./fixture.ts")).createFixture({ resume: () => stream.resume() });
+if (fixture) void import("./box.ts").then(({ useRuns }) => useRuns(fixture.api)); // the demo answers a remote base's Earlier runs itself (demo-box.ts); the live page reads api/transcripts
 const data = (key: string): Data => fixture?.data(key) ?? { older: (before) => history(key, `?before=${encodeURIComponent(before)}`), latest: () => history(key), entry: (id) => api(`entry/${encodeURIComponent(key)}/${encodeURIComponent(id)}`).catch(() => undefined), pic: (id, n) => `api/image/${encodeURIComponent(key)}/${encodeURIComponent(id)}/${n}` };
 /** A session's newest entries, for what an alert's unit last said. */
 const recent = async (key: string) => (await (fixture ? fixture.data(key).latest() : history(key, "?limit=12"))).items;

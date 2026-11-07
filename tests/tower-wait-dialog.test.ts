@@ -3,7 +3,7 @@ import { beforeEach, test } from "node:test";
 import { El, page, sessionGlobals } from "./fake-dom.ts";
 
 // The dialog of a wait the tower recorded on the boss (gui/layer.ts, gui/waitpanel.ts): the wait's words, an answer box (Handle unfolds it; what is sent goes to the tower's session input, as the comms' composer sends it, and the
-// dialog closes once the tower took it), a secondary link to the tower's comms, and Dismiss (the server drops the wait from the tower's memory), and no last-transmission block, which would show the tower's old log under a question nobody asked there.
+// dialog closes once the tower took it), a secondary link to the tower's comms, and Skip (the decline press; the wait becomes resolved in the tower's memory), and no last-transmission block, which would show the tower's old log under a question nobody asked there.
 
 sessionGlobals();
 const sent: { path: string; body: Record<string, unknown>; csrf: string }[] = [];
@@ -45,20 +45,22 @@ beforeEach(() => {
 const button = (label: string) => dock.all((el) => el.tagName === "button" && el.textContent === label)[0];
 const cls = (name: string) => dock.all((el) => el.getAttribute("class") === name)[0];
 
-test("a wait's dialog says what the tower waits for, offers Handle, the tower's comms and Dismiss, and keeps the old transmission out of it", () => {
+test("a wait's dialog says what the tower waits for, offers the reply fold, the tower's comms and Skip, and keeps the old transmission out of it", () => {
 	const layer = mount();
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
 	layer.stack.show(wait as never);
 	assert.equal(cls("state")!.textContent, m.memory_wait_boss());
-	assert.equal(cls("wait-text")!.textContent, "api-fix asks: deploy ws01?", "the words, in the answer slot where they wrap");
-	assert.equal(cls("tag")!.textContent, m.tag_question());
+	assert.equal(cls("wc-text")!.textContent, "api-fix asks: deploy ws01?", "the tower's own words (this wait has no card), in the answer slot where they wrap");
+	assert.equal(cls("wc-tag")!.textContent, m.wc_tag_legacy(), "a wait from before cards is drawn as a legacy card");
+	assert.equal(cls("tag")!.textContent, m.wc_tag_legacy(), "the badge is the card's own word, not QUESTION");
 	assert.equal(cls("intel")!.hidden, true, "no last transmission under a wait");
 	const go = cls("go")!;
 	assert.equal(go.textContent, m.wait_goto());
 	assert.equal(go.getAttribute("href"), "w/w/s/sb-tower-w", "the link to the tower's comms, no longer the act");
-	assert.ok(button(m.tower_answer()), "Handle answers here");
+	assert.ok(button(m.wc_b_reply()), "Handle answers here");
 	assert.ok(button(m.later()), "and it can wait");
-	assert.ok(button(m.wait_dismiss()), "Dismiss");
+	assert.ok(button(m.wc_b_skip()), "Skip");
+	assert.ok(button(m.wc_b_restate()), "and the primary: ask the tower to write it as a card");
 });
 
 test("a wait's dialog is titled with the role and the place once, in the page's language, as Zen's card is: the raw English name, the header's place, and the role under the title are not drawn again", async () => {
@@ -79,40 +81,45 @@ test("a wait's dialog is titled with the role and the place once, in the page's 
 	}
 });
 
-test("a wait's dialog puts the comms link, Later and Dismiss in one footer row, the quiet one last", () => {
+test("a wait's dialog puts the comms link, Later and Skip in one footer row, the quiet one last", () => {
 	const layer = mount();
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
 	layer.stack.show(wait as never);
 	const footer = dock.all((el) => el.tagName === "footer")[0]!;
 	const row = footer.children.filter((el) => el.tagName === "a" || el.tagName === "button").map((el) => el.textContent);
-	assert.deepEqual(row, [m.wait_goto(), m.later(), m.wait_dismiss()]);
+	assert.deepEqual(row, [m.wait_goto(), m.later(), m.wc_b_skip()]);
 });
 
-test("Dismiss posts to the tower's memory route by the wait's id and closes the dialog once the server took it; a refusal says why and leaves it", async () => {
+test("Skip takes two taps: the first unfolds the confirm, the second posts the decline press to the tower's memory route by the wait's id and closes the dialog once the server took it; a refusal says why and leaves it", async () => {
 	const layer = mount();
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
 	layer.stack.show(wait as never);
-	reply = { ok: false, status: 409, body: { error: "refused", reason: "No such wait W2" } };
-	button(m.wait_dismiss())!.click();
+	button(m.wc_b_skip())!.click();
 	await settle();
-	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "drop", id: "W2" }, csrf: "CSRF" }]);
-	assert.match(dock.all((el) => el.getAttribute("role") === "alert").map((e) => e.textContent).join("|"), /No such wait W2/);
+	assert.deepEqual(sent, [], "the first tap sends nothing");
+	assert.equal(cls("wc-skip-box")!.hidden, false);
+	reply = { ok: false, status: 409, body: { error: "refused", reason: "No such wait W2" } };
+	button(m.wc_skip_yes())!.click();
+	await settle();
+	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "press", id: "W2", act: "decline" }, csrf: "CSRF" }]);
+	assert.match(dock.all((el) => el.getAttribute("role") === "alert").map((e) => e.textContent).join("|"), /no such wait W2/i);
 	assert.equal(layer.stack.open.length, 1, "refused: still open");
 	reply = { ok: true, status: 200, body: MEMORY };
-	button(m.wait_dismiss())!.click();
+	button(m.wc_skip_yes())!.click();
 	await settle();
 	assert.equal(sent.length, 2);
 	assert.equal(layer.stack.open.length, 0, "taken: closed");
 });
 
-test("a dialog whose wait is over says so, not that the tower left the net, and offers no Dismiss", () => {
+test("a dialog whose wait is over says so, not that the tower left the net, and offers no Skip", () => {
 	const layer = mount();
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
 	layer.stack.show(wait as never);
 	layer.alerts([], new Map());
 	assert.equal(cls("state")!.textContent, m.tower_wait_over());
-	assert.equal(cls("tag")!.textContent, m.tag_question(), "the chip does not say the tower is GONE");
-	assert.equal(button(m.wait_dismiss())?.disabled ?? true, true);
+	assert.equal(cls("tag")!.textContent, m.wc_tag_legacy(), "the chip does not say the tower is GONE");
+	assert.equal(button(m.wc_b_skip())?.hidden ?? true, true, "nothing to skip");
+	assert.ok(cls("wait-card")!.textContent.includes(m.wc_ended_plain()), "the card says the tower closed it");
 });
 
 const box = () => dock.all((el) => el.tagName === "textarea")[0]!;
@@ -124,11 +131,11 @@ test("Handle unfolds the answer box in the dialog's slot and stays on the page: 
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
 	layer.stack.show(wait as never);
 	assert.equal(form().hidden, true, "folded until Handle");
-	button(m.tower_answer())!.click();
+	button(m.wc_b_reply())!.click();
 	assert.equal(form().hidden, false);
 	assert.equal(page.focused, box(), "the box has the focus");
 	assert.equal(layer.stack.open.length, 1, "the dialog stays");
-	assert.equal(button(m.tower_answer())!.hidden, true, "Handle is what is open now");
+	assert.equal(button(m.wc_b_reply())!.hidden, true, "Handle is what is open now");
 	assert.ok(button(m.send()) && button(m.send())!.hidden === false, "Send takes its place");
 });
 
@@ -136,7 +143,7 @@ test("sending posts the words to the tower's session input as the composer does,
 	const layer = mount();
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
 	layer.stack.show(wait as never);
-	button(m.tower_answer())!.click();
+	button(m.wc_b_reply())!.click();
 	box().value = "Use the staging token";
 	enter();
 	await settle();
@@ -148,7 +155,7 @@ test("a refusal shows under the kept draft and the dialog stays; Send does the s
 	const layer = mount();
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
 	layer.stack.show(wait as never);
-	button(m.tower_answer())!.click();
+	button(m.wc_b_reply())!.click();
 	tellReply = { ok: false, status: 409, body: { error: "refused", reason: "The tower did not take it." } };
 	box().value = "Use the staging token";
 	button(m.send())!.click();
@@ -168,7 +175,7 @@ test("an empty box, Shift+Enter, and a stream that is not live send nothing", as
 	const layer = mount();
 	layer.alerts([wait as never], new Map([[wait.key, wait as never]]));
 	layer.stack.show(wait as never);
-	button(m.tower_answer())!.click();
+	button(m.wc_b_reply())!.click();
 	enter();
 	box().value = "x";
 	box().bubble("keydown", { key: "Enter", shiftKey: true, isComposing: false, keyCode: 13 });
@@ -178,4 +185,62 @@ test("an empty box, Shift+Enter, and a stream that is not live send nothing", as
 	assert.equal(box().disabled, true, "no answer while the link is down");
 	await settle();
 	assert.deepEqual(told, []);
+});
+
+// --- a wait card (docs/specs/2026-11-07-wait-cards.md): the dialog draws the card whole, its primary presses at the memory route, the secret card stays for its second step ---------------------------------------------------------
+
+const CARD = { type: "action" as const, lang: "en" as const, happened: "The Tailscale login key of fonstar-staging expired, so it is offline.", do: "Open the Tailscale admin page and re-authorize fonstar-staging.", url: "https://login.tailscale.com/admin/machines", after: "The tower asks the MP-3946 main to verify the print feature.", from: { name: "mp3946-print", role: "main", workspace: "MP Center", tab: "MP-3946", key: "sb-main-3946" } };
+const cardAlert = (card: typeof CARD | Record<string, unknown>, press?: Record<string, unknown>) => {
+	const entry = { id: "W9", text: String((card as typeof CARD).do), at: new Date().toISOString(), card, ...(press ? { press } : {}) };
+	return { ...wait, key: "wait\u001fw\u001fW9", wait: { id: "W9", text: entry.text, entry } };
+};
+
+test("a card wait's dialog draws the whole card and the footer row, and I'm done posts the press and closes the dialog", async () => {
+	const layer = mount();
+	const a = cardAlert(CARD);
+	layer.alerts([a as never], new Map([[a.key, a as never]]));
+	layer.stack.show(a as never);
+	for (const part of [CARD.happened, CARD.do, CARD.url, CARD.after, m.wc_tag_action(), m.wc_b_done(), m.wc_b_main({ name: "mp3946-print" })]) assert.ok(dock.textContent.includes(part), part);
+	assert.equal(dock.all((el) => Boolean(el.getAttribute("class")?.includes("wc-clamp"))).length, 0, "the dialog shows every part whole");
+	const footer = dock.all((el) => el.tagName === "footer")[0]!;
+	assert.deepEqual(footer.children.filter((el) => el.tagName === "a" || el.tagName === "button").map((el) => el.textContent), [m.wait_goto(), m.later(), m.wc_b_skip()]);
+	const link = dock.all((el) => el.tagName === "a" && el.getAttribute("class") === "pair-btn wc-main")[0]!;
+	assert.equal(link.getAttribute("data-route"), "w/w/s/sb-main-3946", "Open <raiser> goes to the raiser's session");
+	button(m.wc_b_done())!.click();
+	await settle();
+	assert.deepEqual(sent, [{ path: "api/tower/w/memory", body: { op: "press", id: "W9", act: "done" }, csrf: "CSRF" }]);
+	assert.equal(layer.stack.open.length, 0, "taken: closed");
+});
+
+test("a secret card's start press leaves the dialog open; its second step says where to enter the secret, and the terminal once the raiser's secret_drop dialog is pending", async () => {
+	const layer = mount();
+	const secret = { ...CARD, type: "secret" as const, secret: { name: "fonstar-staging Tailscale auth key" } };
+	reply = { ok: true, status: 200, body: { ...MEMORY, press: { act: "secret", at: new Date().toISOString(), secretAsked: new Date().toISOString() } } };
+	const a = cardAlert(secret);
+	layer.alerts([a as never], new Map([[a.key, a as never]]));
+	layer.stack.show(a as never);
+	button(m.wc_b_start())!.click();
+	await settle();
+	assert.deepEqual(sent.map((s) => s.body), [{ op: "press", id: "W9", act: "secret" }]);
+	assert.equal(layer.stack.open.length, 1, "the first step ends nothing");
+	assert.ok(dock.textContent.includes(m.wc_secret_asked({ name: "mp3946-print", tab: "MP-3946" })));
+	assert.ok(button(m.wc_b_entered()), "I've entered it takes the place of Start");
+	const asked = cardAlert(secret, { act: "secret", at: new Date().toISOString(), secretAsked: new Date().toISOString() });
+	const raiser = { key: "sb-main-3946", ws: "w", name: "mp3946-print", role: "main", mark: "waiting" as const, at: 1, since: 1, pending: { callId: "c1", tool: "secret_drop", why: "It waits for a secret." } };
+	layer.alerts([asked as never, raiser as never], new Map([[asked.key, asked as never], [raiser.key, raiser as never]]));
+	assert.ok(dock.textContent.includes(m.wc_secret_open()), "the dialog is pending in the raiser's terminal");
+});
+
+test("a paired device's secret card has no start button, and the dialog says to enter it at the computer", () => {
+	Object.assign(globalThis, { location: { hash: "", href: "http://x/", origin: "http://x", hostname: "mac.tailnet.ts.net" } });
+	try {
+		const layer = mount();
+		const a = cardAlert({ ...CARD, type: "secret", secret: { name: "key" } });
+		layer.alerts([a as never], new Map([[a.key, a as never]]));
+		layer.stack.show(a as never);
+		assert.equal(button(m.wc_b_start()), undefined);
+		assert.ok(dock.textContent.includes(m.wc_at_computer()));
+	} finally {
+		Object.assign(globalThis, { location: { hash: "", href: "http://x/", origin: "http://x" } });
+	}
 });

@@ -1,5 +1,5 @@
 import { HEAD_KEY } from "../src/headkey.ts";
-import type { MemoryProposal, MemorySummary, TowerService } from "../src/net.ts";
+import type { BossWait, MemoryProposal, MemorySummary, TowerService } from "../src/net.ts";
 import type { Mark } from "../src/netdata.ts";
 import { m } from "./paraglide/messages.js";
 import type { Answer } from "./post.ts";
@@ -64,7 +64,7 @@ export const queueChip = (service: TowerService | undefined, o?: Opts): string |
 
 export type Act = "retry" | "deliver" | "drop" | "answer" | "dismiss" | "confirm" | "reject";
 /** `proposal`: a memory proposal's id and `rev` the snapshot carried, which its Confirm and Reject buttons name to the memory route. `wait`: a wait for the boss, by its id in the tower's memory, which its Dismiss names to that route. */
-export interface Row { id: string; level: "info" | "warning" | "error"; text: string; event?: string; proposal?: string; rev?: number; wait?: string; actions: Act[] }
+export interface Row { id: string; level: "info" | "warning" | "error"; text: string; event?: string; proposal?: string; rev?: number; wait?: string; /** A wait row: the wait as the snapshot carries it (its card and press), which the wait card draws. */ entry?: BossWait; actions: Act[] }
 const START = "A run could not start: ", UNCHECKED = "The tower could not check the standing pane for a program of yours, so it types nothing there; press Retry when it is free", NOT_AT_SHELL = "The standing pane is not at its own shell: a nested shell or a program runs there. Leave it, then press Retry", NOTHING_TYPED = "The tower types nothing in the standing pane: ", LATE = "An event was parked after two runs crashed with it: ";
 /** A notice the server wrote (English, src/server/runs.ts) in the page's language; one it does not know stays as written. The reasons inside (a path, a Herdr error) are the server's own text. */
 function noticeText(n: TowerService["notices"][number], o?: Opts): string {
@@ -80,7 +80,7 @@ function noticeText(n: TowerService["notices"][number], o?: Opts): string {
 export function noticeRows(service: TowerService | undefined, o?: Opts, now = Date.now()): Row[] {
 	return [
 		...(service?.notices ?? []).filter((n) => !n.id.startsWith("parked-")).map((n): Row => ({ id: n.id, level: n.level, text: noticeText(n, o), actions: n.kind === "loop" || (n.kind === "start" && n.id === "start") ? ["retry"] : [] })),
-		...(service?.memory?.bossWaits ?? []).filter((w) => !w.state).map((w): Row => ({ id: `wait-${w.id}`, level: "warning", text: waitLine(w, now, o), wait: w.id, actions: ["answer", "dismiss"] })),
+		...(service?.memory?.bossWaits ?? []).filter((w) => !w.state).map((w): Row => ({ id: `wait-${w.id}`, level: "warning", text: waitLine(w, now, o), wait: w.id, entry: w, actions: ["answer", "dismiss"] })),
 		...(service?.memory?.proposals ?? []).map((p): Row => ({ id: `proposal-${p.id}`, level: "warning", text: proposalText(p, o), proposal: p.id, rev: service!.memory!.rev, actions: ["confirm", "reject"] })),
 		...(service?.memory?.problem ? [{ id: "memory-unreadable", level: "warning" as const, text: service.memory.problem, actions: [] }] : []),
 		...(service?.parked ?? []).map((p): Row => ({ id: `parked-${p.id}`, level: "warning", text: p.from ? m.tower_parked({ kind: p.kind, from: p.from, first: p.first }, o) : m.tower_parked_anon({ kind: p.kind, first: p.first }, o), event: p.id, actions: ["deliver", "drop"] })),

@@ -595,6 +595,27 @@ test("a manifest car that asks for acceptance is left out of round 1: the assemb
 	assert.equal(again.ok, true, again.reason ?? "");
 });
 
+test("round 1 starts with an assemble when the manifest left a car out (SB4-F002): a merge or a land step before it is refused, in a batch too, and the assemble then opens the round", async () => {
+	const r = rig({ manifest: MANIFEST });
+	const merge = run(r, { kind: "merge", name: "merge" }, { check: runCheck({ cwd: r.cwd, run: "git merge fix/t-16", log: join(r.cwd, "merge.log") }) });
+	const land = sb({ kind: "land", name: "land" }, { check: { type: "notice", cars: ["T-15"], state: "landed" } });
+	const why = /^sb: (tasks\[0\]: )?round 1 starts with an assemble: car T-16 was left out of round 1/;
+	await refused(r.create(merge), why);
+	await refused(r.create(land), why);
+	await refused(r.todo({ action: "create", tasks: [{ subject: "merge", metadata: { sb: merge } }, { subject: "asm", metadata: { sb: assembleOf(r, { cars: ["T-15"], removed: [{ ticket: "T-16", why: ASKED }] }) } }] }), why);
+	assert.equal(r.list.tasks.length, 0, "nothing was created");
+	const ok = await r.todo({ action: "create", tasks: [{ subject: "asm", metadata: { sb: assembleOf(r, { cars: ["T-15"], removed: [{ ticket: "T-16", why: ASKED }] }) } }, { subject: "merge", metadata: { sb: merge } }] });
+	assert.equal(ok.ok, true, ok.reason ?? "");
+	assert.equal(r.list.tasks.length, 2);
+	// An assemble that does not list the car does not open the round either.
+	const other = rig({ manifest: MANIFEST });
+	await refused(other.create(assembleOf(other, { cars: ["T-15"], removed: [{ ticket: "T-15", why: "x" }] })), ASKED);
+	await refused(other.create(merge), why);
+	// With nothing left out, any round-1 step may come first.
+	const plain = rig({ manifest: MANIFEST_HEADER + slipBlock() + "\n" });
+	assert.equal((await plain.create(run(plain, { kind: "merge", name: "merge" }))).ok, true);
+});
+
 test("only the acceptance word makes a manifest car leave: a car with a plain defect or none rides, and no manifest means no audit", async () => {
 	const plain = [MANIFEST_HEADER, slipBlock(), "", slipBlock({ tickets: "T-16", head: SHA_B, departs: "tomorrow" }), ""].join("\n");
 	const r = rig({ manifest: plain });

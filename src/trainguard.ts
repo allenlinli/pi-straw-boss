@@ -6,7 +6,6 @@ import { execFileSyncExe } from "./exe.mjs";
 import { startMs, writerAlive } from "./server/traingate.ts";
 import { serverCli } from "./server/version.ts";
 import { startOf } from "./startof.ts";
-import type { Kit } from "./state.ts";
 import { snapshotOfBranch } from "./todo.ts";
 import { checkCar, checkEvidence, type EvidenceOptions, parseSlip } from "./train/accept.ts";
 import { type BoardRead, type BoardStep, boardPath, capBoard, type CarRow, factsOf, readBoard, readTrainboards, validateTrainTodo, type Writer, writeBoard, writeYard } from "./train/board.ts";
@@ -14,7 +13,9 @@ import { noticeSatisfied, type TerminalState } from "./train/cars.ts";
 import { type Effect, isObject, type Json, shortCode, STEP_REQUIRED, todoEffects, validateStep } from "./train/spec.ts";
 import { type FactStep, stepWaits, type TrainFacts, type Wait, waitMessage } from "./train/waits.ts";
 import { buildBoard, buildYard, freezeStep, readCars, type Row } from "./trainboard.ts";
-import type { TrainId } from "./trainrole.ts";
+import type { Roles } from "./roles.ts";
+import { ENTRY, type Kit } from "./state.ts";
+import { TRAIN, type TrainId, trainFromToken, trainToken } from "./trainrole.ts";
 import { integrationOff } from "./trainswitch.ts";
 
 // The guard of the train's session (docs/specs/2026-11-07-train-workers.md §7, §21; todo #125 task 4): a `tool_call` handler on the session's own tools. In a train it handles every `todo` and `MonitorCreate` call; in the integrator, the `todo`
@@ -25,6 +26,7 @@ import { integrationOff } from "./trainswitch.ts";
 // started live in this module's memory, are written nowhere the train can reach, and are gone with the process. A /reload therefore forgets them: a step that had run must run again, a report must be written after the step is set in_progress again.
 
 const MIN_TIMEOUT_MS = 120_000, START_GRACE_MS = 60_000, MAX_RUNS = 200;
+const UNSETTLED = "sb: this session's train role is not settled yet: Straw Boss is still working out whether it is a train (Herdr has not answered). todo and MonitorCreate wait for it; try again in a moment";
 const GENERIC = (code: string) => `sb: a train's monitor runs one step: describe it "train ${shortCode(code)} #<id> <kind>"`;
 
 // ---- the frozen spec
@@ -181,6 +183,8 @@ export interface GuardEnv {
 	train(): TrainId | undefined;
 	/** Whether this session is a main (the integrator is one). */
 	isMain(): boolean;
+	/** Whether a local sign says this session is a train whose role is not settled yet (§22): the guard refuses `todo` and `MonitorCreate` meanwhile. Left out, a session is never pending. */
+	pending?(entries: readonly unknown[]): boolean;
 	session(): { id: string; pane?: string };
 	now(): number;
 	node: string; cli: string; home: string;
@@ -202,6 +206,12 @@ const shortError = (error: unknown) => String((error as { stderr?: unknown }).st
 const STATUS = ["pending", "in_progress", "completed"];
 const sbOf = (row: Row | undefined): Json | undefined => (row && isObject(row.metadata?.sb) ? (row.metadata!.sb as Json) : undefined);
 const isStep = (row: Row) => sbOf(row) !== undefined;
+/** Whether the list holds a round-1 assemble, other than step `self`, that removes this ticket. */
+const opened = (shadow: Map<number, Row>, self: number, ticket: string): boolean =>
+	[...shadow.values()].some((r) => {
+		const s = sbOf(r);
+		return r.id !== self && s?.kind === "assemble" && s.round === 1 && isObject(s.spec) && Array.isArray(s.spec.removed) && (s.spec.removed as Json[]).some((x) => x.ticket === ticket);
+	});
 
 function rowsOfSnapshot(snapshot: unknown): { rows: Row[]; nextId: number } {
 	const s = isObject(snapshot) ? snapshot : {}, tasks = Array.isArray(s.tasks) ? s.tasks : [];
@@ -329,6 +339,8 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 		for (const out of info?.leftOut ?? []) {
 			const removed = Array.isArray(spec.removed) ? (spec.removed as Json[]).some((r) => r.ticket === out.ticket) : false;
 			if (asked.kind === "assemble" && asked.round === 1 && !removed) return [`${out.word} Put ${out.ticket} in this assemble's spec.removed and set it returned with train_car; no step carries it.`];
+			// Round 1 starts with an assemble that removes the car; a step of round 1 before one would run the round without the removal (SB4-F002).
+			if (round === 1 && asked.kind !== "assemble" && !opened(shadow, effect.id, out.ticket)) return [`sb: round 1 starts with an assemble: car ${out.ticket} was left out of round 1 (it asks the train for acceptance). Create the round's assemble with ${out.ticket} in spec.removed first.`];
 			const carried = (Array.isArray(spec.cars) && spec.cars.includes(out.ticket)) || (check.type === "notice" && (check.cars as string[]).includes(out.ticket)) || (check.type === "git" && out.head !== "" && (check.contains as string[]).includes(out.head));
 			if (carried) return [`sb: car ${out.ticket} was left out of round 1: it asks the train for acceptance; no step carries it`];
 		}
@@ -443,7 +455,8 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 		const me = env.train();
 		let reasons: string[] = [];
 		try {
-			if (me) reasons = event.toolName === "todo" ? trainTodo(input, ctx, me) : [monitorCall(event, input, ctx, me)].flatMap((r) => (r ? [r] : []));
+			if (!me && env.pending?.(ctx.sessionManager.getBranch())) reasons = [UNSETTLED];
+			else if (me) reasons = event.toolName === "todo" ? trainTodo(input, ctx, me) : [monitorCall(event, input, ctx, me)].flatMap((r) => (r ? [r] : []));
 			else if (event.toolName === "todo" && env.isMain() && (hasSb(input) || changesTrainTodo(input, ctx))) reasons = integratorTodo(input, ctx);
 		} catch (error) {
 			// A guard that fails does not let the call through: the train's checks are enforcement.
@@ -479,12 +492,18 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 }
 export type TrainGuard = ReturnType<typeof createTrainGuard>;
 
+/** Local signs, known at once and before Herdr answers, that this session may be a train: it was started as one, its saved entry names one, or its pane's role record does. A sign proves nothing by itself; it only closes the guard until the role is settled. */
+function signsOfTrain(env: NodeJS.ProcessEnv, entries: readonly unknown[], recorded: TrainId | undefined): boolean {
+	if (env.STRAW_BOSS_ROLE === TRAIN || recorded !== undefined) return true;
+	return entries.some((e) => isObject(e) && e.type === "custom" && e.customType === ENTRY && isObject(e.data) && trainFromToken(e.data.train && trainToken(e.data.train as TrainId)) !== undefined);
+}
+
 /** The guard of this session, unless the merge train is off (§14.8: with it off nothing of this loads). */
-export function registerTrainGuard(kit: Kit): TrainGuard | undefined {
+export function registerTrainGuard(kit: Kit, roles: Pick<Roles, "trainOf">): TrainGuard | undefined {
 	const { s, cfg } = kit;
 	if (integrationOff(cfg.env, kit.guiDir)) return undefined;
 	return createTrainGuard(kit.pi as unknown as GuardPi, {
-		stateDir: kit.guiDir, train: () => (s.isTrain ? s.train : undefined), isMain: () => kit.role() === "main", session: () => ({ id: kit.me(), ...(s.at?.paneId ? { pane: s.at.paneId } : {}) }), now: () => cfg.now(),
+		stateDir: kit.guiDir, train: () => (s.isTrain ? s.train : undefined), pending: (entries) => !s.isTrain && !s.trainSettled && signsOfTrain(cfg.env, entries, roles.trainOf({ paneId: cfg.env.HERDR_PANE_ID, tabId: cfg.env.HERDR_TAB_ID, workspaceId: cfg.env.HERDR_WORKSPACE_ID })), isMain: () => kit.role() === "main", session: () => ({ id: kit.me(), ...(s.at?.paneId ? { pane: s.at.paneId } : {}) }), now: () => cfg.now(),
 		node: process.execPath, cli: serverCli(), home: homedir(), tell: kit.tell,
 	});
 }

@@ -103,12 +103,13 @@ const INVISIBLE = /[\p{M}\p{Cf}]|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\
 /** The text as it is read: compatibility-decomposed, without marks, format or control characters, look-alike letters made Latin. Case is kept (camelCase needs it). */
 export const foldText = (text: string): string => text.normalize("NFKD").replace(INVISIBLE, "").replace(/[^\u0000-\u007f]/g, (c) => LOOKALIKES[c] ?? c);
 
-/** The words of a text in each reading of its capitals: `UATpage` is `uat page` where an all-caps run stands whole and `ua tpage` where its last capital leads the next word; digits split off in the second pair of readings. */
+/** The words of a text in each reading of its capitals (and with none read as a boundary): `UATpage` is `uat page` where an all-caps run stands whole and `ua tpage` where its last capital leads the next word; digits split off in the second pair of readings. */
 function wordLists(text: string): string[][] {
 	const folded = foldText(text);
 	const std = folded.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
 	const whole = folded.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)(?=[a-z])/g, "$1 ").replace(/([a-z])([A-Z])/g, "$1 $2");
-	const out: string[][] = [];
+	// The unsplit reading as well: a capital inside a word (`UaT`) is no boundary, and case is ignored.
+	const out: string[][] = [folded.toLowerCase().match(/[a-z0-9]+/g) ?? []];
 	for (const reading of [std, whole]) for (const digits of [false, true]) {
 		const spaced = digits ? reading.replace(/([A-Za-z])(\d)/g, "$1 $2").replace(/(\d)([A-Za-z])/g, "$1 $2") : reading;
 		out.push((spaced.toLowerCase().match(/[a-z0-9]+/g) ?? []));

@@ -121,7 +121,7 @@ const word = /^sb: the train runs no acceptance: a step asks for /;
 const stepWord = (over: Json) => validateStep(sb(over))[0] ?? "";
 
 test("F001: a step is read as words after NFKC, with format characters and marks stripped, case folded, and camelCase, digit and script boundaries split", () => {
-	const asks = ["runE2E", "e2eTests", "UATpage", "UatPage", "uatPage", "ＵＡＴ", "U\u200bAT", "U\u2060A\ufeffT", "驗收", "验收", "unit驗收", "end-to-end", "endToEnd", "EndToEnd", "endtoend", "End_To_End", "end to end", "E-2-E", "e2e", "UAT2", "page2uat", "ＡＣＣＥＰＴ", "ACCEPT\u00ad", "acceptANCE", "accepted", "accepts", "ŪAT", "U\u0410\u0422", "run-UAT-suite", "acceptance"];
+	const asks = ["UaT", "uAT", "E2e", "AcCePt", "runUat", "runE2E", "e2eTests", "UATpage", "UatPage", "uatPage", "ＵＡＴ", "U\u200bAT", "U\u2060A\ufeffT", "驗收", "验收", "unit驗收", "end-to-end", "endToEnd", "EndToEnd", "endtoend", "End_To_End", "end to end", "E-2-E", "e2e", "UAT2", "page2uat", "ＡＣＣＥＰＴ", "ACCEPT\u00ad", "acceptANCE", "accepted", "accepts", "ŪAT", "U\u0410\u0422", "run-UAT-suite", "acceptance"];
 	for (const name of asks) assert.match(stepWord({ name }), word, JSON.stringify(name));
 	for (const name of ["acceptable-latency", "acceptable", "evaluate", "equation", "graduate", "situation", "type-check", "full suite", "unit", "e2ee", "uatu", "accessor", "end-to-middle"]) assert.deepEqual(validateStep(sb({ name })), [], name);
 	for (const type of ["ＵＡＴ", "E2E", "acceptance"]) assert.match(validateStep(sb({}, { check: { ...runCheck(), type } }))[0] ?? "", word, type);

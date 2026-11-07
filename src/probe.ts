@@ -38,13 +38,25 @@ export function checkProbe(p: Record<string, unknown> | undefined): Editor | und
 	return p.editor === "text" && typeof p.ending === "string" && ENDING.test(`/${p.ending}`) && /^[a-z]+$/.test(p.ending) ? { editor: "text", ending: p.ending } : undefined;
 }
 
+export type OperateWhy = "shell" | "boss-command" | "command" | "unread" | "draft";
+
 /**
- * Why an operate session's Enter (or the composer's text) may not go, from what the probe says of the draft, or nothing when it may: a `!` shell line, a `/boss` command, or an editor that cannot be read well enough to tell
+ * Why an operate session's Enter (or the composer's text) may not go, from what the probe says of the draft, or nothing when it may: a `!` shell line, a `/boss` command, any other `/` draft (see below), or an editor that cannot be read well enough to tell
  * (no answer, no UI, or a `command` whose bridge did not tell the flags, which an older bridge never does). The confirms a paired device may give do not lift any of them.
  */
-export function operateRefusal(e: Editor | undefined): { why: "shell" | "boss-command" | "unread"; reason: string } | undefined {
+export function operateRefusal(e: Editor | undefined): { why: OperateWhy; reason: string } | undefined {
 	if (!e || e.editor === "unknown" || (e.editor === "command" && (typeof e.shell !== "boolean" || typeof e.boss !== "boolean"))) return { why: "unread", reason: "The session's editor could not be read well enough to tell what Enter would run, so nothing is sent from here." };
 	if (e.shell) return { why: "shell", reason: "A shell line (`!`) is not run from here: the box takes no arbitrary shell over the link." };
 	if (e.boss) return { why: "boss-command", reason: "A /boss command is not run from here: on the box it reaches other teams' sessions and the box's own settings." };
+	// A `/` draft is refused whole, not only `/boss`: with the command menu open (a bare `/`, `/b`, `/bos`), Enter applies the highlighted completion and runs it, so the draft as typed does not say what runs.
+	if (e.editor === "command") return { why: "command", reason: "A slash command is not run from here: Enter would apply the command menu's highlighted choice, which this page cannot tell from the draft." };
 	return undefined;
+}
+
+/**
+ * Why the composer's text may not be sent: the Enter's refusals above, and any draft already in the editor. The text is pasted at the cursor and submitted with the draft (docs/specs/2026-11-07-link-operate.md §7.2), so a draft
+ * the pad left there (`/`, `boss`, a `/bos` the text completes) would join it into a line this page never looked at; under operate it goes only into an empty editor.
+ */
+export function operateTextRefusal(e: Editor | undefined): { why: OperateWhy; reason: string } | undefined {
+	return operateRefusal(e) ?? (e?.editor === "empty" ? undefined : { why: "draft", reason: "The session's editor holds a draft, and the text would join it; clear the draft first, or send from an empty editor." });
 }

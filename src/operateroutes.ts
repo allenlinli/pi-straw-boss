@@ -86,13 +86,15 @@ const str = (v: unknown): v is string => typeof v === "string" && v.length > 0 &
 
 /**
  * The table, the unit and the text of a request, before anything runs: the row it falls on, the unit keys it names (each in the scope, or refused), and for `close/tab` the tab it names (the seam checks its units against
- * the net). `via` is the entry asking: a request, or the session's `mirror` (which takes the one row that crosses by it). `body` is the request's JSON; an upload's bytes name no field.
+ * the net). `via` is the entry asking: a request, or the session's `mirror` (which takes the one row that crosses by it). `body` is the request's JSON (anything else than an object is a bad request: a frame's body is decoded from the wire); an upload's bytes name no field.
+ * `roleOf` is the registry's role of a unit key: the head tower is never an operate session's, and a service tower is the box's, whatever `has` says (defence in depth beside the table's `head/**` and `tower/*` rows).
  */
-export function plan(method: "GET" | "POST", parts: string[], body: Record<string, unknown> | Buffer, scope: OperateScope, via: Cross = "request"): Plan {
+export function plan(method: "GET" | "POST", parts: string[], body: Record<string, unknown> | Buffer, scope: OperateScope, via: Cross = "request", roleOf: (key: string) => string | undefined = () => undefined): Plan {
 	const row = routeOf(method, parts), json = Buffer.isBuffer(body) ? {} : body;
 	if (!row) return no("route", "An operate session does not offer this.");
 	if (row.cross === "refused" || row.cross === "local") return no("route", row.note);
 	if (row.cross !== via) return no("route", "This goes through the session's own stream entry, not a request.");
+	if (!Buffer.isBuffer(body) && (typeof body !== "object" || body === null || Array.isArray(body))) return no("bad-request", "The body is not a JSON object.");
 	if (row.box && !scope.box) return no("out-of-scope", "That belongs to the box itself, which this grant does not reach.");
 	if (row.without?.some((field) => json[field] !== undefined)) return no("route", row.note);
 	let keys: string[] = [], tab: { workspace: string; tab: string } | undefined;
@@ -106,6 +108,8 @@ export function plan(method: "GET" | "POST", parts: string[], body: Record<strin
 		tab = { workspace: json.workspace, tab: json.tab };
 	}
 	if (keys.some((key) => !scope.has(key))) return no("out-of-scope", "That unit is not one this session reaches.");
+	if (row.path.startsWith("sessions/") && keys.some((key) => roleOf(key) === "head")) return no("route", "The head tower is box-wide: an operate session does not steer it.");
+	if (row.path.startsWith("sessions/") && !scope.box && keys.some((key) => roleOf(key) === "tower")) return no("out-of-scope", "That belongs to the box itself, which this grant does not reach.");
 	if (row.path === "sessions/*/input" && typeof json.text === "string") {
 		if (SHELL_LINE.test(json.text)) return no("shell", "A shell line (`!`) is not run from here: the box takes no arbitrary shell over the link.");
 		if (BOSS_LINE.test(json.text)) return no("boss-command", "A /boss command is not run from here: on the box it reaches other teams' sessions and the box's own settings.");

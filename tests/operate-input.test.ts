@@ -33,16 +33,23 @@ test("the composer: other texts go through, among them ones that only look alike
 	assert.deepEqual(x.typed()[0], ["agent.prompt", { target: "wA:p1", text: "hello!" }]);
 });
 
-test("the composer under operate looks at the editor first (a draft that a `!` typed earlier made a shell line must not take the text): shell, /boss, and an unreadable editor are refused, a plain draft and an empty one are not", async () => {
-	for (const [editor, want] of [[SHELL, [403, "operate_refused", "shell"]], [BOSS, [403, "operate_refused", "boss-command"]], [undefined, [403, "operate_refused", "unread"]], [{ editor: "unknown" }, [403, "operate_refused", "unread"]], [{ editor: "command" }, [403, "operate_refused", "unread"]]] as const) {
+test("the composer under operate looks at the editor first and sends only into an empty one (the text joins any draft, OR-F001): shell, /boss, other `/` drafts, text drafts and an unreadable editor are refused", async () => {
+	for (const [editor, want] of [[SHELL, [403, "operate_refused", "shell"]], [BOSS, [403, "operate_refused", "boss-command"]], [PLAIN, [403, "operate_refused", "command"]], [{ editor: "text" }, [403, "operate_refused", "draft"]], [{ editor: "text", ending: "reload" }, [403, "operate_refused", "draft"]], [undefined, [403, "operate_refused", "unread"]], [{ editor: "unknown" }, [403, "operate_refused", "unread"]], [{ editor: "command" }, [403, "operate_refused", "unread"]]] as const) {
 		const x = await world({ editor: editor as Editor | undefined });
 		assert.deepEqual(refusal(await x.session.request("POST", ["sessions", "sess-1", "input"], Q, { text: "echo x", as: "send" }, scope)), want, JSON.stringify(editor));
 		assert.deepEqual(x.typed(), [], "no prompt typed");
 		assert.deepEqual(x.probes.map((p) => [p.nonce, p.flags]), [[undefined, true]], "the probe asks for the flags, and says nothing of any line");
 	}
-	for (const editor of [{ editor: "empty" }, { editor: "text" }, PLAIN] as Editor[]) {
+	const x = await world({ editor: { editor: "empty" } });
+	assert.equal((await x.session.request("POST", ["sessions", "sess-1", "input"], Q, { text: "fine", as: "send" }, scope)).status, 200, "an empty editor takes it");
+});
+
+test("OR-F001: a draft the pad left (a bare `/`, `boss`, a `/bos`) is never joined by a text that completes it into a /boss line", async () => {
+	for (const [editor, text] of [[PLAIN, "boss status MARKER"], [PLAIN, "oss status MARKER"], [{ editor: "text" }, "/bos"], [{ editor: "text" }, "/boss status MARKER"], [{ editor: "text" }, " status MARKER"]] as [Editor, string][]) {
 		const x = await world({ editor });
-		assert.equal((await x.session.request("POST", ["sessions", "sess-1", "input"], Q, { text: "fine", as: "send" }, scope)).status, 200, JSON.stringify(editor));
+		const done = await x.session.request("POST", ["sessions", "sess-1", "input"], Q, { text, as: "send" }, scope);
+		assert.equal(done.status, 403, JSON.stringify([editor, text]));
+		assert.deepEqual(x.typed(), [], "nothing reached the prompt");
 	}
 });
 
@@ -72,18 +79,18 @@ test("the pad: a /boss line is refused at Enter; an unreadable editor, or a brid
 	assert.equal(x.typed().length, 0);
 });
 
-test("the pad: what a paired device gets stays: a plain slash command asks the `command` confirm and goes with it, an empty editor goes, /reload asks its own confirm", async () => {
+test("the pad: what a paired device gets stays where it is safe: an empty editor goes and /reload asks its own confirm; any `/` draft is refused (OR-F003: the command menu's completion decides what Enter runs), with no confirm lifting it", async () => {
 	const x = await world(), key = (k: string, extra: Record<string, unknown> = {}) => x.key(x.session, scope, k, extra);
 	await x.attach(scope);
-	x.w.editor = PLAIN;
-	const asked = await key("enter");
-	assert.deepEqual([asked.status, (asked.body as { confirm?: string }).confirm], [409, "command"]);
-	assert.equal((await key("enter", { confirmed: "command" })).status, 200);
+	for (const [editor, confirmed] of [[PLAIN, undefined], [PLAIN, "command"]] as [Editor, string | undefined][]) {
+		x.w.editor = editor;
+		assert.deepEqual(refusal(await key("enter", { confirmed })), [403, "operate_refused", "command"], "a bare `/`, `/b` and `/bos` are all this class: the menu may turn them into /boss");
+	}
 	x.w.editor = { editor: "empty" };
 	assert.equal((await key("enter")).status, 200);
 	x.w.editor = { editor: "text", ending: "reload" };
 	assert.equal(((await key("enter")).body as { confirm?: string }).confirm, "reload");
-	assert.deepEqual(x.typed().map(([m, p]) => [m, p.keys]), [["pane.send_input", ["enter"]], ["pane.send_input", ["enter"]]]);
+	assert.deepEqual(x.typed().map(([m, p]) => [m, p.keys]), [["pane.send_input", ["enter"]]]);
 });
 
 test("the pad: Alt+Enter acts as Enter on an idle session in pi, so under operate it is probed and refused the same; Ctrl+M is Enter with no probe and is never sent", async () => {

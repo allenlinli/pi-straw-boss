@@ -25,6 +25,12 @@ import type { Taken } from "./runs.ts";
 export const PAD = ["esc", "enter", "up", "down", "left", "right", "tab", "shift+tab", "space", "backspace", "pageup", "pagedown", "home", "end", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 /** A desktop keyboard's chords beyond the pad: Ctrl or Alt with a letter (Ctrl+Z aside), Alt+Enter, Alt+Backspace, and word moves. */
 export const COMBOS = /^(?:ctrl\+[a-y]|alt\+[a-z]|alt\+(?:enter|backspace)|(?:ctrl|alt)\+(?:left|right))$/;
+/**
+ * What an operate session's chords are, as an explicit list (docs/specs/2026-11-07-link-operate.md §7.3): pi's editor-local keys only (`tui.editor.*` in pi-tui: cursor and word moves, line and word kills, yank, and `app.clear`'s Ctrl+C), and Alt+Enter, which is probed like Enter.
+ * Every other Ctrl or Alt letter is some pi app action (model and thinking cycles, copy, paste of a file, the tool output toggle, and `app.editor.external`, which hands the terminal to another program), and a few leave the editor altogether, where the
+ * probe no longer says what the next key does. tests/operate-keys.test.ts compares the list with the installed pi's own keybindings.
+ */
+export const OPERATE_COMBOS = /^(?:ctrl\+[abefkuwyc]|alt\+[bdfy]|alt\+(?:enter|backspace)|(?:ctrl|alt)\+(?:left|right))$/;
 /** The keys Herdr cannot name, as the bytes a terminal sends for them. */
 export const SEQUENCES: Record<string, string> = { home: "\x1b[H", end: "\x1b[F", pageup: "\x1b[5~", pagedown: "\x1b[6~", delete: "\x1b[3~" };
 export const RATE = 8, RATE_MS = 1000, DOUBLE_MS = 1000, PAIR_MS = 450, MAX_TYPED = 64, MAX_PASTE = 4000;
@@ -90,7 +96,8 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 			if (pasted && (typeof json.paste !== "string" || !json.paste || [...json.paste].length > MAX_PASTE || PASTE_CONTROL.test(json.paste))) return no(400, "paste", `A paste is 1 to ${MAX_PASTE} characters, with line breaks and tabs but no other control character.`);
 			if (json.key === "ctrl+z") return no(400, "key", "Ctrl+Z is never sent: it would stop pi in the background, where nothing here can bring it back.");
 			if (operate && json.key === "ctrl+m") return no(403, "operate_refused", "Ctrl+M is Enter without the editor check; send Enter.", { why: "enter-chord" }); // a terminal reads it as a carriage return
-			if (!stop && !typed && !pasted && (json.text !== undefined || json.paste !== undefined || typeof json.key !== "string" || !(PAD.includes(json.key) || json.key === "delete" || COMBOS.test(json.key)) || json.keys !== undefined)) return no(400, "key", "One key at a time: a pad key, Delete, or a Ctrl or Alt chord (never a letter alone).");
+			if (operate && typeof json.key === "string" && COMBOS.test(json.key) && !OPERATE_COMBOS.test(json.key)) return no(403, "operate_refused", "That chord is a pi action outside its editor; an operate session sends the editor's own keys only.", { why: "chord" });
+			if (!stop && !typed && !pasted && (json.text !== undefined || json.paste !== undefined || typeof json.key !== "string" || !(PAD.includes(json.key) || json.key === "delete" || (operate ? OPERATE_COMBOS : COMBOS).test(json.key)) || json.keys !== undefined)) return no(400, "key", "One key at a time: a pad key, Delete, or a Ctrl or Alt chord (never a letter alone).");
 			if (json.run !== undefined && (json.key !== "enter" || typeof json.run !== "string" || !RUN_ID.test(json.run) || json.confirmed !== undefined)) return no(400, "key", "`run` names the answer that put a command in the prompt, on Enter alone and without a confirm.");
 			if (!stop && (typeof json.stream !== "string" || !json.stream)) return no(400, "bad_request", "Name this page's stream; reload the page if it reconnected.");
 			const limited = counted(session);
@@ -135,6 +142,9 @@ export function createKeys({ overlay, fresh, secret, answerable, linkRequest = a
 				if (need && a.confirmed !== need) throw confirm(need);
 			}
 			if (a.key === "ctrl+d" && a.confirmed !== "ctrl-d") throw confirm("ctrl-d");
+			// A second Ctrl+C leaves pi and a second Escape opens its tree or fork menu: both leave the editor, which the probe is about, and no confirm lifts that for an operate session (the first one still goes).
+			if (a.operate && a.key === "ctrl+c" && now() - (interrupted.get(session) ?? -Infinity) < DOUBLE_MS) throw no(403, "operate_refused", "A second Ctrl+C within a second leaves pi; wait a moment.", { why: "leaves-editor" });
+			if (a.operate && a.key === "esc" && pane.agent_status !== "working" && pane.agent_status !== "blocked" && now() - (escaped.get(session) ?? -Infinity) < DOUBLE_MS) throw no(403, "operate_refused", "A second Escape within a second runs pi's double-Escape action, which leaves the editor; wait a moment.", { why: "leaves-editor" });
 			if (a.key === "ctrl+c" && now() - (interrupted.get(session) ?? -Infinity) < DOUBLE_MS && a.confirmed !== "double-ctrl-c") throw confirm("double-ctrl-c");
 			if (a.key === "ctrl+c") return { keys: [a.key], double: a.confirmed === "double-ctrl-c" };
 			if (a.key !== "esc") return { keys: [a.key], double: false };

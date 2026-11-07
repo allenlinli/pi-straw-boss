@@ -174,7 +174,7 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		if (!clients.size && beat) (clearInterval(beat), (beat = undefined));
 	};
 	const operate = createOperate({
-		control, files, mirrors, active: () => pulse(),
+		control, files, mirrors, call, active: () => pulse(),
 		net: async (fresh) => {
 			if (fresh || last === undefined) await tick();
 			if (last === undefined) throw new Error(problem ?? "The net cannot be read yet.");

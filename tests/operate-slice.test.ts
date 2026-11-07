@@ -36,22 +36,22 @@ test("a team's session sees its own units only: the other team's units, and the 
 	assert.deepEqual(out.bases[0]!.outposts, [], "an outpost belongs to nobody: the box part only");
 });
 
-test("what is not the session's never travels: link, stashed, trust, head, other units' events, every shelf document", () => {
+test("what is not the session's never travels: link, stashed, trust, head, other units' events, every document's capability", () => {
 	const out = sliceNet(net(), scopeOf(A));
 	for (const field of ["link", "stashed", "trust", "head"]) assert.equal(field in out, false, field);
 	assert.deepEqual(out.events?.map((e) => e.key), ["a-1"], "events of units out of scope, and of an outpost, are gone");
 	const a1 = out.bases[0]!.tabs[0]!.units[0]!;
-	assert.deepEqual([a1.docs, a1.docsCut], [undefined, undefined], "the document entries (their capabilities) never leave");
+	assert.deepEqual([a1.docs, a1.docsCut], [[{ display: "plan.md", kind: "text", reason: "r", revision: 1, onScreen: false }], true], "decision 12: the names stay, `cap` never leaves");
 	assert.deepEqual(out.bases[0]!.tabs[0]!.units[1]!.queued, [{ text: "later", as: "followUp" }], "queued messages, todos, monitors of an in-scope unit stay");
 	assert.equal(JSON.stringify(out).includes('"cap"'), false, "no capability anywhere");
 });
 
-test("the box part: with `box` the box's tower and its outpost stay, the tower without its documents", () => {
+test("the box part: with `box` the box's tower and its outpost stay, the tower with its document names and no capability", () => {
 	const out = sliceNet(net(), scopeOf(["tw", "tw2", "box-sub", "box-1", "out-box"], true));
 	assert.deepEqual(keysOf(out), ["tw", "box-sub", "box-1", "out-box", "tw2"], "both towers, whatever workspace");
 	assert.equal(out.bases.length, 2);
 	assert.deepEqual(out.bases[0]!.outposts.map((o) => o.id), ["x1"]);
-	assert.deepEqual(out.bases[0]!.tower!.docs, undefined);
+	assert.deepEqual(out.bases[0]!.tower!.docs, [{ display: "plan.md", kind: "text", reason: "r", revision: 1, onScreen: false }]);
 	assert.deepEqual(out.bases[0]!.tower!.service?.allyRuns.map((r) => r.id), ["r1"], "the box owner sees its tower's runs");
 	assert.deepEqual(out.events?.map((e) => e.key ?? "-"), ["-", "tw"], "events of the box's units, and of an outpost");
 });

@@ -13,7 +13,7 @@ import { linkRequest as linkRequestOwner } from "./owners.ts";
 import type { createMirrors } from "./mirror.ts";
 import type { Found } from "./net.ts";
 import { upload } from "./upload.ts";
-import { ENDING, operateRefusal } from "./probe.ts";
+import { ENDING, operateTextRefusal } from "./probe.ts";
 import { OPERATE_REFUSED } from "./operateroutes.ts";
 import { qr } from "./qr.ts";
 import { parseOpen } from "./bossopen.ts";
@@ -317,8 +317,8 @@ export function createControl({ lan, overlay, link, server: panel, lookup, call,
 			if (ENDING.test(text) && json.confirmed !== true) return no(409, "confirm", "This command ends or replaces the session; confirm to send it.");
 			job = async () => {
 				const pane = await live(found);
-				if (operate) { // a `!` typed earlier makes the draft a shell line, which the text sent now would complete, so the draft is looked at first (probe.ts)
-					const barred = operateRefusal(await answers?.probe(key, undefined, true));
+				if (operate) { // the text joins whatever draft the editor holds (pasted at the cursor, then Enter), so it goes only into an empty one (probe.ts)
+					const barred = operateTextRefusal(await answers?.probe(key, undefined, true));
 					if (barred) throw no(403, OPERATE_REFUSED, barred.reason, { why: barred.why });
 				}
 				if (guarded && (await requested(key, found))) throw no(403, "local_only", remote ? LINK_LOCAL : GUARDED); // a prompt's Enter would be taken by its terminal dialog as Yes

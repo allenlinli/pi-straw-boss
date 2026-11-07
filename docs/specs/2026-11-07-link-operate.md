@@ -229,7 +229,10 @@ The refactor is to split `handle` in `control.ts` so that its body takes `(parts
 - `trust`;
 - `head`: the box's head tower is box-wide;
 - `events` of units out of scope;
-- every Shelf document entry. Decision 12: names only.
+- every Shelf document's capability (`cap`). Decision 12: names only: the cards keep `display`, `kind`, `reason`, `revision`, `onScreen` and `docsCut`, and nothing serves a document. Task 6 validates the lengths of `display` and `reason`.
+- Also (review round): a base's mark is recomputed from what is left; a team scope sees its own live ally runs on a stub tower that holds nothing else of the tower.
+
+Operate input rules added by the review round (OR-F001 to F003): the composer's text goes only into an empty editor (any draft refuses it, `draft`); Enter on any `/` draft is refused (`command`, since the command menu's completion may turn `/b` into `/boss`); pad chords come from an explicit editor-only list (`OPERATE_COMBOS`: cursor and word moves, kills, yank, one Ctrl+C, Alt+Enter probed), so Ctrl+G and every other pi app action is refused (`chord`); a second Ctrl+C or Escape within a second is refused (`leaves-editor`); keys go only while pi is the pane's foreground program. Watches and mirrors keep their scope and end when their unit leaves it (`rescope`, and after each reading). Entry and image replies over 1 MB are bounded on the box.
 
 Session files and paths never leave (they are not in the snapshot today either).
 

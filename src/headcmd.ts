@@ -44,11 +44,11 @@ const WORDS = {
 		last: (at: string, outcome: string) => `last run ${at}: ${outcome}`,
 		crashes: (n: number) => `${n} recent crash${n === 1 ? "" : "es"}`,
 		notices: "Notices:",
-		opened: "Opened the head tower and focused its tab.", already: "The head tower is open already: focused it.",
+		opened: "Opened the head tower and focused its tab.", already: "Focused the head tower.",
 		handed: () => `Handed to the head tower: it reads the words as the boss's instruction in its one conversation and forwards the work to the towers.`,
 		left: "Left the boss conversation: it ends with a note; what it did not take waits for the next run.", leftAlready: "The boss conversation is closing already.",
 		fresh: (left: boolean) => (left ? "Started over: the conversation ended, and the next one is a new session." : "Started over: the next conversation is a new session."),
-		closed: "Closed the head tower. Its conversation and memory are kept.", notOpen: "The head tower was not open.",
+		closed: "Closed the head tower. Its conversation and memory are kept.", notOpen: "There was no head tower to close.",
 	},
 	"zh-TW": {
 		usage: "用法：/boss head [status | retry | parked | deliver <id> | drop <id> | leave | new | close | [--answers W<n>] <給主塔台的訊息>]",
@@ -61,11 +61,11 @@ const WORDS = {
 		last: (at: string, outcome: string) => `上次執行 ${at}：${outcome}`,
 		crashes: (n: number) => `近期當機 ${n} 次`,
 		notices: "通知：",
-		opened: "已開啟主塔台並切到它的分頁。", already: "主塔台已經開著：已切到它。",
+		opened: "已開啟主塔台並切到它的分頁。", already: "已切到主塔台。",
 		handed: () => "已交給主塔台：它會把這段話當成老闆的指示，在唯一的對話裡讀，再把工作轉給各塔台。",
 		left: "已離開老闆對話：它會留下交接再結束，沒處理到的事件留給下一次執行。", leftAlready: "老闆對話已在收尾。",
 		fresh: (left: boolean) => (left ? "已重新開始：對話已結束，下一次是新的工作階段。" : "已重新開始：下一次對話是新的工作階段。"),
-		closed: "已關閉主塔台。對話和記憶都保留。", notOpen: "主塔台本來就沒開。",
+		closed: "已關閉主塔台。對話和記憶都保留。", notOpen: "沒有主塔台可以關閉。",
 	},
 };
 

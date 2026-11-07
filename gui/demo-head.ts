@@ -95,8 +95,8 @@ const words = () => WORDS[getLocale() === "zh-TW" ? "zh" : "en"];
 
 /** Earlier exchanges for `&talk=<n>` (the strip with a long history, as a morning of work leaves it): the boss's question and the head's answer, cycling through these. */
 const EARLIER = {
-	en: [["Is the staging deploy of Harbor API done yet?", "Yes. It went out ten minutes ago and the health check is green."], ["Which towers are idle?", "Lighthouse Web and Orchard Data. Quarry Tools has no tower open."], ["Ask Orchard Data to rebuild the nightly report and tell me when it is ready, and if the numbers differ from yesterday's by more than a few percent, say why before you send it on.", "Sent. It will answer here; I will check the totals against yesterday's before I pass it on."], ["Thanks.", "Anytime."]],
-	zh: [["Harbor API 的 staging 部署好了嗎？", "好了，十分鐘前上去的，健康檢查是綠的。"], ["哪些塔台現在是閒的？", "Lighthouse Web 和 Orchard Data。Quarry Tools 沒有開塔台。"], ["請 Orchard Data 重建夜間報表，好了再跟我說；如果數字跟昨天差超過幾個百分點，先講原因再轉給我。", "已轉給它，它回覆後我會先對過昨天的總數再轉達。"], ["謝謝。", "不客氣。"]],
+	en: [["Is the staging deploy of Harbor API done yet?", "Yes. It went out ten minutes ago and the health check is green."], ["Which towers are idle?", "Lighthouse Web and Orchard Data. Quarry Tools is working."], ["Ask Orchard Data to rebuild the nightly report and tell me when it is ready, and if the numbers differ from yesterday's by more than a few percent, say why before you send it on.", "Sent. It will answer here; I will check the totals against yesterday's before I pass it on."], ["Thanks.", "Anytime."]],
+	zh: [["Harbor API 的 staging 部署好了嗎？", "好了，十分鐘前上去的，健康檢查是綠的。"], ["哪些塔台現在是閒的？", "Lighthouse Web 和 Orchard Data。Quarry Tools 還在忙。"], ["請 Orchard Data 重建夜間報表，好了再跟我說；如果數字跟昨天差超過幾個百分點，先講原因再轉給我。", "已轉給它，它回覆後我會先對過昨天的總數再轉達。"], ["謝謝。", "不客氣。"]],
 } as const;
 /** How many earlier exchanges `?talk=<n>` asks for. */
 const talk = () => Math.max(0, Math.min(40, Number(new URLSearchParams(typeof location === "undefined" ? "" : location.search).get("talk")) || 0));

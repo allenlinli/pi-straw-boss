@@ -1,11 +1,15 @@
 import type { Mark } from "../src/netdata.ts";
 import type { AllyBase, ConfirmView, DeviceUnits, LinkAlert, LinkSummary } from "../src/link/holder.ts";
 import { m } from "./paraglide/messages.js";
+import { getLocale } from "./paraglide/runtime.js";
 
 // What the page says about Straw Link, as plain functions of the holder's reading (src/link/holder.ts `LinkSummary`, `LinkView`): the notice texts,
 // the countdown of an invite, a teammate's last presence, and how an ally base's states map onto the map's marks. No DOM here, so tests drive it.
 
 const text = (v: string | number | undefined) => String(v ?? "");
+
+/** A whole number of minutes as the shortest unit it fills: `3m`, `2h`, `4d` (「3 分」「2 小時」「4 天」). */
+const ageWord = (minutes: number) => (minutes < 60 ? m.age_m({ n: String(Math.max(1, minutes)) }) : minutes < 1440 ? m.age_h({ n: String(Math.floor(minutes / 60)) }) : m.age_d({ n: String(Math.floor(minutes / 1440)) }));
 
 /** A notice in words. `data` is the holder's: label, short id, tool, reason are a teammate's or the relay's text, so they only ever become text nodes. */
 export function alertLine(a: LinkAlert): string {
@@ -17,7 +21,16 @@ export function alertLine(a: LinkAlert): string {
 		case "fork": return m.link_a_fork({ team, reason: text(d.reason) });
 		case "mismatch": return m.link_a_mismatch({ label: text(d.label), short: text(d.short), team });
 		case "unreachable": return m.link_a_unreachable({ team, minutes: text(d.minutes) });
-		case "inbox": return m.link_a_inbox({ count: Number(d.count) || 0, team });
+		case "inbox": {
+			const others = Number(d.others) || 0, from = text(d.from);
+			const line = m.link_a_inbox({
+				count: Number(d.count) || 0, team, who: others ? m.link_a_inbox_who_many({ label: from, others }) : from, ago: ageWord(Number(d.ageMin) || 1),
+				where: d.workspace !== undefined ? m.link_a_inbox_where_workspace({ workspace: text(d.workspace) }) : m.link_a_inbox_where_project({ project: text(d.project) }),
+				drop: new Date(Number(d.drop) || 0).toLocaleDateString(getLocale(), { month: "numeric", day: "numeric" }),
+			});
+			// What the boss can do when this computer tried to wake the tower and could not: no workspace to wake, tower runs switched off, or the wake failed (the reason is one of three codes, in words; the server's own English stays in link.log).
+			return d.wake === "none" ? `${line} ${m.link_a_inbox_wake_none()}` : d.wake === "off" ? `${line} ${m.link_a_inbox_wake_off()}` : d.wake === "failed" ? `${line} ${m.link_a_inbox_wake_failed({ reason: d.reason === "service" ? m.link_a_inbox_why_service() : d.reason === "project" ? m.link_a_inbox_why_project() : m.link_a_inbox_why_other() })}` : line;
+		}
 		case "held": return m.link_a_held({ count: Number(d.count) || 0, team });
 		case "served": return m.link_a_served({ count: Number(d.count) || 0, team });
 		case "notice": return m.link_a_notice({ label: text(d.label), short: text(d.short), team, what: text(d.what), unit: text(d.unit), text: text(d.text) });
@@ -44,7 +57,7 @@ export function lastSeen(ageMs: number | null, online: boolean): string {
 	if (ageMs === null) return m.link_never_seen();
 	if (online) return m.link_online();
 	const n = Math.floor(ageMs / 1000);
-	return m.link_seen_ago({ ago: n < 3600 ? m.age_m({ n: String(Math.max(1, Math.floor(n / 60))) }) : n < 86_400 ? m.age_h({ n: String(Math.floor(n / 3600)) }) : m.age_d({ n: String(Math.floor(n / 86_400)) }) });
+	return m.link_seen_ago({ ago: ageWord(Math.floor(n / 60)) });
 }
 
 /** An ally base's mark: offline is unknown (dim), a blocked tower waits on a question, working works, anything else idles. */

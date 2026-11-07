@@ -489,7 +489,9 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Merge of origin/main (0.57.0, process hygiene) into the head tower: main.ts is 686 (main's 682 plus the head's 4), cli.ts 457 (main's figure), and the row keeps the procs files' entries.
 	// Shared box (docs/specs/2026-11-05-link-shared-box.md): main.ts is 687 (686 plus the dispatcher.ts import; the dispatcher lookup, the admin seam, and the scope on the notices ride on lines that were there), towers.ts 1178 (the `delivered` and `known` seams of the ally port, and the sweep that ends a controller's opened mains: the revoker, its timer, the `level` a route keeps; revoke.ts holds the rule).
 	// Head log cards (todo #124): towers.ts 1212 to 1215 (the head port's `boss`, and the note that a tower acted). Cap = measured.
-	for (const [name, max] of [["record.ts", 485], ["log.ts", 135], ["version.ts", 28], ["acl.ts", 402], ["socket.ts", 275], ["client.ts", 829], ["intercom.ts", 120], ["main.ts", 706], ["cli.ts", 457], ["winprep.ts", 509], ["breakaway.ts", 251], ["testguard.ts", 115], ["towers.ts", 1215], ["towerstore.ts", 287], ["towerruns.ts", 28], ["towerclient.ts", 78], ["desk.ts", 125], ["procs.ts", 485], ["procsops.ts", 82], ["procscli.ts", 32]] as const) assert.ok(count(`src/server/${name}`) <= max, `src/server/${name} has ${count(`src/server/${name}`)} lines`);
+	// An attended device wakes a tower (todo #122): main.ts 706 to 700 (the `openTower` seam moved to opentower.ts `towerOpener`, which tells a failed `open` to its controller and a failed `wake` to nobody, and is tested there). Cap = measured.
+	// #122 merged on main after #124: main.ts 700, towers.ts 1215 (both measured). Cap = measured.
+	for (const [name, max] of [["record.ts", 485], ["log.ts", 135], ["version.ts", 28], ["acl.ts", 402], ["socket.ts", 275], ["client.ts", 829], ["intercom.ts", 120], ["main.ts", 700], ["cli.ts", 457], ["winprep.ts", 509], ["breakaway.ts", 251], ["testguard.ts", 115], ["towers.ts", 1215], ["towerstore.ts", 287], ["towerruns.ts", 28], ["towerclient.ts", 78], ["desk.ts", 125], ["procs.ts", 485], ["procsops.ts", 82], ["procscli.ts", 32]] as const) assert.ok(count(`src/server/${name}`) <= max, `src/server/${name} has ${count(`src/server/${name}`)} lines`);
 	// The page: the files the spec budgets one by one, then this round's own figures (no figure in the spec): the focus views, the overlay
 	// layer (alert spotting and the stack model in the map's chunk, the layer's DOM and tiles in a chunk of their own), the dev-only demo, and everything else.
 	// 0.18.1 raised mirror.ts to 154 for embed, a terminal shown inside the session view instead of a tile.
@@ -810,7 +812,10 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Z-D22 and the remote stop controller merged on main: 7020 lines (measured). Cap = measured.
 	// Head log cards (todo #124, docs/specs/2026-11-07-head-log-cards.md) 7020 to 7100 (measured, +80): headpage.ts (the card's parts, `sentLine`, the chain of corrections folded under the newest) and demo-head.ts (the chain of the boss's screenshot, in both languages). Cap = measured.
 	// Head log cards, fix round (review of todo #124) 7100 to 7111 (measured, +11): headpage.ts (`sentLine` takes the quotation marks and the full stop with the copy, the chain's count and title, the handled count) and demo-head.ts (the omitted copy). Cap = measured.
-	assert.ok(page <= 7111, `the page's TypeScript has ${page} lines`);
+	// The notice for messages that wait (todo #122) to 7031 (measured, +11 over 7020): linkmodel.ts (`ageWord`, shared with `lastSeen`; the inbox notice's sender, tower and date). Cap = measured.
+	// Wake notice (todo #122) to 7033 (measured, +2 over 7031): linkmodel.ts (the notice tells what the boss can do when the tower could not be woken). Cap = measured.
+	// #122 merged on main after #124: 7124 measured (the two rounds' lines together). Cap = measured.
+	assert.ok(page <= 7124, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -978,7 +983,11 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head log cards, round 3 (HLC-R3-F001): 112,219 / 40,500 measured, +147 / +43 over the figure above: the missed-reply note's message in two languages and `missed` on the tower (headpage.ts). Cap = measured.
 	// Head log cards, round 4 (HLC-R2-F003): 112,277 / 40,532 measured, +58 / +32 over the figure above: `sentLine` strips control characters before it picks the first line. Cap = measured.
 	// #123 and #124 merged on main: 112,277 / 40,535 measured, +0 / +3 (the same bytes compress three bytes worse together). Cap = measured.
-	assert.ok(eagerBytes <= 112_277 && eagerGz <= 40_535, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// The notice for messages that wait (todo #122): 110,094 / 39,827 measured, +1,019 / +449 over the figure above: the inbox notice's words in both languages (four messages, the longer sentence in both), `ageWord` and the notice's sender, tower and date (linkmodel.ts). Cap = measured.
+	// Wake notice (todo #122): 110,671 / 40,047 measured, +577 / +220 over the figure above: the two sentences for a tower that could not be woken, in both languages, and their line in the inbox notice (linkmodel.ts). Cap = measured.
+	// Wake notice review fixes (todo #122, IWR-F007): 111,422 / 40,322 measured, +751 / +275 over the figure above: the sentence for tower runs switched off and the three plain reasons of a failed wake, in both languages (four messages each side and their lines in linkmodel.ts). Cap = measured.
+	// #122 merged on main after #124: 114,624 / 41,480 measured (the wake notice and the head cards together). Cap = measured.
+	assert.ok(eagerBytes <= 114_624 && eagerGz <= 41_480, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1147,7 +1156,9 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Head log cards, fix round: 324,954 / 132,616 measured, +0 / +4 over the figure above (the same bytes compress four bytes worse). Cap = measured.
 	// Head log cards, round 3: 324,954 / 132,617 measured, +0 / +1 (the same bytes compress one byte worse). Cap = measured.
 	// #123 and #124 merged on main: 325,368 / 132,834 measured. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 325_368 && total(chunks, gz) <= 132_834, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Wake notice (todo #122): 324,954 / 132,627 measured, +0 / +15 over the figure above: the same bytes compress slightly worse with the two new messages in the shared catalogue. Cap = measured.
+	// #122 merged on main after #124: 325,368 / 132,790 measured. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 325_368 && total(chunks, gz) <= 132_790, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.

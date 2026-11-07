@@ -576,11 +576,20 @@
 				"countPlural"
 			],
 			"match": {
-				"countPlural=one": "{count} message waits in the inbox of team {team}: no tower is open on its project",
-				"countPlural=other": "{count} messages wait in the inbox of team {team}: no tower is open on its project"
+				"countPlural=one": "Team {team}: {who} sent {count} message {ago} ago, for {where}. It is not delivered yet; it goes through as soon as the tower can take it, and it is dropped on {drop}.",
+				"countPlural=other": "Team {team}: {who} sent {count} messages, the oldest {ago} ago, for {where}. They are not delivered yet; they go through as soon as the tower can take them, and the oldest is dropped on {drop}."
 			}
 		}
 	],
+	"link_a_inbox_who_many": "{label} and {others} more",
+	"link_a_inbox_where_workspace": "the tower of workspace “{workspace}”",
+	"link_a_inbox_where_project": "the tower of project {project}",
+	"link_a_inbox_wake_none": "This computer has no workspace for it to wake the tower of. Open the project's workspace and the messages go through.",
+	"link_a_inbox_wake_off": "Tower runs are switched off on this computer, so nothing can wake the tower. Switch them on and the messages go through.",
+	"link_a_inbox_wake_failed": "Waking the tower did not work ({reason}); it is tried again later.",
+	"link_a_inbox_why_service": "the tower service is still starting",
+	"link_a_inbox_why_project": "the team's project folder is missing or not allowed on this computer",
+	"link_a_inbox_why_other": "something went wrong; link.log has the details",
 	"link_a_held": [
 		{
 			"declarations": [
@@ -712,8 +721,8 @@
 				"countPlural"
 			],
 			"match": {
-				"countPlural=one": "{count} Straw Link message has waited more than 10 minutes in the inbox of team {team} for an ally run. Look at the tower's card on the map: a held tower or a refused start keeps it waiting.",
-				"countPlural=other": "{count} Straw Link messages have waited more than 10 minutes in the inbox of team {team} for an ally run. Look at the tower's card on the map: a held tower or a refused start keeps them waiting."
+				"countPlural=one": "{count} Straw Link message has waited more than 10 minutes for an ally run in team {team}. Look at the tower's card on the map: a held tower or a refused start keeps it waiting.",
+				"countPlural=other": "{count} Straw Link messages have waited more than 10 minutes for an ally run in team {team}. Look at the tower's card on the map: a held tower or a refused start keeps them waiting."
 			}
 		}
 	],

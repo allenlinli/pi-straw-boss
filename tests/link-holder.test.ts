@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { buildEnvelope, parseEnvelope } from "../src/link/envelope.ts";
 import { LinkHolder } from "../src/link/holder.ts";
@@ -47,8 +47,12 @@ interface Rig {
 	share: "presence" | "status";
 	postWaitMs: number;
 	/** What the open-a-tower seam was asked, and whether it fails; `level` is what config.json (the policy file, unattended) gives alice. */
-	opens: { project: string; toWorkspace: string | undefined; from?: string }[];
-	openFails: boolean;
+	opens: { project: string; toWorkspace: string | undefined; from?: string; mode?: string }[];
+	openFails: boolean | "service";
+	/** What a wake of an existing workspace answers when there is none to wake. */
+	noWorkspace: boolean;
+	/** Holds a wake open until it is called, to see the holder while one is in flight. */
+	hold?: Promise<void>;
 	level: "reply" | "forward" | "dispatch" | undefined;
 	start(): Promise<void>;
 	restart(over?: { store?: LinkStore }): Promise<void>;
@@ -62,7 +66,7 @@ function rig(name: "a" | "b", o: { entries?: ReturnType<typeof rosterOf>; seed?:
 	first.ensure();
 	writeDevice(first, keys, name === "a" ? "alice-mac" : "bob-mac");
 	if (o.seed !== false) writeTeam(first, entries, keys);
-	const r = { name, dir, project, offers: [], notices: [], displaced: 0, isHolder: true, skew: 0, share: "status", postWaitMs: 3000, opens: [], openFails: false, level: undefined } as unknown as Rig;
+	const r = { name, dir, project, offers: [], notices: [], displaced: 0, isHolder: true, skew: 0, share: "status", postWaitMs: 3000, opens: [], openFails: false, noWorkspace: false, level: undefined } as unknown as Rig;
 	r.net = o.towers === false ? netOf([]) : netOf([[`tower-${name}`, `w-${name}`, `label-${name}`, project]]);
 	const stateDir = join(root, name, "state");
 	mkdirSync(stateDir, { recursive: true });
@@ -70,7 +74,7 @@ function rig(name: "a" | "b", o: { entries?: ReturnType<typeof rosterOf>; seed?:
 	const build = (store: LinkStore) => new LinkHolder({
 		store, stateDir, isHolder: () => r.isHolder, config: () => { const c = config(project, r.share)(); if (r.level) c.trust.set(alice.id, r.level); return c; }, net: async () => r.net, relay: clientFor(relay),
 		offer: (tower, id) => void r.offers.push({ tower: tower.id, id }), notify: (text) => void r.notices.push(text), onDisplaced: () => void r.displaced++,
-		...(o.unattended === undefined ? {} : { attended: () => !o.unattended, openTower: async (p: string, w: string | undefined, from: string) => { r.opens.push({ project: p, toWorkspace: w, from }); if (r.openFails) throw new Error("herdr said no"); } }),
+		...(o.unattended === undefined ? {} : { attended: () => !o.unattended, openTower: async (p: string, w: string | undefined, from: string, mode: string) => { r.opens.push({ project: p, toWorkspace: w, from, mode }); await r.hold; if (r.openFails) throw Object.assign(new Error("herdr said no"), r.openFails === "service" ? { code: "service" } : {}); return mode === "wake" && r.noWorkspace ? "no-workspace" as const : undefined; } }),
 		now: () => Date.now() + r.skew, backoff: () => 5, drainMs: 20, presenceMs: 40, offerAgainMs: 60_000, postWaitMs: r.postWaitMs, haltRetryMs: 150,
 	});
 	r.store = first;
@@ -95,8 +99,8 @@ const queued = () => relay.stored.filter((st) => !st.ephemeral);
 const events = (r: Rig) => readFileSync(join(r.dir, "link.log"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
 
 /** A tower message from alice, built by hand: any seq, so a replay can be tried. */
-async function forge(seq: number, text: string, from = alice, head = stateOf(rosterOf(), alice).head) {
-	const envelope = buildEnvelope({ team: TEAM, epoch: 1, teamKey: teamKey(1), head, from, seq, ts: Date.now(), kind: "tower", to: [bob.id], plaintext: encodePlaintext("tower", { fromWorkspace: "forged", toWorkspace: "", replyExpected: false, text }) });
+async function forge(seq: number, text: string, from = alice, head = stateOf(rosterOf(), alice).head, toWorkspace = "") {
+	const envelope = buildEnvelope({ team: TEAM, epoch: 1, teamKey: teamKey(1), head, from, seq, ts: Date.now(), kind: "tower", to: [bob.id], plaintext: encodePlaintext("tower", { fromWorkspace: "forged", toWorkspace, replyExpected: false, text }) });
 	await new RelayClient({ url: "http://relay.test", device: from, fetch: relay.fetch }).postEnvelope(TEAM, envelope);
 	return envelope;
 }
@@ -126,10 +130,10 @@ test("a tower is offered a message only if its pane is in the team's project; wi
 	await Promise.all([a.start(), b.start()]);
 	await send(a, "wait for me");
 	await until(() => relay.ackedBy(bob.id).length === 1, 3000, "the ack");
-	await until(() => b.notices.some((n) => /waits in the inbox/.test(n)), 3000, "the inbox notice");
+	await until(() => b.notices.some((n) => /is not delivered yet; it waits for the tower of/.test(n)), 3000, "the inbox notice");
 	assert.equal(b.offers.length, 0);
 	for (let i = 0; i < 3; i++) await b.holder.drain();
-	assert.equal(b.notices.filter((n) => /waits in the inbox/.test(n)).length, 1, "the notice is not repeated");
+	assert.equal(b.notices.filter((n) => /is not delivered yet; it waits for the tower of/.test(n)).length, 1, "the notice is not repeated");
 	assert.equal(b.store.inboxIds().length, 1);
 	// A tower in some other folder is no tower of this project.
 	b.net = netOf([["tower-else", "w-else", "else", join(root, "elsewhere")]]);
@@ -146,7 +150,7 @@ test("an unattended device opens a tower for a dispatch sender whose message fin
 	await Promise.all([a.start(), b.start()]);
 	await send(a, "build it", { reply: true });
 	await until(() => b.opens.length === 1, 3000, "the open");
-	assert.deepEqual(b.opens[0], { project: b.project, toWorkspace: undefined, from: alice.id }, "the open names the controller whose message found no tower: a failure is told to it");
+	assert.deepEqual(b.opens[0], { project: b.project, toWorkspace: undefined, from: alice.id, mode: "open" }, "the open names the controller whose message found no tower: a failure is told to it");
 	assert.deepEqual(events(b).filter((e) => /^tower-open/.test(String(e.event))).map((e) => e.event), ["tower-open", "tower-opened"]);
 	// The server's tower is there now: the message is served by it, and the open is not asked again.
 	b.net = netOf([["sb-tower-w-b", "w-b", "label-b", b.project]]);
@@ -169,17 +173,289 @@ test("an open that works but whose tower does not show in the net is not repeate
 	await until(() => b.opens.length === 2, 3000, "another open after the 60 s");
 });
 
-test("no tower is opened below dispatch, on an attended device, or when the seam is absent", async () => {
-	for (const [level, unattended] of [["forward", true], [undefined, true], ["dispatch", false], ["dispatch", undefined]] as const) {
+test("the notice for messages with no tower open says who sent them, how many, how long they have waited, which tower they wait for, and when the oldest is dropped (todo #122)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false })];
+	// A workspace that is open and has no tower in it: a message for it by id names it by its label; one for a workspace that is not open names the project.
+	withWorkspace(b, "w-live", "MP Center");
+	await Promise.all([a.start(), b.start()]);
+	const inbox = () => b.holder.summary().alerts.filter((x) => x.kind === "inbox").sort((x, y) => (x.id < y.id ? -1 : 1));
+	await send(a, "one", { workspace: "w-live" });
+	await send(a, "two", { workspace: "w-live" });
+	await send(a, "three", { workspace: "w-gone" });
+	await until(() => b.store.inboxIds().length === 3 && b.notices.length === 3, 3000, "three notices");
+	await b.holder.drain();
+	const [live, gone] = ((alerts) => [alerts.find((x) => x.data.workspace !== undefined)!, alerts.find((x) => x.data.workspace === undefined)!])(inbox());
+	assert.equal(inbox().length, 2, "one notice per team and tower asked for, not one per message");
+	assert.notEqual(live.id, gone.id);
+	const since = Math.min(...b.store.inboxIds().map((id) => b.store.readInbox(id)!.received));
+	assert.deepEqual({ ...live.data, since: undefined, drop: undefined }, { count: 2, from: "alice-mac", others: 0, workspace: "MP Center", project: basename(b.project), since: undefined, drop: undefined, ageMin: 1 });
+	assert.deepEqual([gone.data.count, gone.data.project, gone.data.workspace], [1, basename(b.project), undefined], "a workspace that is not open is not named: its id is no word for the boss");
+	assert.ok(Number(live.data.since) >= since && Number(live.data.since) <= since + 5000, "the oldest message's arrival, epoch ms");
+	assert.equal(Number(live.data.drop) - Number(live.data.since), 7 * 24 * 3600_000, "the store's 7 days");
+	b.skew = 3 * 3600_000 + 20 * 60_000;
+	await b.holder.drain();
+	assert.equal(inbox().find((x) => x.id === live.id)!.data.ageMin, 180, "whole hours once an hour has passed, so the notice changes only when its words do");
+	b.skew = 2 * 24 * 3600_000 + 5 * 3600_000;
+	await b.holder.drain();
+	assert.equal(inbox().find((x) => x.id === live.id)!.data.ageMin, 2 * 1440);
+});
+
+test("no tower is opened below dispatch on an unattended device, or when the seam is absent; an attended device only wakes (todo #122)", async () => {
+	for (const [level, unattended] of [["forward", true], [undefined, true], ["dispatch", undefined]] as const) {
 		const a = rig("a"), b = rig("b", { towers: false, ...(unattended === undefined ? {} : { unattended }) });
 		b.level = level;
 		await Promise.all([a.start(), b.start()]);
 		await send(a, "build it");
-		await until(() => b.notices.some((n) => /waits in the inbox/.test(n)), 3000, `the inbox notice at ${String(level)}/${String(unattended)}`);
+		await until(() => b.notices.some((n) => /is not delivered yet; it waits for the tower of/.test(n)), 3000, `the inbox notice at ${String(level)}/${String(unattended)}`);
 		for (let i = 0; i < 3; i++) await b.holder.drain();
 		assert.equal(b.opens.length, 0, `${String(level)}/${String(unattended)}`);
 		await Promise.all([a.holder.stop(), b.holder.stop()]);
 	}
+});
+
+// An attended device wakes the tower of a workspace it already has for a teammate's message (docs/specs/2026-10-26-sb-backend.md, No tower service for the team's project; the boss's ruling of 2026-11-07).
+const inboxAlerts = (r: Rig) => r.holder.summary().alerts.filter((x) => x.kind === "inbox");
+const woken = (r: Rig) => events(r).filter((e) => /^tower-wake|^tower-woke/.test(String(e.event)));
+
+for (const level of [undefined, "reply", "forward", "dispatch"] as const) {
+	test(`an attended device wakes the tower of its existing workspace for a teammate at ${String(level)}; the notice stays away while the wake works (todo #122)`, async () => {
+		const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+		b.level = level;
+		withWorkspace(b, "w-live", "MP Center");
+		await Promise.all([a.start(), b.start()]);
+		await send(a, "wake up", { workspace: "w-live" });
+		await until(() => b.opens.length === 1, 3000, "the wake");
+		assert.deepEqual(b.opens[0], { project: b.project, toWorkspace: "w-live", from: alice.id, mode: "wake" });
+		await until(() => events(b).some((e) => e.event === "tower-woke"), 3000, "the wake to end");
+		assert.deepEqual(woken(b).map((e) => e.event), ["tower-wake", "tower-woke"]);
+		assert.ok(woken(b).every((e) => !JSON.stringify(e).includes("wake up")), "no message content in the log");
+		for (let i = 0; i < 3; i++) await b.holder.drain();
+		assert.deepEqual(inboxAlerts(b), [], "no alert while the woken tower is about to take the message");
+		assert.equal(b.notices.some((n) => /is not delivered yet/.test(n)), false, "no pi notice either");
+		// The woken tower shows in the net: the message is the server's tower's, as for any message.
+		b.net = netOf([["sb-tower-w-live", "w-live", "MP Center", b.project]]);
+		await b.holder.drain();
+		assert.equal(b.opens.length, 1);
+	});
+}
+
+test("a message from a device that is no member of the team wakes nothing", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	await Promise.all([a.start(), b.start()]);
+	await forge(1, "let me in", carol);
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 0);
+	assert.deepEqual(woken(b), []);
+});
+
+test("an attended device with no workspace to wake makes none, and the notice says what the boss can do", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	b.noWorkspace = true;
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "anyone there");
+	await until(() => events(b).some((e) => e.event === "tower-wake-none"), 3000, "the outcome");
+	assert.deepEqual(woken(b).map((e) => e.event), ["tower-wake", "tower-wake-none"]);
+	await until(() => b.notices.length === 1, 3000, "the notice");
+	assert.match(b.notices[0]!, /no workspace is open for it/);
+	assert.equal(inboxAlerts(b).length, 1);
+	assert.equal(inboxAlerts(b)[0]!.data.wake, "none");
+	assert.equal(b.opens.length, 1, "backed off, and nothing is made");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 1);
+});
+
+test("a failed wake is logged with its reason, shown in the notice in plain words, and not tried again for 60 s", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	b.openFails = true;
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => events(b).some((e) => e.event === "tower-wake-failed"), 3000, "the failure line");
+	assert.equal(events(b).find((e) => e.event === "tower-wake-failed")!.error, "herdr said no", "the log keeps the server's own words");
+	await until(() => b.notices.length === 1, 3000, "the notice");
+	assert.match(b.notices[0]!, /waking its tower did not work \(something went wrong; link\.log has the details\)/);
+	assert.doesNotMatch(b.notices[0]!, /herdr said no/, "no raw server English for the boss");
+	assert.deepEqual([inboxAlerts(b)[0]!.data.wake, inboxAlerts(b)[0]!.data.reason], ["failed", "other"], "the page gets a reason it has words for");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 1, "backed off");
+	b.openFails = false;
+	b.skew = 61_000;
+	await b.holder.drain();
+	await until(() => b.opens.length === 2, 3000, "the wake after the backoff");
+	await until(() => events(b).filter((e) => e.event === "tower-woke").length === 1, 3000, "the second wake to work");
+	assert.deepEqual(inboxAlerts(b), [], "the alert goes when the wake works");
+});
+
+test("a wake that failed because the tower service is not there yet says so in plain words (IWR-F007)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	b.openFails = "service";
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => b.notices.length === 1, 3000, "the notice");
+	assert.match(b.notices[0]!, /waking its tower did not work \(the tower service is still starting\)/);
+	assert.deepEqual([inboxAlerts(b)[0]!.data.wake, inboxAlerts(b)[0]!.data.reason], ["failed", "service"]);
+});
+
+test("a failed wake stays on the notice while it is tried again (IWR-F006, M15)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	b.openFails = true;
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => inboxAlerts(b).length === 1, 3000, "the failed wake's alert");
+	let release!: () => void;
+	b.hold = new Promise<void>((resolve) => (release = resolve));
+	b.skew = 61_000;
+	await b.holder.drain();
+	await until(() => b.opens.length === 2, 3000, "the retry in flight");
+	assert.equal(inboxAlerts(b)[0]?.data.wake, "failed", "the failure is not hidden by the retry");
+	release();
+	await until(() => events(b).filter((e) => e.event === "tower-wake-failed").length >= 1 && b.opens.length === 2, 3000, "the retry to end");
+});
+
+test("messages that arrive together wake the tower once, and one in flight is not doubled", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	let release!: () => void;
+	b.hold = new Promise<void>((resolve) => (release = resolve));
+	await Promise.all([a.start(), b.start()]);
+	for (const text of ["one", "two", "three"]) await send(a, text);
+	await until(() => b.store.inboxIds().length === 3 && b.opens.length === 1, 3000, "three messages and the wake");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.deepEqual(inboxAlerts(b), [], "no alert while the wake is in flight");
+	release();
+	await until(() => events(b).some((e) => e.event === "tower-woke"), 3000, "the wake to end");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 1);
+	assert.equal(woken(b).length, 2);
+});
+
+test("a wake that worked but whose tower never takes the message stops hiding the notice after two minutes, on the page and in pi (IWR-F004)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => events(b).some((e) => e.event === "tower-woke"), 3000, "the wake");
+	assert.deepEqual(inboxAlerts(b), []);
+	await b.holder.drain();
+	assert.deepEqual(b.notices, [], "no pi notice inside the two minutes");
+	b.skew = 121_000;
+	assert.equal(inboxAlerts(b).length, 1);
+	assert.equal(inboxAlerts(b)[0]!.data.wake, undefined, "the plain copy: it goes through when the tower can take it");
+	await b.holder.drain();
+	assert.equal(b.notices.length, 1, "the pi notice comes with the page's");
+	assert.match(b.notices[0]!, /is not delivered yet; it waits for the tower of/);
+});
+
+/** A workspace of the net that has a pane inside the project and no tower. */
+const withWorkspace = (r: Rig, id: string, label = id, extra: Record<string, unknown> = {}) => {
+	r.net = { ...r.net, workspaces: [...r.net.workspaces, { workspace_id: id, label, tokens: {}, ...extra }], panes: [...r.net.panes, { pane_id: `px-${id}`, tab_id: `${id}:t0`, workspace_id: id, cwd: r.project, agent_status: "idle", tokens: {} }] } as NetView;
+};
+
+test("a workspace name that matches no workspace of this computer costs no wake, and ghost names make one notice, not one each (IWR-F002, IWR-F005)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	await Promise.all([a.start(), b.start()]);
+	for (let i = 0; i < 20; i++) await send(a, `ghost ${i}`, { workspace: `ghost-${i}` });
+	await until(() => b.store.inboxIds().length === 20, 5000, "twenty messages");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 0, "no wake for a name that is no workspace here");
+	assert.deepEqual(woken(b), [], "and nothing in the log");
+	assert.equal(inboxAlerts(b).length, 1, "one notice for all the ghost names");
+	assert.deepEqual([inboxAlerts(b)[0]!.data.count, inboxAlerts(b)[0]!.data.wake, inboxAlerts(b)[0]!.data.workspace], [20, "none", undefined]);
+	assert.equal(b.notices.length, 1, "one pi notice for them");
+	assert.match(b.notices[0]!, /no workspace is open for it on this computer/);
+	// The workspace the name stands for opens later: the message is woken for it, by its id.
+	withWorkspace(b, "w-real", "ghost-3");
+	await b.holder.drain();
+	await until(() => b.opens.length === 1, 3000, "the wake once the workspace exists");
+	assert.equal(b.opens[0]!.toWorkspace, "w-real");
+});
+
+test("a sender wakes at most three towers at once; the rest wait their turn without a notice (IWR-F002)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	let release!: () => void;
+	b.hold = new Promise<void>((resolve) => (release = resolve));
+	for (let i = 0; i < 6; i++) withWorkspace(b, `w${i}`);
+	await Promise.all([a.start(), b.start()]);
+	for (let i = 0; i < 6; i++) await send(a, `to ${i}`, { workspace: `w${i}` });
+	await until(() => b.store.inboxIds().length === 6 && b.opens.length === 3, 5000, "three wakes");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 3, "the cap holds while they are in flight");
+	assert.deepEqual(inboxAlerts(b), [], "the ones that wait are not a notice");
+	release();
+	await until(() => b.opens.length === 6, 5000, "the rest after the first three ended");
+});
+
+test("a head or sub workspace named as the target is no tower to wake: the notice names the project, with no contradiction (IWR-F007)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	withWorkspace(b, "w-head", "Head", { tokens: { sb_head: "1" } });
+	withWorkspace(b, "w-sub", "Feature", { worktree: { checkout_path: "/w/f", is_linked_worktree: true, repo_key: "/r" } });
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "to the head", { workspace: "w-head" });
+	await send(a, "to a sub", { workspace: "Feature" });
+	await until(() => b.store.inboxIds().length === 2, 3000, "two messages");
+	for (let i = 0; i < 2; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 0);
+	assert.equal(inboxAlerts(b).length, 1);
+	assert.deepEqual([inboxAlerts(b)[0]!.data.workspace, inboxAlerts(b)[0]!.data.wake, inboxAlerts(b)[0]!.data.count], [undefined, "none", 2]);
+	assert.ok(b.notices.every((n) => /tower of project/.test(n) && !/workspace “?(Head|Feature)/.test(n)), b.notices.join("|"));
+});
+
+test("when tower runs are switched off nothing is woken and the notice says so at once (IWR-F003)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false })];
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => b.notices.length === 1, 3000, "the notice");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 0);
+	assert.deepEqual(woken(b), []);
+	assert.equal(inboxAlerts(b)[0]!.data.wake, "off");
+	assert.match(b.notices[0]!, /tower runs are switched off on this computer/);
+	writeFileSync(join(root, "b", "state", "config.json"), JSON.stringify({ towerRuns: { enabled: true } }));
+	await b.holder.drain();
+	await until(() => b.opens.length === 1, 3000, "the wake once they are on");
+});
+
+test("a wake with no workspace backs off longer each time, wakes again at once when a workspace of the project appears, and logs only when the state changes (IWR-F003)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	b.noWorkspace = true;
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "anyone there");
+	await until(() => events(b).some((e) => e.event === "tower-wake-none"), 3000, "the first outcome");
+	const calls = async (skew: number) => ((b.skew = skew), await b.holder.drain(), await new Promise((r) => setTimeout(r, 60)), b.opens.length);
+	assert.equal(await calls(30_000), 1, "not inside the first minute");
+	assert.equal(await calls(61_000), 2);
+	assert.equal(await calls(150_000), 2, "the second wait is two minutes");
+	assert.equal(await calls(183_000), 3);
+	assert.equal(await calls(183_000 + 3 * 60_000), 3, "four minutes the third time");
+	assert.equal(await calls(183_000 + 4 * 60_000 + 1000), 4);
+	assert.deepEqual(woken(b).map((e) => e.event), ["tower-wake", "tower-wake-none"], "four wakes, two lines: the log changes with the state, not with the clock");
+	// A workspace with a pane inside the project shows up: that is a change the wake could not have seen, so it goes at once.
+	withWorkspace(b, "w-new");
+	await b.holder.drain();
+	await until(() => b.opens.length === 5, 3000, "the wake for the new workspace");
+});
+
+test("a failed wake is tried again after a minute, then after longer ones, and the log has it once (IWR-F003)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	b.openFails = true;
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => events(b).some((e) => e.event === "tower-wake-failed"), 3000, "the failure");
+	const calls = async (skew: number) => ((b.skew = skew), await b.holder.drain(), await new Promise((r) => setTimeout(r, 60)), b.opens.length);
+	assert.equal(await calls(61_000), 2, "after a minute");
+	assert.equal(await calls(100_000), 2, "then two minutes");
+	assert.equal(await calls(183_000), 3);
+	assert.equal(events(b).filter((e) => e.event === "tower-wake-failed").length, 1, "the same failure is one line");
+	assert.equal(events(b).filter((e) => e.event === "tower-wake").length, 1);
+});
+
+test("a wake that works but whose tower the net never shows is not repeated every minute, and its log lines do not repeat (IWR-F003)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => events(b).some((e) => e.event === "tower-woke"), 3000, "the wake");
+	const calls = async (skew: number) => ((b.skew = skew), await b.holder.drain(), await new Promise((r) => setTimeout(r, 60)), b.opens.length);
+	assert.equal(await calls(61_000), 2);
+	assert.equal(await calls(150_000), 2, "the second wait is two minutes");
+	assert.equal(await calls(183_000), 3);
+	assert.deepEqual(woken(b).map((e) => e.event), ["tower-wake", "tower-woke"]);
 });
 
 test("a failed open is logged and not tried again for 60 s; one in flight is not doubled", async () => {
@@ -685,4 +961,94 @@ test("SLH-F019: an unreadable inbox file is dropped, and the inbox is ordered by
 	await b.holder.drain();
 	assert.deepEqual(b.store.inboxIds(), []);
 	assert.ok(events(b).some((e) => e.event === "inbox-dropped" && e.reason === "damaged"));
+});
+
+/** A workspace of the net whose panes are all outside the project. */
+const withOutsideWorkspace = (r: Rig, id: string, label = id) => {
+	r.net = { ...r.net, workspaces: [...r.net.workspaces, { workspace_id: id, label, tokens: {} }], panes: [...r.net.panes, { pane_id: `px-${id}`, tab_id: `${id}:t0`, workspace_id: id, cwd: join(root, "elsewhere"), agent_status: "idle", tokens: {} }] } as NetView;
+};
+const wakesOf = (r: Rig) => (r.holder as unknown as { wakes: Map<string, unknown> }).wakes;
+
+test("a name that matches a workspace with no pane inside the project is a ghost: no wake, one notice for the project (IWR-F008)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	for (let i = 0; i < 5; i++) withOutsideWorkspace(b, `w-out${i}`, `Out${i}`);
+	await Promise.all([a.start(), b.start()]);
+	for (let i = 0; i < 20; i++) await send(a, `out ${i}`, { workspace: i % 2 ? `w-out${i % 5}` : `Out${i % 5}` });
+	await until(() => b.store.inboxIds().length === 20, 5000, "twenty messages");
+	for (let i = 0; i < 3; i++) await b.holder.drain();
+	assert.equal(b.opens.length, 0, "no wake for a workspace outside the project");
+	assert.equal(inboxAlerts(b).length, 1, "one card, none of its own for each outside workspace");
+	assert.equal(inboxAlerts(b)[0]!.data.workspace, undefined);
+	assert.equal(b.notices.length, 1);
+	assert.match(b.notices[0]!, /tower of project/);
+	assert.doesNotMatch(b.notices[0]!, /workspace “?Out/);
+});
+
+test("the ghost pi notice comes again for a ghost that arrives after the earlier ghost messages are gone (IWR-F010)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "first", { workspace: "ghost-1" });
+	await until(() => b.notices.length === 1, 3000, "the first notice");
+	for (const id of b.store.inboxIds()) await b.holder.taken(id, "tower-b");
+	await b.holder.drain();
+	assert.equal(b.store.inboxIds().length, 0);
+	await send(a, "second", { workspace: "ghost-2" });
+	await until(() => b.notices.length === 2, 3000, "a notice for the later ghost");
+});
+
+test("one sender's wakes in flight do not hold back another sender's (IWR-F011 N04)", async () => {
+	const entries = rosterOf(["bob", "carol"]);
+	const b = rig("b", { entries, towers: false, unattended: false, runs: true });
+	let release!: () => void;
+	b.hold = new Promise<void>((resolve) => (release = resolve));
+	for (let i = 0; i < 5; i++) withWorkspace(b, `w${i}`);
+	await b.start();
+	const head = stateOf(entries, alice).head;
+	for (let i = 0; i < 4; i++) await forge(i + 1, `alice ${i}`, alice, head, `w${i}`);
+	await until(() => b.store.inboxIds().length === 4 && b.opens.length === 3, 5000, "alice's three wakes in flight");
+	await forge(1, "carol", carol, head, "w4");
+	await until(() => b.opens.length === 4, 5000, "carol's wake starts while alice's three hang");
+	assert.equal(b.opens[3]!.from, carol.id);
+	release();
+});
+
+test("a failed wake is never retried less often than every 10 minutes (IWR-F011 N13)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	b.openFails = true;
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => events(b).some((e) => e.event === "tower-wake-failed"), 3000, "the failure");
+	const calls = async (skew: number) => ((b.skew = skew), await b.holder.drain(), await new Promise((r) => setTimeout(r, 60)), b.opens.length);
+	let at = 0, n = 1;
+	// Backoff doubles from 1 minute: 1, 2, 4, 8, then the cap of 10, so after 20 more minutes at most 2 further calls.
+	for (const step of [61, 183, 427, 915]) { at = step * 1000; n = await calls(at); }
+	assert.equal(n, 5);
+	assert.equal(await calls(at + 9 * 60_000), 5, "inside the cap nothing goes");
+	assert.equal(await calls(at + 10 * 60_000 + 1000), 6, "10 minutes after the last try");
+	assert.equal(await calls(at + 20 * 60_000 + 2000), 7, "and again after 10, not 30");
+});
+
+test("wake records leave with the messages that wanted them (IWR-F011 N15)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	withWorkspace(b, "w1");
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one", { workspace: "w1" });
+	await until(() => events(b).some((e) => e.event === "tower-woke"), 3000, "the wake");
+	assert.equal(wakesOf(b).size, 1);
+	for (const id of b.store.inboxIds()) await b.holder.taken(id, "tower-b");
+	await b.holder.drain();
+	assert.equal(wakesOf(b).size, 0);
+});
+
+test("a wake retry that worked again does not restart the two minutes the notice stays away (IWR-F011 N17)", async () => {
+	const [a, b] = [rig("a"), rig("b", { towers: false, unattended: false, runs: true })];
+	await Promise.all([a.start(), b.start()]);
+	await send(a, "one");
+	await until(() => events(b).some((e) => e.event === "tower-woke"), 3000, "the wake");
+	b.skew = 61_000;
+	await b.holder.drain();
+	await until(() => b.opens.length === 2, 3000, "the retry");
+	await new Promise((r) => setTimeout(r, 60));
+	b.skew = 125_000;
+	assert.equal(inboxAlerts(b).length, 1, "past two minutes from the first wake that worked, the retry did not hide it again");
 });

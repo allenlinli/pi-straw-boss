@@ -91,7 +91,7 @@ test("a bare /boss head makes the head workspace and focuses its tab; a message 
 	assert.match(h.last().text, /^Opened the head tower/);
 	h.say({ workspace: "wH", tab: "wH:t1", pane: "wH:p1", opened: false });
 	await h.run("");
-	assert.match(h.last().text, /^The head tower is open already: focused it/);
+	assert.match(h.last().text, /^Focused the head tower\.$/);
 	h.say({ queued: "e1" });
 	await h.run("start MP-4129 in Alpha");
 	assert.deepEqual([h.sent.at(-1)!.cmd, h.sent.at(-1)!.text, h.sent.at(-1)!.start], ["head-event", "start MP-4129 in Alpha", "boss"]);

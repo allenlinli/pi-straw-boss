@@ -71,7 +71,10 @@ test("no keyframes set of raven.css turns, rotates, or sweeps a conic wedge, and
 test("every keyframe set a raven status selector uses changes only transform and opacity: nothing a frame repaints (no custom property, mask, background, box-shadow, filter)", () => {
 	const status = /\.(sweep|ring|pulse|connect-ring)\b|\.badge\b|\.plate\[data-mark|\.tower\[data-mark/;
 	const used = new Set<string>();
-	for (const r of ravenRules) if (r.parts.some((p) => status.test(p))) for (const v of animationOf(r.body)) for (const { name } of shorthand(v)) if (frames.has(name)) used.add(name);
+	for (const r of ravenRules) if (r.parts.some((p) => status.test(p))) for (const v of animationOf(r.body)) {
+		assert.ok(!v.includes("var("), `${r.selector}: a status animation names its keyframes itself, never through var(), so this check reads them (${v})`);
+		for (const { name } of shorthand(v)) if (frames.has(name)) used.add(name);
+	}
 	for (const name of used) {
 		const props = new Set<string>();
 		for (const m of frames.get(name)!.matchAll(/\{([^{}]*)\}/g)) for (const [prop] of declarations(m[1]!)) props.add(prop);

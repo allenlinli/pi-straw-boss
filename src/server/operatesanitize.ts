@@ -70,7 +70,7 @@ const idOk = (raw: unknown): raw is string => keyOk(raw);
 const ws: P<string> = (v, rw) => (idOk(v) ? rw.base(v) : (rw.bad("key"), undefined));
 
 const mark = lit(...MARKS);
-const queued = shape<{ text: string; as: "steer" | "followUp" }>({ text: str(16_384, true), as: lit("steer", "followUp") });
+const queued = shape<{ text: string; as: "steer" | "followUp" | "start"; why?: "off" | "refused" | "full" | "offline" | "unproven" }>({ text: str(16_384, true), as: lit("steer", "followUp", "start") }, { why: lit("off", "refused", "full", "offline", "unproven") });
 const monitor = shape({ id: str(64), what: str(160), status: lit("running", "done", "error", "stale", "stopped"), lines: int(0, 1e9), at: num }, { exit: num, last: str(160), ended: num });
 const todoSum = shape({ done: int(0, 1e6), total: int(0, 1e6) }, { now: str(160) });
 const ticks = list(shape({ at: num, mark }), 24);

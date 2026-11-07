@@ -226,3 +226,30 @@ test("the fold row is in both languages, with its count", async () => {
 	assert.equal(m.queue_fold({ count: 3 }), "3 queued");
 	assert.equal(m.queue_fold({ count: 3 }, { locale: "zh-TW" }), "排隊中 3 則");
 });
+
+test("R-F001: a message that waits with no start under way says why it waits and that it is kept, in both languages", async () => {
+	const { m } = await import("../gui/paraglide/messages.js");
+	const box = new El("div"), act = new El("div");
+	const view = { querySelector: (sel: string) => (sel === ".queue-list" ? box : sel === ".queue-act" ? act : null) } as unknown as HTMLElement;
+	const want = { off: /service off/, refused: /could not start/, full: /slots full/, offline: /not live/, unproven: /not ready/ } as const;
+	for (const [why, re] of Object.entries(want)) {
+		drawQueued(view, [{ text: "x", as: "followUp", why: why as keyof typeof want }], "", true);
+		assert.match(box.text, re, why);
+		assert.doesNotMatch(box.text, /sent when ready|next run/);
+		assert.notEqual(m[`queued_wait_${why as keyof typeof want}`]({}, { locale: "zh-TW" }), m[`queued_wait_${why as keyof typeof want}`]());
+	}
+	assert.equal(m.queued_wait_off({}, { locale: "zh-TW" }), "塔台服務已關閉・訊息會留著");
+	assert.equal(m.queued_wait_full({}, { locale: "zh-TW" }), "執行名額已滿・稍後送出");
+});
+
+test("HP-F002: a message that waits for a tower to start is labelled as that, never as a steer, a follow-up, or the next run", () => {
+	const box = new El("div"), act = new El("div");
+	const view = { querySelector: (sel: string) => (sel === ".queue-list" ? box : sel === ".queue-act" ? act : null) } as unknown as HTMLElement;
+	for (const server of [false, true]) {
+		drawQueued(view, [{ text: "wake up", as: "start" }], "", server);
+		assert.match(box.text, /^Tower starting · sent when ready/, `server=${server}`);
+		assert.doesNotMatch(box.text, /steer|follow-up|next run/i);
+	}
+	drawQueued(view, [{ text: "later", as: "followUp" }], "", true);
+	assert.match(box.text, /Queued · next run/, "a running tower's rows keep their word");
+});

@@ -25,12 +25,12 @@ type Share = "status" | "presence";
 
 export type LinkMore =
 	| { action: "confirms" } | { action: "confirm"; id: string; verdict: "allow" | "deny" } | { action: "asks" } | { action: "answer"; id: string; cancel: boolean; text: string }
-	| { action: "invite-cancel" | "invite-show"; hash: string } | { action: "join-cancel" } | { action: "leave"; team: string; force: boolean }
+	| { action: "operate" | "operate-off" } | { action: "invite-cancel" | "invite-show"; hash: string } | { action: "join-cancel" } | { action: "leave"; team: string; force: boolean }
 	| { action: "create"; relay: string; project: string; share?: Share; label?: string } | { action: "join"; source: string; project?: string; share?: Share; label?: string };
 
-const VERBS = ["confirms", "confirm", "asks", "answer", "invite", "join", "create", "leave"];
+const VERBS = ["confirms", "confirm", "asks", "answer", "invite", "join", "create", "leave", "operate"];
 /** What Tab completes for these (boss.ts adds them after the page's `link status` and `link decide`). */
-export const LINK_ARGUMENTS = Object.entries({ "link confirms": "List the confirms teammates' towers wait on (the call's arguments in full)", "link confirm": "Allow or deny a teammate tower's call: link confirm <id> allow|deny", "link asks": "List the questions unattended devices forwarded to you", "link answer": "Answer a forwarded question: link answer <id> <choice number | text> (or --cancel)", "link invite show": "Show an open invite's text on this screen only: link invite show <hash>", "link invite cancel": "Cancel an open invite: link invite cancel <hash>", "link join": "Join a team: link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>]", "link join cancel": "Cancel the join in progress", "link create": "Create a team: link create <relay> <dir> [--share status|presence] [--label <name>] (asks for the relay's token privately)", "link leave": "Leave a team on this computer: link leave <team> [--force]", "link units": "List the units and mains the unattended boxes reported: link units [box]", "link stop": "Ask a box to stop one of its mains: link stop <box> <main | handle start> [--interrupt] [reason]" }).map(([value, description]) => ({ value, label: value, description }));
+export const LINK_ARGUMENTS = Object.entries({ "link confirms": "List the confirms teammates' towers wait on (the call's arguments in full)", "link confirm": "Allow or deny a teammate tower's call: link confirm <id> allow|deny", "link asks": "List the questions unattended devices forwarded to you", "link answer": "Answer a forwarded question: link answer <id> <choice number | text> (or --cancel)", "link invite show": "Show an open invite's text on this screen only: link invite show <hash>", "link invite cancel": "Cancel an open invite: link invite cancel <hash>", "link join": "Join a team: link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>]", "link join cancel": "Cancel the join in progress", "link create": "Create a team: link create <relay> <dir> [--share status|presence] [--label <name>] (asks for the relay's token privately)", "link leave": "Leave a team on this computer: link leave <team> [--force]", "link operate": "List the operate sessions this computer holds on unattended boxes", "link operate off": "End every operate session this computer holds", "link units": "List the units and mains the unattended boxes reported: link units [box]", "link stop": "Ask a box to stop one of its mains: link stop <box> <main | handle start> [--interrupt] [reason]" }).map(([value, description]) => ({ value, label: value, description }));
 
 /** The words of a typed line (a quoted run is one word), flags `--name value` or `--name=value` split off; undefined for a flag that is not allowed or has no value. */
 function split(text: string, allowed: readonly string[], bare: readonly string[] = []): { pos: string[]; flag: Record<string, string> } | undefined {
@@ -62,6 +62,7 @@ export function parseLinkMore(rest: string | undefined): LinkMore | "usage" | un
 		return m ? { action: "answer", id: m[1]!, cancel: said === "--cancel", text: said === "--cancel" ? "" : said } : "usage";
 	}
 	const share = (v: string | undefined): { share?: Share } | undefined => (v === undefined ? {} : v === "status" || v === "presence" ? { share: v } : undefined);
+	if (verb === "operate") return text === "operate" ? { action: "operate" } : /^operate\s+off$/.test(text) ? { action: "operate-off" } : "usage";
 	if (verb === "leave") {
 		const p = split(text, [], ["force"]);
 		return p && p.pos.length === 2 ? { action: "leave", team: p.pos[1]!, force: p.flag.force === "1" } : "usage";
@@ -99,7 +100,7 @@ function readDialog(json: unknown): Dlg | undefined {
 
 const WORDS = {
 	en: {
-		usage: { confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <choice number | text> | answer <id> (asks in pi) | answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>] | join cancel", create: "/boss link create <relay> <dir> [--share status|presence] [--label <name>]", leave: "/boss link leave <team> [--force]" } as Record<string, string>,
+		usage: { confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <choice number | text> | answer <id> (asks in pi) | answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>] | join cancel", create: "/boss link create <relay> <dir> [--share status|presence] [--label <name>]", leave: "/boss link leave <team> [--force]", operate: "/boss link operate [off]" } as Record<string, string>,
 		off: "Straw Link is not on in this server",
 		noScreen: "This needs the pi screen to ask you first",
 		noPrivate: "This screen cannot take a secret without showing it (it has no private screen); do this in a pi terminal",
@@ -109,6 +110,10 @@ const WORDS = {
 		ago: (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} s ago` : `${Math.round(ms / 60_000)} min ago`),
 		left: (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} s` : `${Math.round(ms / 60_000)} min`),
 		noConfirms: "No confirm is waiting",
+		operateNone: "No operate session is open from this computer (one opens while a GUI page is connected, to a box whose policy lets this device operate it)",
+		operateHead: "Operate sessions held from this computer (end them with /boss link operate off):",
+		operateLine: (box: string, short: string, team: string, scope: string, state: string, since: string, pages: number) => `  ${box} (${short}) in ${team}: ${scope} scope, ${state}${since ? `, open ${since}` : ""}, ${pages} page${pages === 1 ? "" : "s"} connected`,
+		operateOff: "Every operate session from this computer was ended; none opens again for a minute",
 		confirmsHead: "Confirms waiting for you (answer with /boss link confirm <id> allow|deny):",
 		confirmLine: (id: string, label: string, short: string, team: string, tool: string, age: string) => `  ${id}  ${label} (${short}) · team ${team} · tool ${tool} · ${age}`,
 		args: "arguments:",
@@ -169,7 +174,7 @@ const WORDS = {
 		asksWait: (n: number) => `${n} forwarded question${n === 1 ? "" : "s"} wait${n === 1 ? "s" : ""}: /boss link asks`,
 	},
 	"zh-TW": {
-		usage: { confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <選項編號 | 文字> | answer <id>（在 pi 裡逐題問）| answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <邀請文字 | @檔案> [--project <資料夾>] [--share status|presence] [--label <名稱>] | join cancel", create: "/boss link create <中繼站> <資料夾> [--share status|presence] [--label <名稱>]", leave: "/boss link leave <團隊> [--force]" } as Record<string, string>,
+		usage: { confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <選項編號 | 文字> | answer <id>（在 pi 裡逐題問）| answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <邀請文字 | @檔案> [--project <資料夾>] [--share status|presence] [--label <名稱>] | join cancel", create: "/boss link create <中繼站> <資料夾> [--share status|presence] [--label <名稱>]", leave: "/boss link leave <團隊> [--force]", operate: "/boss link operate [off]" } as Record<string, string>,
 		off: "這個伺服器沒有開 Straw Link",
 		noScreen: "這個動作需要 pi 畫面，才能先問你",
 		noPrivate: "這個畫面沒有私密螢幕，不能在不顯示的情況下輸入機密；請在 pi 終端機裡做",
@@ -179,6 +184,10 @@ const WORDS = {
 		ago: (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} 秒前` : `${Math.round(ms / 60_000)} 分鐘前`),
 		left: (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} 秒` : `${Math.round(ms / 60_000)} 分鐘`),
 		noConfirms: "沒有等待中的確認",
+		operateNone: "這台電腦沒有開著的操作連線（有 GUI 頁面連著、而且這部裝置在某台無人值守機器的政策裡獲准操作時才會開）",
+		operateHead: "這台電腦握有的操作連線（用 /boss link operate off 全部結束）：",
+		operateLine: (box: string, short: string, team: string, scope: string, state: string, since: string, pages: number) => `  ${box}（${short}）在 ${team}：${scope === "box" ? "整台機器" : "團隊"}範圍，${state}${since ? `，已開 ${since}` : ""}，${pages} 個頁面連著`,
+		operateOff: "這台電腦的操作連線都已結束；一分鐘內不會再開",
 		confirmsHead: "等待你回答的確認（用 /boss link confirm <id> allow|deny 回答）：",
 		confirmLine: (id: string, label: string, short: string, team: string, tool: string, age: string) => `  ${id}  ${label}（${short}）· 團隊 ${team} · 工具 ${tool} · ${age}`,
 		args: "參數：",
@@ -454,6 +463,15 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		if (set.status !== 200) tell(t().joinFolder(refusal(set)), "error");
 	}
 
+	/** `/boss link operate`: the sessions this computer holds (the host's `status`, through the page's route; a teammate's labels are read through `line`). */
+	async function operate() {
+		const r = await record(), reply = await post(r, "link/operate", {}, 10_000);
+		if (reply.status !== 200) return tell(refusal(reply), "error");
+		const list = Array.isArray(reply.body.sessions) ? (reply.body.sessions as Record<string, unknown>[]) : [], now = Date.now();
+		if (!list.length) return tell(t().operateNone);
+		tell([t().operateHead, ...list.map((x) => t().operateLine(line(String(x.label ?? "")), line(String(x.short ?? "")), line(String(x.teamName ?? String(x.team ?? "").slice(0, 6))), x.scope === "box" ? "box" : "team", line(String(x.state ?? "")), typeof x.since === "number" ? t().left(Math.max(0, now - x.since)) : "", Number(x.pages) || 0))].join("\n"));
+	}
+
 	return {
 		/** Whether `rest` (after `/boss link`) is one of these subcommands, malformed or not. */
 		handles: (rest: string | undefined) => parseLinkMore(rest) !== undefined,
@@ -462,6 +480,11 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 			if (parsed === undefined) return;
 			if (parsed === "usage") return tell(t().usage[/^(\S+)/.exec(rest.trim())![1]!]!, "error");
 			switch (parsed.action) {
+				case "operate": return operate();
+				case "operate-off": {
+					const reply = await post(await record(), "link/operate-off", {}, 10_000);
+					return reply.status === 200 ? tell(t().operateOff) : tell(refusal(reply), "error");
+				}
 				case "confirms": return confirms();
 				case "confirm": return answerConfirm(parsed.id, parsed.verdict === "allow");
 				case "asks": return asks();

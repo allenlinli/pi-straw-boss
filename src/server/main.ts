@@ -22,6 +22,7 @@ import { dispatcherLookup, unitLabel } from "./dispatcher.ts";
 import { towerOpener } from "./opentower.ts";
 import { createLinkService, type LinkService, type ServiceDeps } from "../link/service.ts";
 import type { OperateBox } from "./operatebox.ts";
+import { boxesOf, createOperateHost, type OperateHost } from "./operatehost.ts";
 import { operateWire } from "./operatewire.ts";
 import { createLog, tailLog } from "./log.ts";
 import { procsReply, startProcs, type StartProcs } from "./procsops.ts";
@@ -286,6 +287,15 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	let forwarder: DialogForwarder | undefined;
 	let reporter: UnitReporter | undefined;
 	let operateBox: OperateBox | undefined;
+	// The controller's end of operate (operatehost.ts), one per GUI that runs: the GUI owns and stops it, so a GUI that starts again asks for a new one. It opens sessions only while this device is attended and a page is connected; an unattended device's
+	// offers are empty (one device is never both ends), and the holder's operate sink is the box's there (link/service.ts).
+	let operateHost: OperateHost | undefined;
+	const makeOperateHost = (): OperateHost => (operateHost = createOperateHost({
+		now, device: () => link?.holder?.deviceId,
+		boxes: () => boxesOf(link),
+		send: (team, device, message) => { const holder = link?.holder; return holder ? holder.sendLive(team, device, message) : Promise.reject(new Error("The link holder is not running")); },
+		log: (entry) => link?.store.log(entry),
+	}));
 	const shutdown = (code: number): Promise<void> => (leaving ??= (async () => {
 		const began = now();
 		timers.forEach(clearInterval);
@@ -293,6 +303,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		// The link holder's record goes before the server does, so the next server takes it at its first look and no relay stream is left half open.
 		forwarder?.stop();
 		operateBox?.stop(); // each operate session says `close` to its operator while the holder still runs
+		operateHost?.stop(); // and each session of this computer's own to a box
 		await Promise.race([link?.stop().catch((error: Error) => log.line("error", { code: "link", text: phrase(error.message, 300) })), sleep(LINK_STOP_MS)]);
 		// The GUI listeners and the remote entry go before the intercom ids are released.
 		await Promise.race([guiHost?.leave(phase === "stopping").catch(() => {}), sleep(GUI_LEAVE_MS)]);
@@ -531,6 +542,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		failed: (code, text) => recordError(code, text), tailscale: gui.tailscale, bundle: gui.bundle, bindWaitMs: gui.bindWaitMs, ...(gui.lan ? { lan: gui.lan } : {}),
 		// The page's tower units: the service's state and queue in the net, the composer as a boss event, and the notices' buttons (towers is built below, after the GUI host, and may be absent).
 		tower: towerPanel(() => towers), head: headSeam(slot, now),
+		...(slot.primary ? { operateHost: makeOperateHost } : {}),
 	});
 	// The tower service (behind `towerRuns.enabled`): it stands in for each workspace's tower, and finds the tabs again when a new Herdr server takes over.
 	// What `boss_server` does for a run (runtools.ts): the server answers it itself, so it can refuse an ally run's token and keep the restart limit.
@@ -622,7 +634,11 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		if (link || !slot.primary || leaving) return;
 		link = createLinkService({
 			// The operate bridge (operatewire.ts) is built by the first message the holder hands it (never while the server leaves: a stopped bridge refuses opens itself); an attended computer never gets one.
-			operate: (m) => { if (operateBox || !leaving) (operateBox ??= operateWire({ slot, now, run: cfg.run, gui: () => guiHost?.operate(), allyPanes: () => towers?.runs.allyPanes() ?? [], link: () => link })).take(m); }, onRoster: (team) => operateBox?.onRoster(team),
+			operate: (m) => { if (operateBox || !leaving) (operateBox ??= operateWire({ slot, now, run: cfg.run, gui: () => guiHost?.operate(), allyPanes: () => towers?.runs.allyPanes() ?? [], link: () => link })).take(m); },
+			// An attended computer's holder takes operate as the controller (the box's `accept`, `refuse` and frames go to the host of the GUI that runs, which a box's caps check requires the holder to list); `/boss link operate` reads and ends its sessions.
+			controller: { receive: (m) => operateHost?.receive(m), status: () => operateHost?.status() ?? [], off: () => operateHost?.off() },
+			// A roster change or a stopped team: the box side rechecks its sessions, and the controller side closes the sessions of a team this device no longer runs (the holder answers nothing for it).
+			onRoster: (team) => { operateBox?.onRoster(team); const holder = link?.holder, self = holder?.deviceId; if (operateHost && (!holder || !self || !holder.member(team, self))) operateHost.closeTeam(team); },
 			kit, stateDir: slot.stateDir, version, pid, started: () => own.started,
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
 			dialogAnswer: (a) => dialogsOut().answer(a),

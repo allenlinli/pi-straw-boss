@@ -578,6 +578,10 @@ export class LinkHolder {
 		if (opened.header.kind === "caps") run.caps.set(opened.header.from, { at: this.now(), features: (opened.message as Caps).features });
 		if (opened.header.kind === "presence") {
 			const presence = opened.message as Presence;
+			// A device that was not here a moment ago (it started after this one, or was away over `PRESENCE_ONLINE_MS`) has missed this device's `caps`, which go only to the streams open when they are sent: they are sent again at the next tick, so
+			// a controller that starts after a box learns `operate/1` now and not at the next hourly refresh. A device that keeps sending presence does not cause it again.
+			const prior = run.presences.get(opened.header.from);
+			if (!prior || this.now() - prior.at > PRESENCE_ONLINE_MS) run.capsSent.at = 0;
 			run.presences.set(opened.header.from, { at: this.now(), presence });
 			this.compareHead(run, opened.header.from, presence, roster);
 		}

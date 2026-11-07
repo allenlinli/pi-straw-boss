@@ -1,0 +1,255 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { get, request } from "node:http";
+import { join } from "node:path";
+import { afterEach, test } from "node:test";
+import { readRecord as readGuiJson } from "../src/handover.ts";
+import { OPERATE_LIMITS } from "../src/link/operate.ts";
+import { LinkStore } from "../src/link/store.ts";
+import { addEntry, removeEntry, roleEntry } from "../src/link/roster.ts";
+import type { Net } from "../src/net.ts";
+import { addRoute } from "../src/server/allyroute.ts";
+import { callControl } from "../src/server/socket.ts";
+import { FakeRelay } from "./link/fake-relay.ts";
+import { World } from "./fakes.ts";
+import { alice, bob, clientFor, rosterOf, stateOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
+import { det, DEVICES, LABELS, TEAM, view } from "./link/scenario.ts";
+import { assistant, header, lines, text, user } from "./sessions.ts";
+import { ServerWorld, sleep, until } from "./server-world.ts";
+
+// Operate end to end in the running sb server (todo #121 wiring, docs/specs/2026-11-07-link-operate.md §11.3 and §11.4): two real servers in one test world over the fake relay, a Mac (attended, bob's device) and a box (unattended, dave's device
+// whose policy lets bob operate). The Mac's page is a real HTTP client of the Mac's GUI: it sees the box's session as a remote base, watches a box unit's history, reads the box's finished runs, and drives a pad key; a roster change on the box,
+// the Mac leaving the team, and either server stopping each close the session.
+
+const { dave } = DEVICES;
+const WS = "wA", TAB = "wA:t1", PANE = "wA:p1", SESSION = "box-main";
+/** How long a step may take on a loaded machine; a mutation check shortens it (SB_WIRING_WAIT) so a dropped wire fails fast. */
+const WAIT = Number(process.env.SB_WIRING_WAIT) || 20_000;
+
+interface Page { events: { event: string; data: string }[]; nets(): Net[]; close(): void }
+const GUI = (sw: ServerWorld) => { const g = sw.record()!.gui!, json = readGuiJson(sw.slot.dir); return { port: g.port, token: g.token, url: `http://127.0.0.1:${g.port}/${g.token}/`, csrf: json!.csrf }; };
+type Gui = ReturnType<typeof GUI>;
+function listen(gui: Gui, watch?: string): Page {
+	const events: { event: string; data: string }[] = [];
+	const req = get(`${gui.url}events${watch ? `?watch=${encodeURIComponent(watch)}` : ""}`, { headers: { host: `127.0.0.1:${gui.port}` } }, (res) => {
+		res.setEncoding("utf8");
+		let buffer = "";
+		res.on("data", (chunk: string) => {
+			buffer += chunk;
+			for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
+				const part = buffer.slice(0, end).split("\n");
+				buffer = buffer.slice(end + 2);
+				events.push({ event: part.find((l) => l.startsWith("event: "))?.slice(7) ?? "message", data: part.find((l) => l.startsWith("data: "))?.slice(6) ?? "" });
+			}
+		});
+	});
+	req.on("error", () => {});
+	return { events, close: () => req.destroy(), nets: () => events.filter((e) => e.event === "message" && e.data).map((e) => JSON.parse(e.data) as Net) };
+}
+const fetchJson = (gui: Gui, path: string) => new Promise<{ status: number; body: any }>((resolve, reject) => get(`${gui.url}${path}`, { headers: { host: `127.0.0.1:${gui.port}` } }, (res) => {
+	const parts: Buffer[] = [];
+	res.on("data", (c: Buffer) => parts.push(c)).on("end", () => { const raw = Buffer.concat(parts).toString(); resolve({ status: res.statusCode!, body: raw ? JSON.parse(raw) : undefined }); });
+}).on("error", reject));
+const postJson = (gui: Gui, path: string, json: unknown) => new Promise<{ status: number; body: any }>((resolve, reject) => {
+	const req = request(`${gui.url}${path}`, { method: "POST", headers: { host: `127.0.0.1:${gui.port}`, origin: `http://127.0.0.1:${gui.port}`, "content-type": "application/json", "x-sb-csrf": gui.csrf } }, (res) => {
+		let raw = "";
+		res.on("data", (c) => (raw += c)).on("end", () => resolve({ status: res.statusCode!, body: raw ? JSON.parse(raw) : undefined }));
+	});
+	req.on("error", reject).end(JSON.stringify(json));
+});
+
+const cleanups: (() => Promise<unknown> | unknown)[] = [];
+afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c(); });
+
+/** The two computers. `grant`: the box's operate grant for bob. */
+async function boot(o: { grant?: "team" | "box" | "none" } = {}) {
+	const relay = new FakeRelay(), macWorld = new ServerWorld(), boxWorld = new ServerWorld(), boxHerdr = new World(), macHerdr = new World();
+	cleanups.push(async () => { await Promise.allSettled([macWorld.close(), boxWorld.close()]); await Promise.allSettled([boxHerdr.stopAll(), macHerdr.stopAll()]); });
+	const entries = rosterOf();
+	entries.push(addEntry({ state: view(entries), signer: alice, record: dave, label: LABELS.dave, attended: false, ...det("add-dave") }));
+	entries.push(roleEntry({ state: stateOf(entries, alice), signer: alice, subjectId: bob.id, role: "admin" }));
+	relay.addTeam(TEAM, [alice.id, bob.id, dave.id], entries);
+	const link = (world: ServerWorld, policy: Record<string, unknown>) => ({ tickMs: 15, drainMs: 20, presenceMs: 40, capsMs: 3_600_000, capsMinMs: 5, relay: clientFor(relay), home: join(world.root, "home"), policy });
+
+	// The box: a team project, a main there that bob dispatched (the box's records and the pane's token say so), a session file in pi's folder, and a policy that grants bob operate.
+	const project = join(boxWorld.root, "home", "project");
+	mkdirSync(project, { recursive: true });
+	const real = realpathSync(project), boxStore = new LinkStore(join(boxWorld.stateDir, "link"));
+	writeDevice(boxStore, dave, "ci-box");
+	writeTeam(boxStore, entries, dave);
+	const sessions = join(process.env.PI_CODING_AGENT_DIR!, "sessions");
+	mkdirSync(sessions, { recursive: true });
+	const file = join(sessions, `2026-11-07T00-00-00-000Z_${SESSION}.jsonl`);
+	writeFileSync(file, lines([header(SESSION), user("u1", null, "please fix the build"), assistant("a1", "u1", [text("the build is fixed")])]));
+	boxHerdr.herdr.addPane(PANE, TAB);
+	Object.assign(boxHerdr.herdr.pane(PANE), { cwd: real, agent: "pi", agent_session: { value: realpathSync(file) }, tokens: { sb_role: "main", sb_opened_by: `link:${bob.id}` } });
+	addRoute(boxWorld.slot, WS, { to: SESSION, device: bob.id, team: TEAM_HEX, kind: "opened", at: Date.now(), name: SESSION, label: "x", short: "x", teamName: "x", pane: PANE }, Date.now());
+	const policy = JSON.stringify({ unattended: true, trust: { [bob.id]: "dispatch" }, teams: { [TEAM_HEX]: { project: real, share: "status" } }, ...(o.grant === "none" ? {} : { operate: { [bob.id]: o.grant ?? "box" } }) });
+	const boxLink = link(boxWorld, { path: "/etc/straw-link/policy.json", uid: 501, stat: () => ({ uid: 0, symlink: false }), writable: () => false, read: () => policy });
+	const boxCall = async (method: string) => {
+		if (method === "pane.get") return { pane: { pane_id: PANE, terminal_id: "term_1", agent: "pi", agent_status: "idle", agent_session: { value: realpathSync(file) } } };
+		if (method === "pane.list") return { panes: [{ pane_id: PANE, tab_id: TAB }] };
+		if (method === "pane.read") return { read: { text: "pi\r\n> \r\n" } };
+		if (method === "pane.layout") return { layout: { panes: [{ pane_id: PANE, rect: { width: 80, height: 24 } }] } };
+		if (method === "pane.process_info") return { process_info: { shell_pid: 10, foreground_processes: [{ pid: 11, name: "pi", argv0: "pi" }] } };
+		return {};
+	};
+	const box = await boxWorld.start({ link: boxLink, herdr: { run: boxHerdr.herdr.runFor(""), call: boxCall as never } });
+	box.client.sessions = [{ id: SESSION, name: "box main", herdrLocation: { status: "current", paneId: PANE, tab: { id: TAB, label: "work" }, workspace: { id: WS, label: "Alpha" } } }] as never;
+
+	// The Mac: bob's device, attended (no policy file), with the team in its config.
+	const macProject = join(macWorld.root, "home", "project");
+	mkdirSync(macProject, { recursive: true });
+	const macStore = new LinkStore(join(macWorld.stateDir, "link"));
+	writeDevice(macStore, bob, "bob-mac");
+	writeTeam(macStore, entries, bob);
+	writeFileSync(join(macWorld.stateDir, "config.json"), JSON.stringify({ towerRuns: { enabled: false }, link: { relay: "http://relay.test", teams: { [TEAM_HEX]: { project: realpathSync(macProject), share: "status" } } } }));
+	const none = { path: "/etc/straw-link/policy.json", read: () => { throw Object.assign(new Error("no policy file"), { code: "ENOENT" }); } };
+	const mac = await macWorld.start({ link: link(macWorld, none), herdr: { run: macHerdr.herdr.runFor("") } });
+	await Promise.all([box.handle.ready, mac.handle.ready]);
+	// Each device has told the other its caps (they go to the streams open when they are sent, and the second to start sends its own after the first's reached it): the box checks the Mac's before it answers an open.
+	const capsFrom = (id: string) => relay.stored.some((x) => x.envelope.header.kind === "caps" && x.envelope.header.from === id);
+	await until(() => capsFrom(bob.id) && capsFrom(dave.id), "both devices' caps", WAIT);
+	await sleep(150);
+	return { relay, entries, macWorld, boxWorld, boxHerdr, mac, box, file, boxLog: () => logOf(boxWorld), macLog: () => logOf(macWorld), gui: () => GUI(macWorld) };
+}
+const logOf = (w: ServerWorld) => { const f = join(w.stateDir, "link", "link.log"); return existsSync(f) ? readFileSync(f, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) : []; };
+const boxBase = (net: Net) => net.bases.find((b) => b.box);
+const latest = (page: Page) => page.nets().at(-1);
+
+test("the Mac's page sees the box's session as a remote base, watches a box unit, and reads the box's finished runs", async () => {
+	const w = await boot();
+	const gui = w.gui(), page = listen(gui);
+	cleanups.push(() => page.close());
+	await until(() => page.nets().some((n) => boxBase(n)?.box?.state === "live"), "the box's base in the Mac's net", WAIT);
+	const net = page.nets().findLast((n) => boxBase(n)?.box?.state === "live")!, base = boxBase(net)!;
+	assert.deepEqual([base.box!.device, base.box!.label, base.box!.team, base.box!.scope], [dave.id, "ci-box", "project", "box"]);
+	const unit = base.tabs.flatMap((t) => t.units).find((u) => u.name === "box main")!;
+	assert.ok(unit, "the box's main is a unit of the base");
+	assert.match(unit.key, /^x[0-9a-f]{16}$/);
+	// A watch: the page loaded at the unit's address gets the box's history.
+	const watching = listen(gui, unit.key);
+	cleanups.push(() => watching.close());
+	await until(() => watching.events.some((e) => e.event === "history" && e.data.includes("please fix the build")), "the box's history on the watch", WAIT);
+	// The box's finished runs: its ledger saw the main, so the list names it; the unit then leaves the box (its pane closes) and its transcript is still read, through the key the list gave.
+	const listed = await fetchJson(gui, `api/transcripts?base=${base.id}`);
+	assert.equal(listed.status, 200, JSON.stringify(listed.body));
+	assert.deepEqual(listed.body.rows.map((r: { name: string; role: string }) => [r.name, r.role]), [["box main", "main"]]);
+	const run = listed.body.rows[0];
+	assert.match(run.key, /^x[0-9a-f]{16}$/);
+	assert.ok(!JSON.stringify(listed.body).includes(SESSION), "the box's own id is not passed on as a key of the page");
+	boxHerdr(w).panes.splice(0);
+	w.box.client.sessions = [] as never;
+	await until(() => !page.nets().at(-1)!.bases.some((b) => b.box && b.tabs.some((t) => t.units.length)), "the unit gone from the Mac's net", WAIT);
+	const old = await fetchJson(gui, `api/history/${run.key}?limit=10`);
+	assert.equal(old.status, 200, JSON.stringify(old.body));
+	assert.ok(JSON.stringify(old.body).includes("the build is fixed"), "the transcript of a run that is over");
+	const ledger = readFileSync(join(w.boxWorld.stateDir, "link", "operate-ledger.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as { ended?: boolean; team: string });
+	assert.deepEqual(ledger.map((r) => [r.team, r.ended === true]), [[TEAM_HEX, false], [TEAM_HEX, true]]);
+	void postJson, OPERATE_LIMITS, callControl;
+});
+const boxHerdr = (w: { boxHerdr: World }) => w.boxHerdr.herdr;
+
+/** The Mac's page and the box's base on it, live, with the page's own stream id. */
+async function paged(o: Parameters<typeof boot>[0] = {}) {
+	const w = await boot(o), gui = w.gui(), page = listen(gui);
+	cleanups.push(() => page.close());
+	await until(() => page.nets().some((n) => boxBase(n)?.box?.state === "live" && boxBase(n)!.tabs.some((t) => t.units.length)), "the box's base in the Mac's net", WAIT);
+	const base = boxBase(page.nets().findLast((n) => boxBase(n)?.box?.state === "live")!)!, unit = base.tabs.flatMap((t) => t.units)[0]!;
+	await until(() => page.events.some((e) => e.event === "hello"), "the page's stream id", WAIT);
+	const stream = JSON.parse(page.events.find((e) => e.event === "hello")!.data).stream as string;
+	return { ...w, gui, page, base, unit, stream };
+}
+
+test("a pad key goes through the Mac's page to the box's own guard: the terminal mirror is shared, and the box's answer comes back whole", async () => {
+	const w = await paged();
+	const mirror = await postJson(w.gui, `api/sessions/${w.unit.key}/mirror`, { stream: w.stream, on: true });
+	assert.deepEqual([mirror.status, mirror.body], [200, { attached: true }]);
+	await until(() => w.page.events.some((e) => e.event === "mirror" && e.data.includes(w.unit.key)), "a frame of the box's terminal on the page's stream", WAIT);
+	// The Mac checks what it can (a fresh frame on this stream), the box the rest. A box with no pi bridge cannot read its pi's key bindings, so it refuses every key, and says so in its own words.
+	const key = await postJson(w.gui, `api/sessions/${w.unit.key}/keys`, { key: "up", stream: w.stream });
+	assert.deepEqual([key.status, key.body.error, key.body.why], [403, "operate_refused", "binding-unread"]);
+	assert.deepEqual(w.boxLog().filter((l) => l.event === "operate-refused").map((l) => [l.route, l.reason]), [["sessions/*/keys", "binding-unread"]], "the request reached the box's guard and was logged there");
+	// A key for a page that shows no terminal never leaves the Mac.
+	const stale = await postJson(w.gui, `api/sessions/${w.unit.key}/keys`, { key: "up", stream: "no-such-stream" });
+	assert.equal(stale.status, 409);
+	assert.equal(w.boxLog().filter((l) => l.event === "operate-refused").length, 1);
+});
+
+test("a roster change on the box that takes bob's admin away ends the session with a close, and the Mac's base says the grant is gone", async () => {
+	const w = await paged({ grant: "team" });
+	w.relay.pushRoster(TEAM, roleEntry({ state: stateOf(w.entries, alice), signer: alice, subjectId: bob.id, role: "member" }));
+	await until(() => w.boxLog().some((l) => l.event === "operate-close"), "the box's close", WAIT);
+	assert.deepEqual(w.boxLog().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason]), [["box", "roster"]]);
+	await until(() => boxBase(w.page.nets().at(-1)!)?.box?.state === "ended", "the base ended on the Mac's page", WAIT);
+	const ended = boxBase(w.page.nets().at(-1)!)!.box!;
+	assert.deepEqual([ended.state, ended.why], ["ended", "roster"]);
+	assert.deepEqual(w.macLog().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason]), [["box", "roster"]]);
+});
+
+test("the Mac leaving the team closes its sessions at once, with no wait for the box's silence", async () => {
+	const w = await paged();
+	assert.equal((await operateStatus(w.macWorld)).sessions.length, 1);
+	// The founder removes bob: the Mac's holder stops the team, and its roster hook closes the sessions of that team.
+	w.relay.pushRoster(TEAM, removeEntry({ state: stateOf(w.entries, alice), signer: alice, subjectId: bob.id, newKey: new Uint8Array(32).fill(7), ...det("remove-bob") }));
+	await until(async () => (await operateStatus(w.macWorld)).sessions.length === 0, "no session on the Mac", WAIT);
+	assert.deepEqual(w.macLog().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason]), [["controller", "team-stopped"]]);
+	await until(() => !boxBase(w.page.nets().at(-1)!), "the box's base off the Mac's page", WAIT);
+});
+
+test("stopping the Mac's server sends each session's close to the box while the holder still runs", async () => {
+	const w = await paged();
+	await w.mac.handle.shutdown(0);
+	await until(() => w.boxLog().some((l) => l.event === "operate-close"), "the box's line", WAIT);
+	assert.deepEqual(w.boxLog().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason]), [["operator", "stop"]]);
+});
+
+test("stopping the box's server greys the Mac's base for a reopen: it is not a revoked grant", async () => {
+	const w = await paged();
+	await w.box.handle.shutdown(0);
+	await until(() => boxBase(w.page.nets().at(-1)!)?.box?.state === "unreachable", "the base greyed", WAIT);
+	assert.equal(boxBase(w.page.nets().at(-1)!)!.box!.why, undefined);
+	assert.deepEqual(w.macLog().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason]), [["box", "stopped"]]);
+});
+
+test("/boss link operate lists the session and `operate off` ends it on both computers", async () => {
+	const w = await paged();
+	const status = await operateStatus(w.macWorld);
+	assert.deepEqual(status.sessions.map((x: Record<string, unknown>) => [x.label, x.short, x.teamName, x.scope, x.state, x.pages]), [["ci-box", dave.shortId, "project", "box", "live", 1]]);
+	assert.deepEqual(await linkGui(w.macWorld, "operate-off"), { ok: true });
+	assert.deepEqual((await operateStatus(w.macWorld)).sessions, []);
+	await until(() => w.boxLog().some((l) => l.event === "operate-close"), "the box's line", WAIT);
+	assert.deepEqual(w.boxLog().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason]), [["operator", "off"]]);
+	// The page that stays does not bring them back for a minute.
+	await sleep(1500);
+	assert.deepEqual((await operateStatus(w.macWorld)).sessions, []);
+});
+
+test("an unattended box answers the same command with no session, and a box with no operate entry in its policy is refused once and shows nothing", async () => {
+	const w = await boot({ grant: "none" }), gui = w.gui(), page = listen(gui);
+	cleanups.push(() => page.close());
+	await until(() => w.boxLog().some((l) => l.event === "operate-open"), "the box's refusal", WAIT);
+	assert.deepEqual(w.boxLog().filter((l) => l.event === "operate-open").map((l) => l.verdict), ["not-granted"]);
+	await sleep(500);
+	assert.equal(page.nets().some((n) => boxBase(n)?.box?.state === "live"), false);
+	assert.deepEqual((await operateStatus(w.boxWorld)).sessions, [], "an unattended device has no controller end");
+	assert.deepEqual(w.macLog().filter((l) => String(l.event).startsWith("operate-")).map((l) => [l.event, l.reason ?? l.verdict]), [["operate-close", "not-granted"]], "the Mac wrote the one line of the refusal and nothing else");
+	assert.equal(w.boxLog().filter((l) => l.event === "operate-open").length, 1, "a refusal is remembered: the box is not asked again");
+});
+
+test("a GUI that stops and starts again in the same server gets a host of its own: the stopped one is final, and the box's base comes back", async () => {
+	const w = await paged(), socket = () => ({ socket: w.macWorld.record()!.socket, secret: w.macWorld.record()!.secret });
+	assert.equal((await callControl(socket().socket, socket().secret, { cmd: "gui-stop" })).reply?.ok, true);
+	await until(() => w.boxLog().some((l) => l.event === "operate-close"), "the box's line for the stopped GUI's session", WAIT);
+	assert.deepEqual(w.boxLog().filter((l) => l.event === "operate-close").map((l) => [l.by, l.reason]), [["operator", "stop"]]);
+	w.page.close();
+	assert.equal((await callControl(socket().socket, socket().secret, { cmd: "gui", boss: true } as never)).reply?.ok, true);
+	const again = listen(GUI(w.macWorld));
+	cleanups.push(() => again.close());
+	await until(() => again.nets().some((n) => boxBase(n)?.box?.state === "live"), "the box's base on the new GUI's page", WAIT);
+	assert.deepEqual((await operateStatus(w.macWorld)).sessions.map((x: Record<string, unknown>) => x.state), ["live"]);
+});
+
+const link = async (w: ServerWorld, body: Record<string, unknown>) => (await callControl(w.record()!.socket, w.record()!.secret, { cmd: "link", from: w.record()!.intercomId, body } as never)).reply!.answer as Record<string, any>;
+const linkGui = (w: ServerWorld, name: string) => link(w, { op: "gui", name, args: {} });
+const operateStatus = (w: ServerWorld) => linkGui(w, "operate");

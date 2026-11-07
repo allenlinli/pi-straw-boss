@@ -202,14 +202,22 @@ export function sanitizeMirror(raw: unknown, rw: Rewrite): Record<string, unknow
 // --- what a request's answer is ------------------------------------------------------------------------------------------------------------------------------------------------------
 
 /** Where a request goes, which decides the shape its answer may have. */
-export type ReplyKind = "history" | "entry" | "image" | "input" | "keys" | "answer" | "dequeue" | "commands" | "upload" | "mirror" | "plain" | "memory";
+export type ReplyKind = "history" | "entry" | "image" | "input" | "keys" | "answer" | "dequeue" | "commands" | "upload" | "mirror" | "plain" | "memory" | "transcripts";
 const errorBody = shape<{ error: string; reason: string }>({ error: str(64), reason: str(2000, true) }, { why: str(40), confirm: str(64), key: str(64), label: str(64) });
 const then = (v: unknown) => {
 	if (!isObj(v)) return undefined;
 	// Never `pane` (decision 8): such a pane would run a shell, and nothing of it opens from here.
 	return v.terminal === true ? { terminal: true as const, ...(v.run === true ? { run: true as const } : {}) } : undefined;
 };
+/** A finished run of the box's ledger (§9): its `id` becomes the page's key for the run's transcript (`t<id>` on the box), so the page reads it through `api/history` like any unit. */
+const finishedRun: P<unknown> = (v, rw) => {
+	const base = shape<{ id: string; name: string; role: string; workspace: string; first: number; last: number; size: number; dispatcher?: string }>({ id: hex(16), name: str(200), role: str(12), workspace: str(200), first: num, last: num, size: int(0, 1e12) }, { dispatcher: str(100) })(v, rw);
+	if (!base) return undefined;
+	const { id, ...rest } = base;
+	return { key: rw.key(`t${id}`), ...rest };
+};
 const bodyOf: Record<ReplyKind, P<unknown>> = {
+	transcripts: shape({ rows: list(finishedRun, 50) }, { before: str(64) }),
 	history: shape({ items: itemList }, { before: str(200) }),
 	entry: item,
 	image: () => undefined, // an image never takes this path (sanitizeImage)

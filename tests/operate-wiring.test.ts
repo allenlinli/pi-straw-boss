@@ -307,7 +307,10 @@ test("wire 4: a page's list of a box's finished runs goes to the session that sh
 	// A cursor the page never held is no cursor: the box's own ledger id is not something a page can name (review OW-F006), and nothing of it reaches the box.
 	const before = w.box().reqs().length;
 	for (const hostile of ["5:0123456789abcdef", "5:x0000000000000000", "abc", "5:" + "a".repeat(62), ":x0123456789abcdef", "5:x0123456789abcdef:1"]) {
-		const refused = await w.host.bridge.claim("GET", ["transcripts"], {}, new URLSearchParams({ base, before: hostile }))!.send();
+		const asking = w.host.bridge.claim("GET", ["transcripts"], {}, new URLSearchParams({ base, before: hostile }))!.send();
+		await w.pump();
+		assert.equal(w.box().reqs().length, before, `${hostile}: nothing was sent to the box (a request that was sent would wait for the box's answer)`); // checked before the wait, so a cursor that is forwarded fails here and does not hang
+		const refused = await asking;
 		assert.deepEqual([refused.status, (refused.body as { error: string }).error], [400, "bad_request"], hostile);
 	}
 	await w.pump();

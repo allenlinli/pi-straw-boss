@@ -25,7 +25,7 @@ export function watchSession(hub: Hub, key: string, send: Send): Watch {
 	const detach = () => (unsub?.(), file && hub.readers.release(file), (reader = file = unsub = undefined));
 	async function refresh() {
 		if (stopped || attaching) return;
-		const found = hub.lookup(key), sig = JSON.stringify(meta(found));
+		const found = foundOf(hub, key), sig = JSON.stringify(meta(found));
 		if (reader && found?.file && found.file !== file) detach();
 		if (!reader && found?.file) {
 			attaching = true;

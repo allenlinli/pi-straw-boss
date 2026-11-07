@@ -15,6 +15,8 @@ import type { Slot } from "./record.ts";
 // in-process operate entry through the GUI host. A unit's owner is read from the box's records (operatescope.ts) over facts `refresh` reads before each check (Herdr's listing), with the live ally panes and the registry read at the
 // moment of the request.
 export interface OperateWireDeps {
+	/** Told after a session of the bridge has ended. */
+	ended?(): void;
 	slot: Slot;
 	now(): number;
 	run: HerdrRun;
@@ -128,6 +130,7 @@ export function operateWire(o: OperateWireDeps) {
 		log: (entry) => o.link()?.store.log(entry),
 		now: o.now,
 		every,
+		...(o.ended ? { ended: o.ended } : {}),
 		watch: (onChange) => watchPolicy(onChange, { ...(o.link()?.policyPath ? { path: o.link()!.policyPath! } : {}) }),
 	});
 	return { ...box, stop: () => { net.stop(); box.stop(); }, net };

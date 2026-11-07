@@ -188,3 +188,42 @@ test("OW-F002: an operateOn that throws reads as no grant", async () => {
 	await until(() => a.holder.capsFor(TEAM_HEX, dave.id).length > 0, 3000, "the box's caps");
 	assert.ok(!a.holder.capsFor(TEAM_HEX, dave.id).includes("operate/1"));
 });
+
+// ---- a failed caps post is tried again (review RR-F004) and the replay recovers a restarted holder (RR-F006) ---------------------------------------------------------------
+
+test("RR-F004: an answer to a hello whose post fails (one 503) is tried again within the spacing, not at the hourly refresh", async () => {
+	relay.addTeam(TEAM, [alice.id, dave.id, carol.id], entries);
+	const a = rig("alice", { capsMinMs: 50 });
+	await a.holder.start();
+	await until(() => capsOf(alice).length >= 1, 3000, "alice's first caps");
+	await until(() => capsOf(alice).length >= 1 && relay.opened.length > 0, 3000, "alice's stream");
+	const before = capsOf(alice).length, roster = view(entries);
+	const hello = buildEnvelope({ team: TEAM, epoch: roster.epoch, teamKey: teamKey(roster.epoch), head: roster.head, from: carol, seq: 0, ts: Date.now(), kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: ["hello"] }) });
+	relay.failPosts = 1;
+	relay.injectStored(TEAM_HEX, hello, alice.id);
+	await until(() => relay.failPosts === 0, 3000, "the one failed post");
+	await until(() => capsOf(alice).length > before, 3000, "the answer after the failure, with the hourly refresh an hour away");
+});
+
+test("RR-F006: a restarted device whose cursor is before its peer's caps learns them from the relay's replay (no hello reaches the peer)", async () => {
+	relay.addTeam(TEAM, [alice.id, dave.id, carol.id], entries);
+	const a = rig("alice"), d = rig("dave");
+	await Promise.all([a.holder.start(), d.holder.start()]);
+	await until(() => a.holder.capsFor(TEAM_HEX, dave.id).length > 0 && d.holder.capsFor(TEAM_HEX, alice.id).length > 0, 3000, "both devices' caps");
+	await Promise.all([a.holder.stop(), d.holder.stop()]); // the peer is gone: nothing answers a hello, so only the replay can refill the restarted device's memory
+	const stored = capsOf(alice).length;
+	assert.ok(stored >= 1, "the relay holds alice's caps");
+	const again = rig("dave", { capsMinMs: 5 });
+	writeTeam(again.store, entries, dave, { lastEventId: 0 });
+	await again.holder.start();
+	await until(() => again.holder.capsFor(TEAM_HEX, alice.id).length > 0, 3000, "alice's caps from the replay");
+});
+
+test("RR-F006: the fake relay refuses a stale ephemeral as the real one does: it is not stored and the newer one is kept", async () => {
+	relay.addTeam(TEAM, [alice.id, dave.id, carol.id], entries);
+	const roster = view(entries), at = (ts: number, features: string[]) => buildEnvelope({ team: TEAM, epoch: roster.epoch, teamKey: teamKey(roster.epoch), head: roster.head, from: carol, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features }) });
+	const put = async (env: ReturnType<typeof at>) => (await (await relay.fetch(`http://relay.test/v1/teams/${TEAM_HEX}/envelopes`, { method: "POST", headers: { "x-straw-device": carol.id }, body: Buffer.from(JSON.stringify({ envelope: Buffer.from((await import("../src/link/envelope.ts")).encodeEnvelope(env)).toString("base64url") })) })).json()) as { stale: boolean };
+	assert.equal((await put(at(200, ["a"]))).stale, false);
+	assert.equal((await put(at(100, ["b"]))).stale, true);
+	assert.equal(relay.stored.filter((s) => s.envelope.header.kind === "caps" && s.envelope.header.from === carol.id).length, 1, "the stale one is not stored");
+});

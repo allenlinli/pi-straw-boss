@@ -17,6 +17,7 @@ import { World } from "./fakes.ts";
 import { alice, bob, clientFor, rosterOf, stateOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
 import { det, DEVICES, LABELS, TEAM, teamKey, view } from "./link/scenario.ts";
 import { assistant, header, lines, text, user } from "./sessions.ts";
+import { timerSpy } from "./timer-spy.ts";
 import { ServerWorld, sleep, until } from "./server-world.ts";
 
 // Operate end to end in the running sb server (todo #121 wiring, docs/specs/2026-11-07-link-operate.md §11.3 and §11.4): two real servers in one test world over the fake relay, a Mac (attended, bob's device) and a box (unattended, dave's device
@@ -64,7 +65,7 @@ const cleanups: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c(); });
 
 /** The two computers. `grant`: the box's operate grant for bob. */
-async function boot(o: { grant?: "team" | "box" | "none" } = {}) {
+async function boot(o: { grant?: "team" | "box" | "none"; late?: boolean } = {}) {
 	const relay = new FakeRelay(), macWorld = new ServerWorld(), boxWorld = new ServerWorld(), boxHerdr = new World(), macHerdr = new World();
 	cleanups.push(async () => { await Promise.allSettled([macWorld.close(), boxWorld.close()]); await Promise.allSettled([boxHerdr.stopAll(), macHerdr.stopAll()]); });
 	const entries = rosterOf();
@@ -108,11 +109,15 @@ async function boot(o: { grant?: "team" | "box" | "none" } = {}) {
 	writeTeam(macStore, entries, bob);
 	writeFileSync(join(macWorld.stateDir, "config.json"), JSON.stringify({ towerRuns: { enabled: false }, link: { relay: "http://relay.test", teams: { [TEAM_HEX]: { project: realpathSync(macProject), share: "status" } } } }));
 	const none = { path: "/etc/straw-link/policy.json", read: () => { throw Object.assign(new Error("no policy file"), { code: "ENOENT" }); } };
-	const mac = await macWorld.start({ link: link(macWorld, none), herdr: { run: macHerdr.herdr.runFor("") } });
+	// `late`: another candidate of a newer build holds the Mac's election record, so the server is no holder until `release()` (RR-F002: the holder comes after the page is connected).
+	let blocked = Boolean(o.late);
+	if (o.late) await macStore.withLock(() => macStore.writeHolder({ session: "blocker", version: "99.0.0", pid: process.pid, tower: false, since: Date.now() }));
+	const release = () => void (blocked = false);
+	const mac = await macWorld.start({ link: { ...link(macWorld, none), alive: (r: { session: string }) => r.session !== "blocker" || blocked }, herdr: { run: macHerdr.herdr.runFor("") } });
 	await Promise.all([box.handle.ready, mac.handle.ready]);
 	// Each device has told the other its caps (they go to the streams open when they are sent, and the second to start sends its own after the first's reached it): the box checks the Mac's before it answers an open.
 	const capsFrom = (id: string) => relay.stored.some((x) => x.envelope.header.kind === "caps" && x.envelope.header.from === id);
-	await until(() => capsFrom(bob.id) && capsFrom(dave.id), "both devices' caps", WAIT);
+	await until(() => capsFrom(dave.id) && (o.late || capsFrom(bob.id)), "both devices' caps", WAIT);
 	/** The box's policy as the file reads from now on (the holder reads it at each tick). */
 	const setGrant = (grant: "team" | "box" | "none") => void (policy = policyOf(grant));
 	await sleep(150);
@@ -120,7 +125,7 @@ async function boot(o: { grant?: "team" | "box" | "none" } = {}) {
 	// the cursor a restarted holder resumes from, and any queued envelope after the peer's last `caps` (a dispatch, a tower's reply) has moved it there: the stored cursor is set past everything the relay holds, as that leaves it.
 	const restartBox = async () => { writeTeam(boxStore, entries, dave, { lastEventId: 1_000_000 }); const again = await boxWorld.start({ link: boxLink, herdr: { run: boxHerdr.herdr.runFor(""), call: boxCall as never } }); again.client.sessions = box.client.sessions; await again.handle.ready; return again; };
 	const restartMac = async () => { writeTeam(macStore, entries, bob, { lastEventId: 1_000_000 }); const again = await macWorld.start({ link: link(macWorld, none), herdr: { run: macHerdr.herdr.runFor("") } }); await again.handle.ready; return again; };
-	return { relay, entries, macWorld, boxWorld, boxHerdr, mac, box, file, restartBox, restartMac, setGrant, boxLog: () => logOf(boxWorld), macLog: () => logOf(macWorld), gui: () => GUI(macWorld) };
+	return { release, relay, entries, macWorld, boxWorld, boxHerdr, mac, box, file, restartBox, restartMac, setGrant, boxLog: () => logOf(boxWorld), macLog: () => logOf(macWorld), gui: () => GUI(macWorld) };
 }
 const logOf = (w: ServerWorld) => { const f = join(w.stateDir, "link", "link.log"); return existsSync(f) ? readFileSync(f, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) : []; };
 const boxBase = (net: Net) => net.bases.find((b) => b.box);
@@ -365,4 +370,63 @@ test("OW-F001: the Mac's server restarts at once: a new page sees the box's base
 	const again = listen(GUI(w.macWorld));
 	cleanups.push(() => again.close());
 	await until(() => again.nets().some((n) => boxBase(n)?.box?.state === "live"), "the base live on the restarted Mac", WAIT);
+});
+
+// ---- review RR-F002, RR-F005, RR-F007 ------------------------------------------------------------------------------------------------------------------------------------
+
+test("RR-F002: a holder gained after the page is connected starts the host's clock: the box's base comes with no reconnect of the page", async () => {
+	const w = await boot({ late: true }), gui = w.gui(), page = listen(gui);
+	cleanups.push(() => page.close());
+	await sleep(1500); // the page is connected and the Mac has no holder: the host's clock does not run, and the page has no box
+	assert.equal(page.nets().some((n) => boxBase(n)), false);
+	w.release();
+	await until(() => page.nets().some((n) => boxBase(n)?.box?.state === "live"), "the base after the holder was gained", WAIT);
+});
+
+test("RR-F005: a box that loses its last grant with no session left stops the bridge's policy watch, and the next grant builds a new bridge that works", async () => {
+	const spy = timerSpy();
+	cleanups.push(() => spy.restore());
+	const w = await boot({ grant: "team" }), gui = w.gui(), page = listen(gui);
+	cleanups.push(() => page.close());
+	await until(() => page.nets().some((n) => boxBase(n)?.box?.state === "live"), "the base", WAIT);
+	const watching = spy.live(2000, "timeout");
+	assert.ok(watching >= 1, "the bridge's policy watch polls while a session lives");
+	// The policy is read from memory here, so no file event ends the session: a roster change takes bob's admin away, and then the grant goes.
+	w.relay.pushRoster(TEAM, roleEntry({ state: stateOf(w.entries, alice), signer: alice, subjectId: bob.id, role: "member" }));
+	await until(() => w.boxLog().some((l) => l.event === "operate-close"), "the box's session closed", WAIT);
+	assert.equal(spy.live(2000, "timeout"), watching, "the grant still stands: the bridge stays");
+	w.setGrant("none");
+	await until(() => spy.live(2000, "timeout") < watching, "the policy watch stopped with the last grant", WAIT);
+	assert.equal(spy.live(100, "interval"), 0, "and the slow reading of the net is stopped");
+	w.setGrant("box");
+	await until(() => spy.live(100, "interval") === 1, "a new bridge: its slow reading runs", WAIT);
+});
+
+test("RR-F005: a box that loses its grant while a session lives keeps the bridge until that session ends, and then drops it", async () => {
+	const spy = timerSpy();
+	cleanups.push(() => spy.restore());
+	const w = await boot({ grant: "team" }), page = listen(w.gui());
+	cleanups.push(() => page.close());
+	await until(() => page.nets().some((n) => boxBase(n)?.box?.state === "live"), "the base", WAIT);
+	const watching = spy.live(2000, "timeout");
+	w.setGrant("none");
+	await sleep(500); // the holder reads the policy at each tick (15 ms here)
+	assert.equal(spy.live(2000, "timeout"), watching, "a session is still open: the bridge stays");
+	w.relay.pushRoster(TEAM, roleEntry({ state: stateOf(w.entries, alice), signer: alice, subjectId: bob.id, role: "member" }));
+	await until(() => spy.live(2000, "timeout") < watching, "the policy watch stopped when the last session ended", WAIT);
+});
+
+test("RR-F007: an unattended box's own host never ticks with a page connected, and an attended Mac's does (the spy sees the host's one-second clock)", async () => {
+	const spy = timerSpy();
+	cleanups.push(() => spy.restore());
+	const w = await boot({ grant: "none" });
+	await sleep(300);
+	const base = spy.live(OPERATE_LIMITS.tickMs, "interval");
+	const onBox = listen(GUI(w.boxWorld));
+	cleanups.push(() => onBox.close());
+	await sleep(500);
+	assert.equal(spy.live(OPERATE_LIMITS.tickMs, "interval"), base, "a page on the box's GUI arms no clock: one device is never both ends");
+	const onMac = listen(w.gui());
+	cleanups.push(() => onMac.close());
+	await until(() => spy.live(OPERATE_LIMITS.tickMs, "interval") > base, "the Mac's host clock", WAIT);
 });

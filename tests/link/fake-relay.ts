@@ -177,8 +177,10 @@ export class FakeRelay {
 		if (this.stored.some((s) => s.id === id)) return json(200, { id, duplicate: true, stale: false });
 		const h = envelope.header, members = this.members.get(team) ?? [];
 		const to = new Set(h.to.length ? h.to : members.filter((x) => x !== h.from));
-		const stale = h.ephemeral && h.ts <= (this.timestamps.get(`${h.from}/${h.kind}`) ?? 0);
-		if (h.ephemeral) this.timestamps.set(`${h.from}/${h.kind}`, h.ts);
+		// The real relay's rule (store.go `PutEnvelope`): an ephemeral is stale when the one held for the same sender, kind and addressee set is as new or newer, and a stale one is not stored.
+		const key = `${h.from}/${h.kind}/${[...h.to].sort().join(",")}`, stale = h.ephemeral && h.ts <= (this.timestamps.get(key) ?? 0);
+		if (stale) return json(201, { id, duplicate: false, stale: true });
+		if (h.ephemeral) this.timestamps.set(key, h.ts);
 		const st: Stored = { id, eid: ++this.eid, envelope, to, ephemeral: h.ephemeral, acked: new Set() };
 		this.stored.push(st);
 		for (const s of this.streams.filter((x) => x.team === team && !x.closed && to.has(x.device))) this.deliver(s, st);

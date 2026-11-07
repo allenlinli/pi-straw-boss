@@ -1166,7 +1166,7 @@ export class LinkHolder {
 				const { state } = this.loadTeam(run.team), key = state.keys.get(state.epoch);
 				if (!key) continue;
 				const ts = Math.max(now, sent.ts + 1);
-				sent.at = now; // a failed post is tried again after the spacing, not at every tick
+				sent.at = now; // a failed post is tried again after the spacing (`due` is set again by the catch), not at every tick
 				sent.due = false;
 				const hello = sent.hello;
 				const envelope = buildEnvelope({ team: run.teamId, epoch: state.epoch, teamKey: key, head: state.head, from: this.device.keys, seq: 0, ts, kind: "caps", to: [], plaintext: encodePlaintext("caps", { features: (CAPS_FEATURES as readonly string[]).filter((f) => (f !== "unit-stop" || this.o.unitStop) && (f !== "operate/1" || listed)).concat(hello ? [HELLO] : []) }) });
@@ -1177,7 +1177,7 @@ export class LinkHolder {
 				if (error instanceof RelayError && error.code === "unknown-kind") {
 					sent.offUntil = now + CAPS_OFF_MS;
 					this.o.store.log({ event: "caps-unsupported", team: run.team });
-				} else this.o.store.log({ event: "caps-failed", team: run.team, error: String(error) });
+				} else (sent.due = true, this.o.store.log({ event: "caps-failed", team: run.team, error: String(error) }));
 			}
 		}
 	}

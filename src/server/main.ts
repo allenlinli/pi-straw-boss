@@ -302,7 +302,14 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	const boxOf = (): OperateWire | undefined => {
 		if (operateBox) return operateBox;
 		if (leaving || !link || !operateGranted(link.policyNow())) return undefined;
-		return (operateBox = operateWire({ slot, now, run: cfg.run, gui: () => guiHost?.operate(), allyPanes: () => towers?.runs.allyPanes() ?? [], link: () => link, ...(o.link?.operateNetMs ? { netMs: o.link.operateNetMs } : {}) }));
+		return (operateBox = operateWire({ ended: dropBox, slot, now, run: cfg.run, gui: () => guiHost?.operate(), allyPanes: () => towers?.runs.allyPanes() ?? [], link: () => link, ...(o.link?.operateNetMs ? { netMs: o.link.operateNetMs } : {}) }));
+	};
+	/** A box that lost its last grant and has no session left drops the bridge and its policy watch; `boxOf` builds a new one at the next grant. Called when the grant goes and when a session ends. */
+	const dropBox = () => {
+		const box = operateBox;
+		if (!box || box.net.running() || box.sessions().length || (link && operateGranted(link.policyNow()))) return;
+		operateBox = undefined;
+		box.stop();
 	};
 	const shutdown = (code: number): Promise<void> => (leaving ??= (async () => {
 		const began = now();
@@ -644,11 +651,13 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			// The operate bridge (operatewire.ts) is built by the first message the holder hands it while the policy grants operate (never while the server leaves: a stopped bridge refuses opens itself); an attended computer never gets one.
 			operate: (m) => boxOf()?.take(m),
 			// The policy gained or lost an `operate` grant (the holder reads it at each tick): the ledger's slow reading of the net runs only while someone may operate here, and a box that grants nobody builds nothing.
-			operateWatch: (on) => (on && !leaving ? boxOf()?.net.start() : operateBox?.net.stop()),
+			operateWatch: (on) => (on && !leaving ? boxOf()?.net.start() : (operateBox?.net.stop(), dropBox())),
 			// An attended computer's holder takes operate as the controller (the box's `accept`, `refuse` and frames go to the host of the GUI that runs, which a box's caps check requires the holder to list); `/boss link operate` reads and ends its sessions.
 			controller: { receive: (m) => operateHost?.receive(m), status: () => operateHost?.status() ?? [], offSince: () => operateSwitch.since(), off: () => { const done = operateSwitch.off(now()); operateHost?.off(); return done; }, on: () => { const done = operateSwitch.on(); if (done.saved) operateHost?.on(); return done; } },
 			// A roster change or a stopped team: the box side rechecks its sessions, and the controller side closes the sessions of a team this device no longer runs (the holder answers nothing for it).
 			onRoster: (team) => { operateBox?.onRoster(team); const holder = link?.holder, self = holder?.deviceId; if (operateHost && (!holder || !self || !holder.member(team, self))) operateHost.closeTeam(team); },
+			// The host's clock follows the holder: one gained after a page is connected (or lost) pulses it.
+			onHolder: () => operateHost?.on(),
 			kit, stateDir: slot.stateDir, version, pid, started: () => own.started,
 			notify: (text, level = "info") => log.line("link-notice", { level, text: phrase(text, 300) }), deps: o.link,
 			dialogAnswer: (a) => dialogsOut().answer(a),

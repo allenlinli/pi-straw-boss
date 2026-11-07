@@ -1,5 +1,6 @@
 import { sanitize as mirrorRow } from "../mirror.ts";
 import type { Base, Net, Outpost, Tab, TowerService, Unit } from "../net.ts";
+import { type TrainId, trainFromToken } from "../trainrole.ts";
 import { UNIT_ROLES } from "./operateroles.ts";
 
 // What the controller lets through from an operate box (docs/specs/2026-11-07-link-operate.md §6.4): the box is treated as hostile, so everything it sends is rebuilt field by field from a schema before any page sees it.
@@ -102,9 +103,11 @@ const service: P<TowerService> = shape(
 	{ memory, run: shape({ id: str(64), kind: lit("local", "ally"), startedAt: str(64) }), conversation, bossIn: shape({ id: str(64), since: str(64) }), localRuns: list(shape({ id: str(64), kind: lit("conversation", "event"), startedAt: str(64) }, { resumed: bool, why: str(200), endedAt: str(64), outcome: str(200), note: str(600, true), key }), 50), lastRun: shape({ endedAt: str(64), outcome: str(200) }), crashes: int(0, 1e6) },
 );
 
+/** A train's project and code (`sb_train`): the pair must read back as a token, so nothing path-like or free text passes. */
+const trainId: P<TrainId> = (v) => (isObj(v) && typeof v.project === "string" && typeof v.code === "string" ? trainFromToken(`${v.project}/${v.code}`) : undefined);
 const unit: P<Unit> = (v, rw) => depth(v, rw, 0);
 function depth(v: unknown, rw: Rewrite, level: number): Unit | undefined {
-	const head = shape<Omit<Unit, "subs">>({ id: key, key, control: bool, name: str(200), role: lit("main", "member", "subagent", "outside"), mark }, { agent: lit("claude", "codex"), note: str(300), pending, ended: yes, queued: list(queued, 50), monitors: list(monitor, 8), ...lately, ...shelf })(v, rw);
+	const head = shape<Omit<Unit, "subs">>({ id: key, key, control: bool, name: str(200), role: lit("main", "member", "train", "subagent", "outside"), mark }, { agent: lit("claude", "codex"), train: trainId, note: str(300), pending, ended: yes, queued: list(queued, 50), monitors: list(monitor, 8), ...lately, ...shelf })(v, rw);
 	if (!head) return undefined;
 	const raw = (v as Record<string, unknown>).subs;
 	return { ...head, id: head.key, subs: level >= 2 || !Array.isArray(raw) ? [] : raw.slice(0, 64).flatMap((s) => { const r = depth(s, rw, level + 1); return r ? [r] : []; }) } as Unit;

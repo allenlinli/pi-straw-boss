@@ -74,6 +74,8 @@ export interface ServiceOptions {
 	controller?: { receive: NonNullable<HolderOptions["operate"]>; status(): unknown[]; /** When the boss turned operate off here, or nothing. */ offSince(): number | undefined; off(): { saved: boolean }; on(): { saved: boolean } };
 	/** Told right after a team's roster changed and when a team stops (operatebox.ts `onRoster`): given to every holder this service builds, since it builds a new one at each gain. */
 	onRoster?: HolderOptions["onRoster"];
+	/** Told after a holder runs and after it is gone (the operate host's clock follows the holder: one that comes after a page is connected must start it). */
+	onHolder?: () => void;
 	/** The tower service of the same server (towers.ts), when it runs: the asks local towers made for their mains, and what to tell when messages wait for a tower identity it runs. */
 	tower?: Pick<HolderOptions, "asks" | "served" | "openTower"> & {
 		/** An answer to a `forward` confirm for a tower identity the server runs (an ally run waits for it): true when the server took it, so it is not published on the channel. */
@@ -98,7 +100,7 @@ export interface Notice { at: number; level: "info" | "warning" | "error"; text:
 type Answer = { ok: boolean; error?: string; [key: string]: unknown };
 type ChannelEvent = { type: string; fromSessionId?: string; payload?: unknown };
 
-export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer, unitStop, operate, operateWatch, controller, onRoster }: ServiceOptions) {
+export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer, unitStop, operate, operateWatch, controller, onRoster, onHolder }: ServiceOptions) {
 	const { pi, cfg } = kit;
 	const store = new LinkStore(join(stateDir, "link"));
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
@@ -173,6 +175,8 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 	};
 	/** Tells a tower a message waits in the inbox for it. A resident tower takes it from the inbox when idle and answers `taken`. */
 	const offer = (tower: Session, id: string) => void publish({ version: 1, type: "offer", to: tower.id, id });
+	/** A hook of the server runs after the holder changed; its failure is not the election's. */
+	const hooked = (hook?: () => void) => { try { hook?.(); } catch { /* the server's own */ } };
 	const gained = async () => {
 		const fresh = new LinkHolder({
 			store, boardDir: join(stateDir, "board"), isHolder: () => Boolean(election?.isHolder()), config, stateDir, home, agentDir, attended, net, offer, notify: note,
@@ -186,11 +190,13 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 		});
 		holder = fresh;
 		await fresh.start();
+		hooked(onHolder);
 	};
 	const lost = async () => {
 		const old = holder;
 		holder = undefined;
 		await old?.stop();
+		hooked(onHolder);
 	};
 	/**
 	 * The server ranks as a tower: it is the only candidate now, and a holder of the previous build that is a session cannot outrank it by build or by role (election.ts

@@ -58,6 +58,8 @@ export interface BoxDeps {
 	every(ms: number, fn: () => void): () => void;
 	/** The policy file's watch (policy.ts `watchPolicy`). */
 	watch(onChange: () => void): { stop(): void };
+	/** Told after each session has ended (the owner may drop a bridge that has nothing left to do). */
+	ended?(): void;
 	/** Envelopes a minute across all sessions (default `BOX_BUDGET`). */
 	budget?: number;
 	/**
@@ -177,6 +179,7 @@ export function createOperateBox(d: BoxDeps) {
 		if (s.ended) return;
 		s.ended = true;
 		live.delete(s.id);
+		queueMicrotask(() => { try { d.ended?.(); } catch { /* the owner's own */ } });
 		try { s.unlisten?.(); } catch { /* the entry is going away */ }
 		try { s.seam.stop(); } catch { /* the seam ends what it held */ }
 		s.screens.clear();

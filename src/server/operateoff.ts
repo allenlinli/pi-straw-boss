@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { writeDurableText } from "./towerstore.ts";
 
@@ -15,13 +15,23 @@ export interface OperateOff {
 	on(): { saved: boolean };
 }
 
+/** Whether anything is at `path`, a dangling symlink included (`readFileSync` follows the link and says ENOENT for it). */
+const present = (path: string): boolean => {
+	try {
+		lstatSync(path);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException)?.code !== "ENOENT";
+	}
+};
+
 export function operateOff(file: string, now: () => number): OperateOff {
 	let since: number | undefined;
 	try {
 		const text = readFileSync(file, "utf8"), found = (JSON.parse(text) as { since?: unknown } | null)?.since;
 		since = typeof found === "number" && Number.isSafeInteger(found) && found >= 0 ? found : now();
 	} catch (error) {
-		since = (error as NodeJS.ErrnoException)?.code === "ENOENT" ? undefined : now();
+		since = (error as NodeJS.ErrnoException)?.code === "ENOENT" && !present(file) ? undefined : now(); // a link whose target is gone is still something at the path
 	}
 	return {
 		since: () => since,

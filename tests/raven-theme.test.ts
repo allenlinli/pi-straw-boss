@@ -204,6 +204,9 @@ test("the head page's veil over the moon keeps the crumb row's text at 4.5 : 1 a
 	}
 });
 
+// The model stacks only the layers that reach the crumb row at the peak: the picture, the plain veil, the violet wash, and the moon veil. The foot veil
+// is clear above 40% of the picture's height (the text sits at 12–17%), the rest veil is (1 − bolt) × 0.8, so 0 at the peak, with a hole over the moon,
+// and the lights sit nowhere near the row (RL-F001).
 test("at the brightest lightning frame the moon veil, under the violet wash, still keeps the crumb row's text at 4.5 : 1", () => {
 	// the flash adds at most the violet wash (rgb 190 170 255, alpha = bolt * k, fading over the top 60 percent of the picture) over the moon's veils; the rest veil is gone at the flash but has a hole over the moon in any case
 	const wash = /linear-gradient\(rgb\((\d+) (\d+) (\d+) \/ calc\(var\(--rk-bolt\) \* ([\d.]+)\)\), transparent (\d+)%\)/.exec(raw);

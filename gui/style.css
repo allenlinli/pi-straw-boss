@@ -1239,7 +1239,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 .head-log { min-width: 0; margin: 0 0 8px; border: 1px solid var(--line); border-radius: 12px; }
 .head-log > summary { display: flex; align-items: center; gap: 4px 12px; box-sizing: border-box; min-height: 44px; padding: 6px 12px; font-size: 13px; cursor: pointer; list-style: none; }
 .head-log > summary::-webkit-details-marker { display: none; }
-.head-log > summary::after { content: "▾"; flex: none; margin-left: auto; color: var(--dim); transition: rotate 0.15s; } .head-log[open] > summary::after { rotate: 180deg; }
+.head-log > summary::after { content: "▾"; flex: none; margin-left: auto; font-size: 18px; line-height: 1; color: var(--text); transition: rotate 0.15s; } .head-log[open] > summary::after { rotate: 180deg; }
 .head-log > summary b { flex: none; } .head-log > summary span { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); }
 .head-log[open] > .head-asks { margin: 0; padding: 0 8px 8px; max-height: calc((var(--vvh, 100vh) - var(--hud, 64px) - 64px) * 0.3); overflow-y: auto; overscroll-behavior: contain; }
 .ask-group[open] > summary > .ask-part { display: none; } .ask-group[open] > summary .ask-foot { padding-left: 0; } /* unfolded, the card shows each text in full below: the clamped copy above it said everything twice */

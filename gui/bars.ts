@@ -15,7 +15,7 @@ export function drawQueued(view: HTMLElement, list: Queued[] | undefined, sessio
 	box.hidden = !list?.length;
 	const act = view.querySelector<HTMLElement>(".queue-act");
 	if (act) act.hidden = !list?.length || server;
-	const tag = (q: Queued) => Object.assign(document.createElement("b"), { textContent: q.as === "start" ? m.queued_start() : server ? m.queued_server() : q.as === "steer" ? m.queued_steer() : m.queued_follow() });
+	const tag = (q: Queued) => Object.assign(document.createElement("b"), { textContent: q.as === "start" ? m.queued_start() : q.why ? m[`queued_wait_${q.why}`]() : server ? m.queued_server() : q.as === "steer" ? m.queued_steer() : m.queued_follow() });
 	const live = new Set<string>(), mine = opened.get(session) ?? new Set<string>(), seen = new Map<string, number>();
 	opened.set(session, mine);
 	box.replaceChildren(...(list ?? []).map((q) => {

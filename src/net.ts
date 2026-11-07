@@ -23,7 +23,7 @@ type Lately = { since?: number; ticks?: Tick[]; todo?: TodoSum };
 /** `key` names the unit in routes and the API; `control` says a live pi pane backs it. `outside` units are pi panes the net does not hold (D1). */
 /** A message typed while the agent works, waiting in pi's queue: `steer` reaches it at its next turn, `followUp` when the run ends. */
 /** `start`: an event of a tower the sb server has not started yet; it waits for the run to start and is queued behind no turn (a pi's own queue says `steer` or `followUp`). */
-export interface Queued { text: string; as: "steer" | "followUp" | "start" }
+export interface Queued { text: string; as: "steer" | "followUp" | "start"; /** Why a tower's message waits with no start under way (as `followUp`): the service is off, a start was refused a moment ago, the run slots are full, the tower's pi is not live, or the standing seat is not proven. */ why?: "off" | "refused" | "full" | "offline" | "unproven" }
 /** `ended`: a subagent whose run is over (Row.ended); the page clears its finished alert. */
 export interface Unit extends Shelf, Lately { queued?: Queued[]; monitors?: Monitor[]; id: string; key: string; control: boolean; agent?: "claude" | "codex"; name: string; role: "main" | "member" | "train" | "subagent" | "outside"; /** A train's project and code (its pane's `sb_train` token). */ train?: TrainId; mark: Mark; note?: string; subs: Unit[]; pending?: Pending; ended?: boolean }
 export interface Tab { id: string; label: string; units: Unit[] }

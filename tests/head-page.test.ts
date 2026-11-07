@@ -510,6 +510,8 @@ test("HP-F001: the page gives the room to the conversation: the log is a fold wi
 	assert.match(declared(".head-log[open] > .head-asks"), /max-height:\s*calc\(\(var\(--vvh, 100vh\) - var\(--hud, 64px\) - 64px\) \* 0\.3\)/, "a share of the panel, never more than the conversation can spare");
 	assert.match(declared(".head-log[open] > .head-asks"), /overflow-y:\s*auto/);
 	assert.match(declared(".head-log > summary"), /min-height:\s*44px/, "a tap target on a phone");
+	assert.match(declared(".head-log > summary::after"), /font-size:\s*(1[6-9]|2\d)px/, "R-F006: the fold's marker is drawn large enough to read as a control");
+	assert.match(declared(".head-log > summary::after"), /color:\s*var\(--text\)/, "R-F006: and in the text colour, not the dim one");
 	assert.match(declared(".ask-group[open] > summary > .ask-part"), /display:\s*none/, "the unfolded card shows its texts in full below, so the clamped copy goes");
 	assert.match(css, /:not\(:has\(> \.head-log:not\(\[hidden\]\)\)\)/);
 	assert.doesNotMatch(css, /:has\(> \.head-asks:not\(\[hidden\]\)\)/);

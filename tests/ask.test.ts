@@ -200,6 +200,14 @@ test("any unit marked done that has a running monitor and a live pi is not done 
 	assert.deepEqual(arrivals(before, alertsOf(stopped, 3)).map((a) => a.key).sort(), ["k", "m", "o"], "once the monitor stops they finish, and say so");
 });
 
+test("R-F004: a closing tower's pi is still up, so its relayed queue replaces the service's rows; a held tower has no pi", async () => {
+	const tower = (key: string, state: "closing" | "held") => ({ name: key, mark: "idle" as const, key, control: true, service: { state, queued: 1, allyRuns: [], notices: [], parked: [] }, queued: [{ text: "boss: ship it", as: "followUp" as const }], subs: [] });
+	const net: Net = { bases: [{ id: "w", label: "w", mark: "idle", tower: tower("a", "closing"), outposts: [], outside: [], tabs: [] }, { id: "x", label: "x", mark: "idle", tower: tower("b", "held"), outposts: [], outside: [], tabs: [] }] };
+	const relayed = [{ text: "typed in the pi", as: "steer" as const }];
+	await withPending(net, () => undefined, { dialogsOf: () => undefined, merge: () => ({}) as never, queuedOf: () => relayed });
+	assert.deepEqual(net.bases.map((b) => b.tower!.queued), [relayed, [{ text: "boss: ship it", as: "followUp" }]]);
+});
+
 test("HP-F002: a tower the server has not started yet keeps its own queue rows (they wait for the start); a running tower takes its run's relayed rows", async () => {
 	const service = (state: "standing" | "waking" | "running") => ({ state, queued: 1, allyRuns: [], notices: [], parked: [] });
 	const tower = (key: string, state: "standing" | "waking" | "running") => ({ name: key, mark: "idle" as const, key, control: true, service: service(state), queued: [{ text: "boss: ship it", as: state === "running" ? ("followUp" as const) : ("start" as const) }], subs: [] });

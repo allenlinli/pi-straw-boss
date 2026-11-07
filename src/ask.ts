@@ -125,7 +125,7 @@ export async function withPending(net: Net, fileOf: (key: string) => string | un
 			const dialogs = relayed?.dialogsOf(u.key);
 			Object.assign(u, relayed?.docsOf?.(u.key));
 			const queued = relayed?.queuedOf?.(u.key);
-			if (queued?.length && ((u as { service?: { state: string } }).service?.state ?? "running") === "running") u.queued = queued; // a tower the server has not started has no pi to queue: its rows are the service's own (`start`), whatever a bridge on its old pane relays
+			if (queued?.length && !["standing", "waking", "held"].includes((u as { service?: { state: string } }).service?.state ?? "running")) u.queued = queued; // a tower the server has not started has no pi to queue: its rows are the service's own (`start`), whatever a bridge on its old pane relays
 			const monitors = relayed?.monitorsOf?.(u.key); if (monitors?.length) u.monitors = monitors;
 			const todo = relayed?.todoOf?.(u.key); if (todo) u.todo = todo;
 			// A unit marked done, or a subagent whose run is recorded done, whose pi is alive (control) and watches a running monitor has not finished: it wakes when the monitor reports.

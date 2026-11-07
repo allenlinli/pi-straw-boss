@@ -281,7 +281,7 @@ class Parser {
 			}
 			const el = new El(tag!);
 			for (const a of attrs!.matchAll(/([\w-]+)(?:="([^"]*)")?/g)) el.setAttribute(a[1]!, a[2] ?? "");
-			if (/^(comms-head|tower-notices)$/.test(el.className)) {
+			if (el.className === "comms-head" || (el.className === "tower-notices" && stack.some((open) => open.className === "tower-notes"))) { // the session view's; a base card's notices (render.ts) are drawn
 				const skipped = new El("skipped"), info = new El("button");
 				info.setAttribute("class", "head-info");
 				stack.at(-1)?.append(info);

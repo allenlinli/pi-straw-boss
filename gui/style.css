@@ -1012,6 +1012,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.head-back { width: 44px; height: 44px; min-width: 44px; } .modes button { min-height: 44px; }
 	:is(.head-info, .head-main:not([hidden]), .head-quit:not([hidden]), .ally-asks-btn) { min-height: 44px; min-width: 44px; }
 	.ally-unit summary { min-height: 44px; } /* a unit's folds (gui/allyunits.ts): the report and a crash's notice */
+	.base.remote :is(.box-runs, .box-ally) > summary, .box-run a, .box-more { min-height: 44px; box-sizing: border-box; } /* a remote base's folds, a finished run's row and Show more (gui/box.ts) */
 	.au-stop { min-height: 44px; min-width: 44px; } .au-main { min-height: 44px; } /* a main's Stop and its row (the Mains fold of a unit) */
 	.composer textarea { min-height: 56px; } .cmp-row { gap: 8px 10px; }
 	.comms-in .ask-acts { position: sticky; bottom: -12px; margin: 0 -14px -12px; padding: 8px 14px 12px; background: color-mix(in srgb, var(--amber) 6%, var(--bg)); } /* Send answer stays in view while a long question scrolls */
@@ -1026,6 +1027,24 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .base.ally { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 42%), linear-gradient(180deg, var(--surface-1), var(--surface-0)); }
 .base.ally .crown { display: inline-flex; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); text-transform: none; letter-spacing: 0.04em; }
 .base.ally.offline { opacity: 0.55; }
+/* A remote (operate) base, an unattended box's workspace beside ours (gui/box.ts, docs/specs/2026-11-07-link-operate.md §8): the machine's badge and the team under the title, greyed with a dashed edge while unreachable, one line while ended, Earlier runs and the box's ally card folded at the foot. */
+.base > header .title p[hidden], .base .menu[hidden], .base .spawn-btns[hidden] { display: none; } /* the rules that give these a display of their own would otherwise keep a hidden one */
+.base.remote > header .title p.box-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 2px 0 0; font-size: 11px; color: var(--dim); }
+.base.remote .box-dev { padding: 0 8px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 999px; color: var(--accent); font-weight: 600; white-space: nowrap; overflow-wrap: normal; }
+.base.remote .box-team { overflow-wrap: anywhere; } .base.remote .box-seen { color: var(--amber); white-space: normal; overflow-wrap: anywhere; }
+.base.remote[data-box="unreachable"] { opacity: 0.6; border-style: dashed; }
+.base.remote[data-box="ended"] > :not(header, .box-ended) { display: none; }
+.base.remote .box-ended { margin: 4px 0 0; padding: 8px 12px; border-left: 3px solid var(--amber); border-radius: 8px; background: color-mix(in srgb, var(--amber) 8%, transparent); font-size: 13px; overflow-wrap: anywhere; }
+.base.remote > :is(.box-runs, .box-ally) { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 2px; }
+:where(.base.remote .box-runs, .base.remote .box-ally) > summary { min-height: 32px; } /* :where, so a phone's 44 px below wins whatever the order */
+.base.remote :is(.box-runs, .box-ally) > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; font-size: 12px; color: var(--dim); }
+.base.remote :is(.box-runs, .box-ally) > summary::-webkit-details-marker { display: none; }
+.base.remote :is(.box-runs, .box-ally) > summary::before { content: "\25B8"; flex: none; } .base.remote :is(.box-runs, .box-ally)[open] > summary::before { content: "\25BE"; }
+.box-run-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; } .box-run { min-width: 0; }
+.box-run a { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); font-size: 12px; text-decoration: none; } .box-run a:hover { border-color: var(--accent); }
+.box-run .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .box-run .role, .box-run .when { flex: none; color: var(--dim); font-style: normal; }
+.box-more { margin-top: 6px; }
+.box-ally-in > .base.ally { margin-top: 6px; box-shadow: none; }
 .base.ally .ally-teams { margin: 2px 0 0; font-size: 11px; white-space: normal; overflow-wrap: anywhere; } /* a device in several teams: one card, its teams on a quiet line (gui/render.ts `fillAlly`) */
 .ally-tabs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .ally-tab { display: flex; justify-content: space-between; gap: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }

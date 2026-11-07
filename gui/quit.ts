@@ -1,5 +1,5 @@
 import type { Base, Net, Unit } from "../src/net.ts";
-import { unitsOf } from "./units.ts";
+import { unitsOf } from "./units.ts"; import { can, type Can } from "./boxmodel.ts";
 import { m } from "./paraglide/messages.js";
 import { desk } from "./desk.ts";
 import type { NetRoute } from "./router.ts";
@@ -14,23 +14,28 @@ function aim(button: HTMLElement, data: Record<string, string>, label: string, a
 	[button.hidden, button.textContent] = [hidden, label];
 	if (aria) button.setAttribute("aria-label", aria);
 }
-/** A unit's own; quitting is the map's alone, and a subagent is its launcher's to quit. A finished subagent is dismissed instead, on every page. */
-export const aimUnit = (button: HTMLElement, u: { key?: string; name: string; role: string; control?: boolean; ended?: boolean }) =>
-	u.role === "subagent" && u.ended && u.key ? aim(button, { close: "dismiss", key: u.key, name: u.name, role: u.role }, m.dismiss(), m.dismiss_unit({ name: u.name }))
-		: aim(button, { close: "unit", key: u.key ?? "", name: u.name, role: u.role }, m.quit(), m.close_unit({ name: u.name }), !(u.control && u.key) || u.role === "subagent");
-/** The base's tower alone, its mains back to members. */
-export const aimTower = (button: HTMLElement, tower: Base["tower"]) => aim(button, { key: tower?.key ?? "", name: tower?.name ?? "", role: "tower" }, m.quit_tower(), undefined, !tower?.control);
+/** What a remote base's box lets through (boxmodel.ts `can`); a local base's units allow everything. */
+type Allowed = (action: Can) => boolean;
+const all: Allowed = () => true;
+/** A unit's own; quitting is the map's alone, and a subagent is its launcher's to quit. A finished subagent is dismissed instead, on every page. A unit of a remote base has the entry only when its box lists it (`allowed`). */
+export const aimUnit = (button: HTMLElement, u: { key?: string; name: string; role: string; control?: boolean; ended?: boolean }, allowed: Allowed = all) =>
+	u.role === "subagent" && u.ended && u.key ? aim(button, { close: "dismiss", key: u.key, name: u.name, role: u.role }, m.dismiss(), m.dismiss_unit({ name: u.name }), !allowed("dismiss"))
+		: aim(button, { close: "unit", key: u.key ?? "", name: u.name, role: u.role }, m.quit(), m.close_unit({ name: u.name }), !(u.control && u.key) || u.role === "subagent" || !allowed("close-unit"));
+/** The base's tower alone, its mains back to members. A remote base's tower is the box's own: Quit tower is the box scope's (`tower` in can). */
+export const aimTower = (button: HTMLElement, tower: Base["tower"], allowed: Allowed = all) => aim(button, { key: tower?.key ?? "", name: tower?.name ?? "", role: "tower" }, m.quit_tower(), undefined, !tower?.control || !allowed("tower") || !allowed("close-unit"));
 /** The Quit in a unit's own session view is the map's for that unit (a tower's as Quit tower), shown only where the map shows one: a finished subagent's Dismiss and a subagent's launcher are the map's alone. */
 export function aimSession(button: HTMLElement, hit: { u: { key: string; name: string; role: string; control?: boolean; ended?: boolean }; base: Base } | undefined) {
 	button.dataset.close = "unit";
-	if (hit?.u.role === "tower" && hit.base.tower?.key === hit.u.key) aimTower(button, hit.base.tower);
-	else if (hit) aimUnit(button, hit.u);
+	const allowed: Allowed = (a) => can(hit?.base, a);
+	if (hit?.u.role === "tower" && hit.base.tower?.key === hit.u.key) aimTower(button, hit.base.tower, allowed);
+	else if (hit) aimUnit(button, hit.u, allowed);
 	button.hidden = !hit || button.dataset.close !== "unit" || button.hidden;
 }
-export const aimBase = (button: HTMLElement, b: Base) => aim(button, { ws: b.id, name: b.label }, m.quit(), m.close_base({ name: b.label }));
+/** A remote base is never closed or stashed from here: it holds the box's tower and other teams' units (decision 9). */
+export const aimBase = (button: HTMLElement, b: Base) => aim(button, { ws: b.id, name: b.label }, m.quit(), m.close_base({ name: b.label }), Boolean(b.box));
 /** The base's Stash: its tower, mains, and members quit, to come back with Pop (the server names the stash after the base). A desk window (`off`) hides it. */
-export const aimStash = (button: HTMLElement, b: Base, off = desk) => aim(button, { ws: b.id, name: b.label }, m.stash(), m.stash_base({ name: b.label }), off);
-export const aimSquad = (button: HTMLElement, b: Base, t: { id: string; label: string }) => aim(button, { ws: b.id, name: t.label, tab: t.id }, m.quit(), m.close_squad({ name: t.label }));
+export const aimStash = (button: HTMLElement, b: Base, off = desk) => aim(button, { ws: b.id, name: b.label }, m.stash(), m.stash_base({ name: b.label }), off || Boolean(b.box));
+export const aimSquad = (button: HTMLElement, b: Base, t: { id: string; label: string }) => aim(button, { ws: b.id, name: t.label, tab: t.id }, m.quit(), m.close_squad({ name: t.label }), !can(b, "close-tab"));
 
 const sheet = (text: string, yes?: string): Promise<boolean> => new Promise((done) => {
 	const d = document.createElement("dialog"), p = document.createElement("p"), row = document.createElement("div");

@@ -6,7 +6,7 @@ import { mountComposer } from "./composer.ts";
 import { docFor, docTile } from "./doc.ts";
 import type { Tile } from "./layer.ts";
 import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
-import { aimSession } from "./quit.ts";
+import { aimSession } from "./quit.ts"; import { baseTitle, can } from "./boxmodel.ts";
 import { aim, aimOpening, html, LABEL, mark, text } from "./render.ts";
 import { channelOf, locate, type Scene, type Subject, towerBase, wsOf } from "./scene.ts";
 import { linkTo } from "./tokens.ts";
@@ -126,7 +126,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 				// An ally run's comms are a unit the net lists only on its tower's chip (src/net.ts): the history names it by its device, and the page says what it is.
 				const ally = !u && scene.info?.role === "ally", eventRun = !u && scene.info?.role === "run";
 				text(head, "h2 span", ally ? m.ally_run({ device: scene.info?.name ?? "" }) : eventRun ? m.event_run({ id: scene.info?.name ?? "" }) : (u?.name ?? scene.info?.name ?? ""));
-				text(head, "p", [hit?.base.label ?? ((ally || eventRun) ? scene.net?.bases.find((b) => b.id === wsOf(scene))?.label : undefined), hit?.squad && m.squad_label({ label: hit.squad }), u?.service && statusLine(u.service, mk, (k) => LABEL[k]()), ally && noun("role_ally"), eventRun && noun("role_run")].filter(Boolean).join(" · "));
+				text(head, "p", [(hit && baseTitle(hit.base)) ?? ((ally || eventRun) ? scene.net?.bases.find((b) => b.id === wsOf(scene))?.label : undefined), hit?.squad && m.squad_label({ label: hit.squad }), u?.service && statusLine(u.service, mk, (k) => LABEL[k]()), ally && noun("role_ally"), eventRun && noun("role_run")].filter(Boolean).join(" · "));
 				fillAllies(view.querySelector<HTMLElement>(".comms-allies")!, hit?.base.id ?? wsOf(scene), u?.service);
 				const chan = head.querySelector<HTMLElement>(".chan")!, kind = channelOf(u, state, ally || eventRun);
 				chan.dataset.state = kind === "live" ? "live" : "closed";
@@ -159,8 +159,8 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 			const notes = view.querySelector<HTMLElement>(".tower-notices");
 			if (notes) (fillHeadActs(view.querySelector<HTMLElement>(".head-acts")!, isHead ? u?.service : undefined, isHead && headUnit?.state !== "absent"), fillConversation(view.querySelector<HTMLElement>(".tower-conv")!, hit?.base.id ?? wsOf(scene), isHead ? undefined : u?.service), fillNotices(notes, hit?.base.id ?? wsOf(scene), u?.service, u?.key, (k) => locate(scene.net, k)?.base.id), fillMemory(view.querySelector<HTMLElement>(".tower-memory")!, hit?.base.id ?? wsOf(scene), isHead ? headMemory(u?.service?.memory) : u?.service?.memory)); // the head's page is the conversation and its composer: its actions sit beside the composer (headacts.ts), it has no conversation line and its memory shows only when there is something to read (headpage.ts)
 			if (shown === "term" && holdOf(u?.key ?? "") !== held) setMode("term"); // the tower woke or went to stand by: the terminal or its sentence changes
-			composer?.update(composerUnit(u, { name, mk, state, online: online(), role: scene.info?.role, head: isHead }));
-			asker?.update(u?.pending, canAnswer(mk, Boolean(u?.control), online())); // its dialog above the composer, answerable or not
+			composer?.update(composerUnit(u, { name, mk, state, online: online() && can(hit?.base, "input"), away: !can(hit?.base, "input"), role: scene.info?.role, head: isHead }));
+			asker?.update(u?.pending, canAnswer(mk, Boolean(u?.control), online() && can(hit?.base, "input"))); // its dialog above the composer, answerable or not
 		},
 	};
 }

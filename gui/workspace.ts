@@ -3,7 +3,7 @@ import type { Unit } from "../src/net.ts";
 import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
 import { aim, aimOpening, html, LABEL, mark, PLATE, sync, text, urgent } from "./render.ts";
 import { type Scene, wsOf } from "./scene.ts";
-import { fillToken, tokenEl } from "./tokens.ts";
+import { baseTitle } from "./boxmodel.ts"; import { fillToken, tokenEl } from "./tokens.ts";
 import { fillAllies } from "./towerallies.ts";
 import { fillNotices } from "./towernotes.ts";
 import { queueChip, statusLine } from "./towermodel.ts";
@@ -30,7 +30,7 @@ export function drawWorkspace(host: HTMLElement, scene: Readonly<Scene>) {
 	aim(tower, base.tower ? { view: "session", ws: base.id, key: base.tower.key } : undefined);
 	tower.toggleAttribute("hidden", false);
 	tower.toggleAttribute("data-alert", Boolean(base.tower && urgent(base.tower.mark)));
-	text(root, "h2", base.label);
+	text(root, "h2", baseTitle(base));
 	aimOpening(root.querySelector(".spawn-btns button")!, base);
 	text(root, ".title .tstate", base.tower ? m.control_tower({ state: statusLine(base.tower.service, base.tower.mark, (mk) => LABEL[mk]()) }) : m.no_tower());
 	text(root, ".title .tqueue", queueChip(base.tower?.service) ?? "");

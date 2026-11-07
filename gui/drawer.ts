@@ -6,7 +6,7 @@ import { headDot, seenAt } from "./headpage.ts";
 import { MODAL } from "./hotkeys.ts";
 import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
 import type { Locale } from "./paraglide/runtime.js";
-import { aimUnit, dismiss, showDismissAll } from "./quit.ts";
+import { aimUnit, dismiss, showDismissAll } from "./quit.ts"; import { can } from "./boxmodel.ts";
 import { aim, aimOpening, fillPlate, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
 import type { Route } from "./router.ts";
 import { chainOf, ignored, intent, settles } from "./swipe.ts";
@@ -83,7 +83,7 @@ export function mountDrawer(off: () => boolean = () => false) {
 			say(el, ".note", r.note, r.mark, r.note ? undefined : "");
 			// Quit is the map's (quit.ts: the same confirmation, request, and refusals), for a main that is idle.
 			const quit = el.querySelector<HTMLElement>(":scope > .card > .quit-btn")!;
-			if (quitable(r)) aimUnit(quit, r);
+			if (quitable(r)) aimUnit(quit, r, (a) => can(latest?.bases.find((b) => b.id === r.ws), a));
 			else quit.hidden = true;
 			sync(el.querySelector(".subs")!, r.subs ?? [], unitEl, fillRow);
 		};

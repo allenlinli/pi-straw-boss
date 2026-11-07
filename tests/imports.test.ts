@@ -701,7 +701,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// pi-better-show blocks (todo #129) to 616 (measured: demo-blocks.ts joins the sum, 182 lines of block text and a picture; +4 in fixture.ts and demo-chat.ts): a Markdown document card with every block kind and an assistant message with a form, chips, and a table (demo-blocks.ts holds their text), the demo's accepted answers and pictures.
 	// Round 2 (measured): 616 to 617, the demo's empty record of answered blocks (`answeredHooks.get`).
 	// Merge of main's wait cards demo (demo-waits.ts, already counted) onto pi-better-show blocks (todo #129; measured): 737 = main's 550 + demo-blocks.ts and the fixture's block hooks. Cap = measured.
-	assert.ok(demo <= 737, `the demo fixture has ${demo} lines`);
+	// Operate page (todo #121 task 7; measured): 737 to 740 (+3 in fixture.ts: the `?operate=` call, `everyUnit` for a remote base's units, and the `api` fallback). The scenes themselves are gui/demo-box.ts (a file of its own, counted in the page's TypeScript).
+	assert.ok(demo <= 740, `the demo fixture has ${demo} lines`);
 	// Head tower H5 to 387 (+3 over 384): the strip's `?zen=head|head-open|head-history` states (the quiet net, the Enter and H presses, the draft), and a message to the head answered with its working mark (demo-head.ts holds the words).
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
 	// 0.15.0 raised composer.ts to 190 for files: pasted, dropped, or picked, each uploaded and its path put in the message.
@@ -892,7 +893,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// pi-better-show round 2 (todo #129; measured) 7225 to 7261 (+36): gui/answered.ts (the page's read of the server's record of answered chat blocks).
 	// Merge of main's head band and head page onto pi-better-show blocks (todo #129; measured): 7354 = main's 7318 + 36 (gui/answered.ts). Cap = measured.
 	// Merge of main's wait cards onto pi-better-show blocks (todo #129; measured): 7693 = main's 7653 + 40 (gui/answered.ts). Cap = measured.
-	assert.ok(page <= 7693, `the page's TypeScript has ${page} lines`);
+	// Operate page (todo #121 task 7; measured): 7693 to 7928 (+235): gui/box.ts (the remote base's own parts: badge, states, Earlier runs, the box's ally card, 107), boxmodel.ts (what a remote base lets through, the map's order, 32), boxread.ts (what is read from a box: the ended sentence, the key form, the rows, 23), demo-box.ts (the demo's remote bases, 54), and the call sites in render.ts, quit.ts, session.ts, drawer.ts, workspace.ts and main.ts (the base's `remote` mark and its dataset, `can` on Quit and the composer, the title).
+	assert.ok(page <= 7928, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -1095,7 +1097,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merge of main's head band and head page onto pi-better-show blocks (todo #129; measured, node 24): 122,501 / 44,585, the same as main (the eager files hold no block code).
 	// Merge of main's wait cards onto pi-better-show blocks (todo #129; measured, node 24): 122,703 / 44,675, the same raw figure as main (the eager files hold no block code), 4 gzipped bytes over (the chunk hashes in the entry). Raw cap = measured; gzipped cap = measured + 15.
 	// Merge of feat/better-show (todo #129) onto Raven motion perf (measured, node 24): 122,703 / 44,672, the same as main. Cap = measured.
-	assert.ok(eagerBytes <= 122_703 && eagerGz <= 44_672, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Operate page (todo #121 task 7; measured, node 24): 122,703 / 44,672 to 124,657 / 45,330 (+1,954 / +658). The remote base's parts (box.ts, boxread.ts and their ten messages) are a chunk of their own, 4.65 KB / 2.29 KB gzipped, loaded with the first remote base; what the entry takes is boxmodel.ts (`can`, `canIn`, `arrange`), the base's `remote` mark and dataset in render.ts, the `can` gates in quit.ts, session.ts, drawer.ts and workspace.ts, and the page's stylesheet (the badge, the greyed and ended looks, the runs fold, the phone's 44 px rows: about 2 KB raw). Raw cap = measured; gzipped cap = measured + 15 (the entry names each chunk by its hash).
+	assert.ok(eagerBytes <= 124_657 && eagerGz <= 45_344, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1293,7 +1296,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Merge of main's head band, head page and raven motion onto pi-better-show blocks (todo #129; measured, node 24): 409,644 / 154,178, +155,400 / +49,890 over main's 254,244 / 104,288. Raw cap = measured; gzipped cap = measured + 15 (chunk names carry hashes).
 	// Merge of main's wait cards onto pi-better-show blocks and their round 4 (todo #129; measured, node 24): 425,198 / 159,778, +156,933 / +50,494 over main's 268,265 / 109,284: the block chunk, mdbody, the answer and lock cells, the confirm step, the server record's read, and the chat and document wiring. Raw cap = measured; gzipped cap = measured + 15 (chunk names carry hashes).
 	// Merge of feat/better-show (todo #129) onto Raven motion perf (measured, node 24): 425,198 / 159,778. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 425_198 && total(chunks, gz) <= 159_778, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Operate page (todo #121 task 7; measured, node 24): 425,198 / 159,778 to 430,300 / 162,372 (+5,102 / +2,594): the remote base's chunk (box.ts with boxread.ts and eleven messages in both languages, about 4.7 KB / 2.3 KB gzipped) and the message chunks the other call sites moved. Raw cap = measured; gzipped cap = measured + 15 (chunk names carry hashes).
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 430_300 && total(chunks, gz) <= 162_387, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1440,7 +1444,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Round 2 (measured, node 24): 118,698 / 24,980, +29 / +17: the dimmed `[inert]` block of pbs.css. Cap = measured.
 	// Merge of main's head band and head page onto pi-better-show blocks (todo #129; measured, node 24): 120,060 / 25,185, +533 / +300 over main's 119,527 / 24,885 (gui/pbs.css, the wrapper's layout, the note, and the 44 px touch rules). Raw cap = measured; gzipped cap = measured + 15.
 	// Merge of main's wait cards onto pi-better-show blocks and their round 4 (todo #129; measured, node 24): 125,927 / 26,257, +1,645 / +594 over main's 124,282 / 25,663: gui/pbs.css (the wrapper's layout, the note, the dimmed states, the confirm step, and the 44 px touch rules). Raw cap = measured; gzipped cap = measured + 15.
-	assert.ok(total(css, (n) => size(n).length) <= 125_927 && total(css, gz) <= 26_272, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Operate page (todo #121 task 7; measured, node 24): 125,927 / 26,257 to 128,100 / 26,639 (+2,173 / +382): the remote base's badge and team line, the greyed (dashed) and ended looks, the Earlier runs fold and the ally fold, the `[hidden]` rules the base's `display` rules would otherwise defeat, and the phone's 44 px rows. Raw cap = measured; gzipped cap = measured + 15.
+	assert.ok(total(css, (n) => size(n).length) <= 128_100 && total(css, gz) <= 26_654, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen theme's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.
@@ -1462,7 +1467,8 @@ test("each theme's folder stays within its byte cap", () => {
 	// Merge of raven status motion with the head page round (measured, node 24): raven 266,505 / 178,095 (the chunk name in raven's entry moved). Caps = measured.
 	// Wait cards GUI (todo #126 task 4, merged with the head page round and Raven motion; measured, node 24): zen 125,735 / 39,703 to 127,758 / 40,097 (+2,023 / +394: the card's Zen skin in zen.css, the card's mount in zen.ts, the review fixes: state colours, off look, Open <raiser>). Cap = measured.
 	// Raven status motion, compositor only (fix/raven-motion-perf; measured, node 24): raven 266,505 / 178,095 to 268,348 / 178,325 (+1,843 / +230: raven.css, whose seal is a ring-shaped mask over a rising fill and whose mist is two fixed layers, in place of the animated registered numbers). Geek and Zen are as they were. Cap = measured.
-	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [127_758, 40_097], raven: [268_348, 178_325] };
+	// Operate page (todo #121 task 7; measured, node 24): geek 6,853 / 2,384 to 6,999 / 2,419 (+146 / +35: the greyed remote base keeps Geek's flat look, dashed and not dimmed, and its ended line has no tint). Cap = measured.
+	const caps: Record<string, [number, number]> = { geek: [6_999, 2_419], zen: [127_758, 40_097], raven: [268_348, 178_325] };
 	// Raven Keep review round 2 (measured, node 24): raven 227,821 / 152,777 to 236,417 / 155,182 (+8,596 / +2,405: the crest brand symbol in the sprite, the moon veil, the tome in the documents list). Cap = measured.
 	// Measured on node 24 after batch 1 (the mechanism, no new art): Geek is its stylesheet and an empty entry; Zen is its chunk, stylesheet, music player, and audio bus. Caps = measured; merge of #126 (zenhead.ts) +20 / +5; pi-better-show blocks (todo #129): geek 6,137 / 2,068, +49 / +14 for the 13 px rule of the elements; round 2: zen 38,954 to 38,955 gzipped with the same raw size (the content hashes of the shared chunks it imports changed, which moves the compressed bytes by one).
 	assert.deepEqual(readdirSync(dir).sort(), Object.keys(caps).sort(), "a folder per theme and no other");

@@ -111,6 +111,8 @@
 [data-view="geek"] .ask-head { background: none; }
 [data-view="geek"] ::selection { background: var(--text); color: var(--ink); }
 [data-view="geek"] a.ally-chip:hover { background: var(--surface-1); }
+[data-view="geek"] .base.remote[data-box="unreachable"] { opacity: 1; } /* flat: the dashed edge and the word "unreachable" say it, not a dimmer card */
+[data-view="geek"] .base.remote .box-ended { background: none; }
 [data-view="geek"] .banner { background: var(--surface-1); }
 /* A disabled control is an outline with dim words, not a faded fill: it keeps 7 : 1 and says so with a dashed edge. */
 [data-view="geek"] :is(.composer, .ask) button:disabled { opacity: 1; background: none; color: var(--dim); border: 1px dashed var(--line); cursor: not-allowed; }

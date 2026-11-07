@@ -399,7 +399,7 @@ test("documents: a bridge's list binds to the unit on its pane with its file, ea
 	assert.equal(unit.docs?.length, 2);
 	for (const card of unit.docs!) assert.match(card.cap, /^[0-9a-f]{32}$/, "128 random bits");
 	assert.notEqual(unit.docs![0]!.cap, unit.docs![1]!.cap);
-	assert.deepEqual(unit.docs!.map((card) => ({ ...card, cap: undefined })), [{ cap: undefined, display: "docs/plan.html", kind: "html", reason: "Plan ready", revision: 1, onScreen: true }, { cap: undefined, display: "notes.md", kind: "text", reason: "Plan ready", revision: 3, onScreen: false }]);
+	assert.deepEqual(unit.docs!.map((card) => ({ ...card, cap: undefined })), [{ cap: undefined, display: "docs/plan.html", kind: "html", reason: "Plan ready", revision: 1, onScreen: true }, { cap: undefined, display: "notes.md", kind: "blocks", reason: "Plan ready", revision: 3, onScreen: false }]);
 	assert.ok(!JSON.stringify(unit).includes("/work") && !JSON.stringify(unit).includes(doc().id), "no path or owner id in the snapshot");
 	assert.deepEqual(x.h.doc(unit.docs![0]!.cap), { key: "S", doc: doc() }, "the server finds the document, path and all, by its capability");
 	assert.equal(x.h.doc("f".repeat(32)), undefined, "an unknown capability finds nothing");

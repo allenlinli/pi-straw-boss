@@ -6,7 +6,10 @@ import type { Queued, TowerService } from "../src/net.ts";
 import type { Monitor } from "../src/monitors.ts";
 import { h, replay } from "./dom.ts";
 import { createFollow, reach } from "./follow.ts";
-import { mount, parse } from "./markdown.ts";
+import { readAnswered } from "./answered.ts";
+import { deliverToUnit } from "./blockanswer.ts";
+import { mdBody } from "./mdbody.ts";
+import { post } from "./post.ts";
 import type { Post } from "./composer.ts";
 import { m } from "./paraglide/messages.js"; import { iconRef } from "./icons.ts"; import { noun } from "./nouns.ts";
 import { getLocale } from "./paraglide/runtime.js";
@@ -196,6 +199,11 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 		if (t.kind === "intercom") return intercomLabel(t.from);
 		return [t.kind === "server" ? m.notice_server() : m.notice_timer()];
 	};
+	/** An agent message's text: its blocks are pi-better-show's elements, compact, and an answer from one is the boss's message to this unit through the composer's route (blockanswer.ts), locked per session, entry, and block. */
+	const textOf = (id: string, text: string) => {
+		const key = who().key, route = (b: Record<string, unknown>) => (data.post ? data.post("input", b) : post(`sessions/${encodeURIComponent(key)}/input`, b));
+		return mdBody(text, "md", { density: "compact", doc: `chat:${id}`, scope: [key, id], ready: () => readAnswered(key), send: (answer, said) => deliverToUnit(route, { entry: id, index: answer.ref!.block, fields: answer.fields })(said) });
+	};
 	/** Whether the log being drawn is the head's own page (not Zen's log, not another tower's). */
 	const bare = () => page === true && who().head === true;
 	/** An entry the head's page does not show (docs/specs/2026-11-06-head-page-minimal.md): it keeps its place in the log, hidden. */
@@ -214,7 +222,7 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 				if (bare() && !it.text && !it.thought && !it.error && !it.stop) return skipped(); // the head's page shows its words: an entry of tool calls alone is not content there
 				const body = h("pre", { class: "thought-text" }), more = it.thought ? h("button", { class: "thought", type: "button" }, it.thought < 0 ? m.thought_redacted() : m.thought_chars({ count: it.thought.toLocaleString() })) : null;
 				if (it.thought && it.thought > 0) more?.addEventListener("click", () => fetchBody(more, body, it.id, (full) => full.thoughtText));
-				return h("article", { class: me.head ? "tx in head" : "tx in" }, icon(me.head ? "crown" : me.role), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? h("div", { class: "md" }, mount(parse(it.text))) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(bare() ? [] : it.tools ?? []).flatMap((t) => action(t, it.id))));
+				return h("article", { class: me.head ? "tx in head" : "tx in" }, icon(me.head ? "crown" : me.role), h("div", { class: "tx-body" }, h("header", null, h("b", null, speaker(me)), it.model ? h("span", null, it.model) : null, stamp(it), it.stop ? h("span", { class: "stop", "data-mark": "error" }, it.stop) : null), more, body, it.text ? textOf(it.id, it.text) : null, it.error ? h("p", { class: "fault" }, it.error) : null, ...(bare() ? [] : it.tools ?? []).flatMap((t) => action(t, it.id))));
 			}
 			case "bash": if (bare()) return skipped(); return h("article", { class: "tx sys" }, h("details", { class: "act" }, h("summary", { "data-mark": it.exit ? "error" : "done" }, h("b", { class: "badge" }), h("code", null, "shell"), h("span", { class: "sum" }, `! ${it.command}`), it.exit ? h("span", { class: "stop", "data-mark": "error" }, m.exit_code({ code: it.exit })) : null), it.text ? h("pre", { class: "out" }, it.text) : null));
 			case "notice": {

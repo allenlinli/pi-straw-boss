@@ -45,7 +45,7 @@ Object.assign(globalThis, {
 });
 const { arrivals, docFor, docHooks, docTile, refreshDocs, resolvePath, shelve, SANDBOX } = await import("../gui/doc.ts");
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
-const card = (cap: string, display: string, extra: Partial<DocCard> = {}): DocCard => ({ cap, display, kind: display.endsWith(".html") ? "html" : "text", reason: "Plan ready", revision: 1, onScreen: true, ...extra });
+const card = (cap: string, display: string, extra: Partial<DocCard> = {}): DocCard => ({ cap, display, kind: display.endsWith(".html") ? "html" : /\.(md|markdown)$/i.test(display) ? "blocks" : "text", reason: "Plan ready", revision: 1, onScreen: true, ...extra });
 
 test("a show_doc path names a listed document when it resolves, against the session's directory, to the document's display", () => {
 	assert.equal(resolvePath("docs/./a/../plan.md", "/work/app"), "/work/app/docs/plan.md");

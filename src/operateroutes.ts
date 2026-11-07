@@ -52,6 +52,7 @@ export const ROUTES: readonly Row[] = [
 	{ method: "POST", path: "tower/*/memory|leave|new|retry|deliver|drop", cross: "request", box: true, note: "The tower is the box's, so only the box part may steer it." },
 	{ method: "POST", path: "tower/**", cross: "refused", note: "No such action on a tower." },
 
+	{ method: "POST", path: "doc/**", cross: "refused", note: "Documents are never served over operate (decision 12)." },
 	{ method: "POST", path: "panes/**", cross: "refused", note: "A pane an answer opened runs a shell (decision 8)." },
 	{ method: "POST", path: "trust/**", cross: "refused", note: "Project trust on the box is its infrastructure's." },
 	{ method: "POST", path: "link/**", cross: "refused", note: "The box's own team settings." },

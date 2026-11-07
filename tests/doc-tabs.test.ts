@@ -21,24 +21,16 @@ test("the parent path grows only as far as it must", () => {
 	assert.deepEqual(tabLabels(["/a/n.md", "/a/n.md"]), ["/a/n.md", "/a/n.md"], "identical paths fall back to the full path");
 });
 
-const kinds = (nodes: N[]): N[] => nodes.filter((n) => typeof n !== "string" && n.attrs?.class === "md-alert");
-test("GitHub alerts render as callouts with a kind and a title", () => {
+// GitHub alerts are pi-better-show's `pbs-callout` now (todo #129; the drawing is tests/blocks-doc.test.ts and blocks-chat.test.ts): the page's own Markdown no longer makes the hand-made callout of todo #128, so a quote that opens with [!NOTE] is
+// a plain quote wherever no block is drawn, and raw HTML inside it stays text.
+test("the page's own Markdown draws a GitHub alert as the quote it is, and the hand-made callout and its styles are gone", () => {
 	for (const k of ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"]) {
-		const [a] = kinds(parse(`> [!${k}]\n> body **x**`)) as Exclude<N, string>[];
-		assert.ok(a, k);
-		assert.equal(a.attrs!["data-kind"], k.toLowerCase());
-		assert.equal(a.tag, "div");
-		assert.deepEqual(a.kids[0], { tag: "p", kids: [k[0] + k.slice(1).toLowerCase()], attrs: { class: "md-alert-title" } });
-		assert.ok(JSON.stringify(a.kids).includes("strong"));
+		const [q] = parse(`> [!${k}]\n> body **x**`) as Exclude<N, string>[];
+		assert.equal(q!.tag, "blockquote", k);
+		assert.ok(!JSON.stringify(q).includes("md-alert"));
 	}
-});
-test("an alert's own title replaces the default; other quotes and raw HTML stay as before", () => {
-	const [a] = kinds(parse("> [!tip] Try this\n> text")) as Exclude<N, string>[];
-	assert.deepEqual(a!.kids[0], { tag: "p", kids: ["Try this"], attrs: { class: "md-alert-title" } });
-	assert.equal(kinds(parse("> [!NOTES]\n> x")).length, 0);
-	assert.equal(kinds(parse("> text [!NOTE]\n> x")).length, 0);
-	const t = JSON.stringify(parse("> [!NOTE] <script>x</script>\n> y"));
-	assert.ok(!t.includes('"tag":"script"'));
+	assert.ok(!JSON.stringify(parse("> [!NOTE] <script>x</script>\n> y")).includes('"tag":"script"'));
+	assert.ok(!/\.md-alert/.test(css), "no .md-alert rule is left in style.css");
 });
 
 test("document tabs: one line, ellipsis, scroll sideways, active marked, 44 px on touch", () => {
@@ -50,5 +42,4 @@ test("document tabs: one line, ellipsis, scroll sideways, active marked, 44 px o
 	const s = declarations(strip!.body);
 	assert.ok(s.some(([p, v]) => p === "flex-wrap" && v === "nowrap") && s.some(([p, v]) => p === "overflow-x" && v === "auto"));
 	assert.ok(rulesOf(css).some((r) => r.parts.includes(".tiles.tabbed .tile-tabs .tab-btn.active") && declarations(r.body).some(([p]) => p === "font-weight")));
-	assert.match(css, /\.md-alert\[data-kind="caution"\]/);
 });

@@ -1,0 +1,122 @@
+import { type Answer, type BlockSegment, encodeAnswer, type InvalidSegment, inlinePlain, parse } from "pi-better-show";
+import { configure, type PbsElement, TAGS } from "pi-better-show/elements";
+import type { Delivery } from "./blockanswer.ts";
+import { type Cell, lockFor } from "./blocklock.ts";
+import { h } from "./dom.ts";
+import { mount, parse as markdown } from "./markdown.ts";
+import { m } from "./paraglide/messages.js";
+
+// The page's drawing of pi-better-show's blocks (docs/specs/2026-11-07-better-show-host.md), a lazy chunk (blockschunk.ts): the text is split by the package's parser, prose is the page's own Markdown (markdown.ts), each block is the
+// element of its kind fed with the block's data (never markup: the elements build text nodes), and a block that does not parse shows its source in code. An element's answer is handed to the host, which delivers it and only then locks the
+// element with the fields that went (`answered`); a refusal leaves it open with the reason under it. While an answer is on its way every drawing of the block is locked (inert, "Sending…"): a redraw does not find it open. What a block can name is the host's to
+// resolve: an image only through `image`, and a page, a diagram, or a link target never. What goes out under the boss's name is what the boss saw: a chip is drawn as its text, and a form or checklist whose names are not its labels (a choice's value, a question's or an
+// item's name) shows the exact outgoing text first, in a confirm step of its own, and sends that very text only when the boss presses Send.
+
+export interface BlockHost {
+	density: "compact" | "comfortable";
+	/** The document the blocks are in, as an answer's `ref` names it. */
+	doc?: string;
+	/** What the page's lock for these blocks is keyed by (blocklock.ts): a chat message's session and entry, a document's capability and the hash of its text. Without it nothing is kept across drawings. */
+	scope?: string[];
+	/** The URL the page may load for a review item's `image`, or none: only the host's own route (a document's capability), never what the author wrote. */
+	image?(ref: string): string | undefined;
+	/** Resolves once the server's record of answered blocks has been put into the page's locks (false: it could not be read). A host without one has nothing to read. */
+	ready?(): Promise<boolean>;
+	/** Delivers an answer: `text` is what the agent reads (`encodeAnswer`). */
+	send(answer: Answer, text: string): Promise<Delivery>;
+}
+
+// The URLs the host resolved are the only ones an element may load: the package's default admits any http(s) or data image.
+const resolved = new Set<string>();
+configure({ imageUrl: (ref) => (resolved.has(ref) ? ref : undefined) });
+
+/** Markdown's punctuation made literal, so that a chip shows a text as it is. */
+const literal = (text: string) => text.replace(/[!-/:-@[-`{-~]/g, "\\$&");
+
+/** The block's data as the element gets it: a review item's `image` goes through the host, or goes; a chip shows the text it sends, since what goes out under the boss's name must be what the boss saw (a label that reads as the text keeps its formatting). */
+function dataOf(seg: BlockSegment, host: BlockHost): unknown {
+	if (seg.kind === "suggest") return { ...seg.data, items: seg.data.items.map((item) => (inlinePlain(item.label) === item.text ? item : { ...item, label: literal(item.text) })) };
+	if (seg.kind !== "review") return seg.data;
+	return { ...seg.data, items: seg.data.items.map(({ image, ...item }) => {
+		const url = image === undefined ? undefined : host.image?.(image);
+		if (url !== undefined) resolved.add(url);
+		return url === undefined ? item : { ...item, image: url };
+	}) };
+}
+
+/** A question's `name` that is a plain identifier (`store`) is the agent's own handle for its answer, not something the boss asserts; any other key lands in the message as text. */
+const HANDLE = /^[A-Za-z0-9_.-]{1,40}$/;
+/** Whether the answer would carry text the boss was not shown as it goes: a picked choice whose value is not its label, an item of a checklist whose name is not its label, a question key that is not a plain identifier and is not its label as drawn. (A choice not picked, or a value that is a part of what was typed, may ask once more than it needs: that costs one tap.) */
+function hidden(seg: BlockSegment, fields: Answer["fields"]): boolean {
+	const differs = (name: string, label: string | undefined) => inlinePlain(label ?? name) !== name;
+	if (seg.kind === "checklist") return seg.data.items.some((item) => differs(item.name, item.label));
+	if (seg.kind !== "form") return false;
+	return seg.data.questions.some((q) => (differs(q.name, q.label) && !HANDLE.test(q.name)) || q.choices.some((c) => differs(c.value, c.label) && fields.some(([name, value]) => name === q.name && value.includes(c.value))));
+}
+
+function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement {
+	const el = document.createElement(TAGS[seg.kind]) as PbsElement, lock = lockFor(...(host.scope ?? [])), index = seg.index;
+	const note = h("p", { class: "pbs-note", role: "status", "aria-live": "polite" }), wrap = h("div", { class: "pbs-block", "data-kind": seg.kind }, el, note);
+	el.setAttribute("density", host.density);
+	el.ref = host.doc === undefined ? { block: index } : { doc: host.doc, block: index };
+	el.data = dataOf(seg, host);
+	let sending = false, confirming: HTMLElement | undefined;
+	const closeConfirm = () => (confirming?.remove(), (confirming = undefined));
+	/** The note a state brings, unless the delivery that ended it has put its own words there. */
+	const say = (text: string, tone?: string) => ((note.textContent = text), tone ? (note.dataset.tone = tone) : delete note.dataset.tone);
+	const view = {
+		show(cell: Cell) {
+			wrap.toggleAttribute("inert", cell.state === "pending");
+			if (cell.state !== "open") closeConfirm(); // answered, or on its way, from somewhere else meanwhile
+			if (cell.state === "done") el.answered = cell.fields;
+			if (cell.state === "pending") say(m.block_sending());
+			else if (!sending && (cell.state === "done" || note.textContent === m.block_sending())) say(cell.state === "open" && !known ? m.block_unsure_state() : "");
+		},
+	};
+	lock.watch(index, view);
+	say(known ? "" : m.block_unsure_state());
+	view.show(lock.get(index));
+	const deliver = (answer: Answer, text: string) => {
+		sending = true;
+		lock.pend(index);
+		void host.send(answer, text).catch((): Delivery => ({ ok: false, reason: m.unsure() })).then((r) => {
+			sending = false;
+			if (r.ok) return lock.done(index, answer.fields);
+			if (r.answered) lock.done(index, r.answered);
+			else lock.cancel(index);
+			say(r.reason, r.answered ? undefined : "error");
+		});
+	};
+	/** The confirm step: the exact text that will go, and Send (which sends that very text) or Back. A later answer replaces it. */
+	const confirm = (answer: Answer, text: string) => {
+		closeConfirm();
+		say("");
+		const go = h("button", { type: "button", class: "pbs-confirm-send" }, m.block_confirm_send()), back = h("button", { type: "button", class: "pbs-confirm-back" }, m.block_confirm_back());
+		const panel = (confirming = h("div", { class: "pbs-confirm", role: "group", "aria-label": m.block_confirm_title() }, h("p", { class: "pbs-confirm-title" }, m.block_confirm_title()), h("pre", { class: "pbs-confirm-text" }, text), h("div", { class: "pbs-confirm-row" }, go, back)));
+		go.addEventListener("click", () => {
+			if (confirming !== panel) return; // the step goes by itself when the block is locked or sending, so a stale Send finds none
+			closeConfirm();
+			deliver(answer, text);
+		});
+		back.addEventListener("click", () => confirming === panel && closeConfirm());
+		panel.addEventListener("keydown", (event) => (event as KeyboardEvent).key === "Escape" && confirming === panel && closeConfirm());
+		wrap.insertBefore(panel, note);
+		go.focus();
+	};
+	el.addEventListener("pbs-answer", (event) => {
+		const sent = (event as CustomEvent<Answer>).detail, answer: Answer = { ...sent, ref: { ...sent.ref, block: index } }; // the block's address is the block's own, whatever the element says
+		event.preventDefault(); // the host takes the answer: the element stays open until the owner has it
+		if (sending || lock.get(index).state !== "open") return;
+		const text = encodeAnswer(answer);
+		if (hidden(seg, answer.fields)) confirm(answer, text);
+		else deliver(answer, text);
+	});
+	return wrap;
+}
+
+const invalid = (seg: InvalidSegment) => h("pre", { class: "pbs-invalid", title: `${seg.kind}: ${seg.error}` }, h("code", { "data-lang": seg.kind }, seg.source));
+
+/** Replaces the children of `into` with `text` drawn: prose, blocks, and the source of what is not a block. `known` is false when the server's record of answered blocks could not be read: the blocks are open, with a note that says so. */
+export function drawBlocks(into: HTMLElement, text: string, host: BlockHost, known = true) {
+	into.replaceChildren(...parse(text).map((seg) => (seg.type === "markdown" ? mount(markdown(seg.text)) : seg.type === "invalid" ? invalid(seg) : block(seg, host, known))));
+}

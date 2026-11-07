@@ -65,7 +65,25 @@ test("no keyframes set of raven.css turns, rotates, or sweeps a conic wedge, and
 	for (const [name, body] of frames) assert.ok(!/rotate|turn|skew|conic|spin/i.test(body), `@keyframes ${name} does not turn`);
 	assert.ok(!/conic-gradient/.test(raven), "raven.css draws no conic gradient");
 	assert.ok(!/rotate|\d\s*turn\b|\brotate\b/.test(raven.replace(/\/\*[\s\S]*?\*\//g, "")), "raven.css rotates nothing (the head page's rk-perch-turn is a dissolve between two frames, named for the raven's head)");
-	for (const name of ["rk-seal", "rk-dia", "rk-mist-a", "rk-mist-b", "rk-soul", "rk-dots", "rk-wing", "rk-bob"]) assert.ok(frames.has(name), `@keyframes ${name}`);
+	for (const name of ["rk-seal", "rk-dia", "rk-mist", "rk-soul", "rk-dots", "rk-wing", "rk-bob"]) assert.ok(frames.has(name), `@keyframes ${name}`);
+});
+
+test("every keyframe set a raven status selector uses changes only transform and opacity: nothing a frame repaints (no custom property, mask, background, box-shadow, filter)", () => {
+	const status = /\.(sweep|ring|pulse|connect-ring)\b|\.badge\b|\.plate\[data-mark|\.tower\[data-mark/;
+	const used = new Set<string>();
+	for (const r of ravenRules) if (r.parts.some((p) => status.test(p))) for (const v of animationOf(r.body)) {
+		assert.ok(!v.includes("var("), `${r.selector}: a status animation names its keyframes itself, never through var(), so this check reads them (${v})`);
+		for (const { name } of shorthand(v)) if (frames.has(name)) used.add(name);
+	}
+	for (const name of used) {
+		const props = new Set<string>();
+		for (const m of frames.get(name)!.matchAll(/\{([^{}]*)\}/g)) for (const [prop] of declarations(m[1]!)) props.add(prop);
+		assert.ok(props.size > 0, `@keyframes ${name} was read`);
+		for (const prop of props) assert.ok(prop === "transform" || prop === "opacity" || prop === "animation-timing-function", `@keyframes ${name} animates ${prop}, which is not compositor-only`);
+	}
+	for (const name of ["rk-seal", "rk-dia", "rk-mist", "rk-soul", "rk-dots", "rk-wing", "rk-bob"]) assert.ok(used.has(name), `${name} is used by a status selector`);
+	assert.ok(!used.has("rk-lit-a") && !used.has("rk-fog"), "the head page's backdrop keyframes are not status keyframes");
+	assert.ok(!/@property\s+--rk-(seal|m1|m2)\b/.test(raven), "no registered number is left for a status animation to drive");
 });
 
 test("every status animation sits in the no-preference block and outside data-calm; outside it only `animation: none` is declared, and forced colours stop the rest", () => {
@@ -91,7 +109,7 @@ test("every status animation sits in the no-preference block and outside data-ca
 test("no status animation is faster than 0.8 s a cycle, and none flashes: opacity never swings to zero and back within a cycle under 1 s", () => {
 	const used = new Set<string>(), cycles = new Map<string, number>();
 	for (const r of ravenRules) for (const v of animationOf(r.body)) for (const { name, seconds } of shorthand(v)) if (frames.has(name) && name.startsWith("rk-") && !/^rk-(lit|bolt|fog|bat$|raven|flap|perch)/.test(name)) (used.add(name), cycles.set(name, Math.min(cycles.get(name) ?? Infinity, seconds)));
-	for (const name of ["rk-seal", "rk-dia", "rk-mist-a", "rk-mist-b", "rk-soul", "rk-dots", "rk-wing", "rk-bob"]) {
+	for (const name of ["rk-seal", "rk-dia", "rk-mist", "rk-soul", "rk-dots", "rk-wing", "rk-bob"]) {
 		assert.ok(used.has(name), `${name} is used`);
 		assert.ok(cycles.get(name)! >= 0.8, `${name} cycles in ${cycles.get(name)} s, at least 0.8`);
 	}
@@ -101,16 +119,21 @@ test("no status animation is faster than 0.8 s a cycle, and none flashes: opacit
 
 test("the still figures stay without motion and differ in shape: working draws a solid seal with its diamond, waiting a dotted ring with a soul-fire", () => {
 	const rule = (re: RegExp) => ravenRules.find((r) => r.parts.some((p) => re.test(p)) && !animationOf(r.body).length);
-	const sealed = rule(/^html\[data-view="raven"\] \.tower\[data-mark="working"\] > \.sweep::before/), dots = rule(/^html\[data-view="raven"\] \.tower\[data-mark="waiting"\] > \.sweep::before/);
-	assert.ok(sealed && dots, "the tower's ring in both states");
-	assert.match(sealed!.body, /border:[^;]*\bsolid\b/);
+	const sealed = rule(/^html\[data-view="raven"\] \.tower\[data-mark="working"\] > \.sweep(?!::)/), fill = rule(/^html\[data-view="raven"\] \.tower\[data-mark="working"\] > \.sweep::before/), dots = rule(/^html\[data-view="raven"\] \.tower\[data-mark="waiting"\] > \.sweep::before/);
+	assert.ok(sealed && fill && dots, "the tower's ring in both states");
+	assert.match(sealed!.body, /overflow:\s*hidden/, "the seal's host clips the rising fill");
+	assert.match(sealed!.body, /mask:[^;]*radial-gradient\(closest-side/, "the seal is a ring-shaped mask: solid, not dotted");
+	assert.match(fill!.body, /linear-gradient\(to bottom, transparent[^;]*var\(--c\)/, "the fill that the mask cuts into the ring");
+	assert.match(fill!.body, /transform:\s*translateY\(calc\(-50% \+ 6px\)\)/, "still, the fill rests at the seal's full figure");
 	assert.match(dots!.body, /border:[^;]*\bdotted\b/);
 	const diamond = rule(/\.tower\[data-mark="working"\] > \.sweep::after/);
 	assert.ok(diamond && /clip-path:\s*polygon/.test(diamond.body), "the seal's diamond is a polygon, not a turned square");
 	const soul = rule(/\.tower\[data-mark="waiting"\] > \.pulse(?!::)/);
 	assert.ok(soul && /radial-gradient/.test(soul.body) && /border-radius:\s*50%/.test(soul.body), "the soul-fire is a round glow inside the disc");
-	const mist = rule(/\.tower\[data-mark="working"\] > \.pulse(?!::)/);
-	assert.ok(mist && (mist.body.match(/radial-gradient/g) ?? []).length === 2, "two mist layers under the disc");
+	const layers = [/\.tower\[data-mark="working"\] > \.pulse::before/, /\.tower\[data-mark="working"\] > \.pulse::after/].map((re) => ravenRules.find((r) => r.parts.some((p) => re.test(p)) && /radial-gradient/.test(r.body)));
+	for (const layer of layers) assert.ok(layer && (layer.body.match(/radial-gradient/g) ?? []).length === 1, "a mist layer under the disc, each its own pseudo-element so each moves alone");
+	const plateMist = ravenRules.find((r) => r.parts.some((p) => /^html\[data-view="raven"\] \.plate\[data-mark="working"\]::after$/.test(p)) && /radial-gradient/.test(r.body));
+	assert.ok(plateMist && (plateMist.body.match(/radial-gradient/g) ?? []).length === 2, "the plate's one element draws both mist layers");
 	for (const host of [".plate[data-mark=\"working\"] > .ring::before", ".plate[data-mark=\"waiting\"] > .ring::before", ".plate[data-mark=\"working\"]::after", ".plate[data-mark=\"waiting\"]::after"]) assert.ok(ravenRules.some((r) => r.parts.some((p) => p.includes(host))), `the plate's ${host}`);
 	const bat = ravenRules.find((r) => r.parts.some((p) => /\[data-mark="working"\] > \.badge::after$/.test(p)) && /mask/.test(r.body));
 	assert.ok(bat && /data:image\/svg\+xml/.test(bat.body), "the badge's bat is a mask of a small drawing");

@@ -3,7 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { guiNamespace, MAX_QUEUED, QUEUED_TEXT, REGISTER } from "./bridgewire.ts";
-import { type Doc, type Fields, fieldsOk, listenDocs, submitForm } from "./documents.ts";
+import { answerOk, type BlockAnswer, type Doc, type Fields, fieldsOk, listenDocs, submitAnswer, submitForm } from "./documents.ts";
 import { type Answer, type Bus, type Dialog, OWNERS, type OwnerAdapter, type Verdict } from "./owners.ts";
 import { type Cmd, listCommands, MAX_PREFIX } from "./commands.ts";
 import type { Queued } from "./net.ts";
@@ -60,7 +60,7 @@ export interface CloseResult { version: 1; type: "close-result"; bridgeId: strin
 export interface StashCheckResult { version: 1; type: "stash-check-result"; bridgeId: string; reqId: string; reason?: string }
 export interface PullResult extends Pull { version: 1; type: "pull-result"; bridgeId: string; reqId: string }
 export type ToHub = Dialogs | Ack | ProbeResult | FormReply | CommandsResult | CloseResult | StashCheckResult | PullResult;
-export interface FormMessage { version: 1; type: "form"; to: string; id: string; answerId: string; fields: Fields }
+export interface FormMessage { version: 1; type: "form"; to: string; id: string; answerId: string; fields: Fields; /** The block's Answer, for a document of contract v2 (the owner reads it, not the fields). */ answer?: BlockAnswer }
 /** An answer on the wire: never a secret's `value`. */
 export interface AnswerMessage extends Omit<Answer, "value"> { version: 1; type: "answer"; to: string }
 /** The hub when it runs in this session: it takes what a remote bridge would publish, from this session's id. */
@@ -257,11 +257,16 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		push();
 	}
 
-	/** A form answer for a listed HTML document goes to its owner, which delivers it as a Chawan submission and replays a repeated answerId. */
+	/** A form answer for a listed HTML document goes to its owner, which delivers it as a Chawan submission and replays a repeated answerId. A document of contract v2 takes the block's Answer instead (`better-show:answer`), a blocks or html one only: the package refuses a text document's. */
 	function form(m: FormMessage, reply: (r: FormReply) => void) {
 		const out = (r: { accepted: boolean; reason?: string }) => reply({ version: 1, type: "form-result", bridgeId, id: m.id, answerId: m.answerId, ...r });
 		if (typeof m.id !== "string" || typeof m.answerId !== "string" || m.answerId.length > 64 || !fieldsOk(m.fields)) return;
-		if (docs.some((d) => d.id === m.id && d.kind === "html")) submitForm(bus, m.id, m.answerId, m.fields, out);
+		const doc = docs.find((d) => d.id === m.id);
+		if (doc?.v === 2) {
+			if (!answerOk(m.answer)) return;
+			return doc.kind === "text" ? out({ accepted: false, reason: "invalid" }) : submitAnswer(bus, m.id, m.answerId, m.answer, out);
+		}
+		if (doc?.kind === "html") submitForm(bus, m.id, m.answerId, m.fields, out);
 		else out({ accepted: false, reason: "closed" });
 	}
 	let monitors: ReturnType<typeof trackMonitors> | undefined;

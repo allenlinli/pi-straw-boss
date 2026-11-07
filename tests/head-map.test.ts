@@ -1,25 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import type { HeadUnit } from "../src/nethead.ts";
-import { El, sessionGlobals } from "./fake-dom.ts";
+import { sessionGlobals } from "./fake-dom.ts";
 
-// The map's head node and the wires from it (docs/specs/2026-11-04-head-tower.md, Standard: the head page and its entries; H4, and the polish after 0.58.0): no base carries a crown any more, the head node is a small crowned pill that sits in the map's top band
-// (it takes no row: the bases start where they would without it), faint and dashed while the head is not open, and it is the hub of the wires.
+// The map's head band and the wires from it (docs/specs/2026-11-07-head-band.md; the band's content is tests/head-band.test.ts): no base carries a crown, the band is the first thing in the map's flow, one column wide and 44 px tall at most, and it is the hub of the wires,
+// which are dashed and straight, orthogonal segments only: a drop, a bus above the grid, down each column's left gutter, across into each tower.
 
 sessionGlobals();
-const { fillHeadNode, headWires } = await import("../gui/render.ts");
-const { m } = await import("../gui/paraglide/messages.js");
+const { headWires } = await import("../gui/render.ts");
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-
-const head = (over: Partial<HeadUnit> = {}): HeadUnit => ({ key: "sb-head", name: "head tower", mark: "idle", state: "standing", asks: [], ...over });
-const node = () => {
-	const root = new El("a"), tower = new El("div"), state = new El("span"), title = new El("b");
-	root.className = "head-node";
-	tower.className = "tower"; state.className = "tstate"; title.className = "head-name";
-	root.append(tower, title, state);
-	return { root, tower, state, title };
-};
 
 test("no base carries a crown any more: the base card and the zoomed base have none, and the map's styles keep no `.base.head`", () => {
 	for (const file of ["gui/render.ts", "gui/workspace.ts"]) assert.doesNotMatch(read(file), /class="crown"><svg><use (?:data-icon="crown"|href="#i-crown")/, `${file} draws no crown on a base`);
@@ -31,50 +20,62 @@ test("no base carries a crown any more: the base card and the zoomed base have n
 
 const rule = (css: string, selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.[\]()|*+?^$]/g, "\\$&")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
 
-test("the head node takes no row of its own: it is a small pill in the map's top band, out of the flow, and the map keeps only a little room under it", () => {
+test("the band takes a row of its own in the flow: centred above the bases, at most a column wide and 44 px tall, with the grid's own gap under it; Geek stays flat", () => {
 	const css = read("gui/style.css"), own = rule(css, ".head-node");
-	assert.match(own, /position: absolute;/, "out of the flow: no full-width row pushes the bases down");
-	assert.match(own, /top: 0;[^}]*translate: -50% -25%;/, "centred in the map's top band, a quarter of it above the edge: clear of the crumbs row above");
-	assert.doesNotMatch(own, /margin: 0 auto \d+px|margin-bottom|width: fit-content/, "no row margin");
-	const h = /height: (\d+)px/.exec(own);
-	assert.ok(h && Number(h[1]) <= 40, `a pill at most 40 px tall (was a 90 px card); got ${h?.[1]}`);
-	assert.match(css, /\.map:has\(> \.head-node:not\(\[hidden\]\)\) \{ padding-top: (\d+)px; \}/, "the map keeps room for the lower half of the pill");
-	assert.match(rule(css, ".head-node .tstate"), /clip-path: inset\(50%\)/, "the state line is for a reader of the page; the title and the tower's badge carry it for the eye");
-	assert.match(rule(css, ".head-node .tower"), /width: 30px; height: 30px/, "a small tower, not the 64 px one");
+	assert.match(own, /position: relative;/, "in the flow, not out of it");
+	assert.match(own, /margin: 0 auto 20px;/, "centred, the bases start under it with the grid's own 20 px gap");
+	assert.match(own, /width: var\(--col, min\(100%, 330px\)\);/, "one grid column wide (render.ts sets --col to the masonry's column)");
+	assert.match(own, /max-width: 100%;/);
+	assert.match(own, /height: 44px;/, "44 px: at most that on a desktop, at least that to tap on a phone");
 	assert.match(read("gui/themes/geek/geek.css"), /\[data-view="geek"\] :is\(\.head-node, \.drawer-head\) \{ background: var\(--surface-0\); box-shadow: none; \}/, "Geek stays flat");
+	assert.match(rule(css, ".head-node.absent"), /opacity: 0\.55; border-style: dashed;/, "faint and dashed while the head is not open");
+	assert.match(rule(css, ".head-node .head-line"), /min-width: 0;/, "the newest line gives way first");
+	assert.match(rule(css, ".head-node .head-line"), /text-overflow: ellipsis;/);
+	assert.match(rule(css, ".head-node .head-waits"), /flex: none;/, "the chip always shows");
+	assert.match(css, /@container \(max-width: \d+px\) \{ \.head-node \.head-line \{ display: none; \} \}/, "a band too narrow for it drops the line");
+	assert.match(rule(css, ".wire"), /stroke-dasharray: \d+ \d+;/, "dashed");
 });
 
-test("the node's title says the head and its state, for a hover", () => {
-	const n = node();
-	fillHeadNode(n.root as unknown as HTMLElement, head({ mark: "working", state: "running" }));
-	assert.equal(n.root.title, `${m.head_tower()} · ${n.state.textContent}`);
-	fillHeadNode(n.root as unknown as HTMLElement, head({ state: "absent" }));
-	assert.equal(n.root.title, `${m.head_tower()} · ${m.head_state_absent()}`);
-});
+const hub = [600, 58] as const;
+const seg = (x1: number, y1: number, x2: number, y2: number) => ({ x1, y1, x2, y2 });
 
-test("the head node says Head tower with its state word, is dashed and faint while the head is not open, and hidden without a head on the net", () => {
-	const n = node();
-	fillHeadNode(n.root as unknown as HTMLElement, head({ mark: "working", state: "running" }));
-	assert.deepEqual([n.root.hidden, n.root.classes.has("absent"), n.root.dataset.mark, n.tower.dataset.mark, n.title.textContent], [false, false, "working", "working", "Head tower"]);
-	assert.match(n.state.textContent, /working|running/i);
-	fillHeadNode(n.root as unknown as HTMLElement, head({ state: "absent" }));
-	assert.deepEqual([n.root.classes.has("absent"), n.state.textContent], [true, m.head_state_absent()]);
-	assert.equal(n.tower.classes.has("ghost"), true, "the tower is drawn as a ghost, as a base without a tower is");
-	assert.equal(n.root.getAttribute("href"), "head", "a click opens the page");
-	fillHeadNode(n.root as unknown as HTMLElement, undefined);
-	assert.equal(n.root.hidden, true);
-	assert.equal(n.root.classes.has("off"), true, "a hidden node is no hub for the wires");
-	fillHeadNode(n.root as unknown as HTMLElement, head());
-	assert.equal(n.root.classes.has("off"), false);
-});
-
-test("the wires run from the head node to every base's tower, none without a hub or while the head is not open", () => {
-	const hub = [100, 20] as const, ends = [[40, 140], [160, 140], [300, 220]] as const;
-	assert.deepEqual(headWires(hub, ends), [
-		{ x1: 100, y1: 20, x2: 40, y2: 140, mid: 70 },
-		{ x1: 100, y1: 20, x2: 160, y2: 140, mid: 130 },
-		{ x1: 100, y1: 20, x2: 300, y2: 220, mid: 200 },
+test("the wires run orthogonally: a drop to the bus, the bus, down the column's left gutter, across into the tower; the first column, a lower card in a column, no hub", () => {
+	// First column: the map's left padding is its gutter.
+	const first = headWires(hub, 74, [{ x: 60, y: 121, gutter: 12 }]);
+	assert.deepEqual(first.routes, [[[600, 58], [600, 74], [12, 74], [12, 121], [60, 121]]]);
+	assert.deepEqual(first.segments, [seg(600, 58, 600, 74), seg(12, 74, 600, 74), seg(12, 74, 12, 121), seg(12, 121, 60, 121)]);
+	// Three columns, a lower card in the middle one: its trunk is shared and runs on to the lower tower.
+	const ends = [{ x: 60, y: 121, gutter: 12 }, { x: 460, y: 121, gutter: 412 }, { x: 460, y: 313, gutter: 412 }, { x: 860, y: 121, gutter: 812 }];
+	const all = headWires(hub, 74, ends);
+	assert.deepEqual(all.routes[2], [[600, 58], [600, 74], [412, 74], [412, 313], [460, 313]], "the lower card's wire goes down its column's gutter past the first card");
+	assert.deepEqual(all.segments, [
+		seg(600, 58, 600, 74),
+		seg(12, 74, 812, 74),
+		seg(12, 74, 12, 121),
+		seg(412, 74, 412, 313),
+		seg(812, 74, 812, 121),
+		seg(12, 121, 60, 121),
+		seg(412, 121, 460, 121),
+		seg(812, 121, 860, 121),
+		seg(412, 313, 460, 313),
 	]);
-	assert.deepEqual(headWires(undefined, ends), [], "no head node, no wires");
-	assert.deepEqual(headWires(hub, []), []);
+	for (const s of all.segments) assert.ok(s.x1 === s.x2 || s.y1 === s.y2, "no diagonal");
+	// A single column (a phone): the bus runs from the band to the one gutter.
+	const one = headWires([195, 40], 52, [{ x: 30, y: 100, gutter: 4 }, { x: 30, y: 300, gutter: 4 }]);
+	assert.deepEqual(one.segments, [seg(195, 40, 195, 52), seg(4, 52, 195, 52), seg(4, 52, 4, 300), seg(4, 100, 30, 100), seg(4, 300, 30, 300)]);
+	// No hub, no head: no wires. A hub with nothing to reach draws no drop.
+	assert.deepEqual(headWires(undefined, 74, ends), { routes: [], segments: [] });
+	assert.deepEqual(headWires(hub, 74, []), { routes: [], segments: [] });
+});
+
+test("no vertical runs through a card, and each horizontal at a tower's height enters only the card of its own tower", () => {
+	const cards = [[24, 90, 376, 290], [424, 90, 776, 260], [824, 90, 1176, 230], [424, 282, 776, 432], [824, 252, 1176, 422]] as const;
+	const ends = [{ x: 60, y: 121, gutter: 12 }, { x: 460, y: 121, gutter: 412 }, { x: 460, y: 313, gutter: 412 }, { x: 860, y: 121, gutter: 812 }, { x: 860, y: 283, gutter: 812 }];
+	const { segments } = headWires(hub, 74, ends);
+	for (const s of segments.filter((s) => s.x1 === s.x2)) for (const [l, t, r, b] of cards) assert.ok(!(s.x1 > l && s.x1 < r && s.y2 > t && s.y1 < b), `the vertical at ${s.x1} (${s.y1} to ${s.y2}) runs through a card`);
+	for (const s of segments.filter((s) => s.y1 === s.y2 && s.y1 > 74)) {
+		const hit = cards.filter(([l, t, r, b]) => s.y1 > t && s.y1 < b && s.x2 > l && s.x1 < r);
+		assert.equal(hit.length, 1, `the stretch at y ${s.y1} enters one card`);
+		assert.ok(s.x1 < hit[0]![0], "it starts outside it, in the gutter");
+	}
 });

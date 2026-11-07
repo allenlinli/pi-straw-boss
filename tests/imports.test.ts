@@ -852,7 +852,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Document tabs (todo #128): 7126 to 7145 (doctabs.ts, the tab label in layer.ts, the alert callout in markdown.ts).
 	// Per-view themes (batch 1; measured): 7145 to 7225: nouns.ts (20) and icons.ts (28), the two chokepoints; themes/registry.ts (36), theme.ts (11) and the two theme entries; the call sites' switches.
 	// Raven Keep (batch 2; measured) 7225 to 7237 (+12): themesounds.ts (13, the sounds chokepoint beside nouns.ts and icons.ts), the registry's raven loader and `useSounds`, theme.ts's `sounds`, the notify switch, the two nouns `you` and `documents` (nouns.ts, chat.ts, i18n.ts) and `view_raven` in the page's table, and raven's own entry (index.ts 17, nouns.ts 14), less lines the views list took out.
-	assert.ok(page <= 7237, `the page's TypeScript has ${page} lines`);
+	// Head band (docs/specs/2026-11-07-head-band.md; measured) 7237 to 7313 (+76): headband.ts (the band's words, the gutter, the route's keyframes), render.ts (the band's fill, `headWires` with its routes and merged segments, the wire's measuring). Cap = measured.
+	assert.ok(page <= 7313, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -1037,7 +1038,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Raven Keep (batch 2; measured, node 24): 120,665 / 43,999, +3,608 / +1,572 over the 117,057 / 42,427 above. Of that, boot.js is +3,180 / +1,358 raw and gzipped: it is emitted into assets/ and runs before the body, so it counts here and no longer among the lazy chunks (review REV2-F001). The other +428 / +214: themesounds.ts, the `sounds` hand-off in the registry, the two new noun keys (`you`, `documents`), `view_raven` in both locales and in the page's table, and raven's name in the view list. Raw cap = measured; gzipped cap = measured (44,002) + 15, since the entry names each chunk by its hash and the gzipped size moves a few bytes with them.
 	// Raven Keep re-review (RRB-F002, measured, node 24): 120,800 / 44,040, +135 / +23: the page words `comms`, `outposts`, and `outside_net` through noun() and the base card's outposts label set on every draw, so a theme that lands later renames them. Cap = measured.
 	// Raven Keep re-review 2 (RRB2-F001, measured, node 24): 120,837 / 44,052, +37 / +12: the head's kicker drops the comms template's data-m, and a theme switch always redraws. Cap = measured.
-	assert.ok(eagerBytes <= 120_837 && eagerGz <= 44_052, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// Head band (measured, node 24): 122,069 / 44,492, +1,232 / +440: headband.ts and the routing in render.ts (headpage.ts's ask grouping now loads with the map), less the old curve code; the stylesheet rules for the band. Cap = measured.
+	assert.ok(eagerBytes <= 122_069 && eagerGz <= 44_492, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1223,7 +1225,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Raven Keep (batch 2; measured, node 24): 252,905 / 103,820, -3,229 / -1,444 against 256,134 / 105,264: boot.js (3,180 / 1,358) moved to the eager figure above (REV2-F001), and the other lazy chunks changed by -49 / -86 together (measured again after the review of the art: 103,879 gzipped). Raw cap = measured; gzipped cap = measured + 15 (chunk names carry hashes).
 	// Raven Keep review round 2 (measured, node 24): 253,223 / 103,982, +318 / +88 (the dossier's documents list takes iconRef("doc") and the tiles name a role for their icon). Cap = measured.
 	// Raven Keep re-review (RRB-F002, measured, node 24): 253,311 / 104,001, +88 / +19: `data-m` on the nouns the dossier, comms, and zoom templates print, so a theme that lands later renames them. Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 253_311 && total(chunks, gz) <= 104_001, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Head band (measured, node 24): 253,311 / 104,001 to 253,316 / 104,006 (+5 / +5): headpage.ts now loads with the map, so the chunks that shared it with the map are split differently. Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 253_316 && total(chunks, gz) <= 104_006, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1362,7 +1365,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Per-view themes (batch 1; measured, node 24): the entry stylesheet is 117,754 / 24,562, down from 171,691 / 34,763: Geek's block (themes/geek/geek.css) and zen.css (themes/zen/) left it, each under its folder's cap (the test below). Cap = measured.
 	// Raven Keep (batch 2; measured, node 24): 118,180 / 24,669, +426 / +107: the `--pbs-*` mapping of Standard's palette in :root (spec §7), the one block the base sheet carries for it. Cap = measured.
 	// Raven Keep review round 2 (measured, node 24): 118,204 / 24,677, +24 / +8: `.d-doc-ico { display: none; }`, the documents list's icon that only Raven Keep shows. Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 118_204 && total(css, gz) <= 24_677, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Head band (measured, node 24): 118,204 / 24,677 to 118,632 / 24,741 (+428 / +64): the band's rules (a row in the flow, the line, the chip, the state's glow) in place of the pill's, and the calm line. Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 118_632 && total(css, gz) <= 24_741, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen theme's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.
@@ -1376,7 +1380,8 @@ test("each theme's folder stays within its byte cap", () => {
 	const dir = join(root, "dist", "gui", "themes");
 	// Measured on node 24 after batch 1 (the mechanism, no new art): Geek is its stylesheet and an empty entry; Zen is its chunk, stylesheet, music player, and audio bus. Caps = measured; merge of #126 (zenhead.ts) +20 / +5.
 	// Raven Keep (batch 2; measured, node 24): Geek 6,088 / 2,054 to 6,767 / 2,370 (+679 / +316: its tab icon and the `--pbs-*` block), Zen 123,997 / 38,954 to 125,731 / 39,702 (+1,734 / +748: its ensō tab icon and the `--pbs-*` block), and raven 227,821 / 152,777 (the three sounds 21,300, the backdrop 101,872, the sprite and entry chunk 87,800, the stylesheet about 8.7 KB, the crest icon about 8.1 KB; the WebP and the MP3s do not compress, hence the gzipped figure). The spec's own ceiling for raven is 450 KB, asserted beside. Caps = measured.
-	const caps: Record<string, [number, number]> = { geek: [6_767, 2_370], zen: [125_731, 39_702], raven: [236_417, 155_182] };
+	// Head band (measured, node 24): Geek 6,767 / 2,370 to 6,853 / 2,384 (+86 / +14: the band's flat outline), Zen 125,731 to 125,735 raw (+4: the shared chunk split differently; its gzip is 5 under the old cap), raven 236,417 / 155,182 to 236,769 / 155,269 (+352 / +87: the keep's band skin lines). Caps = measured.
+	const caps: Record<string, [number, number]> = { geek: [6_853, 2_384], zen: [125_735, 39_697], raven: [236_769, 155_269] };
 	// Raven Keep review round 2 (measured, node 24): raven 227,821 / 152,777 to 236,417 / 155,182 (+8,596 / +2,405: the crest brand symbol in the sprite, the moon veil, the tome in the documents list). Cap = measured.
 	assert.deepEqual(readdirSync(dir).sort(), Object.keys(caps).sort(), "a folder per theme and no other");
 	assert.ok(caps.raven![0] <= 450_000, "Raven Keep stays within the spec's 450 KB (spec §1.5)");

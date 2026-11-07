@@ -56,6 +56,9 @@
 [data-view="raven"] [data-mark] { --c1: color-mix(in srgb, var(--c) 13%, transparent); }
 [data-view="raven"] ::selection { background: color-mix(in srgb, var(--accent) 38%, transparent); color: var(--text); }
 
+/* The head band on the map is the keep: a crenellated edge on a squared tower, the name in the serif. */
+[data-view="raven"] .head-node { border-radius: 3px 3px 12px 12px; border-top: 4px double color-mix(in srgb, var(--gold) 55%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 9%, transparent), transparent 70%), var(--surface-0); }
+[data-view="raven"] .head-node .head-name { font-family: var(--serif); font-size: 15px; letter-spacing: 0.06em; }
 /* The head page's backdrop (the castle above the mist, the crypt gate): four fixed layers behind the page, each in the illustration's frame. The page's panels keep their translucent well, so the picture shows through and the text keeps its ground. */
 @property --rk-a { syntax: "<number>"; inherits: false; initial-value: 0.7; }
 @property --rk-b { syntax: "<number>"; inherits: false; initial-value: 0.7; }

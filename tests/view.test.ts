@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { test } from "node:test";
 import { followLabel } from "../gui/viewlabel.ts";
 import { autoView, mountZenBack, choiceOf, KEY, mountPick, mountView, resolve, THEME, type ViewEnv } from "../gui/view.ts";
@@ -355,4 +356,60 @@ test("Z-D20 R3: a change of the server's default never switches a page that is s
 	assert.equal(left.view(), "geek", "a page on Auto that is not in Zen follows at once");
 	const own = world("zen", false, { server: "auto" });
 	assert.equal(mountView(own.env).view(), "zen", "a device's own Zen is not the server's to move");
+});
+
+// boot.js (gui/boot.js) resolves the first frame's view before the page entry runs; it must agree with `resolve` of view.ts for every stored value, contrast, and server default.
+const BOOT = readFileSync(new URL("../gui/boot.js", import.meta.url), "utf8");
+const MAP = JSON.stringify({ geek: { css: "themes/geek/geek-x.css", icon: "icon.svg" }, zen: { css: "themes/zen/zen-x.css", icon: "icon.svg" } });
+/** boot.js run in a page of plain objects: what it did to <html>, the theme-color, the icon, and what it wrote. */
+function boot(stored: string | null, contrast: boolean, server: string | null, o: { linked?: boolean; refuse?: boolean; standardMark?: string; icon?: string } = {}) {
+	const metas: Record<string, { content: string } | undefined> = { "sb-themes": { content: MAP }, "theme-color": { content: "#1a1b26" }, ...(server !== null ? { "sb-view": { content: server } } : {}) };
+	const attrs = new Map<string, string>([["href", o.icon ?? "./icon.svg"], ...(o.standardMark ? [["data-standard", o.standardMark] as [string, string]] : [])]);
+	const wrote: string[] = [];
+	const dataset: Record<string, string> = {};
+	const document = {
+		documentElement: { dataset },
+		querySelector: (sel: string) => {
+			const meta = /^meta\[name="([\w-]+)"\]$/.exec(sel);
+			if (meta) return metas[meta[1]!] ? { getAttribute: () => metas[meta[1]!]!.content, setAttribute: (_: string, v: string) => (metas[meta[1]!]!.content = v) } : null;
+			if (sel === 'link[rel="icon"]') return { getAttribute: (k: string) => attrs.get(k) ?? null, hasAttribute: (k: string) => attrs.has(k), setAttribute: (k: string, v: string) => void attrs.set(k, v) };
+			return /^link\[data-theme=/.test(sel) && o.linked ? {} : null;
+		},
+		write: (markup: string) => void wrote.push(markup),
+	};
+	const context: Record<string, unknown> = { document, matchMedia: () => ({ matches: contrast }), localStorage: { getItem: () => { if (o.refuse) throw new Error("denied"); return stored; } } };
+	context.globalThis = context;
+	vm.runInNewContext(BOOT, context);
+	return { view: dataset.view, color: metas["theme-color"]!.content, icon: attrs.get("href"), standard: attrs.get("data-standard"), wrote, resolve: (context.sbBoot as { resolve(a: unknown, b: boolean, c: unknown): string; colors: Record<string, string> }) };
+}
+
+test("boot.js resolves the view as view.ts does: every stored value, contrast, and server default", () => {
+	const stored = [null, "", "auto", "standard", "geek", "zen", "ZEN", "Geek", "dark", "1", "{}", "constructor", "__proto__", "raven"];
+	const servers = [null, "auto", "standard", "geek", "zen", "raven", "nope"];
+	for (const s of stored) for (const server of servers) for (const contrast of [false, true]) {
+		const run = boot(s, contrast, server);
+		const expected = resolve(choiceOf(s), contrast, choiceOf(server ?? undefined));
+		assert.equal(run.view, expected, `boot: stored ${JSON.stringify(s)}, server ${JSON.stringify(server)}, contrast ${contrast}`);
+		assert.equal(run.resolve.resolve(s, contrast, server), expected, `sbBoot.resolve: stored ${JSON.stringify(s)}, server ${JSON.stringify(server)}, contrast ${contrast}`);
+	}
+});
+
+test("boot.js sets the theme-color view.ts names, links the theme's stylesheet once, and leaves Standard alone", () => {
+	const geek = boot("geek", false, null);
+	assert.deepEqual([geek.color, geek.icon, geek.standard], [THEME.geek, "icon.svg", "./icon.svg"]);
+	assert.deepEqual(geek.wrote, ['<link rel="stylesheet" data-theme="geek" href="themes/geek/geek-x.css">']);
+	assert.deepEqual(boot("zen", false, null).wrote, ['<link rel="stylesheet" data-theme="zen" href="themes/zen/zen-x.css">']);
+	assert.equal(boot("zen", false, null).color, THEME.zen);
+	assert.deepEqual(boot("geek", false, null, { linked: true }).wrote, [], "a theme the server already linked is not linked twice");
+	const standard = boot("standard", true, "geek");
+	assert.deepEqual([standard.view, standard.color, standard.icon, standard.wrote], ["standard", "#1a1b26", "./icon.svg", []], "a device on Standard gets no theme link");
+	assert.deepEqual(boot(null, true, null).wrote.length, 1, "Auto with more contrast is Geek");
+	assert.equal(boot(null, false, "zen", { refuse: true }).view, "zen", "storage refused: the server's default decides");
+	assert.deepEqual(Object.fromEntries(Object.entries(boot(null, false, null).resolve.colors)), THEME, "the colours are view.ts's");
+});
+
+test("boot.js restores Standard's icon from data-standard when the server wrote a theme's icon and the device's view has none", () => {
+	const run = boot("standard", false, "geek", { standardMark: "./icon.svg", icon: "themes/geek/favicon-x.svg" });
+	assert.equal(run.icon, "./icon.svg");
+	assert.equal(boot("geek", false, null, { standardMark: "./icon.svg", icon: "themes/geek/favicon-x.svg" }).icon, "icon.svg", "a themed view still takes its own");
 });

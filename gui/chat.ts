@@ -8,7 +8,7 @@ import { h, replay } from "./dom.ts";
 import { createFollow, reach } from "./follow.ts";
 import { mount, parse } from "./markdown.ts";
 import type { Post } from "./composer.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./paraglide/messages.js"; import { iconRef } from "./icons.ts"; import { noun } from "./nouns.ts";
 import { getLocale } from "./paraglide/runtime.js";
 import { html, ICON, roleName } from "./render.ts";
 import { conversationDivider } from "./towermodel.ts";
@@ -91,13 +91,15 @@ export type ConversationRun = NonNullable<TowerService["localRuns"]>[number];
 /** Who an assistant message is from, as its header says: the unit's role, since the page header already names the session. */
 /** The chapter divider's reason in the page's language: by the server's code, the raw text only for a code this page does not know. */
 export const chapterWhy = (code?: string, text?: string) => ({ first: m.head_why_first, new: m.head_why_new, size: m.head_why_size, unreadable: m.head_why_unreadable } as Record<string, (() => string) | undefined>)[code ?? ""]?.() ?? text ?? "";
-export const speaker = (who: { role: string; head?: boolean }) => (who.head ? m.head_tower() : roleName(who.role));
+export const speaker = (who: { role: string; head?: boolean }) => (who.head ? noun("head_tower") : roleName(who.role));
 const clock = (at?: string) => (at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
 const size = (n: number) => (n >= 1024 ? `${(n / 1024).toFixed(n >= 10240 ? 0 : 1)} KB` : `${n} B`);
 const NOTICE: Record<string, () => string> = { intercom_message: m.notice_intercom, subagent_result: m.notice_result, subagent_ping: m.notice_ping, subagent_status: m.notice_status, "pi-loop-monitor": m.notice_monitor, "memory-context": m.notice_memory, "doc-review": m.notice_doc_review, "straw-tower": m.notice_tower, "straw-link": m.notice_straw_link };
 const icon = (name: string) => {
 	const span = html(`<span class="ava"><svg><use/></svg></span>`);
-	span.querySelector("use")!.setAttribute("href", `#i-${ICON[name] ?? name}`);
+	const use = span.querySelector("use")!, role = ICON[name] ?? name;
+	use.dataset.icon = role;
+	use.setAttribute("href", iconRef(role));
 	return span;
 };
 

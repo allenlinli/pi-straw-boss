@@ -1,5 +1,6 @@
 import { type GuiRecord, readRecord, urlOf } from "./handover.ts";
 import type { Membership } from "./membership.ts";
+import { createHereMark } from "./heremark.ts";
 import { every, type LanDeps, type LanReply, revealFiles, showLan } from "./lanface.ts";
 import { pairingKeys, showLines } from "./pairing.ts";
 import { OPEN_LINE } from "./remote.ts";
@@ -32,6 +33,7 @@ export function createHost({ pi, cfg, s, guiDir, tell }: Kit, { connected, ask }
 		return (s.c ?? s.viewer!).listSessions();
 	};
 	const asking = (): Ask => ask ?? (async () => ({ ok: false, error: "The sb server is not available in this session." }));
+	const send = (request: Record<string, unknown>, start: "boss" | "never"): Promise<LanReply> => asking()(request, { start }).catch((error: Error) => ({ ok: false as const, error: error.message }));
 	/** gui.json of this session's server: the page's token and CSRF secret, which a stash or a close-all posts with. */
 	const record = (): GuiRecord | undefined => readRecord(slotOf(guiDir, cfg.env).dir);
 	const fail = (r: { error?: string }) => tell(r.error === "stopped" ? "The straw net GUI was stopped on purpose; /boss gui starts it" : `Straw net GUI: ${r.error ?? "the sb server did not answer"}`, "error");
@@ -41,6 +43,8 @@ export function createHost({ pi, cfg, s, guiDir, tell }: Kit, { connected, ask }
 	let lanOpen: AbortController | undefined;
 	pi.on("session_shutdown", () => lanOpen?.abort());
 	const face = cfg.face ?? {};
+	/** The pane's local-only mark for a screen that only this computer may answer (heremark.ts): the key pad of a paired device sends Escape only meanwhile. */
+	const here = createHereMark({ ask: (request) => send(request, "never"), pane: cfg.env.HERDR_PANE_ID ?? null, every: face.every ?? every });
 	/** The deps of the Wi-Fi overlay: control requests that never start a server, the clock and the ticker it renews on, and what it reads of the CA's public files. */
 	const lanDeps = (send: (request: Record<string, unknown>, start: "boss" | "never") => Promise<LanReply>, signal: AbortSignal): LanDeps => ({
 		ask: (request) => send(request, "never"),
@@ -56,6 +60,7 @@ export function createHost({ pi, cfg, s, guiDir, tell }: Kit, { connected, ask }
 
 	return {
 		sessions,
+		here,
 		/**
 		 * Makes sure the server's GUI runs for a stash or a close-all, unless it was stopped on purpose (`stopped`; only /boss gui starts that one). The record gives the page's token and CSRF secret.
 		 * `error` says why it is not there (the server cannot be started, or it did not answer).
@@ -68,7 +73,6 @@ export function createHost({ pi, cfg, s, guiDir, tell }: Kit, { connected, ask }
 		},
 		/** `mode` is "", "stop", "rotate", "remote", "remote off", "lan", "lan off", "lan reset", "view", or "view <auto|standard|geek|zen>", and works from any session: the GUI and the access over a network are the server's. */
 		async command(mode: string) {
-			const send = (request: Record<string, unknown>, start: "boss" | "never"): Promise<LanReply> => asking()(request, { start }).catch((error: Error) => ({ ok: false as const, error: error.message }));
 			if (/^view\b/.test(mode)) {
 				// The server's default view: a device that follows the server shows it, a device with a choice of its own keeps that. Only this command writes it (the page has no way to). Setting it starts the sb server, not a GUI that was stopped; showing it starts nothing.
 				const wanted = mode.slice(4).trim() || undefined, r = await send({ cmd: "gui-view", ...(wanted ? { view: wanted } : {}) }, wanted ? "boss" : "never");
@@ -133,7 +137,7 @@ export function createHost({ pi, cfg, s, guiDir, tell }: Kit, { connected, ask }
 				const desk = cfg.env.STRAW_BOSS_DESK === "1";
 				return void (Array.isArray(r.lines) && s.ui && (await showLines(s.ui, (r.lines as string[]).filter((line) => !desk || line !== OPEN_LINE), { block, keys: pairingKeys(link, copy, desk ? undefined : openUrl) })));
 			}
-			if (mode === "rotate" && (await s.ui?.confirm("Rotate the GUI's address?", ROTATE_WARNING, hereOnlyOpts())) !== true) return tell("The GUI's address was not rotated.");
+			if (mode === "rotate" && (await here(async () => s.ui?.confirm("Rotate the GUI's address?", ROTATE_WARNING, hereOnlyOpts()))) !== true) return tell("The GUI's address was not rotated.");
 			const r = await send(mode === "rotate" ? { cmd: "gui-rotate" } : { cmd: "gui", boss: true }, "boss");
 			if (!r.ok) return fail(r);
 			const url = urlOf({ port: Number(r.port), token: String(r.token) } as GuiRecord);

@@ -3,6 +3,7 @@ import { type GuiRecord, postServer } from "./handover.ts";
 import { workspaces } from "./herdr.ts";
 import { createBossLink } from "./bosslink.ts";
 import { createBossOpen } from "./bossopen.ts";
+import type { Here } from "./heremark.ts";
 import { hereOnlyOpts } from "./intercept.ts";
 import type { createHost } from "./host.ts";
 import { type Lang, memoryLang } from "./memorycmd.ts";
@@ -112,7 +113,7 @@ export function parseStash(rest: string | undefined): { name?: string; workspace
 
 const flat = (units: Unit[]): Unit[] => units.flatMap((u) => [u, ...flat(u.subs)]);
 
-export function createBossPaths(kit: Kit, { host, server, closeSelf, post = postServer, read, pollMs }: { host: Pick<ReturnType<typeof createHost>, "ensure" | "sessions">; server?: Pick<ServerLook, "logs">; closeSelf(keepPane: boolean): string | undefined; post?: Post; /** The net as the boss sees it; tests hand one over. */ read?: () => Promise<Net>; /** How often an opening is asked for a trust question (bossopen.ts). */ pollMs?: number }) {
+export function createBossPaths(kit: Kit, { host, server, closeSelf, post = postServer, read, pollMs, here }: { host: Pick<ReturnType<typeof createHost>, "ensure" | "sessions">; /** Holds the pane's local-only mark while a screen that only this computer may answer waits (heremark.ts). */ here: Here; server?: Pick<ServerLook, "logs">; closeSelf(keepPane: boolean): string | undefined; post?: Post; /** The net as the boss sees it; tests hand one over. */ read?: () => Promise<Net>; /** How often an opening is asked for a trust question (bossopen.ts). */ pollMs?: number }) {
 	const { cfg, s, guiDir, tell, me } = kit, lang = (): Lang => memoryLang(cfg.env), t = () => WORDS[lang()];
 	const net = (): Promise<Net> => read ? read() : collectNet({ run: cfg.run, world: cfg.world, sessions: () => host.sessions() });
 	/** The server's recorded GUI; a refusal says why in the boss's words. */
@@ -123,7 +124,7 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 		return shared.record;
 	}
 	const why = (r: Reply) => (typeof r.body.reason === "string" ? r.body.reason : r.status ? t().answered(r.status) : t().noAnswer);
-	const confirm = async (title: string, body: string, here = false) => (await s.ui?.confirm(title, body, here ? hereOnlyOpts() : undefined)) === true;
+	const confirm = async (title: string, body: string, local = false) => (local ? await here(async () => s.ui?.confirm(title, body, hereOnlyOpts())) : await s.ui?.confirm(title, body)) === true;
 
 	/** Every unit (tower, mains, members), squad, and base of the net, as something `/boss close` can name. */
 	function targets(n: Net): Target[] {
@@ -147,8 +148,8 @@ export function createBossPaths(kit: Kit, { host, server, closeSelf, post = post
 		return hit.length === 1 ? hit[0]! : hit.length ? t().many(query, hit.map(label)) : t().none(query);
 	}
 
-	const more = createBossLink(kit, { record, post, why, confirm, lang });
-	const open = createBossOpen(kit, { record, post, why, confirm, noScreen: () => t().noScreen, lang, baseName: async (id) => (await workspaces(cfg.run).catch(() => [])).find((w) => w.workspace_id === id)?.label, pollMs, extra: more.status });
+	const more = createBossLink(kit, { record, post, why, confirm, lang, here });
+	const open = createBossOpen(kit, { record, post, why, confirm, here, noScreen: () => t().noScreen, lang, baseName: async (id) => (await workspaces(cfg.run).catch(() => [])).find((w) => w.workspace_id === id)?.label, pollMs, extra: more.status });
 
 	return {
 		...open,

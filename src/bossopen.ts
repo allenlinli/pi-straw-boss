@@ -5,6 +5,7 @@ import { isAbsolute, resolve } from "node:path";
 import type { TrustPrompt } from "./deploy.ts";
 import type { GuiRecord } from "./handover.ts";
 import type { LinkView } from "./link/holder.ts";
+import type { Here } from "./heremark.ts";
 import { hereOnlyOpts } from "./intercept.ts";
 import type { Lang } from "./memorycmd.ts";
 import type { Kit } from "./state.ts";
@@ -147,6 +148,8 @@ export interface OpenDeps {
 	why(reply: Reply): string;
 	/** Asked on this computer only: a paired device cannot answer it (`hereOnly`). */
 	confirm(title: string, body: string, here?: boolean): Promise<boolean>;
+	/** Holds the pane's local-only mark while a select that only this computer may answer waits (heremark.ts). */
+	here: Here;
 	noScreen(): string;
 	lang(): Lang;
 	/** The label of a base, for naming a unit opened in it; undefined when it cannot be read. */
@@ -157,7 +160,7 @@ export interface OpenDeps {
 	extra?(view: LinkView): string[];
 }
 
-export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, noScreen, lang, baseName, pollMs = POLL_MS, extra }: OpenDeps) {
+export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, here, noScreen, lang, baseName, pollMs = POLL_MS, extra }: OpenDeps) {
 	const t = () => WORDS[lang()];
 
 	/** The trust question an opening waits on, asked in pi; the answer goes to the route the page's dialog posts to. A dismissed question stays open for the GUI or the terminal. */
@@ -235,7 +238,7 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, n
 					if (!(await confirm(t().linkApproveTitle, t().linkApproveUnattended(q.label, q.short, q.teamName), true))) return tell(t().linkDeclined);
 					sent = { id: q.id, approve: true };
 				} else {
-					const words = q.sets.map((w) => w.join(" ")), none = t().linkNone, picked = await s.ui.select(t().linkWords(q.label, q.short, q.teamName), [...words, none], hereOnlyOpts());
+					const words = q.sets.map((w) => w.join(" ")), none = t().linkNone, picked = await here(async () => s.ui!.select(t().linkWords(q.label, q.short, q.teamName), [...words, none], hereOnlyOpts()));
 					if (picked === undefined) return tell(t().linkDeclined);
 					if (picked !== none) sent = { id: q.id, pick: words.indexOf(picked) };
 				}

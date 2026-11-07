@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import type { GuiRecord } from "./handover.ts";
 import { firstWord, folderOf } from "./bossopen.ts";
+import type { Here } from "./heremark.ts";
 import { hereOnlyOpts } from "./intercept.ts";
 import { decodeInvite } from "./link/join.ts";
 import type { LinkView } from "./link/holder.ts";
@@ -16,7 +17,7 @@ import type { Kit } from "./state.ts";
 // (pi's `ctx.ui.input` echoes it), and an invite's text is drawn on a screen of its own, never as a notice. Whatever a teammate's device wrote (arguments, questions, labels) is shown with control and bidi characters as
 // escapes, so it cannot repaint what the boss approves.
 
-const MIN_ID = 4, SHOWN_ID = 8, MAX_INVITE_FILE = 16 * 1024;
+const MIN_ID = 4, SHOWN_ID = 8, FULL_ID = 64, MAX_INVITE_FILE = 16 * 1024;
 type Reply = { status: number; body: Record<string, unknown> };
 type Post = (record: GuiRecord, path: string, json: Record<string, unknown>, timeoutMs: number) => Promise<Reply>;
 type Share = "status" | "presence";
@@ -80,9 +81,11 @@ export function parseLinkMore(rest: string | undefined): LinkMore | "usage" | un
 
 // ---- What a teammate's device wrote, as the boss reads it ----------------------------------------------------------------------------------
 
-const UNSAFE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g;
-/** `text` with every control, bidi, and invisible formatting character written out (`\x1b`, `\u202e`); line breaks stay. */
+const UNSAFE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g;
+/** `text` with every control, bidi, and invisible formatting character written out (`\x1b`, `\u202e`); line breaks stay (for arguments and question text, which have lines). */
 const plain = (text: string) => text.replace(/\r\n/g, "\n").replace(/\t/g, "  ").replace(UNSAFE, (c) => (c.charCodeAt(0) < 256 ? `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}` : `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`));
+/** `text` as one line: as `plain`, with its line breaks written out too (`\n`), so a field that is one line of a screen cannot start another. */
+const line = (text: string) => plain(text).replace(/\n/g, "\\n");
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isText = (v: unknown): v is string => typeof v === "string";
 interface Question { question: string; multiple: boolean; options: string[] }
@@ -106,7 +109,7 @@ const WORDS = {
 		noPrivate: "This screen cannot take a secret without showing it (it has no private screen); do this in a pi terminal",
 		declined: "Nothing was decided",
 		none: { confirm: (q: string) => `No confirm is waiting under "${q}": /boss link confirms lists them`, ask: (q: string) => `No forwarded question is waiting under "${q}": /boss link asks lists them`, invite: (q: string) => `No open invite starts with "${q}": /boss link lists them`, team: (q: string) => `No team is named or starts with "${q}": /boss link lists them` },
-		many: { confirm: (q: string) => `More than one confirm starts with "${q}"; nothing was done. Give more of the id`, ask: (q: string) => `More than one forwarded question starts with "${q}"; nothing was done. Give more of the id`, invite: (q: string) => `More than one open invite starts with "${q}"; nothing was done. Give more of the hash`, team: (q: string) => `More than one team starts with "${q}"; nothing was done. Give more of its id` },
+		many: { confirm: (q: string, list: string) => `More than one confirm starts with "${q}"; nothing was done. Name one by more of its id:\n${list}`, ask: (q: string, list: string) => `More than one forwarded question starts with "${q}"; nothing was done. Name one by more of its id:\n${list}`, invite: (q: string, list: string) => `More than one open invite starts with "${q}"; nothing was done. Name one by more of its hash:\n${list}`, team: (q: string, list: string) => `More than one team is named or starts with "${q}"; nothing was done. Name one by more of its id:\n${list}` },
 		ago: (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} s ago` : `${Math.round(ms / 60_000)} min ago`),
 		left: (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} s` : `${Math.round(ms / 60_000)} min`),
 		noConfirms: "No confirm is waiting",
@@ -135,6 +138,8 @@ const WORDS = {
 		cancelWord: "(cancel the question)",
 		sent: (label: string) => `Answer sent to ${label}`,
 		notSent: "Nothing was sent",
+		invCancelTitle: "Cancel this invite?",
+		invCancelBody: (team: string, hash: string, device: string) => `The open invite for ${team} (${hash}${device ? `, only for ${device}` : ""}) stops working: nobody can join with its text any more.`,
 		invCancelled: (team: string) => `Cancelled the invite for ${team}`,
 		invTitle: (team: string, device: string) => `Invite for ${team}${device ? ` (only for ${device})` : ""}`,
 		invValid: (left: string) => `Valid for ${left}`,
@@ -174,7 +179,7 @@ const WORDS = {
 		noPrivate: "這個畫面沒有私密螢幕，不能在不顯示的情況下輸入機密；請在 pi 終端機裡做",
 		declined: "什麼都沒有決定",
 		none: { confirm: (q: string) => `沒有以「${q}」開頭的待確認項目：/boss link confirms 會列出`, ask: (q: string) => `沒有以「${q}」開頭的轉送問題：/boss link asks 會列出`, invite: (q: string) => `沒有以「${q}」開頭的未用邀請：/boss link 會列出`, team: (q: string) => `沒有名為或以「${q}」開頭的團隊：/boss link 會列出` },
-		many: { confirm: (q: string) => `不只一個待確認項目的 id 以「${q}」開頭，什麼都沒做。請多給幾碼`, ask: (q: string) => `不只一個轉送問題的 id 以「${q}」開頭，什麼都沒做。請多給幾碼`, invite: (q: string) => `不只一個未用邀請的 hash 以「${q}」開頭，什麼都沒做。請多給幾碼`, team: (q: string) => `不只一個團隊的 id 以「${q}」開頭，什麼都沒做。請多給幾碼` },
+		many: { confirm: (q: string, list: string) => `不只一個待確認項目的 id 以「${q}」開頭，什麼都沒做。請多給幾碼，指明其中一個：\n${list}`, ask: (q: string, list: string) => `不只一個轉送問題的 id 以「${q}」開頭，什麼都沒做。請多給幾碼，指明其中一個：\n${list}`, invite: (q: string, list: string) => `不只一個未用邀請的 hash 以「${q}」開頭，什麼都沒做。請多給幾碼，指明其中一個：\n${list}`, team: (q: string, list: string) => `不只一個團隊名為或 id 以「${q}」開頭，什麼都沒做。請多給幾碼，指明其中一個：\n${list}` },
 		ago: (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} 秒前` : `${Math.round(ms / 60_000)} 分鐘前`),
 		left: (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} 秒` : `${Math.round(ms / 60_000)} 分鐘`),
 		noConfirms: "沒有等待中的確認",
@@ -203,6 +208,8 @@ const WORDS = {
 		cancelWord: "（取消這個問題）",
 		sent: (label: string) => `已把答案送給 ${label}`,
 		notSent: "什麼都沒有送出",
+		invCancelTitle: "要取消這個邀請嗎？",
+		invCancelBody: (team: string, hash: string, device: string) => `${team} 的未用邀請（${hash}${device ? `，只給 ${device}` : ""}）會失效：之後沒有人能用它的文字加入。`,
 		invCancelled: (team: string) => `已取消 ${team} 的邀請`,
 		invTitle: (team: string, device: string) => `${team} 的邀請${device ? `（只給 ${device}）` : ""}`,
 		invValid: (left: string) => `還有效 ${left}`,
@@ -245,18 +252,27 @@ export interface LinkDeps {
 	/** Asked on this computer only when `here` is set: a paired device cannot answer it (`hereOnly`). */
 	confirm(title: string, body: string, here?: boolean): Promise<boolean>;
 	lang(): Lang;
+	/** Holds the pane's local-only mark while a screen that only this computer may answer waits (heremark.ts). */
+	here: Here;
 }
 
-export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, post, why, confirm, lang }: LinkDeps) {
+export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, post, why, confirm, lang, here }: LinkDeps) {
 	const t = () => WORDS[lang()];
 	const teamOf = (view: LinkView, team: string) => view.teams.find((x) => x.team === team)?.name ?? team.slice(0, 6);
 	const asksOf = (view: LinkView) => view.alerts.filter((a) => a.kind === "dialog" && !a.data.closed && a.data.answered !== 1);
-	/** One of `list` named by `q`: an exact key, or a start of four or more characters of `id`. */
-	function lookup<T>(list: T[], q: string, keys: (x: T) => string[], id: (x: T) => string): { one: T } | { error: "none" | "many" } {
-		const low = q.toLowerCase(), exact = list.filter((x) => keys(x).some((k) => k.toLowerCase() === low));
-		const hit = exact.length ? exact : q.length >= MIN_ID ? list.filter((x) => id(x).startsWith(q)) : [];
-		return hit.length === 1 ? { one: hit[0]! } : { error: hit.length ? "many" : "none" };
+	/**
+	 * The one of `list` named by `q`: a request whose key is exactly `q`, or whose id starts with `q` (four or more characters), as the boss reads it (`plain`) or as it is. The two are never ranked: an id a teammate chose to equal the start of
+	 * another's would shadow it, so more than one is ambiguous, and all of them are returned for the boss to tell apart.
+	 */
+	function lookup<T>(list: T[], q: string, keys: (x: T) => string[], id: (x: T) => string): { one: T } | { error: "none" } | { error: "many"; hits: T[] } {
+		const low = q.toLowerCase(), hits = list.filter((x) => keys(x).some((k) => k.toLowerCase() === low) || (q.length >= MIN_ID && (id(x).startsWith(q) || plain(id(x)).startsWith(q))));
+		return hits.length === 1 ? { one: hits[0]! } : hits.length ? { error: "many", hits } : { error: "none" };
 	}
+	/** Ids as a listing shows them: the first eight characters as the boss reads them, and the whole id (to 64) where another listed id starts with those eight, so two ids that look alike are told apart. */
+	const shownIds = (ids: string[]): string[] => {
+		const read = ids.map(plain);
+		return read.map((id, i) => (read.some((other, j) => j !== i && other.startsWith(id.slice(0, SHOWN_ID))) ? id.slice(0, FULL_ID) : id.slice(0, SHOWN_ID)));
+	};
 	/** The page's state, or an error told. */
 	async function state(): Promise<{ r: GuiRecord; view: LinkView } | undefined> {
 		const r = await record(), reply = await post(r, "link/state", {}, 10_000);
@@ -275,9 +291,9 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		if (statSync(dir, { throwIfNoEntry: false })?.isDirectory() ?? false) return dir;
 		tell(t().noFolder(dir), "error");
 	}
-	const pick = <T>(found: { one: T } | { error: "none" | "many" }, kind: "confirm" | "ask" | "invite" | "team", q: string): T | undefined => {
+	const pick = <T>(found: ReturnType<typeof lookup<T>>, kind: "confirm" | "ask" | "invite" | "team", q: string, show: (x: T) => string): T | undefined => {
 		if ("one" in found) return found.one;
-		tell(t()[found.error][kind](q), "error");
+		tell(found.error === "none" ? t().none[kind](q) : t().many[kind](q, found.hits.map(show).join("\n")), "error");
 	};
 
 	// ---- Confirms (G1) --------------------------------------------------------------------------------------------------------------------
@@ -285,39 +301,39 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 	async function confirms() {
 		const got = await state();
 		if (!got) return;
-		const list = got.view.confirms ?? [], now = Date.now();
+		const list = got.view.confirms ?? [], now = Date.now(), ids = shownIds(list.map((c) => c.dialogId));
 		if (!list.length) return tell(t().noConfirms);
-		tell([t().confirmsHead, ...list.flatMap((c) => [t().confirmLine(c.dialogId.slice(0, SHOWN_ID), plain(c.fromLabel), plain(c.fromShort), plain(teamOf(got.view, c.team)), plain(c.tool), t().ago(now - c.at)), `    ${t().args}`, ...plain(c.args).split("\n").map((line) => `      ${line}`)])].join("\n"));
+		tell([t().confirmsHead, ...list.flatMap((c, i) => [t().confirmLine(ids[i]!, line(c.fromLabel), line(c.fromShort), line(teamOf(got.view, c.team)), line(c.tool), t().ago(now - c.at)), `    ${t().args}`, ...plain(c.args).split("\n").map((row) => `      ${row}`)])].join("\n"));
 	}
 	async function answerConfirm(id: string, allow: boolean) {
 		const got = await state();
 		if (!got) return;
-		const c = pick(lookup(got.view.confirms ?? [], id, (x) => [x.dialogId], (x) => x.dialogId), "confirm", id);
+		const c = pick(lookup(got.view.confirms ?? [], id, (x) => [x.dialogId], (x) => x.dialogId), "confirm", id, (x) => `  ${plain(x.dialogId).slice(0, FULL_ID)}  ${line(x.fromLabel)} (${line(x.fromShort)})`);
 		if (!c) return;
 		if (allow) {
 			if (!needScreen()) return;
-			if (!(await confirm(t().askTitle, t().askBody(plain(c.fromLabel), plain(c.fromShort), plain(teamOf(got.view, c.team)), plain(c.tool), plain(c.tower), t().ago(Date.now() - c.at), plain(c.args)), true))) return tell(t().declined);
+			if (!(await confirm(t().askTitle, t().askBody(line(c.fromLabel), line(c.fromShort), line(teamOf(got.view, c.team)), line(c.tool), line(c.tower), t().ago(Date.now() - c.at), plain(c.args).split("\n").map((row) => `  ${row}`).join("\n")), true))) return tell(t().declined);
 		}
 		// The digest is the request's as it was read above and shown: the holder refuses it when the held request has since been replaced.
 		const reply = await post(got.r, "link/confirm-answer", { dialogId: c.dialogId, digest: c.digest, allow }, 30_000);
 		if (reply.status !== 200) return tell(refusal(reply), "error");
-		tell(allow ? t().allowed(plain(c.tool), plain(c.fromLabel)) : t().denied(plain(c.tool), plain(c.fromLabel)));
+		tell(allow ? t().allowed(line(c.tool), line(c.fromLabel)) : t().denied(line(c.tool), line(c.fromLabel)));
 	}
 
 	// ---- Forwarded questions (G2) ---------------------------------------------------------------------------------------------------------
 
-	const numbered = (options: string[]) => options.map((o, i) => `${i + 1}. ${plain(o)}`);
+	const numbered = (options: string[]) => options.map((o, i) => `${i + 1}. ${line(o)}`);
 	async function asks() {
 		const got = await state();
 		if (!got) return;
-		const list = asksOf(got.view);
+		const list = asksOf(got.view), ids = shownIds(list.map((a) => String(a.data.dialogId)));
 		if (!list.length) return tell(t().noAsks);
-		tell([t().asksHead, ...list.flatMap((a) => {
-			const id = String(a.data.dialogId), d = readDialog(a.data.dialog);
-			const head = t().askLine(id.slice(0, SHOWN_ID), plain(String(a.data.label)), plain(String(a.data.short)), plain(a.teamName), plain(String(a.data.owner)));
+		tell([t().asksHead, ...list.flatMap((a, i) => {
+			const id = ids[i]!, d = readDialog(a.data.dialog);
+			const head = t().askLine(id, line(String(a.data.label)), line(String(a.data.short)), line(a.teamName), line(String(a.data.owner)));
 			if (!d) return [head, `    ${t().askNoShow}`];
 			const body = d.kind === "select" ? [`    ${plain(d.title)}`, ...numbered(d.choices).map((o) => `      ${o}`)] : d.qs.flatMap((q, i) => [`    ${d.qs.length > 1 ? `${i + 1}) ` : ""}${plain(q.question)}${q.multiple ? ` ${t().severalTag}` : ""}`, ...numbered(q.options).map((o) => `      ${o}`)]);
-			return [head, ...body, ...(d.cancel ? [`    ${t().cancelLine(id.slice(0, SHOWN_ID))}`] : [])];
+			return [head, ...body, ...(d.cancel ? [`    ${t().cancelLine(id)}`] : [])];
 		})].join("\n"));
 	}
 	/** Numbers from a typed answer to a question (`1`, `1, 3`) as option indexes, "no" when it is words, or a refusal's text. */
@@ -333,7 +349,7 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		if (d.kind === "select") {
 			let n = /^\d+$/.test(text) ? Number(text) : 0;
 			if (!text) {
-				const picked = await ui.select(plain(d.title), numbered(d.choices), hereOnlyOpts());
+				const picked = await here(async () => ui.select(plain(d.title), numbered(d.choices), hereOnlyOpts()));
 				n = picked === undefined ? 0 : numbered(d.choices).indexOf(picked) + 1;
 				if (!n) return undefined;
 			}
@@ -342,19 +358,19 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		if (text && d.qs.length > 1) return t().parts(d.qs.length);
 		const answers: Record<string, unknown>[] = [], said: string[] = [];
 		for (const q of d.qs) {
-			let line = text, own = false;
-			if (!line && q.multiple) line = ((await ui.input([plain(q.question), ...numbered(q.options)].join("\n"), t().numbersHint)) ?? "").trim();
-			else if (!line) {
-				const picked = await ui.select(plain(q.question), [...numbered(q.options), t().own], hereOnlyOpts());
+			let typed = text, own = false;
+			if (!typed && q.multiple) typed = ((await ui.input([plain(q.question), ...numbered(q.options)].join("\n"), t().numbersHint)) ?? "").trim();
+			else if (!typed) {
+				const picked = await here(async () => ui.select(plain(q.question), [...numbered(q.options), t().own], hereOnlyOpts()));
 				if (picked === undefined) return undefined;
 				own = picked === t().own;
-				line = own ? ((await ui.input(plain(q.question), t().ownHint)) ?? "").trim() : String(numbered(q.options).indexOf(picked) + 1);
+				typed = own ? ((await ui.input(plain(q.question), t().ownHint)) ?? "").trim() : String(numbered(q.options).indexOf(picked) + 1);
 			}
-			if (!line) return undefined;
-			const picks = own ? "no" : numbersOf(line, q);
+			if (!typed) return undefined;
+			const picks = own ? "no" : numbersOf(typed, q);
 			if (typeof picks === "string" && picks !== "no") return picks;
-			answers.push(picks === "no" ? { text: line } : { choices: picks });
-			said.push(Array.isArray(picks) ? picks.map((p) => numbered(q.options)[p]).join(", ") : plain(line));
+			answers.push(picks === "no" ? { text: typed } : { choices: picks });
+			said.push(Array.isArray(picks) ? picks.map((p) => numbered(q.options)[p]).join(", ") : plain(typed));
 		}
 		return { answer: { answers }, said: said.join(" | ") };
 	}
@@ -362,7 +378,7 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		if (!needScreen()) return;
 		const got = await state();
 		if (!got) return;
-		const a = pick(lookup(asksOf(got.view), id, (x) => [String(x.data.dialogId)], (x) => String(x.data.dialogId)), "ask", id);
+		const a = pick(lookup(asksOf(got.view), id, (x) => [String(x.data.dialogId)], (x) => String(x.data.dialogId)), "ask", id, (x) => `  ${plain(String(x.data.dialogId)).slice(0, FULL_ID)}  ${line(String(x.data.label))} (${line(String(x.data.short))})`);
 		if (!a) return;
 		const d = readDialog(a.data.dialog);
 		if (!d) return tell(t().askNoShow, "error");
@@ -370,8 +386,8 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		const built = cancel ? { answer: { cancel: true }, said: t().cancelWord } : await build(d, text);
 		if (built === undefined) return tell(t().notSent);
 		if (typeof built === "string") return tell(built, "error");
-		const label = plain(String(a.data.label)), question = d.kind === "select" ? plain(d.title) : d.qs.map((q) => plain(q.question)).join("\n");
-		if (!(await confirm(t().sendTitle, t().sendBody(label, plain(String(a.data.short)), plain(a.teamName), plain(String(a.data.owner)), question, built.said), true))) return tell(t().notSent);
+		const label = line(String(a.data.label)), question = d.kind === "select" ? plain(d.title) : d.qs.map((q) => plain(q.question)).join("\n");
+		if (!(await confirm(t().sendTitle, t().sendBody(label, line(String(a.data.short)), line(a.teamName), line(String(a.data.owner)), question, built.said), true))) return tell(t().notSent);
 		const reply = await post(got.r, "link/dialog-answer", { device: String(a.data.device), dialogId: String(a.data.dialogId), digest: String(a.data.digest), answer: built.answer }, 30_000);
 		if (reply.status !== 200) return tell(refusal(reply), "error");
 		tell(t().sent(label));
@@ -383,38 +399,41 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		if (show && !needPrivate()) return;
 		const got = await state();
 		if (!got) return;
-		const i = pick(lookup(got.view.invites, hash, (x) => [x.hash], (x) => x.hash), "invite", hash);
+		const i = pick(lookup(got.view.invites, hash, (x) => [x.hash], (x) => x.hash), "invite", hash, (x) => `  ${plain(x.hash)}  ${line(x.teamName)}`);
 		if (!i) return;
 		if (!show) {
+			if (!needScreen()) return;
+			if (!(await confirm(t().invCancelTitle, t().invCancelBody(line(i.teamName), i.hash.slice(0, SHOWN_ID), line(i.forDevice.slice(0, 6))), true))) return tell(t().declined);
 			const reply = await post(got.r, "link/invite-cancel", { hash: i.hash }, 10_000);
-			return reply.status === 200 ? tell(t().invCancelled(plain(i.teamName))) : tell(refusal(reply), "error");
+			return reply.status === 200 ? tell(t().invCancelled(line(i.teamName))) : tell(refusal(reply), "error");
 		}
 		const reply = await post(got.r, "link/invite-text", { hash: i.hash }, 10_000), text = reply.body.text;
 		if (reply.status !== 200 || typeof text !== "string") return tell(refusal(reply), "error");
 		const left = typeof reply.body.expires === "number" ? reply.body.expires - Date.now() : 0;
-		await showScreen(s.ui!, { title: t().invTitle(plain(i.teamName), i.forDevice.slice(0, 6)), lines: [text, "", t().invValid(t().left(Math.max(0, left)))], footer: t().invFooter });
+		const ui = s.ui!;
+		await here(() => showScreen(ui, { title: t().invTitle(line(i.teamName), line(i.forDevice.slice(0, 6))), lines: [text, "", t().invValid(t().left(Math.max(0, left)))], footer: t().invFooter }));
 	}
 	async function leave(team: string, force: boolean) {
 		if (!needScreen()) return;
 		const got = await state();
 		if (!got) return;
-		const x = pick(lookup(got.view.teams, team, (y) => [y.team, y.name], (y) => y.team), "team", team);
+		const x = pick(lookup(got.view.teams, team, (y) => [y.team, y.name], (y) => y.team), "team", team, (y) => `  ${plain(y.team).slice(0, FULL_ID)}  ${line(y.name)}`);
 		if (!x) return;
-		if (!(await confirm(t().leaveTitle, t().leaveBody(plain(x.name), x.team.slice(0, 6), force), true))) return tell(t().notLeft);
+		if (!(await confirm(t().leaveTitle, t().leaveBody(line(x.name), x.team.slice(0, 6), force), true))) return tell(t().notLeft);
 		const reply = await post(got.r, "link/leave", { team: x.team, force }, 30_000);
-		reply.status === 200 ? tell(t().leftTeam(plain(x.name))) : tell(refusal(reply), "error");
+		reply.status === 200 ? tell(t().leftTeam(line(x.name))) : tell(refusal(reply), "error");
 	}
 	async function create(p: Extract<LinkMore, { action: "create" }>, cwd: string) {
 		if (!needPrivate()) return;
 		const dir = folder(p.project, cwd);
 		if (!dir) return;
 		const share = p.share ?? "status";
-		if (!(await confirm(t().createTitle, t().createBody(plain(p.relay), dir, share, plain(p.label ?? t().thisLabel)), true))) return tell(t().notCreated);
-		const token = ((await readSecret(s.ui!, { title: t().tokenTitle, hint: t().tokenHint(plain(p.relay)), footer: t().tokenFooter })) ?? "").trim();
+		if (!(await confirm(t().createTitle, t().createBody(line(p.relay), dir, share, line(p.label ?? t().thisLabel)), true))) return tell(t().notCreated);
+		const ui = s.ui!, token = ((await here(() => readSecret(ui, { title: t().tokenTitle, hint: t().tokenHint(line(p.relay)), footer: t().tokenFooter }))) ?? "").trim();
 		if (!token) return tell(t().notSent);
 		const reply = await post(await record(), "link/create", { relay: p.relay, token, project: dir, share, ...(p.label ? { label: p.label } : {}) }, 60_000);
 		if (reply.status !== 200) return tell(refusal(reply, [token]), "error");
-		tell(t().created(plain(String(reply.body.name ?? ""))));
+		tell(t().created(line(String(reply.body.name ?? ""))));
 	}
 	async function join(p: Extract<LinkMore, { action: "join" }>, cwd: string) {
 		if (!needScreen()) return;
@@ -430,11 +449,11 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		const dir = folder(p.project ?? ".", cwd);
 		if (!dir) return;
 		const share = p.share ?? "status";
-		if (!(await confirm(t().joinTitle, t().joinBody(invite.team.toString("hex").slice(0, 6), plain(invite.relay), invite.inviterId.slice(0, 6), invite.forDevice !== "", dir, p.project === undefined, share, plain(p.label ?? t().thisLabel)), true))) return tell(t().notJoined);
+		if (!(await confirm(t().joinTitle, t().joinBody(invite.team.toString("hex").slice(0, 6), line(invite.relay), line(invite.inviterId.slice(0, 6)), invite.forDevice !== "", dir, p.project === undefined, share, line(p.label ?? t().thisLabel)), true))) return tell(t().notJoined);
 		const r = await record(), started = await post(r, "link/join-start", { text, ...(p.label ? { label: p.label } : {}) }, 60_000);
 		if (started.status !== 200) return tell(refusal(started, [text]), "error");
 		const words = Array.isArray(started.body.words) ? started.body.words.map(String).join(" ") : "", left = typeof started.body.expires === "number" ? started.body.expires - Date.now() : 0;
-		tell(t().joinStarted(plain(words), t().left(Math.max(0, left))));
+		tell(t().joinStarted(line(words), t().left(Math.max(0, left))));
 		const set = await post(r, "link/join-project", { project: dir, share }, 30_000);
 		if (set.status !== 200) tell(t().joinFolder(refusal(set)), "error");
 	}
@@ -466,8 +485,8 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 		status(view: LinkView): string[] {
 			const now = Date.now(), w = t(), asking = asksOf(view).length, confirming = (view.confirms ?? []).length;
 			return [
-				...(view.invites.length ? [w.invitesHead, ...view.invites.map((i) => w.inviteLine(i.hash.slice(0, SHOWN_ID), plain(i.teamName), i.forDevice.slice(0, 6), w.left(Math.max(0, i.expires - now))))] : []),
-				...(view.join ? [w.joining(view.join.state, view.join.words.map(plain).join(" "), plain(view.join.error ?? ""), view.join.needsProject)] : []),
+				...(view.invites.length ? [w.invitesHead, ...view.invites.map((i) => w.inviteLine(i.hash.slice(0, SHOWN_ID), line(i.teamName), line(i.forDevice.slice(0, 6)), w.left(Math.max(0, i.expires - now))))] : []),
+				...(view.join ? [w.joining(view.join.state, view.join.words.map(line).join(" "), line(view.join.error ?? ""), view.join.needsProject)] : []),
 				...(confirming ? [w.confirmsWait(confirming)] : []),
 				...(asking ? [w.asksWait(asking)] : []),
 			];

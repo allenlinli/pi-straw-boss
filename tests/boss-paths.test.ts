@@ -32,7 +32,7 @@ function world({ ui = true, answer = true, lang = "en" }: { ui?: boolean; answer
 		guiDir: dir, me: () => "m1", tell: (text: string, level?: string) => void told.push({ text, level }),
 	} as unknown as Kit;
 	const logs: number[] = [];
-	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, server: { logs: async (n?: number) => (logs.push(n ?? 0), ["line a", "line b"]) }, closeSelf: (keep) => (self.push(keep), undefined), post, read: async () => NET });
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, server: { logs: async (n?: number) => (logs.push(n ?? 0), ["line a", "line b"]) }, closeSelf: (keep) => (self.push(keep), undefined), here: (fn) => fn(), post, read: async () => NET });
 	return { paths, told, posted, asked, self, logs, dir, reply: (r: typeof reply, path?: string) => (path ? replies.set(path, r) : (reply = r)), done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 

@@ -58,7 +58,7 @@ export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host,
 			// A tower run is no part of the net: a bare /boss would promote it to a main in the tower tab.
 			if (runMode?.active()) return tell("A tower run takes no /boss command: it is the server's, and it ends with tower_done.", "warning");
 			try {
-				const line = args.trim(), unpair = /^gui\s+unpair\s+(\S+)$/.exec(line), logs = /^server\s+logs(?:\s+(\S+))?$/.exec(line), sub = /^close\s+all\s+(.+)$/.exec(line), other = /^close\s+(.+)$/.exec(line), dismiss = /^dismiss(?:\s+(.+))?$/.exec(line), open = /^open(?:\s+([\s\S]*))?$/.exec(line), link = /^link(?:\s+(.*))?$/.exec(line);
+				const line = args.trim(), unpair = /^gui\s+unpair\s+(\S+)$/.exec(line), logs = /^server\s+logs(?:\s+(\S+))?$/.exec(line), sub = /^close\s+all\s+(.+)$/.exec(line), other = /^close\s+(.+)$/.exec(line), dismiss = /^dismiss(?:\s+(.+))?$/.exec(line), open = /^open(?:\s+([\s\S]*))?$/.exec(line), link = /^link(?:\s+([\s\S]*))?$/.exec(line);
 				if (/^gui\s+devices$/.test(line)) return await paths.devices();
 				if (unpair) return await paths.unpair(unpair[1]!);
 				if (logs) return await paths.logs(logs[1]);
@@ -69,7 +69,7 @@ export function registerBoss({ pi, cfg, s, guiDir, tell }: Kit, { runMode, host,
 				if (link) return await paths.link(link[1], ctx.cwd ?? process.cwd());
 				if (/^gui( stop| rotate| remote( off)?| lan( off| reset)?| view( \S+)?)?$/.test(args.trim())) return await host.command(args.trim().slice(4));
 				const sb = /^server(?:\s+(stop|restart)(?:\s+(.*))?)?$/.exec(args.trim());
-				if (sb) return await (server ? server.command((sb[1] ?? "") as "" | "stop" | "restart", sb[2] ?? "") : tell("The sb server is not available in this session.", "warning"));
+				if (sb) return await (server ? server.command((sb[1] ?? "") as "" | "stop" | "restart", sb[2] ?? "", host.here) : tell("The sb server is not available in this session.", "warning"));
 				const why = args.trim() === "close" ? (closeSelf(false) ?? "") : undefined;
 				if (why !== undefined) return void (why && tell(why, "error"));
 				if (args.trim() === "status") return tell(s.joined || s.isTower ? JSON.stringify(await reach.status(), null, 2) : "Not in the net: still joining, or this session cannot join.");

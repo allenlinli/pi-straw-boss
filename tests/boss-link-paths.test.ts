@@ -10,6 +10,7 @@ import { localOnlyText, type ControlDeps } from "../src/control.ts";
 import { startGui, type Gui } from "../src/gui.ts";
 import { encodeInvite } from "../src/link/join.ts";
 import type { Kit } from "../src/state.ts";
+import { hereWorld } from "./here.ts";
 
 // The boss's typed twins of the link operations the page alone could do (todo #34, gaps G1, G2, G7, G3): `/boss link confirms | confirm <id> allow|deny | asks | answer <id> … | invite cancel|show <hash> | join cancel | leave <team>
 // | create <relay> <dir> | join <invite|@file>`. Each posts the route the page posts to, asks in pi hereOnly what changes who may command this computer, and is the boss's typed input only.
@@ -55,8 +56,10 @@ const FULL = view({ confirms: CONFIRMS.map((c) => ({ ...c, team: TEAMS[0]!.team 
 
 const TOKEN = "tok-SECRET-9f3a77", INVITE = encodeInvite({ relay: "https://relay.example", team: Buffer.alloc(16, 7), secret: Buffer.alloc(32, 9), inviterId: "a".repeat(26), inviterKeyHash: Buffer.alloc(32, 5), forDevice: "" });
 
-interface WorldOptions { ui?: boolean; confirm?: boolean | boolean[]; selects?: (string | undefined)[]; inputs?: (string | undefined)[]; lang?: string; custom?: boolean }
-function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "en", custom = true }: WorldOptions = {}) {
+interface WorldOptions { ui?: boolean; confirm?: boolean | boolean[]; selects?: (string | undefined)[]; inputs?: (string | undefined)[]; lang?: string; custom?: boolean; /** The confirm throws (a pi that fails under the dialog). */ boom?: boolean; /** What the server answers a request to mark the pane local-only. */ markError?: string }
+function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "en", custom = true, boom = false, markError }: WorldOptions = {}) {
+	// The pane's mark at the server (src/heremark.ts), made of the real marks: `during` is what a paired device's key pad would meet when each pi screen opened.
+	const hw = hereWorld("wA:p1", markError ? { reply: () => ({ ok: false, error: markError }) } : {}), during: { kind: string; marked: boolean }[] = [];
 	const told: { text: string; level?: string }[] = [], posted: { path: string; json: Record<string, unknown> }[] = [], asked: { title: string; body: string; opts?: Record<symbol, unknown> }[] = [], selected: { title: string; options: string[]; opts?: Record<symbol, unknown> }[] = [], typed: { title: string }[] = [], frames: string[][] = [], piCalls: string[] = [];
 	const replies = new Map<string, Reply[] | Reply | ((json: Record<string, unknown>) => Reply | Promise<Reply>)>(), keys: string[][] = [], selectQueue = [...selects], inputQueue = [...inputs], confirmQueue = Array.isArray(confirm) ? [...confirm] : undefined;
 	const post: Post = async (_r, path, json) => {
@@ -67,8 +70,13 @@ function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "e
 		return r ?? { status: 200, body: {} };
 	};
 	const screen = {
-		confirm: async (title: string, body: string, opts?: Record<symbol, unknown>) => (asked.push({ title, body, ...(opts ? { opts } : {}) }), confirmQueue ? confirmQueue.shift() === true : confirm === true),
-		select: async (title: string, options: string[], opts?: Record<symbol, unknown>) => (selected.push({ title, options, ...(opts ? { opts } : {}) }), selectQueue.shift()),
+		confirm: async (title: string, body: string, opts?: Record<symbol, unknown>) => {
+			asked.push({ title, body, ...(opts ? { opts } : {}) });
+			during.push({ kind: "confirm", marked: hw.marked() });
+			if (boom) throw new Error("the dialog broke");
+			return confirmQueue ? confirmQueue.shift() === true : confirm === true;
+		},
+		select: async (title: string, options: string[], opts?: Record<symbol, unknown>) => (selected.push({ title, options, ...(opts ? { opts } : {}) }), during.push({ kind: "select", marked: hw.marked() }), selectQueue.shift()),
 		input: async (title: string) => (typed.push({ title }), inputQueue.shift()),
 		notify: () => {},
 		...(custom ? {
@@ -76,6 +84,7 @@ function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "e
 			custom: async (factory: (tui: unknown, theme: unknown, keys: unknown, done: (v: unknown) => void) => Promise<{ render(w: number): string[]; handleInput(d: string): void }> | { render(w: number): string[]; handleInput(d: string): void }) => {
 				const script = keys.shift();
 				assert.ok(script, "an unexpected ui.custom call");
+				during.push({ kind: "custom", marked: hw.marked() });
 				let result: unknown, finished = false;
 				const comp = await factory({ requestRender() {} }, {}, {}, (v) => ((finished = true), (result = v)));
 				frames.push(comp.render(80));
@@ -96,8 +105,8 @@ function world({ ui = true, confirm = true, selects = [], inputs = [], lang = "e
 		s: { at: { workspaceId: "wA", tabId: "wA:t1", paneId: "wA:p1" }, ui: ui ? screen : undefined },
 		guiDir: scratch, me: () => "m1", tell: (text: string, level?: string) => void told.push({ text, level }),
 	} as unknown as Kit;
-	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, post });
-	return { paths, told, posted, asked, selected, typed, frames, piCalls, run: (line: string, cwd = scratch) => paths.link(line, cwd), reply: (path: string, r: Reply[] | Reply | ((json: Record<string, unknown>) => Reply | Promise<Reply>)) => replies.set(path, r), keys: (...scripts: string[][]) => void keys.push(...scripts), at: (path: string) => posted.filter((p) => p.path === path), last: () => told.at(-1)! };
+	const paths = createBossPaths(kit, { host: { ensure: async () => ({ record: { port: 1, token: "t", pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, post, here: hw.here });
+	return { paths, hw, during, told, posted, asked, selected, typed, frames, piCalls, run: (line: string, cwd = scratch) => paths.link(line, cwd), reply: (path: string, r: Reply[] | Reply | ((json: Record<string, unknown>) => Reply | Promise<Reply>)) => replies.set(path, r), keys: (...scripts: string[][]) => void keys.push(...scripts), at: (path: string) => posted.filter((p) => p.path === path), last: () => told.at(-1)! };
 }
 const typing = (text: string) => [...text.split(""), "\r"];
 
@@ -310,12 +319,12 @@ test("answer --cancel is for a question that takes a cancel; every answer is con
 	assert.match(blind.last().text, /needs the pi screen/);
 });
 
-test("invite cancel posts the invite's full hash without asking; an unknown or ambiguous start does nothing", async () => {
+test("invite cancel asks hereOnly, then posts the invite's full hash; a no, an unknown or an ambiguous start does nothing", async () => {
 	const w = world();
 	w.reply("link/state", { status: 200, body: { view: FULL } });
 	await w.run("invite cancel ab12cd");
 	assert.deepEqual(w.at("link/invite-cancel"), [{ path: "link/invite-cancel", json: { hash: "ab12cd34ef56ab12cd34ef56" } }]);
-	assert.deepEqual(w.asked, []);
+	assert.deepEqual(w.asked.map((a) => a.opts?.[HERE_ONLY]), [true], "it asks, on this computer only: a paired device cannot cancel an invite either");
 	assert.match(w.last().text, /Cancelled the invite for Shop floor/);
 	await w.run("invite cancel ab");
 	await w.run("invite cancel ab12cd34ef56ab12cd34ef56zz");
@@ -560,7 +569,7 @@ test("live: every command reaches its link route with the arguments the holder t
 	const gui = await startGui({ read: async () => ({ bases: [] }), net: { lookup: () => undefined, workspace: () => [] }, link, dir: join(scratch, "bundle"), pollMs: 50 });
 	running.push(gui);
 	const w = world();
-	const paths = createBossPaths({ ...({} as Kit), pi: {}, cfg: { env: { LANG: "en" }, run: async () => "{}" }, s: { at: undefined, ui: { confirm: async () => true, select: async () => undefined, input: async () => undefined, notify: () => {}, custom: async (factory: (...a: never[]) => unknown) => { let result: unknown; const comp = (await factory({ requestRender() {} } as never, {} as never, {} as never, ((v: unknown) => (result = v)) as never)) as { handleInput(d: string): void }; for (const k of typing(TOKEN)) comp.handleInput(k); return result; } } }, guiDir: scratch, me: () => "m1", tell: (t: string) => void w.told.push({ text: t }) } as unknown as Kit, { host: { ensure: async () => ({ record: { port: gui.port, token: gui.token, csrf: gui.csrf, pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined });
+	const paths = createBossPaths({ ...({} as Kit), pi: {}, cfg: { env: { LANG: "en" }, run: async () => "{}" }, s: { at: undefined, ui: { confirm: async () => true, select: async () => undefined, input: async () => undefined, notify: () => {}, custom: async (factory: (...a: never[]) => unknown) => { let result: unknown; const comp = (await factory({ requestRender() {} } as never, {} as never, {} as never, ((v: unknown) => (result = v)) as never)) as { handleInput(d: string): void }; for (const k of typing(TOKEN)) comp.handleInput(k); return result; } } }, guiDir: scratch, me: () => "m1", tell: (t: string) => void w.told.push({ text: t }) } as unknown as Kit, { host: { ensure: async () => ({ record: { port: gui.port, token: gui.token, csrf: gui.csrf, pid: 1 } as never }), sessions: async () => [] }, closeSelf: () => undefined, here: (fn) => fn() });
 	for (const line of ["confirm c1aa22 allow", "answer a1b2 2", "invite cancel ab12", "join cancel", "leave Forked --force"]) await paths.link(line, scratch);
 	assert.deepEqual(calls.filter((c) => c.name !== "state"), [
 		{ name: "confirm-answer", args: { dialogId: "c1aa22bb33cc44dd", digest: "dg-c1", allow: true } },
@@ -573,4 +582,196 @@ test("live: every command reaches its link route with the arguments the holder t
 	await paths.link(`join ${INVITE} --project proj`, scratch);
 	const [create, start, project] = calls.filter((c) => ["create", "join-start", "join-project"].includes(c.name));
 	assert.deepEqual([create, start?.name, project], [{ name: "create", args: { relay: "https://relay.example", token: TOKEN, project: join(scratch, "proj"), share: "status" } }, "join-start", { name: "join-project", args: { project: join(scratch, "proj"), share: "status" } }]);
+});
+
+// ---- The review's findings (PLP-F001 to PLP-F006) --------------------------------------------------------------------------------------------
+
+/** The screens a world opened: each was open with the pane marked, so a paired device's key pad was Escape only. */
+const everyScreenMarked = (w: ReturnType<typeof world>, kinds: string[]) => {
+	assert.deepEqual(w.during.map((d) => d.kind), kinds);
+	assert.ok(w.during.every((d) => d.marked), `a screen opened with the pane unmarked: ${JSON.stringify(w.during)}`);
+	assert.equal(w.hw.faces.any(), false, "the mark is dropped when the command ends");
+	assert.equal(w.hw.marked(), false);
+};
+
+test("PLP-F001: every hereOnly screen of a link command opens with the pane marked, so a paired device's key pad sends Escape only to it, and the mark is gone when the command ends", async () => {
+	const confirm = world();
+	confirm.reply("link/state", { status: 200, body: { view: FULL } });
+	await confirm.run("confirm c1aa allow");
+	everyScreenMarked(confirm, ["confirm"]);
+	const answer = world({ selects: ["2. No"] });
+	answer.reply("link/state", { status: 200, body: { view: FULL } });
+	await answer.run("answer a1b2");
+	everyScreenMarked(answer, ["select", "confirm"]);
+	const create = world();
+	create.keys(typing(TOKEN));
+	await create.run(`create https://relay.example ${join(scratch, "proj")}`);
+	everyScreenMarked(create, ["confirm", "custom"]);
+	const joined = world();
+	joined.reply("link/join-start", { status: 200, body: { words: ["a", "b", "c", "d"], expires: Date.now() + 60_000, pinned: false } });
+	await joined.run(`join ${INVITE} --project proj`);
+	everyScreenMarked(joined, ["confirm"]);
+	const leave = world();
+	leave.reply("link/state", { status: 200, body: { view: FULL } });
+	await leave.run("leave Forked --force");
+	everyScreenMarked(leave, ["confirm"]);
+	const cancel = world();
+	cancel.reply("link/state", { status: 200, body: { view: FULL } });
+	await cancel.run("invite cancel ab12cd");
+	everyScreenMarked(cancel, ["confirm"]);
+	const show = world();
+	show.reply("link/state", { status: 200, body: { view: FULL } });
+	show.reply("link/invite-text", { status: 200, body: { text: INVITE, expires: Date.now() + 9 * 60_000 } });
+	show.keys(["\r"]);
+	await show.run("invite show ab12");
+	everyScreenMarked(show, ["custom"]);
+	assert.ok(show.hw.asked.some((a) => a.open === true && a.pane === "wA:p1"), "the mark is on this session's pane");
+});
+
+test("PLP-F001: the mark is dropped on every way out: a no, Escape, a refused request, and a dialog that throws", async () => {
+	const no = world({ confirm: false });
+	no.reply("link/state", { status: 200, body: { view: FULL } });
+	await no.run("leave Forked --force");
+	everyScreenMarked(no, ["confirm"]);
+	const esc = world({ selects: [undefined] });
+	esc.reply("link/state", { status: 200, body: { view: FULL } });
+	await esc.run("answer a1b2");
+	everyScreenMarked(esc, ["select"]);
+	const token = world();
+	token.keys([...TOKEN.split("").slice(0, 3), "\x1b"]);
+	await token.run(`create https://relay.example ${join(scratch, "proj")}`);
+	everyScreenMarked(token, ["confirm", "custom"]);
+	const refused = world();
+	refused.reply("link/state", { status: 200, body: { view: FULL } });
+	refused.reply("link/leave", { status: 409, body: { reason: "boom" } });
+	await refused.run("leave Forked --force");
+	everyScreenMarked(refused, ["confirm"]);
+	const throws = world({ boom: true });
+	throws.reply("link/state", { status: 200, body: { view: FULL } });
+	await assert.rejects(throws.run("leave Forked --force"), /the dialog broke/);
+	everyScreenMarked(throws, ["confirm"]);
+	assert.equal(throws.hw.timers(), 0, "no renewal is left running");
+	const noInvite = world({ confirm: false });
+	noInvite.reply("link/state", { status: 200, body: { view: FULL } });
+	await noInvite.run("invite cancel ab12cd");
+	assert.deepEqual([noInvite.at("link/invite-cancel"), noInvite.last().text], [[], "Nothing was decided"]);
+	everyScreenMarked(noInvite, ["confirm"]);
+});
+
+test("PLP-F001: a pane that cannot be marked refuses the screen: nothing is asked and nothing is posted", async () => {
+	const w = world({ markError: "Wi-Fi access is served by the default Herdr's sb server" });
+	w.reply("link/state", { status: 200, body: { view: FULL } });
+	await assert.rejects(w.run("confirm c1aa allow"), /local-only/);
+	assert.deepEqual([w.asked, w.at("link/confirm-answer")], [[], []]);
+	const deny = world({ markError: "stopped" });
+	deny.reply("link/state", { status: 200, body: { view: FULL } });
+	await deny.run("confirm c1aa deny");
+	assert.equal(deny.at("link/confirm-answer").length, 1, "a deny has no screen, so no mark");
+});
+
+test("PLP-F001: a GUI that is not running takes no paired device's keys, so the screen opens as before", async () => {
+	const w = world({ markError: "stopped" });
+	w.reply("link/state", { status: 200, body: { view: FULL } });
+	await w.run("confirm c1aa allow");
+	assert.equal(w.asked.length, 1);
+	assert.equal(w.at("link/confirm-answer").length, 1);
+});
+
+const ESC_ID = "\x1b[8mabcdefghij";
+const WITH_ESC = view({ confirms: [{ ...CONFIRMS[0]!, dialogId: ESC_ID, team: TEAMS[0]!.team }, { ...CONFIRMS[1]!, team: TEAMS[0]!.team }], alerts: [{ ...dialog(ESC_ID, SELECT), team: TEAMS[0]!.team }, { ...dialog("b2c3d4e5f6a1", ONE_Q), team: TEAMS[0]!.team }] });
+const RAW = /[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/;
+
+test("PLP-F002: a teammate's dialog id is shown with its escape sequence written out in confirms and asks, and typed back as shown it still finds the request", async () => {
+	const w = world();
+	w.reply("link/state", { status: 200, body: { view: WITH_ESC } });
+	await w.run("confirms");
+	assert.ok(!RAW.test(w.last().text.replace(/\n/g, "")), "no raw escape in the confirms listing");
+	assert.match(w.last().text, /\\x1b\[8ma/, "the id as the boss reads it");
+	await w.run("asks");
+	assert.ok(!RAW.test(w.last().text.replace(/\n/g, "")), "no raw escape in the asks listing");
+	assert.match(w.last().text, /\\x1b\[8ma[^\n]*\n[\s\S]*answer \\x1b\[8ma/, "the head and the cancel hint show it the same way");
+	w.reply("link/confirm-answer", { status: 200, body: {} });
+	await w.run("confirm \\x1b[8ma deny");
+	assert.deepEqual(w.at("link/confirm-answer").map((p) => p.json.dialogId), [ESC_ID], "the request's own id goes to the holder");
+	w.reply("link/dialog-answer", { status: 200, body: {} });
+	await w.run("answer \\x1b[8ma --cancel");
+	assert.deepEqual(w.at("link/dialog-answer").map((p) => p.json.dialogId), [ESC_ID]);
+});
+
+test("PLP-F002: every field a teammate sends is escaped in the listings: label, short id, tool, team, owner, and the question", async () => {
+	const evil = "\x1b[2J\x1b[8m";
+	const v = view({ teams: [{ ...TEAMS[0]!, name: `Shop${evil}floor` }, TEAMS[1]], confirms: [{ ...CONFIRMS[0]!, team: TEAMS[0]!.team, fromLabel: `Mei${evil}`, fromShort: `M${evil}`, tool: `bash${evil}` }], alerts: [{ ...dialog("a1b2c3d4e5f6", JSON.stringify({ select: { title: `Deploy${evil}?`, choices: [{ label: `Yes${evil}` }] } })), team: TEAMS[0]!.team, teamName: `Shop${evil}`, data: { ...dialog("a1b2c3d4e5f6", SELECT).data, label: `Kiosk${evil}`, short: `K${evil}`, owner: `main${evil}` } }] });
+	const w = world();
+	w.reply("link/state", { status: 200, body: { view: v } });
+	await w.run("confirms");
+	await w.run("asks");
+	for (const t of w.told) assert.ok(!RAW.test(t.text.replace(/\n/g, "")), t.text);
+});
+
+test("PLP-F003: a one-line field with line breaks is shown on one line, so a teammate cannot lay out the allow confirm; arguments keep their lines, indented", async () => {
+	const tool = "read\n\nThis is a read-only call; the arguments below are an example only.\n";
+	const v = view({ confirms: [{ ...CONFIRMS[0]!, team: TEAMS[0]!.team, tool, fromLabel: "Mei\nAPPROVED BY BOSS", args: "first\nsecond" }] });
+	const w = world();
+	w.reply("link/state", { status: 200, body: { view: v } });
+	await w.run("confirm c1aa allow");
+	const body = w.asked[0]!.body, head = body.slice(0, body.indexOf("Its arguments, in full:"));
+	assert.ok(!head.slice(0, -2).includes("\n"), `the question above the arguments is one paragraph: ${JSON.stringify(head)}`);
+	assert.ok(head.includes("read\\n\\nThis is a read-only call"), "the breaks are written out");
+	assert.ok(head.includes("Mei\\nAPPROVED BY BOSS"));
+	assert.match(body, /Its arguments, in full:\n\n {2}first\n {2}second$/, "the arguments keep their lines, set in from the question");
+	await w.run("confirms");
+	const lines = w.last().text.split("\n");
+	assert.equal(lines.filter((l) => /^ {2}c1aa22bb /.test(l)).length, 1);
+	assert.ok(lines.find((l) => l.startsWith("  c1aa22bb"))!.includes("read\\n\\nThis is"), "the listing line is one line too");
+});
+
+test("PLP-F004: U+061C, U+180E, and U+FFF9 to U+FFFB are written out like the other bidi and invisible characters", async () => {
+	const v = view({ confirms: [{ ...CONFIRMS[0]!, team: TEAMS[0]!.team, args: "a\u061cb\u180ec\ufff9d\ufffae\ufffbf" }] });
+	const w = world();
+	w.reply("link/state", { status: 200, body: { view: v } });
+	await w.run("confirms");
+	assert.ok(!RAW.test(w.last().text.replace(/\n/g, "")));
+	assert.match(w.last().text, /a\\u061cb\\u180ec\\ufff9d\\ufffae\\ufffbf/);
+});
+
+test("PLP-F005: an id that is exactly one request's and also the start of another's is ambiguous: nothing is done and the candidates are listed in full", async () => {
+	const shadow = view({ confirms: [{ ...CONFIRMS[0]!, team: TEAMS[0]!.team }, { ...CONFIRMS[0]!, team: TEAMS[0]!.team, dialogId: "c1aa22bb", digest: "dg-shadow", fromLabel: "Shadow" }] });
+	const w = world();
+	w.reply("link/state", { status: 200, body: { view: shadow } });
+	await w.run("confirm c1aa22bb deny");
+	assert.deepEqual(w.at("link/confirm-answer"), []);
+	assert.equal(w.last().level, "error");
+	assert.match(w.last().text, /More than one confirm/);
+	assert.ok(w.last().text.includes("c1aa22bb33cc44dd") && w.last().text.includes("Shadow"), "the candidates, by their full ids and who sent them");
+	await w.run("confirm c1aa22bb33cc44dd deny");
+	assert.deepEqual(w.at("link/confirm-answer").map((p) => p.json.digest), ["dg-c1"], "the full id of one names it");
+	await w.run("confirms");
+	assert.ok(w.last().text.split("\n").some((l) => l.startsWith("  c1aa22bb33cc44dd ")), "a listing shows the full id where eight characters name two requests");
+	const asks = view({ alerts: [{ ...dialog("a1b2c3d4e5f6", SELECT), team: TEAMS[0]!.team }, { ...dialog("a1b2c3d4", SELECT), team: TEAMS[0]!.team }] });
+	const q = world();
+	q.reply("link/state", { status: 200, body: { view: asks } });
+	await q.run("answer a1b2c3d4 1");
+	assert.deepEqual([q.asked, q.at("link/dialog-answer")], [[], []]);
+	assert.match(q.last().text, /More than one forwarded question/);
+	assert.ok(q.last().text.includes("a1b2c3d4e5f6"));
+	await q.run("answer a1b2c3d4e5f6 1");
+	assert.equal(q.at("link/dialog-answer").length, 1);
+	const hashes = view({ invites: [{ ...INVITES[0]!, team: TEAMS[0]!.team }, { ...INVITES[0]!, team: TEAMS[0]!.team, hash: "ab12cd34" }] });
+	const i = world();
+	i.reply("link/state", { status: 200, body: { view: hashes } });
+	await i.run("invite cancel ab12cd34");
+	assert.deepEqual(i.at("link/invite-cancel"), []);
+	assert.match(i.last().text, /More than one open invite/);
+	const teams = view({ teams: [TEAMS[0]!, { ...TEAMS[1]!, name: "t1aaaa" }] });
+	const t = world();
+	t.reply("link/state", { status: 200, body: { view: teams } });
+	await t.run("leave t1aaaa");
+	assert.deepEqual(t.at("link/leave"), [], "a team named like another's id is ambiguous too");
+});
+
+test("PLP-F006: a /boss link answer with line breaks in its text reaches the link path and never promotes the session", async () => {
+	const b = boss(false);
+	await b.run("link answer a1b2 first line\nsecond line");
+	await b.run("link answer a1b2 \n  starts with a break");
+	assert.deepEqual(b.called, [`link ${JSON.stringify(["answer a1b2 first line\nsecond line", "/work"])}`, `link ${JSON.stringify(["answer a1b2 \n  starts with a break", "/work"])}`]);
 });

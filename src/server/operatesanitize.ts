@@ -1,5 +1,7 @@
 import { sanitize as mirrorRow } from "../mirror.ts";
 import type { Base, Net, Outpost, Tab, TowerService, Unit } from "../net.ts";
+import { type TrainId, trainFromToken } from "../trainrole.ts";
+import { UNIT_ROLES } from "./operateroles.ts";
 
 // What the controller lets through from an operate box (docs/specs/2026-11-07-link-operate.md §6.4): the box is treated as hostile, so everything it sends is rebuilt field by field from a schema before any page sees it.
 // Known fields only (anything else is dropped, never passed on); every string is plain text (controls, bidi overrides and invisible characters become spaces, or go) with a length of its own; marks, roles and states come from their enums;
@@ -70,7 +72,7 @@ const idOk = (raw: unknown): raw is string => keyOk(raw);
 const ws: P<string> = (v, rw) => (idOk(v) ? rw.base(v) : (rw.bad("key"), undefined));
 
 const mark = lit(...MARKS);
-const queued = shape<{ text: string; as: "steer" | "followUp" }>({ text: str(16_384, true), as: lit("steer", "followUp") });
+const queued = shape<{ text: string; as: "steer" | "followUp" | "start"; why?: "off" | "refused" | "full" | "offline" | "unproven" }>({ text: str(16_384, true), as: lit("steer", "followUp", "start") }, { why: lit("off", "refused", "full", "offline", "unproven") });
 const monitor = shape({ id: str(64), what: str(160), status: lit("running", "done", "error", "stale", "stopped"), lines: int(0, 1e9), at: num }, { exit: num, last: str(160), ended: num });
 const todoSum = shape({ done: int(0, 1e6), total: int(0, 1e6) }, { now: str(160) });
 const ticks = list(shape({ at: num, mark }), 24);
@@ -101,9 +103,11 @@ const service: P<TowerService> = shape(
 	{ memory, run: shape({ id: str(64), kind: lit("local", "ally"), startedAt: str(64) }), conversation, bossIn: shape({ id: str(64), since: str(64) }), localRuns: list(shape({ id: str(64), kind: lit("conversation", "event"), startedAt: str(64) }, { resumed: bool, why: str(200), endedAt: str(64), outcome: str(200), note: str(600, true), key }), 50), lastRun: shape({ endedAt: str(64), outcome: str(200) }), crashes: int(0, 1e6) },
 );
 
+/** A train's project and code (`sb_train`): the pair must read back as a token, so nothing path-like or free text passes. */
+const trainId: P<TrainId> = (v) => (isObj(v) && typeof v.project === "string" && typeof v.code === "string" ? trainFromToken(`${v.project}/${v.code}`) : undefined);
 const unit: P<Unit> = (v, rw) => depth(v, rw, 0);
 function depth(v: unknown, rw: Rewrite, level: number): Unit | undefined {
-	const head = shape<Omit<Unit, "subs">>({ id: key, key, control: bool, name: str(200), role: lit("main", "member", "subagent", "outside"), mark }, { agent: lit("claude", "codex"), note: str(300), pending, ended: yes, queued: list(queued, 50), monitors: list(monitor, 8), ...lately, ...shelf })(v, rw);
+	const head = shape<Omit<Unit, "subs">>({ id: key, key, control: bool, name: str(200), role: lit("main", "member", "train", "subagent", "outside"), mark }, { agent: lit("claude", "codex"), train: trainId, note: str(300), pending, ended: yes, queued: list(queued, 50), monitors: list(monitor, 8), ...lately, ...shelf })(v, rw);
 	if (!head) return undefined;
 	const raw = (v as Record<string, unknown>).subs;
 	return { ...head, id: head.key, subs: level >= 2 || !Array.isArray(raw) ? [] : raw.slice(0, 64).flatMap((s) => { const r = depth(s, rw, level + 1); return r ? [r] : []; }) } as Unit;
@@ -202,14 +206,27 @@ export function sanitizeMirror(raw: unknown, rw: Rewrite): Record<string, unknow
 // --- what a request's answer is ------------------------------------------------------------------------------------------------------------------------------------------------------
 
 /** Where a request goes, which decides the shape its answer may have. */
-export type ReplyKind = "history" | "entry" | "image" | "input" | "keys" | "answer" | "dequeue" | "commands" | "upload" | "mirror" | "plain" | "memory";
+export type ReplyKind = "history" | "entry" | "image" | "input" | "keys" | "answer" | "dequeue" | "commands" | "upload" | "mirror" | "plain" | "memory" | "transcripts";
 const errorBody = shape<{ error: string; reason: string }>({ error: str(64), reason: str(2000, true) }, { why: str(40), confirm: str(64), key: str(64), label: str(64) });
 const then = (v: unknown) => {
 	if (!isObj(v)) return undefined;
 	// Never `pane` (decision 8): such a pane would run a shell, and nothing of it opens from here.
 	return v.terminal === true ? { terminal: true as const, ...(v.run === true ? { run: true as const } : {}) } : undefined;
 };
+/** A finished run of the box's ledger (§9): its `id` becomes the page's key for the run's transcript (`t<id>` on the box), so the page reads it through `api/history` like any unit. */
+const finishedRun: P<unknown> = (v, rw) => {
+	const base = shape<{ id: string; name: string; role: string; workspace: string; first: number; last: number; size: number; dispatcher?: string }>({ id: hex(16), name: str(200), role: lit(...UNIT_ROLES), workspace: str(200), first: num, last: num, size: int(0, 1e12) }, { dispatcher: str(100) })(v, rw);
+	if (!base) return undefined;
+	const { id, ...rest } = base;
+	return { key: rw.key(`t${id}`), ...rest };
+};
+/** The cursor of the next page of finished runs: the box's is `<last>:<its ledger id>`, and the id is a key like the rows' (the box's own id is never passed on): the page gets `<last>:<key of the last row>` and gives it back as it is. */
+const cursor: P<string> = (v, rw) => {
+	const m = typeof v === "string" ? /^(\d{1,16}):([0-9a-f]{16})$/.exec(v) : null;
+	return m ? `${m[1]}:${rw.key(`t${m[2]}`)}` : undefined;
+};
 const bodyOf: Record<ReplyKind, P<unknown>> = {
+	transcripts: shape({ rows: list(finishedRun, 50) }, { before: cursor }),
 	history: shape({ items: itemList }, { before: str(200) }),
 	entry: item,
 	image: () => undefined, // an image never takes this path (sanitizeImage)

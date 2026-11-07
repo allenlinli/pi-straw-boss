@@ -190,7 +190,9 @@ test("an older ts is ignored, so an older board never replaces a newer one", asy
 	const head = stateOf(rosterOf(), alice).head;
 	const forged = (ts: number, now: string) => buildEnvelope({ team: TEAM, epoch: 1, teamKey: teamKey(1), head, from: alice, seq: 0, ts, kind: "board", to: [], plaintext: encodePlaintext("board", { entries: [{ id: "0123456789abcdef", workspace: "w", tab: "t", name: "n", now, updated: ts, items: [] }] }) });
 	const client = new RelayClient({ url: "http://relay.test", device: alice, fetch: relay.fetch });
-	await client.postEnvelope(TEAM, forged(Date.now() - 60_000, "older"));
+	const older = forged(Date.now() - 60_000, "older");
+	assert.equal((await client.postEnvelope(TEAM, older) as { stale?: boolean }).stale, true, "the relay refuses it as stale and stores nothing, so only a replay of an old copy could reach the holder");
+	relay.injectStored(TEAM_HEX, older, bob.id);
 	await new Promise((r) => setTimeout(r, 150));
 	assert.equal(held(b)!.entries[0]!.now, "newest");
 	assert.ok(events(b).some((e) => e.event === "drop" && e.reason === "stale-ephemeral" && e.kind === "board"));

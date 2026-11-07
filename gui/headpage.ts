@@ -140,6 +140,19 @@ export const gone = (t: AskTower) => !t.route && !handled(t.state);
 /** A tower's state word; for a workspace the net has no tower of and that never handled it, that there is none (muted, no wait). */
 export const towerState = (t: AskTower, o?: Opts) => (gone(t) ? m.head_ask_no_tower({}, o) : STATE[t.state](o));
 
+/**
+ * The log's fold around the cards (`<details class="head-log">`, session.ts): closed it is one line, the title with how many orders there are and the newest order's own line, so the conversation keeps the page; the boss opens it
+ * to the cards, which then scroll in a box of their own (style.css). Hidden with no orders. The open state is the element's, so a redraw leaves it as the boss left it.
+ */
+export function fillHeadLog(log: HTMLElement, head: HeadUnit | undefined, net: Net | undefined, now = Date.now(), o?: Opts) {
+	const { recent, older } = head ? askGroups(head.asks, now, net) : { recent: [], older: [] }, newest = recent[0] ?? older[0];
+	log.hidden = !newest;
+	if (!newest) return;
+	const set = (sel: string, text: string) => { const el = log.querySelector(sel); if (el && el.textContent !== text) el.textContent = text; };
+	set("summary b", m.head_log_title({ count: recent.length + older.length }, o));
+	set("summary span", sentLine(newest));
+}
+
 const opened = new WeakMap<HTMLElement, Set<string>>();
 /**
  * The broadcasts under the conversation box (docs/specs/2026-11-07-head-log-cards.md): a card each, whose closed line is its parts (what the boss said, what the head sent, to whom) and when with how many replied, and which unfolds to the whole texts,

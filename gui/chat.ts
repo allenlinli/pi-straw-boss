@@ -85,7 +85,7 @@ export interface Who extends Shelf { key: string; name: string; role: string; ma
 /** `docFor` opens the document a show_doc path names while its session lists it (doc.ts), or is undefined. */
 export interface ChatDeps { who(): Who; link(name: string): HTMLAnchorElement | undefined; docFor?(path: string): (() => void) | undefined; /** The session route's log: for the head it shows the words only (docs/specs/2026-11-06-head-page-minimal.md). Zen's companion log leaves it out and shows the head's cards as before. */ page?: boolean }
 /** `reveal` opens the log at an entry (scrolled into view and lit), or with none at the newest entry. `log` is the scrolling log, a focus target. `docs` shows Open beside on the show_doc cards whose document is listed now. */
-export interface Chat { apply(event: HistoryEvent): void; setLive(text: string, mark: Mark): void; reveal(at?: string): void; docs(): void; /** The boss conversation's runs (src/server/runs.ts `LocalRunRow`): a divider opens each in the log, with how it ended once it has. */ runs(rows: ConversationRun[]): void; log: HTMLElement }
+export interface Chat { apply(event: HistoryEvent): void; reveal(at?: string): void; docs(): void; /** The boss conversation's runs (src/server/runs.ts `LocalRunRow`): a divider opens each in the log, with how it ended once it has. */ runs(rows: ConversationRun[]): void; log: HTMLElement }
 export type ConversationRun = NonNullable<TowerService["localRuns"]>[number];
 
 /** Who an assistant message is from, as its header says: the unit's role, since the page header already names the session. */
@@ -115,8 +115,8 @@ function plain(text: string) {
 export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, page }: ChatDeps): Chat {
 	const model = createChat(), els = new Map<string, HTMLElement>(), opens = new Set<{ paths: string[]; button: HTMLButtonElement; shown?: boolean }>(); // a card the log dropped leaves it
 	const docs = () => opens.forEach((o) => (o.button.isConnected ? ((o.shown = true), (o.button.hidden = !o.paths.some((p) => docFor?.(p)))) : o.shown && opens.delete(o)));
-	const list = h("div", { class: "chat-list" }), top = h("div", { class: "chat-top" }), live = h("div", { class: "chat-live" }), foot = h("div", { class: "chat-end" }), pill = h("button", { class: "chat-pill", type: "button", hidden: "" }), empty = h("p", { class: "chat-empty" }, m.no_transmissions());
-	const scroller = h("div", { class: "chat-scroll", tabindex: "-1", "aria-label": m.comms_log() }, top, list, live, foot);
+	const list = h("div", { class: "chat-list" }), top = h("div", { class: "chat-top" }), foot = h("div", { class: "chat-end" }), pill = h("button", { class: "chat-pill", type: "button", hidden: "" }), empty = h("p", { class: "chat-empty" }, m.no_transmissions());
+	const scroller = h("div", { class: "chat-scroll", tabindex: "-1", "aria-label": m.comms_log() }, top, list, foot);
 	root.replaceChildren(scroller, pill);
 	const follow = createFollow();
 	let loading = false, loaded = false, target: string | undefined, held: HTMLElement | undefined, release = 0, down = false, coast: ReturnType<typeof setTimeout> | undefined;
@@ -339,11 +339,6 @@ export function mountChat(root: HTMLElement, data: Data, { who, link, docFor, pa
 		reveal(at) {
 			target = at;
 			if (loaded) settle();
-		},
-		/** The unit's live state under the last transmission, with the same badge (spinner, hopping ?) as its token. */
-		setLive(text, m) {
-			live.dataset.mark = m;
-			if (live.lastChild?.textContent !== text) live.replaceChildren(...(text ? [h("b", { class: "badge" }), h("span", null, text)] : []));
 		},
 	};
 }

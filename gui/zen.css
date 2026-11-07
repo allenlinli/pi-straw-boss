@@ -193,6 +193,11 @@
 [data-view="zen"] #zen { overscroll-behavior: none; }
 [data-view="zen"] .chat-pill { border: 1px solid var(--zen-line); background: var(--zen-warm); color: var(--zen-paper); font: 400 0.9rem var(--serif); letter-spacing: 0.08em; } /* the log's "N new" and jump-to-latest: the page's accent and ink are both paper here */
 [data-view="zen"] .zen-card .composer { border: 0; background: transparent; padding: 0; }
+/* The companion's activity (composer.ts): no ring in Zen, which has no boxes, but the lit line under the box, breathing while the unit works and standing while it waits for the boss or failed. */
+[data-view="zen"] .composer[data-activity] .cmp-row::before { inset: auto 0 -4px; height: 1px; padding: 0; border-radius: 0; mask: none; background: var(--ring); }
+[data-view="zen"] .composer[data-activity="waiting"] { --ring: var(--zen-ochre); }
+[data-view="zen"] .composer:is([data-activity="working"], [data-activity="commanding"]) .cmp-row::before { animation: zen-ring 5s var(--zen-ease) infinite; }
+@keyframes zen-ring { 50% { opacity: 0.3; } }
 [data-view="zen"] .zen-company .composer { padding: 8px 0 0; border-top: 0; background: transparent; }
 [data-view="zen"] .zen-company button { min-height: 44px; min-width: 44px; }
 [data-view="zen"] .zen-stage:has(.zen-company) { position: relative; }

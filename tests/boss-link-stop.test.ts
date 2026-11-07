@@ -54,7 +54,7 @@ test("parseLink reads units and stop: the device, the main (quoted when it has s
 });
 
 test("units lists each box's units and, under each, the mains this computer may stop (name, state, the dispatcher of a main it did not dispatch, the first six of the handle); a box that takes no stop says so", async () => {
-	const w = world({ units: [row(), row({ device: "d-box2", canStop: undefined, mains: [main({ handle: HANDLE_B, name: "old" })] }), row({ device: "d-box3", mains: undefined, units: [{ unit: "plain", state: "standing", monitors: [], report: "" }] })] });
+	const w = world({ units: [row(), row({ device: "d-box2", canStop: undefined, mains: [main({ handle: HANDLE_B, name: "old" })] }), row({ device: "d-box3", mains: undefined, canStop: undefined, dispatchers: undefined, units: [{ unit: "plain", state: "standing", monitors: [], report: "" }] })] });
 	await w.paths.link("units");
 	const text = w.told.map((t) => t.text).join("\n");
 	assert.match(text, /ci-box \(BX01\)/);
@@ -63,6 +63,7 @@ test("units lists each box's units and, under each, the mains this computer may 
 	assert.match(text, /api · working · by bob-mac · fedcba/);
 	assert.doesNotMatch(text, /docs · idle · by/, "the dispatcher is named only for a main this computer did not dispatch");
 	assert.match(text, /ci-box-2[\s\S]*takes no stop requests yet/);
+	assert.equal(text.match(/takes no stop requests yet/g)?.length, 2, "REL061-F001: a 0.60 box (no mains, no unit-stop in its caps) says so too, not only a box whose mains came without the cap");
 	assert.ok(w.stops().length === 0 && w.told.every((t) => t.level !== "error"));
 	const one = world();
 	await one.paths.link("units ci-box-2");
@@ -213,4 +214,16 @@ test("USC-F008: a reason over 200 bytes is refused before the confirm, saying ho
 	const ok = world();
 	await ok.paths.link(`stop ci-box api ${"y".repeat(200)}`);
 	assert.deepEqual([ok.asked.length, ok.stops().length], [1, 1]);
+});
+
+test("REL061-F001: stop at a 0.60 box (it sends no mains and lists no unit-stop) says the box needs an upgrade, not that it lists no mains, and posts nothing", async () => {
+	const w = world({ units: [row({ device: "d-box2", mains: undefined, canStop: undefined, dispatchers: undefined })] });
+	await w.paths.link("stop ci-box-2 docs");
+	assert.equal(w.told.at(-1)!.level, "error");
+	assert.match(w.told.at(-1)!.text, /does not take stop requests yet/);
+	assert.doesNotMatch(w.told.at(-1)!.text, /lists no mains/);
+	assert.deepEqual([w.asked.length, w.stops().length], [0, 0]);
+	const now = world({ units: [row({ device: "d-box2", mains: [], canStop: true })] });
+	await now.paths.link("stop ci-box-2 docs");
+	assert.match(now.told.at(-1)!.text, /lists no mains this computer may stop/, "a 0.61 box with no mains for this computer still says so");
 });

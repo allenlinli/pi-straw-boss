@@ -87,7 +87,7 @@ export interface TowerPanel {
 	/** Whether the key is the head tower's (its constant key or its Herdr workspace): the head answers api/head/… only, so api/tower/… refuses it. */
 	isHead?(workspace: string): boolean;
 }
-/** What a paired device may ask: read the state, and answer a forwarded confirm or dialog. Everything else changes who may command this computer, so only its own page does it. */
+/** What a paired device may ask: read the state, answer a forwarded confirm or dialog, and ask a box to stop one main (a graceful stop the box decides on; docs/specs/2026-11-07-link-remote-stop.md, decision 10). Everything else changes who may command this computer, so only its own page does it. */
 const REMOTE_LINK = ["state", "confirm-answer", "dialog-answer", "unit-stop"];
 const LINK_NAMES = ["enable", "state", "create", "invite", "invite-text", "invite-cancel", "decide", "join-start", "join-project", "join-cancel", "prefill-clear", "remove", "role", "rotate", "trust", "leave", "confirm-answer", "dialog-answer", "unit-stop"];
 /** `tower`: the sb server's tower service, when it runs one (TowerPanel). */

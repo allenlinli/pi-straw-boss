@@ -124,7 +124,7 @@ export interface DeviceUnits {
 	units: UnitStatus[];
 	/** The mains this computer may stop, when the box sent them (it does so only against this device's `caps`). */
 	mains?: MainStatus[];
-	/** With `mains`: the box's fresh `caps` list `unit-stop`, so a stop request is worth sending (the page shows a Stop button, `/boss link stop` goes on); absent for a box that lists mains and no stop. */
+	/** The box's fresh `caps` list `unit-stop`, so a stop request is worth sending (the page shows a Stop button, `/boss link stop` goes on); absent for a box that takes no stop (a 0.60 box, which sends no `mains` either). */
 	canStop?: true;
 	/** With `mains`: the dispatchers the mains name (`by`), as this team's roster labels them; this computer's own is `self`. */
 	dispatchers?: Record<string, { label: string; self?: true }>;
@@ -1477,7 +1477,7 @@ export class LinkHolder {
 				if (now - seen.at > UNITS_GONE_MS || !seen.units.length) continue;
 				const mine = this.device?.keys.id, dispatchers: NonNullable<DeviceUnits["dispatchers"]> = {};
 				for (const by of new Set(seen.mains?.map((x) => x.by))) dispatchers[by] = { label: this.memberLabel(run.team, by), ...(by === mine ? { self: true as const } : {}) };
-				out.push({ team: run.team, device, units: seen.units, ...(seen.mains ? { mains: seen.mains, dispatchers, ...(this.capsOf(run, device).includes("unit-stop") ? { canStop: true as const } : {}) } : {}), at: seen.at, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
+				out.push({ team: run.team, device, units: seen.units, ...(seen.mains ? { mains: seen.mains, dispatchers } : {}), ...(this.capsOf(run, device).includes("unit-stop") ? { canStop: true as const } : {}), at: seen.at, ...(now - seen.at > UNITS_FRESH_MS ? { stale: true as const } : {}) });
 			}
 		}
 		return out;

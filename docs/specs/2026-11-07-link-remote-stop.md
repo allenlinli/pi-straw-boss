@@ -1,6 +1,6 @@
 # Straw Link: an admin's remote stop of one unit on a shared box (draft)
 
-Status: decided, not built. Boss ruling 2026-11-07: all eleven recommendations of section 7 taken, including decision 5 (`interrupt`), decision 10 (a paired device may stop) and the relay redeploy once its change is reviewed. Base `main` 45b23a2 (0.60.4). Todo #100. It follows section 3 of [2026-11-05-link-shared-box.md](2026-11-05-link-shared-box.md), which ends with "Not done: an admin's remote stop of one unit (`boss_close_main` for a controller, from an admin's page)", and `docs/unattended-device.md` §8 ("a main that never goes idle has to be closed at the box").
+Status: built, shipped in 0.61.0. Boss ruling 2026-11-07: all eleven recommendations of section 7 taken, including decision 5 (`interrupt`), decision 10 (a paired device may stop) and the relay redeploy once its change is reviewed. Base `main` 45b23a2 (0.60.4). Todo #100. It follows section 3 of [2026-11-05-link-shared-box.md](2026-11-05-link-shared-box.md), which ends with "Not done: an admin's remote stop of one unit (`boss_close_main` for a controller, from an admin's page)", and `docs/unattended-device.md` §8 ("a main that never goes idle has to be closed at the box").
 
 The rows under **Open decisions** record what the boss decided; each took the recommendation.
 

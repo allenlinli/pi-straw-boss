@@ -264,7 +264,7 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, h
 			const lines = rows.filter((row) => !parsed.device || (found as Box).device === row.device).flatMap((row) => {
 				const box = boxesOf({ ...view, units: [row] })[0]!, teamName = view.teams.find((x) => x.team === row.team)?.name ?? row.team.slice(0, 6);
 				const mains = row.mains ?? [];
-				return [t().unitsBox(line(box.label), line(box.short), line(teamName), row.stale === true), ...row.units.flatMap((u) => [t().unitsUnit(line(u.unit), line(u.state)), ...mains.filter((x) => x.unit === u.unit).map((x) => t().unitsMain(line(x.name), line(x.state), byLabel(row, x.by), line(x.handle.slice(0, 6))))]), ...(mains.length && !row.canStop ? [t().unitsNoStop] : [])];
+				return [t().unitsBox(line(box.label), line(box.short), line(teamName), row.stale === true), ...row.units.flatMap((u) => [t().unitsUnit(line(u.unit), line(u.state)), ...mains.filter((x) => x.unit === u.unit).map((x) => t().unitsMain(line(x.name), line(x.state), byLabel(row, x.by), line(x.handle.slice(0, 6))))]), ...(!row.canStop ? [t().unitsNoStop] : [])];
 			});
 			return tell(lines.join("\n"));
 		}
@@ -274,6 +274,8 @@ export function createBossOpen({ s, tell }: Kit, { record, post, why, confirm, h
 		const boxRows = rows.filter((row) => row.device === box.device).sort((a, b) => b.at - a.at), listed: Listed[] = [];
 		for (const row of boxRows) for (const main of row.mains ?? []) if (!listed.some((x) => x.main.handle === main.handle)) listed.push({ row, main });
 		const cands = (xs: Listed[]) => xs.map((x) => t().candidateMain(line(x.main.name), line(x.main.unit), line(x.main.handle.slice(0, 6))));
+		// A box that lists no `unit-stop` (a 0.60 box sends no mains either) needs an upgrade: say so before "no mains" (REL061-F001).
+		if (!boxRows.some((row) => row.canStop)) return tell(t().stopNoCap(name), "error");
 		if (!listed.length) return tell(t().stopNoMains(name), "error");
 		const low = parsed.main.toLowerCase(), hit = listed.filter((x) => x.main.name.toLowerCase() === low || (parsed.main.length >= 4 && x.main.handle.startsWith(parsed.main)));
 		if (!hit.length) return tell(t().noMain(line(parsed.main), name, cands(listed)), "error");

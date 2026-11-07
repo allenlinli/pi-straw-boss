@@ -314,7 +314,7 @@ export type RunSignal =
 	| { kind: "revoked"; workspace: string; label: string; ally: true; device: string; team?: string; main: string; ended: boolean; /** The box cannot end this main (the boss opened it): the admins close it by hand. Its own notice key. */ manual?: boolean; text: string }
 	/**
 	 * What became of a stop an admin or the dispatcher asked of one main (docs/specs/2026-11-07-link-remote-stop.md, 3.4): `pending` (busy, told once), `stopped`, `manual` (the box cannot end it), or `refused` (a stop the box turned down for another reason than the holder's;
-	 * `device` and `team` are then the requester's, so the notice reaches it and the team's admins, not the dispatcher's scope). `stopId` names the stop. The text never carries the requester's reason.
+	 * `device` and `team` are then the requester's, so the notice reaches it and the team's admins, not the dispatcher's scope). `stopId` names the stop. The text carries the requester's reason; link.log never does.
 	 */
 	| { kind: "main-stop"; outcome: "pending" | "stopped" | "manual" | "refused"; workspace: string; label: string; ally: true; device: string; team?: string; main: string; stopId: string; text: string };
 

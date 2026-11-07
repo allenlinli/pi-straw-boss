@@ -14,6 +14,7 @@ import { canonical, readers } from "./history.ts";
 import { createGrants } from "./answerpane.ts";
 import { createMirrors } from "./mirror.ts";
 import { createOperate, type Operate } from "./operateseam.ts";
+import type { OperateHost } from "./server/operatehost.ts";
 import type { Found, Net, Ref } from "./net.ts";
 import { qr } from "./qr.ts";
 import { createEntry, zhOf } from "./appentry.ts";
@@ -35,6 +36,8 @@ import { api, type Hub as Files, image, watchSession, type Watch, watchWorkspace
 // which also need the page's origin and a second secret the page carries in <meta name="sb-csrf">; every other request must be a GET.
 // A third kind of listener, the LAN's, is not made here: guihost.ts binds them (lan/listener.ts) and hands each request to `Gui.lan`, the handler of kind "lan" (docs/specs/2026-10-30-sb-gui-lan.md). A request on it is remote like one on the
 // remote listener, and what lets it in is lan/access.ts: the Host allow-list, the token, and the cookie of a device the boss allowed on this computer. `lan/*` routes and the `server/*` and `remote/*` ones stay this computer's page only.
+// A box this computer operates (docs/specs/2026-11-07-link-operate.md §6.4) adds bases of its own to the net the pages read, and a request for one of its units (a key that starts with `x`) goes to its operate session (server/operatehost.ts) in place of
+// the local route: control.ts takes the POSTs, this file the GETs, the stream's `watch` target and the terminals' streams.
 // While remote access is on (remote.ts), paired devices of this machine's Tailscale user reach the same server through `tailscale serve`. The stream sends the full snapshot on connect and on every
 // change, plus a `ping` event every 15 s so a client can tell a silent drop from a quiet net. It polls only while someone listens.
 // The page has routes (/<token>/w/<workspace>[/s/<session>] and /<token>/settings[/<section>]): any such URL answers the same index.html, which carries a <base href>
@@ -63,11 +66,11 @@ export interface LanOptions { panel: LanPanel; overlay: Overlay; file?: string; 
 /** `net` is the registry behind the net reading (the allow list of session keys); without it no session can be watched. `call` reaches Herdr for input. */
 /** `hub` carries answers to the dialogs bridges relay (dialogs.ts); it runs exactly as long as the server. */
 /** `onRemote` and `onRemoteOff` turn remote access on and off from the page, in the session that runs the server. `onStop` takes another session's stop request (requestStop), so the owner also takes its remote entry down; without it the server stops itself. */
-export interface GuiOptions { read(): Promise<Net>; net?: { lookup(key: string): Found | undefined; workspace(id: string): Ref[]; dismiss?(key: string): boolean; dismissAll?(): number }; call?: HerdrCall; hub?: Hub; dir?: string; paired?: string; port?: number; remotePort?: number; pollMs?: number; idleMs?: number; pingMs?: number; onStop?(asked: Asked): void; /** A takeover is refused with 409 (the sb server is never taken over by a session of an older build, which then leaves its GUI alone). */ refuseTake?: boolean; onRemote?(): Promise<void>; onRemoteOff?(): Promise<void>; onSaveFailed?(reason: string): void; spawn?: ControlDeps["spawn"]; close?: ControlDeps["close"]; trust?: { answer: NonNullable<ControlDeps["trust"]>; watch(poke: () => void): () => void }; link?: ControlDeps["link"]; server?: ControlDeps["server"]; tower?: ControlDeps["tower"]; /** How long a preferred port that is still held (by the server this one replaces) is retried before another is taken. */ bindWaitMs?: number; /** The token and CSRF secret of the last listener with the two ports they belong to (server/guisecrets.ts): kept only when both ports are bound again; otherwise they are drawn anew. */ keep?: { token: string; csrf: string; port: number; remotePort: number }; /** The server runs with the desk switch (STRAW_BOSS_DESK=1): the page carries `<meta name="sb-desk">` and hides GUI remote access and stash (gui/desk.ts). */ desk?: boolean; /** Wi-Fi access (the primary slot's server only). */ lan?: LanOptions; /** The server's default view the page starts with (guiprefs.ts); `auto` when none was set. */ view?: ServerView; /** The folder of Zen's music (music.ts): its audio files are listed and streamed at /api/music; none: no tracks. */ music?: string }
+export interface GuiOptions { read(): Promise<Net>; net?: { lookup(key: string): Found | undefined; workspace(id: string): Ref[]; dismiss?(key: string): boolean; dismissAll?(): number }; call?: HerdrCall; hub?: Hub; dir?: string; paired?: string; port?: number; remotePort?: number; pollMs?: number; idleMs?: number; pingMs?: number; onStop?(asked: Asked): void; /** A takeover is refused with 409 (the sb server is never taken over by a session of an older build, which then leaves its GUI alone). */ refuseTake?: boolean; onRemote?(): Promise<void>; onRemoteOff?(): Promise<void>; onSaveFailed?(reason: string): void; spawn?: ControlDeps["spawn"]; close?: ControlDeps["close"]; trust?: { answer: NonNullable<ControlDeps["trust"]>; watch(poke: () => void): () => void }; link?: ControlDeps["link"]; server?: ControlDeps["server"]; tower?: ControlDeps["tower"]; /** How long a preferred port that is still held (by the server this one replaces) is retried before another is taken. */ bindWaitMs?: number; /** The token and CSRF secret of the last listener with the two ports they belong to (server/guisecrets.ts): kept only when both ports are bound again; otherwise they are drawn anew. */ keep?: { token: string; csrf: string; port: number; remotePort: number }; /** The server runs with the desk switch (STRAW_BOSS_DESK=1): the page carries `<meta name="sb-desk">` and hides GUI remote access and stash (gui/desk.ts). */ desk?: boolean; /** Wi-Fi access (the primary slot's server only). */ lan?: LanOptions; /** The server's default view the page starts with (guiprefs.ts); `auto` when none was set. */ view?: ServerView; /** The folder of Zen's music (music.ts): its audio files are listed and streamed at /api/music; none: no tracks. */ music?: string; /** The controller's end of operate (server/operatehost.ts): an unattended box's sessions show as bases of this net, and the page's requests for their units go to it. The GUI owns it from here: it is stopped with the server. */ operateHost?: OperateHost }
 export interface Asked { by: string; take: boolean }
 
 /** Starts the server. A preferred `port` and `remotePort` are reused when free. The token and the CSRF secret are drawn anew unless `keep` names them and both of its ports are bound again (D27): a listener that had to move to another port is a new one, and a page an open tab already has, or whatever else holds the old secrets, opens nothing here. */
-export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, port = 0, remotePort = 0, pollMs = 2000, idleMs = 10_000, pingMs = 15_000, onStop, refuseTake, onRemote, onRemoteOff, onSaveFailed, spawn, close, trust, link, server: panel, tower, bindWaitMs = 0, keep, desk = false, lan, view: firstView = "auto", music }: GuiOptions): Promise<Gui> {
+export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, port = 0, remotePort = 0, pollMs = 2000, idleMs = 10_000, pingMs = 15_000, onStop, refuseTake, onRemote, onRemoteOff, onSaveFailed, spawn, close, trust, link, server: panel, tower, bindWaitMs = 0, keep, desk = false, lan, view: firstView = "auto", music, operateHost: host }: GuiOptions): Promise<Gui> {
 	try {
 		if (!statSync(join(dir, "index.html")).isFile()) throw new Error();
 	} catch {
@@ -144,15 +147,15 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		if (n) await tick();
 		return n;
 	};
-	const control = createControl({ grants, ...(lan ? { lan: lan.panel, overlay: lan.overlay } : {}), link, server: panel, tower: tower?.memory ? { ...tower, memory: async (ws, json) => { const done = await tower.memory!(ws, json); await tick(); return done; } } : tower, lookup: (key) => net?.lookup(key), call, csrf, canonical, pair, remoteOn: onRemote, remoteOff: onRemoteOff, paired: { on: () => Boolean(access.remote), ...access.devices, unsaved: access.unsaved }, saveFailed: onSaveFailed, spawn, close: close && (async (kind, json) => (await tick(), close(kind, json, tick))), dismiss: async (key) => typeof key === "string" && Boolean(net?.dismiss?.(key)) && (await tick(), true), dismissAll, mirrors, stop, secret: waitsForSecret, linkRequest: waitsForLinkRequest, trust: trust?.answer, answers: hub && { has: hub.has, replay: hub.replay, ended: hub.ended, send: hub.send, probe: hub.probe, commands: hub.commands, pull: hub.pull, target: async (key) => (await tick(), hub.target(key)) } });
-	let last: string | undefined, problem: string | undefined, inflight: Promise<void> | undefined;
+	const control = createControl({ bridge: host?.bridge, grants, ...(lan ? { lan: lan.panel, overlay: lan.overlay } : {}), link, server: panel, tower: tower?.memory ? { ...tower, memory: async (ws, json) => { const done = await tower.memory!(ws, json); await tick(); return done; } } : tower, lookup: (key) => net?.lookup(key), call, csrf, canonical, pair, remoteOn: onRemote, remoteOff: onRemoteOff, paired: { on: () => Boolean(access.remote), ...access.devices, unsaved: access.unsaved }, saveFailed: onSaveFailed, spawn, close: close && (async (kind, json) => (await tick(), close(kind, json, tick))), dismiss: async (key) => typeof key === "string" && Boolean(net?.dismiss?.(key)) && (await tick(), true), dismissAll, mirrors, stop, secret: waitsForSecret, linkRequest: waitsForLinkRequest, trust: trust?.answer, answers: hub && { has: hub.has, replay: hub.replay, ended: hub.ended, send: hub.send, probe: hub.probe, commands: hub.commands, pull: hub.pull, target: async (key) => (await tick(), hub.target(key)) } });
+	let last: string | undefined, problem: string | undefined, inflight: Promise<void> | undefined, local: Net | undefined;
 	let poll: ReturnType<typeof setInterval> | undefined, beat: ReturnType<typeof setInterval> | undefined;
 	const send = (to: ServerResponse, data: string, event?: string) => to.writableEnded || to.write(`${event ? `event: ${event}\n` : ""}data: ${data}\n\n`); // a reading in flight at stop ends after the streams
 	const push = (data: string, event?: string) => clients.forEach((_, c) => send(c, data, event));
 	// One reading at a time; a caller that arrives meanwhile waits for the one in flight.
 	const tick = () => (inflight ??= (async () => {
 		try {
-			const net = await read(), json = JSON.stringify(net);
+			const net = (local = await read()), json = JSON.stringify(host ? host.merge(net) : net);
 			const moved = json !== last;
 			if (moved || problem) push((last = json));
 			problem = undefined;
@@ -187,8 +190,11 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		// `hello` names this stream for the terminal mirrors it attaches (mirror.ts), which end with it; before the net's first reading, after it.
 		const to = (event: string, data: unknown) => send(res, JSON.stringify(data), event), stream = randomBytes(16).toString("hex"), hello = () => to("hello", { stream, build, view });
 		mirrors.open(stream, to);
+		host?.bridge.mirrorOpen(stream, to);
+		const left = host?.page();
 		if (last) hello();
-		const watch = target?.startsWith("w:") ? watchWorkspace(files, target.slice(2), to) : target ? watchSession(files, target, to) : undefined;
+		// A box's unit or base (a key of the operate host's) is watched through its session; any other target is a local one.
+		const watch = (target && host?.bridge.watch(target, to)) || (target?.startsWith("w:") ? watchWorkspace(files, target.slice(2), to) : target ? watchSession(files, target, to) : undefined);
 		clients.set(res, watch);
 		if (last) res.write(`data: ${last}\n\n`);
 		pulse();
@@ -199,6 +205,8 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 			clients.delete(res);
 			remotes.delete(res);
 			mirrors.close(stream);
+			host?.bridge.mirrorClose(stream);
+			left?.();
 			watch?.stop();
 			pulse();
 		});
@@ -253,6 +261,13 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 				return void (file ? res.writeHead(200, { ...HEADERS, "content-type": file.type, "content-disposition": `attachment; filename="${parts[2]}"` }).end(file.bytes) : fail(404));
 			}
 			if (SCOPES.includes(parts[0]!)) return void control(req, who.origin, parts, who.remote).then(answer, () => answer({ status: 500, body: { error: "internal", reason: "The request could not be handled." } }));
+			// A box's unit: its history, an entry and an image are read through its session (a reply the sanitizer took, or the error the page gets for one it did not).
+			const far = req.method === "GET" ? host?.bridge.claim("GET", parts, {}, url.searchParams) : undefined;
+			if (far) return void far.send().then((r) => {
+				const pic = r.status === 200 && parts[0] === "image" ? (r.body as { type: string; bytes: Buffer }) : undefined;
+				if (pic) return void res.writeHead(200, { ...HEADERS, "content-type": pic.type, "cache-control": "private, max-age=86400" }).end(pic.bytes);
+				answer(r);
+			}, () => answer({ status: 500, body: { error: "internal", reason: "The request could not be handled." } }));
 			// An entry never changes once written, so its image is cached for a day; the token in the URL keeps it to this page.
 			if (req.method === "GET" && parts[0] === "image") return void image(files, parts.slice(1)).then((p) => (p ? res.writeHead(200, { ...HEADERS, "content-type": p.type, "cache-control": "private, max-age=86400" }).end(p.bytes) : fail(404)), () => fail(404));
 			// Zen's music: the list, and one track with range requests (music.ts). Same token and paired-device checks as the reads around it; the folder's files are the only thing it reads.
@@ -292,6 +307,12 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 	};
 	const lanHandler = handler("lan", () => server) as LanHandler;
 	routes = { local: handler("local", () => server), remote: handler("remote", () => remoteServer) };
+	// A box's snapshot, a state change or a session's end moves the net the pages read, though Herdr has not: the last reading is merged again, without reading Herdr.
+	const unhost = host?.onChange(() => {
+		if (!local) return;
+		const json = JSON.stringify(host.merge(local));
+		if (json !== last) push((last = json));
+	});
 	hub?.start(() => void (clients.size && tick())); // a relayed dialog shows at once, not at the next poll
 	const unwatch = trust?.watch(() => void (clients.size && tick())); // and so does a trust question
 	// With no page listening the net is still read every `idleMs`, so its activity (activity.ts) is kept for the page that comes next: a phone that sleeps
@@ -301,6 +322,8 @@ export async function startGui({ read, net, call, hub, dir = BUNDLE, paired, por
 		return new Promise<void>((done) => {
 			hub?.stop();
 			unwatch?.();
+			unhost?.();
+			host?.stop();
 			operate.stop();
 			mirrors.stop();
 			clearInterval(poll);

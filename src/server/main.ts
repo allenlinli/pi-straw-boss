@@ -421,7 +421,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 				return workspace ? answer((t) => t.close(workspace)) : Promise.resolve({ ok: false, error: "close-tower needs a workspace" });
 			case "open-main": {
 				const [what, sender] = [text(request.request, 100_000), text(request.sender)];
-				return workspace && what && sender ? answer(async (t) => ({ opened: await t.openMain({ workspace, request: what, sender, ...(text(request.label) ? { label: text(request.label)! } : {}) }) })) : Promise.resolve({ ok: false, error: "open-main needs a workspace, a request, and a sender" });
+				return workspace && what && sender ? answer(async (t) => ({ opened: await t.openMain({ workspace, request: what, sender, ...(text(request.label) ? { label: text(request.label)! } : {}), ...(text(request.role, 16) ? { role: text(request.role, 16)! } : {}) }) })) : Promise.resolve({ ok: false, error: "open-main needs a workspace, a request, and a sender" });
 			}
 			case "close-main": {
 				const query = text(request.query);

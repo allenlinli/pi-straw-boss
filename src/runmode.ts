@@ -45,7 +45,7 @@ const POLL_MS = 1000, CLAIM_WAIT_MS = 10_000, LOST_MS = 30_000, TURN_START_MS = 
 /** The boss's words in the run's session are told to the server at most this often: its silence is judged in minutes. */
 const BOSS_SIGN_MS = 15_000;
 /** A run's pane tokens: the tower's standing pane and an ally run's pane. */
-const RUN_PANE_ROLES = new Set(["tower", "ally", "head"]);
+export const RUN_PANE_ROLES = new Set(["tower", "ally", "head"]);
 /** A `/reload` makes a new instance of the extension in the same process: the claim stays with the process. */
 const KEPT = Symbol.for("pi-straw-boss.run");
 /** Set once this process really became a resident tower (the server said the pane is no run's, or no server was there to say): only such a process skips the pane-role ask at a /reload, /new, /resume, or /fork. */

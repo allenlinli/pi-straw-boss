@@ -11,6 +11,8 @@ import { fieldsOf, stamp } from "../header.ts";
 import { createReach, nameOf, type Reach } from "../reach.ts";
 import type { HerdrEvents } from "../server-watch.ts";
 import type { Config } from "../state.ts";
+import { isSessionRole } from "../trainrole.ts";
+import { integrationOff } from "../trainswitch.ts";
 import { trustDir } from "../trust/files.ts";
 import type { IntercomModule } from "./intercom.ts";
 import type { Log } from "./log.ts";
@@ -118,7 +120,7 @@ export interface Towers {
 	/** The boss closed the tower: its tab goes, and the service with it. */
 	close(workspace: string): Promise<{ workspace: string; id: string }>;
 	/** The opener, with the persisted ledger, for the workspace's tower. */
-	openMain(request: { workspace: string; request: string; sender: string; label?: string }): Promise<Opened>;
+	openMain(request: { workspace: string; request: string; sender: string; label?: string; role?: string }): Promise<Opened>;
 	/** The `close-main` ask from the workspace's tower identity. */
 	closeMain(request: { workspace: string; query: string }): ReturnType<Control["closeMain"]>;
 	/** The holder's sink for a `unit-stop` that passed its checks (unitstop.ts): decides it from the route table and writes it on the route, which the revoker then carries out. Never rejects. */
@@ -390,7 +392,7 @@ export function createTowers(o: TowersOptions): Towers {
 					// Two openers over the same tower: the local run's, whose ledger the local brief lists, and the ally runs', whose ledger is their own (allyroute.ts).
 					const openerFor = (file?: string) => opener({
 						run, sleep, workspaceId: l.record.workspace, cwd: l.record.cwd ?? slot.stateDir, sessions: () => (l.client ?? client).listSessions(), send: (to, message) => l.reach!.send(to, message),
-						tower: () => ({ id: l.record.id, name: l.record.name }), trustDir: trustDir(slot.stateDir),
+						tower: () => ({ id: l.record.id, name: l.record.name }), trustDir: trustDir(slot.stateDir), integrationOff: () => integrationOff(o.env, slot.stateDir), stateDir: slot.stateDir,
 						ledger: { entries: () => readLedger(slot, l.record.workspace, now(), file), put: (row) => { try { putLedger(slot, l.record.workspace, row, now(), file); } catch (cause) { error("ledger", (cause as Error).message); } } },
 					});
 					if (!isHeadL(l)) (l.open = openerFor(), l.openAlly = openerFor(ALLY_LEDGER));
@@ -565,7 +567,7 @@ export function createTowers(o: TowersOptions): Towers {
 			const held = all.find((w) => w.workspace_id === l.record.workspace)?.tokens?.[isHeadL(l) ? HEAD_TOKEN : "tower"];
 			// Another tower's token (a resident tower that took the workspace) is not ours to clear.
 			if (all.some((w) => w.workspace_id === l.record.workspace) && (!held || held === l.record.id)) {
-				const members = ps.filter((p) => ["member", "main"].includes(p.tokens?.sb_role ?? "")).length;
+				const members = ps.filter((p) => isSessionRole(p.tokens?.sb_role)).length;
 				await report(run, "workspace", l.record.workspace, isHeadL(l) ? { [HEAD_TOKEN]: null } : { tower: null, sb_tower_quit: String(members) }).catch(() => {});
 			}
 			if (ps.some((p) => p.pane_id === l.record.pane)) await report(run, "pane", l.record.pane, CLEAR).catch(() => {});
@@ -1173,7 +1175,7 @@ export function createTowers(o: TowersOptions): Towers {
 			await lose(l, "closed by the boss");
 			return { workspace, id: l.record.id };
 		},
-		openMain: ({ workspace, request, sender, label }) => need(workspace).open!({ request, sender, ...(label ? { label } : {}) }),
+		openMain: ({ workspace, request, sender, label, role }) => need(workspace).open!({ request, sender, ...(label ? { label } : {}), ...(role ? { role } : {}) }),
 		closeMain: async ({ workspace, query }) => forgetClosed(workspace, await need(workspace).control!.closeMain(query)),
 		unitStop: (stop) => unitStop.handle(stop),
 		mains,

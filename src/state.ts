@@ -8,6 +8,7 @@ import type { HerdrApi, HerdrCall, HerdrRun, HerdrWorld, Place, Session, Sleep }
 import type { LinkDeps } from "./link/runtime.ts";
 import type { FaceSeams } from "./lanface.ts";
 import type { RunSideDeps } from "./runmode.ts";
+import type { TrainId } from "./trainrole.ts";
 import type { ServerLookDeps } from "./server-look.ts";
 import type { HerdrEvents, HerdrWatch } from "./server-watch.ts";
 
@@ -28,8 +29,8 @@ export interface Channel {
 	listSessions(): Promise<Session[]>;
 }
 export interface SendResult { requestId?: string; status: string; code?: string; detail?: string }
-export interface Saved { tower?: boolean; openedBy?: string | null; openedPane?: string }
-export type Role = "tower" | "main" | "member";
+export interface Saved { tower?: boolean; openedBy?: string | null; openedPane?: string; train?: TrainId }
+export type Role = "tower" | "main" | "member" | "train";
 export type Scope = "tab" | "workspace" | "towers" | "all";
 /**
  * `run` is the CLI for every command; left out, Herdr's listings, `pane current`, and `report-metadata` go over the socket instead (`socketRun`) and `world` is one `session.snapshot`. `world` is the dashboard's and the GUI's reading of panes and workspaces.
@@ -44,6 +45,8 @@ export interface State {
 	isTower: boolean;
 	joined: boolean;
 	isMain: boolean;
+	/** This session is the train the tower opened in its tab (docs/specs/2026-11-07-train-workers.md §3.3): a role of its own, never the tab's main. `train` names its project and code. */
+	isTrain: boolean; train: TrainId | undefined;
 	holdsTower: boolean;
 	/** Why this session cannot join: it sits in a sub workspace, or Herdr could not say whether it does. */
 	barred: string | undefined;
@@ -99,7 +102,7 @@ export interface Kit {
 export function createKit(pi: ExtensionAPI, cfg: Config): Kit {
 	const { env } = cfg;
 	const s: State = {
-		isTower: env.STRAW_BOSS_ROLE === "tower", joined: false, isMain: false, holdsTower: false, barred: undefined, recheck: undefined, stopped: false,
+		isTower: env.STRAW_BOSS_ROLE === "tower", joined: false, isMain: false, isTrain: false, train: undefined, holdsTower: false, barred: undefined, recheck: undefined, stopped: false,
 		// SAFETY: `c` and `at` are set by the join (or the tower's start) before any module reads them; the GUI's `sessions()` tests `c` for undefined.
 		c: undefined as unknown as Channel,
 		// SAFETY: as `c` above.
@@ -111,6 +114,7 @@ export function createKit(pi: ExtensionAPI, cfg: Config): Kit {
 	const role = (): Role | undefined => {
 		if (s.isTower) return "tower";
 		if (!s.joined) return undefined;
+		if (s.isTrain) return "train";
 		return s.isMain ? "main" : "member";
 	};
 	return {

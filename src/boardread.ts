@@ -27,16 +27,16 @@ export async function readBoard(o: BoardReadInput): Promise<Record<string, unkno
 	if (o.scope !== "remote" && o.device === undefined) {
 		// In a remote turn the labels are scrubbed from the raw text and cut last (the same gate as on the wire).
 		const label = (t: string) => (scope ? allyLabel(t) : clean(t, 40));
-		const mains = netMembers(o.net.sessions, o.net.ps).filter((m) => m.role === "main").map((m): LiveMain => {
+		const mains = netMembers(o.net.sessions, o.net.ps).filter((m) => m.role === "main" || m.role === "train").map((m): LiveMain => {
 			const pane = o.net.ps.find((p) => p.pane_id === m.s.herdrLocation?.paneId);
-			return { session: m.s.id, name: label(nameOf(m.s)), workspaceId: m.workspace.id, workspace: label(m.workspace.label), tab: label(m.tab.label), state: sessionMark(m.s, pane), commanding: commanding(sessionMark(m.s, pane), subagents(pane, o.net.ps, o.now).map((r) => r.mark)) === "commanding", ...(pane?.cwd ? { cwd: pane.cwd } : {}) };
+			return { session: m.s.id, ...(m.role === "train" ? { role: "train" as const } : {}), name: label(nameOf(m.s)), workspaceId: m.workspace.id, workspace: label(m.workspace.label), tab: label(m.tab.label), state: sessionMark(m.s, pane), commanding: commanding(sessionMark(m.s, pane), subagents(pane, o.net.ps, o.now).map((r) => r.mark)) === "commanding", ...(pane?.cwd ? { cwd: pane.cwd } : {}) };
 		});
 		purge(o.dir, new Set(o.net.sessions.map((s) => s.id)), o.now);
 		let rows = joinLocal(readEntries(o.dir), mains, o.now);
 		// In a remote turn: only entries of mains inside the project the senders' teams bind. An ended entry has no directory to prove it, so it stays out.
 		// And as the allies get them: an auto-filled entry as the main's name and done count only.
 		if (scope) rows = rows.filter((r) => scope.project !== undefined && r.cwd !== undefined && inside(r.cwd, scope.project)).map((r) => (r.now === undefined ? r : { ...r, ...forAllies({ now: r.now, items: r.items, src: r.src ?? "set", count: r.count, who: r.who }) }));
-		out.local = rows.map((r) => ({ workspace: r.workspace, tab: r.tab, main: r.main, state: r.state, ...(r.now ? { now: r.now } : {}), items: r.items, ...(r.updatedSecondsAgo !== undefined ? { updatedSecondsAgo: r.updatedSecondsAgo } : {}), ...(r.stale ? { stale: true } : {}) }));
+		out.local = rows.map((r) => ({ ...(r.role ? { role: r.role } : {}), workspace: r.workspace, tab: r.tab, main: r.main, state: r.state, ...(r.now ? { now: r.now } : {}), items: r.items, ...(r.updatedSecondsAgo !== undefined ? { updatedSecondsAgo: r.updatedSecondsAgo } : {}), ...(r.stale ? { stale: true } : {}) }));
 	}
 	if (o.scope !== "local" || o.device !== undefined) {
 		// Senders of several teams get no ally rows, the same rule as for the local part.

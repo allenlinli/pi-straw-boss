@@ -1,6 +1,7 @@
 import type { Reply } from "./control.ts";
 import { type HerdrRun, panes, type Session, type Sleep } from "./herdr.ts";
 import { closeAll, nameOk, stashBase } from "./stash.ts";
+import { trainFromToken, trainLabel } from "./trainrole.ts";
 import { SettingsRefused } from "./trust/settings.ts";
 
 // What the page's close buttons ask for. Closing is each session's own (index.ts): its bridge is asked to quit it as /boss close does, and its
@@ -28,6 +29,9 @@ export function createCloser({ run, sleep, me, sessions, ask, check, stateDir, p
 	/** `ifStashable`: a stash's batch, where each session quits only while it can still be stashed. */
 	async function batch(workspace: string, tab?: string, ifStashable = false): Promise<Reply> {
 		const here = (await panes(run, workspace)).filter((p) => (!tab || p.tab_id === tab) && JOINED.has(p.tokens?.sb_role ?? ""));
+		const trains = (await panes(run, workspace)).filter((p) => (!tab || p.tab_id === tab) && p.tokens?.sb_role === "train");
+		// A train is not asked to quit and is not closed behind its back: only the tower closes it (boss_close_main, docs/specs/2026-11-07-train-workers.md §3.3).
+		if (trains.length) return no(409, "refused", `Nothing was closed: a train runs here (${trains.map((p) => trainFromToken(p.tokens?.sb_train) ? trainLabel(trainFromToken(p.tokens?.sb_train)!.code) : p.pane_id).join(", ")}); only its tower closes it.`);
 		if (!here.length && !(await panes(run, workspace)).some((p) => !tab || p.tab_id === tab)) return no(404, "not_found", tab ? "That squad is not open any more." : "That base is not open any more.");
 		// A service stands in its pane with no bridge to ask, and the pi of one of its runs sits there too, under an id of its own: they end with the service, not by a quit.
 		const standing = new Set(tower?.has(workspace) ? here.filter((p) => p.tokens?.sb_role === "tower").map((p) => p.pane_id) : []);

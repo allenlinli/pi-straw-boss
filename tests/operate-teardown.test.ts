@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, renameSync, chmodSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Level, TeamPolicy } from "../src/link/config.ts";
 import { LinkHolder } from "../src/link/holder.ts";
-import { type OperateGrant, type Policy, watchPolicy } from "../src/link/policy.ts";
-import { removeEntry, roleEntry } from "../src/link/roster.ts";
+import { type OperateGrant, type Policy, policyStamp, watchPolicy } from "../src/link/policy.ts";
+import { addEntry, createEntry, removeEntry, roleEntry } from "../src/link/roster.ts";
 import { LinkStore } from "../src/link/store.ts";
 import { createOperateGuard, type GuardSession } from "../src/server/operateguard.ts";
 import type { EndReason, MemberOf, Owner } from "../src/server/operatescope.ts";
@@ -14,7 +14,7 @@ import { fakeClock } from "./fake-clock.ts";
 import { FakeRelay } from "./link/fake-relay.ts";
 import { until } from "./link/fakes.ts";
 import { alice, bob, carol, clientFor, netOf, rosterOf, stateOf, TEAM_HEX, writeDevice, writeTeam } from "./link/holder-world.ts";
-import { DEVICES, TEAM, teamKey } from "./link/scenario.ts";
+import { DEVICES, det, LABELS, TEAM, teamKey, view } from "./link/scenario.ts";
 
 // Teardown (docs/specs/2026-11-07-link-operate.md §5.6): the box ends an operate session at once when the grant it stands on goes: a policy edit within the next 2 s poll, a refused or unreadable policy, a roster
 // change when it arrives. One bad read ends: ending a view loses no work, and a session that outlives its grant is the one failure that must not happen. The session layer (task 5) gives the guard its `end`;
@@ -51,11 +51,15 @@ function world(over: { trust?: Record<string, Level>; operate?: Record<string, O
 	return { clock, state, guard, ended, logs, edit: (fn: (p: Un) => void) => { const p = state.policy as Un; fn(p); state.stamp++; } };
 }
 type World = ReturnType<typeof world>;
+const opened = new Map<string, { team: string; from: string }>();
 const open = (w: World, id: string, team: string, from: string, want: "team" | "box" = "team") => {
+	opened.set(id, { team, from });
 	const r = w.guard.admit({ id, team, from, want });
 	assert.equal(r.ok, true, `${id}: ${JSON.stringify(r)}`);
 	return r;
 };
+/** A request of session `id` as its own sender sends it (the envelope's `from` and team). */
+const ask = (w: World, id: string, q: { unit?: string; localOnly?: boolean } = {}) => w.guard.check(id, { ...(opened.get(id) ?? { team: "?", from: "?" }), ...q });
 const ids = (w: World) => w.guard.sessions().map((s) => s.id).sort();
 
 /** The poll and the file watcher of the policy, on the test's clock and a watcher the test fires. */
@@ -177,9 +181,9 @@ test("a box grant lowered to team keeps the session but drops its box part", () 
 	w.clock.advance(2000);
 	assert.deepEqual(w.ended, []);
 	assert.deepEqual(w.guard.sessions()[0]!.scope, { teams: [A], box: false });
-	const r = w.guard.check("s-alice", { unit: "tower" });
+	const r = ask(w, "s-alice", { unit: "tower" });
 	assert.equal(r.ok, false);
-	assert.equal(w.guard.check("s-alice", { unit: "a-main" }).ok, true);
+	assert.equal(ask(w, "s-alice", { unit: "a-main" }).ok, true);
 	p.watcher.stop();
 });
 
@@ -238,20 +242,20 @@ test("an admin demoted ends its session when its only team goes, and loses just 
 	const w = world();
 	open(w, "s-bob", B, bob.id);
 	open(w, "s-carol", A, carol.id);
-	assert.deepEqual(w.guard.sessions().find((s) => s.id === "s-carol")!.scope.teams.sort(), [A, B]);
+	open(w, "s-carol-b", B, carol.id);
+	assert.deepEqual(w.guard.sessions().find((s) => s.id === "s-carol")!.scope.teams, [A], "a session reaches the team its open came on (one session per team)");
 	w.state.roster[`${B}:${bob.id}`] = { role: "member" };
 	w.guard.onRoster(B);
 	assert.deepEqual(w.ended, [["s-bob", "roster"]]);
-	assert.deepEqual(w.guard.sessions().find((s) => s.id === "s-carol")!.scope.teams, [A, B], "carol is still admin of B");
+	assert.deepEqual(ids(w), ["s-carol", "s-carol-b"], "carol is still admin of B");
 	w.state.roster[`${B}:${carol.id}`] = { role: "member" };
 	w.guard.onRoster(B);
-	assert.deepEqual(w.ended, [["s-bob", "roster"]], "carol keeps A");
-	assert.deepEqual(w.guard.sessions().find((s) => s.id === "s-carol")!.scope.teams, [A], "B left carol's reach");
-	assert.equal(w.guard.check("s-carol", { unit: "b-main" }).ok, false);
-	assert.equal(w.guard.check("s-carol", { unit: "a-main" }).ok, true);
+	assert.deepEqual(w.ended, [["s-bob", "roster"], ["s-carol-b", "roster"]], "B left carol's reach: its session ends, A's stays");
+	assert.equal(ask(w, "s-carol", { unit: "b-main" }).ok, false);
+	assert.equal(ask(w, "s-carol", { unit: "a-main" }).ok, true);
 	w.state.roster[`${A}:${carol.id}`] = { role: "member" };
 	w.guard.onRoster(A);
-	assert.deepEqual(w.ended, [["s-bob", "roster"], ["s-carol", "roster"]]);
+	assert.deepEqual(w.ended, [["s-bob", "roster"], ["s-carol-b", "roster"], ["s-carol", "roster"]]);
 });
 
 test("a removed member ends; so does one that is no longer attended", () => {
@@ -289,19 +293,19 @@ test("a roster change of one team does not look at, let alone end, another team'
 test("a request rechecks everything and ends the session itself when the grant is gone, without waiting for a poll or an event", () => {
 	const w = world();
 	open(w, "s-alice", A, alice.id, "box");
-	assert.deepEqual(w.guard.check("s-alice", { unit: "a-main" }), { ok: true });
+	assert.deepEqual(ask(w, "s-alice", { unit: "a-main" }), { ok: true });
 	w.state.roster[`${A}:${alice.id}`] = { role: "member" };
-	const r = w.guard.check("s-alice", { unit: "a-main" });
+	const r = ask(w, "s-alice", { unit: "a-main" });
 	assert.equal(r.ok, false);
 	assert.equal(r.ok === false && r.reason, "not-admin");
 	assert.deepEqual(w.ended, [], "the box part is still there: the session stays for the box's units");
-	assert.equal(w.guard.check("s-alice", { unit: "tower" }).ok, true);
+	assert.equal(ask(w, "s-alice", { unit: "tower" }).ok, true);
 	w.edit((policy) => policy.operate.delete(alice.id));
-	const gone = w.guard.check("s-alice", { unit: "tower" });
+	const gone = ask(w, "s-alice", { unit: "tower" });
 	assert.equal(gone.ok === false && gone.reason, "not-granted");
 	assert.deepEqual(w.ended, [["s-alice", "policy"]]);
-	assert.equal(w.guard.check("s-alice", { unit: "tower" }).ok, false, "an ended session answers nothing");
-	assert.equal(w.guard.check("nope", {}).ok, false, "an unknown session id answers nothing");
+	assert.equal(ask(w, "s-alice", { unit: "tower" }).ok, false, "an ended session answers nothing");
+	assert.equal(ask(w, "nope", {}).ok, false, "an unknown session id answers nothing");
 });
 
 test("an end callback that throws does not keep the others from ending, and what it threw is not logged", () => {
@@ -354,22 +358,23 @@ afterEach(async () => {
 });
 
 /** Bob is the box (an unattended holder); alice is the founder and admin, carol a member. `hook` is what the holder's `onRoster` option does. */
-function box(hook: (team: string, holder: LinkHolder) => void) {
-	const entries = rosterOf(["bob", "carol"]), dir = join(root, "box", "link"), project = join(root, "project");
+function box(hook: (team: string, holder: LinkHolder) => void, opt: { entries?: ReturnType<typeof rosterOf>; teams?: Map<string, { project: string; share: "status"; name: string }> } = {}) {
+	const entries = opt.entries ?? rosterOf(["bob", "carol"]), dir = join(root, "box", "link"), project = join(root, "project");
 	mkdirSync(project, { recursive: true });
 	const store = new LinkStore(dir, { alive: () => true });
 	store.ensure();
 	writeDevice(store, bob, "ci-box");
 	writeTeam(store, entries, bob);
+	const teams = opt.teams ?? new Map([[TEAM_HEX, { project, share: "status" as const, name: "moldplan" }]]);
 	const holder: LinkHolder = new LinkHolder({
 		store, isHolder: () => true, attended: () => false, net: async () => netOf([]), relay: clientFor(relay),
-		config: () => ({ teams: new Map([[TEAM_HEX, { project, share: "status" as const, name: "moldplan" }]]), trust: new Map(), problems: [] }),
+		config: () => ({ teams, trust: new Map(), problems: [] }),
 		offer: () => {}, notify: () => {}, backoff: () => 5, drainMs: 20, presenceMs: 60_000, postWaitMs: 2000, capsMs: 3600_000, capsMinMs: 5,
 		onRoster: (team) => hook(team, holder),
 	});
 	cleanup.push(() => holder.stop());
 	relay.addTeam(TEAM, [alice.id, bob.id, carol.id], entries);
-	return { holder, store, entries, dir };
+	return { holder, store, entries, dir, teams, project };
 }
 const teamEntries = (dir: string) => (JSON.parse(readFileSync(join(dir, "teams", `${TEAM_HEX}.json`), "utf8")) as { entries: string[] }).entries.length;
 const logOf = (dir: string) => readFileSync(join(dir, "link.log"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
@@ -427,4 +432,117 @@ test("holder: the box itself removed from the team stops the team, and the hook 
 	await until(() => seen.length >= 1, 3000, "the hook after the box's removal");
 	assert.equal(seen[0], "null", "a stopped team has no members to trust");
 	assert.equal(b.holder.member(TEAM_HEX, alice.id), undefined);
+});
+
+// ---- Review round: a team that stops by leave or by a config drop, stop(), attended, the stamp -----------------------------------------------------
+
+test("holder: leaving the team (admin.leave) tells the hook at once, with the team already stopped (OAR-F001)", async () => {
+	const seen: { team: string; member: string }[] = [];
+	const b = box((team, holder) => void seen.push({ team, member: JSON.stringify(holder.member(team, alice.id) ?? null) }));
+	await b.holder.start();
+	assert.deepEqual(seen, []);
+	await b.holder.admin.leave({ team: TEAM_HEX, force: true });
+	assert.deepEqual(seen, [{ team: TEAM_HEX, member: "null" }]);
+});
+
+test("holder: a team dropped from the config and refreshed tells the hook once; a team already dead (kill told it) is not told twice (OAR-F001)", async () => {
+	const seen: string[] = [];
+	const b = box((team) => void seen.push(team));
+	await b.holder.start();
+	b.teams.delete(TEAM_HEX);
+	await b.holder.refresh();
+	assert.deepEqual(seen, [TEAM_HEX]);
+	assert.equal(b.holder.member(TEAM_HEX, alice.id), undefined);
+	await b.holder.refresh();
+	assert.deepEqual(seen, [TEAM_HEX], "nothing more to tell");
+});
+
+test("holder: stop() tells the hook for every running team, so a displaced holder or a server stop leaves no session open (OAR-F002 M35)", async () => {
+	const seen: string[] = [];
+	const b = box((team) => void seen.push(team));
+	await b.holder.start();
+	await b.holder.stop();
+	assert.deepEqual(seen, [TEAM_HEX]);
+});
+
+test("holder: member() reports attended as the roster has it, false for an unattended member (OAR-F002 M36)", async () => {
+	const log = [createEntry({ team: TEAM, founder: alice, label: LABELS.alice, teamKey: teamKey(1), ...det("create") })];
+	log.push(addEntry({ state: view(log), signer: alice, record: bob, label: LABELS.bob, attended: true, ...det("add-bob") }));
+	log.push(addEntry({ state: view(log), signer: alice, record: carol, label: LABELS.carol, attended: false, ...det("add-carol") }));
+	const b = box(() => {}, { entries: log });
+	await b.holder.start();
+	assert.deepEqual(b.holder.member(TEAM_HEX, carol.id), { role: "member", attended: false });
+	assert.deepEqual(b.holder.member(TEAM_HEX, alice.id), { role: "admin", attended: true });
+});
+
+test("the policy stamp changes with the folder's mode, and with a ctime-only change of the file (a hard link): no watch needed (OAR-F002 M28, OAR-F004)", () => {
+	const dir = mkdtempSync(join(tmpdir(), "psb-operate-stamp-")), path = join(dir, "policy.json");
+	try {
+		writeFileSync(path, "{}");
+		chmodSync(dir, 0o755);
+		const first = policyStamp(path);
+		assert.equal(policyStamp(path), first, "calm is calm");
+		chmodSync(dir, 0o777);
+		const second = policyStamp(path);
+		assert.notEqual(second, first, "the folder half");
+		assert.equal(first.split("|")[0], second.split("|")[0], "the file half did not move");
+		linkSync(path, join(dir, "alias.json"));
+		assert.notEqual(policyStamp(path).split("|")[0], second.split("|")[0], "ctime moved the file half with inode, size, mtime and mode all unchanged");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// ---- Review round: the guard's own seams -------------------------------------------------------------------------------------------------------------
+
+test("a session on its open's team reaches that team only, even for an admin of two (OAR-F003)", () => {
+	const w = world();
+	open(w, "s-carol", A, carol.id);
+	assert.deepEqual(w.guard.sessions()[0]!.scope, { teams: [A], box: false });
+	assert.equal(ask(w, "s-carol", { unit: "b-main" }).ok, false, "B's unit is for the session opened on B");
+});
+
+test("a box session whose operator does not admin the open's team keeps the box part only; the team's own onRoster still ends it when the operator leaves that team (OAR-F002 M29)", () => {
+	const w = world();
+	w.state.roster[`${A}:${alice.id}`] = { role: "member" };
+	open(w, "s-alice", A, alice.id, "box");
+	assert.deepEqual(w.guard.sessions()[0]!.scope, { teams: [], box: true });
+	delete w.state.roster[`${A}:${alice.id}`];
+	w.guard.onRoster(A);
+	assert.deepEqual(w.ended, [["s-alice", "roster"]]);
+});
+
+test("a request that is not the session's own sender or team is refused and ends nothing (OAR-F006)", () => {
+	const w = world();
+	open(w, "s-alice", A, alice.id, "box");
+	assert.deepEqual(w.guard.check("s-alice", { from: bob.id, team: A, unit: "a-main" }), { ok: false, reason: "not-granted" });
+	assert.deepEqual(w.guard.check("s-alice", { from: alice.id, team: B, unit: "a-main" }), { ok: false, reason: "not-granted" });
+	assert.deepEqual(w.ended, []);
+	assert.deepEqual(ask(w, "s-alice", { unit: "a-main" }), { ok: true });
+});
+
+test("an owner lookup that throws is a refusal (out-of-scope) and ends nothing; a member read that throws in a sweep ends that session only and the sweep goes on (OAR-F005)", () => {
+	const clock = fakeClock();
+	const policy: Policy = { mode: "unattended", teams: new Map([[A, tp("alpha")]]), trust: new Map([[alice.id, "dispatch"], [bob.id, "dispatch"]]), operate: new Map([[alice.id, "team"], [bob.id, "team"]]) };
+	let ownerThrows = false, memberThrowsFor: string | undefined;
+	const ended: [string, EndReason][] = [];
+	const guard = createOperateGuard({
+		policy: () => policy,
+		member: (_team, device) => { if (device === memberThrowsFor) throw new Error("boom"); return { role: "admin", attended: true }; },
+		owner: () => { if (ownerThrows) throw new Error("registry unreadable"); return { team: A }; },
+		now: clock.now, end: (s, reason) => void ended.push([s.id, reason]),
+	});
+	assert.equal(guard.admit({ id: "s-alice", team: A, from: alice.id, want: "team" }).ok, true);
+	assert.equal(guard.admit({ id: "s-bob", team: A, from: bob.id, want: "team" }).ok, true);
+	ownerThrows = true;
+	assert.deepEqual(guard.check("s-alice", { from: alice.id, team: A, unit: "u" }), { ok: false, reason: "out-of-scope" });
+	assert.deepEqual(ended, [], "the grant is fine: the session stays");
+	ownerThrows = false;
+	memberThrowsFor = alice.id;
+	guard.onPolicy();
+	assert.deepEqual(ended, [["s-alice", "roster"]], "the throwing read ends its session");
+	assert.deepEqual(guard.sessions().map((s) => s.id), ["s-bob"], "the other session was still rechecked and stays");
+	memberThrowsFor = bob.id;
+	assert.deepEqual(guard.check("s-bob", { from: bob.id, team: A, unit: "u" }), { ok: false, reason: "not-granted" });
+	assert.deepEqual(ended, [["s-alice", "roster"], ["s-bob", "roster"]]);
 });

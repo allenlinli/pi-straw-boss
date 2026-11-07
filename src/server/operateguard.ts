@@ -53,7 +53,12 @@ export function createOperateGuard(d: GuardDeps) {
 	/** Rechecks the grant of each session in `of` against `read`: ends the ones that lost it, narrows the scope of the rest. */
 	const settle = (of: GuardSession[], read: Policy): void => {
 		for (const s of of) {
-			const n = narrow({ policy: read, member: d.member }, s);
+			let n: ReturnType<typeof narrow>;
+			try {
+				n = narrow({ policy: read, member: d.member }, s);
+			} catch {
+				n = { ok: false, ends: "roster" };
+			}
 			if (!n.ok) end(s, n.ends);
 			else s.scope = n.scope;
 		}
@@ -67,11 +72,20 @@ export function createOperateGuard(d: GuardDeps) {
 			sessions.set(q.id, { ...q, scope: r.scope, since: d.now() });
 			return { ok: true, scope: { teams: [...r.scope.teams], box: r.scope.box } };
 		},
-		/** All four checks of a request of session `id`, now. A failure of the grant ends the session as well; a session that is not open answers `not-granted`. Only the word comes back. */
-		check(id: string, q: { unit?: string; localOnly?: boolean }): { ok: true } | { ok: false; reason: Refusal } {
+		/**
+		 * All four checks of a request of session `id`, now. `from` and `team` are the request's envelope sender and team: a request that is not the session's own (another device, another team) is refused `not-granted` and ends nothing.
+		 * A failure of the grant ends the session; a session that is not open answers `not-granted`. A throw of `member` ends the session (`roster`); one of `owner` is `out-of-scope`. Only the word comes back.
+		 */
+		check(id: string, q: { from: string; team: string; unit?: string; localOnly?: boolean }): { ok: true } | { ok: false; reason: Refusal } {
 			const s = sessions.get(id);
-			if (!s) return { ok: false, reason: "not-granted" };
-			const read = policy(), v = checkOperate({ policy: read, member: d.member, owner: d.owner }, s, q);
+			if (!s || s.from !== q.from || s.team !== q.team) return { ok: false, reason: "not-granted" };
+			const read = policy();
+			let v: ReturnType<typeof checkOperate>;
+			try {
+				v = checkOperate({ policy: read, member: d.member, owner: d.owner }, s, q);
+			} catch {
+				v = { ok: false, reason: "not-granted", ends: "roster" };
+			}
 			if (!v.ok && v.ends) end(s, v.ends);
 			else settle([s], read);
 			return v.ok ? { ok: true } : { ok: false, reason: v.reason };

@@ -122,14 +122,14 @@ export function createOperateNotes(log: (entry: Record<string, unknown>) => void
 }
 
 /**
- * A string that changes whenever the policy file or its folder is replaced, rewritten, or has its owner or mode changed: inode, size, mtime, owner and mode of both (a mode change can be what makes the check refuse). A path that cannot be
+ * A string that changes whenever the policy file or its folder is replaced, rewritten, or has its owner or mode changed: inode, size, mtime, ctime, owner, group and mode of both (a mode, group or ACL change moves the ctime and can be what makes the check refuse; a mode change can be what makes the check refuse). A path that cannot be
  * read stamps as `gone`, with its error code, so a vanished file is a change too.
  */
 export function policyStamp(path: string): string {
 	const one = (p: string) => {
 		try {
 			const st = lstatSync(p);
-			return `${st.ino}:${st.size}:${st.mtimeMs}:${st.uid}:${st.mode}`;
+			return `${st.ino}:${st.size}:${st.mtimeMs}:${st.uid}:${st.gid}:${st.mode}:${st.ctimeMs}`;
 		} catch (error) {
 			return `gone:${(error as NodeJS.ErrnoException).code ?? "?"}`;
 		}

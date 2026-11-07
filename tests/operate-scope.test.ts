@@ -113,6 +113,11 @@ test("two panes of one tab naming two devices, a token that is no device id, and
 	assert.deepEqual(own(noTeam, "s-main"), { box: true }, "a row with no team");
 });
 
+test("two opened rows of one device in one tab naming two teams: the unit is the box's, never the first row's team (OAR-F002 M17)", () => {
+	const f: Facts = { refs: [ref("s-main", "main", "p1")], panes: [pane("p1", "t1", by(alice.id))], rows: [opened("s-main", alice.id, A), opened("s-old", alice.id, B, { pane: "p1" })] };
+	assert.deepEqual(own(f, "s-main"), { box: true });
+});
+
 test("both teams on one project: two mains in the same folder belong to the teams their rows say, and a third marked for a device with no row belongs to neither", () => {
 	const f: Facts = {
 		refs: [ref("m-a", "main", "pa"), ref("m-b", "main", "pb"), ref("m-x", "main", "px")],

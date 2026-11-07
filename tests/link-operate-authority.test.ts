@@ -96,9 +96,10 @@ test("policy: attended, refused, malformed operate, or a team the policy does no
 	no(admitOperate(world({ teams: new Map([[B, tp("beta")]]) }), q), "policy");
 });
 
-test("both teams on one project: the folder decides nothing, so an admin of both teams reaches both and an admin of one reaches only its own", () => {
+test("both teams on one project: the folder decides nothing, a session reaches the team its open came on, and an admin of one team opens no session on the other", () => {
 	const both = world({ roster: { ...ROSTER, [`${B}:${alice.id}`]: { role: "admin" } } });
-	assert.deepEqual(ok(admitOperate(both, { team: A, from: alice.id, want: "team" })).scope, scopeOf([A, B]));
+	assert.deepEqual(ok(admitOperate(both, { team: A, from: alice.id, want: "team" })).scope, scopeOf([A]), "one session per (box, team): an admin of two reaches A on the A session");
+	assert.deepEqual(ok(admitOperate(both, { team: B, from: alice.id, want: "team" })).scope, scopeOf([B]));
 	assert.deepEqual(ok(admitOperate(world(), { team: A, from: alice.id, want: "team" })).scope, scopeOf([A]), "alice admins A and is a mere member of B");
 	assert.deepEqual(ok(admitOperate(world(), { team: B, from: bob.id, want: "team" })).scope, scopeOf([B]));
 	assert.equal(TEAMS.get(A)!.project, TEAMS.get(B)!.project, "the fixture really has one project for both");

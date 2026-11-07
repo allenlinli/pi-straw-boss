@@ -46,11 +46,11 @@ function standing(d: { policy: Policy; member: MemberOf }, team: string, from: s
 	return { ok: true, policy, grant, teams };
 }
 
-/** A session is admitted by checks 1 to 3: its scope is the teams `from` admins, plus the box part only for a `box` grant that asked for it. Nothing to reach (`not-admin`) is a refusal. */
+/** A session is admitted by checks 1 to 3: its scope is the team its `open` came on when `from` admins it (one session per (box, team), §5.6), plus the box part only for a `box` grant that asked for it. Nothing to reach (`not-admin`) is a refusal. */
 export function admitOperate(d: { policy: Policy; member: MemberOf }, q: { team: string; from: string; want: "team" | "box" }): { ok: true; grant: OperateGrant; scope: Scope } | { ok: false; reason: Refusal } {
 	const st = standing(d, q.team, q.from);
 	if (!st.ok) return { ok: false, reason: st.reason };
-	const scope: Scope = { teams: st.teams, box: q.want === "box" && st.grant === "box" };
+	const scope: Scope = { teams: st.teams.filter((t) => t === q.team), box: q.want === "box" && st.grant === "box" };
 	return scope.teams.length || scope.box ? { ok: true, grant: st.grant, scope } : { ok: false, reason: "not-admin" };
 }
 
@@ -68,7 +68,12 @@ export function checkOperate(d: { policy: Policy; member: MemberOf; owner(key: s
 	if (!teams.length && !box) return s.scope.box && st.grant !== "box" ? { ok: false, reason: "not-granted", ends: "policy" } : { ok: false, reason: "not-admin", ends: "roster" };
 	const refuse = (reason: Refusal, ends?: EndReason): Verdict => ({ ok: false, reason, ...(ends ? { ends } : {}) });
 	if (q.unit !== undefined) {
-		const owner = d.owner(q.unit);
+		let owner: Owner | undefined;
+		try {
+			owner = d.owner(q.unit);
+		} catch {
+			owner = undefined;
+		}
 		if (!owner) return refuse("out-of-scope");
 		if ("team" in owner) {
 			if (!s.scope.teams.includes(owner.team)) return refuse("out-of-scope");

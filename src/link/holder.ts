@@ -283,6 +283,7 @@ export class LinkHolder {
 				const run = me.runs.get(team);
 				me.runs.delete(team);
 				if (run) await me.stopRun(run);
+				me.rosterChanged(team);
 			},
 			notify: (text, level) => o.notify(text, level), log: (entry) => o.store.log(entry),
 		});
@@ -362,6 +363,7 @@ export class LinkHolder {
 			if (!config.teams.has(team) || run.dead) {
 				this.runs.delete(team);
 				void this.stopRun(run);
+				if (!run.dead) this.rosterChanged(team);
 			}
 		}
 		for (const team of store.teamIds()) {

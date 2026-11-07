@@ -835,6 +835,7 @@
 		}
 	],
 	"queued_server": "Queued · next run",
+	"queued_start": "Tower starting · sent when ready",
 	"tower_working": "Working…",
 	"tower_notice_start": "A run could not start: {reason}",
 	"tower_notice_loop": "Runs crashed or timed out again and again, so the tower stops waking. The queue is kept; Retry, or a message from the boss, wakes it again.",
@@ -1135,6 +1136,7 @@
 	"head_ask_silent": "no answer",
 	"head_ask_no_tower": "no tower",
 	"head_older": "Older ({count})",
+	"head_log_title": "Orders sent ({count})",
 	"head_end": "End conversation",
 	"head_chapter": "New chapter · {date} · {why}",
 	"head_asks_label": "Work handed to the towers",

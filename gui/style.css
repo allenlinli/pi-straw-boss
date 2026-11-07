@@ -394,7 +394,7 @@ html:not([data-view="zen"]) .wait-box { box-sizing: border-box; width: 100%; min
 html:not([data-view="zen"]) .wait-box:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
 .wait-note { margin: 0; color: var(--err-soft); font-size: 0.95em; } .wait-note:empty { display: none; }
 /* In the comms the same rows sit between the log and the composer. */
-.tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))):not(:has(> .head-asks:not([hidden]))):not(:has(> .head-absent:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }
+.tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))):not(:has(> .head-log:not([hidden]))):not(:has(> .head-absent:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }
 /* The tower's queue on its map card, and the sentence that stands where a standing tower's terminal would be. */
 /* The state line may be long (state, last run, failures), so a base's own line wraps instead of cutting the queue count off. */
 .base:not(.ally) > header .title p { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; white-space: normal; overflow: visible; }
@@ -1235,6 +1235,14 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 /* The head page's asks: a card per broadcast, whose closed line is its labelled parts (what the boss said, what the head sent, to whom) and when with how many replied; a tap unfolds the whole texts and each tower's answer; a correction folds the orders it replaced under it; groups quiet for a day fold into "Older" (docs/specs/2026-11-07-head-log-cards.md). */
 .head-asks { --ask-tag: 62px; display: grid; gap: 6px; margin: 0 0 8px; min-width: 0; } /* one length for the label column: the tag's width and the when line's indent (the tag is 11 px and the line 12 px, so `em` would not agree) */
 .ask-group, .ask-older, .ask-replaced { min-width: 0; border: 1px solid var(--line); border-radius: 12px; }
+/* The log is one folded line until the boss opens it; open, its cards scroll in a share of the panel, so the conversation always has the rest (the notes box is a grid row of its own, sized by its content). */
+.head-log { min-width: 0; margin: 0 0 8px; border: 1px solid var(--line); border-radius: 12px; }
+.head-log > summary { display: flex; align-items: center; gap: 4px 12px; box-sizing: border-box; min-height: 44px; padding: 6px 12px; font-size: 13px; cursor: pointer; list-style: none; }
+.head-log > summary::-webkit-details-marker { display: none; }
+.head-log > summary::after { content: "▾"; flex: none; margin-left: auto; color: var(--dim); transition: rotate 0.15s; } .head-log[open] > summary::after { rotate: 180deg; }
+.head-log > summary b { flex: none; } .head-log > summary span { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); }
+.head-log[open] > .head-asks { margin: 0; padding: 0 8px 8px; max-height: calc((var(--vvh, 100vh) - var(--hud, 64px) - 64px) * 0.3); overflow-y: auto; overscroll-behavior: contain; }
+.ask-group[open] > summary > .ask-part { display: none; } .ask-group[open] > summary .ask-foot { padding-left: 0; } /* unfolded, the card shows each text in full below: the clamped copy above it said everything twice */
 .ask-older > .ask-group, .ask-replaced > .ask-group { margin: 0 8px 8px; } .ask-replaced { margin: 0 8px 8px; border-style: dashed; }
 .ask-group > summary, .ask-older > summary, .ask-replaced > summary { display: grid; align-content: center; gap: 3px; box-sizing: border-box; min-height: 44px; padding: 6px 12px; font-size: 13px; cursor: pointer; list-style: none; }
 .ask-group > summary::-webkit-details-marker, .ask-older > summary::-webkit-details-marker, .ask-replaced > summary::-webkit-details-marker { display: none; }

@@ -8,7 +8,7 @@ import { El, sessionGlobals, stored } from "./fake-dom.ts";
 // and the head found by the session view as the unit it is. In both languages. The pictures of every state are taken by hand from the demo (`?head=`).
 
 sessionGlobals();
-const { askGroups, fillHeadAsks, fillHeadButton, fillHeadTitle, groupLine, headDot, headLine, headMemory, remember, seenAt, SEEN, sentLine, towerState } = await import("../gui/headpage.ts");
+const { askGroups, fillHeadAsks, fillHeadButton, fillHeadLog, fillHeadTitle, groupLine, headDot, headLine, headMemory, remember, seenAt, SEEN, sentLine, towerState } = await import("../gui/headpage.ts");
 const { fillHeadActs } = await import("../gui/headacts.ts");
 const { locate } = await import("../gui/scene.ts");
 const { towerRoute } = await import("../gui/towermodel.ts");
@@ -477,4 +477,41 @@ test("the snapshot sends a tower's copy of the message once: a row without `sent
 	assert.deepEqual(box.children[0]!.find((x) => x.tag === "summary")[0]!.find((x) => x.classes.has("ask-part")).map((x) => x.getAttribute("data-part")), ["sent", "to"]);
 	assert.equal(textOf(part(box.children[0]!, "sent"), "ask-text"), "Same first line");
 	assert.deepEqual(box.children[0]!.find((x) => x.classes.has("ask-tower")).map((l) => textOf(l, "ask-sent")), [undefined, undefined, "Other first line"]);
+});
+
+test("HP-F001: the head's log is one folded line under the conversation (its title with the count, the newest order's line), hidden with no orders, and the fold the boss opened stays across a redraw", () => {
+	const net = towers("wA", "wB", "wC"), box = new El("div"), el = box as unknown as HTMLElement;
+	const log = new El("details"), summary = new El("summary"), title = new El("b"), line = new El("span");
+	summary.append(title, line);
+	log.append(summary, box);
+	const fill = (h: HeadUnit | undefined, now = NOW) => (fillHeadAsks(el, h, net, now), fillHeadLog(log as unknown as HTMLElement, h, net, now));
+	fill(head({ asks: [] }));
+	assert.equal(log.hidden, true, "no orders, no log");
+	fill(head({ asks: five() }));
+	assert.equal(log.hidden, false);
+	assert.equal(log.hasAttribute("open"), false, "folded until the boss opens it");
+	assert.equal(title.textContent, "Orders sent (5)", "five broadcasts, the ones the head folded under a correction not counted twice");
+	assert.equal(line.textContent, "I am up", "the newest order's line, so a closed log still says what went out last");
+	fillHeadLog(log as unknown as HTMLElement, head({ asks: five() }), net, NOW, zh);
+	assert.equal(title.textContent, "送出的指令（5）");
+	fill(head({ asks: five() }), NOW + 60_000);
+	log.setAttribute("open", "");
+	fill(head({ asks: five() }), NOW + 120_000);
+	assert.equal(log.hasAttribute("open"), true, "a redraw leaves the fold as the boss left it");
+	fill(undefined);
+	assert.equal(log.hidden, true);
+});
+
+test("HP-F001: the page gives the room to the conversation: the log is a fold with a cap and a scroll of its own, an unfolded card does not say its texts twice, and the notes box looks at the log's wrapper", async () => {
+	const { readFileSync } = await import("node:fs");
+	const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+	/** What the stylesheet declares on exactly `selector` (one of a rule's comma-separated selectors), all its rules joined. */
+	const declared = (selector: string) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, list]) => list!.split(",").some((x) => x.trim() === selector)).map(([, , body]) => body).join(";");
+	assert.match(declared(".head-log[open] > .head-asks"), /max-height:\s*calc\(\(var\(--vvh, 100vh\) - var\(--hud, 64px\) - 64px\) \* 0\.3\)/, "a share of the panel, never more than the conversation can spare");
+	assert.match(declared(".head-log[open] > .head-asks"), /overflow-y:\s*auto/);
+	assert.match(declared(".head-log > summary"), /min-height:\s*44px/, "a tap target on a phone");
+	assert.match(declared(".ask-group[open] > summary > .ask-part"), /display:\s*none/, "the unfolded card shows its texts in full below, so the clamped copy goes");
+	assert.match(css, /:not\(:has\(> \.head-log:not\(\[hidden\]\)\)\)/);
+	assert.doesNotMatch(css, /:has\(> \.head-asks:not\(\[hidden\]\)\)/);
+	assert.match(readFileSync(new URL("../gui/session.ts", import.meta.url), "utf8"), /<details class="head-log" hidden><summary><b><\/b><span><\/span><\/summary><div class="head-asks" role="group"><\/div><\/details>/);
 });

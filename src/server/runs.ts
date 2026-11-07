@@ -1761,7 +1761,7 @@ export function createRuns(o: RunsOptions) {
 		view(workspace: string): TowerView | undefined {
 			const status = api.status(workspace);
 			if (!status) return undefined;
-			const rows = api.queue(workspace).map((e) => ({ text: phrase(`${e.kind}${e.from?.name ?? e.from?.id ? ` · ${e.from?.name ?? e.from?.id}` : ""}: ${e.text.split("\n").find((l) => l.trim()) ?? ""}`, 240), as: "followUp" as const }));
+			const rows = api.queue(workspace).map((e) => ({ text: phrase(`${e.kind}${e.from?.name ?? e.from?.id ? ` · ${e.from?.name ?? e.from?.id}` : ""}: ${e.text.split("\n").find((l) => l.trim()) ?? ""}`, 240), as: (status.state === "standing" || status.state === "waking" ? "start" : "followUp") as "start" | "followUp" }));
 			const file = api.file(workspace), allyFiles = Object.fromEntries([...(find(workspace)?.allies.values() ?? [])].filter((a) => !a.ended).flatMap((a) => (a.rec.file ? [[a.rec.id, a.rec.file]] : [])));
 			// The event runs among the last local runs are read-only units of their own; the conversation's file is the tower unit's.
 			const eventFiles = Object.fromEntries(listRuns(slot, workspace).filter((r) => r.kind === "local" && !r.conversation && r.file).slice(-RUNS_SHOWN).map((r) => [r.id, r.file!]));

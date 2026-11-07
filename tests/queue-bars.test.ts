@@ -226,3 +226,15 @@ test("the fold row is in both languages, with its count", async () => {
 	assert.equal(m.queue_fold({ count: 3 }), "3 queued");
 	assert.equal(m.queue_fold({ count: 3 }, { locale: "zh-TW" }), "排隊中 3 則");
 });
+
+test("HP-F002: a message that waits for a tower to start is labelled as that, never as a steer, a follow-up, or the next run", () => {
+	const box = new El("div"), act = new El("div");
+	const view = { querySelector: (sel: string) => (sel === ".queue-list" ? box : sel === ".queue-act" ? act : null) } as unknown as HTMLElement;
+	for (const server of [false, true]) {
+		drawQueued(view, [{ text: "wake up", as: "start" }], "", server);
+		assert.match(box.text, /^Tower starting · sent when ready/, `server=${server}`);
+		assert.doesNotMatch(box.text, /steer|follow-up|next run/i);
+	}
+	drawQueued(view, [{ text: "later", as: "followUp" }], "", true);
+	assert.match(box.text, /Queued · next run/, "a running tower's rows keep their word");
+});

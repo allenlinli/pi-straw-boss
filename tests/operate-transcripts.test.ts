@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -188,15 +188,15 @@ test("reading: the page's own hub, which has no transcripts, answers neither the
 	assert.equal((await api(plain, ["history", transcriptKey(idOf(f))], Q())).status, 404);
 });
 
-test("the ledger: a unit is written when first seen and when it ends, with no content, mode 600, and the owner it had at first", async () => {
+test("the ledger: a unit is written when first seen and when it ends, with no content, mode 600, and the owner it had", async () => {
 	const f = session("x"), file = mine();
 	let at = NOW;
 	const ledger = open(file, { now: () => at });
 	ledger.observe([seen(f, { name: "run at /home/boss/work/project" })]);
 	assert.equal(read(file).length, 1);
 	at += 5000;
-	ledger.observe([seen(f, { owner: { team: B }, device: bob.id })]);
-	assert.equal(read(file).length, 1, "seen again: nothing is written, and the owner does not change");
+	ledger.observe([seen(f)]);
+	assert.equal(read(file).length, 1, "seen again with the same owner: nothing is written");
 	// `last` is the last time the unit was seen live: the end line carries it, not the time the end was noticed.
 	at += 5000;
 	ledger.observe([]);
@@ -279,10 +279,12 @@ test("a ledger that cannot be written does not stop the reading: the failure is 
 	assert.equal(ledger.rows().length, 1);
 });
 
-test("seenFrom: the registry's units with a file and an owner, as the ledger takes them", () => {
+test("seenFrom: the registry's units with a file, as the ledger takes them (an owner none while it cannot be said)", () => {
 	const f = session("reg"), refs: Ref[] = [{ key: "ally-r1", base: "w1", name: "a", role: "ally", file: f }, { key: "nofile", base: "w1", name: "b", role: "main" }, { key: "nobody", base: "w1", name: "c", role: "main", file: session("c") }];
 	const out = seenFrom({ refs, workspace: (b) => `ws ${b}`, owner: (k) => (k === "nobody" ? undefined : { team: A }), device: (k) => (k === "ally-r1" ? alice.id : undefined), live: (k) => k !== "nofile" });
-	assert.deepEqual(out, [{ role: "ally", name: "a", workspace: "ws w1", file: f, owner: { team: A }, device: alice.id }]);
+	assert.equal(out.length, 2);
+	assert.deepEqual(out[0], { role: "ally", name: "a", workspace: "ws w1", file: f, owner: { team: A }, device: alice.id });
+	assert.equal(out[1]!.owner, undefined, "a unit whose owner cannot be said is in the reading, with no owner: its row does not end, and none is made");
 });
 
 // Review OL-F001..F006 (round 2).
@@ -330,9 +332,9 @@ test("OL-F002/M6: a named pipe x.jsonl (one hard link, not a regular file) is re
 	assert.equal(ledger.within(reach([A])).lookup(transcriptKey(idOf(p))), undefined);
 });
 
-test("OL-F002/M8: two lines of one id with different teams: the first line's owner stands on reload", () => {
+test("OL-F002/M8: after the end line the owner stands: a later line of another team does not re-own the row on reload", () => {
 	const f = session("m8"), led = mine();
-	put(led, [row(f, { team: A, last: NOW - 10 }), row(f, { team: B, last: NOW - 5 })]);
+	put(led, [row(f, { team: A, last: NOW - 10 }), row(f, { team: A, last: NOW - 8, ended: true }), row(f, { team: B, last: NOW - 5 })]);
 	const got = open(led).rows();
 	assert.equal(got.length, 1);
 	assert.equal(got[0]!.team, A);
@@ -385,4 +387,95 @@ test("an append to a ledger that already exists sets mode 600", () => {
 	const ledger = open(led);
 	ledger.observe([seen(f)]);
 	assert.equal(statSync(led).mode & 0o777, 0o600);
+});
+
+// ---- the owner of a live run (review OW-F004) ---------------------------------------------------------------------------------------------------------------------------------------------
+
+const ownerRows = (ledger: ReturnType<typeof openLedger>) => ledger.rows().map((r) => [r.team, r.ended ?? false]);
+const listFor = async (ledger: ReturnType<typeof openLedger>, scope: Scope) => ((await list(hubOf(ledger, () => scope).hub)).body as { rows: unknown[] }).rows.length;
+
+test("OW-F004: a live run first read as the box's and then as a team's is the team's from then on: the box part no longer lists it or reads its file, the team does", async () => {
+	const f = session("late"), file = mine();
+	let at = NOW;
+	const ledger = open(file, { now: () => at });
+	ledger.observe([seen(f, { owner: { box: true }, device: undefined })]);
+	at += 2000;
+	ledger.observe([seen(f, { owner: { team: B }, device: bob.id })]);
+	assert.deepEqual(ownerRows(ledger), [[B, false]]);
+	assert.equal(await listFor(ledger, { teams: [], box: true }), 0);
+	assert.equal(await listFor(ledger, { teams: [B], box: false }), 1);
+	assert.ok(!ledger.within(reach([], true)).has(transcriptKey(idOf(f))));
+	assert.ok(ledger.within(reach([B])).has(transcriptKey(idOf(f))));
+	assert.deepEqual(read(file).map((r) => [r.team, r.device]), [["box", undefined], [B, bob.id]], "the change is a line of its own");
+	const again = open(file, { now: () => at });
+	assert.deepEqual(ownerRows(again), [[B, false]], "and it is the owner on reload");
+});
+
+test("OW-F004: a reading that cannot say whose a unit is makes no row, keeps a row as it is, and does not end it", () => {
+	const f = session("unsure"), file = mine();
+	let at = NOW;
+	const ledger = open(file, { now: () => at });
+	ledger.observe([seen(f, { owner: undefined })]);
+	assert.deepEqual(ledger.rows(), [], "nothing is written for a unit nobody can place yet");
+	assert.equal(existsSync(file), false);
+	at += 1000;
+	ledger.observe([seen(f, { owner: { team: A } })]);
+	assert.deepEqual(ledger.rows().map((r) => [r.team, r.first]), [[A, NOW + 1000]], "its run is seen from the reading that can place it");
+	at += 1000;
+	ledger.observe([seen(f, { owner: undefined })]);
+	assert.deepEqual(ownerRows(ledger), [[A, false]], "an unplaced reading changes nothing and ends nothing");
+	assert.equal(read(file).length, 1);
+	at += 1000;
+	ledger.observe([]);
+	assert.deepEqual(ownerRows(ledger), [[A, true]], "a unit that is gone ends");
+});
+
+test("OW-F004: a unit seen over, with no owner, makes no row", () => {
+	const f = session("unsure over"), file = mine(), ledger = open(file);
+	ledger.observe([seen(f, { owner: undefined, live: false })]);
+	assert.deepEqual(ledger.rows(), []);
+});
+
+test("OW-F004: a team's run is never moved to the box by a reading, and a device the reading does not know does not erase the dispatcher", () => {
+	const f = session("sticky"), file = mine();
+	let at = NOW;
+	const ledger = open(file, { now: () => at });
+	ledger.observe([seen(f, { owner: { team: A }, device: alice.id })]);
+	at += 1000;
+	ledger.observe([seen(f, { owner: { box: true }, device: undefined })]);
+	assert.deepEqual(ledger.rows().map((r) => [r.team, r.device]), [[A, alice.id]], "team to box: no");
+	ledger.observe([seen(f, { owner: { team: A }, device: undefined })]);
+	assert.deepEqual(ledger.rows().map((r) => [r.team, r.device]), [[A, alice.id]], "no device read: the dispatcher stays");
+	ledger.observe([seen(f, { owner: { team: A }, device: bob.id })]);
+	assert.deepEqual(ledger.rows().map((r) => [r.team, r.device]), [[A, bob.id]], "a dispatcher read later is the dispatcher");
+	ledger.observe([seen(f, { owner: { team: B }, device: bob.id })]);
+	assert.deepEqual(ownerRows(ledger), [[B, false]], "team to team while it runs: the reading that places it wins");
+});
+
+test("OW-F004: once a run ends its owner is fixed: a resumed session keeps it, whatever the reading says", () => {
+	const f = session("fixed"), file = mine();
+	let at = NOW;
+	const ledger = open(file, { now: () => at });
+	ledger.observe([seen(f, { owner: { box: true }, device: undefined })]);
+	at += 1000;
+	ledger.observe([]);
+	at += 1000;
+	ledger.observe([seen(f, { owner: { team: B }, device: bob.id })]);
+	assert.deepEqual(ownerRows(ledger), [["box", false]], "resumed: open again, the owner it ended with");
+	const lines = read(file);
+	assert.deepEqual(lines.map((r) => [r.team, r.ended ?? false]), [["box", false], ["box", true], ["box", false]]);
+});
+
+test("OW-F007: a row's role is a word of the roles a unit has: a role the net never gave is the main's, and a ledger line with another word is dropped", () => {
+	const f = session("role"), file = mine(), ledger = open(file);
+	ledger.observe([seen(f, { role: "bespoke" })]);
+	assert.equal(ledger.rows()[0]!.role, "main");
+	const g = session("role2"), led = mine();
+	put(led, [row(g, { role: "bespoke" }), row(session("role3"), { role: "tower" })]);
+	assert.deepEqual(open(led).rows().map((r) => r.role), ["tower"]);
+	for (const role of ["main", "member", "train", "subagent", "outside", "tower", "ally", "run", "head"]) {
+		const h = session(`r-${role}`), l = open(mine());
+		l.observe([seen(h, { role })]);
+		assert.equal(l.rows()[0]!.role, role, role);
+	}
 });

@@ -302,3 +302,18 @@ test("a tower's memory reply (a shape the controller does not know) is bounded: 
 	assert.ok(depth <= 5);
 	void settled;
 });
+
+test("RR disposition: a box's train unit and its subagents reach the controller with their train id; a train id that is no project and code is left out", async () => {
+	const w = await shown(netOf(baseOf("wA", [["t1", [
+		unit("train 1106m", { role: "train" as never, train: { project: "moldplan", code: "2026-11-06-m" } as never, subs: [unit("helper", { role: "subagent" })] }),
+		unit("badtrain", { role: "train" as never, train: { project: "../x", code: "nope" } as never }),
+		unit("odd", { role: "member", train: "moldplan/2026-11-06-m" as never }),
+	]]])));
+	const u = Object.fromEntries(unitsOf(w.host.merge(LOCAL)).flatMap(flat).map((x) => [x.name, x]));
+	assert.deepEqual(Object.keys(u).sort(), ["badtrain", "helper", "odd", "train 1106m"]);
+	assert.equal(u["train 1106m"]!.role, "train");
+	assert.deepEqual(u["train 1106m"]!.train, { project: "moldplan", code: "2026-11-06-m" });
+	assert.deepEqual(u["train 1106m"]!.subs.map((s) => s.name), ["helper"]);
+	assert.equal(u.badtrain!.train, undefined);
+	assert.equal(u.odd!.train, undefined);
+});

@@ -7,7 +7,7 @@ import type { Net } from "./net.ts";
 import { type OperateScope, plan, refusalReply, unitsOfTab } from "./operateroutes.ts";
 import { sliceNet } from "./operateslice.ts";
 import { store, target as uploadTarget } from "./upload.ts";
-import { api, type Hub as Files, image, watchSession, type Watch, watchWorkspace } from "./watch.ts";
+import { api, type Hub as Files, image, type Transcripts, watchSession, type Watch, watchWorkspace } from "./watch.ts";
 
 // The box's GUI, entered in process for one operate session (docs/specs/2026-11-07-link-operate.md §6.1): no listener, token, cookie or CSRF is involved, and nothing new listens on the box. The bridge (a later task) holds one
 // `OperateSession` per operator and carries what comes out of its sink to the controller as sealed frames. Each entry takes the session's `scope` and reads it afresh, so a roster or policy change reaches the next request.
@@ -42,8 +42,10 @@ export interface OperateSession {
 	stop(): void;
 }
 export interface Operate {
-	open(sink: Sink): OperateSession;
-	snapshot(scope: OperateScope): Promise<Net>;
+	/** `transcripts` are the finished runs this session's scope reaches (server/operateledger.ts `within`, §9): its hub lists them, and a `t<id>` key it holds is read and watched like a unit in scope. */
+	open(sink: Sink, transcripts?: Transcripts): OperateSession;
+	/** The net as `scope` sees it: the last reading, or a fresh one with `fresh` (the reading is otherwise kept current only while a page or a session listens). */
+	snapshot(scope: OperateScope, fresh?: boolean): Promise<Net>;
 	/** Calls back after each reading of the net that differs from the one before; returns the way to stop. */
 	changed(listener: () => void): () => void;
 }
@@ -65,13 +67,16 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 	const foreground = async (pane: string) => piInForeground(await call?.("pane.process_info", { pane_id: pane }).then((r) => (r as { process_info?: unknown })?.process_info as Parameters<typeof piInForeground>[0], () => undefined));
 	const FLAGS: Flags = { remote: true, secure: true, operate: true, foreground };
 	/** The registry as this scope sees it: a key out of scope is unknown, so nothing of it is read from the file system. */
-	const scoped = (at: () => OperateScope): Files => ({ lookup: (key) => (at().has(key) ? files.lookup(key) : undefined), workspace: (id) => files.workspace(id).filter((r) => at().has(r.key)), readers: files.readers });
+	const scoped = (at: () => OperateScope, transcripts?: Transcripts): Files => ({ lookup: (key) => (at().has(key) ? files.lookup(key) : undefined), workspace: (id) => files.workspace(id).filter((r) => at().has(r.key)), readers: files.readers, ...(transcripts ? { transcripts } : {}) });
+	const TKEY = /^t[0-9a-f]{16}$/;
 	const roleOf = (key: string) => files.lookup(key)?.role;
 
 	const api_: Operate = {
-		snapshot: async (scope) => sliceNet(await net(), scope),
+		snapshot: async (scope, fresh) => sliceNet(await net(fresh), scope),
 		changed: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
-		open(sink) {
+		open(sink, transcripts) {
+			/** The scope for what a session reads: a `t<id>` its ledger shows it is in scope (the ledger holds the scope itself), and every other key is the scope's own. Only reads and watches take it: nothing else is done to a transcript. */
+			const reads = (scope: OperateScope): OperateScope => (transcripts ? { box: scope.box, has: (key) => scope.has(key) || (TKEY.test(key) && transcripts.has(key)) } : scope);
 			const stream = randomBytes(16).toString("hex"), watches = new Map<string, Held>(), mirrored = new Map<string, OperateScope>();
 			/** The scope the last `rescope` set and how many there were: a watch or mirror that began before one finishes under it, since `enforce` cannot see an entry that is still being set up. */
 			let latest: OperateScope | undefined, epoch = 0, ended = false, ticket = 0;
@@ -81,7 +86,7 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 			/** Each watch and mirror keeps the scope it was asked under; whatever unit has left it ends here (§1.5: an admin's removal ends open operate streams at once). */
 			const enforce = async (next?: OperateScope) => {
 				for (const [id, held] of watches) {
-					if (next) held.scope = next;
+					if (next) held.scope = reads(next);
 					if (held.key === undefined || held.scope.has(held.key)) continue;
 					held.w.stop();
 					watches.delete(id);
@@ -121,14 +126,14 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 					try {
 						if (!on) return { status: 200, body: { watching: false } };
 						if (watches.size >= MAX_WATCHES) return no(429, "too_many", `A session watches at most ${MAX_WATCHES} things.`);
-						const workspace = at.startsWith("w:"), held: Held = { w: undefined as unknown as Watch, scope, ...(workspace ? {} : { key: at }) };
-						if (held.key !== undefined && !scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." });
+						const workspace = at.startsWith("w:"), held: Held = { w: undefined as unknown as Watch, scope: reads(scope), ...(workspace ? {} : { key: at }) };
+						if (held.key !== undefined && !held.scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." });
 						const began = epoch;
 						await net(); // the registry is filled by reading the net: a watch starts once a reading exists
 						if (ended || newest.get(id) !== mine) return no(409, "superseded", "The session ended, or this watch was asked for again meanwhile.");
-						if (epoch !== began) held.scope = latest!; // a `rescope` ran meanwhile
+						if (epoch !== began) held.scope = reads(latest!); // a `rescope` ran meanwhile
 						if (held.key !== undefined && !held.scope.has(held.key)) return refusalReply({ ok: false, why: "out-of-scope", reason: "That unit is not one this session reaches." }); // the scope may have narrowed while the net was read
-						const send = (event: string, data: unknown) => sink(id, event, data), hub = scoped(() => held.scope);
+						const send = (event: string, data: unknown) => sink(id, event, data), hub = scoped(() => held.scope, transcripts);
 						held.w = workspace ? watchWorkspace(hub, at.slice(2), send) : watchSession(hub, at, send);
 						watches.set(id, held);
 						void held.w.refresh().catch(() => {});
@@ -151,10 +156,11 @@ export function createOperate({ control, files, mirrors, net, call, active }: Se
 					mirrored.set(key, now);
 					return done;
 				},
-				async request(method, parts, query, body, scope) {
+				async request(method, parts, query, body, given) {
+					const scope = method === "GET" && (parts[0] === "history" || parts[0] === "entry" || parts[0] === "image") ? reads(given) : given;
 					const p = plan(method, parts, body, scope, "request", roleOf);
 					if (!p.ok) return refusalReply(p);
-					const hub = scoped(() => scope);
+					const hub = scoped(() => scope, transcripts);
 					if (p.tab) {
 						// A squad closes with everything in it, and Herdr's tab close takes every pane in it: every unit the net shows there must be this scope's, a tab the net does not show is not one to close, and so is one whose panes
 						// are not all those units' (a shell, a pane an answer opened, a unit that joined since the reading) — read from Herdr now.

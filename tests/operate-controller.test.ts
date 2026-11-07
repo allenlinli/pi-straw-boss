@@ -582,20 +582,23 @@ test("the 12 hour rekey keeps the base live and asks for the terminals and watch
 	assert.equal(w.host.merge(LOCAL).bases.length, 2);
 });
 
-test("a team that stops ends its sessions at once; /boss link operate off ends them all and holds the reopening for a minute", async () => {
+test("a team that stops ends its sessions at once; /boss link operate off ends them all and holds the reopening until on", async () => {
 	const w = await live({ teams: [A, B] });
 	w.host.closeTeam(A);
 	await w.pump();
 	assert.equal(w.box(A).session?.state, "closed");
 	assert.equal(w.box(B).session?.state, "open");
 	assert.deepEqual(w.host.status().map((s) => s.team), [B]);
+	w.paused.on = true;
 	w.host.off();
 	await w.pump();
 	assert.equal(w.box(B).session?.state, "closed");
-	await w.run(30_000);
-	assert.equal(w.stats.opens, 2, "not reopened while it is off");
-	await w.run(40_000);
-	assert.equal(w.stats.opens, 4, "both come back after the minute, the pages still being there");
+	await w.run(10 * 60_000, 5000);
+	assert.equal(w.stats.opens, 2, "not reopened while it is off, however long");
+	w.paused.on = false;
+	w.host.on();
+	await w.run(10_000);
+	assert.equal(w.stats.opens, 4, "both come back after on, the pages still being there");
 });
 
 test("what the box says in accept.limits is clamped", async () => {

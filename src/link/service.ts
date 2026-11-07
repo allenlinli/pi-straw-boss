@@ -32,6 +32,8 @@ export interface ServiceDeps {
 	presenceMs?: number;
 	/** The least time between two boards to a team (default 15 s). */
 	boardMs?: number;
+	/** How often a box reads its own net for the transcript ledger while its policy grants operate and no session or page asks for a reading (default 30 s; server/operatewire.ts). */
+	operateNetMs?: number;
 	/** How often `caps` is sent unchanged, and the least time between two (default an hour and 15 s). */
 	capsMs?: number;
 	capsMinMs?: number;
@@ -63,13 +65,31 @@ export interface ServiceOptions {
 	unitStop?: HolderOptions["unitStop"];
 	/** Where a taken `operate` message goes (src/server/operatebox.ts `take`): given to the holders of an unattended device only, which then list `operate/1` in their caps. */
 	operate?: HolderOptions["operate"];
+	/** Told when this unattended device's policy gains or loses an `operate` grant (the holder reads it at each tick, and at the first): the box's side starts or stops what it does only while someone may operate. */
+	operateWatch?: HolderOptions["operateChanged"];
+	/**
+	 * The controller's end of operate (src/server/operatehost.ts): given to the holders of an attended device only, in place of `operate` (one device is never both). Its `receive` is the holder's one operate sink there, so the attended
+	 * holder lists `operate/1` in its caps (a box sends `accept` only to a peer whose caps list it); `status`, `off` and `on` answer `/boss link operate`, `/boss link operate off` and `/boss link operate on`.
+	 */
+	controller?: { receive: NonNullable<HolderOptions["operate"]>; status(): unknown[]; /** When the boss turned operate off here, or nothing. */ offSince(): number | undefined; off(): { saved: boolean }; on(): { saved: boolean } };
 	/** Told right after a team's roster changed and when a team stops (operatebox.ts `onRoster`): given to every holder this service builds, since it builds a new one at each gain. */
 	onRoster?: HolderOptions["onRoster"];
+	/** Told after a holder runs and after it is gone (the operate host's clock follows the holder: one that comes after a page is connected must start it). */
+	onHolder?: () => void;
 	/** The tower service of the same server (towers.ts), when it runs: the asks local towers made for their mains, and what to tell when messages wait for a tower identity it runs. */
 	tower?: Pick<HolderOptions, "asks" | "served" | "openTower"> & {
 		/** An answer to a `forward` confirm for a tower identity the server runs (an ally run waits for it): true when the server took it, so it is not published on the channel. */
 		confirmed?: (tower: string, dialogId: string, allow: boolean) => boolean;
 	};
+}
+
+/** Whether a policy grants anyone `operate`: an unattended policy that reads, with at least one device named (a malformed `operate` has turned it off). */
+export const operateGranted = (policy: Policy): boolean => policy.mode === "unattended" && policy.operateRefused === undefined && policy.operate.size > 0;
+
+/** The holder's one operate sink: the controller's on an attended device, the box's on an unattended one, and none where the option was not given (one device is never both, and a holder with no sink lists no `operate/1` in its caps). */
+export function operateSink(attended: boolean, o: Pick<ServiceOptions, "operate" | "controller">): Pick<HolderOptions, "operate"> {
+	const sink = attended ? o.controller?.receive : o.operate;
+	return sink ? { operate: sink } : {};
 }
 
 const NOTICES = 10;
@@ -80,7 +100,7 @@ export interface Notice { at: number; level: "info" | "warning" | "error"; text:
 type Answer = { ok: boolean; error?: string; [key: string]: unknown };
 type ChannelEvent = { type: string; fromSessionId?: string; payload?: unknown };
 
-export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer, unitStop, operate, onRoster }: ServiceOptions) {
+export function createLinkService({ kit, stateDir, version, started, pid = process.pid, notify, deps: opts = {}, tower, dialogAnswer, unitStop, operate, operateWatch, controller, onRoster, onHolder }: ServiceOptions) {
 	const { pi, cfg } = kit;
 	const store = new LinkStore(join(stateDir, "link"));
 	const home = opts.home ?? homedir(), agentDir = cfg.env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent");
@@ -155,6 +175,8 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 	};
 	/** Tells a tower a message waits in the inbox for it. A resident tower takes it from the inbox when idle and answers `taken`. */
 	const offer = (tower: Session, id: string) => void publish({ version: 1, type: "offer", to: tower.id, id });
+	/** A hook of the server runs after the holder changed; its failure is not the election's. */
+	const hooked = (hook?: () => void) => { try { hook?.(); } catch { /* the server's own */ } };
 	const gained = async () => {
 		const fresh = new LinkHolder({
 			store, boardDir: join(stateDir, "board"), isHolder: () => Boolean(election?.isHolder()), config, stateDir, home, agentDir, attended, net, offer, notify: note,
@@ -164,15 +186,17 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 				if (!tower?.confirmed?.(to, dialogId, allow)) void publish({ version: 1, type: "confirmed", to, id: dialogId, allow });
 			},
 			drainMs: opts.drainMs, presenceMs: opts.presenceMs, boardMinMs: opts.boardMs, offerAgainMs: opts.offerAgainMs, capsMs: opts.capsMs, capsMinMs: opts.capsMinMs,
-			...(tower?.asks ? { asks: tower.asks } : {}), ...(tower?.served ? { served: tower.served } : {}), ...(dialogAnswer ? { dialogAnswer } : {}), ...(unitStop ? { unitStop } : {}), ...(operate && !attended() ? { operate } : {}), ...(onRoster ? { onRoster } : {}), ...(tower?.openTower ? { openTower: tower.openTower } : {}),
+			...(tower?.asks ? { asks: tower.asks } : {}), ...(tower?.served ? { served: tower.served } : {}), ...(dialogAnswer ? { dialogAnswer } : {}), ...(unitStop ? { unitStop } : {}), ...operateSink(attended(), { operate, controller }), ...(operate && !attended() ? { operateOn: () => operateGranted(policy()), ...(operateWatch ? { operateChanged: operateWatch } : {}) } : {}), ...(onRoster ? { onRoster } : {}), ...(tower?.openTower ? { openTower: tower.openTower } : {}),
 		});
 		holder = fresh;
 		await fresh.start();
+		hooked(onHolder);
 	};
 	const lost = async () => {
 		const old = holder;
 		holder = undefined;
 		await old?.stop();
+		hooked(onHolder);
 	};
 	/**
 	 * The server ranks as a tower: it is the only candidate now, and a holder of the previous build that is a session cannot outrank it by build or by role (election.ts
@@ -251,8 +275,11 @@ export function createLinkService({ kit, stateDir, version, started, pid = proce
 		const maybe = (k: string) => (typeof a[k] === "string" && a[k] ? { [k]: a[k] as string } : {});
 		if (name === "state") return { ok: true, view: h.view() };
 		if (name === "summary") return { ok: true, summary: h.summary() };
+		if (name === "operate") return { ok: true, sessions: controller?.status() ?? [], ...(controller?.offSince() !== undefined ? { off: controller.offSince() } : {}) };
 		if (!attended()) return { ok: false, error: "This computer is unattended: its teams and trust come from its infra's policy file" };
 		switch (name) {
+			case "operate-off": return { ok: true, ...(controller?.off() ?? { saved: true }) };
+			case "operate-on": return { ok: true, ...(controller?.on() ?? { saved: true }) };
 			case "create": return h.admin.createTeam({ relay: text("relay"), token: text("token"), project: text("project"), ...(a.share === "presence" || a.share === "status" ? { share: a.share } : {}), ...maybe("label") });
 			case "invite": return h.admin.invite({ team: text("team"), ...maybe("forDevice") });
 			case "invite-text": return h.admin.inviteText(text("hash"));

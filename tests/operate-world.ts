@@ -31,7 +31,7 @@ export const NET = (): Net => ({
 export const scopeOf = (keys: string[], box = false): OperateScope => ({ box, has: (key) => keys.includes(key) });
 
 export interface Probe { key: string; nonce: string | undefined; flags: unknown }
-export async function world(opts: { editor?: Editor | undefined; status?: string; entries?: unknown[] } = {}) {
+export async function world(opts: { editor?: Editor | undefined; status?: string; entries?: unknown[]; /** More keys the registry knows, with their roles. */ units?: Record<string, string> } = {}) {
 	const editor = "editor" in opts ? opts.editor : ({ editor: "empty" } as Editor), status = opts.status ?? "idle"; // `editor: undefined` is a bridge that did not answer
 	const path = join(scratch, `op-${Math.random().toString(36).slice(2)}_sess-1.jsonl`);
 	writeFileSync(path, lines([header(), user("u1", null, "go"), ...(opts.entries ?? [])]));
@@ -52,7 +52,7 @@ export async function world(opts: { editor?: Editor | undefined; status?: string
 	};
 	const target = (): Target => ({ from: "S", bridgeId: "B", answer: { dialog: "d1", digest: "a".repeat(64), cancel: true, select: { title: "T", choices: w.choices } } }) as Target;
 	const hub = { running: true, me: "G", start() {}, stop() {}, receive() {}, relayed: () => ({ dialogsOf: () => undefined, merge: () => ({ callId: "", tool: "" }) }), has: (_key: string, owner: string) => w.relayed && owner === "straw-link-request", replay: () => undefined, ended: () => undefined, send: async () => (w.sent++, { status: 200, body: { outcome: "accepted" } }), target: () => (w.answerable ? target() : undefined), probe: async (key: string, nonce?: string, flags?: unknown) => (probes.push({ key, nonce, flags }), (w.onProbe?.(), flags === true && w.editor ? { keys: [], holds: {}, raw: true, ...w.editor } : w.editor)), commands: async () => [{ name: "compact", description: "" }], pull: async (_key: string, step: string) => (w.pending ? (step === "begin" ? { pending: true, ticket: "t1", key: "alt+up" } : { text: "x" }) : { pending: false }) };
-	const ROLES: Record<string, string> = { "sess-1": "main", "other-1": "main", "head-1": "head", "tower-1": "tower" };
+	const ROLES: Record<string, string> = { "sess-1": "main", "other-1": "main", "head-1": "head", "tower-1": "tower", ...opts.units };
 	const found = (key: string): Found | undefined => (key in ROLES ? { key, base: "wA", name: key, role: ROLES[key]!, file, pane: "wA:p1", live: true } : undefined);
 	const tower = { has: () => true, live: () => false, event: async (...a: unknown[]) => (effects.push(["tower.event", ...a]), { ok: true }), act: async (...a: unknown[]) => (effects.push(["tower.act", ...a]), { ok: true }), conversation: async (...a: unknown[]) => (effects.push(["tower.conversation", ...a]), { ok: true, left: true }), memory: async (...a: unknown[]) => (effects.push(["tower.memory", ...a]), { status: 200, body: {} }), isHead: () => false };
 	const gui = await startGui({

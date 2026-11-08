@@ -4,6 +4,7 @@ import { type Board, type BoardRemoved, type BoardStep, type CarRow, MAX_CARS, M
 import { type CarFile, carFileName, type NoticeRecord, validateCarFile, validateNoticeRecord } from "./train/cars.ts";
 import { compareCodes, isCode, isName, isObject, type Json, KINDS, type Kind } from "./train/spec.ts";
 import type { StepStatus, Wait } from "./train/waits.ts";
+import type { Acceptance } from "./train/accept.ts";
 
 // The files a train's session writes (docs/specs/2026-11-07-train-workers.md §10) and the small readers around them: the frozen step the gate wrapper reads, the board derived from the todo list, the integrator's yard derived
 // from its `train` todos, the sidebar's step token (§12), and the car files the `notice` check reads (§5.5). Pure but for the files: the guard (trainguard.ts) decides when to call them.
@@ -47,7 +48,7 @@ export function freezeStep(stateDir: string, project: string, code: string, id: 
 
 // ---- the board
 
-export interface BoardInput { project: string; code: string; app: string; rows: readonly Row[]; cars: CarRow[]; writer: Writer; now: number; clears?: Board["clears"]; waits?: (step: BoardStep) => Wait[] }
+export interface BoardInput { project: string; code: string; app: string; rows: readonly Row[]; cars: CarRow[]; /** The head of each manifest car by ticket: the removed cars carry it. */ heads?: ReadonlyMap<string, string>; writer: Writer; now: number; clears?: Board["clears"]; waits?: (step: BoardStep) => Wait[] }
 
 /** The step of a row, as the board shows it; a row that is not a well-formed step is left out (the guard would have refused it, and a board must stay readable). */
 function stepOf(row: Row): BoardStep | undefined {
@@ -66,13 +67,13 @@ function stepOf(row: Row): BoardStep | undefined {
 }
 
 /** The cars the current round's assemble step left out (its `spec.removed`, §3.5): the lowest such step of the round, well-formed entries only (a ticket without spaces, a reason), at most 32, a reason cut to the board's cap. */
-function removedOf(rows: readonly Row[], round: number): BoardRemoved[] {
+function removedOf(rows: readonly Row[], round: number, heads?: ReadonlyMap<string, string>): BoardRemoved[] {
 	const assemble = rows.filter((row) => { const sb = sbOf(row); return sb?.kind === "assemble" && sb.round === round; }).sort((a, b) => a.id - b.id)[0];
 	const spec = assemble && isObject(sbOf(assemble)?.spec) ? (sbOf(assemble)!.spec as Json) : undefined;
 	if (!Array.isArray(spec?.removed)) return [];
 	return spec.removed.flatMap((car): BoardRemoved[] => {
 		if (!isObject(car) || typeof car.ticket !== "string" || !car.ticket || car.ticket.length > 64 || /\s/.test(car.ticket) || typeof car.why !== "string" || !car.why.slice(0, 600).trim()) return [];
-		return [{ ticket: car.ticket, why: car.why.slice(0, 600) }];
+		return [{ ticket: car.ticket, why: car.why.slice(0, 600), ...(heads?.has(car.ticket) ? { head: heads.get(car.ticket)! } : {}) }];
 	}).slice(0, MAX_REMOVED);
 }
 
@@ -83,7 +84,7 @@ export function buildBoard(i: BoardInput): Board {
 		return waits.length ? { ...s, waits: waits.slice(0, 8) } : s;
 	});
 	const round = steps.reduce((top, s) => Math.max(top, s.round), 1);
-	const removed = removedOf(i.rows, round);
+	const removed = removedOf(i.rows, round, i.heads);
 	return { v: 1, project: i.project, app: i.app, code: i.code, writer: i.writer, updated: new Date(i.now).toISOString(), round, cars: i.cars.slice(0, MAX_CARS), steps, ...(removed.length ? { removed } : {}), ...(i.clears?.length ? { clears: i.clears } : {}) };
 }
 
@@ -100,7 +101,15 @@ export function stepToken(steps: readonly Pick<BoardStep, "id" | "kind" | "statu
 
 // ---- the integrator's yard (§7.4, §10)
 
-export interface YardInput { project: string; rows: readonly Row[]; writer: Writer; now: number }
+/** What the code verified of a car's acceptance (`acceptanceOf`); a word a model wrote on the car is never read. */
+export type Acceptor = (car: CarRow, app: string) => Acceptance;
+export interface YardInput { project: string; rows: readonly Row[]; writer: Writer; now: number; /** Left out, no car claims anything (`unverified`). */ acceptance?: Acceptor }
+
+/** The car as the yard shows it: whatever `accepted` or `unverified` the todo carried is dropped, and the verified state is put in its place. */
+export function carWith(car: CarRow, app: string, acceptance: Acceptor | undefined): CarRow {
+	const { accepted: _accepted, unverified: _unverified, ...rest } = car;
+	return { ...rest, ...(acceptance ? acceptance(car, app) : { unverified: true as const }) };
+}
 
 /** The yard of the project: one train per `train` todo, forming while it is pending, departing while its manifest is with the tower, opened (with the train's session) or refused when it completed. */
 export function buildYard(i: YardInput): Yard {
@@ -111,7 +120,7 @@ export function buildYard(i: YardInput): Yard {
 		const result = isObject(sb.result) ? sb.result : undefined;
 		const status = row.status === "pending" ? "forming" : row.status === "in_progress" ? "departing" : result?.outcome === "passed" ? "opened" : "refused";
 		const departs = isObject(sb.spec.departs) ? (sb.spec.departs as YardTrain["departs"]) : undefined;
-		byCode.set(sb.train, { code: sb.train, app: sb.app, status, ...(status === "opened" && typeof result?.session === "string" ? { session: result.session } : {}), cars: (sb.spec.cars as CarRow[]).slice(0, MAX_CARS), ...(departs ? { departs } : {}) });
+		byCode.set(sb.train, { code: sb.train, app: sb.app, status, ...(status === "opened" && typeof result?.session === "string" ? { session: result.session } : {}), cars: (sb.spec.cars as CarRow[]).slice(0, MAX_CARS).map((c) => carWith(c, String(sb.app), i.acceptance)), ...(departs ? { departs } : {}) });
 	}
 	const trains = [...byCode.values()].sort((a, b) => compareCodes(a.code, b.code)).slice(-MAX_TRAINS);
 	return { v: 1, project: i.project, writer: i.writer, updated: new Date(i.now).toISOString(), trains };

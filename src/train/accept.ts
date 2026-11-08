@@ -252,6 +252,20 @@ export function checkEvidence(raw: string, o: EvidenceOptions): string[] {
 	return out;
 }
 
+/** What the code can say of a car's acceptance: the kinds a complete evidence file shows, or that nothing is claimed (`unverified`). */
+export type Acceptance = { accepted: string[] } | { unverified: true };
+
+/**
+ * A car's acceptance as the code checked it (TB-F003), the one source of the yard's chip: `none` is no acceptance required only for an app that requires none; an evidence file is its entries' kinds (an `other` entry by its label) only when
+ * the whole file passes `checkEvidence` with what the app requires. A file that did not read, or fails, claims nothing. A word a model wrote about it is never read.
+ */
+export function acceptanceOf(accept: string, evidence: string | undefined, o: EvidenceOptions): Acceptance {
+	if (accept.trim().toLowerCase() === "none") return o.appAccept.length ? { unverified: true } : { accepted: [] };
+	if (evidence === undefined || checkEvidence(evidence, o).length) return { unverified: true };
+	const entries = (JSON.parse(evidence) as { accepted: { kind: string; label?: string }[] }).accepted;
+	return { accepted: [...new Set(entries.map((e) => (e.kind === "other" && typeof e.label === "string" ? e.label : e.kind)))].slice(0, 8) };
+}
+
 export interface CarOptions extends EvidenceOptions {}
 
 /** The slip and its evidence together, as the coordinator checks before it sends and the integrator at receipt. `evidence` is the text of the file the slip's `accept:` names, read by the caller. */

@@ -100,6 +100,8 @@ export interface GuiHostOptions {
 	head?: HeadSeam;
 	/** Seams of the trains' reading for a test (the load, the clock, whether a writer runs); the reading itself is the server's (trainyard.ts) and is off with the merge train. */
 	trainyard?: Partial<Pick<TrainyardOptions, "load" | "now" | "alive" | "platform">>;
+	/** The server's book of cars, once it exists (main.ts builds it after the GUI host): the yard tells a car's notice from it (trainyard.ts). */
+	trainCars?: TrainyardOptions["book"];
 	/** What the page's server panel shows. */
 	status(): Record<string, unknown>;
 	/** Asks the server to restart as the GUI's button does; the reply goes to the page. */
@@ -231,7 +233,7 @@ export function createGuiHost(o: GuiHostOptions) {
 	};
 	const begin = async (prefer: ReturnType<typeof recorded>, wait: number): Promise<Gui> => {
 		theHub();
-		const net = (current = netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), ...(o.head ? { head: o.head } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub, trainyard: trainyardSeam({ env: cfg.env, stateDir: slot.stateDir, ...o.trainyard }) }));
+		const net = (current = netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), ...(o.head ? { head: o.head } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub, trainyard: trainyardSeam({ env: cfg.env, stateDir: slot.stateDir, ...(o.trainCars ? { book: o.trainCars } : {}), ...o.trainyard }) }));
 		// `running` is read by the page's remote buttons, which only come once the server is up.
 		let running!: Gui;
 		// Wi-Fi access belongs to the primary slot (one port, one CA, one name per computer): a secondary server builds the host too, to refuse its requests in words, and never writes lan.json.

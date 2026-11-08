@@ -7,13 +7,15 @@ import { startMs, writerAlive } from "./server/traingate.ts";
 import { serverCli } from "./server/version.ts";
 import { startOf } from "./startof.ts";
 import { snapshotOfBranch } from "./todo.ts";
-import { checkCar, checkEvidence, type EvidenceOptions, parseSlip, slipBlocks } from "./train/accept.ts";
+import { type Acceptance, acceptanceOf, checkAcceptRef, checkCar, checkEvidence, type EvidenceOptions, parseSlip, slipBlocks } from "./train/accept.ts";
+import { type Anchorloop, checkAnchorloop } from "./train/anchorloop.ts";
+import { type AppIntegration, readAppIntegration } from "./train/appsconfig.ts";
 import { type BoardRead, type BoardStep, boardPath, capBoard, type CarRow, factsOf, readBoard, readTrainboards, validateTrainTodo, type Writer, writeBoard, writeYard } from "./train/board.ts";
 import { type CarView, coordinatorWord, forwardsFor, forwardsOf, noticeSatisfied, receivedTold, type TerminalState } from "./train/cars.ts";
 import { fieldsOf } from "./headerfields.ts";
 import { type Effect, isObject, type Json, shortCode, STEP_REQUIRED, todoEffects, validateStep } from "./train/spec.ts";
 import { type FactStep, stepWaits, type TrainFacts, type Wait, waitMessage } from "./train/waits.ts";
-import { buildBoard, buildYard, freezeStep, type Row } from "./trainboard.ts";
+import { type Acceptor, buildBoard, buildYard, freezeStep, type Row } from "./trainboard.ts";
 import type { Roles } from "./roles.ts";
 import { ENTRY, type Kit } from "./state.ts";
 import { TRAIN, type TrainId, trainFromToken, trainToken } from "./trainrole.ts";
@@ -66,18 +68,25 @@ export function manifestText(entries: readonly unknown[]): string | undefined {
 
 export { slipBlocks };
 
-export function parseManifest(text: string, read: (path: string) => string | undefined): Manifest {
+/** What the manifest check needs besides the text: the app's `integration` from apps.json, and the files and git of the train's own folder. */
+export interface ManifestCheck { config(app: string | undefined): AppIntegration; exists(path: string): boolean; isAncestor(older: string, newer: string): boolean }
+/** The refusals of a slip against what its app requires (TB-F001): the kinds the evidence lacks, `accept: none` where something is required, and an evidence file that did not read. */
+const OWED = /^sb: (acceptance evidence lacks |accept: none is allowed only |accept: .* names an evidence file, but it was not read)/;
+
+export function parseManifest(text: string, read: (path: string) => string | undefined, check: ManifestCheck): Manifest {
 	const { header, blocks } = slipBlocks(text), cars: ManifestCar[] = [], leftOut: LeftOut[] = [];
-	const app = /^\s*app:\s*([A-Za-z0-9._-]{1,64})\s*$/m.exec(header)?.[1];
+	const app = /^\s*app:\s*([A-Za-z0-9._-]{1,64})\s*$/m.exec(header)?.[1], config = check.config(app), appAccept = config.ok ? config.accept : [];
 	for (const slip of blocks) {
 		const parsed = parseSlip(slip), ticket = parsed.tickets[0] ?? parsed.fields.branch ?? "unknown", accept = parsed.fields.accept;
 		const evidence = accept && /\.json$/i.test(accept) ? read(accept) : undefined;
-		const refusals = checkCar(slip, evidence, { appAccept: [], exists: () => true, isAncestor: () => false });
-		const word = refusals.find((r) => r.startsWith("sb: the train runs no acceptance: "));
+		const refusals = checkCar(slip, evidence, { appAccept, exists: () => true, isAncestor: () => false });
+		// A car that asks the train for acceptance, or shows less than its app requires (or whose app's requirement cannot be read), is left out: the train runs none and the car goes back to its coordinator.
+		const asked = refusals.find((r) => r.startsWith("sb: the train runs no acceptance: "));
+		const owed = config.ok ? (appAccept.length ? refusals.find((r) => OWED.test(r)) : undefined) : config.refusal;
+		const word = asked ?? (owed ? `sb: car ${ticket}: ${owed.replace(/^sb: /, "")}` : undefined);
 		const head = /^[0-9a-f]{40}$/.test(parsed.fields.head ?? "") ? parsed.fields.head! : undefined;
-		let accepted: string[] | undefined;
-		try { accepted = isObject(JSON.parse(evidence ?? "null")) ? ((JSON.parse(evidence!) as Json).accepted as Json[]).map((e) => String(e.kind)).slice(0, 8) : undefined; } catch { accepted = undefined; }
-		const f = parsed.fields, row: CarRow = { tickets: parsed.tickets.slice(0, 16), branch: f.branch ?? "", head: head ?? "", coordinator: f.coordinator ?? "", departs: f.departs ?? "next", accept: accept ?? "none", ...(accepted?.length ? { accepted } : {}) };
+		const shown: Acceptance = config.ok ? acceptanceOf(accept ?? "none", evidence, { appAccept, ...(head ? { head } : {}), exists: check.exists, isAncestor: check.isAncestor }) : { unverified: true };
+		const f = parsed.fields, row: CarRow = { tickets: parsed.tickets.slice(0, 16), branch: f.branch ?? "", head: head ?? "", coordinator: f.coordinator ?? "", departs: f.departs ?? "next", accept: accept ?? "none", ...shown };
 		cars.push({ ticket, slip, ...(head ? { head } : {}), ...(evidence ? { evidence } : {}), ...(row.tickets.length && row.branch && row.head && row.coordinator ? { row } : {}) });
 		if (word) leftOut.push({ ticket, head: head ?? "", word });
 	}
@@ -184,6 +193,8 @@ export interface GuardEnv {
 	pid?: number;
 	/** The sb server's book of cars (§5.5): the one place a car's state and the delivery of its notice are read. The guard never reads the car files on disk, which the train's shell can write. Left out, a check that needs a notice is refused. */
 	cars?: CarSource;
+	/** Whether the installed pi-anchorloop is the version the train's prompts assume (train/anchorloop.ts, TB-F008): a train's and the integrator's mutating calls are refused with its reason when it is not. Left out, nothing is checked. */
+	anchorloop?(cwd: string | undefined): Anchorloop;
 }
 /** The sb server's answer about the cars of a project, over its socket. */
 export interface CarSource { read(project: string): Promise<CarView[]> }
@@ -230,13 +241,23 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 	const manifestOf = (ctx: Ctx): Manifest | undefined => {
 		if (manifest) return manifest;
 		const text = manifestText(ctx.sessionManager.getBranch());
-		return text === undefined ? undefined : (manifest = parseManifest(text, readText(ctx)));
+		return text === undefined ? undefined : (manifest = parseManifest(text, readText(ctx), manifestCheck(ctx)));
 	};
+	const appsDir = (ctx: Ctx) => ctx.cwd ?? process.cwd();
+	const isAncestorIn = (ctx: Ctx) => (older: string, newer: string): boolean => { try { git(appsDir(ctx), ["merge-base", "--is-ancestor", older, newer]); return true; } catch { return false; } };
+	const manifestCheck = (ctx: Ctx): ManifestCheck => ({ config: (app) => (app ? readAppIntegration(appsDir(ctx), app) : { ok: false, refusal: "sb: the manifest names no app, so integration.accept of the app is unknown" }), exists: (path) => existsSync(expand(path, ctx)), isAncestor: isAncestorIn(ctx) });
 	const writer = (): Writer => {
 		const pid = env.pid ?? process.pid, said = startOf(pid), at = said ? startMs(said) : Number.NaN;
 		return { session: env.session().id, ...(env.session().pane ? { pane: env.session().pane } : {}), pid, started: Number.isNaN(at) ? created : new Date(at).toISOString() };
 	};
 	const alive = env.alive ?? ((w: Writer) => writerAlive(w));
+	// The installed version changes only when the boss updates it: read at most once a minute.
+	let versionSeen: { at: number; cwd: string | undefined; got: Anchorloop } | undefined;
+	const anchorloopOf = (ctx: Ctx): Anchorloop => {
+		if (!env.anchorloop) return { ok: true, version: "unchecked" };
+		if (!versionSeen || versionSeen.cwd !== ctx.cwd || env.now() - versionSeen.at > 60_000 || !versionSeen.got.ok) versionSeen = { at: env.now(), cwd: ctx.cwd, got: env.anchorloop(ctx.cwd) };
+		return versionSeen.got;
+	};
 
 	/** Every board of the project as the waits read them; a read that is cut or cannot list holds everything, which is a refusal here. */
 	function others(project: string): { trains: TrainFacts[] } | { error: string } {
@@ -391,7 +412,11 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 			const sb = effect.metadata?.sb;
 			if (sb === undefined || effect.status === "deleted") continue;
 			const refusals = validateTrainTodo(sb, { status: effect.status, id: effect.id, ...(typeof project === "string" ? { project } : {}) });
-			if (!refusals.length && isObject(sb) && isObject(sb.spec)) refusals.push(...evidenceRefusals((sb.spec.cars as CarRow[]) ?? [], ctx));
+			if (!refusals.length && isObject(sb) && isObject(sb.spec)) {
+				// What the app requires is read from its apps.json here and in the train's manifest check, never from a flag a model passes (TB-F001); a file that cannot be read refuses (TB-F002 too: stages that list uat).
+				const cars = (sb.spec.cars as CarRow[]) ?? [], config = readAppIntegration(appsDir(ctx), String(sb.app));
+				refusals.push(...(config.ok ? [...claimedRefusals(cars), ...evidenceRefusals(cars, ctx, config.accept)] : [config.refusal]));
+			}
 			// The manifest goes to the tower only when every car is received, its slip came from the coordinator the tower's forward names, and sb has told that coordinator (§5.5, §7.4).
 			if (!refusals.length && effect.status === "in_progress" && rows.find((r) => r.id === effect.id)?.status !== "in_progress" && isObject(sb) && isObject(sb.spec)) {
 				const got = views ?? (typeof sb.project === "string" ? await fetchViews(sb.project) : "sb: the train todo names no project");
@@ -414,18 +439,29 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 			return [...own, ...receivedTold(views, { app, head: car.head, ticket })];
 		});
 	}
-	/** `train check --accept` on each car's evidence: the evidence is complete for what the file says, names the car's head, and asks the train for nothing (§5.2, §5.4). */
-	function evidenceRefusals(cars: readonly CarRow[], ctx: Ctx): string[] {
+	/** A car's acceptance is what the checked evidence shows; the yard states it from there (TB-F003), so a todo that carries a word of its own about it is refused. */
+	const claimedRefusals = (cars: readonly CarRow[]): string[] => cars.flatMap((car) => (car.accepted !== undefined || car.unverified !== undefined ? [`sb: car ${car.tickets[0]}: accepted is set by Straw Boss from the checked evidence; leave accepted and unverified out of the car`] : []));
+	/** `train check --accept` on each car's evidence, with the kinds the app requires: the evidence is complete for what the file says and for what the app asks, names the car's head, and asks the train for nothing (§5.2, §5.4). */
+	function evidenceRefusals(cars: readonly CarRow[], ctx: Ctx, appAccept: readonly string[]): string[] {
 		const out: string[] = [], read = readText(ctx);
 		for (const car of cars) {
-			if (car.accept.trim().toLowerCase() === "none") continue;
+			if (car.accept.trim().toLowerCase() === "none") { out.push(...checkAcceptRef("none", appAccept).map((r) => `sb: car ${car.tickets[0]}: ${r.replace(/^sb: /, "")}`)); continue; }
 			const text = read(car.accept);
 			if (text === undefined) { out.push(`sb: car ${car.tickets[0]}: cannot read the evidence file ${car.accept}`); continue; }
-			const cwd = ctx.cwd ?? process.cwd();
-			const options: EvidenceOptions = { appAccept: [], head: car.head, exists: (path) => existsSync(expand(path, ctx)), isAncestor: (older, newer) => { try { git(cwd, ["merge-base", "--is-ancestor", older, newer]); return true; } catch { return false; } } };
+			const options: EvidenceOptions = { appAccept, head: car.head, exists: (path) => existsSync(expand(path, ctx)), isAncestor: isAncestorIn(ctx) };
 			out.push(...checkEvidence(text, options));
 		}
 		return out;
+	}
+	/** The acceptance of the integrator's cars as the code reads it now (TB-F003): the app's requirement from apps.json and the evidence file through the reader the check above used; what cannot be read claims nothing. */
+	function acceptorOf(ctx: Ctx): Acceptor {
+		const read = readText(ctx), configs = new Map<string, AppIntegration>();
+		return (car, app) => {
+			if (!configs.has(app)) configs.set(app, readAppIntegration(appsDir(ctx), app));
+			const config = configs.get(app)!;
+			if (!config.ok) return { unverified: true };
+			return acceptanceOf(car.accept, car.accept.trim().toLowerCase() === "none" ? undefined : read(car.accept), { appAccept: config.accept, head: car.head, exists: (path) => existsSync(expand(path, ctx)), isAncestor: isAncestorIn(ctx) });
+		};
 	}
 
 	// ---- monitor calls
@@ -477,11 +513,11 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 					const w = stepWaits(own, fact, { trains: read.trains.filter((t) => t.code !== me.code), ...(load && s.load ? { load } : {}) });
 					return w.filter((x) => !("lock" in x));
 				};
-				const board = buildBoard({ project: me.project, code: me.code, app, rows, cars, writer: writer(), now: env.now(), ...(existing.ok && existing.board.clears ? { clears: existing.board.clears } : {}), waits: (s) => waits(s) });
+				const heads = new Map((info?.cars ?? []).flatMap((c) => (c.head ? [[c.ticket, c.head] as const] : []))), board = buildBoard({ project: me.project, code: me.code, app, rows, cars, heads, writer: writer(), now: env.now(), ...(existing.ok && existing.board.clears ? { clears: existing.board.clears } : {}), waits: (s) => waits(s) });
 				writeBoard(env.stateDir, capBoard(board));
 			} else if (env.isMain()) {
 				const project = rows.map(sbOf).find((s) => s?.kind === "train")?.project;
-				if (typeof project === "string") writeYard(env.stateDir, buildYard({ project, rows, writer: writer(), now: env.now() }));
+				if (typeof project === "string") writeYard(env.stateDir, buildYard({ project, rows, writer: writer(), now: env.now(), acceptance: acceptorOf(ctx) }));
 			}
 		} catch (error) {
 			const text = `Straw Boss: the trainboard could not be written (${(error as Error).message}); the train goes on, and other trains cannot see it`;
@@ -500,6 +536,12 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 			if (!me && env.pending?.()) reasons = [UNSETTLED];
 			else if (me) reasons = event.toolName === "todo" ? await trainTodo(input, ctx, me) : [monitorCall(event, input, ctx, me)].flatMap((r) => (r ? [r] : []));
 			else if (event.toolName === "todo" && env.isMain() && (hasSb(input) || changesTrainTodo(input, ctx))) reasons = await integratorTodo(input, ctx);
+			// The skills the prompts follow must be the ones they assume; a call that changes nothing (a todo read) is let through.
+			const mutates = event.toolName === "MonitorCreate" || input.action === "create" || input.action === "update" || input.action === "delete" || input.action === "clear";
+			if (!reasons.length && mutates && (me || (event.toolName === "todo" && env.isMain() && (hasSb(input) || changesTrainTodo(input, ctx))))) {
+				const version = anchorloopOf(ctx);
+				if (!version.ok) reasons = [version.refusal];
+			}
 		} catch (error) {
 			// A guard that fails does not let the call through: the train's checks are enforcement.
 			reasons = [`sb: the train guard could not check this call (${(error as Error).message}); try again`];
@@ -556,5 +598,6 @@ export function registerTrainGuard(kit: Kit, cars?: CarSource): TrainGuard | und
 	return createTrainGuard(kit.pi as unknown as GuardPi, {
 		stateDir: kit.guiDir, train: () => (s.isTrain ? s.train : undefined), pending: () => !s.isTrain && !s.trainSettled && s.trainSign, isMain: () => kit.role() === "main", session: () => ({ id: kit.me(), ...(s.at?.paneId ? { pane: s.at.paneId } : {}) }), now: () => cfg.now(),
 		node: process.execPath, cli: serverCli(), home: homedir(), tell: kit.tell, ...(cars ? { cars } : {}),
+		anchorloop: (cwd) => checkAnchorloop({ agentDir: cfg.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), ...(cwd ? { cwd } : {}) }),
 	});
 }

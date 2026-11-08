@@ -129,3 +129,13 @@ test("with the merge train off the server deletes nothing, at its start or on th
 		assert.ok(existsSync(folderOf(w.slot.stateDir, "acme", "2026-11-01-a")));
 	} finally { await w.close(); }
 });
+
+test("TB-F004: the car files of the cars a round removed go with the board that names them, unless another board still carries the car", () => {
+	const dir = state();
+	writeBoard(dir, board("acme", "2026-11-01-a", ago(8 * DAY), [SHA_A], ended(), { removed: [{ ticket: "T-B", why: "unit red", head: SHA_B }, { ticket: "T-C", why: "lint", head: SHA_C }] }));
+	writeBoard(dir, board("acme", "2026-11-02-b", ago(DAY), [SHA_C], [step(1, "merge", "in_progress")]));
+	for (const head of [SHA_A, SHA_B, SHA_C]) plantCar(dir, "acme", head);
+	const result = sweep(dir, true);
+	assert.deepEqual(result.removed, [{ project: "acme", code: "2026-11-01-a", cars: 2 }]);
+	assert.deepEqual(carFiles(dir, "acme"), [carFileName("web", SHA_C), carFileName("web", SHA_C).replace(/\.json$/, ".notice.json")].sort(), "the removed car another board carries stays");
+});

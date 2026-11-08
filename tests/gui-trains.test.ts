@@ -105,6 +105,12 @@ test("a car's acceptance is a chip: the kinds in words, the boss's nod in its to
 	assert.deepEqual(T.acceptedChip(car({ accepted: [] })).nods, []);
 	assert.equal(T.acceptedChip(car({ accepted: [] })).text, "免驗收");
 	assert.equal(T.acceptedChip(car({ accepted: [{ kind: "smoke test" }] })).text, "已驗收：smoke test", "another kind shows as the evidence names it");
+	assert.deepEqual(T.acceptedChip(car({ accepted: [], unverified: true })), { text: "驗收不明", nods: [] }, "evidence the code could not check claims nothing, and is not 免驗收 (TB-F003)");
+});
+
+test("a car the round removed shows its notice line under the train, in the page's words (TB-F004)", () => {
+	const v = T.trainView(train(M, { round: 2, removed: [{ ticket: "T-12", why: "unit 紅", notice: { state: "dropped", status: "pending", attempts: 2, last: "queued" } }, { ticket: "T-13", why: "lint" }] }), CTX);
+	assert.deepEqual(v.removedNotices.map((n) => [n.text, n.tone, n.detail]), [["通知中 T-12：被移出（重試 2）", "pending", "最後一次回覆：queued"]]);
 });
 
 test("a car's departure condition: alone, with another car, after and by a time; the default `next` says nothing; a clause it does not know shows as written", () => {
@@ -127,6 +133,7 @@ test("each car's notice line: told, telling with its try, reported up, and one t
 	const pending = T.noticeLine(car({ tickets: ["T-15"], notice: { state: "returned", status: "pending", attempts: 2, last: "queued" } }))!;
 	assert.deepEqual([pending.text, pending.tone, pending.detail, pending.title], ["通知中 T-15：退回（重試 2）", "pending", "最後一次回覆：queued", undefined], "the broker's last answer is text on the card, not a tooltip");
 	assert.equal(T.noticeLine(car({ notice: { state: "received", status: "pending", attempts: 0 } }))!.text, "通知中 T-15：已收件");
+	assert.equal(T.noticeLine(car({ notice: { state: "received", status: "pending", attempts: 0, journal: true } }))!.text, "通知中 T-15：已收件（取自檔案紀錄）", "a notice read from the journal on disk says so (TB-F005)");
 	assert.equal(T.noticeLine(car({ tickets: ["T-9"], notice: { state: "dropped", status: "escalated", attempts: 4, at: iso(MIN) } }))!.text, "已上報塔台：T-9 的協調者聯絡不上");
 	const bad = T.noticeLine(car({ notice: { status: "unreadable", reason: "the car file is a link" } }))!;
 	assert.deepEqual([bad.text, bad.tone], ["讀不到 T-15 的通知紀錄：the car file is a link", "unreadable"], "a reason the server gave no kind to shows as text only");

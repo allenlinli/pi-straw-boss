@@ -490,3 +490,31 @@ test("T7: a train whose round left cars out shows them as ticket and plain-text 
 	writeFileSync(boardPath(dir, "acme", M), JSON.stringify({ ...board("acme", M, { round: 2 }), removed: [{ ticket: "T-12", why: "x", evidence: "/p" }] }));
 	assert.equal(projectOf(read(dir)!, "acme").trains.find((t) => t.code === M)!.state, "unreadable", "a board whose removed is out of shape is refused, as any other field");
 });
+
+// ---- the whole-batch fix round (TB-F004, TB-F005)
+
+test("TB-F004: a car the round removed shows whether sb has told its coordinator, from the head the board keeps for it", () => {
+	const dir = state();
+	writeBoard(dir, board("acme", M, { cars: [car()], removed: [{ ticket: "T-16", why: "unit red", head: SHA_B }, { ticket: "T-17", why: "no head on this one" }] }));
+	plantCar(dir, "acme", SHA_B, { notice: { v: 1, states: { received: { attempts: [] } } } });
+	const removed = projectOf(read(dir)!, "acme").trains[0]!.removed!;
+	assert.deepEqual(removed[0], { ticket: "T-16", why: "unit red", notice: { state: "received", status: "pending", attempts: 0 } });
+	assert.deepEqual(removed[1], { ticket: "T-17", why: "no head on this one" }, "a board written before heads were kept shows no notice, and nothing is guessed");
+});
+
+test("TB-F005: a car the server's book holds is told from the book, not from the disk a train can write; a car it has never seen is told from the journal and marked", () => {
+	const dir = state();
+	writeBoard(dir, board("acme", M, { cars: [car({ head: SHA_A }), car({ tickets: ["T-2"], head: SHA_B })] }));
+	// The journal says both were told; the server's own record says the first was not.
+	const told = { v: 1 as const, states: { received: { attempts: [{ at, outcome: "delivered" }], deliveredAt: at } } };
+	plantCar(dir, "acme", SHA_A, { notice: told });
+	plantCar(dir, "acme", SHA_B, { notice: told });
+	let file = emptyCar({ project: "acme", app: "web", tickets: ["T-1"], branch: "b", head: SHA_A, coordinator: "sess-coord-1" });
+	file = addState(file, { state: "received", fields: { train: M, departs: "next" }, by: SETTER, at });
+	const book = { viewOf: (project: string, app: string, head: string) => (project === "acme" && app === "web" && head === SHA_A ? { file, notice: { v: 1 as const, states: { received: { attempts: [{ at, outcome: "failed", answer: "boom" }] } } } } : undefined) };
+	const cars = projectOf(read(dir, {}, { book }), "acme").trains[0]!.cars;
+	assert.deepEqual(cars[0]!.notice, { state: "received", status: "pending", attempts: 1, last: "boom" }, "the book wins over a file that says delivered");
+	assert.deepEqual(cars[1]!.notice, { state: "received", status: "delivered", attempts: 1, at, journal: true }, "the journal speaks for a car the book never saw, and says so");
+	const bare = projectOf(read(dir), "acme").trains[0]!.cars;
+	assert.equal(bare[1]!.notice && "journal" in bare[1]!.notice, false, "with no book at all (a test) the journal is the only source and is not marked");
+});

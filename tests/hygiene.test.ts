@@ -348,7 +348,9 @@ test("words, removeTargets, parseWorktreeList and the text of age and cpu", () =
 test("with the real process table: a child that works in the checkout holds the removal until it is gone", async () => {
 	const wt = worktree("feat-real");
 	// A node child of this test, in the checkout; it ends by itself (its own exit timer) if the test does not reach its kill.
-	const child = spawn(process.execPath, ["-e", "setTimeout(() => process.exit(3), 120000)"], { cwd: wt, stdio: "ignore" });
+	// It carries no owner marker: the run's isolation keeps the shell's STRAW_BOSS_OWNER for test children on purpose (tests/test-isolation.test.ts), and a run started from an owner's shell would otherwise print its id here.
+	const { STRAW_BOSS_OWNER: _owner, ...clean } = process.env;
+	const child = spawn(process.execPath, ["-e", "setTimeout(() => process.exit(3), 120000)"], { cwd: wt, stdio: "ignore", env: clean });
 	const gone = new Promise((resolve) => child.once("exit", resolve));
 	const exit = setTimeout(() => process.exit(3), 120_000);
 	exit.unref();

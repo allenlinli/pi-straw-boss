@@ -28,7 +28,7 @@ export function trainsDemo(net: Net, state: TrainState, now: number): void {
 	const waiting = row("n", { app: "api", steps: gates([{ load: { max: 30, now: 42 } }]).slice(0, 5), cars: [car(["T-31"], { notice: { state: "received", status: "delivered", attempts: 1, at: ago(12) } })] });
 	const mutualA = row("p", { steps: [passed(1, "assemble", "assemble", { holds: { lane: "web" } }), step(2, "merge", "in_progress", { holds: { lane: "web" }, waits: [{ lane: { app: "web", holder: code("m") } }] })], cars: [car(["T-40"])] });
 	const mutualB = row("q", { app: "infra", steps: [passed(1, "assemble"), step(2, "deploy", "in_progress", { holds: { target: "target-a" }, waits: [{ target: { target: "target-a", holder: code("m") } }, { lock: { name: "heavy", holder: { train: code("n"), step: 4 } } }] })], cars: [car(["T-41"], { accepted: [] })] });
-	const round2 = row("r", { round: 2, removed: [{ ticket: "T-12", why: said("unit 測試失敗", "unit tests failed") }], cars: [car(["T-15"])], steps: [
+	const round2 = row("r", { round: 2, removed: [{ ticket: "T-12", why: said("unit 測試失敗", "unit tests failed"), notice: { state: "dropped", status: "pending", attempts: 2, last: "queued" } }], cars: [car(["T-15"])], steps: [
 		passed(1, "assemble", "assemble", { outcome: "void", why: "superseded" }), step(2, "full-check", "completed", { name: "unit", outcome: "void", why: "superseded" }),
 		passed(3, "assemble", "assemble", { round: 2 }), passed(4, "review", "review", { round: 2 }), step(5, "full-check", "in_progress", { name: "unit", round: 2, load: { max: 30, weight: 4 }, waits: [] }), step(6, "merge", "pending", { round: 2 }),
 	] });

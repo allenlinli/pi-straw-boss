@@ -847,6 +847,33 @@ test("TP-F003: train check --accept none means no evidence: the slip is checked 
 	assert.ok(!named.result!.refusals.join(" ").includes("ENOENT"), "none is not a path");
 });
 
+test("TB-F001: train check reads what the app requires from apps.json, so --app-accept cannot weaken it; a folder without the file is checked by the flag alone", async () => {
+	const w = world();
+	const go = checkIo(w);
+	const file = join(w.base, "accept.json");
+	writeFileSync(file, JSON.stringify(evidence()));
+	writeFileSync(join(w.base, "web-slip.txt"), slip({ accept: file }));
+	writeFileSync(join(w.base, "none-slip.txt"), slip({ accept: "none" }));
+	assert.equal((await go("--accept", file)).code, 0, "no apps.json here: the flag alone, and it asks for nothing");
+	const apps = (integration: object) => (mkdirSync(join(w.base, ".straw-boss"), { recursive: true }), writeFileSync(join(w.base, ".straw-boss", "apps.json"), JSON.stringify({ apps: [{ name: "web", dir: ".", integration }] })));
+	apps({ base: "develop", accept: ["e2e", "uat"] });
+	const weak = await go("--accept", file, "--app-accept", "e2e", "--slip", join(w.base, "web-slip.txt"));
+	assert.equal(weak.code, 2);
+	assert.match(weak.result!.refusals.join(" "), /lacks a uat entry \(the app requires e2e, uat\)/, "the flag names less than the file, and the file wins");
+	assert.match((await go("--accept", "none", "--slip", join(w.base, "none-slip.txt"))).result!.refusals.join(" "), /this app requires e2e, uat/);
+	assert.match((await go("--accept", file, "--app", "web")).result!.refusals.join(" "), /lacks a uat entry/, "--app names the app without a slip; the evidence's own car.app does too");
+	assert.match((await go("--accept", file)).result!.refusals.join(" "), /lacks a uat entry/);
+	assert.match((await go("--accept", file, "--app", "api")).result!.refusals.join(" "), /has no app named api/);
+	apps({ base: "develop", accept: ["e2e"] });
+	assert.equal((await go("--accept", file, "--slip", join(w.base, "web-slip.txt"))).code, 0, "with every kind the file asks for");
+	apps({ base: "develop", stages: ["merge", "uat"] });
+	const old = await go("--accept", file, "--app", "web");
+	assert.equal(old.code, 2);
+	assert.match(old.result!.refusals.join(" "), /stages lists "uat".*Moving a project to 0\.65\.0/);
+	writeFileSync(join(w.base, ".straw-boss", "apps.json"), "{");
+	assert.match((await go("--accept", file)).result!.refusals.join(" "), /cannot be parsed/, "a file that exists and cannot be read refuses");
+});
+
 // ---- status and clear
 
 test("train status lists every train with its steps, waits and holders, the locks held and the load", async () => {

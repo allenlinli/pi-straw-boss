@@ -1,6 +1,6 @@
 import { lstatSync, rmSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { carsDir, expired, readTrainboards, readYard, trainboardDir, type Writer, yardPath } from "../train/board.ts";
+import { type Board, carsDir, expired, readTrainboards, readYard, trainboardDir, type Writer, yardPath } from "../train/board.ts";
 import { carFileName } from "../train/cars.ts";
 import { carsFolderOk } from "../trainboard.ts";
 import { integrationOff } from "../trainswitch.ts";
@@ -18,6 +18,9 @@ export interface SweepDeps {
 }
 export interface Sweep { removed: { project: string; code: string; cars: number }[]; problems: string[] }
 
+/** The heads a board carries: its cars, and the cars its round left out (their files are its too, TB-F004). */
+const headsOf = (board: Board): string[] => [...board.cars.map((c) => c.head), ...(board.removed ?? []).flatMap((r) => (r.head ? [r.head] : []))];
+
 const isFolder = (path: string) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
 
 /** Deletes the expired trainboards under the state folder and their car files. Never throws for a file; what could not be removed is in `problems`. */
@@ -33,7 +36,7 @@ export function sweepTrainboards(d: SweepDeps): Sweep {
 	const carried = new Set<string>(), unsure = new Set<string>();
 	for (const t of trains) {
 		if (!t.ok) unsure.add(t.project);
-		else if (!goneSet.has(t)) for (const c of t.board.cars) carried.add(`${t.project}\n${t.board.app}\n${c.head}`);
+		else if (!goneSet.has(t)) for (const head of headsOf(t.board)) carried.add(`${t.project}\n${t.board.app}\n${head}`);
 	}
 	for (const project of new Set(gone.map((t) => t.project))) {
 		const yard = readYard(yardPath(d.stateDir, project));
@@ -52,14 +55,14 @@ export function sweepTrainboards(d: SweepDeps): Sweep {
 		}
 		let cars = 0;
 		if (!unsure.has(t.project) && carsFolderOk(d.stateDir, t.project)) {
-			for (const c of t.board.cars) {
-				if (carried.has(`${t.project}\n${t.board.app}\n${c.head}`)) continue;
+			for (const head of new Set(headsOf(t.board))) {
+				if (carried.has(`${t.project}\n${t.board.app}\n${head}`)) continue;
 				try {
-					const name = carFileName(t.board.app, c.head), file = join(carsDir(d.stateDir, t.project), name);
+					const name = carFileName(t.board.app, head), file = join(carsDir(d.stateDir, t.project), name);
 					for (const path of [file.replace(/\.json$/, ".notice.json"), file]) {
 						try { unlinkSync(path); if (path === file) cars++; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
 					}
-				} catch (error) { out.problems.push(`car file of ${c.head.slice(0, 12)} in ${t.project} was not removed: ${(error as Error).message}`); }
+				} catch (error) { out.problems.push(`car file of ${head.slice(0, 12)} in ${t.project} was not removed: ${(error as Error).message}`); }
 			}
 		}
 		out.removed.push({ project: t.project, code: t.code, cars });

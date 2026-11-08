@@ -159,6 +159,25 @@ test("maxTrains comes from the project's apps.json (integration.maxTrains); a va
 	}
 });
 
+test("a train is not opened for an app whose apps.json still lists uat in stages (TB-F002): the refusal names the field and the migration, and nothing opens", async () => {
+	world.autoMains();
+	const dir = realpathSync(mkdtempSync(join(tmpdir(), "psb-trains-")));
+	try {
+		mkdirSync(join(dir, ".straw-boss"));
+		const apps = (stages: string[], name = "web") => JSON.stringify({ apps: [{ name, dir: ".", integration: { base: "develop", stages } }] });
+		writeFileSync(join(dir, ".straw-boss", "apps.json"), apps(["merge", "deploy", "uat"]));
+		world.herdr.workspace("wA").worktree = { checkout_path: dir };
+		const { tower } = await net();
+		await assert.rejects(tower.tool("boss_open_main", { role: "train", request: manifest(M), sender: "sender-1" }), (error: Error) => /app web: stages lists "uat"; move it to integration\.accept/.test(error.message) && /Moving a project to 0\.65\.0/.test(error.message));
+		assert.equal(trains().length, 0, "nothing opened");
+		writeFileSync(join(dir, ".straw-boss", "apps.json"), apps(["merge", "uat"], "api"));
+		await tower.tool("boss_open_main", { role: "train", request: manifest(M), sender: "sender-1" });
+		assert.equal(trains().length, 1, "another app's stages are not this train's");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("the same code twice is refused whatever the request, in the same project only", async () => {
 	world.autoMains();
 	const { tower } = await net();

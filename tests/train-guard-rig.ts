@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CarView } from "../src/train/cars.ts";
+import type { Anchorloop } from "../src/train/anchorloop.ts";
 import { createTrainGuard, type GuardEnv } from "../src/trainguard.ts";
 import { trainHandoff } from "../src/opener.ts";
 import { CODE, runCheck, sb, slip, type Json } from "./train-fixtures.ts";
@@ -25,7 +26,7 @@ export const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c"
 
 /** What a guard that starts again on the same session shares with the one before it. */
 export interface Shared { root: string; stateDir: string; cwd: string; entries: Entry[]; list: { tasks: Json[]; nextId: number }; now(): number }
-export interface RigOptions { /** The sb server's answer about the cars (cars-read); the guard asks for it and reads no car file. Left out, the guard has no link to a server. */ cars?: { views: CarView[]; error?: string }; manifest?: string; main?: boolean; train?: boolean; node?: string; cli?: string; stateName?: string; now?: number; /** A guard that starts again on the same session: the folders, the branch and the todo list of an earlier rig (a /reload). */ reuse?: Shared }
+export interface RigOptions { /** The answer of the pi-anchorloop version check (train/anchorloop.ts); left out, nothing is checked. */ anchorloop?: Anchorloop | (() => Anchorloop); /** The `integration.accept` of app `web` in the rig's `.straw-boss/apps.json` (none by default); `apps` is the file's own text, or `false` for no file. */ appAccept?: string[]; apps?: string | false; /** The sb server's answer about the cars (cars-read); the guard asks for it and reads no car file. Left out, the guard has no link to a server. */ cars?: { views: CarView[]; error?: string }; manifest?: string; main?: boolean; train?: boolean; node?: string; cli?: string; stateName?: string; now?: number; /** A guard that starts again on the same session: the folders, the branch and the todo list of an earlier rig (a /reload). */ reuse?: Shared }
 
 export type Rig = ReturnType<typeof build>;
 export const rig = (o: RigOptions = {}): Rig => build(o);
@@ -35,6 +36,10 @@ function build(o: RigOptions) {
 	const stateDir = o.reuse?.stateDir ?? join(root, o.stateName ?? "state"), cwd = o.reuse?.cwd ?? join(root, "work");
 	mkdirSync(stateDir, { recursive: true });
 	mkdirSync(cwd, { recursive: true });
+	if (!o.reuse && o.apps !== false) {
+		mkdirSync(join(cwd, ".straw-boss"), { recursive: true });
+		writeFileSync(join(cwd, ".straw-boss", "apps.json"), o.apps ?? JSON.stringify({ apps: [{ name: "web", dir: ".", integration: { base: "develop", stages: ["merge"], ...(o.appAccept ? { accept: o.appAccept } : {}) } }] }));
+	}
 	let clock = o.reuse?.now() ?? o.now ?? Date.parse("2026-11-07T08:00:00Z");
 	const iso = () => new Date(clock).toISOString();
 	const entries: Entry[] = o.reuse?.entries ?? [];
@@ -52,6 +57,7 @@ function build(o: RigOptions) {
 	const env: GuardEnv = {
 		stateDir, train: () => train, isMain: () => o.main === true, session: () => ({ id: "sess-train-1", pane: "wA:p2" }), now: () => clock,
 		node: o.node ?? "/usr/local/bin/node", cli: o.cli ?? "/pkg/src/server/cli.ts", home: root, tell: (text) => void told.push(text),
+		...(o.anchorloop ? { anchorloop: () => (typeof o.anchorloop === "function" ? o.anchorloop() : o.anchorloop!) } : {}),
 		...(o.cars ? { cars: { read: async () => { if (o.cars!.error) throw new Error(o.cars!.error); return structuredClone(o.cars!.views); } } } : {}),
 	};
 	const guard = createTrainGuard(pi as never, env);

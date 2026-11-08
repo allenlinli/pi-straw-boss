@@ -406,6 +406,17 @@ test("a box in two teams: the unit's card lists the mains of every team's row, e
 	assert.deepEqual(stale.mains.map((x) => x.canStop), [false], "a main from a stale row is shown without a button");
 });
 
+test("the same main in two team rows: the fresher row wins, and with it its team, its state, and whether Stop is offered", () => {
+	const both = { teams: ["t1", "t2"], device: "d1", workspace: "moldplan" as string | null };
+	const row = (team: string, at: number, over: object, state: string) => ({ ...mainsRow({ team, at, ...over })[0]!, mains: [{ ...MAIN, state }] });
+	const [u] = unitCards([row("t1", 1_000, {}, "idle"), row("t2", 9_000, {}, "working")], [], both, 9_500);
+	assert.deepEqual(u!.mains.map((x) => [x.handle, x.team, x.state, x.canStop]), [["0123456789abcdef", "t2", "working", true]], "one card for the one handle, from the fresher row (t2)");
+	const [v] = unitCards([row("t2", 9_000, {}, "working"), row("t1", 1_000, {}, "idle")], [], both, 9_500);
+	assert.deepEqual(v!.mains.map((x) => [x.team, x.state]), [["t2", "working"]], "the order of the rows does not decide it");
+	const [w] = unitCards([row("t1", 1_000, {}, "idle"), row("t2", 9_000, { stale: true }, "working")], [], both, 9_500);
+	assert.deepEqual(w!.mains.map((x) => [x.team, x.canStop]), [["t2", false]], "the fresher row's own stale mark decides the button, not the older row's");
+});
+
 test("a stale box's mains cannot be stopped from its last status: the card keeps them without a button", () => {
 	const [u] = unitCards(mainsRow({ stale: true }), [], ME, 6_000);
 	assert.deepEqual(u!.mains.map((x) => x.canStop), [false, false]);

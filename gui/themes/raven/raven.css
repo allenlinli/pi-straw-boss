@@ -46,7 +46,7 @@
 	/* pi-better-show's tokens (spec §7): a pbs element in a document or the chat takes the keep's colours. */
 	--pbs-bg: var(--surface-0); --pbs-fg: var(--text); --pbs-muted: var(--dim); --pbs-surface: var(--surface-1); --pbs-line: var(--line); --pbs-control: var(--line-c);
 	--pbs-accent: var(--accent); --pbs-on-accent: var(--ink); --pbs-note: var(--violet); --pbs-ok: var(--ok); --pbs-warn: var(--gold); --pbs-risk: var(--err);
-	--pbs-radius: 6px; --pbs-gap: 12px; --pbs-font: var(--sans); --pbs-font-display: var(--serif); --pbs-mono: var(--mono); --pbs-font-size: 14px;
+	--pbs-radius: 0; --pbs-gap: 12px; --pbs-font: var(--sans); --pbs-font-display: var(--serif); --pbs-mono: var(--mono); --pbs-font-size: 14px;
 	/* The backdrop's frame: the illustration is 1280 by 721, drawn at the page's width up to 1600 px, so each light and flyer below sits at a place of it that does not move with the window. */
 	--rk-w: min(100vw, 1600px);
 	--rk-r: calc(var(--rk-w) * 0.018);
@@ -58,7 +58,7 @@
 [data-view="raven"] ::selection { background: color-mix(in srgb, var(--accent) 38%, transparent); color: var(--text); }
 
 /* The head band on the map is the keep: a crenellated edge on a squared tower, the name in the serif. */
-[data-view="raven"] .head-node { border-radius: 3px 3px 12px 12px; border-top: 4px double color-mix(in srgb, var(--gold) 55%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 9%, transparent), transparent 70%), var(--surface-0); }
+[data-view="raven"] .head-node { border-top: 4px double color-mix(in srgb, var(--gold) 55%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 9%, transparent), transparent 70%), var(--surface-0); }
 [data-view="raven"] .head-node .head-name { font-family: var(--serif); font-size: 15px; letter-spacing: 0.06em; }
 /* The head page's backdrop (the castle above the mist, the crypt gate): fixed layers behind the page, each in the illustration's frame. The page's panels keep their translucent well, so the picture shows through and the text keeps its ground.
    The picture rests in the dark (boss, 2026-11-07: the shadows blacker, the picture lit only by the lightning): a near-black veil over all of it but the moon, so only the moon, the lit windows and lanterns, and the rim lights read. --rk-bolt (0 at rest, 1 at a flash) takes that veil away from the sky down and lays a faint violet wash; the perched raven below takes the same light as a brightness. */
@@ -178,7 +178,7 @@ html[data-view="raven"] .head-node.absent > .perch { visibility: hidden; }
 @media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after, html[data-view="raven"]:has(#stage[data-view="map"]) .head-node > .perch { display: none; } html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { margin-top: 0; } }
 /* The map and the legend take the keep's ground over the picture, so their text holds its contrast in the lit state. */
 html[data-view="raven"] .stage[data-view="map"] .map { background: var(--rk-well); }
-html[data-view="raven"] .legend { padding: 4px 10px; border-radius: 10px; background: var(--rk-well); }
+html[data-view="raven"] .legend { padding: 4px 10px; background: var(--rk-well); }
 
 /* The chat page's rooms (boss, 2026-11-08: 「管家書房、血僕大廳不錯，蝙蝠可以給墓穴」; spec §1.5 "On the chat page"): behind a unit's comms a quiet picture of a room of the keep, chosen by the unit's role: the steward's study (tower), the spawn's great hall (main), the bats' crypt (subagent), and the library for every other role
    (a wolf, an ally, a run, an outside unit, a train). gui/session.ts marks the page `#session-view[data-role]`; a role-scoped rule names each file, so only the shown role's picture is fetched, and a page whose role is not known yet fetches none. The head page and the map keep their own backdrops; the workspace and settings pages stay plain.
@@ -216,18 +216,18 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 		radial-gradient(circle 10vmax at 83% 66%, rgb(255 190 92 / 0.16), transparent);
 }
 /* The crumbs sit on the picture itself, so they take the keep's ground as the map's legend does; a phone's full-screen comms (Standard paints them --bg) take the translucent ground, so the room shows through them as it does on a desktop. */
-html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]) .crumbs { padding: 2px 10px; border-radius: 10px; background: var(--rk-well); }
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]) .crumbs { padding: 2px 10px; background: var(--rk-well); }
 html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]) .comms-in { background: var(--well); }
 
 @media (prefers-reduced-motion: no-preference) {
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::before { animation: rk-lit-a 4.7s ease-in-out infinite alternate, rk-lit-b 6.1s ease-in-out infinite alternate, rk-bolt 61s linear infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::before { animation: rk-lit-a 4.7s ease-in-out infinite alternate, rk-lit-b 6.1s ease-in-out infinite alternate, rk-bolt 61s linear infinite, rk-clap 61s linear 57.584s infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::before { animation: rk-fog 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::after { animation: rk-bat 47s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::after { animation: rk-flap 0.46s steps(1, end) infinite, rk-raven 83s linear 21s infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch::after { animation: rk-perch-dark 61s linear infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch-turn { animation: rk-perch-turn 17s linear infinite; }
 	/* the map's backdrop: every animation fades or moves a layer that is not repainted (opacity, transform, translate). The strike and the perched raven start together: both wait for the head band to be shown. */
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .stage[data-view="map"]::before { animation: rk-rest 61s linear infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .stage[data-view="map"]::before { animation: rk-rest 61s linear infinite, rk-clap 61s linear 57.584s infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch::after { animation: rk-perch-dark 61s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch-turn { animation: rk-perch-turn 17s linear infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"]::after { animation: rk-candle 4.7s ease-in-out infinite alternate; }
@@ -275,6 +275,8 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 }
 @keyframes rk-flap { 0% { background-position: 0 0; } 50% { background-position: 100% 0; } }
 @keyframes rk-raven { 0% { translate: -20vw 0; opacity: 0; } 1% { opacity: 1; } 7% { translate: calc(var(--rk-w) * 0.3) calc(var(--rk-w) * 0.012); } 12% { translate: calc(var(--rk-w) * 0.62) calc(var(--rk-w) * -0.006); opacity: 1; } 13%, 100% { translate: calc(var(--rk-w) + 10vw) 0; opacity: 0; } }
+/* The strike's clock for the weather (gui/themes/raven/weather.ts): an animation that changes nothing, on the layer of rk-bolt (head page) and rk-rest (map), 61 s long and delayed 57.584 s (94.4 % of the cycle, the first instant of both keyframes' flash), so its animationstart and each animationiteration fall on a flash and the thunder follows from them. It animates `scale`, which neither of those moves. */
+@keyframes rk-clap { from, to { scale: 1; } }
 /* The map's strike: the rest veil's layer fades out and back in on the bolt's clock (rk-bolt's instants, opacity 1 - bolt), so the picture lights under the veil the head page lifts. */
 @keyframes rk-rest { 0%, 94% { opacity: 1; } 94.4% { opacity: 0; } 94.9% { opacity: 0.8; } 95.4% { opacity: 0; } 97.4%, 100% { opacity: 1; } }
 @keyframes rk-candle { 0% { opacity: 0.55; } 18% { opacity: 0.95; } 33% { opacity: 0.6; } 52% { opacity: 0.9; } 71% { opacity: 0.7; } 100% { opacity: 1; } }
@@ -345,6 +347,20 @@ html[data-view="raven"] .connect:is([data-state="offline"], [data-state="replace
 	html[data-view="raven"] .tower[data-mark="working"] > .pulse, html[data-view="raven"] .plate[data-mark="working"]::after { display: none; }
 }
 /* The yard (gui/yard.ts): the keep's ledger of night trains. The sheet takes the keep's panel, titles are serif, the rows are plain bordered cards, and the pills are candle-gold when they wait and crimson when they failed (the tokens above). */
-[data-view="raven"] dialog.sheet.yard { background: #181220; border-color: var(--line); } /* the panel colour with no alpha: --panel lets the page behind the sheet ghost through its text */
-[data-view="raven"] :is(.yard-title, .yard-code) { font-family: var(--serif); letter-spacing: 0.04em; } [data-view="raven"] .yard-row { border-radius: 6px; background: var(--surface-0); }
-[data-view="raven"] .yard-pill { border-radius: 4px; }
+[data-view="raven"] dialog.sheet.yard { background: #181220; border-color: var(--line); border-top-color: var(--rk-rule); } /* the panel colour with no alpha: --panel lets the page behind the sheet ghost through its text */
+[data-view="raven"] :is(.yard-title, .yard-code) { font-family: var(--serif); letter-spacing: 0.04em; } [data-view="raven"] .yard-row { background: var(--surface-0); }
+
+/* Square corners and the keep's two ornaments (boss, 2026-11-08, round 2: 「不該用圓角卡片，並且可以考慮簡易裝飾線」). No card, panel, bar, tile, pill, button, field, or sheet of the Raven view has a rounded corner: three blanket rules (elements, ::before, ::after) set the radius to 0 !important under
+   `html[data-view="raven"]`, for every selector of Standard's sheet whatever its specificity, except what is round by meaning: the status plate and tower with their rings, halos and badges (the seal, the soul-fire and the dotted ring above), the avatar, the dots of a link, an ally unit and a
+   timeline mark that is done, joined, or left, and the round dot a toggle, a drawer name, and a bar button draw as a pseudo-element. tests/raven-square.test.ts pins that list. The plate's document count is a tag, not a ring: its corners are square too. */
+html[data-view="raven"] :not(.plate, .tower, .sweep, .pulse, .ring, .badge, .connect-ring, .packet, .ava, .portrait, .au-dot, .au-mdot, .link i, .head-btn .dot, .tl-mark:is([data-mark="done"], .joined, .left)) { border-radius: 0 !important; }
+html[data-view="raven"] :not(.plate, .tower, .sweep, .pulse, .ring, .badge, .connect-ring, .packet, .ava, .portrait, .au-dot, .au-mdot, .link i, .head-btn .dot, .tl-mark:is([data-mark="done"], .joined, .left), .tog, .drawer-head .name, .bar-more[data-news])::before { border-radius: 0 !important; }
+html[data-view="raven"] :not(.plate, .tower, .sweep, .pulse, .ring, .badge, .connect-ring, .packet, .ava, .portrait, .au-dot, .au-mdot, .link i, .head-btn .dot, .tl-mark:is([data-mark="done"], .joined, .left), .tog, .drawer-head .name, .bar-more[data-news])::after { border-radius: 0 !important; }
+html[data-view="raven"] .plate[data-docs]::before { border-radius: 0; }
+/* Ornament one, a double rule (a line, a gap of two, a line: 4 px, the head band's own) in candle gold on the top edge of each panel; the head band has worn it since the first round. Ornament two, four corner ticks (8 px arms, 1 px, 6 px in from the edge) on the cards that ask for an answer: a sheet, the dock's dialog, the tower card, and a unit's question.
+   Both are the one gold-grey line colour, they take no space beyond the rule's 3 px, and no press. The ticks are background layers of the box itself, not a pseudo-element: a box that scrolls (the dialog, the tower card, a long question) keeps them in its corners, and nothing is positioned (a modal dialog sits in the top layer, where `position: relative` would put it against the document).
+   A question nested in a framed parent (the dock's dialog, a link alert) wears neither, and the yard (no padding: a tick would land on Close) only the rule. */
+html[data-view="raven"] { --rk-rule: color-mix(in srgb, var(--gold) 50%, var(--line-c)); --rk-tick: linear-gradient(var(--rk-rule), var(--rk-rule)); --rk-ticks: var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick); --rk-tick-at: left 6px top 6px, left 6px top 6px, right 6px top 6px, right 6px top 6px, left 6px bottom 6px, left 6px bottom 6px, right 6px bottom 6px, right 6px bottom 6px; --rk-tick-size: 8px 1px, 1px 8px, 8px 1px, 1px 8px, 8px 1px, 1px 8px, 8px 1px, 1px 8px; }
+html[data-view="raven"] .hud, html[data-view="raven"] .base, html[data-view="raven"] .comms-in, html[data-view="raven"] .set-group, html[data-view="raven"] .panel, html[data-view="raven"] dialog.sheet, html[data-view="raven"] .dialog, html[data-view="raven"] .tcard, html[data-view="raven"] .ask:not(.dialog .ask, .link-alert .ask) { border-top: 4px double var(--rk-rule); }
+html[data-view="raven"] dialog.sheet:not(.yard), html[data-view="raven"] .ask:not(.dialog .ask, .link-alert .ask) { background-image: var(--rk-ticks); background-position: var(--rk-tick-at); background-size: var(--rk-tick-size); background-repeat: no-repeat; }
+html[data-view="raven"] .dialog, html[data-view="raven"] .tcard { background-image: var(--rk-ticks), linear-gradient(var(--c1), var(--surface-0) 70%); background-position: var(--rk-tick-at), 0 0; background-size: var(--rk-tick-size), auto; background-repeat: no-repeat; } /* over the gradient Standard paints on them */

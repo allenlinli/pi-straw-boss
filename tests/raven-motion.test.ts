@@ -140,3 +140,24 @@ test("the still figures stay without motion and differ in shape: working draws a
 	const bob = ravenRules.find((r) => r.parts.some((p) => /\[data-mark="waiting"\] > \.badge$/.test(p)) && animationOf(r.body).some((v) => /rk-bob/.test(v)));
 	assert.ok(bob, "the waiting badge bobs slowly instead of hopping");
 });
+
+test("the perch (head page and map) animates only opacity: every keyframes set a .perch rule runs is compositor-only, and the map's strike veil and its perch share one gate", () => {
+	const perchRules = ravenRules.filter((r) => r.parts.some((p) => /\.perch\b/.test(p)) && animationOf(r.body).some((v) => !/^none$/.test(v)));
+	assert.ok(perchRules.length >= 4, `the perch's animations were read (${perchRules.length})`);
+	const used = new Set<string>();
+	for (const r of perchRules) for (const v of animationOf(r.body)) for (const { name } of shorthand(v)) used.add(name);
+	assert.ok(used.has("rk-perch-dark") && used.has("rk-perch-turn"), "the strike is a fade of the dark copy; the head turn a fade of the turned frame");
+	for (const name of used) {
+		assert.ok(frames.has(name), `@keyframes ${name}`);
+		const props = new Set<string>();
+		for (const m of frames.get(name)!.matchAll(/\{([^{}]*)\}/g)) for (const [prop] of declarations(m[1]!)) props.add(prop);
+		for (const prop of props) assert.ok(prop === "opacity" || prop === "transform", `@keyframes ${name} animates ${prop}, which is not compositor-only`);
+	}
+	assert.ok(!frames.has("rk-perch-lit"), "no filter animation is left");
+	// one clock: the map's rest veil and its perch wait for the same condition (the band shown), so absent to open restarts neither
+	const gate = (name: string) => perchOrVeil(name);
+	function perchOrVeil(name: string) { return ravenRules.filter((r) => r.parts.length && animationOf(r.body).some((v) => v.startsWith(name)) && r.parts.some((p) => /data-view="map"/.test(p))).flatMap((r) => r.parts); }
+	const veil = gate("rk-rest"), perch = gate("rk-perch-dark");
+	assert.ok(veil.length > 0 && perch.length > 0, "both rules were read");
+	for (const p of [...veil, ...perch]) { assert.match(p, /\.head-node:not\(\[hidden\]\)/, p); assert.doesNotMatch(p, /\.absent/, p); }
+});

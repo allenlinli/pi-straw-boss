@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { getLocale } from "./paraglide/runtime.js";
 
 // The role nouns of the page: one chokepoint, `noun(key)`. The active theme's pack (gui/themes/<view>/ exports one per locale) names a role in its own words when it has the key, and every other string, and every

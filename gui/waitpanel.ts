@@ -1,6 +1,6 @@
 import { joined, outcome, type WaitActions } from "./asks.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { towerWhy } from "./towerturns.ts";
 

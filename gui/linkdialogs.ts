@@ -5,7 +5,7 @@ import { mountAsk } from "./ask.ts";
 import { h } from "./dom.ts";
 import { dialogStateLine, remoteDialog } from "./linkdialogmodel.ts";
 import { alertLine, dialogState } from "./linkmodel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The cards of the dialogs an unattended device forwarded (spec, Unattended devices: Asking back), in the Link notices. Loaded when the first one shows, with the
 // shared question panel (ask.ts): select, confirm, and several questions are answered as anywhere else, and the answer goes to `link/dialog-answer`.

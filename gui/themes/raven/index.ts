@@ -3,16 +3,19 @@
 // The backdrop and the sounds are files in this folder (the stylesheet and the sound URLs name them), fetched when first drawn or played.
 import "./raven.css";
 import sprite from "./sprite.svg?raw";
-import ask from "./sounds/ask.mp3";
-import done from "./sounds/done.mp3";
-import error from "./sounds/error.mp3";
+import bell from "./sounds/bell.mp3";
+import caw from "./sounds/caw.mp3";
+import door from "./sounds/door.mp3";
 import type { ThemeParts } from "../theme.ts";
 import { NOUNS } from "./nouns.ts";
+import { SENTENCES } from "./sentences.ts";
 
 export const theme: ThemeParts = {
 	sprite,
 	nouns: NOUNS,
-	sounds: { waiting: ask, done, error },
+	sentences: SENTENCES,
+	// A question for the boss rings the bell (boss, 2026-11-08: the bell sounds like something that wants an answer), a finish is the crow's caw, a failure the door.
+	sounds: { waiting: bell, done: caw, error: door },
 	// The waiting badge over the crest: candle gold on the keep's ground.
 	badge: { dot: "#e3b04b", ring: "#0d0a10", text: "#0d0a10" },
 };

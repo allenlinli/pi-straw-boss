@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { endedWhy, refusalText } from "./termwords.ts";
 import type { Answer } from "./post.ts";
 

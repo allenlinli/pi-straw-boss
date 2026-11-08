@@ -1,5 +1,5 @@
 import type { MainCard, UnitCard } from "./linkmodel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { type Answer, post } from "./post.ts";
 import { choose } from "./quit.ts";
 

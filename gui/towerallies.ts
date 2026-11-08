@@ -1,6 +1,6 @@
 import type { TowerService } from "../src/net.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { formatRoute } from "./router.ts";
 
 // The ally runs of a tower the sb server runs (a teammate's message drives each; one per device): one chip per run, on the map's card, the workspace view and the tower's comms. A chip opens the run's comms

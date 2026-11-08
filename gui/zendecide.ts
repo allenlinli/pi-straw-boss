@@ -2,7 +2,7 @@ import type { ConfirmView } from "../src/link/holder.ts";
 import type { MemoryProposal } from "../src/net.ts";
 import { confirmActions, confirmWhy, lanActions, lanReading, outcome, proposalActions } from "./asks.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { type PairRequest } from "./pairs.ts";
 import { type Answer, post } from "./post.ts";
 import { actionWhy } from "./towermodel.ts";

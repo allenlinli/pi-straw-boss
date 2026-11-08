@@ -1,7 +1,7 @@
 import type { ConfirmView, LinkAlert, LinkSummary } from "../src/link/holder.ts";
 import { h, nodes } from "./dom.ts";
 import { alertLine, confirmLine, dialogState, urgentFirst } from "./linkmodel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { byId, hang } from "./render.ts";
 
 // The header's Link button and the notices under it (spec, GUI, Notices): a join request waiting, a roster mismatch or fork, a confirm a teammate's tower

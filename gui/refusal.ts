@@ -1,5 +1,5 @@
 import type { SettingsRefusal } from "../src/trust/settings.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The same cleaning as src/trust/found.ts clean (that module reads files, so the page cannot import it).
 const clean = (text: string) => text.replace(/[\u0000-\u001f\u007f-\u009f]/g, "").replace(/\p{Cf}/gu, "\ufffd");

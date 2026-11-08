@@ -4,7 +4,7 @@ import { type Alert, unitOf } from "./alerts.ts";
 import type { SessionPost } from "./answer.ts";
 import { joined, outcome, type WaitActions, waitActions } from "./asks.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { aim, text, waitTitle } from "./render.ts";
 import { formatRoute, type NetRoute } from "./router.ts";

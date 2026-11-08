@@ -6,7 +6,7 @@ import type { Tile } from "./layer.ts";
 import { deliverToDoc } from "./blockanswer.ts";
 import { type Fields, lockFor } from "./blocklock.ts";
 import { mdBody } from "./mdbody.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { post } from "./post.ts";
 import { unitsOf } from "./units.ts";
 

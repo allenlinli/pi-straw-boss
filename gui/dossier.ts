@@ -1,6 +1,6 @@
 import type { Tile } from "./layer.ts";
 import { docList, docTile } from "./doc.ts";
-import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
+import { m } from "./sentences.ts"; import { noun } from "./nouns.ts";
 import { fillPlate, html, LABEL, liveMark, mark, PLATE, roleName, say, sync, text } from "./render.ts";
 import { closed, locate, type Scene, type Subject, wsOf } from "./scene.ts";
 import { fillToken, linkTo, tokenEl } from "./tokens.ts";

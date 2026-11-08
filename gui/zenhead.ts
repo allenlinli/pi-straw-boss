@@ -4,7 +4,7 @@ import type { HistoryEvent } from "./chat.ts";
 import { joined } from "./asks.ts";
 import { h } from "./dom.ts";
 import { CLEAR_MS, createFade, FILL, type HeadLine, headLines, SHOWN } from "./headlines.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 
 // The strip under Zen's breathing circle (docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle): the last lines of the head's conversation, fading from the moment each is first on screen, and the input that is a hairline

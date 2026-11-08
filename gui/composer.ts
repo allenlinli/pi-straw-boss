@@ -1,6 +1,6 @@
 import type { Mark } from "../src/netdata.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { type Answer, sendFile } from "./post.ts";
 import { AGENT } from "./render.ts";
 import { mountSlash } from "./slash.ts";

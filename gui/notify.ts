@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Alert } from "./alerts.ts";
 import { audio } from "./audio.ts";
 import { prefs } from "./prefs.ts";

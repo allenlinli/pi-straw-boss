@@ -1,6 +1,6 @@
 import type { Post } from "./mirrorconn.ts";
 import type { Answer } from "./post.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { refusalText } from "./termwords.ts";
 
 // The writes of a terminal's keys (POST …/keys, src/keys.ts), one at a time, at most one every 130 ms (the server takes 8 a second per session), in order;

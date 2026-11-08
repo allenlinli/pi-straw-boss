@@ -67,13 +67,13 @@ The short lines under the Zen view's idle circle (`gui/zenlines.ts`) are one sen
 
 ## Raven Keep view (`gui/themes/raven/`)
 
-The Raven Keep (鴉閣) view's art is original to this project. Its ten role icons and its crest favicon were drawn as an ink-engraving sheet with an image generator (Codex image generation) and traced to single-colour SVG with [potrace](https://potrace.sourceforge.net/) (`sprite.svg`, `favicon.svg`); the backdrop illustration (`backdrop.webp`) was made with the same generator and resized; so was the perched raven (`perch.webp`, one strip of two frames, profile and head turned: the head of the second frame is blended onto the body of the first). The Zen ensō and Geek `>_` tab icons (`gui/themes/zen/favicon.svg`, `gui/themes/geek/favicon.svg`) are drawn for this project. Nothing in them is copied from a published setting.
+The Raven Keep (鴉閣) view's art is original to this project. Its ten role icons and its crest favicon were drawn as an ink-engraving sheet with an image generator (Codex image generation) and traced to single-colour SVG with [potrace](https://potrace.sourceforge.net/) (`sprite.svg`, `favicon.svg`); the backdrop illustration (`backdrop.webp`) was made with the same generator and resized; so was the perched raven (`perch.webp`, one strip of two frames, profile and head turned: the head of the second frame is blended onto the body of the first). The chat page's four rooms (`room-study.webp`, `room-hall.webp`, `room-crypt.webp`, `room-library.webp`) are the same generator's pictures, resized to 1280 by 800; the blood goblet (`raven-main`) and the keep's front (`raven-crown`) in the sprite were redrawn by hand as bold single paths after their traced designs, so they read at 16 px. The Zen ensō and Geek `>_` tab icons (`gui/themes/zen/favicon.svg`, `gui/themes/geek/favicon.svg`) are drawn for this project. Nothing in them is copied from a published setting.
 
 Its three sounds are released under Creative Commons Zero (CC0 1.0), trimmed and converted to mono MP3 (`sounds/`):
 
-- `ask.mp3`, a crow's caw: "crow caw" by zeroisnotnull, https://opengameart.org/content/crow-caw
-- `done.mp3`, one church-bell strike, trimmed to 1.5 s with a fade: "Church bell" by kgeshev, https://freesound.org/people/kgeshev/sounds/378799/
-- `error.mp3`, an old wooden door creaking: "An old wooden door creaking" by soundofsong, https://freesound.org/people/soundofsong/sounds/647646/
+- `caw.mp3`, a crow's caw: "crow caw" by zeroisnotnull, https://opengameart.org/content/crow-caw
+- `bell.mp3`, one church-bell strike, trimmed to 1.5 s with a fade: "Church bell" by kgeshev, https://freesound.org/people/kgeshev/sounds/378799/
+- `door.mp3`, an old wooden door creaking: "An old wooden door creaking" by soundofsong, https://freesound.org/people/soundofsong/sounds/647646/
 
 ## pi-better-show (`dist/gui/assets/blockschunk-*.js`)
 

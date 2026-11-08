@@ -1,7 +1,7 @@
 import type { TowerService } from "../src/net.ts";
 import { h } from "./dom.ts";
 import { moreButton } from "./menu.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { post } from "./post.ts";
 import { formatRoute } from "./router.ts";
 import { conversationFacts, guarded, towerRoute } from "./towermodel.ts";

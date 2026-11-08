@@ -1,5 +1,5 @@
 import { replay } from "./dom.ts";
-import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
+import { m } from "./sentences.ts"; import { noun } from "./nouns.ts";
 import { aim } from "./render.ts";
 import type { NetRoute } from "./router.ts";
 import { HEAD_KEY } from "../src/headkey.ts";

@@ -1,5 +1,5 @@
 // A QR code the server drew (rows of "0" and "1"): dark modules on white as one SVG path, never markup.
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 const NS = "http://www.w3.org/2000/svg";
 /** `label` names the picture for a screen reader (the pairing QR code by default). */

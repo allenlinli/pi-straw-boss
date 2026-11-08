@@ -1,5 +1,5 @@
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 
 // The composer's `/` menu. While the box holds only `/` and a name being typed (no space yet), it asks the server for the session's commands

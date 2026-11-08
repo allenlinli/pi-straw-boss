@@ -1,5 +1,5 @@
 import { type Alert, rankOf } from "./alerts.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // One overlay layer for every panel the page opens. Two kinds:
 // - Dialogs stack in the dock. A dialog the user is looking at is never covered by one they did not open: only an explicit open (a click

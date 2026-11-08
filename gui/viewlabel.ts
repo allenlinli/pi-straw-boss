@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Choice, View } from "../src/views.ts";
 
 /** A view's name as the page words it; every name of src/views.ts has one. */

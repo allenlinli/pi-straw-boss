@@ -239,7 +239,7 @@ test("the demo's teams scene puts the ci-box, a teammate's computer and their un
 // ---- the Mains fold of a unit (docs/specs/2026-11-07-link-remote-stop.md §6) ---------------------------------------------------------------------------------
 
 const { io } = await import("../gui/mainstop.ts");
-const mainCard = (over: object = {}) => ({ handle: "0123456789abcdef", name: "docs", state: "idle", tone: "idle" as const, word: m.mark_idle(), stopping: false, canStop: true, ...over });
+const mainCard = (over: object = {}) => ({ handle: "0123456789abcdef", team: "t", name: "docs", state: "idle", tone: "idle" as const, word: m.mark_idle(), stopping: false, canStop: true, ...over });
 const mains = (...cards: object[]) => card({ mains: cards as UnitCard["mains"] });
 
 test("a unit with no mains has no fold; with mains the fold counts them and each row says its name, its state word, and the dispatcher of a main another device dispatched", () => {
@@ -267,19 +267,19 @@ test("a main whose stop is pending reads 'stopping…' with no Stop; a box that 
 	assert.equal(list.querySelectorAll(".au-mname b").length + list.querySelectorAll(".au-mby img").length, 0);
 });
 
-test("Stop asks in the page's confirm with Stop and Interrupt and stop, posts link/unit-stop of the row's team and box with the chosen mode, and the row then reads 'stopping…' with no button", async () => {
+test("Stop asks in the page's confirm with Stop and Interrupt and stop, posts link/unit-stop of the main's own team (a box in two teams: the row that named it, #121 trial) and box with the chosen mode, and the row then reads 'stopping…' with no button", async () => {
 	const asked: { text: string; labels: string[] }[] = [], posted: { path: string; body: Record<string, unknown> }[] = [];
 	let choice: string | undefined = "interrupt";
 	io.choose = (async (text: string, choices: { label: string; value: string }[]) => (asked.push({ text, labels: choices.map((c) => c.label) }), choices.length ? choice : undefined)) as typeof io.choose;
 	io.post = async (path, body) => (posted.push({ path, body }), { ok: true, status: 200, body: { status: "sent" } });
-	const list = draw([mains(mainCard({ handle: "aaaaaaaaaaaaaaaa", name: "docs-sent" }))]);
-	fillAllyUnits(list as unknown as HTMLElement, [mains(mainCard({ handle: "aaaaaaaaaaaaaaaa", name: "docs-sent" }))], false, "ci-box");
+	const list = draw([mains(mainCard({ handle: "aaaaaaaaaaaaaaaa", name: "docs-sent", team: "t-other" }))]);
+	fillAllyUnits(list as unknown as HTMLElement, [mains(mainCard({ handle: "aaaaaaaaaaaaaaaa", name: "docs-sent", team: "t-other" }))], false, "ci-box");
 	const button = one(list, ".au-stop");
 	button.click();
 	await until(() => posted.length === 1, "the post");
 	assert.deepEqual(asked.map((a) => a.labels), [[m.link_main_stop(), m.link_main_interrupt()]]);
 	assert.equal(asked[0]!.text, m.link_main_stop_ask({ box: "ci-box", name: "docs-sent" }));
-	assert.deepEqual(posted, [{ path: "link/unit-stop", body: { team: "t", device: "d1", handle: "aaaaaaaaaaaaaaaa", mode: "interrupt", reason: "" } }]);
+	assert.deepEqual(posted, [{ path: "link/unit-stop", body: { team: "t-other", device: "d1", handle: "aaaaaaaaaaaaaaaa", mode: "interrupt", reason: "" } }], "the main's team, not the card's");
 	await until(() => one(list, ".au-mstate").textContent === m.link_main_stopping(), "the row reads stopping");
 	assert.equal(button.hidden, true);
 	// A redraw before the box's own status says so keeps it pending, and does not offer Stop again.

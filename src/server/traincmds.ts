@@ -2,11 +2,11 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { availableParallelism, loadavg, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execFileSyncExe } from "../exe.mjs";
-import { checkCar, checkEvidence, parseAppAccept } from "../train/accept.ts";
+import { checkAcceptRef, checkCar, checkEvidence, parseAppAccept } from "../train/accept.ts";
 import { type Board, boardPath, boardState, MAX_TRAINS, trainboardDir, factsOf, MAX_CLEARS, readBoard, readTrainboards, type Writer, writeBoard } from "../train/board.ts";
 import { isName, isObject, validateStep } from "../train/spec.ts";
-import { noticeStatus, stateLine, type Attempt, type CarFile } from "../train/cars.ts";
-import { readCars } from "../trainboard.ts";
+import { noticeStatus, stateLine, type Attempt } from "../train/cars.ts";
+import { carsFolderOk, listCars, MAX_CAR_FILES } from "../trainboard.ts";
 import { holding, loadLimit, stepWaits, type FactStep, type TrainFacts, type Wait } from "../train/waits.ts";
 import { gateDeps, type GateDeps, type GateFile, readGate, runGate, writerAlive } from "./traingate.ts";
 import { plain } from "./operatesanitize.ts";
@@ -83,7 +83,9 @@ function check(flags: Record<string, string | true>, io: TrainIo): number {
 			if (value !== undefined) refusals.push(...validateStep(isObject(value) && isObject(value.sb) && value.spec === undefined ? value.sb : value));
 		}
 	} else {
-		const accept = read("accept"), slip = flags.slip !== undefined ? read("slip") : undefined;
+		// `--accept none` is no evidence at all (the slip says `accept: none`): it is checked against what the app requires (`--app-accept`), and a file named `none` is read as `./none`.
+		const none = typeof flags.accept === "string" && flags.accept.trim().toLowerCase() === "none";
+		const accept: { text?: string; refusal?: string } = none ? {} : read("accept"), slip = flags.slip !== undefined ? read("slip") : undefined;
 		const list = typeof flags["app-accept"] === "string" ? String(flags["app-accept"]).split(",").map((k) => k.trim()).filter(Boolean) : [];
 		const setting = parseAppAccept(list);
 		if (accept.refusal) refusals.push(accept.refusal);
@@ -100,7 +102,7 @@ function check(flags: Record<string, string | true>, io: TrainIo): number {
 				}
 			});
 			const options = { appAccept: setting.accept, exists, isAncestor };
-			refusals.push(...(slip ? checkCar(slip.text!, accept.text, options) : checkEvidence(accept.text!, options)));
+			refusals.push(...(slip ? checkCar(slip.text!, accept.text, options) : none ? checkAcceptRef("none", setting.accept) : checkEvidence(accept.text!, options)));
 		}
 	}
 	io.out(`${JSON.stringify({ ok: refusals.length === 0, refusals })}\n`);
@@ -204,54 +206,65 @@ function clear(flags: Record<string, string | true>, io: TrainIo): number {
 
 // ---- notices
 
-export interface NoticeState { state: string; at: string; by: { role: string; name: string; session: string }; text?: string; status: "pending" | "delivered" | "escalated"; attempts: { at: string; outcome: string; answer?: string }[]; towerAttempts: number; deliveredAt?: string; escalatedAt?: string }
+export interface NoticeState { state: string; at: string; by: { role: string; name: string; session: string }; text?: string; status: "pending" | "delivered" | "escalated" | "unreadable"; attempts: { at: string; outcome: string; answer?: string }[]; towerAttempts: number; deliveredAt?: string; escalatedAt?: string }
 export interface NoticeCar { project: string; app: string; tickets: string[]; branch: string; head: string; coordinator: string; states: NoticeState[] }
-export interface Notices { cars: NoticeCar[]; truncated: boolean }
+/** `source`: these are the files on disk, which the server wrote and a train could also have written, not the server's own record (its memory). `unreadable`: the car and notice files that failed, with why. */
+export interface Notices { source: "journal on disk"; cars: NoticeCar[]; truncated: boolean; unreadable: { project: string; file: string; reason: string }[] }
 
+const MAX_NOTICE_CARS = MAX_TRAINS * 16;
 
-/** Every car's states and notice records under `<state>/trainboard/<project>/cars/`, as the page reads them (readCars validates and caps; a project or cars folder that is a link is not followed). */
+/**
+ * Every car's states and notice records under `<state>/trainboard/<project>/cars/`, as the page reads them (`listCars`: the newest 256 files of a project, each validated and capped; a project or cars folder that is a link is not followed), at
+ * most 1024 files in all. A file that fails is told in `unreadable`, and the car of a notice record that fails shows its states `unreadable`: nothing is guessed. This is the journal on disk (CR-F003), which a train could have written.
+ */
 export function trainNotices(io: Pick<TrainIo, "stateDir">, opts: { project?: string; pending?: boolean } = {}): Notices {
-	const root = trainboardDir(io.stateDir);
+	const root = trainboardDir(io.stateDir), out: Notices = { source: "journal on disk", cars: [], truncated: false, unreadable: [] };
 	let names: string[];
-	try { names = opts.project !== undefined ? [opts.project] : readdirSync(root).filter(isName).sort(); } catch { return { cars: [], truncated: false }; }
-	const cars: NoticeCar[] = [];
-	let truncated = false;
+	try { names = opts.project !== undefined ? [opts.project] : readdirSync(root).filter(isName).sort(); } catch { return out; }
+	let read = 0;
 	for (const project of names) {
 		try {
-			if (!lstatSync(join(root, project)).isDirectory() || !lstatSync(join(root, project, "cars")).isDirectory()) continue;
+			if (!lstatSync(join(root, project)).isDirectory() || !carsFolderOk(io.stateDir, project)) continue;
 		} catch { continue; }
-		if (cars.length >= MAX_NOTICE_CARS) { truncated = true; break; }
-		for (const { file, notice } of readCars(io.stateDir, project)) {
+		if (read >= MAX_NOTICE_CARS) { out.truncated = true; break; }
+		const listing = listCars(io.stateDir, project, { max: Math.min(MAX_CAR_FILES, MAX_NOTICE_CARS - read) });
+		read += listing.cars.length + listing.unreadable.length;
+		if (listing.truncated) out.truncated = true;
+		out.unreadable.push(...listing.unreadable.map((u) => ({ project, file: plain(u.file, 128), reason: plain(u.reason, 200) })));
+		for (const { name, file, notice, noticeProblem } of listing.cars) {
+			if (noticeProblem) out.unreadable.push({ project, file: plain(name.replace(/\.json$/, ".notice.json"), 128), reason: plain(noticeProblem, 200) });
 			const states = file.states.map((entry): NoticeState => {
 				const status = noticeStatus(notice, entry.state), record = notice?.states[entry.state];
 				let text: string | undefined;
-				try { text = plain(stateLine(file as CarFile, entry), 600); } catch { text = undefined; }
+				try { text = plain(stateLine(file, entry), 600); } catch { text = undefined; }
+				const told = noticeProblem ? undefined : record;
 				return {
-					state: entry.state, at: entry.at, by: { role: entry.by.role, name: plain(entry.by.name, 128), session: plain(entry.by.session, 128) }, ...(text ? { text } : {}), status: status.kind,
-					attempts: (record?.attempts ?? []).slice(0, 64).map((a: Attempt) => ({ at: plain(a.at, 40), outcome: plain(a.outcome, 20), ...(a.answer !== undefined ? { answer: plain(a.answer, 200) } : {}) })),
-					towerAttempts: record?.tower?.length ?? 0, ...(record?.deliveredAt ? { deliveredAt: plain(record.deliveredAt, 40) } : {}), ...(record?.escalatedAt ? { escalatedAt: plain(record.escalatedAt, 40) } : {}),
+					state: entry.state, at: entry.at, by: { role: entry.by.role, name: plain(entry.by.name, 128), session: plain(entry.by.session, 128) }, ...(text ? { text } : {}), status: noticeProblem ? "unreadable" : status.kind,
+					attempts: (told?.attempts ?? []).slice(0, 64).map((a: Attempt) => ({ at: plain(a.at, 40), outcome: plain(a.outcome, 20), ...(a.answer !== undefined ? { answer: plain(a.answer, 200) } : {}) })),
+					towerAttempts: told?.tower?.length ?? 0, ...(told?.deliveredAt ? { deliveredAt: plain(told.deliveredAt, 40) } : {}), ...(told?.escalatedAt ? { escalatedAt: plain(told.escalatedAt, 40) } : {}),
 				};
-			}).filter((s) => !opts.pending || s.status === "pending");
+			}).filter((s) => !opts.pending || s.status === "pending" || s.status === "unreadable");
 			if (!states.length) continue;
-			if (cars.length >= MAX_NOTICE_CARS) { truncated = true; break; }
-			cars.push({ project, app: file.app, tickets: file.car.tickets.map((t) => plain(t, 64)), branch: plain(file.car.branch, 255), head: file.car.head, coordinator: plain(file.coordinator, 128), states });
+			if (out.cars.length >= MAX_NOTICE_CARS) { out.truncated = true; break; }
+			out.cars.push({ project, app: file.app, tickets: file.car.tickets.map((t) => plain(t, 64)), branch: plain(file.car.branch, 255), head: file.car.head, coordinator: plain(file.coordinator, 128), states });
 		}
 	}
-	return { cars, truncated };
+	return out;
 }
-const MAX_NOTICE_CARS = MAX_TRAINS * 16;
 
 function notices(flags: Record<string, string | true>, io: TrainIo): number {
 	if (flags.project !== undefined && (typeof flags.project !== "string" || !isName(flags.project))) return usage(io, "--project needs a project name");
 	const result = trainNotices(io, { ...(flags.project !== undefined ? { project: flags.project as string } : {}), pending: flags.pending === true });
 	if (flags.json === true) return (io.out(`${JSON.stringify(result)}\n`), 0);
-	const lines: string[] = [];
+	const lines: string[] = ["from the journal on disk (<state>/trainboard/*/cars): what the server wrote, which a train could also have written; the server's own record is in its memory"];
 	for (const c of result.cars) {
 		lines.push(`${c.project} ${c.tickets.join(",")} ${c.app} ${c.head.slice(0, 12)} coordinator ${c.coordinator}`);
 		for (const st of c.states) lines.push(`  ${st.state} ${st.at} by ${st.by.role} ${st.by.name}: ${st.status}${st.deliveredAt ? ` ${st.deliveredAt}` : ""}${st.escalatedAt ? ` ${st.escalatedAt}` : ""}, ${st.attempts.length} attempt${st.attempts.length === 1 ? "" : "s"}${st.attempts.length ? ` (${st.attempts.map((a) => a.outcome).join(", ")})` : ""}${st.text ? `\n    sent: ${st.text}` : ""}`);
 	}
-	if (!lines.length) lines.push(flags.pending === true ? "no pending notices" : "no car notices");
+	if (lines.length === 1) lines.push(flags.pending === true ? "no pending notices" : "no car notices");
 	if (result.truncated) lines.push("(more cars than shown)");
+	for (const u of result.unreadable) lines.push(`unreadable: ${u.project}/${u.file}: ${u.reason}`);
+	if (result.unreadable.length) lines.push(`(${result.unreadable.length} car or notice file${result.unreadable.length === 1 ? "" : "s"} unreadable)`);
 	io.out(`${lines.join("\n")}\n`);
 	return 0;
 }

@@ -1,7 +1,7 @@
-import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type Board, type BoardStep, type CarRow, MAX_CARS, MAX_STEPS, MAX_TRAINS, type Writer, type Yard, type YardTrain, trainboardDir, carsDir } from "./train/board.ts";
-import { type CarFile, type NoticeRecord, validateCarFile } from "./train/cars.ts";
+import { type Board, type BoardStep, type CarRow, MAX_CARS, MAX_STEPS, MAX_TRAINS, readJsonFile, type ReadBudget, type Writer, type Yard, type YardTrain, trainboardDir, carsDir } from "./train/board.ts";
+import { type CarFile, carFileName, type NoticeRecord, validateCarFile, validateNoticeRecord } from "./train/cars.ts";
 import { compareCodes, isCode, isName, isObject, type Json, KINDS, type Kind } from "./train/spec.ts";
 import type { StepStatus, Wait } from "./train/waits.ts";
 
@@ -107,32 +107,56 @@ export function buildYard(i: YardInput): Yard {
 
 // ---- the car files (§5.5)
 
-const MAX_CAR_FILES = 256, MAX_CAR_BYTES = 64 * 1024;
-const readSmall = (file: string): unknown => {
-	const stat = lstatSync(file);
-	if (!stat.isFile() || stat.size > MAX_CAR_BYTES) return undefined;
-	return JSON.parse(readFileSync(file, "utf8"));
-};
-const noticeFile = (file: string) => file.replace(/\.json$/, ".notice.json");
-const iso = (v: unknown) => typeof v === "string" && !Number.isNaN(Date.parse(v));
-function noticeOk(value: unknown): value is NoticeRecord {
-	if (!isObject(value) || value.v !== 1 || !isObject(value.states)) return false;
-	return Object.values(value.states).every((s) => isObject(s) && Array.isArray(s.attempts) && s.attempts.length <= 64 && s.attempts.every((a) => isObject(a) && typeof a.outcome === "string") && (s.deliveredAt === undefined || iso(s.deliveredAt)) && (s.escalatedAt === undefined || iso(s.escalatedAt)));
+// The car files are the server's display journal (CR-F003): what the disk holds, which a train could have written. Every read is bounded and strict, and a file that fails is told with its reason, never skipped or guessed.
+
+export const MAX_CAR_FILES = 256, MAX_CAR_BYTES = 64 * 1024, MAX_CAR_NAMES = 4096;
+const noticeFile = (name: string) => name.replace(/\.json$/, ".notice.json");
+const plainReason = (list: string[]) => list.map((r) => r.replace(/^sb: /, "")).join("; ");
+const missing = (reason: string) => reason === "cannot read: ENOENT";
+
+export type CarRead = { ok: true; file: CarFile; notice?: NoticeRecord; /** The notice file failed (not its absence): the car is real, what was told of it is not known. */ noticeProblem?: string } | { ok: false; reason: string; /** The file is not there at all. */ gone?: true };
+
+/** One car file of a project by its name, with its notice record: a link, a FIFO, a file over 64 KB, one out of shape, one that says it belongs to another project or whose name is not its own is `ok: false` with the reason. */
+export function readCar(stateDir: string, project: string, name: string, budget?: ReadBudget): CarRead {
+	const dir = carsDir(stateDir, project), read = readJsonFile(join(dir, name), MAX_CAR_BYTES, budget);
+	if (!read.ok) return missing(read.reason) ? { ok: false, reason: read.reason, gone: true } : { ok: false, reason: read.reason };
+	const refusals = validateCarFile(read.value);
+	if (refusals.length) return { ok: false, reason: plainReason(refusals) };
+	const file = read.value as CarFile;
+	if (file.project !== project) return { ok: false, reason: `project ${file.project} is not the folder's ${project}` };
+	if (carFileName(file.app, file.car.head) !== name) return { ok: false, reason: `the file name is not ${carFileName(file.app, file.car.head)}` };
+	const notice = readJsonFile(join(dir, noticeFile(name)), MAX_CAR_BYTES, budget);
+	if (!notice.ok) return { ok: true, file, ...(missing(notice.reason) ? {} : { noticeProblem: `notice file: ${notice.reason}` }) };
+	const problems = validateNoticeRecord(notice.value);
+	return problems.length ? { ok: true, file, noticeProblem: `notice record: ${problems[0]}` } : { ok: true, file, notice: notice.value as NoticeRecord };
 }
 
-/** Every car file of a project and its notice record, from `<state>/trainboard/<project>/cars/`. A file that is not a car, too big, or out of shape is skipped; a notice record out of shape is none. */
-export function readCars(stateDir: string, project: string): { file: CarFile; notice?: NoticeRecord }[] {
-	const dir = carsDir(stateDir, project), out: { file: CarFile; notice?: NoticeRecord }[] = [];
+/** Whether the project's `cars` folder is a real folder: a link is not followed, so what it leads to is never read. */
+export function carsFolderOk(stateDir: string, project: string): boolean {
+	try { return lstatSync(carsDir(stateDir, project)).isDirectory(); } catch { return false; }
+}
+
+export interface CarListing { cars: { name: string; file: CarFile; notice?: NoticeRecord; noticeProblem?: string }[]; unreadable: { file: string; reason: string }[]; truncated: boolean }
+
+/**
+ * The car files of a project: the newest `max` (256) by modification time, whatever their names (a count of files must not cut the car changed last), each read with `readCar`. `truncated` when there are more files than were read
+ * (or more names than are looked at: 4096). A `cars` folder that is a link, or is not there, has none.
+ */
+export function listCars(stateDir: string, project: string, o: { max?: number; budget?: ReadBudget } = {}): CarListing {
+	const dir = carsDir(stateDir, project), out: CarListing = { cars: [], unreadable: [], truncated: false }, max = o.max ?? MAX_CAR_FILES;
 	let names: string[];
-	try { names = readdirSync(dir).filter((n) => n.endsWith(".json") && !n.endsWith(".notice.json")).sort().slice(0, MAX_CAR_FILES); } catch { return out; }
-	for (const name of names) {
-		try {
-			const value = readSmall(join(dir, name));
-			if (validateCarFile(value).length) continue;
-			let notice: unknown;
-			try { notice = readSmall(noticeFile(join(dir, name))); } catch { notice = undefined; }
-			out.push({ file: value as CarFile, ...(noticeOk(notice) ? { notice } : {}) });
-		} catch { /* not a car file */ }
+	try {
+		if (!carsFolderOk(stateDir, project)) return out;
+		names = readdirSync(dir).filter((n) => n.endsWith(".json") && !n.endsWith(".notice.json")).sort();
+	} catch { return out; }
+	if (names.length > MAX_CAR_NAMES) (out.truncated = true, names = names.slice(0, MAX_CAR_NAMES));
+	const aged = names.map((name) => { try { return { name, at: lstatSync(join(dir, name)).mtimeMs }; } catch { return { name, at: 0 }; } });
+	aged.sort((a, b) => b.at - a.at || (a.name < b.name ? -1 : 1));
+	if (aged.length > max) out.truncated = true;
+	for (const { name } of aged.slice(0, max).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+		const read = readCar(stateDir, project, name, o.budget);
+		if (read.ok) out.cars.push({ name, file: read.file, ...(read.notice ? { notice: read.notice } : {}), ...(read.noticeProblem ? { noticeProblem: read.noticeProblem } : {}) });
+		else out.unreadable.push({ file: name, reason: read.reason });
 	}
 	return out;
 }

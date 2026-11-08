@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { get } from "node:http";
@@ -7,7 +7,7 @@ import { afterEach, test } from "node:test";
 import { type Board, type BoardStep, boardPath, type CarRow, carsDir, type Writer, writeBoard, writeYard, yardPath } from "../src/train/board.ts";
 import { addState, carFileName, emptyCar, type NoticeRecord } from "../src/train/cars.ts";
 import type { NetLoad, ProjectYard, YardJoin } from "../src/train/yardview.ts";
-import { readYards } from "../src/server/trainyard.ts";
+import { readYards, trainyardSeam } from "../src/server/trainyard.ts";
 import type { Net } from "../src/net.ts";
 import { bundle, noLink, noTailscale } from "./gui-fakes.ts";
 import { type ServerWorld, until } from "./server-world.ts";
@@ -217,17 +217,19 @@ test("the integrator's key is its yard's writer, only when that session is a mai
 
 test("a car's acceptance chips come from the evidence kinds on the board, with the boss's words from the train's own copy of the evidence; an unrelated, oversize or linked copy adds nothing", () => {
 	const dir = state();
-	writeBoard(dir, board("acme", M, { cars: [car({ accepted: ["e2e", "uat"] }), car({ tickets: ["T-2"], head: SHA_B, accepted: ["e2e"] }), car({ tickets: ["T-3"], head: SHA_C, accepted: undefined })] }));
+	writeBoard(dir, board("acme", M, { cars: [car({ accepted: ["e2e", "uat"] }), car({ tickets: ["T-2"], head: SHA_B, accepted: ["e2e"] }), car({ tickets: ["T-3"], head: SHA_C, accepted: ["e2e"] }), car({ tickets: ["T-4"], head: "d".repeat(40), accepted: undefined })] }));
 	const folder = join(dir, "trainboard", "acme", M);
 	const copy = (head: string, entries: object[]) => JSON.stringify({ v: 1, car: { app: "web", tickets: ["T-15"], branch: "fix/t-15", head }, accepted: entries });
 	writeFileSync(join(folder, "car-1.json"), copy(SHA_A, [{ kind: "e2e", nod: "looks right, ship it\u202e" }, { kind: "uat", nod: "fine by me" }, { kind: "other", nod: "not on the board" }]));
-	writeFileSync(join(folder, "car-3.json"), JSON.stringify({ pad: "x".repeat(40 * 1024) }));
+	// well-formed but over the 32 KB cap: only the cap leaves its words out (TY-F008)
+	writeFileSync(join(folder, "car-3.json"), copy(SHA_C, [{ kind: "e2e", nod: "n".repeat(40 * 1024) }]));
 	writeFileSync(join(dir, "real.json"), copy(SHA_B, [{ kind: "e2e", nod: "linked" }]));
 	symlinkSync(join(dir, "real.json"), join(folder, "car-4.json"));
 	const cars = projectOf(read(dir)!, "acme").trains[0]!.cars;
 	assert.deepEqual(cars[0]!.accepted, [{ kind: "e2e", nod: "looks right, ship it " }, { kind: "uat", nod: "fine by me" }]);
 	assert.deepEqual(cars[1]!.accepted, [{ kind: "e2e" }], "a linked copy is not read: the chip has no words");
-	assert.deepEqual(cars[2]!.accepted, [], "no kinds on the board: no chip");
+	assert.deepEqual(cars[2]!.accepted, [{ kind: "e2e" }], "an oversize copy is not read: the chip has no words");
+	assert.deepEqual(cars[3]!.accepted, [], "no kinds on the board: no chip");
 });
 
 test("a car shows its newest state and whether sb has told its coordinator: delivered, escalated, or pending with its attempts", () => {
@@ -262,6 +264,129 @@ test("a cars folder that is a link tells nothing", () => {
 	writeFileSync(join(dir, "elsewhere", carFileName("web", SHA_A)), JSON.stringify(file));
 	symlinkSync(join(dir, "elsewhere"), folder);
 	assert.equal(projectOf(read(dir)!, project).trains[0]!.cars[0]!.notice, undefined, "the cars folder is a link: not read");
+});
+
+// ---- the fix round of task 5 (TY-F001 to TY-F008)
+
+const SETTER = { role: "main" as const, name: "integ", session: "sess-i" };
+/** A car file of `project` with one `received` state, its notice file (a record, or the raw text), and the board that carries it. */
+function plantCar(dir: string, project: string, head: string, over: { notice?: unknown; raw?: string; file?: object; name?: string } = {}) {
+	let file = emptyCar({ project, app: "web", tickets: ["T-1"], branch: "b", head, coordinator: "sess-coord-1" });
+	file = addState(file, { state: "received", fields: { train: M, departs: "next" }, by: SETTER, at: iso(MIN) });
+	const folder = carsDir(dir, project), name = over.name ?? carFileName("web", head);
+	mkdirSync(folder, { recursive: true });
+	writeFileSync(join(folder, name), over.raw ?? JSON.stringify({ ...file, ...over.file }));
+	if (over.notice !== undefined) writeFileSync(join(folder, name.replace(/\.json$/, ".notice.json")), JSON.stringify(over.notice));
+	return join(folder, name);
+}
+const onBoard = (dir: string, project: string, heads: string[]) => writeBoard(dir, board(project, M, { cars: heads.map((head, i) => car({ tickets: [`T-${i + 1}`], head })) }));
+const at = iso(MIN);
+
+test("TY-F001: a notice record of the wrong shape shows that car as unreadable; every other project and car still reads, nothing throws", () => {
+	const hostile: [string, unknown][] = [
+		["answer is a number", { v: 1, states: { received: { attempts: [{ at, outcome: "failed", answer: 7 }] } } }],
+		["an attempt has no at", { v: 1, states: { received: { attempts: [{ outcome: "failed" }] } } }],
+		["outcome is not one of the outcomes", { v: 1, states: { received: { attempts: [{ at, outcome: "shrug" }] } } }],
+		["tower is a string", { v: 1, states: { received: { attempts: [], tower: "abcdef" } } }],
+		["tower is an object with a huge length", { v: 1, states: { received: { attempts: [], tower: { length: 1e9 } } } }],
+		["deliveredAt is not an ISO time", { v: 1, states: { received: { attempts: [], deliveredAt: "1" } } }],
+		["a state that is not a car state", { v: 1, states: { evil: { attempts: [] } } }],
+		["an answer over its cap", { v: 1, states: { received: { attempts: [{ at, outcome: "failed", answer: "a".repeat(5000) }] } } }],
+	];
+	for (const [label, notice] of hostile) {
+		const dir = state();
+		writeBoard(dir, board("beta", M));
+		onBoard(dir, "acme", [SHA_A, SHA_B]);
+		plantCar(dir, "acme", SHA_A, { notice });
+		plantCar(dir, "acme", SHA_B, { notice: { v: 1, states: { received: { attempts: [{ at, outcome: "delivered" }], deliveredAt: at } } } });
+		const seam = trainyardSeam({ env: {}, stateDir: dir, now: () => NOW, alive, load: () => ({ now: 1, cores: 2 }), platform: "linux" });
+		const yards = seam.yards({ trains: [], mains: new Set() })!;
+		assert.equal(yards.problems, undefined, label);
+		assert.deepEqual(yards.projects.map((p) => p.project), ["acme", "beta"], `${label}: the other project is still there`);
+		const cars = projectOf(yards, "acme").trains[0]!.cars;
+		assert.equal(cars[0]!.notice?.status, "unreadable", label);
+		assert.match((cars[0]!.notice as { reason: string }).reason, /notice/, label);
+		assert.deepEqual(cars[1]!.notice, { state: "received", status: "delivered", attempts: 1, at }, `${label}: the next car reads`);
+	}
+});
+
+test("TY-F002, F003: a project with hundreds of car files shows the notice of the cars on its boards; only those files are read", () => {
+	const dir = state();
+	const heads = Array.from({ length: 300 }, (_, i) => i.toString(16).padStart(3, "0").padEnd(40, "0")), current = "f".repeat(40);
+	for (const head of heads) plantCar(dir, "acme", head);
+	// a file no board names that would fail the reading if it were opened
+	writeFileSync(join(carsDir(dir, "acme"), "web-zzzzzzzzzzzz.json"), "x".repeat(70_000));
+	plantCar(dir, "acme", current, { notice: { v: 1, states: { received: { attempts: [{ at, outcome: "delivered" }], deliveredAt: at } } } });
+	onBoard(dir, "acme", [current, heads[0]!]);
+	const cars = projectOf(read(dir), "acme").trains[0]!.cars;
+	assert.deepEqual(cars[0]!.notice, { state: "received", status: "delivered", attempts: 1, at }, "the current car is not cut by the count of files");
+	assert.equal(cars[1]!.notice?.status, "pending");
+});
+
+test("TY-F003: a reading has a budget of bytes; a car whose file is past it shows unreadable, not guessed", () => {
+	const dir = state();
+	onBoard(dir, "acme", [SHA_A, SHA_B, SHA_C]);
+	for (const head of [SHA_A, SHA_B, SHA_C]) plantCar(dir, "acme", head);
+	const cars = projectOf(read(dir, {}, { budget: 900 }), "acme").trains[0]!.cars;
+	assert.equal(cars[0]!.notice?.status, "pending");
+	const last = cars.at(-1)!.notice;
+	assert.equal(last?.status, "unreadable");
+	assert.match((last as { reason: string }).reason, /budget/);
+});
+
+test("TY-F005: a car file that fails shows unreadable with its reason; one in another project's folder is refused; a missing one tells nothing", () => {
+	const dir = state();
+	const heads = [SHA_A, SHA_B, SHA_C, "d".repeat(40), "e".repeat(40), "1".repeat(40)];
+	onBoard(dir, "acme", heads);
+	plantCar(dir, "acme", SHA_A, { raw: "{not json" });
+	plantCar(dir, "acme", SHA_B, { file: { project: "zeta" } });
+	plantCar(dir, "acme", SHA_C, { file: { coordinator: "" } });
+	// well-formed car file padded past 64 KB: only the size cap refuses it
+	plantCar(dir, "acme", "d".repeat(40), { file: { car: { tickets: Array.from({ length: 1500 }, (_, i) => `T-${i}-${"x".repeat(50)}`), branch: "b", head: "d".repeat(40) } } });
+	plantCar(dir, "acme", "e".repeat(40), { notice: { v: 1, states: { received: { attempts: [{ at, outcome: "failed", answer: "boom" }], deliveredAt: at, pad: "x".repeat(70_000) } } } });
+	const notices = projectOf(read(dir), "acme").trains[0]!.cars.map((c) => c.notice);
+	assert.match((notices[0] as { reason: string }).reason, /not JSON/);
+	assert.match((notices[1] as { reason: string }).reason, /project zeta is not the folder's acme/);
+	assert.equal(notices[2]!.status, "unreadable");
+	assert.match((notices[3] as { reason: string }).reason, /more than 64 KB/);
+	assert.equal(notices[4]!.status, "unreadable", "a notice file over the cap is no record, and the car does not look unsent");
+	assert.equal(notices[5], undefined, "no car file at all: nothing to tell");
+	assert.ok(notices.slice(0, 5).every((n) => n?.status === "unreadable"));
+});
+
+test("TY-F007: the load of the net is a whole number, so a reading that moved by a tenth is not a new snapshot", () => {
+	const seam = (now: number) => trainyardSeam({ env: {}, stateDir: state(), load: () => ({ now, cores: 8 }), platform: "linux" }).load();
+	assert.deepEqual(seam(41.6), { now: 42, cores: 8 });
+	assert.deepEqual(seam(41.4), { now: 41, cores: 8 });
+});
+
+test("TY-F008: no more than 64 projects are read, and no more than 32 copies of the evidence; a reason that names the state folder says <state>", () => {
+	const dir = state();
+	for (let i = 0; i < 65; i++) writeYard(dir, { v: 1, project: `p${String(i).padStart(2, "0")}`, writer: writer(4300), updated: iso(MIN), trains: [] });
+	const many = read(dir)!;
+	assert.equal(many.projects.length, 64);
+	assert.equal(many.truncated, true);
+	const copies = state();
+	const heads = Array.from({ length: 40 }, (_, i) => (i === 39 ? SHA_A : `${(i + 16).toString(16).padStart(2, "0")}`.repeat(20)));
+	writeBoard(copies, board("acme", M, { cars: [car({ head: SHA_A, accepted: ["e2e"] })] }));
+	const folder = join(copies, "trainboard", "acme", M);
+	heads.forEach((head, i) => writeFileSync(join(folder, `car-${String(i + 1).padStart(3, "0")}.json`), JSON.stringify({ v: 1, car: { app: "web", tickets: ["T"], branch: "b", head }, accepted: [{ kind: "e2e", nod: "yes" }] })));
+	assert.deepEqual(projectOf(read(copies), "acme").trains[0]!.cars[0]!.accepted, [{ kind: "e2e" }], "the 40th copy is past the 32 read");
+	writeFileSync(join(folder, "car-001.json"), JSON.stringify({ v: 1, car: { app: "web", tickets: ["T"], branch: "b", head: SHA_A }, accepted: [{ kind: "e2e", nod: "yes" }] }));
+	assert.deepEqual(projectOf(read(copies), "acme").trains[0]!.cars[0]!.accepted, [{ kind: "e2e", nod: "yes" }], "within the 32, it is read");
+});
+
+test("TY-F008: a project folder that cannot be listed is told with <state> in place of the path", { skip: process.platform === "win32" || process.getuid?.() === 0 }, () => {
+	const dir = state();
+	writeBoard(dir, board("acme", M));
+	const locked = join(dir, "trainboard", "acme");
+	chmodSync(locked, 0o000);
+	try {
+		const yards = read(dir)!;
+		const told = (yards.problems ?? []).join("\n");
+		assert.match(told, /cannot list <state>\/trainboard\/acme/);
+		assert.ok(!told.includes(dir), told);
+	} finally { chmodSync(locked, 0o700); }
 });
 
 // ---- the server world: the GUI of a running sb server

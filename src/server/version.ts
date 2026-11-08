@@ -26,3 +26,9 @@ export function serverCli(root: string = packageRoot()): string {
 	const built = join(root, "dist", "server", "cli.mjs");
 	return existsSync(built) ? built : join(root, "src", "server", "cli.ts");
 }
+
+/** The command that runs this package's CLI, as a prompt or a refusal quotes it: `node '<dist/server/cli.mjs>'` once built, else `npx tsx '<src/server/cli.ts>'` in a checkout. */
+export function cliCommand(root: string = packageRoot()): string {
+	const built = join(root, "dist", "server", "cli.mjs");
+	return existsSync(built) ? `node '${built}'` : `npx tsx '${join(root, "src", "server", "cli.ts")}'`;
+}

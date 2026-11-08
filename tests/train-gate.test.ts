@@ -828,6 +828,25 @@ test("train check --accept validates acceptance evidence, with --app-accept and 
 	assert.match(out.join(""), /does not exist/);
 });
 
+test("TP-F003: train check --accept none means no evidence: the slip is checked against the app's integration.accept, with or without --slip", async () => {
+	const w = world();
+	const go = checkIo(w);
+	writeFileSync(join(w.base, "none-slip.txt"), slip({ accept: "none" }));
+	writeFileSync(join(w.base, "file-slip.txt"), slip({ accept: join(w.base, "accept.json") }));
+	assert.deepEqual((await go("--accept", "none", "--slip", join(w.base, "none-slip.txt"))).result, { ok: true, refusals: [] }, "no evidence and the app asks for none");
+	assert.deepEqual((await go("--accept", "none")).result, { ok: true, refusals: [] }, "no slip: only what the app requires is checked");
+	const required = await go("--accept", "none", "--app-accept", "e2e", "--slip", join(w.base, "none-slip.txt"));
+	assert.equal(required.code, 2);
+	assert.match(required.result!.refusals.join(" "), /accept: none is allowed only for an app whose integration\.accept is empty \(this app requires e2e\)/);
+	const bare = await go("--accept", "none", "--app-accept", "e2e,uat");
+	assert.equal(bare.code, 2);
+	assert.match(bare.result!.refusals.join(" "), /requires e2e, uat/, "without a slip the refusal is the same");
+	const named = await go("--accept", "none", "--slip", join(w.base, "file-slip.txt"));
+	assert.equal(named.code, 2);
+	assert.match(named.result!.refusals.join(" "), /names an evidence file, but it was not read/, "the slip names a file the check was not given");
+	assert.ok(!named.result!.refusals.join(" ").includes("ENOENT"), "none is not a path");
+});
+
 // ---- status and clear
 
 test("train status lists every train with its steps, waits and holders, the locks held and the load", async () => {

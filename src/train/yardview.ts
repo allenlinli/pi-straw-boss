@@ -10,8 +10,10 @@ export interface NetLoad { now: number; cores: number }
 
 /** One acceptance the car's evidence shows (`kind`: `e2e`, `uat`, or the evidence's own label) and, when the train kept a copy of the evidence file, the words the approver gave. */
 export interface YardAccepted { kind: string; nod?: string }
-/** Whether sb has told the car's coordinator of the car's newest `state` (§5.5): `delivered` or `escalated` at `at`, or still `pending` after `attempts`, the last answer in `last`. */
-export interface YardNotice { state: CarState; status: "delivered" | "pending" | "escalated"; attempts: number; at?: string; last?: string }
+/** Whether sb has told the car's coordinator of the car's newest `state` (§5.5): `delivered` or `escalated` at `at`, or still `pending` after `attempts`, the last answer in `last`; or `unreadable`. */
+export type YardNotice = { state: CarState; status: "delivered" | "pending" | "escalated"; attempts: number; at?: string; last?: string }
+	/** The car file or its notice record failed to read (a file out of shape, too big, a link, another project's); `reason` says why and nothing of what was told is guessed. */
+	| { status: "unreadable"; reason: string };
 export interface YardCar { tickets: string[]; branch: string; head: string; departs: string; arrived?: string; accepted: YardAccepted[]; notice?: YardNotice }
 
 export interface YardStep {

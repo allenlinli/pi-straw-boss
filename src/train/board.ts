@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { FOLDER_CODE_RE, compareCodes, isCode, isObject, isoTime, jsonBytes, KINDS, MAX_SB_BYTES, type Holds, type Kind, type LoadSpec, isName, SHA_RE, kb } from "./spec.ts";
 import type { Clear, FactStep, StepStatus, TrainFacts, TrainState, Wait } from "./waits.ts";
@@ -291,26 +291,46 @@ export function capBoard(board: Board): Board {
 
 export type FileRead<T> = ({ ok: true } & T) | { ok: false; reason: string };
 
-function readFile(file: string): { ok: true; value: unknown } | { ok: false; reason: string } {
+/** A byte budget a reading spends file by file (the size of each file it reads): the server's look at the trains stops reading when it is spent (TY-F003). */
+export interface ReadBudget { left: number }
+
+/**
+ * A JSON file a train's session could have written, read with no trust in the path: the descriptor is opened without following a link and without waiting for a writer (a FIFO opens at once), and what the file is and how big it is
+ * are asked of that descriptor, so a file swapped for a FIFO or a device between a check and the read cannot block the caller or lift the cap (TY-F004). The read itself stops at `max` bytes. Never throws; a reason is the file's own.
+ */
+export function readJsonFile(file: string, max: number, budget?: ReadBudget): { ok: true; value: unknown } | { ok: false; reason: string } {
 	let fd: number | undefined;
 	try {
-		const stat = lstatSync(file);
+		// Where the system has no O_NOFOLLOW (Windows) a link is refused by looking first.
+		if (constants.O_NOFOLLOW === undefined && !lstatSync(file).isFile()) return { ok: false, reason: "not a regular file" };
+		fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+		const stat = fstatSync(fd);
 		if (!stat.isFile()) return { ok: false, reason: "not a regular file" };
-		if (stat.size > MAX_BOARD_BYTES) return { ok: false, reason: `file is ${kb(stat.size)} KB, more than ${MAX_BOARD_BYTES / 1024} KB` };
-		fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-		if (fstatSync(fd).size > MAX_BOARD_BYTES) return { ok: false, reason: `file is more than ${MAX_BOARD_BYTES / 1024} KB` };
-		const raw = readFileSync(fd, "utf8");
+		if (stat.size > max) return { ok: false, reason: `file is ${kb(stat.size)} KB, more than ${max / 1024} KB` };
+		if (budget && stat.size > budget.left) return { ok: false, reason: "the byte budget of this reading is spent" };
+		if (budget) budget.left -= stat.size;
+		const buffer = Buffer.allocUnsafe(max + 1);
+		let length = 0;
+		while (length < buffer.length) {
+			const n = readSync(fd, buffer, length, buffer.length - length, length);
+			if (n === 0) break;
+			length += n;
+		}
+		if (length > max) return { ok: false, reason: `file is more than ${max / 1024} KB` };
 		try {
-			return { ok: true, value: JSON.parse(raw) };
+			return { ok: true, value: JSON.parse(buffer.toString("utf8", 0, length)) };
 		} catch (error) {
 			return { ok: false, reason: `not JSON (${(error as Error).message})` };
 		}
 	} catch (error) {
-		return { ok: false, reason: `cannot read: ${(error as NodeJS.ErrnoException).code ?? (error as Error).message}` };
+		// A link opened with O_NOFOLLOW fails with ELOOP.
+		const code = (error as NodeJS.ErrnoException).code;
+		return { ok: false, reason: code === "ELOOP" ? "not a regular file" : `cannot read: ${code ?? (error as Error).message}` };
 	} finally {
 		if (fd !== undefined) closeSync(fd);
 	}
 }
+const readFile = (file: string) => readJsonFile(file, MAX_BOARD_BYTES);
 
 const reasonOf = (list: string[]) => list.map((r) => r.replace(/^sb: /, "")).join("; ");
 

@@ -151,12 +151,43 @@ export function stateLine(file: CarFile, entry: StateEntry): string {
 	});
 }
 
-export type Outcome = "delivered" | "queued" | "failed" | "not-live" | "unknown";
+export const OUTCOMES = ["delivered", "queued", "failed", "not-live", "unknown"] as const;
+export type Outcome = (typeof OUTCOMES)[number];
 export interface Attempt { at: string; outcome: Outcome; answer?: string }
 /** `tower`: the attempts to tell the tower that the coordinator could not be (§5.5, step 5); `escalatedAt` is set when one of them was taken. */
 export interface StateNotice { id?: string; attempts: Attempt[]; deliveredAt?: string; escalatedAt?: string; tower?: Attempt[] }
 /** `<car file>.notice.json`: per state, what the server sent and what the broker answered (the server is its one writer). */
 export interface NoticeRecord { v: 1; states: Partial<Record<CarState, StateNotice>> }
+const MAX_ATTEMPTS = 64, MAX_ANSWER = 600;
+function attemptRefusals(value: unknown, path: string): string[] {
+	if (!isObject(value)) return [`${path} must be an object`];
+	const out: string[] = [];
+	if (!isoTime(value.at)) out.push(`${path}.at must be an ISO time with its zone`);
+	if (!(OUTCOMES as readonly unknown[]).includes(value.outcome)) out.push(`${path}.outcome must be one of ${OUTCOMES.join(", ")}`);
+	if (present(value.answer) && !(typeof value.answer === "string" && value.answer.length <= MAX_ANSWER)) out.push(`${path}.answer must be a string of at most ${MAX_ANSWER} characters`);
+	return out;
+}
+/** What a notice record is refused for, strictly (the file is model-writable: a train could write it): each state a car state, its attempts and tower attempts (at most 64) with an ISO `at`, one of the outcomes and a short string `answer`, and `deliveredAt`/`escalatedAt` ISO times. Fields the readers do not use are not looked at. */
+export function validateNoticeRecord(value: unknown): string[] {
+	if (!isObject(value)) return ["notice record must be an object"];
+	if (value.v !== 1) return ["notice record v must be 1"];
+	if (!isObject(value.states)) return ["notice record states must be an object"];
+	const out: string[] = [];
+	for (const [state, entry] of Object.entries(value.states)) {
+		const path = `states.${state}`;
+		if (!(CAR_STATES as readonly string[]).includes(state)) out.push(`${path} is not a car state`);
+		if (!isObject(entry)) { out.push(`${path} must be an object`); continue; }
+		for (const key of ["attempts", "tower"] as const) {
+			const list = entry[key];
+			if (key === "tower" && list === undefined) continue;
+			if (!Array.isArray(list) || list.length > MAX_ATTEMPTS) out.push(`${path}.${key} must be a list of at most ${MAX_ATTEMPTS} attempts`);
+			else list.forEach((attempt, i) => out.push(...attemptRefusals(attempt, `${path}.${key}[${i}]`)));
+		}
+		for (const key of ["deliveredAt", "escalatedAt"] as const) if (present(entry[key]) && !isoTime(entry[key])) out.push(`${path}.${key} must be an ISO time with its zone`);
+		if (present(entry.id) && !text(entry.id, 128)) out.push(`${path}.id must be a string of at most 128 characters`);
+	}
+	return out;
+}
 export type NoticeStatus = { kind: "pending"; attempts: number; last?: string } | { kind: "delivered" | "escalated"; attempts: number; at: string };
 
 /** A notice is told when the broker said `socket_delivered` (`deliveredAt`) or the tower was told the coordinator is gone (`escalatedAt`); queued, failed and unknown attempts are not. */

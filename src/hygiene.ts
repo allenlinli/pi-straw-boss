@@ -11,7 +11,7 @@ import { baseName, isOrphan, named, programOf, type Proc, readTable } from "./pr
 import { checkoutOf, physical, under } from "./procs/worktree.ts";
 import { inRun, inStandingRun } from "./runmark.ts";
 import { makeCtx, trusted } from "./server/client.ts";
-import { packageRoot } from "./server/version.ts";
+import { cliCommand } from "./server/version.ts";
 import { slotOf } from "./server/record.ts";
 import { TRAIN_EVENT } from "./trainrole.ts";
 import { callControl, type Reply } from "./server/socket.ts";
@@ -67,12 +67,6 @@ const sanitize = (text: string) => text.replace(/[^A-Za-z0-9._-]+/g, "-").replac
 export function ownerId(pid: number, subagentId?: string): string {
 	const tail = `-${pid}`, head = subagentId ? sanitize(subagentId).slice(0, 64 - tail.length) : "pi";
 	return `${head || "pi"}${tail}`;
-}
-
-/** The command that runs this package's CLI: the built `cli.mjs`, or the source in a checkout. */
-function cliCommand(): string {
-	const root = packageRoot(), built = join(root, "dist", "server", "cli.mjs");
-	return existsSync(built) ? `node '${built}'` : `npx tsx '${join(root, "src", "server", "cli.ts")}'`;
 }
 
 /** One request to the live sb server of this account over its control socket; undefined when none runs, it is not trusted, or it does not answer. */

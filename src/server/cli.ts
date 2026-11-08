@@ -37,9 +37,9 @@ const USAGE = `usage: cli.mjs up [--dir FOLDER --label NAME] [--timeout SECONDS]
        cli.mjs procs [list]
        cli.mjs procs reap (--owner ID | --checkout PATH)   (kill what an ended worker left; refused while a live worker works in the checkout)
        cli.mjs train gate --spec FILE   (the wrapper of a train's run step; its monitor runs it)
-       cli.mjs train check (--step FILE | --accept FILE [--app-accept K,K] [--slip FILE])
+       cli.mjs train check (--step FILE | --accept FILE|none [--app-accept K,K] [--slip FILE])
        cli.mjs train status [--project P] [--json]
-       cli.mjs train notices [--project P] [--pending] [--json]
+       cli.mjs train notices [--project P] [--pending] [--json]   (the journal on disk, which a train could also have written; not the server's own record)
        cli.mjs train clear --project P --train CODE (--lane APP | --target NAME) --reason TEXT
        cli.mjs prompt --workspace ID [--state-dir DIR]   (the tower prompt of a standing pane: the server types it)`;
 export class UsageError extends Error {}

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { carsDir } from "../src/train/board.ts";
@@ -58,15 +58,24 @@ test("train notices never guesses: a car file out of shape, oversize, a link, or
 	const good = plant(dir, "acme", SHA_A, "T-1", ["received"]);
 	const folder = carsDir(dir, "acme");
 	writeFileSync(join(folder, "web-bad.json"), "{not json");
-	writeFileSync(join(folder, "web-big.json"), `{"v":1,"pad":"${"x".repeat(70_000)}"}`);
+	// well-formed but over 64 KB (1500 tickets): only the size cap refuses it (TY-F008)
+	const big = emptyCar({ project: "acme", app: "web", tickets: Array.from({ length: 1500 }, (_, i) => `T-${i}-${"x".repeat(50)}`), branch: "b", head: SHA_B, coordinator: "c" });
+	writeFileSync(join(folder, "web-big.json"), JSON.stringify(addState(big, { state: "returned", by: MAIN, at: AT, fields: { reason: "no" } })));
 	symlinkSync(good, join(folder, "web-link.json"));
 	writeFileSync(join(folder, "web-shape.json"), JSON.stringify({ v: 1, project: "acme", app: "web", car: { tickets: [], branch: "b", head: SHA_A }, coordinator: "c", states: [] }));
 	const elsewhere = state();
 	plant(elsewhere, "zzz", SHA_B, "T-9", ["received"]);
 	mkdirSync(join(dir, "trainboard", "linked"), { recursive: true });
 	symlinkSync(carsDir(elsewhere, "zzz"), join(dir, "trainboard", "linked", "cars"));
-	const result = JSON.parse((await notices(dir, { json: true })).out) as { cars: { tickets: string[] }[] };
+	const result = JSON.parse((await notices(dir, { json: true })).out) as { cars: { tickets: string[] }[]; unreadable: { project: string; file: string; reason: string }[] };
 	assert.deepEqual(result.cars.map((c) => c.tickets[0]), ["T-1"]);
+	assert.deepEqual(result.unreadable.map((u) => [u.project, u.file]), [["acme", "web-bad.json"], ["acme", "web-big.json"], ["acme", "web-link.json"], ["acme", "web-shape.json"]], "a file that fails is told, not left out");
+	const why = Object.fromEntries(result.unreadable.map((u) => [u.file, u.reason]));
+	assert.match(why["web-bad.json"]!, /not JSON/);
+	assert.match(why["web-big.json"]!, /more than 64 KB/);
+	assert.match(why["web-link.json"]!, /not a regular file/);
+	assert.match(why["web-shape.json"]!, /tickets/);
+	assert.match((await notices(dir)).out, /4 car or notice files unreadable/);
 	const bad = await notices(dir, { project: "../x" });
 	assert.equal(bad.code, 2);
 	assert.match(bad.err, /project/);
@@ -96,4 +105,74 @@ test("a car file whose setter name is over the shape's cap is refused whole", as
 
 test("the CLI parses train notices with --project, --pending and --json", () => {
 	assert.deepEqual(parseArgs(["train", "notices", "--project", "acme", "--pending", "--json"]).flags, { sub: "notices", project: "acme", pending: true, json: true });
+});
+
+// ---- the fix round of task 5 (TY-F001, F002, F005, F006)
+
+test("TY-F001: a notice record of the wrong shape crashes nothing: its car is listed with every state unreadable, and the file is told", async () => {
+	const hostile: unknown[] = [
+		{ v: 1, states: { received: { attempts: [{ at: AT, outcome: "failed", answer: 7 }] } } },
+		{ v: 1, states: { received: { attempts: [{ outcome: "failed" }] } } },
+		{ v: 1, states: { received: { attempts: [], tower: "abcdef" } } },
+		{ v: 1, states: { received: { attempts: [], tower: { length: 1e9 } } } },
+		{ v: 1, states: { received: { attempts: [], deliveredAt: "1" } } },
+	];
+	for (const notice of hostile) {
+		const dir = state();
+		plant(dir, "acme", SHA_A, "T-1", ["received"], notice as NoticeRecord);
+		plant(dir, "beta", SHA_B, "T-2", ["received"]);
+		const run = await notices(dir, { json: true });
+		assert.equal(run.code, 0, run.err);
+		const r = JSON.parse(run.out) as { cars: { project: string; states: { status: string; towerAttempts: number }[] }[]; unreadable: { project: string; file: string; reason: string }[] };
+		assert.deepEqual(r.cars.map((c) => [c.project, c.states[0]!.status]), [["acme", "unreadable"], ["beta", "pending"]], JSON.stringify(notice));
+		assert.equal(r.cars[0]!.states[0]!.towerAttempts, 0);
+		assert.deepEqual(r.unreadable.map((u) => [u.project, u.file]), [["acme", `web-${SHA_A.slice(0, 12)}.notice.json`]]);
+		assert.equal((await notices(dir, { pending: true, json: true })).out.includes('"unreadable"'), true, "an unreadable state is not delivered, so --pending keeps it");
+	}
+});
+
+test("TY-F002: past the cap a project keeps its newest car files, and the cut is told; the oldest are the ones left out", async () => {
+	const dir = state();
+	const heads = Array.from({ length: 300 }, (_, i) => i.toString(16).padStart(3, "0").padEnd(40, "0"));
+	const old = Date.parse("2026-01-01T00:00:00Z") / 1000;
+	heads.forEach((head, i) => {
+		const file = plant(dir, "acme", head, `T-${i}`, ["received"]);
+		utimesSync(file, old + i, old + i);
+	});
+	const current = plant(dir, "acme", "f".repeat(40), "T-now", ["received"]);
+	utimesSync(current, old + 1000, old + 1000);
+	const r = JSON.parse((await notices(dir, { json: true })).out) as { cars: { tickets: string[] }[]; truncated: boolean };
+	assert.equal(r.truncated, true);
+	assert.equal(r.cars.length, 256);
+	assert.ok(r.cars.some((c) => c.tickets[0] === "T-now"), "the car changed last is kept");
+	assert.ok(!r.cars.some((c) => c.tickets[0] === "T-0"), "the oldest is the one left out");
+	assert.match((await notices(dir)).out, /more cars than shown/);
+});
+
+test("TY-F005: a car file that says it belongs to another project is refused in the folder it is found in", async () => {
+	const dir = state();
+	const mine = plant(dir, "acme", SHA_A, "T-1", ["received"]);
+	const file = JSON.parse(readFileSync(mine, "utf8"));
+	file.project = "zeta";
+	writeFileSync(join(carsDir(dir, "acme"), "web-liar.json"), JSON.stringify(file));
+	// a copy of a good car file under another name would show the car twice
+	writeFileSync(join(carsDir(dir, "acme"), "web-copy.json"), readFileSync(mine, "utf8"));
+	const r = JSON.parse((await notices(dir, { json: true })).out) as { cars: { project: string }[]; unreadable: { file: string; reason: string }[] };
+	assert.deepEqual(r.cars.map((c) => c.project), ["acme"]);
+	assert.deepEqual(r.unreadable.map((u) => u.file), ["web-copy.json", "web-liar.json"]);
+	assert.match(r.unreadable[1]!.reason, /project zeta is not the folder's acme/);
+	assert.match(r.unreadable[0]!.reason, /the file name is not web-aaaaaaaaaaaa\.json/);
+});
+
+test("TY-F006: the output says its source is the journal on disk, which the server wrote and a train could also have written", async () => {
+	const dir = state();
+	plant(dir, "acme", SHA_A, "T-1", ["received"]);
+	assert.equal((JSON.parse((await notices(dir, { json: true })).out) as { source: string }).source, "journal on disk");
+	assert.match((await notices(dir)).out, /^from the journal on disk/);
+	assert.match((await notices(dir, { pending: true })).out, /^from the journal on disk/);
+	const empty = await notices(state());
+	assert.match(empty.out, /^from the journal on disk.*\nno car notices/s);
+	let usage = "";
+	assert.throws(() => parseArgs(["train", "nope"]), (e: Error) => ((usage = e.message), true));
+	assert.match(usage, /train notices .*journal on disk/s);
 });

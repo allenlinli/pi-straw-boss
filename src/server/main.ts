@@ -20,6 +20,7 @@ import { type IntercomModule, loadIntercom, LoaderError } from "./intercom.ts";
 import { DialogForwarder } from "../link/dialogs-out.ts";
 import { dispatcherLookup, unitLabel } from "./dispatcher.ts";
 import { towerOpener } from "./opentower.ts";
+import { type SweepStart, startTrainSweep } from "./trainsweep.ts";
 import { createLinkService, type LinkService, operateGranted, type ServiceDeps } from "../link/service.ts";
 import { boxesOf, createOperateHost, type OperateHost } from "./operatehost.ts";
 import { operateOff } from "./operateoff.ts";
@@ -97,6 +98,8 @@ export interface ServerOptions {
 	herdrUp?: () => Promise<boolean>;
 	/** How often the dialog forwarder and the unit reporter look (default 15 s; a test shortens it). */
 	unitsMs?: number;
+	/** The sweep of expired trainboards (trainsweep.ts): the clock, the writer check, and the timer; tests replace them. */
+	trainboards?: Pick<SweepStart, "now" | "alive" | "every">;
 	watch?: HerdrWatch;
 	herdr?: HeadlessDeps;
 	/** Replaces the tower service's timers and the like, for tests. */
@@ -723,6 +726,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		dialogsOut().start();
 		// A controller that gained `dispatch` mid-dialog gets it, a dialog unanswered for 30 minutes is told, and each controller's unit-status goes out when it changed or a minute has passed.
 		timers.push(setInterval(() => void Promise.all([dialogsOut().tick(), unitsOut().tick()]), o.unitsMs ?? 15_000));
+		// Expired trainboards go (trainsweep.ts, spec §10): once now, then every hour.
+		stops.push(startTrainSweep({ stateDir: slot.stateDir, env, now, log: (event, facts) => log.line(event, facts), skip: () => Boolean(leaving) || phase === "stopping" || phase === "restarting", ...o.trainboards }));
 	} else log.line("dialog-forwarder", { state: "skipped", primary: slot.primary, leaving: Boolean(leaving), phase });
 
 	// Ready: `restarting` goes, and the start-error of this attempt (and any before it) with it.

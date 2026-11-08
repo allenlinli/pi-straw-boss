@@ -951,7 +951,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// A box in two teams (#121 trial; measured): 8459 to 8468 (+9): gui/linkmodel.ts merges the mains of every team's row per unit, each MainCard with its row's team. Cap = measured.
 	// The work board view (todo #135; measured, after the fix round) 8468 to 8593 (+125): gui/board.ts (new, the section: counts, groups, rows, Ask, Clear) and session.ts 170 to 173 (the section's box under the head's log). Cap = measured.
 	// The board demo (todo #135; measured): 8593 to 8638 (+45: gui/demo-board.ts, the eight rows and the two answers; fixture.ts is counted in the demo fixture's own cap). Cap = measured.
-	assert.ok(page <= 8638, `the page's TypeScript has ${page} lines`);
+	// Board review VR-F001 (todo #135; measured): 8638 to 8639 (+1: the list scrolls back to its note after a Clear or an Ask). Cap = measured.
+	assert.ok(page <= 8639, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).
@@ -1163,7 +1164,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Yard visual fix round (todo #125 task 7; measured after a fresh `npm run gui:build`, node 24): 128,825 / 46,728 to 129,051 / 46,799 (+226 / +71): the train card's tooltip and wait marks in render.ts, the messages the map says itself. Raw cap = measured; gzipped cap = measured + 15.
 	// Yard page round 3 (TPG2-F001/F002, V2-F002/F003; measured after a fresh `npm run gui:build`, node 24): 129,051 to 129,053 raw (+2: the clicked element handed to the sheet); gzipped 46,798, under its cap. Cap = measured.
 	// A box in two teams (#121 trial; measured after a fresh `npm run gui:build`, node 24): 129,053 / 46,814 to 129,285 / 46,868 (+232 / +54: linkmodel.ts's per-unit merge of every row's mains). Caps = measured.
-	assert.ok(eagerBytes <= 129_285 && eagerGz <= 46_868, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// 0.66.0 merge with the board's compact rows (measured after a fresh `npm run gui:build` of merge/066, node 24): gzipped 46,868 to 46,870 with the same raw size (the shared chunks' content hashes moved). Cap = measured.
+	assert.ok(eagerBytes <= 129_285 && eagerGz <= 46_870, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1380,7 +1382,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Yard visual fix round (todo #125 task 7; measured after a fresh `npm run gui:build`, node 24): chat chunks 464,065 / 174,443 to 466,809 / 175,354 (+2,744 / +911: the reasons by kind and the header's other counts in trains.ts, the disclosure of the boss's words and the broker's answer in yard.ts, the messages in both languages). Raw cap = measured; gzipped cap = measured + 15.
 	// Yard page round 3 (measured after a fresh `npm run gui:build`, node 24): chat chunks 466,809 / 175,354 to 466,940 / 175,389 (+131 / +35: the count pieces, the word joiner, the clicked opener). Cap = measured.
 	// 0.66.0 merge: Raven round 2, the Geek waiting tag and the work board on the head page (todo #134, #135; measured after a fresh `npm run gui:build` of merge/066, node 24): chat chunks 467,531 / 175,585 to 475,414 / 178,115 (+7,883 / +2,530: gui/board.ts, the head page's section with its counts, groups, rows, Ask and Clear, and its `board_*` messages in both languages). Cap = measured.
-	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 475_414 && total(chunks, gz) <= 178_115, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
+	// Board review VR-F001 (measured after a fresh `npm run gui:build` of merge/066, node 24): 475,414 / 178,115 to 475,469 / 178,123 (+55 / +8: the scroll back to the note). Cap = measured.
+	assert.ok(chunks.length >= 1 && total(chunks, (n) => size(n).length) <= 475_469 && total(chunks, gz) <= 178_123, `the chat chunks are ${total(chunks, (n) => size(n).length)} bytes (${total(chunks, gz)} gzipped)`);
 	// The stylesheet's figure was 22 KB / 6 KB; 0.4.0 raised it by 0.1 KB for the comms anchor highlight, the receive-only strip, and the title link;
 	// 0.5.0 to 24.6 KB / 6.7 KB for the composer, the phone layout with its touch targets and safe-area insets, and the pairing tile.
 	// and to 26 KB / 7 KB for the read-only question panel and the net log that folds on a phone; 0.5.1 to 26.5 KB raw for the queue line in the dialogs.
@@ -1537,7 +1540,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Yard visual fix round (todo #125 task 7; measured after a fresh `npm run gui:build`, node 24): stylesheet 133,059 / 27,559 to 134,279 / 27,797 (+1,220 / +238: the card's two-line note and waiting badge, the larger locomotive, the header's other counts, the disclosure of the boss's words, the phone link bands, the sheet's opaque colour in Raven). Raw cap = measured; gzipped cap = measured + 15.
 	// Yard page round 3 (V2-F002; measured after a fresh `npm run gui:build`, node 24): stylesheet 134,279 / 27,797 to 134,310 / 27,801 (+31 / +4: `.yard-other` nowrap). Raw cap = measured; gzipped cap = measured + 11.
 	// The work board on the head page (todo #135; measured after a fresh `npm run gui:build` of merge/066, node 24): the entry stylesheet 134,310 / 27,812 to 136,691 / 28,112 (+2,381 / +300: `.head-board`, its fold, groups, rows, the Ask and Clear buttons at 44 px, the result line). Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 136_691 && total(css, gz) <= 28_112, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Board review VR-F002, F003 (measured after a fresh `npm run gui:build` of merge/066, node 24): 136,691 / 28,112 to 136,915 / 28,131 (+224 / +19: the row's two tracks, buttons on the name line, the taller list). Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 136_915 && total(css, gz) <= 28_131, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen theme's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

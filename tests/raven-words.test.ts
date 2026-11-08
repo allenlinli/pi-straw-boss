@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -118,6 +120,23 @@ test("the page swaps its sentences with the theme: the registry takes them befor
 });
 
 test("every page file reads its messages through the sentence chokepoint, so a theme's pack can reach them (the pack module itself reads only the type of the ids)", () => {
-	const offenders = readdirSync(join(root, "gui")).filter((f) => f.endsWith(".ts") && f !== "sentences.ts" && f !== "sentencepack.ts").filter((f) => /paraglide\/messages\.js/.test(readFileSync(join(root, "gui", f), "utf8")));
-	assert.deepEqual(offenders, [], "import { m } from \"./sentences.ts\" instead");
+	const walk = (dir: string): string[] => readdirSync(join(root, dir), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? (dir === "gui" && e.name === "paraglide" ? [] : walk(`${dir}/${e.name}`)) : e.name.endsWith(".ts") ? [`${dir}/${e.name}`] : []);
+	const files = walk("gui");
+	assert.ok(files.some((f) => f.startsWith("gui/themes/")), "the scan reaches the theme folders");
+	const offenders = files.filter((f) => f !== "gui/sentences.ts" && f !== "gui/sentencepack.ts").filter((f) => /paraglide\/messages\.js/.test(readFileSync(join(root, f), "utf8")));
+	assert.deepEqual(offenders, [], "import { m } from the sentences chokepoint instead");
+});
+
+test("gui-sentences removes a said/ module whose message is gone", () => {
+	const out = mkdtempSync(join(tmpdir(), "said-"));
+	try {
+		mkdirSync(join(out, "messages"));
+		copyFileSync(join(root, "gui/paraglide/messages/_index.js"), join(out, "messages/_index.js"));
+		mkdirSync(join(out, "said"));
+		for (const f of ["gone_message.js", "gone_message.d.ts"]) writeFileSync(join(out, "said", f), "");
+		execFileSync(process.execPath, [join(root, "scripts/gui-sentences.mjs"), out]);
+		const left = readdirSync(join(out, "said"));
+		assert.ok(!left.includes("gone_message.js") && !left.includes("gone_message.d.ts"), "stale modules are removed");
+		assert.ok(left.includes("_index.js") && left.length > 100, "the current ones are written");
+	} finally { rmSync(out, { recursive: true, force: true }); }
 });

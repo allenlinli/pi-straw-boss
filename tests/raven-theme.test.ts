@@ -165,13 +165,12 @@ test("at rest the picture is near black: a veil of at least 0.7 over everything 
 });
 
 test("the perched raven sits on the head page only, in two frames of one strip, dark at rest and lit by the strike with the picture, turning its head by an opacity cycle", () => {
-	assert.match(raw, /\.stage\[data-view="head"\]::before/);
-	assert.match(raw, /\.stage\[data-view="head"\]::after/);
-	const perch = css.filter((r) => /\.stage\[data-view="head"\]::(before|after)/.test(r.selector));
-	assert.ok(perch.length >= 3, "base rules, plus the animation");
+	const perch = css.filter((r) => /\.perch\b/.test(r.selector));
+	assert.ok(perch.some((r) => /\.stage\[data-view="head"\] > \.perch\b/.test(r.selector)), "the head page's perch is the stage's .perch pair");
 	assert.ok(perch.some((r) => /url\("\.\/perch\.webp"\)/.test(r.body)), "the strip is the layer's image");
-	assert.ok(perch.some((r) => /filter:\s*brightness\(/.test(r.body)), "dark at rest through a brightness filter");
-	for (const name of ["rk-perch-lit", "rk-perch-turn"]) assert.match(raw, new RegExp(`@keyframes ${name}\\b`), name);
+	assert.ok(perch.some((r) => /::after/.test(r.selector) && /filter:\s*brightness\(0\.34\)/.test(r.body)), "dark at rest through a fixed brightness filter on the top layer");
+	assert.ok(perch.some((r) => /::before/.test(r.selector) && /filter:\s*brightness\(0\.85\)/.test(r.body)), "the lit layer under it");
+	for (const name of ["rk-perch-dark", "rk-perch-turn"]) assert.match(raw, new RegExp(`@keyframes ${name}\\b`), name);
 	const cycle = Number(/rk-perch-turn\s+(\d+)s/.exec(raw)?.[1]), t = framesOf("rk-perch-turn", "opacity");
 	assert.ok(t.length >= 4 && t.some((f) => f.v === 1) && t.some((f) => f.v === 0), "the keyframes were read");
 	const first = t.find((f) => f.v === 1)!, last = [...t].reverse().find((f) => f.v === 1)!;
@@ -183,13 +182,12 @@ test("the perched raven sits on the head page only, in two frames of one strip, 
 	// a 600 px phone and forced colours do not draw it
 	for (const query of ["(max-width: 600px)", "(forced-colors: active)"]) {
 		const block = new RegExp(`@media ${query.replace(/[()]/g, "\\$&")} \\{([^\\n]*)\\}`).exec(raw)?.[1] ?? "";
-		assert.match(block, /\.stage\[data-view="head"\]::before/, `${query} hides the perch`);
-		assert.match(block, /\.stage\[data-view="head"\]::after/, `${query} hides the turned frame`);
+		assert.match(block, /\.stage\[data-view="head"\] > \.perch/, `${query} hides the perch`);
 	}
 	// reduced motion and calm: its animations sit in the no-preference block outside data-calm, so the profile frame stands still in the dark light
 	const inMotion = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{((?:[^{}]|\{[^{}]*\})*)\}/g)].map((m) => m[1]).join("\n");
-	assert.match(inMotion, /:not\(\[data-calm\]\)[^{]*\.stage\[data-view="head"\]::before[^{]*\{[^}]*rk-perch-lit/);
-	assert.match(inMotion, /:not\(\[data-calm\]\)[^{]*\.stage\[data-view="head"\]::after[^{]*\{[^}]*rk-perch-turn/);
+	assert.match(inMotion, /:not\(\[data-calm\]\)[^{]*\.stage\[data-view="head"\] > \.perch::after[^{]*\{[^}]*rk-perch-dark/);
+	assert.match(inMotion, /:not\(\[data-calm\]\)[^{]*\.stage\[data-view="head"\] > \.perch-turn[^{]*\{[^}]*rk-perch-turn/);
 });
 
 test("the backdrop belongs to the head page only, and fog, flicker, bats, and the raven are all in the stylesheet", () => {
@@ -231,11 +229,11 @@ test("the map draws the head page's picture in layers of its own, all scoped to 
 	assert.match(raw, /html\[data-view="raven"\]:has\(#stage\[data-view="head"\]\)::before/);
 });
 
-test("the map's layers animate nothing but opacity, transform, translate, and the perch's brightness: no registered number, no background-position, so a quiet map costs the main thread nothing (a background-position animation made it run a frame every vsync, measured)", () => {
+test("the map's layers animate nothing but opacity, transform, translate, no filter, no registered number, no background-position, so a quiet map costs the main thread nothing (a background-position animation made it run a frame every vsync, measured)", () => {
 	const mapAnimated = css.filter((r) => r.parts.some((p) => /data-view="map"/.test(p)) && /animation\s*:\s*(?!none)/.test(r.body));
 	assert.ok(mapAnimated.length >= 7, `${mapAnimated.length} animated map rules`);
 	const names = new Set(mapAnimated.flatMap((r) => split(/animation\s*:\s*([^;]*)/.exec(r.body)?.[1] ?? "", ",").map((x) => x.trim().split(/\s+/)[0]!)));
-	for (const name of ["rk-rest", "rk-candle", "rk-mist-a", "rk-mist-b", "rk-bats", "rk-raven-map", "rk-flap-a", "rk-flap-b", "rk-perch-lit", "rk-perch-turn"]) assert.ok(names.has(name), `${name} runs on the map`);
+	for (const name of ["rk-rest", "rk-candle", "rk-mist-a", "rk-mist-b", "rk-bats", "rk-raven-map", "rk-flap-a", "rk-flap-b", "rk-perch-dark", "rk-perch-turn"]) assert.ok(names.has(name), `${name} runs on the map`);
 	for (const name of names) {
 		const at = raw.indexOf(`@keyframes ${name} {`);
 		let depth = 0, end = raw.indexOf("{", at);
@@ -243,7 +241,7 @@ test("the map's layers animate nothing but opacity, transform, translate, and th
 		const frames = raw.slice(raw.indexOf("{", at) + 1, end);
 		const props = new Set([...frames.replace(/[\d.%,\s]+\{/g, "{").matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]!));
 		assert.ok(props.size > 0, `@keyframes ${name} was read`);
-		for (const prop of props) assert.ok(["opacity", "transform", "translate", "filter"].includes(prop), `@keyframes ${name} sets ${prop}`);
+		for (const prop of props) assert.ok(["opacity", "transform", "translate"].includes(prop), `@keyframes ${name} sets ${prop}`);
 		assert.ok(!/--rk-(a|b|bolt)\b/.test(frames), `${name} animates no registered number`);
 	}
 	assert.match(raw, /@keyframes rk-raven-map \{[^\n]*13%, 100% \{ translate: calc\(var\(--rk-w\) \+ 10vw\) 0; \}/, "the raven crosses by translate and ends off the right edge");
@@ -266,26 +264,26 @@ test("the map's lightning is the head page's, as opacity: the rest veil fades on
 function body(selector: string) { return css.filter((r) => r.parts.includes(selector)).map((r) => r.body).join(";"); }
 
 test("on the map the perched raven stands on the head band's top edge: the head page's strip and keyframes, dark at rest, in profile and turning its head, room made for it, and gone while the head is not open, on a phone, and under forced colours", () => {
-	const band = `${MAP} .head-node:not(.absent)`;
-	for (const part of ["::before", "::after"]) assert.ok(css.some((r) => r.parts.includes(`${band}${part}`) && /url\("\.\/perch\.webp"\)/.test(r.body)), `${part} draws the strip`);
-	const base = body(`${band}::before`);
+	const band = `${MAP} .head-node > .perch`;
+	assert.ok(css.some((r) => /\.perch::(before|after)/.test(r.selector) && /url\("\.\/perch\.webp"\)/.test(r.body)), "the layers draw the strip");
+	assert.ok(css.some((r) => /\.perch::after/.test(r.selector) && /filter:\s*brightness\(0\.34\)/.test(r.body)), "dark at rest like the picture");
+	const base = body(band);
 	assert.match(base, /position:\s*absolute/, "it scrolls with the band");
-	assert.match(base, /filter:\s*brightness\(0\.34\)/, "dark at rest like the picture");
 	assert.match(base, /left:\s*calc\(16% - var\(--rk-pw\) \* 0\.435\)/, "claws 43.5 percent across the frame");
 	assert.match(base, /top:\s*calc\(var\(--rk-pw\) \* -0\.806 - 3px\)/, "claws on the band's top edge");
-	assert.match(body(`${band}::after`), /background-position:\s*100% 0;\s*opacity:\s*0/, "the turned frame dissolves in over the profile");
+	assert.match(body("html[data-view=\"raven\"] .perch-turn"), /opacity:\s*0/, "the turned frame dissolves in over the profile");
 	assert.match(body(`${MAP} .head-node`), /margin-top:\s*calc\(var\(--rk-pw\) \* 0\.806 - 13px\)/, "the band's top margin gives it room inside the map's padding, clear of the crumbs and the legend");
 	const inMotion = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{((?:[^{}]|\{[^{}]*\})*)\}/g)].map((m) => m[1]).join("\n");
-	assert.match(inMotion, /:not\(\[data-calm\]\):has\(#stage\[data-view="map"\]\) \.head-node:not\(\.absent\)::before\s*\{\s*animation: rk-perch-lit 61s/);
-	assert.match(inMotion, /\.head-node:not\(\.absent\)::after\s*\{\s*animation: rk-perch-lit 61s linear infinite, rk-perch-turn 17s linear infinite/);
+	assert.match(inMotion, /\.head-node:not\(\[hidden\]\)\) \.head-node > \.perch::after\s*\{\s*animation: rk-perch-dark 61s/);
+	assert.match(inMotion, /\.head-node > \.perch-turn\s*\{\s*animation: rk-perch-turn 17s linear infinite/);
 	// the strike layer and the perch's light start together: both wait for the band to be shown
 	assert.match(inMotion, /:has\(#stage\[data-view="map"\] \.head-node:not\(\[hidden\]\)\) \.stage\[data-view="map"\]::before\s*\{\s*animation: rk-rest 61s/);
-	assert.ok(css.some((r) => r.parts.includes("html[data-view=\"raven\"] .head-node.absent::before") && /content:\s*none/.test(r.body)), "not drawn while the head is not open");
+	assert.ok(css.some((r) => r.parts.includes("html[data-view=\"raven\"] .head-node.absent > .perch") && /visibility:\s*hidden/.test(r.body)), "unseen while the head is not open, its clock still running");
 	const phone = /@media \(max-width: 600px\) \{ html\[data-view="raven"\]:has\(#stage\[data-view="map"\]\) body::after([^\n]*)\}\s*$/m.exec(raw)?.[0] ?? "";
-	assert.ok(phone.includes(`${band}::before`) && phone.includes(`${band}::after`) && phone.includes(`${MAP} body::after`) && phone.includes(`${MAP}::after`), "a phone draws neither the perch, the bats, nor the flyer");
+	assert.ok(phone.includes(band) && phone.includes(`${MAP} body::after`) && phone.includes(`${MAP}::after`), "a phone draws neither the perch, the bats, nor the flyer");
 	assert.match(phone, /\.head-node \{ margin-top: 0; \}/, "and keeps no room for it");
 	const forced = [...raw.matchAll(/@media \(forced-colors: active\) \{([^\n]*)\}/g)].map((m) => m[1]).join("\n");
-	for (const layer of [`${MAP}::before`, `${MAP}::after`, `${MAP} body::before`, `${MAP} body::after`, `${STAGE}::before`, `${STAGE}::after`, `${STAGE} > .work::before`, 'html[data-view="raven"] .head-node::before', 'html[data-view="raven"] .head-node::after']) assert.ok(forced.includes(layer), `forced colours hide ${layer}`);
+	for (const layer of [`${MAP}::before`, `${MAP}::after`, `${MAP} body::before`, `${MAP} body::after`, `${STAGE}::before`, `${STAGE}::after`, `${STAGE} > .work::before`, 'html[data-view="raven"] .head-node > .perch']) assert.ok(forced.includes(layer), `forced colours hide ${layer}`);
 	assert.match(forced, /display: none/);
 });
 

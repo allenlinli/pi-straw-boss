@@ -116,15 +116,18 @@ html[data-view="raven"]:has(#stage[data-view="head"])::after, html[data-view="ra
 	top: calc(var(--rk-w) * 0.06); left: 0; translate: -20vw 0; width: calc(var(--rk-w) * 0.07); aspect-ratio: 96 / 34; opacity: 0;
 	background: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2096%2034%27%3E%3Cg%20fill=%27%230b080e%27%3E%3Cpath%20d=%27M2%2017%208%2014.5C12%2012.5%2016%2013.5%2019%2015.5L38%2016.5%2047%2020.5%2037%2020C30%2023%2020%2023%2013%2020L8%2019.5Z%27/%3E%3Cpath%20d=%27M18%2016C16%2010%2019%204%2026%201%2026%206%2028%2010%2031%2013%2034%208%2038%205%2044%204%2042%2010%2040%2014%2037%2017Z%27/%3E%3Cg%20transform=%27translate(48%200)%27%3E%3Cpath%20d=%27M2%2017%208%2014.5C12%2012.5%2016%2013.5%2019%2015.5L38%2016.5%2047%2020.5%2037%2020C30%2023%2020%2023%2013%2020L8%2019.5Z%27/%3E%3Cpath%20transform=%27translate(0%2034)%20scale(1%20-1)%27%20d=%27M18%2016C16%2010%2019%204%2026%201%2026%206%2028%2010%2031%2013%2034%208%2038%205%2044%204%2042%2010%2040%2014%2037%2017Z%27/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") 0 0 / 200% 100% no-repeat;
 }
-/* A raven perched on the crypt gate's centre cross (boss, 2026-11-07), in two frames of one strip (perch.webp, 2 x 260 x 239: profile, head turned to the viewer; the body is the same in both, so only the head changes). ::before shows the profile and stays; ::after shows the turned frame over it and dissolves in and out. Its claws sit on the cross at 65 percent across the picture and 0.361 of its width down, its width is 0.074 of the picture's. Dark at rest like the picture (a brightness filter, so the rim light on its feathers stays), lit by the strike with the picture. */
-html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after {
+/* A raven perched on the crypt gate's centre cross (boss, 2026-11-07), in two frames of one strip (perch.webp, 2 x 260 x 239: profile, head turned to the viewer; the body is the same in both, so only the head changes). Two elements, .perch (the profile, which stays) and .perch.perch-turn (the turned frame over it, which dissolves in and out); each is two layers of its strip: ::before lit (brightness 0.85) and ::after dark (brightness 0.34, a filter that is fixed, so the rim light on its feathers stays) over it. The strike fades the dark layer out and back in (opacity), the head turn fades the element, so every animation here is an opacity and the compositor runs it without a repaint, as on the map. Its claws sit on the cross at 65 percent across the picture and 0.361 of its width down, its width is 0.074 of the picture's. */
+html[data-view="raven"] .stage[data-view="head"] > .perch {
 	--rk-pw: calc(var(--rk-w) * 0.074);
-	content: ""; position: fixed; z-index: -1; pointer-events: none; width: var(--rk-pw); aspect-ratio: 260 / 239;
+	display: block; position: fixed; z-index: -1; pointer-events: none; width: var(--rk-pw); aspect-ratio: 260 / 239;
 	left: calc(50% - var(--rk-w) * 0.5 + var(--rk-w) * 0.65 - var(--rk-pw) * 0.435); top: calc(var(--rk-w) * 0.361 - var(--rk-pw) * 0.806);
-	background: url("./perch.webp") 0 0 / 200% 100% no-repeat; filter: brightness(0.34);
 }
-html[data-view="raven"] .stage[data-view="head"]::after { background-position: 100% 0; opacity: 0; }
-@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::after, html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after { display: none; } }
+html[data-view="raven"] .perch::before, html[data-view="raven"] .perch::after { content: ""; position: absolute; inset: 0; background: url("./perch.webp") 0 0 / 200% 100% no-repeat; }
+html[data-view="raven"] .perch::before { filter: brightness(0.85); }
+html[data-view="raven"] .perch::after { filter: brightness(0.34); }
+html[data-view="raven"] .perch-turn::before, html[data-view="raven"] .perch-turn::after { background-position: 100% 0; }
+html[data-view="raven"] .perch-turn { opacity: 0; }
+@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::after, html[data-view="raven"] .stage[data-view="head"] > .perch { display: none; } }
 
 /* The same backdrop on the map (boss, 2026-11-08: 「可能不該只放在主塔台耶，主塔台很少進去」; he picked map + head page). The head page keeps the layers above, whose lights and lightning animate registered numbers (--rk-a, --rk-b, --rk-bolt) and so repaint their whole layer every frame. The map stays open for hours, so its picture is built from layers that only
    fade or move (opacity, transform, translate), which the compositor runs without a repaint: from the bottom, z -6 the picture under the plain veil, the strike's faint violet wash and foot veil (both always drawn: the rest veil hides them), and the moon's own veil (html::before, the head page's layers less the rest veil and the lights); z -5 the rest veil, near black everywhere but the moon, which the strike fades out and back in (.stage::before, opacity);
@@ -166,14 +169,13 @@ html[data-view="raven"]:has(#stage[data-view="map"])::after { opacity: 1; } /* t
 html[data-view="raven"] .stage[data-view="map"] > .work::after { background-position: 100% 0; opacity: 0; }
 /* The perched raven on the map sits on the head band's top edge (the strip of the head page: perch.webp, two frames; claws at 43.5 percent across and 0.806 of its width down); the band's top margin makes room for it inside the map's padding, so it never stands over the crumbs or the legend. It scrolls with the band, takes the strike's light and the head turn from the head page's keyframes, and is not drawn while the head is not open (the band is faint and dashed then), on a phone, or under forced colours. */
 html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { --rk-pw: clamp(52px, calc(var(--rk-w) * 0.05), 70px); margin-top: calc(var(--rk-pw) * 0.806 - 13px); }
-html[data-view="raven"]:has(#stage[data-view="map"]) .head-node:not(.absent)::before, html[data-view="raven"]:has(#stage[data-view="map"]) .head-node:not(.absent)::after {
-	content: ""; position: absolute; pointer-events: none; width: var(--rk-pw); aspect-ratio: 260 / 239;
+html[data-view="raven"]:has(#stage[data-view="map"]) .head-node > .perch {
+	display: block; position: absolute; pointer-events: none; width: var(--rk-pw); aspect-ratio: 260 / 239;
 	left: calc(16% - var(--rk-pw) * 0.435); top: calc(var(--rk-pw) * -0.806 - 3px);
-	background: url("./perch.webp") 0 0 / 200% 100% no-repeat; filter: brightness(0.34);
 }
-html[data-view="raven"]:has(#stage[data-view="map"]) .head-node:not(.absent)::after { background-position: 100% 0; opacity: 0; }
-html[data-view="raven"] .head-node.absent::before, html[data-view="raven"] .head-node.absent::after { content: none; }
-@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after, html[data-view="raven"]:has(#stage[data-view="map"]) .head-node:not(.absent)::before, html[data-view="raven"]:has(#stage[data-view="map"]) .head-node:not(.absent)::after { display: none; } html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { margin-top: 0; } }
+/* The band exists while the head is not open (absent) too: the perch stays in it, unseen, so its clock runs with the strike's from the moment the band is shown. */
+html[data-view="raven"] .head-node.absent > .perch { visibility: hidden; }
+@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after, html[data-view="raven"]:has(#stage[data-view="map"]) .head-node > .perch { display: none; } html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { margin-top: 0; } }
 /* The map and the legend take the keep's ground over the picture, so their text holds its contrast in the lit state. */
 html[data-view="raven"] .stage[data-view="map"] .map { background: var(--rk-well); }
 html[data-view="raven"] .legend { padding: 4px 10px; border-radius: 10px; background: var(--rk-well); }
@@ -222,18 +224,18 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::before { animation: rk-fog 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::after { animation: rk-bat 47s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::after { animation: rk-flap 0.46s steps(1, end) infinite, rk-raven 83s linear 21s infinite; }
-	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"]::before { animation: rk-perch-lit 61s linear infinite; }
-	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"]::after { animation: rk-perch-lit 61s linear infinite, rk-perch-turn 17s linear infinite; }
+	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch::after { animation: rk-perch-dark 61s linear infinite; }
+	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch-turn { animation: rk-perch-turn 17s linear infinite; }
 	/* the map's backdrop: every animation fades or moves a layer that is not repainted (opacity, transform, translate). The strike and the perched raven start together: both wait for the head band to be shown. */
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .stage[data-view="map"]::before { animation: rk-rest 61s linear infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch::after { animation: rk-perch-dark 61s linear infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch-turn { animation: rk-perch-turn 17s linear infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"]::after { animation: rk-candle 4.7s ease-in-out infinite alternate; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"]) body::before { animation: rk-mist-a 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"] > .work::before { animation: rk-mist-b 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"]) body::after { animation: rk-bats 47s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"])::after { animation: rk-flap-a 0.46s steps(1, end) infinite, rk-raven-map 83s linear 21s infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"] > .work::after { animation: rk-flap-b 0.46s steps(1, end) infinite, rk-raven-map 83s linear 21s infinite; }
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"]) .head-node:not(.absent)::before { animation: rk-perch-lit 61s linear infinite; }
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"]) .head-node:not(.absent)::after { animation: rk-perch-lit 61s linear infinite, rk-perch-turn 17s linear infinite; }
 	/* a room's candle light breathes by opacity */
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="session"] #session-view[data-role])::after { animation: rk-room-candle 5.3s ease-in-out infinite alternate; }
 	/* Status motion (boss, 2026-11-08, option C): where Standard sweeps, spins, and pings, the keep draws a seal, breathes mist, and swells a soul-fire. Nothing here turns. The still figures are above (the block "Status"), so calm and reduced motion keep them. */
@@ -257,8 +259,8 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 @keyframes rk-lit-b { 0% { --rk-b: 0.8; } 22% { --rk-b: 0.5; } 40% { --rk-b: 0.95; } 63% { --rk-b: 0.58; } 81% { --rk-b: 0.9; } 100% { --rk-b: 0.66; } }
 /* Once in 61 seconds the sky lights: the picture rises out of the dark in a quarter of a second, flickers back to a fifth, rises again, and fades to dark in 1.2 s (two flashes within 0.9 s). */
 @keyframes rk-bolt { 0%, 94% { --rk-bolt: 0; } 94.4% { --rk-bolt: 1; } 94.9% { --rk-bolt: 0.2; } 95.4% { --rk-bolt: 1; } 97.4%, 100% { --rk-bolt: 0; } }
-/* The perched raven takes the strike's light in step with the picture (same 61 s, same instants as rk-bolt; both start when the head page appears): brightness 0.34 at rest, 0.85 at a flash (the picture is under its plain veil there). */
-@keyframes rk-perch-lit { 0%, 94% { filter: brightness(0.34); } 94.4% { filter: brightness(0.85); } 94.9% { filter: brightness(0.45); } 95.4% { filter: brightness(0.85); } 97.4%, 100% { filter: brightness(0.34); } }
+/* The perched raven takes the strike's light in step with the picture (same 61 s, same instants as rk-bolt and rk-rest; they start together, when the band or the head page is shown): its dark layer fades out at a flash and back in, over the lit layer beneath (the brightness 0.34 and 0.85 of old, as a crossfade). */
+@keyframes rk-perch-dark { 0%, 94% { opacity: 1; } 94.4% { opacity: 0; } 94.9% { opacity: 0.78; } 95.4% { opacity: 0; } 97.4%, 100% { opacity: 1; } }
 /* It holds the profile for 12.6 s of 17, dissolves to the turned head in 0.7 s, looks at the viewer for 3 s, and dissolves back. */
 @keyframes rk-perch-turn { 0%, 64% { opacity: 0; } 68%, 86% { opacity: 1; } 90%, 100% { opacity: 0; } }
 @keyframes rk-fog { to { background-position: calc(var(--rk-w) * 0.7) 0, calc(var(--rk-w) * -0.55) 0; } }
@@ -300,9 +302,9 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 @keyframes rk-wing { 0%, 100% { transform: scale(1, 1) translateY(0); } 50% { transform: scale(0.62, 1.35) translateY(-0.6px); } }
 @keyframes rk-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 /* Forced colours draw the page in system colours: the picture and its weather go. */
-@media (forced-colors: active) { html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after, html[data-view="raven"]:has(#stage[data-view="head"]) body::before, html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
-@media (forced-colors: active) { html[data-view="raven"] .stage[data-view="map"]::before, html[data-view="raven"] .stage[data-view="map"]::after, html[data-view="raven"] .stage[data-view="map"] > .work::before, html[data-view="raven"] .stage[data-view="map"] > .work::after, html[data-view="raven"]:has(#stage[data-view="map"]) body::before, html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::before, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .head-node::before, html[data-view="raven"] .head-node::after { display: none; } }
-@media (forced-colors: active) { html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after, html[data-view="raven"]:has(#stage[data-view="head"]) body::before, html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
+@media (forced-colors: active) { html[data-view="raven"] .stage[data-view="head"] > .perch, html[data-view="raven"]:has(#stage[data-view="head"]) body::before, html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
+@media (forced-colors: active) { html[data-view="raven"] .stage[data-view="map"]::before, html[data-view="raven"] .stage[data-view="map"]::after, html[data-view="raven"] .stage[data-view="map"] > .work::before, html[data-view="raven"] .stage[data-view="map"] > .work::after, html[data-view="raven"]:has(#stage[data-view="map"]) body::before, html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::before, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .head-node > .perch { display: none; } }
+@media (forced-colors: active) { html[data-view="raven"] .stage[data-view="head"] > .perch, html[data-view="raven"]:has(#stage[data-view="head"]) body::before, html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
 @media (forced-colors: active) { html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role])::before, html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role])::after { display: none; } }
 /* The documents list in the dossier: the tome icon (sprite `doc`, set by docList) stands where Standard's paper sheet is drawn in the row's background. */
 html[data-view="raven"] .d-doc { position: relative; background-image: none; }

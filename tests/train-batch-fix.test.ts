@@ -259,3 +259,14 @@ test("checkAnchorloop reads the copy settings.json packages names (TB2-F002)", (
 	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: [join(local, "checkout")] }));
 	assert.equal(checkAnchorloop({ agentDir: agent }).ok, true, "a local path not named pi-anchorloop is not matched; the lookup stays");
 });
+
+test("checkAnchorloop refuses, never scans, when settings.json cannot be parsed or names pi-anchorloop in a form it cannot place (TB3-F001)", () => {
+	const agent = scratch();
+	planted(agent, "2.12.0", ["git", "github.com", "someone", "pi-anchorloop"]);
+	writeFileSync(join(agent, "settings.json"), "{ not json");
+	assert.match((checkAnchorloop({ agentDir: agent }) as { refusal: string }).refusal, /settings\.json cannot be parsed/, "a bad settings file refuses");
+	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: ["git:gitlab.com/g/sub/pi-anchorloop"] }));
+	assert.match((checkAnchorloop({ agentDir: agent }) as { refusal: string }).refusal, /cannot tell which copy/, "an entry naming pi-anchorloop it cannot place refuses");
+	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: ["npm:other@1"] }));
+	assert.equal(checkAnchorloop({ agentDir: agent }).ok, true, "settings that name no pi-anchorloop keep the lookup");
+});

@@ -24,10 +24,12 @@ export function compareVersions(a: string, b: string): number | undefined {
 
 const dirs = (path: string): string[] => { try { return readdirSync(path); } catch { return []; } };
 
-/** The `package.json` of each pi-anchorloop that `<agent>/settings.json` `packages` names (`npm:pi-anchorloop[@v]`, a `git:`/URL source, or a local path): the copies pi loads. Empty when the file lists none or cannot be read. */
-function configured(agentDir: string): string[] {
-	let packages: unknown;
-	try { packages = (JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")) as { packages?: unknown }).packages; } catch { return []; }
+/** The `package.json` of each pi-anchorloop that `<agent>/settings.json` `packages` names (`npm:pi-anchorloop[@v]`, a `git:`/URL source, or a local path): the copies pi loads. Empty when the file is not there or names none; a refusal when the file cannot be parsed or names pi-anchorloop in a form this cannot place (TB3-F001: never fall back to a scan that could find an unused newer copy). */
+function configured(agentDir: string): string[] | { refusal: string } {
+	const file = join(agentDir, "settings.json");
+	let packages: unknown, text: string;
+	try { text = readFileSync(file, "utf8"); } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : { refusal: `${file} cannot be read (${(error as Error).message})` }; }
+	try { packages = (JSON.parse(text) as { packages?: unknown }).packages; } catch { return { refusal: `${file} cannot be parsed` }; }
 	const out: string[] = [];
 	for (const entry of Array.isArray(packages) ? packages : []) {
 		const source = typeof entry === "string" ? entry : typeof entry === "object" && entry !== null ? (entry as { source?: unknown }).source : undefined;
@@ -36,15 +38,16 @@ function configured(agentDir: string): string[] {
 		if (npm) { if (npm[1] === "pi-anchorloop") out.push(join(agentDir, "npm", "node_modules", "pi-anchorloop", "package.json")); continue; }
 		const git = /^(?:git:)?(?:https?:\/\/|ssh:\/\/|git@)?(?:git@)?([^/:\s]+)[/:]([^/\s]+)\/(pi-anchorloop)(?:\.git)?(?:@.*)?\/?$/.exec(source.trim());
 		if (git && /^(git:|https?:|ssh:|git@)/.test(source.trim())) { out.push(join(agentDir, "git", git[1]!, git[2]!, "pi-anchorloop", "package.json")); continue; }
-		if (/^(\/|\.|~)/.test(source.trim()) && /pi-anchorloop\/?$/.test(source.trim())) out.push(join(source.trim().replace(/^~/, process.env.HOME ?? "~"), "package.json"));
+		if (/^(\/|\.|~)/.test(source.trim()) && /pi-anchorloop\/?$/.test(source.trim())) { out.push(join(source.trim().replace(/^~/, process.env.HOME ?? "~"), "package.json")); continue; }
+		if (/(^|[/:])pi-anchorloop(\.git)?(@|\/?$)/.test(source.trim())) return { refusal: `${file} names pi-anchorloop as ${JSON.stringify(source.trim())}, and sb cannot tell which copy pi loads from it` };
 	}
 	return out;
 }
 
 /** Every `package.json` of `pi-anchorloop` that counts: the copies settings.json names when it names any, else those the agent folder and the project hold. */
-function candidates(agentDir: string, cwd?: string): string[] {
+function candidates(agentDir: string, cwd?: string): string[] | { refusal: string } {
 	const named = configured(agentDir);
-	if (named.length) return named;
+	if (!Array.isArray(named) || named.length) return named;
 	const out = [join(agentDir, "npm", "node_modules", "pi-anchorloop", "package.json")];
 	if (cwd) out.push(join(cwd, ".pi", "npm", "node_modules", "pi-anchorloop", "package.json"));
 	for (const host of dirs(join(agentDir, "git"))) for (const owner of dirs(join(agentDir, "git", host))) out.push(join(agentDir, "git", host, owner, "pi-anchorloop", "package.json"));
@@ -53,7 +56,9 @@ function candidates(agentDir: string, cwd?: string): string[] {
 
 export function checkAnchorloop(o: { agentDir: string; cwd?: string; min?: string }): Anchorloop {
 	const min = o.min ?? MIN_ANCHORLOOP, found: { file: string; version: string }[] = [], problems: string[] = [];
-	for (const file of candidates(o.agentDir, o.cwd)) {
+	const files = candidates(o.agentDir, o.cwd);
+	if (!Array.isArray(files)) return { ok: false, refusal: `sb: the merge train needs pi-anchorloop ${min} or newer, and ${files.refusal}; fix it, then try again` };
+	for (const file of files) {
 		let text: string;
 		try { text = readFileSync(file, "utf8"); } catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") problems.push(`${file} cannot be read (${(error as Error).message})`);

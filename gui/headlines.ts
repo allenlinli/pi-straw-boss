@@ -1,6 +1,6 @@
 import { fieldsOf } from "../src/headerfields.ts";
 import type { Item } from "../src/items.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { bossTurn, eventTurn, heard } from "./towerturns.ts";
 
 // The lines under Zen's circle (docs/specs/2026-11-04-head-tower.md, Zen: the strip under the circle). Pure: the head's history items in, its lines out; and the clock of how a line fades, from the moment it is first on screen.

@@ -9,7 +9,7 @@ import { mountTerminals } from "./mirror.ts";
 import { rankOf, unitOf } from "./alerts.ts";
 import { iconRef } from "./icons.ts"; import { prefs } from "./prefs.ts";
 import { type Alert, createStack, tally } from "./overlay.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { aim, byId, doing, fillPlate, hang, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
 import { locate } from "./scene.ts";
 import { mountStepSlot } from "./stepslot.ts";

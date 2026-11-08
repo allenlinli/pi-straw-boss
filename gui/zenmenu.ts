@@ -1,6 +1,6 @@
 import { VIEWS } from "../src/views.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Choice } from "./view.ts";
 import { NAME } from "./viewlabel.ts";
 

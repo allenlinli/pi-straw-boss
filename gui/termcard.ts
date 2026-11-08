@@ -5,7 +5,7 @@ import { h } from "./dom.ts";
 import { keepFocus } from "./focusback.ts";
 import { keywriter, type Write } from "./keywriter.ts";
 import type { Conn, Post, TermState } from "./mirrorconn.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The terminal card (docs/specs/2026-11-02-terminal-card.md): the small card an accepted answer leaves for its terminal step, shared by Standard, Geek, and Zen (each skins it in CSS). It holds the command the
 // answer put there, for a pane the last rows of its screen, one line with a mask, and one button (執行 for a prompt, Send Enter for a pane). It sends what the key pad sends, through the same writes (keywriter.ts)

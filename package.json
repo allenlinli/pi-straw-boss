@@ -47,7 +47,7 @@
     "pretest": "npm run gui:build",
     "test": "node --import ./tests/setup.ts --test tests/*.test.ts",
     "test:one": "node --import ./tests/setup.ts --test",
-    "gui:i18n": "paraglide-js compile --project gui/project.inlang --outdir gui/paraglide --strategy baseLocale --emit-ts-declarations --no-emit-readme --no-emit-prettier-ignore --silent"
+    "gui:i18n": "paraglide-js compile --project gui/project.inlang --outdir gui/paraglide --strategy baseLocale --emit-ts-declarations --no-emit-readme --no-emit-prettier-ignore --silent && node scripts/gui-sentences.mjs"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

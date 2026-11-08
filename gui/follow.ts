@@ -1,5 +1,5 @@
 import type { createChat, Delta, Page } from "./chat.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // Where the comms log stands and how it gets to an entry: pure rules, tested without a browser; chat.ts applies them to the scroller.
 

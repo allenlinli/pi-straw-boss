@@ -8,10 +8,12 @@ import caw from "./sounds/caw.mp3";
 import door from "./sounds/door.mp3";
 import type { ThemeParts } from "../theme.ts";
 import { NOUNS } from "./nouns.ts";
+import { SENTENCES } from "./sentences.ts";
 
 export const theme: ThemeParts = {
 	sprite,
 	nouns: NOUNS,
+	sentences: SENTENCES,
 	// A question for the boss rings the bell (boss, 2026-11-08: the bell sounds like something that wants an answer), a finish is the crow's caw, a failure the door.
 	sounds: { waiting: bell, done: caw, error: door },
 	// The waiting badge over the crest: candle gold on the keep's ground.

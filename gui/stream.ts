@@ -1,5 +1,5 @@
 import type { Net } from "../src/net.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The page's connection to the net: one live stream that is judged by what it delivers, not by its readyState, because a
 // background tab can be throttled or frozen and the stream may drop without an error. The server sends the full snapshot on

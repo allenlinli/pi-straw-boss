@@ -1,4 +1,4 @@
-import { m as msg } from "./paraglide/messages.js";
+import { m as msg } from "./sentences.ts";
 
 // A small markdown renderer of its own (D8): text in, a tree of plain nodes out, then DOM nodes built from the tree. Nothing is ever
 // parsed as HTML, so raw HTML in the text stays text; links keep only the http, https, and mailto schemes. No syntax highlighting.

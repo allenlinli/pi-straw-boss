@@ -4,7 +4,7 @@ import { h, nodes } from "./dom.ts";
 import type { Tile } from "./layer.ts";
 import { countdown, lastSeen } from "./linkmodel.ts";
 import { square } from "./pair.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { folderPicker } from "./picker.ts";
 import { type Answer, post } from "./post.ts";
 

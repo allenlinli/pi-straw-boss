@@ -1,7 +1,7 @@
 import type { Queued } from "../src/net.ts";
 import type { Monitor } from "../src/monitors.ts";
 import type { Todo } from "../src/items.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { text } from "./render.ts";
 
 // The bars between a session's log and its composer, each drawn from what the net says about the unit: the queue, the todo list, the monitors.

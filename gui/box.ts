@@ -2,7 +2,7 @@ import type { LinkSummary } from "../src/link/holder.ts";
 import type { Base } from "../src/net.ts";
 import { endedKind, type RunRow, runRows, safeKey } from "./boxread.ts";
 import type { AllyCard } from "./linkmodel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { aim, ago, allyEl, fillAlly, html, roleName, sync, text } from "./render.ts";
 
 // A remote (operate) base's own parts on the map (docs/specs/2026-11-07-link-operate.md §8): the device badge and team, the greyed state with when the box was last seen, the one line an ended base gives, "Earlier runs" from the box's ledger (api/transcripts), and the

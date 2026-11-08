@@ -1,6 +1,6 @@
 import { reportPeek, type MainCard, type UnitCard } from "./linkmodel.ts";
 import { requested, stopMain } from "./mainstop.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { ago, html, sync, text } from "./render.ts";
 
 // What an unattended device says about its units, as the card of its ally base draws it (docs/how-it-works.md, Unattended devices; the holder's `unit-status`): per unit a state word with how long ago the box said it, its monitors on one

@@ -1,6 +1,6 @@
 import type { TrustAsk, TrustChoice } from "../src/trust/types.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { roleName } from "./render.ts";
 

@@ -1,5 +1,5 @@
 import type { Then } from "../src/owners.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The one rule of the page: an outcome that needs the terminal opens the terminal card. When the server accepts an answer whose choice leaves a step in a terminal, its reply carries `then`
 // (src/control.ts; owners.ts `Then`): the session's own terminal (the prompt it filled waits for Enter) or a new Herdr pane the answer opened (a grant, src/answerpane.ts). Every view

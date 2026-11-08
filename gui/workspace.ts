@@ -1,6 +1,6 @@
 import type { Mark } from "../src/netdata.ts";
 import type { Unit } from "../src/net.ts";
-import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
+import { m } from "./sentences.ts"; import { noun } from "./nouns.ts";
 import { aim, aimOpening, html, LABEL, mark, PLATE, sync, text, urgent } from "./render.ts";
 import { type Scene, wsOf } from "./scene.ts";
 import { baseTitle } from "./boxmodel.ts"; import { fillToken, tokenEl } from "./tokens.ts";

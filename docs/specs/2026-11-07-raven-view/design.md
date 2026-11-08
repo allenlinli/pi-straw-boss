@@ -55,6 +55,7 @@ server ─ GET themes/<view>/<file> ─ name in start-up set ? read once and cac
 | `document.write` from a sync boot script | Hide the page until a JS-loaded sheet arrives | Hiding delays every load; a parser-inserted sheet blocks render only on a themed device. |
 | Id-prefixed theme sprite via `iconRef` | Duplicate ids that override Standard's | `<use>` resolves the first id in document order, so a later duplicate never wins. |
 | `noun()` chokepoint over paraglide | A second paraglide project per theme | It doubles the compile step and message files for about 12 keys. |
+| A sentence pack over the same messages (`say`, `gui/sentences.ts`) | A third locale per theme in paraglide, or one `Proxy` over the whole message namespace | A locale puts the theme's strings in the entry and falls back to English; a namespace-wide wrapper keeps every message in the entry (no tree shaking). One module per message, wrapped only where a pack names it, costs the entry about 1.8 KB. |
 | Two batches | One branch for both | The refactor must be proven invisible before raven changes visuals; review stays readable. |
 
 Risks:

@@ -1,6 +1,6 @@
 import type { MemorySummary } from "../src/net.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { post } from "./post.ts";
 import { MEMORY_CAP, type MemoryEntry, type MemoryView, memoryChip, memoryGroups, memoryMeta, memoryWhy, proposalText, towerRoute } from "./towermodel.ts";
 

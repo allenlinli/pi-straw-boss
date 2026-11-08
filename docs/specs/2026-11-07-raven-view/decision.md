@@ -26,6 +26,7 @@ Actors: the boss (any device), the sb server, the GUI build.
 | Depth of the raven view | A skin of Standard: palette, icons, role nouns, light motion; same layout and interaction | boss, 2026-11-07 「全部照你的建議」 | confirmed |
 | Role mapping | Count = you; Raven Keep (castle) = head tower; crypt = base; coffin chamber = outpost; steward (keyring) = tower; spawn = main; wolf = member; bat = subagent; wandering ghost = outside unit; raven = comms; tome = document | boss, same answer | confirmed |
 | Word depth | Role nouns only (about 30 strings, en and zh-TW), in the theme's chunk | boss | confirmed |
+| Word depth, sentences | zh-TW sentences too: every message that said 塔台 says 管家 (the tower, `role_tower`) or 鴉閣 (the head tower), and a base with no tower says 自主活動; the theme carries a sentence pack in its chunk; English unchanged | boss, 2026-11-08 「塔台就不要叫塔台了？他是一個鑰匙，可以像是管家」「連句子一起改」「尚無管家 => 自主活動」 | confirmed |
 | Lazy scope | A theme mechanism for every view; Geek moves out of the entry; Standard is the base | boss | confirmed |
 | Favicon | One per view, set before the first frame; Zen an ensō, raven from the crest's raven-and-castle composition, Geek `>_`, Standard the tower; badge drawn over it as now | boss | confirmed |
 | Installed-app icon | Unchanged for now | boss | confirmed |

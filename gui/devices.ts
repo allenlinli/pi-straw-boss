@@ -1,5 +1,5 @@
 import { h, nodes } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { post } from "./post.ts";
 
 // The paired devices under the pairing panel (this computer's page only): each with its name, when it was paired and last used, and Unpair; Unpair all beside the heading; a row is the name and its Unpair, then the network and the times across the row (style.css), so a narrow screen wraps them under the name;

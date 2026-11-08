@@ -29,7 +29,7 @@ test("the noun pack names each role in both languages with the spec's words, and
 	for (const locale of Object.keys(NOUNS)) for (const key of Object.keys(NOUNS[locale]!)) assert.ok((NOUN_KEYS as readonly string[]).includes(key), `${locale}.${key} is a noun key`);
 	const want = {
 		en: { head_tower: "Raven Keep", role_tower: "Steward", role_main: "Spawn", role_member: "Wolf", role_subagent: "Bat", spec_base: "Crypt", role_outpost: "Coffin chamber", role_outside: "Ghost", comms: "Ravens", documents: "Tome", you: "the Count" },
-		"zh-TW": { head_tower: "鴉閣", role_tower: "管事", role_main: "血僕", role_member: "狼", role_subagent: "蝙蝠", spec_base: "墓穴", role_outpost: "棺室", role_outside: "遊魂", comms: "通信", documents: "典籍", you: "伯爵" },
+		"zh-TW": { head_tower: "鴉閣", role_tower: "管家", role_main: "血僕", role_member: "狼", role_subagent: "蝙蝠", spec_base: "墓穴", role_outpost: "棺室", role_outside: "遊魂", comms: "通信", documents: "典籍", you: "伯爵" },
 	};
 	for (const [locale, words] of Object.entries(want)) for (const [key, word] of Object.entries(words)) assert.equal((NOUNS[locale] as Record<string, string>)[key], word, `${locale}.${key}`);
 	assert.deepEqual(Object.keys(NOUNS.en!).sort(), Object.keys(NOUNS["zh-TW"]!).sort(), "both languages cover the same keys");

@@ -182,6 +182,7 @@ export function openLedger(d: LedgerDeps): Ledger {
 					const want = Math.min(MAX_LIST, Math.max(1, Math.floor(Number(query.get("limit"))) || MAX_LIST)), out: unknown[] = [];
 					let more = false, last: Row | undefined;
 					for (const r of sorted(scope)) {
+						if (!r.ended) continue; // a run the box sees live is no earlier run: a restarted main has the same session file as its run before the restart, and the live unit is its page
 						if (cut && !(r.last < Number(cut[1]) || (r.last === Number(cut[1]) && r.id < cut[2]!))) continue;
 						const file = readable(r.file, d.root);
 						if (!file) continue; // a file that is gone, or no longer where pi keeps sessions, is no row

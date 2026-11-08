@@ -200,7 +200,7 @@ test("wire 2: the box's observer hands the ledger the whole registry with each u
 	assert.equal(readFileSync(ledgerFile, "utf8").split("\n").filter(Boolean).length, 4, "three first lines and the subagent's end, nothing of any content");
 	// The scope's transcripts: the team's own runs are listed with the dispatcher's roster label, the box's are not, and a key out of scope is not found.
 	const mine = record.transcripts(() => ({ teams: [TEAM], box: false })), listed = await mine.list(new URLSearchParams());
-	assert.deepEqual((listed.body as { rows: { name: string; dispatcher?: string }[] }).rows.map((r) => [r.name, r.dispatcher]).sort(), [["s-main", "agent-tower-01"], ["sub 1", "agent-tower-01"]]);
+	assert.deepEqual((listed.body as { rows: { name: string; dispatcher?: string }[] }).rows.map((r) => [r.name, r.dispatcher]).sort(), [["sub 1", "agent-tower-01"]], "the finished run is listed; the main that is live is the live unit, not an earlier run");
 	assert.equal(mine.has(`t${idOf(refs[2]!.file!)}`), false);
 	assert.equal(mine.has(`t${idOf(refs[0]!.file!)}`), true);
 	// A unit that left the registry ends at the next reading; a reading while another is in flight is covered by it.
@@ -208,6 +208,7 @@ test("wire 2: the box's observer hands the ledger the whole registry with each u
 	net = netOf(baseOf(WS, [["t1", []]], { label: "billing" }));
 	await Promise.all([record.observe(), record.observe()]);
 	assert.equal(record.ledger.rows().find((r) => r.name === "s-main")?.ended, true);
+	assert.deepEqual(((await mine.list(new URLSearchParams())).body as { rows: { name: string }[] }).rows.map((r) => r.name).sort(), ["s-main"], "the main is an earlier run once it left the registry; the subagent, whose file is in the registry and no longer finished, is live again");
 	assert.deepEqual(logs, []);
 });
 

@@ -135,6 +135,8 @@ export interface Towers {
 	takeover(): Promise<void>;
 	status(): TowerRow[];
 	stateOf(workspace: string): TowerRow["state"] | undefined; // `waiting` while a resident tower holds the workspace (the page shows that tower, not the service); none when the server stands in for no tower there
+	/** A main was closed from the page: every service drops the `opened` route of that session, except one that carries a stop the box accepted, which the revoker lets go itself with its done line and notice (a close the tower makes drops it itself). Never throws. */
+	forget(session: string): void;
 	owns(id: string): boolean; // the session id is the identity of one of the services: it has no pi and no bridge, so it is ended, not asked to quit
 	/** The runs of the services (runs.ts): claims, the run's requests, the boss's events. */
 	runs: Runs;
@@ -1209,6 +1211,16 @@ export function createTowers(o: TowersOptions): Towers {
 			}
 		},
 		stateOf: (workspace) => services.get(workspace)?.state,
+		// A main closed from the page: its `opened` row goes, unless it carries a stop the box accepted: then the revoker lets it go, with the done audit and the notice, and is asked to sweep now. A row with no stop has neither waiting, and the revoker would never drop it if its device had dispatch again.
+		forget(session) {
+			let held: OpenedMain[] = [], sweep = false;
+			try { held = openedRows().filter((r) => r.main === session); } catch (cause) { error("ally-route", (cause as Error).message); }
+			for (const l of services.values()) {
+				if (held.some((r) => r.workspace === l.record.workspace && r.stop)) sweep = true;
+				else forgetClosed(l.record.workspace, { main: session });
+			}
+			if (sweep) void revoker.sweep(true);
+		},
 		owns: (id) => [...services.values()].some((l) => l.record.id === id),
 		status: () => [...services.values()].filter((l) => !isHeadL(l)).map(row),
 		head: {

@@ -128,6 +128,13 @@ test("what the server refuses is said in the page's language by its code, or by 
 	assert.equal(towerWhy({ status: 400, body: { error: "not_an_answer", reason: "x" } }, zh), "指令不是對等待事項的回覆，請到塔台的對話裡輸入。");
 	assert.equal(towerWhy({ status: 400, body: { error: "control_character", reason: "x" } }, zh), "瀏覽器不能輸入控制字元。");
 	assert.equal(towerWhy({ status: 500, body: {} }), undefined);
+	// An operate box's refusal of a send, an answer or a key (src/probe.ts, src/control.ts): the composer, a wait card and a block answer say it by its why word; a word with no sentence keeps the box's own text.
+	const op = (why: string) => ({ status: 403, body: { error: "operate_refused", why, reason: "A shell line (`!`) is not run from here: the box takes no arbitrary shell over the link." } });
+	assert.match(towerWhy(op("shell"), zh)!, /[\u4e00-\u9fff]/);
+	assert.match(towerWhy(op("boss-command"), zh)!, /[\u4e00-\u9fff]/);
+	assert.doesNotMatch(towerWhy(op("shell"), zh)!, /arbitrary shell/);
+	assert.notEqual(towerWhy(op("shell"), zh), towerWhy(op("boss-command"), zh));
+	assert.equal(towerWhy(op("something-new"), zh), undefined);
 	// The map's buttons know only the reasons the service gives; the codes of a send are the session view's.
 	assert.equal(actionWhy({ status: 409, body: { error: "refused", reason: "No such parked event" } }), "No such parked event.");
 	assert.equal(actionWhy({ status: 409, body: { error: "standing", reason: "x" } }), undefined);

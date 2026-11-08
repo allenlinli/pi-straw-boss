@@ -3,6 +3,7 @@ import { BOSS_MARK, CRASH_FLAG } from "../src/eventmarks.ts";
 import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { actionWhy } from "./towermodel.ts";
+import { operateWhy } from "./termwords.ts";
 
 // What the session view says about a tower the sb server runs, apart from the map (towermodel.ts): the turns of a run that the server wrote, what a refused send was, and what stands where a terminal would be. The view's own chunk loads it.
 
@@ -91,7 +92,7 @@ export function eventTurn(it: { type?: string; event?: string; text?: string; fr
 	}
 }
 
-/** What the tower refused to a send, in the page's language: by the code the page's server gives, else by the reasons it is known to give; undefined for any other (the server's own words stay). */
+/** What the tower, or an operate box, refused to a send, in the page's language: by the code the page's server gives, else by the reasons it is known to give; undefined for any other (the server's own words stay). */
 export function towerWhy(r: Pick<Answer, "status" | "body">, o?: Opts): string | undefined {
 	if (r.status < 400) return undefined;
 	if (r.body.error === "standing") return m.tower_err_standing({}, o);
@@ -99,6 +100,7 @@ export function towerWhy(r: Pick<Answer, "status" | "body">, o?: Opts): string |
 	if (r.body.error === "too_large") return m.too_long({}, o);
 	if (r.body.error === "control_character") return m.tower_err_control({}, o);
 	if (r.body.error === "not_an_answer") return m.tower_err_not_an_answer({}, o);
+	if (r.body.error === "operate_refused") return operateWhy(r, o?.locale);
 	return actionWhy(r, o);
 }
 

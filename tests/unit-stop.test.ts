@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { wireId } from "../src/board.ts";
+import { createCloser } from "../src/closer.ts";
 import { selectDigest } from "../src/owners.ts";
 import { addRoute, dropOpened, readRoutes, setStop, spendRoute } from "../src/server/allyroute.ts";
 import { createRevoker, type OpenedMain } from "../src/server/revoke.ts";
 import { mainsOf } from "../src/server/unitstop.ts";
 import type { RunSignal } from "../src/server/runs.ts";
 import { callControl } from "../src/server/socket.ts";
+import { towerPanel } from "../src/server/towerpanel.ts";
 import { readRun } from "../src/server/towerrunstore.ts";
 import { TowerWorld } from "./tower-world.ts";
 import { type Running, until } from "./server-world.ts";
@@ -349,6 +351,123 @@ test("a quit stop does not interrupt: a working main is refused before it is eve
 	await world.expose!.unitStop!({ team: T, from: DEV, stopId: "b".repeat(32), handle: HANDLE(), mode: "quit", reason: "", at: Date.now() });
 	await until(() => world.signals.some((x) => x.kind === "main-stop" && x.outcome === "pending"), "the pending notice");
 	assert.deepEqual(closeAsks(), [], "the tower's own check says the main is working");
+});
+
+// OT-F001 (todo #121): a close from the page (closer.ts → towers.forget) must not drop an opened row whose stop the box accepted, or which the revoker is pursuing: the revoker ends it, with `unit-stop-done` and its notice.
+/** The main quits and its pane closes, as a page's close-unit leaves them, and the page's closer tells the service. Nothing awaits between the three, so no sweep of the revoker sees a half-way state. */
+const pageCloses = () => {
+	const pane = world.sessions.find((x) => x.id === "opened-1")!.herdrLocation!.paneId!;
+	world.sessions = [];
+	world.herdr.panes = world.herdr.panes.filter((p) => p.pane_id !== pane);
+	world.expose!.forget("opened-1");
+};
+const refuseAsk = (reqId: string, reason: string) => world.client("sb-tower-wa")!.broker({ type: "extension_message", namespace: "straw-boss/control", fromSessionId: "opened-1", payload: { version: 1, type: "close-main-result", to: "sb-tower-wa", reqId, accepted: false, reason } });
+const doneStops = () => world.ally.audits.filter((a) => a.event === "unit-stop-done").map((a) => [a.outcome, a.stopId]);
+const stoppedNotices = () => world.signals.filter((x) => x.kind === "main-stop" && x.outcome === "stopped");
+
+test("OT-F001: a page close of a main whose stop is pending (busy) leaves the row to the revoker, which ends the stop with the done audit and the stopped notice", async () => {
+	world.revokeMs = 30;
+	await boxWithMain();
+	await world.expose!.unitStop!({ team: T, from: DEV, stopId: "f".repeat(32), handle: HANDLE(), mode: "quit", reason: "", at: Date.now() });
+	await until(() => world.signals.some((x) => x.kind === "main-stop" && x.outcome === "pending"), "the pending notice");
+	pageCloses();
+	assert.equal(readRoutes(world.slot, "wA", Date.now()).length, 1, "the page's forget does not drop the row of a pending stop");
+	await until(() => stoppedNotices().length === 1, "the stopped notice");
+	await until(() => readRoutes(world.slot, "wA", Date.now()).length === 0, "the revoker to let the route go");
+	assert.deepEqual(doneStops(), [["gone", "f".repeat(32)]]);
+});
+
+test("OT-F001: a page close of a main the box could not end (manual) leaves the row to the revoker too", async () => {
+	world.revokeMs = 30;
+	await boxWithMain();
+	const answered = new Set<string>(), manual = "main was not opened by a tower (the boss opened it), so only the boss closes it";
+	const answering = setInterval(() => closeAsks().filter((a) => !answered.has(a.reqId)).forEach((a) => (answered.add(a.reqId), refuseAsk(a.reqId, manual))), 5);
+	try {
+		await world.expose!.unitStop!({ team: T, from: ADM, stopId: "a1".repeat(16), handle: HANDLE(), mode: "interrupt", reason: "", at: Date.now() });
+		await until(() => world.signals.some((x) => x.kind === "main-stop" && x.outcome === "manual"), "the manual notice");
+	} finally {
+		clearInterval(answering);
+	}
+	pageCloses();
+	assert.equal(readRoutes(world.slot, "wA", Date.now()).length, 1, "the row stays for the revoker");
+	await until(() => stoppedNotices().length === 1, "the stopped notice");
+	await until(() => readRoutes(world.slot, "wA", Date.now()).length === 0, "the route to go");
+	assert.deepEqual(doneStops(), [["gone", "a1".repeat(16)]]);
+});
+
+test("OT-F001: the forget itself asks the revoker to sweep: a stopped main that is idle and still listed is asked at once and ends with the done audit, with no timer sweep near", async () => {
+	world.revokeMs = 60_000;
+	await boxWithMain();
+	await world.expose!.unitStop!({ team: T, from: DEV, stopId: "b1".repeat(16), handle: HANDLE(), mode: "quit", reason: "", at: Date.now() });
+	await until(() => world.signals.some((x) => x.kind === "main-stop" && x.outcome === "pending"), "the pending notice");
+	const pane = world.sessions.find((x) => x.id === "opened-1")!.herdrLocation!.paneId!;
+	world.herdr.pane(pane).agent_status = "idle"; // the main finished its turn and accepted the page's close; pi has not left yet
+	world.expose!.forget("opened-1");
+	assert.equal(readRoutes(world.slot, "wA", Date.now()).length, 1, "the row stays");
+	await until(() => closeAsks().length === 1, "the sweep the forget asked for");
+	accept(closeAsks()[0]!.reqId);
+	world.sessions = [];
+	await until(() => stoppedNotices().length === 1, "the stopped notice");
+	await until(() => readRoutes(world.slot, "wA", Date.now()).length === 0, "the route to go");
+	assert.deepEqual(doneStops(), [[undefined, "b1".repeat(16)]]);
+});
+
+// OT2-F001: only a row that carries a stop is the revoker's to let go. A stopless row it merely found short of dispatch has no done audit or stopped notice waiting; holding it left a closed main's route to the 7-day expiry once the device had dispatch again.
+test("OT2-F001: a page close of a main the revoker found short of dispatch (no stop) drops its row at once, and nothing brings it back when the device has dispatch again", async () => {
+	world.revokeMs = 30;
+	await boxWithMain();
+	world.ally.level.set(DEV, "reply");
+	await until(() => world.signals.some((x) => x.kind === "revoked" && !x.ended), "the revoker to be at the main (could not be ended yet)");
+	pageCloses();
+	world.ally.level.set(DEV, "dispatch"); // a policy flip (or one bad read) before the revoker has seen the main gone twice
+	assert.equal(readRoutes(world.slot, "wA", Date.now()).length, 0, "a row with no stop is dropped by the page's close");
+	assert.deepEqual([doneStops(), stoppedNotices().length], [[], 0], "no stop was asked, so no done line and no stopped notice");
+});
+
+test("OT-F001: a main with no stop loses its opened row on a page close", async () => {
+	await boxWithMain();
+	pageCloses();
+	assert.equal(readRoutes(world.slot, "wA", Date.now()).length, 0);
+});
+
+// OT-F004: the closer of the page's close buttons, given the towers panel's `forget` as guihost.ts gives it, closes a main in the world of fakes; the hub's bridge is the one part that is not here (it needs a bound pi session), so `ask` plays the main's quit.
+// guihost.ts handing the closer that same hook is pinned by the source guard in server-towers.test.ts.
+const pageCloser = () => createCloser({
+	run: world.herdr.runFor("none"), sleep: async (ms) => void (await new Promise((done) => setTimeout(done, Math.min(ms, 5)))), me: () => "gui",
+	sessions: async () => world.sessions,
+	ask: async (key) => {
+		const pane = world.sessions.find((x) => x.id === key)?.herdrLocation?.paneId;
+		world.sessions = world.sessions.filter((x) => x.id !== key);
+		world.herdr.panes = world.herdr.panes.filter((p) => p.pane_id !== pane); // pi quit and its pane closed
+		return { accepted: true };
+	},
+	forget: towerPanel(() => world.expose).forget,
+});
+
+test("OT-F004: close-unit through the closer and the towers panel drops the route of a main with no stop", async () => {
+	await boxWithMain();
+	const closer = pageCloser(), key = "opened-1";
+	assert.equal((await closer("unit", { key })).status, 200);
+	await until(() => readRoutes(world.slot, "wA", Date.now()).length === 0, "the plain main's route to go with it (after the reply, once the broker no longer lists the main)");
+});
+
+test("OT-F004: close-unit of a main whose stop is pending ends in the done audit and the stopped notice, through the closer and the panel", async () => {
+	world.revokeMs = 30;
+	await boxWithMain();
+	await world.expose!.unitStop!({ team: T, from: DEV, stopId: "c1".repeat(16), handle: HANDLE(), mode: "quit", reason: "", at: Date.now() });
+	await until(() => world.signals.some((x) => x.kind === "main-stop" && x.outcome === "pending"), "the pending notice");
+	assert.equal((await pageCloser()("unit", { key: "opened-1" })).status, 200);
+	await until(() => stoppedNotices().length === 1, "the stopped notice");
+	await until(() => readRoutes(world.slot, "wA", Date.now()).length === 0, "the route to go");
+	assert.deepEqual(doneStops(), [["gone", "c1".repeat(16)]]);
+});
+
+test("OT-F004: close-tab through the closer and the panel drops the routes of the mains of the squad", async () => {
+	await boxWithMain();
+	const pane = world.herdr.panes.find((p) => p.pane_id === world.sessions.find((x) => x.id === "opened-1")!.herdrLocation!.paneId)!;
+	const reply = await pageCloser()("tab", { workspace: pane.workspace_id, tab: pane.tab_id });
+	assert.equal(reply.status, 200, JSON.stringify(reply.body));
+	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()), []);
 });
 
 test("USB-F002: the pane's own token is a witness: a main whose pane names another device is refused as gone, with no stop written and no close asked", async () => {

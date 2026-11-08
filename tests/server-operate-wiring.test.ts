@@ -145,16 +145,26 @@ test("the Mac's page sees the box's session as a remote base, watches a box unit
 	const watching = listen(gui, unit.key);
 	cleanups.push(() => watching.close());
 	await until(() => watching.events.some((e) => e.event === "history" && e.data.includes("please fix the build")), "the box's history on the watch", WAIT);
-	// The box's finished runs: its ledger saw the main, so the list names it; the unit then leaves the box (its pane closes) and its transcript is still read, through the key the list gave.
-	const listed = await fetchJson(gui, `api/transcripts?base=${base.id}`);
+	// The box's finished runs: while the main is live it is the live unit, not an earlier run; the unit then leaves the box (its pane closes), the ledger ends it, the list names it, and its transcript is read through the key the list gave.
+	const live = await fetchJson(gui, `api/transcripts?base=${base.id}`);
+	assert.equal(live.status, 200, JSON.stringify(live.body));
+	assert.deepEqual(live.body.rows, [], "a run the box sees live is no earlier run");
+	// The box has another main of its own, so the base stays when this one leaves.
+	const herdr = boxHerdr(w), session = (id: string, name: string, paneId: string) => ({ id, name, herdrLocation: { status: "current", paneId, tab: { id: TAB, label: "work" }, workspace: { id: WS, label: "Alpha" } } });
+	herdr.addPane("wA:p2", TAB);
+	Object.assign(herdr.pane("wA:p2"), { agent: "pi", tokens: { sb_role: "main" } });
+	w.box.client.sessions = [session(SESSION, "box main", PANE), session("box-other", "other main", "wA:p2")] as never;
+	await until(() => boxBase(page.nets().at(-1)!)?.tabs.some((t) => t.units.some((u) => u.name === "other main")), "the box's other main in the Mac's net", WAIT);
+	herdr.panes.splice(herdr.panes.findIndex((p) => p.pane_id === PANE), 1);
+	w.box.client.sessions = [session("box-other", "other main", "wA:p2")] as never;
+	await until(() => boxBase(page.nets().at(-1)!)?.tabs.some((t) => t.units.length && !t.units.some((u) => u.name === "box main")), "the main gone from the Mac's net", WAIT);
+	let listed = await fetchJson(gui, `api/transcripts?base=${base.id}`);
+	for (let i = 0; i < 100 && !listed.body.rows?.length; i++) (await sleep(100), (listed = await fetchJson(gui, `api/transcripts?base=${base.id}`)));
 	assert.equal(listed.status, 200, JSON.stringify(listed.body));
 	assert.deepEqual(listed.body.rows.map((r: { name: string; role: string }) => [r.name, r.role]), [["box main", "main"]]);
 	const run = listed.body.rows[0];
 	assert.match(run.key, /^x[0-9a-f]{16}$/);
 	assert.ok(!JSON.stringify(listed.body).includes(SESSION), "the box's own id is not passed on as a key of the page");
-	boxHerdr(w).panes.splice(0);
-	w.box.client.sessions = [] as never;
-	await until(() => !page.nets().at(-1)!.bases.some((b) => b.box && b.tabs.some((t) => t.units.length)), "the unit gone from the Mac's net", WAIT);
 	const old = await fetchJson(gui, `api/history/${run.key}?limit=10`);
 	assert.equal(old.status, 200, JSON.stringify(old.body));
 	assert.ok(JSON.stringify(old.body).includes("the build is fixed"), "the transcript of a run that is over");

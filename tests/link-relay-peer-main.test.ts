@@ -411,3 +411,19 @@ test("device B's run in another workspace's tower is refused a main opened for d
 	assert.ok(!world.client("sb-tower-wb")?.sent.some((m) => m.to === "opened-1"), "nothing was sent from wB");
 	assert.deepEqual(readRoutes(world.slot, "wB", Date.now()), []);
 });
+
+// A close the box's own page makes (the operate page's close-unit and close-tab reach the GUI's closer, closer.ts) ends a main that an ally run opened: its `opened` route goes with it, as a close by the tower does (forgetClosed), so the controller's next unit-status no longer lists a stoppable "opened main".
+test("forget(session) drops the opened route of that main and no other row: not another main's, not an expect row", async () => {
+	const { s, id, token, run } = await allyRun();
+	assert.equal((await run("boss_open_main", { request: REQUEST, sender: `link:${DEV1}` })).ok, true);
+	await finish(s, id, token);
+	const peer = { label: "label", short: "bbbbbb", team: "t", teamName: "T" }, now = Date.now();
+	addRoute(world.slot, "wA", { ...peer, device: DEV2, to: "other-main", name: "other", kind: "opened", at: now }, now);
+	addRoute(world.slot, "wA", { ...peer, device: DEV2, to: "asked-one", name: "asked", kind: "expect", at: now }, now);
+	assert.deepEqual(readRoutes(world.slot, "wA", now).map((r) => r.to).sort(), ["asked-one", "opened-1", "other-main"]);
+	world.expose!.forget("opened-1");
+	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()).map((r) => r.to).sort(), ["asked-one", "other-main"]);
+	world.expose!.forget("never-opened");
+	world.expose!.forget("asked-one");
+	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()).map((r) => r.to).sort(), ["asked-one", "other-main"], "a session with no opened row, and an expect row, are left");
+});

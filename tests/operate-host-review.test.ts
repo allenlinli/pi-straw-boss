@@ -387,3 +387,31 @@ test("H16: an upload over HTTP is read up to 2 MB; what is over never reaches th
 		await gui.stop();
 	}
 });
+
+test("a box in two teams whose grant is withdrawn shows the ended line on a card of each team, not on one of them (trial 121 round 2, item 9)", async () => {
+	for (const word of ["policy", "roster"]) {
+		const w = hostWorld({ teams: [A, B] });
+		await w.page();
+		w.box(A).snap(SNAP());
+		w.box(B).snap(SNAP());
+		await w.pump();
+		w.box(A).close(word);
+		w.box(B).close(word);
+		await w.pump();
+		const ended = w.host.merge(LOCAL).bases;
+		assert.deepEqual(ended.map((b) => [b.box!.state, b.box!.why, b.box!.team]).sort(), [["ended", word, "Alpha"], ["ended", word, "Beta"]], word);
+		assert.equal(new Set(ended.map((b) => b.id)).size, 2, "two cards, two ids");
+		assert.deepEqual(new Set(ended.map((b) => b.box!.device)), new Set([dave.id]));
+	}
+});
+
+test("one team of a box that ends while the other stays live shows no ghost: the live base is the box", async () => {
+	const w = hostWorld({ teams: [A, B] });
+	await w.page();
+	w.box(A).snap(SNAP());
+	w.box(B).snap(SNAP());
+	await w.pump();
+	w.box(A).close("policy");
+	await w.pump();
+	assert.deepEqual(w.host.merge(LOCAL).bases.map((b) => b.box!.state), ["live"]);
+});

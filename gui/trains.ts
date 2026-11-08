@@ -46,11 +46,13 @@ const CAR: Record<CarState, () => string> = { received: m.yard_car_received, ret
 export const stepState = (s: YardStep): StepState => (s.status === "pending" ? "pending" : s.status === "in_progress" ? (s.waits.length ? "waiting" : "running") : s.outcome === "failed" ? "failed" : s.outcome === "void" ? "void" : "passed");
 const stateWord = (s: YardStep) => (stepState(s) === "void" && s.why === "skipped" ? m.yard_s_skipped() : STATE[stepState(s)]());
 
+/** A name that a line may not break inside: a word joiner after each hyphen (a phone's narrow note breaks after a hyphen otherwise). */
+const glue = (name: string) => name.replace(/-/g, "-\u2060");
 /** A wait in words (§7.3). A holder is named by its short code; a holder that is stalled or whose board cannot be read says so. */
 export function waitWords(w: Wait): string {
 	if ("load" in w) return m.yard_wait_load({ max: w.load.max, now: w.load.now });
 	if ("lock" in w) return w.lock.holder ? m.yard_wait_lock_held({ name: w.lock.name, holder: short(w.lock.holder.train) }) : m.yard_wait_lock({ name: w.lock.name });
-	const [base, why] = "lane" in w ? [m.yard_wait_lane({ holder: short(w.lane.holder), app: w.lane.app }), w.lane.why] : [m.yard_wait_target({ holder: short(w.target.holder), target: w.target.target }), w.target.why];
+	const [base, why] = "lane" in w ? [m.yard_wait_lane({ holder: short(w.lane.holder), app: glue(w.lane.app) }), w.lane.why] : [m.yard_wait_target({ holder: short(w.target.holder), target: glue(w.target.target) }), w.target.why];
 	return why === "stale" ? m.yard_wait_stale({ wait: base }) : why === "unreadable" ? m.yard_wait_unreadable({ wait: base }) : base;
 }
 

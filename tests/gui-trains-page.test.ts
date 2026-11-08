@@ -141,3 +141,33 @@ test("the style sheets: Raven's yard sheet is opaque, the phone's code link keep
 	assert.match(style, /\.unit\[data-train-wait\]\[data-mark="idle"\][^{]*\.badge::after \{[^}]*content:\s*"[^"z]+"/, "V-F005: not the idle z");
 	assert.match(style, /\.unit\[data-train-wait\]\[data-mark="idle"\] > \.card \{[^}]*opacity:\s*1/, "and not dimmed as an idle card");
 });
+
+test("the yard sheet returns the focus to the control that was clicked even when it never had the focus, as in Safari (TPG2-F001)", async () => {
+	const { mountYard } = await import("../gui/yard.ts");
+	const sheet = mountYard();
+	const dialog = page.body.find((x) => x.tag === "dialog").at(-1) as El & { open: boolean; close(): void };
+	const chip = new El("button");
+	page.body.append(chip);
+	sheet.open(["acme"], chip as unknown as HTMLElement);
+	assert.notEqual(page.focused, chip);
+	dialog.close();
+	assert.equal(page.focused, chip, "the chip that was clicked, never focused, has the focus after the sheet closes");
+	const main = readFileSync(new URL("../gui/main.ts", import.meta.url), "utf8");
+	assert.match(main, /yard\.open\(.*, opener\)/, "main.ts hands the clicked element to the sheet");
+});
+
+test("the phone's yard header keeps each count with its word, and the map's wait note does not break inside a name (V2-F002, V2-F003)", async () => {
+	const { mountYard } = await import("../gui/yard.ts");
+	const sheet = mountYard();
+	const dialog = page.body.find((x) => x.tag === "dialog").at(-1) as El & { open: boolean };
+	useYards(new Map(), new Map());
+	sheet.net({ bases: [], yards: { projects: [{ project: "acme", trains: [], waiting: [], forming: [{ code: "2026-11-08-f", app: "api", status: "refused", cars: [] }] }] } } as never);
+	sheet.open(["acme"]);
+	const others = dialog.find((x) => x.classes.has("yard-others"))[0]!;
+	assert.ok(others.find((x) => x.classes.has("yard-other")).length >= 1, "each count with its word is a piece of its own");
+	const css = readFileSync(new URL("../gui/style.css", import.meta.url), "utf8");
+	assert.match(css, /\.yard-other\s*\{[^}]*white-space:\s*nowrap/, "a piece never breaks inside");
+	const { waitWords } = await import("../gui/trains.ts");
+	const words = waitWords({ target: { holder: "2026-11-08-b", target: "target-a", why: "live" } } as never);
+	assert.ok(!/target-(?!\u2060)a/.test(words) && words.includes("target-\u2060a"), "a hyphen in a name has a word joiner after it, so the line does not break there");
+});

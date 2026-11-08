@@ -15,9 +15,11 @@ export interface ZenPageIo {
 	api(path: string): Promise<unknown>;
 	/** The newest snapshot, if any. */
 	snapshot(): Net | undefined;
+	/** The trains model's chunk (a test hands its own). */
+	loadTrains?(): Promise<typeof import("./trains.ts")>;
 }
 export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companions" | "activity" | "trains"> & { menuSound: { try(): void; effects(): void } } {
-	let zenTrains: typeof import("./trains.ts").zenTrains | undefined;
+	let zenTrains: typeof import("./trains.ts").zenTrains | undefined, loading = false;
 	let player: { file(): string | undefined } | undefined;
 	const zs = createZenSound(audio, io.sound, () => (player?.file() ? zs.bus() : undefined)); // an effect ducks the music while it plays; Zen's effects play on the page's one audio core, behind the Sound switch
 	return {
@@ -40,7 +42,7 @@ export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companio
 		trains: () => {
 			const net = io.snapshot();
 			if (!net?.yards) return { count: 0, waiting: 0 }; // no yards, no trains model: a computer without trains carries none of its words (spec §26)
-			if (!zenTrains) void import("./trains.ts").then((t) => (zenTrains = t.zenTrains)); // the strip says it from the next snapshot on
+			if (!zenTrains && !loading) (loading = true, void (io.loadTrains?.() ?? import("./trains.ts")).then((t) => (zenTrains = t.zenTrains), () => undefined).finally(() => (loading = false))); // the strip says it from the next snapshot on
 			return zenTrains?.(net) ?? { count: 0, waiting: 0 };
 		},
 	};

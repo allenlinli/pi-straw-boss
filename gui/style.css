@@ -1357,7 +1357,7 @@ dialog.sheet.yard p { margin: 0; } dialog.sheet.yard .yard-counts { margin-top: 
 .yard-body { overflow: auto; padding: 14px 18px 20px; display: grid; gap: 26px; align-content: start; }
 .yard-title { font: 700 17px var(--sans); }
 .yard-counts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 0; color: var(--dim); }
-.yard-count { color: var(--text); font-weight: 600; } .yard-load { font-family: var(--mono); } .yard-others { color: var(--gold); font-weight: 600; }
+.yard-count { color: var(--text); font-weight: 600; } .yard-load { font-family: var(--mono); } .yard-others { color: var(--gold); font-weight: 600; } .yard-other { white-space: nowrap; }
 .yard-integrator { display: inline-block; margin-top: 4px; color: var(--dim); font-size: 12px; } a.yard-integrator { color: var(--accent); }
 .yard-list { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
 .yard-row { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-0); }

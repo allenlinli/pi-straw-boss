@@ -46,7 +46,7 @@ export function drawProject(v: ProjectView): HTMLElement {
 	return h("section", { class: "yard-project", "data-project": v.project },
 		h("header", { class: "yard-head" },
 			h("h3", { class: "yard-title" }, v.title),
-			h("p", { class: "yard-counts" }, h("span", { class: "yard-count" }, v.head), v.others && h("span", { class: "yard-others" }, v.others), h("span", { class: "yard-load" }, v.load)),
+			h("p", { class: "yard-counts" }, h("span", { class: "yard-count" }, v.head), v.others && h("span", { class: "yard-others" }, ...v.others.split(m.yard_sep_dot()).flatMap((x, i) => [i ? m.yard_sep_dot() : "", h("span", { class: "yard-other" }, x)])), h("span", { class: "yard-load" }, v.load)),
 			integrator,
 		),
 		v.problem && h("p", { class: "yard-problem", role: "alert", ...(v.problemTitle ? { title: v.problemTitle } : {}) }, v.problem),
@@ -57,7 +57,7 @@ export function drawProject(v: ProjectView): HTMLElement {
 	);
 }
 
-export interface Yard { open(projects: string[]): void; net(net: Net): void; isOpen(): boolean }
+export interface Yard { open(projects: string[], from?: HTMLElement): void; net(net: Net): void; isOpen(): boolean }
 /**
  * The sheet: a modal dialog (so the page's keys rest while it is open, Escape closes it), redrawn with each snapshot only when what it shows changed. `projects` are the sections it shows, by name; one the net no longer has shows as an empty yard.
  * A click on a train's link to its comms closes the sheet first; the router takes the click.
@@ -93,13 +93,13 @@ export function mountYard(): Yard {
 	dialog.append(h("div", { class: "yard-bar" }, close), body);
 	document.body.append(dialog);
 	return {
-		open(projects) {
+		open(projects, clicked) {
 			shown = projects;
 			sig = "";
 			draw();
 			if (!dialog.open) {
 				const from = document.activeElement as HTMLElement | null;
-				opener = from && from !== document.body && from !== close ? from : opener;
+				opener = clicked ?? (from && from !== document.body && from !== close ? from : opener); // the clicked element first: Safari leaves a clicked button unfocused
 				dialog.showModal();
 			}
 			close.focus();

@@ -76,7 +76,7 @@ test("a wait in words (§7.3): load, lock with and without its holder, lane and 
 	assert.equal(T.waitWords({ lock: { name: "heavy", holder: { train: "2026-11-07-d", step: 3 } } }), "等鎖 heavy（train 1107d 持有）");
 	assert.equal(T.waitWords({ lock: { name: "heavy" } }), "等鎖 heavy");
 	assert.equal(T.waitWords({ lane: { app: "web", holder: "2026-11-06-l" } }), "等 1106l 合併道（web）");
-	assert.equal(T.waitWords({ target: { target: "target-a", holder: "2026-11-06-l" } }), "等 1106l 部署目標（target-a）");
+	assert.equal(T.waitWords({ target: { target: "target-a", holder: "2026-11-06-l" } }), "等 1106l 部署目標（target-\u2060a）");
 	assert.equal(T.waitWords({ lane: { app: "web", holder: "2026-11-06-l", why: "stale" } }), "等 1106l 合併道（web）（它已停滯）");
 	assert.equal(T.waitWords({ target: { target: "t", holder: "2026-11-06-l", why: "unreadable" } }), "等 1106l 部署目標（t）（它的看板讀不到）");
 	assert.equal(en(() => T.waitWords({ load: { max: 30, now: 42 } })), "waiting for load ≤30 (now 42)");

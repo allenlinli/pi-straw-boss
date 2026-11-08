@@ -194,3 +194,30 @@ test("the effects use no audio file and no second context", async () => {
 	z.play("low");
 	assert.equal(made, 1);
 });
+
+test("Zen's pages never import the trains model statically; zenPage loads it only when a snapshot has yards, and a failed load is tried again on the next snapshot (TPG2-F002)", async () => {
+	const { readdirSync } = await import("node:fs");
+	const dir = new URL("../gui/", import.meta.url);
+	for (const f of readdirSync(dir).filter((n) => /^zen.*\.ts$/.test(n))) assert.doesNotMatch(readFileSync(new URL(f, dir), "utf8"), /^\s*import\b[^\n]*["']\.\/trains\.ts["']/m, `${f} imports trains.ts statically`);
+	const had = "document" in globalThis;
+	if (!had) Object.assign(globalThis, { document: { addEventListener() {}, removeEventListener() {} } });
+	const { zenPage } = await import("../gui/zenpage.ts");
+	const real = await import("../gui/trains.ts");
+	let net: unknown = { units: [] }, calls = 0, fail = true;
+	const z = zenPage({ sound: { on: () => false }, api: async () => ({}), snapshot: () => net as never, loadTrains: async () => (calls++, fail ? Promise.reject(new Error("chunk")) : real) });
+	assert.deepEqual(z.trains!(), { count: 0, waiting: 0 });
+	assert.equal(calls, 0, "no yards, no load");
+	net = { units: [], yards: { projects: [] } };
+	z.trains!();
+	await new Promise((r) => setImmediate(r));
+	assert.equal(calls, 1);
+	z.trains!();
+	await new Promise((r) => setImmediate(r));
+	assert.equal(calls, 2, "the failed load is tried again with the next snapshot");
+	fail = false;
+	z.trains!();
+	await new Promise((r) => setImmediate(r));
+	assert.deepEqual(z.trains!(), { count: 0, waiting: 0 });
+	assert.equal(calls, 3);
+	if (!had) delete (globalThis as { document?: unknown }).document;
+});

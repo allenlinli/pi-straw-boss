@@ -140,6 +140,8 @@ test("the style sheets: Raven's yard sheet is opaque, the phone's code link keep
 	assert.match(style, /\.unit\[data-train-note\] \.note \{[^}]*-webkit-line-clamp:\s*3/, "V-F004");
 	assert.match(style, /\.unit\[data-train-wait\]\[data-mark="idle"\][^{]*\.badge::after \{[^}]*content:\s*"[^"z]+"/, "V-F005: not the idle z");
 	assert.match(style, /\.unit\[data-train-wait\]\[data-mark="idle"\] > \.card \{[^}]*opacity:\s*1/, "and not dimmed as an idle card");
+	const geek = css("../gui/themes/geek/geek.css");
+	assert.match(geek, /\[data-view="geek"\] \.unit\[data-train-wait\]\[data-mark="idle"\] \{[^}]*--tag:\s*"\[waiting\]"/, "V2-F001 (boss 11-08): Geek tags a waiting train [waiting] on the map, the word its yard row shows, not a parked main's [IDLE]");
 });
 
 test("the yard sheet returns the focus to the control that was clicked even when it never had the focus, as in Safari (TPG2-F001)", async () => {

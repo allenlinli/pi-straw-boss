@@ -94,6 +94,7 @@
 [data-view="geek"] [data-mark="waiting"] { --tag: "[WAIT?]"; }
 [data-view="geek"] [data-mark="commanding"] { --tag: "[CMD◈]"; }
 [data-view="geek"] [data-mark="idle"] { --tag: "[IDLE]"; }
+[data-view="geek"] .unit[data-train-wait][data-mark="idle"] { --tag: "[waiting]"; } /* a train that waits (render.ts) is not a parked main: the word its yard row shows (boss 11-08) */
 [data-view="geek"] [data-mark="done"] { --tag: "[DONE✓]"; }
 [data-view="geek"] [data-mark="error"] { --tag: "[ERR!]"; }
 [data-view="geek"] [data-mark="unknown"] { --tag: "[UNKN]"; }

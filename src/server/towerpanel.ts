@@ -9,6 +9,8 @@ export interface TowerEnd {
 	owns(id: string): boolean;
 	/** The boss closes the tower (towers.ts `close`): its tab goes and the service ends, the base's mains becoming members again. */
 	close(workspace: string): Promise<{ ok: boolean; error?: string }>;
+	/** A main was closed from this server's page (closer.ts): the `opened` route an ally run left for it goes with it, whichever workspace's tower holds it. */
+	forget(session: string): void;
 }
 /**
  * The page's way to the tower service (guihost.ts `tower`): the service's state and queue in the net, the composer, the notices' buttons, and the boss conversation's Leave and New. Every one is a function the pi interface
@@ -37,6 +39,7 @@ export function towerPanel(towers: () => Towers | undefined): { view(workspace: 
 		// The head is a tower service under its Herdr workspace, yet only api/head/… reaches it (review HH3-F003): the tower routes ask this to refuse its key and its workspace.
 		isHead: (workspace) => workspace === HEAD_KEY || (towers()?.head.status()?.workspace === workspace),
 		owns: (id) => towers()?.owns(id) ?? false,
+		forget: (session) => towers()?.forget(session),
 		close: (workspace) => asked(async (t) => (await (workspace === HEAD_KEY ? t.head.close() : t.close(at(t, workspace))), {})),
 		live: (workspace) => Boolean(towers() && (workspace !== HEAD_KEY || towers()!.head.status()) && towers()!.runs.status(at(towers()!, workspace))?.run),
 		// The composer is the boss at a keyboard: the same boss event as the tower prompt's (`present`), so a conversation starts or goes on (docs/how-it-works.md, The boss conversation).

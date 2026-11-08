@@ -135,6 +135,8 @@ export interface Towers {
 	takeover(): Promise<void>;
 	status(): TowerRow[];
 	stateOf(workspace: string): TowerRow["state"] | undefined; // `waiting` while a resident tower holds the workspace (the page shows that tower, not the service); none when the server stands in for no tower there
+	/** A main was closed from the page: every service drops the `opened` route of that session (a close the tower makes drops it itself). Never throws. */
+	forget(session: string): void;
 	owns(id: string): boolean; // the session id is the identity of one of the services: it has no pi and no bridge, so it is ended, not asked to quit
 	/** The runs of the services (runs.ts): claims, the run's requests, the boss's events. */
 	runs: Runs;
@@ -1209,6 +1211,7 @@ export function createTowers(o: TowersOptions): Towers {
 			}
 		},
 		stateOf: (workspace) => services.get(workspace)?.state,
+		forget: (session) => void [...services.values()].forEach((l) => forgetClosed(l.record.workspace, { main: session })),
 		owns: (id) => [...services.values()].some((l) => l.record.id === id),
 		status: () => [...services.values()].filter((l) => !isHeadL(l)).map(row),
 		head: {

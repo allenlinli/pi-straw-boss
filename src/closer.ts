@@ -9,6 +9,7 @@ import { SettingsRefused } from "./trust/settings.ts";
 // of the net in it (mains, members, and the base's tower) quits first, then the tab or the workspace closes with what is left in it (shells,
 // subagents). A session that refuses or does not answer stops the batch before anything closes, and so does one still running after EXIT_MS.
 // The session that runs the server is asked last of all, through nothing: closing its tab or base ends it with the rest.
+// A session that quit and closed is told to `forget`, so the route an ally run left for a main it opened for a device goes with the main (the operate page's close-unit and close-tab arrive here).
 // The tower the sb server runs (a service) has no pi and no bridge: its Quit tower ends the service (towers.ts close: the tab goes, the base's mains become members), and a squad or base closes without asking its identity or the pi of a run in its pane, and ends the service when its tab closes with them.
 //   POST /<token>/api/close/unit {key}                 that session quits and closes its pane
 //   POST /<token>/api/close/tab {workspace, tab}       every agent in the tab quits, then the tab closes
@@ -19,10 +20,10 @@ import { SettingsRefused } from "./trust/settings.ts";
 
 const EXIT_MS = 30_000, JOINED = new Set(["main", "member", "tower"]);
 /** `check` and `stateDir` are a stash's: without them this closer stashes nothing. */
-export interface CloserDeps { /** The sb server's own towers: `of` names the workspace whose service a unit key is the tower of, `owns` says an intercom id is a service's identity, `has` that the service stands in the workspace (every session in its standing pane is then its own: the identity and the pi of a live, event, or hand run), `end` closes the tower as the boss (a service has no pi to ask). */ tower?: { of(key: string): string | undefined; owns(id: string): boolean; has(workspace: string): boolean; end(workspace: string): Promise<{ ok: boolean; error?: string }> }; run: HerdrRun; sleep: Sleep; me(): string; sessions(): Promise<Session[]>; ask(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; check?(key: string): Promise<{ reason?: string } | undefined>; stateDir?: string; pop?(name: string): Promise<{ workspace: string; label: string; sessions: number }> }
+export interface CloserDeps { /** The sb server's own towers: `of` names the workspace whose service a unit key is the tower of, `owns` says an intercom id is a service's identity, `has` that the service stands in the workspace (every session in its standing pane is then its own: the identity and the pi of a live, event, or hand run), `end` closes the tower as the boss (a service has no pi to ask). */ tower?: { of(key: string): string | undefined; owns(id: string): boolean; has(workspace: string): boolean; end(workspace: string): Promise<{ ok: boolean; error?: string }> }; run: HerdrRun; sleep: Sleep; me(): string; sessions(): Promise<Session[]>; ask(key: string, keepPane: boolean, ifStashable?: boolean): Promise<{ accepted: boolean; reason?: string } | undefined>; check?(key: string): Promise<{ reason?: string } | undefined>; stateDir?: string; pop?(name: string): Promise<{ workspace: string; label: string; sessions: number }>; /** A session that accepted a close, or quit in a batch that closed: the server drops what it kept for it (an `opened` route of an ally run's main, allyroute.ts). It must not throw. */ forget?(session: string): void }
 const no = (status: number, error: string, reason: string): Reply => ({ status, body: { error, reason } });
 
-export function createCloser({ run, sleep, me, sessions, ask, check, stateDir, pop, tower }: CloserDeps) {
+export function createCloser({ run, sleep, me, sessions, ask, check, stateDir, pop, tower, forget }: CloserDeps) {
 	let busy = false;
 	const name = (s: Session) => s.name ?? s.id.slice(0, 8);
 
@@ -48,6 +49,7 @@ export function createCloser({ run, sleep, me, sessions, ask, check, stateDir, p
 			if (!ended.ok) return no(409, "refused", ended.error ?? "The tower did not close.");
 		}
 		await run(tab ? ["tab", "close", tab] : ["workspace", "close", workspace]).catch(() => {}); // it may have closed itself with its last pane
+		for (const s of targets) forget?.(s.id);
 		return { status: 200, body: { closed: targets.length } };
 	}
 
@@ -59,6 +61,7 @@ export function createCloser({ run, sleep, me, sessions, ask, check, stateDir, p
 			const workspace = tower?.of(json.key), ended = workspace === undefined ? undefined : await tower!.end(workspace);
 			if (ended) return ended.ok ? { status: 200, body: { closing: true } } : no(409, "refused", ended.error ?? "The tower did not close.");
 			const r = await ask(json.key, false);
+			if (r?.accepted) forget?.(json.key);
 			return r?.accepted ? { status: 200, body: { closing: true } } : no(409, "refused", r?.reason ?? "The session did not answer (it may run an older pi-straw-boss, or be stuck); /reload it, or close it in its terminal.");
 		}
 		if (kind === "pop" && pop) {

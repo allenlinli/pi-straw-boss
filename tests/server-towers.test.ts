@@ -10,6 +10,7 @@ import { TOWER_LABEL, type Session } from "../src/herdr.ts";
 import { fileOf, slotOf } from "../src/server/record.ts";
 import { callControl } from "../src/server/socket.ts";
 import { buildNet, type Ref } from "../src/net.ts";
+import { addRoute, readRoutes } from "../src/server/allyroute.ts";
 import { towerPanel } from "../src/server/towerpanel.ts";
 import { listServices, readLedger, readQueue, readService, towerDir, writeService } from "../src/server/towerstore.ts";
 
@@ -890,4 +891,16 @@ test("TO-F001: passes overlap in order: a slow earlier pass cannot write its old
 	world.herdr.emit("workspace.moved", "workspace_moved", { workspace_id: "wA" });
 	await sleep(900);
 	assert.equal(order(), newest, "the standing key is the newest one");
+});
+
+test("the page's tower panel forgets a closed main's opened route through the service, and the closer is given that hook", async () => {
+	const s = await started();
+	await ask(s, { cmd: "ensure-tower", workspace: "wA" });
+	const panel = towerPanel(() => world.expose), now = Date.now();
+	addRoute(world.slot, "wA", { device: "d".repeat(26), label: "dev", short: "dddddd", team: "t", teamName: "T", to: "m-1", name: "m", kind: "opened", at: now }, now);
+	addRoute(world.slot, "wA", { device: "d".repeat(26), label: "dev", short: "dddddd", team: "t", teamName: "T", to: "m-2", name: "m", kind: "opened", at: now }, now);
+	panel.forget("m-1");
+	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()).map((r) => r.to), ["m-2"]);
+	// guihost.ts hands the closer the panel's hook: a close from the page is what drops the row.
+	assert.match(readFileSync(new URL("../src/server/guihost.ts", import.meta.url), "utf8"), /createCloser\(\{[^]*?forget: o\.tower\.forget/);
 });

@@ -15,8 +15,9 @@ const at = (id: string, paneId: string): Session => ({ id, herdrLocation: { pane
 
 function setup({ refuse = [] as string[], linger = [] as string[] } = {}) {
 	let live = [at("a", "wA:p1"), at("kid", "wA:p2"), at("b", "wA:p3"), at("tower", "wA:p7"), at("gui", "wB:p1")];
-	const asked: [string, boolean][] = [], ran: string[][] = [];
+	const asked: [string, boolean][] = [], ran: string[][] = [], forgot: string[] = [];
 	const close = createCloser({
+		forget: (session) => void forgot.push(session),
 		run: async (args) => (ran.push(args), args[0] === "pane" ? JSON.stringify({ result: { panes: PANES } }) : "{}"),
 		sleep: async () => {},
 		me: () => "gui",
@@ -28,7 +29,7 @@ function setup({ refuse = [] as string[], linger = [] as string[] } = {}) {
 			return { accepted: true };
 		},
 	});
-	return { close, asked, ran, closes: () => ran.filter((a) => a[1] === "close") };
+	return { close, asked, ran, forgot, closes: () => ran.filter((a) => a[1] === "close") };
 }
 
 test("closing a squad quits its agents, keeping their panes, then closes the tab; its subagent goes with the tab", async () => {
@@ -72,6 +73,28 @@ test("one unit closes its own pane; a bad request is refused", async () => {
 	assert.equal((await s.close("unit", {})).status, 400);
 	assert.equal((await s.close("tab", { workspace: "wA" })).status, 400);
 	assert.equal((await s.close("nope", {})).status, 404);
+});
+
+// The route of a main an ally run opened for a device goes with the main (allyroute.ts `dropOpened`): the closer tells its owner which sessions ended, once they did, and a close that did not happen tells it nothing.
+test("a unit that accepts the close is forgotten by its session id; a refusal forgets nothing", async () => {
+	const s = setup({ refuse: ["b"] });
+	assert.equal((await s.close("unit", { key: "a" })).status, 200);
+	assert.equal((await s.close("unit", { key: "b" })).status, 409);
+	assert.deepEqual(s.forgot, ["a"]);
+});
+
+test("a squad or base that closed forgets every session it quit, and one that stayed open forgets none", async () => {
+	const squad = setup();
+	assert.equal((await squad.close("tab", { workspace: "wA", tab: "wA:t1" })).status, 200);
+	assert.deepEqual(squad.forgot, ["a"]);
+	const base = setup();
+	assert.equal((await base.close("base", { workspace: "wA" })).status, 200);
+	assert.deepEqual(base.forgot.sort(), ["a", "b", "tower"]);
+	const refused = setup({ refuse: ["b"] });
+	assert.equal((await refused.close("base", { workspace: "wA" })).status, 409);
+	const slow = setup({ linger: ["a"] });
+	assert.equal((await slow.close("tab", { workspace: "wA", tab: "wA:t1" })).status, 504);
+	assert.deepEqual([refused.forgot, slow.forgot], [[], []]);
 });
 
 // The sb server's own tower (docs/specs/2026-10-26-sb-backend.md, The tower service) is an intercom identity standing in the base's tower pane, with no pi and no bridge: nothing can be asked to quit, and its close is the service's end.

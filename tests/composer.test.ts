@@ -13,6 +13,18 @@ test("an answer that arrives while the composer is gone leaves its reason for th
 	assert.match(aftermath(answer(504, "Herdr did not confirm it in time."), "hello", "hello")![1], /^Not confirmed\. Check the terminal/);
 });
 
+test("an operate refusal that arrives while the composer is gone is said in the page's language by its why word; a word with no sentence keeps the box's text", () => {
+	const op = (why: string): Answer => ({ ok: false, status: 403, body: { error: "operate_refused", why, reason: "A shell line (`!`) is not run from here." } });
+	for (const why of ["shell", "boss-command"]) {
+		const zh = aftermath(op(why), "!echo x", "!echo x", "zh-TW")!, en = aftermath(op(why), "!echo x", "!echo x", "en")!;
+		assert.equal(zh[0], "error");
+		assert.match(zh[1], /[\u4e00-\u9fff]/, why);
+		assert.notEqual(zh[1], en[1], why);
+		assert.notEqual(zh[1], "A shell line (`!`) is not run from here.", why);
+	}
+	assert.deepEqual(aftermath(op("something-new"), "x", "x", "zh-TW"), ["error", "A shell line (`!`) is not run from here."]);
+});
+
 test("text edited after it was sent, while away, says the original already went; an untouched or emptied draft says nothing", () => {
 	assert.deepEqual(aftermath(answer(200), "hellp", "hello"), ["ok", "The original already went to the session; what is here is your edited copy, unsent."]);
 	assert.equal(aftermath(answer(200), "hello", "hello"), undefined);

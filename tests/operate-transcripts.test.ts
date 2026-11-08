@@ -46,6 +46,7 @@ const list = async (hub: Hub, q: Record<string, string> = {}) => api(hub, ["tran
 test("scope: a team's session lists and reads its own team's runs and no other team's, the box's only with the box part", async () => {
 	const fa = session("alpha"), fb = session("beta"), fx = session("boxed"), ledger = open(mine());
 	ledger.observe([seen(fa, { name: "a-run" }), seen(fb, { name: "b-run", owner: { team: B }, device: bob.id }), seen(fx, { name: "box-run", owner: { box: true }, device: undefined })]);
+	ledger.observe([]); // the runs are over: the list holds finished runs only
 	const names = async (scope: Scope) => ((await list(hubOf(ledger, () => scope).hub)).body as { rows: { name: string }[] }).rows.map((r) => r.name).sort();
 	assert.deepEqual(await names({ teams: [A], box: false }), ["a-run"]);
 	assert.deepEqual(await names({ teams: [B], box: false }), ["b-run"]);
@@ -98,6 +99,19 @@ test("the list: newest first, with the fields §9 names and no path; a page's cu
 	assert.equal((await list(hub, { before: "9:zz" })).status, 400);
 });
 
+test("the list: a run that is live is no earlier run, a resumed session (a restart, the same file) included; it is listed when it ends, and its t key reads all the while", async () => {
+	const live = session("live"), done = session("done"), ledger = open(mine());
+	ledger.observe([seen(live, { name: "restarted main" }), seen(done, { name: "finished" })]);
+	ledger.observe([seen(live, { name: "restarted main" })]); // `done` ended; the main goes on
+	const { hub } = hubOf(ledger, reach([A])), names = async () => ((await list(hub)).body as { rows: { name: string }[] }).rows.map((r) => r.name);
+	assert.deepEqual(await names(), ["finished"]);
+	assert.equal((await api(hub, ["history", transcriptKey(idOf(live))], Q())).status, 200, "a live run's transcript still reads by its key");
+	ledger.observe([]); // the main's session ends: its pane closed
+	assert.deepEqual((await names()).sort(), ["finished", "restarted main"]);
+	ledger.observe([seen(live, { name: "restarted main" })]); // pi resumes the session in another pane: the same file is live again
+	assert.deepEqual(await names(), ["finished"]);
+});
+
 test("the list: rows that share a time are all listed, across a page's edge", async () => {
 	const files = [session("1"), session("2"), session("3")], ledger = open(mine());
 	ledger.observe(files.map((f, i) => seen(f, { name: `same ${i}` })));
@@ -112,6 +126,7 @@ test("the list: at most 50 rows a page, whatever the limit; one session file is 
 	assert.equal(one.rows().length, 1);
 	const files = Array.from({ length: 55 }, (_, i) => session(`m${i}`)), many = open(mine());
 	many.observe(files.map((file) => seen(file)));
+	many.observe([]);
 	const { hub } = hubOf(many, reach([A])), body = (await list(hub, { limit: "999" })).body as { rows: unknown[]; before?: string };
 	assert.equal(body.rows.length, 50);
 	assert.ok(body.before);
@@ -121,6 +136,7 @@ test("the list: at most 50 rows a page, whatever the limit; one session file is 
 test("a file gone: its row is neither listed nor read, and the others still are", async () => {
 	const [f1, f2] = [session("one"), session("two")], ledger = open(mine());
 	ledger.observe([seen(f1, { name: "kept" }), seen(f2, { name: "gone" })]);
+	ledger.observe([]);
 	const { hub } = hubOf(ledger, reach([A]));
 	unlinkSync(f2);
 	const rows = ((await list(hub)).body as { rows: { name: string }[] }).rows;
@@ -135,8 +151,8 @@ test("a file swapped for a link out of the session folder is not read, and neith
 	const target = session("secret-plans", outside), link = join(root, "2026-11-07T00-00-00-000Z_linked.jsonl"), plain = session("plain");
 	symlinkSync(target, link);
 	const ledgerFile = mine();
-	put(ledgerFile, [row(link, { name: "linked" }), row(target, { name: "direct" }), row(plain, { name: "plain" }), row("/etc/passwd", { name: "etc" }), row(join(root, "notes.txt"), { name: "txt" })]);
-	appendFileSync(ledgerFile, `${JSON.stringify({ ...row(session("other")), id: idOf(plain), name: "id of another file" })}\n`);
+	put(ledgerFile, [row(link, { name: "linked", ended: true }), row(target, { name: "direct", ended: true }), row(plain, { name: "plain", ended: true }), row("/etc/passwd", { name: "etc", ended: true }), row(join(root, "notes.txt"), { name: "txt", ended: true })]);
+	appendFileSync(ledgerFile, `${JSON.stringify({ ...row(session("other"), { ended: true }), id: idOf(plain), name: "id of another file" })}\n`);
 	const ledger = open(ledgerFile), { hub, acquired } = hubOf(ledger, reach([A]));
 	assert.deepEqual(((await list(hub)).body as { rows: { name: string }[] }).rows.map((r) => r.name), ["plain"], "a row whose id is not its file's hash is not kept either");
 	for (const f of [link, target, "/etc/passwd"]) assert.equal((await api(hub, ["history", transcriptKey(idOf(f))], Q())).status, 404, f);
@@ -402,13 +418,14 @@ test("OW-F004: a live run first read as the box's and then as a team's is the te
 	at += 2000;
 	ledger.observe([seen(f, { owner: { team: B }, device: bob.id })]);
 	assert.deepEqual(ownerRows(ledger), [[B, false]]);
-	assert.equal(await listFor(ledger, { teams: [], box: true }), 0);
-	assert.equal(await listFor(ledger, { teams: [B], box: false }), 1);
 	assert.ok(!ledger.within(reach([], true)).has(transcriptKey(idOf(f))));
 	assert.ok(ledger.within(reach([B])).has(transcriptKey(idOf(f))));
 	assert.deepEqual(read(file).map((r) => [r.team, r.device]), [["box", undefined], [B, bob.id]], "the change is a line of its own");
 	const again = open(file, { now: () => at });
 	assert.deepEqual(ownerRows(again), [[B, false]], "and it is the owner on reload");
+	ledger.observe([]); // it ends: the list, which holds finished runs only, shows it to the team and not to the box part
+	assert.equal(await listFor(ledger, { teams: [], box: true }), 0);
+	assert.equal(await listFor(ledger, { teams: [B], box: false }), 1);
 });
 
 test("OW-F004: a reading that cannot say whose a unit is makes no row, keeps a row as it is, and does not end it", () => {
@@ -482,7 +499,7 @@ test("OW-F007: a row's role is a word of the roles a unit has: a role the net ne
 
 test("RR-F001: a ledger row the head tower wrote (a 0.62.x or 0.63.x box filed it as its own) is not listed, not opened, and not made again", async () => {
 	const fh = session("head"), fb = session("boxed"), file = mine();
-	put(file, [row(fh, { team: "box", role: "head", device: undefined, name: "head" }), row(fb, { team: "box", role: "ally", device: undefined, name: "box-run" })]);
+	put(file, [row(fh, { team: "box", role: "head", device: undefined, name: "head", ended: true }), row(fb, { team: "box", role: "ally", device: undefined, name: "box-run", ended: true })]);
 	const ledger = open(file), box = reach([], true), { hub } = hubOf(ledger, box), t = (f: string) => transcriptKey(idOf(f));
 	assert.deepEqual(((await list(hub)).body as { rows: { name: string }[] }).rows.map((r) => r.name), ["box-run"], "the list holds no head row");
 	assert.equal(ledger.within(box).has(t(fh)), false);

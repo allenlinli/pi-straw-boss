@@ -570,8 +570,8 @@ export function createOperateHost(deps: OperateHostDeps) {
 			for (const s of shown) for (const b of s.net!.bases) byBase.set(b.id, [...(byBase.get(b.id) ?? []), { s, b }]);
 			for (const items of byBase.values()) bases.push(mergeBases(items));
 			if (!byBase.size) {
-				const ghost = list.find((s) => s.state === "ended" && s.why !== undefined && (s.ghostUntil === undefined || now() < s.ghostUntil));
-				if (ghost) bases.push({ id: SHOW + sha(device, "ghost"), label: ghost.offer.label, mark: "unknown", tower: null, tabs: [], outposts: [], outside: [], box: { device, short: ghost.offer.short, label: ghost.offer.label, team: ghost.offer.teamName, scope: "team", can: [], state: "ended", why: ghost.why! } });
+				// One line per team of the box: each team's session ended on its own, and a card that says nothing beside one that does reads as a box that still works for that team.
+				for (const ghost of list.filter((s) => s.state === "ended" && s.why !== undefined && (s.ghostUntil === undefined || now() < s.ghostUntil))) bases.push({ id: SHOW + sha(device, "ghost", ghost.offer.team), label: ghost.offer.label, mark: "unknown", tower: null, tabs: [], outposts: [], outside: [], box: { device, short: ghost.offer.short, label: ghost.offer.label, team: ghost.offer.teamName, scope: "team", can: [], state: "ended", why: ghost.why! } });
 			}
 			for (const s of shown) {
 				if (s.state === "live") for (const b of s.net!.bases) for (const u of unitsOf(b)) if (u.pending?.answer) (dialogs.get(device) ?? dialogs.set(device, new Set()).get(device)!).add(u.pending.answer.dialog);

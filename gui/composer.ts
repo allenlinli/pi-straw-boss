@@ -4,6 +4,7 @@ import { m } from "./sentences.ts";
 import { type Answer, sendFile } from "./post.ts";
 import { AGENT } from "./render.ts";
 import { mountSlash } from "./slash.ts";
+import { operateWhy } from "./termwords.ts";
 import { towerWhy } from "./towerturns.ts";
 
 // The composer under a unit's comms log. What is typed goes to the unit's terminal through Herdr, as if typed there: Enter sends it (a
@@ -40,8 +41,8 @@ export interface Unit { /** The head tower: its composer wakes it, and says so (
 /** A file pasted, dropped, or picked: stored by the server, its path goes into the message (upload.ts). */
 export const MAX_FILE = 20 * 1024 * 1024;
 /** The note an answer leaves for a composer that is not there to say it: a refusal's reason, an unconfirmed send, or an edit of text that already went. */
-export function aftermath(r: Answer, stored: string | undefined, sent: string): Note | undefined {
-	if (!r.ok) return ["error", r.status === 504 ? m.unsure() : (r.body.reason ?? m.refused({ status: r.status }))];
+export function aftermath(r: Answer, stored: string | undefined, sent: string, locale?: "en" | "zh-TW"): Note | undefined {
+	if (!r.ok) return ["error", r.status === 504 ? m.unsure({}, locale ? { locale } : undefined) : (operateWhy(r, locale) ?? r.body.reason ?? m.refused({ status: r.status }, locale ? { locale } : undefined))];
 	if (stored && !stored.startsWith(sent)) return ["ok", m.went()];
 }
 /** A stored note: ours is JSON [tone, text]; 0.5.0 stored the plain text of its note, shown as it is. */

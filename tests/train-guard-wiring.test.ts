@@ -51,8 +51,8 @@ test("a train's run starts with the train's own prompt, not the main's", async (
 	await world.quiet();
 	const sections = await train.run();
 	const text = Object.values(sections).join("\n");
-	assert.match(text, /You are a train: a worker of the merge train/);
-	assert.doesNotMatch(text, /You are a main agent|dispatch/i);
+	assert.match(text, /You are a train, opened by the tower for one set of cars/);
+	assert.doesNotMatch(text, /You are (?:a|the) main agent|dispatch/i);
 });
 
 test("with the merge train off, nothing is registered: no handler, no guard", () => {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
+import { type CarState, validateStateFields } from "../src/train/cars.ts";
 import { acceptanceWord, KINDS } from "../src/train/spec.ts";
 import { strip } from "../src/trainswitch.ts";
 import { PROMPT_DIR } from "./fakes.ts";
@@ -28,6 +29,7 @@ const BUDGETS: Record<string, number> = { "main.md": 501, "tower.md": 402, "memb
 // Train workers (docs/specs/2026-11-07-train-workers.md §13.1, task 8): tower.md on 424 to 471 (forward with `forward`, open a train with `role: "train"`, a car notice's `blocked`; off stays 402); main.md on 715 to 720 (Batch owner, Handoff route, Record and Approval say who schedules, who departs, who notifies, and where the boss's nod is quoted); integrator.md 340 to 380 and train.md ~450 have their own budgets below.
 // Fix round of task 8 (prompts-review.md, TP-F001 to F018): budgets = measured: main.md on 720 to 725, tower.md on 471 to 469 (the resident tower forwards nothing), planning.md on 670 to 681 (the check command), integrator.md 380 to 412 (todo lifecycle, legacy trains), train.md 450 to 511 (holds, load and lock, the Record file, the metadata.sb keys).
 // Fix round 2 (prompts-rereview.md TP2-F001 to F004): measured: main.md on 725 to 743 ({{cli}} check line), planning.md on 681 to 693, integrator.md 412 to 453 (todo fields and result, --accept none), train.md 511 to 520 (status, trainboard folder).
+// Whole-batch fix round (batch-review.md TB-F001 to F009): measured: planning.md on 693 to 699 (absolute evidence paths), integrator.md 453 to 509 (sb reads apps.json and refuses, the todo goes in_progress before the call, the code's form, a car with no forward), train.md 520 to 542 (the version refusal, evidence short of the app's requirement, `round` of dropped).
 const ON_BUDGETS: Record<string, number> = { "main.md": 743, "tower.md": 469 };
 // 2026-11-08 (todo #125 task 5, TP-F004): `{{cli}}` is the command that runs cli.mjs.
 const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir", "state", "cli"]);
@@ -75,7 +77,7 @@ test("the main plans from planning.md: graph, todos with owners and blockedBy, s
 	assert.doesNotMatch(plan, /Start only on their confirmation/);
 	// 2026-11-02 audit (a coordinator offered the boss a page-local design that the app's rules forbade, and a single-loop task opened no anchor loop): +45 words, 20 cut, budget 650 to 670.
 	for (const term of ["its plan is one todo whose `metadata.anchor` names its check", "read the owning app's instructions", "quote the rule that settles the design in the brief"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
-	for (const off of [false, true]) assert.ok(words(strip(plan, off)) <= (off ? 670 : 693), `planning.md has ${words(strip(plan, off))} words with integration ${off ? "off" : "on"} (budget ${off ? 670 : 681})`);
+	for (const off of [false, true]) assert.ok(words(strip(plan, off)) <= (off ? 670 : 699), `planning.md has ${words(strip(plan, off))} words with integration ${off ? "off" : "on"} (budget ${off ? 670 : 699})`);
 });
 
 // D18 and D19 (docs/specs/2026-10-26-sb-backend.md, Decisions): coordination goes through the tower, and a main calls it at three points only. main.md goes from 332 to about 425 words for that rule; the "who owns it" clause of `blocked` takes it to about 445.
@@ -109,7 +111,7 @@ test("merge train: apps-config names the integration fields and points to the sk
 	// The procedure (slip block, checks, departure, assembly, review, red handling, urgent lane, deploy, UAT) moved to pi-anchorloop's `integrating` and `deploying` skills (docs/specs/2026-11-06-seam-bindings.md maps every old line):
 	// integrator.md went from 1200 to 289 words, and a rule that is back here is duplication.
 	for (const gone of ["tested-on", "`train/<code>`", "nothing is force pushed", "`maxCars`", "fix-forward", "One train at a time per target", "a blank box means accepted", "(applied to a DB: no|<which>)"]) assert.ok(!integrator.includes(gone), `integrator.md no longer repeats ${gone}`);
-	assert.ok(words(integrator) <= 453, `integrator.md has ${words(integrator)} words`);
+	assert.ok(words(integrator) <= 509, `integrator.md has ${words(integrator)} words`);
 });
 
 // Train stages (docs/specs/2026-11-05-train-stages.md, boss form 2026-11-05): one integrator carries a train through merge, deploy, and UAT; Straw Boss names the flow, never an environment.
@@ -209,9 +211,9 @@ const D13_WORD = acceptanceWord({ car: "<ticket>", what: "<what>", where: "<wher
 // train.md: ~450 words on (it is the train's system prompt, whole inside the integration markers), nothing off (the role is refused at the open); integrator.md 340 to 412.
 test("train workers: train.md and integrator.md stay within their budgets, on and off", () => {
 	const train = read("train.md");
-	assert.ok(words(strip(train, false)) > 300 && words(strip(train, false)) <= 520, `train.md has ${words(strip(train, false))} words on`);
+	assert.ok(words(strip(train, false)) > 300 && words(strip(train, false)) <= 542, `train.md has ${words(strip(train, false))} words on`);
 	assert.equal(words(strip(train, true)), 0, "train.md is empty with the train off");
-	assert.ok(words(read("integrator.md")) > 300 && words(read("integrator.md")) <= 453, `integrator.md has ${words(read("integrator.md"))} words`);
+	assert.ok(words(read("integrator.md")) > 300 && words(read("integrator.md")) <= 509, `integrator.md has ${words(read("integrator.md"))} words`);
 });
 
 test("train workers: train.md ends with its own block of the seven seams in the order of seams.md, and main.md keeps six", () => {
@@ -246,7 +248,7 @@ test("train workers: no uat stage and no UAT page in the integrator or the train
 	for (const file of ["integrator.md", "train.md"]) {
 		const text = read(file).replace(/- A train in your ledger with no trainboard[^\n]*/, "");
 		assert.doesNotMatch(text, /`uat`|UAT page|accepted in UAT|\bshow_doc\b/, `${file} has no uat stage or page`);
-		const bare = text.replace(D13_WORD, "").replace("A car that asks it for UAT, e2e, or any acceptance", "").replace("You never wait on a person and run no UAT, e2e, or acceptance.", "").replace("still lists the old uat stage", "");
+		const bare = text.replace(D13_WORD, "").replace("A car that asks it for UAT, e2e, or any acceptance", "").replace("You never wait on a person and run no UAT, e2e, or acceptance.", "").replace("still list the old uat stage", "");
 		assert.doesNotMatch(bare, /\buat\b/i, `${file} runs no uat stage, backticked or not`);
 		assert.doesNotMatch(text, /tower_reply|tower_send|tell (?:the|a|each) coordinator|notify (?:the|a|each) coordinator/i, `${file} has no way to tell a coordinator by itself`);
 		assert.ok(text.includes(D13_WORD), `${file} states D13's word`);
@@ -256,7 +258,7 @@ test("train workers: no uat stage and no UAT page in the integrator or the train
 	}
 	const integrator = read("integrator.md");
 	assert.ok(integrator.includes("equal the forward's `fwd-from`"), "the coordinator is the forward's fwd-from, not the header's sender");
-	assert.ok(integrator.includes("One `train` todo per forming train (`metadata.sb`, `v`: 1") && integrator.includes("`in_progress` with the manifest's call, `completed` on the tower's answer with `result`"), "the train todo's lifecycle");
+	assert.ok(integrator.includes("One `train` todo per forming train (`metadata.sb`, `v`: 1") && integrator.includes("`in_progress` first (sb holds it until each `received` notice is told) and only then the manifest's call, `completed` on the tower's answer with `result`"), "the train todo's lifecycle");
 	assert.match(integrator, /legacy: finish it as before \(merge, deploy, UAT page, intercom/, "legacy trains are finished the old way");
 	for (const term of ["`received`", "`returned`", "`train check`", "`--accept <evidence>`", "`departs`", "`integration.maxTrains`", "`strict`", "`train:`", "`why: shared`", "`metadata.sb`", "you do not supervise it", "idle"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
 	for (const state of ["`landed`", "`dropped`", "`returned`"]) assert.ok(read("train.md").includes(state), `train.md names ${state}`);
@@ -299,4 +301,25 @@ test("train workers: the train todo's fields and result, the cli placeholder, th
 	assert.ok(/main prompt/.test(integrator) && /main prompt/.test(planning), "integrator and planning point to the main prompt's command");
 	assert.ok(integrator.includes("`none`") && integrator.includes("accept: none"), "integrator's receipt covers --accept none");
 	assert.ok(train.includes("{{state}}/trainboard/<project>/<code>/"), "train.md names its trainboard folder");
+});
+
+// TB-F006: the fields a prompt names for a car state are the fields `train_car` requires (a prompt that left out `round` of `dropped` sent a model into a refusal it could not foresee).
+test("train workers: every state a prompt names with fields names exactly the fields validateStateFields requires", () => {
+	const seen = new Set<string>();
+	for (const file of ["train.md", "integrator.md"]) {
+		for (const [, state, list] of read(file).matchAll(/`(received|returned|dropped|landed)` \(((?:`[a-z]+`(?:, )?)+)\)/g)) {
+			const named = [...list!.matchAll(/`([a-z]+)`/g)].map((m) => m[1]!).sort();
+			const needed = validateStateFields(state as CarState, {}).map((r) => /needs (\w+)$/.exec(r)![1]!).sort();
+			assert.deepEqual(named, needed, `${file}: ${state} names ${named.join(", ")}, train_car requires ${needed.join(", ")}`);
+			seen.add(`${file} ${state}`);
+		}
+	}
+	assert.deepEqual([...seen].sort(), ["integrator.md received", "train.md dropped", "train.md landed"]);
+});
+
+test("TB-F006, F008, F009: the prompts give the code's form, the todo order, absolute evidence paths, the version refusal and the car with no forward", () => {
+	const integrator = read("integrator.md"), train = read("train.md");
+	for (const term of ["`YYYY-MM-DD-<letters>`", "`in_progress` first", "(absolute paths)", "sb refuses your `train` todos when the installed pi-anchorloop is older than 2.11.0", "A slip with no tower forward (queued before 0.65.0) cannot be received"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
+	assert.ok(train.includes("sb refuses your `todo` and `MonitorCreate` calls when the installed pi-anchorloop is older than 2.11.0"), "train.md says the version is sb's check, not the model's");
+	assert.ok(strip(read("planning.md"), false).includes("absolute paths in `accept:` and `evidence`"), "the coordinator writes absolute paths");
 });

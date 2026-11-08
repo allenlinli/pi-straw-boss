@@ -7,7 +7,7 @@ import { afterEach, test } from "node:test";
 import { type Board, type BoardStep, boardPath, type CarRow, carsDir, type Writer, writeBoard, writeYard, yardPath } from "../src/train/board.ts";
 import { addState, carFileName, emptyCar, type NoticeRecord } from "../src/train/cars.ts";
 import type { NetLoad, ProjectYard, YardJoin } from "../src/train/yardview.ts";
-import { readYards, trainyardSeam } from "../src/server/trainyard.ts";
+import { readYards, reasonKind, trainyardSeam } from "../src/server/trainyard.ts";
 import type { Net } from "../src/net.ts";
 import { bundle, noLink, noTailscale } from "./gui-fakes.ts";
 import { type ServerWorld, until } from "./server-world.ts";
@@ -130,6 +130,55 @@ test("a file that is too big, a symlink, not JSON, or in another project's folde
 	assert.match(why["2026-11-06-r"]!, /project other is not the folder's acme/);
 	assert.deepEqual(trains[1]!.steps, [], "an unreadable train shows no steps and no cars: nothing is guessed");
 	assert.equal(trains[1]!.cars.length, 0);
+});
+
+test("V-F002: an unreadable board, a car's notice and a yard.json that fails carry a kind beside the reader's text, so the page says it in its own language", () => {
+	const dir = state();
+	writeBoard(dir, board("acme", M));
+	for (const code of [N, P, "2026-11-06-q", "2026-11-06-r", "2026-11-06-s"]) mkdirSync(join(dir, "trainboard", "acme", code), { recursive: true });
+	writeFileSync(boardPath(dir, "acme", N), JSON.stringify({ ...board("acme", N), pad: "x".repeat(70 * 1024) }));
+	writeFileSync(join(dir, "elsewhere.json"), JSON.stringify(board("acme", P)));
+	symlinkSync(join(dir, "elsewhere.json"), boardPath(dir, "acme", P));
+	writeFileSync(boardPath(dir, "acme", "2026-11-06-q"), "{not json");
+	writeFileSync(boardPath(dir, "acme", "2026-11-06-r"), JSON.stringify(board("other", "2026-11-06-r")));
+	writeFileSync(boardPath(dir, "acme", "2026-11-06-s"), JSON.stringify({ ...board("acme", "2026-11-06-s"), round: "two" }));
+	writeFileSync(yardPath(dir, "acme"), "{broken");
+	const acme = projectOf(read(dir)!, "acme");
+	assert.deepEqual(acme.trains.filter((t) => t.state === "unreadable").map((t) => [t.code.slice(-1), t.reasonKind]), [["n", "toobig"], ["p", "notfile"], ["q", "notjson"], ["r", "misplaced"], ["s", "shape"]]);
+	assert.match(acme.trains.find((t) => t.code === N)!.reason!, /more than 64 KB/, "the reader's own text still goes beside the kind, for a page that shows it");
+	assert.equal(acme.trains[0]!.reasonKind, undefined, "a train that reads has none");
+	assert.deepEqual([acme.problemKind, acme.problem?.startsWith("yard.json: not JSON")], ["notjson", true]);
+	assert.equal(projectOf(read(world()), "acme").problemKind, undefined);
+	const heads = [SHA_A, SHA_B, SHA_C, "d".repeat(40)];
+	const other = state();
+	onBoard(other, "acme", heads);
+	plantCar(other, "acme", SHA_A, { raw: "{not json" });
+	plantCar(other, "acme", SHA_B, { file: { project: "zeta" } });
+	plantCar(other, "acme", SHA_C, { notice: { v: 1, states: { received: { attempts: [], deliveredAt: "1" } } } });
+	plantCar(other, "acme", "d".repeat(40), { file: { coordinator: "" } });
+	const kinds = projectOf(read(other), "acme").trains[0]!.cars.map((c) => (c.notice?.status === "unreadable" ? c.notice.kind : undefined));
+	assert.deepEqual(kinds, ["notjson", "misplaced", "shape", "shape"]);
+});
+
+test("V-F002: what a reader's reason says, as a kind: the size cap, the byte budget, a link, not JSON, an I/O failure, a file of another place, an unexpected throw, and a shape that fails", () => {
+	const kind = (text: string) => reasonKind(text);
+	assert.equal(kind("file is 70 KB, more than 64 KB"), "toobig");
+	assert.equal(kind("file is more than 64 KB"), "toobig");
+	assert.equal(kind("the byte budget of this reading is spent"), "budget");
+	assert.equal(kind("not a regular file"), "notfile");
+	assert.equal(kind("not JSON (Unexpected token)"), "notjson");
+	assert.equal(kind("cannot read: EACCES"), "io");
+	assert.equal(kind("cannot list /x/y: EMFILE"), "io");
+	assert.equal(kind("project other is not the folder's acme"), "misplaced");
+	assert.equal(kind("code 2026-11-06-z is not the folder's 2026-11-06-m"), "misplaced");
+	assert.equal(kind("the file name is not web-abc.json"), "misplaced");
+	assert.equal(kind("the car could not be read: boom"), "failed");
+	assert.equal(kind("the train could not be shown: boom"), "failed");
+	assert.equal(kind("yard.json: not JSON (x)"), "notjson", "the project's prefix is looked through");
+	assert.equal(kind("notice file: file is more than 64 KB"), "toobig", "so is the notice file's");
+	assert.equal(kind("notice record: states.evil is not a car state"), "shape");
+	assert.equal(kind("cars[0].tickets must be 1 to 16 of them"), "shape", "a refusal of the validator is a shape");
+	assert.equal(kind(""), "shape");
 });
 
 test("an unreadable board holds everything of its project: the others wait for it, and the page is told why", () => {

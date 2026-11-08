@@ -8,12 +8,18 @@ import type { StepStatus, Wait } from "./waits.ts";
 /** The server's 1-minute load average and the core count (`Net.load`); absent where the platform has no load average (Windows). */
 export interface NetLoad { now: number; cores: number }
 
+/**
+ * What kind of failure a reader's reason says: the file is over its size cap (`toobig`), the reading's byte budget is spent (`budget`), it is not a regular file (`notfile`), is not JSON (`notjson`), could not be read or listed (`io`), belongs to
+ * another code, project or file name (`misplaced`), threw while it was shown (`failed`), or its shape fails the reader's checks (`shape`). The page says each in its own language; the reader's English `reason` goes beside it and stays text.
+ */
+export type ReasonKind = "toobig" | "budget" | "notfile" | "notjson" | "io" | "misplaced" | "shape" | "failed";
+
 /** One acceptance the car's evidence shows (`kind`: `e2e`, `uat`, or the evidence's own label) and, when the train kept a copy of the evidence file, the words the approver gave. */
 export interface YardAccepted { kind: string; nod?: string }
 /** Whether sb has told the car's coordinator of the car's newest `state` (§5.5): `delivered` or `escalated` at `at`, or still `pending` after `attempts`, the last answer in `last`; or `unreadable`. */
 export type YardNotice = { state: CarState; status: "delivered" | "pending" | "escalated"; attempts: number; at?: string; last?: string }
 	/** The car file or its notice record failed to read (a file out of shape, too big, a link, another project's); `reason` says why and nothing of what was told is guessed. */
-	| { status: "unreadable"; reason: string };
+	| { status: "unreadable"; reason: string; kind?: ReasonKind };
 export interface YardCar { tickets: string[]; branch: string; head: string; departs: string; arrived?: string; accepted: YardAccepted[]; notice?: YardNotice }
 
 export interface YardStep {
@@ -33,6 +39,7 @@ export interface YardTrainRow {
 	/** `unreadable`: the board failed to read; `reason` says why and nothing else of the train is shown. */
 	state: "live" | "stale" | "ended" | "unreadable";
 	reason?: string;
+	reasonKind?: ReasonKind;
 	/** The unit of the net whose pane's token names this train: the page opens its comms with it. */
 	key?: string;
 	/** Whether the process that wrote the board still runs. */
@@ -56,6 +63,7 @@ export interface ProjectYard {
 	integrator?: { key?: string; live: boolean };
 	/** Why `yard.json` could not be read (a file that is not there is no problem). */
 	problem?: string;
+	problemKind?: ReasonKind;
 	forming: YardFormingRow[];
 	trains: YardTrainRow[];
 	/** The codes of the trains with a step that waits for a lane or target another train holds (「互相等待」). */

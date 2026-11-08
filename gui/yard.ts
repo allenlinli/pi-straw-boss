@@ -8,11 +8,15 @@ import { unitsOf } from "./units.ts";
 // The yard (調車場, docs/specs/2026-11-07-train-workers.md §11.2): a sheet over the page, one section per project, drawn from the net's `yards` by the model in trains.ts. Everything a yard says is a model's own text, so this
 // file makes elements and sets text and a few attributes only (`h`): never markup, never a link or a route made from the text. The one link, a train's code, is a route of the page built from the unit the net itself knows.
 
+// The boss's words for each acceptance are lines of a disclosure under the chip, the broker's last answer a line of the notice: a touch or a key reaches them, which a tooltip does not (V-F009).
+const accepted = (a: CarView["accepted"]) => a.nods.length
+	? h("details", { class: "yard-accepted" }, h("summary", { class: "yard-chip" }, a.text), h("ul", { class: "yard-nods" }, ...a.nods.map((line) => h("li", null, line))))
+	: h("span", { class: "yard-chip" }, a.text);
 const car = (c: CarView) => h("li", { class: "yard-car" },
 	h("span", { class: "yard-tickets" }, c.tickets),
-	h("span", { class: "yard-chip", ...(c.accepted.title ? { title: c.accepted.title } : {}) }, c.accepted.text),
+	accepted(c.accepted),
 	...c.conditions.map((line) => h("span", { class: "yard-cond" }, line)),
-	c.notice && h("p", { class: "yard-notice", "data-tone": c.notice.tone, ...(c.notice.title ? { title: c.notice.title } : {}) }, c.notice.text),
+	c.notice && h("p", { class: "yard-notice", "data-tone": c.notice.tone, ...(c.notice.title ? { title: c.notice.title } : {}) }, c.notice.text, c.notice.detail && h("span", { class: "yard-notice-detail" }, c.notice.detail)),
 );
 const cars = (list: CarView[]) => list.length ? h("ul", { class: "yard-cars" }, ...list.map(car)) : null;
 
@@ -26,7 +30,7 @@ const code = (t: TrainView) => t.route
 	: h("span", { class: "yard-code" }, t.short);
 const train = (t: TrainView) => h("li", { class: "yard-row", "data-status": t.status },
 	h("div", { class: "yard-top" }, code(t), h("span", { class: "yard-app" }, t.app), t.status === "stale" && h("span", { class: "yard-state" }, m.yard_state_stale()), t.status === "ended" && h("span", { class: "yard-state" }, m.yard_state_ended()), t.round && h("span", { class: "yard-round" }, t.round), t.tickets.length ? h("span", { class: "yard-tickets-line" }, t.tickets.join(m.yard_sep_list())) : null),
-	t.reason && h("p", { class: "yard-reason" }, t.reason),
+	t.reason && h("p", { class: "yard-reason", ...(t.reasonTitle ? { title: t.reasonTitle } : {}) }, t.reason),
 	t.pills.length ? h("ol", { class: "yard-pills" }, ...t.pills.map((p) => h("li", { class: "yard-pill", "data-state": p.state, "data-round": String(p.round), ...(p.current ? { "data-current": "" } : {}), title: p.title }, p.text))) : null,
 	t.wait && h("p", { class: "yard-wait" }, t.wait),
 	t.need && h("p", { class: "yard-need" }, t.need),
@@ -42,10 +46,10 @@ export function drawProject(v: ProjectView): HTMLElement {
 	return h("section", { class: "yard-project", "data-project": v.project },
 		h("header", { class: "yard-head" },
 			h("h3", { class: "yard-title" }, v.title),
-			h("p", { class: "yard-counts" }, h("span", { class: "yard-count" }, v.head), h("span", { class: "yard-load" }, v.load)),
+			h("p", { class: "yard-counts" }, h("span", { class: "yard-count" }, v.head), v.others && h("span", { class: "yard-others" }, v.others), h("span", { class: "yard-load" }, v.load)),
 			integrator,
 		),
-		v.problem && h("p", { class: "yard-problem", role: "alert" }, v.problem),
+		v.problem && h("p", { class: "yard-problem", role: "alert", ...(v.problemTitle ? { title: v.problemTitle } : {}) }, v.problem),
 		v.empty && h("p", { class: "yard-empty" }, m.yard_empty()),
 		v.forming.length ? h("ul", { class: "yard-list yard-forming" }, ...v.forming.map(forming)) : null,
 		v.trains.length ? h("ul", { class: "yard-list yard-trains" }, ...v.trains.map(train)) : null,

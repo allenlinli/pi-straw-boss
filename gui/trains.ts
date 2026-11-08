@@ -2,7 +2,7 @@ import type { Net } from "../src/net.ts";
 import type { CarState } from "../src/train/cars.ts";
 import { shortCode } from "../src/train/spec.ts";
 import type { Wait } from "../src/train/waits.ts";
-import type { NetLoad, ProjectYard, YardCar, YardFormingRow, YardStep, YardTrainRow } from "../src/train/yardview.ts";
+import type { NetLoad, ProjectYard, ReasonKind, YardCar, YardFormingRow, YardStep, YardTrainRow } from "../src/train/yardview.ts";
 import { m } from "./sentences.ts";
 import { unitsOf } from "./units.ts";
 
@@ -10,21 +10,24 @@ import { unitsOf } from "./units.ts";
 // unit card, and Zen's strip. Pure: no DOM, no clock of its own. Every string it gets from a yard is a model's own text; it passes through as text and is never read as markup, a link or a route.
 
 export interface Ctx { now: number; load?: NetLoad }
-export interface Counts { trains: number; running: number; waiting: number; mutual: number; stale: number; forming: number; ended: number; unreadable: number }
+export interface Counts { trains: number; running: number; waiting: number; mutual: number; stale: number; forming: number; departing: number; refused: number; ended: number; unreadable: number }
 export type StepState = "pending" | "running" | "waiting" | "passed" | "failed" | "void";
 export type TrainStatus = "running" | "waiting" | "stale" | "ended" | "unreadable";
 export interface PillView { id: number; text: string; title: string; state: StepState; round: number; current: boolean }
-export interface NoticeView { text: string; title?: string; tone: "told" | "pending" | "escalated" | "unreadable" }
-export interface CarView { tickets: string; accepted: { text: string; title: string }; conditions: string[]; notice?: NoticeView }
+/** A car's notice line: `detail` is the broker's last answer (text on the card), `title` the reader's own words for a reason the page says in a sentence of its own. */
+export interface NoticeView { text: string; detail?: string; title?: string; tone: "told" | "pending" | "escalated" | "unreadable" }
+/** `accepted.nods`: the boss's words for each kind (or that none is on file), lines the page shows under the chip. */
+export interface CarView { tickets: string; accepted: { text: string; nods: string[] }; conditions: string[]; notice?: NoticeView }
 export interface TrainView {
-	short: string; app: string; status: TrainStatus; key?: string; route?: { ws: string; key: string }; reason?: string; round: string; tickets: string[]; pills: PillView[]; wait: string; need: string;
+	short: string; app: string; status: TrainStatus; key?: string; route?: { ws: string; key: string }; reason?: string; reasonTitle?: string; round: string; tickets: string[]; pills: PillView[]; wait: string; need: string;
 	/** A unit card's note line: the step in progress and what it waits for. */
 	note?: string; cars: CarView[]; cut?: string; removed: string[];
 }
 export interface FormingView { short: string; app: string; status: YardFormingRow["status"]; word: string; condition?: string; cars: CarView[] }
 export interface ProjectView {
 	project: string; title: string; counts: Counts; head: string; load: string; integrator?: { text: string; route?: { ws: string; key: string } }; forming: FormingView[]; trains: TrainView[]; ended: TrainView[];
-	problem?: string; empty: boolean;
+	/** The counts of the trains that are not live (stalled, forming, departing, refused, unreadable), when there are any: said beside `head`. */
+	others: string; problem?: string; problemTitle?: string; empty: boolean;
 }
 /** Where a unit of the net is: its base and key, for a link to its comms. */
 export type Locate = (key: string | undefined) => { ws: string; key: string } | undefined;
@@ -68,12 +71,18 @@ export function roundWords(row: Pick<YardTrainRow, "round" | "removed">): string
 	return row.removed?.length ? m.yard_round_removed({ round, cars: list(row.removed.map((r) => m.yard_removed_one({ ticket: r.ticket, why: r.why }))) }) : m.yard_round({ round });
 }
 
+const WHY: Record<ReasonKind, () => string> = {
+	toobig: m.yard_why_toobig, budget: m.yard_why_budget, notfile: m.yard_why_notfile, notjson: m.yard_why_notjson, io: m.yard_why_io, misplaced: m.yard_why_misplaced, shape: m.yard_why_shape, failed: m.yard_why_failed,
+};
+/** A reason the server gave: a kind the page knows is a sentence of its own in the page's language and the reader's English is its tooltip; text with no known kind shows as text only. */
+const reasonOf = (reason: string, kind: string | undefined): { said: string; title?: string } => (kind !== undefined && Object.hasOwn(WHY, kind) ? { said: WHY[kind as ReasonKind](), title: reason } : { said: reason });
+
 const kindName = (kind: string) => (kind.toLowerCase() === "uat" ? "UAT" : kind);
-/** A car's acceptance as a chip: the kinds in its text, and in its tooltip the boss's words for each (or that none is on file). */
-export function acceptedChip(car: Pick<YardCar, "accepted">): { text: string; title: string } {
-	if (!car.accepted.length) return { text: m.yard_accepted_none(), title: "" };
+/** A car's acceptance as a chip: the kinds in its text, and under it the boss's words for each kind (or that none is on file) as lines of the page: a tap or a key reaches them, a tooltip is for the pointer only. */
+export function acceptedChip(car: Pick<YardCar, "accepted">): { text: string; nods: string[] } {
+	if (!car.accepted.length) return { text: m.yard_accepted_none(), nods: [] };
 	const kinds = car.accepted.map((a) => ({ kind: kindName(a.kind), nod: a.nod }));
-	return { text: m.yard_accepted({ kinds: list(kinds.map((k) => k.kind)) }), title: kinds.map((k) => (k.nod ? m.yard_nod({ kind: k.kind, nod: k.nod }) : m.yard_nod_none({ kind: k.kind }))).join("\n") };
+	return { text: m.yard_accepted({ kinds: list(kinds.map((k) => k.kind)) }), nods: kinds.map((k) => (k.nod ? m.yard_nod({ kind: k.kind, nod: k.nod }) : m.yard_nod_none({ kind: k.kind }))) };
 }
 
 const clock = (iso: string) => {
@@ -107,16 +116,20 @@ export function formingWords(row: Pick<YardFormingRow, "departs">, now: number):
 export function noticeLine(car: Pick<YardCar, "tickets" | "notice">): NoticeView | undefined {
 	const n = car.notice, ticket = list(car.tickets);
 	if (!n) return undefined;
-	if (n.status === "unreadable") return { text: m.yard_notice_unreadable({ ticket, reason: n.reason }), tone: "unreadable" };
+	if (n.status === "unreadable") {
+		const why = reasonOf(n.reason, n.kind);
+		return { text: m.yard_notice_unreadable({ ticket, reason: why.said }), tone: "unreadable", ...(why.title ? { title: why.title } : {}) };
+	}
 	const state = CAR[n.state]();
 	if (n.status === "delivered") return { text: m.yard_notice_delivered({ ticket, state }), tone: "told" };
 	if (n.status === "escalated") return { text: m.yard_notice_escalated({ ticket }), tone: "escalated" };
-	return { text: n.attempts > 0 ? m.yard_notice_pending({ ticket, state, attempts: n.attempts }) : m.yard_notice_pending_first({ ticket, state }), tone: "pending", ...(n.last ? { title: m.yard_notice_last({ answer: n.last }) } : {}) };
+	return { text: n.attempts > 0 ? m.yard_notice_pending({ ticket, state, attempts: n.attempts }) : m.yard_notice_pending_first({ ticket, state }), tone: "pending", ...(n.last ? { detail: m.yard_notice_last({ answer: n.last }) } : {}) };
 }
 
-const carView = (car: YardCar): CarView => {
+/** A car as a line; its departure conditions only for a car still waiting to leave (`leaving`): once the train runs they are moot, and a line that says a car waits for another reads as if it still did. */
+const carView = (car: YardCar, leaving: boolean): CarView => {
 	const notice = noticeLine(car);
-	return { tickets: list(car.tickets), accepted: acceptedChip(car), conditions: conditionLines(car), ...(notice ? { notice } : {}) };
+	return { tickets: list(car.tickets), accepted: acceptedChip(car), conditions: leaving ? conditionLines(car) : [], ...(notice ? { notice } : {}) };
 };
 
 const pillText = (s: YardStep) => (!s.name || s.name === s.kind || s.name === KIND[s.kind]() ? KIND[s.kind]() : m.yard_step_named({ kind: KIND[s.kind](), name: s.name }));
@@ -126,7 +139,10 @@ const going = (row: Pick<YardTrainRow, "steps">) => row.steps.filter((s) => s.st
 export function trainView(row: YardTrainRow, ctx: Ctx, locate: Locate = () => undefined): TrainView {
 	const base = { short: short(row.code), app: row.app ?? "", ...(row.key ? { key: row.key } : {}) };
 	const route = locate(row.key);
-	if (row.state === "unreadable") return { ...base, status: "unreadable", ...(route ? { route } : {}), reason: m.yard_state_unreadable({ reason: row.reason ?? "" }), round: "", tickets: [], pills: [], wait: "", need: "", cars: [], removed: [] };
+	if (row.state === "unreadable") {
+		const why = reasonOf(row.reason ?? "", row.reasonKind);
+		return { ...base, status: "unreadable", ...(route ? { route } : {}), reason: m.yard_state_unreadable({ reason: why.said }), ...(why.title ? { reasonTitle: why.title } : {}), round: "", tickets: [], pills: [], wait: "", need: "", cars: [], removed: [] };
+	}
 	const active = going(row), waits = [...new Set(active.flatMap((s) => s.waits.map(waitWords)))], first = active[0];
 	const needy = active.find((s) => s.load && s.waits.length) ?? active.find((s) => s.load);
 	const status: TrainStatus = row.state === "stale" ? "stale" : row.state === "ended" ? "ended" : waits.length ? "waiting" : "running";
@@ -135,7 +151,7 @@ export function trainView(row: YardTrainRow, ctx: Ctx, locate: Locate = () => un
 	return {
 		...base, status, ...(route ? { route } : {}), round: roundWords(row), tickets: [...new Set(row.cars.flatMap((c) => c.tickets))], wait, need: needWords(needy?.load, ctx.load?.cores), ...(note ? { note } : {}),
 		pills: row.steps.map((s): PillView => ({ id: s.id, text: pillText(s), title: m.yard_step_label({ kind: KIND[s.kind](), state: stateWord(s) }), state: stepState(s), round: s.round, current: s === first })),
-		cars: row.cars.map(carView), removed: (row.removed ?? []).map((r) => m.yard_removed_one({ ticket: r.ticket, why: r.why })),
+		cars: row.cars.map((c) => carView(c, false)), removed: (row.removed ?? []).map((r) => m.yard_removed_one({ ticket: r.ticket, why: r.why })),
 		...(row.stepsCut ? { cut: m.yard_steps_cut({ count: row.stepsCut }) } : {}),
 	};
 }
@@ -144,20 +160,24 @@ export function countsOf(p: ProjectYard): Counts {
 	const live = p.trains.filter((t) => t.state === "live"), waiting = live.filter((t) => going(t).some((s) => s.waits.length)).length, rows = new Set(p.trains.map((t) => t.code));
 	return {
 		trains: live.length, running: live.length - waiting, waiting, mutual: p.waiting.filter((code) => rows.has(code)).length, stale: p.trains.filter((t) => t.state === "stale").length,
-		forming: p.forming.filter((f) => f.status === "forming" || f.status === "departing").length, ended: p.trains.filter((t) => t.state === "ended").length, unreadable: p.trains.filter((t) => t.state === "unreadable").length,
+		forming: p.forming.filter((f) => f.status === "forming").length, departing: p.forming.filter((f) => f.status === "departing").length, refused: p.forming.filter((f) => f.status === "refused").length, ended: p.trains.filter((t) => t.state === "ended").length, unreadable: p.trains.filter((t) => t.state === "unreadable").length,
 	};
 }
 /** 「3 列火車：1 運行、2 等待（互相等待 1）」. */
 export const headWords = (c: Counts) => (c.mutual ? m.yard_counts_mutual({ trains: c.trains, running: c.running, waiting: c.waiting, mutual: c.mutual }) : m.yard_counts({ trains: c.trains, running: c.running, waiting: c.waiting }));
-/** The chip on a base's header: the live trains and those that wait; failing those, the stalled, the forming, or just the yard. */
-export const chipWords = (c: Counts) => (c.trains ? (c.waiting ? m.yard_chip_waiting({ count: c.trains, waiting: c.waiting }) : m.yard_chip({ count: c.trains })) : c.stale ? m.yard_chip_stale({ count: c.stale }) : c.forming ? m.yard_chip_forming({ count: c.forming }) : m.yard_open());
+/** 「停滯 1 · 編組中 1 · 出發中 1 · 被拒絕 1 · 讀不到 1」: the trains that are not live, so a red card never sits under a header that says zero (§26: the stalled are counted apart). Empty when there are none; the ended have their fold. */
+export const othersWords = (c: Counts) => [
+	c.stale && m.yard_stale_count({ count: c.stale }), c.forming && m.yard_count_forming({ count: c.forming }), c.departing && m.yard_count_departing({ count: c.departing }), c.refused && m.yard_count_refused({ count: c.refused }), c.unreadable && m.yard_count_unreadable({ count: c.unreadable }),
+].filter(Boolean).join(m.yard_sep_dot());
+/** The chip on a base's header: the live trains and those that wait; failing those, the stalled, the forming (a departing train is one still on its way out), or just the yard. */
+export const chipWords = (c: Counts) => (c.trains ? (c.waiting ? m.yard_chip_waiting({ count: c.trains, waiting: c.waiting }) : m.yard_chip({ count: c.trains })) : c.stale ? m.yard_chip_stale({ count: c.stale }) : c.forming + c.departing ? m.yard_chip_forming({ count: c.forming + c.departing }) : m.yard_open());
 export const loadWords = (load: NetLoad | undefined) => (load ? m.yard_load({ now: load.now, cores: load.cores }) : m.yard_load_none());
 /** Adds counts: a base's chip over all its projects. */
-export const sumCounts = (all: Counts[]): Counts => all.reduce((t, c) => Object.fromEntries(Object.keys(t).map((k) => [k, t[k as keyof Counts] + c[k as keyof Counts]])) as unknown as Counts, { trains: 0, running: 0, waiting: 0, mutual: 0, stale: 0, forming: 0, ended: 0, unreadable: 0 });
+export const sumCounts = (all: Counts[]): Counts => all.reduce((t, c) => Object.fromEntries(Object.keys(t).map((k) => [k, t[k as keyof Counts] + c[k as keyof Counts]])) as unknown as Counts, { trains: 0, running: 0, waiting: 0, mutual: 0, stale: 0, forming: 0, departing: 0, refused: 0, ended: 0, unreadable: 0 });
 
 const formingView = (f: YardFormingRow, ctx: Ctx): FormingView => {
 	const condition = formingWords(f, ctx.now);
-	return { short: short(f.code), app: f.app, status: f.status, word: f.status === "forming" ? m.yard_forming() : f.status === "departing" ? m.yard_departing() : m.yard_refused(), ...(condition ? { condition } : {}), cars: f.cars.map(carView) };
+	return { short: short(f.code), app: f.app, status: f.status, word: f.status === "forming" ? m.yard_forming() : f.status === "departing" ? m.yard_departing() : m.yard_refused(), ...(condition ? { condition } : {}), cars: f.cars.map((c) => carView(c, true)) };
 };
 
 /** A project's yard: the header, the forming trains, a row per train that lives or stalled, and the ended ones apart (newest first). */
@@ -165,9 +185,10 @@ export function projectView(p: ProjectYard, ctx: Ctx, locate: Locate): ProjectVi
 	const counts = countsOf(p), rows = p.trains.map((t) => trainView(t, ctx, locate)), ended = rows.filter((r) => r.status === "ended").reverse();
 	const route = locate(p.integrator?.key);
 	const integrator = p.integrator ? (p.integrator.live && p.integrator.key ? { text: m.yard_integrator_live(), ...(route ? { route } : {}) } : { text: m.yard_integrator_gone() }) : undefined;
+	const problem = p.problem ? reasonOf(p.problem, p.problemKind) : undefined;
 	return {
-		project: p.project, title: m.yard_title({ project: p.project }), counts, head: headWords(counts), load: loadWords(ctx.load), ...(integrator ? { integrator } : {}), forming: p.forming.map((f) => formingView(f, ctx)),
-		trains: rows.filter((r) => r.status !== "ended"), ended, ...(p.problem ? { problem: m.yard_problem({ problem: p.problem }) } : {}), empty: !p.forming.length && !p.trains.length && !p.problem,
+		project: p.project, title: m.yard_title({ project: p.project }), counts, head: headWords(counts), others: othersWords(counts), load: loadWords(ctx.load), ...(integrator ? { integrator } : {}), forming: p.forming.map((f) => formingView(f, ctx)),
+		trains: rows.filter((r) => r.status !== "ended"), ended, ...(problem ? { problem: m.yard_problem({ problem: problem.said }), ...(problem.title ? { problemTitle: problem.title } : {}) } : {}), empty: !p.forming.length && !p.trains.length && !p.problem,
 	};
 }
 
@@ -201,6 +222,13 @@ export function trainNotes(net: Pick<Net, "yards" | "load">, ctx: Ctx): Map<stri
 		const view = t.key ? trainView(t, ctx) : undefined;
 		if (t.key && view?.note) out.set(t.key, view.note);
 	}
+	return out;
+}
+
+/** The unit keys of the live trains whose steps in progress wait for something (a load, a lock, a lane, a target): their cards say waiting, not the idle of the pane they sit in. */
+export function trainWaits(net: Pick<Net, "yards">): Set<string> {
+	const out = new Set<string>();
+	for (const p of net.yards?.projects ?? []) for (const t of p.trains) if (t.key && t.state === "live" && going(t).some((s) => s.waits.length)) out.add(t.key);
 	return out;
 }
 

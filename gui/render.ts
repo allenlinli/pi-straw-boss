@@ -141,8 +141,8 @@ function ticks(card: HTMLElement, list: Unit["ticks"] = []) {
 }
 
 /** The note line of each train's unit card and the integrators' unit keys with their project, from the net being drawn (trains.ts); set by `show` before the cards are filled. */
-let trainNote = new Map<string, string>(), integrators = new Map<string, string>();
-export const useYards = (notes: Map<string, string>, owners: Map<string, string>) => void ([trainNote, integrators] = [notes, owners]);
+let trainNote = new Map<string, string>(), integrators = new Map<string, string>(), trainWait = new Set<string>();
+export const useYards = (notes: Map<string, string>, owners: Map<string, string>, waits = new Set<string>()) => void ([trainNote, integrators, trainWait] = [notes, owners, waits]);
 // The yards' model (trains.ts: the counts, the chips, the wait words) is a chunk of its own, fetched with the first snapshot that carries yards; until it is here the chips and notes wait, and the map is drawn again as it arrives.
 let yardsModel: typeof import("./trains.ts") | undefined, loadingYards: Promise<void> | undefined;
 export const unitEl = () => html(`<div class="unit"><div class="card"><a class="hit"></a>${PLATE}<div class="meta"><span class="name"></span><span class="line"><em class="role"></em><em class="agent"></em><span class="note"></span><span class="age"></span></span><span class="todo" hidden><b></b><span></span></span><button type="button" class="yard-open" hidden></button></div><button type="button" class="quit-btn" data-close="unit" hidden></button><span class="ticks" aria-hidden="true"></span></div><div class="subs"></div></div>`);
@@ -157,7 +157,13 @@ export function fillUnit(el: HTMLElement, u: Omit<Unit, "id" | "key" | "control"
 	text(el, ".name", u.name);
 	text(el, ".role", roleName(u.role));
 	text(el, ".agent", u.agent ? AGENT[u.agent] : "");
-	say(el, ".note", note, mk, (u.key && !closed(u) && trainNote.get(u.key)) || undefined);
+	const line = (u.key && !closed(u) && trainNote.get(u.key)) || undefined, noteEl = el.querySelector<HTMLElement>(".note")!;
+	say(el, ".note", note, mk, line);
+	// A train's note is the step and what it waits for: clipped to its card (two lines, style.css), so the whole line is its tooltip too; a train that waits says so whatever its pane's mark.
+	el.toggleAttribute("data-train-note", !!line);
+	el.toggleAttribute("data-train-wait", !!line && !!u.key && trainWait.has(u.key));
+	if (line) noteEl.setAttribute("title", line);
+	else noteEl.removeAttribute("title");
 	const opens = u.key ? integrators.get(u.key) : undefined, yard = el.querySelector<HTMLElement>(":scope > .card .yard-open")!; // an integrator's card opens its project's yard (yard.ts)
 	yard.hidden = !opens;
 	if (opens) (yard.dataset.yard = opens, text(el, ":scope > .card .yard-open", m.yard_open()));
@@ -399,7 +405,7 @@ export function mountPage(): Page {
 			if (net.yards && !yardsModel) loadingYards ??= import("./trains.ts").then((x) => ((yardsModel = x), shown && (api.show(shown), api.stats(shown))), () => void (loadingYards = undefined));
 			shown = net;
 			const map = T?.yardMap(net), counts = new Map((net.yards?.projects ?? []).map((p) => [p.project, T?.countsOf(p)]));
-			useYards(T?.trainNotes(net, ctx) ?? new Map(), map?.integrators ?? new Map());
+			useYards(T?.trainNotes(net, ctx) ?? new Map(), map?.integrators ?? new Map(), T?.trainWaits(net));
 			const yardOf = (id: string) => ((projects) => (T && projects?.length ? { projects, chip: T.chipWords(T.sumCounts(projects.map((p) => counts.get(p)!))) } : undefined))(map?.byBase.get(id));
 			const { bases: ordered, loose, under } = arrange(net, mergeAllies(net.link?.allies ?? [])), allies = loose.map((a) => ({ ...a, id: `ally/${a.id}`, ally: true as const })); // local bases, remote bases, then the ally cards no live remote base holds
 			fillHeadNode(byId("head-node", HTMLElement), net.head);

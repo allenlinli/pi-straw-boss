@@ -1,5 +1,6 @@
 import type { Net, Unit } from "../src/net.ts";
 import type { ProjectYard, YardCar, YardStep, YardTrainRow } from "../src/train/yardview.ts";
+import { getLocale } from "./paraglide/runtime.js";
 
 // The demo's trains (`?trains=<state>`, docs/specs/2026-11-07-train-workers.md §11.2): the yards of the net snapshot with invented projects, the integrator and the train units in a tab of the Harbor base, and the load. Every state of the page
 // has one: `all` (the default for `?trains`), `forming`, `running`, `waiting`, `mutual` (two trains wait for the same lane and target), `round2` (a car removed from a re-assembly), `notices` (every kind of car notice), `stale`, `ended`, `unreadable`,
@@ -10,9 +11,11 @@ export type TrainState = (typeof TRAIN_STATES)[number];
 export const isTrainState = (value: string | null): value is TrainState => (TRAIN_STATES as readonly (string | null)[]).includes(value);
 
 const MIN = 60_000, SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+/** What the people and the readers wrote is data in one language, so the demo writes it in the page's: a Chinese view shows no English the server never wrote, and an English one no Chinese. */
+const said = (zh: string, en: string) => (getLocale() === "en" ? en : zh);
 export function trainsDemo(net: Net, state: TrainState, now: number): void {
 	const ago = (min: number) => new Date(now - min * MIN).toISOString(), day = new Date(now).toISOString().slice(0, 10), code = (letter: string) => `${day}-${letter}`;
-	const car = (tickets: string[], over: Partial<YardCar> = {}): YardCar => ({ tickets, branch: `fix/${tickets[0]!.toLowerCase()}`, head: SHA, departs: "next", arrived: ago(40), accepted: [{ kind: "e2e", nod: "測過了，可以上車" }, { kind: "uat", nod: "驗收 OK" }], ...over });
+	const car = (tickets: string[], over: Partial<YardCar> = {}): YardCar => ({ tickets, branch: `fix/${tickets[0]!.toLowerCase()}`, head: SHA, departs: "next", arrived: ago(40), accepted: [{ kind: "e2e", nod: said("測過了，可以上車", "tested, good to ride") }, { kind: "uat", nod: said("驗收 OK", "accepted, OK") }], ...over });
 	const step = (id: number, kind: YardStep["kind"], status: YardStep["status"], over: Partial<YardStep> = {}): YardStep => ({ id, kind, name: kind, status, round: 1, waits: [], ...over });
 	const passed = (id: number, kind: YardStep["kind"], name: string = kind, over: Partial<YardStep> = {}) => step(id, kind, "completed", { name, outcome: "passed", ...over });
 	const row = (letter: string, over: Partial<YardTrainRow> = {}): YardTrainRow => ({ code: code(letter), app: "web", state: "live", key: `train-${letter}`, writerLive: true, round: 1, updated: ago(1), cars: [car(["T-15"]), car(["T-16"], { departs: "with T-15" })], steps: [], ...over });
@@ -25,19 +28,19 @@ export function trainsDemo(net: Net, state: TrainState, now: number): void {
 	const waiting = row("n", { app: "api", steps: gates([{ load: { max: 30, now: 42 } }]).slice(0, 5), cars: [car(["T-31"], { notice: { state: "received", status: "delivered", attempts: 1, at: ago(12) } })] });
 	const mutualA = row("p", { steps: [passed(1, "assemble", "assemble", { holds: { lane: "web" } }), step(2, "merge", "in_progress", { holds: { lane: "web" }, waits: [{ lane: { app: "web", holder: code("m") } }] })], cars: [car(["T-40"])] });
 	const mutualB = row("q", { app: "infra", steps: [passed(1, "assemble"), step(2, "deploy", "in_progress", { holds: { target: "target-a" }, waits: [{ target: { target: "target-a", holder: code("m") } }, { lock: { name: "heavy", holder: { train: code("n"), step: 4 } } }] })], cars: [car(["T-41"], { accepted: [] })] });
-	const round2 = row("r", { round: 2, removed: [{ ticket: "T-12", why: "unit 紅" }], cars: [car(["T-15"])], steps: [
+	const round2 = row("r", { round: 2, removed: [{ ticket: "T-12", why: said("unit 測試失敗", "unit tests failed") }], cars: [car(["T-15"])], steps: [
 		passed(1, "assemble", "assemble", { outcome: "void", why: "superseded" }), step(2, "full-check", "completed", { name: "unit", outcome: "void", why: "superseded" }),
 		passed(3, "assemble", "assemble", { round: 2 }), passed(4, "review", "review", { round: 2 }), step(5, "full-check", "in_progress", { name: "unit", round: 2, load: { max: 30, weight: 4 }, waits: [] }), step(6, "merge", "pending", { round: 2 }),
 	] });
 	const notices = row("t", { cars: [
-		car(["T-51"], { notice: { state: "landed", status: "delivered", attempts: 1, at: ago(2) } }), car(["T-52"], { notice: { state: "returned", status: "pending", attempts: 2, last: "queued" } }),
-		car(["T-53"], { notice: { state: "dropped", status: "escalated", attempts: 4, at: ago(1) } }), car(["T-54"], { notice: { status: "unreadable", reason: "the notice record is out of shape" } }), car(["T-55"], { notice: { state: "received", status: "pending", attempts: 0 } }),
+		car(["T-51"], { notice: { state: "landed", status: "delivered", attempts: 1, at: ago(2) } }), car(["T-52"], { notice: { state: "returned", status: "pending", attempts: 2, last: said("排隊中", "queued") } }),
+		car(["T-53"], { notice: { state: "dropped", status: "escalated", attempts: 4, at: ago(1) } }), car(["T-54"], { notice: { status: "unreadable", reason: "notice record: states.received must be an object", kind: "shape" } }), car(["T-55"], { notice: { state: "received", status: "pending", attempts: 0 } }),
 	], steps: [passed(1, "assemble"), step(2, "land", "in_progress")] });
 	const stale = row("k", { state: "stale", writerLive: false, updated: ago(44), holds: { lanes: ["web"], targets: [] }, steps: [passed(1, "assemble", "assemble", { holds: { lane: "web" } }), step(2, "full-check", "completed", { name: "unit", outcome: "failed" }), step(3, "merge", "completed", { outcome: "void", why: "skipped" }), step(4, "merge", "in_progress", { holds: { lane: "web" } })] });
 	const ended = row("e", { state: "ended", writerLive: false, key: undefined, updated: ago(300), steps: [passed(1, "assemble"), passed(2, "review"), passed(3, "full-check", "unit"), passed(4, "merge"), passed(5, "ci"), passed(6, "land")] });
-	const bad = row("b", { state: "unreadable", key: undefined, reason: "cannot read: the board is over 64 KB", cars: [], steps: [] });
+	const bad = row("b", { state: "unreadable", key: undefined, reason: "file is 70 KB, more than 64 KB", reasonKind: "toobig", cars: [], steps: [] });
 	const forming = [
-		{ code: code("s"), app: "web", status: "forming" as const, cars: [car(["T-20"], { departs: "alone", accepted: [{ kind: "e2e", nod: "測過了" }] }), car(["T-21"], { departs: "after 23:30", accepted: [] })], departs: { maxCars: 4, maxWaitMin: 60, oldest: ago(37) } },
+		{ code: code("s"), app: "web", status: "forming" as const, cars: [car(["T-20"], { departs: "alone", accepted: [{ kind: "e2e", nod: said("測過了", "tested") }] }), car(["T-21"], { departs: "after 23:30", accepted: [] })], departs: { maxCars: 4, maxWaitMin: 60, oldest: ago(37) } },
 		{ code: code("u"), app: "api", status: "departing" as const, cars: [car(["T-22"], { departs: "by 18:00" })] }, { code: code("v"), app: "web", status: "refused" as const, cars: [car(["T-23"])] },
 	];
 	const parts: Record<TrainState, Partial<ProjectYard> & { trains: YardTrainRow[] }> = {

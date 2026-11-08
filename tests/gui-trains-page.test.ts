@@ -34,8 +34,23 @@ test("a train's card draws the locomotive and says 火車; its note line is the 
 	assert.equal(train.find((x) => x.tag === "use")[0]!.dataset.icon, "train");
 	assert.equal(train.find((x) => x.classes.has("note"))[0]!.textContent, "全檢查 · unit：等負載 ≤30（現在 42）");
 	assert.notEqual(card(el, "m").find((x) => x.classes.has("note"))[0]!.textContent, "全檢查 · unit：等負載 ≤30（現在 42）", "another unit keeps its own note");
+	assert.equal(train.find((x) => x.classes.has("note"))[0]!.getAttribute("title"), "全檢查 · unit：等負載 ≤30（現在 42）", "V-F004: the note is clipped to its card, so the whole line (the load number, the lock holder) is its tooltip too");
+	assert.equal(train.hasAttribute("data-train-note"), true, "and a train's note may take three lines (style.css), which this flags");
+	assert.equal(card(el, "m").find((x) => x.classes.has("note"))[0]!.getAttribute("title"), null, "another unit's note has no tooltip");
+	assert.equal(card(el, "m").hasAttribute("data-train-note"), false);
 	useYards(new Map(), new Map());
-	assert.equal(card(draw(base([unit("tr", "train")])), "tr").find((x) => x.classes.has("note"))[0]!.textContent, "思考中", "no yard line: the mark's word as any unit");
+	const plain = card(draw(base([unit("tr", "train")])), "tr");
+	assert.equal(plain.find((x) => x.classes.has("note"))[0]!.textContent, "思考中", "no yard line: the mark's word as any unit");
+	assert.equal(plain.find((x) => x.classes.has("note"))[0]!.getAttribute("title"), null);
+	assert.equal(plain.hasAttribute("data-train-note"), false);
+});
+
+test("V-F005: a train that waits for a load or a lock says so on its card, whatever its mark; one that runs does not", () => {
+	useYards(new Map([["a", "全檢查：等負載"], ["b", "合併（進行中）"]]), new Map(), new Set(["a"]));
+	const el = draw(base([unit("a", "train", { mark: "idle" }), unit("b", "train", { mark: "idle" }), unit("c", "main", { mark: "idle" })]));
+	assert.deepEqual(["a", "b", "c"].map((k) => card(el, k).hasAttribute("data-train-wait")), [true, false, false]);
+	useYards(new Map(), new Map());
+	assert.equal(card(draw(base([unit("a", "train", { mark: "idle" })])), "a").hasAttribute("data-train-wait"), false, "no yard line, no wait");
 });
 
 test("an integrator's card has a Yard button that carries its project; a unit that is not one has none", () => {
@@ -109,4 +124,20 @@ test("closing the yard sheet returns the focus to the control that opened it, ev
 	gone.remove();
 	dialog.close();
 	assert.notEqual(page.focused, gone, "a control that left the page is not focused");
+});
+
+test("the style sheets: Raven's yard sheet is opaque, the phone's code link keeps its 44 px by padding (no empty band), a train's note takes three lines, and a waiting train's idle card shows waiting", () => {
+	const css = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+	const style = css("../gui/style.css"), raven = css("../gui/themes/raven/raven.css");
+	const sheet = /\[data-view="raven"\] dialog\.sheet\.yard\s*\{([^}]*)\}/.exec(raven)?.[1] ?? "";
+	assert.match(sheet, /background:\s*(#[0-9a-f]{6}|rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\))\s*;/i, "V-F003: a colour with no alpha, or the page ghosts through the keep's panel");
+	const hit = /^\s*a\.yard-code, a\.yard-integrator \{([^}]*)\}/m.exec(style)?.[1] ?? "";
+	assert.match(hit, /padding-block:\s*\d+px/);
+	assert.match(hit, /margin-block:\s*-\d+px/, "V-F007: the padding is taken back, so the row does not grow");
+	assert.doesNotMatch(hit, /min-height|inline-flex/);
+	assert.match(style, /\.plate:has\(use\[data-icon="train"\]\) svg \{[^}]*\* 0\.68/, "V-F006: the locomotive is drawn larger than the other glyphs");
+	assert.match(style, /use\[data-icon="train"\] \{[^}]*stroke-width:\s*9px/, "and with a heavier outline");
+	assert.match(style, /\.unit\[data-train-note\] \.note \{[^}]*-webkit-line-clamp:\s*3/, "V-F004");
+	assert.match(style, /\.unit\[data-train-wait\]\[data-mark="idle"\][^{]*\.badge::after \{[^}]*content:\s*"[^"z]+"/, "V-F005: not the idle z");
+	assert.match(style, /\.unit\[data-train-wait\]\[data-mark="idle"\] > \.card \{[^}]*opacity:\s*1/, "and not dimmed as an idle card");
 });

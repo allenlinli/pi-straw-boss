@@ -345,6 +345,6 @@ html[data-view="raven"] .connect:is([data-state="offline"], [data-state="replace
 	html[data-view="raven"] .tower[data-mark="working"] > .pulse, html[data-view="raven"] .plate[data-mark="working"]::after { display: none; }
 }
 /* The yard (gui/yard.ts): the keep's ledger of night trains. The sheet takes the keep's panel, titles are serif, the rows are plain bordered cards, and the pills are candle-gold when they wait and crimson when they failed (the tokens above). */
-[data-view="raven"] dialog.sheet.yard { background: var(--panel); border-color: var(--line); }
+[data-view="raven"] dialog.sheet.yard { background: #181220; border-color: var(--line); } /* the panel colour with no alpha: --panel lets the page behind the sheet ghost through its text */
 [data-view="raven"] :is(.yard-title, .yard-code) { font-family: var(--serif); letter-spacing: 0.04em; } [data-view="raven"] .yard-row { border-radius: 6px; background: var(--surface-0); }
 [data-view="raven"] .yard-pill { border-radius: 4px; }

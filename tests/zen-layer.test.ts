@@ -1619,7 +1619,8 @@ test("task 7 of the train workers: the strip adds the live trains and how many w
 	await r.settle();
 	r.z.key("talk");
 	await r.settle();
-	assert.equal(strip().textContent, `${m.zen_strip({ working: 1, idle: 2 })} · ${m.zen_strip_trains({ count: 2, waiting: 1 })}`);
+	assert.equal(strip().textContent, "Working 1 · Idle 2 · Trains 2 (1 waiting)", "V-F011: the waiting trains are a parenthesis of the trains, never a count of its own beside Idle");
+	assert.equal(strip().textContent, `${m.zen_strip({ working: 1, idle: 2 })} · ${m.zen_strip_trains_waiting({ count: 2, waiting: 1 })}`);
 	assert.ok(!/ready|step|merge|2026|acme|load/i.test(strip().textContent), "counts only (D9): no project, step, code or load");
 	r.feed(net([unit("a", "working"), unit("i", "idle")]));
 	await r.settle();
@@ -1627,7 +1628,10 @@ test("task 7 of the train workers: the strip adds the live trains and how many w
 	r.feed({ ...net([unit("e", "error")], [], false), yards });
 	await r.settle();
 	assert.equal(strip().hidden, false, "trains alone are enough for the strip");
-	assert.equal(strip().textContent, m.zen_strip_trains({ count: 2, waiting: 1 }));
+	assert.equal(strip().textContent, m.zen_strip_trains_waiting({ count: 2, waiting: 1 }));
+	r.feed({ ...net([unit("e", "error")], [], false), yards: { projects: [{ ...yards.projects[0]!, trains: [train("2026-11-08-b", false), train("2026-11-08-d", false)] }] } });
+	await r.settle();
+	assert.equal(strip().textContent, "Trains 2", "none waits: no parenthesis of nothing");
 });
 
 test("the strip is hidden when no unit works or idles, and the layer without the selector draws none", async () => {

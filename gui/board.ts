@@ -47,8 +47,9 @@ const stateWord = (r: BoardViewRow) => (!live(r) ? (r.open ? m.board_open_word()
 
 const say = (box: HTMLElement, text: string) => {
 	notes.set(box, text);
-	const el = box.querySelector(".board-note");
+	const el = box.querySelector(".board-note"), list = box.querySelector<HTMLElement>(".board-rows");
 	if (el) el.textContent = text;
+	if (text && list) list.scrollTop = 0; // the note is the list's first line: a row cleared far down would leave it out of view (VR-F001)
 };
 const redraw = (box: HTMLElement) => fillBoard(box, latest.get(box), true);
 const failure = (r: Answer) => r.body.reason ?? (r.status ? m.refused({ status: r.status }) : m.no_answer());

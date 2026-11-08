@@ -1301,19 +1301,21 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 .head-board > summary::-webkit-details-marker { display: none; }
 .head-board > summary::after { content: "▾"; flex: none; margin-left: auto; font-size: 18px; line-height: 1; color: var(--text); transition: rotate 0.15s; } .head-board[open] > summary::after { rotate: 180deg; }
 .head-board > summary b { flex: none; } .head-board > summary span { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); }
-.head-board[open] > .board-rows { padding: 0 8px 8px; max-height: calc((var(--vvh, 100vh) - var(--hud, 64px) - 64px) * 0.4); overflow-y: auto; overscroll-behavior: contain; }
+.head-board[open] > .board-rows { padding: 0 8px 8px; max-height: calc((var(--vvh, 100vh) - var(--hud, 64px) - 64px) * 0.6); overflow-y: auto; overscroll-behavior: contain; }
 .board-note { margin: 0 4px 4px; font-size: 12px; color: var(--dim); } .board-note:empty { display: none; }
 .board-group { display: grid; gap: 4px; margin: 0 0 8px; } .board-group h4 { margin: 4px 4px 0; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--dim); }
 .board-group ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.board-row { min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+/* A row is two tracks: the name line with its buttons on the right, then the line and the items across (VR-F002, F003: more rows in view, one rhythm for live and ended rows). */
+.board-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 8px; min-width: 0; padding: 2px 10px 4px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.board-row > .board-now, .board-row > .board-none, .board-row > .board-items { grid-column: 1 / -1; }
 .board-row[data-state="ended"] { border-style: dashed; opacity: 0.85; } .board-row[data-stale] { border-color: color-mix(in srgb, var(--gold) 60%, var(--line)); }
-.board-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.board-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; min-height: 44px; }
 .board-name { font-size: 13px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; } a.board-name { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); text-decoration: none; } a.board-name:hover, a.board-name:focus-visible { text-decoration: underline; }
 .board-tag, .board-state, .board-age { font-size: 12px; color: var(--dim); } .board-row[data-stale] .board-state { color: var(--gold); }
-.board-now, .board-none { margin: 0 0 4px; overflow-wrap: anywhere; white-space: pre-wrap; } .board-none { color: var(--dim); }
+.board-now, .board-none { margin: 0 0 2px; overflow-wrap: anywhere; white-space: pre-wrap; } .board-none { color: var(--dim); }
 .board-items > summary { display: flex; align-items: center; min-height: 44px; font-size: 12px; color: var(--dim); cursor: pointer; }
 .board-items ul { margin: 0 0 4px; padding: 0 0 0 4px; } .board-items li { padding: 2px 0; overflow-wrap: anywhere; } .board-items li[data-done="true"] { color: var(--dim); text-decoration: line-through; }
-.board-acts { display: flex; flex-wrap: wrap; gap: 8px; } .board-acts .pair-btn { min-height: 44px; }
+.board-acts { grid-column: 2; grid-row: 1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; } .board-acts .pair-btn { min-height: 44px; }
 .ask-group[open] > summary > .ask-part { display: none; } .ask-group[open] > summary .ask-foot { padding-left: 0; } /* unfolded, the card shows each text in full below: the clamped copy above it said everything twice */
 .ask-older > .ask-group, .ask-replaced > .ask-group { margin: 0 8px 8px; } .ask-replaced { margin: 0 8px 8px; border-style: dashed; }
 .ask-group > summary, .ask-older > summary, .ask-replaced > summary { display: grid; align-content: center; gap: 3px; box-sizing: border-box; min-height: 44px; padding: 6px 12px; font-size: 13px; cursor: pointer; list-style: none; }

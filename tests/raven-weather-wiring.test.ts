@@ -58,11 +58,12 @@ function page(over: { sound?: boolean; running?: boolean } = {}) {
 	store.set("sb.sound", over.sound === false ? "0" : "1");
 	const c = core(); c.st.running = over.running ?? true;
 	let t = 100_000;
-	const undo = mountWeather(root, c.a as never, () => t);
+	const frames: (() => void)[] = [];
+	const undo = mountWeather(root, c.a as never, () => t, (fn) => void frames.push(fn));
 	const [rootWatch, switchWatch] = FakeObserver.all;
 	const event = (type: string, e: Record<string, unknown> = {}) => listeners.get(type)?.forEach((f) => f({ type, timeStamp: t, ...e }));
 	const names = () => [...listeners].filter(([, s]) => s.size > 0).map(([k]) => k).sort();
-	return { ...c, undo, rootWatch: rootWatch!, switchWatch: switchWatch!, event, names, now: (ms = 0) => (t += ms), flash: (extra: Record<string, unknown> = {}) => event("animationiteration", { animationName: FLASH, ...extra }) };
+	return { ...c, undo, frame: () => frames.splice(0).forEach((f) => f()), rootWatch: rootWatch!, switchWatch: switchWatch!, event, names, now: (ms = 0) => (t += ms), flash: (extra: Record<string, unknown> = {}) => event("animationiteration", { animationName: FLASH, ...extra }) };
 }
 const settle = () => new Promise<void>((r) => setImmediate(r));
 const ALL = ["animationiteration", "animationstart", "keydown", "pointerdown", "visibilitychange"];
@@ -171,9 +172,36 @@ test("RS-F008: a flash event that arrives late is not the flash: an event stampe
 		doc.hidden = false; p.event("visibilitychange");
 		p.now(16);
 		p.flash();
+		p.frame();
 		mock.timers.tick(2100);
 		assert.equal(p.made.thunders, 0, "the catch-up event right after the tab came back");
 		p.now(1500);
+		p.flash();
+		mock.timers.tick(2100);
+		assert.equal(p.made.thunders, 1, "a flash after that is a flash");
+		p.undo();
+	} finally {
+		mock.timers.reset();
+	}
+});
+
+test("RS2-F001: under load the first frame after a hidden tab came back can take over a second; the catch-up event of that frame makes no thunder, and the second's window starts at that frame", () => {
+	mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		const p = page();
+		doc.hidden = true; p.event("visibilitychange");
+		p.now(600_000);
+		doc.hidden = false; p.event("visibilitychange");
+		p.now(1500);
+		p.flash();
+		mock.timers.tick(2100);
+		assert.equal(p.made.thunders, 0, "the catch-up event, 1.5 s late, before the first frame ran");
+		p.frame();
+		p.now(500);
+		p.flash();
+		mock.timers.tick(2100);
+		assert.equal(p.made.thunders, 0, "within a second of that first frame");
+		p.now(700);
 		p.flash();
 		mock.timers.tick(2100);
 		assert.equal(p.made.thunders, 1, "a flash after that is a flash");

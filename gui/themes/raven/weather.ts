@@ -139,7 +139,7 @@ export function createWeather(env: WeatherEnv) {
  * The press, key, and animation listeners are on the document only while the weather can sound (Sound on, tab visible, backdrop shown): Raven's code stays loaded for the page's life, and the other views must not pay for it (a press would make the audio context, an animation listener makes the browser report every iteration of every animation).
  * `now` is the clock the late-event check reads.
  */
-export function mountWeather(root: HTMLElement = document.documentElement, a: Audio = audio, now: () => number = () => performance.now()): () => void {
+export function mountWeather(root: HTMLElement = document.documentElement, a: Audio = audio, now: () => number = () => performance.now(), frame: (fn: () => void) => void = (fn) => void requestAnimationFrame(fn)): () => void {
 	const env: WeatherEnv = {
 		audio: a,
 		backdrop: () => root.dataset.view === "raven" && ["map", "head"].includes(document.getElementById("stage")?.dataset.view ?? ""),
@@ -152,12 +152,12 @@ export function mountWeather(root: HTMLElement = document.documentElement, a: Au
 		clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
 	};
 	const w = createWeather(env);
-	let live = true, hooked = false, shown = -Infinity;
+	let live = true, hooked = false, shown = -Infinity, back = false;
 	// A press or key lets the browser play: the context is resumed then.
 	const press = () => void a.unlock().then(refresh);
 	const flash = (e: Event) => {
-		// A late event is not the flash: a stamp from long ago (a stalled page), or the first one after a hidden tab came back, when the animations catch up and Blink stamps the event as it creates it.
-		if ((e as AnimationEvent).animationName === FLASH && now() - e.timeStamp < 1000 && now() - shown >= 1000) w.flash();
+		// A late event is not the flash: a stamp from long ago (a stalled page), or one in the catch-up after a hidden tab came back, when Blink stamps the event as it creates it: until the first frame after the return has run (under load it can take over a second), and for a second after it (RS2-F001).
+		if ((e as AnimationEvent).animationName === FLASH && !back && now() - e.timeStamp < 1000 && now() - shown >= 1000) w.flash();
 	};
 	const hook = (on: boolean) => {
 		if (on === hooked) return;
@@ -171,7 +171,11 @@ export function mountWeather(root: HTMLElement = document.documentElement, a: Au
 		w.refresh();
 	}
 	const seen = () => {
-		if (!document.hidden) shown = now();
+		if (!document.hidden) {
+			shown = now();
+			back = true;
+			frame(() => ((back = false), (shown = now())));
+		}
 		refresh();
 	};
 	// The Sound switch turned on is a press the hooks above were not on for: unlock in that gesture, when the page has one (a switch drawn at load has none).

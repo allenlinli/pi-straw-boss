@@ -1,6 +1,6 @@
 # Trains as their own workers
 
-Status: decided, not built. Todo #125. Base `main` 9b2cbe48 (0.61.0); first committed at 3874ae4b, revised the same day after the boss's correction D11 (a train carries no acceptance). Extends [the merge train](2026-10-30-merge-train.md), [train stages](2026-11-05-train-stages.md) and [seam bindings](2026-11-06-seam-bindings.md). The boss's summary page is `~/.local/share/sbd-review/train-workers/decisions.md`; the task 0 spike is `~/.local/share/sbd-review/train-workers/spike.md`.
+Status: decided. Todo #125. Tasks 1 to 6, 5a and 8 landed on main; task 7 (the page) is on the page branch; task 9 (docs and release prep, no release) is this branch; task 10 is the pilot. Base `main` 9b2cbe48 (0.61.0); first committed at 3874ae4b, revised the same day after the boss's correction D11 (a train carries no acceptance). Extends [the merge train](2026-10-30-merge-train.md), [train stages](2026-11-05-train-stages.md) and [seam bindings](2026-11-06-seam-bindings.md). The boss's summary page is `~/.local/share/sbd-review/train-workers/decisions.md`; the task 0 spike is `~/.local/share/sbd-review/train-workers/spike.md`.
 
 ## 1. The request and the decisions
 
@@ -737,3 +737,9 @@ Choices the spec left open; `tests/prompts.test.ts` ("train workers" tests) pins
 - **Deleting (§10).** `trainsweep.ts`: at server start and then every hour, on the primary server and only with the merge train on, `expired()` decides (live: never; ended: 7 days after its update; stale: only after a clear and 7 days from the later of its update and its last clear), the board's folder is removed (a link in its place is not followed), and with it the car file and notice file of each of its cars unless another board that stays, or the project's yard, still carries that car (`app` and head). In a project where a board or the yard does not read, no car file is deleted. Car files of cars that were never on a board stay, and the 256-file cut of `train notices` is how a long-lived project stays readable.
 - **`train check --accept none` (TP-F003)** means no evidence: it reads no file, and checks the slip (when `--slip` is given) or the word `none` itself against `--app-accept`: the same refusal as the guard's for an app that requires acceptance. A file that is really called `none` is passed as `./none`.
 - **`{{cli}}` (TP-F004)** in a role prompt that sb renders (`main`, `tower`, `member`, `train`) is `node '<dist/server/cli.mjs>'` (or `npx tsx '<src/server/cli.ts>'` in a checkout), the command to run `train check`. The tower runs' prompts (`runmode.ts`) are not given it. Files an agent reads raw (`integrator.md`, `planning.md`) are not rendered, so they point to the command in the main prompt.
+
+## 26. Notes from task 9 (docs and release prep)
+
+- Choices the spec left open: the user-facing description lives in `docs/how-it-works.md` (Merge train: "Trains as their own workers (since 0.65.0)" and "Moving a project to 0.65.0"); the README links to it and states pi-anchorloop 2.11.0. The page's description in the docs follows §11.2's words only; task 7's page branch may refine it.
+- The old `## UAT` assertions in `tests/prompts.test.ts` now check `## Acceptance` in how-it-works.md; `train-stages.md` keeps `## UAT` in its own text and has a note at its top that the UAT stage moved.
+- The release stays unreleased: `docs/releases/0.65.0.md` keeps "Not yet released." at its top.

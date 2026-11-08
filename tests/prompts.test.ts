@@ -126,7 +126,7 @@ test("train stages: apps-config declares stages and targets, the integrator veri
 	// The docs state the same contract and drift silently otherwise (review RV-F009).
 	const docs = readFileSync(new URL("../docs/how-it-works.md", import.meta.url), "utf8");
 	const spec = readFileSync(new URL("../docs/specs/2026-11-05-train-stages.md", import.meta.url), "utf8");
-	for (const term of ["## Deploy", "## Deploy verify", "## UAT", "`integration.stages`", "`auto` target", "Seam bindings"]) assert.ok(docs.includes(term), `how-it-works.md names ${term}`);
+	for (const term of ["## Deploy", "## Deploy verify", "## Acceptance", "`integration.stages`", "`auto` target", "Seam bindings"]) assert.ok(docs.includes(term), `how-it-works.md names ${term}`);
 	for (const term of ["deploy: <targets or none> | uat: <checkpoints path or none>", "## Deploy", "## Deploy verify", "## UAT", "`auto` or `strict`"]) assert.ok(spec.includes(term), `the spec names ${term}`);
 	assert.ok(readFileSync(`${PROMPT_DIR}/planning.md`, "utf8").includes("a `human` anchor is this acceptance, not the train's"));
 });
@@ -177,7 +177,7 @@ test("seam bindings: main.md binds all six seams of pi-anchorloop's integrating 
 	assert.ok(approval.includes("lacking them, it asks") && approval.includes("groups cars by the `strict` targets their `auth` covers and asks no one") && !approval.includes("no car names"), "Approval asks only when the words are missing");
 	// SB-F002 is fixed upstream (pi-anchorloop 2.10.1, train step 4 gates `Merge` on the deploy steps), which the README requires; SB-F006: a subagent is briefed for one step.
 	assert.ok(readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8").includes("never the skill"), "integrator.md keeps the skill from subagents");
-	for (const readme of ["README.md", "README.zh-TW.md"]) assert.ok(readFileSync(readme, "utf8").includes("pi-anchorloop) 2.10.1"), `${readme} requires pi-anchorloop 2.10.1, whose train step 4 gates Merge on the deploy steps`);
+	for (const readme of ["README.md", "README.zh-TW.md"]) assert.ok(readFileSync(readme, "utf8").includes("pi-anchorloop) 2.11.0"), `${readme} requires pi-anchorloop 2.11.0 (train workers; 2.10.1 already gated Merge on the deploy steps)`);
 	// SB-F004: only the headings `integrating` requires stop a departure.
 	assert.ok(readFileSync(`${PROMPT_DIR}/apps-config.md`, "utf8").includes("When a required one is missing"), "apps-config.md requires only the required headings");
 	for (const file of ["tower.md", "tower-run.md", "planning.md", "integrator.md", "apps-config.md"]) assert.ok(!readFileSync(`${PROMPT_DIR}/${file}`, "utf8").includes("## Seam bindings"), `${file} holds no second block`);

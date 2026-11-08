@@ -1,7 +1,7 @@
 import type { Progress, StepId, StepState } from "../src/deploy.ts";
 import { ownOpenings } from "./alerts.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js"; import { iconRef } from "./icons.ts"; import { noun } from "./nouns.ts";
+import { m } from "./sentences.ts"; import { iconRef } from "./icons.ts"; import { noun } from "./nouns.ts";
 import type { Answer } from "./post.ts";
 import { reasonOf } from "./refusal.ts";
 import { trustPanel, type TrustPost } from "./trust.ts";

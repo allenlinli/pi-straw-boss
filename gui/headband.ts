@@ -1,6 +1,6 @@
 import type { HeadUnit } from "../src/nethead.ts";
 import { askGroups, headLine, sentLine } from "./headpage.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { noun } from "./nouns.ts";
 
 // What the head band on the map's top says (docs/specs/2026-11-07-head-band.md, "The band"), and the geometry its wires need: the band's content from the net's head, the gutter of a column, and the keyframes of a packet that travels a route.

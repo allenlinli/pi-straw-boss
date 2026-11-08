@@ -2,7 +2,7 @@ import type { Net } from "../src/net.ts";
 import { can } from "./boxmodel.ts";
 import { type StepEvent, stepRule } from "./cardmodel.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { locate } from "./scene.ts";
 import type { StepOpen } from "./terminalthen.ts";
 import { termHold } from "./towerturns.ts";

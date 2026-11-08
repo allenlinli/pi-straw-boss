@@ -1,5 +1,5 @@
 import { VIEWS } from "../src/views.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Entry } from "./palette.ts";
 import { NAME } from "./viewlabel.ts";
 import type { MenuDeps } from "./zenmenu.ts";

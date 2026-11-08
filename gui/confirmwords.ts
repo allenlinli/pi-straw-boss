@@ -1,5 +1,5 @@
 import { ENDING } from "../src/ending.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The key pad's confirm (src/keys.ts) names what it asks about by a token and says it in English. The page says it in its own language by the token, and shows the server's words only for a token it does not know.
 const WORDS: Record<string, () => string> = { unread: m.confirm_unread, command: m.confirm_command, "double-esc": m.confirm_double_esc, "ctrl-d": m.confirm_ctrl_d, "double-ctrl-c": m.confirm_double_ctrl_c };

@@ -1,6 +1,6 @@
 import { createPicker, type Key, type Listing } from "./folders.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { post } from "./post.ts";
 
 // The folder picker the opening tiles share (spawn.ts): Finder's column view over the server's folders (folders.ts holds its state). A toolbar with back and

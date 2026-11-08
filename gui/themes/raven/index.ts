@@ -8,10 +8,12 @@ import done from "./sounds/done.mp3";
 import error from "./sounds/error.mp3";
 import type { ThemeParts } from "../theme.ts";
 import { NOUNS } from "./nouns.ts";
+import { SENTENCES } from "./sentences.ts";
 
 export const theme: ThemeParts = {
 	sprite,
 	nouns: NOUNS,
+	sentences: SENTENCES,
 	sounds: { waiting: ask, done, error },
 	// The waiting badge over the crest: candle gold on the keep's ground.
 	badge: { dot: "#e3b04b", ring: "#0d0a10", text: "#0d0a10" },

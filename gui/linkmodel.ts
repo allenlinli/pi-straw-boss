@@ -1,6 +1,6 @@
 import type { Mark } from "../src/netdata.ts";
 import type { AllyBase, ConfirmView, DeviceUnits, LinkAlert, LinkSummary } from "../src/link/holder.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { getLocale } from "./paraglide/runtime.js";
 
 // What the page says about Straw Link, as plain functions of the holder's reading (src/link/holder.ts `LinkSummary`, `LinkView`): the notice texts,

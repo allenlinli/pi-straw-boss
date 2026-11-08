@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { noun } from "./nouns.ts";
 import { createPrefs, prefs } from "./prefs.ts";
 import { baseLocale, type Locale, locales, overwriteGetLocale, toLocale } from "./paraglide/runtime.js";

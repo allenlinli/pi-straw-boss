@@ -2,7 +2,7 @@ import type { Ask, Pending } from "../src/ask.ts";
 import type { Answerable, Reply, Then } from "../src/owners.ts";
 import { type Group, wire } from "./askkeys.ts";
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { openThen } from "./terminalthen.ts";
 

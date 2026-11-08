@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // An overview of the map in a corner, after zoetrope's: shown only while the map runs past the window (on a screen with a mouse), each base a block
 // in its state's colour, with a frame for what the window shows. A click scrolls there. It is drawn again when the map's layout changes, and on a

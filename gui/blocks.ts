@@ -5,7 +5,7 @@ import { type Cell, lockFor } from "./blocklock.ts";
 import { h } from "./dom.ts";
 import { keepFocus } from "./focusback.ts";
 import { mount, parse as markdown } from "./markdown.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The page's drawing of pi-better-show's blocks (docs/specs/2026-11-07-better-show-host.md), a lazy chunk (blockschunk.ts): the text is split by the package's parser, prose is the page's own Markdown (markdown.ts), each block is the
 // element of its kind fed with the block's data (never markup: the elements build text nodes), and a block that does not parse shows its source in code. An element's answer is handed to the host, which delivers it and only then locks the

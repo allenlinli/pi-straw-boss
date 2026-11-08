@@ -4,7 +4,7 @@ import { h } from "./dom.ts";
 import { keepFocus } from "./focusback.ts";
 import { keywriter } from "./keywriter.ts";
 import type { Post, TermState } from "./mirror.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The key pad under a terminal mirror: one key per tap or keyboard press of its own button, never a sequence and never a repeat, and
 // nothing while a key is on its way. The server checks every key again (src/keys.ts) and names the confirm it needs: for Enter when the

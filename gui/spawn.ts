@@ -3,7 +3,7 @@ import { h } from "./dom.ts";
 import { leaf } from "./folders.ts";
 import { folderPicker } from "./picker.ts";
 import type { Tile } from "./layer.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { post } from "./post.ts";
 
 // The opening tiles, their own small chunk. A new base (a folder picker from home, a name, a first message) opens with one member and no tower; a

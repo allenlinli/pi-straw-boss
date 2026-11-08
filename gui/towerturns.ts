@@ -1,6 +1,6 @@
 import type { TowerService } from "../src/net.ts";
 import { BOSS_MARK, CRASH_FLAG } from "../src/eventmarks.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { actionWhy } from "./towermodel.ts";
 

@@ -1,6 +1,6 @@
 import { h } from "./dom.ts";
 import type { Tile } from "./layer.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { post } from "./post.ts";
 
 // The sb server's panel, its own small chunk (this computer's page only: the server answers 403 local_only on the remote listener, and the button is hidden there). It shows the server's

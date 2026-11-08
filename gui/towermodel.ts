@@ -1,7 +1,7 @@
 import { HEAD_KEY } from "../src/headkey.ts";
 import type { BossWait, MemoryProposal, MemorySummary, TowerService } from "../src/net.ts";
 import type { Mark } from "../src/netdata.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { waitLine } from "./waits.ts";
 

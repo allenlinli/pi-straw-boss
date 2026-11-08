@@ -1,6 +1,6 @@
 import type { Base, Net, Unit } from "../src/net.ts";
 import { unitsOf } from "./units.ts"; import { can, type Can } from "./boxmodel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { desk } from "./desk.ts";
 import type { NetRoute } from "./router.ts";
 

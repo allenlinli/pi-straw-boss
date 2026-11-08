@@ -7,7 +7,7 @@
 // a tap on a line, a pointer's pick of a single choice (the next question without an answer comes in after a beat), and the keys of askkeys.ts (Tab, Shift+Tab, Enter), which ask for the block to be shown
 // (`ask-reveal`) before they put the keyboard focus in it, because a browser cannot focus what is not drawn.
 
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 export interface QEnv {
 	/** The page's timer: runs `fn` after `ms` and returns what cancels it. */

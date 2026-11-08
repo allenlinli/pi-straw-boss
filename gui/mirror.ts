@@ -1,6 +1,6 @@
 import { h, replay } from "./dom.ts";
 import type { Tile } from "./layer.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { type Conn, type Frame, MAX_ROWS, mountConns, type Post, type TermState } from "./mirrorconn.ts";
 
 export type { Frame, Post, TermState } from "./mirrorconn.ts";

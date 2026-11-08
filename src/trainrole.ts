@@ -44,6 +44,9 @@ export function trainFromRequest(request: string): TrainId | { refusal: string }
 	return { project, code };
 }
 
+/** The manifest header's `app:` line, if it has one (the same line the train's manifest check reads). */
+export const appFromRequest = (request: string): string | undefined => /^\s*app:\s*([A-Za-z0-9._-]{1,64})\s*$/m.exec(request.split(/\r?\n(?=\s*car:)/i)[0] ?? request)?.[1];
+
 /** `integration.maxTrains` as apps.json gives it: absent is the default; anything but a whole number from 1 to 32 is a refusal naming the field. */
 export function maxTrainsOf(value: unknown): number | { refusal: string } {
 	if (value === undefined) return DEFAULT_MAX_TRAINS;

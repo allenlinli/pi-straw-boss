@@ -17,10 +17,10 @@ export type ReasonKind = "toobig" | "budget" | "notfile" | "notjson" | "io" | "m
 /** One acceptance the car's evidence shows (`kind`: `e2e`, `uat`, or the evidence's own label) and, when the train kept a copy of the evidence file, the words the approver gave. */
 export interface YardAccepted { kind: string; nod?: string }
 /** Whether sb has told the car's coordinator of the car's newest `state` (§5.5): `delivered` or `escalated` at `at`, or still `pending` after `attempts`, the last answer in `last`; or `unreadable`. */
-export type YardNotice = { state: CarState; status: "delivered" | "pending" | "escalated"; attempts: number; at?: string; last?: string }
+export type YardNotice = { state: CarState; status: "delivered" | "pending" | "escalated"; attempts: number; at?: string; last?: string; /** Read from the journal on disk because the server's own record did not have the car (after a restart): the page says so (TB-F005). */ journal?: true }
 	/** The car file or its notice record failed to read (a file out of shape, too big, a link, another project's); `reason` says why and nothing of what was told is guessed. */
 	| { status: "unreadable"; reason: string; kind?: ReasonKind };
-export interface YardCar { tickets: string[]; branch: string; head: string; departs: string; arrived?: string; accepted: YardAccepted[]; notice?: YardNotice }
+export interface YardCar { tickets: string[]; branch: string; head: string; departs: string; arrived?: string; accepted: YardAccepted[]; /** The code could not check the car's evidence, so the page says its acceptance is unknown (TB-F003). */ unverified?: true; notice?: YardNotice }
 
 export interface YardStep {
 	id: number; kind: Kind; name: string; status: StepStatus; round: number; outcome?: "passed" | "failed" | "void"; why?: "superseded" | "skipped";
@@ -47,7 +47,7 @@ export interface YardTrainRow {
 	round?: number;
 	updated?: string;
 	/** The cars the current round's assemble step left out, with why (a train's second round and after): plain text. */
-	removed?: { ticket: string; why: string }[];
+	removed?: { ticket: string; why: string; notice?: YardNotice }[];
 	cars: YardCar[];
 	steps: YardStep[];
 	/** How many older steps were left out (a train shows its newest 64). */

@@ -36,6 +36,7 @@ const train = (t: TrainView) => h("li", { class: "yard-row", "data-status": t.st
 	t.need && h("p", { class: "yard-need" }, t.need),
 	t.cut && h("p", { class: "yard-cut" }, t.cut),
 	cars(t.cars),
+	...t.removedNotices.map((n) => h("p", { class: "yard-notice", "data-tone": n.tone, ...(n.title ? { title: n.title } : {}) }, n.text, n.detail && h("span", { class: "yard-notice-detail" }, n.detail))),
 );
 
 /** One project's section, drawn from its view. */

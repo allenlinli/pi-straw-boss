@@ -562,7 +562,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		restart: gui.restart ?? ((reason) => spawnRestart(cliBeside(), reason, "the GUI", serverEnv(env), slot.dir)),
 		failed: (code, text) => recordError(code, text), tailscale: gui.tailscale, bundle: gui.bundle, bindWaitMs: gui.bindWaitMs, ...(gui.lan ? { lan: gui.lan } : {}), ...(gui.trainyard ? { trainyard: gui.trainyard } : {}),
 		// The page's tower units: the service's state and queue in the net, the composer as a boss event, and the notices' buttons (towers is built below, after the GUI host, and may be absent).
-		tower: towerPanel(() => towers), head: headSeam(slot, now),
+		tower: towerPanel(() => towers), head: headSeam(slot, now), trainCars: () => cars?.book,
 		...(slot.primary ? { operateHost: makeOperateHost } : {}),
 	});
 	// The tower service (behind `towerRuns.enabled`): it stands in for each workspace's tower, and finds the tabs again when a new Herdr server takes over.

@@ -289,6 +289,13 @@ export class CarBook {
 	read(project: string): CarView[] {
 		return [...(this.cars.get(project)?.values() ?? [])].slice(0, MAX_FILES).map((h) => ({ file: structuredClone(h.file), ...(h.notice ? { notice: structuredClone(h.notice) } : {}) }));
 	}
+	/** The book's own record of one car (no copy; read only): the yard's notice line comes from here, and from the journal on disk only for a car this server's life has not seen (TB-F005). */
+	viewOf(project: string, app: string, head: string): CarView | undefined {
+		let name: string;
+		try { name = carFileName(app, head); } catch { return undefined; }
+		const held = this.cars.get(project)?.get(name);
+		return held && held.file.app === app && held.file.car.head === head ? { file: held.file, ...(held.notice ? { notice: held.notice } : {}) } : undefined;
+	}
 	/**
 	 * The cars a registered session may see (`cars-read`): a train sees, in its own project, the cars of its manifest; the integrator sees the cars a tower forwarded to it and the ones it set. The guard asks for nothing else.
 	 */

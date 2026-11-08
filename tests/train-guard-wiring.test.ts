@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, renameSync } from "node:fs";
+import { mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { registerTrainGuard, signsOfTrain } from "../src/trainguard.ts";
@@ -9,6 +9,10 @@ import { sb } from "./train-fixtures.ts";
 // The guard as the extension wires it (docs/specs/2026-11-07-train-workers.md §7, task 4): a train opened by a tower is guarded and briefed as a train, a main is not touched, and with the merge train off nothing is registered.
 
 let world = new World();
+// The guard reads the installed pi-anchorloop (train/anchorloop.ts): the run's agent folder holds a 2.11.0.
+const pkg = join(process.env.PI_CODING_AGENT_DIR!, "npm", "node_modules", "pi-anchorloop");
+mkdirSync(pkg, { recursive: true });
+writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "pi-anchorloop", version: "2.11.0" }));
 afterEach(async () => {
 	await world.stopAll();
 	world = new World();

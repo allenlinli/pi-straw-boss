@@ -5,7 +5,8 @@ import { alive } from "./remote.ts";
 import { boardState, readTrainboards, trainboardDir } from "./train/board.ts";
 import { createTab, report, panes, startPi, type HerdrRun, type Session, type Sleep, workspaces } from "./herdr.ts";
 import { assertSettingsSafe, SettingsRefused } from "./trust/settings.ts";
-import { readMaxTrains, TRAIN, type TrainId, trainFromRequest, trainFromToken, trainLabel, trainToken } from "./trainrole.ts";
+import { openRefusal } from "./train/appsconfig.ts";
+import { appFromRequest, readMaxTrains, TRAIN, type TrainId, trainFromRequest, trainFromToken, trainLabel, trainToken } from "./trainrole.ts";
 import { waitPastTrust } from "./trust/wait.ts";
 
 // The one thing a tower does besides routing: when no session owns a request, it opens a main for it (docs/how-it-works.md, "Opening a main").
@@ -38,6 +39,8 @@ export interface OpenerEnv {
 	stateDir?: string;
 	/** `maxTrains` of the project whose checkout is `dir`, or the refusal in words (trainrole.ts `readMaxTrains`, apps.json). */
 	maxTrains?(dir: string): number | { refusal: string };
+	/** The refusal of the manifest's app in the project's apps.json (`stages` that still list `uat`, an `integration.accept` that is no list), or undefined (appsconfig.ts `openRefusal`). */
+	appsRefusal?(dir: string, app: string | undefined): string | undefined;
 	/**
 	 * The sb server keeps the ledger of a workspace on disk (docs/specs/2026-10-26-sb-backend.md, State), so a request already tried is not tried again after the server restarts:
 	 * `entries` are the outcomes of the last 24 h, and `put` records one as it ends. Without it (a tower session) the ledger lives for the session.
@@ -123,6 +126,9 @@ export function opener(env: OpenerEnv) {
 			if (env.stateDir && existsSync(join(trainboardDir(env.stateDir), train.project, train.code))) throw new OpenLimitError(`The ${trainLabel(train.code)} of project ${train.project} was already used (its trainboard is kept); a code is used once, so the next train takes a new code`);
 			const max = (env.maxTrains ?? readMaxTrains)(dir);
 			if (typeof max !== "number") throw new OpenLimitError(max.refusal);
+			// An app whose apps.json is still the 0.64.0 one (`uat` in stages) departs nothing: acceptance moved to the coordinator, and a train would carry cars nobody accepted (TB-F002).
+			const config = (env.appsRefusal ?? openRefusal)(dir, appFromRequest(request));
+			if (config) throw new OpenLimitError(config);
 			const read = env.stateDir ? readTrainboards(env.stateDir, { project: train.project }) : { trains: [], unlisted: [] };
 			// A folder that cannot be listed hides live trains: the count would be a guess, so nothing opens (RR-F004).
 			if (read.unlisted.length) throw new OpenLimitError(`The live trains of project ${train.project} cannot be counted: ${read.unlisted.join("; ")}`);

@@ -22,6 +22,8 @@ export interface TrainView {
 	short: string; app: string; status: TrainStatus; key?: string; route?: { ws: string; key: string }; reason?: string; reasonTitle?: string; round: string; tickets: string[]; pills: PillView[]; wait: string; need: string;
 	/** A unit card's note line: the step in progress and what it waits for. */
 	note?: string; cars: CarView[]; cut?: string; removed: string[];
+	/** Whether sb has told the coordinator of each car the round left out: a round that waits on a notice shows it (TB-F004). */
+	removedNotices: NoticeView[];
 }
 export interface FormingView { short: string; app: string; status: YardFormingRow["status"]; word: string; condition?: string; cars: CarView[] }
 export interface ProjectView {
@@ -81,7 +83,8 @@ const reasonOf = (reason: string, kind: string | undefined): { said: string; tit
 
 const kindName = (kind: string) => (kind.toLowerCase() === "uat" ? "UAT" : kind);
 /** A car's acceptance as a chip: the kinds in its text, and under it the boss's words for each kind (or that none is on file) as lines of the page: a tap or a key reaches them, a tooltip is for the pointer only. */
-export function acceptedChip(car: Pick<YardCar, "accepted">): { text: string; nods: string[] } {
+export function acceptedChip(car: Pick<YardCar, "accepted" | "unverified">): { text: string; nods: string[] } {
+	if (car.unverified) return { text: m.yard_accepted_unknown(), nods: [] };
 	if (!car.accepted.length) return { text: m.yard_accepted_none(), nods: [] };
 	const kinds = car.accepted.map((a) => ({ kind: kindName(a.kind), nod: a.nod }));
 	return { text: m.yard_accepted({ kinds: list(kinds.map((k) => k.kind)) }), nods: kinds.map((k) => (k.nod ? m.yard_nod({ kind: k.kind, nod: k.nod }) : m.yard_nod_none({ kind: k.kind }))) };
@@ -122,10 +125,10 @@ export function noticeLine(car: Pick<YardCar, "tickets" | "notice">): NoticeView
 		const why = reasonOf(n.reason, n.kind);
 		return { text: m.yard_notice_unreadable({ ticket, reason: why.said }), tone: "unreadable", ...(why.title ? { title: why.title } : {}) };
 	}
-	const state = CAR[n.state]();
-	if (n.status === "delivered") return { text: m.yard_notice_delivered({ ticket, state }), tone: "told" };
-	if (n.status === "escalated") return { text: m.yard_notice_escalated({ ticket }), tone: "escalated" };
-	return { text: n.attempts > 0 ? m.yard_notice_pending({ ticket, state, attempts: n.attempts }) : m.yard_notice_pending_first({ ticket, state }), tone: "pending", ...(n.last ? { detail: m.yard_notice_last({ answer: n.last }) } : {}) };
+	const state = CAR[n.state](), from = (text: string) => (n.journal ? m.yard_notice_from_file({ text }) : text);
+	if (n.status === "delivered") return { text: from(m.yard_notice_delivered({ ticket, state })), tone: "told" };
+	if (n.status === "escalated") return { text: from(m.yard_notice_escalated({ ticket })), tone: "escalated" };
+	return { text: from(n.attempts > 0 ? m.yard_notice_pending({ ticket, state, attempts: n.attempts }) : m.yard_notice_pending_first({ ticket, state })), tone: "pending", ...(n.last ? { detail: m.yard_notice_last({ answer: n.last }) } : {}) };
 }
 
 /** A car as a line; its departure conditions only for a car still waiting to leave (`leaving`): once the train runs they are moot, and a line that says a car waits for another reads as if it still did. */
@@ -143,7 +146,7 @@ export function trainView(row: YardTrainRow, ctx: Ctx, locate: Locate = () => un
 	const route = locate(row.key);
 	if (row.state === "unreadable") {
 		const why = reasonOf(row.reason ?? "", row.reasonKind);
-		return { ...base, status: "unreadable", ...(route ? { route } : {}), reason: m.yard_state_unreadable({ reason: why.said }), ...(why.title ? { reasonTitle: why.title } : {}), round: "", tickets: [], pills: [], wait: "", need: "", cars: [], removed: [] };
+		return { ...base, status: "unreadable", ...(route ? { route } : {}), reason: m.yard_state_unreadable({ reason: why.said }), ...(why.title ? { reasonTitle: why.title } : {}), round: "", tickets: [], pills: [], wait: "", need: "", cars: [], removed: [], removedNotices: [] };
 	}
 	const active = going(row), waits = [...new Set(active.flatMap((s) => s.waits.map(waitWords)))], first = active[0];
 	const needy = active.find((s) => s.load && s.waits.length) ?? active.find((s) => s.load);
@@ -153,7 +156,7 @@ export function trainView(row: YardTrainRow, ctx: Ctx, locate: Locate = () => un
 	return {
 		...base, status, ...(route ? { route } : {}), round: roundWords(row), tickets: [...new Set(row.cars.flatMap((c) => c.tickets))], wait, need: needWords(needy?.load, ctx.load?.cores), ...(note ? { note } : {}),
 		pills: row.steps.map((s): PillView => ({ id: s.id, text: pillText(s), title: m.yard_step_label({ kind: KIND[s.kind](), state: stateWord(s) }), state: stepState(s), round: s.round, current: s === first })),
-		cars: row.cars.map((c) => carView(c, false)), removed: (row.removed ?? []).map((r) => m.yard_removed_one({ ticket: r.ticket, why: r.why })),
+		cars: row.cars.map((c) => carView(c, false)), removed: (row.removed ?? []).map((r) => m.yard_removed_one({ ticket: r.ticket, why: r.why })), removedNotices: (row.removed ?? []).flatMap((r) => noticeLine({ tickets: [r.ticket], ...(r.notice ? { notice: r.notice } : {}) }) ?? []),
 		...(row.stepsCut ? { cut: m.yard_steps_cut({ count: row.stepsCut }) } : {}),
 	};
 }

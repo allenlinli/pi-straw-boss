@@ -3,7 +3,7 @@ import { availableParallelism, loadavg } from "node:os";
 import { dirname, join } from "node:path";
 import { integrationOff } from "../trainswitch.ts";
 import { type BoardRead, type BoardStep, type CarRow, factsOf, readJsonFile, type ReadBudget, readTrainboards, readYard, trainboardDir, type Writer, yardPath } from "../train/board.ts";
-import { carFileName, type CarState, noticeStatus } from "../train/cars.ts";
+import { carFileName, type CarState, type CarView, noticeStatus } from "../train/cars.ts";
 import { isName, isObject, isoTime, SHA_RE } from "../train/spec.ts";
 import { type FactStep, holding, stepWaits, type TrainFacts, type Wait, waitingTrains } from "../train/waits.ts";
 import type { NetLoad, ProjectYard, ReasonKind, YardAccepted, YardCar, YardFormingRow, YardJoin, YardNotice, Yards, YardStep, YardTrainRow } from "../train/yardview.ts";
@@ -28,6 +28,8 @@ export interface YardDeps {
 	alive?: (writer: Writer) => boolean;
 	/** The load now: waits on the load of a step are made only with a reading. */
 	load?: NetLoad;
+	/** The server's own book of cars (§5.5): a car it holds is told from its record, which a train cannot write. A car it has not seen (the server restarted) is told from the journal on disk and marked so. Left out, the journal alone is read. */
+	book?: { viewOf(project: string, app: string, head: string): CarView | undefined };
 	/** Bytes one reading may read from car, notice, evidence and gate files (`READ_BUDGET_BYTES`; tests give less). */
 	budget?: number;
 }
@@ -77,12 +79,26 @@ function nodsOf(folder: string, clean: (value: string, max: number) => string, b
 }
 
 /** What the car file of a car says of its notice: only the car's own file is read (`<app>-<head12>.json`, however many files the project holds), from a real `cars` folder. No file is no notice; a file or record that fails is `unreadable`. */
-function noticeLookup(stateDir: string, project: string, budget: ReadBudget, clean: (value: string, max: number) => string) {
+function noticeLookup(stateDir: string, project: string, budget: ReadBudget, clean: (value: string, max: number) => string, book?: YardDeps["book"]) {
 	const real = carsFolderOk(stateDir, project), seen = new Map<string, YardNotice | undefined>();
+	/** The notice line of a car file or the book's record of it: the newest state and whether its coordinator was told. */
+	const lineOf = (view: CarView): Exclude<YardNotice, { status: "unreadable" }> | undefined => {
+		const latest = view.file.states.at(-1);
+		if (!latest) return undefined;
+		const state: CarState = latest.state, status = noticeStatus(view.notice, state);
+		return status.kind === "pending" ? { state, status: "pending", attempts: status.attempts, ...(status.last ? { last: clean(status.last, 120) } : {}) } : { state, status: status.kind, attempts: status.attempts, at: status.at };
+	};
 	return (app: string, head: string): YardNotice | undefined => {
-		if (!real) return undefined;
 		const key = `${app}\n${head}`;
 		if (seen.has(key)) return seen.get(key);
+		// The server's own record first (TB-F005): the disk is what a train could have written, so it speaks only for a car the book has never seen, and says so.
+		const held = book?.viewOf(project, app, head);
+		if (held) {
+			const told = lineOf(held);
+			seen.set(key, told);
+			return told;
+		}
+		if (!real) return undefined;
 		// A throw out of one car's file is that car's `unreadable`, not the snapshot's (TY-F001).
 		const found = ((): YardNotice | undefined => {
 			try {
@@ -93,10 +109,8 @@ function noticeLookup(stateDir: string, project: string, budget: ReadBudget, cle
 				// Another car whose head starts alike shares the name: it is not this car's file.
 				if (read.file.app !== app || read.file.car.head !== head) return undefined;
 				if (read.noticeProblem) return { status: "unreadable", reason: clean(read.noticeProblem, 200), kind: reasonKind(read.noticeProblem) };
-				const latest = read.file.states.at(-1);
-				if (!latest) return undefined;
-				const state: CarState = latest.state, status = noticeStatus(read.notice, state);
-				return status.kind === "pending" ? { state, status: "pending", attempts: status.attempts, ...(status.last ? { last: clean(status.last, 120) } : {}) } : { state, status: status.kind, attempts: status.attempts, at: status.at };
+				const told = lineOf(read.notice ? { file: read.file, notice: read.notice } : { file: read.file });
+				return told && book ? { ...told, journal: true as const } : told;
 			} catch (error) {
 				return { status: "unreadable", reason: clean(`the car could not be read: ${(error as Error).message}`, 200), kind: "failed" };
 			}
@@ -139,11 +153,11 @@ export function readYards(deps: YardDeps, join_: YardJoin): Yards | undefined {
 		const mine = reads.flatMap((read, i) => (read.project === project ? [{ read, fact: facts[i]! }] : []));
 		const yard = readYard(yardPath(stateDir, project)), missing = !yard.ok && yard.reason === "cannot read: ENOENT";
 		if (!mine.length && missing) continue;
-		const noticeOf = noticeLookup(stateDir, project, budget, clean);
+		const noticeOf = noticeLookup(stateDir, project, budget, clean, deps.book);
 		const carView = (row: CarRow, app: string, nods?: Map<string, Map<string, string>>): YardCar => {
 			const accepted = (row.accepted ?? []).slice(0, 8).map((kind): YardAccepted => ((nod) => (nod ? { kind: clean(kind, 32), nod } : { kind: clean(kind, 32) }))(nods?.get(row.head)?.get(kind)));
 			const notice = noticeOf(app, row.head);
-			return { tickets: row.tickets.slice(0, 16).map((t) => clean(t, 64)), branch: clean(row.branch, 255), head: row.head, departs: clean(row.departs, 300), ...(row.arrived ? { arrived: row.arrived } : {}), accepted, ...(notice ? { notice } : {}) };
+			return { tickets: row.tickets.slice(0, 16).map((t) => clean(t, 64)), branch: clean(row.branch, 255), head: row.head, departs: clean(row.departs, 300), ...(row.arrived ? { arrived: row.arrived } : {}), accepted, ...(row.unverified ? { unverified: true as const } : {}), ...(notice ? { notice } : {}) };
 		};
 		const trainRow = (read: BoardRead, fact: TrainFacts): YardTrainRow => {
 			if (!read.ok) {
@@ -165,7 +179,7 @@ export function readYards(deps: YardDeps, join_: YardJoin): Yards | undefined {
 			const steps = board.steps.toSorted((a, b) => a.id - b.id), shown = steps.slice(-MAX_VIEW_STEPS), held = holding(fact);
 			return {
 				code: board.code, app: board.app, state: fact.state === "unreadable" ? "unreadable" : fact.state, ...(key ? { key } : {}), writerLive: live(read), round: board.round, updated: board.updated,
-				...(board.removed?.length ? { removed: board.removed.slice(0, MAX_VIEW_CARS).map((r) => ({ ticket: clean(r.ticket, 64), why: clean(r.why, 300) })) } : {}),
+				...(board.removed?.length ? { removed: board.removed.slice(0, MAX_VIEW_CARS).map((r) => ((notice) => ({ ticket: clean(r.ticket, 64), why: clean(r.why, 300), ...(notice ? { notice } : {}) }))(r.head ? noticeOf(board.app, r.head) : undefined)) } : {}),
 				cars: board.cars.slice(0, MAX_VIEW_CARS).map((c) => carView(c, board.app, nods)), steps: shown.map(view), ...(steps.length > shown.length ? { stepsCut: steps.length - shown.length } : {}),
 				...(held.lanes.length || held.targets.length ? { holds: { lanes: held.lanes, targets: held.targets } } : {}),
 			};
@@ -199,6 +213,8 @@ export interface TrainyardOptions {
 	load?: () => { now: number; cores: number };
 	now?: () => number;
 	alive?: (writer: Writer) => boolean;
+	/** The server's book of cars; read when the page is drawn (it exists only after the server has built it). */
+	book?: () => YardDeps["book"] | undefined;
 }
 
 /**
@@ -217,7 +233,8 @@ export function trainyardSeam(o: TrainyardOptions) {
 			if (off()) return undefined;
 			try {
 				const load = reading();
-				return readYards({ stateDir: o.stateDir, ...(o.now ? { now: o.now } : {}), ...(o.alive ? { alive: o.alive } : {}), ...(load ? { load } : {}) }, join_);
+				const book = o.book?.();
+				return readYards({ stateDir: o.stateDir, ...(o.now ? { now: o.now } : {}), ...(o.alive ? { alive: o.alive } : {}), ...(load ? { load } : {}), ...(book ? { book } : {}) }, join_);
 			} catch (error) {
 				return { projects: [], problems: [plain(`the trains could not be read: ${(error as Error).message}`.split(o.stateDir).join("<state>"), 200)] };
 			}

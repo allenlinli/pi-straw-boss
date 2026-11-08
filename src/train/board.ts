@@ -14,13 +14,13 @@ export const STALE_MS = 10 * 60_000;
 export const KEEP_MS = 7 * 24 * 60 * 60_000;
 
 export interface Writer { session: string; pane?: string; pid: number; started: string }
-export interface CarRow { tickets: string[]; branch: string; head: string; coordinator: string; departs: string; accept: string; arrived?: string; accepted?: string[] }
+export interface CarRow { tickets: string[]; branch: string; head: string; coordinator: string; departs: string; accept: string; arrived?: string; /** The kinds the car's checked evidence shows; set by the code that checked it, never by a model (TB-F003). */ accepted?: string[]; /** The evidence could not be checked, so nothing is claimed of the car's acceptance. */ unverified?: true }
 export interface BoardStep {
 	id: number; kind: Kind; name: string; status: StepStatus; round: number;
 	holds?: Holds; load?: LoadSpec; lock?: string; waits?: Wait[]; outcome?: "passed" | "failed" | "void"; why?: "superseded" | "skipped";
 }
 /** A car the current round's assemble step left out (§3.5): its ticket and why, as the page tells it. The evidence path stays in the train's own todo. */
-export interface BoardRemoved { ticket: string; why: string }
+export interface BoardRemoved { ticket: string; why: string; /** The car's head, so the yard can show whether sb has told its coordinator and the sweep can find its car file (TB-F004). */ head?: string }
 export const MAX_REMOVED = 32;
 export interface Board { v: 1; project: string; app: string; code: string; writer: Writer; updated: string; round: number; cars: CarRow[]; steps: BoardStep[]; clears?: Clear[]; removed?: BoardRemoved[] }
 export interface YardTrain { code: string; app: string; status: "forming" | "departing" | "opened" | "refused"; session?: string; cars: CarRow[]; departs?: { maxCars: number; maxWaitMin: number; oldest: string } }
@@ -31,7 +31,7 @@ const text = (value: unknown, max: number): value is string => typeof value === 
 const whole = (value: unknown, min: number, max = Number.MAX_SAFE_INTEGER) => typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
 const unknown = (value: Record<string, unknown>, allowed: string[], path: string) => Object.keys(value).filter((k) => present(value[k]) && !allowed.includes(k)).map((k) => `sb: ${path}.${k} is not a field`);
 
-const CAR_FIELDS = ["tickets", "branch", "head", "coordinator", "departs", "accept", "arrived", "accepted"];
+const CAR_FIELDS = ["tickets", "branch", "head", "coordinator", "departs", "accept", "arrived", "accepted", "unverified"];
 const CAP = { session: 128, pane: 64, ticket: 64, tickets: 16, branch: 255, coordinator: 128, departs: 300, accept: 1024, name: 64, kind: 32, reason: 600, by: 128, label: 64 };
 
 function writerRefusals(w: unknown, path: string): string[] {
@@ -55,6 +55,7 @@ function carRefusals(car: unknown, path: string): string[] {
 	if (!text(car.accept, CAP.accept)) out.push(`sb: ${path}.accept must be a non-empty string`);
 	if (present(car.arrived) && !isoTime(car.arrived)) out.push(`sb: ${path}.arrived must be an ISO time with its zone`);
 	if (present(car.accepted) && !(Array.isArray(car.accepted) && car.accepted.length <= 8 && car.accepted.every((k) => text(k, CAP.kind)))) out.push(`sb: ${path}.accepted must be a list of kind names`);
+	if (present(car.unverified) && car.unverified !== true) out.push(`sb: ${path}.unverified must be true when given`);
 	return out;
 }
 
@@ -94,8 +95,9 @@ function stepRefusals(step: unknown, path: string): string[] {
 
 function removedRefusals(car: unknown, path: string): string[] {
 	if (!isObject(car)) return [`sb: ${path} must be an object`];
-	const out = unknown(car, ["ticket", "why"], path);
+	const out = unknown(car, ["ticket", "why", "head"], path);
 	if (!(text(car.ticket, CAP.ticket) && !/\s/.test(car.ticket))) out.push(`sb: ${path}.ticket must be a ticket without spaces`);
+	if (present(car.head) && !SHA_RE.test(String(car.head))) out.push(`sb: ${path}.head must be 40 hex`);
 	if (!text(car.why, CAP.reason)) out.push(`sb: ${path}.why must be 1 to ${CAP.reason} characters`);
 	return out;
 }
@@ -290,7 +292,7 @@ export function capBoard(board: Board): Board {
 		...board,
 		cars: cars.slice(0, MAX_CARS).map((c) => car(c, carCaps)),
 		steps: board.steps.slice(0, MAX_STEPS).map(({ waits: w, ...s }) => ({ ...s, name: cut(s.name, stepName), ...(waits && w ? { waits: w.slice(0, 8) } : {}) })),
-		...(board.removed ? { removed: board.removed.slice(0, MAX_REMOVED).map((r) => ({ ticket: cut(r.ticket, CAP.ticket), why: cut(r.why, reason).trim() ? cut(r.why, reason) : "-" })) } : {}),
+		...(board.removed ? { removed: board.removed.slice(0, MAX_REMOVED).map((r) => ({ ticket: cut(r.ticket, CAP.ticket), why: cut(r.why, reason).trim() ? cut(r.why, reason) : "-", ...(r.head ? { head: r.head } : {}) })) } : {}),
 		...(board.clears ? { clears: board.clears.slice(0, MAX_CLEARS).map((c) => ({ ...c, ...(c.lane !== undefined ? { lane: cut(c.lane, ref) } : {}), ...(c.target !== undefined ? { target: cut(c.target, ref) } : {}), reason: cut(c.reason, reason), by: cut(c.by, by) })) } : {}),
 	});
 	const tiers = [() => build(board.cars, full, CAP.name, CAP.reason, true), () => build(board.cars, full, CAP.name, CAP.reason, false), () => build(board.cars, short, 32, 120, false), () => build(board.cars, short, 16, 40, false, 32), () => build(board.cars, short, 8, 16, false, 16, 64)];

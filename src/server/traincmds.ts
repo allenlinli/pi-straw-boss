@@ -2,7 +2,8 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { availableParallelism, loadavg, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execFileSyncExe } from "../exe.mjs";
-import { checkAcceptRef, checkCar, checkEvidence, parseAppAccept } from "../train/accept.ts";
+import { checkAcceptRef, checkCar, checkEvidence, parseAppAccept, parseSlip } from "../train/accept.ts";
+import { readAppIntegration, readApps } from "../train/appsconfig.ts";
 import { type Board, boardPath, boardState, MAX_TRAINS, trainboardDir, factsOf, MAX_CLEARS, readBoard, readTrainboards, type Writer, writeBoard } from "../train/board.ts";
 import { isName, isObject, validateStep } from "../train/spec.ts";
 import { noticeStatus, stateLine, type Attempt } from "../train/cars.ts";
@@ -57,8 +58,8 @@ export async function runTrain(flags: Record<string, string | true>, io: TrainIo
 
 function check(flags: Record<string, string | true>, io: TrainIo): number {
 	const cwd = io.cwd ?? process.cwd();
-	if ((flags.step === undefined) === (flags.accept === undefined)) return usage(io, "train check needs --step <spec.json> or --accept <file> (with --app-accept and --slip), one of them");
-	if (flags.step !== undefined && (flags["app-accept"] !== undefined || flags.slip !== undefined)) return usage(io, "--app-accept and --slip go with --accept");
+	if ((flags.step === undefined) === (flags.accept === undefined)) return usage(io, "train check needs --step <spec.json> or --accept <file> (with --app, --app-accept and --slip), one of them");
+	if (flags.step !== undefined && (flags["app-accept"] !== undefined || flags.slip !== undefined || flags.app !== undefined)) return usage(io, "--app, --app-accept and --slip go with --accept");
 	if (flags.accept === undefined && flags.slip !== undefined) return usage(io, "--slip goes with --accept");
 	const read = (flag: string) => {
 		try {
@@ -91,7 +92,16 @@ function check(flags: Record<string, string | true>, io: TrainIo): number {
 		if (accept.refusal) refusals.push(accept.refusal);
 		if (slip?.refusal) refusals.push(slip.refusal);
 		if (!setting.ok) refusals.push(setting.refusal);
-		if (!accept.refusal && !slip?.refusal && setting.ok) {
+		// What the app requires is the file's (TB-F001): the project's apps.json in this folder, for the app `--app` names, else the slip's `car:`, else the evidence's `car.app`. `--app-accept` can only add to it. A folder with no apps.json
+		// (a coordinator's worktree may have none) is checked with the flag alone; the integrator's guard and the train read the project's file.
+		let required: string[] = setting.ok ? setting.accept : [];
+		if (!accept.refusal && !slip?.refusal && setting.ok && !readApps(cwd).missing) {
+			const app = typeof flags.app === "string" ? flags.app : slip ? parseSlip(slip.text!).fields.car : evidenceApp(accept.text);
+			const found = app ? readAppIntegration(cwd, app) : { ok: false as const, refusal: "sb: the project has an apps.json, so name the app to check against: --app <name>" };
+			if (found.ok) required = [...new Set([...required, ...found.accept])];
+			else refusals.push(found.refusal);
+		}
+		if (!accept.refusal && !slip?.refusal && setting.ok && !refusals.length) {
 			const exists = io.exists ?? ((path: string) => existsSync(resolve(cwd, path)));
 			const isAncestor = io.isAncestor ?? ((older: string, newer: string) => {
 				try {
@@ -101,12 +111,17 @@ function check(flags: Record<string, string | true>, io: TrainIo): number {
 					return false;
 				}
 			});
-			const options = { appAccept: setting.accept, exists, isAncestor };
-			refusals.push(...(slip ? checkCar(slip.text!, accept.text, options) : none ? checkAcceptRef("none", setting.accept) : checkEvidence(accept.text!, options)));
+			const options = { appAccept: required, exists, isAncestor };
+			refusals.push(...(slip ? checkCar(slip.text!, accept.text, options) : none ? checkAcceptRef("none", required) : checkEvidence(accept.text!, options)));
 		}
 	}
 	io.out(`${JSON.stringify({ ok: refusals.length === 0, refusals })}\n`);
 	return refusals.length ? 2 : 0;
+}
+
+/** The app an evidence file names (`car.app`), if it is one. */
+function evidenceApp(text: string | undefined): string | undefined {
+	try { const car = (JSON.parse(text ?? "null") as { car?: { app?: unknown } } | null)?.car; return typeof car?.app === "string" ? car.app : undefined; } catch { return undefined; }
 }
 
 // ---- status

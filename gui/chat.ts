@@ -12,7 +12,7 @@ import type { Away } from "./blocks.ts";
 import { mdBody } from "./mdbody.ts";
 import { post } from "./post.ts";
 import type { Post } from "./composer.ts";
-import { m } from "./paraglide/messages.js"; import { iconRef } from "./icons.ts"; import { noun } from "./nouns.ts";
+import { m } from "./sentences.ts"; import { iconRef } from "./icons.ts"; import { noun } from "./nouns.ts";
 import { getLocale } from "./paraglide/runtime.js";
 import { html, ICON, roleName } from "./render.ts";
 import { conversationDivider } from "./towermodel.ts";

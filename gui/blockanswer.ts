@@ -1,5 +1,5 @@
 import type { Answer } from "pi-better-show";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer as Posted } from "./post.ts";
 import { towerWhy } from "./towerturns.ts";
 

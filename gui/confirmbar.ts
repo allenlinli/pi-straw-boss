@@ -1,5 +1,5 @@
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 const PASS = ["Tab", "Shift", "Escape", "Control", "Alt", "Meta"]; // the keys that move or leave and are not typing: they stay on the button
 /** Zen's bar waits this long before an Enter confirms (ZNR-F007): a double-tapped Enter is two keydowns 100 to 200 ms apart, the second a fresh press after the bar appeared, and it must not send what the first asked about. */

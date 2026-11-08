@@ -1,7 +1,7 @@
 import type { NetEvent } from "../src/activity.ts";
 import type { Net } from "../src/net.ts";
 import { said } from "./log.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { aim } from "./render.ts";
 
 // The net's activity over the last 30 minutes (activity.ts WINDOW_MS) as a strip under the stage, after zoetrope's timeline: a mark per event,

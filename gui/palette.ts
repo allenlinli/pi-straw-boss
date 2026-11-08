@@ -1,5 +1,5 @@
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The command palette, shared by the views (Zen shows it first; Standard and Geek can mount it the same way): a box, a filtered list, and the keys of a combobox. It knows no page action: the caller gives
 // `entries` (read at each opening and after an entry that keeps it open, so labels and hints are current) and what to make inert behind it. Its box is a text box, so the page's own keys stay out of it (hotkeys.ts).

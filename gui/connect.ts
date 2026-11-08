@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Status } from "./stream.ts";
 
 // The overlay for a page that has no live state: before the stream's first snapshot, and while it reconnects. It is a modal <dialog> over the whole page, so the browser

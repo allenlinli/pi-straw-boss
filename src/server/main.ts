@@ -20,6 +20,7 @@ import { type IntercomModule, loadIntercom, LoaderError } from "./intercom.ts";
 import { DialogForwarder } from "../link/dialogs-out.ts";
 import { dispatcherLookup, unitLabel } from "./dispatcher.ts";
 import { towerOpener } from "./opentower.ts";
+import { type SweepStart, startTrainSweep } from "./trainsweep.ts";
 import { createLinkService, type LinkService, operateGranted, type ServiceDeps } from "../link/service.ts";
 import { boxesOf, createOperateHost, type OperateHost } from "./operatehost.ts";
 import { operateOff } from "./operateoff.ts";
@@ -91,12 +92,14 @@ export interface ServerOptions {
 	/** How the starter started this process (Windows): through WMI, or by a plain spawn after a failure; kept in the record, so `status` and `up` can say so. */
 	detach?: { via: Detach; failure?: string };
 	/** The GUI the server serves (guihost.ts); `false` serves none (the tests of the process itself). `link`, `bundle`, `tailscale`, and `bindWaitMs` replace the machine's. */
-	gui?: false | { link?: GuiLink; bundle?: string; tailscale?: Run; bindWaitMs?: number; /** Wi-Fi access's seams (tests): see lanhost.ts. */ lan?: import("./lanhost.ts").LanSeams; /** Another process's start time as the hand-over of the GUI asks for it, and how long it waits (tests; the process's own `startedLater` and 6 s by default). */ startedLater?: (pid: number) => Promise<string | undefined>; startWaitMs?: number; /** Called when a GUI request waits for a rotation in flight (tests). */ waiting?: () => void; /** Asks for a restart as the page's button does; the real one starts `cli.mjs restart`. */ restart?: (reason: string) => { status: number; body: unknown } | Promise<{ status: number; body: unknown }> };
+	gui?: false | { link?: GuiLink; bundle?: string; tailscale?: Run; bindWaitMs?: number; /** Wi-Fi access's seams (tests): see lanhost.ts. */ lan?: import("./lanhost.ts").LanSeams; /** Another process's start time as the hand-over of the GUI asks for it, and how long it waits (tests; the process's own `startedLater` and 6 s by default). */ startedLater?: (pid: number) => Promise<string | undefined>; startWaitMs?: number; /** Called when a GUI request waits for a rotation in flight (tests). */ waiting?: () => void; /** Asks for a restart as the page's button does; the real one starts `cli.mjs restart`. */ restart?: (reason: string) => { status: number; body: unknown } | Promise<{ status: number; body: unknown }>; /** The load, the clock and the writer check of the trains' reading (tests; trainyard.ts). */ trainyard?: import("./guihost.ts").GuiHostOptions["trainyard"] };
 	/** Listens here instead of at `endpointFor` (tests: a server that models Windows on another platform has no pipe namespace, and its random pipe name would be a socket file in the folder the test runs in). */
 	endpoint?: string;
 	herdrUp?: () => Promise<boolean>;
 	/** How often the dialog forwarder and the unit reporter look (default 15 s; a test shortens it). */
 	unitsMs?: number;
+	/** The sweep of expired trainboards (trainsweep.ts): the clock, the writer check, and the timer; tests replace them. */
+	trainboards?: Pick<SweepStart, "now" | "alive" | "every">;
 	watch?: HerdrWatch;
 	herdr?: HeadlessDeps;
 	/** Replaces the tower service's timers and the like, for tests. */
@@ -557,7 +560,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		link: gui.link ?? (!slot.primary ? elsewhereLink() : inProcessLink(createGuiLink({ events: kit.pi.events, id: () => serverId(slot), stateDir: slot.stateDir, agentDir: env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), log: (text) => log.line("link", { text }) }), () => link, () => serverId(slot))),
 		status: () => ({ state: phase === "ready" ? "live" : phase, version, pid, mode, desk, uptimeMs: now() - startedAt, log: fileOf(slot, "log"), ...(own.lastError ? { lastError: own.lastError } : {}) }),
 		restart: gui.restart ?? ((reason) => spawnRestart(cliBeside(), reason, "the GUI", serverEnv(env), slot.dir)),
-		failed: (code, text) => recordError(code, text), tailscale: gui.tailscale, bundle: gui.bundle, bindWaitMs: gui.bindWaitMs, ...(gui.lan ? { lan: gui.lan } : {}),
+		failed: (code, text) => recordError(code, text), tailscale: gui.tailscale, bundle: gui.bundle, bindWaitMs: gui.bindWaitMs, ...(gui.lan ? { lan: gui.lan } : {}), ...(gui.trainyard ? { trainyard: gui.trainyard } : {}),
 		// The page's tower units: the service's state and queue in the net, the composer as a boss event, and the notices' buttons (towers is built below, after the GUI host, and may be absent).
 		tower: towerPanel(() => towers), head: headSeam(slot, now),
 		...(slot.primary ? { operateHost: makeOperateHost } : {}),
@@ -723,6 +726,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		dialogsOut().start();
 		// A controller that gained `dispatch` mid-dialog gets it, a dialog unanswered for 30 minutes is told, and each controller's unit-status goes out when it changed or a minute has passed.
 		timers.push(setInterval(() => void Promise.all([dialogsOut().tick(), unitsOut().tick()]), o.unitsMs ?? 15_000));
+		// Expired trainboards go (trainsweep.ts, spec §10): once now, then every hour.
+		stops.push(startTrainSweep({ stateDir: slot.stateDir, env, now, log: (event, facts) => log.line(event, facts), skip: () => Boolean(leaving) || phase === "stopping" || phase === "restarting", ...o.trainboards }));
 	} else log.line("dialog-forwarder", { state: "skipped", primary: slot.primary, leaving: Boolean(leaving), phase });
 
 	// Ready: `restarting` goes, and the start-error of this attempt (and any before it) with it.

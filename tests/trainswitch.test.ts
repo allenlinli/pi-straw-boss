@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { cliCommand } from "../src/server/version.ts";
 import { integrationOff, promptSet, strip } from "../src/trainswitch.ts";
 import { PROMPT_DIR, World } from "./fakes.ts";
 
@@ -126,6 +127,20 @@ test("off: the copies are rewritten at each load, and a stale integrator.md in t
 	assert.equal(second.dir!, first.dir);
 	assert.ok(!existsSync(join(second.dir!, "integrator.md")));
 	assert.match(readFileSync(join(second.dir!, "apps-config.md"), "utf8"), /^# Apps configuration/);
+});
+
+test("{{cli}} in a role prompt is the command that runs this package's cli.mjs, so a prompt can quote `train check` (TP-F004)", async () => {
+	const promptDir = temp();
+	for (const name of readdirSync(PROMPT_DIR).filter((file) => file.endsWith(".md"))) writeFileSync(join(promptDir, name), readFileSync(join(PROMPT_DIR, name), "utf8"));
+	writeFileSync(join(promptDir, "main.md"), `${readFileSync(join(PROMPT_DIR, "main.md"), "utf8")}\nCheck with {{cli}} train check --accept FILE.\n`);
+	const main = world.agent({ id: "a", pane: "wA:p1", tab: "wA:t1", deps: { stateDir: temp(), promptDir } });
+	await main.start();
+	await main.promote();
+	const section = (await main.run())["straw-boss"]!;
+	const command = cliCommand();
+	assert.match(command, /^(node '.*cli\.mjs'|npx tsx '.*cli\.ts')$/);
+	assert.ok(section.includes(`Check with ${command} train check --accept FILE.`), section.slice(-300));
+	assert.ok(!section.includes("{{cli}}"));
 });
 
 test("a session with the switch off is briefed without the train: main, tower, and the files the main is pointed to", async () => {

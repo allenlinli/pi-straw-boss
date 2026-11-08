@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 
 // A pair request waiting at this computer, as `lan/pending` lists it (src/server/lanhost.ts `pendingBody`; never the number, which lives on the phone). The Wi-Fi tab (lan.ts), the header's notice (lanwait.ts) and Zen's card (zen.ts) read the same list.

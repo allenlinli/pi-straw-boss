@@ -2,6 +2,8 @@ import type { View } from "../../src/views.ts";
 import { retranslate } from "../i18n.ts";
 import { useIcons } from "../icons.ts";
 import { usePack } from "../nouns.ts";
+import { getLocale } from "../paraglide/runtime.js";
+import { useSentences } from "../sentencepack.ts";
 import { useSounds } from "../themesounds.ts";
 import type { ThemeParts } from "./theme.ts";
 
@@ -25,12 +27,13 @@ const heard: ((view: View, parts?: ThemeParts) => void)[] = [];
 export const onTheme = (fn: (view: View, parts?: ThemeParts) => void) => void heard.push(fn);
 
 let wanted: View = "standard";
-/** The page shows `view` now: load its theme and take its parts (nouns, sprite); Standard takes none. A view that changed while the theme was on its way is left alone. */
+/** The page shows `view` now: load its theme and take its parts (nouns, sentences, sprite); Standard takes none. A view that changed while the theme was on its way is left alone. */
 export async function showTheme(view: View): Promise<void> {
 	wanted = view;
 	const parts = isTheme(view) ? (await loadTheme(view).catch(() => undefined))?.theme : undefined;
 	if (wanted !== view) return;
 	usePack(parts?.nouns);
+	useSentences(parts?.sentences, getLocale);
 	useSounds(parts?.sounds);
 	useIcons(view, parts?.sprite);
 	retranslate();

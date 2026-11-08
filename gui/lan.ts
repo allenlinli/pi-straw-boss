@@ -1,7 +1,7 @@
 import { lanActions, lanReading } from "./asks.ts";
 import { h, nodes } from "./dom.ts";
 import { labelOf, type PairRequest, pairLine, pairsOf } from "./pairs.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 import { square } from "./qr.ts";
 

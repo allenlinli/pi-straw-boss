@@ -1,5 +1,5 @@
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Player } from "./zenmusic.ts";
 
 // Zen's music controls (docs/specs/2026-11-01-zen-view.md, Music), in the Zen chunk: the corner's ♪ switch and the ⌄ list of tracks. The tracks are the audio files of the server's music folder; with none, both stay hidden.

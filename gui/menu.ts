@@ -1,5 +1,5 @@
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // A phone's `⋯` menu: a 44 px button that opens a panel of the controls the phone's layout keeps out of the way (Quit of a base or a squad, a tower's + Main and Quit tower, the boss
 // conversation's Leave and New). The panel is a native popover, so Escape and a tap outside close it and the browser puts focus back on the button; it hangs under the button

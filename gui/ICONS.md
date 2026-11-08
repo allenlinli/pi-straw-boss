@@ -19,7 +19,7 @@ Changes: the black background square of each SVG was removed and the fill set to
 
 ## Raven Keep view
 
-The Raven Keep view draws its own icons (`gui/themes/raven/sprite.svg`), original to this project: one ink-engraving sheet made with an image generator (Codex image generation), each icon traced to single-colour SVG with potrace (fill `currentColor`, path text only reformatted). The game-icons credit above stays for Standard's icons, which every view keeps as its fallback.
+The Raven Keep view draws its own icons (`gui/themes/raven/sprite.svg`), original to this project: one ink-engraving sheet made with an image generator (Codex image generation), each icon traced to single-colour SVG with potrace (fill `currentColor`, path text only reformatted). The game-icons credit above stays for Standard's icons, which every view keeps as its fallback. The blood goblet (`raven-main`) and the keep's front (`raven-crown`) were redrawn by hand as bold single paths after their traced designs, so they read at 16 px.
 
 | Used for | Raven Keep icon |
 |---|---|

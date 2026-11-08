@@ -6,7 +6,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { forgetOwned, noteOwned } from "../procs/killguard.ts";
 import { sendSignal } from "../procs/kill.ts";
 import { startOf as realStartOf } from "../startof.ts";
-import { factsOf, readTrainboards, type Writer } from "../train/board.ts";
+import { factsOf, readJsonFile, type ReadBudget, readTrainboards, type Writer } from "../train/board.ts";
 import { type Json, isObject, validateStep } from "../train/spec.ts";
 import { loadLimit, stepWaits, type FactStep, type TrainFacts, type Wait, waitMessage } from "../train/waits.ts";
 import { holderAlive, holderOf, lockDirOf, takeLock, type Taken } from "./trainlock.ts";
@@ -188,18 +188,14 @@ export interface GateFile {
 }
 const STATES: readonly string[] = ["waiting", "running", "verifying", "passed", "failed", "refused", "stopped"];
 
-/** The gate file as the server reads it: bounded, parsed, and checked for the fields it uses; undefined when it is not one. */
-export function readGate(file: string): GateFile | undefined {
-	try {
-		const stat = lstatSync(file);
-		if (!stat.isFile() || stat.size > MAX_SPEC_BYTES) return undefined;
-		const value = JSON.parse(readFileSync(file, "utf8")) as GateFile;
-		const ok = isObject(value) && value.v === 1 && typeof value.train === "string" && Number.isInteger(value.step) && STATES.includes(value.state) && typeof value.since === "string" && typeof value.updated === "string"
-			&& Array.isArray(value.waits) && Number.isInteger(value.pid) && typeof value.spec === "string";
-		return ok ? value : undefined;
-	} catch {
-		return undefined;
-	}
+/** The gate file as the server reads it: bounded and opened as `readJsonFile` does (no link, no wait for a writer), parsed, and checked for the fields it uses; undefined when it is not one. */
+export function readGate(file: string, budget?: ReadBudget): GateFile | undefined {
+	const read = readJsonFile(file, MAX_SPEC_BYTES, budget);
+	if (!read.ok) return undefined;
+	const value = read.value as GateFile;
+	const ok = isObject(value) && value.v === 1 && typeof value.train === "string" && Number.isInteger(value.step) && STATES.includes(value.state) && typeof value.since === "string" && typeof value.updated === "string"
+		&& Array.isArray(value.waits) && Number.isInteger(value.pid) && typeof value.spec === "string";
+	return ok ? value : undefined;
 }
 
 function writeGate(file: string, gate: GateFile) {

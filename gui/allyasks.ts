@@ -2,7 +2,7 @@ import type { LinkAlert, LinkSummary } from "../src/link/holder.ts";
 import { h } from "./dom.ts";
 import { mountDialogCards } from "./linkdialogs.ts";
 import { type AllyCard, dialogState, mergeAllies } from "./linkmodel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The questions an unattended device forwarded, answered on the card of its ally base (docs/how-it-works.md, Unattended devices: Asking back): under the card's rows a button says how many wait, and the card's waiting rows
 // do the same; it opens the shared question panel (linkdialogs.ts), the one the Link notices and Zen's card draw, which answers through `link/dialog-answer`. The map draws a card on every snapshot, so the panel is made once per

@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import type { Answer } from "./post.ts";
 
 // The refusals of a terminal's keys and mirror (src/keys.ts, src/mirror.ts, a pane's src/answerpane.ts, and the session routes of src/control.ts) name themselves by a code and say it in English. The page says it in its own language by the code,

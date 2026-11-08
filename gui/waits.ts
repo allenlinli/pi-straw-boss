@@ -1,7 +1,7 @@
 import type { Base, BossWait, TowerService } from "../src/net.ts";
 import { WAIT_FRESH_MS } from "../src/waitlapse.ts";
 import type { Alert } from "./alerts.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // A wait the tower records on the boss (src/server/towermemory.ts `bossWaits`, docs/specs/2026-10-26-sb-backend.md, Tower memory, Waits) is a question for the boss: an alert of the tower while it is fresh, and on the tower card and in its
 // comms for as long as it stands, with how long that has been and, after a day, that it may have settled. The pure parts are here: when it is fresh, how its age reads, the alerts of a snapshot.

@@ -1,6 +1,6 @@
 import { h } from "./dom.ts";
 import { createPrefs, KEYS } from "./prefs.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // Zen's full-screen control (docs/specs/2026-11-01-zen-view.md): the corner button asks the browser to show the page full screen and back. Where the browser cannot (an iPhone's Safari has no
 // Fullscreen API for a page) the button is hidden, and a touch device that is not an installed app is told once, quietly, that adding the page to the Home Screen gives a full-screen one.

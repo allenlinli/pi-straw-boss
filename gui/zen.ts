@@ -14,7 +14,7 @@ import { proposalText } from "./towermodel.ts";
 import { confirmPanel, pairPanel, proposalPanel } from "./zendecide.ts";
 import { hasHistory, mountHistory } from "./zenhistory.ts";
 import { intel } from "./intel.ts";
-import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
+import { m } from "./sentences.ts"; import { noun } from "./nouns.ts";
 import type { Answer } from "./post.ts";
 import { roleName, waitTitle } from "./render.ts";
 import { composerUnit } from "./sessionfacts.ts";

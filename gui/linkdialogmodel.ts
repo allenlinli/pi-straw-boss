@@ -1,7 +1,7 @@
 import type { Pending } from "../src/ask.ts";
 import type { LinkAlert } from "../src/link/holder.ts";
 import type { DialogState } from "./linkmodel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // The pure half of a forwarded dialog's card (gui/linkdialogs.ts draws it; both load when the first such dialog shows): its state in words, the check of the
 // question's shape a sender's device wrote, and the answer's body. Where a dialog stands (`dialogState`) is in linkmodel.ts, which the page's start needs.

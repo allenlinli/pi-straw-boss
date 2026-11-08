@@ -1,7 +1,7 @@
 import type { SessionPost } from "./answer.ts";
 import type { AnswerPost } from "./ask.ts";
 import { remoteAnswer } from "./linkdialogmodel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { type Answer, post } from "./post.ts";
 import type { NetRoute } from "./router.ts";
 import { towerRoute } from "./towermodel.ts";

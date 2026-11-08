@@ -1,4 +1,4 @@
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { type PairRequest, pairsIn } from "./pairs.ts";
 import { get } from "./post.ts";
 

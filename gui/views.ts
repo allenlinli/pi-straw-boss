@@ -9,7 +9,7 @@ import { html } from "./render.ts";
 import type { NetRoute } from "./router.ts";
 import { locate, type Scene, subject } from "./scene.ts";
 import { mountSession } from "./session.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { drawWorkspace } from "./workspace.ts";
 
 // The focus views, a separate chunk loaded on the first route that is not the map. The workspace route is its base zoomed in (workspace.ts); the session

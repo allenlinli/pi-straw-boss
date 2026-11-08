@@ -319,3 +319,12 @@ test("RR disposition: a box's train unit and its subagents reach the controller 
 	assert.equal(u.badtrain!.train, undefined);
 	assert.equal(u.odd!.train, undefined);
 });
+
+test("task 5 of the train workers: a box's monitor keeps its progress load (two plain numbers); its yards and its load are the box's own and never reach the controller", async () => {
+	const gate = { id: "3", what: "train 1106m #4 full-check", status: "running", lines: 5, at: 3, last: "waiting: load <=30 (now 42)" };
+	const hostile = { yards: { projects: [{ project: "acme", trains: [{ code: "2026-11-06-m", key: "k" }] }] }, load: { now: 99, cores: 1 } };
+	const w = await shown({ ...netOf(baseOf("wA", [["t1", [unit("a-main", { monitors: [{ ...gate, load: { max: 30, now: 42, x: 1 } }, { ...gate, id: "4", load: { max: "30", now: 1 } }] as never })]]])), ...hostile } as never);
+	const merged = w.host.merge(LOCAL), [main] = unitsOf(merged);
+	assert.deepEqual(main!.monitors!.map((m) => [m.id, m.load]), [["3", { max: 30, now: 42 }], ["4", undefined]], "the load is rebuilt from its numbers; a bad one is left out and the monitor stays");
+	assert.ok(!("yards" in merged) && !("load" in merged) && !JSON.stringify(merged).includes("2026-11-06-m"), "nothing of a box's yards or load reaches the page");
+});

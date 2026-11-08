@@ -2,7 +2,7 @@ import { deviceList } from "./devices.ts";
 import { h, nodes } from "./dom.ts";
 import { lanTab } from "./lan.ts";
 import type { Tile } from "./layer.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { get, post } from "./post.ts";
 import { square } from "./qr.ts";
 

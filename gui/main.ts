@@ -3,7 +3,7 @@ import { domEnv, KEY, mountPick, mountView, mountZenBack, type View } from "./vi
 import { createPage } from "./pagecore.ts";
 import { localeNames, setLocale, startI18n } from "./i18n.ts";
 import { followLabel } from "./viewlabel.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 import { getLocale } from "./paraglide/runtime.js";
 import { HEAD_KEY } from "../src/headkey.ts";
 import type { Net } from "../src/net.ts";

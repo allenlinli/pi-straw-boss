@@ -5,7 +5,7 @@ import { drawMonitors, drawQueued, drawTodos, foldQueue, mountQueueEdit, mountQu
 import { mountComposer } from "./composer.ts";
 import { docFor, docTile } from "./doc.ts";
 import type { Tile } from "./layer.ts";
-import { m } from "./paraglide/messages.js"; import { noun } from "./nouns.ts";
+import { m } from "./sentences.ts"; import { noun } from "./nouns.ts";
 import { aimSession } from "./quit.ts"; import { baseTitle, can } from "./boxmodel.ts";
 import { aim, aimOpening, html, LABEL, mark, text } from "./render.ts";
 import { channelOf, locate, type Scene, type Subject, towerBase, wsOf } from "./scene.ts";
@@ -96,6 +96,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 		/** A session other than the one shown: the comms start over for `key`. */
 		open(key: string) {
 			[chat, composer, asker] = [undefined, undefined, undefined];
+			delete view.dataset.role; // the role of the unit before is not this one's until the next draw
 			view.replaceChildren(html(`<p class="lost">${m.opening_channel()}</p>`));
 			void enter(key);
 		},
@@ -103,6 +104,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 		close() {
 			entering++;
 			(chat = composer = asker = undefined), view.replaceChildren();
+			delete view.dataset.role;
 		},
 		reveal(at?: string) {
 			chat?.reveal(at);
@@ -116,7 +118,8 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 		},
 		/** The header's Comms | Terminal switch, name and channel, then the bars, the live line, and the composer and its question panel, all of the same unit. */
 		draw({ u, hit, mk, state, name }: Subject) {
-			const isHead = hit?.base.id === HEAD_KEY, headUnit = isHead ? scene.net?.head : undefined;
+			const isHead = hit?.base.id === HEAD_KEY, headUnit = isHead ? scene.net?.head : undefined, role = u?.role ?? scene.info?.role;
+			if (role) view.dataset.role = role; // a theme dresses the page by it (Raven Keep's rooms)
 			view.querySelector<HTMLElement>(".modes")?.toggleAttribute("hidden", !u?.control || headUnit?.state === "absent"); // the head has no terminal before it exists
 			chat?.docs();
 			chat?.box();

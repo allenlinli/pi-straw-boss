@@ -1,5 +1,5 @@
 import { h } from "./dom.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // One image at a time over the whole page: the chat's thumbnails open it here. A tap on the image toggles its own size (scrolling when
 // larger than the screen); the arrows and ← → step through the images of the same message; Escape, ×, or a tap beside the image closes it.

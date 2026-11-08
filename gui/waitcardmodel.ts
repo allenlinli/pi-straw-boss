@@ -1,5 +1,5 @@
 import type { BossWait, WaitCardView, WaitPressView } from "../src/net.ts";
-import { m } from "./paraglide/messages.js";
+import { m } from "./sentences.ts";
 
 // What a wait card shows (docs/specs/2026-11-07-wait-cards.md, The card in the GUI): which parts, which buttons, which words, decided from the wait as the snapshot carries it and the few facts of the page (a paired device, what the stream is doing, what
 // the boss just pressed). Pure: waitcard.ts draws it and holds the DOM, and every host (the dock's dialog, the tower's rows, Zen) draws the same model.

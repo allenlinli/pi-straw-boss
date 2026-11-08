@@ -42,20 +42,40 @@ test("in Raven Traditional Chinese no message says 塔台, except the ones that 
 	assert.deepEqual(offenders, [], "these still say 塔台 in Raven");
 });
 
+/** Messages that say 智慧體 and show in Raven anyway, with why. Nothing else may (boss 2026-11-08: a main is a 血僕, agents in general are 眷屬). */
+const AGENT_OK: Record<string, string> = {};
+
+test("in Raven Traditional Chinese no message says 智慧體, except the ones allow-listed with a reason", () => {
+	raven();
+	const offenders = ids.filter((id) => render(id).includes("智慧體") && !(id in AGENT_OK));
+	assert.deepEqual(offenders, [], "these still say 智慧體 in Raven");
+	for (const id of Object.keys(AGENT_OK)) assert.ok(AGENT_OK[id]!.length > 10, `${id} names why`);
+});
+
+test("Raven's agent words: a main is a 血僕, agents in general are 眷屬", () => {
+	raven();
+	assert.equal(m.open_main(), "＋血僕");
+	assert.equal(m.stat_agents(), "眷屬");
+	assert.equal(m.link_mains({ count: "3" }), "血僕（3）");
+	standard();
+	assert.equal(m.open_main(), "＋主智慧體");
+	assert.equal(m.stat_agents(), "智慧體");
+});
+
 test("the allow-list lists real messages that say 塔台 in the base, and nothing a Raven sentence could cover is parked on it", () => {
 	for (const id of Object.keys(NEVER)) assert.ok(zh[id as SentenceId]?.includes("塔台"), `${id} is a message that says 塔台`);
 	for (const id of Object.keys(NEVER)) assert.ok(!(id in (SENTENCES["zh-TW"] ?? {})), `${id} is allowed, so it has no Raven sentence`);
 	for (const id of Object.keys(NEVER)) assert.match(NEVER[id]!, /Zen/, `${id} names why`);
 });
 
-test("a Raven sentence answers a message of the base with the same inputs, and only where the base said 塔台", () => {
+test("a Raven sentence answers a message of the base with the same inputs, and only where the base said 塔台 or 智慧體", () => {
 	raven();
 	const pack = SENTENCES["zh-TW"] ?? {};
 	assert.ok(Object.keys(pack).length >= 80, "the pack covers the sentences");
 	assert.deepEqual(Object.keys(SENTENCES), ["zh-TW"], "English keeps the base messages: the pack has no en entry");
 	for (const [id, text] of Object.entries(pack)) {
 		assert.ok(id in zh, `${id} is a message`);
-		assert.ok(zh[id as SentenceId].includes("塔台"), `${id} said 塔台 in the base`);
+		assert.ok(/塔台|智慧體/.test(zh[id as SentenceId]), `${id} said 塔台 or 智慧體 in the base`);
 		assert.deepEqual(holes(text), holes(zh[id as SentenceId]), `${id} keeps the inputs`);
 		assert.ok(text.length > 0 && !/\{\w*[^\w}]/.test(text), `${id} is a plain sentence`);
 	}

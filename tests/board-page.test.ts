@@ -277,3 +277,16 @@ test("a redraw with the same board keeps the elements (a tap never lands on a re
 	assert.equal(rowEl(b, "s-9").querySelector(".board-now")!.textContent, "new line");
 	assert.equal(rowEl(b, "s-1").querySelector(".board-items")!.hasAttribute("open"), true, "the fold the boss opened stays open");
 });
+
+test("the result of a Clear or an Ask is brought into view: the row list scrolls back to its top, where the note is (VR-F001)", async () => {
+	reset();
+	io.choose = (async () => "clear") as typeof io.choose;
+	io.post = async () => ({ ok: true, status: 200, body: { cleared: true, told: "delivered" } });
+	const b = box();
+	fillBoard(b as never, net());
+	const rows = b.querySelector(".board-rows") as El & { scrollTop: number };
+	rows.scrollTop = 400; // the boss scrolled down to a row below the first two
+	(rowEl(b, "s-2").querySelector(".board-clear") as El).click();
+	await until(() => b.querySelector(".board-note")!.textContent === m.board_cleared_told(), "the note");
+	assert.equal(rows.scrollTop, 0, "the note at the list's top is in view");
+});

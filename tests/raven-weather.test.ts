@@ -1,0 +1,162 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { createWeather, FLASH, RAIN, THUNDER, type WeatherEnv } from "../gui/themes/raven/weather.ts";
+import { declarations, rulesOf } from "./css-rules.ts";
+
+// Raven's weather (gui/themes/raven/weather.ts) on a fake audio core and fake timers: the rain loop under the backdrop, one thunder 1 to 2 s after each flash, and every condition that silences them. No sound is made.
+interface Param { value: number; ev: [string, number, number][]; setValueAtTime(v: number, t: number): void; linearRampToValueAtTime(v: number, t: number): void; exponentialRampToValueAtTime(v: number, t: number): void; setTargetAtTime(v: number, t: number, k: number): void; cancelScheduledValues(t: number): void }
+const param = (): Param => { const p: Param = { value: 0, ev: [], setValueAtTime: (v, t) => void p.ev.push(["set", v, t]), linearRampToValueAtTime: (v, t) => void p.ev.push(["lin", v, t]), exponentialRampToValueAtTime: (v, t) => void p.ev.push(["exp", v, t]), setTargetAtTime: (v, t) => void p.ev.push(["target", v, t]), cancelScheduledValues: () => void p.ev.push(["cancel", 0, 0]) }; return p; };
+
+function rig() {
+	const sources: { loop: boolean; started: number[]; stopped: number[]; len: number }[] = [], oscs: { started: number[] }[] = [], gains: { gain: Param; to?: unknown }[] = [], filters: { type: string; frequency: Param & { value: number } }[] = [];
+	const master = { gain: param() };
+	const ac = {
+		currentTime: 100, sampleRate: 1000,
+		createBuffer: (_c: number, len: number) => ({ len, getChannelData: () => new Float32Array(len) }),
+		createBufferSource: () => { const s = { buffer: null as { len: number } | null, loop: false, started: [] as number[], stopped: [] as number[], get len() { return s.buffer?.len ?? 0; }, connect() {}, start: (t = 100) => void s.started.push(t), stop: (t: number) => void s.stopped.push(t) }; sources.push(s); return s; },
+		createBiquadFilter: () => { const f = { type: "", frequency: Object.assign(param(), { value: 0 }), connect() {} }; filters.push(f); return f; },
+		createGain: () => { const n = { gain: param(), to: undefined as unknown, connect(t: unknown) { n.to = t; } }; gains.push(n); return n; },
+		createOscillator: () => { const o = { type: "", frequency: param(), started: [] as number[], connect() {}, start: (t: number) => void o.started.push(t), stop() {} }; oscs.push(o); return o; },
+	};
+	const env = { sound: true, hidden: false, backdrop: true, calm: false, motion: true, running: true, random: 0.5 };
+	const timers: { fn: () => void; ms: number; live: boolean }[] = [];
+	const e: WeatherEnv = {
+		audio: { out: () => ({ c: ac, g: master }) as never, running: () => env.running },
+		backdrop: () => env.backdrop, sound: () => env.sound, hidden: () => env.hidden, calm: () => env.calm, motion: () => env.motion, random: () => env.random,
+		set: (fn, ms) => { const t = { fn, ms, live: true }; timers.push(t); return t; },
+		clear: (h) => void ((h as { live: boolean }).live = false),
+	};
+	const w = createWeather(e);
+	/** Runs every live timer (what the passing of 2 s does). */
+	const wait = () => timers.filter((t) => t.live).forEach((t) => ((t.live = false), t.fn()));
+	return { w, env, ac, sources, oscs, gains, filters, master, timers, wait, rainsLive: () => sources.filter((s) => s.loop && s.stopped.length === 0).length };
+}
+
+test("rain starts when Sound is on, the page is visible, the browser let it play, and the backdrop shows; it is one loop of noise through a band-pass, faded in, at the stated level", () => {
+	const r = rig();
+	r.w.refresh();
+	assert.equal(r.sources.length, 1);
+	const s = r.sources[0]!;
+	assert.ok(s.loop && s.started.length === 1 && s.len === RAIN.loop * 1000);
+	assert.deepEqual(r.filters.map((f) => [f.type, f.frequency.value]), [["highpass", RAIN.high], ["lowpass", RAIN.low]]);
+	const g = r.gains[0]!;
+	assert.equal(g.to, r.master, "into the page's master gain, which Volume and the square law govern");
+	assert.deepEqual(g.gain.ev, [["set", 0, 100], ["lin", RAIN.gain, 100 + RAIN.fadeIn]]);
+	r.w.refresh();
+	assert.equal(r.sources.length, 1, "a second refresh does not start a second loop");
+});
+
+test("no rain with Sound off, on a hidden tab, before the browser allows audio, or off the backdrop", () => {
+	for (const off of [{ sound: false }, { hidden: true }, { running: false }, { backdrop: false }] as const) {
+		const r = rig();
+		Object.assign(r.env, off);
+		r.w.refresh();
+		assert.equal(r.sources.length, 0, JSON.stringify(off));
+	}
+});
+
+test("rain stops, with a short fade, when the view or the page leaves the backdrop, Sound goes off, or the tab hides, and returns with the backdrop", () => {
+	for (const off of [{ backdrop: false }, { sound: false }, { hidden: true }] as const) {
+		const r = rig();
+		r.w.refresh();
+		Object.assign(r.env, off);
+		r.w.refresh();
+		const s = r.sources[0]!;
+		assert.deepEqual(s.stopped, [100 + RAIN.fadeOut], JSON.stringify(off));
+		assert.ok(r.gains[0]!.gain.ev.some((e) => e[0] === "target" && e[1] === 0), "faded to 0 first");
+		Object.assign(r.env, { backdrop: true, sound: true, hidden: false });
+		r.w.refresh();
+		assert.equal(r.rainsLive(), 1, "a new loop after the return");
+	}
+});
+
+test("a flash makes one thunder after 1 to 2 s: the wait is a point of [1000, 2000] ms and the thunder plays once, when the wait ends", () => {
+	for (const [random, ms] of [[0, 1000], [0.5, 1500], [0.999, 1999]] as const) {
+		const r = rig();
+		Object.assign(r.env, { random });
+		r.w.flash();
+		assert.equal(r.timers.length, 1);
+		assert.ok(Math.abs(r.timers[0]!.ms - ms) < 1.5, `${r.timers[0]!.ms} for random ${random}`);
+		assert.ok(r.timers[0]!.ms >= THUNDER.delay[0] && r.timers[0]!.ms <= THUNDER.delay[1]);
+		assert.equal(r.oscs.length, 0, "nothing sounds at the flash itself");
+		r.wait();
+		assert.equal(r.oscs.length, 1, "one thunder");
+		assert.equal(r.sources.filter((s) => !s.loop).length, 1);
+		assert.deepEqual(r.oscs[0]!.started, [100]);
+	}
+});
+
+test("each flash has its own thunder, and the waits vary within the window", () => {
+	const r = rig();
+	const seen = new Set<number>();
+	for (const random of [0.1, 0.4, 0.8]) (r.env.random = random), r.w.flash();
+	r.timers.forEach((t) => seen.add(Math.round(t.ms)));
+	assert.equal(seen.size, 3);
+	r.wait();
+	assert.equal(r.oscs.length, 3);
+});
+
+test("no thunder with Sound off, a hidden tab, calm, reduced motion, before audio is allowed, or off the backdrop", () => {
+	for (const off of [{ sound: false }, { hidden: true }, { calm: true }, { motion: false }, { running: false }, { backdrop: false }] as const) {
+		const r = rig();
+		Object.assign(r.env, off);
+		r.w.flash();
+		assert.equal(r.timers.length, 0, `no wait is set: ${JSON.stringify(off)}`);
+		r.wait();
+		assert.equal(r.oscs.length, 0);
+	}
+});
+
+test("a condition that turns up during the wait drops the thunder: calm, a hidden tab, Sound off, or the page leaving the backdrop", () => {
+	for (const off of [{ calm: true }, { hidden: true }, { sound: false }, { backdrop: false }] as const) {
+		const r = rig();
+		r.w.flash();
+		Object.assign(r.env, off);
+		r.wait();
+		assert.equal(r.oscs.length, 0, JSON.stringify(off));
+	}
+});
+
+test("stop cancels a thunder that waits and stops the rain", () => {
+	const r = rig();
+	r.w.refresh();
+	r.w.flash();
+	r.w.stop();
+	r.wait();
+	assert.equal(r.oscs.length, 0);
+	assert.equal(r.sources[0]!.stopped.length, 1);
+});
+
+test("the thunder is soft and low: its two peaks add to at most 0.15 of the master gain (measured -25 dBFS against the caw's -16.6), and its low-pass falls from under 400 Hz", () => {
+	const r = rig();
+	r.w.flash();
+	r.wait();
+	const noise = r.gains.find((g) => g.gain.ev.some((e) => e[0] === "lin" && e[1] === THUNDER.noise))!;
+	assert.ok(noise && THUNDER.noise + THUNDER.hum <= 0.15, "the two peaks add to at most 0.15 of the master");
+	const low = r.filters.find((f) => f.type === "lowpass")!;
+	assert.deepEqual(low.frequency.ev.map((e) => [e[0], e[1]]), [["set", THUNDER.from], ["exp", THUNDER.to]]);
+	assert.ok(THUNDER.from <= 400, "a low rumble: the low-pass starts under 400 Hz");
+});
+
+const root = fileURLToPath(new URL("..", import.meta.url));
+const css = readFileSync(join(root, "gui/themes/raven/raven.css"), "utf8");
+const rules = rulesOf(css);
+
+test("raven.css clocks the weather on the strike: rk-clap (61 s, delayed to the flash's 94.4 %) runs on the layers of rk-bolt and of rk-rest, and changes only `scale`", () => {
+	assert.equal(FLASH, "rk-clap");
+	const anims = rules.flatMap((r) => declarations(r.body).filter(([p]) => p === "animation").map(([, v]) => ({ selector: r.selector, v })));
+	for (const host of ["rk-bolt", "rk-rest"]) {
+		const a = anims.find((x) => x.v.includes(`${host} 61s`));
+		assert.ok(a, host);
+		assert.match(a.v, /rk-clap 61s linear 57\.584s infinite/, `${host}'s layer has the clock`);
+		assert.ok(Math.abs(57.584 - 61 * 0.944) < 1e-9, "57.584 s is 94.4 % of 61 s");
+	}
+	for (const name of ["rk-bolt", "rk-rest"]) assert.match(css, new RegExp(`@keyframes ${name} \\{ 0%, 94% \\{`), `${name} flashes at 94 to 94.4 %`);
+	assert.match(css, /@keyframes rk-clap \{ from, to \{ scale: 1; \} \}/);
+	// the clock sits inside the no-preference, not-calm blocks: under calm or reduced motion there is no flash and no event
+	const start = css.indexOf("@media (prefers-reduced-motion: no-preference)");
+	for (const line of css.split("\n").filter((l) => l.includes("rk-clap 61s"))) assert.ok(css.indexOf(line) > start && line.includes(":not([data-calm])"), "inside the motion block and not under calm");
+});

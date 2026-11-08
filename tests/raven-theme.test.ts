@@ -241,7 +241,7 @@ test("the map's layers animate nothing but opacity, transform, translate, no fil
 		const frames = raw.slice(raw.indexOf("{", at) + 1, end);
 		const props = new Set([...frames.replace(/[\d.%,\s]+\{/g, "{").matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]!));
 		assert.ok(props.size > 0, `@keyframes ${name} was read`);
-		for (const prop of props) assert.ok(["opacity", "transform", "translate"].includes(prop), `@keyframes ${name} sets ${prop}`);
+		for (const prop of props) assert.ok(["opacity", "transform", "translate", ...(name === "rk-clap" ? ["scale"] : [])].includes(prop), `@keyframes ${name} sets ${prop}`); // rk-clap is the weather's no-op clock on the strike (weather.ts): it holds `scale: 1`, a compositor property
 		assert.ok(!/--rk-(a|b|bolt)\b/.test(frames), `${name} animates no registered number`);
 	}
 	assert.match(raw, /@keyframes rk-raven-map \{[^\n]*13%, 100% \{ translate: calc\(var\(--rk-w\) \+ 10vw\) 0; \}/, "the raven crosses by translate and ends off the right edge");

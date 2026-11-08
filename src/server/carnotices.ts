@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { IntercomLike } from "../agent/kit.ts";
 import { stamp } from "../header.ts";
-import { type Attempt, type CarState, noticeText, RETRY_MS, type StateEntry, type StateNotice } from "../train/cars.ts";
+import { type Attempt, type CarState, RETRY_MS, stateLine, type StateEntry, type StateNotice } from "../train/cars.ts";
 import type { CarBook } from "./carbook.ts";
 
 // The sb server's sender of car notices (docs/specs/2026-11-07-train-workers.md §5.5, D14): for every car state without a told notice it sends one intercom message to the coordinator's session id under a `car_notice` header, writes what the broker
@@ -114,16 +114,7 @@ export class CarNotices {
 
 	/** The notice line of a state, with the train it concerns (the received state of the same car names it). */
 	private line(item: ReturnType<CarBook["pending"]>[number]): string {
-		const { file, entry } = item;
-		const received = file.states.find((s) => s.state === "received");
-		const f = entry as StateEntry & Record<string, unknown>;
-		return noticeText(entry.state, {
-			ticket: file.car.tickets[0] ?? "?", head: file.car.head,
-			...(typeof (received?.train ?? f.train) === "string" ? { train: String(received?.train ?? f.train) } : {}),
-			...(typeof f.departs === "string" ? { departs: f.departs } : {}), ...(typeof f.reason === "string" ? { reason: f.reason } : {}),
-			...(typeof f.round === "number" ? { round: f.round } : {}), ...(typeof f.evidence === "string" ? { evidence: f.evidence } : {}),
-			...(typeof f.version === "string" ? { version: f.version } : {}), ...(typeof f.commit === "string" ? { commit: f.commit } : {}),
-		});
+		return stateLine(item.file, item.entry);
 	}
 
 	/** One `blocked` call to the tower of the setter's workspace, naming the car, the state, the coordinator and the notice text. It counts once the tower's mailbox has it. */

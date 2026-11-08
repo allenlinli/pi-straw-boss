@@ -13,6 +13,7 @@ import { canonical } from "./history.ts";
 import { type NetEvent, type Tick, trackActivity } from "./activity.ts";
 import type { TodoSum } from "./todo.ts";
 import { type TrainId, trainFromToken } from "./trainrole.ts";
+import type { NetLoad, YardJoin, Yards } from "./train/yardview.ts";
 import type { TrustAsk } from "./trust/types.ts";
 
 // The whole straw net as one JSON-able snapshot for the browser view: every workspace as a base with its tower, tabs, agents,
@@ -74,9 +75,12 @@ export interface RemoteBox {
 	units?: Record<string, { state: "live" | "unreachable"; scope: "team" | "box"; can: string[] }>;
 }
 export interface Base { id: string; label: string; mark: Mark; /** Only on a base of an unattended box (RemoteBox). */ box?: RemoteBox; tower: ({ name: string; mark: Mark; key: string; control: boolean; service?: TowerService; pending?: Pending; queued?: Queued[]; monitors?: Monitor[]; subs: Unit[] } & Shelf & Lately) | null; tabs: Tab[]; outposts: Outpost[]; outside: Unit[] }
-/** `stashed`: the bases put away with /boss stash, waiting to be popped (stash.ts). `trust`: the folders whose agents wait for a trust decision (trust/serve.ts). */
-/** `link`: Straw Link's teammates' bases, the notices it raises, and the confirms waiting for the boss; absent when Straw Link is not set up or says nothing. */
-export interface Net { bases: Base[]; /** The head tower (nethead.ts); present when the server runs the tower service. */ head?: HeadUnit; stashed?: Stashed[]; trust?: TrustAsk[]; events?: NetEvent[]; link?: LinkSummary }
+/**
+ * `stashed`: the bases put away with /boss stash, waiting to be popped (stash.ts). `trust`: the folders whose agents wait for a trust decision (trust/serve.ts). `link`: Straw Link's teammates' bases, the notices it raises, and the confirms waiting for the boss; absent
+ * when Straw Link is not set up or says nothing. `yards`: the trains of this computer, per project, from the trainboard files (docs/specs/2026-11-07-train-workers.md §11.1, server/trainyard.ts); `load`: the 1-minute load average and the core count
+ * for the header chip, given only with `yards`, and not on Windows. Both are absent with the merge train off and stay on this computer: the board message, a remote turn and the operate slice never carry them.
+ */
+export interface Net { bases: Base[]; /** The head tower (nethead.ts); present when the server runs the tower service. */ head?: HeadUnit; stashed?: Stashed[]; trust?: TrustAsk[]; events?: NetEvent[]; link?: LinkSummary; yards?: Yards; load?: NetLoad }
 /** What the server may read for a key: the registry entry is the allow list, and paths never come from the browser. */
 export interface Ref { key: string; base: string; name: string; role: string; file?: string; pane?: string; /** The head tower's chapters, oldest first (the last is `file`): the history chains through them (watch.ts). */ chapters?: HeadChapter[] }
 export interface Found extends Ref { live: boolean; successor?: string }
@@ -175,7 +179,13 @@ export async function collectNet({ run, world = worldOf(run), sessions, now = Da
  * The net as the server reads it: each read also refreshes the registry. A key that left the net (the pane closed, or moved to
  * another session) stays findable for ten minutes, the window finished subagents already use, with the pane's new session as its successor.
  */
-export function netSource(env: { services?(workspace: string): TowerView | undefined; head?: HeadSeam; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; sessionDir?: string; hub?: { relayed(sessions: Session[], refs: Map<string, Ref>): Relayed }; stashed?(): Stashed[]; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }) {
+/** The trains the page draws: the units of the net that are trains (by their panes' tokens) and the keys of the mains, which is all the reader needs of the net to name the unit that runs a train or wrote a yard. */
+function joinOf(net: Net): YardJoin {
+	const units = net.bases.flatMap((b) => b.tabs.flatMap((t) => t.units));
+	return { trains: units.flatMap((u) => (u.role === "train" && u.train ? [{ key: u.key, project: u.train.project, code: u.train.code }] : [])), mains: new Set(units.filter((u) => u.role === "main").map((u) => u.key)) };
+}
+
+export function netSource(env: { trainyard?: { yards(join: YardJoin): Yards | undefined; load(): NetLoad | undefined }; services?(workspace: string): TowerView | undefined; head?: HeadSeam; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; sessionDir?: string; hub?: { relayed(sessions: Session[], refs: Map<string, Ref>): Relayed }; stashed?(): Stashed[]; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }) {
 	let refs = new Map<string, Ref>(), live: Session[] = [];
 	const gone = new Map<string, { ref: Ref; at: number }>(), sessions = async () => (live = await env.sessions()), dismissed = new Set<string>(), ended = new Set<string>();
 	const lately = trackActivity();
@@ -191,7 +201,10 @@ export function netSource(env: { services?(workspace: string): TowerView | undef
 			for (const [key, old] of gone) if (next.has(key) || at - old.at > RECENT_MS) gone.delete(key);
 			refs = next;
 			const stashed = env.stashed?.() ?? [], seen = lately(net); // after the dialogs and the finished: the marks the page shows
-			return stashed.length ? { ...seen, stashed } : seen;
+			const shown = stashed.length ? { ...seen, stashed } : seen, yards = env.trainyard?.yards(joinOf(shown));
+			if (!yards) return shown;
+			const load = env.trainyard!.load();
+			return { ...shown, yards, ...(load ? { load } : {}) };
 		},
 		lookup(key: string): Found | undefined {
 			const live = refs.get(key), old = gone.get(key)?.ref;

@@ -1,12 +1,15 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { availableParallelism, loadavg, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execFileSyncExe } from "../exe.mjs";
 import { checkCar, checkEvidence, parseAppAccept } from "../train/accept.ts";
-import { type Board, boardPath, boardState, factsOf, MAX_CLEARS, readBoard, readTrainboards, type Writer, writeBoard } from "../train/board.ts";
-import { isObject, validateStep } from "../train/spec.ts";
+import { type Board, boardPath, boardState, MAX_TRAINS, trainboardDir, factsOf, MAX_CLEARS, readBoard, readTrainboards, type Writer, writeBoard } from "../train/board.ts";
+import { isName, isObject, validateStep } from "../train/spec.ts";
+import { noticeStatus, stateLine, type Attempt, type CarFile } from "../train/cars.ts";
+import { readCars } from "../trainboard.ts";
 import { holding, loadLimit, stepWaits, type FactStep, type TrainFacts, type Wait } from "../train/waits.ts";
 import { gateDeps, type GateDeps, type GateFile, readGate, runGate, writerAlive } from "./traingate.ts";
+import { plain } from "./operatesanitize.ts";
 import { heldLocks, lockDirOf } from "./trainlock.ts";
 
 // The `train` commands of cli.mjs (docs/specs/2026-11-07-train-workers.md §9.2): `gate` (traingate.ts), `check`, `status`, `clear`. Kept out of cli.ts, which carries a line budget (procscli.ts is the model). Exit codes: `gate` as the wrapper
@@ -44,9 +47,10 @@ export async function runTrain(flags: Record<string, string | true>, io: TrainIo
 		case "gate": return typeof flags.spec === "string" ? runGate(flags.spec, gateDeps(io.env, { out: (line) => io.out(`${line}\n`), ...io.gate })) : usage(io, "train gate needs --spec <file>");
 		case "check": return check(flags, io);
 		case "status": return status(flags, io);
+		case "notices": return notices(flags, io);
 		case "clear": return clear(flags, io);
 	}
-	return usage(io, "train needs gate, check, status or clear");
+	return usage(io, "train needs gate, check, status, clear or notices");
 }
 
 // ---- check
@@ -195,5 +199,59 @@ function clear(flags: Record<string, string | true>, io: TrainIo): number {
 		return refuse(`the clear was not written: ${(error as Error).message}`);
 	}
 	io.out(`${JSON.stringify({ ok: true, project: board.project, train: board.code, [key]: name, reason: why })}\n`);
+	return 0;
+}
+
+// ---- notices
+
+export interface NoticeState { state: string; at: string; by: { role: string; name: string; session: string }; text?: string; status: "pending" | "delivered" | "escalated"; attempts: { at: string; outcome: string; answer?: string }[]; towerAttempts: number; deliveredAt?: string; escalatedAt?: string }
+export interface NoticeCar { project: string; app: string; tickets: string[]; branch: string; head: string; coordinator: string; states: NoticeState[] }
+export interface Notices { cars: NoticeCar[]; truncated: boolean }
+
+
+/** Every car's states and notice records under `<state>/trainboard/<project>/cars/`, as the page reads them (readCars validates and caps; a project or cars folder that is a link is not followed). */
+export function trainNotices(io: Pick<TrainIo, "stateDir">, opts: { project?: string; pending?: boolean } = {}): Notices {
+	const root = trainboardDir(io.stateDir);
+	let names: string[];
+	try { names = opts.project !== undefined ? [opts.project] : readdirSync(root).filter(isName).sort(); } catch { return { cars: [], truncated: false }; }
+	const cars: NoticeCar[] = [];
+	let truncated = false;
+	for (const project of names) {
+		try {
+			if (!lstatSync(join(root, project)).isDirectory() || !lstatSync(join(root, project, "cars")).isDirectory()) continue;
+		} catch { continue; }
+		if (cars.length >= MAX_NOTICE_CARS) { truncated = true; break; }
+		for (const { file, notice } of readCars(io.stateDir, project)) {
+			const states = file.states.map((entry): NoticeState => {
+				const status = noticeStatus(notice, entry.state), record = notice?.states[entry.state];
+				let text: string | undefined;
+				try { text = plain(stateLine(file as CarFile, entry), 600); } catch { text = undefined; }
+				return {
+					state: entry.state, at: entry.at, by: { role: entry.by.role, name: plain(entry.by.name, 128), session: plain(entry.by.session, 128) }, ...(text ? { text } : {}), status: status.kind,
+					attempts: (record?.attempts ?? []).slice(0, 64).map((a: Attempt) => ({ at: plain(a.at, 40), outcome: plain(a.outcome, 20), ...(a.answer !== undefined ? { answer: plain(a.answer, 200) } : {}) })),
+					towerAttempts: record?.tower?.length ?? 0, ...(record?.deliveredAt ? { deliveredAt: plain(record.deliveredAt, 40) } : {}), ...(record?.escalatedAt ? { escalatedAt: plain(record.escalatedAt, 40) } : {}),
+				};
+			}).filter((s) => !opts.pending || s.status === "pending");
+			if (!states.length) continue;
+			if (cars.length >= MAX_NOTICE_CARS) { truncated = true; break; }
+			cars.push({ project, app: file.app, tickets: file.car.tickets.map((t) => plain(t, 64)), branch: plain(file.car.branch, 255), head: file.car.head, coordinator: plain(file.coordinator, 128), states });
+		}
+	}
+	return { cars, truncated };
+}
+const MAX_NOTICE_CARS = MAX_TRAINS * 16;
+
+function notices(flags: Record<string, string | true>, io: TrainIo): number {
+	if (flags.project !== undefined && (typeof flags.project !== "string" || !isName(flags.project))) return usage(io, "--project needs a project name");
+	const result = trainNotices(io, { ...(flags.project !== undefined ? { project: flags.project as string } : {}), pending: flags.pending === true });
+	if (flags.json === true) return (io.out(`${JSON.stringify(result)}\n`), 0);
+	const lines: string[] = [];
+	for (const c of result.cars) {
+		lines.push(`${c.project} ${c.tickets.join(",")} ${c.app} ${c.head.slice(0, 12)} coordinator ${c.coordinator}`);
+		for (const st of c.states) lines.push(`  ${st.state} ${st.at} by ${st.by.role} ${st.by.name}: ${st.status}${st.deliveredAt ? ` ${st.deliveredAt}` : ""}${st.escalatedAt ? ` ${st.escalatedAt}` : ""}, ${st.attempts.length} attempt${st.attempts.length === 1 ? "" : "s"}${st.attempts.length ? ` (${st.attempts.map((a) => a.outcome).join(", ")})` : ""}${st.text ? `\n    sent: ${st.text}` : ""}`);
+	}
+	if (!lines.length) lines.push(flags.pending === true ? "no pending notices" : "no car notices");
+	if (result.truncated) lines.push("(more cars than shown)");
+	io.out(`${lines.join("\n")}\n`);
 	return 0;
 }

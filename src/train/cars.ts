@@ -139,6 +139,18 @@ export function noticeText(state: CarState, c: NoticeContext): string {
 	}
 }
 
+/** The line sent for one state entry of a car file: the received state of the same car names the train. Throws as `noticeText` does when a field is missing. */
+export function stateLine(file: CarFile, entry: StateEntry): string {
+	const received = file.states.find((s) => s.state === "received"), f = entry as Record<string, unknown>, train = received?.train ?? f.train;
+	return noticeText(entry.state, {
+		ticket: file.car.tickets[0] ?? "?", head: file.car.head,
+		...(typeof train === "string" ? { train } : {}),
+		...(typeof f.departs === "string" ? { departs: f.departs } : {}), ...(typeof f.reason === "string" ? { reason: f.reason } : {}),
+		...(typeof f.round === "number" ? { round: f.round } : {}), ...(typeof f.evidence === "string" ? { evidence: f.evidence } : {}),
+		...(typeof f.version === "string" ? { version: f.version } : {}), ...(typeof f.commit === "string" ? { commit: f.commit } : {}),
+	});
+}
+
 export type Outcome = "delivered" | "queued" | "failed" | "not-live" | "unknown";
 export interface Attempt { at: string; outcome: Outcome; answer?: string }
 /** `tower`: the attempts to tell the tower that the coordinator could not be (§5.5, step 5); `escalatedAt` is set when one of them was taken. */

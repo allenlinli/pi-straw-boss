@@ -751,13 +751,14 @@ test("cli: train needs a command and its flags; unknown ones are usage errors (e
 	assert.equal(await go("train", "fly", "--spec", "x"), 2);
 	assert.equal(await go("train", "gate"), 2);
 	assert.equal(await go("train", "status", "--wat"), 2);
+	assert.equal(await go("train", "notices", "--wat"), 2);
 	assert.equal(await go("train", "check"), 2);
 	assert.equal(await go("train", "check", "--step", "a", "--accept", "b"), 2);
 	assert.equal(await go("train", "check", "--step", "a", "--slip", "b"), 2);
 	assert.equal(await go("train", "clear", "--project", "p"), 2);
 	assert.equal(await go("train", "clear", "--project", "p", "--train", CODE, "--lane", "a", "--target", "b", "--reason", "r"), 2);
 	assert.match(err.join(""), /train gate --spec/);
-	assert.match(err.join(""), /train needs gate, check, status or clear/);
+	assert.match(err.join(""), /train needs gate, check, status, clear or notices/);
 });
 
 test("cli: train gate runs the wrapper and returns its exit code", async () => {

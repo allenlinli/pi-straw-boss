@@ -77,3 +77,32 @@ test("the head band's text holds 4.5 : 1 on the band as Raven Keep paints it: th
 	const pill = mix(raven.amber!, share / 100, ground);
 	assert.ok(contrast(raven.amber!, pill) >= MIN, `the chip's --amber on ${share}% of itself over the band (${pill}): ${contrast(raven.amber!, pill).toFixed(2)}`);
 });
+
+// The map's backdrop (spec §1.5 "On the map"): the map has the picture behind a translucent ground, and the legend sits in the bar above it. At the brightest lightning frame the rest veil is gone and the picture shows through its plain veil, the strike's wash and foot veil, and the lit windows at their peak.
+// The brightest pixel of that composite below the header strip (y from 80 of 721) was sampled with PIL at the picture's full 1280 x 721, the layers as CSS paints them (the mask included): rgb(179 154 129), a wall lit by a window at the peak of its glow. The layer values that sampling used are asserted first;
+// a change to any of them (or to the picture) makes this test ask for a new sample instead of passing on old arithmetic.
+test("under the brightest lightning frame the map's ground and the legend's keep --text and --dim at 4.5 : 1, and --panel does too", () => {
+	const raw = readFileSync(new URL("../gui/themes/raven/raven.css", import.meta.url), "utf8");
+	const sheet = rulesOf(raw), body = (selector: string) => sheet.filter((r) => r.parts.includes(selector)).map((r) => r.body).join(";");
+	const MAP = 'html[data-view="raven"]:has(#stage[data-view="map"])', STAGE = 'html[data-view="raven"] .stage[data-view="map"]';
+	const picture = body(`${MAP}::before`);
+	for (const layer of ["radial-gradient(ellipse calc(var(--rk-w) * 0.17) calc(var(--rk-w) * 0.1) at 16.4% 17%, rgb(13 10 16 / 0.62) 55%, transparent)", "linear-gradient(rgb(190 170 255 / 0.16), transparent 60%)", "linear-gradient(transparent 40%, rgb(3 2 5 / 0.3))", "linear-gradient(rgb(13 10 16 / 0.68), rgb(13 10 16 / 0.3) 45%, rgb(13 10 16 / 0.3))", "mask-image: linear-gradient(#000 62%, transparent)"]) assert.ok(picture.includes(layer), `the sampled layer is still there: ${layer}`);
+	const alphas = [...body(`${STAGE}::after`).matchAll(/rgb\(255 190 92 \/ ([\d.]+)\)/g)].map((m) => Number(m[1]));
+	assert.equal(alphas.length, 11, "eleven lit windows and lanterns");
+	assert.ok(Math.max(...alphas) <= 0.7125 + 1e-9, `the lights' peak alpha is ${Math.max(...alphas)}; the sample took 0.7125`);
+	assert.match(body(`${STAGE}::after`), /opacity:\s*0\.75/);
+	const candle = [...(/@keyframes rk-candle \{(.*)\}\n/.exec(raw)?.[1] ?? "").matchAll(/opacity:\s*([\d.]+)/g)].map((m) => Number(m[1]));
+	assert.ok(candle.length >= 4 && Math.max(...candle) <= 1, "the lights breathe at most to full");
+	assert.match(raw, /@keyframes rk-rest \{.*94\.4% \{ opacity: 0; \}/, "the rest veil is gone at the flash");
+	const worst = "#b39a81"; // rgb(179 154 129)
+	const hex = (n: string) => Number(n).toString(16).padStart(2, "0");
+	const grounds = (token: string) => {
+		const m = new RegExp(`--${token}:\\s*rgba\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([\\d.]+)\\)`).exec(raw);
+		assert.ok(m, `--${token} is set`);
+		return mix(`#${hex(m[1]!)}${hex(m[2]!)}${hex(m[3]!)}`, Number(m[4]), worst);
+	};
+	for (const token of ["rk-well", "panel"]) for (const text of ["text", "dim"]) assert.ok(contrast(raven[text]!, grounds(token)) >= MIN, `--${text} on --${token} over the brightest lit pixel (${grounds(token)}): ${contrast(raven[text]!, grounds(token)).toFixed(2)}`);
+	// who takes the ground: the map and the legend (the cards, the band, and the buttons have grounds of their own)
+	assert.match(body(`${STAGE} .map`), /background:\s*var\(--rk-well\)/);
+	assert.match(body('html[data-view="raven"] .legend'), /background:\s*var\(--rk-well\)/);
+});

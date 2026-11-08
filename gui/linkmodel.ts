@@ -130,21 +130,30 @@ export function mergeAllies(allies: AllyBase[]): AllyCard[] {
 export function unitsFor(units: DeviceUnits[] | undefined, a: Pick<AllyCard, "device" | "workspace" | "spare"> & { teams: string[] }) {
 	const rows = (units ?? []).filter((u) => u.device === a.device && a.teams.includes(u.team)).sort((p, q) => a.teams.indexOf(p.team) - a.teams.indexOf(q.team));
 	const out = new Map<string, ReturnType<typeof tag>>();
-	const tag = (u: DeviceUnits["units"][number], row: DeviceUnits) => ({ ...u, at: row.at, stale: row.stale === true, team: row.team, device: row.device, mains: mainCards(u.unit, row) });
-	for (const row of rows) for (const u of row.units) if (a.workspace === null || u.unit === a.workspace || (a.spare?.teams.includes(row.team) && !a.spare.named.includes(u.unit))) { const had = out.get(u.unit); if (!had || row.at > had.at) out.set(u.unit, tag(u, row)); }
-	return [...out.values()];
+	const tag = (u: DeviceUnits["units"][number], row: DeviceUnits) => ({ ...u, at: row.at, stale: row.stale === true, team: row.team, device: row.device, mains: [] as MainCard[] });
+	// A box in several teams sends one row per team; each row names only the mains its team's route table holds. The unit's state is the freshest row's; its mains are every row's, each in its own row's team, where its stop goes (#121 trial).
+	type Named = MainCard & { at: number };
+	const mains = new Map<string, Map<string, Named>>();
+	for (const row of rows) for (const u of row.units) if (a.workspace === null || u.unit === a.workspace || (a.spare?.teams.includes(row.team) && !a.spare.named.includes(u.unit))) {
+		const had = out.get(u.unit);
+		if (!had || row.at > had.at) out.set(u.unit, tag(u, row));
+		const mine = mains.get(u.unit) ?? new Map<string, Named>();
+		for (const c of mainCards(u.unit, row)) if (!mine.has(c.handle) || row.at > (mine.get(c.handle)!.at)) mine.set(c.handle, c);
+		mains.set(u.unit, mine);
+	}
+	return [...out.values()].map((u) => ({ ...u, mains: [...(mains.get(u.unit)?.values() ?? [])].map(({ at: _at, ...c }): MainCard => c) }));
 }
 
 /**
  * One main of an ally base's unit that this computer may stop (docs/specs/2026-11-07-link-remote-stop.md §6): `handle` names it to the box, `byLabel` is the dispatcher's label for a main another device dispatched (an admin sees those; a
  * dispatcher's own are not labelled), `stopping` that a stop is pending, and `canStop` whether the page offers a Stop: the box lists `unit-stop`, its status is lately, and no stop is pending. A teammate's words only ever become text.
  */
-export interface MainCard { handle: string; name: string; state: string; tone: UnitTone; word: string; byLabel?: string; stopping: boolean; canStop: boolean }
+export interface MainCard { handle: string; /** The team of the status row that named this main: a box in several teams lists each main in one team only, and its stop goes there. */ team: string; name: string; state: string; tone: UnitTone; word: string; byLabel?: string; stopping: boolean; canStop: boolean }
 /** The mains a status row names for one unit. */
-function mainCards(unit: string, row: DeviceUnits): MainCard[] {
+function mainCards(unit: string, row: DeviceUnits): (MainCard & { at: number })[] {
 	return (row.mains ?? []).filter((x) => x.unit === unit).map((x) => {
 		const who = row.dispatchers?.[x.by], base = x.stopping ? { tone: "other" as UnitTone, word: m.link_main_stopping() } : { tone: x.state === "working" ? "working" as UnitTone : x.state === "idle" || x.state === "done" ? "idle" as UnitTone : "other" as UnitTone, word: stateName(x.state) };
-		return { handle: x.handle, name: x.name, state: x.state, ...base, ...(who?.self ? {} : { byLabel: who?.label ?? x.by.slice(0, 6) }), stopping: x.stopping, canStop: row.canStop === true && row.stale !== true && !x.stopping };
+		return { handle: x.handle, team: row.team, at: row.at, name: x.name, state: x.state, ...base, ...(who?.self ? {} : { byLabel: who?.label ?? x.by.slice(0, 6) }), stopping: x.stopping, canStop: row.canStop === true && row.stale !== true && !x.stopping };
 	});
 }
 

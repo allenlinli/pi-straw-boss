@@ -391,6 +391,21 @@ test("a main whose stop is pending reads 'stopping…' with no button; a box tha
 	assert.equal(unknown!.mains[0]!.byLabel, "d-stra", "the label is the first six characters of the device id when no roster label came");
 });
 
+test("a box in two teams: the unit's card lists the mains of every team's row, each carrying its own row's team, even when the freshest row names none (#121 trial)", () => {
+	const both = { teams: ["t1", "t2"], device: "d1", workspace: "moldplan" as string | null };
+	const rows = [
+		{ ...mainsRow({ team: "t1", at: 1_000 })[0]!, mains: [MAIN] },
+		{ ...mainsRow({ team: "t2", at: 9_000 })[0]!, mains: [] },
+	];
+	const [u] = unitCards(rows, [], both, 9_500);
+	assert.deepEqual([u!.at, u!.team], [9_000, "t2"], "the unit's state still comes from the freshest row");
+	assert.deepEqual(u!.mains.map((x) => [x.handle, x.team, x.canStop]), [["0123456789abcdef", "t1", true]], "the main the older row named stays, stoppable, in its own team");
+	const two = unitCards([{ ...rows[0]! }, { ...mainsRow({ team: "t2", at: 9_000 })[0]!, mains: [{ ...MAIN, handle: "fedcba9876543210", name: "api" }] }], [], both, 9_500)[0]!;
+	assert.deepEqual(two.mains.map((x) => [x.handle, x.team]), [["0123456789abcdef", "t1"], ["fedcba9876543210", "t2"]], "mains of both rows, each in its own team");
+	const stale = unitCards([{ ...rows[0]!, stale: true }, rows[1]!], [], both, 9_500)[0]!;
+	assert.deepEqual(stale.mains.map((x) => x.canStop), [false], "a main from a stale row is shown without a button");
+});
+
 test("a stale box's mains cannot be stopped from its last status: the card keeps them without a button", () => {
 	const [u] = unitCards(mainsRow({ stale: true }), [], ME, 6_000);
 	assert.deepEqual(u!.mains.map((x) => x.canStop), [false, false]);

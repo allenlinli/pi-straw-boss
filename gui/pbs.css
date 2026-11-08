@@ -33,6 +33,9 @@
 	.pbs-block pbs-review::part(close),
 	.pbs-block pbs-mindmap::part(node) { min-height: 44px; min-width: 44px; }
 	.pbs-block pbs-mindmap::part(node) { align-items: center; }
+	/* A tree's folder is opened by its row, and its two buttons are the bar's: all 44 px (a file's row is as tall; the part cannot tell them apart). */
+	.pbs-block pbs-tree::part(node) { min-height: 44px; align-items: center; }
+	.pbs-block pbs-tree::part(expand-all), .pbs-block pbs-tree::part(collapse-all) { min-height: 44px; min-width: 44px; }
 	.pbs-block pbs-table::part(sort) { align-items: center; }
 	.pbs-block pbs-form::part(other),
 	.pbs-block pbs-table::part(filter) { min-height: 44px; }

@@ -7,7 +7,7 @@ import { mount, parse } from "./markdown.ts";
 // a text without one never imports it.
 
 /** The block kinds of pi-better-show's `BLOCK_KINDS` but `alert` (a test holds this list to the package's). */
-const KINDS = "mermaid|diff|cards|options|form|review|mindmap|suggest|checklist|table|steps|stats";
+const KINDS = "mermaid|diff|cards|options|form|review|mindmap|suggest|checklist|table|steps|stats|tree";
 const FENCE = new RegExp(`^ {0,3}(?:\`{3,}|~{3,})[ \\t]*(?:${KINDS})(?=\\s|$)`, "im"), ALERT = /^ {0,3}> ?\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/im;
 /** Whether the block parser could find a block in `text`: a hint that may say yes for a text with none, never no for one with. */
 export const hasBlocks = (text: string) => FENCE.test(text) || ALERT.test(text);

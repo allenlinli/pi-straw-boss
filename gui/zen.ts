@@ -113,8 +113,9 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		if (shown.kind !== "item") live.textContent = "";
 		if (shown.kind !== "companion") (disposeCompany(), deps.watch(shown.kind === "item" && card?.hist?.isOpen() ? card.hist.key : null), stopLine());
 		const a = shown.kind === "item" ? undefined : deps.activity?.(); // the strip: working and idle units, never an item card's neighbour
-		strip.hidden = !a || a.working + a.idle === 0;
-		if (a) strip.textContent = m.zen_strip(a);
+		const trains = a ? deps.trains?.() : undefined, said = a ? [a.working + a.idle > 0 ? m.zen_strip(a) : "", trains?.count ? (trains.waiting ? m.zen_strip_trains_waiting(trains) : m.zen_strip_trains(trains)) : ""].filter(Boolean) : []; // the trains: their count and, in a parenthesis, how many wait (not a count beside Idle of its own: V-F011), no more (D9)
+		strip.hidden = !said.length;
+		if (a) strip.textContent = said.join(" · ");
 		// A card that waits for Enter (Z-D19) makes no sound and no motion; a page nobody is looking at gets its system notification, once for each card that waits, the ones behind a card on the screen too (Z-D20: the boss who stepped away to answer in the terminal is told of what arrived meanwhile). A page that is looked at gets none.
 		const waiting = model.queued(), nobody = document.hidden || !document.hasFocus();
 		for (const k of reminded) if (!model.listed().includes(k)) reminded.delete(k); // against what the server lists, not `waiting`: the card on the screen is not in it, which would forget its reminder the moment Enter took it

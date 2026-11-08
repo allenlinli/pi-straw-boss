@@ -256,7 +256,7 @@
 }
 /* A short window (a phone turned sideways, a small browser): the card gives the questions the room: no unit sub-line or intro, a smaller name, question and gaps, and a send row that stays one line. */
 @media (max-width: 640px) { /* a phone's strip stands at the left, clear of the corner buttons (the fullscreen, the music with its list, and the menu take the right 160 px) and above the companion's name */
-	[data-view="zen"] .zen-strip { left: max(12px, env(safe-area-inset-left)); translate: none; max-width: calc(100vw - 190px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+	[data-view="zen"] .zen-strip { left: max(12px, env(safe-area-inset-left)); translate: none; max-width: calc(100vw - 190px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.7rem; letter-spacing: 0.02em; } /* the strip says the trains too (todo #125 task 7): a phone's line keeps all four counts in the room the corner leaves it */
 }
 @media (max-width: 600px) { /* a phone: the choices and the gaps are a little tighter, so more of the list is in view before it scrolls */
 	[data-view="zen"] .zen-card:has(.zen-ask) .zen-card-in { gap: 6px; }

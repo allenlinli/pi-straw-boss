@@ -6,7 +6,7 @@ import { type BoardRead, type BoardStep, type CarRow, factsOf, readJsonFile, typ
 import { carFileName, type CarState, noticeStatus } from "../train/cars.ts";
 import { isName, isObject, isoTime, SHA_RE } from "../train/spec.ts";
 import { type FactStep, holding, stepWaits, type TrainFacts, type Wait, waitingTrains } from "../train/waits.ts";
-import type { NetLoad, ProjectYard, YardAccepted, YardCar, YardFormingRow, YardJoin, YardNotice, Yards, YardStep, YardTrainRow } from "../train/yardview.ts";
+import type { NetLoad, ProjectYard, ReasonKind, YardAccepted, YardCar, YardFormingRow, YardJoin, YardNotice, Yards, YardStep, YardTrainRow } from "../train/yardview.ts";
 import { carsFolderOk, readCar } from "../trainboard.ts";
 import { plain } from "./operatesanitize.ts";
 import { readGate, writerAlive } from "./traingate.ts";
@@ -30,6 +30,21 @@ export interface YardDeps {
 	load?: NetLoad;
 	/** Bytes one reading may read from car, notice, evidence and gate files (`READ_BUDGET_BYTES`; tests give less). */
 	budget?: number;
+}
+
+/** What kind of failure a reader's reason text says (`ReasonKind`): read from the readers' own wording, through the prefixes this file adds; a refusal of the validators, whatever it names, is a `shape`. */
+export function reasonKind(reason: string): ReasonKind {
+	const inner = reason.replace(/^(yard\.json|notice file): /, "");
+	if (inner !== reason) return reasonKind(inner);
+	if (/^notice record: /.test(reason)) return "shape";
+	if (/^the (car|train) could not be (read|shown)/.test(reason)) return "failed";
+	if (/^cannot (read|list)\b/.test(reason)) return "io";
+	if (reason === "not a regular file") return "notfile";
+	if (/^file is (.* KB, )?more than \d+ KB$/.test(reason)) return "toobig";
+	if (reason.startsWith("the byte budget")) return "budget";
+	if (reason.startsWith("not JSON")) return "notjson";
+	if (/ is not the folder's |^the file name is not /.test(reason)) return "misplaced";
+	return "shape";
 }
 
 /** Plain text for the page: controls, escapes and bidi marks become spaces, cut to `max`; the state folder's path never leaves (a reason may name it). */
@@ -74,16 +89,16 @@ function noticeLookup(stateDir: string, project: string, budget: ReadBudget, cle
 				let name: string;
 				try { name = carFileName(app, head); } catch { return undefined; }
 				const read = readCar(stateDir, project, name, budget);
-				if (!read.ok) return read.gone ? undefined : { status: "unreadable", reason: clean(read.reason, 200) };
+				if (!read.ok) return read.gone ? undefined : { status: "unreadable", reason: clean(read.reason, 200), kind: reasonKind(read.reason) };
 				// Another car whose head starts alike shares the name: it is not this car's file.
 				if (read.file.app !== app || read.file.car.head !== head) return undefined;
-				if (read.noticeProblem) return { status: "unreadable", reason: clean(read.noticeProblem, 200) };
+				if (read.noticeProblem) return { status: "unreadable", reason: clean(read.noticeProblem, 200), kind: reasonKind(read.noticeProblem) };
 				const latest = read.file.states.at(-1);
 				if (!latest) return undefined;
 				const state: CarState = latest.state, status = noticeStatus(read.notice, state);
 				return status.kind === "pending" ? { state, status: "pending", attempts: status.attempts, ...(status.last ? { last: clean(status.last, 120) } : {}) } : { state, status: status.kind, attempts: status.attempts, at: status.at };
 			} catch (error) {
-				return { status: "unreadable", reason: clean(`the car could not be read: ${(error as Error).message}`, 200) };
+				return { status: "unreadable", reason: clean(`the car could not be read: ${(error as Error).message}`, 200), kind: "failed" };
 			}
 		})();
 		seen.set(key, found);
@@ -133,7 +148,7 @@ export function readYards(deps: YardDeps, join_: YardJoin): Yards | undefined {
 		const trainRow = (read: BoardRead, fact: TrainFacts): YardTrainRow => {
 			if (!read.ok) {
 				const key = unitOf(join_, project, read.code);
-				return { code: read.code, state: "unreadable", reason: clean(read.reason, 200), ...(key ? { key } : {}), cars: [], steps: [] };
+				return { code: read.code, state: "unreadable", reason: clean(read.reason, 200), reasonKind: reasonKind(read.reason), ...(key ? { key } : {}), cars: [], steps: [] };
 			}
 			const { board } = read, key = unitOf(join_, project, board.code, board.writer.session), nods = nodsOf(dirname(read.file), clean, budget);
 			const factSteps = new Map<number, FactStep>(fact.steps.map((s) => [s.id, s]));
@@ -150,6 +165,7 @@ export function readYards(deps: YardDeps, join_: YardJoin): Yards | undefined {
 			const steps = board.steps.toSorted((a, b) => a.id - b.id), shown = steps.slice(-MAX_VIEW_STEPS), held = holding(fact);
 			return {
 				code: board.code, app: board.app, state: fact.state === "unreadable" ? "unreadable" : fact.state, ...(key ? { key } : {}), writerLive: live(read), round: board.round, updated: board.updated,
+				...(board.removed?.length ? { removed: board.removed.slice(0, MAX_VIEW_CARS).map((r) => ({ ticket: clean(r.ticket, 64), why: clean(r.why, 300) })) } : {}),
 				cars: board.cars.slice(0, MAX_VIEW_CARS).map((c) => carView(c, board.app, nods)), steps: shown.map(view), ...(steps.length > shown.length ? { stepsCut: steps.length - shown.length } : {}),
 				...(held.lanes.length || held.targets.length ? { holds: { lanes: held.lanes, targets: held.targets } } : {}),
 			};
@@ -159,7 +175,7 @@ export function readYards(deps: YardDeps, join_: YardJoin): Yards | undefined {
 			try {
 				return trainRow(read, fact);
 			} catch (error) {
-				return { code: read.code, state: "unreadable", reason: clean(`the train could not be shown: ${(error as Error).message}`, 200), cars: [], steps: [] };
+				return { code: read.code, state: "unreadable", reason: clean(`the train could not be shown: ${(error as Error).message}`, 200), reasonKind: "failed", cars: [], steps: [] };
 			}
 		});
 		const forming = yard.ok ? yard.yard.trains.filter((t) => t.status !== "opened").map((t): YardFormingRow => ({
@@ -167,7 +183,7 @@ export function readYards(deps: YardDeps, join_: YardJoin): Yards | undefined {
 		})) : [];
 		projects.push({
 			project, ...(yard.ok ? { integrator: { ...(join_.mains.has(yard.yard.writer.session) ? { key: yard.yard.writer.session } : {}), live: isAlive(yard.yard.writer) } } : {}),
-			...(!yard.ok && !missing ? { problem: clean(`yard.json: ${yard.reason}`, 200) } : {}), forming, trains, waiting: waitingTrains(mine.map((m) => m.fact)),
+			...(!yard.ok && !missing ? { problem: clean(`yard.json: ${yard.reason}`, 200), problemKind: reasonKind(yard.reason) } : {}), forming, trains, waiting: waitingTrains(mine.map((m) => m.fact)),
 		});
 	}
 	const cut = truncated || listed.names.length > MAX_PROJECTS;

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { boardPath, boardState, type Board, capBoard, carsDir, expired, factsOf, MAX_BOARD_BYTES, MAX_TRAINS, readBoard, readTrainboards, readYard, validateBoard, validateTrainTodo, validateYard, writeBoard, writeYard, yardPath, type Yard } from "../src/train/board.ts";
+import { buildBoard } from "../src/trainboard.ts";
 import { CODE, SHA_A } from "./train-fixtures.ts";
 
 // §10 and §11.1: the trainboard Straw Boss derives from a train's todos, how it is written (atomic, private) and read (bounded, strict, never guessed).
@@ -359,4 +360,63 @@ test("F007: the integrator's train todo (§7.4) has its own validator", () => {
 	];
 	for (const [over, status, pattern] of need) assert.ok(validateTrainTodo(train(over), { status }).some((r) => pattern.test(r)), `${status} ${pattern}`);
 	assert.ok(validateTrainTodo(train(), { project: "other" }).some((r) => /names project acme; this integrator's is other/.test(r)));
+});
+
+// ---- task 7: the cars a round left out (§3.5, §11.2)
+
+const REMOVED = [{ ticket: "T-12", why: "unit red: 3 tests failed" }];
+
+test("T7: a board may name the cars its round left out; a board without them stays valid; each field has its own refusal", () => {
+	assert.deepEqual(validateBoard(board({ round: 2, removed: REMOVED })), []);
+	assert.deepEqual(validateBoard(board()), [], "a board without removed is as valid as before");
+	assert.deepEqual(validateBoard(board({ round: 2, removed: [] })), []);
+	const bad: [unknown, RegExp][] = [
+		["T-12", /board\.removed must be a list of at most 32/], [Array.from({ length: 33 }, () => REMOVED[0]), /board\.removed must be a list of at most 32/],
+		[[1], /removed\[0\] must be an object/], [[{ ticket: "T 12", why: "x" }], /removed\[0\]\.ticket/], [[{ ticket: "", why: "x" }], /removed\[0\]\.ticket/], [[{ ticket: "T".repeat(65), why: "x" }], /removed\[0\]\.ticket/],
+		[[{ ticket: "T-12", why: "" }], /removed\[0\]\.why/], [[{ ticket: "T-12", why: "w".repeat(601) }], /removed\[0\]\.why/], [[{ ticket: "T-12", why: "x", evidence: "/p" }], /removed\[0\]\.evidence is not a field/],
+	];
+	for (const [removed, pattern] of bad) {
+		const refusals = validateBoard({ ...board({ round: 2 }), removed });
+		assert.ok(refusals.some((r) => pattern.test(r)), `${pattern}: ${JSON.stringify(refusals)}`);
+	}
+});
+
+/** A row of a train's todo list the way the guard keeps it. */
+const row = (id: number, status: string, sb: object) => ({ id, status, metadata: { sb: { v: 1, project: "acme", app: "web", train: CODE, name: "step", ...sb } } });
+const built = (rows: ReturnType<typeof row>[]) => buildBoard({ project: "acme", code: CODE, app: "web", rows, cars: board().cars, writer: board().writer, now: T0 });
+
+test("T7: buildBoard carries the current round's assemble removed cars as ticket and why, and nothing from an older round or another kind", () => {
+	const round1 = row(1, "completed", { kind: "assemble", round: 1, spec: { cars: ["T-12", "T-15"], removed: [{ ticket: "T-OLD", why: "an older round's" }] } });
+	const void1 = row(2, "completed", { kind: "full-check", round: 1, result: { outcome: "void", why: "superseded" } });
+	const round2 = row(3, "in_progress", { kind: "assemble", round: 2, spec: { cars: ["T-15"], removed: [{ ticket: "T-12", why: "unit red", evidence: "/logs/unit.log" }] } });
+	const merge2 = row(4, "pending", { kind: "merge", round: 2, spec: {} });
+	assert.deepEqual(built([round1, void1, round2, merge2]).removed, [{ ticket: "T-12", why: "unit red" }], "the evidence path stays with the train, the page gets the ticket and the reason");
+	assert.deepEqual(validateBoard(built([round1, void1, round2, merge2])), []);
+	assert.deepEqual(built([round1]).removed, [{ ticket: "T-OLD", why: "an older round's" }], "round 1 may leave a car out too: a manifest car that asked for acceptance (§5.4)");
+	assert.equal("removed" in built([row(1, "completed", { kind: "assemble", round: 1, spec: { cars: ["T-12", "T-15"] } })]), false, "a round 1 that left nothing out has none");
+	assert.equal("removed" in built([row(1, "pending", { kind: "assemble", round: 1, spec: { cars: ["T-15"] } })]), false);
+	assert.equal("removed" in built([round1, row(3, "in_progress", { kind: "assemble", round: 2, spec: { cars: ["T-15"] } })]), false, "a round 2 assemble that removes nothing has none");
+	assert.equal("removed" in built([row(1, "pending", { kind: "merge", round: 1, spec: { removed: [{ ticket: "T-1", why: "x" }] } })]), false, "only an assemble step carries it");
+});
+
+test("T7: buildBoard keeps well-formed removed cars only, at most 32, each reason cut to 600; a train todo that lies cannot spoil the board", () => {
+	const mk = (removed: unknown) => built([row(1, "in_progress", { kind: "assemble", round: 2, spec: { removed } })]);
+	const odd = [{ ticket: "T-1", why: "ok" }, { ticket: "has space", why: "x" }, { ticket: "T-2", why: "" }, { ticket: "T-3" }, "T-4", null, { ticket: "T-5", why: "w".repeat(900) }];
+	const out = mk(odd).removed!;
+	assert.deepEqual(out.map((r) => r.ticket), ["T-1", "T-5"]);
+	assert.equal(out[1]!.why.length, 600);
+	assert.equal(mk(Array.from({ length: 40 }, (_, i) => ({ ticket: `T-${i}`, why: "x" }))).removed!.length, 32);
+	for (const lie of ["T-1", 7, { ticket: "T-1", why: "x" }, []]) assert.equal("removed" in mk(lie), false, JSON.stringify(lie));
+	assert.deepEqual(validateBoard(mk(odd)), []);
+});
+
+test("T7: capBoard keeps removed within the board's size: the reasons shrink with the tiers, a board with 32 long reasons and full cars still writes", () => {
+	const removed = Array.from({ length: 32 }, (_, i) => ({ ticket: `T-${i}-${"t".repeat(50)}`, why: "w".repeat(600) }));
+	assert.deepEqual(capBoard({ ...board({ round: 2 }), removed }).removed, removed, "a board that fits is kept whole");
+	const cars = Array.from({ length: 32 }, (_, i) => ({ tickets: Array.from({ length: 16 }, (_, j) => `T-${i}-${j}-${"t".repeat(40)}`), branch: "b".repeat(255), head: SHA_A, coordinator: "c".repeat(128), departs: "d".repeat(300), accept: "a".repeat(1000), arrived: "2026-11-07T06:00:00Z", accepted: ["e2e"] }));
+	const capped = capBoard({ ...board({ round: 2 }), cars, removed });
+	assert.deepEqual(validateBoard(capped), []);
+	assert.ok(Buffer.byteLength(JSON.stringify(capped)) <= MAX_BOARD_BYTES);
+	assert.doesNotThrow(() => writeBoard(state(), capped));
+	assert.ok(capped.removed!.length >= 1 && capped.removed!.every((r) => r.why.length <= 600 && r.ticket.length <= 64));
 });

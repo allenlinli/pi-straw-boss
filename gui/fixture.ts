@@ -16,6 +16,7 @@ import { docHooks } from "./doc.ts";
 import type { Answer } from "./post.ts";
 import { type Source, WATCHDOG_MS } from "./stream.ts";
 import { openThen } from "./terminalthen.ts";
+import { trainsFromUrl } from "./demo-trains.ts";
 
 // The demo net for `npm run gui:dev`: invented names, state changes on a timer, and a stream that can be dropped to see the
 // disconnected page. It stands in for the server's EventSource, so the real reconnect logic runs against it.
@@ -150,6 +151,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	// `?head=<state>`: the head tower on the net (demo-head.ts); without it the demo has none.
 	const headParam = new URLSearchParams(location.search).get("head"), headNow: HeadState | undefined = isHeadState(headParam) ? headParam : zen?.startsWith("head") ? "answers" : undefined;
 	if (headNow) net.head = headDemo(headNow);
+	trainsFromUrl(net, Date.now()); // `?trains=<state>` (demo-trains.ts)
 	const allyParam = new URLSearchParams(location.search).get("ally"), allyScenes = (allyParam ?? "").split(","); allyDemo(net.link!, allyParam, Date.now(), (ms, change) => void setTimeout(() => ((net = structuredClone(net)), change(net.link!), (net.link!.units[0]!.at = Date.now() - 5_000), current?.send("message", net)), ms)); // `?ally=idle|crashed|trust|held|closing|rerun|stale|long|gone|mate|units|teams`, a comma list (`ask,teams`): the states of the ci-box ally base's unit card (demo-ally.ts)
 	// `?ally=ask`: the ci-box ally base hosts a question that waits (two questions with Send answer and Cancel), for the panel on its card in Standard (gui/allyasks.ts).
 	if (allyScenes.includes("ask")) Object.assign(net.link!.alerts.find((x) => x.id === "dialog/d1/D1")!.data, { answered: undefined, closed: undefined, dialog: JSON.stringify({ cancel: true, questions: [{ question: "Deploy to staging?", header: "Deploy", multiple: false, options: [{ title: "Yes" }, { title: "No" }] }, { question: "Which region?", header: "Region", multiple: false, options: [{ title: "eu-west" }, { title: "us-east" }] }] }) });
@@ -202,7 +204,7 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	const advance = () => {
 		const all = units(net);
 		const pick = all[step % all.length]!;
-		if (pick.pending?.answer || pick.ended || (pick.key === "a3" && zen === "words")) return void step++; // a dialog the page can answer stays until it is answered; a unit whose run is over stays done (src/netdata.ts)
+		if (pick.role === "train" || pick.pending?.answer || pick.ended || (pick.key === "a3" && zen === "words")) return void step++; // a dialog the page can answer stays until it is answered; a unit whose run is over stays done (src/netdata.ts)
 		const options = NEXT[pick.mark];
 		pick.mark = step % 17 === 16 ? "error" : options[step % options.length]!;
 		if (pick.mark === "waiting" && Date.now() < quietUntil) pick.mark = "working"; // ?zen=idle|alone

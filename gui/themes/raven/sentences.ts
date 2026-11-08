@@ -103,5 +103,6 @@ export const SENTENCES: SentencePack = {
 		link_mains: "血僕（{count}）",
 		link_main_stop_aria: "停止血僕 {name}",
 		link_main_stop_ask: "要請 {box} 停止血僕 {name} 嗎？「停止」等它閒下來才結束；「中斷並停止」會先中止它進行中的回合。由那台機器決定，結果會通知你。",
+		yard_notice_escalated: "已上報管家：{ticket} 的協調者聯絡不上",
 	},
 };

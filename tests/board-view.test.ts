@@ -138,6 +138,17 @@ test("a line whose session is still open but is no longer a main is an ended row
 	assert.deepEqual([by["gone-1"]!.open, by["gone-1"]!.clearable], [undefined, true]);
 });
 
+test("a session the broker lists but Herdr's reading has no pane for is open too: its ended row says so, as `/boss board` does (BV2-F002)", async () => {
+	const dir = state();
+	write(dir, "paneless-1", "between panes", 40 * MIN);
+	write(dir, "gone-1", "closed", 40 * MIN);
+	const paneless = { id: "paneless-1", name: "paneless", status: "idle" } as Session;
+	const net = await netSource({ run: herdr, sessions: async () => [...sessions(), paneless], sessionDir: "/s", board: boardSeam({ dir, now: () => NOW }) }).read();
+	const by = Object.fromEntries(net.board!.filter((r) => r.state === "ended").map((r) => [r.session, r]));
+	assert.equal(by["paneless-1"]!.open, true, "a live broker session is not closed");
+	assert.equal(by["gone-1"]!.open, undefined);
+});
+
 test("the entries are not parsed again while the folder and its files are unchanged; a new, rewritten, or removed file is read", async () => {
 	const dir = state();
 	write(dir, "main-1", "one", MIN);

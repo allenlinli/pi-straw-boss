@@ -10,7 +10,7 @@ import { startGui, type Gui } from "../src/gui.ts";
 import type { Pane, Session, Workspace } from "../src/herdr.ts";
 import { netSource } from "../src/net.ts";
 import { verdictOf } from "../src/operateroutes.ts";
-import { CLEARED_NOTICE, createBoardPanel, type Told } from "../src/server/boardpanel.ts";
+import { CLEARED_NOTICE, createBoardPanel, OPEN_NOTICE, type Told } from "../src/server/boardpanel.ts";
 
 // Clear on the head page's work board (docs/specs/2026-11-09-board-view.md, Server routes): `board/clear {session}` deletes one line, only when the SERVER's own reading now says it is ended or idle over 2 hours, and tells a live writer once.
 
@@ -101,7 +101,8 @@ test("a writer whose session is still open but is no longer a main is told too (
 	write(dir, "gone-1", 40 * MIN);
 	const p = panel(dir);
 	assert.deepEqual(await p.clear({ session: "member-1" }), { status: 200, body: { cleared: true, told: "delivered" } });
-	assert.deepEqual(p.told, [["member-1", CLEARED_NOTICE]]);
+	assert.deepEqual(p.told, [["member-1", OPEN_NOTICE]], "a non-main gets the notice that does not send it to board_set (BV2-F001)");
+	assert.ok(!OPEN_NOTICE.includes("board_set") && !OPEN_NOTICE.includes("idle over 2 hours"));
 	assert.deepEqual(await p.clear({ session: "gone-1" }), { status: 200, body: { cleared: true, told: false } });
 	assert.equal(p.told.length, 1, "the closed session was told nothing");
 });

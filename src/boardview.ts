@@ -84,9 +84,12 @@ export function cachedEntries(read: (dir: string) => Entry[] = readEntries) {
 export function boardSeam(o: { dir: string; now(): number; entries?: (dir: string) => Entry[] }) {
 	const entries = cachedEntries(o.entries);
 	return {
-		rows(net: Pick<Net, "bases">): BoardViewRow[] | undefined {
+		/** `live`: the session ids the broker lists now; a session it lists is open even when Herdr's reading has no pane for it (BV2-F002, the rule `/boss board` uses). */
+		rows(net: Pick<Net, "bases">, live: readonly string[] = []): BoardViewRow[] | undefined {
 			try {
-				const rows = boardRows(entries(o.dir), mainsOfNet(net), o.now(), openSessions(net));
+				const open = openSessions(net);
+				for (const id of live) open.add(id);
+				const rows = boardRows(entries(o.dir), mainsOfNet(net), o.now(), open);
 				return rows.length ? rows : undefined;
 			} catch {
 				return undefined;

@@ -14,6 +14,9 @@ import type { Net } from "../net.ts";
 /** What a live writer is told when its stale line is cleared. */
 export const CLEARED_NOTICE = "The boss cleared your work-board line from the head page (it was idle over 2 hours). If you still work on it, write it again with board_set; if the work is over, nothing to do.";
 
+/** What a writer that is open but no longer a main is told (it cannot write a line with board_set; BV2-F001). */
+export const OPEN_NOTICE = "The boss cleared your old work-board line from the head page: your session is no longer a main, so the line had ended. Nothing to do.";
+
 export interface BoardPanelDeps {
 	/** The board's folder. */
 	dir: string;
@@ -43,7 +46,7 @@ export function createBoardPanel(d: BoardPanelDeps) {
 			// The writer may have written the line again since the reading: a fresh line stands (the file is read once more right before it goes).
 			if (readEntries(d.dir).find((e) => e.session === session)?.updated !== row.updated) return no(409, "changed", "The line was written again just now, so it stays.");
 			removeEntry(d.dir, session);
-			const told: Told = row.state === "ended" && !row.open ? false : await d.tell(session, CLEARED_NOTICE).catch((): Told => false);
+			const told: Told = row.state === "ended" && !row.open ? false : await d.tell(session, row.state === "ended" ? OPEN_NOTICE : CLEARED_NOTICE).catch((): Told => false);
 			return { status: 200, body: { cleared: true, told } };
 		},
 	};

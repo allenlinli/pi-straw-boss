@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { ENDED_MS, type Entry, forAllies, joinLocal, purge, readEntries, STALE_MS, writeEntry } from "../src/board.ts";
+import { ENDED_MS, type Entry, forAllies, joinLocal, purge, readEntries, removeEntry, STALE_MS, writeEntry } from "../src/board.ts";
 import { readBoard } from "../src/boardread.ts";
 import { deriveBoard, scrubBoard } from "../src/boardauto.ts";
 import type { Todo } from "../src/items.ts";
@@ -328,6 +328,31 @@ test("board_set clear: true deletes the entry, takes no text, and auto-fill leav
 	const member = world.agent({ id: "m1", name: "helper", pane: "wA:p2", tab: "wA:t1", deps: { now } });
 	await member.start();
 	await assert.rejects(member.tool("board_set", { clear: true }), /Only the main agent of a tab writes/);
+});
+
+test("the server's Clear (removeEntry from outside the session) does not bring the line back at once: auto-fill compares with what it last wrote, not with the file, and writes again only when the todo list or the name moves", async () => {
+	const a = await main();
+	setTodos(a, LIST);
+	await a.fire("turn_end");
+	assert.ok(entryOf("a1"));
+	removeEntry(boardDir(), "a1"); // what board/clear does (server/boardpanel.ts)
+	await a.fire("turn_end");
+	await a.fire("tool_execution_end", { toolCallId: "c", toolName: "bash" });
+	await a.fire("session_tree");
+	await a.fire("session_compact");
+	assert.equal(entryOf("a1"), undefined, "the same list and name: the cleared line is not written back");
+	setTodos(a, [todo(1, "Write schema", "completed"), todo(2, "Write the CSV writer", "completed"), todo(3, "Ship", "in_progress")]);
+	await a.fire("turn_end");
+	assert.equal(entryOf("a1")!.now, "api-main: Ship", "a move in the list writes it");
+	removeEntry(boardDir(), "a1");
+	await a.tool("boss_rename", { name: "renamed" });
+	assert.equal(entryOf("a1")!.now, "renamed: Ship", "so does a new name");
+	// A board_set line is cleared the same way and stays cleared until the list or the name moves.
+	await a.tool("board_set", { now: "manual" });
+	removeEntry(boardDir(), "a1");
+	await a.fire("turn_end");
+	await a.fire("tool_execution_end", { toolCallId: "c", toolName: "bash" });
+	assert.equal(entryOf("a1"), undefined);
 });
 
 test("a finished todo list is written once as done (n/n) and goes 30 minutes later, without a second write", async () => {

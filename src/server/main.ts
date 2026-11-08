@@ -13,6 +13,7 @@ import { createGuiLink, elsewhereLink, type GuiLink, inProcessLink, NO_LINK } fr
 import type { Run } from "../remote.ts";
 import { herdrListens, intercomOf, RESTART_EVERY_MS, runsAs, serverEnv } from "./client.ts";
 import { createAllows } from "./allows.ts";
+import { tellVia } from "./boardpanel.ts";
 import { allyPort } from "./allyport.ts";
 import { createAsks } from "./asks.ts";
 import { cliBeside, createGuiHost, spawnRestart } from "./guihost.ts";
@@ -556,6 +557,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		listen: o.gui !== false, onAllow: (note) => allows.note(note),
 		slot, kit, log, pid, version, started: () => own.started, runs: (record) => runsAs({ alive, startOf }, record), startedLater: gui.startedLater ?? (o.startOf ? async (other) => o.startOf!(other) : (other) => startedLater(other, { hold: false })), startWaitMs: gui.startWaitMs, waiting: gui.waiting,
 		sessions: async () => (client?.isConnected() ? client.listSessions() : Promise.reject(new Error("pi-intercom is not connected"))),
+		// The work board's Clear tells a live writer once (boardpanel.ts): one intercom message from the server, under a `board_clear` header.
+		tell: tellVia(() => client, serverId(slot)),
 		// The primary server holds the link itself (B3), so the GUI asks the holder in this process as the server, which the holder takes GUI requests from; before it runs, the channel reaches the holder's session. A secondary server holds none and its GUI says so (`no_link`, as its `link` request does): the channel would ask the primary's holder as a session that is not the GUI's host.
 		link: gui.link ?? (!slot.primary ? elsewhereLink() : inProcessLink(createGuiLink({ events: kit.pi.events, id: () => serverId(slot), stateDir: slot.stateDir, agentDir: env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), log: (text) => log.line("link", { text }) }), () => link, () => serverId(slot))),
 		status: () => ({ state: phase === "ready" ? "live" : phase, version, pid, mode, desk, uptimeMs: now() - startedAt, log: fileOf(slot, "log"), ...(own.lastError ? { lastError: own.lastError } : {}) }),

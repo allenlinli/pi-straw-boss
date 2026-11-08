@@ -14,6 +14,7 @@ import { type NetEvent, type Tick, trackActivity } from "./activity.ts";
 import type { TodoSum } from "./todo.ts";
 import { type TrainId, trainFromToken } from "./trainrole.ts";
 import type { NetLoad, YardJoin, Yards } from "./train/yardview.ts";
+import type { BoardSeam, BoardViewRow } from "./boardview.ts";
 import type { TrustAsk } from "./trust/types.ts";
 
 // The whole straw net as one JSON-able snapshot for the browser view: every workspace as a base with its tower, tabs, agents,
@@ -79,8 +80,9 @@ export interface Base { id: string; label: string; mark: Mark; /** Only on a bas
  * `stashed`: the bases put away with /boss stash, waiting to be popped (stash.ts). `trust`: the folders whose agents wait for a trust decision (trust/serve.ts). `link`: Straw Link's teammates' bases, the notices it raises, and the confirms waiting for the boss; absent
  * when Straw Link is not set up or says nothing. `yards`: the trains of this computer, per project, from the trainboard files (docs/specs/2026-11-07-train-workers.md §11.1, server/trainyard.ts); `load`: the 1-minute load average and the core count
  * for the header chip, given only with `yards`, and not on Windows. Both are absent with the merge train off and stay on this computer: the board message, a remote turn and the operate slice never carry them.
+ * `board`: the work board of THIS computer as the boss's own page shows it (boardview.ts, docs/specs/2026-11-09-board-view.md); allies' boards are not in it, and like `yards` it never reaches the link, a remote turn, or the operate slice.
  */
-export interface Net { bases: Base[]; /** The head tower (nethead.ts); present when the server runs the tower service. */ head?: HeadUnit; stashed?: Stashed[]; trust?: TrustAsk[]; events?: NetEvent[]; link?: LinkSummary; yards?: Yards; load?: NetLoad }
+export interface Net { bases: Base[]; /** The head tower (nethead.ts); present when the server runs the tower service. */ head?: HeadUnit; stashed?: Stashed[]; trust?: TrustAsk[]; events?: NetEvent[]; link?: LinkSummary; yards?: Yards; load?: NetLoad; board?: BoardViewRow[] }
 /** What the server may read for a key: the registry entry is the allow list, and paths never come from the browser. */
 export interface Ref { key: string; base: string; name: string; role: string; file?: string; pane?: string; /** The head tower's chapters, oldest first (the last is `file`): the history chains through them (watch.ts). */ chapters?: HeadChapter[] }
 export interface Found extends Ref { live: boolean; successor?: string }
@@ -185,7 +187,7 @@ function joinOf(net: Net): YardJoin {
 	return { trains: units.flatMap((u) => (u.role === "train" && u.train ? [{ key: u.key, project: u.train.project, code: u.train.code }] : [])), mains: new Set(units.filter((u) => u.role === "main").map((u) => u.key)) };
 }
 
-export function netSource(env: { trainyard?: { yards(join: YardJoin): Yards | undefined; load(): NetLoad | undefined }; services?(workspace: string): TowerView | undefined; head?: HeadSeam; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; sessionDir?: string; hub?: { relayed(sessions: Session[], refs: Map<string, Ref>): Relayed }; stashed?(): Stashed[]; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }) {
+export function netSource(env: { board?: BoardSeam; trainyard?: { yards(join: YardJoin): Yards | undefined; load(): NetLoad | undefined }; services?(workspace: string): TowerView | undefined; head?: HeadSeam; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; sessionDir?: string; hub?: { relayed(sessions: Session[], refs: Map<string, Ref>): Relayed }; stashed?(): Stashed[]; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }) {
 	let refs = new Map<string, Ref>(), live: Session[] = [];
 	const gone = new Map<string, { ref: Ref; at: number }>(), sessions = async () => (live = await env.sessions()), dismissed = new Set<string>(), ended = new Set<string>();
 	const lately = trackActivity();
@@ -201,7 +203,7 @@ export function netSource(env: { trainyard?: { yards(join: YardJoin): Yards | un
 			for (const [key, old] of gone) if (next.has(key) || at - old.at > RECENT_MS) gone.delete(key);
 			refs = next;
 			const stashed = env.stashed?.() ?? [], seen = lately(net); // after the dialogs and the finished: the marks the page shows
-			const shown = stashed.length ? { ...seen, stashed } : seen, yards = env.trainyard?.yards(joinOf(shown));
+			const stashing = stashed.length ? { ...seen, stashed } : seen, board = env.board?.rows(stashing), shown = board ? { ...stashing, board } : stashing, yards = env.trainyard?.yards(joinOf(shown));
 			if (!yards) return shown;
 			const load = env.trainyard!.load();
 			return { ...shown, yards, ...(load ? { load } : {}) };

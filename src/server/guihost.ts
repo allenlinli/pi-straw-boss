@@ -36,6 +36,8 @@ import { dropSecrets, keepSecrets, type Lost, readSecrets } from "./guisecrets.t
 import { fileOf, readRecord, type ServerRecord, type Slot, updateRecord, writeJson } from "./record.ts";
 import type { Reply, Request } from "./socket.ts";
 import { type TrainyardOptions, trainyardSeam } from "./trainyard.ts";
+import { boardSeam } from "../boardview.ts";
+import { createBoardPanel } from "./boardpanel.ts";
 
 // The GUI inside the sb server (docs/specs/2026-10-26-sb-backend.md, What moves out of pi sessions, GUI, `gui.json` and its successor): the page's server (gui.ts), the dialog hub, trust questions,
 // spawn and deploys, the closer, the mirrors, documents and uploads, and remote access over Tailscale, which a pi session ran until 0.45.0 (host.ts). It runs on the server's own intercom
@@ -102,6 +104,8 @@ export interface GuiHostOptions {
 	trainyard?: Partial<Pick<TrainyardOptions, "load" | "now" | "alive" | "platform">>;
 	/** The server's book of cars, once it exists (main.ts builds it after the GUI host): the yard tells a car's notice from it (trainyard.ts). */
 	trainCars?: TrainyardOptions["book"];
+	/** One message to a live session from the server (the work board's Clear tells a stale line's writer, boardpanel.ts); whether the broker took it. Without it a clear tells nobody. */
+	tell?(session: string, text: string): Promise<boolean>;
 	/** What the page's server panel shows. */
 	status(): Record<string, unknown>;
 	/** Asks the server to restart as the GUI's button does; the reply goes to the page. */
@@ -233,7 +237,8 @@ export function createGuiHost(o: GuiHostOptions) {
 	};
 	const begin = async (prefer: ReturnType<typeof recorded>, wait: number): Promise<Gui> => {
 		theHub();
-		const net = (current = netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), ...(o.head ? { head: o.head } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub, trainyard: trainyardSeam({ env: cfg.env, stateDir: slot.stateDir, ...(o.trainCars ? { book: o.trainCars } : {}), ...o.trainyard }) }));
+		const boardDir = join(slot.stateDir, "board");
+		const net = (current = netSource({ ...(o.tower ? { services: (workspace: string) => o.tower!.view(workspace) } : {}), ...(o.head ? { head: o.head } : {}), run: cfg.run, world: cfg.world, sessions, stashed: () => stashedList(slot.stateDir), trust, hub, board: boardSeam({ dir: boardDir, now: () => cfg.now() }), trainyard: trainyardSeam({ env: cfg.env, stateDir: slot.stateDir, ...(o.trainCars ? { book: o.trainCars } : {}), ...o.trainyard }) }));
 		// `running` is read by the page's remote buttons, which only come once the server is up.
 		let running!: Gui;
 		// Wi-Fi access belongs to the primary slot (one port, one CA, one name per computer): a secondary server builds the host too, to refuse its requests in words, and never writes lan.json.
@@ -243,6 +248,7 @@ export function createGuiHost(o: GuiHostOptions) {
 				const next = await net.read(), summary = await o.link.summary();
 				return summary && (summary.allies.length || summary.alerts.length || summary.confirms.length) ? { ...next, link: summary } : next;
 			},
+			board: createBoardPanel({ dir: boardDir, read: () => net.read(), tell: o.tell ?? (async () => false) }),
 			net, call: cfg.call, hub, dir: o.bundle ?? BUNDLE, paired: join(dir, "paired.json"), answered, port: prefer.port, remotePort: prefer.remotePort, ...(prefer.keep ? { keep: prefer.keep } : {}), bindWaitMs: wait, desk: cfg.env.STRAW_BOSS_DESK === "1", view, music: musicDirOf(cfg.env),
 			lan: { panel: host.panel, overlay: host.faces, ...(slot.primary ? { file: join(dir, "lan.json") } : {}), notify: host.event, log: (event, fields) => log.line(event, Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? v : JSON.stringify(v)]))) },
 			link: { call: (name, args) => o.link.call(name, args), enable: () => o.link.enable() }, ...(o.operateHost ? { operateHost: o.operateHost() } : {}), ...(o.tower ? { tower: o.tower } : {}), trust: { answer: trust.answer, watch: trust.watch },

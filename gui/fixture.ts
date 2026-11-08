@@ -9,6 +9,7 @@ import { isLinkState, linkDemo } from "./demo-link.ts";
 import { demoOpen } from "./demo-open.ts";
 import { DEMO_BLOCKS_DOC, demoImage } from "./demo-blocks.ts";
 import { DEMO_DOC, DEMO_PAGE, demoHistory, demoScreen, WHOLE } from "./demo-chat.ts";
+import { boardFromUrl } from "./demo-board.ts";
 import { headDemo, headDraft, headHistory, headInput, headReport, type HeadState, isHeadState } from "./demo-head.ts";
 import { answeredHooks } from "./answered.ts";
 import { cardsReply, cardWaits } from "./demo-waits.ts";
@@ -149,8 +150,9 @@ export function createFixture({ resume, tick = 2500 }: { resume(): void; tick?: 
 	[docHooks.post, docHooks.image] = [async () => ({ ok: true, status: 200, body: { accepted: true } }), (_, ref) => demoImage(ref)]; // a Markdown document's blocks: every answer is accepted, and the review block's two pictures are drawn here
 	const demoHistory0 = demoHistory(), history = demoHistory0;
 	// `?head=<state>`: the head tower on the net (demo-head.ts); without it the demo has none.
-	const headParam = new URLSearchParams(location.search).get("head"), headNow: HeadState | undefined = isHeadState(headParam) ? headParam : zen?.startsWith("head") ? "answers" : undefined;
+	const headParam = new URLSearchParams(location.search).get("head"), headNow: HeadState | undefined = isHeadState(headParam) ? headParam : zen?.startsWith("head") ? "answers" : new URLSearchParams(location.search).has("board") ? "talk" : undefined;
 	if (headNow) net.head = headDemo(headNow);
+	boardFromUrl(net, Date.now(), (change) => ((net = structuredClone(net)), change(net), current?.send("message", net))); // `?board` (demo-board.ts)
 	trainsFromUrl(net, Date.now()); // `?trains=<state>` (demo-trains.ts)
 	const allyParam = new URLSearchParams(location.search).get("ally"), allyScenes = (allyParam ?? "").split(","); allyDemo(net.link!, allyParam, Date.now(), (ms, change) => void setTimeout(() => ((net = structuredClone(net)), change(net.link!), (net.link!.units[0]!.at = Date.now() - 5_000), current?.send("message", net)), ms)); // `?ally=idle|crashed|trust|held|closing|rerun|stale|long|gone|mate|units|teams`, a comma list (`ask,teams`): the states of the ci-box ally base's unit card (demo-ally.ts)
 	// `?ally=ask`: the ci-box ally base hosts a question that waits (two questions with Send answer and Cancel), for the panel on its card in Standard (gui/allyasks.ts).

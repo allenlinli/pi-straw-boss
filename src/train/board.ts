@@ -19,7 +19,10 @@ export interface BoardStep {
 	id: number; kind: Kind; name: string; status: StepStatus; round: number;
 	holds?: Holds; load?: LoadSpec; lock?: string; waits?: Wait[]; outcome?: "passed" | "failed" | "void"; why?: "superseded" | "skipped";
 }
-export interface Board { v: 1; project: string; app: string; code: string; writer: Writer; updated: string; round: number; cars: CarRow[]; steps: BoardStep[]; clears?: Clear[] }
+/** A car the current round's assemble step left out (§3.5): its ticket and why, as the page tells it. The evidence path stays in the train's own todo. */
+export interface BoardRemoved { ticket: string; why: string }
+export const MAX_REMOVED = 32;
+export interface Board { v: 1; project: string; app: string; code: string; writer: Writer; updated: string; round: number; cars: CarRow[]; steps: BoardStep[]; clears?: Clear[]; removed?: BoardRemoved[] }
 export interface YardTrain { code: string; app: string; status: "forming" | "departing" | "opened" | "refused"; session?: string; cars: CarRow[]; departs?: { maxCars: number; maxWaitMin: number; oldest: string } }
 export interface Yard { v: 1; project: string; writer: Writer; updated: string; trains: YardTrain[] }
 
@@ -89,6 +92,14 @@ function stepRefusals(step: unknown, path: string): string[] {
 	return out;
 }
 
+function removedRefusals(car: unknown, path: string): string[] {
+	if (!isObject(car)) return [`sb: ${path} must be an object`];
+	const out = unknown(car, ["ticket", "why"], path);
+	if (!(text(car.ticket, CAP.ticket) && !/\s/.test(car.ticket))) out.push(`sb: ${path}.ticket must be a ticket without spaces`);
+	if (!text(car.why, CAP.reason)) out.push(`sb: ${path}.why must be 1 to ${CAP.reason} characters`);
+	return out;
+}
+
 function clearRefusals(clear: unknown, path: string): string[] {
 	if (!isObject(clear)) return [`sb: ${path} must be an object`];
 	const out = unknown(clear, ["lane", "target", "reason", "by", "at"], path);
@@ -111,7 +122,7 @@ export function validateBoard(value: unknown): string[] {
 	if (!isObject(value)) return ["sb: board must be an object"];
 	const big = tooBig(value, "board");
 	if (big.length) return big;
-	const out = unknown(value, ["v", "project", "app", "code", "writer", "updated", "round", "cars", "steps", "clears"], "board");
+	const out = unknown(value, ["v", "project", "app", "code", "writer", "updated", "round", "cars", "steps", "clears", "removed"], "board");
 	if (value.v !== 1) out.push("sb: board.v must be 1");
 	for (const key of ["project", "app"]) if (!(typeof value[key] === "string" && isName(value[key]))) out.push(`sb: board.${key} must be a path-safe name`);
 	if (!isCode(value.code)) out.push("sb: board.code must be YYYY-MM-DD-<letters>");
@@ -131,6 +142,10 @@ export function validateBoard(value: unknown): string[] {
 			if (seen.has(id)) out.push(`sb: board.steps[${i}].id ${String(id)} twice`);
 			seen.add(id);
 		});
+	}
+	if (present(value.removed)) {
+		if (!Array.isArray(value.removed) || value.removed.length > MAX_REMOVED) out.push(`sb: board.removed must be a list of at most ${MAX_REMOVED} cars`);
+		else value.removed.forEach((car, i) => out.push(...removedRefusals(car, `board.removed[${i}]`)));
 	}
 	if (present(value.clears)) {
 		if (!Array.isArray(value.clears) || value.clears.length > MAX_CLEARS) out.push(`sb: board.clears must be a list of at most ${MAX_CLEARS}`);
@@ -275,6 +290,7 @@ export function capBoard(board: Board): Board {
 		...board,
 		cars: cars.slice(0, MAX_CARS).map((c) => car(c, carCaps)),
 		steps: board.steps.slice(0, MAX_STEPS).map(({ waits: w, ...s }) => ({ ...s, name: cut(s.name, stepName), ...(waits && w ? { waits: w.slice(0, 8) } : {}) })),
+		...(board.removed ? { removed: board.removed.slice(0, MAX_REMOVED).map((r) => ({ ticket: cut(r.ticket, CAP.ticket), why: cut(r.why, reason).trim() ? cut(r.why, reason) : "-" })) } : {}),
 		...(board.clears ? { clears: board.clears.slice(0, MAX_CLEARS).map((c) => ({ ...c, ...(c.lane !== undefined ? { lane: cut(c.lane, ref) } : {}), ...(c.target !== undefined ? { target: cut(c.target, ref) } : {}), reason: cut(c.reason, reason), by: cut(c.by, by) })) } : {}),
 	});
 	const tiers = [() => build(board.cars, full, CAP.name, CAP.reason, true), () => build(board.cars, full, CAP.name, CAP.reason, false), () => build(board.cars, short, 32, 120, false), () => build(board.cars, short, 16, 40, false, 32), () => build(board.cars, short, 8, 16, false, 16, 64)];

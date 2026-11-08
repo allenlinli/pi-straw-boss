@@ -39,6 +39,8 @@ export interface YardTrainRow {
 	writerLive?: boolean;
 	round?: number;
 	updated?: string;
+	/** The cars the current round's assemble step left out, with why (a train's second round and after): plain text. */
+	removed?: { ticket: string; why: string }[];
 	cars: YardCar[];
 	steps: YardStep[];
 	/** How many older steps were left out (a train shows its newest 64). */

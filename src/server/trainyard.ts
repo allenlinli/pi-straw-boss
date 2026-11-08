@@ -150,6 +150,7 @@ export function readYards(deps: YardDeps, join_: YardJoin): Yards | undefined {
 			const steps = board.steps.toSorted((a, b) => a.id - b.id), shown = steps.slice(-MAX_VIEW_STEPS), held = holding(fact);
 			return {
 				code: board.code, app: board.app, state: fact.state === "unreadable" ? "unreadable" : fact.state, ...(key ? { key } : {}), writerLive: live(read), round: board.round, updated: board.updated,
+				...(board.removed?.length ? { removed: board.removed.slice(0, MAX_VIEW_CARS).map((r) => ({ ticket: clean(r.ticket, 64), why: clean(r.why, 300) })) } : {}),
 				cars: board.cars.slice(0, MAX_VIEW_CARS).map((c) => carView(c, board.app, nods)), steps: shown.map(view), ...(steps.length > shown.length ? { stepsCut: steps.length - shown.length } : {}),
 				...(held.lanes.length || held.targets.length ? { holds: { lanes: held.lanes, targets: held.targets } } : {}),
 			};

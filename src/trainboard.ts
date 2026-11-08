@@ -1,6 +1,6 @@
 import { chmodSync, lstatSync, mkdirSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type Board, type BoardStep, type CarRow, MAX_CARS, MAX_STEPS, MAX_TRAINS, readJsonFile, type ReadBudget, type Writer, type Yard, type YardTrain, trainboardDir, carsDir } from "./train/board.ts";
+import { type Board, type BoardRemoved, type BoardStep, type CarRow, MAX_CARS, MAX_REMOVED, MAX_STEPS, MAX_TRAINS, readJsonFile, type ReadBudget, type Writer, type Yard, type YardTrain, trainboardDir, carsDir } from "./train/board.ts";
 import { type CarFile, carFileName, type NoticeRecord, validateCarFile, validateNoticeRecord } from "./train/cars.ts";
 import { compareCodes, isCode, isName, isObject, type Json, KINDS, type Kind } from "./train/spec.ts";
 import type { StepStatus, Wait } from "./train/waits.ts";
@@ -65,14 +65,26 @@ function stepOf(row: Row): BoardStep | undefined {
 	};
 }
 
-/** A train's board from its todo list: steps, the current round, its cars, and the waits of the steps in progress. The writer's `clears` are kept. */
+/** The cars the current round's assemble step left out (its `spec.removed`, §3.5): the lowest such step of the round, well-formed entries only (a ticket without spaces, a reason), at most 32, a reason cut to the board's cap. */
+function removedOf(rows: readonly Row[], round: number): BoardRemoved[] {
+	const assemble = rows.filter((row) => { const sb = sbOf(row); return sb?.kind === "assemble" && sb.round === round; }).sort((a, b) => a.id - b.id)[0];
+	const spec = assemble && isObject(sbOf(assemble)?.spec) ? (sbOf(assemble)!.spec as Json) : undefined;
+	if (!Array.isArray(spec?.removed)) return [];
+	return spec.removed.flatMap((car): BoardRemoved[] => {
+		if (!isObject(car) || typeof car.ticket !== "string" || !car.ticket || car.ticket.length > 64 || /\s/.test(car.ticket) || typeof car.why !== "string" || !car.why.slice(0, 600).trim()) return [];
+		return [{ ticket: car.ticket, why: car.why.slice(0, 600) }];
+	}).slice(0, MAX_REMOVED);
+}
+
+/** A train's board from its todo list: steps, the current round, its cars, the cars the round left out, and the waits of the steps in progress. The writer's `clears` are kept. */
 export function buildBoard(i: BoardInput): Board {
 	const steps = i.rows.flatMap((row) => stepOf(row) ?? []).slice(-MAX_STEPS).map((s) => {
 		const waits = s.status === "in_progress" ? i.waits?.(s) ?? [] : [];
 		return waits.length ? { ...s, waits: waits.slice(0, 8) } : s;
 	});
 	const round = steps.reduce((top, s) => Math.max(top, s.round), 1);
-	return { v: 1, project: i.project, app: i.app, code: i.code, writer: i.writer, updated: new Date(i.now).toISOString(), round, cars: i.cars.slice(0, MAX_CARS), steps, ...(i.clears?.length ? { clears: i.clears } : {}) };
+	const removed = removedOf(i.rows, round);
+	return { v: 1, project: i.project, app: i.app, code: i.code, writer: i.writer, updated: new Date(i.now).toISOString(), round, cars: i.cars.slice(0, MAX_CARS), steps, ...(removed.length ? { removed } : {}), ...(i.clears?.length ? { clears: i.clears } : {}) };
 }
 
 const GLYPH = { waiting: "\uF254", running: "\uF04B", passed: "\uF00C", failed: "\uF00D", rollback: "\uF0E2" };

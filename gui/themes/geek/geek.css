@@ -120,3 +120,8 @@
 [data-view="geek"] :is(.head-node, .drawer-head) { background: var(--surface-0); box-shadow: none; }
 [data-view="geek"] .head-btn[aria-current="page"] { background: none; }
 [data-view="geek"] .head-node { border-radius: 4px; border-color: var(--line); animation: none; } /* the band is a plain outlined line; its state is the mark's colour and the chip */
+/* The yard (gui/yard.ts): a terminal's table. A step's state is its text tag in brackets, not a glyph; corners are square; the chips keep their outline. */
+[data-view="geek"] :is(.yard-row, .yard-pill, .yard-chip, .yard-chip-btn, .yard-open) { border-radius: 0; background: none; }
+[data-view="geek"] .yard-pill { border-color: var(--line); } [data-view="geek"] .yard-pill::before { content: "[" attr(data-state) "]"; color: var(--c); font-weight: 400; }
+[data-view="geek"] .yard-pill[data-current] { box-shadow: none; outline: 1px solid var(--text); } [data-view="geek"] .yard-row[data-status="ended"] { opacity: 1; }
+[data-view="geek"] .yard-row::before { content: "[" attr(data-status) "]"; color: var(--dim); font: 12px var(--mono); }

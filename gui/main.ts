@@ -98,7 +98,7 @@ const withZen = (call: (z: Zen) => void) => {
 			remind: (a) => notify.remind(a), sound: host.sound,
 			menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: { ...notify.sound, ...host.menuSound } }, // the corner menu's rows act through the settings page's own switches
 			music: host.music,
-			leave: core.leaveZen, terminals, watch: core.watchLog, companions: host.companions, activity: host.activity, settings: core.openSettings, start: fixture?.start,
+			leave: core.leaveZen, terminals, watch: core.watchLog, companions: host.companions, activity: host.activity, trains: host.trains, settings: core.openSettings, start: fixture?.start,
 		}));
 	});
 	void zenLoading.then(call);
@@ -144,6 +144,7 @@ function draw(net: Net, fresh: Alert[], now: Map<string, Alert>) {
 	moreActs();
 	el("bar-more").toggleAttribute("data-news", headDot(net.head, seenAt()) && !(core.current.view === "head" || (core.current.view === "session" && core.current.ws === HEAD_KEY)));
 	drawer?.net(net);
+	yard?.net(net);
 	if (fresh.length || panels) withPanels((p) => p.alerts(fresh, now, net));
 	timeline.net(net);
 	withFocus((f) => f.net(net));
@@ -315,6 +316,12 @@ document.addEventListener("click", (event) => {
 		const opening = openingOf(button, core.latest?.bases ?? []);
 		if (opening) openTile(spawnTile(opening, (ws, key, tile) => (panels?.tiles.close(tile), core.openSession(ws, key)), () => notify.chime()), true);
 	});
+});
+// The yard (yard.ts, with the model in trains.ts) is a chunk of its own, fetched the first time a base's chip, the header's chip or an integrator's card opens it (data-yard names the projects).
+let yard: ReturnType<typeof import("./yard.ts").mountYard> | undefined;
+document.addEventListener("click", (event) => {
+	const opener = (event.target as Element | null)?.closest?.<HTMLElement>("[data-yard]");
+	if (opener) void import("./yard.ts").then(({ mountYard }) => ((yard ??= mountYard()), core.latest && yard.net(core.latest), yard.open((opener.dataset.yard ?? "").split(" ").filter(Boolean))));
 });
 for (const event of ["focus", "pageshow", "online"]) window.addEventListener(event, () => !document.hidden && resume());
 report(CONNECTING);

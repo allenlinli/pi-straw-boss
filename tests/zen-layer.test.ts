@@ -7,6 +7,7 @@ import type { Pending } from "../src/ask.ts";
 import { El, page, stored } from "./fake-dom.ts";
 import { alertsOf } from "../gui/alerts.ts";
 import { activityOf, companionsOf } from "../gui/zenunits.ts";
+import { zenTrains } from "../gui/trains.ts";
 import type { Chat, HistoryEvent } from "../gui/chat.ts";
 import type { Answer } from "../gui/post.ts";
 import type { With } from "../gui/zenmodel.ts";
@@ -31,7 +32,7 @@ const secret = (): Pending => ({ callId: "c3", tool: "secret_drop", why: "It wai
 const readonly = (): Pending => ({ callId: "c4", tool: "ask_user_question", why: "Two dialogs are open.", asks: [{ header: "A", question: "First?", options: [{ title: "x" }], multiple: false, freeform: false }] });
 const TRUST = { id: "tr", digest: "d".repeat(64), folder: "/work/harbor", found: [{ kind: "skills", path: ".pi/skills", items: ["deploy"], more: 0 }], agents: [{ pane: "1", base: "Harbor", role: "member", at: 5 }] };
 
-function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; /** The companion the visit starts with: the tower `t` unless given; null for none. */ start?: With | null; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean; candidates?: (n: Net | undefined) => { key: string; ws: string }[] } = {}) {
+function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: boolean | null; /** The companion the visit starts with: the tower `t` unless given; null for none. */ start?: With | null; latest?: () => Promise<{ items: Item[]; before?: string }>; z4b?: boolean; /** The strip also says the trains (todo #125 task 7). */ trains?: boolean; candidates?: (n: Net | undefined) => { key: string; ws: string }[] } = {}) {
 	let t = 1_000_000;
 	const timers: { at: number; fn: () => void }[] = [];
 	const calls = { sound: [] as string[], leave: [] as Exit[], watch: [] as (string | null)[], remind: [] as string[], posts: [] as { key: string; action: string; body: Record<string, unknown> }[], trust: [] as Record<string, unknown>[], applied: [] as HistoryEvent[], settings: 0, composers: [] as { key: string; box: El; updates: unknown[]; post: (a: never, b: Record<string, unknown>) => Promise<Answer> }[], logs: [] as string[], embeds: [] as string[], debug: [] as string[], chats: [] as { away(): boolean }[], boxes: 0 };
@@ -60,7 +61,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, start: () => (o.start === null ? undefined : (o.start ?? { key: "t", ws: "w" })),
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
-		...(o.z4b ? { companions: () => (o.candidates ?? companionsOf)(netNow), activity: () => activityOf(netNow), settings: () => void calls.settings++, menu: { sound: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {} } } } : {}),
+		...(o.z4b ? { companions: () => (o.candidates ?? companionsOf)(netNow), activity: () => activityOf(netNow), ...(o.trains ? { trains: () => zenTrains(netNow) } : {}), settings: () => void calls.settings++, menu: { sound: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {} } } } : {}),
 		later: (fn: () => void, ms: number) => {
 			const e = { at: t + ms, fn };
 			timers.push(e);
@@ -1606,6 +1607,27 @@ test("the strip says how many units work and how many are idle, from the core's 
 		assert.ok(!/wait|queue|more/i.test(strip().dump()), "no word about what waits");
 	}
 	assert.deepEqual(shots, ["Working 2 · Idle 2", "Working 2 · Idle 2", "Working 2 · Idle 2"]);
+});
+
+test("task 7 of the train workers: the strip adds the live trains and how many wait, as two numbers, and nothing else of them; no train, no words", async () => {
+	const train = (code: string, waits: boolean) => ({ code, state: "live" as const, cars: [], steps: [{ id: 1, kind: "merge" as const, name: "merge", status: "in_progress" as const, round: 1, waits: waits ? [{ load: { max: 30, now: 42 } }] : [] }] });
+	const yards = { projects: [{ project: "acme", forming: [], waiting: [], trains: [train("2026-11-08-a", true), train("2026-11-08-b", false), { ...train("2026-11-08-c", false), state: "stale" as const }] }] };
+	const r = rig({ z4b: true, trains: true });
+	const strip = () => r.by((el) => el.getAttribute("class") === "zen-strip")[0]!;
+	r.feed({ ...net([unit("a", "working"), unit("i", "idle")]), yards });
+	r.z.show();
+	await r.settle();
+	r.z.key("talk");
+	await r.settle();
+	assert.equal(strip().textContent, `${m.zen_strip({ working: 1, idle: 2 })} · ${m.zen_strip_trains({ count: 2, waiting: 1 })}`);
+	assert.ok(!/ready|step|merge|2026|acme|load/i.test(strip().textContent), "counts only (D9): no project, step, code or load");
+	r.feed(net([unit("a", "working"), unit("i", "idle")]));
+	await r.settle();
+	assert.equal(strip().textContent, "Working 1 · Idle 2", "no yards: the strip is as before");
+	r.feed({ ...net([unit("e", "error")], [], false), yards });
+	await r.settle();
+	assert.equal(strip().hidden, false, "trains alone are enough for the strip");
+	assert.equal(strip().textContent, m.zen_strip_trains({ count: 2, waiting: 1 }));
 });
 
 test("the strip is hidden when no unit works or idles, and the layer without the selector draws none", async () => {

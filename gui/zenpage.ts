@@ -1,6 +1,7 @@
 import type { Net } from "../src/net.ts";
 import { audio } from "./audio.ts";
 import { prefs } from "./prefs.ts";
+import { zenTrains } from "./trains.ts";
 import { activityOf, companionsOf } from "./zenunits.ts";
 import type { mountZen } from "./zen.ts";
 import { createZenSound } from "./zensound.ts";
@@ -16,7 +17,7 @@ export interface ZenPageIo {
 	/** The newest snapshot, if any. */
 	snapshot(): Net | undefined;
 }
-export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companions" | "activity"> & { menuSound: { try(): void; effects(): void } } {
+export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companions" | "activity" | "trains"> & { menuSound: { try(): void; effects(): void } } {
 	let player: { file(): string | undefined } | undefined;
 	const zs = createZenSound(audio, io.sound, () => (player?.file() ? zs.bus() : undefined)); // an effect ducks the music while it plays; Zen's effects play on the page's one audio core, behind the Sound switch
 	return {
@@ -36,5 +37,6 @@ export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companio
 		},
 		companions: () => companionsOf(io.snapshot()),
 		activity: () => activityOf(io.snapshot()),
+		trains: () => zenTrains(io.snapshot()),
 	};
 }

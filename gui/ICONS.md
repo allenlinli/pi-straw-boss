@@ -14,6 +14,7 @@ The browser view's icons come from [game-icons.net](https://game-icons.net), lic
 | You, in the comms log | Person | Delapouite | https://game-icons.net/1x1/delapouite/person.html |
 | Comms channel, incoming messages | Walkie Talkie | Delapouite | https://game-icons.net/1x1/delapouite/walkie-talkie.html |
 | Document tile | Scroll Unfurled | Lorc | https://game-icons.net/1x1/lorc/scroll-unfurled.html |
+| Train (a train worker's unit card) | Steam Locomotive | Delapouite | https://game-icons.net/1x1/delapouite/steam-locomotive.html |
 
 Changes: the black background square of each SVG was removed and the fill set to `currentColor`, so state colors apply; the paths are inlined as an SVG sprite in `index.html`. The icon set's license text: https://github.com/game-icons/icons/blob/master/license.txt
 
@@ -33,6 +34,8 @@ The Raven Keep view draws its own icons (`gui/themes/raven/sprite.svg`), origina
 | Pi pane outside the net | a ghost |
 | Comms channel | a raven |
 | Document tile | a tome |
+
+The train has no Raven Keep twin: the keep shows Standard's Steam Locomotive for it, as it does for any role its sprite does not draw.
 
 The head page's backdrop (`gui/themes/raven/backdrop.webp`) and the raven perched on its gate (`gui/themes/raven/perch.webp`) are raster art made with the same image generator (Codex image generation) for this project, resized and cut; nothing in them is copied.
 

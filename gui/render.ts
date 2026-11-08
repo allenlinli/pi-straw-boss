@@ -21,9 +21,9 @@ import { arrange, can, canIn } from "./boxmodel.ts";
 // is touched and CSS transitions play on state changes. Motion is CSS on transform and opacity only. The unit token (plate, icon, ring,
 // badge) and the keyed `sync` are shared with the focus views, so a unit looks and moves the same on every route.
 
-export const ICON: Record<string, string> = { main: "main", member: "member", subagent: "subagent", outpost: "outpost", outside: "outside", tower: "tower", ally: "tower", run: "tower" };
+export const ICON: Record<string, string> = { main: "main", member: "member", train: "train", subagent: "subagent", outpost: "outpost", outside: "outside", tower: "tower", ally: "tower", run: "tower" };
 export const LABEL: Record<Mark, () => string> = { commanding: m.mark_commanding, working: m.mark_working, waiting: m.mark_waiting, idle: m.mark_idle, done: m.mark_done, error: m.mark_error, unknown: m.mark_unknown };
-const ROLE: Record<string, NounKey> = { ally: "role_ally", run: "role_run", main: "role_main", member: "role_member", subagent: "role_subagent", tower: "role_tower", outpost: "role_outpost", outside: "role_outside", session: "role_session" };
+const ROLE: Record<string, NounKey> = { ally: "role_ally", run: "role_run", main: "role_main", member: "role_member", train: "role_train", subagent: "role_subagent", tower: "role_tower", outpost: "role_outpost", outside: "role_outside", session: "role_session" };
 /** The server's fixed status words; any other note (a subagent's tool or phase) shows as it is. */
 const NOTE: Record<string, () => string> = { thinking: m.note_thinking, "watching a monitor": m.note_monitoring, idle: m.mark_idle, "waiting on a question": m.mark_waiting, finished: m.mark_done };
 /** A role as the page names it; one it does not know shows as it is. */
@@ -140,7 +140,12 @@ function ticks(card: HTMLElement, list: Unit["ticks"] = []) {
 	}));
 }
 
-export const unitEl = () => html(`<div class="unit"><div class="card"><a class="hit"></a>${PLATE}<div class="meta"><span class="name"></span><span class="line"><em class="role"></em><em class="agent"></em><span class="note"></span><span class="age"></span></span><span class="todo" hidden><b></b><span></span></span></div><button type="button" class="quit-btn" data-close="unit" hidden></button><span class="ticks" aria-hidden="true"></span></div><div class="subs"></div></div>`);
+/** The note line of each train's unit card and the integrators' unit keys with their project, from the net being drawn (trains.ts); set by `show` before the cards are filled. */
+let trainNote = new Map<string, string>(), integrators = new Map<string, string>();
+export const useYards = (notes: Map<string, string>, owners: Map<string, string>) => void ([trainNote, integrators] = [notes, owners]);
+// The yards' model (trains.ts: the counts, the chips, the wait words) is a chunk of its own, fetched with the first snapshot that carries yards; until it is here the chips and notes wait, and the map is drawn again as it arrives.
+let yardsModel: typeof import("./trains.ts") | undefined, loadingYards: Promise<void> | undefined;
+export const unitEl = () => html(`<div class="unit"><div class="card"><a class="hit"></a>${PLATE}<div class="meta"><span class="name"></span><span class="line"><em class="role"></em><em class="agent"></em><span class="note"></span><span class="age"></span></span><span class="todo" hidden><b></b><span></span></span><button type="button" class="yard-open" hidden></button></div><button type="button" class="quit-btn" data-close="unit" hidden></button><span class="ticks" aria-hidden="true"></span></div><div class="subs"></div></div>`);
 /** A card draws what the chat's live line and the dossier draw: a unit that is not live (an ended subagent) keeps no working mark and no tool (liveMark, liveNote). */
 export function fillUnit(el: HTMLElement, u: Omit<Unit, "id" | "key" | "control" | "role" | "subs"> & { key?: string; control?: boolean; role: Unit["role"] | "outpost"; subs?: Unit[] }) {
 	const ws = el.closest<HTMLElement>(".base")?.dataset.key, hit = el.querySelector(".hit")!, mk = liveMark(u, undefined, u.mark), note = closed(u) ? undefined : u.note;
@@ -152,7 +157,10 @@ export function fillUnit(el: HTMLElement, u: Omit<Unit, "id" | "key" | "control"
 	text(el, ".name", u.name);
 	text(el, ".role", roleName(u.role));
 	text(el, ".agent", u.agent ? AGENT[u.agent] : "");
-	say(el, ".note", note, mk);
+	say(el, ".note", note, mk, (u.key && !closed(u) && trainNote.get(u.key)) || undefined);
+	const opens = u.key ? integrators.get(u.key) : undefined, yard = el.querySelector<HTMLElement>(":scope > .card .yard-open")!; // an integrator's card opens its project's yard (yard.ts)
+	yard.hidden = !opens;
+	if (opens) (yard.dataset.yard = opens, text(el, ":scope > .card .yard-open", m.yard_open()));
 	age(el.querySelector(":scope > .card .age")!, u.since);
 	const todo = el.querySelector<HTMLElement>(":scope > .card .todo")!;
 	todo.hidden = !u.todo;
@@ -172,7 +180,7 @@ export function aimOpening(button: HTMLElement, b: Base, tab?: string) {
 	if (button.textContent !== (kind === "main" ? m.open_main() : m.open_member())) button.textContent = kind === "main" ? m.open_main() : m.open_member();
 }
 
-const baseMarkup = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use data-icon="tower"/></svg><b class="badge"></b></div><div class="title"><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><p class="box-line" hidden><b class="box-dev"></b><span class="box-team"></span><span class="box-seen" hidden><span class="bs-state"></span><span class="bs-when"> · <span class="bs-pre"></span><span class="age"></span><span class="bs-post"></span></span></span></p><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${noun("outposts")}"></div><p class="box-ended" role="status" hidden></p><details class="box-runs" hidden><summary></summary><ul class="box-run-list"></ul><button type="button" class="pair-btn box-more" hidden></button></details><details class="box-ally" hidden><summary></summary><div class="box-ally-in"></div></details></section>`);
+const baseMarkup = () => html(`<section class="base"><header><div class="tower"><i class="sweep"></i><i class="pulse"></i><svg><use data-icon="tower"/></svg><b class="badge"></b></div><div class="title"><h2><a class="enter-base"></a></h2><p><span class="tstate"></span><span class="tqueue"></span><span class="age"></span></p><div class="allies" hidden></div><button type="button" class="pair-btn yard-chip-btn" hidden></button><p class="box-line" hidden><b class="box-dev"></b><span class="box-team"></span><span class="box-seen" hidden><span class="bs-state"></span><span class="bs-when"> · <span class="bs-pre"></span><span class="age"></span><span class="bs-post"></span></span></span></p><button type="button" class="quit-btn tower-quit" data-close="unit" hidden></button></div><button type="button" class="quit-btn" data-close="base"></button></header><div class="subs tower-subs"></div><div class="tower-notices"></div><div class="spawn-btns"><button type="button" class="pair-btn"></button><button type="button" class="pair-btn" data-close="stash"></button></div><div class="tabs"></div><div class="outposts" data-label="${noun("outposts")}"></div><p class="box-ended" role="status" hidden></p><details class="box-runs" hidden><summary></summary><ul class="box-run-list"></ul><button type="button" class="pair-btn box-more" hidden></button></details><details class="box-ally" hidden><summary></summary><div class="box-ally-in"></div></details></section>`);
 /** A phone keeps a base's Quit behind a `⋯` in its header (style.css, "A phone's menus"); above 640 px the menu is `display: contents`, so the button stays where it was. */
 const baseEl = () => {
 	const el = baseMarkup();
@@ -187,7 +195,7 @@ let boxes: typeof import("./box.ts") | undefined, loadingBox: Promise<void> | un
 const waitingBoxes = new Map<HTMLElement, [Base, AllyCard[] | undefined, LinkSummary | undefined]>();
 export const loadBox = (): Promise<void> => (loadingBox ??= import("./box.ts").then((x) => ((boxes = x), waitingBoxes.forEach((args, card) => x.fillBox(card, ...args)), waitingBoxes.clear()), () => void (loadingBox = undefined)));
 /** `under`: the ally cards a live remote base takes in (boxmodel.ts `arrange`), with the link summary they are drawn from. */
-export function fillBase(el: HTMLElement, b: Base, { under, link }: { under?: AllyCard[]; link?: LinkSummary } = {}) {
+export function fillBase(el: HTMLElement, b: Base, { under, link, yard }: { under?: AllyCard[]; link?: LinkSummary; yard?: { projects: string[]; chip: string } } = {}) {
 	mark(el, b.mark);
 	el.classList.toggle("remote", Boolean(b.box));
 	if (b.box) (el.dataset.box = b.box.state, (el.dataset.can = b.box.can.join(" "))); // before the units: they read it (boxmodel.ts `canIn`)
@@ -209,6 +217,10 @@ export function fillBase(el: HTMLElement, b: Base, { under, link }: { under?: Al
 	aimTower(el.querySelector(".tower-quit")!, b.tower, (a) => can(b, a));
 	sync(el.querySelector(".tower-subs")!, b.tower?.subs ?? [], unitEl, fillUnit);
 	fillAllies(el.querySelector(".title .allies")!, b.id, b.tower?.service);
+	const chip = el.querySelector<HTMLElement>(".yard-chip-btn")!; // the base's yard: the trains of the projects whose integrator or trains this base holds (trains.ts `yardMap`)
+	chip.hidden = !yard;
+	if (yard) (chip.dataset.yard = yard.projects.join(" "), chip.textContent !== yard.chip && (chip.textContent = yard.chip), chip.title = m.yard_chip_title());
+	else delete chip.dataset.yard;
 	fillNotices(el.querySelector(".tower-notices")!, b.id, b.tower?.service, b.tower?.key, undefined, Boolean(b.box));
 	sync(el.querySelector(".tabs")!, b.tabs, () => {
 		const tab = html(`<div class="tab"><h3><span></span><button type="button" class="tab-add"></button><button type="button" class="quit-btn" data-close="tab"></button></h3><div class="units"></div></div>`);
@@ -369,19 +381,29 @@ export function mountPage(): Page {
 	// The header's height, for what sits under it (the side column, the tiles, the dialogs, the comms' height): it wraps on a narrow window.
 	new ResizeObserver(([e]) => document.documentElement.style.setProperty("--hud", `${Math.ceil(e!.borderBoxSize[0]!.blockSize)}px`)).observe(document.querySelector(".hud")!);
 	mountCalm();
-	return {
+	let shown: Net | undefined;
+	const api: Page = {
 		layout,
 		/** The totals in the header: drawn for every route, since the header is always in view. */
 		stats(net) {
 			const units = net.bases.flatMap((b) => [...(b.tower?.subs ?? []), ...b.tabs.flatMap((t) => t.units.flatMap((u) => [u, ...u.subs]))]);
 			const count = (m?: Mark) => String(units.filter((u) => !m || u.mark === m).length);
 			byId("s-commanding", HTMLElement).parentElement!.toggleAttribute("data-on", units.some((u) => u.mark === "commanding"));
+			const T = net.yards ? yardsModel : undefined, loose = T?.yardMap(net).loose ?? [], chip = byId("yard-loose", HTMLElement); // projects no unit of the net places keep a chip of their own in the header
+			chip.hidden = !T || !loose.length;
+			if (T && loose.length) (chip.dataset.yard = loose.join(" "), (chip.textContent = T.chipWords(T.sumCounts(loose.map((p) => T.countsOf(net.yards!.projects.find((x) => x.project === p)!))))), (chip.title = m.yard_chip_title()));
 			for (const [id, value] of [["s-bases", String(net.bases.length)], ["s-agents", count()], ["s-working", count("working")], ["s-commanding", count("commanding")], ["s-waiting", count("waiting")]] as const) byId(id, HTMLElement).textContent = value;
 		},
 		show(net) {
+			const T = net.yards ? yardsModel : undefined, ctx = { now: Date.now(), ...(net.load ? { load: net.load } : {}) };
+			if (net.yards && !yardsModel) loadingYards ??= import("./trains.ts").then((x) => ((yardsModel = x), shown && (api.show(shown), api.stats(shown))), () => void (loadingYards = undefined));
+			shown = net;
+			const map = T?.yardMap(net), counts = new Map((net.yards?.projects ?? []).map((p) => [p.project, T?.countsOf(p)]));
+			useYards(T?.trainNotes(net, ctx) ?? new Map(), map?.integrators ?? new Map());
+			const yardOf = (id: string) => ((projects) => (T && projects?.length ? { projects, chip: T.chipWords(T.sumCounts(projects.map((p) => counts.get(p)!))) } : undefined))(map?.byBase.get(id));
 			const { bases: ordered, loose, under } = arrange(net, mergeAllies(net.link?.allies ?? [])), allies = loose.map((a) => ({ ...a, id: `ally/${a.id}`, ally: true as const })); // local bases, remote bases, then the ally cards no live remote base holds
 			fillHeadNode(byId("head-node", HTMLElement), net.head);
-			sync(bases, [...ordered, ...allies], (item) => ("ally" in item ? allyEl() : baseEl()), (el, item) => ("ally" in item ? fillAlly(el, item, net.link) : fillBase(el, item, { under: under.get(item.id), link: net.link })));
+			sync(bases, [...ordered, ...allies], (item) => ("ally" in item ? allyEl() : baseEl()), (el, item) => ("ally" in item ? fillAlly(el, item, net.link) : fillBase(el, item, { under: under.get(item.id), link: net.link, yard: yardOf(item.id) })));
 			for (const el of bases.children) if (!packed.has(el)) (packed.add(el), pack.observe(el));
 			for (const el of packed) if (!el.isConnected) (packed.delete(el), pack.unobserve(el));
 			requestAnimationFrame(layout);
@@ -390,4 +412,5 @@ export function mountPage(): Page {
 			document.documentElement.classList.toggle("paused", paused);
 		},
 	};
+	return api;
 }

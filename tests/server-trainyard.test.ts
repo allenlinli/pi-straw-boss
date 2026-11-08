@@ -428,3 +428,16 @@ test("the sb server's GUI streams the trains of the state folder with the load, 
 		} finally { await off.close(); }
 	}
 });
+
+test("T7: a train whose round left cars out shows them as ticket and plain-text reason; a board without them shows none, and markup stays inert text", () => {
+	const dir = state();
+	writeBoard(dir, board("acme", M, { round: 2, removed: [{ ticket: "T-12", why: "unit red <b>3</b>\u0007\u202e" }, { ticket: "<i>T-13</i>\u0000", why: "r".repeat(600) }] }));
+	writeBoard(dir, board("acme", N));
+	const acme = projectOf(read(dir)!, "acme"), m = acme.trains.find((t) => t.code === M)!, n = acme.trains.find((t) => t.code === N)!;
+	assert.deepEqual(m.removed![0], { ticket: "T-12", why: "unit red <b>3</b>  " });
+	assert.equal(m.removed![1]!.ticket, "<i>T-13</i> ");
+	assert.ok(m.removed![1]!.why.length <= 300, "the reason is cut for the page");
+	assert.equal("removed" in n, false);
+	writeFileSync(boardPath(dir, "acme", M), JSON.stringify({ ...board("acme", M, { round: 2 }), removed: [{ ticket: "T-12", why: "x", evidence: "/p" }] }));
+	assert.equal(projectOf(read(dir)!, "acme").trains.find((t) => t.code === M)!.state, "unreadable", "a board whose removed is out of shape is refused, as any other field");
+});

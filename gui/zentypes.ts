@@ -52,6 +52,8 @@ export interface ZenDeps {
 	/** The core's candidates for the companion (`[` and `]`), and its counts of working and idle units for the strip (zenunits.ts); unset: no stepping, no strip. */
 	companions?(): Candidate[];
 	activity?(): { working: number; idle: number };
+	/** The live trains and how many of them wait (trains.ts `zenTrains`): the strip says these two numbers and nothing more of the trains (docs/specs/2026-11-07-train-workers.md D9). */
+	trains?(): { count: number; waiting: number };
 	/** The page's settings route (the palette's Settings); unset: no such entry. */
 	settings?(): void;
 	/** The music controls (zenmusicbar.ts): the server's tracks, the player, the stored switch. Unset: no music control. */

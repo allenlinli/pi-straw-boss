@@ -347,7 +347,7 @@ html[data-view="raven"] .connect:is([data-state="offline"], [data-state="replace
 	html[data-view="raven"] .tower[data-mark="working"] > .pulse, html[data-view="raven"] .plate[data-mark="working"]::after { display: none; }
 }
 /* The yard (gui/yard.ts): the keep's ledger of night trains. The sheet takes the keep's panel, titles are serif, the rows are plain bordered cards, and the pills are candle-gold when they wait and crimson when they failed (the tokens above). */
-[data-view="raven"] dialog.sheet.yard { background: #181220; border-color: var(--line); } /* the panel colour with no alpha: --panel lets the page behind the sheet ghost through its text */
+[data-view="raven"] dialog.sheet.yard { background: #181220; border-color: var(--line); border-top-color: var(--rk-rule); } /* the panel colour with no alpha: --panel lets the page behind the sheet ghost through its text */
 [data-view="raven"] :is(.yard-title, .yard-code) { font-family: var(--serif); letter-spacing: 0.04em; } [data-view="raven"] .yard-row { background: var(--surface-0); }
 
 /* Square corners and the keep's two ornaments (boss, 2026-11-08, round 2: 「不該用圓角卡片，並且可以考慮簡易裝飾線」). No card, panel, bar, tile, pill, button, field, or sheet of the Raven view has a rounded corner: three blanket rules (elements, ::before, ::after) set the radius to 0 !important under
@@ -358,19 +358,9 @@ html[data-view="raven"] :not(.plate, .tower, .sweep, .pulse, .ring, .badge, .con
 html[data-view="raven"] :not(.plate, .tower, .sweep, .pulse, .ring, .badge, .connect-ring, .packet, .ava, .portrait, .au-dot, .au-mdot, .link i, .head-btn .dot, .tl-mark:is([data-mark="done"], .joined, .left), .tog, .drawer-head .name, .bar-more[data-news])::after { border-radius: 0 !important; }
 html[data-view="raven"] .plate[data-docs]::before { border-radius: 0; }
 /* Ornament one, a double rule (a line, a gap of two, a line: 4 px, the head band's own) in candle gold on the top edge of each panel; the head band has worn it since the first round. Ornament two, four corner ticks (8 px arms, 1 px, 6 px in from the edge) on the cards that ask for an answer: a sheet, the dock's dialog, the tower card, and a unit's question.
-   Both are the one gold-grey line colour, they take no space beyond the rule's 3 px, and no press (the ticks are a pseudo-element without pointer events). */
-html[data-view="raven"] { --rk-rule: color-mix(in srgb, var(--gold) 50%, var(--line-c)); }
-html[data-view="raven"] .hud, html[data-view="raven"] .base, html[data-view="raven"] .comms-in, html[data-view="raven"] .set-group, html[data-view="raven"] .panel, html[data-view="raven"] dialog.sheet, html[data-view="raven"] .dialog, html[data-view="raven"] .tcard, html[data-view="raven"] .ask { border-top: 4px double var(--rk-rule); }
-html[data-view="raven"] dialog.sheet, html[data-view="raven"] .dialog, html[data-view="raven"] .tcard, html[data-view="raven"] .ask { position: relative; }
-html[data-view="raven"] dialog.sheet::before, html[data-view="raven"] .dialog::before, html[data-view="raven"] .tcard::before, html[data-view="raven"] .ask::before {
-	content: ""; position: absolute; inset: 6px; z-index: 1; pointer-events: none;
-	background:
-		linear-gradient(var(--rk-rule), var(--rk-rule)) 0 0 / 8px 1px no-repeat,
-		linear-gradient(var(--rk-rule), var(--rk-rule)) 0 0 / 1px 8px no-repeat,
-		linear-gradient(var(--rk-rule), var(--rk-rule)) 100% 0 / 8px 1px no-repeat,
-		linear-gradient(var(--rk-rule), var(--rk-rule)) 100% 0 / 1px 8px no-repeat,
-		linear-gradient(var(--rk-rule), var(--rk-rule)) 0 100% / 8px 1px no-repeat,
-		linear-gradient(var(--rk-rule), var(--rk-rule)) 0 100% / 1px 8px no-repeat,
-		linear-gradient(var(--rk-rule), var(--rk-rule)) 100% 100% / 8px 1px no-repeat,
-		linear-gradient(var(--rk-rule), var(--rk-rule)) 100% 100% / 1px 8px no-repeat;
-}
+   Both are the one gold-grey line colour, they take no space beyond the rule's 3 px, and no press. The ticks are background layers of the box itself, not a pseudo-element: a box that scrolls (the dialog, the tower card, a long question) keeps them in its corners, and nothing is positioned (a modal dialog sits in the top layer, where `position: relative` would put it against the document).
+   A question nested in a framed parent (the dock's dialog, a link alert) wears neither, and the yard (no padding: a tick would land on Close) only the rule. */
+html[data-view="raven"] { --rk-rule: color-mix(in srgb, var(--gold) 50%, var(--line-c)); --rk-tick: linear-gradient(var(--rk-rule), var(--rk-rule)); --rk-ticks: var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick), var(--rk-tick); --rk-tick-at: left 6px top 6px, left 6px top 6px, right 6px top 6px, right 6px top 6px, left 6px bottom 6px, left 6px bottom 6px, right 6px bottom 6px, right 6px bottom 6px; --rk-tick-size: 8px 1px, 1px 8px, 8px 1px, 1px 8px, 8px 1px, 1px 8px, 8px 1px, 1px 8px; }
+html[data-view="raven"] .hud, html[data-view="raven"] .base, html[data-view="raven"] .comms-in, html[data-view="raven"] .set-group, html[data-view="raven"] .panel, html[data-view="raven"] dialog.sheet, html[data-view="raven"] .dialog, html[data-view="raven"] .tcard, html[data-view="raven"] .ask:not(.dialog .ask, .link-alert .ask) { border-top: 4px double var(--rk-rule); }
+html[data-view="raven"] dialog.sheet:not(.yard), html[data-view="raven"] .ask:not(.dialog .ask, .link-alert .ask) { background-image: var(--rk-ticks); background-position: var(--rk-tick-at); background-size: var(--rk-tick-size); background-repeat: no-repeat; }
+html[data-view="raven"] .dialog, html[data-view="raven"] .tcard { background-image: var(--rk-ticks), linear-gradient(var(--c1), var(--surface-0) 70%); background-position: var(--rk-tick-at), 0 0; background-size: var(--rk-tick-size), auto; background-repeat: no-repeat; } /* over the gradient Standard paints on them */

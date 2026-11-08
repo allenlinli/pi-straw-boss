@@ -49,8 +49,8 @@ test("rain starts when Sound is on, the page is visible, the browser let it play
 	assert.equal(r.sources.length, 1, "a second refresh does not start a second loop");
 });
 
-test("no rain with Sound off, on a hidden tab, before the browser allows audio, or off the backdrop", () => {
-	for (const off of [{ sound: false }, { hidden: true }, { running: false }, { backdrop: false }] as const) {
+test("no rain with Sound off, on a hidden tab, before the browser allows audio, off the backdrop, or under calm (RS-F002: the brief says no audio when calm; a page left open stops working)", () => {
+	for (const off of [{ sound: false }, { hidden: true }, { running: false }, { backdrop: false }, { calm: true }] as const) {
 		const r = rig();
 		Object.assign(r.env, off);
 		r.w.refresh();
@@ -58,8 +58,8 @@ test("no rain with Sound off, on a hidden tab, before the browser allows audio, 
 	}
 });
 
-test("rain stops, with a short fade, when the view or the page leaves the backdrop, Sound goes off, or the tab hides, and returns with the backdrop", () => {
-	for (const off of [{ backdrop: false }, { sound: false }, { hidden: true }] as const) {
+test("rain stops, with a short fade, when the view or the page leaves the backdrop, Sound goes off, the tab hides, or the page goes calm, and returns with the backdrop (or when calm ends)", () => {
+	for (const off of [{ backdrop: false }, { sound: false }, { hidden: true }, { calm: true }] as const) {
 		const r = rig();
 		r.w.refresh();
 		Object.assign(r.env, off);
@@ -67,10 +67,21 @@ test("rain stops, with a short fade, when the view or the page leaves the backdr
 		const s = r.sources[0]!;
 		assert.deepEqual(s.stopped, [100 + RAIN.fadeOut], JSON.stringify(off));
 		assert.ok(r.gains[0]!.gain.ev.some((e) => e[0] === "target" && e[1] === 0), "faded to 0 first");
-		Object.assign(r.env, { backdrop: true, sound: true, hidden: false });
+		Object.assign(r.env, { backdrop: true, sound: true, hidden: false, calm: false });
 		r.w.refresh();
 		assert.equal(r.rainsLive(), 1, "a new loop after the return");
 	}
+});
+
+test("RS-F007: rain stopped during its fade-in holds the level it reached and falls from there, so the stop is a fade and not a click", () => {
+	const r = rig();
+	r.w.refresh();
+	const g = r.gains[0]!;
+	g.gain.value = 0.012; // the level the fade-in has reached 1 s in
+	g.gain.ev.length = 0;
+	r.env.backdrop = false;
+	r.w.refresh();
+	assert.deepEqual(g.gain.ev, [["cancel", 0, 0], ["set", 0.012, 100], ["target", 0, 100]], "cancel the ramp, hold where it was, then fall to 0");
 });
 
 test("a flash makes one thunder after 1 to 2 s: the wait is a point of [1000, 2000] ms and the thunder plays once, when the wait ends", () => {

@@ -51,14 +51,67 @@ test("the head band, the legend, the crumbs, and the yard's rows and pills have 
 	}
 });
 
-test("the keep's ornament is a gold double rule on top of its panels, and corner ticks on the cards that ask", () => {
-	const top = rules.find((r) => r.parts.includes('html[data-view="raven"] .base') && declarations(r.body).some(([p]) => p === "border-top"));
+/** The subject (the last compound, without its pseudo-element) of each part of a selector. */
+const subjects = (selector: string) => split(selector, ",").map((p) => p.trim().replace(/::[\w-]+$/, "").split(/\s+(?![^(]*\))|\s*[>+~]\s*(?![^(]*\))/).pop()!);
+const tops = () => rules.find((r) => r.parts.includes('html[data-view="raven"] .base') && declarations(r.body).some(([p]) => p === "border-top"))!;
+/** The rules whose declarations include `prop`, with their parts. */
+const setting = (prop: string, from = rules) => from.filter((r) => declarations(r.body).some(([p]) => p === prop));
+const ticksRules = () => setting("background-image").filter((r) => /var\(--rk-ticks\)/.test(r.body));
+
+test("the keep's ornament is a gold double rule on top of its panels", () => {
+	const top = tops();
 	assert.ok(top, "a rule gives the base a border-top");
 	assert.match(declarations(top.body).find(([p]) => p === "border-top")![1], /^4px double /, "a double rule, 4px wide (a line, a gap of two, a line), as the head band wears it");
-	for (const sel of ['dialog.sheet', ".dialog", ".tcard", ".ask", ".hud", ".set-group", ".panel", ".comms-in"]) assert.ok(top.parts.some((p) => p.endsWith(sel)), `${sel} has the double rule`);
-	const ticks = rules.find((r) => r.parts.some((p) => p.endsWith(".ask::before")) && /linear-gradient/.test(r.body));
-	assert.ok(ticks, "the ticks are the ::before of the asking cards");
-	for (const sel of ['dialog.sheet', ".dialog", ".tcard", ".ask"]) assert.ok(ticks.parts.some((p) => p.endsWith(`${sel}::before`)), `${sel} has corner ticks`);
-	assert.equal((/linear-gradient\(/g.exec(ticks.body) ? ticks.body.match(/linear-gradient\(/g)!.length : 0), 8, "four corners, two arms each");
-	assert.match(ticks.body, /pointer-events:\s*none/, "a tick takes no press");
+	for (const sel of ["dialog.sheet", ".dialog", ".tcard", ".hud", ".set-group", ".panel", ".comms-in"]) assert.ok(top.parts.some((p) => p.endsWith(sel)), `${sel} has the double rule`);
+	assert.ok(top.parts.some((p) => /\.ask:not\(/.test(p)), "the question card has it, unless nested");
+});
+
+test("RS-F001: no Raven rule sets `position` on a dialog or a sheet: a modal dialog sits in the top layer, where `relative` computes to absolute against the document and the sheet opens above a scrolled page", () => {
+	const bad = rules.filter((r) => declarations(r.body).some(([p]) => p === "position") && subjects(r.selector).some((s) => /(^|[^\w-])dialog\b|\.sheet\b/.test(s)));
+	assert.deepEqual(bad.map((r) => r.selector), []);
+});
+
+test("RS-F003: an ask nested in a framed parent (the dock's .dialog, a .link-alert) has no rule and no ticks of its own", () => {
+	const top = tops();
+	const ask = top.parts.find((p) => /\.ask:not\(/.test(p))!;
+	assert.match(ask, /:not\([^)]*\.dialog \.ask[^)]*\)/);
+	assert.match(ask, /:not\([^)]*\.link-alert \.ask[^)]*\)/);
+	for (const rule of ticksRules()) for (const part of rule.parts.filter((p) => /\.ask\b/.test(p))) {
+		assert.match(part, /:not\([^)]*\.dialog \.ask[^)]*\)/, part);
+		assert.match(part, /:not\([^)]*\.link-alert \.ask[^)]*\)/, part);
+	}
+});
+
+test("RS-F004: the corner ticks are background layers of the box itself, not a pseudo-element: a box that scrolls keeps them in its corners; 8 gradients, 8px arms, 1px, 6px in from the edge", () => {
+	assert.deepEqual(rules.filter((r) => r.parts.some((p) => /(dialog\.sheet|\.dialog|\.tcard|\.ask)(:not\([^)]*\))*::(before|after)$/.test(p))).map((r) => r.selector), [], "no pseudo-element draws the ticks");
+	const vars = rules.find((r) => r.parts.includes('html[data-view="raven"]') && declarations(r.body).some(([p]) => p === "--rk-ticks"))!;
+	assert.ok(vars, "the ticks are declared once, on the view's root");
+	const d = Object.fromEntries(declarations(vars.body));
+	assert.equal((d["--rk-tick"]!.match(/linear-gradient\(/g) ?? []).length, 1, "one line of the rule's colour");
+	assert.equal((d["--rk-ticks"]!.match(/var\(--rk-tick\)/g) ?? []).length, 8, "four corners, two arms each");
+	assert.equal((d["--rk-tick-at"]!.match(/(left|right) 6px (top|bottom) 6px/g) ?? []).length, 8, "6px in from the edges");
+	assert.deepEqual(d["--rk-tick-size"]!.split(",").map((x) => x.trim()), ["8px 1px", "1px 8px", "8px 1px", "1px 8px", "8px 1px", "1px 8px", "8px 1px", "1px 8px"]);
+	const on = ticksRules();
+	const parts = on.flatMap((r) => r.parts);
+	for (const sel of ["dialog.sheet", ".dialog", ".tcard", ".ask"]) assert.ok(parts.some((p) => p.includes(sel)), `${sel} has ticks`);
+	for (const r of on) {
+		const dd = Object.fromEntries(declarations(r.body));
+		assert.match(dd["background-position"]!, /^var\(--rk-tick-at\)/);
+		assert.match(dd["background-size"]!, /^var\(--rk-tick-size\)/);
+		assert.equal(dd["background-repeat"], "no-repeat");
+		assert.equal(dd.background, undefined, "longhands only: the box keeps its own colour");
+	}
+	// the dialog and the tower card paint a gradient of their own (style.css): the ticks go over it, and it stays
+	const own = on.find((r) => r.parts.some((p) => p.endsWith(".tcard")))!;
+	assert.match(declarations(own.body).find(([p]) => p === "background-image")![1], /^var\(--rk-ticks\), linear-gradient\(var\(--c1\), var\(--surface-0\) 70%\)$/);
+	assert.match(declarations(own.body).find(([p]) => p === "background-position")![1], /^var\(--rk-tick-at\), 0 0$/);
+	assert.match(declarations(own.body).find(([p]) => p === "background-size")![1], /^var\(--rk-tick-size\), auto$/);
+});
+
+test("RS-F005: the yard has the keep's gold rule on top (its own border colour must not beat it) and no ticks (it has no padding: a tick would land on Close)", () => {
+	const yard = rules.find((r) => r.parts.includes('[data-view="raven"] dialog.sheet.yard'))!;
+	const dd = declarations(yard.body);
+	assert.equal(dd.find(([p]) => p === "border-top-color")?.[1], "var(--rk-rule)");
+	assert.ok(dd.findIndex(([p]) => p === "border-top-color") > dd.findIndex(([p]) => p === "border-color"), "after border-color, which sets all four");
+	for (const r of ticksRules()) for (const p of r.parts.filter((x) => x.includes("dialog.sheet"))) assert.match(p, /:not\(\.yard\)/, p);
 });

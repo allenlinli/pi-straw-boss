@@ -174,8 +174,9 @@ export interface LocalRow {
  * The local board: the entries joined with the live mains. A live main shows with its name and tab and the entry it wrote, if any; an entry whose session
  * is not a live main shows as `ended` until 30 minutes after its last update, then not at all. A finished auto entry (all todos done) of a live main is not shown
  * 30 minutes after it was written, and the entry of a main that is idle now, and commands nothing, shows as `stale` once it is over 2 hours old.
+ * `keepEnded` (the boss's own view, docs/specs/2026-11-09-board-view.md): an ended entry shows for as long as its file exists, not 30 minutes; what towers get does not change.
  */
-export function joinLocal(entries: Entry[], mains: LiveMain[], now: number): LocalRow[] {
+export function joinLocal(entries: Entry[], mains: LiveMain[], now: number, o: { keepEnded?: boolean } = {}): LocalRow[] {
 	const byId = new Map(entries.map((e) => [e.session, e]));
 	const live = mains.map((m): LocalRow => {
 		const found = byId.get(m.session), e = found && finished(found) && now - found.updated > ENDED_MS ? undefined : found;
@@ -184,7 +185,7 @@ export function joinLocal(entries: Entry[], mains: LiveMain[], now: number): Loc
 			...(e ? { now: e.now, src: e.src, ...(e.count ? { count: e.count } : {}), ...(e.who ? { who: e.who } : {}), updatedSecondsAgo: Math.max(0, Math.round((now - e.updated) / 1000)), ...(m.state === "idle" && !m.commanding && now - e.updated > STALE_MS ? { stale: true as const } : {}) } : {}), ...(m.cwd ? { cwd: m.cwd } : {}),
 		};
 	});
-	const gone = entries.filter((e) => !mains.some((m) => m.session === e.session) && now - e.updated <= ENDED_MS).map((e): LocalRow => ({
+	const gone = entries.filter((e) => !mains.some((m) => m.session === e.session) && (o.keepEnded || now - e.updated <= ENDED_MS)).map((e): LocalRow => ({
 		session: e.session, workspace: "", tab: "", main: "", state: "ended", now: e.now, items: e.items, src: e.src, ...(e.count ? { count: e.count } : {}), ...(e.who ? { who: e.who } : {}), updatedSecondsAgo: Math.max(0, Math.round((now - e.updated) / 1000)),
 	}));
 	return [...live, ...gone];

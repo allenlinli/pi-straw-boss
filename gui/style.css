@@ -427,7 +427,7 @@ html:not([data-view="zen"]) .wait-box:focus { outline: none; border-color: color
 .dialog[data-wait] footer .wc-skip { text-transform: none; letter-spacing: 0; font-size: 13px; }
 .wait-card[data-host="row"][data-folded="true"] { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; } .wait-card[data-host="row"][data-folded="true"] > .wc-head { flex: 1 1 16em; min-width: 0; } .wait-card[data-host="row"][data-folded="true"] > .wc-acts { flex: 0 0 auto; } .wait-card[data-host="row"][data-folded="true"] > :is(.wc-state, .wc-fail) { flex: 1 1 100%; }
 /* In the comms the same rows sit between the log and the composer. */
-.tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))):not(:has(> .head-log:not([hidden]))):not(:has(> .head-absent:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }
+.tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))):not(:has(> .head-log:not([hidden]))):not(:has(> .head-board:not([hidden]))):not(:has(> .head-absent:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }
 /* The tower's queue on its map card, and the sentence that stands where a standing tower's terminal would be. */
 /* The state line may be long (state, last run, failures), so a base's own line wraps instead of cutting the queue count off. */
 .base:not(.ally) > header .title p { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; white-space: normal; overflow: visible; }
@@ -1267,7 +1267,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 
 /* The head tower's entries and page (docs/specs/2026-11-04-head-tower.md, Standard): the header's crown button with its dot, the map's head node, the page's asks and chapter dividers, and the drawer's first row. */
 .head-btn { position: relative; display: inline-flex; align-items: center; gap: 6px; color: var(--gold); text-decoration: none; }
-.head-btn[hidden], .head-node[hidden], .drawer-head[hidden], .head-asks[hidden], .head-absent[hidden] { display: none; }
+.head-btn[hidden], .head-board[hidden], .head-node[hidden], .drawer-head[hidden], .head-asks[hidden], .head-absent[hidden] { display: none; }
 .head-btn svg { width: 14px; height: 14px; fill: currentColor; flex: none; }
 .head-btn .dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 2px var(--surface-0); }
 .head-btn .dot[hidden] { display: none; }
@@ -1295,6 +1295,25 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 .head-log > summary::after { content: "▾"; flex: none; margin-left: auto; font-size: 18px; line-height: 1; color: var(--text); transition: rotate 0.15s; } .head-log[open] > summary::after { rotate: 180deg; }
 .head-log > summary b { flex: none; } .head-log > summary span { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); }
 .head-log[open] > .head-asks { margin: 0; padding: 0 8px 8px; max-height: calc((var(--vvh, 100vh) - var(--hud, 64px) - 64px) * 0.3); overflow-y: auto; overscroll-behavior: contain; }
+/* The head page's work board (docs/specs/2026-11-09-board-view.md): folded to one line like the log; open, a section per workspace and a row per main. Words carry every state (idle over 2 hours, ended, not written), colour only helps. Buttons and the name link are 44 px tall. */
+.head-board { min-width: 0; margin: 0 0 8px; border: 1px solid var(--line); border-radius: 12px; }
+.head-board > summary { display: flex; align-items: center; gap: 4px 12px; box-sizing: border-box; min-height: 44px; padding: 6px 12px; font-size: 13px; cursor: pointer; list-style: none; }
+.head-board > summary::-webkit-details-marker { display: none; }
+.head-board > summary::after { content: "▾"; flex: none; margin-left: auto; font-size: 18px; line-height: 1; color: var(--text); transition: rotate 0.15s; } .head-board[open] > summary::after { rotate: 180deg; }
+.head-board > summary b { flex: none; } .head-board > summary span { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); }
+.head-board[open] > .board-rows { padding: 0 8px 8px; max-height: calc((var(--vvh, 100vh) - var(--hud, 64px) - 64px) * 0.4); overflow-y: auto; overscroll-behavior: contain; }
+.board-note { margin: 0 4px 4px; font-size: 12px; color: var(--dim); } .board-note:empty { display: none; }
+.board-group { display: grid; gap: 4px; margin: 0 0 8px; } .board-group h4 { margin: 4px 4px 0; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--dim); }
+.board-group ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.board-row { min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.board-row[data-state="ended"] { border-style: dashed; opacity: 0.85; } .board-row[data-stale] { border-color: color-mix(in srgb, var(--gold) 60%, var(--line)); }
+.board-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.board-name { font-size: 13px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; } a.board-name { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); text-decoration: none; } a.board-name:hover, a.board-name:focus-visible { text-decoration: underline; }
+.board-tag, .board-state, .board-age { font-size: 12px; color: var(--dim); } .board-row[data-stale] .board-state { color: var(--gold); }
+.board-now, .board-none { margin: 0 0 4px; overflow-wrap: anywhere; white-space: pre-wrap; } .board-none { color: var(--dim); }
+.board-items > summary { display: flex; align-items: center; min-height: 44px; font-size: 12px; color: var(--dim); cursor: pointer; }
+.board-items ul { margin: 0 0 4px; padding: 0 0 0 4px; } .board-items li { padding: 2px 0; overflow-wrap: anywhere; } .board-items li[data-done="true"] { color: var(--dim); text-decoration: line-through; }
+.board-acts { display: flex; flex-wrap: wrap; gap: 8px; } .board-acts .pair-btn { min-height: 44px; }
 .ask-group[open] > summary > .ask-part { display: none; } .ask-group[open] > summary .ask-foot { padding-left: 0; } /* unfolded, the card shows each text in full below: the clamped copy above it said everything twice */
 .ask-older > .ask-group, .ask-replaced > .ask-group { margin: 0 8px 8px; } .ask-replaced { margin: 0 8px 8px; border-style: dashed; }
 .ask-group > summary, .ask-older > summary, .ask-replaced > summary { display: grid; align-content: center; gap: 3px; box-sizing: border-box; min-height: 44px; padding: 6px 12px; font-size: 13px; cursor: pointer; list-style: none; }

@@ -60,6 +60,7 @@ export const ROUTES: readonly Row[] = [
 	{ method: "POST", path: "remote/**", cross: "refused", note: "As server." },
 	{ method: "POST", path: "lan/**", cross: "refused", note: "As server." },
 	{ method: "POST", path: "head/**", cross: "refused", note: "The head tower is box-wide." },
+	{ method: "POST", path: "board/**", cross: "refused", note: "The work board is this computer's own page (Clear): a box's board is another computer's." },
 ];
 
 const segment = (pattern: string, part: string | undefined) => part !== undefined && part !== "" && (pattern === "*" || pattern.split("|").includes(part));

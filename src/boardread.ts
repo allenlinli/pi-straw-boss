@@ -20,6 +20,14 @@ export interface BoardReadInput {
 	device?: string;
 }
 
+/** The live mains and trains of the net as the join needs them; `label` cleans (or scrubs) the texts the net holds. */
+export function liveMains(net: BoardReadInput["net"], now: number, label: (text: string) => string): LiveMain[] {
+	return netMembers(net.sessions, net.ps).filter((m) => m.role === "main" || m.role === "train").map((m): LiveMain => {
+		const pane = net.ps.find((p) => p.pane_id === m.s.herdrLocation?.paneId);
+		return { session: m.s.id, ...(m.role === "train" ? { role: "train" as const } : {}), name: label(nameOf(m.s)), workspaceId: m.workspace.id, workspace: label(m.workspace.label), tab: label(m.tab.label), state: sessionMark(m.s, pane), commanding: commanding(sessionMark(m.s, pane), subagents(pane, net.ps, now).map((r) => r.mark)) === "commanding", ...(pane?.cwd ? { cwd: pane.cwd } : {}) };
+	});
+}
+
 export async function readBoard(o: BoardReadInput): Promise<Record<string, unknown>> {
 	const scope = o.link.remoteScope();
 	const out: Record<string, unknown> = { note: NOTE };
@@ -27,10 +35,7 @@ export async function readBoard(o: BoardReadInput): Promise<Record<string, unkno
 	if (o.scope !== "remote" && o.device === undefined) {
 		// In a remote turn the labels are scrubbed from the raw text and cut last (the same gate as on the wire).
 		const label = (t: string) => (scope ? allyLabel(t) : clean(t, 40));
-		const mains = netMembers(o.net.sessions, o.net.ps).filter((m) => m.role === "main" || m.role === "train").map((m): LiveMain => {
-			const pane = o.net.ps.find((p) => p.pane_id === m.s.herdrLocation?.paneId);
-			return { session: m.s.id, ...(m.role === "train" ? { role: "train" as const } : {}), name: label(nameOf(m.s)), workspaceId: m.workspace.id, workspace: label(m.workspace.label), tab: label(m.tab.label), state: sessionMark(m.s, pane), commanding: commanding(sessionMark(m.s, pane), subagents(pane, o.net.ps, o.now).map((r) => r.mark)) === "commanding", ...(pane?.cwd ? { cwd: pane.cwd } : {}) };
-		});
+		const mains = liveMains(o.net, o.now, label);
 		purge(o.dir, new Set(o.net.sessions.map((s) => s.id)), o.now);
 		let rows = joinLocal(readEntries(o.dir), mains, o.now);
 		// In a remote turn: only entries of mains inside the project the senders' teams bind. An ended entry has no directory to prove it, so it stays out.

@@ -8,6 +8,7 @@ import "./pbs-loader.ts";
 // document's answer route as the package's Answer, and the element locks once the owner took it; what the server recorded as answered comes with the text and locks the blocks. A review's image resolves only through the document's own capability route.
 
 Object.assign(page, { createTextNode: (text: string) => String(text), createDocumentFragment: () => new El("#fragment") });
+const { INTERACTIVE_KINDS } = await import("pi-better-show");
 const { docHooks, docTile } = await import("../gui/doc.ts");
 const { whenDrawn } = await import("../gui/mdbody.ts");
 const { forgetLocks } = await import("../gui/blocklock.ts");
@@ -104,7 +105,7 @@ test("what the server recorded comes with the text: an answered block opens lock
 test("a record the server could not read says so under the blocks", async () => {
 	docHooks.load = async () => ({ text: DEMO_BLOCKS_DOC, rev: REV, answered: { done: [], pending: [], unreadable: true } });
 	const root = await open(card("docs/plan.md"));
-	assert.ok(root.find((el) => el.getAttribute("class") === "pbs-note").every((el) => /could not be read/i.test(el.textContent)));
+	unsureNotes(root);
 });
 
 test("a document the session no longer shows refuses the answer, the element stays open, and the reason is under it", async () => {
@@ -128,3 +129,11 @@ test("a review item's image resolves only through the document's own capability 
 	const names = await open(card("docs/names.md", { cap: "f".repeat(32) }));
 	assert.deepEqual((names.find((el) => el.tagName === "pbs-review")[0] as Locked).data!.items!.map((i) => i.image), [`doc/${"f".repeat(32)}/%E5%9C%96/%E6%88%AA%E5%9C%96%201.png`, undefined, undefined, undefined], "BS-F006: the names the server serves (any letter or digit) are accepted, no separator or traversal");
 });
+
+/** With the record unreadable, the note under each answerable block says so and a display block's says nothing (PT-F002). */
+function unsureNotes(root: El) {
+	const blocks = root.find((el) => el.getAttribute("class") === "pbs-block"), notes = root.find((el) => el.getAttribute("class") === "pbs-note");
+	assert.equal(notes.length, blocks.length);
+	assert.ok(blocks.some((b) => (INTERACTIVE_KINDS as readonly string[]).includes(b.getAttribute("data-kind") ?? "")), "an answerable block is in the fixture");
+	blocks.forEach((b, i) => assert.equal(/could not be read/i.test(notes[i]!.textContent), (INTERACTIVE_KINDS as readonly string[]).includes(b.getAttribute("data-kind") ?? ""), `the note under ${b.getAttribute("data-kind")}`));
+}

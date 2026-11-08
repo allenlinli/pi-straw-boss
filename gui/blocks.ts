@@ -89,6 +89,7 @@ function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement 
 	const say = (text: string, tone?: string) => ((note.textContent = text), tone ? (note.dataset.tone = tone) : delete note.dataset.tone);
 	/** Why the block takes no answer now: its unit's box is away. Only an open block that can be answered is off for it (a table, a diagram or a card has nothing to submit); an answered one stays as it is, and one on its way stays on its way. */
 	const off = () => (ANSWERS.has(seg.kind) && lock.get(index).state === "open" ? host.away?.why() : undefined);
+	const unsure = () => (known || !ANSWERS.has(seg.kind) ? "" : m.block_unsure_state()); // a display block has no answer whose record could be missing
 	let reason: string | undefined;
 	const view = {
 		show(cell: Cell) {
@@ -108,13 +109,13 @@ function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement 
 			if (now !== undefined) {
 				closeConfirm();
 				say(now);
-			} else if (reason !== undefined && lock.get(index).state === "open") say(known ? "" : m.block_unsure_state());
+			} else if (reason !== undefined && lock.get(index).state === "open") say(unsure());
 			reason = now;
 		},
 	};
 	lock.watch(index, view);
 	host.away?.watch(view);
-	say(known ? "" : m.block_unsure_state());
+	say(unsure());
 	view.show(lock.get(index));
 	const deliver = (answer: Answer, text: string) => {
 		sending = true;

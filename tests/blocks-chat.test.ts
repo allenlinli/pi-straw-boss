@@ -8,6 +8,7 @@ import "./pbs-loader.ts";
 // boss's message to that unit through the composer's input route and its guards; the element locks once the unit took it, and the server's record (read when the log is drawn) keeps it locked after a reload and on every device.
 
 Object.assign(page, { createTextNode: (text: string) => String(text), createDocumentFragment: () => new El("#fragment") });
+const { INTERACTIVE_KINDS } = await import("pi-better-show");
 const { mountChat } = await import("../gui/chat.ts");
 const { whenDrawn, drawing } = await import("../gui/mdbody.ts");
 const { answeredHooks, forgetAnswered } = await import("../gui/answered.ts");
@@ -125,17 +126,24 @@ test("a block the record says is on its way comes up locked and pending, one it 
 	reading = async () => { throw new Error("offline"); };
 	const { show, sent } = mount("S1");
 	const unsure = await show(reply(DEMO_CHAT_BLOCKS));
-	assert.ok(unsure.find((el) => el.getAttribute("class") === "pbs-note").every((el) => /could not be read/i.test(el.textContent)));
+	unsureNotes(unsure);
 	fire(find(unsure, "pbs-suggest")[0]!, { kind: "suggest", fields: [["text", "Go ahead"]], ref: { block: 1 } });
 	await settle();
 	assert.equal(sent.length, 1);
 	assert.deepEqual(find(unsure, "pbs-suggest")[0]!.answered, [["text", "Go ahead"]]);
 });
 
+test("a display block gets no 'could not be read' note: nothing in it can have been answered (PT-F002)", async () => {
+	record = { done: [], pending: [], unreadable: true };
+	const root = await mount("S1").show(reply("A snapshot:\n\n```tree\nroot/\n  a.ts {new}\n```\n"));
+	assert.equal(find(root, "pbs-tree").length, 1, "the tree is drawn");
+	assert.ok(root.find((el) => el.getAttribute("class") === "pbs-note").every((el) => !/could not be read/i.test(el.textContent)), "no note under the tree");
+});
+
 test("a record the server marks unreadable comes up open with the note, even though the request itself went through", async () => {
 	record = { done: [], pending: [], unreadable: true };
 	const root = await mount("S1").show(reply(DEMO_CHAT_BLOCKS));
-	assert.ok(root.find((el) => el.getAttribute("class") === "pbs-note").every((el) => /could not be read/i.test(el.textContent)));
+	unsureNotes(root);
 });
 
 test("a message redrawn while its answer is on its way (a tool result, a reconnect) comes up locked, and locks with the fields when the unit has taken the message", async () => {
@@ -253,3 +261,11 @@ test("R-F001: a box going away turns the blocks already drawn off at the next bo
 		assert.equal(find(root, "pbs-form")[0]!.hasAttribute("inert"), away, `box() again, away ${away}: each call reads the box anew`);
 	}
 });
+
+/** With the record unreadable, the note under each answerable block says so and a display block's says nothing (PT-F002). */
+function unsureNotes(root: El) {
+	const blocks = root.find((el) => el.getAttribute("class") === "pbs-block"), notes = root.find((el) => el.getAttribute("class") === "pbs-note");
+	assert.equal(notes.length, blocks.length);
+	assert.ok(blocks.some((b) => (INTERACTIVE_KINDS as readonly string[]).includes(b.getAttribute("data-kind") ?? "")), "an answerable block is in the fixture");
+	blocks.forEach((b, i) => assert.equal(/could not be read/i.test(notes[i]!.textContent), (INTERACTIVE_KINDS as readonly string[]).includes(b.getAttribute("data-kind") ?? ""), `the note under ${b.getAttribute("data-kind")}`));
+}

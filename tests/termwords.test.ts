@@ -56,6 +56,8 @@ test("every why word the keys, the routes and the box refuse an operate session 
 	for (const file of ["keys.ts", "probe.ts", "control.ts", "operateseam.ts"]) for (const x of source(file).matchAll(/\bwhy: "([a-z-]+)"/g)) words.add(x[1]!);
 	for (const x of source("operateroutes.ts").matchAll(/type Why = ([^;]+);/g)) for (const w of x[1]!.matchAll(/"([a-z-]+)"/g)) words.add(w[1]!);
 	for (const x of source("server/operatescope.ts").matchAll(/REFUSALS = \[([^\]]+)\]/g)) for (const w of x[1]!.matchAll(/"([a-z-]+)"/g)) words.add(w[1]!);
+	// The controller-side host makes refusals of its own (OT-F003).
+	for (const x of source("server/operatehost.ts").matchAll(/\brefusal\("([a-z-]+)"/g)) words.add(x[1]!);
 	words.delete("bad-request"); // answered 400 bad_request, not operate_refused
 	assert.ok(words.has("shell") && words.has("leaves-editor") && words.has("not-granted") && words.has("route"), `${words.size} words found in the sources`);
 	assert.deepEqual([...words].sort(), [...OPERATE_WORDS].sort());

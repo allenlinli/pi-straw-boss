@@ -13,23 +13,24 @@ const PANES = [
 ];
 const at = (id: string, paneId: string): Session => ({ id, herdrLocation: { paneId } as Session["herdrLocation"] });
 
-function setup({ refuse = [] as string[], linger = [] as string[] } = {}) {
-	let live = [at("a", "wA:p1"), at("kid", "wA:p2"), at("b", "wA:p3"), at("tower", "wA:p7"), at("gui", "wB:p1")];
-	const asked: [string, boolean][] = [], ran: string[][] = [], forgot: string[] = [];
+/** `late`: sessions that accept the close and leave the broker's list only after the third wait, as a pi does that quits a second after it answered. `listed` says, for each forgotten session, whether the broker still listed it at that moment. */
+function setup({ refuse = [] as string[], linger = [] as string[], late = [] as string[] } = {}) {
+	let live = [at("a", "wA:p1"), at("kid", "wA:p2"), at("b", "wA:p3"), at("tower", "wA:p7"), at("gui", "wB:p1")], slept = 0;
+	const asked: [string, boolean][] = [], ran: string[][] = [], forgot: string[] = [], listed: boolean[] = [];
 	const close = createCloser({
-		forget: (session) => void forgot.push(session),
+		forget: (session) => void (forgot.push(session), listed.push(live.some((s) => s.id === session))),
 		run: async (args) => (ran.push(args), args[0] === "pane" ? JSON.stringify({ result: { panes: PANES } }) : "{}"),
-		sleep: async () => {},
+		sleep: async () => void (++slept >= 3 && (live = live.filter((s) => !late.includes(s.id)))),
 		me: () => "gui",
 		sessions: async () => live,
 		ask: async (key, keepPane) => {
 			asked.push([key, keepPane]);
 			if (refuse.includes(key)) return { accepted: false, reason: "busy" };
-			if (!linger.includes(key)) live = live.filter((s) => s.id !== key);
+			if (!linger.includes(key) && !late.includes(key)) live = live.filter((s) => s.id !== key);
 			return { accepted: true };
 		},
 	});
-	return { close, asked, ran, forgot, closes: () => ran.filter((a) => a[1] === "close") };
+	return { close, asked, ran, forgot, listed, closes: () => ran.filter((a) => a[1] === "close") };
 }
 
 test("closing a squad quits its agents, keeping their panes, then closes the tab; its subagent goes with the tab", async () => {
@@ -81,6 +82,15 @@ test("a unit that accepts the close is forgotten by its session id; a refusal fo
 	assert.equal((await s.close("unit", { key: "a" })).status, 200);
 	assert.equal((await s.close("unit", { key: "b" })).status, 409);
 	assert.deepEqual(s.forgot, ["a"]);
+});
+
+// OT-F002: a unit's close is accepted before the main has quit (closing.ts schedules the quit after the answer), so the route goes when the broker no longer lists the main, as a batch waits for the exit.
+test("a unit is forgotten once the broker no longer lists it, not on acceptance; one that stays listed is not forgotten", async () => {
+	const s = setup({ late: ["a"] });
+	assert.deepEqual([(await s.close("unit", { key: "a" })).status, s.forgot, s.listed], [200, ["a"], [false]], "forgotten after it left the list");
+	const stuck = setup({ linger: ["a"] });
+	assert.equal((await stuck.close("unit", { key: "a" })).status, 200, "the close was accepted all the same");
+	assert.deepEqual(stuck.forgot, [], "a main that still runs keeps its route");
 });
 
 test("a squad or base that closed forgets every session it quit, and one that stayed open forgets none", async () => {

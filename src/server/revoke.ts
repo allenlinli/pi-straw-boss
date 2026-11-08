@@ -117,6 +117,11 @@ export function createRevoker(d: RevokerDeps) {
 	};
 	return {
 		/**
+		 * Whether the revoker is working on `row`: it carries a stop the box accepted, or the last sweeps found its device short of `dispatch` or its close answered "gone". The route of such a main is the revoker's to let go (its done audit and notice
+		 * come with it), so a close from the page (towers.ts `forget`) leaves the row and asks for a sweep.
+		 */
+		pursues: (row: OpenedMain): boolean => row.stop !== undefined || low.has(row.main) || goneSeen.has(row.main),
+		/**
 		 * One look at every opened main; looks that overlap share the one in flight. With `follow` (a stop was just written) a pass already in flight, which read the rows before it, is followed by one more. A failure is logged and the next sweep tries again.
 		 */
 		sweep: (follow = false): Promise<void> => {

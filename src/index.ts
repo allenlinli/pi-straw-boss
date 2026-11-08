@@ -31,7 +31,8 @@ import { createBossPaths } from "./bosspaths.ts";
 import { type Config, createKit, type Deps } from "./state.ts";
 import { createTools } from "./tools.ts";
 import { createTower } from "./tower.ts";
-import { registerTrainGuard, registerTrainSigns } from "./trainguard.ts";
+import { registerTrainGuard, registerTrainSigns, type TrainGuard } from "./trainguard.ts";
+import { carLink, trainCarTool } from "./traincar.ts";
 import { registerTrust } from "./trust/ask.ts";
 
 export type { Deps } from "./state.ts";
@@ -67,14 +68,18 @@ export function createStrawBoss({ run: given, world: reading, api = herdrApi(), 
 		look?.holdWhile(() => runMode.mode === "run" || Boolean(pi.getFlag("sb-run")));
 		const guard = createGuard(kit, { ...election, openTower: reach.openTower, roles });
 		// A join adds the tools of a joined session, and the tools promote through the membership: each is built with the other's hook.
-		const membership = createMembership(kit, { presence, election, guard, briefing, roles, openTower: reach.openTower, register: () => (tools.addNetTools(), tools.addPromote()), onMain: link.look, control: () => control });
+		// The cars' way to the sb server (traincar.ts): the integrator's and the trains' `train_car` tool, added at the join, and the guard's source for notices.
+		const cars = carLink(kit);
+		let trainGuard: TrainGuard | undefined;
+		const addTrainCar = trainCarTool(kit, () => trainGuard, cars);
+		const membership = createMembership(kit, { presence, election, guard, briefing, roles, openTower: reach.openTower, register: () => (tools.addNetTools(), tools.addPromote(), addTrainCar()), onMain: link.look, control: () => control });
 		// `look` (above) starts and upgrades the sb server (src/server/) and is the way to it; a session that is no part of that has none.
 		const tools = createTools(kit, { ...reach, promote: membership.promote, digest, closeMain: (query) => control.closeMain(query), link, server: look, boardFill: createBoardFill(kit) });
 		const host = createHost(kit, { connected: membership.connected, ask: cfg.ask ?? look?.ask });
 		closeSelf = createClosing(kit);
 		const control = createCloseMain(kit, { closeSelf, check: bridge.stashCheck, turn: bridge.turn });
 		registerSession(kit, { integration: createIntegrationWatch(kit), runMode, briefing, roles, presence, membership, guard, host, reach, digest, control, startTower: createTower(kit, { membership, presence, tools, control, digest, roles, reach }) });
-		registerTrainGuard(kit); // a train's todo and MonitorCreate calls, and the integrator's train todos (nothing loads with the merge train off)
+		trainGuard = registerTrainGuard(kit, cars.client); // a train's todo and MonitorCreate calls, and the integrator's train todos (nothing loads with the merge train off)
 		registerBoss(kit, { runMode, host, membership, reach, closeSelf, stashing: createStashing(kit, { host }), server: look, paths: createBossPaths(kit, { host, server: look, closeSelf, here: host.here }) });
 	};
 }

@@ -127,7 +127,7 @@ test("a session with no sign of a train is untouched while Herdr does not answer
 	assert.equal(await call(plain, "MonitorCreate", { command: "npm test", description: "tests" }), undefined);
 });
 
-test("the pending word is the sign taken at the start, and a settled session is not asked", () => {
+test("the pending word is the sign taken at the start, and a settled session is not asked", async () => {
 	const handlers = new Map<string, (event: Record<string, unknown>, ctx: unknown) => unknown>();
 	const s = { isTrain: false, train: undefined, trainSettled: false, trainSign: false, at: undefined, saved: {} };
 	const kit = {
@@ -136,12 +136,12 @@ test("the pending word is the sign taken at the start, and a settled session is 
 	};
 	registerTrainGuard(kit as never);
 	const ctx = { cwd: "/", sessionManager: { getBranch: () => [] } };
-	const todo = () => handlers.get("tool_call")!({ toolName: "todo", toolCallId: "c", input: { action: "create", subject: "x" } }, ctx) as { reason?: string } | undefined;
-	assert.equal(todo(), undefined, "no sign");
+	const todo = async () => (await handlers.get("tool_call")!({ toolName: "todo", toolCallId: "c", input: { action: "create", subject: "x" } }, ctx)) as { reason?: string } | undefined;
+	assert.equal(await todo(), undefined, "no sign");
 	s.trainSign = true;
-	assert.match(todo()?.reason ?? "", UNSETTLED, "a sign");
+	assert.match((await todo())?.reason ?? "", UNSETTLED, "a sign");
 	s.trainSettled = true;
-	assert.equal(todo(), undefined, "settled as no train");
+	assert.equal(await todo(), undefined, "settled as no train");
 });
 
 test("the signs are read from the env, the saved entry and the pane's record, once", () => {

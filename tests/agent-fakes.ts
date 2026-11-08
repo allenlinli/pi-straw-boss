@@ -12,7 +12,7 @@ export class StubClient extends EventEmitter implements IntercomLike {
 	capabilities: { namespace: string; ownerEligible: boolean }[][] = [];
 	frames: Record<string, unknown>[] = [];
 	sent: { to: string; text: string; messageId?: string }[] = [];
-	deliver: { delivered: boolean; reason?: string } = { delivered: true };
+	deliver: { delivered: boolean; reason?: string; delivery?: "socket_delivered" | "queued" | "failed" | "unknown" } = { delivered: true };
 	private taps = new Set<(message: Broker) => void>();
 	isConnected = () => this.connected;
 	supportsFeature = (feature: string) => this.connected && this.features.has(feature);

@@ -24,8 +24,27 @@ export function compareVersions(a: string, b: string): number | undefined {
 
 const dirs = (path: string): string[] => { try { return readdirSync(path); } catch { return []; } };
 
-/** Every `package.json` of `pi-anchorloop` the agent folder and the project hold. */
+/** The `package.json` of each pi-anchorloop that `<agent>/settings.json` `packages` names (`npm:pi-anchorloop[@v]`, a `git:`/URL source, or a local path): the copies pi loads. Empty when the file lists none or cannot be read. */
+function configured(agentDir: string): string[] {
+	let packages: unknown;
+	try { packages = (JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")) as { packages?: unknown }).packages; } catch { return []; }
+	const out: string[] = [];
+	for (const entry of Array.isArray(packages) ? packages : []) {
+		const source = typeof entry === "string" ? entry : typeof entry === "object" && entry !== null ? (entry as { source?: unknown }).source : undefined;
+		if (typeof source !== "string") continue;
+		const npm = /^npm:(@?[^@\s]+(?:\/[^@\s]+)?)(?:@.*)?$/.exec(source.trim());
+		if (npm) { if (npm[1] === "pi-anchorloop") out.push(join(agentDir, "npm", "node_modules", "pi-anchorloop", "package.json")); continue; }
+		const git = /^(?:git:)?(?:https?:\/\/|ssh:\/\/|git@)?(?:git@)?([^/:\s]+)[/:]([^/\s]+)\/(pi-anchorloop)(?:\.git)?(?:@.*)?\/?$/.exec(source.trim());
+		if (git && /^(git:|https?:|ssh:|git@)/.test(source.trim())) { out.push(join(agentDir, "git", git[1]!, git[2]!, "pi-anchorloop", "package.json")); continue; }
+		if (/^(\/|\.|~)/.test(source.trim()) && /pi-anchorloop\/?$/.test(source.trim())) out.push(join(source.trim().replace(/^~/, process.env.HOME ?? "~"), "package.json"));
+	}
+	return out;
+}
+
+/** Every `package.json` of `pi-anchorloop` that counts: the copies settings.json names when it names any, else those the agent folder and the project hold. */
 function candidates(agentDir: string, cwd?: string): string[] {
+	const named = configured(agentDir);
+	if (named.length) return named;
 	const out = [join(agentDir, "npm", "node_modules", "pi-anchorloop", "package.json")];
 	if (cwd) out.push(join(cwd, ".pi", "npm", "node_modules", "pi-anchorloop", "package.json"));
 	for (const host of dirs(join(agentDir, "git"))) for (const owner of dirs(join(agentDir, "git", host))) out.push(join(agentDir, "git", host, owner, "pi-anchorloop", "package.json"));

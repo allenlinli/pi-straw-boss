@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { checkStages, parseAppAccept } from "./accept.ts";
 import { isObject } from "./spec.ts";
 
@@ -8,15 +8,30 @@ import { isObject } from "./spec.ts";
 
 const MIGRATION = "see docs/how-it-works.md, Moving a project to 0.65.0";
 
+/** The git root of `dir` (the nearest folder at or above it holding `.git`), else `dir` itself. */
+function gitRoot(dir: string): string {
+	for (let d = dir; ; d = dirname(d)) {
+		if (existsSync(join(d, ".git"))) return d;
+		if (dirname(d) === d) return dir;
+	}
+}
+
+/** The apps.json of the project at `dir`, in the order `prompts/apps-config.md` gives: `<root>/.straw-boss/apps.json`, else `<root>/.claude/straw-boss/apps.json`. When neither exists the first is returned, and `both` names the two for the refusal. */
+export function appsFile(dir: string): { file: string; exists: boolean; both: string } {
+	const root = gitRoot(dir), first = join(root, ".straw-boss", "apps.json"), second = join(root, ".claude", "straw-boss", "apps.json");
+	const file = existsSync(first) || !existsSync(second) ? first : second;
+	return { file, exists: existsSync(file), both: `${first} or ${second}` };
+}
+
 export type Apps = { ok: true; file: string; apps: Record<string, unknown>[]; missing?: undefined } | { ok: false; file: string; refusal: string; missing?: true };
 
 /** The `apps` list of `<dir>/.straw-boss/apps.json` (empty when the file names none). A file that is not there is `missing`; one that cannot be read or parsed, or whose `apps` is no list, is a refusal. */
 export function readApps(dir: string): Apps {
-	const file = join(dir, ".straw-boss", "apps.json");
+	const { file, both } = appsFile(dir);
 	let text: string;
 	try { text = readFileSync(file, "utf8"); } catch (error) {
 		const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
-		return { ok: false, file, refusal: `${file} ${missing ? "is not there" : `cannot be read (${(error as Error).message})`}, so integration.accept of the app is unknown`, ...(missing ? { missing: true as const } : {}) };
+		return { ok: false, file: missing ? both : file, refusal: `${missing ? both : file} ${missing ? "is not there" : `cannot be read (${(error as Error).message})`}, so integration.accept of the app is unknown`, ...(missing ? { missing: true as const } : {}) };
 	}
 	let config: unknown;
 	try { config = JSON.parse(text.replace(/^\uFEFF/, "")); } catch (error) { return { ok: false, file, refusal: `${file} cannot be parsed (${(error as Error).message}), so integration.accept of the app is unknown` }; }

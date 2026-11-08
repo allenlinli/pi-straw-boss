@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type HerdrRun, panes } from "./herdr.ts";
+import { appsFile } from "./train/appsconfig.ts";
 import { isCode, isName, shortCode } from "./train/spec.ts";
 
 // The role `train` in Straw Boss's own records (docs/specs/2026-11-07-train-workers.md §3.3). A train is opened by the tower on an integrator's manifest, runs in a tab of its own, and is
@@ -54,7 +55,7 @@ export function maxTrainsOf(value: unknown): number | { refusal: string } {
 }
 /** `maxTrains` of the project in `dir` (`.straw-boss/apps.json`): the default when the file is not there; a file that cannot be read or does not say it right is a refusal, not a guess. */
 export function readMaxTrains(dir: string): number | { refusal: string } {
-	const file = join(dir, ".straw-boss", "apps.json");
+	const { file } = appsFile(dir);
 	let text: string;
 	try { text = readFileSync(file, "utf8"); } catch (error) {
 		return (error as NodeJS.ErrnoException).code === "ENOENT" ? DEFAULT_MAX_TRAINS : { refusal: `${file} cannot be read (${(error as Error).message}), so maxTrains is unknown` };

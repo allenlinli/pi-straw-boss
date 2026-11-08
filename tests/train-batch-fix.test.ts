@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { type Anchorloop, checkAnchorloop, compareVersions } from "../src/train/anchorloop.ts";
+import { readMaxTrains } from "../src/trainrole.ts";
 import { openRefusal, readAppIntegration } from "../src/train/appsconfig.ts";
 import { readYards } from "../src/server/trainyard.ts";
 import { cleanup, forwardEntry, MANIFEST_HEADER, type Reply, rig, type Rig, slipBlock } from "./train-guard-rig.ts";
@@ -18,7 +19,7 @@ const scratch = () => (roots.push(realpathSync(mkdtempSync(join(tmpdir(), "sb-ba
 const ok = async (promise: Promise<Reply>) => { const reply = await promise; assert.equal(reply.ok, true, reply.reason ?? ""); };
 const asRefusal = (reply: Reply) => (assert.equal(reply.ok, false, "the call was blocked"), reply.reason!);
 const refused = async (promise: Promise<Reply>, pattern: RegExp) => assert.match(asRefusal(await promise), pattern);
-const appsFile = (dir: string, text: string) => (mkdirSync(join(dir, ".straw-boss"), { recursive: true }), writeFileSync(join(dir, ".straw-boss", "apps.json"), text));
+const writeApps = (dir: string, text: string) => (mkdirSync(join(dir, ".straw-boss"), { recursive: true }), writeFileSync(join(dir, ".straw-boss", "apps.json"), text));
 const config = (integration: Json | undefined, name = "web") => JSON.stringify({ apps: [{ name, dir: ".", ...(integration ? { integration } : {}) }] });
 
 const trainTodo = (over: Json = {}, car: Json = {}) => ({ v: 1, project: "acme", app: "web", train: CODE, kind: "train", spec: { cars: [{ tickets: ["T-15"], branch: "fix/t-15", head: SHA_A, coordinator: "sess-coord-1", departs: "next", accept: "none", ...car }] }, ...over });
@@ -36,23 +37,23 @@ function evidenceOf(dir: string, kinds: string[]): string {
 test("readAppIntegration gives the accept list of the app and fails closed on a file, an app or an integration it cannot read", () => {
 	const dir = scratch();
 	assert.match((readAppIntegration(dir, "web") as { refusal: string }).refusal, /apps\.json is not there, so integration\.accept of the app is unknown/);
-	appsFile(dir, "{");
+	writeApps(dir, "{");
 	assert.match((readAppIntegration(dir, "web") as { refusal: string }).refusal, /cannot be parsed/);
-	appsFile(dir, config({ base: "develop", accept: ["e2e", "uat"] }));
+	writeApps(dir, config({ base: "develop", accept: ["e2e", "uat"] }));
 	assert.deepEqual(readAppIntegration(dir, "web"), { ok: true, accept: ["e2e", "uat"] });
 	assert.deepEqual(readAppIntegration(dir, "web"), { ok: true, accept: ["e2e", "uat"] });
-	appsFile(dir, config({ base: "develop" }));
+	writeApps(dir, config({ base: "develop" }));
 	assert.deepEqual(readAppIntegration(dir, "web"), { ok: true, accept: [] });
 	assert.match((readAppIntegration(dir, "api") as { refusal: string }).refusal, /has no app named api/);
-	appsFile(dir, config(undefined));
+	writeApps(dir, config(undefined));
 	assert.match((readAppIntegration(dir, "web") as { refusal: string }).refusal, /app web has no integration/);
-	appsFile(dir, config({ accept: "uat" }));
+	writeApps(dir, config({ accept: "uat" }));
 	assert.match((readAppIntegration(dir, "web") as { refusal: string }).refusal, /integration\.accept must be a list of kind names/);
 });
 
 test("an app whose stages still list uat is a config error that names the field and the migration (TB-F002)", () => {
 	const dir = scratch();
-	appsFile(dir, config({ base: "develop", stages: ["merge", "deploy", "uat"] }));
+	writeApps(dir, config({ base: "develop", stages: ["merge", "deploy", "uat"] }));
 	const got = readAppIntegration(dir, "web") as { refusal: string };
 	assert.match(got.refusal, /app web: stages lists "uat"; move it to integration\.accept/);
 	assert.match(got.refusal, /Moving a project to 0\.65\.0/);
@@ -60,7 +61,7 @@ test("an app whose stages still list uat is a config error that names the field 
 	assert.match(openRefusal(dir, undefined)!, /stages lists "uat"/, "a manifest that names no app checks every app with an integration");
 	assert.equal(openRefusal(dir, "api"), undefined, "another app's stages are not this train's");
 	assert.equal(openRefusal(join(dir, "nowhere"), "web"), undefined, "no file: the open reads nothing to refuse (as maxTrains)");
-	appsFile(dir, "{");
+	writeApps(dir, "{");
 	assert.match(openRefusal(dir, "web")!, /cannot be parsed/);
 });
 
@@ -219,4 +220,42 @@ test("with an older pi-anchorloop the train's and the integrator's mutating call
 	assert.equal((await integrator.todo({ action: "create", subject: "plain note" })).ok, true, "a todo with no metadata.sb is none of the integrator's guard");
 	const fine = rig({ main: true, train: false, anchorloop: { ok: true, version: "2.11.0" } });
 	await ok(fine.create(trainTodo()));
+});
+
+// ---- TB2-F001: one apps.json resolver, the prompt's order
+
+test("every apps.json reader takes .straw-boss first, then .claude/straw-boss, from the git root (TB2-F001)", () => {
+	const dir = scratch();
+	mkdirSync(join(dir, ".git"));
+	mkdirSync(join(dir, "sub"));
+	const withUat = JSON.stringify({ integration: { maxTrains: 7 }, apps: [{ name: "web", dir: ".", integration: { stages: ["uat"], accept: ["human"] } }] });
+	const ok = JSON.stringify({ integration: { maxTrains: 5 }, apps: [{ name: "web", dir: ".", integration: { accept: ["human"] } }] });
+	assert.match((readAppIntegration(dir, "web") as { refusal: string }).refusal, /\.straw-boss\/apps\.json or .*\.claude\/straw-boss\/apps\.json is not there/, "neither: both paths named");
+	assert.equal(openRefusal(dir, "web"), undefined);
+	mkdirSync(join(dir, ".claude", "straw-boss"), { recursive: true });
+	writeFileSync(join(dir, ".claude", "straw-boss", "apps.json"), withUat);
+	assert.match(openRefusal(join(dir, "sub"), "web")!, /\.claude\/straw-boss\/apps\.json: app web/, "only .claude: the open refuses uat");
+	assert.match((readAppIntegration(dir, "web") as { refusal: string }).refusal, /\.claude\/straw-boss\/apps\.json/);
+	assert.equal(readMaxTrains(dir), 7);
+	writeApps(dir, ok);
+	assert.deepEqual(readAppIntegration(dir, "web"), { ok: true, accept: ["human"] }, "both: .straw-boss wins");
+	assert.equal(openRefusal(dir, "web"), undefined);
+	assert.equal(readMaxTrains(dir), 5);
+});
+
+// ---- TB2-F002: the copy pi loads
+
+test("checkAnchorloop reads the copy settings.json packages names (TB2-F002)", () => {
+	const agent = scratch();
+	planted(agent, "2.10.1");
+	planted(agent, "2.12.0", ["git", "github.com", "someone", "pi-anchorloop"]);
+	assert.equal(checkAnchorloop({ agentDir: agent }).ok, true, "no settings: the newest copy");
+	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: ["npm:other@1", "npm:pi-anchorloop@2.10.1"] }));
+	assert.match((checkAnchorloop({ agentDir: agent }) as { refusal: string }).refusal, /npm\/node_modules\/pi-anchorloop\/package\.json is 2\.10\.1/, "the npm pin is the loaded copy");
+	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: ["git:github.com/someone/pi-anchorloop"] }));
+	assert.deepEqual(checkAnchorloop({ agentDir: agent }), { ok: true, version: "2.12.0" });
+	const local = scratch();
+	planted(local, "2.9.0", ["checkout"]);
+	writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: [join(local, "checkout")] }));
+	assert.equal(checkAnchorloop({ agentDir: agent }).ok, true, "a local path not named pi-anchorloop is not matched; the lookup stays");
 });

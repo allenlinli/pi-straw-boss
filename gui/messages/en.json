@@ -1379,5 +1379,8 @@
 	"board_clear_ask_ended": "Clear the line of {name} from the board? Its session has ended. “{now}”",
 	"board_clear_ask_stale": "Clear the line of {name} from the board? It has been idle for over 2 hours, and {name} will be told. “{now}”",
 	"board_cleared": "Cleared.",
-	"board_cleared_told": "Cleared; it was told."
+	"board_cleared_told": "Cleared; it was told.",
+	"board_open_word": "not a main",
+	"board_clear_ask_open": "Clear the line of {name} from the board? Its session is open but is no longer a main, and {name} will be told. “{now}”",
+	"board_cleared_queued": "Cleared; the reminder is queued."
 }

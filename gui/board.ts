@@ -20,7 +20,7 @@ export const ASKED_MS = 60_000;
 /** The seam a test replaces: the page's sheet, its post, and the clock. */
 export const io = { choose, post: (path: string, body: Record<string, unknown>): Promise<Answer> => post(path, body), now: () => Date.now(), later: (fn: () => void, ms: number): void => void setTimeout(fn, ms) };
 
-const asked = new Map<string, number>(), sending = new Set<string>(), latest = new WeakMap<HTMLElement, Net | undefined>(), notes = new WeakMap<HTMLElement, string>(), unfolded = new WeakMap<HTMLElement, Set<string>>();
+const asked = new Map<string, number>(), sending = new Set<string>(), clearing = new Set<string>(), latest = new WeakMap<HTMLElement, Net | undefined>(), notes = new WeakMap<HTMLElement, string>(), unfolded = new WeakMap<HTMLElement, Set<string>>();
 type Opts = { locale?: "en" | "zh-TW" };
 const nameOf = (r: BoardViewRow) => r.main || r.session.slice(0, 8);
 const live = (r: BoardViewRow) => r.state !== "ended";
@@ -43,7 +43,7 @@ export function ageText(ms: number, o?: Opts): string {
 	const n = Math.max(0, Math.floor(ms / 1000));
 	return m.board_ago({ age: n < 60 ? m.age_s({ n: String(n) }, o) : n < 3600 ? m.age_m({ n: String(Math.floor(n / 60)) }, o) : n < 86_400 ? m.age_h({ n: String(Math.floor(n / 3600)) }, o) : m.age_d({ n: String(Math.floor(n / 86_400)) }, o) }, o);
 }
-const stateWord = (r: BoardViewRow) => (!live(r) ? m.board_ended_word() : r.stale ? m.board_idle_word() : (LABEL[r.state as Mark] ?? LABEL.unknown)());
+const stateWord = (r: BoardViewRow) => (!live(r) ? (r.open ? m.board_open_word() : m.board_ended_word()) : r.stale ? m.board_idle_word() : (LABEL[r.state as Mark] ?? LABEL.unknown)());
 
 const say = (box: HTMLElement, text: string) => {
 	notes.set(box, text);
@@ -64,10 +64,18 @@ async function ask(box: HTMLElement, row: BoardViewRow) {
 	redraw(box);
 }
 async function clear(box: HTMLElement, row: BoardViewRow) {
-	const sure = await io.choose((live(row) ? m.board_clear_ask_stale : m.board_clear_ask_ended)({ name: nameOf(row), now: row.now ?? "" }), [{ label: m.board_clear(), value: "clear", tone: "danger" }]);
-	if (!sure) return;
-	const r = await io.post("board/clear", { session: row.session }).catch((): Answer => ({ ok: false, status: 0, body: {} }));
-	say(box, r.ok ? (r.body.told ? m.board_cleared_told() : m.board_cleared()) : failure(r));
+	if (clearing.has(row.session)) return;
+	clearing.add(row.session);
+	try {
+		const sure = await io.choose((live(row) ? m.board_clear_ask_stale : row.open ? m.board_clear_ask_open : m.board_clear_ask_ended)({ name: nameOf(row), now: row.now ?? "" }), [{ label: m.board_clear(), value: "clear", tone: "danger" }]);
+		if (!sure) return;
+		redraw(box); // the button is disabled while the request is on its way
+		const r = await io.post("board/clear", { session: row.session }).catch((): Answer => ({ ok: false, status: 0, body: {} }));
+		say(box, r.ok ? (r.body.told === "delivered" ? m.board_cleared_told() : r.body.told === "queued" ? m.board_cleared_queued() : m.board_cleared()) : failure(r));
+	} finally {
+		clearing.delete(row.session);
+		redraw(box);
+	}
 }
 
 function rowOf(box: HTMLElement, net: Net | undefined, r: BoardViewRow, now: number, keep: Set<string>): HTMLElement {
@@ -76,7 +84,7 @@ function rowOf(box: HTMLElement, net: Net | undefined, r: BoardViewRow, now: num
 	const wait = (asked.get(r.session) ?? 0) > now, busy = sending.has(r.session);
 	const askButton = h("button", { type: "button", class: "pair-btn board-ask", title: m.board_ask_title({ name }), ...(wait || busy ? { disabled: "" } : {}) }, wait ? m.board_asked() : m.board_ask());
 	askButton.onclick = () => void ask(box, r);
-	const clearButton = h("button", { type: "button", class: "pair-btn board-clear", title: m.board_clear_title({ name }) }, m.board_clear());
+	const clearButton = h("button", { type: "button", class: "pair-btn board-clear", title: m.board_clear_title({ name }), ...(clearing.has(r.session) ? { disabled: "" } : {}) }, m.board_clear());
 	clearButton.onclick = () => void clear(box, r);
 	const items = r.items.length ? h("details", { class: "board-items" }, h("summary", null, count ? m.board_done({ done: count.done, total: count.total }) : ""), h("ul", null, ...r.items.map((i) => h("li", { "data-done": String(i.done) }, i.t)))) : undefined;
 	if (items) {
@@ -106,7 +114,7 @@ export function fillBoard(box: HTMLElement, net: Net | undefined, force = false,
 	const counts = boardCounts(rows), set = (sel: string, text: string) => { const el = box.querySelector(sel); if (el && el.textContent !== text) el.textContent = text; };
 	set("summary b", m.board_title());
 	set("summary span", counts.text);
-	const sig = JSON.stringify([rows, [...asked].filter(([, until]) => until > now).map(([s]) => s), [...sending], net?.bases.map((b) => b.id)]);
+	const sig = JSON.stringify([rows, [...asked].filter(([, until]) => until > now).map(([s]) => s), [...sending], [...clearing], net?.bases.map((b) => b.id)]);
 	if (force || box.dataset.sig !== sig) {
 		box.dataset.sig = sig;
 		const keep = unfolded.get(box) ?? unfolded.set(box, new Set()).get(box)!, body = box.querySelector<HTMLElement>(".board-rows");

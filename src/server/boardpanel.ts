@@ -9,7 +9,7 @@ import type { Net } from "../net.ts";
 
 // Clear on the head page's work board (docs/specs/2026-11-09-board-view.md, Server routes; boss decisions B3 and B5): `board/clear {session}` deletes one line of this computer's board. Everything is decided from the server's own reading at the
 // click, never from the page's claim: the body names a session id and nothing else is read from it, the file has to exist under the board's folder (no path comes from the body), and the row the server's reading makes of it has to be `ended` or
-// `stale` (idle over 2 hours). A live writer is told once; an ended one is gone and is told nothing.
+// `stale` (idle over 2 hours). A writer whose session is open is told once, a main that went idle and also one that is no longer a main (B5: unless the agent is closed); a session that is not live at all is told nothing.
 
 /** What a live writer is told when its stale line is cleared. */
 export const CLEARED_NOTICE = "The boss cleared your work-board line from the head page (it was idle over 2 hours). If you still work on it, write it again with board_set; if the work is over, nothing to do.";
@@ -19,9 +19,12 @@ export interface BoardPanelDeps {
 	dir: string;
 	/** A fresh reading of the net with its board rows (the server's own, as the pages get it). */
 	read(): Promise<Net>;
-	/** One message to a live session, from the server; whether the broker took it. */
-	tell(session: string, text: string): Promise<boolean>;
+	/** One message to a live session, from the server; see `Told`. */
+	tell(session: string, text: string): Promise<Told>;
 }
+
+/** What became of a notice: `delivered` (the writer's connection took it), `queued` (the broker holds it for a session that is not connected), `false` (not sent, failed, or no word on how). */
+export type Told = "delivered" | "queued" | false;
 
 const no = (status: number, error: string, reason: string): Reply => ({ status, body: { error, reason } });
 
@@ -40,17 +43,18 @@ export function createBoardPanel(d: BoardPanelDeps) {
 			// The writer may have written the line again since the reading: a fresh line stands (the file is read once more right before it goes).
 			if (readEntries(d.dir).find((e) => e.session === session)?.updated !== row.updated) return no(409, "changed", "The line was written again just now, so it stays.");
 			removeEntry(d.dir, session);
-			const told = row.state === "ended" ? false : await d.tell(session, CLEARED_NOTICE).catch(() => false);
+			const told: Told = row.state === "ended" && !row.open ? false : await d.tell(session, CLEARED_NOTICE).catch((): Told => false);
 			return { status: 200, body: { cleared: true, told } };
 		},
 	};
 }
 export type BoardPanel = ReturnType<typeof createBoardPanel>;
 
-/** The server's way to tell a live session: one intercom message under a `board_clear` header, from the server's own session id; whether the broker delivered it (false while it is not connected, or when the send fails). */
-export const tellVia = (client: () => Pick<IntercomLike, "isConnected" | "send"> | undefined, serverId: string) => async (to: string, text: string): Promise<boolean> => {
+/** The server's way to tell a live session: one intercom message under a `board_clear` header, from the server's own session id; `delivered` only when the session's connection took it, `queued` when the broker holds it, `false` while it is not connected, when the send fails, or when the broker says nothing of how. */
+export const tellVia = (client: () => Pick<IntercomLike, "isConnected" | "send"> | undefined, serverId: string) => async (to: string, text: string): Promise<Told> => {
 	const c = client();
 	if (!c?.isConnected()) return false;
 	const message = stamp({ from: { name: "straw boss", id: serverId, role: "session" }, kind: "board_clear", scope: "session", to: [{ name: to, id: to, role: "session" }], reply: false }, text);
-	return (await c.send(to, { text: message, messageId: `board-clear-${randomUUID()}` }).catch(() => undefined))?.delivered === true;
+	const sent = await c.send(to, { text: message, messageId: `board-clear-${randomUUID()}` }).catch(() => undefined);
+	return sent?.delivered !== true ? false : sent.delivery === "socket_delivered" ? "delivered" : sent.delivery === "queued" ? "queued" : false;
 };

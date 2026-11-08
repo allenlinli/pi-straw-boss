@@ -10,7 +10,7 @@ import { startGui, type Gui } from "../src/gui.ts";
 import type { Pane, Session, Workspace } from "../src/herdr.ts";
 import { netSource } from "../src/net.ts";
 import { verdictOf } from "../src/operateroutes.ts";
-import { CLEARED_NOTICE, createBoardPanel } from "../src/server/boardpanel.ts";
+import { CLEARED_NOTICE, createBoardPanel, type Told } from "../src/server/boardpanel.ts";
 
 // Clear on the head page's work board (docs/specs/2026-11-09-board-view.md, Server routes): `board/clear {session}` deletes one line, only when the SERVER's own reading now says it is ended or idle over 2 hours, and tells a live writer once.
 
@@ -22,15 +22,15 @@ const MIN = 60_000, HOUR = 60 * MIN, NOW = Date.parse("2026-11-09T10:00:00Z");
 const ws = (id: string, label: string, tokens: Record<string, string> = {}): Workspace => ({ workspace_id: id, label, tokens });
 const pane = (id: string, tab: string, tokens: Record<string, string>): Pane => ({ pane_id: id, tab_id: tab, workspace_id: "wA", tokens });
 const session = (id: string, name: string, p: string, tab: string, status: string): Session => ({ id, name, status, herdrLocation: { status: "current", paneId: p, workspace: { id: "wA", label: "Alpha" }, tab: { id: tab, label: tab } } } as Session);
-const herdr = async (args: string[]) => JSON.stringify({ result: args[0] === "pane" ? { panes: [pane("wA:p1", "wA:t1", { sb_role: "main" }), pane("wA:p2", "wA:t2", { sb_role: "main" }), pane("wA:p3", "wA:t3", { sb_role: "main" }), pane("wA:p5", "wA:t9", { sb_role: "tower" })] } : { workspaces: [ws("wA", "Alpha", { tower: "tower-a" })] } });
-/** Three live mains: `stale-main` idle, `busy-main` working, `fresh-main` idle; the line files are written by the test. */
-const sessions = async () => [session("tower-a", "tower", "wA:p5", "wA:t9", "idle"), session("stale-main", "billing", "wA:p1", "wA:t1", "idle"), session("busy-main", "reports", "wA:p2", "wA:t2", "working"), session("fresh-main", "mobile", "wA:p3", "wA:t3", "idle")];
+const herdr = async (args: string[]) => JSON.stringify({ result: args[0] === "pane" ? { panes: [pane("wA:p1", "wA:t1", { sb_role: "main" }), pane("wA:p2", "wA:t2", { sb_role: "main" }), pane("wA:p3", "wA:t3", { sb_role: "main" }), pane("wA:p5", "wA:t9", { sb_role: "tower" }), pane("wA:p6", "wA:t1", { sb_role: "member" })] } : { workspaces: [ws("wA", "Alpha", { tower: "tower-a" })] } });
+/** Three live mains: `stale-main` idle, `busy-main` working, `fresh-main` idle; and `member-1`, a live session that is not a main. The line files are written by the test. */
+const sessions = async () => [session("tower-a", "tower", "wA:p5", "wA:t9", "idle"), session("stale-main", "billing", "wA:p1", "wA:t1", "idle"), session("busy-main", "reports", "wA:p2", "wA:t2", "working"), session("fresh-main", "mobile", "wA:p3", "wA:t3", "idle"), session("member-1", "helper", "wA:p6", "wA:t1", "idle")];
 const write = (dir: string, id: string, age: number) => writeEntry(dir, id, { now: `work of ${id}`, items: [{ t: "a", done: false }] }, NOW - age);
 
-function panel(dir: string, o: { told?: boolean; now?: () => number; between?: () => void } = {}) {
+function panel(dir: string, o: { told?: Told; now?: () => number; between?: () => void } = {}) {
 	const told: [string, string][] = [];
 	const source = netSource({ run: herdr, sessions, sessionDir: "/s", board: boardSeam({ dir, now: o.now ?? (() => NOW) }) });
-	const clear = createBoardPanel({ dir, read: async () => { const net = await source.read(); o.between?.(); return net; }, tell: async (id, text) => (told.push([id, text]), o.told ?? true) });
+	const clear = createBoardPanel({ dir, read: async () => { const net = await source.read(); o.between?.(); return net; }, tell: async (id, text) => (told.push([id, text]), o.told ?? "delivered") });
 	return { told, clear: (json: Record<string, unknown>) => clear.clear(json) };
 }
 
@@ -74,7 +74,7 @@ test("a stale line of a live idle main is deleted and its writer is told once, w
 	write(dir, "stale-main", STALE_MS + MIN);
 	write(dir, "fresh-main", STALE_MS - MIN);
 	const a = panel(dir);
-	assert.deepEqual(await a.clear({ session: "stale-main" }), { status: 200, body: { cleared: true, told: true } });
+	assert.deepEqual(await a.clear({ session: "stale-main" }), { status: 200, body: { cleared: true, told: "delivered" } });
 	assert.deepEqual(readdirSync(dir), ["fresh-main.json"], "only that line goes");
 	assert.deepEqual(a.told, [["stale-main", CLEARED_NOTICE]]);
 	assert.equal(CLEARED_NOTICE, "The boss cleared your work-board line from the head page (it was idle over 2 hours). If you still work on it, write it again with board_set; if the work is over, nothing to do.");
@@ -84,6 +84,26 @@ test("a stale line of a live idle main is deleted and its writer is told once, w
 	const b = panel(dir, { told: false });
 	assert.deepEqual(await b.clear({ session: "stale-main" }), { status: 200, body: { cleared: true, told: false } }, "the notice could not be delivered: cleared, not told");
 	assert.ok(!existsSync(join(dir, "stale-main.json")));
+});
+
+test("the answer tells a notice the writer's connection took ('delivered') from one the broker only holds for it ('queued'), and neither from one that was not sent (BV-F005)", async () => {
+	for (const told of ["delivered", "queued", false] as const) {
+		const dir = state();
+		write(dir, "stale-main", STALE_MS + MIN);
+		const p = panel(dir, { told });
+		assert.deepEqual(await p.clear({ session: "stale-main" }), { status: 200, body: { cleared: true, told } });
+	}
+});
+
+test("a writer whose session is still open but is no longer a main is told too (B5: tell unless the agent is closed); only a session that is not live at all gets nothing (BV-F004)", async () => {
+	const dir = state();
+	write(dir, "member-1", 40 * MIN); // a main once, a member now (a takeover): the line is not stale, it is the session's
+	write(dir, "gone-1", 40 * MIN);
+	const p = panel(dir);
+	assert.deepEqual(await p.clear({ session: "member-1" }), { status: 200, body: { cleared: true, told: "delivered" } });
+	assert.deepEqual(p.told, [["member-1", CLEARED_NOTICE]]);
+	assert.deepEqual(await p.clear({ session: "gone-1" }), { status: 200, body: { cleared: true, told: false } });
+	assert.equal(p.told.length, 1, "the closed session was told nothing");
 });
 
 test("a line its writer wrote again between the server's reading and the delete is not cleared", async () => {
@@ -163,20 +183,23 @@ test("an operate session cannot ask for it: the route table refuses board/**", (
 	assert.equal(verdictOf("POST", ["board", "anything"]), "refused");
 });
 
-test("the server tells a live session once, under a board_clear header from its own id, and says whether the broker delivered it", async () => {
+test("the server tells a live session once, under a board_clear header from its own id, and says whether the broker's connection took it or only holds it", async () => {
 	const { tellVia } = await import("../src/server/boardpanel.ts");
 	const sent: [string, { text: string; messageId?: string }][] = [];
-	const client = (delivered: boolean | Error, connected = true) => ({ isConnected: () => connected, send: async (to: string, m: { text: string; messageId?: string }) => { sent.push([to, m]); if (delivered instanceof Error) throw delivered; return { delivered } as never; } });
-	assert.equal(await tellVia(() => client(true), "sb-server-id")("sess-1", CLEARED_NOTICE), true);
+	type Result = { delivered: boolean; delivery?: string };
+	const client = (result: Result | Error, connected = true) => ({ isConnected: () => connected, send: async (to: string, m: { text: string; messageId?: string }) => { sent.push([to, m]); if (result instanceof Error) throw result; return result as never; } });
+	assert.equal(await tellVia(() => client({ delivered: true, delivery: "socket_delivered" }), "sb-server-id")("sess-1", CLEARED_NOTICE), "delivered");
 	assert.equal(sent.length, 1);
 	assert.equal(sent[0]![0], "sess-1");
 	assert.match(sent[0]![1].text, /^\[straw net from="straw boss" id=sb-server-id role=session kind=board_clear scope=session to="sess-1 \(session\)" reply=none\] The boss cleared your work-board line/);
 	assert.ok(sent[0]![1].text.endsWith(CLEARED_NOTICE));
 	assert.match(sent[0]![1].messageId!, /^board-clear-/);
-	assert.equal(await tellVia(() => client(false), "x")("sess-1", "t"), false, "the broker did not deliver");
+	assert.equal(await tellVia(() => client({ delivered: true, delivery: "queued" }), "x")("sess-1", "t"), "queued", "the broker holds it for a session that is not connected");
+	assert.equal(await tellVia(() => client({ delivered: true }), "x")("sess-1", "t"), false, "taken, but no word on how: no claim");
+	assert.equal(await tellVia(() => client({ delivered: false, delivery: "failed" }), "x")("sess-1", "t"), false, "the broker did not deliver");
 	assert.equal(await tellVia(() => client(new Error("down")), "x")("sess-1", "t"), false, "a failed send is not told");
 	const before = sent.length;
-	assert.equal(await tellVia(() => client(true, false), "x")("sess-1", "t"), false, "not connected: nothing sent");
+	assert.equal(await tellVia(() => client({ delivered: true, delivery: "socket_delivered" }, false), "x")("sess-1", "t"), false, "not connected: nothing sent");
 	assert.equal(await tellVia(() => undefined, "x")("sess-1", "t"), false);
 	assert.equal(sent.length, before);
 });

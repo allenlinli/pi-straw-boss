@@ -154,7 +154,7 @@ test("a send in flight disables the button (no double tap) and a refusal says wh
 test("Clear is on clearable rows only; it asks in the page's sheet with Cancel first and focused, and posts board/clear only after the choice", async () => {
 	reset();
 	const posts: [string, Record<string, unknown>][] = [];
-	io.post = async (path, body) => (posts.push([path, body]), { ok: true, status: 200, body: { cleared: true, told: path === "board/clear" } });
+	io.post = async (path, body) => (posts.push([path, body]), { ok: true, status: 200, body: { cleared: true, told: "delivered" } });
 	const real = (await import("../gui/quit.ts")).choose;
 	io.choose = real;
 	const b = box();
@@ -188,6 +188,61 @@ test("Clear is on clearable rows only; it asks in the page's sheet with Cancel f
 	await until(() => sheet() !== undefined, "the sheet");
 	sheet().querySelectorAll("button")[1]!.click();
 	await until(() => b.querySelector(".board-note")!.textContent === "Only a line whose session has ended can be cleared.", "the refusal");
+});
+
+test("the note after a clear says whether the writer was told, was only left a queued reminder, or was not told, in both languages (BV-F005)", async () => {
+	reset();
+	assert.deepEqual([m.board_cleared_told(), m.board_cleared_queued(), m.board_cleared()], ["Cleared; it was told.", "Cleared; the reminder is queued.", "Cleared."]);
+	assert.deepEqual([m.board_cleared_told({}, zh), m.board_cleared_queued({}, zh), m.board_cleared({}, zh)], ["已清掉，已通知它", "已清掉，提醒已排隊", "已清掉"]);
+	io.choose = (async () => "clear") as typeof io.choose;
+	for (const [told, note] of [["delivered", m.board_cleared_told()], ["queued", m.board_cleared_queued()], [false, m.board_cleared()]] as const) {
+		io.post = async () => ({ ok: true, status: 200, body: { cleared: true, told } });
+		const b = box();
+		fillBoard(b as never, net());
+		(rowEl(b, "s-2").querySelector(".board-clear") as El).click();
+		await until(() => b.querySelector(".board-note")!.textContent === note, `the note for told=${String(told)}`);
+	}
+});
+
+test("Clear is disabled while its request is on its way, and a second tap does nothing; a refusal frees it again (BV-F006)", async () => {
+	reset();
+	const posts: string[] = [];
+	let release!: (a: { ok: boolean; status: number; body: Record<string, unknown> }) => void, sheets = 0;
+	io.choose = (async () => (sheets++, "clear")) as typeof io.choose;
+	io.post = (path) => (posts.push(path), new Promise((done) => (release = done)));
+	const b = box();
+	fillBoard(b as never, net());
+	const button = () => rowEl(b, "s-2").querySelector(".board-clear") as El;
+	button().click();
+	await until(() => button().hasAttribute("disabled"), "disabled while the request is on its way");
+	button().click();
+	await new Promise((done) => setImmediate(done));
+	assert.deepEqual([posts, sheets], [["board/clear"], 1], "the second tap opened no sheet and posted nothing");
+	assert.equal((rowEl(b, "gone-1").querySelector(".board-clear") as El).hasAttribute("disabled"), false, "only that row's button");
+	release({ ok: false, status: 409, body: { error: "changed", reason: "The line was written again just now, so it stays." } });
+	await until(() => b.querySelector(".board-note")!.textContent === "The line was written again just now, so it stays.", "the reason is shown");
+	assert.equal(button().hasAttribute("disabled"), false, "free again");
+	// A cancelled sheet leaves nothing disabled.
+	io.choose = async () => undefined;
+	button().click();
+	await new Promise((done) => setImmediate(done));
+	assert.equal(button().hasAttribute("disabled"), false);
+	assert.equal(posts.length, 1);
+});
+
+test("a line whose session is open but no longer a main reads 'not a main' (not 'ended') and the sheet says the writer will be told (BV-F004)", async () => {
+	reset();
+	const b = box();
+	fillBoard(b as never, { bases: [], board: [row({ session: "member-1", workspace: "", tab: "", main: "", state: "ended", open: true, now: "was a main", updated: NOW - 40 * MIN, clearable: true })] });
+	assert.equal(rowEl(b, "member-1").querySelector(".board-state")!.textContent, m.board_open_word());
+	assert.equal(m.board_open_word(), "not a main");
+	assert.equal(m.board_open_word({}, zh), "已不是 main");
+	let asked = "";
+	io.choose = async (text) => ((asked = text), undefined);
+	(rowEl(b, "member-1").querySelector(".board-clear") as El).click();
+	await until(() => asked !== "", "the sheet");
+	assert.match(asked, /no longer a main/);
+	assert.match(asked, /will be told/);
 });
 
 test("every field is text: markup in a name, a line, an item, or a workspace never becomes an element, a link, or a route", () => {

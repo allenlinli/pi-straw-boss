@@ -1197,5 +1197,8 @@
 	"board_clear_ask_ended": "要把 {name} 的工作板清掉嗎？它的工作階段已經結束。「{now}」",
 	"board_clear_ask_stale": "要把 {name} 的工作板清掉嗎？它已閒置超過 2 小時，清掉後會通知 {name}。「{now}」",
 	"board_cleared": "已清掉",
-	"board_cleared_told": "已清掉，已通知它"
+	"board_cleared_told": "已清掉，已通知它",
+	"board_open_word": "已不是 main",
+	"board_clear_ask_open": "要把 {name} 的工作板清掉嗎？它的工作階段還開著，但已不是 main，清掉後會通知 {name}。「{now}」",
+	"board_cleared_queued": "已清掉，提醒已排隊"
 }

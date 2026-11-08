@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -23,11 +23,11 @@ const session = (id: string, name: string, p: string, workspace: string, tab: st
 const workspaces = [ws("wA", "Alpha", { tower: "tower-a" }), ws("wB", "Beta")];
 const panes = [
 	pane("wA:p1", "wA", "wA:t1", { sb_role: "main" }), pane("wA:p2", "wA", "wA:t2", { sb_role: "main" }), pane("wA:p3", "wA", "wA:t3", { sb_role: "train", sb_train: "acme/2026-11-09-a" }),
-	pane("wA:p5", "wA", "wA:t9", { sb_role: "tower" }), pane("wB:p1", "wB", "wB:t1", { sb_role: "main" }),
+	pane("wA:p5", "wA", "wA:t9", { sb_role: "tower" }), pane("wB:p1", "wB", "wB:t1", { sb_role: "main" }), pane("wA:p6", "wA", "wA:t1", { sb_role: "member" }),
 ];
 const sessions = (status: Record<string, string> = {}) => [
 	session("tower-a", "tower", "wA:p5", "wA", "wA:t9"), session("main-1", "billing", "wA:p1", "wA", "wA:t1", status["main-1"]), session("main-2", "reports", "wA:p2", "wA", "wA:t2", status["main-2"]),
-	session("train-1", "train 1109a", "wA:p3", "wA", "wA:t3", status["train-1"]), session("main-b", "mobile", "wB:p1", "wB", "wB:t1", status["main-b"]),
+	session("train-1", "train 1109a", "wA:p3", "wA", "wA:t3", status["train-1"]), session("main-b", "mobile", "wB:p1", "wB", "wB:t1", status["main-b"]), session("member-1", "helper", "wA:p6", "wA", "wA:t1"),
 ];
 const herdr = async (args: string[]) => JSON.stringify({ result: args[0] === "pane" ? { panes } : { workspaces } });
 const read = async (dir: string, status: Record<string, string> = {}, now = NOW) => netSource({ run: herdr, sessions: async () => sessions(status), sessionDir: "/s", board: boardSeam({ dir, now: () => now }) }).read();
@@ -103,15 +103,71 @@ test("model-written text is raw in the row (the boss's own view keeps it as boar
 	assert.equal(Array.from(row.now!).length, 120);
 });
 
-test("allies' boards never reach the rows: a net with a link summary adds none, and an operate slice carries no board", async () => {
+test("allies' boards never reach the rows: a net that carries ally boards in its link gives the same rows as the same net without it, and an operate slice carries no board", async () => {
 	const dir = state();
 	write(dir, "main-1", "mine", MIN);
 	const net = await read(dir);
-	const withLink = { ...net, link: { allies: [{ id: "ally", label: "Ally", boards: [{ main: "theirs", now: "their work" }] }], alerts: [], confirms: [] } } as unknown as Net;
-	const rows = boardRows(readEntries(dir), [], NOW);
-	assert.deepEqual(rows.map((r) => r.session), ["main-1"], "an entry whose main is not live is ended, and the rows come from files and mains only");
-	assert.ok(!JSON.stringify(withLink.board).includes("their work"));
+	const allies = { allies: [{ id: "ally", label: "Ally", boards: [{ main: "theirs", now: "their work" }] }], alerts: [], confirms: [], units: [] };
+	const withLink = { ...net, link: allies } as unknown as Net;
+	const seam = boardSeam({ dir, now: () => NOW });
+	const plain = seam.rows(net), linked = seam.rows(withLink);
+	assert.ok(plain && plain.length > 0);
+	assert.deepEqual(linked, plain, "the link summary changes nothing in the rows");
+	assert.ok(!JSON.stringify(linked).includes("their work") && !JSON.stringify(linked).includes("theirs"));
+	assert.deepEqual(plain.map((r) => r.session).sort(), ["main-1", "main-2", "main-b", "train-1"], "the rows come from this computer's files and mains only");
 	assert.ok(!("board" in sliceNet(net, { box: true, has: () => true })), "the operate slice is an allow list that does not name the board");
+});
+
+test("a box this computer operates is another computer's board: its mains add no row and no Ask target", () => {
+	const dir = state();
+	const unit = (key: string) => ({ id: key, key, control: true, name: key, role: "main" as const, mark: "idle" as const, subs: [] });
+	const base = (id: string, box?: object) => ({ id, label: id, mark: "idle" as const, tower: null, tabs: [{ id: `${id}:t`, label: "tab", units: [unit(`${id}-main`)] }], outposts: [], outside: [], ...(box ? { box } : {}) });
+	const box = { device: "d1", short: "d1", label: "Box", team: "t", scope: "box", can: [], state: "live" };
+	const seam = boardSeam({ dir, now: () => NOW });
+	assert.deepEqual(seam.rows({ bases: [base("local"), base("remote", box)] as never })?.map((r) => r.session), ["local-main"]);
+	assert.equal(seam.rows({ bases: [base("remote", box)] as never }), undefined, "a box's mains alone leave no board");
+});
+
+test("a line whose session is still open but is no longer a main is an ended row that says it is open (it is told on Clear); a session that is not live at all is not", async () => {
+	const dir = state();
+	write(dir, "member-1", "was a main once", 40 * MIN);
+	write(dir, "gone-1", "closed", 40 * MIN);
+	const rows = (await read(dir)).board!;
+	const by = Object.fromEntries(rows.filter((r) => r.state === "ended").map((r) => [r.session, r]));
+	assert.deepEqual([by["member-1"]!.open, by["member-1"]!.clearable], [true, true]);
+	assert.deepEqual([by["gone-1"]!.open, by["gone-1"]!.clearable], [undefined, true]);
+});
+
+test("the entries are not parsed again while the folder and its files are unchanged; a new, rewritten, or removed file is read", async () => {
+	const dir = state();
+	write(dir, "main-1", "one", MIN);
+	let parsed = 0;
+	const seam = boardSeam({ dir, now: () => NOW, entries: (d) => (parsed++, readEntries(d)) });
+	const net = await read(dir);
+	const first = seam.rows(net);
+	for (let i = 0; i < 5; i++) assert.deepEqual(seam.rows(net), first);
+	assert.equal(parsed, 1, "six reads of an unchanged folder parse it once");
+	write(dir, "gone-1", "two", MIN);
+	assert.ok(seam.rows(net)!.some((r) => r.session === "gone-1"));
+	assert.equal(parsed, 2, "a new file");
+	write(dir, "gone-1", "two, longer than before", 2 * MIN);
+	assert.equal(seam.rows(net)!.find((r) => r.session === "gone-1")!.now, "two, longer than before");
+	assert.equal(parsed, 3, "a rewritten file");
+	rmSync(join(dir, "gone-1.json"));
+	assert.ok(!seam.rows(net)!.some((r) => r.session === "gone-1"));
+	assert.equal(parsed, 4, "a removed file");
+	// A rewrite that keeps the size and the modified time still changes the file (a new inode from the atomic rename), so it is read.
+	const file = join(dir, "main-1.json"), again = (text: string) => writeEntry(dir, "main-1", { now: text, items: [{ t: "a", done: true }, { t: "b", done: false }] }, NOW - MIN);
+	const fixed = new Date(NOW), pin = () => utimesSync(file, fixed, fixed);
+	again("aaa");
+	pin();
+	seam.rows(net);
+	const before = parsed, was = statSync(file);
+	again("bbb");
+	pin();
+	assert.deepEqual([statSync(file).size, statSync(file).mtimeMs], [was.size, was.mtimeMs], "same size, same modified time");
+	assert.equal(seam.rows(net)!.find((r) => r.session === "main-1")!.now, "bbb");
+	assert.equal(parsed, before + 1, "still read");
 });
 
 test("/boss board: one line per row, grouped by workspace, with the state, the line, the done count, the age, and stale and ended marked in words", () => {

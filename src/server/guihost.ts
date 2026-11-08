@@ -37,7 +37,7 @@ import { fileOf, readRecord, type ServerRecord, type Slot, updateRecord, writeJs
 import type { Reply, Request } from "./socket.ts";
 import { type TrainyardOptions, trainyardSeam } from "./trainyard.ts";
 import { boardSeam } from "../boardview.ts";
-import { createBoardPanel } from "./boardpanel.ts";
+import { createBoardPanel, type Told } from "./boardpanel.ts";
 
 // The GUI inside the sb server (docs/specs/2026-10-26-sb-backend.md, What moves out of pi sessions, GUI, `gui.json` and its successor): the page's server (gui.ts), the dialog hub, trust questions,
 // spawn and deploys, the closer, the mirrors, documents and uploads, and remote access over Tailscale, which a pi session ran until 0.45.0 (host.ts). It runs on the server's own intercom
@@ -105,7 +105,7 @@ export interface GuiHostOptions {
 	/** The server's book of cars, once it exists (main.ts builds it after the GUI host): the yard tells a car's notice from it (trainyard.ts). */
 	trainCars?: TrainyardOptions["book"];
 	/** One message to a live session from the server (the work board's Clear tells a stale line's writer, boardpanel.ts); whether the broker took it. Without it a clear tells nobody. */
-	tell?(session: string, text: string): Promise<boolean>;
+	tell?(session: string, text: string): Promise<Told>;
 	/** What the page's server panel shows. */
 	status(): Record<string, unknown>;
 	/** Asks the server to restart as the GUI's button does; the reply goes to the page. */

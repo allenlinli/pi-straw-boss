@@ -225,7 +225,8 @@ test("the map draws the head page's picture in layers of its own, all scoped to 
 	assert.match(body(`${MAP} body::after`), /<svg|svg\+xml/, "the bats");
 	assert.ok(rulesFor('html[data-view="raven"]:has(#stage[data-view="map"])::after').some((r) => /rk-raven|rk-flap|aspect-ratio: 96 \/ 34|data:image\/svg/.test(r.body)), "the flying raven shares the head page's drawing");
 	// the session, workspace, and settings pages stay plain: no rule of the theme names them
-	assert.ok(!/data-view="(session|workspace|settings)"/.test(raw), "only the head page and the map carry the picture");
+	assert.ok(!/data-view="(workspace|settings)"/.test(raw), "only the head page, the map, and the chat page's rooms (tests/raven-rooms.test.ts) carry a picture");
+	for (const r of css.filter((x) => /data-view="session"/.test(x.selector))) assert.ok(/session-view\[data-role/.test(r.selector), `${r.selector}: the session stage is named by the rooms alone`);
 	// the head page keeps its own selectors
 	assert.match(raw, /html\[data-view="raven"\]:has\(#stage\[data-view="head"\]\)::before/);
 });

@@ -178,6 +178,45 @@ html[data-view="raven"] .head-node.absent::before, html[data-view="raven"] .head
 html[data-view="raven"] .stage[data-view="map"] .map { background: var(--rk-well); }
 html[data-view="raven"] .legend { padding: 4px 10px; border-radius: 10px; background: var(--rk-well); }
 
+/* The chat page's rooms (boss, 2026-11-08: 「管家書房、血僕大廳不錯，蝙蝠可以給墓穴」; spec §1.5 "On the chat page"): behind a unit's comms a quiet picture of a room of the keep, chosen by the unit's role: the steward's study (tower), the spawn's great hall (main), the bats' crypt (subagent), and the library for every other role
+   (a wolf, an ally, a run, an outside unit, a train). gui/session.ts marks the page `#session-view[data-role]`; a role-scoped rule names each file, so only the shown role's picture is fetched, and a page whose role is not known yet fetches none. The head page and the map keep their own backdrops; the workspace and settings pages stay plain.
+   ::before is the picture under --rk-veil (#0d0a10 at 55 percent at the top, 62 at 70, 80 at the foot, where the composer sits); the comms, the dossier, and the crumbs keep their own grounds over it (--well, --rk-well), so text holds 4.5 : 1 against the brightest pixel of each picture (tests/raven-rooms.test.ts). ::after is the candle light: soft gold pools
+   at the picture's candles, breathing by opacity alone (the compositor runs it without a repaint), still under calm and reduced motion, and no lightning. Forced colours draw no picture. */
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role])::before, html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role])::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role])::before { --rk-veil: linear-gradient(rgb(13 10 16 / 0.55), rgb(13 10 16 / 0.62) 70%, rgb(13 10 16 / 0.8)); background-size: cover, cover; background-position: center, center; background-repeat: no-repeat, no-repeat; }
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role])::after { opacity: 0.75; }
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role="tower"])::before { background-image: var(--rk-veil), url("./room-study.webp"); }
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role="tower"])::after {
+	background:
+		radial-gradient(circle 9vmax at 88% 57%, rgb(255 190 92 / 0.16), transparent),
+		radial-gradient(circle 4vmax at 80% 42%, rgb(255 190 92 / 0.08), transparent);
+}
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role="main"])::before { background-image: var(--rk-veil), url("./room-hall.webp"); }
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role="main"])::after {
+	background:
+		radial-gradient(circle 8vmax at 14% 57%, rgb(255 190 92 / 0.16), transparent),
+		radial-gradient(circle 8vmax at 84% 57%, rgb(255 190 92 / 0.16), transparent),
+		radial-gradient(circle 4vmax at 36% 52%, rgb(255 190 92 / 0.08), transparent),
+		radial-gradient(circle 4vmax at 64% 52%, rgb(255 190 92 / 0.08), transparent);
+}
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role="subagent"])::before { background-image: var(--rk-veil), url("./room-crypt.webp"); }
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role="subagent"])::after {
+	background:
+		radial-gradient(circle 7vmax at 15% 59%, rgb(255 190 92 / 0.16), transparent),
+		radial-gradient(circle 5vmax at 25% 59%, rgb(255 190 92 / 0.12), transparent),
+		radial-gradient(circle 5vmax at 76% 59%, rgb(255 190 92 / 0.12), transparent),
+		radial-gradient(circle 7vmax at 85% 58%, rgb(255 190 92 / 0.16), transparent);
+}
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]:not([data-role="tower"], [data-role="main"], [data-role="subagent"]))::before { background-image: var(--rk-veil), url("./room-library.webp"); }
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]:not([data-role="tower"], [data-role="main"], [data-role="subagent"]))::after {
+	background:
+		radial-gradient(circle 8vmax at 12% 57%, rgb(255 190 92 / 0.16), transparent),
+		radial-gradient(circle 10vmax at 83% 66%, rgb(255 190 92 / 0.16), transparent);
+}
+/* The crumbs sit on the picture itself, so they take the keep's ground as the map's legend does; a phone's full-screen comms (Standard paints them --bg) take the translucent ground, so the room shows through them as it does on a desktop. */
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]) .crumbs { padding: 2px 10px; border-radius: 10px; background: var(--rk-well); }
+html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]) .comms-in { background: var(--well); }
+
 @media (prefers-reduced-motion: no-preference) {
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::before { animation: rk-lit-a 4.7s ease-in-out infinite alternate, rk-lit-b 6.1s ease-in-out infinite alternate, rk-bolt 61s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::before { animation: rk-fog 150s linear infinite; }
@@ -195,6 +234,8 @@ html[data-view="raven"] .legend { padding: 4px 10px; border-radius: 10px; backgr
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"] > .work::after { animation: rk-flap-b 0.46s steps(1, end) infinite, rk-raven-map 83s linear 21s infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"]) .head-node:not(.absent)::before { animation: rk-perch-lit 61s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"]) .head-node:not(.absent)::after { animation: rk-perch-lit 61s linear infinite, rk-perch-turn 17s linear infinite; }
+	/* a room's candle light breathes by opacity */
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="session"] #session-view[data-role])::after { animation: rk-room-candle 5.3s ease-in-out infinite alternate; }
 	/* Status motion (boss, 2026-11-08, option C): where Standard sweeps, spins, and pings, the keep draws a seal, breathes mist, and swells a soul-fire. Nothing here turns. The still figures are above (the block "Status"), so calm and reduced motion keep them. */
 	/* working: a seal drawn up both sides to its diamond over two layers of mist, and a bat for the small badge. Standard's own spin on the host is stopped; its pseudo-elements carry the drawing. Every animation of the status motion moves or fades a layer whose picture is fixed (transform and opacity only), so a frame costs the compositor a move and no repaint, however many units work at once. */
 	html[data-view="raven"]:not([data-calm]) .tower[data-mark="working"] > .sweep, html[data-view="raven"]:not([data-calm]) .plate[data-mark="working"] > .ring { animation: none; }
@@ -211,6 +252,7 @@ html[data-view="raven"] .legend { padding: 4px 10px; border-radius: 10px; backgr
 	html[data-view="raven"]:not([data-calm]) .connect-ring { animation: none; }
 	html[data-view="raven"]:not([data-calm]) .connect-ring::after { animation: rk-soul 3.2s ease-in-out infinite; }
 }
+@keyframes rk-room-candle { 0% { opacity: 0.5; } 20% { opacity: 1; } 38% { opacity: 0.62; } 57% { opacity: 0.95; } 76% { opacity: 0.68; } 100% { opacity: 0.88; } }
 @keyframes rk-lit-a { 0% { --rk-a: 0.55; } 18% { --rk-a: 0.9; } 33% { --rk-a: 0.5; } 52% { --rk-a: 0.85; } 71% { --rk-a: 0.62; } 100% { --rk-a: 0.78; } }
 @keyframes rk-lit-b { 0% { --rk-b: 0.8; } 22% { --rk-b: 0.5; } 40% { --rk-b: 0.95; } 63% { --rk-b: 0.58; } 81% { --rk-b: 0.9; } 100% { --rk-b: 0.66; } }
 /* Once in 61 seconds the sky lights: the picture rises out of the dark in a quarter of a second, flickers back to a fifth, rises again, and fades to dark in 1.2 s (two flashes within 0.9 s). */
@@ -261,6 +303,7 @@ html[data-view="raven"] .legend { padding: 4px 10px; border-radius: 10px; backgr
 @media (forced-colors: active) { html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after, html[data-view="raven"]:has(#stage[data-view="head"]) body::before, html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
 @media (forced-colors: active) { html[data-view="raven"] .stage[data-view="map"]::before, html[data-view="raven"] .stage[data-view="map"]::after, html[data-view="raven"] .stage[data-view="map"] > .work::before, html[data-view="raven"] .stage[data-view="map"] > .work::after, html[data-view="raven"]:has(#stage[data-view="map"]) body::before, html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::before, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .head-node::before, html[data-view="raven"] .head-node::after { display: none; } }
 @media (forced-colors: active) { html[data-view="raven"] .stage[data-view="head"]::before, html[data-view="raven"] .stage[data-view="head"]::after, html[data-view="raven"]:has(#stage[data-view="head"]) body::before, html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="head"])::after { display: none; } }
+@media (forced-colors: active) { html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role])::before, html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role])::after { display: none; } }
 /* The documents list in the dossier: the tome icon (sprite `doc`, set by docList) stands where Standard's paper sheet is drawn in the row's background. */
 html[data-view="raven"] .d-doc { position: relative; background-image: none; }
 html[data-view="raven"] .d-doc-ico { display: block; position: absolute; left: 8px; top: 50%; translate: 0 -50%; width: 16px; height: 16px; fill: currentColor; color: var(--accent); }

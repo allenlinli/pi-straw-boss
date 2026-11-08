@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { contrast, declarations, mix, type Rule, rulesOf } from "./css-rules.ts";
@@ -105,4 +106,41 @@ test("under the brightest lightning frame the map's ground and the legend's keep
 	// who takes the ground: the map and the legend (the cards, the band, and the buttons have grounds of their own)
 	assert.match(body(`${STAGE} .map`), /background:\s*var\(--rk-well\)/);
 	assert.match(body('html[data-view="raven"] .legend'), /background:\s*var\(--rk-well\)/);
+});
+
+const ROOMS = { tower: "room-study.webp", main: "room-hall.webp", subagent: "room-crypt.webp", other: "room-library.webp" } as const; // the chat page's rooms (tests/raven-rooms.test.ts)
+const ravenCss = readFileSync(new URL("../gui/themes/raven/raven.css", import.meta.url), "utf8");
+// The brightest pixel of each picture, sampled with PIL on the shipped file (RGB, max of the channel sum), and the file's hash: a new picture makes this test ask for a new sample instead of passing on old arithmetic.
+// Text that sits on the page over a room has a ground of its own: the comms and the dossier take --well, the crumbs --rk-well. The worst case is that pixel under the veil's lightest alpha (the top), then the candle light at its peak, then the ground.
+const SAMPLES: Record<keyof typeof ROOMS, { sha: string; worst: [number, number, number] }> = {
+	tower: { sha: "e50c5f65157fe764", worst: [247, 245, 244] },
+	main: { sha: "d81fa11c515221da", worst: [255, 255, 255] },
+	subagent: { sha: "e8b69ac07429704b", worst: [255, 253, 239] },
+	other: { sha: "61da59b3599a3852", worst: [255, 245, 200] },
+};
+test("under the lightest veil, the candle light at its peak, and the comms' or crumbs' ground, each room's brightest pixel still keeps --text and --dim at 4.5 : 1", () => {
+	const token = (name: string) => {
+		const m = new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, "i").exec(ravenCss);
+		assert.ok(m, `--${name}`);
+		return m[1]!.toLowerCase();
+	};
+	const veil = /--rk-veil:\s*linear-gradient\(rgb\((\d+) (\d+) (\d+) \/ ([\d.]+)\)/.exec(ravenCss);
+	assert.ok(veil, "the veil is a gradient of rgb()");
+	const hex = (r: string, g: string, b: string) => `#${[r, g, b].map((n) => Number(n).toString(16).padStart(2, "0")).join("")}`;
+	const lightest = Number(veil[4]), veilColour = hex(veil[1]!, veil[2]!, veil[3]!);
+	const peak = Math.max(...[...ravenCss.matchAll(/session-view\[data-role[^{]*::after\s*\{[^}]*\}/g)].flatMap((m) => [...m[0].matchAll(/rgb\(255 190 92 \/ ([\d.]+)\)/g)].map((x) => Number(x[1]))));
+	const grounds = (name: string) => {
+		const m = new RegExp(`--${name}:\\s*rgba\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([\\d.]+)\\)`).exec(ravenCss);
+		assert.ok(m, `--${name}`);
+		return { colour: hex(m[1]!, m[2]!, m[3]!), alpha: Number(m[4]) };
+	};
+	for (const [role, file] of Object.entries(ROOMS) as [keyof typeof ROOMS, string][]) {
+		const sample = SAMPLES[role];
+		assert.equal(createHash("sha256").update(readFileSync(new URL(`../gui/themes/raven/${file}`, import.meta.url))).digest("hex").slice(0, 16), sample.sha, `${file} changed: sample its brightest pixel again`);
+		const under = mix("#ffbe5c", peak, mix(veilColour, lightest, hex(...(sample.worst.map(String) as [string, string, string]))));
+		for (const name of ["well", "rk-well"]) {
+			const g = grounds(name), ground = mix(g.colour, g.alpha, under);
+			for (const text of ["text", "dim"]) assert.ok(contrast(token(text), ground) >= MIN, `${role}: --${text} on --${name} over ${file}'s brightest pixel (${ground}): ${contrast(token(text), ground).toFixed(2)}`);
+		}
+	}
 });

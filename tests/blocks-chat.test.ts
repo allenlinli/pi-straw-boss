@@ -43,13 +43,23 @@ const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve()
 type Locked = El & { answered?: unknown; data?: unknown };
 const find = (root: El, tag: string) => root.find((el) => el.tagName === tag) as Locked[];
 
-test("an agent's message with blocks draws a form, chips, and a table with their elements, compact, in the message's own body", async () => {
+test("an agent's message with blocks draws a form, chips, a table, and a tree with their elements, compact, in the message's own body", async () => {
 	const { show } = mount("S1");
 	const root = await show(reply(DEMO_CHAT_BLOCKS));
 	const body = root.find((el) => el.className === "md")[0]!;
-	assert.deepEqual(body.find((el) => el.tagName.startsWith("pbs-")).map((el) => el.tagName), ["pbs-form", "pbs-suggest", "pbs-table"]);
+	assert.deepEqual(body.find((el) => el.tagName.startsWith("pbs-")).map((el) => el.tagName), ["pbs-form", "pbs-suggest", "pbs-table", "pbs-tree"]);
 	for (const el of body.find((el) => el.tagName.startsWith("pbs-"))) assert.equal(el.getAttribute("density"), "compact");
 	assert.match(body.textContent, /I can ship the ledger fix today/, "the prose is still the page's own Markdown");
+});
+
+test("a message whose only block is a tree loads the block code and draws pbs-tree: the hint knows the kind", async () => {
+	const { show } = mount("S1");
+	const root = await show(reply("What the change touches:\n\n```tree\nledger/\n  src/ {focus}\n    fix.ts {changed} # the fix\n  tests/\n```\n\nShall I go on?"));
+	const [tree] = find(root, "pbs-tree");
+	assert.ok(tree, "drawn");
+	assert.equal(tree!.getAttribute("density"), "compact");
+	assert.equal((tree!.data as { root: { name: string } }).root.name, "ledger");
+	assert.match(root.find((el) => el.className === "md")[0]!.textContent, /Shall I go on\?/, "the prose around it is the page's own Markdown");
 });
 
 test("a message with no block never loads the block code", async () => {
@@ -186,8 +196,9 @@ test("R-F001: a block in the log of a unit whose box is away cannot be submitted
 	const root = await show(reply(DEMO_CHAT_BLOCKS));
 	const [chips] = find(root, "pbs-suggest"), [form] = find(root, "pbs-form");
 	assert.equal(chips!.hasAttribute("inert") && form!.hasAttribute("inert"), true, "drawn off");
-	assert.deepEqual(notes(root), [m.box_answer_blocked(), m.box_answer_blocked(), ""], "with the reason under the form and the chips, and none under the table, which has nothing to submit");
+	assert.deepEqual(notes(root), [m.box_answer_blocked(), m.box_answer_blocked(), "", ""], "with the reason under the form and the chips, and none under the table or the tree, which have nothing to submit");
 	assert.equal(find(root, "pbs-table")[0]!.hasAttribute("inert"), false);
+	assert.equal(find(root, "pbs-tree")[0]!.hasAttribute("inert"), false, "a tree stays readable (its folders open and close) while the box is away");
 	fire(chips!, { kind: "suggest", fields: [["text", "Go ahead"]], ref: { block: 1 } });
 	fire(form!, { kind: "form", fields: [["when", "now"]], ref: { block: 0 } });
 	await settle();

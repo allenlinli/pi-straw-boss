@@ -44,7 +44,7 @@ const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve()
 
 test("a Markdown document draws every block kind with its element, in the page, at the comfortable density, and with no frame", async () => {
 	const root = await open(card("docs/plan.md"));
-	assert.deepEqual(root.find((el) => el.tagName.startsWith("pbs-")).map((el) => el.tagName), ["pbs-callout", "pbs-callout", "pbs-cards", "pbs-options", "pbs-form", "pbs-review", "pbs-mindmap", "pbs-suggest", "pbs-checklist", "pbs-table", "pbs-steps", "pbs-stats", "pbs-diff", "pbs-diagram"]);
+	assert.deepEqual(root.find((el) => el.tagName.startsWith("pbs-")).map((el) => el.tagName), ["pbs-callout", "pbs-callout", "pbs-cards", "pbs-options", "pbs-form", "pbs-review", "pbs-mindmap", "pbs-suggest", "pbs-checklist", "pbs-table", "pbs-steps", "pbs-stats", "pbs-diff", "pbs-diagram", "pbs-tree"]);
 	for (const el of root.find((el) => el.tagName.startsWith("pbs-"))) assert.equal(el.getAttribute("density"), "comfortable", el.tagName);
 	assert.equal(root.find((el) => el.tagName === "iframe").length, 0);
 });

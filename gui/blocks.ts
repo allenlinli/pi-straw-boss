@@ -1,4 +1,4 @@
-import { type Answer, type BlockSegment, encodeAnswer, type InvalidSegment, inlinePlain, parse } from "pi-better-show";
+import { type Answer, type BlockSegment, encodeAnswer, INTERACTIVE_KINDS, type InlineToken, type InvalidSegment, inline, inlinePlain, parse, type TreeNode } from "pi-better-show";
 import { configure, type PbsElement, TAGS } from "pi-better-show/elements";
 import type { Delivery } from "./blockanswer.ts";
 import { type Cell, lockFor } from "./blocklock.ts";
@@ -11,7 +11,7 @@ import { m } from "./sentences.ts";
 // element of its kind fed with the block's data (never markup: the elements build text nodes), and a block that does not parse shows its source in code. An element's answer is handed to the host, which delivers it and only then locks the
 // element with the fields that went (`answered`); a refusal leaves it open with the reason under it. While an answer is on its way every drawing of the block is locked (inert, "Sending…"): a redraw does not find it open. What a block can name is the host's to
 // resolve: an image only through `image`, and a page, a diagram, or a link target never. What goes out under the boss's name is what the boss saw: a chip is drawn as its text, and a form or checklist whose names are not its labels (a choice's value, a question's or an
-// item's name) shows the exact outgoing text first, in a confirm step of its own, and sends that very text only when the boss presses Send.
+// item's name) shows the exact outgoing text first, in a confirm step of its own, and sends that very text only when the boss presses Send. A `tree` is a display block of text only: a name is a text node, and a note's links are shown as their text, since a snapshot an agent wrote offers the page no link and no route.
 
 export interface BlockHost {
 	density: "compact" | "comfortable";
@@ -37,8 +37,24 @@ configure({ imageUrl: (ref) => (resolved.has(ref) ? ref : undefined) });
 /** Markdown's punctuation made literal, so that a chip shows a text as it is. */
 const literal = (text: string) => text.replace(/[!-/:-@[-`{-~]/g, "\\$&");
 
-/** The block's data as the element gets it: a review item's `image` goes through the host, or goes; a chip shows the text it sends, since what goes out under the boss's name must be what the boss saw (a label that reads as the text keeps its formatting). */
+const linked = (tokens: InlineToken[]): boolean => tokens.some((t) => t.type === "link" || ("children" in t && linked(t.children)));
+/** Inline Markdown made again from its tokens with every link as its label and all text escaped (a bare address too), so what the element draws has the same words and no anchor. */
+const unlink = (tokens: InlineToken[]): string => tokens.map((t) => {
+	if (t.type === "text") return literal(t.text);
+	if (t.type === "br") return "\n";
+	if (t.type === "code") { const run = "`".repeat(Math.max(0, ...(t.text.match(/`+/g) ?? []).map((r) => r.length)) + 1); return `${run}${/^`|`$/.test(t.text) ? ` ${t.text} ` : t.text}${run}`; }
+	const inner = unlink(t.children);
+	return t.type === "strong" ? `**${inner}**` : t.type === "em" ? `*${inner}*` : inner;
+}).join("");
+/** A tree with no link in any note; a note without one is left as it is. */
+const unlinked = (node: TreeNode): TreeNode => {
+	const tokens = node.note === undefined ? [] : inline(node.note);
+	return { ...node, ...(linked(tokens) ? { note: unlink(tokens) } : {}), children: node.children.map(unlinked) };
+};
+
+/** The block's data as the element gets it: a review item's `image` goes through the host, or goes; a chip shows the text it sends, since what goes out under the boss's name must be what the boss saw (a label that reads as the text keeps its formatting); a tree's notes carry no link. */
 function dataOf(seg: BlockSegment, host: BlockHost): unknown {
+	if (seg.kind === "tree") return { root: unlinked(seg.data.root) };
 	if (seg.kind === "suggest") return { ...seg.data, items: seg.data.items.map((item) => (inlinePlain(item.label) === item.text ? item : { ...item, label: literal(item.text) })) };
 	if (seg.kind !== "review") return seg.data;
 	return { ...seg.data, items: seg.data.items.map(({ image, ...item }) => {
@@ -58,8 +74,8 @@ function hidden(seg: BlockSegment, fields: Answer["fields"]): boolean {
 	return seg.data.questions.some((q) => (differs(q.name, q.label) && !HANDLE.test(q.name)) || q.choices.some((c) => differs(c.value, c.label) && fields.some(([name, value]) => name === q.name && value.includes(c.value))));
 }
 
-/** The kinds whose element sends a `pbs-answer`. */
-const ANSWERS = new Set<string>(["form", "review", "options", "suggest", "checklist"]);
+/** The kinds whose element sends a `pbs-answer`: the package's own list of the kinds a reader answers, so a display kind (a tree, a table, a diagram) never takes one. */
+const ANSWERS = new Set<string>(INTERACTIVE_KINDS);
 
 function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement {
 	const el = document.createElement(TAGS[seg.kind]) as PbsElement, lock = lockFor(...(host.scope ?? [])), index = seg.index;
@@ -128,6 +144,7 @@ function block(seg: BlockSegment, host: BlockHost, known: boolean): HTMLElement 
 		go.focus();
 	};
 	el.addEventListener("pbs-answer", (event) => {
+		if (!ANSWERS.has(seg.kind)) return; // a display block has nothing to answer: whatever its element says, the host takes none
 		const sent = (event as CustomEvent<Answer>).detail, answer: Answer = { ...sent, ref: { ...sent.ref, block: index } }; // the block's address is the block's own, whatever the element says
 		event.preventDefault(); // the host takes the answer: the element stays open until the owner has it
 		if (sending || lock.get(index).state !== "open" || view.gate()) return; // a unit whose box is away takes nothing, whatever the element let through

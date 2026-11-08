@@ -2,7 +2,7 @@
 // server), and a block whose body does not fit its schema is drawn as source and has no index, so this is an upper bound on the page's indexes, not their count: an answer for a block past it is for a block that is not there. tests/blockcount.test.ts holds it equal to the parser's
 // blocks plus its invalid ones.
 
-const KINDS = new Set(["mermaid", "diff", "cards", "options", "form", "review", "mindmap", "suggest", "checklist", "table", "steps", "stats"]);
+const KINDS = new Set(["mermaid", "diff", "cards", "options", "form", "review", "mindmap", "suggest", "checklist", "table", "steps", "stats", "tree"]);
 const ALERT_LINE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(.*)$/i, QUOTE = /^ {0,3}> ?/, BACKTICK_FENCE = /^( {0,3})(`{3,})[ \t]*([^`]*)$/, TILDE_FENCE = /^( {0,3})(~{3,})[ \t]*(.*)$/;
 
 const closes = (line: string, marker: string) => {

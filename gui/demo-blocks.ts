@@ -1,4 +1,4 @@
-// Demo content for `npm run gui:dev` and the tests: a Markdown document with every block kind of pi-better-show (doc cards), and a chat message with a form, chips, and a table.
+// Demo content for `npm run gui:dev` and the tests: a Markdown document with every block kind of pi-better-show (doc cards), and a chat message with a form, chips, a table, and a tree.
 // The fences are written with `~~~` so this file stays readable as a template literal.
 
 const fence = (text: string) => text.replace(/^~~~/gm, "```");
@@ -138,6 +138,31 @@ graph TD
   B -->|no| D[Fix]
   D --> B
 ~~~
+
+~~~tree
+release/
+  src/ {focus} # one package, four entries
+    core/ # parser and text, no DOM
+      parse.ts
+      validate.ts {new} # checks answers
+    elements/ {changed} # web components
+      tree.ts {new} # the **tree** block
+      old-table.ts {removed}
+      legacy/ # untouched, starts closed
+        grid.ts
+        sheet.ts
+    server/ {risk} # reads \`.env\` at start
+      deep/
+        deeper/
+          deepest/
+            leaf.ts {changed} # opens its path
+  docs/
+    guide.md
+    notes.md
+  tests/
+  \u2026 12 more
+  README.md {changed}
+~~~
 `);
 
 /** A reply in the comms log: a form, quick replies, and a table. */
@@ -171,6 +196,18 @@ rows:
   - [lint, 3, ok]
   - [unit, 41, ok]
   - [e2e, 12, 1 failing]
+~~~
+
+Here is what the fix touches, with the files I changed marked:
+
+~~~tree
+ledger/
+  src/
+    fix.ts {changed} # rounds the refund once
+    refund.ts {risk} # the caller I could not test
+  tests/
+    fix.test.ts {new}
+  CHANGELOG.md {changed}
 ~~~
 `);
 

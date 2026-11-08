@@ -6,7 +6,7 @@ import "./pbs-loader.ts";
 // The server cannot import the parser (pi-better-show is bundled into the page, not shipped to the server), so it counts the places a block can be, with the parser's own line scan: fences whose first word names a kind, and alert quotes. It is an upper bound on
 // the blocks the page draws (a block that does not fit its schema is shown as source and has no index); this test holds it equal to the parser's blocks plus its invalid ones, for the demo documents and a set of awkward ones.
 
-const { parse } = await import("pi-better-show");
+const { parse, BLOCK_KINDS } = await import("pi-better-show");
 const { DEMO_BLOCKS_DOC, DEMO_CHAT_BLOCKS } = await import("../gui/demo-blocks.ts");
 const ticks = "```";
 const awkward: Record<string, string> = {
@@ -22,7 +22,12 @@ const awkward: Record<string, string> = {
 	"an indented fence": `   ${ticks}suggest\n   - Go\n   ${ticks}\n`,
 	"CRLF": `${ticks}suggest\r\n- Go\r\n${ticks}\r\n\r\n> [!WARNING] w\r\n> b\r\n`,
 	"an alert inside a fence": `${ticks}js\n> [!NOTE] x\n${ticks}\n`,
-	"every kind": ["mermaid", "diff", "cards", "options", "form", "review", "mindmap", "suggest", "checklist", "table", "steps", "stats"].map((k) => `${ticks}${k}\nx\n${ticks}`).join("\n\n"),
+	// The package's own list, so a kind a bump adds (tree came with 0.4.0) fails here until the server counts it.
+	"every kind": BLOCK_KINDS.filter((k: string) => k !== "alert").map((k: string) => `${ticks}${k}\nx\n${ticks}`).join("\n\n"),
+	"a tree between two blocks": `${ticks}suggest\n- Go\n${ticks}\n\n${ticks}tree\nrepo/\n  a.ts {new}\n${ticks}\n\n${ticks}suggest\n- Stop\n${ticks}\n`,
+	"an invalid tree": `${ticks}tree\nrepo/\n  a.ts {oops}\n${ticks}\n\n${ticks}suggest\n- Go\n${ticks}\n`,
+	"a tree in tildes with capitals and words after": `~~~Tree extra\nrepo/\n~~~\n`,
+	"a tree word that is no kind": `${ticks}treehouse\nrepo/\n${ticks}\n`,
 };
 
 test("the count equals the parser's blocks plus its invalid ones, so no valid block's index is ever past it", () => {

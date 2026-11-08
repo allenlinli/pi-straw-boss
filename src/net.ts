@@ -203,7 +203,7 @@ export function netSource(env: { board?: BoardSeam; trainyard?: { yards(join: Ya
 			for (const [key, old] of gone) if (next.has(key) || at - old.at > RECENT_MS) gone.delete(key);
 			refs = next;
 			const stashed = env.stashed?.() ?? [], seen = lately(net); // after the dialogs and the finished: the marks the page shows
-			const stashing = stashed.length ? { ...seen, stashed } : seen, board = env.board?.rows(stashing), shown = board ? { ...stashing, board } : stashing, yards = env.trainyard?.yards(joinOf(shown));
+			const stashing = stashed.length ? { ...seen, stashed } : seen, board = env.board?.rows(stashing, live.map((x) => x.id)), shown = board ? { ...stashing, board } : stashing, yards = env.trainyard?.yards(joinOf(shown));
 			if (!yards) return shown;
 			const load = env.trainyard!.load();
 			return { ...shown, yards, ...(load ? { load } : {}) };

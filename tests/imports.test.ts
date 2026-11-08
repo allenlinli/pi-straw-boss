@@ -742,7 +742,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Merge of main's wait cards demo (demo-waits.ts, already counted) onto pi-better-show blocks (todo #129; measured): 737 = main's 550 + demo-blocks.ts and the fixture's block hooks. Cap = measured.
 	// Operate page (todo #121 task 7; measured): 737 to 740 (+3 in fixture.ts: the `?operate=` call, `everyUnit` for a remote base's units, and the `api` fallback). The scenes themselves are gui/demo-box.ts (a file of its own, counted in the page's TypeScript).
 	// The tree block (pi-better-show 0.4.0; measured): 740 to 779 (+37 in demo-blocks.ts: a tree at the end of the document with every block kind, and a tree after the chat message's table).
-	assert.ok(demo <= 779, `the demo fixture has ${demo} lines`);
+	// The board demo (todo #135; measured): 779 to 781 (+2 in fixture.ts: the `?board` call and its import, with the head tower's `talk` state). The rows and the two answers are gui/demo-board.ts, a file of its own.
+	assert.ok(demo <= 781, `the demo fixture has ${demo} lines`);
 	// The trains' demo (todo #125 task 7; measured): +2 in fixture.ts (the `?trains=` call and the train units that never ask a question on the demo's clock). The states themselves are gui/demo-trains.ts, a file of its own.
 	// Head tower H5 to 387 (+3 over 384): the strip's `?zen=head|head-open|head-history` states (the quiet net, the Enter and H presses, the draft), and a message to the head answered with its working mark (demo-head.ts holds the words).
 	// 0.13.0 raised views.ts to 253 for the base view's two opening buttons; the opening tile (gui/spawn.ts) has its own figure below.
@@ -949,7 +950,8 @@ test("the TypeScript source stays within its size budgets", () => {
 	// Whole-batch fix round (todo #125, TB-F004, F005; measured) 8455 to 8459 (+4): gui/trains.ts (`removedNotices`, the journal mark, the unknown chip) and gui/yard.ts (their lines under a train). Cap = measured.
 	// A box in two teams (#121 trial; measured): 8459 to 8468 (+9): gui/linkmodel.ts merges the mains of every team's row per unit, each MainCard with its row's team. Cap = measured.
 	// The work board view (todo #135; measured, after the fix round) 8468 to 8593 (+125): gui/board.ts (new, the section: counts, groups, rows, Ask, Clear) and session.ts 170 to 173 (the section's box under the head's log). Cap = measured.
-	assert.ok(page <= 8593, `the page's TypeScript has ${page} lines`);
+	// The board demo (todo #135; measured): 8593 to 8638 (+45: gui/demo-board.ts, the eight rows and the two answers; fixture.ts is counted in the demo fixture's own cap). Cap = measured.
+	assert.ok(page <= 8638, `the page's TypeScript has ${page} lines`);
 	// Unit status and notices (S5) to 4990 (measured, +24 over the 4966 the branch base measured): linkmodel.ts (`unitsFor`, `unitLine`, the notice line), render.ts (the ally base's unit list), linkbar.ts (a notice's Clear).
 	// Unattended review fixes (ut-s6) to 4991 (+1): `unitLine` says "no status lately" for a stale device and the report is titled "Last report" (the two messages that were defined and not used).
 	// Forwarded dialog card (feat/link-unattended-dialog-gui) to 4966 (measured, +131 over the 4835 the branch base measured): linkdialogs.ts (48, new: the cards, with the question panel) and linkdialogmodel.ts (44, new: states in words, the check of a sender's dialog shape, the answer's body) load with the first forwarded dialog; linkmodel.ts +11 (`dialogState`), linkbar.ts +28 (the lazy load, the card rows).

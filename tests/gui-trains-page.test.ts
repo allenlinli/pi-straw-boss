@@ -68,7 +68,7 @@ test("the yard sheet opens modal on the projects it is given, follows the net on
 	const yards = (round: number) => ({ projects: [{ project: "acme", forming: [], waiting: [], trains: [{ code: "2026-11-06-m", app: "web", state: "live" as const, key: "tr", round, cars: [], steps: [] }] }] });
 	const net = (round: number) => ({ bases: [base([unit("tr", "train")])], yards: yards(round), load: { now: 42, cores: 14 } });
 	const sheet = mountYard();
-	const dialog = page.body.find((x) => x.tag === "dialog")[0] as El & { open: boolean };
+	const dialog = page.body.find((x) => x.tag === "dialog")[0] as El & { open: boolean; close(): void };
 	assert.equal(sheet.isOpen(), false);
 	sheet.net(net(1) as never);
 	assert.equal(dialog.open, false, "a snapshot alone opens nothing");
@@ -89,4 +89,24 @@ test("the yard sheet opens modal on the projects it is given, follows the net on
 	assert.equal(dialog.open, false, "a click on a train's link closes the sheet; the router follows the link");
 	sheet.net(net(3) as never);
 	assert.ok(!dialog.textContent.includes("第 3 次組裝"), "a closed sheet draws nothing");
+});
+
+test("closing the yard sheet returns the focus to the control that opened it, even where a click does not focus a button (TPG-F003)", async () => {
+	const { mountYard } = await import("../gui/yard.ts");
+	const sheet = mountYard();
+	const dialog = page.body.find((x) => x.tag === "dialog").at(-1) as El & { open: boolean; close(): void };
+	const chip = new El("button");
+	page.body.append(chip);
+	chip.focus();
+	sheet.open(["acme"]);
+	assert.notEqual(page.focused, chip, "the sheet takes the focus while it is open");
+	dialog.close();
+	assert.equal(page.focused, chip, "the chip that opened the sheet has the focus again");
+	const gone = new El("button");
+	page.body.append(gone);
+	gone.focus();
+	sheet.open(["acme"]);
+	gone.remove();
+	dialog.close();
+	assert.notEqual(page.focused, gone, "a control that left the page is not focused");
 });

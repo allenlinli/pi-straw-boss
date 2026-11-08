@@ -12,7 +12,7 @@ Object.assign(page, { createTextNode: (text: string) => String(text), createDocu
 const { drawBlocks } = await import("../gui/blocks.ts");
 const { lockFor } = await import("../gui/blocklock.ts");
 const { DEMO_BLOCKS_DOC } = await import("../gui/demo-blocks.ts");
-const { parse, inlinePlain } = await import("pi-better-show"), { TAGS } = await import("pi-better-show/elements");
+const { parse, inline, inlinePlain, BLOCK_KINDS, DISPLAY_KINDS, INTERACTIVE_KINDS } = await import("pi-better-show"), { TAGS } = await import("pi-better-show/elements");
 type Delivery = { ok: true } | { ok: false; reason: string; answered?: [string, string][] };
 type Answer = { kind: string; title?: string; fields: [string, string][]; ref?: { doc?: string; block: number } };
 
@@ -33,7 +33,7 @@ const fire = (el: El, answer: Answer) => {
 test("a document with every block kind draws one element per block, in order, fed with the block's data, at the host's density", () => {
 	const segments = parse(DEMO_BLOCKS_DOC).filter((s) => s.type === "block");
 	const kinds = new Set(segments.map((s) => s.kind));
-	assert.equal(kinds.size, 13, "the sample has every kind of the vocabulary");
+	assert.equal(kinds.size, 14, "the sample has every kind of the vocabulary");
 	const els = elementsOf(drawn(DEMO_BLOCKS_DOC));
 	assert.deepEqual(els.map((e) => e.tagName), segments.map((s) => TAGS[s.kind as keyof typeof TAGS]));
 	els.forEach((el, i) => {
@@ -68,6 +68,74 @@ test("a block that does not fit its schema shows its source in code, and nothing
 	assert.equal(pre.length, 2);
 	assert.equal(pre[0]!.find((el) => el.tagName === "code")[0]!.textContent, "questions: not-a-list");
 	assert.ok(pre[0]!.getAttribute("title"), "the reason is the tooltip");
+});
+
+// The `tree` block (pi-better-show 0.4.0): an indented directory snapshot the agent wrote. It is a display kind, drawn by `pbs-tree` from the block's data, and its text is text: sb makes no name a link or a route, and a note's links are shown as their text.
+const TREE = "```tree\nrepo/\n  src/ {focus} # the **core**\n    parse.ts {new}\n    old.ts {removed}\n  README.md {changed, risk}\n  … 12 more\n```";
+
+test("a tree block is the pbs-tree element fed with the block's data, at the host's density, addressed by its index; the wrapper names its kind", () => {
+	const into = drawn(`Before.\n\n\`\`\`suggest\n- Go\n\`\`\`\n\n${TREE}`);
+	const el = elementsOf(into).find((e) => e.tagName === "pbs-tree") as unknown as El & { data: { root: { name: string; children: { name: string; dir: boolean; tags: string[]; note?: string; children: { name: string; tags: string[] }[] }[] } }; ref: unknown };
+	assert.ok(el, "a tree is drawn with pbs-tree");
+	assert.equal(TAGS.tree, "pbs-tree");
+	assert.equal(el.getAttribute("density"), "compact");
+	assert.deepEqual(el.ref, { block: 1 }, "the block's address is its index among the document's blocks");
+	assert.equal(el.data.root.name, "repo");
+	assert.deepEqual(el.data.root.children.map((c) => [c.name, c.dir, c.tags]), [["src", true, ["focus"]], ["README.md", false, ["changed", "risk"]], ["… 12 more", false, []]]);
+	assert.deepEqual(el.data.root.children[0]!.children.map((c) => [c.name, c.tags]), [["parse.ts", ["new"]], ["old.ts", ["removed"]]]);
+	const wrap = into.find((e) => e.getAttribute("class") === "pbs-block" && e.getAttribute("data-kind") === "tree");
+	assert.equal(wrap.length, 1);
+});
+
+test("a tree takes no answer: it is not among the kinds a reader answers, so a pbs-answer from its element delivers nothing and locks nothing", async () => {
+	assert.deepEqual([...BLOCK_KINDS].sort(), [...DISPLAY_KINDS, ...INTERACTIVE_KINDS].sort(), "every kind of the package is a display kind or a kind a reader answers: a new kind makes this fail until sb decides which");
+	assert.ok(DISPLAY_KINDS.includes("tree" as never) && !INTERACTIVE_KINDS.includes("tree" as never));
+	const sent: string[] = [];
+	const into = drawn(TREE, host(async (_a, t) => (sent.push(t), { ok: true }), { scope: ["S1", "tree"] }));
+	const [el] = elementsOf(into) as unknown as (El & { answered?: unknown })[];
+	assert.equal(fire(el!, { kind: "form", fields: [["q", "x"]], ref: { block: 0 } }), false, "the host does not even take it: the event is left alone");
+	await settle();
+	assert.deepEqual(sent, []);
+	assert.equal(el!.answered, undefined);
+	assert.equal(lockFor("S1", "tree").get(0).state, "open");
+});
+
+test("a tree is a display block: a unit whose box is away does not switch it off, and it carries no note", () => {
+	const away = { why: () => "The box is unreachable.", watch() {} };
+	const into = drawn(`${TREE}\n\n\`\`\`suggest\n- Go\n\`\`\``, host(undefined, { away }));
+	const wraps = into.find((e) => e.getAttribute("class") === "pbs-block");
+	assert.deepEqual(wraps.map((w) => [w.getAttribute("data-kind"), w.hasAttribute("data-away"), elementsOf(w)[0]!.hasAttribute("inert")]), [["tree", false, false], ["suggest", true, true]], "the chips are off with the box, the tree is not");
+	assert.deepEqual(into.find((e) => e.getAttribute("class") === "pbs-note").map((n) => n.textContent), ["", "The box is unreachable."]);
+});
+
+test("a tree's names are text and its notes show their links as text: no name or note reaches the element as a link, a route, or markup", () => {
+	const note = "see [the runbook](https://example.com/run), https://example.com/x, **bold [inside](https://example.com/in)**, `a_b`, *soft*, and \\[kept\\]";
+	const into = drawn(`\`\`\`tree\nhttps://example.com/\n  [a](https://example.com/b)/ # ${note}\n    ../../etc/passwd # file:///etc/passwd\n    nested.ts # *__[only here](https://example.com/in)__*\n\`\`\``);
+	const root = (elementsOf(into)[0] as unknown as { data: { root: { name: string; children: { name: string; note?: string; children: { name: string; note?: string }[] }[] } } }).data.root;
+	assert.equal(root.name, "https://example.com", "a name is the parser's, untouched: the element builds a text node of it");
+	assert.equal(root.children[0]!.name, "[a](https://example.com/b)");
+	assert.equal(root.children[0]!.children[0]!.name, "../../etc/passwd");
+	const tokens = (text: string) => inline(text);
+	const flat = (list: ReturnType<typeof inline>): string[] => list.flatMap((t) => (t.type === "link" ? ["LINK"] : "children" in t ? [t.type, ...flat(t.children)] : [t.type]));
+	const original = flat(tokens(note)), shown = root.children[0]!.note!;
+	assert.ok(original.includes("LINK"), "the note as written has links (the test is not vacuous)");
+	assert.ok(!flat(tokens(shown)).includes("LINK"), `no link survives in: ${shown}`);
+	assert.equal(inlinePlain(shown), "see the runbook, https://example.com/x, bold inside, a_b, soft, and [kept]", "the words are the same; a link is its label, and a bare address is text");
+	assert.deepEqual(flat(tokens(shown)).filter((t) => t !== "text"), ["strong", "code", "em"], "bold, code, and italic stay as they were");
+	assert.equal(root.children[0]!.children[0]!.note, "file:///etc/passwd", "a note without a link is the block's, untouched");
+	assert.ok(!flat(tokens(root.children[0]!.children[1]!.note!)).includes("LINK"), "a link inside emphasis is found too");
+	assert.equal(inlinePlain(root.children[0]!.children[1]!.note!), "only here");
+});
+
+test("a tree that does not parse shows its source in code with the reason, like any block: an unknown tag, a tab, a second root, a file holding entries, over the limits", () => {
+	const bad = ["root/\n  a.ts {oops}", "root/\n\ta.ts", "root/\nother/", "root/\n  a.ts\n    b.ts", `root/\n${Array.from({ length: 2001 }, (_, i) => `  f${i}`).join("\n")}`];
+	for (const source of bad) {
+		const into = drawn(`\`\`\`tree\n${source}\n\`\`\``);
+		assert.equal(elementsOf(into).length, 0, source.slice(0, 30));
+		const pre = into.find((e) => e.tagName === "pre")[0]!;
+		assert.equal(pre.find((e) => e.tagName === "code")[0]!.getAttribute("data-lang"), "tree");
+		assert.ok(pre.getAttribute("title")!.startsWith("tree: "), "the reason is the tooltip");
+	}
 });
 
 test("an answer is delivered by the host: the element is told to stay open until it is, then locked with the fields that went", async () => {
@@ -225,8 +293,8 @@ test("nothing a block holds becomes markup: hostile text stays data, and the blo
 	(El.prototype as unknown as Record<string, unknown>).insertAdjacentHTML = (_: string, v: string) => void writes.push(`adjacent=${v}`);
 	try {
 		const evil = "<img src=x onerror=alert(1)>";
-		const into = drawn(`> [!NOTE] ${evil}\n> <script>alert(1)</script>\n\n\`\`\`cards\n- {title: "${evil}", body: "<b>x</b>"}\n\`\`\`\n\n\`\`\`form\nquestions:\n  - {name: q, label: "${evil}"}\n\`\`\`\n\n\`\`\`bogus-not-a-kind\n${evil}\n\`\`\`\n\n\`\`\`form\n${evil}\n\`\`\``);
-		assert.ok(elementsOf(into).length >= 3);
+		const into = drawn(`> [!NOTE] ${evil}\n> <script>alert(1)</script>\n\n\`\`\`cards\n- {title: "${evil}", body: "<b>x</b>"}\n\`\`\`\n\n\`\`\`form\nquestions:\n  - {name: q, label: "${evil}"}\n\`\`\`\n\n\`\`\`tree\nroot/\n  ${evil} {focus} # ${evil}\n\`\`\`\n\n\`\`\`bogus-not-a-kind\n${evil}\n\`\`\`\n\n\`\`\`form\n${evil}\n\`\`\``);
+		assert.ok(elementsOf(into).length >= 4);
 		assert.deepEqual(writes, []);
 	} finally {
 		for (const name of ["innerHTML", "outerHTML", "insertAdjacentHTML"]) delete (El.prototype as unknown as Record<string, unknown>)[name];
@@ -355,6 +423,15 @@ test("BSR-F001: a chip keeps its own rule (its label is the text it sends) and a
 test("BSR-F001: the step's controls are 44 px tall on touch, in the block's own sheet", () => {
 	const css = readFileSync(new URL("../gui/pbs.css", import.meta.url), "utf8");
 	assert.match(css, /@media \(pointer: coarse\), \(max-width: 640px\) \{[^@]*\.pbs-confirm button \{ min-height: 44px; min-width: 44px; \}/);
+});
+
+test("a tree's rows and its two buttons are 44 px tall on touch, in the block's own sheet, and every part the sheet names is a part pbs-tree has", () => {
+	const css = readFileSync(new URL("../gui/pbs.css", import.meta.url), "utf8"), element = readFileSync(new URL("../node_modules/pi-better-show/src/elements/tree.ts", import.meta.url), "utf8");
+	const touch = /@media \(pointer: coarse\), \(max-width: 640px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+	const named = [...touch.matchAll(/pbs-tree::part\(([\w-]+)\)/g)].map((x) => x[1]!), has = new Set([...element.matchAll(/(?:part: "|button\(")([\w-]+)"/g)].map((x) => x[1]!)); // `part: "node"`, and the bar's `button("expand-all", ...)`
+	assert.deepEqual([...new Set(named)].sort(), ["collapse-all", "expand-all", "node"]);
+	for (const part of named) assert.ok(has.has(part), `${part} is a part of pbs-tree`);
+	for (const part of named) assert.match(touch, new RegExp(`pbs-tree::part\\(${part}\\)[^{]*\\{[^}]*min-height: 44px`), `${part} is 44 px tall`);
 });
 
 // A block of a unit on a remote base whose box takes no input (unreachable or ended): the host says so (`away`), and the block cannot be submitted (todo #121 task 7 fix round 4, R-F001).

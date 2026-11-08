@@ -80,7 +80,12 @@ export function mountYard(): Yard {
 		const target = e.target as Element | null;
 		if (target === dialog || target?.closest?.("a[data-route]")) dialog.close(); // a click on the backdrop (the dialog's own box) or on a link to a comms
 	});
-	dialog.addEventListener("close", () => { sig = ""; });
+	let opener: HTMLElement | undefined; // Safari does not focus a clicked button, so the browser's own restore on close cannot be trusted: the control that opened the sheet is remembered and focused again
+	dialog.addEventListener("close", () => {
+		sig = "";
+		if (opener?.isConnected && !opener.closest("[inert]")) opener.focus();
+		opener = undefined;
+	});
 	dialog.append(h("div", { class: "yard-bar" }, close), body);
 	document.body.append(dialog);
 	return {
@@ -88,7 +93,11 @@ export function mountYard(): Yard {
 			shown = projects;
 			sig = "";
 			draw();
-			if (!dialog.open) dialog.showModal();
+			if (!dialog.open) {
+				const from = document.activeElement as HTMLElement | null;
+				opener = from && from !== document.body && from !== close ? from : opener;
+				dialog.showModal();
+			}
 			close.focus();
 		},
 		net(net) {

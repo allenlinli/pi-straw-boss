@@ -19,7 +19,8 @@ test("the hint finds exactly the texts the block parser would split: a fence of 
 	}
 	for (const alert of ["NOTE", "tip", "IMPORTANT", "Warning", "CAUTION"]) assert.ok(hasBlocks(`> [!${alert}] t\n> body`), alert);
 	assert.ok(hasBlocks("> [!NOTE]"), "an alert with no title");
-	for (const none of ["plain **text**", "```js\nlet a\n```", "```formal\nx\n```", "    ```form\nx\n```", "> a quote\n> [!NOTES]\n", "> text [!NOTE]", "`form`", "form\n```\nx\n```"]) assert.ok(!hasBlocks(none), none);
+	assert.ok(hasBlocks("Files:\n\n```tree\nrepo/\n  a.ts\n```"), "a tree alone loads the block code (0.4.0)");
+	for (const none of ["plain **text**", "```js\nlet a\n```", "```formal\nx\n```", "```treehouse\nx\n```", "```trees\nx\n```", "    ```form\nx\n```", "> a quote\n> [!NOTES]\n", "> text [!NOTE]", "`form`", "form\n```\nx\n```"]) assert.ok(!hasBlocks(none), none);
 });
 
 test("a command line is a text beginning with ! or /, after any space: a block never sends one", () => {

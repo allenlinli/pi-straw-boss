@@ -211,6 +211,21 @@ test("BSR-F003: the answer's rev must be the hash of the text the server serves 
 	assert.equal(forms.length, 1);
 });
 
+test("a tree counts as a block (pi-better-show 0.4.0): the suggest after it is block 1 and its answer is taken, and a block past the end is still refused", async () => {
+	const text = "# Plan\n\n```tree\nrepo/\n  src/ {focus}\n    a.ts {new}\n```\n\n```suggest\n- Go\n```\n";
+	files.get("/doc/d-blocks/plan.md")!.body = text;
+	try {
+		const disk = { text: undefined as string | undefined }, { gui, caps, forms } = await serve({ disk });
+		const post = (answerId: string, block: number) => ask(gui, `api/doc/${caps["plan.md"]}/answer`, { method: "POST", body: { answerId, answer: { kind: "suggest", fields: [["text", "Go"]], ref: { block } }, rev: hashOf(text) } });
+		const past = await post("1".repeat(32), 2);
+		assert.deepEqual([past.status, json(past).error], [409, "no_block"], "two blocks: the tree is 0, the suggest 1");
+		assert.equal((await post("3".repeat(32), 1)).status, 200, "the suggest after the tree is block 1");
+		assert.equal(forms.length, 1);
+	} finally {
+		files.get("/doc/d-blocks/plan.md")!.body = MD;
+	}
+});
+
 test("BSR-F005: a v1 Markdown document draws its blocks but its owner takes no block answers: the refusal says so up front, and says the v2 package is what takes them, not that the document is closed", async () => {
 	const path = join(scratch, "v1.md");
 	writeFileSync(path, "# Old\n\n```suggest\n- Go\n```\n");

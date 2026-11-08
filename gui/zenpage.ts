@@ -1,7 +1,6 @@
 import type { Net } from "../src/net.ts";
 import { audio } from "./audio.ts";
 import { prefs } from "./prefs.ts";
-import { zenTrains } from "./trains.ts";
 import { activityOf, companionsOf } from "./zenunits.ts";
 import type { mountZen } from "./zen.ts";
 import { createZenSound } from "./zensound.ts";
@@ -18,6 +17,7 @@ export interface ZenPageIo {
 	snapshot(): Net | undefined;
 }
 export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companions" | "activity" | "trains"> & { menuSound: { try(): void; effects(): void } } {
+	let zenTrains: typeof import("./trains.ts").zenTrains | undefined;
 	let player: { file(): string | undefined } | undefined;
 	const zs = createZenSound(audio, io.sound, () => (player?.file() ? zs.bus() : undefined)); // an effect ducks the music while it plays; Zen's effects play on the page's one audio core, behind the Sound switch
 	return {
@@ -37,6 +37,11 @@ export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companio
 		},
 		companions: () => companionsOf(io.snapshot()),
 		activity: () => activityOf(io.snapshot()),
-		trains: () => zenTrains(io.snapshot()),
+		trains: () => {
+			const net = io.snapshot();
+			if (!net?.yards) return { count: 0, waiting: 0 }; // no yards, no trains model: a computer without trains carries none of its words (spec §26)
+			if (!zenTrains) void import("./trains.ts").then((t) => (zenTrains = t.zenTrains)); // the strip says it from the next snapshot on
+			return zenTrains?.(net) ?? { count: 0, waiting: 0 };
+		},
 	};
 }

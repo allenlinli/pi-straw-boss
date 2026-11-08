@@ -11,13 +11,16 @@ const PANES = [
 	{ pane_id: "wA:p3", tab_id: "wA:t2", workspace_id: "wA", tokens: { sb_role: "member" } },
 	{ pane_id: "wA:p7", tab_id: "wA:t7", workspace_id: "wA", tokens: { sb_role: "tower" } },
 ];
+/** Lets every pending microtask run: the fakes below wait on no timer, so once this returns a close's background work has done all it can. */
+const flush = () => new Promise<void>((done) => setImmediate(done));
 const at = (id: string, paneId: string): Session => ({ id, herdrLocation: { paneId } as Session["herdrLocation"] });
 
 /** `late`: sessions that accept the close and leave the broker's list only after the third wait, as a pi does that quits a second after it answered. `listed` says, for each forgotten session, whether the broker still listed it at that moment. */
 function setup({ refuse = [] as string[], linger = [] as string[], late = [] as string[] } = {}) {
 	let live = [at("a", "wA:p1"), at("kid", "wA:p2"), at("b", "wA:p3"), at("tower", "wA:p7"), at("gui", "wB:p1")], slept = 0;
-	const asked: [string, boolean][] = [], ran: string[][] = [], forgot: string[] = [], listed: boolean[] = [];
+	const asked: [string, boolean][] = [], ran: string[][] = [], forgot: string[] = [], listed: boolean[] = [], noted: [string, Record<string, unknown>][] = [];
 	const close = createCloser({
+		note: (event, facts) => void noted.push([event, facts ?? {}]),
 		forget: (session) => void (forgot.push(session), listed.push(live.some((s) => s.id === session))),
 		run: async (args) => (ran.push(args), args[0] === "pane" ? JSON.stringify({ result: { panes: PANES } }) : "{}"),
 		sleep: async () => void (++slept >= 3 && (live = live.filter((s) => !late.includes(s.id)))),
@@ -30,7 +33,7 @@ function setup({ refuse = [] as string[], linger = [] as string[], late = [] as 
 			return { accepted: true };
 		},
 	});
-	return { close, asked, ran, forgot, listed, closes: () => ran.filter((a) => a[1] === "close") };
+	return { close, asked, ran, forgot, listed, noted, closes: () => ran.filter((a) => a[1] === "close") };
 }
 
 test("closing a squad quits its agents, keeping their panes, then closes the tab; its subagent goes with the tab", async () => {
@@ -81,16 +84,49 @@ test("a unit that accepts the close is forgotten by its session id; a refusal fo
 	const s = setup({ refuse: ["b"] });
 	assert.equal((await s.close("unit", { key: "a" })).status, 200);
 	assert.equal((await s.close("unit", { key: "b" })).status, 409);
+	await flush();
 	assert.deepEqual(s.forgot, ["a"]);
 });
 
 // OT-F002: a unit's close is accepted before the main has quit (closing.ts schedules the quit after the answer), so the route goes when the broker no longer lists the main, as a batch waits for the exit.
-test("a unit is forgotten once the broker no longer lists it, not on acceptance; one that stays listed is not forgotten", async () => {
+// OT2-F002: the reply does not wait for that: the operate relay gives up after 20 s and the exit wait is up to 30 s, so the wait and the forget run on after the reply.
+test("a unit is forgotten once the broker no longer lists it, after the reply, not on acceptance; one that stays listed is not forgotten and the log says so", async () => {
 	const s = setup({ late: ["a"] });
-	assert.deepEqual([(await s.close("unit", { key: "a" })).status, s.forgot, s.listed], [200, ["a"], [false]], "forgotten after it left the list");
+	assert.equal((await s.close("unit", { key: "a" })).status, 200);
+	await flush();
+	assert.deepEqual([s.forgot, s.listed], [["a"], [false]], "forgotten after it left the list");
 	const stuck = setup({ linger: ["a"] });
 	assert.equal((await stuck.close("unit", { key: "a" })).status, 200, "the close was accepted all the same");
+	await flush();
 	assert.deepEqual(stuck.forgot, [], "a main that still runs keeps its route");
+	assert.deepEqual(stuck.noted, [["close-unit-listed", { session: "a", waitedMs: 30_000 }]]);
+});
+
+test("the reply to a unit's close comes while the main is still listed; the route goes when it has left", async () => {
+	let live = [at("a", "wA:p1"), at("gui", "wB:p1")], wake!: () => void;
+	const waiting = new Promise<void>((done) => (wake = done)), forgot: string[] = [], listed: boolean[] = [];
+	const close = createCloser({ run: async () => "{}", sleep: () => waiting, me: () => "gui", sessions: async () => live, ask: async () => ({ accepted: true }), forget: (session) => void (forgot.push(session), listed.push(live.some((s) => s.id === session))) });
+	const reply = close("unit", { key: "a" });
+	const first = await Promise.race([reply, flush().then(() => "held")]);
+	assert.equal(typeof first === "object" && first.status, 200, "the reply is not held for the exit");
+	assert.deepEqual(forgot, [], "the main is still listed, so nothing is forgotten yet");
+	live = [at("gui", "wB:p1")];
+	wake();
+	await flush();
+	assert.deepEqual([forgot, listed], [["a"], [false]], "the route goes after the exit");
+});
+
+test("a read of the broker's list that fails after the close was accepted, or a forget that throws, is logged and does not reach the reply", async () => {
+	const noted: [string, Record<string, unknown>][] = [], forgot: string[] = [];
+	const deps = { run: async () => "{}", sleep: async () => {}, me: () => "gui", ask: async () => ({ accepted: true }), note: (event: string, facts?: Record<string, unknown>) => void noted.push([event, facts ?? {}]) };
+	const unreadable = createCloser({ ...deps, sessions: async () => { throw new Error("the broker did not answer"); }, forget: (session) => void forgot.push(session) });
+	assert.equal((await unreadable("unit", { key: "a" })).status, 200);
+	await flush();
+	const throwing = createCloser({ ...deps, sessions: async () => [], forget: () => { throw new Error("the route file is read-only"); } });
+	assert.equal((await throwing("unit", { key: "a" })).status, 200);
+	await flush();
+	assert.deepEqual(forgot, []);
+	assert.deepEqual(noted, [["close-unit-forget-failed", { session: "a", error: "the broker did not answer" }], ["close-unit-forget-failed", { session: "a", error: "the route file is read-only" }]]);
 });
 
 test("a squad or base that closed forgets every session it quit, and one that stayed open forgets none", async () => {

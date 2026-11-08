@@ -265,6 +265,7 @@ export function createGuiHost(o: GuiHostOptions) {
 				// The tower the server runs has no pi to ask: the unit the net shows for it (a service, not a waiting one) is closed by ending the service.
 				...(o.tower?.close ? { tower: { of: (key: string) => { const unit = net.lookup(key); return unit?.role === "tower" && o.tower!.has(unit.base) ? unit.base : undefined; }, owns: (sessionId: string) => o.tower!.owns?.(sessionId) ?? false, has: (workspace: string) => o.tower!.has(workspace), end: o.tower.close } } : {}),
 				...(o.tower?.forget ? { forget: o.tower.forget } : {}),
+				note: (event, facts) => log.line(event, facts),
 				pop: (name) => popBase({ run: cfg.run, sleep: cfg.sleep, stateDir: slot.stateDir, live, agentDir: cfg.env.PI_CODING_AGENT_DIR, trustDir: trustDir(slot.stateDir) }, name),
 			}),
 		});

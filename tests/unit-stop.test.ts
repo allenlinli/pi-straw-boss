@@ -412,17 +412,19 @@ test("OT-F001: the forget itself asks the revoker to sweep: a stopped main that 
 	assert.deepEqual(doneStops(), [[undefined, "b1".repeat(16)]]);
 });
 
-test("OT-F001: a page close of a main the revoker found short of dispatch (no stop) leaves the row to the revoker too", async () => {
+// OT2-F001: only a row that carries a stop is the revoker's to let go. A stopless row it merely found short of dispatch has no done audit or stopped notice waiting; holding it left a closed main's route to the 7-day expiry once the device had dispatch again.
+test("OT2-F001: a page close of a main the revoker found short of dispatch (no stop) drops its row at once, and nothing brings it back when the device has dispatch again", async () => {
 	world.revokeMs = 30;
 	await boxWithMain();
 	world.ally.level.set(DEV, "reply");
 	await until(() => world.signals.some((x) => x.kind === "revoked" && !x.ended), "the revoker to be at the main (could not be ended yet)");
 	pageCloses();
-	assert.equal(readRoutes(world.slot, "wA", Date.now()).length, 1, "a main the revoker works on keeps its row for the revoker");
-	await until(() => readRoutes(world.slot, "wA", Date.now()).length === 0, "the revoker to let it go");
+	world.ally.level.set(DEV, "dispatch"); // a policy flip (or one bad read) before the revoker has seen the main gone twice
+	assert.equal(readRoutes(world.slot, "wA", Date.now()).length, 0, "a row with no stop is dropped by the page's close");
+	assert.deepEqual([doneStops(), stoppedNotices().length], [[], 0], "no stop was asked, so no done line and no stopped notice");
 });
 
-test("OT-F001: a main nothing pursues loses its opened row on a page close", async () => {
+test("OT-F001: a main with no stop loses its opened row on a page close", async () => {
 	await boxWithMain();
 	pageCloses();
 	assert.equal(readRoutes(world.slot, "wA", Date.now()).length, 0);
@@ -442,11 +444,11 @@ const pageCloser = () => createCloser({
 	forget: towerPanel(() => world.expose).forget,
 });
 
-test("OT-F004: close-unit through the closer and the towers panel drops the route of a main nothing pursues", async () => {
+test("OT-F004: close-unit through the closer and the towers panel drops the route of a main with no stop", async () => {
 	await boxWithMain();
 	const closer = pageCloser(), key = "opened-1";
 	assert.equal((await closer("unit", { key })).status, 200);
-	assert.deepEqual(readRoutes(world.slot, "wA", Date.now()), [], "the plain main's route went with it");
+	await until(() => readRoutes(world.slot, "wA", Date.now()).length === 0, "the plain main's route to go with it (after the reply, once the broker no longer lists the main)");
 });
 
 test("OT-F004: close-unit of a main whose stop is pending ends in the done audit and the stopped notice, through the closer and the panel", async () => {

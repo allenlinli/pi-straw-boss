@@ -29,7 +29,7 @@ test("the noun pack names each role in both languages with the spec's words, and
 	for (const locale of Object.keys(NOUNS)) for (const key of Object.keys(NOUNS[locale]!)) assert.ok((NOUN_KEYS as readonly string[]).includes(key), `${locale}.${key} is a noun key`);
 	const want = {
 		en: { head_tower: "Raven Keep", role_tower: "Steward", role_main: "Spawn", role_member: "Wolf", role_subagent: "Bat", spec_base: "Crypt", role_outpost: "Coffin chamber", role_outside: "Ghost", comms: "Ravens", documents: "Tome", you: "the Count" },
-		"zh-TW": { head_tower: "鴉閣", role_tower: "管事", role_main: "衍裔", role_member: "狼", role_subagent: "蝙蝠", spec_base: "墓穴", role_outpost: "棺室", role_outside: "遊魂", comms: "渡鴉", documents: "典籍", you: "伯爵" },
+		"zh-TW": { head_tower: "鴉閣", role_tower: "管事", role_main: "血僕", role_member: "狼", role_subagent: "蝙蝠", spec_base: "墓穴", role_outpost: "棺室", role_outside: "遊魂", comms: "通信", documents: "典籍", you: "伯爵" },
 	};
 	for (const [locale, words] of Object.entries(want)) for (const [key, word] of Object.entries(words)) assert.equal((NOUNS[locale] as Record<string, string>)[key], word, `${locale}.${key}`);
 	assert.deepEqual(Object.keys(NOUNS.en!).sort(), Object.keys(NOUNS["zh-TW"]!).sort(), "both languages cover the same keys");
@@ -53,12 +53,28 @@ test("the backdrop is a WebP of at most 120 KB, and the three sounds are mono MP
 	assert.ok(back.length <= 120_000, `backdrop.webp is ${back.length} bytes`);
 	assert.equal(back.subarray(0, 4).toString(), "RIFF");
 	assert.equal(back.subarray(8, 12).toString(), "WEBP");
-	assert.deepEqual(readdirSync(join(dir, "sounds")).sort(), ["ask.mp3", "done.mp3", "error.mp3"]);
+	assert.deepEqual(readdirSync(join(dir, "sounds")).sort(), ["bell.mp3", "caw.mp3", "door.mp3"]);
 	for (const name of readdirSync(join(dir, "sounds"))) {
 		const size = statSync(join(dir, "sounds", name)).size, head = readFileSync(join(dir, "sounds", name)).subarray(0, 4);
 		assert.ok(size <= 30_000, `${name} is ${size} bytes`);
 		assert.ok((head[0] === 0xff && (head[1]! & 0xe0) === 0xe0) || head.subarray(0, 3).toString() === "ID3", `${name} is MP3`);
 	}
+});
+
+// Sounds by what they are (boss, 2026-11-08: 「finished 和 waiting 的音效調換一下，鐘聲比較像是需要回應」): a unit that asks the boss rings the bell, a finish is the crow's caw, a failure the door.
+test("the sounds map a wait to the bell, a finish to the caw, and a failure to the door, and no file is named after the other event", () => {
+	const index = at("gui/themes/raven/index.ts");
+	const imports = Object.fromEntries([...index.matchAll(/import (\w+) from "\.\/sounds\/([\w-]+)\.mp3"/g)].map((m) => [m[1]!, m[2]!]));
+	const map = /sounds:\s*\{([^}]*)\}/.exec(index)?.[1] ?? "";
+	const file = (event: string) => imports[new RegExp(`\\b${event}\\s*(?::\\s*(\\w+))?\\s*(?:,|$)`).exec(map)?.[1] ?? event];
+	assert.equal(file("waiting"), "bell");
+	assert.equal(file("done"), "caw");
+	assert.equal(file("error"), "door");
+	for (const name of ["ask", "done"]) assert.ok(!existsSync(join(root, `gui/themes/raven/sounds/${name}.mp3`)), `${name}.mp3 is gone: a name that lies`);
+	const notice = at("NOTICE.md");
+	assert.match(notice, /`caw\.mp3`, a crow's caw/);
+	assert.match(notice, /`bell\.mp3`, one church-bell strike/);
+	assert.match(notice, /`door\.mp3`, an old wooden door/);
 });
 
 test("the perched raven is one WebP strip of two frames (profile, head turned) with alpha, at most 40 KB, and is credited as Codex-generated art", () => {

@@ -71,9 +71,9 @@ The Raven Keep (鴉閣) view's art is original to this project. Its ten role ico
 
 Its three sounds are released under Creative Commons Zero (CC0 1.0), trimmed and converted to mono MP3 (`sounds/`):
 
-- `ask.mp3`, a crow's caw: "crow caw" by zeroisnotnull, https://opengameart.org/content/crow-caw
-- `done.mp3`, one church-bell strike, trimmed to 1.5 s with a fade: "Church bell" by kgeshev, https://freesound.org/people/kgeshev/sounds/378799/
-- `error.mp3`, an old wooden door creaking: "An old wooden door creaking" by soundofsong, https://freesound.org/people/soundofsong/sounds/647646/
+- `caw.mp3`, a crow's caw: "crow caw" by zeroisnotnull, https://opengameart.org/content/crow-caw
+- `bell.mp3`, one church-bell strike, trimmed to 1.5 s with a fade: "Church bell" by kgeshev, https://freesound.org/people/kgeshev/sounds/378799/
+- `door.mp3`, an old wooden door creaking: "An old wooden door creaking" by soundofsong, https://freesound.org/people/soundofsong/sounds/647646/
 
 ## pi-better-show (`dist/gui/assets/blockschunk-*.js`)
 

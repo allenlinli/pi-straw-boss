@@ -8,7 +8,7 @@ export const NOUNS: NounPack = {
 		role_outpost: "Coffin chamber", outposts: "Coffin chambers", role_outside: "Ghost", outside_net: "Ghosts", comms: "Ravens", documents: "Tome",
 	},
 	"zh-TW": {
-		you: "伯爵", head_tower: "鴉閣", role_tower: "管事", role_main: "衍裔", role_member: "狼", role_subagent: "蝙蝠", spec_base: "墓穴",
-		role_outpost: "棺室", outposts: "棺室", role_outside: "遊魂", outside_net: "遊魂", comms: "渡鴉", documents: "典籍",
+		you: "伯爵", head_tower: "鴉閣", role_tower: "管事", role_main: "血僕", role_member: "狼", role_subagent: "蝙蝠", spec_base: "墓穴",
+		role_outpost: "棺室", outposts: "棺室", role_outside: "遊魂", outside_net: "遊魂", comms: "通信", documents: "典籍",
 	},
 };

@@ -1,5 +1,7 @@
 # Train stages: merge, deploy, UAT (phase 1b)
 
+> **Superseded in part (0.65.0).** The UAT stage and D5 moved to the coordinator's acceptance before handoff: see [Trains as their own workers](2026-11-07-train-workers.md) §1 (D13). The rest of this record stands.
+
 Status: prompt-only, on `feat/train-stages`. Extends [the merge train](2026-10-30-merge-train.md); its phase 2 (code) is still not built.
 
 ## Why

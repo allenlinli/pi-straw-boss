@@ -25,7 +25,8 @@ import { PROMPT_DIR } from "./fakes.ts";
 const BUDGETS: Record<string, number> = { "main.md": 501, "tower.md": 402, "member.md": 140, "member-no-main.md": 150 };
 // Its review fixes (SB-F001, F003, F005: the Approval line quotes words already given and asks only when they are missing, the tower reports nothing back on a forwarded slip): main.md 680 to 700, tower.md 390 to 395, integrator.md 320 to 340 (SB-F002 and F006: the deploy gate before `Merge`, a subagent briefed for one step).
 const ON_BUDGETS: Record<string, number> = { "main.md": 715, "tower.md": 424 };
-const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir", "state"]);
+// 2026-11-08 (todo #125 task 5, TP-F004): `{{cli}}` is the command that runs cli.mjs, so a prompt can quote `train check`.
+const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir", "state", "cli"]);
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
 test("every role prompt stays within its word budget", () => {

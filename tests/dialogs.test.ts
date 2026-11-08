@@ -91,6 +91,15 @@ test("a relayed monitor list goes to its unit; one out of shape is left out whil
 	assert.deepEqual([unit.monitors, unit.mark], [undefined, "waiting"]);
 });
 
+test("a relayed monitor keeps its progress load to its unit; a load out of shape leaves the whole list out", async () => {
+	const x = hub(), path = file([]);
+	const gate = { id: "3", what: "train 1106m #4 full-check", status: "running" as const, lines: 5, at: 3, last: "waiting: load <=30 (now 42)", load: { max: 30, now: 42 } };
+	x.h.receive("S", x.list([], { file: path, monitors: [gate] }));
+	assert.deepEqual(JSON.parse(JSON.stringify((await read(x, path)).unit.monitors)), [gate]);
+	x.h.receive("S", x.list([], { file: path, monitors: [{ ...gate, load: { max: "30", now: 42 } }] as never }));
+	assert.equal((await read(x, path)).unit.monitors, undefined, "a hostile load is not passed on");
+});
+
 test("a relayed todo summary goes to its unit; one out of shape is left out while the dialogs still go", async () => {
 	const x = hub(), path = file([]);
 	x.h.receive("S", x.list([], { file: path, todo: { done: 2, total: 5, now: "Fixing the rounding" } }));

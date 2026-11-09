@@ -13,17 +13,18 @@ const { mountNotify } = await import("../gui/notify.ts");
 const { audio } = await import("../gui/audio.ts");
 const { useSounds } = await import("../gui/themesounds.ts");
 // The page's one playback core is replaced by recorders: what notify asks of it is what these tests read.
-const played: string[] = [], volumes: number[] = [];
+const played: string[] = [], volumes: [string, number][] = [];
 const fallbacks: (string | undefined)[] = [];
 audio.play = (url, fallback) => void (played.push(url), fallbacks.push(fallback));
-audio.volume = (v) => void volumes.push(v);
+audio.volume = (cls, v) => void volumes.push([cls, v]);
+const lastVolume = (cls: string) => volumes.filter(([c]) => c === cls).at(-1)?.[1];
 
-const ids = ["remind", "remind-note", "sound", "sound-vol", "sound-vol-out", "sound-try"];
+const ids = ["remind", "remind-note", "effects", "effects-vol", "effects-vol-out", "effects-try", "background", "background-vol", "background-vol-out"];
 function rig(seed: Record<string, string> = {}) {
 	stored.clear();
 	played.length = volumes.length = 0;
 	for (const [k, v] of Object.entries(seed)) stored.set(k, v);
-	const els = Object.fromEntries(ids.map((id) => [id, new El(id === "sound-vol" ? "input" : id === "sound-vol-out" ? "output" : "button")]));
+	const els = Object.fromEntries(ids.map((id) => [id, new El(id.endsWith("-vol") ? "input" : id.endsWith("-vol-out") ? "output" : "button")]));
 	Object.assign(page, { getElementById: (id: string) => els[id] });
 	const n = mountNotify(() => {});
 	// Another tab writes `key`: the store changes, then the event arrives (a tab's own write fires none in itself).
@@ -31,65 +32,97 @@ function rig(seed: Record<string, string> = {}) {
 	return { n, els, other };
 }
 
-test("the first read: Sound and Volume from the store, Remind on unless stored off", () => {
-	const r = rig({ [KEYS.sound]: "1", [KEYS.volume]: "35", [KEYS.remind]: "0" });
-	assert.equal(r.n.sound.on(), true);
-	assert.equal(r.n.sound.volume(), 35);
-	assert.equal(r.els.sound!.getAttribute("aria-pressed"), "true");
-	assert.equal(r.els["sound-vol"]!.value, "35");
+test("the first read: each class's switch and volume from the store, Remind on unless stored off", () => {
+	const r = rig({ [KEYS.effects]: "1", [KEYS.effectsVolume]: "35", [KEYS.background]: "0", [KEYS.backgroundVolume]: "80", [KEYS.remind]: "0" });
+	assert.deepEqual([r.n.sound.effects.on(), r.n.sound.effects.volume(), r.n.sound.background.on(), r.n.sound.background.volume()], [true, 35, false, 80]);
+	assert.equal(r.els.effects!.getAttribute("aria-pressed"), "true");
+	assert.equal(r.els.background!.getAttribute("aria-pressed"), "false");
+	assert.equal(r.els["effects-vol"]!.value, "35");
+	assert.equal(r.els["background-vol"]!.value, "80");
 	assert.equal(r.els.remind!.getAttribute("aria-pressed"), "false");
 	const d = rig();
-	assert.equal(d.n.sound.on(), false);
-	assert.equal(d.n.sound.volume(), 60);
+	assert.deepEqual([d.n.sound.effects.on(), d.n.sound.effects.volume(), d.n.sound.background.on(), d.n.sound.background.volume()], [false, 60, false, 60]);
 	assert.equal(d.els.remind!.getAttribute("aria-pressed"), "true");
 });
 
-test("another tab's Sound switch applies here: the button and the answer follow, and nothing is written back", () => {
-	const r = rig();
-	let told = 0;
-	r.n.sound.onChange(() => told++);
-	const writes: string[] = [], set = localStorage.setItem;
-	localStorage.setItem = (k, v) => (writes.push(k), set(k, v));
-	r.other(KEYS.sound, "1");
-	localStorage.setItem = set;
-	assert.equal(r.n.sound.on(), true);
-	assert.equal(r.els.sound!.getAttribute("aria-pressed"), "true");
-	assert.equal(r.els.sound!.dataset.state, "on");
-	assert.deepEqual(writes, [], "no echo");
-	assert.equal(told, 1, "the Zen menu is told");
+test("migration on the page: the old Sound on at Volume 35 draws both classes on at 35, and the old Sound off both off", () => {
+	const on = rig({ "sb.sound": "1", "sb.volume": "35" });
+	assert.deepEqual([on.els.effects!.dataset.state, on.els.background!.dataset.state, on.els["effects-vol"]!.value, on.els["background-vol"]!.value], ["on", "on", "35", "35"]);
+	assert.deepEqual([lastVolume("effects"), lastVolume("background")], [35, 35], "the core gets both");
+	const off = rig({ "sb.sound": "0", "sb.volume": "35" });
+	assert.deepEqual([off.els.effects!.dataset.state, off.els.background!.dataset.state], ["off", "off"]);
 });
 
-test("another tab's Volume applies here: the slider and the answer follow, and nothing is written back", () => {
+test("each switch changes its class only: the press, the API, and the store", () => {
+	const r = rig();
+	r.els.effects!.onclick!();
+	assert.deepEqual([r.n.sound.effects.on(), r.n.sound.background.on()], [true, false]);
+	assert.deepEqual([stored.get(KEYS.effects), stored.get(KEYS.background)], ["1", undefined]);
+	r.els.background!.onclick!();
+	r.n.sound.effects.set(false);
+	assert.deepEqual([r.n.sound.effects.on(), r.n.sound.background.on()], [false, true]);
+	assert.deepEqual([r.els.effects!.dataset.state, r.els.background!.dataset.state], ["off", "on"]);
+	assert.deepEqual([stored.get(KEYS.effects), stored.get(KEYS.background)], ["0", "1"]);
+});
+
+test("each volume reaches the playback core for its class only, at mount, on the slider, from the API, and from another tab", () => {
+	const r = rig({ [KEYS.effectsVolume]: "35", [KEYS.backgroundVolume]: "70" });
+	assert.deepEqual([lastVolume("effects"), lastVolume("background")], [35, 70], "the stored volumes at mount");
+	volumes.length = 0;
+	r.n.sound.effects.setVolume(80);
+	assert.deepEqual(volumes, [["effects", 80]], "only the effects' gain moved");
+	volumes.length = 0;
+	r.els["background-vol"]!.value = "15";
+	r.els["background-vol"]!.oninput!();
+	assert.deepEqual(volumes, [["background", 15]], "the slider moves its class's gain only");
+	assert.equal(stored.get(KEYS.backgroundVolume), "15");
+	assert.equal(stored.get(KEYS.effectsVolume), "80");
+	volumes.length = 0;
+	r.other(KEYS.effectsVolume, "25");
+	assert.deepEqual([...new Set(volumes.map(([c, v]) => `${c} ${v}`))], ["effects 25"], "another tab (earlier mounts of this file listen too, so each answer repeats)");
+	assert.equal(r.els["effects-vol-out"]!.value, "25");
+	assert.equal(r.els["background-vol-out"]!.value, "15");
+});
+
+test("another tab's switch applies here: the button and the answer follow, the class that changed is told, and nothing is written back", () => {
+	const r = rig();
+	const told = { effects: 0, background: 0 };
+	r.n.sound.effects.onChange(() => told.effects++);
+	r.n.sound.background.onChange(() => told.background++);
+	const writes: string[] = [], set = localStorage.setItem;
+	localStorage.setItem = (k, v) => (writes.push(k), set(k, v));
+	r.other(KEYS.background, "1");
+	localStorage.setItem = set;
+	assert.deepEqual([r.n.sound.background.on(), r.n.sound.effects.on()], [true, false]);
+	assert.equal(r.els.background!.getAttribute("aria-pressed"), "true");
+	assert.equal(r.els.background!.dataset.state, "on");
+	assert.equal(r.els.effects!.dataset.state, "off");
+	assert.deepEqual(writes, [], "no echo");
+	assert.deepEqual(told, { effects: 0, background: 1 }, "the Zen menu and the music are told for the class that changed");
+	r.other(KEYS.effectsVolume, "25");
+	assert.deepEqual(told, { effects: 1, background: 1 });
+	r.other(KEYS.view, "zen"); // another key: ignored
+	r.other("sb.sound", "0"); // the old key is no class's
+	assert.deepEqual(told, { effects: 1, background: 1 });
+});
+
+test("a change made here is told too (the music stops when Background is switched off from the Zen menu)", () => {
 	const r = rig();
 	let told = 0;
-	r.n.sound.onChange(() => told++);
-	r.other(KEYS.volume, "25");
-	assert.equal(r.n.sound.volume(), 25);
-	assert.equal(r.els["sound-vol"]!.value, "25");
-	assert.equal(r.els["sound-vol-out"]!.value, "25");
-	assert.equal(stored.get(KEYS.volume), "25");
-	assert.equal(told, 1);
-	r.other(KEYS.view, "zen"); // another key: ignored
-	assert.equal(told, 1);
+	r.n.sound.background.onChange(() => told++);
+	r.n.sound.background.set(true);
+	r.n.sound.background.setVolume(10);
+	r.n.sound.effects.set(true);
+	assert.equal(told, 2, "the background's own two, not the effects'");
 });
 
 const alert = (mark: string) => ({ key: mark, name: mark, mark }) as never;
 
-test("Volume reaches the playback core at mount, on the slider, and from another tab", () => {
-	const r = rig({ [KEYS.volume]: "35" });
-	assert.equal(volumes.at(-1), 35, "the stored Volume at mount");
-	r.n.sound.setVolume(80);
-	assert.equal(volumes.at(-1), 80, "the slider");
-	r.other(KEYS.volume, "25");
-	assert.equal(volumes.at(-1), 25, "another tab");
-	assert.deepEqual([...new Set(volumes)].sort(), [25, 35, 80]);
-});
-
-test("a batch plays the clip of its most urgent mark, only when Sound is on", () => {
+test("a batch plays the clip of its most urgent mark, only when Sound effects is on", () => {
 	const off = rig();
 	off.n.signal([alert("waiting")]);
-	assert.deepEqual(played, [], "Sound off: silent");
-	const r = rig({ [KEYS.sound]: "1" });
+	assert.deepEqual(played, [], "Sound effects off: silent");
+	const r = rig({ [KEYS.effects]: "1" });
 	r.n.signal([alert("done"), alert("waiting"), alert("error")]);
 	assert.equal(played.length, 1);
 	assert.match(played[0]!, /waiting\.mp3$/);
@@ -102,39 +135,61 @@ test("a batch plays the clip of its most urgent mark, only when Sound is on", ()
 	assert.notEqual(played[1], played[2]);
 });
 
-test("chime plays the finished clip with Sound on and nothing with Sound off", () => {
+test("the cues are effects: Background on with Effects off is silent, and Effects on with Background off plays", () => {
+	const bgOnly = rig({ [KEYS.background]: "1" });
+	bgOnly.n.signal([alert("waiting"), alert("error")]);
+	bgOnly.n.chime();
+	assert.deepEqual(played, []);
+	const fxOnly = rig({ [KEYS.effects]: "1" });
+	fxOnly.n.signal([alert("done")]);
+	fxOnly.n.chime();
+	assert.equal(played.length, 2);
+	fxOnly.n.sound.effects.set(false);
+	fxOnly.n.sound.background.set(true);
+	fxOnly.n.signal([alert("done")]);
+	assert.equal(played.length, 2, "switched off from the Zen menu: silent at once");
+});
+
+test("chime plays the finished clip with Sound effects on and nothing with it off", () => {
 	const off = rig();
 	off.n.chime();
 	assert.deepEqual(played, []);
-	const r = rig({ [KEYS.sound]: "1" });
+	const r = rig({ [KEYS.effects]: "1" });
 	r.n.chime();
 	assert.equal(played.length, 1);
 	assert.match(played[0]!, /done\.mp3$/);
-	r.other(KEYS.sound, "0");
+	r.other(KEYS.effects, "0");
 	r.n.chime();
 	assert.equal(played.length, 1, "another tab's Off silences it");
 });
 
-test("Try and turning Sound on play the finished clip, whatever the switch said before", () => {
+test("Try and turning Sound effects on play the finished clip, whatever the switch said before; Background has no clip to try or to say it is on", () => {
 	const r = rig();
-	r.n.sound.try();
+	r.n.sound.effects.try();
 	assert.match(played.at(-1)!, /done\.mp3$/);
 	played.length = 0;
-	r.n.sound.set(true);
+	r.n.sound.effects.set(true);
 	assert.equal(played.length, 1, "on: one clip to say so");
-	r.n.sound.set(false);
+	r.n.sound.effects.set(false);
 	assert.equal(played.length, 1, "off: none");
+	r.els["effects-try"]!.onclick!();
+	assert.equal(played.length, 2, "the Try button");
+	r.els.effects!.onclick!();
+	assert.equal(played.length, 3, "and the settings' switch pressed on says it too");
+	r.n.sound.background.try();
+	r.n.sound.background.set(true);
+	assert.equal(played.length, 3, "Background plays no clip");
 });
 
 test("a theme's sounds replace the base clips for each kind while it is the view, the settings' try and the chime included, and the base clips come back with Standard", () => {
-	const r = rig({ [KEYS.sound]: "1" });
+	const r = rig({ [KEYS.effects]: "1" });
 	useSounds({ waiting: "/themes/raven/ask-1.mp3", done: "/themes/raven/done-2.mp3", error: "/themes/raven/error-3.mp3" });
 	try {
 		r.n.signal([alert("waiting")]);
 		r.n.signal([alert("error")]);
 		r.n.signal([alert("done")]);
 		r.n.chime();
-		r.n.sound.try();
+		r.n.sound.effects.try();
 		assert.deepEqual(played, ["/themes/raven/ask-1.mp3", "/themes/raven/error-3.mp3", "/themes/raven/done-2.mp3", "/themes/raven/done-2.mp3", "/themes/raven/done-2.mp3"]);
 	} finally {
 		useSounds(undefined);
@@ -146,7 +201,7 @@ test("a theme's sounds replace the base clips for each kind while it is the view
 });
 
 test("a theme's clip is played with Standard's clip of the same kind as its fallback", () => {
-	const r = rig({ [KEYS.sound]: "1" });
+	const r = rig({ [KEYS.effects]: "1" });
 	fallbacks.length = 0;
 	useSounds({ done: "/themes/raven/done-2.mp3" });
 	try {

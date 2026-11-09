@@ -59,7 +59,7 @@
 [data-view="zen"] .zen-musichost { position: relative; display: flex; }
 [data-view="zen"] .zen-musichost[hidden], [data-view="zen"] .zen-musicmore[hidden] { display: none; }
 [data-view="zen"] .zen-musicmore { width: 28px; margin-left: -10px; font-size: 1rem; }
-[data-view="zen"] .zen-music-btn[data-state="off"] { opacity: 0.4; }
+[data-view="zen"] .zen-music-btn:is([data-state="off"], [data-state="muted"]) { opacity: 0.4; }
 [data-view="zen"] .zen-music-btn[data-state="playing"] { opacity: 0.9; }
 [data-view="zen"] .zen-music-btn[data-state="tap"] { opacity: 0.9; text-decoration: underline dotted; text-underline-offset: 4px; }
 [data-view="zen"] .zen-musicpanel { position: absolute; right: 0; top: calc(100% + 4px); display: flex; flex-direction: column; width: min(18rem, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--zen-line); border-radius: 18px; background: var(--zen-soft); animation: zen-fade 0.5s var(--zen-ease) both; }
@@ -67,7 +67,7 @@
 [data-view="zen"] .zen-musicpanel .zen-opt { text-align: start; overflow-wrap: anywhere; }
 [data-view="zen"] .zen-opt[aria-checked="true"] { background: var(--zen-warm); border-color: var(--zen-line); }
 [data-view="zen"] .zen-menuhost { position: relative; }
-[data-view="zen"] .zen-menu { position: absolute; right: 0; top: calc(100% + 4px); width: min(21rem, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--zen-line); border-radius: 18px; background: var(--zen-soft); animation: zen-fade 0.5s var(--zen-ease) both; }
+[data-view="zen"] .zen-menu { position: absolute; right: 0; top: calc(100% + 4px); max-height: calc(100dvh - 72px); overflow-y: auto; width: min(21rem, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--zen-line); border-radius: 18px; background: var(--zen-soft); animation: zen-fade 0.5s var(--zen-ease) both; }
 [data-view="zen"] .zen-menu[hidden] { display: none; }
 [data-view="zen"] .zen-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; min-height: 44px; padding: 2px 8px; }
 [data-view="zen"] .zen-rowlab { color: var(--zen-ash); font-size: 0.9rem; }
@@ -334,7 +334,7 @@
 [data-view="zen"] .palette-item:hover, [data-view="zen"] .palette-item[aria-selected="true"] { border-color: transparent; background: transparent; color: var(--zen-paper); }
 [data-view="zen"] .palette-item[aria-selected="true"] .palette-label { text-decoration: underline 1px var(--zen-seal); text-underline-offset: 7px; }
 [data-view="zen"] .palette-hint { font-size: 0.78rem; }
-[data-view="zen"] .palette-item:is([data-id="settings"], [data-id="standard"]:not([data-id="settings"] + *), [data-id="sound"], [data-id="music"]:not([data-id="quieter"] + *)), [data-view="zen"] .palette-item:not([data-id^="view:"]) + .palette-item[data-id^="view:"], [data-view="zen"] .palette-item:not([data-id^="language:"]) + .palette-item[data-id^="language:"] { margin-top: 14px; } /* the groups: this session, the page, the view, the language, the sound */
+[data-view="zen"] .palette-item:is([data-id="settings"], [data-id="standard"]:not([data-id="settings"] + *), [data-id="effects"], [data-id="music"]:not([data-id="background-quieter"] + *)), [data-view="zen"] .palette-item:not([data-id^="view:"]) + .palette-item[data-id^="view:"], [data-view="zen"] .palette-item:not([data-id^="language:"]) + .palette-item[data-id^="language:"] { margin-top: 14px; } /* the groups: this session, the page, the view, the language, the sounds */
 [data-view="zen"] :is(.zen-menu, .zen-musicpanel) { border-color: transparent; background: transparent; box-shadow: none; }
 [data-view="zen"] :is(.zen-menuhost:has(> .zen-menu:not([hidden])), .zen-musichost:has(> .zen-musicpanel:not([hidden])))::before { content: ""; position: fixed; inset: 0; z-index: -1; background: var(--zen-veil); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); pointer-events: auto; /* the veil takes the press that closes the list: it never reaches the card under it (ZVL-F002) */ animation: zen-fade 0.4s var(--zen-ease) both; }
 [data-view="zen"] :is(.zen-opt, .zen-leave) { border-color: transparent; color: var(--zen-ash); transition: color 0.3s var(--zen-ease); }

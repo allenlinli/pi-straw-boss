@@ -862,7 +862,7 @@ test("a tap on the blank space does nothing on an item, the pause, a companion, 
 
 test("a press outside the open music list closes it and does not rest the strip", async () => {
 	const tracks = [{ file: "a.mp3" }, { file: "b.mp3" }];
-	const music = { tracks: async () => tracks, player: async () => ({ start: async () => true, stop() {} }), unlock: async () => true, running: () => true, prefs: { on: () => false, setOn() {}, track: () => null, setTrack() {} }, coarse: () => false };
+	const music = { tracks: async () => tracks, player: async () => ({ start: async () => true, stop() {} }), unlock: async () => true, running: () => true, background: { on: () => true, onChange() {} }, prefs: { on: () => false, setOn() {}, track: () => null, setTrack() {} }, coarse: () => false };
 	const r = rig({ items: [bossLine("u1", "go", 1), headLine("a1", "On it.", 2)], music: music as never });
 	await r.start();
 	await r.settle();

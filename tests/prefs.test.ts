@@ -12,8 +12,10 @@ const refusing = { getItem: () => { throw new Error("refused"); }, setItem: () =
 const TABLE: [Name, unknown, unknown, string][] = [
 	["view", "auto", "zen", "zen"],
 	["locale", null, "zh-TW", "zh-TW"],
-	["sound", false, true, "1"],
-	["volume", 60, 35, "35"],
+	["effects", false, true, "1"],
+	["effectsVolume", 60, 35, "35"],
+	["background", false, true, "1"],
+	["backgroundVolume", 60, 35, "35"],
 	["remind", true, false, "0"],
 	["wide", false, true, "1"],
 	["zenHint", false, true, "1"],
@@ -21,8 +23,8 @@ const TABLE: [Name, unknown, unknown, string][] = [
 	["zenTrack", null, "zen-rain.mp3", "zen-rain.mp3"],
 ];
 
-test("every key has its own storage key, unchanged from what the page wrote before", () => {
-	assert.deepEqual(Object.values(KEYS), ["sb.view", "sb-locale", "sb.sound", "sb.volume", "sb.remind", "sb.dialog-wide", "sb.zen.homehint", "sb.zen.music", "sb.zen.track"]);
+test("every key has its own storage key (the old single Sound and Volume are the legacy of the two classes, sound-split.test.ts)", () => {
+	assert.deepEqual(Object.values(KEYS), ["sb.view", "sb-locale", "sb.effects", "sb.effects.volume", "sb.background", "sb.background.volume", "sb.remind", "sb.dialog-wide", "sb.zen.homehint", "sb.zen.music", "sb.zen.track"]);
 	assert.deepEqual(TABLE.map((r) => r[0]), Object.keys(KEYS));
 });
 
@@ -46,7 +48,7 @@ test("each key: a refused storage reads as the default (Zen's hint as told) and 
 
 test("the volume is read within 0 to 100, and a damaged one is 0", () => {
 	const s = store(), p = createPrefs(s);
-	for (const [raw, volume] of [["250", 100], ["-5", 0], ["x", 0], ["42", 42]] as const) (s.map.set(KEYS.volume, raw), assert.equal(p.get("volume"), volume));
+	for (const name of ["effectsVolume", "backgroundVolume"] as const) for (const [raw, volume] of [["250", 100], ["-5", 0], ["x", 0], ["42", 42]] as const) (s.map.set(KEYS[name], raw), assert.equal(p.get(name), volume));
 });
 
 test("each key: another tab's storage event reaches that key's listener alone", () => {

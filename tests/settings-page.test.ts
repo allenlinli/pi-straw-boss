@@ -92,10 +92,10 @@ test("a route with no section opens none and leaves what is open as it is", asyn
 
 test("the page's markup: This device is always there with its words, the three disclosures are closed and fill later, the gear is a link to the route, and the old popover and tiles are gone", () => {
 	const html = readFileSync(new URL("../gui/index.html", import.meta.url), "utf8");
-	for (const id of ["set-device", "set-phone", "set-teams", "set-server", "settings-view", "view-pick", "remind", "sound", "sound-vol", "sound-try", "lang"]) assert.ok(html.includes(`id="${id}"`), id);
+	for (const id of ["set-device", "set-phone", "set-teams", "set-server", "settings-view", "view-pick", "remind", "effects", "effects-vol", "effects-try", "background", "background-vol", "lang"]) assert.ok(html.includes(`id="${id}"`), id);
 	for (const name of ["phone", "teams", "server"]) assert.match(html, new RegExp(`<details class="set-group" id="set-${name}"(?: hidden)?><summary><h3 data-m="set_${name}">`), name);
 	assert.match(html, /<a class="pair-btn prefs-btn" id="prefs" href="settings" data-route="settings"/);
-	assert.doesNotMatch(html, /prefs-pop|sound-pop|id="pair"|id="server"|id="teams"|popovertarget="prefs-pop"/);
-	for (const id of ["remind", "sound"]) assert.match(html, new RegExp(`<button class="pair-btn tog" id="${id}" type="button" aria-pressed="\\w+" aria-labelledby="${id}-label"`), `${id} is a labelled switch`);
+	assert.doesNotMatch(html, /prefs-pop|sound-pop|id="sound"|id="sound-vol"|id="pair"|id="server"|id="teams"|popovertarget="prefs-pop"/);
+	for (const id of ["remind", "effects", "background"]) assert.match(html, new RegExp(`<button class="pair-btn tog" id="${id}" type="button" aria-pressed="\\w+" aria-labelledby="${id}-label"`), `${id} is a labelled switch`);
 	assert.doesNotMatch(html.slice(html.indexOf('id="set-phone"')), /<details class="set-group"[^>]* open/, "no section starts open");
 });

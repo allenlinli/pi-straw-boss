@@ -5,6 +5,8 @@ import type { Player } from "./zenmusic.ts";
 // Zen's music controls (docs/specs/2026-11-01-zen-view.md, Music), in the Zen chunk: the corner's ♪ switch and the ⌄ list of tracks. The tracks are the audio files of the server's music folder; with none, both stay hidden.
 // The player itself (zenmusic.ts) is a chunk of its own, fetched only once the music is on (or is stored on and the page shows Zen), and the audio only when it plays. Playing starts from a gesture: ♪, or, for a switch
 // stored on from before, the first press or key anywhere on the page. A phone's hidden page pauses the music; leaving Zen stops it.
+// Music is background sound (todo #139): the ♪ switch picks whether Zen plays it, and the settings' Background switch lets the page play it at all. With Background off the music is not started and a playing one stops (the ♪ keeps its place and says so);
+// Background turned on again starts it (a press, or the next one on the page).
 
 export interface Track { file: string; size: number }
 export interface MusicDeps {
@@ -12,6 +14,8 @@ export interface MusicDeps {
 	tracks(): Promise<Track[]>;
 	/** The player, built on the first call (its chunk loads then); `report` is how it says the browser refused or the file failed. */
 	player(report: (why: "blocked" | "failed") => void): Promise<Player>;
+	/** The settings' Background switch, which music needs on to sound; `onChange` is called after it changes here or in another tab. */
+	background: { on(): boolean; onChange(fn: () => void): void };
 	/** Resumes the page's audio context from a gesture; false when the browser refused. */
 	unlock(): Promise<boolean>;
 	/** The page's audio context is running (a hidden phone page may have left it suspended or interrupted). */
@@ -34,13 +38,13 @@ export function mountMusic(deps: MusicDeps) {
 	const radios = () => items;
 	const chosen = () => ((t) => list.find((x) => x.file === t)?.file ?? list[0]?.file)(deps.prefs.track());
 	const draw = () => {
-		const words = !on ? m.zen_music_off() : status === "playing" ? m.zen_music_on() : m.zen_music_tap();
+		const words = !on ? m.zen_music_off() : !deps.background.on() ? m.zen_music_muted() : status === "playing" ? m.zen_music_on() : m.zen_music_tap();
 		host.hidden = !list.length;
 		more.hidden = list.length < 2;
 		note.setAttribute("aria-pressed", String(on));
 		note.setAttribute("aria-label", words);
 		note.title = words;
-		note.dataset.state = !on ? "off" : status;
+		note.dataset.state = !on ? "off" : !deps.background.on() ? "muted" : status;
 		const at = chosen();
 		radios().forEach((r) => r.setAttribute("aria-checked", String(r.dataset.file === at)));
 	};
@@ -53,7 +57,7 @@ export function mountMusic(deps: MusicDeps) {
 	/** Starts the chosen track. Called from a gesture: the context is resumed first, in the gesture's own turn. */
 	async function begin() {
 		const mine = ++run, file = chosen();
-		if (!file || !shown) return;
+		if (!file || !shown || !deps.background.on()) return;
 		status = "playing";
 		draw();
 		const un = deps.unlock(), first = ready ? ready.start(file) : undefined; // already built: play() runs in the gesture's own turn (iOS), before any await
@@ -61,7 +65,7 @@ export function mountMusic(deps: MusicDeps) {
 		if (!p) return mine === run ? settle("tap") : undefined;
 		const ok = (await un) && (await (first ?? p.start(file)));
 		if (mine !== run) return;
-		if (ok) heard = true;
+		if (ok) (heard = true), (armed = false);
 		else if (!(await un)) p.stop(); // the context stayed shut: nothing is fetched or left playing under "tap to play"
 		settle(ok ? "playing" : "tap");
 	}
@@ -75,7 +79,7 @@ export function mountMusic(deps: MusicDeps) {
 		if (!list.length) return;
 		on = next;
 		deps.prefs.setOn(on);
-		if (on) return void begin();
+		if (on) return void (deps.background.on() ? begin() : draw()); // with Background off the switch is kept and says so
 		stop();
 		settle("off");
 	}
@@ -114,6 +118,13 @@ export function mountMusic(deps: MusicDeps) {
 		void begin();
 	};
 	for (const type of ["pointerup", "keydown"]) document.addEventListener(type, gesture, { capture: true } as AddEventListenerOptions);
+	// The Background switch changed: off stops the music at once, on starts it again where it is wanted (a press that turned it on is the gesture; another tab's change may be refused and then waits for a tap).
+	deps.background.onChange(() => {
+		if (!shown || !on || !list.length) return draw();
+		if (!deps.background.on()) return (stop(), settle("off"));
+		armed = !heard;
+		void begin();
+	});
 	function fill() {
 		items.forEach((r) => r.remove());
 		panel.append(...(items = list.map((t) => {
@@ -146,6 +157,7 @@ export function mountMusic(deps: MusicDeps) {
 				on = deps.prefs.on();
 				if (!list.length) return draw();
 				if (!on) return settle("off");
+				if (!deps.background.on()) return draw(); // stored on, but the page may not play background sound: nothing is fetched until it may
 				void built().catch(() => {}); // the chunk only, so the first gesture can play at once
 				status = "tap";
 				draw();

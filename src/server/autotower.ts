@@ -106,6 +106,7 @@ export function reportText(r: Report): string {
 	if (r.decided.length) out.push(`A tower answered a blocked call itself (${r.decided.length}):`, ...r.decided.map((d) => `- ${hhmm(d.at)} to ${d.to}, basis ${d.basis}: ${d.gist}`));
 	if (r.stillWaiting.length) out.push(`Still waiting (no cancel: answer or close them):`, ...r.stillWaiting.map((l) => `- ${l.session}: ${l.tool}${l.gist ? ` "${l.gist}"` : ""}`));
 	if (r.boxes.length) out.push("Asks of the boxes you control, left waiting:", ...r.boxes.map((b) => `- ${b.box}: ${b.gist}`));
+	else out.push("Asks of the boxes you control: not collected in this version; look at the page's waiting dialogs.");
 	if (r.foreign.length) out.push(`${r.foreign.length} foreign or unreadable write${r.foreign.length > 1 ? "s" : ""} to the state file were put back.`);
 	return out.join("\n");
 }

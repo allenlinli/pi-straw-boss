@@ -208,3 +208,11 @@ test("the report text and the head event are built from one period: pure", () =>
 	assert.match(endEvent(r), /^Auto mode ended at \d\d:\d\d \(head: head tower\): 1 parked waits on 1 towers, 1 cancels or refusals\.$/);
 	assert.ok(header({ from: { name: "t", id: "sb-tower-wa", role: "tower" }, kind: "wait_parked", scope: "session", to: [{ name: "m", id: "m", role: "main" }], reply: false, wait: "W4" }).includes("kind=wait_parked"));
 });
+
+test("AMC-F006: the return list says the boxes' asks are not collected, and lists them when a source gives some", () => {
+	const p = { since: "2026-11-10T00:00:00Z", notes: [], foreign: [], decided: [] }, by = { via: "pi" as const, name: "t" };
+	assert.match(reportText(buildReport(p, by, by, "2026-11-10T07:00:00Z", [])), /boxes you control: not collected/);
+	const listed = reportText(buildReport(p, by, by, "2026-11-10T07:00:00Z", [], [{ box: "ginlee", gist: "Deploy?" }]));
+	assert.match(listed, /- ginlee: Deploy\?/);
+	assert.ok(!listed.includes("not collected"));
+});

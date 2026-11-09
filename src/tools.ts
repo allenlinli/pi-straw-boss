@@ -233,7 +233,8 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { mainDuty, p
 					forward: Type.Optional(Type.String({ description: "Tower run only, for a car slip: the id of the call_tower event (why=shared) the slip came in, as the event header shows it. The code then writes the slip's sender into the header (fwd and fwd-from), which the integrator checks against the slip's coordinator; you cannot write either yourself. Send the slip as it came." })),
 				}),
 				({ message, workspace, device, reply, for: forMain, inReplyTo, head, forward, basis }) => {
-					if (forward !== undefined || basis !== undefined) throw new Error("forward works in a tower run of the sb server (the server holds the call_tower events a slip came in)");
+					if (forward !== undefined) throw new Error("forward works in a tower run of the sb server (the server holds the call_tower events a slip came in)");
+					if (basis !== undefined) throw new Error("basis works in a tower run of the sb server (the server checks it against the run's memory and the boss events); a main has no basis to give, so leave it out");
 					if (head === true) {
 						if (!inReplyTo) throw new Error("head needs inReplyTo, the ask id of the head tower's message you answer");
 						return answerHead(message, inReplyTo).then((r) => ({ text: r.status === "sent" ? "Sent to the head tower." : `The head tower did not take it: ${r.status} ${r.detail ?? ""}`.trim(), details: { status: r.status } }));

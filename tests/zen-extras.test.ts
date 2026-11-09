@@ -10,10 +10,9 @@ const { mountMenu } = await import("../gui/zenmenu.ts");
 const { mountFullscreen, HINT_KEY } = await import("../gui/zenfs.ts");
 const { deck, LINES, mountLine, LINE_MS, FADE_MS } = await import("../gui/zenlines.ts");
 const { createPrefs, KEYS } = await import("../gui/prefs.ts"); // the sound stores are prefs.ts's now
-const [SOUND_KEY, VOLUME_KEY] = [KEYS.sound, KEYS.volume];
 type St = Parameters<typeof createPrefs>[0];
-const [readSound, readVolume] = [(st: St) => createPrefs(st).get("sound"), (st: St) => createPrefs(st).get("volume")];
-const [writeSound, writeVolume] = [(on: boolean, st: St) => createPrefs(st).set("sound", on), (v: number, st: St) => createPrefs(st).set("volume", v)];
+type Cls = "effects" | "background";
+const VOL = { effects: "effectsVolume", background: "backgroundVolume" } as const;
 const { setLocale } = await import("../gui/i18n.ts");
 
 /** A clock the test moves: `later` queues, `advance` runs what falls due. */
@@ -45,19 +44,28 @@ const store = () => {
 const text = (e: El) => e.textContent;
 
 function menuRig(o: { sound?: boolean } = {}) {
-	const c = clock(), st = store(), calls: string[] = [];
+	const c = clock(), st = store(), calls: string[] = [], pf = createPrefs(st);
 	let lang = "en", view: Choice = "zen";
-	let sound = o.sound ?? false, volume = 60;
+	const state = { effects: { on: o.sound ?? false, volume: 60 }, background: { on: false, volume: 60 } };
+	const sw = (cls: Cls) => ({
+		on: () => state[cls].on, volume: () => state[cls].volume, onChange() {},
+		set: (on: boolean) => ((state[cls].on = on), pf.set(cls, on), calls.push(`${cls}:${on}`)),
+		setVolume: (v: number) => ((state[cls].volume = v), pf.set(VOL[cls], v), calls.push(`${cls}-volume:${v}`)),
+		try: () => calls.push(`${cls}-try`),
+	});
 	const m = mountMenu({
 		language: { get: () => lang, names: () => [{ id: "en", name: "English" }, { id: "zh-TW", name: "正體中文" }], set: (id) => ((lang = id), calls.push(`lang:${id}`)) },
 		view: { choice: () => view, auto: () => "Auto", set: (v) => ((view = v), calls.push(`view:${v}`)) },
-		sound: { on: () => sound, volume: () => volume, set: (on) => ((sound = on), writeSound(on, st), calls.push(`sound:${on}`)), setVolume: (v) => ((volume = v), writeVolume(v, st)), try: () => calls.push("try") },
+		sound: { effects: { ...sw("effects"), all: () => calls.push("try-all") }, background: sw("background") },
 	}, () => calls.push("leave"));
 	page.body.replaceChildren(m.el as unknown as El);
 	page.focused = undefined;
 	const host = m.el as unknown as El, btn = m.button as unknown as El;
 	const by = (label: string) => host.all((e) => e.tagName === "button" && text(e) === label)[0]!;
-	return { c, st, calls, m, host, btn, by, key: (key: string, extra: object = {}) => (page.focused ?? host).bubble("keydown", { key, ...extra }), mouse: (type: string) => host.bubble(type, { pointerType: "mouse" }) };
+	/** A class's switch (the effects' is the first On or Off button, Background's the second) and its volume slider (the first and second range). */
+	const onOff = () => host.all((e) => e.tagName === "button" && ["On", "Off"].includes(text(e))), ranges = () => host.all((e) => e.tagName === "input");
+	const sw$ = (cls: Cls) => onOff()[cls === "effects" ? 0 : 1]!, vol$ = (cls: Cls) => ranges()[cls === "effects" ? 0 : 1]!;
+	return { c, st, calls, m, host, btn, by, sw$, vol$, key: (key: string, extra: object = {}) => (page.focused ?? host).bubble("keydown", { key, ...extra }), mouse: (type: string) => host.bubble(type, { pointerType: "mouse" }) };
 }
 
 test("the menu never opens by hover, whatever the pointer or the time; a press of its button opens it, a second press, Esc, a press outside, and a choice of language, view, or the way back close it", () => {
@@ -95,14 +103,16 @@ test("the menu never opens by hover, whatever the pointer or the time; a press o
 		assert.equal(r.m.isOpen(), false, `choosing ${label} closes it`);
 	}
 	r.btn.click();
-	r.by("Off").click();
-	assert.equal(r.m.isOpen(), true, "the sound's switch leaves it open, so the volume can follow");
-	const vol = r.host.all((e) => e.tagName === "input")[0]!;
-	vol.value = "40";
-	vol.oninput?.();
-	(vol as unknown as { onchange?: () => void }).onchange?.();
-	vol.bubble("change");
-	assert.equal(r.m.isOpen(), true, "a volume change leaves it open too");
+	for (const cls of ["effects", "background"] as const) {
+		r.sw$(cls).click();
+		assert.equal(r.m.isOpen(), true, `the ${cls} switch leaves it open, so the volume can follow`);
+		const vol = r.vol$(cls);
+		vol.value = "40";
+		vol.oninput?.();
+		(vol as unknown as { onchange?: () => void }).onchange?.();
+		vol.bubble("change");
+		assert.equal(r.m.isOpen(), true, `a ${cls} volume change leaves it open too`);
+	}
 	for (const type of ["pointerover", "mouseenter", "mouseover", "pointermove"]) {
 		r.m.close();
 		assert.equal(r.m.isOpen(), false);
@@ -119,7 +129,7 @@ test("an open menu traps Tab inside, and a press outside closes it", () => {
 	const r = menuRig();
 	r.btn.click();
 	const stops = r.host.all((e) => e.tagName === "button" || e.tagName === "input").filter((e) => e !== r.btn);
-	assert.ok(stops.length >= 6, "language, view, sound, volume, and the way back");
+	assert.ok(stops.length >= 10, "language, view, sound effects (switch, Try, volume), background sound (switch, volume), and the way back");
 	page.focused = stops.at(-1);
 	r.key("Tab");
 	assert.equal(page.focused, stops[0], "past the last control it wraps to the first");
@@ -129,24 +139,30 @@ test("an open menu traps Tab inside, and a press outside closes it", () => {
 	assert.equal(r.m.isOpen(), false);
 });
 
-test("each row acts through the settings page's own function or store: language, view, sound and its volume, and the way back", () => {
+test("each row acts through the settings page's own function or store: language, view, each sound class's switch and volume, and the way back", () => {
 	const r = menuRig();
 	r.btn.click();
 	r.by("正體中文").click();
 	r.by("Auto").click();
 	r.by("Standard").click();
 	r.by("Geek").click();
-	r.by("Off").click();
-	const vol = r.host.all((e) => e.tagName === "input")[0]!;
-	vol.value = "35";
-	vol.oninput?.();
-	vol.bubble("change");
+	r.sw$("effects").click();
+	r.vol$("effects").value = "35";
+	r.vol$("effects").oninput?.();
+	(r.vol$("effects") as unknown as { onchange?: () => void }).onchange?.();
+	r.sw$("background").click();
+	r.vol$("background").value = "15";
+	r.vol$("background").oninput?.();
+	(r.vol$("background") as unknown as { onchange?: () => void }).onchange?.();
 	r.by("Back to the Standard view (Esc Esc)").click();
-	assert.deepEqual(r.calls.filter((c) => c !== "try"), ["lang:zh-TW", "view:auto", "view:standard", "view:geek", "sound:true", "leave"]);
-	assert.equal(r.st.get(SOUND_KEY), "1", "the Sound switch's own key");
-	assert.equal(r.st.get(VOLUME_KEY), "35", "the Volume's own key");
-	assert.equal(readSound(r.st), true);
-	assert.equal(readVolume(r.st), 35);
+	assert.deepEqual(r.calls.filter((c) => !c.endsWith("-try")), ["lang:zh-TW", "view:auto", "view:standard", "view:geek", "effects:true", "effects-volume:35", "background:true", "background-volume:15", "leave"]);
+	assert.deepEqual(r.calls.filter((c) => c.endsWith("-try")), ["effects-try", "background-try"], "a release of either volume plays its class's sample");
+	assert.deepEqual([r.st.get(KEYS.effects), r.st.get(KEYS.effectsVolume), r.st.get(KEYS.background), r.st.get(KEYS.backgroundVolume)], ["1", "35", "1", "15"], "each class's own keys");
+	const read = createPrefs(r.st);
+	assert.deepEqual([read.get("effects"), read.get("effectsVolume"), read.get("background"), read.get("backgroundVolume")], [true, 35, true, 15]);
+	r.btn.click();
+	r.by("Try the sounds").click();
+	assert.equal(r.calls.at(-1), "try-all", "Try plays Zen's three effects; Background has none");
 	assert.equal(r.host.all((e) => e.getAttribute("class") === "zen-music")[0]!.getAttribute("hidden"), "", "the music's slot is there and hidden until Z6");
 });
 
@@ -372,10 +388,11 @@ test("Esc's rest row (docs/specs/2026-11-04-head-tower.md, Resting the strip): a
 	assert.equal(escStep({ ...none, rest: true, repeat: true }), "none", "a held key is nothing");
 });
 
-test("an open menu redraws Sound and Volume when another tab changes them; a closed one is left alone", () => {
+test("an open menu redraws each class's switch and volume when another tab changes them; a closed one is left alone", () => {
 	const told: (() => void)[] = [];
 	let sound = false, volume = 60;
-	const m = mountMenu({ sound: { on: () => sound, volume: () => volume, set: () => {}, setVolume: () => {}, try: () => {}, onChange: (fn) => void told.push(fn) } }, () => {});
+	const cls = { on: () => sound, volume: () => volume, set: () => {}, setVolume: () => {}, try: () => {}, onChange: (fn: () => void) => void told.push(fn) };
+	const m = mountMenu({ sound: { effects: cls, background: { ...cls, on: () => false, volume: () => 5 } } }, () => {});
 	page.body.replaceChildren(m.el as unknown as El);
 	const host = m.el as unknown as El, on = host.all((e) => e.getAttribute("class") === "zen-opt")[0]!;
 	const vol = host.all((e) => e.tagName === "input")[0]!;

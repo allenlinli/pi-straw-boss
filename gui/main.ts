@@ -96,7 +96,7 @@ const withZen = (call: (z: Zen) => void) => {
 			data, recent, label, online: core.online,
 			post: (key) => fixture && ((action, body) => fixture.data(key).post!(action, body)), trust: fixture && fixture.trust,
 			remind: (a) => notify.remind(a), sound: host.sound,
-			menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: { ...notify.sound, ...host.menuSound } }, // the corner menu's rows act through the settings page's own switches
+			menu: { language: { get: getLocale, names: localeNames, set: setLocale }, view: { choice: () => view.choice(), set: (c) => view.set(c), auto: () => followLabel(view.server()) }, sound: { effects: { ...notify.sound.effects, try: host.menuSound.try, all: host.menuSound.all }, background: notify.sound.background } }, // the corner menu's rows act through the settings page's own switches
 			music: host.music,
 			leave: core.leaveZen, terminals, watch: core.watchLog, companions: host.companions, activity: host.activity, trains: host.trains, settings: core.openSettings, start: fixture?.start,
 		}));

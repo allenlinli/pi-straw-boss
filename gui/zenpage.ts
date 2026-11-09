@@ -9,8 +9,8 @@ import { createZenSound } from "./zensound.ts";
 // the music (tracks, player, switch), and the companion and strip readers over the newest snapshot.
 type Deps = Parameters<typeof mountZen>[1];
 export interface ZenPageIo {
-	/** The Sound switch of the settings page. */
-	sound: { on(): boolean };
+	/** The settings page's two sound classes: the effects' switch (Zen's bowl and knock), and the Background switch with its changes (Zen's music plays only while it is on). */
+	sound: { effects: { on(): boolean }; background: { on(): boolean; onChange(fn: () => void): void } };
 	/** The page's JSON read of its own server (`api/<path>`). */
 	api(path: string): Promise<unknown>;
 	/** The newest snapshot, if any. */
@@ -18,13 +18,13 @@ export interface ZenPageIo {
 	/** The trains model's chunk (a test hands its own). */
 	loadTrains?(): Promise<typeof import("./trains.ts")>;
 }
-export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companions" | "activity" | "trains"> & { menuSound: { try(): void; effects(): void } } {
+export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companions" | "activity" | "trains"> & { menuSound: { try(): void; all(): void } } {
 	let zenTrains: typeof import("./trains.ts").zenTrains | undefined, loading = false;
 	let player: { file(): string | undefined } | undefined;
-	const zs = createZenSound(audio, io.sound, () => (player?.file() ? zs.bus() : undefined)); // an effect ducks the music while it plays; Zen's effects play on the page's one audio core, behind the Sound switch
+	const zs = createZenSound(audio, io.sound.effects, () => (player?.file() ? zs.bus() : undefined)); // an effect ducks the music while it plays; Zen's effects play on the page's one audio core, behind the Sound effects switch
 	return {
 		sound: zs.play,
-		menuSound: { try: zs.try, effects: zs.tryAll },
+		menuSound: { try: zs.try, all: zs.tryAll },
 		music: {
 			tracks: async () => ((await io.api("music")) as { tracks: { file: string; size: number }[] }).tracks,
 			player: async (report) => {
@@ -32,6 +32,7 @@ export function zenPage(io: ZenPageIo): Pick<Deps, "sound" | "music" | "companio
 				const { musicBus } = await import("./audiobus.ts");
 				return (player = createPlayer({ audio, bus: () => musicBus(audio, zs.bus()), make: () => document.createElement("audio"), url: (file) => `api/music/${encodeURIComponent(file)}`, later: (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); }, report }));
 			},
+			background: io.sound.background,
 			unlock: () => audio.unlock(),
 			running: () => audio.running(),
 			prefs: { on: () => prefs.get("zenMusic"), setOn: (on) => void prefs.set("zenMusic", on), track: () => prefs.get("zenTrack"), setTrack: (file) => void prefs.set("zenTrack", file) },

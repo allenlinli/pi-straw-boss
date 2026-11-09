@@ -21,7 +21,7 @@ const attrs = new Set<string>();
 const root = { dataset: { view: "raven" } as Record<string, string>, hasAttribute: (n: string) => attrs.has(n) } as unknown as HTMLElement;
 const doc = {
 	hidden: false,
-	getElementById: (id: string) => (id === "stage" ? stage : id === "sound" ? soundSwitch : null),
+	getElementById: (id: string) => (id === "stage" ? stage : id === "background" ? soundSwitch : null),
 	addEventListener: (t: string, f: Fn) => void (listeners.get(t) ?? listeners.set(t, new Set()).get(t)!).add(f),
 	removeEventListener: (t: string, f: Fn) => void listeners.get(t)?.delete(f),
 };
@@ -51,11 +51,11 @@ function core() {
 	const a = { out: () => ({ c: ac, g: {} }) as never, running: () => st.running, unlock: async () => { made.unlocks++; st.running = st.allow; return st.allow; }, play() {}, volume() {} };
 	return { a, made, st };
 }
-/** One mounted weather on a fresh page: Sound on, the map showing, the context already running. */
-function page(over: { sound?: boolean; running?: boolean } = {}) {
+/** One mounted weather on a fresh page: Background on, the map showing, the context already running. */
+function page(over: { background?: boolean; running?: boolean } = {}) {
 	listeners.clear(); attrs.clear(); FakeObserver.all.length = 0;
 	Object.assign(root.dataset, { view: "raven" }); stage.dataset.view = "map"; soundSwitch.dataset.state = "off"; doc.hidden = false; env.motion = true; env.fine = false; env.activation = false;
-	store.set("sb.sound", over.sound === false ? "0" : "1");
+	store.set("sb.background", over.background === false ? "0" : "1");
 	const c = core(); c.st.running = over.running ?? true;
 	let t = 100_000;
 	const frames: (() => void)[] = [];
@@ -68,22 +68,22 @@ function page(over: { sound?: boolean; running?: boolean } = {}) {
 const settle = () => new Promise<void>((r) => setImmediate(r));
 const ALL = ["animationiteration", "animationstart", "keydown", "pointerdown", "visibilitychange"];
 
-test("the page's watchers: <html>'s view and calm marks (the subtree too), the Sound switch's state, and the Sound pref of another tab", () => {
+test("the page's watchers: <html>'s view and calm marks (the subtree too), the Background switch's state, and the Background pref of another tab", () => {
 	const p = page();
 	assert.deepEqual(p.rootWatch.seen, [{ target: root, options: { attributes: true, subtree: true, attributeFilter: ["data-view", "data-calm"] } }]);
 	assert.deepEqual(p.switchWatch.seen, [{ target: soundSwitch, options: { attributes: true, attributeFilter: ["data-state"] } }]);
 	assert.equal(globalHandlers.get("storage")?.length, 1, "prefs.on listens for another tab's write");
-	assert.equal(p.made.loops, 1, "the rain started at mount: Sound on, backdrop, running");
+	assert.equal(p.made.loops, 1, "the rain started at mount: Background on, backdrop, running");
 	p.undo();
 	assert.ok(!p.rootWatch.live && !p.switchWatch.live, "undo disconnects both");
 });
 
-test("RS-F006: the press, key, and animation listeners are on the page only while the weather can sound (Sound on, tab visible, backdrop shown), and the visibility one always", () => {
-	const p = page({ sound: false });
-	assert.deepEqual(p.names(), ["visibilitychange"], "Sound off: no hook but visibility, so Standard, Geek, and Zen pay nothing for Raven having loaded");
-	store.set("sb.sound", "1");
+test("RS-F006: the press, key, and animation listeners are on the page only while the weather can sound (Background on, tab visible, backdrop shown), and the visibility one always", () => {
+	const p = page({ background: false });
+	assert.deepEqual(p.names(), ["visibilitychange"], "Background off: no hook but visibility, so Standard, Geek, and Zen pay nothing for Raven having loaded");
+	store.set("sb.background", "1");
 	p.switchWatch.cb();
-	assert.deepEqual(p.names(), ALL, "Sound turned on");
+	assert.deepEqual(p.names(), ALL, "Background turned on");
 	doc.hidden = true;
 	p.event("visibilitychange");
 	assert.deepEqual(p.names(), ["visibilitychange"], "hidden tab");
@@ -114,9 +114,9 @@ test("a press before the browser lets the page play unlocks the audio, and the r
 	p.undo();
 });
 
-test("turning Sound on in the settings (a press the page's own hook was not on for) unlocks the audio in that gesture, and not outside one", async () => {
-	const p = page({ sound: false, running: false });
-	store.set("sb.sound", "1");
+test("turning Background on in the settings (a press the page's own hook was not on for) unlocks the audio in that gesture, and not outside one", async () => {
+	const p = page({ background: false, running: false });
+	store.set("sb.background", "1");
 	env.activation = false;
 	p.switchWatch.cb();
 	await settle();
@@ -129,11 +129,11 @@ test("turning Sound on in the settings (a press the page's own hook was not on f
 	p.undo();
 });
 
-test("another tab's Sound write (a storage event) starts or stops the rain here", () => {
+test("another tab's Background write (a storage event) starts or stops the rain here", () => {
 	const p = page();
 	assert.equal(p.made.loops, 1);
-	store.set("sb.sound", "0");
-	globalHandlers.get("storage")!.forEach((f) => f({ key: "sb.sound" }));
+	store.set("sb.background", "0");
+	globalHandlers.get("storage")!.forEach((f) => f({ key: "sb.background" }));
 	assert.deepEqual(p.names(), ["visibilitychange"]);
 	p.undo();
 });
@@ -256,11 +256,20 @@ test("calm on a fine pointer lets the lightning's thunder through (the styleshee
 	}
 });
 
-test("after undo a late refresh (the Sound pref of another tab, which cannot be unhooked) starts nothing", () => {
-	const p = page({ sound: false });
+test("after undo a late refresh (the Background pref of another tab, which cannot be unhooked) starts nothing", () => {
+	const p = page({ background: false });
 	p.undo();
-	store.set("sb.sound", "1");
-	globalHandlers.get("storage")!.forEach((f) => f({ key: "sb.sound" }));
+	store.set("sb.background", "1");
+	globalHandlers.get("storage")!.forEach((f) => f({ key: "sb.background" }));
 	assert.equal(p.made.loops, 0);
 	assert.deepEqual(p.names(), []);
+});
+
+test("the old single Sound pref and the sound effects' prefs are not the weather's: a write of sb.sound or sb.effects (another tab) neither starts nor stops the rain", () => {
+	const p = page({ background: false });
+	assert.equal(p.made.loops, 0);
+	store.set("sb.sound", "1");
+	store.set("sb.effects", "1");
+	for (const key of ["sb.sound", "sb.effects", "sb.effects.volume"]) globalHandlers.get("storage")!.forEach((f) => f({ key }));
+	assert.equal(p.made.loops, 0, "Background is still off");
 });

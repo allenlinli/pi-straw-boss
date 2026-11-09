@@ -198,7 +198,7 @@ test("a play the browser refuses says it wants a tap; a file that fails says it 
 });
 
 // ---- the controls ----
-function barRig(o: { files?: string[]; on?: boolean; track?: string; coarse?: boolean; unlock?: boolean; startOk?: boolean; tracks?: () => Promise<{ file: string; size: number }[]> } = {}) {
+function barRig(o: { background?: boolean; files?: string[]; on?: boolean; track?: string; coarse?: boolean; unlock?: boolean; startOk?: boolean; tracks?: () => Promise<{ file: string; size: number }[]> } = {}) {
 	for (const k of Object.keys(page.on)) delete page.on[k];
 	const st = new Map<string, string>();
 	const store = Object.assign(st, { getItem: (k: string) => st.get(k) ?? null, setItem: (k: string, v: string) => void st.set(k, v) });
@@ -207,6 +207,8 @@ function barRig(o: { files?: string[]; on?: boolean; track?: string; coarse?: bo
 	if (o.track) prefs.set("zenTrack", o.track);
 	const files = o.files ?? ["a-rain.mp3", "b-sea.ogg", "c-fire.wav"];
 	const log = { fetched: 0, built: 0, unlocked: 0, started: [] as string[], stops: 0, pauses: 0, resumes: 0, report: undefined as undefined | ((why: "blocked" | "failed") => void) };
+	let bgOn = o.background ?? true;
+	const told: (() => void)[] = [];
 	let startOk = o.startOk ?? true, unlock = o.unlock ?? true, resumeOk = true, running = true, playing: string | undefined;
 	const player = {
 		start: async (f: string) => (log.started.push(f), startOk && (playing = f, true)),
@@ -220,6 +222,7 @@ function barRig(o: { files?: string[]; on?: boolean; track?: string; coarse?: bo
 		player: async (report) => (log.built++, (log.report = report), player),
 		unlock: async () => (log.unlocked++, unlock),
 		running: () => running,
+		background: { on: () => bgOn, onChange: (fn) => void told.push(fn) },
 		prefs: { on: () => prefs.get("zenMusic"), setOn: (v) => void prefs.set("zenMusic", v), track: () => prefs.get("zenTrack"), setTrack: (f) => void prefs.set("zenTrack", f) },
 		coarse: () => o.coarse ?? false,
 	});
@@ -231,6 +234,8 @@ function barRig(o: { files?: string[]; on?: boolean; track?: string; coarse?: bo
 	const gesture = (type: "pointerup" | "keydown", target: unknown = new El("div")) => (page.on[type] ?? []).forEach((f) => f({ target }));
 	return {
 		bar, host, note, more, panel, radios, log, st, prefs, gesture,
+		/** The Background switch is changed (here or in another tab). */
+		background: (v: boolean) => ((bgOn = v), told.forEach((f) => f())),
 		label: () => note.getAttribute("aria-label"), pressed: () => note.getAttribute("aria-pressed"),
 		set: (k: "startOk" | "unlock" | "resumeOk" | "running", v: boolean) => void (k === "startOk" ? (startOk = v) : k === "unlock" ? (unlock = v) : k === "running" ? (running = v) : (resumeOk = v)),
 		shown: async () => (bar.show(), await flush()),
@@ -499,4 +504,65 @@ test("a context the browser kept shut stops the player: nothing keeps playing un
 	await flush();
 	assert.equal(r.label(), "Music: tap to play");
 	assert.ok(r.log.stops > stops, "the player was stopped");
+});
+
+// ---- Background: the music is background sound (todo #139) ----
+test("with Background off the music does not start: a tap turns the ♪ on and nothing is built or played, and the switch says Background is off", async () => {
+	const r = barRig({ background: false });
+	await r.shown();
+	r.note.click();
+	await flush();
+	assert.deepEqual([r.log.unlocked, r.log.built, r.log.started], [0, 0, []]);
+	assert.deepEqual([r.pressed(), r.label(), r.note.dataset.state, r.st.get(KEYS.zenMusic)], ["true", "Music: on, but background sound is off", "muted", "1"], "the ♪ keeps its place");
+});
+
+test("a switch stored on with Background off fetches nothing and arms nothing; Background turned on then starts it from the press that turned it on", async () => {
+	const r = barRig({ on: true, background: false });
+	await r.shown();
+	assert.deepEqual([r.log.built, r.log.started, r.note.dataset.state], [0, [], "muted"]);
+	r.gesture("keydown");
+	await flush();
+	assert.deepEqual(r.log.started, [], "a press on the page starts nothing while Background is off");
+	r.background(true);
+	await flush();
+	assert.deepEqual([r.log.started, r.label(), r.note.dataset.state], [["a-rain.mp3"], "Music: on", "playing"]);
+});
+
+test("Background turned off stops the playing music at once and keeps the ♪ on; turned on again it plays again", async () => {
+	const r = barRig();
+	await r.shown();
+	r.note.click();
+	await flush();
+	assert.deepEqual([r.log.started, r.log.stops], [["a-rain.mp3"], 0]);
+	r.background(false);
+	assert.equal(r.log.stops, 1, "stopped");
+	assert.deepEqual([r.pressed(), r.note.dataset.state, r.st.get(KEYS.zenMusic)], ["true", "muted", "1"]);
+	r.background(true);
+	await flush();
+	assert.deepEqual([r.log.started, r.note.dataset.state], [["a-rain.mp3", "a-rain.mp3"], "playing"]);
+});
+
+test("Background changing while the music is off, or Zen is not shown, starts nothing", async () => {
+	const off = barRig({ background: false });
+	await off.shown();
+	off.background(true);
+	await flush();
+	assert.deepEqual([off.log.built, off.log.started], [0, []], "the ♪ is off: nothing to start");
+	const away = barRig({ on: true });
+	await away.shown();
+	away.bar.hide();
+	away.background(false);
+	away.background(true);
+	await flush();
+	assert.deepEqual(away.log.started, [], "Zen is left: the music stays stopped");
+});
+
+test("a gesture that arrives after Background was turned off starts nothing: the switch armed for it is not a licence to play", async () => {
+	const r = barRig({ on: true });
+	await r.shown();
+	assert.deepEqual([r.note.dataset.state, r.log.started], ["tap", []], "armed: waits for the first gesture");
+	r.background(false);
+	r.gesture("keydown");
+	await flush();
+	assert.deepEqual([r.log.started, r.log.unlocked, r.note.dataset.state], [[], 0, "muted"]);
 });

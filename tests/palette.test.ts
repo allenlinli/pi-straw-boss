@@ -182,17 +182,21 @@ const acts = () => {
 };
 const labels = (list: Entry[]) => list.map((e) => e.label);
 
-test("entriesOf lists the page's actions, then the preferences the menu has: view, language, sound, volume; a row without its dep is left out", () => {
+const cls = (st: { on: boolean; volume: number; tries?: number }) => ({ on: () => st.on, volume: () => st.volume, set: (on: boolean) => void (st.on = on), setVolume: (v: number) => void (st.volume = v), try: () => void (st.tries = (st.tries ?? 0) + 1), onChange() {} });
+
+test("entriesOf lists the page's actions, then the preferences the menu has: view, language, and each sound class's switch and two volume steps; a row without its dep is left out", () => {
 	const a = acts(), views: string[] = [], langs: string[] = [];
-	let sound = false, volume = 50;
-	const list = entriesOf(a.acts, {
-		language: { get: () => "en", names: () => [{ id: "en", name: "English" }, { id: "zh-TW", name: "繁體中文" }], set: (id) => void langs.push(id) },
-		view: { choice: () => "zen", set: (c) => void views.push(c), auto: () => "Auto (Zen)" },
-		sound: { on: () => sound, volume: () => volume, set: (on) => void (sound = on), setVolume: (v) => void (volume = v), try: () => {} },
-	});
+	const fx = { on: false, volume: 50, tries: 0 }, bg = { on: false, volume: 20, tries: 0 };
+	const prefs = {
+		language: { get: () => "en", names: () => [{ id: "en", name: "English" }, { id: "zh-TW", name: "繁體中文" }], set: (id: string) => void langs.push(id) },
+		view: { choice: () => "zen" as const, set: (c: string) => void views.push(c), auto: () => "Auto (Zen)" },
+		sound: { effects: cls(fx), background: cls(bg) },
+	};
+	const list = entriesOf(a.acts, prefs as never);
 	assert.deepEqual(labels(list), [
 		"Open Harbor's session", "Open Harbor's terminal", "Back to the breath", "Previous companion", "Next companion", "Settings", "Back to the Standard view",
-		"View: Auto (Zen)", "View: Standard", "View: Geek", "View: Zen", "View: Raven Keep", "Language: English", "Language: 繁體中文", "Sound", "Volume up", "Volume down",
+		"View: Auto (Zen)", "View: Standard", "View: Geek", "View: Zen", "View: Raven Keep", "Language: English", "Language: 繁體中文",
+		"Sound effects", "Sound effects volume up", "Sound effects volume down", "Background sound", "Background volume up", "Background volume down",
 	]);
 	assert.equal(new Set(list.map((e) => e.id)).size, list.length, "ids are unique");
 	const by = (label: string) => list.find((e) => e.label === label)!;
@@ -206,19 +210,24 @@ test("entriesOf lists the page's actions, then the preferences the menu has: vie
 	assert.equal(by("View: Zen").hint, "current", "the current view says so");
 	assert.equal(by("View: Geek").hint, undefined);
 	assert.equal(by("Language: English").hint, "current");
-	assert.equal(by("Sound").hint, "Off");
-	assert.equal(by("Sound").keep, true);
-	by("Sound").run();
-	assert.equal(sound, true);
-	assert.equal(list[0] && entriesOf(a.acts, { sound: { on: () => sound, volume: () => volume, set: () => {}, setVolume: () => {}, try: () => {} } }).find((e) => e.label === "Sound")!.hint, "On", "read fresh");
-	by("Volume up").run();
-	by("Volume up").run();
-	assert.equal(volume, 70);
-	assert.equal(entriesOf(a.acts, { sound: { on: () => sound, volume: () => volume, set: () => {}, setVolume: () => {}, try: () => {} } }).find((e) => e.label === "Volume up")!.hint, "70", "read fresh");
-	for (let i = 0; i < 20; i++) by("Volume down").run();
-	assert.equal(volume, 0, "clamped at 0");
-	for (let i = 0; i < 20; i++) by("Volume up").run();
-	assert.equal(volume, 100, "clamped at 100");
+	for (const label of ["Sound effects", "Background sound"]) (assert.equal(by(label).hint, "Off"), assert.equal(by(label).keep, true));
+	by("Sound effects").run();
+	assert.deepEqual([fx.on, bg.on], [true, false], "each switch changes its class only");
+	by("Background sound").run();
+	assert.deepEqual([fx.on, bg.on], [true, true]);
+	assert.equal(entriesOf(a.acts, prefs as never).find((e) => e.label === "Sound effects")!.hint, "On", "read fresh");
+	by("Sound effects volume up").run();
+	by("Sound effects volume up").run();
+	assert.deepEqual([fx.volume, bg.volume, fx.tries, bg.tries], [70, 20, 2, 0], "the effects volume moves the effects only, with a sample after each step");
+	by("Background volume up").run();
+	assert.deepEqual([fx.volume, bg.volume], [70, 30], "and the background volume the background only");
+	assert.equal(entriesOf(a.acts, prefs as never).find((e) => e.label === "Sound effects volume up")!.hint, "70", "read fresh");
+	assert.equal(entriesOf(a.acts, prefs as never).find((e) => e.label === "Background volume up")!.hint, "30");
+	for (let i = 0; i < 20; i++) by("Sound effects volume down").run();
+	assert.equal(fx.volume, 0, "clamped at 0");
+	for (let i = 0; i < 20; i++) by("Background volume up").run();
+	assert.equal(bg.volume, 100, "clamped at 100");
+	assert.equal(fx.volume, 0, "the other class stays");
 });
 
 test("entriesOf leaves out what the page cannot do now: no companion, no cycle, no settings, and no preferences given", () => {

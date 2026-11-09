@@ -1,7 +1,7 @@
 import type { Audio } from "./audio.ts";
 import type { Sound } from "./zenmodel.ts";
 
-// Zen's three effects, synthesized (no files) and scheduled on the page's one audio core (audio.ts), so there is no second context and Volume (the master gain's square) governs them.
+// Zen's three effects, synthesized (no files) and scheduled on the page's one audio core (audio.ts), so there is no second context and the effects' volume (the effects gain's square) governs them.
 // A recipe is a plain object; `schedule` turns it into nodes on any BaseAudioContext, so tests read the schedule from a fake one. The numbers are the spec's starting point (docs/specs/2026-11-01-zen-view.md, Sound).
 type Ctx = ReturnType<Audio["out"]>["c"];
 /** A partial: its ratio to the base, relative gain, and the decay time constant in seconds. Each sounds as two sines `beat` Hz apart. */
@@ -61,14 +61,14 @@ export function schedule(c: Ctx, dest: AudioNode, t: number, r: Recipe): number 
 	return t + r.length;
 }
 
-/** What Zen's effects need: the page's audio core, the Sound switch, the music bus when one plays (Z6), and the document that carries the first gesture.
- * Music (Z6) connects to `bus()`, a gain node into the master that only ducking moves, so a duck never reads or fights the music's own gain. */
+/** What Zen's effects need: the page's audio core, the Sound effects switch, the music bus when one plays (Z6), and the document that carries the first gesture.
+ * Music (Z6) connects to `bus()`, a gain node into the background gain that only ducking moves, so a duck never reads or fights the music's own gain. */
 export function createZenSound(a: Audio, sw: { on(): boolean }, music: () => GainNode | undefined = () => undefined, doc: Pick<Document, "addEventListener" | "removeEventListener"> = document) {
 	// A press or key lets the browser play: the context is resumed then, and an effect due before it is dropped, not queued behind it. A context the browser suspends again (iOS on hide or lock) re-arms the hooks.
 	const gestures = ["pointerdown", "keydown"], unlock = () => (gestures.forEach((g) => doc.removeEventListener(g, unlock, true)), void a.unlock()), arm = () => gestures.forEach((g) => doc.addEventListener(g, unlock, true));
 	arm();
 	let node: GainNode | undefined;
-	const bus = () => (node ??= (() => { const { c, g } = a.out(), n = c.createGain(); n.connect(g); return n; })());
+	const bus = () => (node ??= (() => { const { c, g } = a.out("background"), n = c.createGain(); n.connect(g); return n; })());
 	// Fixed nominal levels, 1 down 6 dB and back to 1, from the effect's own start; the param's value is never read.
 	const duck = (t: number) => {
 		if (!music()) return;
@@ -79,12 +79,12 @@ export function createZenSound(a: Audio, sw: { on(): boolean }, music: () => Gai
 		p.linearRampToValueAtTime(1, t + DUCK.in + DUCK.out);
 	};
 	const at = (names: Sound[]) => {
-		const { c, g } = a.out(), t0 = c.currentTime;
+		const { c, g } = a.out("effects"), t0 = c.currentTime;
 		names.forEach((n, i) => (schedule(c, g, t0 + i * GAP, RECIPES[n]), duck(t0 + i * GAP)));
 	};
 	return {
 		bus,
-		/** One effect, when Sound is on and the page may play; otherwise nothing, and nothing queued. */
+		/** One effect, when Sound effects is on and the page may play; otherwise nothing, and nothing queued. */
 		play(s: Sound) { if (!a.running()) arm(); else if (sw.on()) at([s]); },
 		/** The bowl alone, for the volume's release: it ignores the switch (a press lets the page play). */
 		try() { void a.unlock().then((ok) => ok && at(["bowl"])); },

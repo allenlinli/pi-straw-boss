@@ -50,7 +50,7 @@ export function createPlayer(env: PlayerEnv): Player {
 	let at = 0, fading: { from: Slot; to: Slot; stop(): void } | undefined, name: string | undefined;
 	const slot = (i: number): Slot => {
 		if (slots[i]) return slots[i]!;
-		const { c } = env.audio.out(), el = env.make(), gain = c.createGain(), s: Slot = { el, gain };
+		const { c } = env.audio.out("background"), el = env.make(), gain = c.createGain(), s: Slot = { el, gain };
 		el.preload = "none";
 		// SAFETY: `make` returns an <audio> element in the page (MediaEl is the slice of it this file reads); a test's fake context takes its fake element as it is
 		c.createMediaElementSource(el as unknown as HTMLMediaElement).connect(gain);
@@ -76,7 +76,7 @@ export function createPlayer(env: PlayerEnv): Player {
 	}
 	function fade(file: string) {
 		settle();
-		const from = slots[at]!, to = slot(1 - at), t = env.audio.out().c.currentTime, len = span(from);
+		const from = slots[at]!, to = slot(1 - at), t = env.audio.out("background").c.currentTime, len = span(from);
 		to.file = file;
 		to.el.src = env.url(file);
 		to.gain.gain.cancelScheduledValues(t);

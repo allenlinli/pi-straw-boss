@@ -1,6 +1,6 @@
 import { m } from "./sentences.ts";
 import type { Alert } from "./alerts.ts";
-import { audio } from "./audio.ts";
+import { audio, type SoundClass } from "./audio.ts";
 import { prefs } from "./prefs.ts";
 import { soundOf } from "./themesounds.ts";
 import doneUrl from "./sounds/done.mp3";
@@ -9,26 +9,26 @@ import waitingUrl from "./sounds/waiting.mp3";
 
 // Reminders and sounds for the alerts a snapshot raises: a unit waiting on an answer, one that finished, one that failed.
 // Each has a switch on the settings page (This device), kept per browser: reminders on, sounds off, so a page that opens makes no noise. The switch is a button that says its
-// state in a word (On, Off), and under Sound sit a volume (0 to 100, default 60) and a try; the sounds play through Web Audio, whose gain an
-// iPhone honours (it ignores an audio element's volume).
+// state in a word (On, Off). Sound is two classes (todo #139), each with a switch and a volume (0 to 100, default 60) under it: Sound effects (these cues, with a try) and Background sound (Zen's music, Raven's rain and thunder,
+// which play from their own code, so this file only keeps its switch and volume); the sounds play through Web Audio, whose gain an iPhone honours (it ignores an audio element's volume).
 // A reminder is a system notification while the page is hidden or unfocused (the alert queue shows it on a focused page);
-// clicking it brings the page forward on that unit. Only a question is urgent: a failure or a finish shows a silent system notification, and with Sound on plays its
+// clicking it brings the page forward on that unit. Only a question is urgent: a failure or a finish shows a silent system notification, and with Sound effects on plays its
 // own softer clip (the error clip) beside the question's. A batch plays one sound, the most urgent of its marks.
 
 type Kind = "waiting" | "error" | "done";
 const SOUNDS: Record<Kind, string> = { waiting: waitingUrl, error: errorUrl, done: doneUrl };
 const kindOf = (a: Alert): Kind | undefined => (a.mark === "waiting" || a.pending ? "waiting" : a.mark === "error" ? "error" : a.mark === "done" ? "done" : undefined);
 
-export interface Notifier { signal(fresh: Alert[]): void; /** Zen: the system notification for a card that waits while the page is hidden or unfocused, one for each card, those behind the card on the screen included (no clip). */ remind(a: Alert): void; /** The finished-unit clip, when Sound is on: a new unit that is ready (deploy.ts). */ chime(): void; /** The Sound switch and Volume as the settings page has them (the Zen menu drives the same). */ sound: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void; /** Called after another tab's Sound or Volume was applied here (the Zen menu redraws). */ onChange(fn: () => void): void } }
+export interface Notifier { signal(fresh: Alert[]): void; /** Zen: the system notification for a card that waits while the page is hidden or unfocused, one for each card, those behind the card on the screen included (no clip). */ remind(a: Alert): void; /** The finished-unit clip, when Sound effects is on: a new unit that is ready (deploy.ts). */ chime(): void; /** The two classes' switches and volumes as the settings page has them (the Zen menu and its palette drive the same). */ sound: Record<SoundClass, Switch> }
+/** A class's switch and volume. `try` is the sample after a volume change (Background has none: what it plays is already audible). `onChange` is called after any change, a local one or another tab's (the Zen menu redraws, the music follows). */
+export interface Switch { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void; onChange(fn: () => void): void }
 
-/** Mounts the settings page's reminder switch (`#remind`) and sound switch with its volume (`#sound`, `#sound-vol`) and returns what plays a snapshot's new alerts. */
+/** Mounts the settings page's reminder switch (`#remind`) and the two sound classes' switches with their volumes (`#effects`, `#effects-vol`, `#background`, `#background-vol`) and returns what plays a snapshot's new alerts. */
 export function mountNotify(open: (a: Alert) => void): Notifier {
 	const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-	const remindBtn = $<HTMLButtonElement>("remind"), soundBtn = $<HTMLButtonElement>("sound");
-	const vol = $<HTMLInputElement>("sound-vol"), volOut = $<HTMLOutputElement>("sound-vol-out");
+	const remindBtn = $<HTMLButtonElement>("remind");
 	const can = typeof Notification !== "undefined";
-	let remind = prefs.get("remind"), sound = prefs.get("sound"), volume = prefs.get("volume");
-	const told: (() => void)[] = [];
+	let remind = prefs.get("remind");
 	const draw = () => {
 		const perm = can ? Notification.permission : "denied";
 		remindBtn.setAttribute("aria-pressed", String(remind));
@@ -36,33 +36,40 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 		remindBtn.dataset.state = !remind ? "off" : perm === "granted" ? "on" : perm === "denied" ? "blocked" : "ask";
 		remindBtn.title = !can ? m.remind_unsupported() : !remind ? m.remind_off() : perm === "granted" ? m.remind_on() : perm === "denied" ? m.remind_blocked() : m.remind_ask();
 		$("remind-note").textContent = remindBtn.title; // a phone has no hover: the page says what the state means
-		soundBtn.dataset.state = sound ? "on" : "off";
 		// The state in a word (the button's text; the Standard view adds a dot, the Geek view brackets), never by colour alone.
 		remindBtn.textContent = { off: m.state_off, on: m.state_on, blocked: m.state_blocked, ask: m.state_ask }[remindBtn.dataset.state as "off"]();
-		soundBtn.textContent = sound ? m.state_on() : m.state_off();
-		soundBtn.setAttribute("aria-pressed", String(sound));
-		vol.value = volOut.value = String(volume);
-		audio.volume(volume);
 	};
 	remindBtn.onclick = async () => {
 		if (remind && can && Notification.permission === "default") await Notification.requestPermission().catch(() => {});
 		else prefs.set("remind", (remind = !remind));
 		draw();
 	};
-	// Each press here lets the page play, and says what a finished unit sounds like.
-	const setSound = (on: boolean) => {
-		prefs.set("sound", (sound = on));
-		draw();
-		if (sound) play("done");
+	// One class: its switch (`#<class>`), its volume (`#<class>-vol`), and its stored pair. The volume reaches the playback core at mount and at each change, the class's gain alone.
+	const strip = (cls: SoundClass, sample: () => void, onSwitch?: () => void): Switch => {
+		const btn = $<HTMLButtonElement>(cls), vol = $<HTMLInputElement>(`${cls}-vol`), volOut = $<HTMLOutputElement>(`${cls}-vol-out`), told: (() => void)[] = [];
+		const volKey = `${cls}Volume` as const;
+		let on = prefs.get(cls), volume = prefs.get(volKey);
+		const drawn = () => {
+			btn.dataset.state = on ? "on" : "off";
+			btn.textContent = on ? m.state_on() : m.state_off();
+			btn.setAttribute("aria-pressed", String(on));
+			vol.value = volOut.value = String(volume);
+			audio.volume(cls, volume);
+		};
+		const changed = () => (drawn(), told.forEach((f) => f()));
+		prefs.on(cls, () => ((on = prefs.get(cls)), changed())); // another tab's switch applies here
+		prefs.on(volKey, () => ((volume = prefs.get(volKey)), changed()));
+		const set = (next: boolean) => (prefs.set(cls, (on = next)), changed(), next && onSwitch?.());
+		btn.onclick = () => set(!on);
+		vol.oninput = () => (prefs.set(volKey, (volume = Number(vol.value))), changed());
+		vol.onchange = sample;
+		drawn();
+		return { on: () => on, volume: () => volume, set, setVolume: (v) => (prefs.set(volKey, (volume = v)), changed()), try: sample, onChange: (fn) => void told.push(fn) };
 	};
-	const setVolume = (v: number) => (prefs.set("volume", (volume = v)), draw());
-	prefs.on("sound", () => ((sound = prefs.get("sound")), draw(), told.forEach((f) => f()))); // another tab's switch applies here
-	prefs.on("volume", () => ((volume = prefs.get("volume")), draw(), told.forEach((f) => f())));
-	soundBtn.onclick = () => setSound(!sound);
-	vol.oninput = () => setVolume(Number(vol.value));
-	vol.onchange = () => play("done");
-	$("sound-try").onclick = () => play("done");
+	// Each press here lets the page play, and turning the effects on says what a finished unit sounds like.
 	const play = (kind: Kind) => audio.play(soundOf(kind, SOUNDS[kind]), SOUNDS[kind]);
+	const effects = strip("effects", () => play("done"), () => play("done")), background = strip("background", () => {});
+	$("effects-try").onclick = () => play("done");
 	/** The system notification of an alert, while the page is hidden or unfocused and Remind is on and allowed. */
 	function notice(a: Alert, k: Kind) {
 		if (!remind || !can || Notification.permission !== "granted" || (!document.hidden && document.hasFocus())) return;
@@ -72,12 +79,12 @@ export function mountNotify(open: (a: Alert) => void): Notifier {
 	draw();
 	return {
 		remind: (a) => notice(a, "waiting"),
-		sound: { on: () => sound, volume: () => volume, set: setSound, setVolume, try: () => play("done"), onChange: (fn) => void told.push(fn) },
-		chime: () => sound && play("done"),
+		sound: { effects, background },
+		chime: () => effects.on() && play("done"),
 		signal(fresh) {
 			const due = fresh.flatMap((a) => ((k) => (k ? [{ a, k }] : []))(kindOf(a)));
 			if (!due.length) return;
-			if (sound) play((["waiting", "error", "done"] as const).find((k) => due.some((d) => d.k === k))!);
+			if (effects.on()) play((["waiting", "error", "done"] as const).find((k) => due.some((d) => d.k === k))!);
 			for (const { a, k } of due) notice(a, k);
 		},
 	};

@@ -1,18 +1,20 @@
 import { VIEWS } from "../src/views.ts";
 import { h } from "./dom.ts";
 import { m } from "./sentences.ts";
+import type { Switch } from "./notify.ts";
 import type { Choice } from "./view.ts";
 import { NAME } from "./viewlabel.ts";
 
-// Zen's corner menu: one quiet button that opens a small panel of the settings a page in Zen would otherwise have to leave for (language, view, sound, the way back to Standard). Every row
+// Zen's corner menu: one quiet button that opens a small panel of the settings a page in Zen would otherwise have to leave for (language, view, sound effects, background sound, the way back to Standard). Every row
 // calls what the settings page calls, so the two never disagree. It opens only on a press of its button (a click, a tap, Enter, or Space), never on hover, and takes the focus inside. It closes on Esc,
-// a second press of the button, a press outside, and a choice of language, view, or the way back (the sound's switch and volume stay, so the volume can be set after the switch).
+// a second press of the button, a press outside, and a choice of language, view, or the way back (the sound switches and volumes stay, so a volume can be set after its switch).
 
 export interface MenuDeps {
 	language?: { get(): string; names(): { id: string; name: string }[]; set(id: string): void };
 	/** `choice` is the device's (Auto, Standard, Geek, Zen); `auto` words the Auto row (Auto, or Follow server with the default's name). */
 	view?: { choice(): Choice; set(c: Choice): void; auto(): string };
-	sound?: { on(): boolean; volume(): number; set(on: boolean): void; setVolume(v: number): void; try(): void; /** The Try button: Zen's three effects in turn. */ effects?(): void; /** Another tab changed Sound or Volume: the open panel redraws. */ onChange?(fn: () => void): void };
+	/** The two sound classes as the settings page has them (notify.ts). `all` is the effects' Try button: Zen's three effects in turn. */
+	sound?: { effects: Switch & { all?(): void }; background: Switch };
 }
 export function mountMenu(deps: MenuDeps, leave: () => void) {
 	const button = h("button", { type: "button", class: "zen-menubtn", "aria-haspopup": "true", "aria-expanded": "false", "aria-label": m.zen_menu(), title: m.zen_menu() }, "…");
@@ -35,16 +37,20 @@ export function mountMenu(deps: MenuDeps, leave: () => void) {
 		panel.append(row(m.view_label(), auto, ...VIEWS.map((c) => pick(NAME[c](), () => view.choice() === c, () => choose(c)))));
 	}
 	if (sound) {
-		const on = h("button", { type: "button", class: "zen-opt" }), vol = h("input", { type: "range", min: "0", max: "100", step: "5", "aria-label": m.sound_volume() }) as HTMLInputElement;
-		const draw = () => ((on.textContent = sound.on() ? m.state_on() : m.state_off()), on.setAttribute("aria-pressed", String(sound.on())), (vol.value = String(sound.volume())));
-		on.onclick = () => (sound.set(!sound.on()), draw());
-		vol.oninput = () => sound.setVolume(Number(vol.value));
-		vol.onchange = () => sound.try();
-		redraw.push(draw), sound.onChange?.(() => open && draw());
-		const eff = sound.effects;
-		const tryBtn = eff && h("button", { type: "button", class: "zen-opt" }, m.zen_try());
+		// One class: its switch, then its volume. A volume's release plays the class's sample (the effects' bowl; Background has none), the switch of another tab redraws an open panel.
+		const strip = (label: string, cls: Switch, extra: HTMLElement[] = []) => {
+			const on = h("button", { type: "button", class: "zen-opt" }), vol = h("input", { type: "range", min: "0", max: "100", step: "5", "aria-label": `${label}: ${m.sound_volume()}` }) as HTMLInputElement;
+			const draw = () => ((on.textContent = cls.on() ? m.state_on() : m.state_off()), on.setAttribute("aria-pressed", String(cls.on())), (vol.value = String(cls.volume())));
+			on.onclick = () => (cls.set(!cls.on()), draw());
+			vol.oninput = () => cls.setVolume(Number(vol.value));
+			vol.onchange = () => cls.try();
+			redraw.push(draw), cls.onChange(() => open && draw());
+			panel.append(row(label, on, ...extra), row(m.sound_volume(), vol));
+		};
+		const eff = sound.effects.all, tryBtn = eff && h("button", { type: "button", class: "zen-opt" }, m.zen_try());
 		if (tryBtn) tryBtn.onclick = () => eff();
-		panel.append(row(m.sound(), on, ...(tryBtn ? [tryBtn] : [])), row(m.sound_volume(), vol));
+		strip(m.sound_effects(), sound.effects, tryBtn ? [tryBtn] : []);
+		strip(m.sound_background(), sound.background);
 	}
 	const away = h("button", { type: "button", class: "zen-leave" }, m.zen_leave_title());
 	away.onclick = () => (leave(), close());

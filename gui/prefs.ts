@@ -1,12 +1,15 @@
-// The device's preferences: one typed store over localStorage for the keys the page keeps (view, language, Sound and Volume, Remind, Enlarge, Zen's last talk, Home Screen hint, music switch and track).
+// The device's preferences: one typed store over localStorage for the keys the page keeps (view, language, the two sound classes' switches and volumes, Remind, Enlarge, Zen's last talk, Home Screen hint, music switch and track).
 // A refused storage reads as the default (zenHint: as already told, so no hint) and a write it refuses is dropped; `on` hears another tab's write (the `storage` event) for one name.
 type Store = { getItem?(key: string): string | null; setItem?(key: string, value: string): void };
 type Raw = string | null | undefined; // a stored string; null: none; undefined: the storage refused
-export const KEYS = { view: "sb.view", locale: "sb-locale", sound: "sb.sound", volume: "sb.volume", remind: "sb.remind", wide: "sb.dialog-wide", zenHint: "sb.zen.homehint", zenMusic: "sb.zen.music", zenTrack: "sb.zen.track" } as const;
+export const KEYS = { view: "sb.view", locale: "sb-locale", effects: "sb.effects", effectsVolume: "sb.effects.volume", background: "sb.background", backgroundVolume: "sb.background.volume", remind: "sb.remind", wide: "sb.dialog-wide", zenHint: "sb.zen.homehint", zenMusic: "sb.zen.music", zenTrack: "sb.zen.track" } as const;
 export type Name = keyof typeof KEYS;
+/** The keys of the one Sound switch and Volume that came before the two classes (todo #139): a class with nothing stored of its own reads them, so the old on is both on at the old Volume and the old off is both off. They are never written. */
+export const LEGACY: Partial<Record<Name, string>> = { effects: "sb.sound", background: "sb.sound", effectsVolume: "sb.volume", backgroundVolume: "sb.volume" };
+const volume = (v: Raw) => Math.min(100, Math.max(0, Number(v ?? "60") || 0));
 /** How each stored string reads. A value is written as its string, a boolean as 1 or 0 (Zen's hint, true: 1). */
 const READ = {
-	view: (v: Raw) => v ?? "auto", locale: (v: Raw) => v ?? null, sound: (v: Raw) => v === "1", volume: (v: Raw) => Math.min(100, Math.max(0, Number(v ?? "60") || 0)),
+	view: (v: Raw) => v ?? "auto", locale: (v: Raw) => v ?? null, effects: (v: Raw) => v === "1", background: (v: Raw) => v === "1", effectsVolume: (v: Raw) => volume(v), backgroundVolume: (v: Raw) => volume(v),
 	remind: (v: Raw) => (v ?? "1") === "1", wide: (v: Raw) => v === "1", zenHint: (v: Raw) => v !== null, zenMusic: (v: Raw) => v === "1", zenTrack: (v: Raw) => v ?? null,
 };
 type Value<N extends Name> = ReturnType<(typeof READ)[N]>;
@@ -18,6 +21,7 @@ export function createPrefs(store: Store) {
 			let raw: Raw;
 			try {
 				raw = store.getItem?.(KEYS[name]);
+				if (raw === null && LEGACY[name]) raw = store.getItem?.(LEGACY[name]!);
 			} catch {} // storage refused: the default holds for this page
 			return READ[name](raw) as Value<N>;
 		},

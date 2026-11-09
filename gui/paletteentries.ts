@@ -33,10 +33,15 @@ export function entriesOf(a: Acts, p: Prefs): Entry[] {
 	}
 	if (language) for (const l of language.names()) add(`language:${l.id}`, pick(m.language(), l.name), () => language.set(l.id), here(language.get() === l.id));
 	if (sound) {
-		const volume = (by: number) => () => (sound.setVolume(Math.min(100, Math.max(0, sound.volume() + by))), sound.try());
-		add("sound", m.sound(), () => sound.set(!sound.on()), { hint: onoff(sound.on()), keep: true });
-		add("louder", m.pal_louder(), volume(STEP), { hint: String(sound.volume()), keep: true });
-		add("quieter", m.pal_quieter(), volume(-STEP), { hint: String(sound.volume()), keep: true });
+		// Each class has its switch and two volume steps: Sound effects (ids effects, effects-louder, effects-quieter) and Background sound (background, background-louder, background-quieter).
+		const strip = (id: "effects" | "background", label: string, louder: string, quieter: string) => {
+			const cls = sound[id], volume = (by: number) => () => (cls.setVolume(Math.min(100, Math.max(0, cls.volume() + by))), cls.try());
+			add(id, label, () => cls.set(!cls.on()), { hint: onoff(cls.on()), keep: true });
+			add(`${id}-louder`, louder, volume(STEP), { hint: String(cls.volume()), keep: true });
+			add(`${id}-quieter`, quieter, volume(-STEP), { hint: String(cls.volume()), keep: true });
+		};
+		strip("effects", m.sound_effects(), m.pal_effects_louder(), m.pal_effects_quieter());
+		strip("background", m.sound_background(), m.pal_background_louder(), m.pal_background_quieter());
 	}
 	if (music) add("music", m.pal_music(), () => music.set(!music.on()), { hint: onoff(music.on()), keep: true });
 	return out;

@@ -36,12 +36,12 @@ test("a play routes the source through the gain", async () => {
 	assert.ok(r.log.includes("src->gain"));
 });
 
-test("volume is the square of the fraction, before and after the gain exists", async () => {
+test("an effects volume is the square of the fraction, before and after the gain exists", async () => {
 	const r = rig();
-	r.a.volume(50);
+	r.a.volume("effects", 50);
 	r.a.play("a.mp3");
 	assert.equal(r.gain.gain.value, 0.25);
-	r.a.volume(100);
+	r.a.volume("effects", 100);
 	assert.equal(r.gain.gain.value, 1);
 	await r.settle();
 });
@@ -78,7 +78,7 @@ test("a clip played twice is fetched once", async () => {
 	assert.equal(r.fetches(), 2);
 });
 
-test("the master gain is wired to the context's output, so a clip is heard", async () => {
+test("the effects gain is wired to the context's output, so a clip is heard", async () => {
 	const r = rig();
 	r.a.play("a.mp3");
 	await r.settle();
@@ -94,14 +94,14 @@ test("a source plays the decoded clip, not an empty buffer", async () => {
 	assert.ok((r.bufs[0] as { b: unknown }).b instanceof ArrayBuffer);
 });
 
-test("out() is the one context and master gain play uses, made on first ask and not before", async () => {
+test("out(\"effects\") is the one context and gain play uses, made on first ask and not before", async () => {
 	const r = rig();
 	assert.equal(r.made(), 0);
-	const o = r.a.out();
+	const o = r.a.out("effects");
 	assert.equal(r.made(), 1);
 	assert.equal(o.c, r.ac);
 	assert.equal(o.g, r.gain);
-	assert.equal(r.a.out().g, o.g);
+	assert.equal(r.a.out("effects").g, o.g);
 	r.a.play("a.mp3");
 	await r.settle();
 	assert.equal(r.made(), 1, "play uses the same context");
@@ -113,7 +113,7 @@ test("running() is false before any context, false while suspended, true once re
 	const r = rig();
 	assert.equal(r.a.running(), false);
 	assert.equal(r.made(), 0, "asking does not make the context");
-	r.a.out();
+	r.a.out("effects");
 	assert.equal(r.a.running(), false, "made but suspended");
 	await r.a.unlock();
 	assert.equal(r.a.running(), true);

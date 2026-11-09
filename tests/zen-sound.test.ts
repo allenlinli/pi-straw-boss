@@ -23,13 +23,13 @@ function rig(running = true) {
 	const doc = { addEventListener: (n: string, f: () => void) => void listeners.set(n, f), removeEventListener: (n: string) => void listeners.delete(n) };
 	let on = true, bus: { gain: Param } | undefined;
 	const z = createZenSound(a, { on: () => on }, () => bus as never, doc as never);
-	return { ac, a, z, oscs, gains, filters, noise, listeners, setOn: (v: boolean) => (on = v), setBus: (b?: { gain: Param }) => (bus = b), duckGain: () => gains.find((g) => g.to === a.out().g && g.gain.ev.some((e) => e[0] === "cancel"))!, settle: () => new Promise((r) => setTimeout(r, 0)) };
+	return { ac, a, z, oscs, gains, filters, noise, listeners, setOn: (v: boolean) => (on = v), setBus: (b?: { gain: Param }) => (bus = b), duckGain: () => gains.find((g) => g.to === a.out("background").g && g.gain.ev.some((e) => e[0] === "cancel"))!, settle: () => new Promise((r) => setTimeout(r, 0)) };
 }
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
 test("the bowl is four partials of two sines 1.2 Hz apart, 5 s long, attack 15 ms, and the stated decays", () => {
 	const r = rig();
-	const end = schedule(r.a.out().c, r.a.out().g, 10, BOWL);
+	const end = schedule(r.a.out("effects").c, r.a.out("effects").g, 10, BOWL);
 	assert.equal(end, 15);
 	assert.equal(r.oscs.length, 8);
 	const f = r.oscs.map((o) => o.frequency.ev[0]![1]);
@@ -47,7 +47,7 @@ test("the bowl is four partials of two sines 1.2 Hz apart, 5 s long, attack 15 m
 
 test("the low bowl is on 146 Hz, decays at two thirds, bends down 1 %, peak 0.3", () => {
 	const r = rig();
-	schedule(r.a.out().c, r.a.out().g, 10, LOW);
+	schedule(r.a.out("effects").c, r.a.out("effects").g, 10, LOW);
 	assert.ok(close(r.oscs[0]!.frequency.ev[0]![1], 146 - 0.6));
 	const bend = r.oscs[0]!.frequency.ev[1]!;
 	assert.deepEqual([bend[0], close(bend[1], (146 - 0.6) * 0.99), bend[2]], ["exp", true, 15]);
@@ -57,7 +57,7 @@ test("the low bowl is on 146 Hz, decays at two thirds, bends down 1 %, peak 0.3"
 
 test("the knock is a sine falling 560 to 480 Hz over 40 ms plus a 25 ms noise burst through a 1.1 kHz band-pass (Q 6), 250 ms long", () => {
 	const r = rig();
-	const end = schedule(r.a.out().c, r.a.out().g, 10, KNOCK);
+	const end = schedule(r.a.out("effects").c, r.a.out("effects").g, 10, KNOCK);
 	assert.ok(close(end, 10.25));
 	const o = r.oscs[0]!;
 	assert.deepEqual([o.frequency.ev[0]![1], o.frequency.ev[1]![1], close(o.frequency.ev[1]![2], 10.04)], [560, 480, true]);
@@ -80,14 +80,16 @@ test("an effect plays only with Sound on", async () => {
 	assert.equal(r.oscs.length, 9);
 });
 
-test("volume is the master gain's square, read at each play through the one gain", () => {
+test("the effects volume is the effects gain's square, read at each play through the one gain, and the background volume is not theirs", () => {
 	const r = rig();
-	r.a.volume(30);
+	r.a.volume("effects", 30);
+	r.a.volume("background", 90);
 	r.z.play("bowl");
-	assert.ok(close(r.a.out().g.gain.value, 0.09));
-	assert.ok(r.oscs.every((o) => (o.to as unknown as { to: unknown }).to === r.a.out().g), "each partial reaches the master gain");
-	r.a.volume(100);
-	assert.equal(r.a.out().g.gain.value, 1);
+	assert.ok(close(r.a.out("effects").g.gain.value, 0.09));
+	assert.ok(r.oscs.every((o) => (o.to as unknown as { to: unknown }).to === r.a.out("effects").g), "each partial reaches the effects gain");
+	r.a.volume("effects", 100);
+	assert.equal(r.a.out("effects").g.gain.value, 1);
+	assert.ok(close(r.a.out("background").g.gain.value, 0.81), "the background gain stayed");
 });
 
 test("before the first gesture an effect is dropped, after it the context resumes and effects play", async () => {
@@ -119,7 +121,7 @@ test("an effect ducks playing music through a fixed duck node by 6 dB over 0.3 s
 	assert.ok(close(ev[2]![1], 10 ** (-DUCK.db / 20)) && close(ev[2]![2], 10.3) && ev[2]![0] === "lin");
 	assert.ok(ev[3]![1] === 1 && close(ev[3]![2], 11.8));
 	assert.ok(ev[2]![1] < 0.5013 && ev[2]![1] > 0.5009, "6 dB is about half");
-	assert.equal(d.to, r.a.out().g, "the duck node feeds the master gain");
+	assert.equal(d.to, r.a.out("background").g, "the duck node feeds the background gain: the music is background sound");
 });
 
 test("overlapping ducks never read the param: each ramp starts at 1 and ends at 1", async () => {
@@ -159,17 +161,18 @@ test("after the context is suspended again the next gesture re-arms the unlock a
 	assert.equal(r.oscs.length, 8);
 });
 
-test("main.ts hands the page's Sound switch to the Zen chunk, which builds createZenSound on the page's audio and gives Zen its play, try, and tryAll", () => {
+test("main.ts hands the page's sound switches to the Zen chunk, which builds createZenSound on the page's audio and gives Zen its play, try, and tryAll", () => {
 	const main = readFileSync(new URL("../gui/main.ts", import.meta.url), "utf8"), src = readFileSync(new URL("../gui/zenpage.ts", import.meta.url), "utf8");
 	assert.match(main, /zenPage\(\{ sound: notify\.sound, /);
-	assert.match(src, /createZenSound\(audio, io\.sound, /);
-	assert.match(src, /musicBus\(audio, zs\.bus\(\)\)/, "the music reaches the master through the duck node, so an effect ducks it");
+	assert.match(src, /createZenSound\(audio, io\.sound\.effects, /);
+	assert.match(src, /musicBus\(audio, zs\.bus\(\)\)/, "the music reaches the background gain through the duck node, so an effect ducks it");
 	assert.match(src, /sound: zs\.play/);
 	assert.match(src, /try: zs\.try/);
-	assert.match(src, /effects: zs\.tryAll/);
+	assert.match(src, /all: zs\.tryAll/);
+	assert.match(src, /background: io\.sound\.background/, "the music gets the Background switch");
 });
 
-test("Try ignores the Sound switch, lets the page play, and plays the bowl, knock, and low bowl in turn", async () => {
+test("Try ignores the Sound effects switch, lets the page play, and plays the bowl, knock, and low bowl in turn", async () => {
 	const r = rig(false);
 	r.setOn(false);
 	r.z.tryAll();
@@ -204,7 +207,7 @@ test("Zen's pages never import the trains model statically; zenPage loads it onl
 	const { zenPage } = await import("../gui/zenpage.ts");
 	const real = await import("../gui/trains.ts");
 	let net: unknown = { units: [] }, calls = 0, fail = true;
-	const z = zenPage({ sound: { on: () => false }, api: async () => ({}), snapshot: () => net as never, loadTrains: async () => (calls++, fail ? Promise.reject(new Error("chunk")) : real) });
+	const z = zenPage({ sound: { effects: { on: () => false }, background: { on: () => false, onChange() {} } }, api: async () => ({}), snapshot: () => net as never, loadTrains: async () => (calls++, fail ? Promise.reject(new Error("chunk")) : real) });
 	assert.deepEqual(z.trains!(), { count: 0, waiting: 0 });
 	assert.equal(calls, 0, "no yards, no load");
 	net = { units: [], yards: { projects: [] } };

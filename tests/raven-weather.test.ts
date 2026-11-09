@@ -201,7 +201,7 @@ test("raven.css clocks the weather on the strike: rk-clap (61 s, delayed 7 s) ru
 		const turnedAt = Number(frames.find((f) => f[3] === "1")![1]) / 100 * 17 + start;
 		assert.ok(turnedAt >= 2 && turnedAt <= 6, `the head is turned ${turnedAt.toFixed(1)} s after the raven shows`);
 	}
-	for (const name of ["rk-bolt", "rk-rest"]) assert.match(css, new RegExp(`@keyframes ${name} \\{ 0%, 94% \\{`), `${name} flashes at 94 to 94.4 %`);
+	for (const name of ["rk-bolt", "rk-rest"]) assert.match(css, new RegExp(`@keyframes ${name} \\{ 0%, 94\\.3% \\{`), `${name} flashes at 94.3 to 94.4 % (a tenth of a second's rise, round 3)`);
 	assert.match(css, /@keyframes rk-clap \{ from, to \{ scale: 1; \} \}/);
 	// the clock sits inside the no-preference blocks: not under calm unless the pointer is fine (the strike's own block), never under reduced motion
 	const start = css.indexOf("@media (prefers-reduced-motion: no-preference)");

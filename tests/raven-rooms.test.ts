@@ -31,8 +31,8 @@ test("the four rooms are WebP pictures of 1280 by 800 and at most 44 KB each, an
 		assert.deepEqual(sizeOf(file), { width: 1280, height: 800 }, name);
 	}
 	const total = (path: string): number => readdirSync(path, { withFileTypes: true }).reduce((sum, e) => sum + (e.isDirectory() ? total(join(path, e.name)) : statSync(join(path, e.name)).size), 0);
-	// The source folder holds the stylesheet with its comments, which the build strips: the spec's 450 KB is the built folder's (tests/imports.test.ts caps it, 425,889 bytes measured). The source folder was 449,505 bytes before the glass (todo #138: +8,064, raven.css's glass, phone frame and strike blocks with their reasons) and 457,569 after round 1; round 2 (the lit head turn, the head page's thin glass and backings, the phone's strip) measured 461,146 (+3,577). Cap = measured + 500.
-	assert.ok(total(dir) <= 461_646, `the raven folder is ${total(dir)} bytes`);
+	// The source folder holds the stylesheet with its comments, which the build strips: the spec's 450 KB is the built folder's (tests/imports.test.ts caps it, 425,889 bytes measured). The source folder was 449,505 bytes before the glass (todo #138: +8,064, raven.css's glass, phone frame and strike blocks with their reasons) and 457,569 after round 1; round 2 (the lit head turn, the head page's thin glass and backings, the phone's strip) measured 461,146 (+3,577); round 3 (the bolt layer, the perch's place, the backings, with their reasons) measured 466,807 (+5,661). Cap = measured + 500.
+	assert.ok(total(dir) <= 467_307, `the raven folder is ${total(dir)} bytes`);
 });
 
 test("the sprite's blood goblet (血僕) and keep (鴉閣) are bold shapes, not traced engravings: each symbol is at most 3 KB, so no thorn or tracery detail is left to blur at 16 px", () => {

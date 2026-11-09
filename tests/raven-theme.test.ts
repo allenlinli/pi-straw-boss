@@ -132,8 +132,8 @@ test("every motion rule of the theme sits under prefers-reduced-motion: no-prefe
 test("calm on a fine pointer keeps the strike and the perched raven only: the block is inside no-preference and (pointer: fine), is scoped to data-calm, and names no other animation (a phone's calm stops everything)", () => {
 	assert.ok(FINE_BLOCK.length > 0, "the fine-pointer block exists");
 	const rules = rulesOf(FINE_BLOCK);
-	assert.equal(rules.length, 6, "the head page's strike, raven light and turn, then the map's");
-	const allowed = new Set(["rk-bolt", "rk-rest", "rk-clap", "rk-perch-dark", "rk-perch-turn"]);
+	assert.equal(rules.length, 8, "the head page's strike, bolt, raven light and turn, then the map's");
+	const allowed = new Set(["rk-bolt", "rk-rest", "rk-clap", "rk-strike", "rk-perch-dark", "rk-perch-turn"]);
 	for (const rule of rules) {
 		assert.match(rule.selector, /^html\[data-view="raven"\]\[data-calm\]/, `${rule.selector} applies under calm only`);
 		for (const [prop, value] of declarations(rule.body)) {

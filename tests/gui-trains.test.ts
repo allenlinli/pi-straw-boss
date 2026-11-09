@@ -134,7 +134,7 @@ test("each car's notice line: told, telling with its try, reported up, and one t
 	assert.deepEqual([pending.text, pending.tone, pending.detail, pending.title], ["通知中 T-15：退回（重試 2）", "pending", "最後一次回覆：queued", undefined], "the broker's last answer is text on the card, not a tooltip");
 	assert.equal(T.noticeLine(car({ notice: { state: "received", status: "pending", attempts: 0 } }))!.text, "通知中 T-15：已收件");
 	assert.equal(T.noticeLine(car({ notice: { state: "received", status: "pending", attempts: 0, journal: true } }))!.text, "通知中 T-15：已收件（取自檔案紀錄）", "a notice read from the journal on disk says so (TB-F005)");
-	assert.equal(T.noticeLine(car({ tickets: ["T-9"], notice: { state: "dropped", status: "escalated", attempts: 4, at: iso(MIN) } }))!.text, "已上報塔台：T-9 的協調者聯絡不上");
+	assert.equal(T.noticeLine(car({ tickets: ["T-9"], notice: { state: "dropped", status: "escalated", attempts: 4, at: iso(MIN) } }))!.text, "已上報塔台：T-9 的送車者聯絡不上");
 	const bad = T.noticeLine(car({ notice: { status: "unreadable", reason: "the car file is a link" } }))!;
 	assert.deepEqual([bad.text, bad.tone], ["讀不到 T-15 的通知紀錄：the car file is a link", "unreadable"], "a reason the server gave no kind to shows as text only");
 	const sized = T.noticeLine(car({ notice: { status: "unreadable", reason: "file is 70 KB, more than 64 KB", kind: "toobig" } }))!;

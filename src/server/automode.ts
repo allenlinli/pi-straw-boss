@@ -111,7 +111,17 @@ export function createAutoMode(d: AutoDeps) {
 	function start() {
 		const record = readOwn(d.dir);
 		if (record) own = record;
+		// A lost or broken own record with a readable `auto.json`: the file is the last good state, adopted as the server's own (AMC-F004). Putting back the default would turn auto mode off and tell every session the boss is back.
+		const seen = record ? undefined : readAuto(d.dir);
+		const adopted = seen?.kind === "ok" ? seen.state : undefined;
+		if (adopted) {
+			own = { v: 1, rev: adopted.rev, hash: adopted.hash, state: adopted, used: { events: [], typed: [] } };
+			commit(own, false);
+			foreign++;
+			d.log("auto-foreign", { why: "own-missing" });
+		}
 		period = own.state.on ? readPeriod() : undefined;
+		if (adopted && period) (period.foreign.push({ at: iso(), why: "own-missing" }), savePeriod());
 		last = readReport();
 		reconcile();
 	}

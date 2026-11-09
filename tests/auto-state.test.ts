@@ -83,7 +83,10 @@ test("garbage in the file is put back; a removed file while on is put back; a mi
 	assert.equal(a.foreignCount(), 2);
 });
 
-test("a foreign file found at the start is put back too", () => {
+test("a foreign file found at the start is put back too (the server's own record stands against it)", () => {
+	const earlier = make();
+	earlier.switchOn(pi);
+	earlier.switchOff(pi);
 	writeFileSync(join(dir, AUTO_FILE), `${JSON.stringify(seal({ v: 1, rev: 3, on: true, since: "2026-11-09T00:00:00Z", by: { via: "gui", name: "x" } }))}\n`);
 	const a = make();
 	assert.equal(a.view().on, false, "no own record vouches for it");
@@ -269,4 +272,28 @@ test("an operate session never reaches the auto routes (the table refuses them)"
 	const { verdictOf } = await import("../src/operateroutes.ts");
 	assert.equal(verdictOf("POST", ["auto"]), "refused");
 	assert.equal(verdictOf("POST", ["auto", "confirm"]), "refused");
+});
+
+test("AMC-F004: a lost or corrupt auto-own.json at the server's start adopts the readable auto.json: still on, no off written, no listener told", () => {
+	for (const damage of ["missing", "corrupt"] as const) {
+		const first = createAutoMode({ dir, now: () => 1_800_000_000_000, log: () => {} });
+		first.start();
+		first.switchOn({ via: "gui", name: "page" });
+		const before = first.view();
+		if (damage === "missing") rmSync(join(dir, OWN_FILE));
+		else writeFileSync(join(dir, OWN_FILE), "{broken");
+		const logged: string[] = [], told: boolean[] = [];
+		const second = createAutoMode({ dir, now: () => 1_800_000_000_000, log: (event, facts) => void logged.push(`${event}:${facts.why ?? ""}`) });
+		second.onSwitch((c) => void told.push(c.to.on));
+		second.start();
+		assert.equal(second.view().on, true, damage);
+		assert.equal(second.view().rev, before.rev, `${damage}: nothing was written over it`);
+		assert.deepEqual(told, [], "no session is told the boss is back");
+		assert.ok(logged.includes("auto-foreign:own-missing"), damage);
+		assert.equal(second.foreignCount(), 1);
+		assert.equal(readAuto(dir).kind, "ok");
+		assert.equal((readAuto(dir) as { state: { on: boolean } }).state.on, true);
+		assert.equal(second.check(before.rev, before.hash), true, "a session's confirmed rev is still the server's own");
+		second.switchOff({ via: "gui", name: "page" });
+	}
 });

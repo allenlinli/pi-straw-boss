@@ -21,6 +21,8 @@ const NO_RELAY = Symbol.for("pi-straw-boss.no-relay");
 const HERE_ONLY = Symbol.for("pi-straw-boss.here-only");
 /** The options of a ctx.ui.select or confirm that only this computer's own page or terminal may answer. */
 export const hereOnlyOpts = (): { signal?: AbortSignal } => ({ [HERE_ONLY]: true } as { signal?: AbortSignal });
+/** The options of a ctx.ui.confirm that only the keyboard answers: the wrap counts it and relays it nowhere (auto mode's confirm, docs/specs/2026-11-09-auto-mode.md, §2). */
+export const terminalOnlyOpts = (): { signal?: AbortSignal } => ({ [NO_RELAY]: true } as { signal?: AbortSignal });
 const MAX_CHOICES = 100, MAX_TEXT = 12_000, ANSWER_ID = /^[A-Za-z0-9_-]{16,64}$/;
 type Kind = "select" | "confirm";
 type Opts = { signal?: AbortSignal; timeout?: number } | undefined;

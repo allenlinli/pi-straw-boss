@@ -20,7 +20,9 @@ import { secretDir, type Slot, towerId, towerName } from "./record.ts";
 import { createHead, HEAD_ORDER, HEAD_TOKEN, type HeadEnsured } from "./head.ts";
 import { asked, checkSupersedes, closeAsk, isAct, noteToolCall, openAsk, openAsks } from "./headasks.ts";
 import { headBrief, headIntake, relayOnlyFromHead, stateWord } from "./headside.ts";
-import { headHost, headTool } from "./headtools.ts";
+import type { Requester } from "../autostate.ts";
+import type { AutoMode } from "./automode.ts";
+import { autoAnswer, headHost, headTool, type HeadPort } from "./headtools.ts";
 import type { Allows } from "./allows.ts";
 import type { Asks } from "./asks.ts";
 import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, localTools } from "./towerbrief.ts";
@@ -109,6 +111,8 @@ export interface TowersOptions {
 	asks?: Asks;
 	/** The car book (carbook.ts): a forward the tower stamps and a train it opens are noted there, for the checks of the server to rest on. */
 	cars?: Pick<CarBook, "noteForward" | "noteTrain" | "remoteOf">;
+	/** Auto mode (automode.ts): the head's `boss_auto` acts through it. Absent on a secondary server. */
+	auto?: AutoMode;
 	/** Hands the service to a test as soon as it is built. */
 	expose?: (towers: Towers) => void;
 }
@@ -146,7 +150,7 @@ export interface Towers {
 		close(): Promise<{ workspace: string; id: string } | undefined>;
 		status(): TowerRow | undefined;
 		/** The boss's words to the head, from any channel: the head workspace is made when it is missing, and a boss event with `present` wakes a run (or goes into the live one). */
-		event(text: string): Promise<{ workspace: string; id: string }>;
+		event(text: string, requester?: Requester): Promise<{ workspace: string; id: string }>;
 	};
 	/** The tower prompt in a standing pane (standing.ts): its poll, Ctrl+D, and exit. */
 	prompt(cmd: "prompt-poll" | "prompt-leave" | "prompt-gone", workspace: string, pid: number): Promise<PromptReply | { ok: true }>;
@@ -1143,7 +1147,15 @@ export function createTowers(o: TowersOptions): Towers {
 					openAsk: (d) => openAsk(slot, now(), d), closeAsk: (id) => closeAsk(slot, id), checkSupersedes: (id) => checkSupersedes(slot, id),
 					relay: (turn) => (typeof request.token === "string" && turn !== undefined && runs.bossTaken(request.token, turn) ? `boss:${turn}` : undefined),
 					boss: (turn) => (typeof request.token === "string" && turn !== undefined ? runs.bossEvents(request.token).find((e) => e.id === turn)?.text : undefined),
-				});
+					// The boss's own words in this turn (§2): the event the run's extension reports as the turn's starter, if this run took it as a boss event, or the line the boss typed at the head pane; the model supplies neither.
+					auto: (on) => {
+						if (!o.auto) throw new Error("auto mode is held by the primary server of this computer");
+						const token = request.token, turn = typeof request.turn === "string" ? request.turn : undefined;
+						const event = typeof token === "string" && turn !== undefined && runs.bossTaken(token, turn) ? runs.bossEvents(token).find((e) => e.id === turn) : undefined;
+						const typed = typeof request.typed === "string" && Number.isInteger(request.seq) ? { text: request.typed, run: who.id, seq: request.seq as number } : undefined;
+						return autoAnswer(o.auto.bossAuto(on, { ...(event ? { event } : {}), ...(typed ? { typed } : {}) }, { session: who.id }));
+					},
+				} satisfies HeadPort);
 				return await headTool(head, name, args, { ...(typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {}), ...(typeof request.turn === "string" ? { turn: request.turn } : {}) });
 			}
 			const done = await runTool(host, who.kind, name, args, typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {});
@@ -1225,9 +1237,9 @@ export function createTowers(o: TowersOptions): Towers {
 		status: () => [...services.values()].filter((l) => !isHeadL(l)).map(row),
 		head: {
 			ensure: ensureHead,
-			event: async (text) => {
+			event: async (text, requester) => {
 				const got = await ensureHead();
-				return { workspace: got.workspace, id: runs.boss(got.workspace, text, "the boss", { present: true }).id };
+				return { workspace: got.workspace, id: runs.boss(got.workspace, text, "the boss", { present: true, ...(requester ? { requester } : {}) }).id };
 			},
 			close: async () => {
 				const l = headLive();

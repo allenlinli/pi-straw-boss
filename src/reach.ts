@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { allyLabel } from "./boardauto.ts";
+import { autoSummary } from "./autostate.ts";
 import { sessionMark } from "./netdata.ts";
 import { createHeadReach, headIdOf, headInfo } from "./reachhead.ts";
 import { type Kind, type Party, ROLE_WORDS, stamp, type Stamp, type Why, WHYS } from "./header.ts";
@@ -145,6 +146,7 @@ export function createReach({ pi, cfg, s, guiDir, me, role, tell }: Kit, server:
 			me: { id: me(), role: role() },
 			workspace: { id: s.at.workspaceId, label: L(mine?.label) },
 			head: within ? null : headInfo(sessions, ps, all),
+			...(within ? {} : { auto: autoSummary(guiDir) }),
 			tower: towerOf(mine) ?? null,
 			tabs,
 			towers: all.filter((w) => w !== mine && !isHead(w) && bound(w.workspace_id)).flatMap((w) => towerOf(w) ?? []),

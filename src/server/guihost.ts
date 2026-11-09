@@ -8,7 +8,7 @@ import { createCloser } from "../closer.ts";
 import type { Reply as HttpReply } from "../control.ts";
 import { createDeploys } from "../deploy.ts";
 import { type AllowNote, createHub, type Hub } from "../dialogs.ts";
-import { BUNDLE, type Gui, startGui } from "../gui.ts";
+import { BUNDLE, type Gui, type GuiOptions, startGui } from "../gui.ts";
 import { alive } from "../remote.ts";
 import { answers, boundedWait, type GuiRecord, listening, postServer, readRecord as readGuiJson, writeRecordFile } from "../handover.ts";
 import type { Session } from "../herdr.ts";
@@ -102,6 +102,8 @@ export interface GuiHostOptions {
 	head?: HeadSeam;
 	/** Seams of the trains' reading for a test (the load, the clock, whether a writer runs); the reading itself is the server's (trainyard.ts) and is off with the merge train. */
 	trainyard?: Partial<Pick<TrainyardOptions, "load" | "now" | "alive" | "platform">>;
+	/** Auto mode's panel (autoops.ts), once the server has built it. */
+	auto?: GuiOptions["auto"];
 	/** The server's book of cars, once it exists (main.ts builds it after the GUI host): the yard tells a car's notice from it (trainyard.ts). */
 	trainCars?: TrainyardOptions["book"];
 	/** One message to a live session from the server (the work board's Clear tells a stale line's writer, boardpanel.ts); whether the broker took it. Without it a clear tells nobody. */
@@ -248,6 +250,7 @@ export function createGuiHost(o: GuiHostOptions) {
 				const next = await net.read(), summary = await o.link.summary();
 				return summary && (summary.allies.length || summary.alerts.length || summary.confirms.length) ? { ...next, link: summary } : next;
 			},
+			...(o.auto ? { auto: o.auto } : {}),
 			board: createBoardPanel({ dir: boardDir, read: () => net.read(), tell: o.tell ?? (async () => false) }),
 			net, call: cfg.call, hub, dir: o.bundle ?? BUNDLE, paired: join(dir, "paired.json"), answered, port: prefer.port, remotePort: prefer.remotePort, ...(prefer.keep ? { keep: prefer.keep } : {}), bindWaitMs: wait, desk: cfg.env.STRAW_BOSS_DESK === "1", view, music: musicDirOf(cfg.env),
 			lan: { panel: host.panel, overlay: host.faces, ...(slot.primary ? { file: join(dir, "lan.json") } : {}), notify: host.event, log: (event, fields) => log.line(event, Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? v : JSON.stringify(v)]))) },

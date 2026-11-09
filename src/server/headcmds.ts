@@ -1,3 +1,4 @@
+import type { Requester } from "../autostate.ts";
 import { HEAD_KEY } from "../headkey.ts";
 import type { Towers } from "./towers.ts";
 
@@ -9,14 +10,14 @@ export async function markWaitAnswered(t: Towers, workspace: string, id: string)
 }
 const NOT_OPEN = "The head tower is not open: its first message opens it.";
 /** `head-open` makes the head workspace when there is none and names its tab; `head-event` is the boss's words (a boss event with `present`); `head-leave`, `head-new`, and `head-close` are the conversation's buttons, and `head-retry`, `head-deliver`, and `head-drop` the notices' (with `answers` a `head-event` marks the wait answered once the head took it). */
-export async function headCommand(t: Towers, cmd: string, text: string | undefined, extra: { answers?: string; id?: string } = {}): Promise<Record<string, unknown>> {
+export async function headCommand(t: Towers, cmd: string, text: string | undefined, extra: { answers?: string; id?: string; requester?: Requester } = {}): Promise<Record<string, unknown>> {
 	if (cmd === "head-open") {
 		const got = await t.head.ensure();
 		return { workspace: got.workspace, tab: got.tab, pane: got.pane, label: got.label, opened: got.opened };
 	}
 	if (cmd === "head-event") {
 		if (!text) throw new Error("head-event needs text");
-		const queued = (await t.head.event(text)).id;
+		const queued = (await t.head.event(text, extra.requester)).id;
 		return { queued, ...(extra.answers ? { answered: await markWaitAnswered(t, HEAD_KEY, extra.answers) } : {}) };
 	}
 	if (cmd === "head-close") return { closed: Boolean(await t.head.close()) };

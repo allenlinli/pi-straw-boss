@@ -104,7 +104,7 @@ test("the server's control socket answers through the secret and proof on this p
 });
 
 test("every module a Windows session loads links on this platform (a named import Windows lacks fails before any code runs)", async () => {
-	for (const path of ["../src/index.ts", "../src/closing.ts", "../herdr-plugin/net-view.mjs"]) await import(path);
+	for (const path of ["../src/index.ts", "../src/closing.ts", "../src/server/kit.ts", "../src/server/headless.ts", "../herdr-plugin/net-view.mjs"]) await import(path);
 });
 
 // The folder picker on a real Windows profile layout (src/hidden.ts): attributes set with attrib, junctions made as the old profile layout has them, and the

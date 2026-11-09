@@ -427,7 +427,7 @@ html:not([data-view="zen"]) .wait-box:focus { outline: none; border-color: color
 .dialog[data-wait] footer .wc-skip { text-transform: none; letter-spacing: 0; font-size: 13px; }
 .wait-card[data-host="row"][data-folded="true"] { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; } .wait-card[data-host="row"][data-folded="true"] > .wc-head { flex: 1 1 16em; min-width: 0; } .wait-card[data-host="row"][data-folded="true"] > .wc-acts { flex: 0 0 auto; } .wait-card[data-host="row"][data-folded="true"] > :is(.wc-state, .wc-fail) { flex: 1 1 100%; }
 /* In the comms the same rows sit between the log and the composer. */
-.tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))):not(:has(> .head-log:not([hidden]))):not(:has(> .head-board:not([hidden]))):not(:has(> .head-absent:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }
+.tower-notes { margin: 0 16px 8px; } .tower-notes:has(> .tower-notices:empty):not(:has(> .tower-memory:not([hidden]))):not(:has(> .tower-conv:not([hidden]))):not(:has(> .head-log:not([hidden]))):not(:has(> .head-board:not([hidden]))):not(:has(> .head-auto:not([hidden]))):not(:has(> .head-absent:not([hidden]))) { display: none; } .tower-notes .tower-notices { display: grid; gap: 6px; min-width: 0; }
 /* The tower's queue on its map card, and the sentence that stands where a standing tower's terminal would be. */
 /* The state line may be long (state, last run, failures), so a base's own line wraps instead of cutting the queue count off. */
 .base:not(.ally) > header .title p { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; white-space: normal; overflow: visible; }
@@ -1266,7 +1266,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 
 /* The head tower's entries and page (docs/specs/2026-11-04-head-tower.md, Standard): the header's crown button with its dot, the map's head node, the page's asks and chapter dividers, and the drawer's first row. */
 .head-btn { position: relative; display: inline-flex; align-items: center; gap: 6px; color: var(--gold); text-decoration: none; }
-.head-btn[hidden], .head-board[hidden], .head-node[hidden], .drawer-head[hidden], .head-asks[hidden], .head-absent[hidden] { display: none; }
+.head-btn[hidden], .head-board[hidden], .head-auto[hidden], .zen-auto[hidden], .head-node[hidden], .drawer-head[hidden], .head-asks[hidden], .head-absent[hidden] { display: none; }
 .head-btn svg { width: 14px; height: 14px; fill: currentColor; flex: none; }
 .head-btn .dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 2px var(--surface-0); }
 .head-btn .dot[hidden] { display: none; }
@@ -1421,3 +1421,8 @@ summary.yard-chip { display: inline-block; cursor: pointer; list-style: none; } 
 	summary.yard-chip { position: relative; } summary.yard-chip::before { content: ""; position: absolute; inset: -11px -4px; } /* a 44 px target for the chip without growing its outline */
 	.yard-ended summary { display: flex; align-items: center; min-height: 44px; }
 }
+
+/* The head tower's request to start auto mode (gui/auto.ts, docs/specs/2026-11-09-auto-mode.md D9): one button, the boss's own tap. */
+.head-auto, .zen-auto { display: grid; gap: 6px; justify-items: start; min-width: 0; margin: 0 0 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.head-auto p, .zen-auto p { margin: 0; overflow-wrap: anywhere; } .head-auto .auto-title, .zen-auto .auto-title { font-weight: 600; }
+.auto-confirm { min-height: 44px; padding: 0 16px; border-radius: 10px; cursor: pointer; } .auto-confirm:disabled { cursor: default; opacity: .6; } .auto-note:empty { display: none; }

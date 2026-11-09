@@ -17,6 +17,7 @@ export function autoPanel(auto: AutoMode, unattended: () => boolean = () => fals
 	const none = (): Http | undefined => (unattended() ? { status: 409, body: { error: "unattended", reason: UNATTENDED } } : undefined);
 	const answer = (out: Outcome) => (out.ok ? { status: 200, body: auto.view() } : { status: 409, body: { error: out.error === STALE ? "stale" : "refused", reason: out.error } });
 	return {
+		snap: () => { const v = auto.view(); return v.on || v.pending ? { on: v.on, ...(v.since ? { since: v.since } : {}), ...(v.pending ? { pending: { id: v.pending.id, said: v.pending.said, expires: v.pending.expires } } : {}) } : undefined; },
 		state: () => ({ status: 200, body: auto.view() }),
 		set: (on, remote) => none() ?? answer(on ? auto.switchOn(by(remote)) : auto.switchOff(by(remote))),
 		confirm: (id, remote) => none() ?? answer(auto.confirm(id, by(remote))),

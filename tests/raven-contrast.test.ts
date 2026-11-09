@@ -148,16 +148,16 @@ test("under the lightest veil, the candle light at its peak, and the comms' or c
 });
 
 // Frosted glass (gui/themes/raven/raven.css, "Frosted glass"): a large panel is --rk-glass over the picture blurred by --rk-blur. The brightest pixel of the picture at the lightning's peak, as the map's layers paint it (the sampled layers above, the lights at their peak 0.7125, rest veil gone, the mask included),
-// then blurred with a Gaussian of the blur's standard deviation (CSS blur(14px) is a sigma of 14 px) at the widest frame (1600 px, a desktop; a phone's cover frame is 1498 px and its brightest pixel after the blur is rgb(133 99 66)), below the header strip: rgb(137 102 67), sampled with PIL on the shipped picture (the blur only lowers the peak of a small lit window; a large light region stays as bright).
+// then blurred with a Gaussian of the blur's standard deviation (CSS blur(8px) is a sigma of 8 px) at the widest frame (1600 px, a desktop; a phone's cover frame is 1498 px and its brightest pixel after the blur is rgb(162 120 72)), below the header strip: rgb(165 121 72), sampled with PIL on the shipped picture (the blur only lowers the peak of a small lit window; a large light region stays as bright).
 // A change to the layers, the picture, or the blur makes this test ask for a new sample instead of passing on old arithmetic. The picture's hash and the blur it took are asserted; the fill's alpha is then checked on the sample.
-const GLASS_SAMPLE = { sha: "65a27813b776dc77", blur: 14, worst: "#896643" }; // rgb(137 102 67)
-test("the glass fill keeps --text, --dim, and every state colour at 4.5 : 1 over the brightest blurred pixel of the picture at the lightning's peak, for a panel and for a sheet; the blur is at least the one sampled", () => {
+const GLASS_SAMPLE = { sha: "65a27813b776dc77", blur: 8, worst: "#a57948" }; // rgb(165 121 72)
+test("the glass fill keeps --text, --dim, and every state colour at 4.5 : 1 over the brightest blurred pixel of the picture at the lightning's peak, for a panel and for a sheet; the blur is no narrower than the one sampled", () => {
 	const sheet = rulesOf(ravenCss), body = (selector: string) => sheet.filter((r) => r.parts.includes(selector)).map((r) => r.body).join(";");
 	const picture = body('html[data-view="raven"]:has(#stage[data-view="map"])::before');
 	for (const layer of SAMPLED_LAYERS) assert.ok(picture.includes(layer), `the sampled layer is still there: ${layer}`);
 	assert.equal(createHash("sha256").update(readFileSync(new URL("../gui/themes/raven/backdrop.webp", import.meta.url))).digest("hex").slice(0, 16), GLASS_SAMPLE.sha, "the backdrop changed: sample its blurred brightest pixel again");
 	const blur = Number(/--rk-blur:\s*([\d.]+)px/.exec(ravenCss)?.[1]);
-	assert.ok(blur >= GLASS_SAMPLE.blur, `the blur is ${blur} px; the sample took ${GLASS_SAMPLE.blur}`);
+	assert.ok(blur >= GLASS_SAMPLE.blur, `the blur is ${blur} px; the sample took ${GLASS_SAMPLE.blur} (a narrower blur leaves a brighter peak)`);
 	const hex = (n: string) => Number(n).toString(16).padStart(2, "0");
 	for (const token of ["rk-glass", "rk-glass-sheet"]) {
 		const m = new RegExp(`--${token}:\\s*rgba\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([\\d.]+)\\)`).exec(ravenCss);

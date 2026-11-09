@@ -87,6 +87,7 @@ function toolLine(name: string, a: Json): string {
 		// A model may give `questions` as a JSON string; one that is not JSON shows as written.
 		case "ask_user": case "ask_user_question": { const qs = typeof a.questions === "string" ? (parse(a.questions) ?? a.questions) : a.questions; return Array.isArray(qs) ? asked(qs) : qs && typeof qs === "object" ? asked([qs]) : qs !== undefined && typeof a.questions === "string" ? first(a.questions) : asked([a]); }
 		case "show_doc": return first([a.paths].flat().join(", "));
+		case "boss_duty": return [a.duty, first(a.reason, 120)].filter(Boolean).join(" · ");
 		case "todo": return [a.action, first(a.subject ?? a.id, 80)].filter(Boolean).join(" ");
 		case "MonitorCreate": return first(a.description ?? a.command);
 		// Another tool shows its first plain argument by name; one with only structured arguments shows their names, never "[object Object]".

@@ -189,7 +189,7 @@ const formingView = (f: YardFormingRow, ctx: Ctx): FormingView => {
 export function projectView(p: ProjectYard, ctx: Ctx, locate: Locate): ProjectView {
 	const counts = countsOf(p), rows = p.trains.map((t) => trainView(t, ctx, locate)), ended = rows.filter((r) => r.status === "ended").reverse();
 	const route = locate(p.integrator?.key);
-	const integrator = p.integrator ? (p.integrator.live && p.integrator.key ? { text: m.yard_integrator_live(), ...(route ? { route } : {}) } : { text: m.yard_integrator_gone() }) : undefined;
+	const integrator = p.integrator ? (p.integrator.live && p.integrator.key ? { text: m.yard_integrator_live({ kind: m.kind_integrator() }), ...(route ? { route } : {}) } : { text: p.integrator.switched ? m.yard_integrator_switched({ kind: m.kind_integrator() }) : m.yard_integrator_gone({ kind: m.kind_integrator() }) }) : undefined;
 	const problem = p.problem ? reasonOf(p.problem, p.problemKind) : undefined;
 	return {
 		project: p.project, title: m.yard_title({ project: p.project }), counts, head: headWords(counts), others: othersWords(counts), load: loadWords(ctx.load), ...(integrator ? { integrator } : {}), forming: p.forming.map((f) => formingView(f, ctx)),

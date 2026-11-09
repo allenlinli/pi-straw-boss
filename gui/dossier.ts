@@ -1,7 +1,7 @@
 import type { Tile } from "./layer.ts";
 import { docList, docTile } from "./doc.ts";
 import { m } from "./sentences.ts"; import { noun } from "./nouns.ts";
-import { fillPlate, html, LABEL, liveMark, mark, PLATE, roleName, say, sync, text } from "./render.ts";
+import { fillPlate, html, LABEL, liveMark, mark, PLATE, roleName, roleWord, say, sync, text } from "./render.ts";
 import { closed, locate, type Scene, type Subject, wsOf } from "./scene.ts";
 import { fillToken, linkTo, tokenEl } from "./tokens.ts";
 import { statusLine } from "./towermodel.ts";
@@ -23,7 +23,7 @@ export function mountDossier(host: HTMLElement, scene: Readonly<Scene>, { openTi
 		fillPlate(root.querySelector(".plate")!, u?.role ?? info?.role ?? "member", mk);
 		const ally = !u && info?.role === "ally", eventRun = !u && info?.role === "run"; // an ally or event run's comms: a unit only its tower's chip lists (src/net.ts)
 		text(root, "h3", ally ? m.ally_run({ device: name }) : eventRun ? m.event_run({ id: name }) : name);
-		text(root, ".role", roleName(u?.role ?? info?.role ?? "session"));
+		text(root, ".role", u ? roleWord(u.role, u.duty, u.todo?.graph) : roleName(info?.role ?? "session"));
 		say(root, ".state", closed(u, state) ? undefined : u?.note, mk, u ? (u.service && !u.service.run ? statusLine(u.service, mk, (k) => LABEL[k]()) : undefined) : ally ? m.ally_state() : eventRun ? m.event_run_state() : m.not_in_net()); // a tower the server runs says "standing by", as the map does
 		const note = root.querySelector<HTMLElement>(".d-note")!;
 		note.hidden = state !== "recent" && state !== "unknown";

@@ -16,7 +16,7 @@ import { hasHistory, mountHistory } from "./zenhistory.ts";
 import { intel } from "./intel.ts";
 import { m } from "./sentences.ts"; import { noun } from "./nouns.ts";
 import type { Answer } from "./post.ts";
-import { roleName, waitTitle } from "./render.ts";
+import { roleName, roleWord, waitTitle } from "./render.ts";
 import { composerUnit } from "./sessionfacts.ts";
 import { can } from "./boxmodel.ts";
 import { locate } from "./scene.ts";
@@ -142,7 +142,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 		const slot = h("div", { class: "zen-answer" }), skip = h("button", { type: "button", class: "cmp-alt zen-skip" }, m.zen_not_now());
 		const unit = unitOf(a), hist = trust || a.wait || a.card ? undefined : mountHistory({ key: unit, chat: mounts.chat, data: deps.data, who: () => locate(net, unit)?.u ?? { key: unit, name: a.name, role: a.role, mark: a.mark }, away: () => !can(locate(net, unit)?.base, "input"), watch: deps.watch, changed: () => sync() });
 		const ctx = h("button", { type: "button", class: "cmp-link zen-history-btn", "aria-keyshortcuts": "H", "aria-expanded": "false", "aria-controls": hist?.el.getAttribute("id") ?? "" }, m.zen_history());
-		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, titleOf(a)), a.wait || a.card ? null : h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${roleName(a.role)} · ${deps.label(a.ws)}`), trust ? null : said, slot, hist?.el, h("div", { class: "zen-acts" }, hist && ctx, skip), out);
+		const inner = h("div", { class: "zen-card-in" }, h("h2", { class: "zen-who" }, titleOf(a)), a.wait || a.card ? null : h("p", { class: "zen-meta" }, trust ? whereOf(trust) : `${((u) => (u ? roleWord(u.role, u.duty) : roleName(a.role)))(locate(net, unit)?.u)} · ${deps.label(a.ws)}`), trust ? null : said, slot, hist?.el, h("div", { class: "zen-acts" }, hist && ctx, skip), out);
 		const el = h("section", { class: "zen-card", tabindex: "-1" }, inner);
 		const sync = () => {
 			const has = Boolean(hist) && hasHistory(net, unit);

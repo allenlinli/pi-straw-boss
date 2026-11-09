@@ -10,7 +10,7 @@ import { rankOf, unitOf } from "./alerts.ts";
 import { iconRef } from "./icons.ts"; import { prefs } from "./prefs.ts";
 import { type Alert, createStack, tally } from "./overlay.ts";
 import { m } from "./sentences.ts";
-import { aim, byId, doing, fillPlate, hang, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
+import { aim, byId, doing, fillPlate, hang, html, mark, PLATE, roleName, roleWord, say, sync, text } from "./render.ts";
 import { locate } from "./scene.ts";
 import { mountStepSlot } from "./stepslot.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
@@ -108,7 +108,7 @@ export function mountPanels(deps: PanelDeps) {
 		el.setAttribute("aria-label", `${a.name}: ${doing(a.note, a.mark)}`);
 		fillPlate(el.querySelector(".plate")!, a.role, a.mark);
 		text(el, "h3", a.name);
-		text(el, ".role", roleName(a.role));
+		text(el, ".role", ((u) => (u ? roleWord(u.role, u.duty) : roleName(a.role)))(locate(deps.net?.(), unitOf(a))?.u));
 		say(el, ".state", a.note, a.mark, a.gone ? m.left_net() : undefined);
 		text(el, ".where", deps.label(a.ws));
 		text(el, ".tag", a.gone ? m.tag_gone() : ({ waiting: m.tag_question, error: m.tag_error, done: m.tag_finished }[a.mark as "done"] ?? m.tag_update)());

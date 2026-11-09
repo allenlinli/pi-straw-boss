@@ -32,7 +32,7 @@ const car = (over: Partial<CarRow> = {}): CarRow => ({ tickets: ["T-15"], branch
 const step = (id: number, kind: BoardStep["kind"], status: BoardStep["status"], over: Partial<BoardStep> = {}): BoardStep => ({ id, kind, name: `${kind} ${id}`, status, round: 1, ...over });
 const board = (project: string, code: string, over: Partial<Board> = {}): Board => ({ v: 1, project, app: "web", code, writer: writer(4001), updated: iso(MIN), round: 1, cars: [car()], steps: [step(1, "assemble", "completed", { outcome: "passed" })], ...over });
 
-const read = (stateDir: string, join: Partial<YardJoin> = {}, over: object = {}) => readYards({ stateDir, now: () => NOW, alive, ...over }, { trains: [], mains: new Set(), ...join });
+const read = (stateDir: string, join: Partial<YardJoin> = {}, over: object = {}) => readYards({ stateDir, now: () => NOW, alive, ...over }, { trains: [], mains: new Set(), integrators: new Set(), ...join });
 const projectOf = (list: ReturnType<typeof read>, name: string): ProjectYard => list!.projects.find((p) => p.project === name)!;
 
 /** Two projects: acme runs M (holds the web lane) and N (waits for it and for the load), beta has a forming train in its yard and a stale train that holds a target. */
@@ -244,7 +244,7 @@ test("a state folder with no trainboard, or an empty one, gives no yards at all"
 
 test("a train carries the key of the unit whose pane's token names it; a unit that names another train, a writer id in a file, and a second claim do not bind", () => {
 	const dir = world();
-	const joined = (trains: YardJoin["trains"], mains: string[] = []): YardJoin => ({ trains, mains: new Set(mains) });
+	const joined = (trains: YardJoin["trains"], mains: string[] = []): YardJoin => ({ trains, mains: new Set(mains), integrators: new Set(mains) });
 	const keyOf = (j: YardJoin, code = M) => projectOf(read(dir, j)!, "acme").trains.find((t) => t.code === code)!.key;
 	assert.equal(keyOf(joined([{ key: "sess-4001", project: "acme", code: M }])), "sess-4001", "the writer's own session");
 	assert.equal(keyOf(joined([{ key: "sess-new", project: "acme", code: M }])), "sess-new", "a train restarted in its pane keeps its key by the pane's token, not by the writer id in the file");
@@ -256,7 +256,7 @@ test("a train carries the key of the unit whose pane's token names it; a unit th
 
 test("the integrator's key is its yard's writer, only when that session is a main of the net", () => {
 	const dir = world();
-	const beta = (mains: string[], over: object = {}) => projectOf(read(dir, { mains: new Set(mains) }, over)!, "beta").integrator;
+	const beta = (mains: string[], over: object = {}) => projectOf(read(dir, { mains: new Set(mains), integrators: new Set(mains) }, over)!, "beta").integrator;
 	assert.deepEqual(beta(["sess-integ-beta"]), { key: "sess-integ-beta", live: true });
 	assert.deepEqual(beta(["someone-else"]), { live: true });
 	assert.deepEqual(beta(["sess-integ-beta"], { alive: () => false }), { key: "sess-integ-beta", live: false }, "whether its process runs is told apart from whether the net has the unit");
@@ -349,7 +349,7 @@ test("TY-F001: a notice record of the wrong shape shows that car as unreadable; 
 		plantCar(dir, "acme", SHA_A, { notice });
 		plantCar(dir, "acme", SHA_B, { notice: { v: 1, states: { received: { attempts: [{ at, outcome: "delivered" }], deliveredAt: at } } } });
 		const seam = trainyardSeam({ env: {}, stateDir: dir, now: () => NOW, alive, load: () => ({ now: 1, cores: 2 }), platform: "linux" });
-		const yards = seam.yards({ trains: [], mains: new Set() })!;
+		const yards = seam.yards({ trains: [], mains: new Set(), integrators: new Set() })!;
 		assert.equal(yards.problems, undefined, label);
 		assert.deepEqual(yards.projects.map((p) => p.project), ["acme", "beta"], `${label}: the other project is still there`);
 		const cars = projectOf(yards, "acme").trains[0]!.cars;

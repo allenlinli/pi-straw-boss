@@ -500,7 +500,7 @@ export class Agent {
 	/** The session file pi would name, and the run's abort signal (ctx.signal). */
 	file?: string;
 	/** Entries of the transcript besides the extension's own (custom messages, for instance), as ctx.sessionManager.getEntries() returns them. */
-	transcript: { type: string; customType?: string; details?: unknown }[] = [];
+	transcript: { type: string; customType?: string; details?: unknown; message?: unknown }[] = [];
 	signal?: AbortSignal;
 	/** The tool's working directory, as pi's ctx.cwd. */
 	cwd?: string;
@@ -553,7 +553,7 @@ export class Agent {
 					if (factory) this.components.set(key, factory(this.tui, { fg: (_tone, text) => text, bold: (text) => text }));
 				},
 			},
-			sessionManager: { getBranch: () => this.entries.map((e) => ({ type: "custom", customType: e.customType, data: e.data })), getEntries: () => [...this.transcript, ...this.entries.map((e) => ({ type: "custom", customType: e.customType, data: e.data }))], getSessionFile: () => this.file },
+			sessionManager: { getBranch: () => [...this.entries.map((e) => ({ type: "custom", customType: e.customType, data: e.data })), ...this.transcript.filter((e) => e.type === "message")], getEntries: () => [...this.transcript, ...this.entries.map((e) => ({ type: "custom", customType: e.customType, data: e.data }))], getSessionFile: () => this.file },
 		};
 		const pane = world.herdr.panes.find((p) => p.pane_id === options.pane);
 		const env: Record<string, string | undefined> = { ...(options.outsideHerdr ? {} : { HERDR_PANE_ID: options.pane, HERDR_TAB_ID: pane?.tab_id, HERDR_WORKSPACE_ID: pane?.workspace_id }), PI_INTERCOM_SESSION_ID: this.id, ...options.env };

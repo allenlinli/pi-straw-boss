@@ -1,3 +1,4 @@
+import { COORDINATOR_DUTIES, GRAPHS } from "../duty.ts";
 import { sanitize as mirrorRow } from "../mirror.ts";
 import type { Base, Net, Outpost, Tab, TowerService, Unit } from "../net.ts";
 import { type TrainId, trainFromToken } from "../trainrole.ts";
@@ -74,7 +75,7 @@ const ws: P<string> = (v, rw) => (idOk(v) ? rw.base(v) : (rw.bad("key"), undefin
 const mark = lit(...MARKS);
 const queued = shape<{ text: string; as: "steer" | "followUp" | "start"; why?: "off" | "refused" | "full" | "offline" | "unproven" }>({ text: str(16_384, true), as: lit("steer", "followUp", "start") }, { why: lit("off", "refused", "full", "offline", "unproven") });
 const monitor = shape({ id: str(64), what: str(160), status: lit("running", "done", "error", "stale", "stopped"), lines: int(0, 1e9), at: num }, { exit: num, last: str(160), ended: num, load: shape<{ max: number; now: number }>({ max: num, now: num }) });
-const todoSum = shape({ done: int(0, 1e6), total: int(0, 1e6) }, { now: str(160) });
+const todoSum = shape({ done: int(0, 1e6), total: int(0, 1e6) }, { now: str(160), graph: lit(...GRAPHS) });
 const ticks = list(shape({ at: num, mark }), 24);
 const lately = { since: num, ticks, todo: todoSum };
 const option = shape({ title: str(200) }, { description: str(600), preview: yes });
@@ -126,7 +127,7 @@ const service: P<TowerService> = shape(
 const trainId: P<TrainId> = (v) => (isObj(v) && typeof v.project === "string" && typeof v.code === "string" ? trainFromToken(`${v.project}/${v.code}`) : undefined);
 const unit: P<Unit> = (v, rw) => depth(v, rw, 0);
 function depth(v: unknown, rw: Rewrite, level: number): Unit | undefined {
-	const head = shape<Omit<Unit, "subs">>({ id: key, key, control: bool, name: str(200), role: lit("main", "member", "train", "subagent", "outside"), mark }, { train: trainId, note: str(300), pending, ended: yes, queued: list(queued, 50), monitors: list(monitor, 8), ...lately, ...shelf })(v, rw);
+	const head = shape<Omit<Unit, "subs">>({ id: key, key, control: bool, name: str(200), role: lit("main", "member", "train", "subagent", "outside"), mark }, { train: trainId, duty: lit(...COORDINATOR_DUTIES), note: str(300), pending, ended: yes, queued: list(queued, 50), monitors: list(monitor, 8), ...lately, ...shelf })(v, rw);
 	if (!head) return undefined;
 	const raw = (v as Record<string, unknown>).subs;
 	return { ...head, id: head.key, subs: level >= 2 || !Array.isArray(raw) ? [] : raw.slice(0, 64).flatMap((s) => { const r = depth(s, rw, level + 1); return r ? [r] : []; }) } as Unit;
@@ -151,7 +152,7 @@ function base(v: unknown, rw: Rewrite): Base | undefined {
 	const tower = v.tower === null || v.tower === undefined ? null : (towerOf(v.tower, rw) ?? null);
 	return { id, label, mark: m, tower, tabs: list(tab(String(v.id)), 64)(v.tabs, rw) ?? [], outposts: list(outpost, 32)(v.outposts, rw) ?? [], outside: list(unit, 64)(v.outside, rw) ?? [] };
 }
-const event = shape<NonNullable<Net["events"]>[number]>({ at: num, ws, name: str(200), mark, kind: lit("joined", "mark", "left") }, { key });
+const event = shape<NonNullable<Net["events"]>[number]>({ at: num, ws, name: str(200), mark, kind: lit("joined", "mark", "left", "duty") }, { key, from: lit(...COORDINATOR_DUTIES), to: lit(...COORDINATOR_DUTIES) });
 
 /** A snapshot from a box: its bases and events, or undefined when it is not a net. Nothing else of it (`link`, `stashed`, `trust`, `head`) is kept. */
 export function sanitizeNet(raw: unknown, rw: Rewrite): Net | undefined {

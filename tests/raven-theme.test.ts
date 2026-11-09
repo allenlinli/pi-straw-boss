@@ -301,13 +301,14 @@ test("on the map the perched raven stands on the head band's top edge: the head 
 	assert.match(body(`${MAP} .head-node`), /margin-top:\s*calc\(var\(--rk-pw\) \* 0\.806 - 13px\)/, "the band's top margin gives it room inside the map's padding, clear of the crumbs and the legend");
 	const inMotion = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{((?:[^{}]|\{[^{}]*\})*)\}/g)].map((m) => m[1]).join("\n");
 	assert.match(inMotion, /\.head-node:not\(\[hidden\]\)\) \.head-node > \.perch::after\s*\{\s*animation: rk-perch-dark 61s/);
-	assert.match(inMotion, /\.head-node > \.perch-turn\s*\{\s*animation: rk-perch-turn 17s linear infinite/);
+	assert.match(inMotion, /\.head-node > \.perch-turn\s*\{\s*animation: rk-perch-turn 17s linear -7\.5s infinite/);
 	// the strike layer and the perch's light start together: both wait for the band to be shown
-	assert.match(inMotion, /:has\(#stage\[data-view="map"\] \.head-node:not\(\[hidden\]\)\) \.stage\[data-view="map"\]::before\s*\{\s*animation: rk-rest 61s/);
+	assert.match(inMotion, /:has\(#stage\[data-view="map"\] \.head-node:not\(\[hidden\]\)\) \.stage\[data-view="map"\]::before\s*\{\s*animation: rk-rest 61s linear -50\.584s/);
 	assert.ok(css.some((r) => r.parts.includes("html[data-view=\"raven\"] .head-node.absent > .perch") && /visibility:\s*hidden/.test(r.body)), "unseen while the head is not open, its clock still running");
 	const phone = /@media \(max-width: 600px\) \{ html\[data-view="raven"\]:has\(#stage\[data-view="map"\]\) body::after([^\n]*)\}\s*$/m.exec(raw)?.[0] ?? "";
-	assert.ok(phone.includes(band) && phone.includes(`${MAP} body::after`) && phone.includes(`${MAP}::after`), "a phone draws neither the perch, the bats, nor the flyer");
-	assert.match(phone, /\.head-node \{ margin-top: 0; \}/, "and keeps no room for it");
+	assert.ok(phone.includes(`${MAP} body::after`) && phone.includes(`${MAP}::after`) && !phone.includes(`${band}, `) && !/\.head-node > \.perch \{ display: none/.test(phone), "a phone draws neither the bats nor the flyer, but keeps the perch on the band (2026-11-09)");
+	assert.match(phone, /\.head-node \{ --rk-pw: 44px; margin-top: calc\(var\(--rk-pw\) \* 0\.806 - 8px\); \}/, "at 44 px, with room for it in the band's margin");
+	assert.match(base, /pointer-events:\s*none/, "and it takes no tap");
 	const forced = [...raw.matchAll(/@media \(forced-colors: active\) \{([^\n]*)\}/g)].map((m) => m[1]).join("\n");
 	for (const layer of [`${MAP}::before`, `${MAP}::after`, `${MAP} body::before`, `${MAP} body::after`, `${STAGE}::before`, `${STAGE}::after`, `${STAGE} > .work::before`, 'html[data-view="raven"] .head-node > .perch']) assert.ok(forced.includes(layer), `forced colours hide ${layer}`);
 	assert.match(forced, /display: none/);
@@ -318,7 +319,8 @@ test("the map's motion stops under calm and reduced motion: every animated map r
 	const mapMotion = rulesOf(inMotion).filter((r) => r.parts.some((p) => /data-view="map"/.test(p)));
 	assert.ok(mapMotion.length >= 8, `${mapMotion.length} map motion rules`);
 	for (const r of mapMotion) for (const p of r.parts) assert.match(p, /:not\(\[data-calm\]\)/, `${p} stops at data-calm`);
-	for (const r of mapRules) assert.ok(!/animation\s*:\s*(?!none)/.test(r.body) || mapMotion.some((m) => m.selector === r.selector), `${r.selector} animates only in the no-preference block`);
+	const fineSelectors = rulesOf(FINE_BLOCK).map((r) => r.selector); // calm on a fine pointer keeps the strike and the raven only (the calm test above)
+	for (const r of mapRules) assert.ok(!/animation\s*:\s*(?!none)/.test(r.body) || mapMotion.some((m) => m.selector === r.selector) || fineSelectors.includes(r.selector), `${r.selector} animates only in the no-preference block`);
 	// the still state: the rest veil whole, the lights at a middle opacity, the bats off the left edge, the flyer unseen
 	assert.match(body(`${STAGE}::after`), /opacity:\s*0\.75/);
 	assert.match(body(`${MAP} body::after`), /transform:\s*translate\(calc\(var\(--rk-w\) \* -0\.251\)/);

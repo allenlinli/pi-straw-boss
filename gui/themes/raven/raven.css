@@ -176,7 +176,8 @@ html[data-view="raven"]:has(#stage[data-view="map"]) .head-node > .perch {
 }
 /* The band exists while the head is not open (absent) too: the perch stays in it, unseen, so its clock runs with the strike's from the moment the band is shown. */
 html[data-view="raven"] .head-node.absent > .perch { visibility: hidden; }
-@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after { display: none; } html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { --rk-pw: 44px; margin-top: calc(var(--rk-pw) * 0.806 - 8px); } } /* a phone keeps the perched raven on the band, at 44 px wide, its top inside the map's 14 px padding and the 27 px the band's margin makes; it takes no tap (pointer-events: none) */
+/* A phone keeps the perched raven on the band (boss, 2026-11-09), at 44 px wide: its top lies inside the map's 14 px padding and the 27 px the band's margin makes, and it takes no tap (pointer-events: none). The bats and the flyer stay off. */
+@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after { display: none; } html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { --rk-pw: 44px; margin-top: calc(var(--rk-pw) * 0.806 - 8px); } }
 /* The map and the legend take the keep's ground over the picture, so their text holds its contrast in the lit state. */
 html[data-view="raven"] .stage[data-view="map"] .map { background: var(--rk-well); }
 html[data-view="raven"] .legend { padding: 4px 10px; background: var(--rk-well); }

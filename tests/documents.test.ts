@@ -26,7 +26,8 @@ test("a contract-v1 list is taken whole or not at all: every field in its shape,
 	assert.equal(docsOf({ version: 1, documents: [DOC, DOC] }), undefined, "two entries with one id");
 	assert.equal(docsOf({ version: 1, documents: Array.from({ length: 33 }, (_, i) => ({ ...DOC, id: `d${i}` })) }), undefined, "past the owner's 32");
 	assert.ok(fieldsOk([["a", "1"], ["a", "2"]]) && fieldsOk([]));
-	for (const bad of [[["a"]], [["a", 1]], "a=1", Array.from({ length: 65 }, () => ["a", "b"])]) assert.equal(fieldsOk(bad), false, JSON.stringify(bad).slice(0, 40));
+	assert.ok(fieldsOk(Array.from({ length: 65 }, () => ["a", "b"])), "65 fields: 64 questions and the reserved pi-note");
+	for (const bad of [[["a"]], [["a", 1]], "a=1", Array.from({ length: 66 }, () => ["a", "b"])]) assert.equal(fieldsOk(bad), false, JSON.stringify(bad).slice(0, 40));
 });
 
 test("listening asks the owner for its list once and takes each list it publishes in shape; the off removes the listener", () => {

@@ -61,7 +61,7 @@ function rig(o: { offline?: boolean; ripple?: Record<string, unknown>; remote?: 
 		remote: o.remote === null ? undefined : (o.remote ?? false), now: () => t, start: () => (o.start === null ? undefined : (o.start ?? { key: "t", ws: "w" })),
 		fs: { doc: { addEventListener() {}, documentElement: {} }, standalone: () => false, touch: () => false, seen: { getItem: () => "1", setItem() {} }, later: () => () => {} }, // no full screen here: the control hides
 		still: () => false, random: () => 0, ...(o.ripple ? { ripple: o.ripple } : {}),
-		...(o.z4b ? { companions: () => (o.candidates ?? companionsOf)(netNow), activity: () => activityOf(netNow), ...(o.trains ? { trains: () => zenTrains(netNow) } : {}), settings: () => void calls.settings++, menu: { sound: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {} } } } : {}),
+		...(o.z4b ? { companions: () => (o.candidates ?? companionsOf)(netNow), activity: () => activityOf(netNow), ...(o.trains ? { trains: () => zenTrains(netNow) } : {}), settings: () => void calls.settings++, menu: { sound: { effects: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {}, onChange() {} }, background: { on: () => false, volume: () => 50, set() {}, setVolume() {}, try() {}, onChange() {} } } } } : {}),
 		later: (fn: () => void, ms: number) => {
 			const e = { at: t + ms, fn };
 			timers.push(e);
@@ -1656,7 +1656,7 @@ test("the palette opens over Zen with the page's actions and the menu's preferen
 	const palette = r.by((el) => el.getAttribute("role") === "dialog")[0]!, box = r.by((el) => el.getAttribute("role") === "combobox")[0]!;
 	assert.equal(page.focused, box);
 	const labels = r.by((el) => el.getAttribute("role") === "option").map((o) => o.textContent);
-	for (const want of ["Open tower's session", "Open tower's terminal", "Previous companion", "Next companion", "Settings", "Back to the Standard view", "Sound", "Volume up"]) assert.ok(labels.some((l) => l.startsWith(want)), want);
+	for (const want of ["Open tower's session", "Open tower's terminal", "Previous companion", "Next companion", "Settings", "Back to the Standard view", "Sound effects", "Sound effects volume up", "Background sound", "Background volume up"]) assert.ok(labels.some((l) => l.startsWith(want)), want);
 	assert.ok(r.by((el) => el.getAttribute("class") === "zen-stage")[0]!.getAttribute("inert") !== null, "the stage is inert");
 	assert.equal(palette.hidden, false);
 	r.feed(net([unit("a", "working"), unit("q", "waiting", { since: 5, pending: select() })]));

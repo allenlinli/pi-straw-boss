@@ -1515,7 +1515,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// Yard page round 3 (V2-F002; measured after a fresh `npm run gui:build`, node 24): stylesheet 134,279 / 27,797 to 134,310 / 27,801 (+31 / +4: `.yard-other` nowrap). Raw cap = measured; gzipped cap = measured + 11.
 	// The work board on the head page (todo #135; measured after a fresh `npm run gui:build` of merge/066, node 24): the entry stylesheet 134,310 / 27,812 to 136,691 / 28,112 (+2,381 / +300: `.head-board`, its fold, groups, rows, the Ask and Clear buttons at 44 px, the result line). Cap = measured.
 	// Board review VR-F002, F003 (measured after a fresh `npm run gui:build` of merge/066, node 24): 136,691 / 28,112 to 136,915 / 28,131 (+224 / +19: the row's two tracks, buttons on the name line, the taller list). Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 136_915 && total(css, gz) <= 28_131, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// Tap slop (todo 141; measured after a fresh `npm run gui:build`, node 24): 136,915 / 28,131 to 136,952 / 28,137 (+37 / +6 over the figure above: the coarse pointer's 44 px for the base header and the Memory summary, with their comment). Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 136_952 && total(css, gz) <= 28_137, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen theme's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

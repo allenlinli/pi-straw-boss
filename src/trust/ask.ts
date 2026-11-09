@@ -49,6 +49,8 @@ export interface AskDeps {
 	watch(dir: string, wake: () => void): () => void;
 	startOf(pid: number): string | undefined;
 	uuid(): string;
+	/** Auto mode (auto.ts): read from the files, synchronously, because pi asks before any session has started. */
+	auto?: { on(): { on: boolean; foreign: boolean }; note(gist: string): void };
 }
 
 /** pi asks only in its interactive mode: not under `-p`/`--print`, `--mode json|rpc`, or an explicit `-a`/`--approve`/`-na`/`--no-approve` (pi's own parser: `--mode text` alone stays interactive, and every word after `--` is the message). */
@@ -82,6 +84,12 @@ export function createAsk(d: AskDeps) {
 	};
 	return async function decide(cwd: string, ctx: { mode: string; hasUI: boolean }): Promise<Decision> {
 		try {
+			// Under auto mode the boss is away: pi's question would wait for hours, so it is answered "not trusted for this session" at once and listed (D3). A file that is not the server's own write asks as usual and is noted (AM2-F009).
+			if (d.auto && asks(d, cwd)) {
+				const state = d.auto.on();
+				if (state.foreign) d.auto.note("auto.json is not the server's own write: asked as usual");
+				if (state.on) return (d.auto.note(`not trusted for this session: ${plain(cwd)}`), { trusted: "no" });
+			}
 			if (!(await relays(cwd, ctx)) || !ensureDir(d.dir)) return UNDECIDED;
 			return await ask(cwd);
 		} catch {
@@ -197,7 +205,7 @@ export const guiUp = (guiDir: string, env: NodeJS.ProcessEnv, read: StartRead = 
 };
 
 /** Registers the handler (before the subagent return, so every pi in Herdr has it) and marks the process's first session start. `io` is the terminal and process it answers on (tests). */
-export function registerTrust(pi: ExtensionAPI, { cfg, guiDir }: Pick<Kit, "cfg" | "guiDir">, io: Pick<AskDeps, "stdin" | "proc" | "write"> & Partial<Pick<AskDeps, "saved" | "defaultTrust"> & { resources(cwd: string): boolean }> = { stdin: process.stdin, proc: process, write: (text) => void process.stderr.write(text) }) {
+export function registerTrust(pi: ExtensionAPI, { cfg, guiDir }: Pick<Kit, "cfg" | "guiDir">, io: Pick<AskDeps, "stdin" | "proc" | "write"> & Partial<Pick<AskDeps, "saved" | "defaultTrust"> & { resources(cwd: string): boolean }> = { stdin: process.stdin, proc: process, write: (text) => void process.stderr.write(text) }, auto?: AskDeps["auto"]) {
 	const { env, startRead } = cfg;
 	// Older pi lacks these (hasTrustRequiringProjectResources < 0.79.2, getDefaultProjectTrust < 0.79.1, ProjectTrustStore < 0.79.0): then whatever needs a missing one is skipped (no early read below 0.79.2; nothing relayed below 0.79.1) and pi asks in the terminal.
 	const api = pi_ as unknown as Record<string, any>;
@@ -219,7 +227,7 @@ export function registerTrust(pi: ExtensionAPI, { cfg, guiDir }: Pick<Kit, "cfg"
 		env, dir: trustDir(guiDir), stdin: io.stdin, proc: io.proc, write: io.write,
 		saved, defaultTrust,
 		up: guiUp(guiDir, env, startRead),
-		first: () => !state[STARTED], now: cfg.now, sleep: cfg.sleep, startOf, uuid: randomUUID,
+		first: () => !state[STARTED], now: cfg.now, sleep: cfg.sleep, startOf, uuid: randomUUID, ...(auto ? { auto } : {}),
 		watch: (dir, wake) => {
 			try {
 				const w = fsWatch(dir, wake);

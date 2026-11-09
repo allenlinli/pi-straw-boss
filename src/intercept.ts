@@ -34,7 +34,7 @@ type Wrapped = Record<Kind, Call> & Record<(typeof PASS)[number], (...a: never[]
 /** A dialog on the bus: `answer` is the choice the GUI took, set once, before its terminal twin is aborted. */
 interface Relay { id: string; digest: string; count: number; ac: AbortController; by?: string; answer?: number; cancelled?: true; close(by: string): void }
 
-export function interceptUi(pi: ExtensionAPI): void {
+export function interceptUi(pi: ExtensionAPI, auto?: { escape(flying: ReadonlyMap<string, string>): boolean }): void {
 	const bus = pi.events as Bus, flying = new Map<string, string>(), relays = new Map<string, Relay>(), closed: string[] = [];
 	let open = 0, gen = 0, listening: (() => void) | undefined;
 	/** A listener that throws on the bus must not break the call: what is said after the dialog opened is best effort. */
@@ -94,6 +94,8 @@ export function interceptUi(pi: ExtensionAPI): void {
 
 	/** One of ctx.ui's `select` or `confirm`, wrapped: what `orig` answers, or the GUI's answer when it came first. */
 	const dialog = (kind: Kind, orig: Call): Call => (title, second, opts) => {
+		// Auto mode (auto.ts): a dialog opened inside a model's tool call, outside the boss's own commands, is Escape at once and never drawn.
+		if (auto?.escape(flying)) return Promise.resolve(kind === "confirm" ? false : undefined);
 		if (opts && (opts as Record<symbol, unknown>)[NO_RELAY]) return (counted(orig as never) as Call)(title, second, opts);
 		if (open++ > 0) [...relays.values()].forEach((r) => r.close("error")); // a dialog over a relayed one: the page could not tell which an answer would dismiss
 		let relay: ReturnType<typeof start>;
@@ -159,7 +161,7 @@ export function interceptUi(pi: ExtensionAPI): void {
 			const ui = ctx.ui as unknown as Wrapped;
 			if (ui[MARK]) return;
 			const [select, confirm] = [ui.select, ui.confirm], origs = Object.fromEntries(PASS.map((k) => [k, ui[k]])) as Pick<Wrapped, (typeof PASS)[number]>;
-			const mine = { select: dialog("select", (t, s, o) => select.call(ui, t, s, o)), confirm: dialog("confirm", (t, s, o) => confirm.call(ui, t, s, o)), ...Object.fromEntries(PASS.filter((k) => typeof origs[k] === "function").map((k) => [k, counted(origs[k]).bind(ui)])) };
+			const mine = { select: dialog("select", (t, s, o) => select.call(ui, t, s, o)), confirm: dialog("confirm", (t, s, o) => confirm.call(ui, t, s, o)), ...Object.fromEntries(PASS.filter((k) => typeof origs[k] === "function").map((k) => [k, ((fn) => (k !== "custom" && auto ? (...args: never[]) => (auto.escape(flying) ? Promise.resolve(undefined) : fn(...args)) : fn))(counted(origs[k]).bind(ui))])) };
 			reset(); // a new ui object starts with no dialog open; one the old object never ended is forgotten
 			Object.assign(ui, mine);
 			ui[MARK] = { restore: () => ui.select === mine.select && ui.confirm === mine.confirm && (Object.assign(ui, { select, confirm }, origs), delete ui[MARK]) } as never;

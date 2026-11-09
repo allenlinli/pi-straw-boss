@@ -200,7 +200,7 @@ export function createLink({ pi, cfg, s, guiDir, me, tell }: Kit) {
 		pi, now: cfg.now, config, policy: policyDeps, home, agentDir, linkDir: join(stateDir, "link"), gateMs: opts.gateMs,
 		setOrigin: (origin) => void (s.remoteOrigin = origin), tower: () => s.ownName || pi.getSessionName() || sid(),
 		log: (event) => store.log(event), tell,
-		ask: (op) => ask(op),
+		ask: (op) => ask(op), autoOn: () => s.autoOn(),
 	});
 	const { answerForward } = remote;
 

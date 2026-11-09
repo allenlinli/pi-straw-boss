@@ -5,6 +5,7 @@ import { createLevelOf } from "./level.ts";
 import { createGate, type ForwardPort } from "./gate.ts";
 import { type PolicyDeps } from "./policy.ts";
 import { hideOldRemote, Turns } from "./turn.ts";
+import { NO_CONFIRM } from "../autotext.ts";
 
 // The hooks that make a run a remote turn and hold it to its level (docs/specs/2026-10-25-straw-link.md, Remote turns): the run classification, the
 // `tool_call` allowlist and gate, the `tool_result` filter, and the `context` marker for later turns. They sit apart from the runtime so they run
@@ -27,9 +28,11 @@ export interface RemoteDeps {
 	tell: (text: string, level?: "info" | "warning" | "error") => void;
 	/** A request to the link holder (runtime.ts `ask`), for the confirm that `forward` sends to the sender's device. */
 	ask: (op: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; [key: string]: unknown }>;
+	/** Whether auto mode is on here: the gate's confirm has no one to ask, so the call is denied at once (docs/specs/2026-11-09-auto-mode.md, §3). */
+	autoOn?: () => boolean;
 }
 
-export function createRemoteTurns({ pi, now, config, policy: policyDeps, home, agentDir, linkDir, gateMs, setOrigin, tower, log, tell, ask }: RemoteDeps) {
+export function createRemoteTurns({ pi, now, config, policy: policyDeps, home, agentDir, linkDir, gateMs, setOrigin, tower, log, tell, ask, autoOn }: RemoteDeps) {
 	/** The level this computer gives a device: the policy file's on an unattended device, config.json's otherwise, `reply` when none names it. */
 	const levelOf = createLevelOf({ config, policy: policyDeps, log, tell });
 	const turns = new Turns(levelOf, () => void (setOrigin(turns.lowest ? `remote:${turns.lowest.id}` : undefined)));
@@ -104,6 +107,7 @@ export function createRemoteTurns({ pi, now, config, policy: policyDeps, home, a
 		const verdict = scope ? decide(e.toolName, input, turns.list, scope) : ({ kind: "gate" } as const);
 		if (verdict.kind === "allow") return;
 		if (verdict.kind === "refuse") return { block: true, reason: verdict.reason };
+		if (autoOn?.()) return { block: true, reason: NO_CONFIRM };
 		const lowest = turns.lowest;
 		const outcome = await gate.ask({
 			toolCallId: e.toolCallId, tool: e.toolName, input, senders: turns.list, tower: tower(),

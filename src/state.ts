@@ -96,6 +96,8 @@ export interface State {
 	// Closing: `quit` is pi's shutdown for this session, `closing` says it was asked for (and whether the pane stays).
 	quit: (() => void) | undefined;
 	closing: { keepPane: boolean } | undefined;
+	/** Whether auto mode is on as this session last read it (auto.ts); the Straw Link gate asks it. */
+	autoOn: () => boolean;
 }
 
 /** What every module is built from: the pi API, the configuration, the state, and the three things all of them ask. */
@@ -118,7 +120,7 @@ export function createKit(pi: ExtensionAPI, cfg: Config): Kit {
 		// SAFETY: as `c` above.
 		at: undefined as unknown as Place,
 		mainId: undefined, pinned: undefined, info: {}, ownName: "", openedBy: undefined, restoredOpener: undefined, kids: new Set(),
-		ui: undefined, hasUI: false, saved: {}, duty: undefined, branch: () => [], file: undefined, restored: false, queue: Promise.resolve(), dashboard: undefined, viewer: undefined, quit: undefined, closing: undefined, remoteOrigin: undefined, boardId: undefined,
+		ui: undefined, hasUI: false, saved: {}, duty: undefined, branch: () => [], file: undefined, restored: false, queue: Promise.resolve(), dashboard: undefined, viewer: undefined, quit: undefined, closing: undefined, remoteOrigin: undefined, boardId: undefined, autoOn: () => false,
 	};
 	const me = () => env.PI_INTERCOM_SESSION_ID ?? "";
 	const role = (): Role | undefined => {

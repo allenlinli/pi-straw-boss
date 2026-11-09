@@ -204,3 +204,9 @@ test("the app may frame its own documents and nothing else, and a page a documen
 	assert.match(String(app.headers["content-security-policy"]), /frame-src 'self'; base-uri 'self'; frame-ancestors 'none'/);
 	assert.equal(app.headers["cross-origin-opener-policy"], "same-origin");
 });
+
+test("PBS-F002: a form takes 64 questions and the reserved pi-note, and refuses one field more", () => {
+	const q = (n: number) => Array.from({ length: n }, (_, i) => `q${i}=a`).join("&");
+	assert.equal((fieldsOf(`${q(64)}&pi-note=x`) as unknown[]).length, 65);
+	assert.equal(typeof fieldsOf(`${q(65)}&pi-note=x`), "string");
+});

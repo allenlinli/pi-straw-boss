@@ -3,6 +3,8 @@
 // show yet), or done with the fields that went. A redraw (a tool result, a reconnect) therefore finds a block that is being answered locked, not open. Nothing is written to the browser's storage. A cell reopens in two cases only: the delivery this page was waiting for is refused, or the record had shown it as on its way (another device's answer, or a 504)
 // and a later record no longer lists it (the answer was refused, or never confirmed and expired).
 
+/** The fields a locked block shows: 64 questions and the reserved pi-note (pi-better-show 0.5.0 puts it last), as the server keeps them (src/documents.ts MAX_FIELDS). */
+const MAX_LOCKED = 65;
 export type Fields = readonly (readonly [string, string])[];
 export type Cell = { state: "open" } | { state: "pending" } | { state: "done"; fields: Fields };
 /** A drawing of a block, told when its cell changes. The lock holds it weakly: a drawing that has gone is forgotten. */
@@ -53,7 +55,7 @@ function make(slots: Map<string, Slot>, scope: string[]): BlockLock {
 	return {
 		get: (index) => slot(index).cell,
 		pend: (index) => set(index, { state: "pending" }),
-		done: (index, fields) => set(index, { state: "done", fields: fields.slice(0, 64) }),
+		done: (index, fields) => set(index, { state: "done", fields: fields.slice(0, MAX_LOCKED) }),
 		cancel: (index) => set(index, { state: "open" }),
 		seed({ done, pending }) {
 			const listed = new Set([...done.map(([index]) => index), ...pending]);
@@ -61,7 +63,7 @@ function make(slots: Map<string, Slot>, scope: string[]): BlockLock {
 				const parts = JSON.parse(key) as unknown[], index = parts.at(-1) as number;
 				if (s.seeded && s.cell.state === "pending" && parts.length === scope.length + 1 && scope.every((part, i) => parts[i] === part) && !listed.has(index)) set(index, { state: "open" });
 			}
-			for (const [index, fields] of done) set(index, { state: "done", fields: fields.slice(0, 64) });
+			for (const [index, fields] of done) set(index, { state: "done", fields: fields.slice(0, MAX_LOCKED) });
 			for (const index of pending) if (slot(index).cell.state === "open") set(index, { state: "pending" }, true);
 		},
 		watch: (index, view) => void slot(index).views.add(new WeakRef(view)),

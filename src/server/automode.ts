@@ -49,6 +49,16 @@ const phrase = (v: string, max: number) => v.replace(/\s+/g, " ").trim().slice(0
 /** A gist of the return list: at most 120 characters, and `(withheld)` when it looks like a secret (§5). */
 const gistOf = (v: unknown) => { const g = phrase(String(v ?? ""), 120); return g && secretShaped(g) ? "(withheld)" : g; };
 
+/** The return list of the last period (`auto-report.json`), when it parses. */
+export function readReportFile(dir: string): Report | undefined {
+	try {
+		const j = JSON.parse(readFileSync(join(dir, REPORT_FILE), "utf8")) as Partial<Report>;
+		return j.v === 1 && typeof j.since === "string" && Array.isArray(j.parked) && Array.isArray(j.lines) ? (j as Report) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function createAutoMode(d: AutoDeps) {
 	const iso = () => new Date(d.now()).toISOString();
 	const boot: By = { via: "pi", name: "server" };
@@ -65,14 +75,7 @@ export function createAutoMode(d: AutoDeps) {
 			return undefined;
 		}
 	};
-	const readReport = (): Report | undefined => {
-		try {
-			const j = JSON.parse(readFileSync(join(d.dir, REPORT_FILE), "utf8")) as Partial<Report>;
-			return j.v === 1 && typeof j.since === "string" && Array.isArray(j.parked) && Array.isArray(j.lines) ? (j as Report) : undefined;
-		} catch {
-			return undefined;
-		}
-	};
+	const readReport = (): Report | undefined => readReportFile(d.dir);
 	const savePeriod = () => { if (period) write(PERIOD_FILE, period); };
 	const write = (name: string, value: unknown) => {
 		const file = join(d.dir, name), tmp = `${file}.${process.pid}.tmp`;

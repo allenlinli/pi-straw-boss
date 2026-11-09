@@ -11,7 +11,7 @@ import { secretShaped } from "./waitcard.ts";
 
 export const BACKSTOP_MS = 30_000;
 export interface BackstopDeps {
-	auto: AutoMode;
+	auto: Pick<AutoMode, "view" | "note">;
 	/** A fresh reading of the net, which binds the hub's dialogs to units. */
 	read(): Promise<void>;
 	answerable(): Offer[];

@@ -43,6 +43,7 @@ import { createTowers, type Towers, type TowersOptions } from "./towers.ts";
 import { headCommand, markWaitAnswered } from "./headcmds.ts";
 import { requesterFrom } from "../autostate.ts";
 import { createAutoMode } from "./automode.ts";
+import { createAutoFollower } from "./autofollow.ts";
 import { autoPanel, autoReply } from "./autoops.ts";
 import { createBackstop } from "./autoback.ts";
 import { headSeam } from "./headnet.ts";
@@ -175,6 +176,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	let procs: ReturnType<typeof startProcs> | undefined; // the owner registry (procsops.ts), assigned before the first request is taken
 	// Auto mode (docs/specs/2026-11-09-auto-mode.md): the primary server alone writes `auto.json` at the state root, so every Herdr slot of this computer reads one file; the head's notices go through the tower service once it exists.
 	const auto = slot.primary ? createAutoMode({ dir: slot.stateDir, now, log: (event, facts) => log.line(event, facts), parked: () => towers?.parked() ?? [], unpark: () => towers?.unpark(), tellHead: (text) => { const workspace = towers?.head.status()?.workspace; if (workspace) towers!.runs.notice(workspace, text, `auto:${now()}`); } }) : undefined;
+	// A secondary slot follows the primary's files and forwards its asks (autofollow.ts, AMC-F002).
+	const follower = slot.primary ? undefined : createAutoFollower({ dir: slot.stateDir, primary: { ...slot, primary: true, dir: slot.stateDir }, log: (event, facts) => log.line(event, facts), unpark: () => towers?.unpark(), tellHead: (text) => { const workspace = towers?.head.status()?.workspace; if (workspace) towers!.runs.notice(workspace, text, `auto:${now()}`); } });
 	// An unattended device has no boss at it (autoops.ts): the link holder says which this computer is.
 	const unattended = () => Boolean(link?.holder) && !link!.attended();
 	let cars: Cars | undefined; // the book of cars and the notice sender (carops.ts), assigned before the first request is taken
@@ -423,6 +426,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 			updateRecord(slot, (r) => (r.pid === pid ? { ...r, restarting: { began: when, since: when, reason, by: who }, ...(request.counts === false ? {} : { lastRestart: { at: when, reason, by: who } }) } : undefined));
 			return leaveAfterReply("restarting", mode === "serve" ? SERVE_RESTART_CODE : 0);
 		}
+		const followed = follower?.reply(request); if (followed) return followed;
 		const autoAnswer = autoReply(auto, request, unattended); if (autoAnswer) return autoAnswer;
 		const owners = procsReply(procs, request); if (owners) return owners;
 		const carsAnswer = carsReply(cars, request); if (carsAnswer) return carsAnswer;
@@ -565,7 +569,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	// A state file that cannot be read or written is reported and the server goes on: refusals follow the file, and nothing is cancelled without the server's own record (§1).
 	const autoSafely = (work: () => void) => { try { work(); } catch (error) { recordError("auto", (error as Error).message); } };
 	autoSafely(() => auto?.start());
-	timers.push(setInterval(() => autoSafely(() => auto?.tick()), 2000));
+	timers.push(setInterval(() => autoSafely(() => (auto ?? follower)?.tick()), 2000));
 	guiHost = createGuiHost({
 		...(auto ? { auto: autoPanel(auto, unattended) } : {}),
 		listen: o.gui !== false, onAllow: (note) => allows.note(note),
@@ -609,7 +613,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		slot, cfg, env, connect: () => mod.connect(), log, pid, startedAt, enabled: () => towerRuns().enabled, server: serverTools,
 		link: async (body, from) => (!slot.primary ? { ok: false, code: "no_link", error: NO_LINK } : link ? link.request(body, from) : { ok: false, code: "no_holder", error: "The link holder is not running in the sb server yet; ask again in a moment" }),
 		sessions: () => (client ? client.listSessions() : Promise.reject(new Error("pi-intercom is not connected"))),
-		promptCommand: (workspace) => promptCommand(cliBeside(), slot.stateDir, workspace), ...(auto ? { auto } : {}), ...o.towers,
+		promptCommand: (workspace) => promptCommand(cliBeside(), slot.stateDir, workspace), ...((auto ?? follower) ? { auto: (auto ?? follower)! } : {}), ...o.towers,
 		// A seam that watches the runs (tests) sees every signal too, and does not take the place of the notice to the controllers.
 		runs: { ...o.towers?.runs, signal: (sig) => { const r = runNotice(sig), sent = reporter?.notify(r.key, r.notice, r.scope); o.towers?.runs?.signal?.(sig); return sent; } },
 	});
@@ -744,8 +748,8 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		// A controller that gained `dispatch` mid-dialog gets it, a dialog unanswered for 30 minutes is told, and each controller's unit-status goes out when it changed or a minute has passed.
 		timers.push(setInterval(() => void Promise.all([dialogsOut().tick(), unitsOut().tick()]), o.unitsMs ?? 15_000));
 		// Auto mode's backstop (autoback.ts): a wait older than 30 s that a session on an older sb did not cancel gets the GUI's cancel, once, with an intercom message.
-		if (auto) {
-			const back = createBackstop({ auto, now, read: () => guiHost!.dialogs().read(), answerable: () => guiHost!.dialogs().hub.answerable(), send: (key, target, answer) => guiHost!.dialogs().hub.send(key, target, answer), tell: tellVia(() => client, serverId(slot), "auto_notice") });
+		if (auto ?? follower) {
+			const back = createBackstop({ auto: (auto ?? follower)!, now, read: () => guiHost!.dialogs().read(), answerable: () => guiHost!.dialogs().hub.answerable(), send: (key, target, answer) => guiHost!.dialogs().hub.send(key, target, answer), tell: tellVia(() => client, serverId(slot), "auto_notice") });
 			timers.push(setInterval(() => void back.tick().catch((error: Error) => log.line("error", { code: "auto-backstop", text: phrase(error.message, 200) })), o.unitsMs ?? 5000));
 		}
 		// Expired trainboards go (trainsweep.ts, spec §10): once now, then every hour.

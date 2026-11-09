@@ -26,7 +26,7 @@ export function autoPanel(auto: AutoMode, unattended: () => boolean = () => fals
 
 /** The socket commands. `auto-on` only stages (D9): nothing over the socket switches auto mode on in one step. */
 export function autoReply(auto: AutoMode | undefined, request: Request, unattended: () => boolean = () => false): Reply | undefined {
-	if (!["auto-state", "auto-on", "auto-off", "auto-confirm", "auto-check", "auto-note"].includes(request.cmd)) return undefined;
+	if (!["auto-state", "auto-on", "auto-off", "auto-confirm", "auto-check", "auto-note", "auto-decided"].includes(request.cmd)) return undefined;
 	if (!auto) return { ok: false, error: "auto mode is held by the primary server of this computer" };
 	if (["auto-on", "auto-off", "auto-confirm"].includes(request.cmd) && unattended()) return { ok: false, error: UNATTENDED };
 	const by: By = { via: "pi", name: text(request.name, 80) || "a session", ...((r) => (r ? { requester: r } : {}))(requesterFrom(request)) };
@@ -37,6 +37,7 @@ export function autoReply(auto: AutoMode | undefined, request: Request, unattend
 		case "auto-off": return { ...done(auto.switchOff(by)), state: auto.view() };
 		case "auto-confirm": return done(auto.confirm(request.id, by));
 		case "auto-note": return done(auto.note(request));
+		case "auto-decided": return (auto.decided({ run: text(request.run, 40), to: text(request.to, 80), gist: text(request.gist, 120), basis: text(request.basis, 120) }), { ok: true });
 		default: return { ok: true, own: auto.check(request.rev, request.hash), on: auto.view().on };
 	}
 }

@@ -186,7 +186,7 @@ export function createHub(pi: ExtensionAPI, me: string, local: Bridge, onAllow?:
 		const call = d.toolCallId ? calls.find((c) => c.id === d.toolCallId) : undefined;
 		if (!adapter || !readable || (d.toolCallId ? !call || !(adapter.gate || call.name === adapter.tool) : adapter.gate)) return terminal(base.why ?? "Answer it in the terminal.");
 		if ((d.select ? selectDigest(d.select) : d.questions ? questionsDigest(d.questions) : undefined) !== d.digest) return terminal("The question here differs from the one in the terminal; answer it there.");
-		const answer: Answerable = { dialog: d.id, digest: d.digest, ...(adapter.twin ? { twin: true as const } : {}), ...(adapter.cancellable && d.cancellable === true ? { cancel: true as const } : {}), ...(d.select ? { select: d.select } : { questions: d.questions }) }, { why: _, ...kept } = base;
+		const answer: Answerable = { dialog: d.id, digest: d.digest, ...(d.command === true ? { command: true as const } : {}), ...(adapter.twin ? { twin: true as const } : {}), ...(adapter.cancellable && d.cancellable === true ? { cancel: true as const } : {}), ...(d.select ? { select: d.select } : { questions: d.questions }) }, { why: _, ...kept } = base;
 		const rest = call && call.id !== base.callId ? { callId: call.id, tool: call.name } : kept; // the file's question belongs to its first call, not to another one the dialog is bound to
 		// While an answer is on its way the page shows it read-only, but the bridge still hears that answer resent (Check again: it replays) and any other (busy).
 		targets.set(key, { from: at.from, bridgeId: at.b.bridgeId, answer });

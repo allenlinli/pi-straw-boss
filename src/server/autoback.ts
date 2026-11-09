@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { cancelledText } from "../autotext.ts";
+import { type AgentKind, cancelledText } from "../autotext.ts";
 import type { Offer } from "../dialogs.ts";
 import type { Answer } from "../owners.ts";
 import type { AutoMode } from "./automode.ts";
@@ -18,6 +18,8 @@ export interface BackstopDeps {
 	send(key: string, target: Offer["target"], answer: Answer): Promise<unknown>;
 	tell(session: string, text: string): Promise<unknown>;
 	now(): number;
+	/** The kind of agent a unit key is, for the words of the cancel (autotext.ts); the main's when none is known. */
+	kindOf?(key: string): AgentKind;
 	firstMs?: number;
 }
 const gistOf = (o: Offer): string => {
@@ -40,6 +42,8 @@ export function createBackstop(d: BackstopDeps) {
 			for (const o of offers) {
 				const id = o.target.answer.dialog, began = first.get(id) ?? (first.set(id, now), now);
 				if (now - began < (d.firstMs ?? BACKSTOP_MS) || done.has(id) || listed.has(id)) continue;
+				// The boss's own `/boss stop|send|close` confirm waits for them: auto mode never cancels it.
+				if (o.target.answer.command) continue;
 				const note = (kind: "still-waiting" | "re-asked" | "backstop") => d.auto.note({ session: o.key, tool: o.owner, kind, gist: gistOf(o) });
 				if (!o.target.answer.cancel) { listed.add(id); note("still-waiting"); continue; }
 				if (keys.has(o.key)) { listed.add(id); note("re-asked"); continue; }
@@ -47,7 +51,7 @@ export function createBackstop(d: BackstopDeps) {
 				keys.add(o.key);
 				await d.send(o.key, o.target, { id, answerId: `auto-${randomUUID()}`, digest: o.target.answer.digest, cancel: true });
 				note("backstop");
-				await d.tell(o.key, cancelledText(view.since, o.owner, "main")).catch(() => undefined);
+				await d.tell(o.key, cancelledText(view.since, o.owner, d.kindOf?.(o.key) ?? "main")).catch(() => undefined);
 			}
 		},
 	};

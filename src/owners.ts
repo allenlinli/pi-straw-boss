@@ -20,9 +20,9 @@ export interface Question { question: string; header?: string; multiple: boolean
 /** secret_drop's masked dialog: what it asks for and where the value goes. Never the value itself. */
 export interface Secret { label: string; instructions: string[]; url?: string; destination: string }
 /** An open dialog as the bridge relays it: a `select` (labelled choices), `questions` (a questionnaire), or a `secret`; `big` when too long to relay, `busy` while an answer is on its way. */
-export interface Dialog { owner: string; id: string; toolCallId?: string; digest: string; select?: Select; questions?: Question[]; secret?: Secret; big?: true; busy?: true; cancellable?: true /* the bridge's own word that it takes a cancel; an older bridge sends none */ }
+export interface Dialog { owner: string; id: string; toolCallId?: string; digest: string; select?: Select; questions?: Question[]; secret?: Secret; big?: true; busy?: true; /** The dialog is one of sb's own `/boss` command confirms (a hint, not hashed): auto mode's backstop leaves it to the boss. */ command?: true; cancellable?: true /* the bridge's own word that it takes a cancel; an older bridge sends none */ }
 /** What the page may answer, carried on a waiting unit's `pending`. */
-export interface Answerable { dialog: string; digest: string; select?: Select; questions?: Question[]; twin?: true; cancel?: true }
+export interface Answerable { dialog: string; digest: string; command?: true; select?: Select; questions?: Question[]; twin?: true; cancel?: true }
 /** One question's answer: chosen option indexes, own words, a note. */
 export interface Reply { choices?: number[]; text?: string; note?: string }
 /** An answer for one dialog: `choice` for a select, one `answers` entry per question, `value` for a secret (the owner's contract takes one, but nothing in this extension sends it: SB-F001). `answerId` is the page's idempotency key. */
@@ -57,12 +57,12 @@ export const questionsDigest = (qs: Question[]) => digestOf(["questions", qs.map
 
 /** A contract-v1 select dialog, or undefined (another version or shape: a relay never guesses at one). */
 export function selectOf(owner: string, raw: unknown): Dialog | undefined {
-	const p = raw as { version?: unknown; id?: unknown; toolCallId?: unknown; digest?: unknown; select?: { title?: unknown; choices?: unknown; copy?: unknown } };
+	const p = raw as { version?: unknown; id?: unknown; toolCallId?: unknown; digest?: unknown; command?: unknown; select?: { title?: unknown; choices?: unknown; copy?: unknown } };
 	const choices = Array.isArray(p?.select?.choices) ? (p.select.choices as Choice[]) : undefined;
 	if (p?.version !== 1 || !str(p.id) || p.id.length > 64 || !str(p.digest) || !str(p.select?.title) || !choices?.length || (p.toolCallId !== undefined && !str(p.toolCallId))) return;
 	if (!choices.every((c) => str(c?.label) && (c.note === undefined || str(c.note)))) return;
 	const select = { title: p.select.title, choices: choices.map((c) => ({ label: c.label, ...(c.note ? { note: c.note } : {}), ...(c.localOnly === true ? { localOnly: true as const } : {}), ...(c.hereOnly === true ? { hereOnly: true as const } : {}), ...(NEXT.includes(c.next) ? { next: c.next as Next } : {}), ...(c.next === "pane" && c.tagged === true ? { tagged: true as const } : {}) })), ...(str(p.select.copy) ? { copy: p.select.copy } : {}), ...((p.select as { confirm?: unknown }).confirm === true ? { confirm: true as const } : {}) };
-	return { owner, id: p.id, ...(p.toolCallId ? { toolCallId: p.toolCallId as string } : {}), digest: p.digest, select };
+	return { owner, id: p.id, ...(p.toolCallId ? { toolCallId: p.toolCallId as string } : {}), digest: p.digest, ...(p.command === true ? { command: true as const } : {}), select };
 }
 
 /** A contract-v1 secret dialog (at most 20 instructions of 2000 characters, a label and destination of 500, a url of 2000), or undefined; one over those limits is left to the terminal, since cutting it would break its digest. It must name its tool call. */

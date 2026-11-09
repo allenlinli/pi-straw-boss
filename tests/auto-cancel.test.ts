@@ -5,7 +5,7 @@ import { cancelledText, offNotice, onNotice } from "../src/autotext.ts";
 import { createAutoMode } from "../src/server/automode.ts";
 import { BACKSTOP_MS, createBackstop } from "../src/server/autoback.ts";
 import type { Offer } from "../src/dialogs.ts";
-import { questionsDigest } from "../src/owners.ts";
+import { questionsDigest, selectOf } from "../src/owners.ts";
 import { type Agent, settle, until, World } from "./fakes.ts";
 
 // Cancel at the transition (docs/specs/2026-11-09-auto-mode.md, §1, §4, §5; task 3): after the server's check, an owner that takes a cancel gets one, the rest go with the turn, sb's text replaces the result, command
@@ -207,6 +207,34 @@ test("the backstop: a wait older than 30 s gets the GUI's cancel once, with an i
 	const kinds = (auto.period()?.notes ?? []).map((n) => `${n.session}:${n.kind}`).sort();
 	assert.deepEqual(kinds, ["s1:backstop", "s1:re-asked", "s2:still-waiting"]);
 	assert.equal(auto.period()!.notes.find((n) => n.kind === "backstop")!.gist, "Ship it?");
+});
+
+test("AMC-F005: the backstop leaves sb's own /boss command confirm to the boss, and words the cancel for the unit's kind", async () => {
+	const auto = server();
+	auto.switchOn(pi);
+	const base = offer("s1", "d1"), command: Offer = { ...base, key: "s9", target: { ...base.target, answer: { ...base.target.answer, dialog: "d9", command: true } } };
+	const sent: string[] = [], told: [string, string][] = [];
+	const back = createBackstop({ auto, now: () => clock, read: async () => {}, answerable: () => [base, command], send: async (key) => void sent.push(key), tell: async (to, text) => void told.push([to, text]), kindOf: (key) => (key === "s1" ? "subagent" : "main") });
+	await back.tick();
+	clock += BACKSTOP_MS;
+	await back.tick();
+	assert.deepEqual(sent, ["s1"], "the command's confirm is not cancelled");
+	assert.deepEqual(told, [["s1", cancelledText(auto.state().since, "rpiv", "subagent")]], "the tail fits the unit's kind");
+	assert.deepEqual((auto.period()?.notes ?? []).map((n) => n.session), ["s1"], "and not listed either");
+});
+
+test("AMC-F005: the relayed /boss confirm carries the command mark to the hub", async () => {
+	const auto = server();
+	const a = await member(auto);
+	await a.fire("tool_execution_start", { toolCallId: "b1", toolName: "bash", args: {} });
+	void asBoss(() => (a.ui.confirm as (t: string, m: string) => Promise<unknown>)("Stop api-main?", "x"));
+	await settle();
+	const pending = a.emitted.find(([channel]) => channel === "straw-boss:ui:pending")?.[1] as { command?: boolean } | undefined;
+	assert.equal(pending?.command, true);
+	assert.equal(selectOf("straw-boss-ui", pending)?.command, true, "the bridge's dialog keeps it");
+	assert.equal(selectOf("straw-boss-ui", { ...(pending as object), command: undefined })?.command, undefined);
+	const other = a.emitted.filter(([channel]) => channel === "straw-boss:ui:pending").length;
+	assert.equal(other, 1);
 });
 
 test("the backstop does nothing while auto mode is off, and forgets its list when a new period starts", async () => {

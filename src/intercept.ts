@@ -88,7 +88,7 @@ export function interceptUi(pi: ExtensionAPI, auto?: { escape(flying: ReadonlyMa
 		listening ??= bus.on(`${UI_PREFIX}:answer`, answered);
 		relays.set(id, r);
 		try {
-			bus.emit(`${UI_PREFIX}:pending`, { version: 1, id, toolCallId: callId, digest, select });
+			bus.emit(`${UI_PREFIX}:pending`, { version: 1, id, toolCallId: callId, digest, select, ...(mark ? { command: true } : {}) });
 		} catch (error) {
 			r.close("error"); // the relay is withdrawn again before the call falls back to the original
 			throw error;

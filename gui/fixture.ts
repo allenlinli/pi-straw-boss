@@ -37,7 +37,7 @@ const demo = (): Net => ({
 			{ id: "w1:t2", label: "ops", units: [{ todo: { done: 1, total: 3, now: "Checking the migration runs before traffic" }, ...unit("a3", "ops-main", "main", "waiting", "waiting on a question"), pending: ask(0) }] },
 		] },
 		{ id: "w2", label: "Lighthouse Web", mark: "working", tower: { name: "tower · Lighthouse Web", mark: "idle", key: "t2", control: true, subs: [] }, outposts: [], outside: [], tabs: [
-			{ id: "w2:t1", label: "checkout", units: [{ todo: { done: 3, total: 4, now: "Writing the checkout e2e test" }, ...unit("b1", "checkout-main", "main", "working", "thinking", [unit("b1/e2e", "e2e-runner", "subagent", "working", "thinking")]) }, { ...unit("b2", "claude-checkout", "member", "working", "tool:read"), control: false, agent: "claude" as const }] },
+			{ id: "w2:t1", label: "checkout", units: [{ todo: { done: 3, total: 4, now: "Writing the checkout e2e test" }, ...unit("b1", "checkout-main", "main", "working", "thinking", [unit("b1/e2e", "e2e-runner", "subagent", "working", "thinking")]) }, unit("b2", "checkout-member", "member", "working", "tool:read")] },
 		] },
 		{ id: "w3", label: "Orchard Data", mark: "idle", tower: { name: "tower · Orchard Data", mark: "done", key: "t3", control: true, subs: [] }, outposts: [], outside: [], tabs: [
 			{ id: "w3:t1", label: "etl", units: [unit("c1", "etl-main", "main", "idle")] },

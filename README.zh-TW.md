@@ -101,7 +101,6 @@ pi install npm:pi-straw-boss
 | pi-code（hooks 擴充，需含它的對話框事件） | 它的 hook 確認（「Allow bash?」：允許或拒絕，在任何被攔下的工具呼叫之前）可以在 GUI 作答。 |
 | [pi-herdr-doc-review](https://www.npmjs.com/package/pi-herdr-doc-review) 0.4.0 以上 | session 展示的文件會開在它的通訊畫面旁邊：HTML 放在沙箱框架裡，表單送出的內容會回給 agent；文字檔只能讀。 |
 | [@juicesharp/rpiv-todo](https://www.npmjs.com/package/@juicesharp/rpiv-todo) 2.13 以上 | session 的待辦清單會顯示在 GUI 的輸入框上方，內容從 session 檔讀取。 |
-| [straw-boss](https://github.com/wayne930242/straw-boss)（Claude Code 和 Codex） | Claude Code 或 Codex 的主智慧體 session 會透過 straw-boss 隨 session 啟動的小型 sidecar 行程加入分頁的網：預設是成員，登記成 orchestrator 後升成主智慧體。它會出現在塔台儀表板、側邊欄和 GUI（帶智慧體徽章，GUI 無法對它輸入），可以用 `straw-net.py` 呼叫塔台、廣播，網上的訊息會以 `[straw net …]` 開頭的一行打進它的 pane（[說明](docs/how-it-works.md#from-claude-code-or-codex)，英文）。 |
 
 任何 extension 的 `select` 和 `confirm`（例如 `mp-infra` 的指令審查）也可以在 GUI 作答，不必改動那個 extension：Straw Boss 把它們包在 pi 共用的 `ctx.ui` 上，照常打開 pi 自己的對話框，同時轉送同一個對話框，先答的算數。`select` 和 `confirm` 都可以從配對的裝置作答，也都可以用問題卡片上的「取消」按鈕取消（效果等同終端機裡按 Escape：select 沒有選擇，confirm 回答「否」）；但每個選項都只限這台電腦頁面使用的對話框（例如 `/boss` link 核准、`gui rotate`），配對的裝置不能取消。`input`、`editor`、`custom` 完全不碰，它們和 pi-ask-user 的 `ask_user` 在 GUI 裡只能看，可以一鍵切到終端機回答。
 
@@ -242,7 +241,7 @@ pi-herdr-agents 的 worker 會向 sb 伺服器登記；worker 結束或它的 pa
 
 ## 延伸閱讀
 
-[運作方式](docs/how-it-works.md)（英文）說明角色、塔台、儀表板、瀏覽器畫面、這個擴充套件會寫入什麼，以及 Claude Code 或 Codex 的 session 怎麼加入網。
+[運作方式](docs/how-it-works.md)（英文）說明角色、塔台、儀表板、瀏覽器畫面，以及這個擴充套件會寫入什麼。
 
 ## 授權
 

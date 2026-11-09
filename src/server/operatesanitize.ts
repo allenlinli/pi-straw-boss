@@ -126,7 +126,7 @@ const service: P<TowerService> = shape(
 const trainId: P<TrainId> = (v) => (isObj(v) && typeof v.project === "string" && typeof v.code === "string" ? trainFromToken(`${v.project}/${v.code}`) : undefined);
 const unit: P<Unit> = (v, rw) => depth(v, rw, 0);
 function depth(v: unknown, rw: Rewrite, level: number): Unit | undefined {
-	const head = shape<Omit<Unit, "subs">>({ id: key, key, control: bool, name: str(200), role: lit("main", "member", "train", "subagent", "outside"), mark }, { agent: lit("claude", "codex"), train: trainId, note: str(300), pending, ended: yes, queued: list(queued, 50), monitors: list(monitor, 8), ...lately, ...shelf })(v, rw);
+	const head = shape<Omit<Unit, "subs">>({ id: key, key, control: bool, name: str(200), role: lit("main", "member", "train", "subagent", "outside"), mark }, { train: trainId, note: str(300), pending, ended: yes, queued: list(queued, 50), monitors: list(monitor, 8), ...lately, ...shelf })(v, rw);
 	if (!head) return undefined;
 	const raw = (v as Record<string, unknown>).subs;
 	return { ...head, id: head.key, subs: level >= 2 || !Array.isArray(raw) ? [] : raw.slice(0, 64).flatMap((s) => { const r = depth(s, rw, level + 1); return r ? [r] : []; }) } as Unit;

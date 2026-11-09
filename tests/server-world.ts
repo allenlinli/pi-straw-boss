@@ -4,12 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { Worker } from "node:worker_threads";
 import { join } from "node:path";
-import type { IntercomLike } from "../src/agent/kit.ts";
+import type { IntercomLike } from "../src/server/kit.ts";
 import { type Ctx, makeCtx, type SpawnSpec, type Timers } from "../src/server/client.ts";
 import type { IntercomModule } from "../src/server/intercom.ts";
 import { runServer, type ServerHandle, type ServerOptions } from "../src/server/main.ts";
 import { readRecord, type ServerRecord, secretDir, slotOf } from "../src/server/record.ts";
-import { StubClient } from "./agent-fakes.ts";
+import { StubClient } from "./intercom-fakes.ts";
 import { bundle, noLink, noTailscale } from "./gui-fakes.ts";
 
 // A world for the sb server's tests: one state directory, servers that run in this process under fake pids (each with a fake pi-intercom client, no Herdr, no ACL), and

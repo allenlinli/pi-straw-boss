@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Session } from "../herdr.ts";
 import { type Channel, type Config, createKit, type Kit, REGISTER } from "../state.ts";
 
-// A Claude Code or Codex session has no pi, so the modules that run the net (membership, election, guard, presence, reach) get the two things they
+// The sb server is no pi session, so the modules that run the net (membership, election, guard, presence, reach) get the two things they
 // ask pi-intercom's extension for from a raw `IntercomClient`: the channel of a registered namespace, and the outbox. Both mirror pi-intercom's own
 // (`index.ts` createExtensionChannel, handleOutboxRequest); a protocol change there can break this file, so the join checks `extension-bus-v1`.
 const OUTBOX = "intercom:outbox-request";
@@ -10,7 +10,7 @@ const OUTBOX_RESULT = "intercom:outbox-result";
 const BUS = "extension-bus-v1";
 const NAMESPACE = /^[a-z0-9][a-z0-9._/-]{0,63}$/;
 
-/** The part of pi-intercom's `IntercomClient` the sidecar uses; pi-intercom is a runtime requirement found by path (intercom.ts), not an import. */
+/** The part of pi-intercom's `IntercomClient` the server uses; pi-intercom is a runtime requirement found by path (intercom.ts), not an import. */
 export interface Registration { name?: string; cwd: string; model: string; pid: number; startedAt: number; lastActivity: number; status?: string; herdrPaneId?: string; acknowledgesReceipts?: boolean; extensions?: { namespace: string; ownerEligible: boolean }[] }
 export type Broker = { type: string } & Record<string, unknown>;
 export interface Incoming { id: string; replyTo?: string; content: { text: string; attachments?: { name: string }[] }; crossMachine?: { origin: { name: string; machine: string } } }
@@ -38,7 +38,7 @@ interface Local { registration: { namespace: string; ownerEligible: boolean; onE
 interface Outbox { version?: unknown; requestId?: unknown; extensionId?: unknown; extensionName?: unknown; to?: unknown; message?: unknown }
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 
-/** The kit of a net sidecar: `pi` is the event bus and nothing else (any other member throws), and `attach` points it at the broker connection, again after each reconnect. */
+/** The kit of the sb server: `pi` is the event bus and nothing else (any other member throws), and `attach` points it at the broker connection, again after each reconnect. */
 export type HeadlessKit = Kit & { attach(client: IntercomLike): void; extensions(): { namespace: string; ownerEligible: boolean }[] };
 export function createHeadlessKit({ client, env, cfg, log = () => {} }: { client: IntercomLike; env: NodeJS.ProcessEnv; cfg: Config; log?: (text: string, level?: "info" | "warning" | "error") => void }): HeadlessKit {
 	const handlers = new Map<string, Set<(data: unknown) => void>>(), locals = new Map<string, Local>(), pending = new Set<string>(), used = new Set<string>();
@@ -50,7 +50,7 @@ export function createHeadlessKit({ client, env, cfg, log = () => {} }: { client
 		},
 		emit: (channel: string, data: unknown) => [...(handlers.get(channel) ?? [])].forEach((handler) => handler(data)),
 	};
-	const pi = new Proxy({ events }, { get: (target, key) => { if (key in target) return target[key as "events"]; if (typeof key === "symbol") return undefined; throw new Error(`pi.${String(key)} is not available in a net sidecar`); } }) as unknown as ExtensionAPI;
+	const pi = new Proxy({ events }, { get: (target, key) => { if (key in target) return target[key as "events"]; if (typeof key === "symbol") return undefined; throw new Error(`pi.${String(key)} is not available in the sb server`); } }) as unknown as ExtensionAPI;
 	const kit = { ...createKit(pi, { ...cfg, env }), tell: log };
 	const extensions = () => [...locals.values()].map(({ registration: { namespace, ownerEligible } }) => ({ namespace, ownerEligible }));
 	const emitLocal = (namespace: string, event: Event) => {
@@ -95,7 +95,7 @@ export function createHeadlessKit({ client, env, cfg, log = () => {} }: { client
 		const reject = (detail: string) => requestId && answer(trace, "rejected", { code: "invalid_request", detail });
 		if (r.version !== 1) return void reject("version must be 1");
 		if (!requestId || !extensionId || !extensionName || !to || !message) return void reject("requestId, extensionId, extensionName, to, and message are required");
-		if (used.has(requestId)) return void answer(trace, "rejected", { code: "duplicate_request", detail: "requestId has already been used in this sidecar" });
+		if (used.has(requestId)) return void answer(trace, "rejected", { code: "duplicate_request", detail: "requestId has already been used in this process" });
 		used.add(requestId);
 		pending.add(requestId);
 		void (async () => {

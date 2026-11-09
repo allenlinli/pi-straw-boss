@@ -5,7 +5,7 @@ import { inside } from "./routing.ts";
 import { LinkStore } from "./store.ts";
 
 // Where a main's board entry goes (docs/specs/2026-10-25-straw-link.md, Work board, Writing): the teams whose project holds the main's directory and whose
-// `share` is `status`. Read from config.json and the team files alone, so a pi main and a Claude Code or Codex sidecar main say the same without the holder.
+// `share` is `status`. Read from config.json and the team files alone, so a main says the same without the holder.
 
 export interface BoardTarget { name: string; devices: number }
 

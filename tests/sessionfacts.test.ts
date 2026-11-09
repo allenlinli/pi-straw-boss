@@ -10,10 +10,10 @@ const tower = unit({ key: "t", name: "Tower" });
 const net = (...units: Unit[]): Net => ({ bases: [{ id: "w1", label: "Harbor", mark: "idle", tower, outposts: [], outside: [], tabs: [{ id: "w1:t1", label: "squad", units }] } as unknown as Base] }) as unknown as Net;
 const ok = () => Promise.resolve({ ok: true, status: 200, body: {} });
 
-test("the composer's unit: control, agent, live, the mark as given, online, and whether a dialog is open", () => {
-	const u = unit({ agent: "claude", pending: { callId: "c", tool: "dialog", answer: { dialog: "d" } } as Unit["pending"] });
+test("the composer's unit: control, live, the mark as given, online, and whether a dialog is open", () => {
+	const u = unit({ pending: { callId: "c", tool: "dialog", answer: { dialog: "d" } } as Unit["pending"] });
 	const c = composerUnit(u, { name: "Ada", mk: "waiting", state: "live", online: true });
-	assert.deepEqual([c.name, c.control, c.agent, c.live, c.mark, c.online, c.answerable, c.ally, c.run], ["Ada", true, "claude", true, "waiting", true, true, false, false]);
+	assert.deepEqual([c.name, c.control, c.live, c.mark, c.online, c.answerable, c.ally, c.run], ["Ada", true, true, "waiting", true, true, false, false]);
 	const bare = composerUnit(unit({ control: false }), { name: "Ada", mk: "idle", state: "recent", online: false });
 	assert.deepEqual([bare.control, bare.live, bare.online, bare.answerable], [false, false, false, false], "a session that left the net is not live");
 });

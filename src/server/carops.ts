@@ -2,7 +2,7 @@ import { execFileExe } from "../exe.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, parse, resolve } from "node:path";
-import type { IntercomLike } from "../agent/kit.ts";
+import type { IntercomLike } from "./kit.ts";
 import type { HerdrRun } from "../herdr.ts";
 import { panes } from "../herdr.ts";
 import { trainFromToken } from "../trainrole.ts";

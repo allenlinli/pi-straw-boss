@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createHeadlessKit, type HeadlessKit, type Incoming, type IntercomLike } from "../agent/kit.ts";
+import { createHeadlessKit, type HeadlessKit, type Incoming, type IntercomLike } from "./kit.ts";
 import { createCloseMain, type Control } from "../closemain.ts";
 import { createDigest } from "../digest.ts";
 import { createTab, headModel, isHead, isStandin, isSub, type Pane, panes, parentOf, type Place, report, SEAT_LABEL, type ServiceKind, type Session, STANDIN_HEAD, tabs, TOWER_LABEL, towerModel, type Workspace, workspaces } from "../herdr.ts";

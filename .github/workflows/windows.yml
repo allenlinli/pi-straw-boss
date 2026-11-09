@@ -1,7 +1,7 @@
 name: Windows
 
-# The Windows transport on a real Windows machine: Herdr's named pipe behind its marker file, a sidecar's control pipe, and every module a
-# session, a sidecar, and the sidebar plugin load (tests/platform.test.ts). The rest of the suite drives Unix sockets and bash, and runs on Linux in the publish job.
+# The Windows transport on a real Windows machine: Herdr's named pipe behind its marker file, the sb server's control pipe, and every module a
+# session and the sidebar plugin load (tests/platform.test.ts). The rest of the suite drives Unix sockets and bash, and runs on Linux in the publish job.
 on:
   push:
     branches: [main]

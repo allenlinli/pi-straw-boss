@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { IntercomLike } from "../agent/kit.ts";
+import type { IntercomLike } from "./kit.ts";
 import { readEntries, removeEntry, safeSession } from "../board.ts";
 import type { Reply } from "../control.ts";
 import { stamp } from "../header.ts";

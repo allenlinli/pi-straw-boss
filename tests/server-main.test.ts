@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { StubClient } from "./agent-fakes.ts";
+import { StubClient } from "./intercom-fakes.ts";
 import { rawControl } from "./control-raw.ts";
 import { AclError } from "../src/server/acl.ts";
 import { LoaderError } from "../src/server/intercom.ts";

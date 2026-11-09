@@ -9,7 +9,7 @@ import type { InterfaceInfo } from "../src/lan/net.ts";
 import { type ServerOptions, runServer } from "../src/server/main.ts";
 import { readRecord, secretDir, slotOf } from "../src/server/record.ts";
 import { callControl, type Request } from "../src/server/socket.ts";
-import { FakeClient } from "./agent-fakes.ts";
+import { FakeClient } from "./intercom-fakes.ts";
 import { until, World } from "./fakes.ts";
 import { bundle, noLink, noTailscale, scratch } from "./gui-fakes.ts";
 import { startHosted, stopHosted } from "./gui-world.ts";

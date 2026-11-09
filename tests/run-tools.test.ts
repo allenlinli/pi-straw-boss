@@ -10,6 +10,7 @@ import { LOCAL_RUN_TOOLS, RUN_FILE_TOOLS, RUN_TOWER_TOOLS, refusedPath, toolAllo
 import { LOCAL_TOOLS } from "../src/server/towerbrief.ts";
 import { type Answer, call, type Request, results, rig as makeRig, scratchRoot } from "./run-rig.ts";
 import { until } from "./server-world.ts";
+import { NO_CONFIRM } from "../src/autotext.ts";
 
 // A local tower run has no shell, no edit or write tool, and no way to read the sb server's state (todo #31, docs/how-it-works.md, Tower runs): the sb server starts its pi with `--tools` naming the tower tools and
 // read-only file access (runallow.ts; tests/server-tower-runs.test.ts holds the launch), and the run mode refuses everything else again at `tool_call`. These tests run a real pi agent session (a faux model, a scripted
@@ -191,6 +192,12 @@ test("a hand run's boss turn has every tool the boss chose; an ally run is not h
 	const ally = await run([["bash", {}]], { tools: WIDE }, server({ kind: "ally", level: "reply", peer: { device: "dev1", label: "Dev", short: "d1", team: "t1", teamName: "T" } }));
 	assert.doesNotMatch(ally.out[0]!, NOT_IN_RUN, "an ally run is judged by its sender's gate (here it is put to the boss, who does not answer), not by the list");
 	assert.match(ally.out[0]!, /declined a remote request/);
+});
+
+test("an ally run under auto mode is refused at the sender's gate without asking anyone: no one can confirm (#140)", async () => {
+	const srv = server({ kind: "ally", level: "reply", peer: { device: "dev1", label: "Dev", short: "d1", team: "t1", teamName: "T" } });
+	const ally = await run([["bash", {}]], { tools: WIDE, autoOn: true }, srv);
+	assert.equal(ally.out[0], NO_CONFIRM);
 });
 
 test("the boss's own !cmd in a run's pane still works: it is pi's own shell for the user, not a tool call, so neither the allowlist nor the run mode touches it", async () => {

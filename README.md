@@ -128,6 +128,7 @@ The tower only routes and coordinates, so it can run a lighter model: set `tower
 | `board_set` | A tab's main: override its own board entry (one line of current work, up to 8 checklist items), `auto: true` to give it back to the auto-fill from its todo list and name, or `clear: true` to delete it when its work is finished or shelved. |
 | `boss_broadcast` | Message a tab, a workspace, all towers, or every session (under a header). |
 | `boss_server` | See the sb server (status works with the server down), read its log (up to 200 lines), or restart it with a reason. Refused while the boss stopped the server, once a minute at most, and never in a remote turn. |
+| `boss_duty` | A tab's main: set its kind (`coordinator`, `integrator`, `standing`) with a reason; the kind is the prompt it runs and shows on the page. |
 | `boss_rename` | Name this session with a short phrase for its current work; the net and the GUI show it, and a main agent's tab takes it as its label. Main agents call it when their work changes. |
 | `/boss` | Take over as this tab's main agent. |
 | `/boss status`, `/boss tower` | Show the status; open and focus the tower. |

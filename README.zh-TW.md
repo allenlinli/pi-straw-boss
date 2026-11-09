@@ -128,6 +128,7 @@ pi install npm:pi-straw-boss
 | `board_set` | 分頁的主智慧體用：覆寫自己的看板項目（一行目前的工作，加最多 8 個清單項），用 `auto: true` 交還給依待辦清單和名稱的自動填入，或用 `clear: true` 在工作做完或擱置時刪掉它。 |
 | `boss_broadcast` | 傳訊息給一個分頁、一個工作區、所有塔台，或所有 session（訊息開頭有標頭）。 |
 | `boss_server` | 查看 sb 伺服器（伺服器停著時 status 也能用）、讀它的記錄（最多 200 行），或附上理由重新啟動它。你刻意停掉伺服器時會被拒絕，每分鐘最多一次，遠端回合裡也一律拒絕。 |
+| `boss_duty` | 分頁主智慧體設定自己的種類（`coordinator`、`integrator`、`standing`）並寫理由；種類就是它執行的提示詞，也會顯示在頁面上。 |
 | `boss_rename` | 用一個短語替這個 session 命名，說明它現在在做什麼；net 與 GUI 會顯示它，主智慧體的分頁也會改成這個名稱。主智慧體換工作時會呼叫它。 |
 | `/boss` | 接手成為這個分頁的主智慧體。 |
 | `/boss status`、`/boss tower` | 顯示狀態；開啟塔台並切換過去。 |

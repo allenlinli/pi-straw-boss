@@ -117,7 +117,7 @@ html[data-view="raven"]:has(#stage[data-view="head"])::after, html[data-view="ra
 	top: calc(var(--rk-w) * 0.06); left: 0; translate: -20vw 0; width: calc(var(--rk-w) * 0.07); aspect-ratio: 96 / 34; opacity: 0;
 	background: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2096%2034%27%3E%3Cg%20fill=%27%230b080e%27%3E%3Cpath%20d=%27M2%2017%208%2014.5C12%2012.5%2016%2013.5%2019%2015.5L38%2016.5%2047%2020.5%2037%2020C30%2023%2020%2023%2013%2020L8%2019.5Z%27/%3E%3Cpath%20d=%27M18%2016C16%2010%2019%204%2026%201%2026%206%2028%2010%2031%2013%2034%208%2038%205%2044%204%2042%2010%2040%2014%2037%2017Z%27/%3E%3Cg%20transform=%27translate(48%200)%27%3E%3Cpath%20d=%27M2%2017%208%2014.5C12%2012.5%2016%2013.5%2019%2015.5L38%2016.5%2047%2020.5%2037%2020C30%2023%2020%2023%2013%2020L8%2019.5Z%27/%3E%3Cpath%20transform=%27translate(0%2034)%20scale(1%20-1)%27%20d=%27M18%2016C16%2010%2019%204%2026%201%2026%206%2028%2010%2031%2013%2034%208%2038%205%2044%204%2042%2010%2040%2014%2037%2017Z%27/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") 0 0 / 200% 100% no-repeat;
 }
-/* A raven perched on the crypt gate's centre cross (boss, 2026-11-07; moved to the left cross in round 3, below), in two frames of one strip (perch.webp, 2 x 260 x 239: profile, head turned to the viewer; the body is the same in both, so only the head changes). Two elements, .perch (the profile, which stays) and .perch.perch-turn (the turned frame over it, which dissolves in and out); each is two layers of its strip: ::before lit (brightness 0.85) and ::after dark (brightness 0.34, a filter that is fixed, so the rim light on its feathers stays) over it. The strike fades the dark layer out and back in (opacity), the head turn fades the element, so every animation here is an opacity and the compositor runs it without a repaint, as on the map. Its width is 0.074 of the picture's. */
+/* A raven perched on the crypt gate's centre cross (boss, 2026-11-07; moved to the left cross in round 3, below), in two frames of one strip (perch.webp, 2 x 260 x 239: profile, head turned to the viewer; the body is the same in both, so only the head changes). Two elements, .perch (the profile) and .perch.perch-turn (the turned frame over it); the head turn swaps them; each is two layers of its strip: ::before lit (brightness 0.85) and ::after dark (brightness 0.34, a filter that is fixed, so the rim light on its feathers stays) over it. The strike fades the dark layer out and back in (opacity), the head turn fades the element, so every animation here is an opacity and the compositor runs it without a repaint, as on the map. Its width is 0.074 of the picture's. */
 html[data-view="raven"] .stage[data-view="head"] > .perch {
 	--rk-pw: calc(var(--rk-w) * 0.074);
 	display: block; position: fixed; z-index: -1; pointer-events: none; width: var(--rk-pw); aspect-ratio: 260 / 239;
@@ -245,21 +245,23 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::before { animation: rk-lit-a 4.7s ease-in-out infinite alternate, rk-lit-b 6.1s ease-in-out infinite alternate, rk-bolt 61s linear -50.584s infinite, rk-clap 61s linear 7s infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::before { animation: rk-fog 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::after { animation: rk-bat 47s linear infinite; }
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::after { animation: rk-flap 0.46s steps(1, end) infinite, rk-raven 83s linear 21s infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::after { animation: rk-flap 0.46s steps(1, end) infinite, rk-raven 83s linear 21s infinite, rk-raven-glide 4.2s ease-in-out infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch::after { animation: rk-perch-dark 61s linear -50.584s infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"]::before { animation: rk-strike 61s linear -50.584s infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch-turn { animation: rk-perch-turn 17s linear -7.5s infinite; }
+	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch:not(.perch-turn) { animation: rk-perch-profile 17s linear -7.5s infinite; }
 	/* the map's backdrop: every animation fades or moves a layer that is not repainted (opacity, transform, translate). The strike and the perched raven start together: both wait for the head band to be shown. */
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .stage[data-view="map"]::before { animation: rk-rest 61s linear -50.584s infinite, rk-clap 61s linear 7s infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch::after { animation: rk-perch-dark 61s linear -50.584s infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .map::before { animation: rk-strike 61s linear -50.584s infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch-turn { animation: rk-perch-turn 17s linear -7.5s infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch:not(.perch-turn) { animation: rk-perch-profile 17s linear -7.5s infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"]::after { animation: rk-candle 4.7s ease-in-out infinite alternate; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"]) body::before { animation: rk-mist-a 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"] > .work::before { animation: rk-mist-b 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"]) body::after { animation: rk-bats 47s linear infinite; }
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"])::after { animation: rk-flap-a 0.46s steps(1, end) infinite, rk-raven-map 83s linear 21s infinite; }
-	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"] > .work::after { animation: rk-flap-b 0.46s steps(1, end) infinite, rk-raven-map 83s linear 21s infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"])::after { animation: rk-flap-a 0.46s steps(1, end) infinite, rk-raven-map 83s linear 21s infinite, rk-raven-glide 4.2s ease-in-out infinite; }
+	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"] > .work::after { animation: rk-flap-b 0.46s steps(1, end) infinite, rk-raven-map 83s linear 21s infinite, rk-raven-glide 4.2s ease-in-out infinite; }
 	/* a room's candle light breathes by opacity */
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="session"] #session-view[data-role])::after { animation: rk-room-candle 5.3s ease-in-out infinite alternate; }
 	/* Status motion (boss, 2026-11-08, option C): where Standard sweeps, spins, and pings, the keep draws a seal, breathes mist, and swells a soul-fire. Nothing here turns. The still figures are above (the block "Status"), so calm and reduced motion keep them. */
@@ -285,10 +287,12 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 	html[data-view="raven"][data-calm] .stage[data-view="head"] > .perch::after { animation: rk-perch-dark 61s linear -50.584s infinite; }
 	html[data-view="raven"][data-calm] .stage[data-view="head"]::before { animation: rk-strike 61s linear -50.584s infinite; }
 	html[data-view="raven"][data-calm] .stage[data-view="head"] > .perch-turn { animation: rk-perch-turn 17s linear -7.5s infinite; }
+	html[data-view="raven"][data-calm] .stage[data-view="head"] > .perch:not(.perch-turn) { animation: rk-perch-profile 17s linear -7.5s infinite; }
 	html[data-view="raven"][data-calm]:has(#stage[data-view="map"] .head-node:not([hidden])) .stage[data-view="map"]::before { animation: rk-rest 61s linear -50.584s infinite, rk-clap 61s linear 7s infinite; }
 	html[data-view="raven"][data-calm]:has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch::after { animation: rk-perch-dark 61s linear -50.584s infinite; }
 	html[data-view="raven"][data-calm]:has(#stage[data-view="map"] .head-node:not([hidden])) .map::before { animation: rk-strike 61s linear -50.584s infinite; }
 	html[data-view="raven"][data-calm]:has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch-turn { animation: rk-perch-turn 17s linear -7.5s infinite; }
+	html[data-view="raven"][data-calm]:has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch:not(.perch-turn) { animation: rk-perch-profile 17s linear -7.5s infinite; }
 }
 @keyframes rk-room-candle { 0% { opacity: 0.5; } 20% { opacity: 1; } 38% { opacity: 0.62; } 57% { opacity: 0.95; } 76% { opacity: 0.68; } 100% { opacity: 0.88; } }
 @keyframes rk-lit-a { 0% { --rk-a: 0.55; } 18% { --rk-a: 0.9; } 33% { --rk-a: 0.5; } 52% { --rk-a: 0.85; } 71% { --rk-a: 0.62; } 100% { --rk-a: 0.78; } }
@@ -297,8 +301,9 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 @keyframes rk-bolt { 0%, 94.3% { --rk-bolt: 0; } 94.4% { --rk-bolt: 1; } 94.5% { --rk-bolt: 0.2; } 94.6% { --rk-bolt: 1; } 96.4%, 100% { --rk-bolt: 0; } }
 /* The perched raven takes the strike's light in step with the picture (same 61 s, same instants as rk-bolt and rk-rest; they start together, when the band or the head page is shown): its dark layer fades out at a flash and back in, over the lit layer beneath (the brightness 0.34 and 0.85 of old, as a crossfade). */
 @keyframes rk-perch-dark { 0%, 94.3% { opacity: 1; } 94.4% { opacity: 0; } 94.5% { opacity: 0.78; } 94.6% { opacity: 0; } 96.4%, 100% { opacity: 1; } }
-/* It holds the profile for 12.6 s of 17, dissolves to the turned head in 0.7 s, looks at the viewer for 3 s, and dissolves back. The first turn comes 3.4 s after it is shown (boss, 2026-11-09: he had never seen it): its animation starts 7.5 s into the cycle. */
-@keyframes rk-perch-turn { 0%, 64% { opacity: 0; } 68%, 86% { opacity: 1; } 90%, 100% { opacity: 0; } }
+/* It holds the profile for 10.9 s of 17, snaps its head to the viewer (0.17 s), looks at it for 4.1 s, and snaps back. The profile goes out as the turned frame comes in, so the two heads are never seen together (boss, 2026-11-09: 「大隻的渡鴉轉頭的時候另一隻往前看的還在……兩個身影重疊不太對」: the profile stayed under the turned frame, its beak showing beside the turned head, and the 0.7 s dissolves drew both). The first turn comes 3.6 s after it is shown (boss, 2026-11-09: he had never seen it): its animation starts 7.5 s into the cycle. */
+@keyframes rk-perch-profile { 0%, 64% { opacity: 1; } 65%, 89% { opacity: 0; } 90%, 100% { opacity: 1; } }
+@keyframes rk-perch-turn { 0%, 64% { opacity: 0; } 65%, 89% { opacity: 1; } 90%, 100% { opacity: 0; } }
 @keyframes rk-fog { to { background-position: calc(var(--rk-w) * 0.7) 0, calc(var(--rk-w) * -0.55) 0; } }
 /* The bats are over the moon for the first seven seconds of 47: the first goes up and across, the second follows a moment later, lower. */
 @keyframes rk-bat {
@@ -310,7 +315,9 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 	20%, 100% { background-position: 112% 6%, 112% 16%; }
 }
 @keyframes rk-flap { 0% { background-position: 0 0; } 50% { background-position: 100% 0; } }
-@keyframes rk-raven { 0% { translate: -20vw 0; opacity: 0; } 1% { opacity: 1; } 7% { translate: calc(var(--rk-w) * 0.3) calc(var(--rk-w) * 0.012); } 12% { translate: calc(var(--rk-w) * 0.62) calc(var(--rk-w) * -0.006); opacity: 1; } 13%, 100% { translate: calc(var(--rk-w) + 10vw) 0; opacity: 0; } }
+/* The flying raven crosses at one speed, off the left edge to off the right in the first 15 percent of 83 s (12.5 s), and glides up and down on its own clock (rk-raven-glide, a transform). Its path had three legs of one length of time each but not of way: it crept across the screen for ten seconds and shot off it in under one, seven times as fast (boss, 2026-11-09: 「鴉閣飛過空中的渡鴉動畫很怪，好像前前後後的」). */
+@keyframes rk-raven { 0% { translate: -20vw 0; opacity: 0; } 1%, 14% { opacity: 1; } 15%, 100% { translate: calc(var(--rk-w) + 10vw) 0; opacity: 0; } }
+@keyframes rk-raven-glide { 0%, 100% { transform: translateY(calc(var(--rk-w) * -0.006)); } 50% { transform: translateY(calc(var(--rk-w) * 0.008)); } }
 /* The strike's clock for the weather (gui/themes/raven/weather.ts): an animation that changes nothing, on the layer of rk-bolt (head page) and rk-rest (map), 61 s long and delayed 7 s, the instant the strike layers' own cycle (which they start 50.584 s into, 57.584 s being 94.4 % of 61 s, the first instant of both keyframes' flash) reaches its flash, so its animationstart and each animationiteration fall on a flash and the thunder follows from them. It animates `scale`, which neither of those moves. */
 @keyframes rk-clap { from, to { scale: 1; } }
 /* The map's strike: the rest veil's layer fades out and back in on the bolt's clock (rk-bolt's instants, opacity 1 - bolt), so the picture lights under the veil the head page lifts. */
@@ -329,10 +336,10 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 	16% { transform: translate(calc(var(--rk-w) * 0.29), calc(var(--rk-w) * 0.0329)); }
 	20%, 100% { transform: translate(calc(var(--rk-w) * 0.947), calc(var(--rk-w) * 0.0329)); }
 }
-/* The flying raven on the map: the two wing frames trade places by opacity (steps, 0.23 s each) and the raven crosses by translate alone, off the left edge to off the right edge in the first 13 percent of 83 s after a 21 s wait (the head page's path without its fade, which happens off screen). Nothing here is repainted. */
+/* The flying raven on the map: the two wing frames trade places by opacity (steps, 0.23 s each) and the raven crosses by translate alone, off the left edge to off the right edge at one speed in the first 15 percent of 83 s after a 21 s wait, gliding on rk-raven-glide (the head page's path without its fade, which happens off screen). Nothing here is repainted. */
 @keyframes rk-flap-a { 50% { opacity: 0; } }
 @keyframes rk-flap-b { 0% { opacity: 0; } 50% { opacity: 1; } }
-@keyframes rk-raven-map { 0% { translate: -20vw 0; } 7% { translate: calc(var(--rk-w) * 0.3) calc(var(--rk-w) * 0.012); } 12% { translate: calc(var(--rk-w) * 0.62) calc(var(--rk-w) * -0.006); } 13%, 100% { translate: calc(var(--rk-w) + 10vw) 0; } }
+@keyframes rk-raven-map { 0% { translate: -20vw 0; } 15%, 100% { translate: calc(var(--rk-w) + 10vw) 0; } }
 /* The seal: the ring's colour is a fill twice the ring's height, its upper half clear, and the fill rises through the host that holds the ring-shaped mask (the clear edge climbs from the foot to 6 px under the top, which is the seal's gap), holds with its diamond, and fades. The mist: its two layers swell, drift, and fade on 4.4 s and 5.6 s (the plate's one layer on 4.4 s). The soul-fire swells from small to large and back in 3.2 s, the dots breathe in 3 s, the bat's wings beat in 0.9 s, the waiting badge floats in 2.4 s. None of them turns, and each moves or fades a fixed picture: transform and opacity, nothing that repaints (tests/raven-motion.test.ts). */
 @keyframes rk-seal { 0% { transform: translateY(0); opacity: 0; } 6% { opacity: 1; } 52% { transform: translateY(calc(-50% + 6px)); } 76% { opacity: 1; } 100% { transform: translateY(calc(-50% + 6px)); opacity: 0; } }
 @keyframes rk-dia { 0%, 50% { opacity: 0; } 58%, 76% { opacity: 1; } 100% { opacity: 0; } }

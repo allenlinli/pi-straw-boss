@@ -50,10 +50,16 @@ test("the head turn is lit: the turned frame is lifted from the profile's restin
 	assert.match(turn(".perch-turn::after"), /radial-gradient\(circle calc\(var\(--rk-pw\) \* 0\.05\) at 27\.2% 10%, #fff 0/, "the eye's glint, a white-cored dot where the eye is in the turned frame");
 	const dark = Number(/\.perch::after\s*\{[^}]*brightness\(([\d.]+)\)/.exec(raven)?.[1]);
 	assert.equal(dark, 0.34, "the profile keeps its resting dark");
-	// the hold: opaque 68 to 86 percent of the 17 s cycle, 3.06 s
+	// the hold: opaque 65 to 89 percent of the 17 s cycle, 4.08 s, reached and left in 0.17 s (boss, 2026-11-09: the 0.7 s dissolves drew two heads)
 	const keys = /@keyframes rk-perch-turn \{([^\n]*)\}\n/.exec(raven)?.[1] ?? "";
-	assert.match(keys, /68%, 86% \{ opacity: 1; \}/);
-	assert.ok(((86 - 68) / 100) * 17 >= 3, "it holds the turned frame for about 3 s");
+	assert.match(keys, /0%, 64% \{ opacity: 0; \} 65%, 89% \{ opacity: 1; \} 90%, 100% \{ opacity: 0; \}/);
+	assert.ok(((89 - 65) / 100) * 17 >= 4, "it holds the turned frame for about 4 s");
+	// the profile goes out as the turned frame comes in, on the same clock, so the profile's beak never shows beside the turned head
+	assert.match(raven, /@keyframes rk-perch-profile \{ 0%, 64% \{ opacity: 1; \} 65%, 89% \{ opacity: 0; \} 90%, 100% \{ opacity: 1; \} \}/);
+	const turns = raven.split("\n").filter((l) => /> \.perch-turn \{ animation: rk-perch-turn 17s linear -7\.5s infinite; \}/.test(l));
+	const profiles = raven.split("\n").filter((l) => /> \.perch:not\(\.perch-turn\) \{ animation: rk-perch-profile 17s linear -7\.5s infinite; \}/.test(l));
+	assert.equal(turns.length, 4, "the turn runs on the head page and the map, in motion and in a fine pointer's calm");
+	assert.deepEqual(profiles.map((l) => l.replace(/ > .*/, "")), turns.map((l) => l.replace(/ > .*/, "")), "each turn has its profile swap under the same selector");
 	assert.match(raven, /\.head-node \{ --rk-pw: clamp\(52px, calc\(var\(--rk-w\) \* 0\.07\), 100px\)/, "a desktop's perch is 100 px wide");
 });
 

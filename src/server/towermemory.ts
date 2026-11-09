@@ -46,6 +46,9 @@ export interface Entry {
 	card?: Card;
 	/** What the boss pressed on the card. */
 	press?: Press;
+	/** A boss wait recorded (or open) while auto mode is on: silent until they are back (docs/specs/2026-11-09-auto-mode.md, §6). `parkedTold`: its raiser was told once. */
+	parked?: true;
+	parkedTold?: true;
 }
 /** What a run asks of the boss: to keep a standing instruction or a decision (`add`, `text`), or to retire one (`retire`, `target` and the entry's `text` as it was). `event` and `cites`: the boss message it came from, shown to the boss as context. */
 export interface Proposal { id: string; op: "add" | "retire"; kind: "standing" | "decision"; text: string; target?: string; run: string; event?: string; cites?: string; at: string }
@@ -193,7 +196,7 @@ export const restatable = (m: Memory, id: string): Entry | undefined => m.entrie
  * A wait for the boss as a card (docs/specs/2026-11-07-wait-cards.md): `checked` is `checkCard`'s pass, `raiser` the session the net named for its `from` (undefined for `self`). `text` is the card's `do`, so every reader of `text` keeps working.
  * A card that `restates` a wait drops the old one in the same write, and the old one's place is free for it under the cap.
  */
-export function addCardWait(m: Memory, now: number, run: string, checked: Extract<ReturnType<typeof checkCard>, { ok: true }>, raiser: Raiser | undefined): Entry {
+export function addCardWait(m: Memory, now: number, run: string, checked: Extract<ReturnType<typeof checkCard>, { ok: true }>, raiser: Raiser | undefined, parked = false): Entry {
 	if (checked.restates) {
 		const old = restatable(m, checked.restates);
 		if (!old) throw new Refused(`No such wait ${checked.restates} to restate`);
@@ -202,7 +205,7 @@ export function addCardWait(m: Memory, now: number, run: string, checked: Extrac
 	if (m.entries.filter((e) => e.kind === "wait" && e.state === "open").length >= MEM.wait) throw new Refused(`${MEM.wait} open waits are kept already: resolve or drop one`);
 	const from = typeof checked.from === "object" && "carried" in checked.from ? checked.from.carried : raiser;
 	const card: Card = { ...checked.card, ...(from ? { from } : {}) };
-	const entry: Entry = { id: idFor(m, "wait"), kind: "wait", text: card.do, by: "run", via: "run", at: iso(now), run, for: "boss", state: "open", card, ...(checked.dueMin !== undefined ? { due: iso(now + checked.dueMin * 60_000) } : {}) };
+	const entry: Entry = { id: idFor(m, "wait"), kind: "wait", text: card.do, by: "run", via: "run", at: iso(now), run, for: "boss", state: "open", card, ...(checked.dueMin !== undefined ? { due: iso(now + checked.dueMin * 60_000) } : {}), ...(parked ? { parked: true as const, ...(from && !from.gone ? { parkedTold: true as const } : {}) } : {}) };
 	m.entries.push(entry);
 	return entry;
 }
@@ -418,7 +421,7 @@ export function memorySummary(m: Memory, now?: number): MemorySummary {
 	return {
 		rev: m.rev, standing: m.entries.filter((e) => e.kind === "standing").length, decisions: m.entries.filter((e) => e.kind === "decision").length, waits: m.entries.filter(shown).length,
 		// A boss wait that was resolved or declined stays until the sweep drops it (24 h): the page draws it struck through, with what became of it.
-		bossWaits: m.entries.filter((e) => e.for === "boss" && (shown(e) || (e.kind === "wait" && e.state === "resolved"))).map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}), ...(e.state === "resolved" ? { state: "resolved" as const, ...(e.outcome ? { outcome: e.outcome } : {}), ...(e.ended ? { ended: e.ended } : {}) } : {}), ...(e.card ? { card: e.card } : {}), ...(e.press ? { press: e.press } : {}) })), proposals: m.proposals.map(proposalView),
+		bossWaits: m.entries.filter((e) => e.for === "boss" && (shown(e) || (e.kind === "wait" && e.state === "resolved"))).map((e) => ({ id: e.id, text: e.text, at: e.at, ...(e.state === "answered" && e.answered ? { answered: e.answered } : {}), ...(e.state === "resolved" ? { state: "resolved" as const, ...(e.outcome ? { outcome: e.outcome } : {}), ...(e.ended ? { ended: e.ended } : {}) } : {}), ...(e.card ? { card: e.card } : {}), ...(e.press ? { press: e.press } : {}), ...(e.parked ? { parked: true as const } : {}) })), proposals: m.proposals.map(proposalView),
 	};
 }
 /** The memory as the panel reads it, swept as of `now`. */
@@ -430,7 +433,7 @@ export function readMemory(slot: Slot, workspace: string, now: number): { memory
 const proposalView = ({ id, op, kind, text, target, cites }: Proposal) => ({ id, op, kind, text, ...(target ? { target } : {}), ...(cites ? { cites } : {}) });
 export const memoryView = (m: Memory) => ({
 	rev: m.rev, proposals: m.proposals.map((p) => ({ ...proposalView(p), at: p.at })),
-	entries: m.entries.map((e) => ({ id: e.id, kind: e.kind, text: e.text, by: e.by, via: e.via, at: e.at, ...(e.for ? { for: e.for } : {}), ...(e.on ? { on: e.on.name } : {}), ...(e.state ? { state: e.state } : {}), ...(e.due ? { due: e.due } : {}), ...(e.answered ? { answered: e.answered } : {}), ...(e.outcome ? { outcome: e.outcome } : {}), ...(e.ended ? { ended: e.ended } : {}), ...(e.card ? { card: e.card } : {}), ...(e.press ? { press: e.press } : {}) })),
+	entries: m.entries.map((e) => ({ id: e.id, kind: e.kind, text: e.text, by: e.by, via: e.via, at: e.at, ...(e.for ? { for: e.for } : {}), ...(e.on ? { on: e.on.name } : {}), ...(e.state ? { state: e.state } : {}), ...(e.due ? { due: e.due } : {}), ...(e.answered ? { answered: e.answered } : {}), ...(e.outcome ? { outcome: e.outcome } : {}), ...(e.ended ? { ended: e.ended } : {}), ...(e.card ? { card: e.card } : {}), ...(e.press ? { press: e.press } : {}), ...(e.parked ? { parked: true as const } : {}) })),
 });
 
 /**
@@ -489,6 +492,8 @@ export interface ToolEnv {
 	raiser(id: string): Promise<Raiser | undefined>;
 	/** The sb server's locale (`localeOf(env)`): the language the brief told the run to write a card in, kept on the card. */
 	locale(): Locale;
+	/** Auto mode (§6): whether it is on (a wait recorded then is parked), and the message to the raiser of a card parked (sent once: the entry was written with `parkedTold`). */
+	auto?: { on(): boolean; told(entry: Entry): Promise<void> };
 	log: Log;
 }
 const str = (args: Record<string, unknown>, name: string): string => {
@@ -536,14 +541,16 @@ export async function memoryTool(env: ToolEnv, args: Record<string, unknown>): P
 		const { value } = updateMemory(slot, workspace, now, (m) => {
 			const again = checkCard(args, ctxOf(m));
 			if (!again.ok) throw new Error(refusalText(again.lines));
-			return addCardWait(m, now, env.run, again, raiser);
+			return addCardWait(m, now, env.run, again, raiser, env.auto?.on() === true);
 		});
 		logged("add", value);
+		if (value.parked && value.parkedTold) await env.auto!.told(value).catch((cause: Error) => env.log.line("error", { code: "wait-parked", text: cause.message.slice(0, 200) }));
 		return { text: `Noted [${value.id}]: the boss sees it as a card (${value.card!.type}) and it shows in your brief until you resolve or drop it${checked.restates ? `; ${checked.restates} was replaced` : ""}.`, details: { id: value.id } };
 	}
 	if (op === "add" && args.kind === "wait") {
 		const on = args.on === undefined ? undefined : await env.session(str(args, "on"));
-		const { value } = updateMemory(slot, workspace, now, (m) => addWait(m, now, env.run, { text: args.text, for: args.for, ...(on ? { on } : {}), dueMin: args.due }));
+		const parked = env.auto?.on() === true;
+		const { value } = updateMemory(slot, workspace, now, (m) => { const e = addWait(m, now, env.run, { text: args.text, for: args.for, ...(on ? { on } : {}), dueMin: args.due }); if (parked && e.for === "boss") e.parked = true; return e; });
 		logged("add", value);
 		return { text: `Noted [${value.id}]: it shows in your brief until you resolve or drop it${value.for === "boss" ? " and tells the boss it waits for them" : ""}.`, details: { id: value.id } };
 	}

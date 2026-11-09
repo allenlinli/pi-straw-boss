@@ -359,3 +359,9 @@ test("a name with a C1 control character is quoted by what is written, not by th
 	const line = header({ from: { name: "a\u0085b", id: "x", role: "main" }, kind: "broadcast", scope: "tab", to: [], reply: false });
 	assert.match(line, /from="a b"/);
 });
+
+test("AMC-F008: basis outside a tower run gets its own error, not the forward one", async () => {
+	const { towerA } = await town();
+	await assert.rejects(towerA.tool("tower_send", { message: "x", basis: "S1" }), (error: Error) => /^basis works in a tower run/.test(error.message) && !/forward/.test(error.message));
+	await assert.rejects(towerA.tool("tower_send", { message: "x", forward: "e1" }), /^Error: forward works in a tower run|forward works in a tower run/);
+});

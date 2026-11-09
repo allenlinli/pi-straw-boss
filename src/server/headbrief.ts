@@ -28,6 +28,8 @@ export interface HeadBriefInput {
 	/** The ids of the open waits that are lapsed (towermemory.ts `lapsed`): the page no longer shows them to the boss, so the run closes or renews them. */
 	lapsed?: string[];
 	note?: { text: string; age: string };
+	/** The auto mode line (autotower.ts `briefLine`), present only while it is on; never cut. */
+	auto?: string;
 	/** The tools the run has, one line each. */
 	tools: string[];
 	flags: string[];
@@ -61,6 +63,7 @@ export function buildHeadBrief(i: HeadBriefInput): string {
 	const who = [
 		`You are the head tower: the boss's own tower, in no workspace. This session is your one conversation with the boss (chapter ${chapter.n}, since ${day(chapter.since)}, ${chapter.turns} boss turn${chapter.turns === 1 ? "" : "s"}). ${i.boss ? "The boss is at this pane now." : "The boss is away: a tower's answer woke you."} Woken ${i.woken}. Your identity is ${i.identity}; everything you send leaves under it.`,
 		...(!chapter.resumed && chapter.n > 1 ? [`New chapter ${chapter.n}: ${chapter.why ?? "the last conversation could not be resumed"}.`] : []),
+		...(i.auto ? [i.auto] : []),
 	].join("\n");
 	const recap = !chapter.resumed && chapter.recap?.length ? ["The last lines between you and the boss, oldest first:", ...chapter.recap.map((l) => `- ${cut(one(l), 400)}`)].join("\n") : "";
 	const mains = (rows: MainRow[]) => rows.map((m) => {
@@ -94,6 +97,7 @@ export function buildHeadBrief(i: HeadBriefInput): string {
 export const HEAD_TOOLS = [
 	"- tower_send {workspace, message, supersedes?}: forward to the tower of one workspace (id or exact label); a workspace with no tower is given one. It opens an ask (H<n>); the tower's answer comes back as a new event. When the boss corrects an instruction you already sent, name an ask (H<n>) of the earlier broadcast in supersedes on each call of the new one. You have no broadcast, no device, and no way to open a main or a tab.",
 	"- tower_list: every workspace's tower and its checkout folder; board_read: what each main works on now; read, grep, find, ls: project files by absolute path.",
+	"- boss_auto {on}: auto mode (the boss is away, nothing may wait for them). Call it only on the boss's own words in the turn you answer (我要睡了 starts, 我起床了 ends); the server reads the words itself and refuses anything else. `on` only stages: tell the boss to confirm it (the GUI button, or the pane's prompt).",
 	"- tower_memory keeps what outlives runs: the boss's standing instructions and decisions are proposals the boss confirms; your waits are yours (add, resolve, drop). boss_server: the sb server's status, log, and restart.",
 ];
 /** The head tower's tools for sb's locale. */

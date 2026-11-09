@@ -17,6 +17,15 @@ export interface HeadPort {
 	relay(turn: string | undefined): string | undefined;
 	/** The boss's own words of the boss event `turn` names, for the card of the ask (docs/specs/2026-11-07-head-log-cards.md); read from the queue by the server, never said by the model. */
 	boss(turn: string | undefined): string | undefined;
+	/** `boss_auto`: switches auto mode (or stages the boss's confirm) only on the boss's own matching words in this turn, which the server reads itself (automode.ts `bossAuto`); throws when it refuses. */
+	auto(on: boolean): ToolResult;
+}
+/** The result of `boss_auto` as the model reads it: a refusal throws, `on` only stages (D9), `off` switches. */
+export function autoAnswer(out: { ok: true; [key: string]: unknown } | { ok: false; error: string }): ToolResult {
+	if (!out.ok) throw new Error(out.error);
+	const pending = out.pending as { id: string; said: string; expires?: number } | undefined;
+	if (pending) return { text: "pending: not on until the boss confirms (10 min)", details: { pending, typed: out.typed === true } };
+	return { text: out.changed === false ? "Auto mode is already in that state." : "Auto mode is off.", details: { changed: out.changed !== false } };
 }
 export type HeadHost = ToolHost & { head: HeadPort };
 /** The head tower's tool host: it opens no tab and closes no main (HT-D2), so those seams refuse; its forwards go to the workspace towers, opened when needed. */
@@ -42,8 +51,12 @@ export async function headTool(host: HeadHost, name: string, args: Record<string
 			return json({ ...details, towers: details.towers.map((t) => ({ ...t, folder: folders.get(t.workspace.id) ?? null })) });
 		}
 		case "tower_send": return forward(host, args, extra);
+		case "boss_auto": {
+			if (typeof args.on !== "boolean") throw new Error("on has to be true or false");
+			return host.head.auto(args.on);
+		}
 		case "board_read": case "tower_memory": case "boss_server": return runTool(host, "local", name, args, extra);
-		default: throw new Error(`${name} is not available to the head tower: it lists, reads the board, forwards with tower_send, keeps its memory, and sees the server`);
+		default: throw new Error(`${name} is not available to the head tower: it lists, reads the board, forwards with tower_send, keeps its memory, switches auto mode on the boss's words with boss_auto, and sees the server`);
 	}
 }
 

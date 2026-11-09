@@ -43,6 +43,8 @@ export interface BriefInput {
 	tools: string[];
 	/** A live run is given this brief again, newer than the one it started with (no wake line). */
 	refreshed?: true;
+	/** The auto mode line (autotower.ts `briefLine`), present only while it is on; never cut. */
+	auto?: string;
 	/** Section 1a, a boss conversation (towers.ts `conversationLines`): how it began, and what the event runs left since the boss last talked with the tower. */
 	conversation?: string;
 	since?: string[];
@@ -76,7 +78,7 @@ function shrink(text: string, limit: number, marker: (n: number) => string, none
 
 export function buildBrief(i: BriefInput): string {
 	const woke = (["intercom", "boss", "notice", "timer"] as const).flatMap((k) => (i.counts[k] ? [`${i.counts[k]} ${k}`] : []));
-	const who = cut(`You are a run of the tower of workspace ${i.label} (${i.workspace}); head tower: ${i.head || "none"}. ${i.refreshed ? `Woken ${i.woken}; this is the newest brief, refreshed while you run.` : `Woken ${i.woken} by: ${woke.join(", ") || "nothing queued"}.`} Your identity for replies is ${i.identity}; everything you send leaves under it.`, CAPS.who);
+	const who = cut(`You are a run of the tower of workspace ${i.label} (${i.workspace}); head tower: ${i.head || "none"}. ${i.refreshed ? `Woken ${i.woken}; this is the newest brief, refreshed while you run.` : `Woken ${i.woken} by: ${woke.join(", ") || "nothing queued"}.`} Your identity for replies is ${i.identity}; everything you send leaves under it.`, CAPS.who) + (i.auto ? `\n${i.auto}` : "");
 	const obligations = i.obligations.length ? ["Open obligations:", ...rowsOf(i.obligations, CAPS.obligations, 200, 2300)].join("\n") : "";
 	const digest = i.digest.length ? ["Since your last run:", ...i.digest.slice(-CAPS.digest).map((l) => `- ${cut(one(l), CAPS.digestLine)}`), ...(i.digest.length > CAPS.digest ? [`(+${i.digest.length - CAPS.digest} older lines left out)`] : [])].join("\n") : "";
 	const note = i.note ? [`Handoff note from the last run (${i.note.age} ago):`, cut(i.note.text, CAPS.note)].join("\n") : "";

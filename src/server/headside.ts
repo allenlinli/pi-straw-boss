@@ -77,6 +77,8 @@ export async function headIntake(d: HeadIntakeDeps, client: IntercomLike, from: 
 }
 
 export interface HeadBriefDeps {
+	/** The auto mode line while it is on (autotower.ts `briefLine`). */
+	auto?: () => string | undefined;
 	slot: Slot;
 	run: HerdrRun;
 	now(): number;
@@ -103,7 +105,7 @@ export async function headBrief(d: HeadBriefDeps, input: { woken: number; run: R
 		expired: section.expired,
 		text: buildHeadBrief({
 			identity: d.record().id, woken: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`, boss: Boolean(input.run.conversation), chapter,
-			workspaces: rows,
+			workspaces: rows, ...(d.auto?.() ? { auto: d.auto()! } : {}),
 			asks: openAsks(d.slot, d.now()).map((a) => ({ id: a.id, label: phrase(a.label, 60), age: ageOf(d.now() - a.at), first: a.first, ...(a.answers.at(-1) ? { answer: a.answers.at(-1)!.first } : {}) })),
 			memory: section.text, lapsed: kept.memory.entries.filter((e) => e.for === "boss" && lapsed(e, d.now())).map((e) => e.id), ...(note ? { note: { text: note.note, age: ageOf(d.now() - Date.parse(note.at)) } } : {}), tools: headTools(d.locale), flags: [],
 		}),

@@ -25,6 +25,7 @@ import type { StepOpen } from "./terminalthen.ts";
 import { type TrustPost, trustPanel, whereOf } from "./trust.ts";
 import type { Exit, Mounts, Term, ZenDeps } from "./zentypes.ts";
 import { domFs, mountFullscreen } from "./zenfs.ts";
+import { fillAuto } from "./auto.ts";
 import { mountCue, mountGestures, mountHead, mountRestTap, quietForwards } from "./zenhead.ts";
 import { mountLine, stillNow } from "./zenlines.ts";
 import { mountPalette } from "./palette.ts";
@@ -72,6 +73,7 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 	const update = h("p", { class: "zen-update", role: "status", "aria-live": "polite" }); // the quiet line while a new build waits for the breath (`upgrade`)
 	const clearEsc = () => (stopEsc(), (stopEsc = () => {}), (escAt = undefined), delete esc.dataset.on, (esc.textContent = ""));
 	const corner = h("div", { class: "zen-corner" }, fs.button, ...(music ? [music.el] : []), menu.el);
+	const autoBox = h("div", { class: "zen-auto", role: "group" }); autoBox.hidden = true;
 	const strip = h("p", { class: "zen-strip" }); // how many units work and how many are idle (the core's selector): nothing about what waits
 	strip.hidden = true;
 	const palette = mountPalette({ entries: () => paletteEntries(), inert: (on) => [stage, corner].forEach((el) => el.toggleAttribute("inert", on)), closed: () => refocus() });
@@ -268,10 +270,11 @@ export function mountZen(root: HTMLElement, deps: ZenDeps, mounts: Mounts = real
 			[company, view] = [undefined, "companion"];
 			deps.watch(net?.head?.key ?? null); // the strip's lines come from the head's stream
 			head.sync(net?.head, Boolean(net));
+			fillAuto(autoBox, net); // the head request to start auto mode: its one button (D9)
 			if (line) return; // the empty state is already drawn
 			line = mountLine(later, deps.still ?? stillNow, deps.random);
 			line.away(!head.rested()); // one thing in paper at a time: the strip's lines first, the mindfulness line at rest
-			stage.replaceChildren(circle(), line.el, head.el);
+			stage.replaceChildren(circle(), line.el, autoBox, head.el);
 			return head.show();
 		}
 		stopLine();

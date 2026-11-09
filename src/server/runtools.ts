@@ -69,6 +69,8 @@ export interface ToolHost {
 	forwardEvent?(id: string): { id: string; from: string } | undefined;
 	/** What the server keeps of a forward it stamped, for the car book to check a slip's coordinator against. */
 	noteForward?(f: { fwd: string; from: string; to: string[]; text: string }): void;
+	/** Auto mode (§6): a reply to a session whose blocked `call_tower` this run took is noted with its gist and the `basis` the run named; the server checks the basis and records `none` for a missing or wrong one. */
+	decided?(to: string, gist: string, basis: unknown): void;
 	/** `tower_memory` of a local run (towermemory.ts): it proposes, and the boss confirms elsewhere. */
 	memory(args: Record<string, unknown>): Promise<ToolResult>;
 	now(): number;
@@ -289,6 +291,7 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			const stamped = forwardOf(host, args), message = str(args, "message");
 			const done = await reach.towerSend(message, opt(args, "workspace"), args.reply === true, stamped ?? {});
 			if (stamped) host.noteForward?.({ fwd: stamped.fwd, from: stamped.fwdFrom, to: sentTo(done.details), text: message });
+			for (const id of sentTo(done.details)) host.decided?.(id, message, args.basis);
 			return done;
 		}
 		case "tower_reply": {
@@ -306,6 +309,7 @@ async function localTool(host: ToolHost, name: string, args: Record<string, unkn
 			const result = await reach.post(target.id, message, "tower_reply", "session", args.reply === true, ally && host.who.device ? `remote:${host.who.device}` : undefined, undefined, stamped ?? {});
 			if (result.status !== "sent") throw new Error(`${shown} did not take the message: ${result.status} ${result.code ?? ""} ${result.detail ?? ""}`.trim());
 			if (stamped) host.noteForward?.({ fwd: stamped.fwd, from: stamped.fwdFrom, to: [target.id], text: message });
+			host.decided?.(target.id, message, args.basis);
 			if (args.reply === true) host.expect(target.id, shown, message);
 			return { text: `Sent to ${shown}.`, details: { to: target.id, status: result.status } };
 		}

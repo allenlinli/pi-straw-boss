@@ -1,3 +1,4 @@
+import type { Requester } from "../autostate.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
 import { join } from "node:path";
@@ -57,6 +58,8 @@ export interface QueuedEvent {
 	flag?: "crash";
 	/** A boss event that is a press of a wait card: the comms draw it as the boss's button, not as typed words (docs/specs/2026-11-07-wait-cards.md). */
 	press?: true;
+	/** Who sent a boss event over the control socket, as the request reported it (auto mode records it; docs/specs/2026-11-09-auto-mode.md, §2). */
+	requester?: Requester;
 }
 
 /** A file name for a Herdr id: ids are short counters, but nothing a caller sends may leave the folder. */

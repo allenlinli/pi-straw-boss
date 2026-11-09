@@ -1,3 +1,4 @@
+import type { Requester } from "../autostate.ts";
 import { randomBytes } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import { basename, resolve, sep } from "node:path";
@@ -1568,10 +1569,10 @@ export function createRuns(o: RunsOptions) {
 			if (!pendingTakeovers) herdrLostAt = undefined;
 		},
 		/** The boss writes to the tower (the GUI's composer, `/boss tower <prompt>`, the tower prompt): an event ahead of the rest; a held service wakes again. */
-		boss(workspace: string, text: string, from = "the boss", opts: { present?: boolean; press?: true } = {}): QueuedEvent {
+		boss(workspace: string, text: string, from = "the boss", opts: { present?: boolean; press?: true; requester?: Requester } = {}): QueuedEvent {
 			const svc = services.get(workspace);
 			if (!svc) throw new Error(`The sb server stands in for no tower of workspace ${workspace}`);
-			const written = append(slot, svc.ref.record(), { kind: "boss", from: { id: "boss", name: from }, text, at: iso(now()), ...(opts.press ? { press: true as const } : {}) });
+			const written = append(slot, svc.ref.record(), { kind: "boss", from: { id: "boss", name: from }, text, at: iso(now()), ...(opts.press ? { press: true as const } : {}), ...(opts.requester ? { requester: opts.requester } : {}) });
 			if (svc.state === "held") (svc.state = svc.run ? "running" : "standing", (svc.crashes = []), (svc.paneBusy = undefined), (svc.notices = svc.notices.filter((n) => n.id !== "loop" && n.id !== "start")));
 			// At the tower prompt the boss is at the pane: the run this wakes is one they are in, from its claim (or from now, when a run is live already).
 			if (opts.present) {
@@ -1686,10 +1687,10 @@ export function createRuns(o: RunsOptions) {
 			return Boolean(a && !a.ended && a.rec.kind === "local" && typeof id === "string" && readQueue(slot, a.rec.workspace).some((e) => e.id === id && e.kind === "boss" && e.taken?.run === a.rec.id));
 		},
 		/** The boss messages a local run took, oldest first: the ones a memory proposal may cite (towermemory.ts). A message offered and not confirmed is not one. */
-		bossEvents(token: unknown): { id: string; text: string }[] {
+		bossEvents(token: unknown): { id: string; text: string; press?: true }[] {
 			const a = of(token);
 			if (!a || a.ended || a.rec.kind !== "local") return [];
-			return readQueue(slot, a.rec.workspace).filter((e) => e.kind === "boss" && e.taken?.run === a.rec.id).map((e) => ({ id: e.id, text: e.text }));
+			return readQueue(slot, a.rec.workspace).filter((e) => e.kind === "boss" && e.taken?.run === a.rec.id).map((e) => ({ id: e.id, text: e.text, ...(e.press ? { press: true as const } : {}) }));
 		},
 		/** The intercom events a local run took, oldest first: the senders (by the broker's id) a wait for the boss may name as the session that raised it (towermemory.ts). */
 		intercomEvents(token: unknown): { id: string; from: { id: string; name?: string } }[] {

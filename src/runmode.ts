@@ -12,7 +12,9 @@ import { HERE_ONLY } from "./link/request.ts";
 import type { ServerLook } from "./server-look.ts";
 import { towerRunsEnabled } from "./server/towerruns.ts";
 import { markRun } from "./runmark.ts";
-import { registerHeadSend } from "./runhead.ts";
+import { registerBossAuto, registerHeadSend } from "./runhead.ts";
+import { asBoss } from "./autoscope.ts";
+import { confirmStaged, drawOpts, type Staged } from "./bossconfirm.ts";
 import { refusedForRun } from "./runallow.ts";
 import { startOf as processStart } from "./startof.ts";
 import { promptSet } from "./trainswitch.ts";
@@ -99,6 +101,8 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 	let inTurn = false, triggered: number | undefined, outOfReach: number | undefined;
 	// The server's event a sent message is for, and the one that started the turn under way: only an event's own message starts a turn that carries it (a steer, the boss's typing, or a notice does not).
 	let startedBy: string | undefined, turnStarter: string | undefined;
+	// The line the boss typed at this pane, the way an event starts a turn: set at the idle `input`, moved at `agent_start`, cleared at `agent_settled`, and numbered per run, so the server counts each typed line once (auto mode, §2).
+	let typedSeq = 0, startedTyped: { text: string; seq: number } | undefined, turnTyped: { text: string; seq: number } | undefined;
 	// A quit the server ordered while the turn runs. pi would keep `ctx.shutdown()` itself and honour it at its next idle moment with no way to take it back, so the run holds the order instead: a server that restarted meanwhile (the run claims again) never ordered it, and the run goes on.
 	let quitOrdered = false;
 	let registered = false, bossSign: number | undefined, bossTyped = false, bossTurn = false, signing: Promise<unknown> | undefined;
@@ -215,9 +219,14 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 	/** A tower tool of the run: the server does the work as the tower identity and the run only shows what came back. */
 	const tool = async (name: string, args: unknown, toolCallId?: string): Promise<{ text: string; details?: unknown }> => {
 		// The event that started this turn is reported with every call (the head's relay=boss, runs.ts `bossTaken`): the server checks it, the model cannot say it.
-		const answer = await call({ cmd: "run-tool", tool: name, args, ...(toolCallId ? { toolCallId } : {}), ...(turnStarter ? { turn: turnStarter } : {}) });
+		const answer = await call({ cmd: "run-tool", tool: name, args, ...(toolCallId ? { toolCallId } : {}), ...(turnStarter ? { turn: turnStarter } : {}), ...(turnTyped ? { typed: turnTyped.text, seq: turnTyped.seq } : {}) });
 		return { text: text(answer.text) || "(no text)", ...(answer.details !== undefined ? { details: answer.details } : {}) };
 	};
+	/** The head pane's own confirm of a staged `on` (D9): drawn by this code in the terminal where the boss typed the turn, never relayed, and answered with a session request (a run's token may not confirm). */
+	const confirmAuto = (pending: Staged, context: ExtensionContext): Promise<string | undefined> => confirmStaged(pending, {
+		draw: (title, body, opts) => asBoss(() => context.ui.confirm(title, body, drawOpts(opts))),
+		ask, now: () => cfg.now(), who: { session: env.PI_INTERCOM_SESSION_ID, pane: env.HERDR_PANE_ID, pid: process.pid },
+	});
 	function registerTools() {
 		if (registered) return;
 		registered = true;
@@ -245,7 +254,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		tools.addOpenMain();
 		tools.addTowerComms();
 		if (claim!.kind === "local") registerLinkRequest();
-		if (claim!.kind === "head") registerHeadSend(pi, tool);
+		if (claim!.kind === "head") (registerHeadSend(pi, tool), registerBossAuto(pi, tool, confirmAuto));
 		// The memory of the tower (towermemory.ts) is a local run's, and the head's: the server refuses the tool to an ally run by its kind as well.
 		if (claim!.kind !== "ally") pi.registerTool({ name: "tower_memory", label: "tower_memory", description: MEMORY_DESCRIPTION, parameters: memoryParameters(), execute: async (id, params) => ({ content: [{ type: "text", text: (await tool("tower_memory", params, id)).text }], details: undefined }) });
 		if (claim!.kind !== "head") pi.registerTool({
@@ -255,6 +264,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 				to: Type.String({ description: "The session's intercom name or session id." }),
 				message: Type.String({ description: "The answer, terse: what the session needs to know or do." }),
 				reply: Type.Optional(Type.Boolean({ description: "Whether you wait for an answer. Default false." })),
+				basis: Type.Optional(Type.String({ description: "Auto mode: when this answers a blocked call_tower, the memory id (S<n>, D<n>) or the boss event id you answer from; without a valid one the return list shows basis none." })),
 				forward: Type.Optional(Type.String({ description: "Tower run only, for a car slip: the id of the call_tower event (why=shared) the slip came in, as the event header shows it. The code then writes the slip's sender into the header (fwd and fwd-from), which the integrator checks against the slip's coordinator; you cannot write either yourself. Send the slip as it came." })),
 			}),
 			execute: async (id, params) => {
@@ -400,15 +410,15 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		// Their words protect the turn from the abort whether or not the server heard them (it may be the very thing that is away): the flag is not undone by a failed request, the rate-limit mark is.
 		bossTyped = true;
 		// The turn their words start is theirs: a hand run holds no guard in it (below). A steer typed in the middle of a turn an event started (pi runs this handler before it queues the words) does not make that turn theirs.
-		if (idle()) bossTurn = true;
+		if (idle()) (bossTurn = true, (startedTyped = { text: event.text, seq: ++typedSeq }));
 		if (bossSign !== undefined && cfg.now() - bossSign < BOSS_SIGN_MS) return;
 		bossSign = cfg.now();
 		// Not waited for: pi takes the boss's words only after this handler, and a round trip here would let the run's own event start a turn first and the words be refused as "already processing". The request goes out now;
 		// a tower_done waits for it (below), so it is heard before the model can end the run. A server that did not hear is asked again at their next words.
 		signing = call({ cmd: "run-boss" }).catch(() => void (bossSign = undefined));
 	});
-	pi.on("agent_start", () => void ((inTurn = true), (triggered = undefined), (turnStarter = startedBy), (startedBy = undefined)));
-	pi.on("agent_settled", () => void ((inTurn = false), (bossTurn = false), (turnStarter = undefined), flushQuit()));
+	pi.on("agent_start", () => void ((inTurn = true), (triggered = undefined), (turnStarter = startedBy), (startedBy = undefined), (turnTyped = startedTyped), (startedTyped = undefined)));
+	pi.on("agent_settled", () => void ((inTurn = false), (bossTurn = false), (turnStarter = undefined), (turnTyped = undefined), flushQuit()));
 	pi.on("tool_call", (event, context) => {
 		if (mode !== "run") return;
 		if (event.toolName === "intercom") return { block: true, reason: BLOCKED };
@@ -542,6 +552,8 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 	return {
 		/** Whether this session is a run (or leaves as one): nothing of the net starts then. `unknown` before `session_start` has decided. */
 		get mode() { return mode; },
+		/** The kind of the claim this run holds (local, ally, or head); undefined for a session that is no run. */
+		get kind() { return claim?.kind; },
 		active: () => mode === "run",
 		/** Whether the pane-role answer is still awaited: the session start (session.ts) waits for it (`afterNormal`). */
 		get deciding() { return deciding !== undefined; },

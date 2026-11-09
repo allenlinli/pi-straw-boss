@@ -944,3 +944,7 @@ Figures on the round 9 drafts, in characters:
 | standing main | 5,824 |
 
 Today every main runs 5,297, and an integrator also reads `integrator.md` (3,280) once.
+
+## Auto mode note (§9, 2026-11-09)
+
+`prompts/duty-standing.md` sends a standing main's questions to `call_tower` `why: blocked`. No kind prompt grows for auto mode (D7): while auto mode is on, the tower parks such a wait (a card marked `parked`, its raiser told once under `wait_parked`) and the main goes on with work that does not need it. See `2026-11-09-auto-mode.md` §4 and §6.

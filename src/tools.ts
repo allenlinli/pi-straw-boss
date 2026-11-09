@@ -229,10 +229,12 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { mainDuty, p
 					for: Type.Optional(Type.String({ description: "Tower run only, with device and reply: a live main (id or name) that asked for this: a main of your workspace, or a main of another workspace on this computer that sent you a call_tower expecting an answer in this run (any other session is refused). The device's answer then goes to that main directly; the result says whether the device's build can do that. Left out, the server binds the one main, of any workspace, that called you for this, if there is exactly one; with none or several the result says no session is bound, and you tell the requester that." })),
 					inReplyTo: Type.Optional(Type.String({ description: "Ally run only: the ask id (see your brief and the event header, asks=) of a message you answer. The answer goes to the main that asked. With head: the head tower's ask id (H12, the ask= of its message)." })),
 					head: Type.Optional(Type.Boolean({ description: "Answer the head tower: set it with inReplyTo, the ask id (H12) of the head tower's message to you. The message goes to the head tower alone, which tells the boss." })),
+					basis: Type.Optional(Type.String({ description: "Tower run, auto mode: when this answers a blocked call_tower, the memory id (S<n> standing instruction, D<n> decision) or the boss event id you answer from. Without a valid one the return list shows basis none." })),
 					forward: Type.Optional(Type.String({ description: "Tower run only, for a car slip: the id of the call_tower event (why=shared) the slip came in, as the event header shows it. The code then writes the slip's sender into the header (fwd and fwd-from), which the integrator checks against the slip's coordinator; you cannot write either yourself. Send the slip as it came." })),
 				}),
-				({ message, workspace, device, reply, for: forMain, inReplyTo, head, forward }) => {
+				({ message, workspace, device, reply, for: forMain, inReplyTo, head, forward, basis }) => {
 					if (forward !== undefined) throw new Error("forward works in a tower run of the sb server (the server holds the call_tower events a slip came in)");
+					if (basis !== undefined) throw new Error("basis works in a tower run of the sb server (the server checks it against the run's memory and the boss events); a main has no basis to give, so leave it out");
 					if (head === true) {
 						if (!inReplyTo) throw new Error("head needs inReplyTo, the ask id of the head tower's message you answer");
 						return answerHead(message, inReplyTo).then((r) => ({ text: r.status === "sent" ? "Sent to the head tower." : `The head tower did not take it: ${r.status} ${r.detail ?? ""}`.trim(), details: { status: r.status } }));

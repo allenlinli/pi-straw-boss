@@ -2,6 +2,10 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startBridge } from "./bridge.ts";
 import { interceptUi } from "./intercept.ts";
+import { registerDeclined } from "./declined.ts";
+import { createAuto } from "./auto.ts";
+import type { Ask } from "./host.ts";
+import { serverAsk } from "./autoask.ts";
 import { registerBoss } from "./boss.ts";
 import { createBoardFill } from "./boardfill.ts";
 import { createBriefing } from "./briefing.ts";
@@ -58,14 +62,23 @@ export function createStrawBoss({ run: given, world: reading, api = herdrApi(), 
 		let closeSelf: ((keepPane: boolean) => string | undefined) | undefined;
 		// Dialogs go to the GUI in the sb server, whose gui.json (in this session's slot of the state directory) names its intercom session; no hub runs in a session.
 		const bridge = startBridge(pi, { env, dir: slotOf(guiDir, env).dir, local: () => undefined, close: (keep) => (closeSelf ? closeSelf(keep) : "A subagent is closed by the session that launched it.") });
-		registerTrust(pi, kit); // pi's startup trust question reaches the GUI too, before any session has joined the net (trust/ask.ts), subagents included
-		interceptUi(pi); // any extension's select and confirm reach the same bridge, subagents included
-		if (env.PI_SUBAGENT_ID) return;
+		// Auto mode (auto.ts) is registered first of the guards and holds in every pi in Herdr, subagents included: it follows auto.json, refuses what would wait for the boss, and reaches the server through the session's look, or a plain ask where it has none.
+		const declined = registerDeclined(pi); // a cancel with no words may be a slipped Esc (declined.ts), subagents included
+		let lookAsk: Ask | undefined, runKind: (() => string | undefined) | undefined; // the session's look at the server and its run's kind, assigned below once the session is no subagent
+		const auto = createAuto(kit, { declined, bridge, silent: () => runKind?.() === "ally", ask: cfg.ask ?? ((request, options) => (lookAsk ?? serverAsk(kit))(request, options)) });
+		s.autoOn = auto.on;
+		registerTrust(pi, kit, undefined, auto.trust); // pi's startup trust question reaches the GUI too, before any session has joined the net (trust/ask.ts), subagents included
+		interceptUi(pi, auto); // any extension's select and confirm reach the same bridge, subagents included
+		if (env.PI_SUBAGENT_ID) return void auto.attach();
 		// A pi the sb server started for a tower run (runmode.ts) decides first, at session_start: when it is a run, nothing of the net starts.
 		warmStart(); // Windows tells a process's start time through PowerShell, 2 to 3 s: read this one's now, in the background, so the records written later carry it
 		const roles = createRoles(kit);
 		registerTrainSigns(kit, roles); // first of the session_start handlers: the sign of a train is held before any of them awaits
+		auto.attach(); // the follow of auto.json and its transition come after it
 		const mainDuty = createMainDuty(kit), link = createLink(kit), briefing = createBriefing(kit, mainDuty), look = cfg.server ? createServerLook(kit, cfg.server) : undefined, runMode = createRunMode(kit, look, cfg.runSide, link), reach = createReach(kit, look), election = createElection(kit), presence = createPresence(kit, mainDuty), digest = createDigest(run, now);
+		lookAsk = look?.ask;
+		auto.running(() => runMode.active());
+		runKind = () => runMode.kind;
 		mainDuty.promptsOff(() => briefing.off());
 		mainDuty.onWrite(({ from, to, why }) => (briefing.rebrief(), void presence.publish(), void digest.note(kit.s.at.workspaceId, `${kit.s.ownName || pi.getSessionName() || kit.me().slice(0, 8)} kind ${from ?? "none"}→${to}: ${why}`).catch(() => {})));
 		look?.holdWhile(() => runMode.mode === "run" || Boolean(pi.getFlag("sb-run")));

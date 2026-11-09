@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { underBoss } from "./autoscope.ts";
 import { type Bus, type Select, selectDigest, UI_PREFIX } from "./owners.ts";
 
 // Lets the GUI answer any extension's ctx.ui.select and ctx.ui.confirm without changing that extension. Every extension's ctx.ui is one object (the
@@ -34,9 +35,11 @@ type Wrapped = Record<Kind, Call> & Record<(typeof PASS)[number], (...a: never[]
 /** A dialog on the bus: `answer` is the choice the GUI took, set once, before its terminal twin is aborted. */
 interface Relay { id: string; digest: string; count: number; ac: AbortController; by?: string; answer?: number; cancelled?: true; close(by: string): void }
 
-export function interceptUi(pi: ExtensionAPI, auto?: { escape(flying: ReadonlyMap<string, string>): boolean }): void {
-	const bus = pi.events as Bus, flying = new Map<string, string>(), relays = new Map<string, Relay>(), closed: string[] = [];
-	let open = 0, gen = 0, listening: (() => void) | undefined;
+export function interceptUi(pi: ExtensionAPI, auto?: { escape(flying: ReadonlyMap<string, string>): boolean; /** Told which relayed dialog is a /boss command's, which auto mode's transition leaves alone. */ boss?(id: string): void; /** Given the count of open dialogs that nobody relays (auto mode aborts the turn for them). */ track?(t: { unrelayed(): number }): void }): void {
+	const bus = pi.events as Bus, flying = new Map<string, string>(), relays = new Map<string, Relay>(), closed: string[] = [], bossIds = new Set<string>();
+	let open = 0, bossOpen = 0, gen = 0, listening: (() => void) | undefined;
+	// Open dialogs that are neither relayed nor a /boss command's: the transition can only abort the turn for them.
+	auto?.track?.({ unrelayed: () => Math.max(0, open - bossOpen - [...relays.keys()].filter((id) => !bossIds.has(id)).length) });
 	/** A listener that throws on the bus must not break the call: what is said after the dialog opened is best effort. */
 	const tell = (channel: string, data: unknown) => {
 		try {
@@ -69,13 +72,14 @@ export function interceptUi(pi: ExtensionAPI, auto?: { escape(flying: ReadonlyMa
 	};
 
 	/** Starts a relay for a call, or returns undefined when it cannot or should not be relayed. */
-	function start(kind: Kind, title: unknown, second: unknown, here: boolean): { r: Relay; taken(): Result } | undefined {
+	function start(kind: Kind, title: unknown, second: unknown, here: boolean, mark = false): { r: Relay; taken(): Result } | undefined {
 		const options = kind === "select" && Array.isArray(second) ? (second as unknown[]) : undefined;
 		const text = kind === "confirm" ? (typeof second === "string" && second ? `${title}\n\n${second}` : String(title)) : String(title);
 		if (typeof title !== "string" || (kind === "select" && (!options || !options.length || options.length > MAX_CHOICES || !options.every((o) => typeof o === "string")))) return;
 		if (flying.size !== 1 || [...flying.values()][0] === "secret_drop" || text.length > MAX_TEXT || (options && options.reduce((n: number, o) => n + (o as string).length, 0) > MAX_TEXT)) return;
 		const select: Select = { title: text, choices: (options ?? ["Yes", "No"]).map((label) => ({ label: label as string, ...(here ? { hereOnly: true as const } : {}) })), ...(kind === "confirm" ? { confirm: true as const } : {}) };
 		const id = randomUUID(), digest = selectDigest(select), callId = [...flying.keys()][0]!;
+		if (mark) (bossIds.add(id), auto?.boss?.(id));
 		const r: Relay = { id, digest, count: select.choices.length, ac: new AbortController(), close(by) {
 			if (r.by) return;
 			retire(r, by);
@@ -98,13 +102,15 @@ export function interceptUi(pi: ExtensionAPI, auto?: { escape(flying: ReadonlyMa
 		if (auto?.escape(flying)) return Promise.resolve(kind === "confirm" ? false : undefined);
 		if (opts && (opts as Record<symbol, unknown>)[NO_RELAY]) return (counted(orig as never) as Call)(title, second, opts);
 		if (open++ > 0) [...relays.values()].forEach((r) => r.close("error")); // a dialog over a relayed one: the page could not tell which an answer would dismiss
+		const mark = underBoss();
+		if (mark) bossOpen++;
 		let relay: ReturnType<typeof start>;
 		try {
-			relay = open === 1 ? start(kind, title, second, (opts as Record<symbol, unknown> | undefined)?.[HERE_ONLY] === true) : undefined;
+			relay = open === 1 ? start(kind, title, second, (opts as Record<symbol, unknown> | undefined)?.[HERE_ONLY] === true, mark) : undefined;
 		} catch {
 			relay = undefined; // never break the extension's dialog: this call is the original one
 		}
-		const done = leaving();
+		const done = leaving(mark);
 		if (!relay) {
 			try {
 				return Promise.resolve(orig(title, second, opts)).finally(done);
@@ -130,19 +136,23 @@ export function interceptUi(pi: ExtensionAPI, auto?: { escape(flying: ReadonlyMa
 	};
 
 	/** What a dialog calls once it ended: it leaves the count unless the count was reset meanwhile (a dialog that never ended cannot hold relaying off for good). */
-	const leaving = () => {
+	const leaving = (boss = false) => {
 		const g = gen;
-		return () => void (g === gen && open > 0 && open--);
+		return () => void (g === gen && open > 0 && (open--, boss && bossOpen > 0 && bossOpen--));
 	};
 	const reset = () => {
 		gen++;
 		open = 0;
+		bossOpen = 0;
+		bossIds.clear();
 		[...relays.values()].forEach((r) => r.close("error"));
 	};
 	/** `input`, `editor`, and `custom` only count: arguments and results go through untouched, and a dialog open over a relayed one withdraws it. */
 	const counted = <T extends (...a: never[]) => unknown>(orig: T): T => (function (this: unknown, ...args: never[]) {
 		if (open++ > 0) [...relays.values()].forEach((r) => r.close("error"));
-		const done = leaving();
+		const mark = underBoss();
+		if (mark) bossOpen++;
+		const done = leaving(mark);
 		try {
 			const out = orig.apply(this, args);
 			return out && typeof (out as Promise<unknown>).finally === "function" ? (out as Promise<unknown>).finally(done) : (done(), out);

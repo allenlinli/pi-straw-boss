@@ -66,7 +66,9 @@ export interface AnswerMessage extends Omit<Answer, "value"> { version: 1; type:
 /** The hub when it runs in this session: it takes what a remote bridge would publish, from this session's id. */
 export interface LocalHub { receive(from: string, msg: ToHub): void }
 /** What the hub calls on the bridge of its own session. */
-export interface Bridge { deliver(msg: AnswerMessage, reply: (ack: Ack) => void): void; sync(): void; probe(nonce?: string, flags?: boolean): Editor; commands(prefix: string): Cmd[]; form(msg: FormMessage, reply: (r: FormReply) => void): void; close(keepPane: boolean, ifStashable?: boolean): { accepted: boolean; reason?: string }; stashCheck(): string | undefined; /** What an `interrupt` of a stop uses (closemain.ts): whether a turn runs, what an abort does not end, and the abort. */ turn?: { running(): boolean; blockers(): string | undefined; abort(): void }; pull(step: "begin" | "finish", ref?: string, deadline?: number): Pull | Promise<Pull> }
+/** A wait that auto mode ended or could not end (auto.ts): the tool whose call opened it, that call, and the dialog. */
+export interface Ended { tool: string; toolCallId?: string; dialog: Dialog }
+export interface Bridge { /** Ends the open waits for auto mode (docs/specs/2026-11-09-auto-mode.md, §5): an owner that takes a cancel gets one, the rest are `stuck` and need the turn aborted. `skip` leaves a dialog alone (the boss's own command's). */ cancelWaits?(skip?: (d: Dialog) => boolean): { cancelled: Ended[]; stuck: Ended[] }; deliver(msg: AnswerMessage, reply: (ack: Ack) => void): void; sync(): void; probe(nonce?: string, flags?: boolean): Editor; commands(prefix: string): Cmd[]; form(msg: FormMessage, reply: (r: FormReply) => void): void; close(keepPane: boolean, ifStashable?: boolean): { accepted: boolean; reason?: string }; stashCheck(): string | undefined; /** What an `interrupt` of a stop uses (closemain.ts): whether a turn runs, what an abort does not end, and the abort. */ turn?: { running(): boolean; blockers(): string | undefined; abort(): void }; pull(step: "begin" | "finish", ref?: string, deadline?: number): Pull | Promise<Pull> }
 interface Channel { snapshot(): { connected: boolean; owner?: { sessionId: string; epoch: string } }; publish(payload: unknown, options?: { audience?: "owner" | "capable" }): void }
 interface Rec { adapter: OwnerAdapter; d: Dialog; state: "open" | "settling" | "unknown" | "closed"; answerId?: string; accepted?: boolean; by?: string; allow?: true; at?: number; last?: Ack; waiting: ((ack: Ack) => void)[] }
 type Event = { type: string; fromSessionId?: string; owner?: { sessionId: string; epoch: string }; payload?: Record<string, unknown> };
@@ -181,6 +183,17 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		try { ui!.ui.setEditorText(t.before); } catch { return { reason: "not_cleared" }; } // handing it over while it stays in the editor would send it twice
 		if (t.take) taken = { take: t.take, text: got.text, at: Date.now() };
 		return { text: got.text };
+	};
+	/** Auto mode's transition: the cancel goes through the very path the page's Cancel takes, so the owner decides and the dialog closes as it does for a cancel. A dialog an answer is already settling is left to close by itself. */
+	const cancelWaits = (skip: (d: Dialog) => boolean = () => false) => {
+		const cancelled: Ended[] = [], stuck: Ended[] = [];
+		for (const r of open()) {
+			if (r.state !== "open" || skip(r.d)) continue;
+			const ended = { tool: (r.d.toolCallId ? calls.get(r.d.toolCallId)?.tool : undefined) ?? r.adapter.tool ?? r.d.owner, dialog: r.d, ...(r.d.toolCallId ? { toolCallId: r.d.toolCallId } : {}) };
+			if (r.adapter.cancellable && !r.d.secret) (deliver({ version: 1, type: "answer", to: bridgeId, id: r.d.id, answerId: `auto-${randomUUID()}`, digest: r.d.digest, cancel: true }, () => {}), cancelled.push(ended));
+			else stuck.push(ended);
+		}
+		return { cancelled, stuck };
 	};
 	/** Why this session cannot be stashed and resumed as it is now: a turn or a queue, a dialog, or a monitor that a resume would not bring back. */
 	const stashCheck = () => {
@@ -339,5 +352,5 @@ export function startBridge(pi: ExtensionAPI, { env, dir, local, close, platform
 		offs.splice(0).forEach((off) => off());
 		(clearInterval(poll), (poll = undefined));
 	});
-	return { deliver, sync: () => ((seen = -1), follow()), probe: (nonce, flags) => editor(nonce, flags), commands: (prefix) => listCommands(pi, prefix), form, close: shut, stashCheck, turn: { running: () => !idle(), blockers, abort: () => abort() }, pull };
+	return { cancelWaits, deliver, sync: () => ((seen = -1), follow()), probe: (nonce, flags) => editor(nonce, flags), commands: (prefix) => listCommands(pi, prefix), form, close: shut, stashCheck, turn: { running: () => !idle(), blockers, abort: () => abort() }, pull };
 }

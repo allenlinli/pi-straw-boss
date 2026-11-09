@@ -553,6 +553,8 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 	return {
 		/** Whether this session is a run (or leaves as one): nothing of the net starts then. `unknown` before `session_start` has decided. */
 		get mode() { return mode; },
+		/** The kind of the claim this run holds (local, ally, or head); undefined for a session that is no run. */
+		get kind() { return claim?.kind; },
 		active: () => mode === "run",
 		/** Whether the pane-role answer is still awaited: the session start (session.ts) waits for it (`afterNormal`). */
 		get deciding() { return deciding !== undefined; },

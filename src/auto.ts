@@ -1,9 +1,11 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AUTO_FILE, type AutoState, autoOnForTrust, readAuto } from "./autostate.ts";
 import { underBoss } from "./autoscope.ts";
-import { type AgentKind, CALL_TOWER_LINE, refusedText, SHOW_DOC_LINE, typedHint } from "./autotext.ts";
+import { type AgentKind, CALL_TOWER_LINE, cancelledText, offNotice, onNotice, refusedText, SHOW_DOC_LINE, typedHint } from "./autotext.ts";
+import type { Bridge, Ended } from "./bridge.ts";
+import type { Declined } from "./declined.ts";
 import type { Ask } from "./host.ts";
 import type { Kit } from "./state.ts";
 import { secretShaped } from "./server/waitcard.ts";
@@ -16,6 +18,7 @@ import { secretShaped } from "./server/waitcard.ts";
 const WAITING = new Set(["ask_user_question", "question", "robot_hand", "secret_drop", "link_request"]);
 /** pi-mcp-adapter's `mcp` waits for a browser login only for these actions. */
 const MCP_LOGIN = new Set(["auth-start", "auth-complete"]);
+const POLL_MS = 2000;
 const waits = (tool: string, input: unknown) => WAITING.has(tool) || (tool === "mcp" && typeof input === "object" && input !== null && MCP_LOGIN.has(String((input as { action?: unknown }).action)));
 const GIST_MAX = 120;
 const text = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -30,8 +33,22 @@ export function gistOf(tool: string, input: unknown): string {
 export interface Note { tool: string; kind: "refused" | "cancelled" | "escaped" | "trust"; gist: string }
 
 export type Auto = ReturnType<typeof createAuto>;
-export function createAuto({ pi, cfg, s, guiDir, me }: Kit, d: { ask?: Ask; running?: () => boolean } = {}) {
+export interface AutoDeps {
+	ask?: Ask;
+	running?: () => boolean;
+	/** The session's bridge: it ends the open waits at the transition (bridge.ts `cancelWaits`) and aborts the turn when one cannot be ended. */
+	bridge?: Pick<Bridge, "cancelWaits" | "turn">;
+	/** Esc before a decline (declined.ts): a cancel sb made is never the boss's. */
+	declined?: Declined;
+	/** An ally run is told nothing of auto mode (D5). */
+	silent?: () => boolean;
+}
+export function createAuto({ pi, cfg, s, guiDir, me }: Kit, d: AutoDeps = {}) {
 	let key = "", current: AutoState | undefined, warned = false, hinted = false;
+	let ctx: ExtensionContext | undefined, timer: ReturnType<typeof setInterval> | undefined, confirmedRev = -1, lastOn: boolean | undefined, checking = false;
+	let tracker: { unrelayed(): number } | undefined, queued: string[] | undefined;
+	/** Calls auto mode cancelled: their result is replaced by id, and the Esc rule leaves them alone. */
+	const cancelledIds = new Map<string, string>(), bossDialogs = new Set<string>();
 	let running = d.running ?? (() => false);
 	/** Calls whose dialog was answered as Escape without drawing: their result gains the refusal. */
 	const escaped = new Map<string, string>();
@@ -63,6 +80,9 @@ export function createAuto({ pi, cfg, s, guiDir, me }: Kit, d: { ask?: Ask; runn
 		}
 	});
 	pi.on("tool_result", (event) => {
+		// A call sb cancelled never reads as the boss's Esc: the result is replaced, by the call's id.
+		const cancelledTool = cancelledIds.get(event.toolCallId);
+		if (cancelledTool !== undefined) return (cancelledIds.delete(event.toolCallId), { content: [{ type: "text" as const, text: cancelledText(current?.since, cancelledTool, kind()) }] });
 		const dialog = escaped.get(event.toolCallId);
 		escaped.delete(event.toolCallId);
 		let line: string | undefined;
@@ -78,7 +98,70 @@ export function createAuto({ pi, cfg, s, guiDir, me }: Kit, d: { ask?: Ask; runn
 		if (ctx.hasUI) ctx.ui.notify(typedHint(current?.since), "info");
 	});
 
+	// --- the transition (§1, §5) ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+	const idle = () => { try { return ctx?.isIdle() !== false; } catch { return true; } };
+	const send = (text: string, trigger: boolean) => void pi.sendMessage({ customType: "straw-auto", content: text, display: true }, trigger ? { triggerTurn: true } : { deliverAs: idle() ? "nextTurn" : "steer" });
+	const tell = (text: string) => { if (!d.silent?.()) send(text, false); };
+	/** What the wait was about, for the return list: a question's header, a command's first line, a secret's label; a secret-shaped gist is withheld. */
+	const gistOfDialog = (e: Ended): string => {
+		const dlg = e.dialog, raw = dlg.questions?.[0]?.header ?? dlg.questions?.[0]?.question ?? dlg.secret?.label ?? dlg.select?.title ?? "";
+		const line = raw.split("\n")[0]!.replace(/\s+/g, " ").trim().slice(0, GIST_MAX);
+		return line && secretShaped(line) ? "(withheld)" : line;
+	};
+	/** A confirmed `on`: the open waits end (an owner that takes a cancel gets it; for the rest the turn is aborted), each with sb's text; a first `on` also tells the session once. */
+	function cancelOpen(st: AutoState, first: boolean) {
+		const unrelayed = tracker?.unrelayed() ?? 0, ended = d.bridge?.cancelWaits?.((dlg) => bossDialogs.has(dlg.id)) ?? { cancelled: [], stuck: [] };
+		for (const e of [...ended.cancelled, ...ended.stuck]) {
+			if (e.toolCallId) (cancelledIds.set(e.toolCallId, e.tool), d.declined?.sbCancelled(e.toolCallId));
+			note({ tool: e.tool, kind: "cancelled", gist: gistOfDialog(e) });
+		}
+		const texts = [...new Set([...ended.cancelled, ...ended.stuck].map((e) => cancelledText(st.since, e.tool, kind())))];
+		if (first && !d.silent?.()) texts.push(onNotice(st.since));
+		if (!ended.stuck.length && !unrelayed) return void (texts.length && tell(texts.join("\n")));
+		// A wait that cannot be ended (robot_hand and secret_drop ignore a cancel, as does a dialog nobody relays) goes with the turn: abort it, and once pi has settled, a message starts the next turn with sb's text (AM-F004).
+		if (d.bridge?.turn?.running()) (queued = texts.length ? texts : [cancelledText(st.since, "dialog", kind())], d.bridge.turn.abort());
+		else if (texts.length) send(texts.join("\n"), true);
+	}
+	/** Asks the server whether the file's write is its own; acts once per confirmed rev. A server that does not answer is waited for (the next poll). */
+	async function poll() {
+		if (checking) return;
+		checking = true;
+		try {
+			refresh();
+			const st = current;
+			if (!st || st.rev === confirmedRev) return;
+			const answer = await d.ask?.({ cmd: "auto-check", rev: st.rev, hash: st.hash }, { start: "never" });
+			if (!answer?.ok || answer.own !== true || current?.rev !== st.rev) return;
+			confirmedRev = st.rev;
+			const was = lastOn;
+			lastOn = st.on;
+			if (st.on) cancelOpen(st, was !== true);
+			else if (was === true) tell(offNotice(new Date(cfg.now()).toISOString()));
+		} catch { /* the next poll tries again */ } finally {
+			checking = false;
+		}
+	}
+	/** Registered by the entry point after the train signs (their session_start handler must come first, index.ts). */
+	function attach() {
+		pi.on("session_start", (_event, context) => {
+			ctx = context;
+			refresh();
+			clearInterval(timer);
+			timer = setInterval(() => void poll(), cfg.adoptMs || POLL_MS);
+			timer.unref?.();
+			void poll();
+		});
+		pi.on("session_shutdown", () => (clearInterval(timer), (timer = undefined)));
+		pi.on("agent_settled", () => {
+			const texts = queued;
+			queued = undefined;
+			if (texts) send(texts.join("\n"), true);
+		});
+	}
+
 	return {
+		attach, poll, track: (t: { unrelayed(): number }) => void (tracker = t), boss: (id: string) => void (bossDialogs.add(id), bossDialogs.size > 64 && bossDialogs.delete(bossDialogs.values().next().value as string)),
 		on, since: () => current?.since, kind, refresh, note,
 		state: () => current,
 		/** For the entry point: the session is a tower run when this says so. */

@@ -44,6 +44,7 @@ import { headCommand, markWaitAnswered } from "./headcmds.ts";
 import { requesterFrom } from "../autostate.ts";
 import { createAutoMode } from "./automode.ts";
 import { autoPanel, autoReply } from "./autoops.ts";
+import { createBackstop } from "./autoback.ts";
 import { headSeam } from "./headnet.ts";
 import { towerPanel } from "./towerpanel.ts";
 import { runsStopMs } from "./runs.ts";
@@ -742,6 +743,11 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		dialogsOut().start();
 		// A controller that gained `dispatch` mid-dialog gets it, a dialog unanswered for 30 minutes is told, and each controller's unit-status goes out when it changed or a minute has passed.
 		timers.push(setInterval(() => void Promise.all([dialogsOut().tick(), unitsOut().tick()]), o.unitsMs ?? 15_000));
+		// Auto mode's backstop (autoback.ts): a wait older than 30 s that a session on an older sb did not cancel gets the GUI's cancel, once, with an intercom message.
+		if (auto) {
+			const back = createBackstop({ auto, now, read: () => guiHost!.dialogs().read(), answerable: () => guiHost!.dialogs().hub.answerable(), send: (key, target, answer) => guiHost!.dialogs().hub.send(key, target, answer), tell: tellVia(() => client, serverId(slot), "auto_notice") });
+			timers.push(setInterval(() => void back.tick().catch((error: Error) => log.line("error", { code: "auto-backstop", text: phrase(error.message, 200) })), o.unitsMs ?? 5000));
+		}
 		// Expired trainboards go (trainsweep.ts, spec §10): once now, then every hour.
 		stops.push(startTrainSweep({ stateDir: slot.stateDir, env, now, log: (event, facts) => log.line(event, facts), skip: () => Boolean(leaving) || phase === "stopping" || phase === "restarting", ...o.trainboards }));
 	} else log.line("dialog-forwarder", { state: "skipped", primary: slot.primary, leaving: Boolean(leaving), phase });

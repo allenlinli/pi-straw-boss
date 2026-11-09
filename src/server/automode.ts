@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AUTO_FILE, type AutoState, type By, isOwn, matchBoss, OWN_FILE, type Own, type Pending, readAuto, readOwn, seal } from "../autostate.ts";
 
@@ -30,6 +30,14 @@ export interface View { on: boolean; since?: string; rev: number; hash: string; 
 
 /** A requester as flat facts for the log. */
 const whoFacts = (by: By) => ({ via: by.via, name: by.name, session: by.requester?.session, pane: by.requester?.pane, pid: by.requester?.pid });
+/** One thing auto mode did to a session, for the return list: a refusal, a cancel, a dialog answered as Escape, a trust question, or a wait the backstop could not end. Never the content of an answer. */
+export const NOTE_KINDS = ["refused", "cancelled", "escaped", "trust", "still-waiting", "re-asked", "backstop"] as const;
+export interface Note { session: string; tool: string; kind: (typeof NOTE_KINDS)[number]; gist: string; at: string }
+/** What one period of auto mode collected, from the switch on to the switch off (§8). */
+export interface Period { since: string; notes: Note[]; foreign: { at: string; why: string }[]; decided: Decided[] }
+/** A `tower_reply` or `tower_send` a run made to a session whose `blocked` call it took, while auto mode was on (§6; AM2-F004). */
+export interface Decided { at: string; run: string; to: string; gist: string; basis: string }
+export const PERIOD_FILE = "auto-period.json", NOTES_MAX = 500;
 const phrase = (v: string, max: number) => v.replace(/\s+/g, " ").trim().slice(0, max);
 
 export function createAutoMode(d: AutoDeps) {
@@ -37,9 +45,18 @@ export function createAutoMode(d: AutoDeps) {
 	const boot: By = { via: "pi", name: "server" };
 	let own: Own = { v: 1, rev: 0, hash: "", state: seal({ v: 1, rev: 0, on: false, by: boot }), used: { events: [], typed: [] } };
 	own.hash = own.state.hash;
-	let foreign = 0;
+	let foreign = 0, period: Period | undefined;
 	const listeners = new Set<(change: Change) => void>();
 
+	const readPeriod = (): Period | undefined => {
+		try {
+			const j = JSON.parse(readFileSync(join(d.dir, PERIOD_FILE), "utf8")) as Partial<Period>;
+			return typeof j.since === "string" && Array.isArray(j.notes) ? { since: j.since, notes: j.notes.slice(-NOTES_MAX), foreign: Array.isArray(j.foreign) ? j.foreign : [], decided: Array.isArray(j.decided) ? j.decided : [] } : undefined;
+		} catch {
+			return undefined;
+		}
+	};
+	const savePeriod = () => { if (period) write(PERIOD_FILE, period); };
 	const write = (name: string, value: unknown) => {
 		const file = join(d.dir, name), tmp = `${file}.${process.pid}.tmp`;
 		mkdirSync(d.dir, { recursive: true });
@@ -65,6 +82,7 @@ export function createAutoMode(d: AutoDeps) {
 	const putBack = (why: string, floor = 0) => {
 		foreign++;
 		d.log("auto-foreign", { why });
+		if (period) (period.foreign.push({ at: iso(), why }), savePeriod());
 		const change = move({ on: own.state.on, ...(own.state.since ? { since: own.state.since } : {}), by: own.state.by }, {}, floor);
 		tell(change);
 	};
@@ -73,6 +91,7 @@ export function createAutoMode(d: AutoDeps) {
 	function start() {
 		const record = readOwn(d.dir);
 		if (record) own = record;
+		period = own.state.on ? readPeriod() : undefined;
 		reconcile();
 	}
 	function reconcile() {
@@ -113,6 +132,8 @@ export function createAutoMode(d: AutoDeps) {
 	function switchOn(by: By): Outcome {
 		if (own.state.on) return { ok: true, changed: false };
 		const change = move({ on: true, since: iso(), by }, { pending: undefined });
+		period = { since: change.to.since!, notes: [], foreign: [], decided: [] };
+		savePeriod();
 		d.log("auto-on", whoFacts(by));
 		tell(change);
 		return { ok: true, changed: true };
@@ -153,6 +174,23 @@ export function createAutoMode(d: AutoDeps) {
 	}
 	/** Whether a session's reading is the server's own write; with it the session acts once per rev (§1). */
 	const check = (rev: unknown, hash: unknown) => rev === own.rev && hash === own.hash;
-	return { start, tick, view, state, stage, confirm, switchOn, switchOff, bossAuto, check, onSwitch: (l: (change: Change) => void) => (listeners.add(l), () => void listeners.delete(l)), foreignCount: () => foreign };
+	/** A session's note of what auto mode did to it (`auto-note`): kept only while on, cut to the fields the list shows, at most 500 a period. */
+	function note(raw: Record<string, unknown>): Outcome {
+		if (!own.state.on || !period) return { ok: false, error: "auto mode is off" };
+		const kind = NOTE_KINDS.find((k) => k === raw.kind);
+		if (!kind) return { ok: false, error: "unknown kind" };
+		period.notes.push({ session: phrase(String(raw.session ?? ""), 80), tool: phrase(String(raw.tool ?? ""), 60), kind, gist: phrase(String(raw.gist ?? ""), 120), at: typeof raw.at === "string" && !Number.isNaN(Date.parse(raw.at)) ? raw.at : iso() });
+		if (period.notes.length > NOTES_MAX) period.notes.splice(0, period.notes.length - NOTES_MAX);
+		savePeriod();
+		return { ok: true };
+	}
+	/** A reply of a run that decided a blocked call itself (§6). */
+	function decided(entry: Omit<Decided, "at">): void {
+		if (!own.state.on || !period) return;
+		period.decided.push({ at: iso(), ...entry, gist: phrase(entry.gist, 120) });
+		if (period.decided.length > NOTES_MAX) period.decided.splice(0, period.decided.length - NOTES_MAX);
+		savePeriod();
+	}
+	return { note, decided, period: () => period, start, tick, view, state, stage, confirm, switchOn, switchOff, bossAuto, check, onSwitch: (l: (change: Change) => void) => (listeners.add(l), () => void listeners.delete(l)), foreignCount: () => foreign };
 }
 export type AutoMode = ReturnType<typeof createAutoMode>;

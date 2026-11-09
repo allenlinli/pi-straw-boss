@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { MARK } from "../src/herdr.ts";
 import { type Board, writeBoard, writeYard, type Yard } from "../src/train/board.ts";
-import { integrators, isIntegrator, stepOf } from "../src/trainsign.ts";
+import { stepOf } from "../src/trainsign.ts";
 import { until, World } from "./fakes.ts";
 
 // Task 6 (docs/specs/2026-11-07-train-workers.md §12): the integrator and the train find themselves in the trainboard files, and their panes carry the keys, marks and `sb_step` from them.
@@ -28,31 +28,6 @@ const yard = (session: string, by = writer(session), project = "acme"): Yard => 
 const board = (steps: Board["steps"]): Board => ({ v: 1, project: "acme", app: "web", code: M, writer: writer("train-1"), updated: "2026-11-07T08:00:00Z", round: 1, cars: [], steps });
 const step = (id: number, status: Board["steps"][number]["status"], kind: Board["steps"][number]["kind"] = "full-check", extra: object = {}): Board["steps"][number] => ({ id, kind, name: "n", status, round: 1, ...extra });
 
-test("the integrator is the session a project's yard names as its writer; nobody else, and nothing a pane says", () => {
-	const root = state(), up = () => true;
-	assert.equal(isIntegrator(root, "integ-1", up), false, "no trainboard folder");
-	writeYard(root, yard("integ-1"));
-	assert.equal(isIntegrator(root, "integ-1", up), true);
-	assert.equal(isIntegrator(root, "integ-2", up), false);
-	mkdirSync(join(root, "trainboard", "..bad"), { recursive: true });
-	assert.equal(isIntegrator(root, "integ-1", up), true, "a folder that is no project name is skipped");
-	assert.deepEqual([...integrators(root, up)], ["integ-1"]);
-});
-
-test("TT-F003: a yard counts only while its writer's process runs: a yard of a gone writer, or one that names a pid it does not own, gives no integrator", () => {
-	const root = state(), seen: unknown[] = [];
-	writeYard(root, yard("integ-1"));
-	assert.equal(isIntegrator(root, "integ-1", (w) => (seen.push(w), false)), false, "the writer is gone: the old yard keeps no mark");
-	assert.deepEqual(seen, [writer("integ-1")], "the liveness question is the writer record of the yard");
-	assert.deepEqual([...integrators(root, () => false)], []);
-	const ended = spawnSync(process.execPath, ["-e", ""]).pid!;
-	writeYard(root, yard("integ-2", { session: "integ-2", pid: ended, started: new Date().toISOString() }, "beta"));
-	assert.equal(isIntegrator(root, "integ-2"), false, "by default the pid of a process that has ended is no writer");
-	writeYard(root, yard("integ-3", live("integ-3"), "gamma"));
-	assert.equal(isIntegrator(root, "integ-3"), true, "by default a writer that runs counts");
-	assert.deepEqual([...integrators(root)], ["integ-3"]);
-});
-
 test("a train's step is its own board's: the lowest step in progress, else the newest completed; none for a missing board", () => {
 	const root = state(), train = { project: "acme", code: M };
 	assert.equal(stepOf(root, train), undefined);
@@ -64,12 +39,11 @@ test("a train's step is its own board's: the lowest step in progress, else the n
 	assert.equal(stepOf(root, train), "\uF00D land");
 });
 
-test("a main whose yard names it carries the integrator's key and mark, its member follows into the same place, and a main that is none keeps its tab's place", async () => {
-	const root = world.stateDir;
-	writeYard(root, yard("integ-1", live("integ-1")));
-	const main = world.agent({ id: "integ-1", name: "integ-acme", pane: "wA:p1", tab: "wA:t1" });
+test("a main of the integrator kind carries the integrator's key and mark, its member follows into the same place, and a main that is none keeps its tab's place", async () => {
+		const main = world.agent({ id: "integ-1", name: "integ acme", pane: "wA:p1", tab: "wA:t1" });
 	await main.start();
 	await main.promote();
+	await main.run(); // the name migrates the main to the integrator kind before its prompt is built (docs/specs/2026-11-09-agent-kinds.md §2)
 	await until(() => world.herdr.pane("wA:p1").tokens.sb_mark === MARK.integrator, "the integrator's mark");
 	assert.match(world.herdr.pane("wA:p1").tokens.sb_order!, /^000\.05\.\d{3}\.0\.000$/);
 	const other = world.agent({ id: "main-2", name: "Docs", pane: "wA:p3", tab: "wA:t2" });

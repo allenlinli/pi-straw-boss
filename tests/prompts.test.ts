@@ -32,7 +32,7 @@ const BUDGETS: Record<string, number> = { "main.md": 501, "tower.md": 402, "memb
 // Whole-batch fix round (batch-review.md TB-F001 to F009): measured: planning.md on 693 to 699 (absolute evidence paths), integrator.md 453 to 509 (sb reads apps.json and refuses, the todo goes in_progress before the call, the code's form, a car with no forward), train.md 520 to 542 (the version refusal, evidence short of the app's requirement, `round` of dropped).
 const ON_BUDGETS: Record<string, number> = { "main.md": 743, "tower.md": 469 };
 // 2026-11-08 (todo #125 task 5, TP-F004): `{{cli}}` is the command that runs cli.mjs.
-const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir", "state", "cli"]);
+const PLACEHOLDERS = new Set(["tab", "workspace", "main", "tower", "head", "dir", "state", "cli", "duty"]);
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
 test("every role prompt stays within its word budget", () => {
@@ -76,7 +76,7 @@ test("the main plans from planning.md: graph, todos with owners and blockedBy, s
 	for (const term of ["single-loop", "fan-out", "orchestrator-worker", "`owner`", "`blockedBy`", "share one checkpoint", "without asking the boss to confirm the plan", "contradicts the architecture"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
 	assert.doesNotMatch(plan, /Start only on their confirmation/);
 	// 2026-11-02 audit (a coordinator offered the boss a page-local design that the app's rules forbade, and a single-loop task opened no anchor loop): +45 words, 20 cut, budget 650 to 670.
-	for (const term of ["its plan is one todo whose `metadata.anchor` names its check", "read the owning app's instructions", "quote the rule that settles the design in the brief"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
+	for (const term of ["Its plan is one todo whose `metadata.anchor` names its check", "read the owning app's instructions", "quote the rule that settles the design in the brief"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
 	for (const off of [false, true]) assert.ok(words(strip(plan, off)) <= (off ? 670 : 699), `planning.md has ${words(strip(plan, off))} words with integration ${off ? "off" : "on"} (budget ${off ? 670 : 699})`);
 });
 
@@ -105,8 +105,8 @@ test("merge train: apps-config names the integration fields and points to the sk
 	for (const term of ["`integration`", "`maxCars`", "`maxWaitMin`", "`base`", "`integrating`'s Project skill contract", "## Light checks", "## Load", "`why=blocked`"]) assert.ok(cfg.includes(term), `apps-config.md names ${term}`);
 	const integrator = readFileSync(`${PROMPT_DIR}/integrator.md`, "utf8");
 	assert.match(integrator, /^# Integrator/);
-	for (const term of ["`integrating` skill", "`deploying` skill", "Seam bindings in your role prompt", "naming pi-anchorloop", "`why=blocked`", "`why=milestone`", "apps-config.md beside this file", "`<project>/<app>.json` in the `trains` folder your role prompt names", "integ <project>", "never rename again", "`coordinator` is a session id", "`reviewer` role"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
-	assert.ok(!integrator.includes("{{dir}}") && !integrator.includes("<state dir>") && !integrator.includes("reserve") && !integrator.includes("~/.pi"), "integrator.md has no placeholder, undefined path, hard-coded agent folder, or reserve");
+	for (const term of ["`integrating` skill", "`deploying` skill", "Seam bindings in your role prompt", "naming pi-anchorloop", "`why=blocked`", "`why=milestone`", "{{dir}}/apps-config.md", "`<project>/<app>.json` in the `trains` folder your role prompt names", "integ <project>", "never rename again", "`coordinator` is a session id", "`reviewer` role"]) assert.ok(integrator.includes(term), `integrator.md names ${term}`);
+	assert.ok(!integrator.includes("<state dir>") && !integrator.includes("reserve") && !integrator.includes("~/.pi"), "integrator.md has no placeholder, undefined path, hard-coded agent folder, or reserve");
 	assert.match(readFileSync(`${PROMPT_DIR}/main.md`, "utf8"), /Record: `\{\{state\}\}\/trains\/<project>\/<app>\.json`/, "the role prompt names the ledger file");
 	// The procedure (slip block, checks, departure, assembly, review, red handling, urgent lane, deploy, UAT) moved to pi-anchorloop's `integrating` and `deploying` skills (docs/specs/2026-11-06-seam-bindings.md maps every old line):
 	// integrator.md went from 1200 to 289 words, and a rule that is back here is duplication.
@@ -135,7 +135,7 @@ test("train stages: apps-config declares stages and targets, the integrator veri
 
 test("merge train: main hands integration cars over with why shared, planning states the principle, and the tower forwards a shared merge request to the one integrator", () => {
 	const main = readFileSync(`${PROMPT_DIR}/main.md`, "utf8");
-	for (const term of ["`integration`", "{{dir}}/integrator.md", "never merge to its base or claim a pre-dev branch, unless you are the project's integrator", "`why: shared`", "waits for sb's car notice", "the done report still goes to whoever asked", "paths outside the project"]) assert.ok(main.includes(term), `main.md names ${term}`);
+	for (const term of ["`integration`", "unless your kind is `integrator`", "never merge to its base or claim a pre-dev branch", "`why: shared`", "waits for sb's car notice", "the done report still goes to whoever asked", "paths outside the project"]) assert.ok(main.includes(term), `main.md names ${term}`);
 	const plan = readFileSync(`${PROMPT_DIR}/planning.md`, "utf8");
 	for (const term of ["`Light checks`", "once, by the integrator", "`integrating`'s Principle"]) assert.ok(plan.includes(term), `planning.md names ${term}`);
 	for (const file of ["tower.md", "tower-run.md"]) {
@@ -155,8 +155,11 @@ test("merge train: the integrator needs no shared call for its own merges, and t
 
 // 2026-11-02: a main carried a side task itself under the single-loop rule "carry bounded work in the session" and stalled its own chain.
 test("the main dispatches work independent of its chain to a subagent in parallel", () => {
-	const main = readFileSync(`${PROMPT_DIR}/main.md`, "utf8");
-	for (const term of ["Dispatch work independent of your chain to a subagent in parallel", "binds a single loop, not you"]) assert.ok(main.includes(term), `main.md names ${term}`);
+	// Dispatch rules follow the plan (docs/specs/2026-11-09-agent-kinds.md §2a): the line moved from main.md to the two graph addenda.
+	for (const file of ["graph-fan-out.md", "graph-orchestrator-worker.md"]) {
+		const text = readFileSync(`${PROMPT_DIR}/${file}`, "utf8");
+		for (const term of ["Dispatch work independent of your chain to a subagent in parallel", "binds a single loop, not you"]) assert.ok(text.includes(term), `${file} names ${term}`);
+	}
 });
 
 // docs/specs/2026-11-06-seam-bindings.md: pi-anchorloop's `integrating` and `deploying` leave six seams open (references/seams.md) and read one `## Seam bindings` block from the session's instructions.
@@ -211,7 +214,7 @@ const D13_WORD = acceptanceWord({ car: "<ticket>", what: "<what>", where: "<wher
 // train.md: ~450 words on (it is the train's system prompt, whole inside the integration markers), nothing off (the role is refused at the open); integrator.md 340 to 412.
 test("train workers: train.md and integrator.md stay within their budgets, on and off", () => {
 	const train = read("train.md");
-	assert.ok(words(strip(train, false)) > 300 && words(strip(train, false)) <= 542, `train.md has ${words(strip(train, false))} words on`);
+	assert.ok(words(strip(train, false)) > 300 && words(strip(train, false)) <= 543, `train.md has ${words(strip(train, false))} words on`);
 	assert.equal(words(strip(train, true)), 0, "train.md is empty with the train off");
 	assert.ok(words(read("integrator.md")) > 300 && words(read("integrator.md")) <= 509, `integrator.md has ${words(read("integrator.md"))} words`);
 });
@@ -253,7 +256,7 @@ test("train workers: no uat stage and no UAT page in the integrator or the train
 		assert.doesNotMatch(text, /tower_reply|tower_send|tell (?:the|a|each) coordinator|notify (?:the|a|each) coordinator/i, `${file} has no way to tell a coordinator by itself`);
 		assert.ok(text.includes(D13_WORD), `${file} states D13's word`);
 		assert.ok(text.includes("`train_car`"), `${file} names train_car`);
-		assert.ok(text.includes("never send a coordinator a notice yourself"), `${file} sends no notice`);
+		assert.ok(text.includes("never send a slip's sender a notice yourself"), `${file} sends no notice`);
 		assert.doesNotMatch(text, /\bintercom\b/i, `${file} answers no coordinator by intercom`);
 	}
 	const integrator = read("integrator.md");

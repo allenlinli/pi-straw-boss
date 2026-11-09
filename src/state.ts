@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { startDashboard } from "./dashboard.ts";
+import type { CoordinatorDuty } from "./duty.ts";
 import type { StartRead } from "./handover.ts";
 import type { Ask } from "./host.ts";
 import type { HerdrApi, HerdrCall, HerdrRun, HerdrWorld, Place, Session, Sleep } from "./herdr.ts";
@@ -29,7 +30,8 @@ export interface Channel {
 	listSessions(): Promise<Session[]>;
 }
 export interface SendResult { requestId?: string; status: string; code?: string; detail?: string }
-export interface Saved { tower?: boolean; openedBy?: string | null; openedPane?: string; train?: TrainId }
+/** `duty*`: the main's kind and why it has it, written whole at each switch (docs/specs/2026-11-09-agent-kinds.md §2: entries merge field by field, so every entry carries all four). */
+export interface Saved { tower?: boolean; openedBy?: string | null; openedPane?: string; train?: TrainId; duty?: CoordinatorDuty; dutyFrom?: CoordinatorDuty | null; dutyWhy?: string; dutyAt?: number }
 export type Role = "tower" | "main" | "member" | "train";
 export type Scope = "tab" | "workspace" | "towers" | "all";
 /**
@@ -74,6 +76,10 @@ export interface State {
 	ui: ExtensionContext["ui"] | undefined;
 	hasUI: boolean;
 	saved: Saved;
+	/** The kind this main declared or was migrated to (mainduty.ts); `dutyNow()` is what it runs as. Set from the session's entries at each start. */
+	duty: CoordinatorDuty | undefined;
+	/** The session's branch of entries now (set at each start), for the todo list a plan and a train sign are read from. */
+	branch: () => readonly unknown[];
 	/** The pi session file, the key of this session's role record (roles.ts), and whether the role being taken is one a Herdr restore gave back. */
 	file: string | undefined;
 	restored: boolean;
@@ -112,7 +118,7 @@ export function createKit(pi: ExtensionAPI, cfg: Config): Kit {
 		// SAFETY: as `c` above.
 		at: undefined as unknown as Place,
 		mainId: undefined, pinned: undefined, info: {}, ownName: "", openedBy: undefined, restoredOpener: undefined, kids: new Set(),
-		ui: undefined, hasUI: false, saved: {}, file: undefined, restored: false, queue: Promise.resolve(), dashboard: undefined, viewer: undefined, quit: undefined, closing: undefined, remoteOrigin: undefined, boardId: undefined,
+		ui: undefined, hasUI: false, saved: {}, duty: undefined, branch: () => [], file: undefined, restored: false, queue: Promise.resolve(), dashboard: undefined, viewer: undefined, quit: undefined, closing: undefined, remoteOrigin: undefined, boardId: undefined,
 	};
 	const me = () => env.PI_INTERCOM_SESSION_ID ?? "";
 	const role = (): Role | undefined => {

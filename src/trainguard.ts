@@ -16,6 +16,7 @@ import { fieldsOf } from "./headerfields.ts";
 import { type Effect, isObject, type Json, shortCode, STEP_REQUIRED, todoEffects, validateStep } from "./train/spec.ts";
 import { type FactStep, stepWaits, type TrainFacts, type Wait, waitMessage } from "./train/waits.ts";
 import { type Acceptor, buildBoard, buildYard, freezeStep, type Row } from "./trainboard.ts";
+import type { MainDuty } from "./mainduty.ts";
 import type { Roles } from "./roles.ts";
 import { ENTRY, type Kit } from "./state.ts";
 import { TRAIN, type TrainId, trainFromToken, trainToken } from "./trainrole.ts";
@@ -29,6 +30,7 @@ import { integrationOff } from "./trainswitch.ts";
 // started live in this module's memory, are written nowhere the train can reach, and are gone with the process. A /reload therefore forgets them: a step that had run must run again, a report must be written after the step is set in_progress again.
 
 const MIN_TIMEOUT_MS = 120_000, START_GRACE_MS = 60_000, MAX_RUNS = 200;
+const NOT_INTEGRATOR = `sb: a train todo is the integrator's: call boss_duty with duty "integrator" first`;
 const UNSETTLED = "sb: this session's train role is not settled yet: Straw Boss is still working out whether it is a train (Herdr has not answered). todo and MonitorCreate wait for it; try again in a moment";
 const GENERIC = (code: string) => `sb: a train's monitor runs one step: describe it "train ${shortCode(code)} #<id> <kind>"`;
 
@@ -180,6 +182,8 @@ export interface GuardEnv {
 	train(): TrainId | undefined;
 	/** Whether this session is a main (the integrator is one). */
 	isMain(): boolean;
+	/** The main's kind as it runs now (mainduty.ts `now()`): only `integrator` holds `train` todos and writes the yard. */
+	duty(): string;
 	/** Whether a local sign says this session is a train whose role is not settled yet (§22): the guard refuses `todo` and `MonitorCreate` meanwhile. Left out, a session is never pending. */
 	pending?(): boolean;
 	session(): { id: string; pane?: string };
@@ -515,7 +519,7 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 				};
 				const heads = new Map((info?.cars ?? []).flatMap((c) => (c.head ? [[c.ticket, c.head] as const] : []))), board = buildBoard({ project: me.project, code: me.code, app, rows, cars, heads, writer: writer(), now: env.now(), ...(existing.ok && existing.board.clears ? { clears: existing.board.clears } : {}), waits: (s) => waits(s) });
 				writeBoard(env.stateDir, capBoard(board));
-			} else if (env.isMain()) {
+			} else if (env.isMain() && env.duty() === "integrator") {
 				const project = rows.map(sbOf).find((s) => s?.kind === "train")?.project;
 				if (typeof project === "string") writeYard(env.stateDir, buildYard({ project, rows, writer: writer(), now: env.now(), acceptance: acceptorOf(ctx) }));
 			}
@@ -535,7 +539,7 @@ export function createTrainGuard(pi: GuardPi, env: GuardEnv) {
 		try {
 			if (!me && env.pending?.()) reasons = [UNSETTLED];
 			else if (me) reasons = event.toolName === "todo" ? await trainTodo(input, ctx, me) : [monitorCall(event, input, ctx, me)].flatMap((r) => (r ? [r] : []));
-			else if (event.toolName === "todo" && env.isMain() && (hasSb(input) || changesTrainTodo(input, ctx))) reasons = await integratorTodo(input, ctx);
+			else if (event.toolName === "todo" && env.isMain() && (hasSb(input) || changesTrainTodo(input, ctx))) reasons = env.duty() === "integrator" ? await integratorTodo(input, ctx) : [NOT_INTEGRATOR];
 			// The skills the prompts follow must be the ones they assume; a call that changes nothing (a todo read) is let through.
 			const mutates = event.toolName === "MonitorCreate" || input.action === "create" || input.action === "update" || input.action === "delete" || input.action === "clear";
 			if (!reasons.length && mutates && (me || (event.toolName === "todo" && env.isMain() && (hasSb(input) || changesTrainTodo(input, ctx))))) {
@@ -592,11 +596,11 @@ export function registerTrainSigns(kit: Kit, roles: Pick<Roles, "trainOf">): voi
 }
 
 /** The guard of this session, unless the merge train is off (§14.8: with it off nothing of this loads). */
-export function registerTrainGuard(kit: Kit, cars?: CarSource): TrainGuard | undefined {
+export function registerTrainGuard(kit: Kit, cars: CarSource | undefined, mainDuty: MainDuty): TrainGuard | undefined {
 	const { s, cfg } = kit;
 	if (integrationOff(cfg.env, kit.guiDir)) return undefined;
 	return createTrainGuard(kit.pi as unknown as GuardPi, {
-		stateDir: kit.guiDir, train: () => (s.isTrain ? s.train : undefined), pending: () => !s.isTrain && !s.trainSettled && s.trainSign, isMain: () => kit.role() === "main", session: () => ({ id: kit.me(), ...(s.at?.paneId ? { pane: s.at.paneId } : {}) }), now: () => cfg.now(),
+		stateDir: kit.guiDir, train: () => (s.isTrain ? s.train : undefined), pending: () => !s.isTrain && !s.trainSettled && s.trainSign, isMain: () => kit.role() === "main", duty: () => mainDuty.now(), session: () => ({ id: kit.me(), ...(s.at?.paneId ? { pane: s.at.paneId } : {}) }), now: () => cfg.now(),
 		node: process.execPath, cli: serverCli(), home: homedir(), tell: kit.tell, ...(cars ? { cars } : {}),
 		anchorloop: (cwd) => checkAnchorloop({ agentDir: cfg.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), ...(cwd ? { cwd } : {}) }),
 	});

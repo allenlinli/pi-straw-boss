@@ -1,12 +1,12 @@
 # Planning work
 
-Plan before your first dispatch, and again when the work's shape changes.
+Plan before you dispatch a worker, and again when the work's shape changes.
 
 ## 1. Choose the graph
 
 Take the first case that matches:
 
-- **single-loop**: one bounded task that you carry yourself, or that one subagent carries. Do not state it; its plan is one todo whose `metadata.anchor` names its check.
+- **single-loop**: one bounded task that you carry yourself, or that one subagent carries. Its plan is one todo whose `metadata.anchor` names its check, plus `"graph": "single-loop"` when a worker carries it.
 - **fan-out/fan-in**: independent branches run in subagents, and you integrate their results.
 - **orchestrator-worker**: several workers, each owning one app's task end to end, with dependency edges or more ready tasks than the concurrency cap.
 
@@ -20,7 +20,7 @@ For fan-out and orchestrator-worker, create one todo per task. A task is the lar
 - `owner`: the subagent's name, or `self` for work you carry yourself.
 - `description`: the app, the worktree branch for a parallel writer, the anchor and who exercises it, and the exact artifact path a dependent will read.
 - `blockedBy`: the tasks whose output or landed change this one needs. Tasks with no open blocker run in parallel, up to the cap (4 unless the boss or the project names another). Writers that would clash in one checkout wait.
-- `metadata`: `{ "graph": "...", "anchor": "...", "checkpoint": "own" | "<checkpoint todo id>" }`.
+- `metadata`: `{ "graph": "<a graph name from section 1, exactly>", "anchor": "...", "checkpoint": "own" | "<checkpoint todo id>" }`.
 
 ## 3. Name the anchors
 
@@ -42,7 +42,3 @@ A change-set that touches a shared contract, authorization or permission data, o
 ## 4. Start
 
 Dispatch without asking the boss to confirm the plan, and change it the same way: the todos record it. Before offering the boss a design choice, read the owning app's instructions and the UI and architecture rules they name; drop the options they forbid, and quote the rule that settles the design in the brief. Through your question tool, bring the boss only the decisions the plan cannot settle, before the task they block: a requirement that is unclear or contradicts the architecture, and an authorization the work needs, such as a merge to a shared branch or a deploy.
-
-## 5. Run it
-
-Dispatch each ready task. When a result arrives, check it against its brief and anchor, mark the todo `completed`, then dispatch what it unblocked. A failed or cancelled task leaves its dependents blocked: report them, and resolve the next step with the boss.

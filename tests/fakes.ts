@@ -606,7 +606,7 @@ export class Agent {
 	}
 	/** The pane's role tokens; the order, mark, indent and name tokens (order.ts) have their own tests. */
 	get tokens(): Tokens {
-		const { sb_order: _order, sb_mark: _mark, sb_indent: _indent, sb_name: _name, sb_tab: _tab, sb_main_tab: _mt, sb_member_tab: _bt, ...role } = this.world.herdr.pane(this.pane).tokens;
+		const { sb_order: _order, sb_mark: _mark, sb_indent: _indent, sb_name: _name, sb_duty: _duty, sb_tab: _tab, sb_main_tab: _mt, sb_member_tab: _bt, ...role } = this.world.herdr.pane(this.pane).tokens;
 		return role;
 	}
 	/** Fires one event and returns the last answer a handler gave (a tool_call's block, for instance). */

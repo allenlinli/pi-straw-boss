@@ -1,5 +1,6 @@
 import { type FileHandle, open } from "node:fs/promises";
 import { basename } from "node:path";
+import { type Graph, graphOf } from "./duty.ts";
 import { cleanLabel } from "./eventmarks.ts";
 import { MAX_SB_BYTES, tooDeep } from "./train/spec.ts";
 
@@ -11,7 +12,7 @@ export const FULL_LIMIT = FULL;
 
 export interface Tool { id: string; name: string; summary: string; args?: string; cut?: true }
 /** One task of a session's todo list, as @juicesharp/rpiv-todo keeps it (its snapshot entries and todo results); deleted ones are left out. */
-export interface Todo { id: number; subject: string; status: "pending" | "in_progress" | "completed"; activeForm?: string; /** A train's step (`metadata.sb`), bounded: see `stepInfo`. */ sb?: StepInfo }
+export interface Todo { id: number; subject: string; status: "pending" | "in_progress" | "completed"; activeForm?: string; /** A train's step (`metadata.sb`), bounded: see `stepInfo`. */ sb?: StepInfo; /** The plan's graph (`metadata.graph` through `graphOf`), when the todo names one. */ graph?: Graph }
 /** What the page keeps of a step's `metadata.sb` (docs/specs/2026-11-07-train-workers.md §11.1): its kind and name, whose it is, the check's type, what it holds and needs, and how it ended; never a command, a path, or evidence text. */
 export interface StepInfo {
 	kind: string; name?: string; project?: string; app?: string; train?: string; round?: number; check?: string;
@@ -49,8 +50,8 @@ export function todosOf(snapshot: unknown): Todo[] | undefined {
 	if (!s || !Array.isArray(s.tasks) || typeof s.nextId !== "number") return undefined;
 	return s.tasks.slice(0, 200).flatMap((t: Json) => {
 		if (!(typeof t?.id === "number" && typeof t.subject === "string" && STATUSES.has(t.status))) return [];
-		const sb = stepInfo(t.metadata);
-		return [{ id: t.id, subject: t.subject.slice(0, 300), status: t.status, ...(typeof t.activeForm === "string" && { activeForm: t.activeForm.slice(0, 120) }), ...(sb && { sb }) }];
+		const sb = stepInfo(t.metadata), graph = obj(t.metadata) ? graphOf(t.metadata.graph) : undefined;
+		return [{ id: t.id, subject: t.subject.slice(0, 300), status: t.status, ...(typeof t.activeForm === "string" && { activeForm: t.activeForm.slice(0, 120) }), ...(sb && { sb }), ...(graph && { graph }) }];
 	});
 }
 export interface Item {

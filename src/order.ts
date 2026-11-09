@@ -28,10 +28,9 @@ const part = (n: number, width = 3) => String(n).padStart(width, "0");
 const short = (name: string) => (name.length > NAME_MAX ? `${name.slice(0, NAME_MAX - 1)}…` : name);
 
 /**
- * What a session is besides its role, as far as its key and mark go: a train's code and project, whether it is the integrator (a main whose live `yard.json` names it), and for a member the panes of the sessions
- * the yards name (`integratorPanes`), among which the main of its tab is the integrator. All of it comes from the trainboard files and the intercom's list, none from a token on a pane (§23).
+ * What a session is besides its role, as far as its key and mark go: a train's code and project (from its own record), and whether it is an integrator: a main by its own duty, a member by the `sb_duty` token of its tab's main.
  */
-export interface Who { code?: string; project?: string; integrator?: boolean; integratorPanes?: readonly string[] }
+export interface Who { code?: string; project?: string; integrator?: boolean }
 
 /**
  * The key of a session that is in the net, or undefined when Herdr cannot place it. Workspaces count among the base ones (a sub workspace is a
@@ -51,8 +50,8 @@ export function orderKey(role: "tower" | "main" | "member" | "train", pane: Pane
 	return who.integrator ? `${part(base)}.05.${part(tab)}.${role === "main" ? 0 : 1}.${part(slot)}` : `${part(base)}.1.${part(tab)}.${role === "main" ? 0 : 1}.${part(slot)}`;
 }
 
-/** Whether a pane of the member's tab is one of the panes a yard's writer sits in (Herdr places the panes; the writers come from the yards and the intercom's list, not from any token): the member sorts beside it. */
-const integratorTab = (pane: Pane, ps: Pane[], named: readonly string[] = []) => ps.some((p) => p.tab_id === pane.tab_id && named.includes(p.pane_id));
+/** Whether the main of the member's tab publishes `sb_duty=integrator`: the member sorts beside it. Any session can write that token, which misplaces one sidebar row at worst; this reverses TT-F002 for display only (docs/specs/2026-11-09-agent-kinds.md §2). */
+const integratorTab = (pane: Pane, ps: Pane[]) => ps.some((p) => p.tab_id === pane.tab_id && p.tokens?.sb_role === "main" && p.tokens.sb_duty === "integrator");
 
 /** A step token from text that came from a board file: control and bidi characters out, at most 24 characters. */
 const clean = (text: string) => Array.from(text.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\n]/g, " ")).slice(0, 24).join("").trim();
@@ -108,7 +107,7 @@ const markOf = (role: "tower" | "main" | "member" | "train", who: Who): string |
 export async function netTokens(run: HerdrRun, place: Place, role: "tower" | "main" | "member" | "train", name: string, now = Date.now(), world: HerdrWorld = worldOf(run), who: Who & { step?: string } = {}): Promise<{ own: Record<string, string | null>; kids: Kid[]; joined: Set<string>; waiting: boolean }> {
 	const { panes: ps, workspaces: all, tabs: tabList } = await world(place.workspaceId);
 	const pane = ps.find((p) => p.pane_id === place.paneId);
-	const mine: Who = { ...(role === "train" && who.code !== undefined && isCode(who.code) && isName(who.project) ? { code: who.code, project: who.project } : {}), ...(role === "main" && who.integrator ? { integrator: true } : {}), ...(role === "member" && pane && integratorTab(pane, ps, who.integratorPanes) ? { integrator: true } : {}) };
+	const mine: Who = { ...(role === "train" && who.code !== undefined && isCode(who.code) && isName(who.project) ? { code: who.code, project: who.project } : {}), ...(role === "main" && who.integrator ? { integrator: true } : {}), ...(role === "member" && pane && integratorTab(pane, ps) ? { integrator: true } : {}) };
 	const key = pane && orderKey(role, pane, ps, all, tabList, mine);
 	const joined = new Set(ps.filter((p) => p.tokens?.sb_role).map((p) => p.pane_id));
 	const tab = tabList.find((t) => t.tab_id === pane?.tab_id)?.label || null;

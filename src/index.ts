@@ -17,6 +17,7 @@ import { copyText } from "./pairing.ts";
 import { createHost } from "./host.ts";
 import { herdrApi, herdrCall, herdrRun, herdrWorld, socketRun, worldOf } from "./herdr.ts";
 import { createLink } from "./link/runtime.ts";
+import { createMainDuty } from "./mainduty.ts";
 import { createMembership } from "./membership.ts";
 import { createPresence } from "./presence.ts";
 import { createReach } from "./reach.ts";
@@ -64,7 +65,9 @@ export function createStrawBoss({ run: given, world: reading, api = herdrApi(), 
 		warmStart(); // Windows tells a process's start time through PowerShell, 2 to 3 s: read this one's now, in the background, so the records written later carry it
 		const roles = createRoles(kit);
 		registerTrainSigns(kit, roles); // first of the session_start handlers: the sign of a train is held before any of them awaits
-		const link = createLink(kit), briefing = createBriefing(kit), look = cfg.server ? createServerLook(kit, cfg.server) : undefined, runMode = createRunMode(kit, look, cfg.runSide, link), reach = createReach(kit, look), election = createElection(kit), presence = createPresence(kit), digest = createDigest(run, now);
+		const mainDuty = createMainDuty(kit), link = createLink(kit), briefing = createBriefing(kit, mainDuty), look = cfg.server ? createServerLook(kit, cfg.server) : undefined, runMode = createRunMode(kit, look, cfg.runSide, link), reach = createReach(kit, look), election = createElection(kit), presence = createPresence(kit, mainDuty), digest = createDigest(run, now);
+		mainDuty.promptsOff(() => briefing.off());
+		mainDuty.onWrite(({ from, to, why }) => (briefing.rebrief(), void presence.publish(), void digest.note(kit.s.at.workspaceId, `${kit.s.ownName || pi.getSessionName() || kit.me().slice(0, 8)} kind ${from ?? "none"}→${to}: ${why}`).catch(() => {})));
 		look?.holdWhile(() => runMode.mode === "run" || Boolean(pi.getFlag("sb-run")));
 		const guard = createGuard(kit, { ...election, openTower: reach.openTower, roles });
 		// A join adds the tools of a joined session, and the tools promote through the membership: each is built with the other's hook.
@@ -72,14 +75,14 @@ export function createStrawBoss({ run: given, world: reading, api = herdrApi(), 
 		const cars = carLink(kit);
 		let trainGuard: TrainGuard | undefined;
 		const addTrainCar = trainCarTool(kit, () => trainGuard, cars);
-		const membership = createMembership(kit, { presence, election, guard, briefing, roles, openTower: reach.openTower, register: () => (tools.addNetTools(), tools.addPromote(), addTrainCar()), onMain: link.look, control: () => control });
+		const membership = createMembership(kit, { presence, election, guard, briefing, roles, openTower: reach.openTower, register: () => (tools.addNetTools(), tools.addPromote(), tools.addDuty(), addTrainCar()), onMain: link.look, control: () => control });
 		// `look` (above) starts and upgrades the sb server (src/server/) and is the way to it; a session that is no part of that has none.
-		const tools = createTools(kit, { ...reach, promote: membership.promote, digest, closeMain: (query) => control.closeMain(query), link, server: look, boardFill: createBoardFill(kit) });
+		const tools = createTools(kit, { ...reach, mainDuty, promote: membership.promote, digest, closeMain: (query) => control.closeMain(query), link, server: look, boardFill: createBoardFill(kit) });
 		const host = createHost(kit, { connected: membership.connected, ask: cfg.ask ?? look?.ask });
 		closeSelf = createClosing(kit);
 		const control = createCloseMain(kit, { closeSelf, check: bridge.stashCheck, turn: bridge.turn });
-		registerSession(kit, { integration: createIntegrationWatch(kit), runMode, briefing, roles, presence, membership, guard, host, reach, digest, control, startTower: createTower(kit, { membership, presence, tools, control, digest, roles, reach }) });
-		trainGuard = registerTrainGuard(kit, cars.client); // a train's todo and MonitorCreate calls, and the integrator's train todos (nothing loads with the merge train off)
+		registerSession(kit, { mainDuty, integration: createIntegrationWatch(kit), runMode, briefing, roles, presence, membership, guard, host, reach, digest, control, startTower: createTower(kit, { membership, presence, tools, control, digest, roles, reach }) });
+		trainGuard = registerTrainGuard(kit, cars.client, mainDuty); // a train's todo and MonitorCreate calls, and the integrator's train todos (nothing loads with the merge train off)
 		registerBoss(kit, { runMode, host, membership, reach, closeSelf, stashing: createStashing(kit, { host }), server: look, paths: createBossPaths(kit, { host, server: look, closeSelf, here: host.here }) });
 	};
 }

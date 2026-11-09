@@ -9,6 +9,8 @@ import { isHead, isSub, type Place, panes, place, report, waitFor, workspaces } 
 import type { createHost } from "./host.ts";
 import type { IntegrationWatch } from "./integration.ts";
 import { CONNECT_MS, type Membership } from "./membership.ts";
+import { dutyOfAgent, graphOf, isCoordinatorDuty } from "./duty.ts";
+import type { MainDuty } from "./mainduty.ts";
 import { orphans } from "./orphan.ts";
 import { restored } from "./restored.ts";
 import type { RunMode } from "./runmode.ts";
@@ -26,7 +28,7 @@ const CHECKING = "Straw Boss is still asking Herdr whether this is a sub workspa
 const UNPLACED = (why: string) => `Straw Boss could not tell whether this is a sub workspace: ${why}; it asks again`;
 
 /** What the session does at its start, around each run, and at its end. */
-export function registerSession(kit: Kit, { runMode, briefing, roles, presence, membership, guard, host, reach, digest, control, integration, startTower }: { runMode: RunMode; briefing: Briefing; roles: Roles; presence: Presence; membership: Membership; guard: Guard; host: ReturnType<typeof createHost>; reach: Reach; digest: Digest; control: Control; integration: IntegrationWatch; startTower(): Promise<void> }) {
+export function registerSession(kit: Kit, { mainDuty, runMode, briefing, roles, presence, membership, guard, host, reach, digest, control, integration, startTower }: { mainDuty: MainDuty; runMode: RunMode; briefing: Briefing; roles: Roles; presence: Presence; membership: Membership; guard: Guard; host: ReturnType<typeof createHost>; reach: Reach; digest: Digest; control: Control; integration: IntegrationWatch; startTower(): Promise<void> }) {
 	const { pi, cfg, s, guiDir, me, role, tell } = kit;
 	const { run, env, version } = cfg;
 	const who = () => pi.getSessionName() || s.ownName || me().slice(0, 8);
@@ -92,6 +94,8 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		s.quit = () => ctx.shutdown();
 		briefing.load();
 		s.saved = Object.assign({}, ...ctx.sessionManager.getBranch().flatMap((e) => (e.type === "custom" && e.customType === ENTRY ? [e.data] : [])));
+		s.duty = isCoordinatorDuty(s.saved.duty) ? s.saved.duty : undefined; // the migration's guard is this live value (docs/specs/2026-11-09-agent-kinds.md §2)
+		s.branch = () => ctx.sessionManager.getBranch();
 		s.file = ctx.sessionManager.getSessionFile();
 		// A Herdr restore resumes the pane into this session file without STRAW_BOSS_ROLE and, when pi had not yet written the file, without its entries: the record decides (roles.ts).
 		// The pane, tab, and workspace must all be the recorded ones; a tower needs no more, since it closes its pane when it quits (roles.ts).
@@ -190,6 +194,7 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 				tell(taken.text, claimed ? "warning" : "info");
 				if (resumed) roles.forget(); // another main holds the tab, and this session stays a member: its record would claim the next restore
 			} else if (!claimed) await membership.adoptOpener(); // a no-op when the refresh that made it the main did so already (membership.ts)
+			mainDuty.migrate(pi.getSessionName()); // a restored or opened main with the signs of an integrator
 		};
 		const proceedOnce = () =>
 			(proceeding ??= proceed()
@@ -240,16 +245,19 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 	pi.on("before_agent_start", async (event) => {
 		if (runMode.active()) return;
 		const sections = event.systemPromptOptions.sections;
+		mainDuty.migrate(pi.getSessionName()); // a main's signs: its name and its train todos, read before the prompt is built
 		briefing.begin(sections);
 		if (!s.holdsTower || !sections[ENTRY]) return;
 		const lines = await digest.take(s.at.workspaceId).catch(() => []);
 		if (lines.length) sections[ENTRY] += `\n\nSince your last run:\n${lines.map((line) => `- ${line}`).join("\n")}`;
 	});
+	// A rename from any source (boss_rename, /name, another extension) can make this main an integrator (§2); its todos are read again after each todo call.
+	pi.on("session_info_changed", (event) => void (!runMode.active() && mainDuty.migrate((event as { name?: string }).name)));
 	pi.on("agent_settled", () => void (!runMode.active() && briefing.settled()));
 
 	// A member that dispatches or resumes a subagent without promoting is promoted here, before the subagent starts, unless the tab already has a main.
 	// A tower only coordinates: it dispatches no subagent (one would outlive it with no one to take its result), and opens a main for the work instead.
-	pi.on("tool_call", async (event) => {
+	pi.on("tool_call", async (event, ctx) => {
 		if (!SUBAGENT_TOOLS.includes(event.toolName) || runMode.active()) return;
 		await checked; // a subagent launched while session start still asks Herdr about the workspace waits for the answer
 		await s.recheck?.(); // a Herdr that could not answer then is asked again now, not at the next timer
@@ -261,10 +269,30 @@ export function registerSession(kit: Kit, { runMode, briefing, roles, presence, 
 		} catch (error) {
 			tell(`Straw Boss: ${(error as Error).message}`, "warning");
 		}
+		// A coordinator's worker waits for a plan that names a graph (§2a); scouts, planners and reviewers, a resume, an integrator, and a standing main never wait.
+		if (event.toolName !== "subagent" || role() !== "main" || mainDuty.now() !== "coordinator" || mainDuty.graph() || plannedInMessage(event, ctx)) return;
+		const agent = (event.input as { agent?: unknown } | undefined)?.agent;
+		if (typeof agent === "string" && ["scout", "planner", "reviewer"].includes(dutyOfAgent(agent) ?? "") ) return;
+		return { block: true, reason: `sb: plan first: a worker needs a plan whose todos name a graph (${briefing.dir()}/planning.md). Write the plan's todos, then dispatch; a scout, a planner, or a reviewer may run now.` };
 	});
+	/** Whether a `todo` call before this `subagent` call in the same assistant message names a graph: pi prepares every call of a message before any runs, so the state does not hold it yet (§2a). */
+	const plannedInMessage = (event: { toolCallId?: string; parentToolCallId?: string }, ctx: ExtensionContext): boolean => {
+		if ((event as { parentToolCallId?: string }).parentToolCallId) return false; // a codemode call is in no message: state alone judges it
+		const last = ctx.sessionManager.getBranch().findLast((e) => e.type === "message" && (e as { message?: { role?: string } }).message?.role === "assistant") as { message?: { content?: unknown } } | undefined;
+		const content = Array.isArray(last?.message?.content) ? (last!.message!.content as { type?: string; id?: string; name?: string; arguments?: Record<string, unknown> }[]) : [];
+		const meta = (m: unknown) => graphOf((m as { graph?: unknown } | undefined)?.graph) !== undefined;
+		for (const block of content) {
+			if (block.type !== "toolCall") continue;
+			if (block.id === event.toolCallId) return false; // reached this call: a todo after it does not count
+			const a = block.arguments ?? {};
+			if (block.name === "todo" && (meta(a.metadata) || (Array.isArray(a.tasks) && a.tasks.some((t) => meta((t as { metadata?: unknown })?.metadata))))) return true;
+		}
+		return false;
+	};
 
 	// A launched subagent is marked within seconds, once its pane shows its session file, instead of at the next 4 minute refresh.
 	pi.on("tool_result", (event) => {
+		if (event.toolName === "todo" && !event.isError) briefing.rebrief(); // a todo call can name or end a plan's graph (§2a)
 		if (!SUBAGENT_TOOLS.includes(event.toolName) || s.isTower || s.barred || !role()) return;
 		for (const ms of KID_MARK_MS) setTimeout(() => void presence.publish(), ms).unref();
 		const { name, agent } = event.input as { name?: unknown; agent?: unknown };

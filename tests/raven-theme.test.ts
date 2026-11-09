@@ -132,8 +132,8 @@ test("every motion rule of the theme sits under prefers-reduced-motion: no-prefe
 test("calm on a fine pointer keeps the strike and the perched raven only: the block is inside no-preference and (pointer: fine), is scoped to data-calm, and names no other animation (a phone's calm stops everything)", () => {
 	assert.ok(FINE_BLOCK.length > 0, "the fine-pointer block exists");
 	const rules = rulesOf(FINE_BLOCK);
-	assert.equal(rules.length, 8, "the head page's strike, bolt, raven light and turn, then the map's");
-	const allowed = new Set(["rk-bolt", "rk-rest", "rk-clap", "rk-strike", "rk-perch-dark", "rk-perch-turn"]);
+	assert.equal(rules.length, 10, "the head page's strike, bolt, raven light, turn and profile swap, then the map's");
+	const allowed = new Set(["rk-bolt", "rk-rest", "rk-clap", "rk-strike", "rk-perch-dark", "rk-perch-turn", "rk-perch-profile"]);
 	for (const rule of rules) {
 		assert.match(rule.selector, /^html\[data-view="raven"\]\[data-calm\]/, `${rule.selector} applies under calm only`);
 		for (const [prop, value] of declarations(rule.body)) {
@@ -270,7 +270,7 @@ test("the map's layers animate nothing but opacity, transform, translate, no fil
 		for (const prop of props) assert.ok(["opacity", "transform", "translate", ...(name === "rk-clap" ? ["scale"] : [])].includes(prop), `@keyframes ${name} sets ${prop}`); // rk-clap is the weather's no-op clock on the strike (weather.ts): it holds `scale: 1`, a compositor property
 		assert.ok(!/--rk-(a|b|bolt)\b/.test(frames), `${name} animates no registered number`);
 	}
-	assert.match(raw, /@keyframes rk-raven-map \{[^\n]*13%, 100% \{ translate: calc\(var\(--rk-w\) \+ 10vw\) 0; \}/, "the raven crosses by translate and ends off the right edge");
+	assert.match(raw, /@keyframes rk-raven-map \{ 0% \{ translate: -20vw 0; \} 15%, 100% \{ translate: calc\(var\(--rk-w\) \+ 10vw\) 0; \} \}/, "the raven crosses by translate, at one speed (two keyframes, linear), and ends off the right edge");
 	assert.ok(rulesFor(`${STAGE} > .work::after`).some((r) => /background-position:\s*100% 0;\s*opacity:\s*0/.test(r.body)), "the second wing frame is its own layer");
 	for (const r of mapRules.filter((x) => !/animation/.test(x.body))) assert.ok(!/var\(--rk-(a|b|bolt)\)/.test(r.body), `${r.selector} reads no animated number`);
 });

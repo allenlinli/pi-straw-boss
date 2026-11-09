@@ -23,7 +23,7 @@ export interface HeadPort {
 /** The result of `boss_auto` as the model reads it: a refusal throws, `on` only stages (D9), `off` switches. */
 export function autoAnswer(out: { ok: true; [key: string]: unknown } | { ok: false; error: string }): ToolResult {
 	if (!out.ok) throw new Error(out.error);
-	const pending = out.pending as { id: string; said: string } | undefined;
+	const pending = out.pending as { id: string; said: string; expires?: number } | undefined;
 	if (pending) return { text: "pending: not on until the boss confirms (10 min)", details: { pending, typed: out.typed === true } };
 	return { text: out.changed === false ? "Auto mode is already in that state." : "Auto mode is off.", details: { changed: out.changed !== false } };
 }

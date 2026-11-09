@@ -14,7 +14,7 @@ import { towerRunsEnabled } from "./server/towerruns.ts";
 import { markRun } from "./runmark.ts";
 import { registerBossAuto, registerHeadSend } from "./runhead.ts";
 import { asBoss } from "./autoscope.ts";
-import { terminalOnlyOpts } from "./intercept.ts";
+import { confirmStaged, drawOpts, type Staged } from "./bossconfirm.ts";
 import { refusedForRun } from "./runallow.ts";
 import { startOf as processStart } from "./startof.ts";
 import { promptSet } from "./trainswitch.ts";
@@ -223,12 +223,10 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		return { text: text(answer.text) || "(no text)", ...(answer.details !== undefined ? { details: answer.details } : {}) };
 	};
 	/** The head pane's own confirm of a staged `on` (D9): drawn by this code in the terminal where the boss typed the turn, never relayed, and answered with a session request (a run's token may not confirm). */
-	const confirmAuto = async (pending: { id: string; said: string }, context: ExtensionContext): Promise<string | undefined> => {
-		const yes = await asBoss(() => context.ui.confirm("Start auto mode?", `You said: ${pending.said}\n\nWhile auto mode is on, agents cannot ask you: questions that wait are refused or cancelled. Only you or the head tower end it.`, terminalOnlyOpts()));
-		if (yes !== true) return "The boss did not confirm in the pane; the request stays for 10 minutes (the GUI has the button).";
-		const done = await ask({ cmd: "auto-confirm", id: pending.id, name: "the head pane", session: env.PI_INTERCOM_SESSION_ID, pane: env.HERDR_PANE_ID, pid: process.pid }).catch((error: Error) => ({ ok: false, error: error.message }));
-		return done.ok ? "The boss confirmed in the pane: auto mode is on." : `Auto mode did not start: ${String(done.error)}`;
-	};
+	const confirmAuto = (pending: Staged, context: ExtensionContext): Promise<string | undefined> => confirmStaged(pending, {
+		draw: (title, body, opts) => asBoss(() => context.ui.confirm(title, body, drawOpts(opts))),
+		ask, now: () => cfg.now(), who: { session: env.PI_INTERCOM_SESSION_ID, pane: env.HERDR_PANE_ID, pid: process.pid },
+	});
 	function registerTools() {
 		if (registered) return;
 		registered = true;

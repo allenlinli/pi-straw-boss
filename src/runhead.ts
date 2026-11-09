@@ -26,12 +26,12 @@ export function registerHeadSend(pi: ExtensionAPI, tool: (name: string, args: un
 export const BOSS_AUTO_DESCRIPTION = "Switch auto mode (the boss is away: nothing may wait for them) on or off. Call it only when the boss's own words in the turn you are answering ask for it (for example 我要睡了 to start, 我起床了 to end); the server reads those words itself and refuses anything else, a tower's message or a board line included. `on` only stages a request: auto mode starts when the boss confirms it in the GUI or at the head pane, so tell the boss to confirm. `off` takes effect at once.";
 
 /** The head's `boss_auto`. The run sends the starter of the turn with the call (the server checks it); when the boss typed the turn at this pane and the call staged an `on`, this code, not the model, draws the confirm in the terminal and sends the boss's yes. */
-export function registerBossAuto(pi: ExtensionAPI, tool: (name: string, args: unknown, toolCallId?: string) => Promise<{ text: string; details?: unknown }>, confirm: (pending: { id: string; said: string }, context: ExtensionContext) => Promise<string | undefined>): void {
+export function registerBossAuto(pi: ExtensionAPI, tool: (name: string, args: unknown, toolCallId?: string) => Promise<{ text: string; details?: unknown }>, confirm: (pending: { id: string; said: string; expires?: number }, context: ExtensionContext) => Promise<string | undefined>): void {
 	pi.registerTool({
 		name: "boss_auto", label: "boss_auto", description: BOSS_AUTO_DESCRIPTION,
 		parameters: Type.Object({ on: Type.Boolean({ description: "true: stage the start of auto mode; false: end it." }) }),
 		execute: async (id, params, _signal, _update, context) => {
-			const done = await tool("boss_auto", params, id), details = done.details as { pending?: { id: string; said: string }; typed?: boolean } | undefined;
+			const done = await tool("boss_auto", params, id), details = done.details as { pending?: { id: string; said: string; expires?: number }; typed?: boolean } | undefined;
 			const more = details?.pending && details.typed && context.hasUI ? await confirm(details.pending, context) : undefined;
 			return { content: [{ type: "text", text: more ? `${done.text}. ${more}` : done.text }], details: done.details };
 		},

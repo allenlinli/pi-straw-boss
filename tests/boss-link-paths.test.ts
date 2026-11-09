@@ -530,7 +530,7 @@ function boss(active: boolean) {
 	registerBoss(kit, { runMode: { active: () => active }, host: never as never, membership: never as never, reach: never as never, closeSelf: () => undefined, stashing: never as never, paths: { link } as never });
 	return { run: (line: string) => handler!(line, { ui: {}, hasUI: true, cwd: "/work" }), called, told };
 }
-const LINES = ["link operate", "link operate off", "link operate on", "link confirms", "link confirm c1aa allow", "link asks", "link answer a1b2 2", "link invite cancel ab12", "link invite show ab12", "link join cancel", "link leave Forked --force", "link create https://r.example ~/p --share status", "link join @/tmp/i.txt --project ~/p"];
+const LINES = ["link on", "link operate", "link operate off", "link operate on", "link confirms", "link confirm c1aa allow", "link asks", "link answer a1b2 2", "link invite cancel ab12", "link invite show ab12", "link join cancel", "link leave Forked --force", "link create https://r.example ~/p --share status", "link join @/tmp/i.txt --project ~/p"];
 
 test("each new line reaches the link path with the session's folder", async () => {
 	const b = boss(false);
@@ -867,4 +867,16 @@ test("live: link/operate and link/operate-off are routes of this computer's own 
 	assert.equal((await control.run(["link", "operate-on"], {}, { remote: false, secure: false })).status, 200);
 	for (const name of ["operate", "operate-off", "operate-on"]) assert.equal((await control.run(["link", name], {}, { remote: true, secure: false })).status, 403, name);
 	assert.deepEqual(calls, ["operate", "operate-off", "operate-on"]);
+});
+
+test("/boss link on posts the page's link/enable and says it is setting up; a refusal is told as an error; extra words are usage; the help names it", async () => {
+	assert.deepEqual([parseLinkMore("on"), parseLinkMore(" on "), parseLinkMore("on now")], [{ action: "on" }, { action: "on" }, "usage"]);
+	assert.ok(LINK_ARGUMENTS.some((a) => a.value === "link on"));
+	for (const [status, level] of [[200, undefined], [502, "error"]] as const) {
+		const w = world(); w.reply("link/enable", { status, body: status === 200 ? {} : { error: "link_failed", reason: "boom" } });
+		await w.run("on");
+		assert.deepEqual(w.at("link/enable").map((p) => p.json), [{}]);
+		assert.equal(w.last().level, level);
+		assert.match(w.last().text, status === 200 ? /Setting up Straw Link/ : /boom/);
+	}
 });

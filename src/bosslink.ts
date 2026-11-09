@@ -25,15 +25,15 @@ type Share = "status" | "presence";
 
 export type LinkMore =
 	| { action: "confirms" } | { action: "confirm"; id: string; verdict: "allow" | "deny" } | { action: "asks" } | { action: "answer"; id: string; cancel: boolean; text: string }
-	| { action: "operate" | "operate-off" | "operate-on" } | { action: "invite-cancel" | "invite-show"; hash: string } | { action: "join-cancel" } | { action: "leave"; team: string; force: boolean }
+	| { action: "on" | "operate" | "operate-off" | "operate-on" } | { action: "invite-cancel" | "invite-show"; hash: string } | { action: "join-cancel" } | { action: "leave"; team: string; force: boolean }
 	| { action: "create"; relay: string; project: string; share?: Share; label?: string } | { action: "join"; source: string; project?: string; share?: Share; label?: string };
 
 /** A moment as the boss reads it on this computer: `2026-11-07 14:03`. */
 const stamp = (ms: number): string => { const d = new Date(ms), p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
-const VERBS = ["confirms", "confirm", "asks", "answer", "invite", "join", "create", "leave", "operate"];
+const VERBS = ["on", "confirms", "confirm", "asks", "answer", "invite", "join", "create", "leave", "operate"];
 /** What Tab completes for these (boss.ts adds them after the page's `link status` and `link decide`). */
-export const LINK_ARGUMENTS = Object.entries({ "link confirms": "List the confirms teammates' towers wait on (the call's arguments in full)", "link confirm": "Allow or deny a teammate tower's call: link confirm <id> allow|deny", "link asks": "List the questions unattended devices forwarded to you", "link answer": "Answer a forwarded question: link answer <id> <choice number | text> (or --cancel)", "link invite show": "Show an open invite's text on this screen only: link invite show <hash>", "link invite cancel": "Cancel an open invite: link invite cancel <hash>", "link join": "Join a team: link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>]", "link join cancel": "Cancel the join in progress", "link create": "Create a team: link create <relay> <dir> [--share status|presence] [--label <name>] (asks for the relay's token privately)", "link leave": "Leave a team on this computer: link leave <team> [--force]", "link operate": "List the operate sessions this computer holds on unattended boxes", "link operate off": "End every operate session this computer holds, and keep operate off until link operate on", "link operate on": "Turn operate on again after link operate off", "link units": "List the units and mains the unattended boxes reported: link units [box]", "link stop": "Ask a box to stop one of its mains: link stop <box> <main | handle start> [--interrupt] [reason]" }).map(([value, description]) => ({ value, label: value, description }));
+export const LINK_ARGUMENTS = Object.entries({ "link on": "Set up Straw Link on this computer, as the GUI page's Set up button does", "link confirms": "List the confirms teammates' towers wait on (the call's arguments in full)", "link confirm": "Allow or deny a teammate tower's call: link confirm <id> allow|deny", "link asks": "List the questions unattended devices forwarded to you", "link answer": "Answer a forwarded question: link answer <id> <choice number | text> (or --cancel)", "link invite show": "Show an open invite's text on this screen only: link invite show <hash>", "link invite cancel": "Cancel an open invite: link invite cancel <hash>", "link join": "Join a team: link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>]", "link join cancel": "Cancel the join in progress", "link create": "Create a team: link create <relay> <dir> [--share status|presence] [--label <name>] (asks for the relay's token privately)", "link leave": "Leave a team on this computer: link leave <team> [--force]", "link operate": "List the operate sessions this computer holds on unattended boxes", "link operate off": "End every operate session this computer holds, and keep operate off until link operate on", "link operate on": "Turn operate on again after link operate off", "link units": "List the units and mains the unattended boxes reported: link units [box]", "link stop": "Ask a box to stop one of its mains: link stop <box> <main | handle start> [--interrupt] [reason]" }).map(([value, description]) => ({ value, label: value, description }));
 
 /** The words of a typed line (a quoted run is one word), flags `--name value` or `--name=value` split off; undefined for a flag that is not allowed or has no value. */
 function split(text: string, allowed: readonly string[], bare: readonly string[] = []): { pos: string[]; flag: Record<string, string> } | undefined {
@@ -65,6 +65,7 @@ export function parseLinkMore(rest: string | undefined): LinkMore | "usage" | un
 		return m ? { action: "answer", id: m[1]!, cancel: said === "--cancel", text: said === "--cancel" ? "" : said } : "usage";
 	}
 	const share = (v: string | undefined): { share?: Share } | undefined => (v === undefined ? {} : v === "status" || v === "presence" ? { share: v } : undefined);
+	if (verb === "on") return text === "on" ? { action: "on" } : "usage";
 	if (verb === "operate") return text === "operate" ? { action: "operate" } : /^operate\s+off$/.test(text) ? { action: "operate-off" } : /^operate\s+on$/.test(text) ? { action: "operate-on" } : "usage";
 	if (verb === "leave") {
 		const p = split(text, [], ["force"]);
@@ -103,8 +104,9 @@ function readDialog(json: unknown): Dlg | undefined {
 
 const WORDS = {
 	en: {
-		usage: { confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <choice number | text> | answer <id> (asks in pi) | answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>] | join cancel", create: "/boss link create <relay> <dir> [--share status|presence] [--label <name>]", leave: "/boss link leave <team> [--force]", operate: "/boss link operate [off|on]" } as Record<string, string>,
-		off: "Straw Link is not on in this server",
+		usage: { on: "/boss link on", confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <choice number | text> | answer <id> (asks in pi) | answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <invite text | @file> [--project <dir>] [--share status|presence] [--label <name>] | join cancel", create: "/boss link create <relay> <dir> [--share status|presence] [--label <name>]", leave: "/boss link leave <team> [--force]", operate: "/boss link operate [off|on]" } as Record<string, string>,
+		off: "Straw Link is not on in this server (turn it on with /boss link on)",
+		setup: "Setting up Straw Link: it takes a few seconds, then /boss link status shows it",
 		noScreen: "This needs the pi screen to ask you first",
 		noPrivate: "This screen cannot take a secret without showing it (it has no private screen); do this in a pi terminal",
 		declined: "Nothing was decided",
@@ -181,8 +183,9 @@ const WORDS = {
 		asksWait: (n: number) => `${n} forwarded question${n === 1 ? "" : "s"} wait${n === 1 ? "s" : ""}: /boss link asks`,
 	},
 	"zh-TW": {
-		usage: { confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <選項編號 | 文字> | answer <id>（在 pi 裡逐題問）| answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <邀請文字 | @檔案> [--project <資料夾>] [--share status|presence] [--label <名稱>] | join cancel", create: "/boss link create <中繼站> <資料夾> [--share status|presence] [--label <名稱>]", leave: "/boss link leave <團隊> [--force]", operate: "/boss link operate [off|on]" } as Record<string, string>,
-		off: "這個伺服器沒有開 Straw Link",
+		usage: { on: "/boss link on", confirms: "/boss link confirms", confirm: "/boss link confirm <id> allow|deny", asks: "/boss link asks", answer: "/boss link answer <id> <選項編號 | 文字> | answer <id>（在 pi 裡逐題問）| answer <id> --cancel", invite: "/boss link invite show|cancel <hash>", join: "/boss link join <邀請文字 | @檔案> [--project <資料夾>] [--share status|presence] [--label <名稱>] | join cancel", create: "/boss link create <中繼站> <資料夾> [--share status|presence] [--label <名稱>]", leave: "/boss link leave <團隊> [--force]", operate: "/boss link operate [off|on]" } as Record<string, string>,
+		off: "這個伺服器沒有開 Straw Link（用 /boss link on 開啟）",
+		setup: "正在設定 Straw Link：要等幾秒，之後 /boss link status 會顯示",
 		noScreen: "這個動作需要 pi 畫面，才能先問你",
 		noPrivate: "這個畫面沒有私密螢幕，不能在不顯示的情況下輸入機密；請在 pi 終端機裡做",
 		declined: "什麼都沒有決定",
@@ -492,6 +495,10 @@ export function createBossLink({ s, tell }: Pick<Kit, "s" | "tell">, { record, p
 			if (parsed === undefined) return;
 			if (parsed === "usage") return tell(t().usage[/^(\S+)/.exec(rest.trim())![1]!]!, "error");
 			switch (parsed.action) {
+				case "on": {
+					const reply = await post(await record(), "link/enable", {}, 30_000);
+					return reply.status === 200 ? tell(t().setup) : tell(refusal(reply), "error");
+				}
 				case "operate": return operate();
 				case "operate-off": {
 					const reply = await post(await record(), "link/operate-off", {}, 10_000);

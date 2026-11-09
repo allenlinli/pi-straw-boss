@@ -241,3 +241,18 @@ test("auto-note keeps a refusal's tool and gist while on, at most 500 a period, 
 	for (let i = 0; i < 520; i++) auto.note({ kind: "refused", tool: "t", session: "s", gist: String(i) });
 	assert.equal(auto.period()!.notes.length, 500);
 });
+
+test("AMC-F001: rpiv drawn with ui.custom is cancelled by its owner and the turn is not aborted", async () => {
+	const auto = server();
+	const a = await member(auto);
+	const cancels = rpivOpen(a);
+	// the real rpiv draws its questionnaire with ctx.ui.custom
+	void (a.ui.custom as (f: () => unknown) => unknown)(() => ({ render: () => [] }));
+	a.idle = false;
+	await settle();
+	auto.switchOn(pi);
+	await until(() => cancels.length === 1, "the cancel");
+	await settle();
+	await settle();
+	assert.equal(a.aborted, 0, "an owner that took the cancel costs no turn");
+});

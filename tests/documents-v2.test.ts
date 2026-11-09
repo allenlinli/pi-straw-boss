@@ -105,11 +105,11 @@ test("a v2 document's card names what the page draws: blocks for a blocks docume
 	assert.equal(isBlocksDoc({ id: "f", path: "/w/f.html", kind: "html", display: "f.html", reason: "", revision: 1, onScreen: true }), false);
 });
 
-test("an answer is checked as the owner checks it: a kind of the six, a title, at most 64 text fields under 12 KB without control characters, a block address", () => {
+test("an answer is checked as the owner checks it: a kind of the six, a title, at most 65 text fields under 12 KB without control characters, a block address", () => {
 	const good = { kind: "form", title: "Decide", fields: [["a", "1"]], ref: { doc: "docs/plan.md", block: 4 } };
 	assert.equal(answerOk(good), true);
 	assert.equal(answerOk({ kind: "pick", fields: [["picked", "A"]] }), true);
-	for (const bad of [null, "x", { kind: "other", fields: [] }, { kind: "form" }, { kind: "form", fields: "x" }, { kind: "form", fields: [["a"]] }, { kind: "form", fields: [["a", 1]] }, { kind: "form", fields: [["a", "x\u0007y"]] }, { kind: "form", title: 3, fields: [] }, { kind: "form", fields: Array.from({ length: 65 }, (_, i) => [`f${i}`, "v"]) }, { kind: "form", fields: [["a", "x".repeat(13_000)]] }, { kind: "form", fields: [], ref: { block: 1.5 } }, { kind: "form", fields: [], ref: { block: -1 } }, { kind: "form", fields: [], ref: { doc: 3, block: 1 } }])
+	for (const bad of [null, "x", { kind: "other", fields: [] }, { kind: "form" }, { kind: "form", fields: "x" }, { kind: "form", fields: [["a"]] }, { kind: "form", fields: [["a", 1]] }, { kind: "form", fields: [["a", "x\u0007y"]] }, { kind: "form", title: 3, fields: [] }, { kind: "form", fields: Array.from({ length: 66 }, (_, i) => [`f${i}`, "v"]) }, { kind: "form", fields: [["a", "x".repeat(13_000)]] }, { kind: "form", fields: [], ref: { block: 1.5 } }, { kind: "form", fields: [], ref: { block: -1 } }, { kind: "form", fields: [], ref: { doc: 3, block: 1 } }])
 		assert.equal(answerOk(bad), false, JSON.stringify(bad)?.slice(0, 60));
 	assert.equal(answerOk({ kind: "form", fields: [["a", "line\nbreak\tand tab"]] }), true, "a text box's line break and a tab are fine");
 });
@@ -139,4 +139,10 @@ test("an answer goes to the owner as better-show:answer {version 2, id, answerId
 	} finally {
 		mock.timers.reset();
 	}
+});
+
+test("pi-better-show 0.5.0: an answer of 64 questions plus the reserved `pi-note` is still an answer", () => {
+	const fields = [...Array.from({ length: 64 }, (_, i) => [`q${i}`, "x"]), ["pi-note", "late thought"]];
+	assert.equal(answerOk({ kind: "form", fields, ref: { block: 0 } }), true);
+	assert.equal(answerOk({ kind: "form", fields: [...fields, ["extra", "x"]], ref: { block: 0 } }), false, "one more is still too many");
 });

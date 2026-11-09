@@ -80,7 +80,7 @@ test("the record is bounded and pruned: the oldest go past the limit, old ones g
 	saved.begin(long);
 	saved.done(long, Array.from({ length: 80 }, (_, i) => [`f${i}`, "x".repeat(5000)] as [string, string]));
 	const kept = saved.get(long);
-	assert.ok(kept?.state === "done" && kept.fields.length <= 64 && kept.fields.every(([n, v]) => n.length <= 256 && v.length <= 1024), "at most 64 fields, values of at most 1024 characters");
+	assert.ok(kept?.state === "done" && kept.fields.length <= 65 && kept.fields.every(([n, v]) => n.length <= 256 && v.length <= 1024), "at most 65 fields, values of at most 1024 characters");
 	assert.ok((d.box.text ?? "").length < 400_000);
 });
 
@@ -185,7 +185,7 @@ test("BSR-F007 A08: an entry the loader accepts keeps only what the schema names
 	const key = chatKey("S", "e", 0);
 	const long = JSON.stringify({ v: 1, entries: [[key, { state: "done", fields: Array.from({ length: 70 }, (_, i) => [`f${i}`.padEnd(400, "n"), "v".repeat(2000)]), at: 1_000, extra: "x" }]] });
 	const state = createAnswered({ ...disk(long), now: () => 2_000 }).get(key);
-	assert.ok(state?.state === "done" && state.fields.length === 64 && state.fields.every(([n, v]) => n.length === 256 && v.length === 1024));
+	assert.ok(state?.state === "done" && state.fields.length === 65 && state.fields.every(([n, v]) => n.length === 256 && v.length === 1024));
 	assert.deepEqual(Object.keys(state!).sort(), ["at", "fields", "state"]);
 });
 
@@ -197,4 +197,13 @@ test("the file holds only the record: a version, and the entries", () => {
 	const parsed = JSON.parse(d.box.text!) as { v: number; entries: [string, { state: string; fields?: unknown }][] };
 	assert.equal(parsed.v, 1);
 	assert.deepEqual(parsed.entries.map(([k, s]) => [k, s.state, s.fields]), [[key, "done", F]]);
+});
+
+test("pi-better-show 0.5.0: a 64-field form with the reserved `pi-note` is kept whole: the note is the 65th field", () => {
+	const a = createAnswered({ load: () => undefined, save: () => {} });
+	const fields: [string, string][] = [...Array.from({ length: 64 }, (_, i): [string, string] => [`q${i}`, "x"]), ["pi-note", "late thought"]];
+	a.begin(chatKey("S", "e", 0));
+	a.done(chatKey("S", "e", 0), fields);
+	const kept = a.get(chatKey("S", "e", 0));
+	assert.ok(kept?.state === "done" && kept.fields.length === 65 && kept.fields[64]![0] === "pi-note");
 });

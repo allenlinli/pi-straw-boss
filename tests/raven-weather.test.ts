@@ -21,11 +21,11 @@ function rig() {
 		createGain: () => { const n = { gain: param(), to: undefined as unknown, connect(t: unknown) { n.to = t; } }; gains.push(n); return n; },
 		createOscillator: () => { const o = { type: "", frequency: param(), started: [] as number[], connect() {}, start: (t: number) => void o.started.push(t), stop() {} }; oscs.push(o); return o; },
 	};
-	const env = { sound: true, hidden: false, backdrop: true, calm: false, motion: true, running: true, random: 0.5 };
+	const env = { sound: true, hidden: false, backdrop: true, calm: false, fine: false, motion: true, running: true, random: 0.5 };
 	const timers: { fn: () => void; ms: number; live: boolean }[] = [];
 	const e: WeatherEnv = {
 		audio: { out: () => ({ c: ac, g: master }) as never, running: () => env.running },
-		backdrop: () => env.backdrop, sound: () => env.sound, hidden: () => env.hidden, calm: () => env.calm, motion: () => env.motion, random: () => env.random,
+		backdrop: () => env.backdrop, sound: () => env.sound, hidden: () => env.hidden, calm: () => env.calm, fine: () => env.fine, motion: () => env.motion, random: () => env.random,
 		set: (fn, ms) => { const t = { fn, ms, live: true }; timers.push(t); return t; },
 		clear: (h) => void ((h as { live: boolean }).live = false),
 	};
@@ -121,6 +121,27 @@ test("no thunder with Sound off, a hidden tab, calm, reduced motion, before audi
 	}
 });
 
+test("on a fine pointer calm does not stop the thunder (the lightning goes on there; boss 2026-11-09), and does not start rain; on a coarse pointer calm still stops both", () => {
+	const r = rig();
+	Object.assign(r.env, { calm: true, fine: true });
+	r.w.refresh();
+	assert.equal(r.sources.length, 0, "rain still rests under calm, whatever the pointer");
+	r.w.flash();
+	assert.equal(r.timers.length, 1, "a wait is set under calm on a fine pointer");
+	r.wait();
+	assert.equal(r.oscs.length, 1, "the thunder sounds");
+	for (const off of [{ sound: false }, { hidden: true }, { motion: false }, { running: false }, { backdrop: false }] as const) {
+		const q = rig();
+		Object.assign(q.env, { calm: true, fine: true }, off);
+		q.w.flash();
+		assert.equal(q.timers.length, 0, `fine and calm, still silent for ${JSON.stringify(off)}`);
+	}
+	const coarse = rig();
+	Object.assign(coarse.env, { calm: true, fine: false });
+	coarse.w.flash();
+	assert.equal(coarse.timers.length, 0, "calm on a coarse pointer: no thunder (battery)");
+});
+
 test("a condition that turns up during the wait drops the thunder: calm, a hidden tab, Sound off, or the page leaving the backdrop", () => {
 	for (const off of [{ calm: true }, { hidden: true }, { sound: false }, { backdrop: false }] as const) {
 		const r = rig();
@@ -156,18 +177,34 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const css = readFileSync(join(root, "gui/themes/raven/raven.css"), "utf8");
 const rules = rulesOf(css);
 
-test("raven.css clocks the weather on the strike: rk-clap (61 s, delayed to the flash's 94.4 %) runs on the layers of rk-bolt and of rk-rest, and changes only `scale`", () => {
+test("raven.css clocks the weather on the strike: rk-clap (61 s, delayed 7 s) runs on the layers of rk-bolt and of rk-rest, whose cycles start 50.584 s in, so the first flash and its event come 7 s after the layer shows, and rk-clap changes only `scale`", () => {
 	assert.equal(FLASH, "rk-clap");
 	const anims = rules.flatMap((r) => declarations(r.body).filter(([p]) => p === "animation").map(([, v]) => ({ selector: r.selector, v })));
+	const FLASH_AT = 61 * 0.944;
+	assert.ok(Math.abs(FLASH_AT - 57.584) < 1e-9, "57.584 s is 94.4 % of 61 s");
 	for (const host of ["rk-bolt", "rk-rest"]) {
-		const a = anims.find((x) => x.v.includes(`${host} 61s`));
-		assert.ok(a, host);
-		assert.match(a.v, /rk-clap 61s linear 57\.584s infinite/, `${host}'s layer has the clock`);
-		assert.ok(Math.abs(57.584 - 61 * 0.944) < 1e-9, "57.584 s is 94.4 % of 61 s");
+		const layers = anims.filter((x) => x.v.includes(`${host} 61s`));
+		assert.equal(layers.length, 2, `${host} runs under motion and under calm on a fine pointer`);
+		for (const a of layers) {
+			const start = Number(new RegExp(`${host} 61s linear (-[\\d.]+)s infinite`).exec(a.v)?.[1]), clap = Number(/rk-clap 61s linear ([\d.]+)s infinite/.exec(a.v)?.[1]);
+			assert.ok(start < 0, `${host}'s layer starts partway into its cycle: ${a.v}`);
+			assert.ok(Math.abs(FLASH_AT + start - clap) < 1e-9, `the clock's delay ${clap} s is the instant the layer reaches its flash (${(FLASH_AT + start).toFixed(3)} s)`);
+			assert.ok(clap >= 6 && clap <= 8, `the first strike is ${clap} s after the layer shows (boss 2026-11-09: a few seconds, not 57.6)`);
+		}
+	}
+	// the perched raven takes the light on the same cycle, from the same start, and turns its head a few seconds after it shows
+	for (const a of anims.filter((x) => x.v.includes("rk-perch-dark"))) assert.match(a.v, /rk-perch-dark 61s linear -50\.584s infinite/, "the raven's light shares the strike's start");
+	for (const a of anims.filter((x) => x.v.includes("rk-perch-turn"))) {
+		const start = Number(/rk-perch-turn 17s linear (-[\d.]+)s infinite/.exec(a.v)?.[1]);
+		assert.ok(start < 0, a.v);
+		const frames = [...(/@keyframes rk-perch-turn \{(.*)\}\n/.exec(css)?.[1] ?? "").matchAll(/(\d+)%(?:, (\d+)%)? \{ opacity: ([\d.]+)/g)];
+		const turnedAt = Number(frames.find((f) => f[3] === "1")![1]) / 100 * 17 + start;
+		assert.ok(turnedAt >= 2 && turnedAt <= 6, `the head is turned ${turnedAt.toFixed(1)} s after the raven shows`);
 	}
 	for (const name of ["rk-bolt", "rk-rest"]) assert.match(css, new RegExp(`@keyframes ${name} \\{ 0%, 94% \\{`), `${name} flashes at 94 to 94.4 %`);
 	assert.match(css, /@keyframes rk-clap \{ from, to \{ scale: 1; \} \}/);
-	// the clock sits inside the no-preference, not-calm blocks: under calm or reduced motion there is no flash and no event
+	// the clock sits inside the no-preference blocks: not under calm unless the pointer is fine (the strike's own block), never under reduced motion
 	const start = css.indexOf("@media (prefers-reduced-motion: no-preference)");
-	for (const line of css.split("\n").filter((l) => l.includes("rk-clap 61s"))) assert.ok(css.indexOf(line) > start && line.includes(":not([data-calm])"), "inside the motion block and not under calm");
+	for (const line of css.split("\n").filter((l) => l.includes("rk-clap 61s"))) assert.ok(css.indexOf(line) > start && (line.includes(":not([data-calm])") || (line.includes("[data-calm]") && line.trimStart().startsWith("html[data-view=\"raven\"][data-calm]"))), "inside the motion block, and under calm only in the fine-pointer block");
+	assert.match(css, /@media \(prefers-reduced-motion: no-preference\) and \(pointer: fine\) \{[^@]*rk-clap 61s linear 7s infinite/, "the calm exemption is for a fine pointer");
 });

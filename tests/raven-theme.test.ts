@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { NOUN_KEYS } from "../gui/nouns.ts";
 import { NOUNS } from "../gui/themes/raven/nouns.ts";
-import { rulesOf, split } from "./css-rules.ts";
+import { declarations, rulesOf, split } from "./css-rules.ts";
 
 // Raven Keep's own assets (gui/themes/raven/, docs/specs/2026-11-07-raven-view/spec.md §1.4, §1.5): the sprite, the nouns, the favicons, the backdrop, the sounds, and the motion rules.
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -115,15 +115,41 @@ test("shipped text and sources name no trademark: no Strahd, Barovia, or Ravenlo
 
 const css = rulesOf(at("gui/themes/raven/raven.css"));
 const raw = at("gui/themes/raven/raven.css");
+/** The block that keeps the strike (and the perched raven's light and head turn) running under calm on a fine pointer (boss, 2026-11-09). */
+const FINE_BLOCK = /@media \(prefers-reduced-motion: no-preference\) and \(pointer: fine\) \{((?:[^{}]|\{[^{}]*\})*)\}/.exec(raw)?.[1] ?? "";
 
 test("every motion rule of the theme sits under prefers-reduced-motion: no-preference and outside data-calm, and forced-colors turns the backdrop's motion off", () => {
 	// every `animation:` declaration is inside the no-preference media block
 	const blocks = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{/g)];
 	assert.ok(blocks.length >= 1, "a no-preference block exists");
-	const outside = raw.replace(/@media \(prefers-reduced-motion: no-preference\) \{(?:[^{}]|\{[^{}]*\})*\}/g, "");
+	const outside = raw.replace(/@media \(prefers-reduced-motion: no-preference\)(?: and \(pointer: fine\))? \{(?:[^{}]|\{[^{}]*\})*\}/g, "");
 	assert.ok(![...outside.matchAll(/animation(?:-name)?\s*:\s*([^;}]*)/g)].some((m) => !/^none\b/.test(m[1]!.trim())), "no animation declared outside the no-preference block (forced colours only stop one with `animation: none`)");
-	for (const rule of css.filter((r) => /animation\s*:/.test(r.body) && !/animation\s*:\s*none/.test(r.body))) assert.ok(/:not\(\[data-calm\]\)/.test(rule.selector), `${rule.selector} stops at data-calm`);
+	const fine = rulesOf(FINE_BLOCK).map((r) => r.selector);
+	for (const rule of css.filter((r) => /animation\s*:/.test(r.body) && !/animation\s*:\s*none/.test(r.body) && !fine.includes(r.selector))) assert.ok(/:not\(\[data-calm\]\)/.test(rule.selector), `${rule.selector} stops at data-calm`);
 	assert.match(raw, /@media \(forced-colors: active\)/);
+});
+
+test("calm on a fine pointer keeps the strike and the perched raven only: the block is inside no-preference and (pointer: fine), is scoped to data-calm, and names no other animation (a phone's calm stops everything)", () => {
+	assert.ok(FINE_BLOCK.length > 0, "the fine-pointer block exists");
+	const rules = rulesOf(FINE_BLOCK);
+	assert.equal(rules.length, 6, "the head page's strike, raven light and turn, then the map's");
+	const allowed = new Set(["rk-bolt", "rk-rest", "rk-clap", "rk-perch-dark", "rk-perch-turn"]);
+	for (const rule of rules) {
+		assert.match(rule.selector, /^html\[data-view="raven"\]\[data-calm\]/, `${rule.selector} applies under calm only`);
+		for (const [prop, value] of declarations(rule.body)) {
+			assert.equal(prop, "animation", `${rule.selector} sets only an animation`);
+			for (const one of split(value, ",")) assert.ok(allowed.has(one.trim().split(/\s+/)[0]!), `${rule.selector}: ${one.trim()} is a strike animation`);
+		}
+	}
+	// the same animation, name for name and delay for delay, as the calm-free rules: a calm that starts or ends neither restarts nor shifts the strike
+	const full = rulesOf(raw).filter((r) => r.selector.includes(":not([data-calm])"));
+	for (const rule of rules) {
+		const mine = declarations(rule.body)[0]![1].split(",").map((x) => x.trim());
+		const twin = full.find((r) => r.selector.replace(":not([data-calm])", "[data-calm]") === rule.selector);
+		assert.ok(twin, `${rule.selector} has its calm-free twin`);
+		const theirs = declarations(twin.body).find(([p]) => p === "animation")![1].split(",").map((x) => x.trim());
+		for (const one of mine) assert.ok(theirs.includes(one), `${rule.selector}: ${one} is in the calm-free animation`);
+	}
 });
 
 test("the lightning comes at most once a minute and never washes the screen: its cycle is 60 s or longer and its peak alpha is low", () => {

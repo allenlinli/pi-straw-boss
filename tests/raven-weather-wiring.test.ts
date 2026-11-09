@@ -25,11 +25,11 @@ const doc = {
 	addEventListener: (t: string, f: Fn) => void (listeners.get(t) ?? listeners.set(t, new Set()).get(t)!).add(f),
 	removeEventListener: (t: string, f: Fn) => void listeners.get(t)?.delete(f),
 };
-const env = { motion: true, activation: false };
+const env = { motion: true, fine: false, activation: false };
 Object.assign(globalThis, {
 	document: doc, MutationObserver: FakeObserver,
 	localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) },
-	matchMedia: () => ({ matches: env.motion }),
+	matchMedia: (q: string) => ({ matches: q.includes("pointer: fine") ? env.fine : env.motion }),
 	addEventListener: (t: string, f: Fn) => void (globalHandlers.get(t) ?? globalHandlers.set(t, []).get(t)!).push(f),
 });
 Object.defineProperty(globalThis, "navigator", { configurable: true, get: () => ({ userActivation: { isActive: env.activation } }) });
@@ -54,7 +54,7 @@ function core() {
 /** One mounted weather on a fresh page: Sound on, the map showing, the context already running. */
 function page(over: { sound?: boolean; running?: boolean } = {}) {
 	listeners.clear(); attrs.clear(); FakeObserver.all.length = 0;
-	Object.assign(root.dataset, { view: "raven" }); stage.dataset.view = "map"; soundSwitch.dataset.state = "off"; doc.hidden = false; env.motion = true; env.activation = false;
+	Object.assign(root.dataset, { view: "raven" }); stage.dataset.view = "map"; soundSwitch.dataset.state = "off"; doc.hidden = false; env.motion = true; env.fine = false; env.activation = false;
 	store.set("sb.sound", over.sound === false ? "0" : "1");
 	const c = core(); c.st.running = over.running ?? true;
 	let t = 100_000;
@@ -228,6 +228,28 @@ test("calm and the view are watched: calm stops the rain and its end brings it b
 		p.flash();
 		mock.timers.tick(2100);
 		assert.equal(p.made.thunders, 0, "reduced motion: no thunder");
+		p.undo();
+	} finally {
+		mock.timers.reset();
+	}
+});
+
+test("calm on a fine pointer lets the lightning's thunder through (the stylesheet keeps the strike running there), and the rain still rests", () => {
+	mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		const p = page();
+		env.fine = true;
+		attrs.add("data-calm");
+		p.rootWatch.cb();
+		p.flash();
+		mock.timers.tick(2100);
+		assert.equal(p.made.thunders, 1, "calm, fine pointer: the thunder follows the flash");
+		assert.equal(p.made.loops, 1, "no new rain under calm");
+		env.fine = false;
+		p.now(5000);
+		p.flash();
+		mock.timers.tick(2100);
+		assert.equal(p.made.thunders, 1, "calm, coarse pointer: none");
 		p.undo();
 	} finally {
 		mock.timers.reset();

@@ -49,6 +49,7 @@
 	--pbs-radius: 0; --pbs-gap: 12px; --pbs-font: var(--sans); --pbs-font-display: var(--serif); --pbs-mono: var(--mono); --pbs-font-size: 14px;
 	/* The backdrop's frame: the illustration is 1280 by 721, drawn at the page's width up to 1600 px, so each light and flyer below sits at a place of it that does not move with the window. */
 	--rk-w: min(100vw, 1600px);
+	--rk-mw: min(100vw, 1600px); /* the map's mist strips are cut to this, not to --rk-w, which a phone makes taller than the screen (below) */
 	--rk-r: calc(var(--rk-w) * 0.018);
 }
 [data-view="raven"] :is(.brand h1, h2, h3) { font-family: var(--serif); letter-spacing: 0.04em; }
@@ -160,8 +161,8 @@ html[data-view="raven"] .stage[data-view="map"]::after {
 		radial-gradient(circle var(--rk-r) at 90.5% 68.9%, rgb(255 190 92 / 0.62), transparent);
 }
 /* Two mists, one each way: a strip wider than the picture by one tile of its band, which the motion slides by that tile. The strips are as tall as the picture (not as wide as they are). */
-html[data-view="raven"]:has(#stage[data-view="map"]) body::before { z-index: -3; translate: none; left: calc(50% - var(--rk-w) * 1.2); width: calc(var(--rk-w) * 1.7); height: calc(var(--rk-w) * 0.5633); aspect-ratio: auto; background: radial-gradient(ellipse 34% 13% at 50% 70%, rgb(176 166 196 / 0.2), transparent 70%) 0 0 / calc(var(--rk-w) * 0.7) 100% repeat-x; mask-image: linear-gradient(transparent, #000 35%, #000 70%, transparent); }
-html[data-view="raven"] .stage[data-view="map"] > .work::before { z-index: -3; translate: none; left: calc(50% - var(--rk-w) * 0.5); width: calc(var(--rk-w) * 1.55); height: calc(var(--rk-w) * 0.5633); aspect-ratio: auto; background: radial-gradient(ellipse 30% 10% at 50% 86%, rgb(176 166 196 / 0.16), transparent 70%) 0 0 / calc(var(--rk-w) * 0.55) 100% repeat-x; mask-image: linear-gradient(transparent, #000 35%, #000 70%, transparent); }
+html[data-view="raven"]:has(#stage[data-view="map"]) body::before { z-index: -3; translate: none; left: calc(50% - var(--rk-mw) * 1.2); width: calc(var(--rk-mw) * 1.7); height: calc(var(--rk-mw) * 0.5633); aspect-ratio: auto; background: radial-gradient(ellipse 34% 13% at 50% 70%, rgb(176 166 196 / 0.2), transparent 70%) 0 0 / calc(var(--rk-mw) * 0.7) 100% repeat-x; mask-image: linear-gradient(transparent, #000 35%, #000 70%, transparent); }
+html[data-view="raven"] .stage[data-view="map"] > .work::before { z-index: -3; translate: none; left: calc(50% - var(--rk-mw) * 0.5); width: calc(var(--rk-mw) * 1.55); height: calc(var(--rk-mw) * 0.5633); aspect-ratio: auto; background: radial-gradient(ellipse 30% 10% at 50% 86%, rgb(176 166 196 / 0.16), transparent 70%) 0 0 / calc(var(--rk-mw) * 0.55) 100% repeat-x; mask-image: linear-gradient(transparent, #000 35%, #000 70%, transparent); }
 /* Two bats cross before the moon now and then, the second a little behind and lower: one element, so one transform moves them both. At rest it waits off the left edge. */
 html[data-view="raven"]:has(#stage[data-view="map"]) body::after { z-index: -2; translate: none; left: calc(50% - var(--rk-w) * 0.5); width: calc(var(--rk-w) * 0.169); height: calc(var(--rk-w) * 0.0453); aspect-ratio: auto; transform: translate(calc(var(--rk-w) * -0.251), calc(var(--rk-w) * 0.0658)); background: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2040%2018%27%3E%3Cpath%20fill=%27%230b080e%27%20d=%27M20%2011%2017%205%2011%202%208%207%202%205%208%2013%2014%2011%2018%2014%2020%2010%2022%2014%2026%2011%2032%2013%2038%205%2032%207%2029%202%2023%205Z%27/%3E%3C/svg%3E") 100% 0 / calc(var(--rk-w) * 0.034) auto no-repeat, url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2040%2018%27%3E%3Cpath%20fill=%27%230b080e%27%20d=%27M20%2011%2017%205%2011%202%208%207%202%205%208%2013%2014%2011%2018%2014%2020%2010%2022%2014%2026%2011%2032%2013%2038%205%2032%207%2029%202%2023%205Z%27/%3E%3C/svg%3E") 0 100% / calc(var(--rk-w) * 0.026) auto no-repeat; }
 html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after { z-index: -1; }
@@ -175,7 +176,7 @@ html[data-view="raven"]:has(#stage[data-view="map"]) .head-node > .perch {
 }
 /* The band exists while the head is not open (absent) too: the perch stays in it, unseen, so its clock runs with the strike's from the moment the band is shown. */
 html[data-view="raven"] .head-node.absent > .perch { visibility: hidden; }
-@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after, html[data-view="raven"]:has(#stage[data-view="map"]) .head-node > .perch { display: none; } html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { margin-top: 0; } }
+@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after { display: none; } html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { --rk-pw: 44px; margin-top: calc(var(--rk-pw) * 0.806 - 8px); } } /* a phone keeps the perched raven on the band, at 44 px wide, its top inside the map's 14 px padding and the 27 px the band's margin makes; it takes no tap (pointer-events: none) */
 /* The map and the legend take the keep's ground over the picture, so their text holds its contrast in the lit state. */
 html[data-view="raven"] .stage[data-view="map"] .map { background: var(--rk-well); }
 html[data-view="raven"] .legend { padding: 4px 10px; background: var(--rk-well); }
@@ -220,16 +221,16 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]) .comms-in { background: var(--well); }
 
 @media (prefers-reduced-motion: no-preference) {
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::before { animation: rk-lit-a 4.7s ease-in-out infinite alternate, rk-lit-b 6.1s ease-in-out infinite alternate, rk-bolt 61s linear infinite, rk-clap 61s linear 57.584s infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::before { animation: rk-lit-a 4.7s ease-in-out infinite alternate, rk-lit-b 6.1s ease-in-out infinite alternate, rk-bolt 61s linear -50.584s infinite, rk-clap 61s linear 7s infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::before { animation: rk-fog 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"]) body::after { animation: rk-bat 47s linear infinite; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="head"])::after { animation: rk-flap 0.46s steps(1, end) infinite, rk-raven 83s linear 21s infinite; }
-	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch::after { animation: rk-perch-dark 61s linear infinite; }
-	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch-turn { animation: rk-perch-turn 17s linear infinite; }
+	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch::after { animation: rk-perch-dark 61s linear -50.584s infinite; }
+	html[data-view="raven"]:not([data-calm]) .stage[data-view="head"] > .perch-turn { animation: rk-perch-turn 17s linear -7.5s infinite; }
 	/* the map's backdrop: every animation fades or moves a layer that is not repainted (opacity, transform, translate). The strike and the perched raven start together: both wait for the head band to be shown. */
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .stage[data-view="map"]::before { animation: rk-rest 61s linear infinite, rk-clap 61s linear 57.584s infinite; }
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch::after { animation: rk-perch-dark 61s linear infinite; }
-	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch-turn { animation: rk-perch-turn 17s linear infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .stage[data-view="map"]::before { animation: rk-rest 61s linear -50.584s infinite, rk-clap 61s linear 7s infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch::after { animation: rk-perch-dark 61s linear -50.584s infinite; }
+	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch-turn { animation: rk-perch-turn 17s linear -7.5s infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"]::after { animation: rk-candle 4.7s ease-in-out infinite alternate; }
 	html[data-view="raven"]:not([data-calm]):has(#stage[data-view="map"]) body::before { animation: rk-mist-a 150s linear infinite; }
 	html[data-view="raven"]:not([data-calm]) .stage[data-view="map"] > .work::before { animation: rk-mist-b 150s linear infinite; }
@@ -254,14 +255,24 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 	html[data-view="raven"]:not([data-calm]) .connect-ring { animation: none; }
 	html[data-view="raven"]:not([data-calm]) .connect-ring::after { animation: rk-soul 3.2s ease-in-out infinite; }
 }
+/* Calm on a fine pointer keeps the strike (boss, 2026-11-09: 「鴉閣我好像還是都沒看到雷聲和閃電」). The page calms 30 s after the last input, and the first strike used to come 57.6 s after the backdrop showed, so a boss who watched without touching never saw a flash or heard the thunder. Now the first strike comes 7 s after the layer is shown (each strike layer starts 50.584 s into its 61 s cycle, and rk-clap waits 7 s, so the flash and its event stay one instant) and then every 61 s; and where the pointer is fine (a mouse or trackpad, a desk with power),
+   calm stops everything but the strike, the perched raven's light and its head turn, which are what a watching boss came to see. A coarse pointer (a phone) keeps the old rule: calm stops all of it, for the battery. The cost: on the map the strike is the rest veil's opacity and the raven's two opacity fades, which the compositor runs without the main thread or a repaint; on the head page rk-bolt animates a registered number, so the main thread ticks one animation per frame (it repaints that layer only through the 2.4 s of a flash, since a number that does not change invalidates nothing), and the lights, the fog, the bats, and the flyer rest as under calm anywhere. */
+@media (prefers-reduced-motion: no-preference) and (pointer: fine) {
+	html[data-view="raven"][data-calm]:has(#stage[data-view="head"])::before { animation: rk-bolt 61s linear -50.584s infinite, rk-clap 61s linear 7s infinite; }
+	html[data-view="raven"][data-calm] .stage[data-view="head"] > .perch::after { animation: rk-perch-dark 61s linear -50.584s infinite; }
+	html[data-view="raven"][data-calm] .stage[data-view="head"] > .perch-turn { animation: rk-perch-turn 17s linear -7.5s infinite; }
+	html[data-view="raven"][data-calm]:has(#stage[data-view="map"] .head-node:not([hidden])) .stage[data-view="map"]::before { animation: rk-rest 61s linear -50.584s infinite, rk-clap 61s linear 7s infinite; }
+	html[data-view="raven"][data-calm]:has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch::after { animation: rk-perch-dark 61s linear -50.584s infinite; }
+	html[data-view="raven"][data-calm]:has(#stage[data-view="map"] .head-node:not([hidden])) .head-node > .perch-turn { animation: rk-perch-turn 17s linear -7.5s infinite; }
+}
 @keyframes rk-room-candle { 0% { opacity: 0.5; } 20% { opacity: 1; } 38% { opacity: 0.62; } 57% { opacity: 0.95; } 76% { opacity: 0.68; } 100% { opacity: 0.88; } }
 @keyframes rk-lit-a { 0% { --rk-a: 0.55; } 18% { --rk-a: 0.9; } 33% { --rk-a: 0.5; } 52% { --rk-a: 0.85; } 71% { --rk-a: 0.62; } 100% { --rk-a: 0.78; } }
 @keyframes rk-lit-b { 0% { --rk-b: 0.8; } 22% { --rk-b: 0.5; } 40% { --rk-b: 0.95; } 63% { --rk-b: 0.58; } 81% { --rk-b: 0.9; } 100% { --rk-b: 0.66; } }
-/* Once in 61 seconds the sky lights: the picture rises out of the dark in a quarter of a second, flickers back to a fifth, rises again, and fades to dark in 1.2 s (two flashes within 0.9 s). */
+/* Once in 61 seconds, the first 7 s after the layer is shown (see the calm block), the sky lights: the picture rises out of the dark in a quarter of a second, flickers back to a fifth, rises again, and fades to dark in 1.2 s (two flashes within 0.9 s). */
 @keyframes rk-bolt { 0%, 94% { --rk-bolt: 0; } 94.4% { --rk-bolt: 1; } 94.9% { --rk-bolt: 0.2; } 95.4% { --rk-bolt: 1; } 97.4%, 100% { --rk-bolt: 0; } }
 /* The perched raven takes the strike's light in step with the picture (same 61 s, same instants as rk-bolt and rk-rest; they start together, when the band or the head page is shown): its dark layer fades out at a flash and back in, over the lit layer beneath (the brightness 0.34 and 0.85 of old, as a crossfade). */
 @keyframes rk-perch-dark { 0%, 94% { opacity: 1; } 94.4% { opacity: 0; } 94.9% { opacity: 0.78; } 95.4% { opacity: 0; } 97.4%, 100% { opacity: 1; } }
-/* It holds the profile for 12.6 s of 17, dissolves to the turned head in 0.7 s, looks at the viewer for 3 s, and dissolves back. */
+/* It holds the profile for 12.6 s of 17, dissolves to the turned head in 0.7 s, looks at the viewer for 3 s, and dissolves back. The first turn comes 3.4 s after it is shown (boss, 2026-11-09: he had never seen it): its animation starts 7.5 s into the cycle. */
 @keyframes rk-perch-turn { 0%, 64% { opacity: 0; } 68%, 86% { opacity: 1; } 90%, 100% { opacity: 0; } }
 @keyframes rk-fog { to { background-position: calc(var(--rk-w) * 0.7) 0, calc(var(--rk-w) * -0.55) 0; } }
 /* The bats are over the moon for the first seven seconds of 47: the first goes up and across, the second follows a moment later, lower. */
@@ -275,13 +286,13 @@ html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]
 }
 @keyframes rk-flap { 0% { background-position: 0 0; } 50% { background-position: 100% 0; } }
 @keyframes rk-raven { 0% { translate: -20vw 0; opacity: 0; } 1% { opacity: 1; } 7% { translate: calc(var(--rk-w) * 0.3) calc(var(--rk-w) * 0.012); } 12% { translate: calc(var(--rk-w) * 0.62) calc(var(--rk-w) * -0.006); opacity: 1; } 13%, 100% { translate: calc(var(--rk-w) + 10vw) 0; opacity: 0; } }
-/* The strike's clock for the weather (gui/themes/raven/weather.ts): an animation that changes nothing, on the layer of rk-bolt (head page) and rk-rest (map), 61 s long and delayed 57.584 s (94.4 % of the cycle, the first instant of both keyframes' flash), so its animationstart and each animationiteration fall on a flash and the thunder follows from them. It animates `scale`, which neither of those moves. */
+/* The strike's clock for the weather (gui/themes/raven/weather.ts): an animation that changes nothing, on the layer of rk-bolt (head page) and rk-rest (map), 61 s long and delayed 7 s, the instant the strike layers' own cycle (which they start 50.584 s into, 57.584 s being 94.4 % of 61 s, the first instant of both keyframes' flash) reaches its flash, so its animationstart and each animationiteration fall on a flash and the thunder follows from them. It animates `scale`, which neither of those moves. */
 @keyframes rk-clap { from, to { scale: 1; } }
 /* The map's strike: the rest veil's layer fades out and back in on the bolt's clock (rk-bolt's instants, opacity 1 - bolt), so the picture lights under the veil the head page lifts. */
 @keyframes rk-rest { 0%, 94% { opacity: 1; } 94.4% { opacity: 0; } 94.9% { opacity: 0.8; } 95.4% { opacity: 0; } 97.4%, 100% { opacity: 1; } }
 @keyframes rk-candle { 0% { opacity: 0.55; } 18% { opacity: 0.95; } 33% { opacity: 0.6; } 52% { opacity: 0.9; } 71% { opacity: 0.7; } 100% { opacity: 1; } }
-@keyframes rk-mist-a { to { transform: translateX(calc(var(--rk-w) * 0.7)); } }
-@keyframes rk-mist-b { to { transform: translateX(calc(var(--rk-w) * -0.55)); } }
+@keyframes rk-mist-a { to { transform: translateX(calc(var(--rk-mw) * 0.7)); } }
+@keyframes rk-mist-b { to { transform: translateX(calc(var(--rk-mw) * -0.55)); } }
 /* The bats are over the moon for the first nine seconds of 47 (the head page's path, with the second bat's lag and drop built into the pair's box). */
 @keyframes rk-bats {
 	0% { transform: translate(calc(var(--rk-w) * -0.251), calc(var(--rk-w) * 0.0658)); }
@@ -364,3 +375,23 @@ html[data-view="raven"] { --rk-rule: color-mix(in srgb, var(--gold) 50%, var(--l
 html[data-view="raven"] .hud, html[data-view="raven"] .base, html[data-view="raven"] .comms-in, html[data-view="raven"] .set-group, html[data-view="raven"] .panel, html[data-view="raven"] dialog.sheet, html[data-view="raven"] .dialog, html[data-view="raven"] .tcard, html[data-view="raven"] .ask:not(.dialog .ask, .link-alert .ask) { border-top: 4px double var(--rk-rule); }
 html[data-view="raven"] dialog.sheet:not(.yard), html[data-view="raven"] .ask:not(.dialog .ask, .link-alert .ask) { background-image: var(--rk-ticks); background-position: var(--rk-tick-at); background-size: var(--rk-tick-size); background-repeat: no-repeat; }
 html[data-view="raven"] .dialog, html[data-view="raven"] .tcard { background-image: var(--rk-ticks), linear-gradient(var(--c1), var(--surface-0) 70%); background-position: var(--rk-tick-at), 0 0; background-size: var(--rk-tick-size), auto; background-repeat: no-repeat; } /* over the gradient Standard paints on them */
+
+/* A phone shows the castle (boss, 2026-11-09: 「手機樣式完全看不到城堡了」). The frame is the painting at the page's width, so on a 390 px screen the 1280 px picture was a 220 px strip under the header, covered by the HUD and the cards. Under 600 px the frame is as tall as the screen instead (`--rk-w` = the screen's height times 1280 / 721, never less than its width: 1498 px on a 390 x 844 phone) and
+   pinned to the left edge, where the moon and the castle are (the first 27 percent of the painting, about 400 px); the gate and the tree on the right fall off the edge. Every light, veil, and mist of the frame is laid in percentages and `--rk-w`, so they follow. `svh` is the screen with its toolbars shown, so the frame does not jump as they hide; a browser without `svh` takes `vh`. The mist strips keep their own width (`--rk-mw`). The flying raven, the bats, and the head page's perched raven stay off
+   a phone (they are positioned on a frame the phone only shows a fifth of); the map's perched raven stays on the band. */
+@media (max-width: 600px) {
+	html[data-view="raven"] { --rk-w: max(100vw, calc(100vh * 1.7753)); --rk-w: max(100vw, calc(100svh * 1.7753)); }
+	html[data-view="raven"]:has(#stage[data-view="head"])::before, html[data-view="raven"]:has(#stage[data-view="map"])::before, html[data-view="raven"] .stage[data-view="map"]::before, html[data-view="raven"] .stage[data-view="map"]::after { left: 0; translate: none; }
+}
+/* Frosted glass (boss, 2026-11-09: 「鴉閣模式有背景，卡片是否改用類似毛玻璃的效果？」). Where the browser can blur what is behind a box, the large panels of the keep (a base on the map, the comms and the head page's panels, the dossier and the timeline, a settings group, a sheet) take a translucent fill and blur the picture under them, so the castle shows through as a glow. Without `backdrop-filter` nothing here applies and the panels keep the fills above.
+   Each blurred panel is one more layer for the GPU, and a blur cannot sit in another (a backdrop-filter box is the backdrop root of its children, which would see nothing behind them), so only the panels above blur and the rows and cards inside them (`.card`, `.d-doc`, `.tx-body`) take a translucent fill of their own and no blur. A typical map has one blurred layer per base on screen (a phone shows two or three at once, a desktop up to six; the browser leaves
+   off-screen layers unpainted), plus the header's blur that Standard already has; the comms, the head page, and the settings page are one blurred panel each, and a sheet one while it is open. The squares and the gold rule of round 2 stay (they are borders and radii, which the fill does not touch).
+   Contrast: the fill is #120d19 at 72 percent (sheets at 88, where the page behind them is text, not a picture), and --text, --dim, and every state colour keep 4.5 : 1 on it over the brightest pixel of the picture at the lightning's peak after the 14 px blur, rgb(137 102 67) (tests/raven-contrast.test.ts, sampled from the shipped picture). The map's own ground lightens to a faint veil, since the bases carry their text on their own glass; what stands on it bare (the band, the crumbs, the legend) keeps its own ground. */
+html[data-view="raven"] { --rk-glass: rgba(18, 13, 25, 0.72); --rk-glass-sheet: rgba(18, 13, 25, 0.88); --rk-blur: 14px; --rk-map-veil: rgba(9, 7, 12, 0.18); }
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+	html[data-view="raven"] :is(.base, .comms-in, .panel, .set-group) { background: var(--rk-glass); -webkit-backdrop-filter: blur(var(--rk-blur)); backdrop-filter: blur(var(--rk-blur)); }
+	html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]) .comms-in { background: var(--rk-glass); }
+	html[data-view="raven"] .base.ally { background-image: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 42%); }
+	html[data-view="raven"] dialog.sheet:not(.yard) { background-color: var(--rk-glass-sheet); -webkit-backdrop-filter: blur(var(--rk-blur)); backdrop-filter: blur(var(--rk-blur)); }
+	html[data-view="raven"] .stage[data-view="map"] .map { background: var(--rk-map-veil); }
+}

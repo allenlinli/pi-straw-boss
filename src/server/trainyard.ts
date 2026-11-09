@@ -196,7 +196,7 @@ export function readYards(deps: YardDeps, join_: YardJoin): Yards | undefined {
 			code: t.code, app: t.app, status: t.status as YardFormingRow["status"], cars: t.cars.slice(0, MAX_VIEW_CARS).map((c) => carView(c, t.app)), ...(t.departs ? { departs: { maxCars: t.departs.maxCars, maxWaitMin: t.departs.maxWaitMin, oldest: t.departs.oldest } } : {}),
 		})) : [];
 		projects.push({
-			project, ...(yard.ok ? { integrator: { ...(join_.mains.has(yard.yard.writer.session) ? { key: yard.yard.writer.session } : {}), live: isAlive(yard.yard.writer) } } : {}),
+			project, ...(yard.ok ? { integrator: { ...(join_.integrators.has(yard.yard.writer.session) ? { key: yard.yard.writer.session } : {}), live: isAlive(yard.yard.writer), ...(join_.mains.has(yard.yard.writer.session) && !join_.integrators.has(yard.yard.writer.session) ? { switched: true as const } : {}) } } : {}),
 			...(!yard.ok && !missing ? { problem: clean(`yard.json: ${yard.reason}`, 200), problemKind: reasonKind(yard.reason) } : {}), forming, trains, waiting: waitingTrains(mine.map((m) => m.fact)),
 		});
 	}

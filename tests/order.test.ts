@@ -247,7 +247,7 @@ test("a session publishes its key and mark with its role, rewrites them when it 
 
 	Object.assign(world.herdr.pane("wS:p1"), { agent: "pi", agent_status: "working", label: "aaa", agent_session: { value: kidFile("kid-a") } });
 	await a.promote();
-	assert.deepEqual(raw("wA:p1"), { sb_role: "main", sb_order: "000.1.000.0.000", sb_mark: MARK.main, sb_main_tab: "work" }, "promotion swaps the person for the star and keeps the tab label");
+	assert.deepEqual(raw("wA:p1"), { sb_role: "main", sb_order: "000.1.000.0.000", sb_mark: MARK.main, sb_main_tab: "work", sb_duty: "coordinator" }, "promotion swaps the person for the star and keeps the tab label");
 	assert.deepEqual(raw("wS:p1"), { sb_order: "000.1.000.0.000.000", sb_mark: `${ARROW} Solo`, sb_indent: INDENT.last, sb_name: "aaa" }, "the subagent in the worktree workspace hangs under its launcher, on the last branch");
 	assert.deepEqual(byKey(Object.fromEntries(["wA:p7", "wA:p1", "wS:p1", "wA:p2", "wA:p3"].map((id) => [id, raw(id).sb_order]))), ["wA:p7", "wA:p1", "wS:p1", "wA:p2", "wA:p3"]);
 
@@ -376,8 +376,9 @@ test("the tokens of an integrator, a train and a member of the integrator's tab"
 	assert.equal(integ.own.sb_order, "000.05.000.0.000");
 	assert.equal(integ.own.sb_mark, MARK.integrator);
 	assert.equal(integ.own.sb_step, null);
-	const member = await netTokens(run, place("wA:p2", "wA:t1"), "member", "M", Date.now(), undefined, { integratorPanes: ["wA:p1"] });
-	assert.equal(member.own.sb_order, "000.05.000.1.001", "a member whose tab holds the pane of a session a yard names takes the integrator's place, beside it");
+	world.herdr.pane("wA:p1").tokens = { sb_role: "main", sb_duty: "integrator" };
+	const member = await netTokens(run, place("wA:p2", "wA:t1"), "member", "M");
+	assert.equal(member.own.sb_order, "000.05.000.1.001", "a member whose tab's main publishes sb_duty=integrator takes the integrator's place, beside it");
 	assert.equal(member.own.sb_mark, MARK.member);
 	const train = await netTokens(run, place("wA:p3", "wA:t2"), "train", "train 1106m", Date.now(), undefined, { code: "2026-11-06-m", project: "acme", step: `${"\uF04B"} deploy` });
 	assert.equal(MARK.train, "\uf238");
@@ -409,19 +410,23 @@ test("TT-F001: two integrators in one workspace each keep their tab's place, and
 	assert.deepEqual(byKey(keys), ["main-1", "mem-1", "main-2", "mem-2"], "each integrator tab is one block: the main, then its members");
 });
 
-test("TT-F002: a member takes the integrator's place from a pane a yard's writer sits in, never from a token on a pane", async () => {
+test("agent kinds §2 (reverses TT-F002 for display): a member sorts beside the main of its tab that publishes sb_duty=integrator, and not beside any other pane or kind", async () => {
 	world.herdr.addPane("wA:p1", "wA:t1");
 	world.herdr.addPane("wA:p2", "wA:t1");
 	world.herdr.addPane("wA:p3", "wA:t2");
 	const run = world.herdr.runFor("wA:p2"), here = { paneId: "wA:p2", tabId: "wA:t1", workspaceId: "wA" };
+	const order = async () => (await netTokens(run, here, "member", "M")).own.sb_order;
 	world.herdr.pane("wA:p1").tokens = { sb_role: "main", sb_mark: MARK.integrator };
-	const forged = await netTokens(run, here, "member", "M");
-	assert.equal(forged.own.sb_order, "000.1.000.1.001", "a main's role and mark tokens move nobody");
-	assert.equal((await netTokens(run, here, "member", "M", Date.now(), undefined, { integratorPanes: [] })).own.sb_order, "000.1.000.1.001", "no pane named: none moves");
-	assert.equal((await netTokens(run, here, "member", "M", Date.now(), undefined, { integratorPanes: ["wA:p3"] })).own.sb_order, "000.1.000.1.001", "a named pane in another tab moves nobody");
-	assert.equal((await netTokens(run, here, "member", "M", Date.now(), undefined, { integratorPanes: ["wA:p9"] })).own.sb_order, "000.1.000.1.001", "a named pane Herdr does not list moves nobody");
-	assert.equal((await netTokens(run, here, "member", "M", Date.now(), undefined, { integratorPanes: ["wA:p1"] })).own.sb_order, "000.05.000.1.001", "the pane of the yard's writer in its own tab does");
-	assert.equal((await netTokens(run, here, "main", "M", Date.now(), undefined, { integratorPanes: ["wA:p1"] })).own.sb_order, "000.1.000.0.001", "the list is a member's alone: a main is the integrator by its own flag");
+	assert.equal(await order(), "000.1.000.1.001", "a role and a mark alone move nobody");
+	world.herdr.pane("wA:p1").tokens = { sb_role: "main", sb_duty: "standing" };
+	assert.equal(await order(), "000.1.000.1.001", "another kind moves nobody");
+	world.herdr.pane("wA:p1").tokens = { sb_role: "member", sb_duty: "integrator" };
+	assert.equal(await order(), "000.1.000.1.001", "only a main counts");
+	world.herdr.pane("wA:p1").tokens = {};
+	world.herdr.pane("wA:p3").tokens = { sb_role: "main", sb_duty: "integrator" };
+	assert.equal(await order(), "000.1.000.1.001", "an integrator in another tab moves nobody");
+	world.herdr.pane("wA:p1").tokens = { sb_role: "main", sb_duty: "integrator" };
+	assert.equal(await order(), "000.05.000.1.001");
 });
 
 test("TT-F004: trains of two projects with the same code each have a key, ordered by a fixed-width tie after the code; a reviewer stays under its own train", () => {

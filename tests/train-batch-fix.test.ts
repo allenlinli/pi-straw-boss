@@ -124,7 +124,7 @@ test("the yard's cars show what the checked evidence says; a model's `accepted` 
 	await refused(r.create(trainTodo({}, { accept: file, accepted: ["e2e"] })), /car T-15: accepted is set by Straw Boss from the checked evidence/);
 	await ok(r.create(trainTodo({}, { accept: file })));
 	assert.deepEqual(yardOf(r).trains[0]!.cars[0], { tickets: ["T-15"], branch: "fix/t-15", head: SHA_A, coordinator: "sess-coord-1", departs: "next", accept: file, accepted: ["e2e", "uat"] });
-	const net = readYards({ stateDir: r.stateDir, now: () => Date.parse("2026-11-07T08:00:00Z"), alive: () => true }, { trains: [], mains: new Set() });
+	const net = readYards({ stateDir: r.stateDir, now: () => Date.parse("2026-11-07T08:00:00Z"), alive: () => true }, { trains: [], mains: new Set(), integrators: new Set() });
 	assert.deepEqual(net!.projects[0]!.forming[0]!.cars[0]!.accepted, [{ kind: "e2e" }, { kind: "uat" }], "the page gets the kinds the evidence shows");
 	// The file is gone by the next publish (the end of a turn): nothing is claimed.
 	unlinkSync(file);
@@ -132,7 +132,7 @@ test("the yard's cars show what the checked evidence says; a model's `accepted` 
 	const after = yardOf(r).trains[0]!.cars[0]!;
 	assert.equal(after.unverified, true);
 	assert.equal(after.accepted, undefined);
-	const unknown = readYards({ stateDir: r.stateDir, now: () => Date.parse("2026-11-07T08:00:00Z"), alive: () => true }, { trains: [], mains: new Set() });
+	const unknown = readYards({ stateDir: r.stateDir, now: () => Date.parse("2026-11-07T08:00:00Z"), alive: () => true }, { trains: [], mains: new Set(), integrators: new Set() });
 	assert.equal(unknown!.projects[0]!.forming[0]!.cars[0]!.unverified, true);
 });
 

@@ -9,11 +9,11 @@ import type { Base, Net } from "./net.ts";
 
 export interface Tick { at: number; mark: Mark }
 /** `key`: the session, none for an outpost (a sub workspace). `kind`: it joined the net, took `mark`, or left it. */
-export interface NetEvent { at: number; ws: string; key?: string; name: string; mark: Mark; kind: "joined" | "mark" | "left" }
+export interface NetEvent { at: number; ws: string; key?: string; name: string; mark: Mark; kind: "joined" | "mark" | "left" | "duty"; /** A `duty` event: the kind a main had and has now (docs/specs/2026-11-09-agent-kinds.md §11). */ from?: string; to?: string }
 export const TICKS = 12, WINDOW_MS = 30 * 60_000, MAX_EVENTS = 80, GAP_MS = 60_000;
 
-interface Seen { mark: Mark; note?: string; since?: number; ticks: Tick[]; ws: string; name: string; key?: string }
-type Holder = { key?: string; id?: string; name?: string; label?: string; mark: Mark; note?: string; since?: number; ticks?: Tick[] };
+interface Seen { duty?: string; mark: Mark; note?: string; since?: number; ticks: Tick[]; ws: string; name: string; key?: string }
+type Holder = { duty?: string; key?: string; id?: string; name?: string; label?: string; mark: Mark; note?: string; since?: number; ticks?: Tick[] };
 const holders = (b: Base): Holder[] => [...(b.tower ? [b.tower, ...b.tower.subs] : []), ...[...b.tabs.flatMap((t) => t.units), ...b.outside].flatMap((u) => [u, ...u.subs]), ...b.outposts];
 
 /** A reader of the net that adds `since` and `ticks` to each unit, and the recent events to the net. */
@@ -34,7 +34,8 @@ export function trackActivity(now = Date.now) {
 				} else if (s.mark !== u.mark && fresh) delete s.since;
 				else if (s.mark !== u.mark) (s.since = at), s.ticks.push({ at, mark: u.mark }), events.push({ at, ws: b.id, key, name, mark: u.mark, kind: "mark" });
 				else if (s.note !== u.note && u.note) s.ticks.push({ at, mark: u.mark });
-				[s.mark, s.note, s.name, s.ws] = [u.mark, u.note, name, b.id];
+				if (u.duty && s.duty && s.duty !== u.duty) events.push({ at, ws: b.id, key, name, mark: u.mark, kind: "duty", from: s.duty, to: u.duty });
+				[s.mark, s.note, s.name, s.ws, s.duty] = [u.mark, u.note, name, b.id, u.duty ?? s.duty];
 				s.ticks.splice(0, s.ticks.length - TICKS);
 				if (s.since !== undefined) u.since = s.since;
 				if (s.ticks.length) u.ticks = [...s.ticks];

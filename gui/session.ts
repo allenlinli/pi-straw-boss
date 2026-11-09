@@ -7,7 +7,7 @@ import { docFor, docTile } from "./doc.ts";
 import type { Tile } from "./layer.ts";
 import { m } from "./sentences.ts"; import { noun } from "./nouns.ts";
 import { aimSession } from "./quit.ts"; import { baseTitle, can } from "./boxmodel.ts";
-import { aim, aimOpening, html, LABEL, mark, text } from "./render.ts";
+import { aim, aimOpening, html, LABEL, mark, roleWord, text } from "./render.ts";
 import { channelOf, locate, type Scene, type Subject, towerBase, wsOf } from "./scene.ts";
 import { linkTo } from "./tokens.ts";
 import { composerUnit } from "./sessionfacts.ts";
@@ -131,7 +131,7 @@ export function mountSession(scene: Readonly<Scene>, { view, data, openTile, emb
 				// An ally run's comms are a unit the net lists only on its tower's chip (src/net.ts): the history names it by its device, and the page says what it is.
 				const ally = !u && scene.info?.role === "ally", eventRun = !u && scene.info?.role === "run";
 				text(head, "h2 span", ally ? m.ally_run({ device: scene.info?.name ?? "" }) : eventRun ? m.event_run({ id: scene.info?.name ?? "" }) : (u?.name ?? scene.info?.name ?? ""));
-				text(head, "p", [(hit && baseTitle(hit.base)) ?? ((ally || eventRun) ? scene.net?.bases.find((b) => b.id === wsOf(scene))?.label : undefined), hit?.squad && m.squad_label({ label: hit.squad }), u?.service && statusLine(u.service, mk, (k) => LABEL[k]()), ally && noun("role_ally"), eventRun && noun("role_run")].filter(Boolean).join(" · "));
+				text(head, "p", [(hit && baseTitle(hit.base)) ?? ((ally || eventRun) ? scene.net?.bases.find((b) => b.id === wsOf(scene))?.label : undefined), hit?.squad && m.squad_label({ label: hit.squad }), u?.service && statusLine(u.service, mk, (k) => LABEL[k]()), ally && noun("role_ally"), eventRun && noun("role_run"), u?.duty && roleWord(u.role, u.duty, u.todo?.graph)].filter(Boolean).join(" · "));
 				fillAllies(view.querySelector<HTMLElement>(".comms-allies")!, hit?.base.id ?? wsOf(scene), u?.service);
 				const chan = head.querySelector<HTMLElement>(".chan")!, kind = channelOf(u, state, ally || eventRun);
 				chan.dataset.state = kind === "live" ? "live" : "closed";

@@ -31,7 +31,7 @@ const state = (tab = "wA:t1") => world.broker.states.get(hex(tab))?.payload as {
 test("a session joins the net as a member at start: channel, tokens, net tools and boss_promote, no entry, no reminder", async () => {
 	const a = world.agent({ id: "a", pane: "wA:p1", tab: "wA:t1" });
 	await a.start();
-	assert.deepEqual([...a.tools.keys()].sort(), ["board_set", "boss_broadcast", "boss_promote", "boss_rename", "boss_status", "call_tower", "link_request"]);
+	assert.deepEqual([...a.tools.keys()].sort(), ["board_set", "boss_broadcast", "boss_duty", "boss_promote", "boss_rename", "boss_status", "call_tower", "link_request"]);
 	assert.deepEqual(world.broker.registrations.map((r) => [r.id, r.namespace, r.ownerEligible]), [["a", hex("wA:t1"), true]]);
 	assert.deepEqual(a.tokens, { sb_role: "member" });
 	assert.deepEqual(a.entries, [], "joining writes no session entry");
@@ -69,7 +69,7 @@ test("boss_promote makes the first caller the main agent; a second caller is ref
 	assert.match(await a.promote(), /now the main agent of tab work/);
 	assert.match(await b.promote(), /Tab work already has a main agent, a\..*tell a through intercom first/);
 	assert.match(await a.promote(), /already the main agent/);
-	assert.deepEqual([a.tokens, b.tokens], [{ sb_role: "main" }, { sb_role: "member" }]);
+	assert.deepEqual([a.tokens, b.tokens], [{ sb_role: "main", sb_duty: "coordinator" }, { sb_role: "member" }]);
 	assert.equal(state()?.main, "a");
 	assert.match((await a.run())["straw-boss"]!, /^You are the main agent of Herdr tab work:/);
 	assert.match((await b.run())["straw-boss"]!, /^Straw Boss: you are a member of tab work, whose main agent is a\..*Before you dispatch a subagent, tell a through intercom/);

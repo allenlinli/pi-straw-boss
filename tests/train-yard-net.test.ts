@@ -96,7 +96,7 @@ test("with the merge train off nothing of it loads: no yards and no load, whethe
 test("with the switch off the seam does not even look at the trainboard folder", () => {
 	const dir = trainState();
 	const seam = trainyardSeam({ env: { STRAW_BOSS_INTEGRATION: "off" }, stateDir: dir, load: () => { throw new Error("the load was read"); } });
-	assert.equal(seam.yards({ trains: [], mains: new Set() }), undefined);
+	assert.equal(seam.yards({ trains: [], mains: new Set(), integrators: new Set() }), undefined);
 	assert.equal(seam.load(), undefined);
 });
 

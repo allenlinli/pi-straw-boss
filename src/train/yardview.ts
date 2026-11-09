@@ -60,7 +60,7 @@ export interface YardFormingRow { code: string; app: string; status: "forming" |
 export interface ProjectYard {
 	project: string;
 	/** The writer of the project's `yard.json`: `key` is its unit when the net has that session as a main; `live` whether its process runs. */
-	integrator?: { key?: string; live: boolean };
+	integrator?: { key?: string; live: boolean; /** The writer is a live main of another kind now. */ switched?: true };
 	/** Why `yard.json` could not be read (a file that is not there is no problem). */
 	problem?: string;
 	problemKind?: ReasonKind;
@@ -74,4 +74,4 @@ export interface ProjectYard {
 export interface Yards { projects: ProjectYard[]; truncated?: true; problems?: string[] }
 
 /** What the reader needs of the net to name units: the live unit of each train (its pane's `sb_train` token) and the keys of the mains. */
-export interface YardJoin { trains: { key: string; project: string; code: string }[]; mains: ReadonlySet<string> }
+export interface YardJoin { trains: { key: string; project: string; code: string }[]; mains: ReadonlySet<string>; /** The mains that are integrators: those whose `sb_duty` says so, and those that publish none (a session still on an older sb during the upgrade window). */ integrators: ReadonlySet<string> }

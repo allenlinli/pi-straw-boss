@@ -111,6 +111,14 @@ test("a relayed todo summary goes to its unit; one out of shape is left out whil
 	}
 });
 
+test("a bridge's plan graph reaches the unit through the hub's rebuild, and an unknown one is refused (agent-kinds AK6-F004)", async () => {
+	const x = hub(), path = file([]);
+	x.h.receive("S", x.list([], { file: path, todo: { done: 0, total: 2, graph: "fan-out/fan-in" } }));
+	assert.deepEqual((await read(x, path)).unit.todo, { done: 0, total: 2, graph: "fan-out/fan-in" });
+	x.h.receive("S", x.list([dialog()], { file: path, todo: { done: 0, total: 2, graph: "chain" } as never }));
+	assert.equal((await read(x, path)).unit.todo, undefined, "a graph outside GRAPHS refuses the summary");
+});
+
 test("each rule that keeps a dialog in the terminal says why", async () => {
 	const x = hub(), robot = file([["c1", "robot_hand"]]), two = file([["c1", "robot_hand"], ["c2", "bash"]]), secret = file([["c1", "secret_drop"]]);
 	const why = async (dialogs: Dialog[], path: string | undefined = robot) => {

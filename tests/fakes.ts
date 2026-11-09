@@ -500,7 +500,7 @@ export class Agent {
 	/** The session file pi would name, and the run's abort signal (ctx.signal). */
 	file?: string;
 	/** Entries of the transcript besides the extension's own (custom messages, for instance), as ctx.sessionManager.getEntries() returns them. */
-	transcript: { type: string; customType?: string; details?: unknown }[] = [];
+	transcript: { type: string; customType?: string; details?: unknown; message?: unknown }[] = [];
 	signal?: AbortSignal;
 	/** The tool's working directory, as pi's ctx.cwd. */
 	cwd?: string;
@@ -553,7 +553,7 @@ export class Agent {
 					if (factory) this.components.set(key, factory(this.tui, { fg: (_tone, text) => text, bold: (text) => text }));
 				},
 			},
-			sessionManager: { getBranch: () => this.entries.map((e) => ({ type: "custom", customType: e.customType, data: e.data })), getEntries: () => [...this.transcript, ...this.entries.map((e) => ({ type: "custom", customType: e.customType, data: e.data }))], getSessionFile: () => this.file },
+			sessionManager: { getBranch: () => [...this.entries.map((e) => ({ type: "custom", customType: e.customType, data: e.data })), ...this.transcript.filter((e) => e.type === "message")], getEntries: () => [...this.transcript, ...this.entries.map((e) => ({ type: "custom", customType: e.customType, data: e.data }))], getSessionFile: () => this.file },
 		};
 		const pane = world.herdr.panes.find((p) => p.pane_id === options.pane);
 		const env: Record<string, string | undefined> = { ...(options.outsideHerdr ? {} : { HERDR_PANE_ID: options.pane, HERDR_TAB_ID: pane?.tab_id, HERDR_WORKSPACE_ID: pane?.workspace_id }), PI_INTERCOM_SESSION_ID: this.id, ...options.env };
@@ -573,7 +573,10 @@ export class Agent {
 			getFlag: (name: string) => this.flags.get(name),
 			registerCommand: (name: string, command: { handler(args: string, ctx: unknown): Promise<void>; getArgumentCompletions?(prefix: string): { value: string }[] | null }) => this.commands.set(name, command),
 			appendEntry: (customType: string, data: unknown) => this.entries.push({ customType, data }),
-			setSessionName: (name: string) => void (this.name = name), // pi-intercom reports the new name to the broker
+			setSessionName: (name: string) => {
+				this.name = name; // pi-intercom reports the new name to the broker
+				void this.fire("session_info_changed", { name }); // pi emits it to the extensions at once, the first handler synchronously (agent-session.js setSessionName)
+			},
 			getSessionName: () => this.name,
 			sendMessage: (message: { customType: string; content: string }, options?: { deliverAs?: string; triggerTurn?: boolean }) => void this.sent.push({ ...message, deliverAs: options?.deliverAs, triggerTurn: options?.triggerTurn }),
 		} as unknown as ExtensionAPI;
@@ -606,7 +609,7 @@ export class Agent {
 	}
 	/** The pane's role tokens; the order, mark, indent and name tokens (order.ts) have their own tests. */
 	get tokens(): Tokens {
-		const { sb_order: _order, sb_mark: _mark, sb_indent: _indent, sb_name: _name, sb_tab: _tab, sb_main_tab: _mt, sb_member_tab: _bt, ...role } = this.world.herdr.pane(this.pane).tokens;
+		const { sb_order: _order, sb_mark: _mark, sb_indent: _indent, sb_name: _name, sb_duty: _duty, sb_tab: _tab, sb_main_tab: _mt, sb_member_tab: _bt, ...role } = this.world.herdr.pane(this.pane).tokens;
 		return role;
 	}
 	/** Fires one event and returns the last answer a handler gave (a tool_call's block, for instance). */

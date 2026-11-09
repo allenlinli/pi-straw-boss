@@ -47,7 +47,10 @@ test("a main is not touched, and an integrator's train todo is checked", async (
 	const { sender } = await withTrain();
 	assert.equal(await call(sender, "todo", { action: "create", subject: "plain" }), undefined);
 	assert.equal(await call(sender, "MonitorCreate", { command: "npm test", description: "tests" }), undefined);
-	assert.match((await call(sender, "todo", { action: "create", subject: "train", metadata: { sb: { v: 1, kind: "merge" } } }))?.reason ?? "", /metadata\.sb\.kind must be train/);
+	const train = { action: "create", subject: "train", metadata: { sb: { v: 1, kind: "merge" } } };
+	assert.match((await call(sender, "todo", train))?.reason ?? "", /a train todo is the integrator's: call boss_duty/, "a coordinator holds no train todo");
+	await sender.tool("boss_duty", { duty: "integrator", reason: "runs the project's trains" });
+	assert.match((await call(sender, "todo", train))?.reason ?? "", /metadata\.sb\.kind must be train/);
 });
 
 test("a train's run starts with the train's own prompt, not the main's", async () => {
@@ -65,10 +68,10 @@ test("with the merge train off, nothing is registered: no handler, no guard", ()
 		pi: { on: (name: string) => void handlers.push(name), events: { on: () => () => {} } },
 		cfg: { env: { STRAW_BOSS_INTEGRATION: "off" }, now: Date.now }, guiDir: "/nonexistent/state", s: { isTrain: false, train: undefined, at: undefined }, role: () => "main", me: () => "x", tell: () => {},
 	};
-	assert.equal(registerTrainGuard(kit as never), undefined);
+	assert.equal(registerTrainGuard(kit as never, undefined, { now: () => "integrator" } as never), undefined);
 	assert.deepEqual(handlers, []);
 	const on = { ...kit, cfg: { env: { STRAW_BOSS_INTEGRATION: "on" }, now: Date.now } };
-	assert.ok(registerTrainGuard(on as never));
+	assert.ok(registerTrainGuard(on as never, undefined, { now: () => "integrator" } as never));
 	assert.deepEqual([...new Set(handlers)].sort(), ["tool_call", "tool_result", "turn_end"]);
 });
 
@@ -138,7 +141,7 @@ test("the pending word is the sign taken at the start, and a settled session is 
 		pi: { on: (name: string, fn: never) => void handlers.set(name, fn), events: { on: () => () => {} } },
 		cfg: { env: {} as Record<string, string>, now: Date.now }, guiDir: "/nonexistent/state", s, role: () => undefined, me: () => "x", tell: () => {},
 	};
-	registerTrainGuard(kit as never);
+	registerTrainGuard(kit as never, undefined, { now: () => "integrator" } as never);
 	const ctx = { cwd: "/", sessionManager: { getBranch: () => [] } };
 	const todo = async () => (await handlers.get("tool_call")!({ toolName: "todo", toolCallId: "c", input: { action: "create", subject: "x" } }, ctx)) as { reason?: string } | undefined;
 	assert.equal(await todo(), undefined, "no sign");

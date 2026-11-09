@@ -6,8 +6,9 @@ import { headDot, seenAt } from "./headpage.ts";
 import { MODAL } from "./hotkeys.ts";
 import { m } from "./sentences.ts"; import { noun } from "./nouns.ts";
 import type { Locale } from "./paraglide/runtime.js";
+import { locate } from "./scene.ts";
 import { aimUnit, dismiss, showDismissAll } from "./quit.ts"; import { can } from "./boxmodel.ts";
-import { aim, aimOpening, fillPlate, html, mark, PLATE, roleName, say, sync, text } from "./render.ts";
+import { aim, aimOpening, fillPlate, html, mark, PLATE, roleName, roleWord, say, sync, text } from "./render.ts";
 import type { Route } from "./router.ts";
 import { chainOf, ignored, intent, settles } from "./swipe.ts";
 
@@ -78,7 +79,7 @@ export function mountDrawer(off: () => boolean = () => false) {
 			mark(el, r.mark);
 			fillPlate(el.querySelector(".plate")!, r.role, r.mark);
 			text(el, ".name", r.name);
-			text(el, ".role", roleName(r.role));
+			text(el, ".role", ((u) => (u ? roleWord(u.role, u.duty) : roleName(r.role)))(locate(latest, r.key)?.u));
 			text(el, ".dstate", shortState(r.mark, r.ended));
 			say(el, ".note", r.note, r.mark, r.note ? undefined : "");
 			// Quit is the map's (quit.ts: the same confirmation, request, and refusals), for a main that is idle.

@@ -5,6 +5,8 @@ import { readBoard } from "./boardread.ts";
 import type { BoardFill } from "./boardfill.ts";
 import { NOT_MAIN, setBoard, whereTo } from "./boardset.ts";
 import type { Digest } from "./digest.ts";
+import { COORDINATOR_DUTIES, isCoordinatorDuty } from "./duty.ts";
+import { INTEG_NAME, type MainDuty } from "./mainduty.ts";
 import type { Membership } from "./membership.ts";
 import type { CloseMain } from "./closemain.ts";
 import type { Link } from "./link/runtime.ts";
@@ -12,6 +14,8 @@ import { opener } from "./opener.ts";
 import type { Reach } from "./reach.ts";
 import type { ServerLook } from "./server-look.ts";
 import type { Kit } from "./state.ts";
+import { snapshotOfBranch } from "./todo.ts";
+import { todosOf } from "./items.ts";
 import { integrationOff } from "./trainswitch.ts";
 import { ownsBoard, trainLabel } from "./trainrole.ts";
 import { trustDir } from "./trust/files.ts";
@@ -32,7 +36,7 @@ export const linkRequestParameters = () => Type.Object({
 });
 
 /** The tools the agent calls: what a joined session has (status, call_tower, broadcast, rename, promote), and the tower's boss_open_main. */
-export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callTower, status, broadcast, towerList, towerSend, answerHead, read, promote, digest, closeMain, link, server, towerCall, boardFill }: Pick<Reach, "post" | "callTower" | "status" | "broadcast" | "towerList" | "towerSend" | "answerHead" | "read"> & Pick<Membership, "promote"> & { digest: Digest; closeMain: CloseMain; link: Link; server?: ServerLook; towerCall?: boolean; boardFill: BoardFill }) {
+export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { mainDuty, post, callTower, status, broadcast, towerList, towerSend, answerHead, read, promote, digest, closeMain, link, server, towerCall, boardFill }: Pick<Reach, "post" | "callTower" | "status" | "broadcast" | "towerList" | "towerSend" | "answerHead" | "read"> & Pick<Membership, "promote"> & { mainDuty: MainDuty; digest: Digest; closeMain: CloseMain; link: Link; server?: ServerLook; towerCall?: boolean; boardFill: BoardFill }) {
 	// A main says why it calls (required); a tower's call is a blocked one, so it may leave it out and the header says unspecified.
 	const whyType = Type.Union([Type.Literal("milestone"), Type.Literal("shared"), Type.Literal("blocked")], { description: "Why you call: milestone, shared, or blocked. The tower reads it in the header." });
 	const whyField = towerCall || role() === "tower" ? Type.Optional(whyType) : whyType;
@@ -134,13 +138,39 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { post, callT
 					if (!phrase) throw new Error("The name is empty");
 					if (Array.from(phrase).length > 40) throw new Error(`The name has ${Array.from(phrase).length} characters; keep it a short phrase (at most 16 fit the tab)`);
 					const was = pi.getSessionName() || s.ownName || me().slice(0, 8);
+					const before = s.duty;
 					pi.setSessionName(phrase);
+					// pi's `session_info_changed` may reach sb's handler inside the call above (load order), which migrates first: the reply tells either way.
+					const migrated = role() !== "main" ? undefined : before === undefined && s.duty === "integrator" ? "name" : mainDuty.migrate(phrase);
 					boardFill.refresh(); // the board's line starts with the name
 					const label = tabLabel(phrase);
 					const failed = role() !== "main" ? undefined : await cfg.run(["tab", "rename", s.at.tabId, label]).then(() => "", (err: unknown) => String(err)); // "" when relabelled
 					const tab = failed === undefined ? "" : failed ? ` The tab kept its label: ${failed}` : ` The tab is now labelled "${label}".`;
 					if (s.joined) await digest.note(s.at.workspaceId, `${was} renamed itself "${phrase}" (tab ${failed === "" ? label : s.info.tab})`).catch(() => {});
-					return { text: `This session is now named "${phrase}".${tab}`, details: { name: phrase } };
+					const kind = migrated ? ` Your kind is now integrator (migrated by name); boss_duty changes it.` : role() === "main" && INTEG_NAME.test(phrase) && s.duty !== undefined && s.duty !== "integrator" ? ` Your kind stays ${s.duty}; boss_duty integrator if you now run trains.` : "";
+					return { text: `This session is now named "${phrase}".${tab}${kind}`, details: { name: phrase } };
+				});
+		},
+		// A main's kind (docs/specs/2026-11-09-agent-kinds.md §3). `integrator` is left out while integration is off.
+		addDuty() {
+			const kinds = COORDINATOR_DUTIES.filter((d) => d !== "integrator" || mainDuty.integrationOn());
+			tool("boss_duty", `Your kind; your role prompt's addendum follows it, and the next run re-reads its whole context once. coordinator (the default): plans and dispatches; your todos' graph shows its shape. ${kinds.includes("integrator") ? "integrator: a project's merge trains. " : ""}standing: one system or machine, no end. reason: one line, why now.`,
+				Type.Object({ duty: Type.Union(kinds.map((d) => Type.Literal(d))), reason: Type.String({ description: "One line, at most 200 characters: why now." }) }),
+				async ({ duty, reason }) => {
+					const why = reason.replace(/\s+/g, " ").trim();
+					if (role() === "member") throw new Error("Only a tab's main agent has a kind; call boss_promote first if your work grows");
+					if (role() === "train") throw new Error("A train's kind is fixed: train");
+					if (role() !== "main") throw new Error("Only a tab's main agent has a kind");
+					if (s.remoteOrigin) throw new Error("A teammate's turn cannot change this main's kind");
+					if (!isCoordinatorDuty(duty) || (duty === "integrator" && !mainDuty.integrationOn())) throw new Error("Integration is off on this computer: no integrator");
+					if (!why || why.length > 200) throw new Error("reason is required: one line of 1 to 200 characters");
+					if (s.duty === duty) return { text: `Your kind is already ${duty}`, details: { duty } };
+					if (s.duty === "integrator") {
+						const open = (todosOf(snapshotOfBranch(s.branch())) ?? []).filter((t) => t.sb?.kind === "train" && t.status !== "completed").length;
+						if (open) throw new Error(`${open} of your trains are forming or departing: depart or return them first`);
+					}
+					const { from } = mainDuty.write(duty, why);
+					return { text: `Your kind is now ${duty} (was ${from ?? "none"}).`, details: { duty, from: from ?? null } };
 				});
 		},
 		addPromote() {

@@ -12,6 +12,7 @@ import type { Monitor } from "./monitors.ts";
 import { canonical } from "./history.ts";
 import { type NetEvent, type Tick, trackActivity } from "./activity.ts";
 import type { TodoSum } from "./todo.ts";
+import { type CoordinatorDuty, isCoordinatorDuty } from "./duty.ts";
 import { type TrainId, trainFromToken } from "./trainrole.ts";
 import type { NetLoad, YardJoin, Yards } from "./train/yardview.ts";
 import type { BoardSeam, BoardViewRow } from "./boardview.ts";
@@ -27,7 +28,7 @@ type Lately = { since?: number; ticks?: Tick[]; todo?: TodoSum };
 /** `start`: an event of a tower the sb server has not started yet; it waits for the run to start and is queued behind no turn (a pi's own queue says `steer` or `followUp`). */
 export interface Queued { text: string; as: "steer" | "followUp" | "start"; /** Why a tower's message waits with no start under way (as `followUp`): the service is off, a start was refused a moment ago, the run slots are full, the tower's pi is not live, or the standing seat is not proven. */ why?: "off" | "refused" | "full" | "offline" | "unproven" }
 /** `ended`: a subagent whose run is over (Row.ended); the page clears its finished alert. */
-export interface Unit extends Shelf, Lately { queued?: Queued[]; monitors?: Monitor[]; id: string; key: string; control: boolean; name: string; role: "main" | "member" | "train" | "subagent" | "outside"; /** A train's project and code (its pane's `sb_train` token). */ train?: TrainId; mark: Mark; note?: string; subs: Unit[]; pending?: Pending; ended?: boolean }
+export interface Unit extends Shelf, Lately { queued?: Queued[]; monitors?: Monitor[]; id: string; key: string; control: boolean; name: string; role: "main" | "member" | "train" | "subagent" | "outside"; /** A main's kind, from its pane's `sb_duty` token (docs/specs/2026-11-09-agent-kinds.md §2). */ duty?: CoordinatorDuty; /** A train's project and code (its pane's `sb_train` token). */ train?: TrainId; mark: Mark; note?: string; subs: Unit[]; pending?: Pending; ended?: boolean }
 export interface Tab { id: string; label: string; units: Unit[] }
 export interface Outpost extends Lately { id: string; label: string; mark: Mark }
 /** A run's proposal the boss has not answered; `cites` is the boss message it comes from. */ export interface MemoryProposal { id: string; op: "add" | "retire"; kind: "standing" | "decision"; text: string; target?: string; cites?: string }
@@ -129,8 +130,8 @@ export function buildNet({ sessions, panes: ps, workspaces: all, children, servi
 			label: group[0]!.tab!.label,
 			units: group.toSorted((a, b) => Number(b.role === "main") - Number(a.role === "main")).map(({ s, pane, role }): Unit => {
 				const subs = subsOf(s.id, w.workspace_id), mark = commanding(sessionMark(s, pane), subs.map((c) => c.mark));
-				const key = keep({ key: s.id, base: w.workspace_id, name: s.name ?? s.id, role, file: piFile(pane, s.id), pane: pane?.pane_id }), train = role === "train" ? trainFromToken(pane?.tokens?.sb_train) : undefined;
-				return { id: key, key, control: pane?.agent === "pi", name: s.name ?? s.id, role, ...(train ? { train } : {}), mark, note: note(mark, s.status), subs };
+				const key = keep({ key: s.id, base: w.workspace_id, name: s.name ?? s.id, role, file: piFile(pane, s.id), pane: pane?.pane_id }), train = role === "train" ? trainFromToken(pane?.tokens?.sb_train) : undefined, duty = role === "main" && isCoordinatorDuty(pane?.tokens?.sb_duty) ? pane!.tokens!.sb_duty as CoordinatorDuty : undefined;
+				return { id: key, key, control: pane?.agent === "pi", name: s.name ?? s.id, role, ...(train ? { train } : {}), ...(duty ? { duty } : {}), mark, note: note(mark, s.status), subs };
 			}),
 		}));
 		const outposts = all.filter((x) => isSub(x) && parentOf(all, x) === w && !claimed.has(x.workspace_id)).map((x): Outpost => ({ id: x.workspace_id, label: x.label, mark: markOf(x.agent_status) }));
@@ -181,9 +182,9 @@ export async function collectNet({ run, world = worldOf(run), sessions, now = Da
  * another session) stays findable for ten minutes, the window finished subagents already use, with the pane's new session as its successor.
  */
 /** The trains the page draws: the units of the net that are trains (by their panes' tokens) and the keys of the mains, which is all the reader needs of the net to name the unit that runs a train or wrote a yard. */
-function joinOf(net: Net): YardJoin {
+export function joinOf(net: Net): YardJoin {
 	const units = net.bases.flatMap((b) => b.tabs.flatMap((t) => t.units));
-	return { trains: units.flatMap((u) => (u.role === "train" && u.train ? [{ key: u.key, project: u.train.project, code: u.train.code }] : [])), mains: new Set(units.filter((u) => u.role === "main").map((u) => u.key)) };
+	return { trains: units.flatMap((u) => (u.role === "train" && u.train ? [{ key: u.key, project: u.train.project, code: u.train.code }] : [])), mains: new Set(units.filter((u) => u.role === "main").map((u) => u.key)), integrators: new Set(units.filter((u) => u.role === "main" && (u.duty === "integrator" || u.duty === undefined)).map((u) => u.key)) };
 }
 
 export function netSource(env: { board?: BoardSeam; trainyard?: { yards(join: YardJoin): Yards | undefined; load(): NetLoad | undefined }; services?(workspace: string): TowerView | undefined; head?: HeadSeam; run: HerdrRun; world?: HerdrWorld; sessions(): Promise<Session[]>; sessionDir?: string; hub?: { relayed(sessions: Session[], refs: Map<string, Ref>): Relayed }; stashed?(): Stashed[]; trust?: { asks(panes: Pane[], workspaces: Workspace[]): TrustAsk[] } }) {

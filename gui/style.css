@@ -1148,6 +1148,16 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 .tmem-body ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; } .tmem-body li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 .tmem-body .tmem-text { flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; } .tmem-body li small { opacity: 0.65; } .tmem-ended .tmem-text { text-decoration: line-through; opacity: 0.6; }
 .tmem-body input { flex: 1 1 12em; min-width: 0; } .tmem-add { display: flex; gap: 6px; margin-top: 4px; } .tmem-empty, .tmem-note { margin: 0; opacity: 0.7; } .tmem-body .tnote-fail { color: var(--err-soft); } .tmem-body .tnote-fail:empty { display: none; }
+/* Tap slop (todo 141, RGV-F005): two rows a finger found under 44 px, raised on a coarse pointer (the timeline's marks are no target: phone rule above). The base name link is 23 px
+   tall, but its ::after covers its header (.enter-base::after, inset 0), so the header is the hit area and stays at 44 px or more (64 px today). The Memory summary is 17 px tall
+   between the head log (8 px margin) and what follows it (the notes' 8 px margin): its 44 px box takes back the 6 px above it and the 8 px below with negative margins, so its text
+   keeps its place and it covers no neighbour's box (a box that reached further would paint over, or under, a neighbour's tap). The 13 px a 44 px row still lacks push what is below
+   it down. Open, the body's 6 px margin is all the gap below. */
+@media (pointer: coarse) {
+	.base > header { min-height: 44px; }
+	.tower-memory .tmem > summary { box-sizing: border-box; min-height: 44px; padding-top: 6px; margin-block: -6px -8px; }
+	.tmem[open] > summary { margin-bottom: -6px; }
+}
 
 /* The boss conversation in a tower's comms (towerconv.ts): how it began and when it ends, Leave and New, the event-run chips; and the divider that opens each run in the log (chat.ts). */
 .tower-conv { display: grid; gap: 4px; min-width: 0; margin-bottom: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 0.85em; } .tower-conv[hidden] { display: none; }

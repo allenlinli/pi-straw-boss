@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { findIntercom } from "../agent/paths.ts";
-import type { IntercomLike } from "../agent/kit.ts";
+import { findIntercom } from "./paths.ts";
+import type { IntercomLike } from "./kit.ts";
 import { newer } from "../semver.ts";
 
 // The server's way to pi-intercom (docs/specs/2026-10-26-sb-backend.md, What the server runs from). pi-intercom ships TypeScript only, so its client needs a loader; the
@@ -61,8 +61,8 @@ export function intercomVersion(dir: string): string | undefined {
 export function findIntercomDir(env: NodeJS.ProcessEnv, root: string): { dir: string; version: string } {
 	let dir: string;
 	try {
-		// `findIntercom` looks beside the package that holds the code under `<root>/src/agent`, which is where pi installs both.
-		dir = findIntercom(env, join(root, "src", "agent"));
+		// `findIntercom` looks beside the package that holds the code under `<root>/src/server`, which is where pi installs both.
+		dir = findIntercom(env, join(root, "src", "server"));
 	} catch (error) {
 		throw new LoaderError("intercom", `${(error as Error).message}; the sb server needs pi-intercom ${MIN_INTERCOM} or newer`);
 	}

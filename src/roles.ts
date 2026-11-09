@@ -109,7 +109,7 @@ export function createRoles({ cfg, s, guiDir, tell }: Kit) {
 				}
 			}
 			// What follows tidies other files, and one that vanished meanwhile (another session tidying too) is no failure. It runs also for a session with no file of
-			// its own (a sidecar's main): the demoted main's record must not outlive the tab's new main.
+			// its own (a main that has none): the demoted main's record must not outlive the tab's new main.
 			let names: string[] = [];
 			try {
 				names = readdirSync(dir).filter((name) => name.endsWith(".json") && (!s.file || join(dir, name) !== path(s.file)));

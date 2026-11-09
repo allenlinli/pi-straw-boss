@@ -359,7 +359,7 @@ export class FakeHerdr {
 
 export interface Registration { namespace: string; ownerEligible: boolean; onReady(channel: unknown): void; onEvent(event: Record<string, unknown>): void }
 
-/** What the broker needs of a connected session: a pi `Agent`, or a net sidecar's stand-in (agent-fakes.ts), which also hears the messages sent to it. */
+/** What the broker needs of a connected session: a pi `Agent`, or a headless client's stand-in (intercom-fakes.ts), which also hears the messages sent to it. */
 export interface Peer { id: string; name: string; pane: string; status?: string; regs: Map<string, Registration>; receive?(from: { id: string; name?: string }, text: string, messageId: string): void }
 
 /** A tiny pi-intercom broker: owner by connection order, compare-and-swap-free state, an outbox. */

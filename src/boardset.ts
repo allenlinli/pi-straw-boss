@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { checkEntry, writeEntry } from "./board.ts";
 import { boardTargets, wentTo } from "./link/boardtargets.ts";
 
-// `board_set` and `straw-net.py board`, one body: a main replaces its whole entry (docs/specs/2026-10-25-straw-link.md, Work board, Writing).
+// `board_set`'s body: a main replaces its whole entry (docs/specs/2026-10-25-straw-link.md, Work board, Writing).
 
 export const NOT_MAIN = "Only the main agent of a tab writes the work board; a member, a demoted main, a tower, or a subagent does not";
 export interface BoardSetInput {

@@ -1,11 +1,11 @@
 import { EventEmitter } from "node:events";
-import type { Broker, Incoming, IntercomLike, Registration as Hello } from "../src/agent/kit.ts";
+import type { Broker, Incoming, IntercomLike, Registration as Hello } from "../src/server/kit.ts";
 import type { Session } from "../src/herdr.ts";
 import type { FakeBroker, Peer, Registration } from "./fakes.ts";
 
 /** The raw `IntercomClient` as the kit sees it, with a broker that is the test: it injects the broker's messages and records the frames the kit writes. */
 export class StubClient extends EventEmitter implements IntercomLike {
-	sessionId: string | null = "claude-aaaa";
+	sessionId: string | null = "server-aaaa";
 	connected = true;
 	features = new Set(["extension-bus-v1"]);
 	sessions: Session[] = [];
@@ -58,7 +58,7 @@ export class StubClient extends EventEmitter implements IntercomLike {
 }
 
 /**
- * An `IntercomClient` that talks to the `FakeBroker` the pi `Agent`s use: a net sidecar and a pi in one tab share the broker's election, state, and roster.
+ * An `IntercomClient` that talks to the `FakeBroker` the pi `Agent`s use: a headless client and a pi in one tab share the broker's election, state, and roster.
  * The broker hands the pi-intercom extension API (events already named), so this translates them back to the broker messages the real client emits.
  */
 export class FakeClient extends EventEmitter implements IntercomLike {

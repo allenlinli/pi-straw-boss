@@ -7,7 +7,7 @@ import type { HerdrCall } from "../src/herdr.ts";
 import { type ServerHandle, type ServerOptions, runServer } from "../src/server/main.ts";
 import { readRecord, type ServerRecord, secretDir, slotOf } from "../src/server/record.ts";
 import { callControl, type Request } from "../src/server/socket.ts";
-import { FakeClient } from "./agent-fakes.ts";
+import { FakeClient } from "./intercom-fakes.ts";
 import { bundle, noLink, noTailscale, scratch } from "./gui-fakes.ts";
 import type { World } from "./fakes.ts";
 

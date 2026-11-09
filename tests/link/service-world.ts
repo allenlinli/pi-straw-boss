@@ -1,7 +1,7 @@
-import { headlessConfig } from "../../src/agent/config.ts";
-import { createHeadlessKit } from "../../src/agent/kit.ts";
+import { headlessConfig } from "../../src/server/headless.ts";
+import { createHeadlessKit } from "../../src/server/kit.ts";
 import { createLinkService, type LinkService, type ServiceDeps, type ServiceOptions } from "../../src/link/service.ts";
-import { FakeClient } from "../agent-fakes.ts";
+import { FakeClient } from "../intercom-fakes.ts";
 import type { World } from "../fakes.ts";
 
 // The sb server's part of Straw Link for the tests that run pi sessions in a `World`: the link service of src/link/service.ts on a headless kit, connected to the world's

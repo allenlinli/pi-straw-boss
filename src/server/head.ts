@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { HEAD_LABEL, type HerdrApi, type HerdrRun, type Pane, report, result, type Session, type Sleep, workspaces } from "../herdr.ts";
-import type { Incoming, IntercomLike } from "../agent/kit.ts";
+import type { Incoming, IntercomLike } from "./kit.ts";
 import { HEAD_NEEDS_SERVICE } from "../headkey.ts";
 import { localeOf } from "../towerprompt/messages.ts";
 import type { Log } from "./log.ts";

@@ -168,9 +168,9 @@ const READERS: Record<string, () => Promise<void>> = {
 		assert.equal(got.length, 1);
 		assert.match(got[0]!.message, /role=train/);
 	},
-	"header.ts, agent/sidecar.ts: the role words are one list that names train": async () => {
+	"header.ts: the role words are one list that names train": async () => {
 		assert.deepEqual([...ROLE_WORDS], ["tower", "main", "member", "train"]);
-		for (const file of ["reach.ts", "agent/sidecar.ts"]) assert.match(src(file), /ROLE_WORDS/, `${file} reads the shared list`);
+		for (const file of ["reach.ts"]) assert.match(src(file), /ROLE_WORDS/, `${file} reads the shared list`);
 	},
 	"order.ts: the train has a key under its tab and a mark, and no main or member tab label": async () => {
 		const { pane } = await withTrain();

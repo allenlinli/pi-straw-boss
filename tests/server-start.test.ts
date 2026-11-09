@@ -5,7 +5,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { launch, stateOf, timersFor } from "../src/server/client.ts";
 import { fileOf, readLock, readRecord, takeLock, writeRecord } from "../src/server/record.ts";
 import { helloOf } from "../src/server/socket.ts";
-import { StubClient } from "./agent-fakes.ts";
+import { StubClient } from "./intercom-fakes.ts";
 import { freePort, ServerWorld, sleep, until } from "./server-world.ts";
 
 // The start of a server on a slow machine (the Windows VM check of B1: a cold `up` took 7 to 26 s, and `status` said `gone` for the first 18 s of it): whoever starts the server

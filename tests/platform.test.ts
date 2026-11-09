@@ -1,5 +1,5 @@
 // @ts-nocheck: the plugin script is plain JavaScript.
-// What differs on Windows: Herdr's socket is a named pipe behind a marker file, and a sidecar's control socket is a named pipe. The pure parts are
+// What differs on Windows: Herdr's socket is a named pipe behind a marker file, and the sb server's control socket is a named pipe. The pure parts are
 // checked for every platform here; the live parts run on the platform the suite runs on (the Windows CI job runs this file).
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -8,10 +8,8 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { listenControl, newSecret, PROTOCOL } from "../src/server/socket.ts";
-import { run } from "../src/agent/cli.ts";
+import { callControl, ControlError, listenControl, newSecret, PROTOCOL } from "../src/server/socket.ts";
 import { instanceOf, localEndpoint as pluginEndpoint, socketCall } from "../herdr-plugin/net-view.mjs";
-import { agentFiles, ask, newPipe, NoSidecar, socketIsFile, socketOf } from "../src/agent/paths.ts";
 import { herdrSocket, localEndpoint } from "../src/endpoint.ts";
 import { writeRecordFile } from "../src/handover.ts";
 import { herdrCall } from "../src/herdr.ts";
@@ -41,19 +39,6 @@ test("a client connects to the named pipe named by the socket path on Windows, a
 	assert.equal(localEndpoint(path, "win32"), String.raw`\\.\pipe\C:\Users\F\AppData\Roaming\herdr\herdr.sock`);
 	assert.equal(localEndpoint("/h/.config/herdr/herdr.sock", "darwin"), "/h/.config/herdr/herdr.sock");
 	for (const platform of ["win32", "linux", "darwin"] as const) assert.equal(pluginEndpoint(path, platform), localEndpoint(path, platform));
-});
-
-test("a sidecar's control socket is a file beside its state file, or on Windows a named pipe of random name that its state file records", () => {
-	const files = agentFiles("/s", "wA:p1");
-	assert.equal(files.socket, files.state.replace(/\.json$/, ".sock"));
-	const [a, b] = [newPipe(), newPipe()];
-	assert.match(a, /^\\\\\.\\pipe\\straw-boss-[0-9a-f]{32}$/);
-	assert.notEqual(a, b, "no other account can know the name before the sidecar makes it");
-	const held = { pid: 1, session: "s", kind: "claude", pane: "wA:p1", id: "i", name: "n", startedAt: 0 };
-	assert.equal(socketOf(files, { ...held, pipe: a }), a);
-	assert.equal(socketOf(files, held), files.socket);
-	assert.equal(socketOf(files, undefined), files.socket);
-	assert.deepEqual([socketIsFile("win32"), socketIsFile("linux"), socketIsFile("darwin")], [false, true, true]);
 });
 
 /** A fake Herdr on this platform's transport: on Windows the named pipe of the socket path and a marker file at the path, as Herdr makes them. */
@@ -92,22 +77,22 @@ test("the extension, its watch, and the plugin reach Herdr over this platform's 
 	}
 });
 
-test("a sidecar's control socket answers through the secret and proof on this platform, a squatter gets no request, and a closed one reads as no sidecar", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "psb-platform-agent-")), files = agentFiles(dir, "wA:p1"), socket = socketIsFile() ? files.socket : newPipe(), secret = newSecret();
-	mkdirSync(files.dir, { recursive: true });
+test("the server's control socket answers through the secret and proof on this platform, a squatter gets no request, and a closed one reads as no server", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "psb-platform-control-")), socket = process.platform === "win32" ? `\\\\.\\pipe\\straw-boss-${newSecret().slice(0, 32)}` : join(dir, "c.sock"), secret = newSecret();
 	const control = await listenControl({ endpoint: socket, secret, hello: () => ({ pid: process.pid }), handle: (r) => ({ ok: true, echo: r.cmd }) });
+	const refused = (failure: string) => (error: unknown) => error instanceof ControlError && error.failure === failure && !error.sent;
 	try {
-		assert.deepEqual(await ask(socket, secret, { cmd: "status" }, 3000), { ok: true, echo: "status" });
-		assert.equal((await ask(socket, secret, { cmd: "hello" }, 3000)).pid, process.pid);
-		await assert.rejects(ask(socket, newSecret(), { cmd: "status" }, 3000), (error) => error instanceof NoSidecar, "a wrong secret gets no answer");
+		assert.deepEqual((await callControl(socket, secret, { cmd: "status" }, 3000)).reply, { ok: true, echo: "status" });
+		assert.equal((await callControl(socket, secret, undefined, 3000)).hello.pid, process.pid);
+		await assert.rejects(callControl(socket, newSecret(), { cmd: "status" }, 3000), (error) => error instanceof ControlError && !error.sent, "a wrong secret gets no answer");
 		await control.close();
-		await assert.rejects(ask(socket, secret, { cmd: "hello" }, 3000), (error) => error instanceof NoSidecar);
+		await assert.rejects(callControl(socket, secret, undefined, 3000), refused("no-server"));
 		// A squatter on the freed name: it answers hello with no proof and records what else it is sent.
 		const received: string[] = [];
 		const squatter: Server = createServer((c) => c.setEncoding("utf8").on("data", (chunk: string) => (received.push(chunk), received.length === 1 && c.write(`${JSON.stringify({ ok: true, pid: process.pid })}\n`))).on("error", () => {}));
 		await new Promise<void>((resolve) => squatter.listen(socket, resolve));
 		try {
-			await assert.rejects(ask(socket, secret, { cmd: "send", message: "top secret" }, 3000), (error) => error instanceof NoSidecar);
+			await assert.rejects(callControl(socket, secret, { cmd: "send", message: "top secret" }, 3000), (error) => error instanceof ControlError && !error.sent);
 			assert.equal(received.join("").includes("top secret"), false);
 		} finally {
 			squatter.close();
@@ -118,8 +103,8 @@ test("a sidecar's control socket answers through the secret and proof on this pl
 	}
 });
 
-test("every module a Windows session or sidecar loads links on this platform (a named import Windows lacks fails before any code runs)", async () => {
-	for (const path of ["../src/index.ts", "../src/closing.ts", "../src/agent/sidecar.ts", "../src/agent/cli.ts", "../herdr-plugin/net-view.mjs"]) await import(path);
+test("every module a Windows session loads links on this platform (a named import Windows lacks fails before any code runs)", async () => {
+	for (const path of ["../src/index.ts", "../src/closing.ts", "../herdr-plugin/net-view.mjs"]) await import(path);
 });
 
 // The folder picker on a real Windows profile layout (src/hidden.ts): attributes set with attrib, junctions made as the old profile layout has them, and the
@@ -336,33 +321,5 @@ test("trust: a request with no start time is judged by its PID alone, so a live 
 		assert.deepEqual(listRequests(dir).map((r) => r.id), [TRUST_ID]);
 	} finally {
 		rmSync(join(dir, ".."), { recursive: true, force: true });
-	}
-});
-
-test("R13-F002: join ends a sidecar of an older control protocol (a state file with no secret, a live process on its pane socket) and the new sidecar listens where it listened", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "psb-platform-legacy-")), pane = "wA:p2", files = agentFiles(dir, pane), oldSocket = socketIsFile() ? files.socket : newPipe();
-	mkdirSync(files.dir, { recursive: true });
-	// The older sidecar: another process that listens on the pane's socket (Unix) or a pipe (Windows) and speaks nothing this package can talk to.
-	const code = "const s=require('net').createServer(c=>c.on('error',()=>{}));s.listen(process.argv[1],()=>console.log('ready'));";
-	const child = spawn(process.execPath, ["-e", code, oldSocket], { stdio: ["ignore", "pipe", "inherit"] });
-	let control;
-	try {
-		await new Promise((resolve, reject) => { child.stdout.once("data", resolve); child.once("exit", () => reject(new Error("the older sidecar did not start"))); });
-		writeFileSync(files.state, JSON.stringify({ pid: child.pid, session: "old-session", kind: "claude", pane, id: "claude-old", name: "n", startedAt: Date.now(), ...(socketIsFile() ? {} : { pipe: oldSocket }) }));
-		const secret = newSecret(), socket = socketIsFile() ? files.socket : newPipe();
-		const spawnNew = async (spec) => {
-			control = await listenControl({ endpoint: socket, secret, hello: () => ({ pid: process.pid, session: "new-session", leaving: false }), handle: () => ({ ok: true }) });
-			writeFileSync(files.state, JSON.stringify({ pid: process.pid, session: "new-session", kind: "claude", pane, id: "claude-new", name: "n", startedAt: Date.now(), secret, proto: PROTOCOL, ...(socketIsFile() ? {} : { pipe: socket }) }));
-			return { exited: new Promise(() => {}) };
-		};
-		const out = [], err = [];
-		const code0 = await run(["join", "--pane", pane, "--kind", "claude", "--session", "new-session"], { stateDir: dir, loader: "/l.mjs", stopMs: 20_000, joinMs: 20_000, spawn: (spec) => { const started = spawnNew(spec); return { exited: started.then((r) => r.exited) }; }, out: (t) => out.push(t), err: (t) => err.push(t) });
-		assert.equal(code0, 0, err.join(""));
-		assert.equal(child.exitCode !== null || child.signalCode !== null, true, "the older sidecar was ended");
-		assert.match(out.join(""), /joining as claude-new/);
-	} finally {
-		child.kill("SIGKILL");
-		await control?.close();
-		rmSync(dir, { recursive: true, force: true });
 	}
 });

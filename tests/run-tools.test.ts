@@ -84,7 +84,8 @@ test("the allowlist names exactly the tools the run registers, and every tool th
 	assert.deepEqual([...RUN_TOWER_TOOLS].sort(), ["board_read", "boss_close_main", "boss_open_main", "boss_server", "boss_status", "call_tower", "link_request", "tower_done", "tower_list", "tower_memory", "tower_reply", "tower_send"]);
 	assert.deepEqual([...RUN_FILE_TOOLS], ["read", "grep", "find", "ls"]);
 	const named = (text: string) => [...new Set(text.match(/\b(?:tower_[a-z]+|boss_[a-z_]+|board_read|call_tower|link_request)\b/g) ?? [])];
-	const prompt = readFileSync(new URL("../prompts/tower-run.md", import.meta.url), "utf8");
+	// A quoted request the run passes to a main it opens ("... call `boss_duty` ...") names that main's tool, not the run's.
+	const prompt = readFileSync(new URL("../prompts/tower-run.md", import.meta.url), "utf8").replace(/\("[^"]*"\)/g, "");
 	const mentioned = [...named(prompt), ...named(LOCAL_TOOLS.join("\n"))];
 	assert.ok(mentioned.length >= 10, "the prompt and the brief name the tower tools");
 	for (const n of mentioned) assert.ok(toolAllowed(n), `${n} (named by the tower run prompt or its brief) is on the allowlist`);

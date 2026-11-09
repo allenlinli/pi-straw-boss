@@ -247,7 +247,7 @@ test("a session publishes its key and mark with its role, rewrites them when it 
 
 	Object.assign(world.herdr.pane("wS:p1"), { agent: "pi", agent_status: "working", label: "aaa", agent_session: { value: kidFile("kid-a") } });
 	await a.promote();
-	assert.deepEqual(raw("wA:p1"), { sb_role: "main", sb_order: "000.1.000.0.000", sb_mark: MARK.main, sb_main_tab: "work" }, "promotion swaps the person for the star and keeps the tab label");
+	assert.deepEqual(raw("wA:p1"), { sb_role: "main", sb_order: "000.1.000.0.000", sb_mark: MARK.main, sb_main_tab: "work", sb_duty: "coordinator" }, "promotion swaps the person for the star and keeps the tab label");
 	assert.deepEqual(raw("wS:p1"), { sb_order: "000.1.000.0.000.000", sb_mark: `${ARROW} Solo`, sb_indent: INDENT.last, sb_name: "aaa" }, "the subagent in the worktree workspace hangs under its launcher, on the last branch");
 	assert.deepEqual(byKey(Object.fromEntries(["wA:p7", "wA:p1", "wS:p1", "wA:p2", "wA:p3"].map((id) => [id, raw(id).sb_order]))), ["wA:p7", "wA:p1", "wS:p1", "wA:p2", "wA:p3"]);
 

@@ -1022,6 +1022,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.au-stop { min-height: 44px; min-width: 44px; } .au-main { min-height: 44px; } /* a main's Stop and its row (the Mains fold of a unit) */
 	.composer textarea { min-height: 56px; } .cmp-row { gap: 8px 10px; }
 	.comms-in .ask-acts { position: sticky; bottom: -12px; margin: 0 -14px -12px; padding: 8px 14px 12px; background: color-mix(in srgb, var(--amber) 6%, var(--bg)); } /* Send answer stays in view while a long question scrolls */
+	.comms-in .ask-acts + .ask-note { margin-top: 4px; } /* the status note (Copied, Sending…) starts below the sticky send row, whose -12px margin and opaque fill would cover its top */
 	.composer :is(.cmp-alt, .cmp-send) { min-height: 48px; } .composer .cmp-alt { min-width: 48px; } .composer .cmp-send { min-width: 64px; }
 	/* A wait card (waitcard.ts): parts stack, every button and link is 44 px with 8 px between, the primary and each choice take the width, a long URL wraps anywhere, a command scrolls sideways. */
 	.wait-card :is(.pair-btn, .wc-fold, .wc-more) { min-height: 44px; min-width: 44px; } .wait-card .wc-acts { gap: 8px; } .wait-card .wc-primary { flex: 1 1 100%; } .wait-card .wc-opt { flex: 1 1 100%; min-height: 44px; }
@@ -1332,7 +1333,7 @@ body[data-route="settings"] :is(.bar-acts, .crumbs) { display: none; } /* the pa
 .ask-full section { display: grid; gap: 2px; } .ask-full .ask-tag { width: auto; }
 .ask-full p, .ask-sent { margin: 0; max-height: 14em; overflow: auto; font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ask-sent { margin: -4px 0 6px; color: var(--dim); } .ask-sent::before { content: attr(data-tag) ": "; font-size: 11px; font-weight: 600; }
-.ask-note { margin: -6px 0 4px; font-size: 12px; color: var(--dim); }
+.ask-tower .ask-note { margin: -6px 0 4px; font-size: 12px; color: var(--dim); } /* the head page's handled line under a tower's answer, not a dialog's status note */
 .ask-towers { display: grid; gap: 2px; margin: 0; padding: 0 12px 8px; list-style: none; }
 .ask-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; min-height: 44px; }
 .ask-name { font-size: 13px; font-weight: 600; color: var(--text); } a.ask-name { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); text-decoration: none; } a.ask-name:hover, a.ask-name:focus-visible { text-decoration: underline; }

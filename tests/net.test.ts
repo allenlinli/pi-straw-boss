@@ -69,9 +69,9 @@ test("boss_promote makes the first caller the main agent; a second caller is ref
 	assert.match(await a.promote(), /now the main agent of tab work/);
 	assert.match(await b.promote(), /Tab work already has a main agent, a\..*tell a through intercom first/);
 	assert.match(await a.promote(), /already the main agent/);
-	assert.deepEqual([a.tokens, b.tokens], [{ sb_role: "main", sb_duty: "coordinator" }, { sb_role: "member" }]);
+	assert.deepEqual([a.tokens, b.tokens], [{ sb_role: "main" }, { sb_role: "member" }]);
 	assert.equal(state()?.main, "a");
-	assert.match((await a.run())["straw-boss"]!, /^You are the main agent of Herdr tab work:/);
+	assert.match((await a.run())["straw-boss"]!, /^You are the main agent of Herdr tab work, of kind coordinator:/);
 	assert.match((await b.run())["straw-boss"]!, /^Straw Boss: you are a member of tab work, whose main agent is a\..*Before you dispatch a subagent, tell a through intercom/);
 	await assert.rejects(b.tool("boss_promote"), /already has a main agent/);
 });

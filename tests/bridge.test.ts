@@ -624,7 +624,7 @@ test("documents: a form answer from G for this bridge reaches the owner as doc-r
 	s.message(form({ to: "someone-else" }));
 	s.message(form({ version: 2 }));
 	s.message(form({ fields: [["a", 1]] }));
-	s.message(form({ fields: Array.from({ length: 65 }, () => ["a", "b"]) }));
+	s.message(form({ fields: Array.from({ length: 66 }, () => ["a", "b"]) }));
 	s.message(form({ answerId: "x".repeat(65) }));
 	assert.deepEqual([owner.forms.length, results().length], [0, 0], "another sender, epoch, bridge, version, or a malformed form reaches nobody");
 	s.message(form());

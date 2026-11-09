@@ -82,10 +82,10 @@ test("the rewrite: a pi-answer form (either quote, any case, unquoted) posts her
 	assert.ok(!/referrer|formaction|formmethod|formtarget/i.test(undo), `nothing undoes the policy or the rewrite: ${undo}`);
 });
 
-test("form fields: as the query decodes them, at most 64, 16 KB of query and 12 KB of answer, no control characters but tab and line breaks", () => {
+test("form fields: as the query decodes them, at most 65, 16 KB of query and 12 KB of answer, no control characters but tab and line breaks", () => {
 	assert.deepEqual(fieldsOf("choice=b&note=line+one%0D%0Aline+two&choice=c"), [["choice", "b"], ["note", "line one\r\nline two"], ["choice", "c"]]);
 	assert.deepEqual(fieldsOf(""), []);
-	assert.match(String(fieldsOf(Array.from({ length: 65 }, (_, i) => `f${i}=1`).join("&"))), /64 fields/);
+	assert.match(String(fieldsOf(Array.from({ length: 66 }, (_, i) => `f${i}=1`).join("&"))), /65 fields/);
 	assert.match(String(fieldsOf(`a=${"x".repeat(16 * 1024)}`)), /16 KB/);
 	assert.match(String(fieldsOf(`a=${"x".repeat(13_000)}`)), /12 KB/, "what the channel carries");
 	for (const bad of ["a=%00", "a=%1B%5B3G", "a%07=1", "a=%C2%9B"]) assert.match(String(fieldsOf(bad)), /control/, bad);
@@ -203,4 +203,10 @@ test("the app may frame its own documents and nothing else, and a page a documen
 	const { gui } = await serve(), app = await get(gui, `/${gui.token}/`);
 	assert.match(String(app.headers["content-security-policy"]), /frame-src 'self'; base-uri 'self'; frame-ancestors 'none'/);
 	assert.equal(app.headers["cross-origin-opener-policy"], "same-origin");
+});
+
+test("PBS-F002: a form takes 64 questions and the reserved pi-note, and refuses one field more", () => {
+	const q = (n: number) => Array.from({ length: n }, (_, i) => `q${i}=a`).join("&");
+	assert.equal((fieldsOf(`${q(64)}&pi-note=x`) as unknown[]).length, 65);
+	assert.equal(typeof fieldsOf(`${q(65)}&pi-note=x`), "string");
 });

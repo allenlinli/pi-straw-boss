@@ -143,7 +143,7 @@ test("a record that cannot be written refuses before anything is sent, and says 
 
 test("a block that is not a block is refused before anything: an entry id, an index, and the fields that went", async () => {
 	const t = await setup();
-	const bad: unknown[] = ["x", {}, { entry: "", index: 0, fields: [] }, { entry: "e", index: -1, fields: [] }, { entry: "e", index: 1.5, fields: [] }, { entry: "e", index: 100_000, fields: [] }, { entry: "e".repeat(300), index: 0, fields: [] }, { entry: "e\u0007", index: 0, fields: [] }, { entry: "e", index: 0, fields: "x" }, { entry: "e", index: 0, fields: [["a"]] }, { entry: "e", index: 0, fields: [["a", 1]] }, { entry: "e", index: 0, fields: Array.from({ length: 65 }, (_, i) => [`f${i}`, "v"]) }, { entry: "e", index: 0, fields: [["a", "x".repeat(13_000)]] }];
+	const bad: unknown[] = ["x", {}, { entry: "", index: 0, fields: [] }, { entry: "e", index: -1, fields: [] }, { entry: "e", index: 1.5, fields: [] }, { entry: "e", index: 100_000, fields: [] }, { entry: "e".repeat(300), index: 0, fields: [] }, { entry: "e\u0007", index: 0, fields: [] }, { entry: "e", index: 0, fields: "x" }, { entry: "e", index: 0, fields: [["a"]] }, { entry: "e", index: 0, fields: [["a", 1]] }, { entry: "e", index: 0, fields: Array.from({ length: 66 }, (_, i) => [`f${i}`, "v"]) }, { entry: "e", index: 0, fields: [["a", "x".repeat(13_000)]] }];
 	for (const b of bad) assert.equal((await send(t.gui, { block: b })).status, 400, JSON.stringify(b)?.slice(0, 60));
 	assert.equal(t.typed().length, 0);
 });

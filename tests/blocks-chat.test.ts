@@ -269,3 +269,16 @@ function unsureNotes(root: El) {
 	assert.ok(blocks.some((b) => (INTERACTIVE_KINDS as readonly string[]).includes(b.getAttribute("data-kind") ?? "")), "an answerable block is in the fixture");
 	blocks.forEach((b, i) => assert.equal(/could not be read/i.test(notes[i]!.textContent), (INTERACTIVE_KINDS as readonly string[]).includes(b.getAttribute("data-kind") ?? ""), `the note under ${b.getAttribute("data-kind")}`));
 }
+
+test("pi-better-show 0.5.0: a chat block answered with the reserved `pi-note` field reaches the unit with the note, is recorded with it, and the locked element shows it", async () => {
+	const { show, sent } = mount("S1");
+	const root = await show(reply(DEMO_CHAT_BLOCKS));
+	const [chips] = find(root, "pbs-suggest");
+	const fields = [["text", "Go ahead"], ["pi-note", "but mind refunds"]];
+	fire(chips!, { kind: "suggest", fields, ref: { block: 1 } });
+	await settle();
+	assert.equal(sent.length, 1);
+	assert.match(String(sent[0]![1].text), /Other comments: but mind refunds/, "encodeAnswer appends the note to the text the unit reads");
+	assert.deepEqual((sent[0]![1].block as { fields: unknown }).fields, fields, "the block names the full fields, note included");
+	assert.deepEqual(chips!.answered, fields);
+});

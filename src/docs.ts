@@ -6,7 +6,7 @@ import { dirname, extname, resolve, sep } from "node:path";
 import { ANSWER_ID, type Hub } from "./dialogs.ts";
 import { type Answered, createAnswered, docKey } from "./answered.ts";
 import { blockCount } from "./blockcount.ts";
-import { answerOfFields, answerOk, type Doc, type Fields, isBlocksDoc, MAX_ANSWER } from "./documents.ts";
+import { answerOfFields, answerOk, type Doc, type Fields, isBlocksDoc, MAX_ANSWER, MAX_FIELDS } from "./documents.ts";
 
 // Serving the documents a session shows (documents.ts) to the page, by capability: the hub's current binding is the allow list, and paths never
 // come from the browser. GET /<t>/doc/<cap>/ is an HTML document, rewritten so its pi-answer forms submit here; GET /<t>/doc/<cap>/<path> an
@@ -42,11 +42,11 @@ export function rewrite(html: string, nonce: string, ticketBase?: string) {
 	const at = /<head\b[^>]*>/i.exec(forms) ?? /<html\b[^>]*>/i.exec(forms) ?? /<!doctype[^>]*>/i.exec(forms), cut = at ? at.index + at[0].length : 0;
 	return `${forms.slice(0, cut)}<base ${ticketBase ? `href="${escape(ticketBase)}" ` : ""}target="_blank">${forms.slice(cut)}`;
 }
-/** A form's fields as the answer route takes them: at most 64, the query at most 16 KB and the answer 12 KB, no control characters. */
+/** A form's fields as the answer route takes them: at most 65 (64 questions and the reserved pi-note), the query at most 16 KB and the answer 12 KB, no control characters. */
 export function fieldsOf(query: string): Fields | string {
 	if (query.length > MAX_QUERY) return "The answers are longer than 16 KB.";
 	const fields = [...new URLSearchParams(query)];
-	if (fields.length > 64) return "The form has more than 64 fields.";
+	if (fields.length > MAX_FIELDS) return `The form has more than ${MAX_FIELDS} fields.`;
 	if (fields.some(([name, value]) => CONTROL.test(name) || CONTROL.test(value))) return "The answers hold control characters.";
 	return Buffer.byteLength(JSON.stringify(fields)) > MAX_ANSWER ? "The answers are longer than 12 KB together." : fields;
 }
@@ -174,7 +174,7 @@ export function createDocs(hub: Pick<Hub, "doc" | "form">, name: (key: string) =
 			const found = CAP.test(cap) ? hub.doc(cap) : undefined;
 			if (!found) return no(404, "closed", "The document is no longer open in its session.");
 			if (!isBlocksDoc(found.doc)) return no(409, "refused", "This document takes no answers from its blocks.");
-			if (typeof answerId !== "string" || !ANSWER_ID.test(answerId) || !answerOk(answer) || answer.ref === undefined || typeof rev !== "string" || !REV.test(rev)) return no(400, "bad_request", "The answer is not a block's answer: at most 64 text fields, under 12 KB, with no control characters, the block's index, and the hash of the text it was drawn from.");
+			if (typeof answerId !== "string" || !ANSWER_ID.test(answerId) || !answerOk(answer) || answer.ref === undefined || typeof rev !== "string" || !REV.test(rev)) return no(400, "bad_request", "The answer is not a block's answer: at most 65 text fields, under 12 KB, with no control characters, the block's index, and the hash of the text it was drawn from.");
 			if (found.doc.v !== 2) return no(409, "refused", "This document comes from pi-herdr-doc-review, which takes no answers from its blocks: they need the document package pi-better-show (contract v2). Answer in the session instead.");
 			const now = Date.now(), k = `${cap}\n${answerId}`, { block } = answer.ref, doc = found.doc;
 			for (const [id, v] of answers) if (v.until < now) answers.delete(id); else break; // the window is one length for all, so they expire in the order they came

@@ -137,3 +137,13 @@ function unsureNotes(root: El) {
 	assert.ok(blocks.some((b) => (INTERACTIVE_KINDS as readonly string[]).includes(b.getAttribute("data-kind") ?? "")), "an answerable block is in the fixture");
 	blocks.forEach((b, i) => assert.equal(/could not be read/i.test(notes[i]!.textContent), (INTERACTIVE_KINDS as readonly string[]).includes(b.getAttribute("data-kind") ?? ""), `the note under ${b.getAttribute("data-kind")}`));
 }
+
+test("pi-better-show 0.5.0: a document block answered with the reserved `pi-note` field sends it to the owner and the locked element shows it", async () => {
+	const root = await open(card("docs/plan.md"));
+	const form = root.find((el) => el.tagName === "pbs-form")[0] as Locked;
+	const fields = [["store", "SQLite"], ["pi-note", "check the backup first"]];
+	fire(form, { kind: "form", fields, ref: { block: 4 } });
+	await settle();
+	assert.deepEqual((posts[0]![1].answer as { fields: unknown }).fields, fields, "the note reaches the owner in the Answer");
+	assert.deepEqual(form.answered, fields, "the locked view is given the note");
+});

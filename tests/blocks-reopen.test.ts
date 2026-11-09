@@ -83,3 +83,15 @@ test("BSR-F004: a seed looks at its own scope's blocks only: another scope's pen
 	other.seed({ done: [], pending: [] });
 	assert.equal(other.get(3).state, "open", "its own seed does reopen it");
 });
+
+test("PBS-F001: a lock keeps all 64 questions and the reserved pi-note, on a send and on a seed from the record", () => {
+	const fields: [string, string][] = [...Array.from({ length: 64 }, (_, i) => [`q${i}`, "a"] as [string, string]), ["pi-note", "the note"]];
+	const lock = lockFor("doc", "cap", "pbs-f001");
+	lock.done(0, fields);
+	lock.seed({ done: [[1, fields]], pending: [] });
+	for (const i of [0, 1]) {
+		const cell = lock.get(i);
+		assert.equal(cell.state, "done");
+		assert.deepEqual(cell.state === "done" ? cell.fields.at(-1) : undefined, ["pi-note", "the note"], `block ${i} shows the note`);
+	}
+});

@@ -1,4 +1,4 @@
-import { CONTROL, type Fields, fieldsOk, MAX_ANSWER, MAX_BLOCK } from "./documents.ts";
+import { CONTROL, type Fields, fieldsOk, MAX_ANSWER, MAX_BLOCK, MAX_FIELDS } from "./documents.ts";
 
 // Which blocks were answered (docs/specs/2026-11-07-better-show-host.md, "Answered"). The page used to remember it in its own browser storage, which meant that a restart of the server (a new capability), another device, or another address of
 // this computer started again with every block open. The record is the server's now: one owned file (the caller's `save`, mode 600), read by every device. An answer is `pending` from the moment the server begins to send it and `done` with the fields
@@ -39,7 +39,7 @@ export const MAX_ENTRIES = 2000, KEEP_MS = 90 * 24 * 3_600_000, PENDING_MS = 120
 export const chatKey = (unit: string, entry: string, index: number) => JSON.stringify(["chat", unit, entry, index]);
 export const docKey = (unit: string, name: string, rev: string, index: number) => JSON.stringify(["doc", unit, name, rev, index]);
 
-const clip = (fields: Fields): Fields => fields.slice(0, 64).map(([name, value]) => [name.slice(0, 256), value.slice(0, 1024)]);
+const clip = (fields: Fields): Fields => fields.slice(0, MAX_FIELDS).map(([name, value]) => [name.slice(0, 256), value.slice(0, 1024)]);
 const HASH = /^[0-9a-f]{16}$/, MAX_PART = 4096;
 const part = (v: unknown): v is string => typeof v === "string" && v.length <= MAX_PART;
 const index = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= MAX_BLOCK;
@@ -159,7 +159,7 @@ const refuse = (status: number, error: string, reason: string, extra: object = {
 export async function recordBlock(store: Answered, unit: string, json: Record<string, unknown>, send: (json: Record<string, unknown>) => Promise<Reply>): Promise<Reply> {
 	const { block, ...rest } = json, b = block as { entry?: unknown; index?: unknown; fields?: unknown } | null;
 	if (typeof b !== "object" || b === null || typeof b.entry !== "string" || !b.entry || b.entry.length > 128 || CONTROL.test(b.entry) || !Number.isInteger(b.index) || (b.index as number) < 0 || (b.index as number) > 4095 || !fieldsOk(b.fields) || b.fields.some(([name, value]) => CONTROL.test(name) || CONTROL.test(value)) || Buffer.byteLength(JSON.stringify(b.fields)) > MAX_ANSWER)
-		return refuse(400, "bad_request", "A block names its message (an entry id) and its index, and the text fields that went: at most 64, under 12 KB, with no control characters.");
+		return refuse(400, "bad_request", "A block names its message (an entry id) and its index, and the text fields that went: at most 65 (the reserved pi-note counts), under 12 KB, with no control characters.");
 	const key = chatKey(unit, b.entry, b.index as number), begun = store.begin(key);
 	if (begun === "answered") return refuse(409, "answered", "This block was answered already.", { fields: (store.get(key) as { fields?: Fields } | undefined)?.fields ?? [] });
 	if (begun === "pending") return refuse(409, "pending", "This block's answer is on its way.");

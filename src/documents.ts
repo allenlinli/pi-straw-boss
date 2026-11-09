@@ -10,7 +10,7 @@ import type { Bus } from "./owners.ts";
 export const LIST = "doc-review:documents", REQUEST = "doc-review:documents-request", FORM = "doc-review:form", RESULT = "doc-review:form-result";
 export const LIST2 = "better-show:documents", REQUEST2 = "better-show:documents-request", ANSWER2 = "better-show:answer", RESULT2 = "better-show:answer-result";
 const MAX_DOCS = 32, FORM_MS = 4000;
-export const MAX_FIELDS = 64, MAX_ANSWER = 12 * 1024;
+export const MAX_FIELDS = 65, MAX_ANSWER = 12 * 1024;
 export type DocKind = "html" | "text" | "blocks";
 /** `v: 2` marks a document of contract v2 (no path; `capability` and `assets` while its owner's page server runs); without it the document is v1 and has its `path`. */
 export interface Doc { id: string; path?: string; kind: DocKind; display: string; reason: string; revision: number; onScreen: boolean; v?: 2; capability?: string; assets?: string }
@@ -85,7 +85,7 @@ const listOf = (raw: unknown, version: number, entry: (d: Raw) => Doc | undefine
 export const docsOf = (raw: unknown): Doc[] | undefined => listOf(raw, 1, (d) => (d?.v === undefined ? docOf1(d) : d.v === 2 ? docOf2(d, true) : undefined));
 export const fieldsOk = (f: unknown): f is Fields => Array.isArray(f) && f.length <= MAX_FIELDS && f.every((x) => Array.isArray(x) && x.length === 2 && x.every((s) => typeof s === "string"));
 
-/** An answer as the owner takes it: one of the six kinds, a title, at most 64 text fields under 12 KB with no control character but a line break and a tab, and the block's address. */
+/** An answer as the owner takes it: one of the six kinds, a title, at most 65 text fields (64 questions and the reserved pi-note) under 12 KB with no control character but a line break and a tab, and the block's address. */
 export function answerOk(a: unknown): a is BlockAnswer {
 	if (typeof a !== "object" || a === null) return false;
 	const { kind, title, fields, ref } = a as Record<string, unknown>;

@@ -1,7 +1,7 @@
 import { callControl, ControlError } from "./socket.ts";
 import { type Ctx, decide, ensure, lockWaitFor, probe, restart, ServerError } from "./client.ts";
 
-// How a session, a sidecar, or a handing-over resident tower asks the sb server for a workspace's tower (docs/specs/2026-10-26-sb-backend.md, A workspace gets one):
+// How a session or a handing-over resident tower asks the sb server for a workspace's tower (docs/specs/2026-10-26-sb-backend.md, A workspace gets one):
 // `ensure-tower` over the control socket. The server makes the tab, registers the identity, and writes the tokens; it starts no pi. Only behind `towerRuns.enabled`.
 
 export const STOPPED = "the sb server was stopped on purpose; /boss server starts it again";

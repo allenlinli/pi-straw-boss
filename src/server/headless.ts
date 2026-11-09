@@ -3,7 +3,7 @@ import { herdrApi, herdrCall, herdrRun, herdrWorld, socketRun, worldOf } from ".
 import { herdrEvents, herdrWatch } from "../server-watch.ts";
 import type { Config, Deps } from "../state.ts";
 
-/** What a process that is not a pi session (a net sidecar, the sb server) may be given in place of the real Herdr connections. */
+/** What a process that is not a pi session (the sb server) may be given in place of the real Herdr connections. */
 export type HeadlessDeps = Pick<Deps, "run" | "world" | "api" | "call" | "sleep" | "now" | "events" | "watch" | "guardMs" | "couple" | "autoTower" | "detectMs" | "stateDir" | "restoreMs">;
 
 const unavailable = (what: string) => (() => { throw new Error(`${what} is not available in a headless process`); }) as never;

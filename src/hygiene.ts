@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { stateDirOf } from "./agent/paths.ts";
+import { stateDirOf } from "./server/paths.ts";
 import { herdrRun, panes as herdrPanes, result as herdrResult, workspaces as herdrWorkspaces, type HerdrRun, type Workspace } from "./herdr.ts";
 import { type Cwd, readCwds } from "./procs/cwd.ts";
 import { type Holder, parseWorktreeList, refusal, removeTargets } from "./procs/guard.ts";

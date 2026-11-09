@@ -82,15 +82,13 @@ test("labels are plain text: controls, escapes and bidi overrides go, markup sta
 	assert.equal(plain("a\nb\tc\u0007\r\nd", 100, true), "a\nb\tc\nd", "a multi-line text keeps its breaks and tabs only");
 });
 
-test("a mark, a role, a state or an agent outside its set refuses the unit; an optional field outside it is left out", async () => {
+test("a mark, a role, or a state outside its set refuses the unit; an optional field outside it is left out", async () => {
 	const w = await shown(netOf(baseOf("wA", [["t1", [
-		unit("ok", { agent: "codex" }), unit("badmark", { mark: "<b>" as never }), unit("badrole", { role: "root" as never }), unit("badagent", { agent: "evil" as never }),
+		unit("ok"), unit("badmark", { mark: "<b>" as never }), unit("badrole", { role: "root" as never }),
 		unit("badtodo", { todo: { done: -1, total: "x" } as never, ticks: [{ at: 1, mark: "idle" }, { at: 1, mark: "nope" }] as never, queued: [{ text: "t", as: "steer" }, { text: "u", as: "rm -rf" }] as never }),
 	]]])));
 	const u = Object.fromEntries(unitsOf(w.host.merge(LOCAL)).map((x) => [x.name, x]));
-	assert.deepEqual(Object.keys(u).sort(), ["badagent", "badtodo", "ok"]);
-	assert.equal(u.ok!.agent, "codex");
-	assert.equal(u.badagent!.agent, undefined);
+	assert.deepEqual(Object.keys(u).sort(), ["badtodo", "ok"]);
 	assert.deepEqual([u.badtodo!.todo, u.badtodo!.ticks, u.badtodo!.queued], [undefined, [{ at: 1, mark: "idle" }], [{ text: "t", as: "steer" }]]);
 });
 

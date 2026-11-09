@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { allyLabel } from "../boardauto.ts";
 import { herdrApi, herdrCall, herdrRun, panes, socketRun } from "../herdr.ts";
 import { inside } from "../link/routing.ts";
-import { type HeadlessDeps, headlessConfig } from "../agent/config.ts";
-import { createHeadlessKit, type IntercomLike } from "../agent/kit.ts";
+import { type HeadlessDeps, headlessConfig } from "./headless.ts";
+import { createHeadlessKit, type IntercomLike } from "./kit.ts";
 import { herdrEvents, herdrWatch, type HerdrWatch } from "../server-watch.ts";
 import { alive as pidAlive } from "../remote.ts";
 import { rememberStart, startedLater, startOf as processStartOf } from "../startof.ts";
@@ -615,7 +615,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 		}
 	}), o.herdrPollMs ?? HERDR_POLL_MS));
 
-	// pi-intercom: the server's own session, reconnecting with the sidecar's backoff (1, 2, 5, 10, then 30 s). While it is disconnected its identities are not live.
+	// pi-intercom: the server's own session, reconnecting with a backoff of (1, 2, 5, 10, then 30 s). While it is disconnected its identities are not live.
 	// The link holder (B3): the primary server only, built once the first connection is attached (the kit's channel needs a client). A computer with no team set up gets no channel, election, or files.
 	const dialogsOut = () => (forwarder ??= new DialogForwarder({
 		hub: guiHost!.dialogs().hub, read: guiHost!.dialogs().read, dispatcher: dispatcherLookup({ paneOf: (key) => guiHost!.dialogs().lookup(key)?.pane, list: () => panes(cfg.run), allyPanes: () => towers?.runs.allyPanes() ?? [], now }), admin: (team, device) => link?.holder?.isAdmin(team, device) ?? false, controllers: () => link?.holder?.dialogControllers() ?? [], online: (team, device) => link?.holder?.deviceOnline(team, device) ?? false, controllersKnown: () => link?.holder?.controllersKnown() ?? false, unit: (key) => unitLabel(guiHost!.dialogs().lookup(key)),

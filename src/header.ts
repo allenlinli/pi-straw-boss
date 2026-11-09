@@ -1,11 +1,9 @@
 // The line that opens every message Straw Boss sends through intercom for a session (call_tower, boss_broadcast, tower_send, a handoff). The code
 // writes it, never the model, so a receiver can tell from the line alone who sent the message and in what role, what kind of message it is, who else
-// got it, and whether the sender waits for a reply. It has the shape of the line a net sidecar types before a message (src/agent/sidecar.ts), with the
-// sender's own fields added:
+// got it, and whether the sender waits for a reply. The line is one the sender's own fields make up:
 //   [straw net from=<name> id=<session id> role=<tower|main|member|train|session> [head=yes] workspace=<label> kind=<kind> scope=<scope> to=<recipients> reply=<expected|none> [why=<why>]] <message>
 // A message that came over Straw Link adds the verified sender after the workspace (docs/specs/2026-10-25-straw-link.md, Header):
 //   … workspace=<label> remote=<device label> device=<short id> team=<team> verified=yes kind=tower_send …
-// The sidecar puts its own line, with the role Herdr's tokens give the sender, before this one; the two are not merged.
 
 import { restrictLabel } from "./link/text.ts";
 

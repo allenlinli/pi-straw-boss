@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { IntercomLike } from "../agent/kit.ts";
+import type { IntercomLike } from "./kit.ts";
 import { stamp } from "../header.ts";
 import { type Attempt, type CarState, RETRY_MS, stateLine, type StateEntry, type StateNotice } from "../train/cars.ts";
 import type { CarBook } from "./carbook.ts";

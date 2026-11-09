@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { StubClient } from "./agent-fakes.ts";
+import { StubClient } from "./intercom-fakes.ts";
 import { fakeClock } from "./fake-clock.ts";
 import { FakeHerdr, type FakePaneProcesses } from "./fakes.ts";
 import { ServerWorld } from "./server-world.ts";

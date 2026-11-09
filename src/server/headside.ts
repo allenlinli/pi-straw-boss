@@ -1,8 +1,8 @@
 import { join } from "node:path";
-import type { IntercomLike } from "../agent/kit.ts";
+import type { IntercomLike } from "./kit.ts";
 import type { Session } from "../herdr.ts";
 import { isHead, isSub, type HerdrRun, workspaces } from "../herdr.ts";
-import { type Incoming } from "../agent/kit.ts";
+import { type Incoming } from "./kit.ts";
 import { answerAsk, asked, openAsks } from "./headasks.ts";
 import type { Locale } from "../towerprompt/messages.ts";
 import { buildHeadBrief, headTools, type HeadWorkspace } from "./headbrief.ts";

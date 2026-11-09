@@ -27,8 +27,6 @@ const ROLE: Record<string, NounKey> = { ally: "role_ally", run: "role_run", main
 /** The server's fixed status words; any other note (a subagent's tool or phase) shows as it is. */
 const NOTE: Record<string, () => string> = { thinking: m.note_thinking, "watching a monitor": m.note_monitoring, idle: m.mark_idle, "waiting on a question": m.mark_waiting, finished: m.mark_done };
 /** A role as the page names it; one it does not know shows as it is. */
-/** The agent of a unit that is not a pi session (src/net.ts `Unit.agent`): its badge, and its name in the composer's notice. */
-export const AGENT = { claude: "Claude", codex: "Codex" } as const;
 export const roleName = (role: string) => (Object.hasOwn(ROLE, role) ? noun(ROLE[role]!) : role);
 /** A wait's title, in the page's language: the unit's role and its place, once (the unit's raw name is English and says the same). Zen's card and the dialog share it. */
 export const waitTitle = (role: string, place: string) => `${roleName(role)} · ${place}`;
@@ -145,7 +143,7 @@ let trainNote = new Map<string, string>(), integrators = new Map<string, string>
 export const useYards = (notes: Map<string, string>, owners: Map<string, string>, waits = new Set<string>()) => void ([trainNote, integrators, trainWait] = [notes, owners, waits]);
 // The yards' model (trains.ts: the counts, the chips, the wait words) is a chunk of its own, fetched with the first snapshot that carries yards; until it is here the chips and notes wait, and the map is drawn again as it arrives.
 let yardsModel: typeof import("./trains.ts") | undefined, loadingYards: Promise<void> | undefined;
-export const unitEl = () => html(`<div class="unit"><div class="card"><a class="hit"></a>${PLATE}<div class="meta"><span class="name"></span><span class="line"><em class="role"></em><em class="agent"></em><span class="note"></span><span class="age"></span></span><span class="todo" hidden><b></b><span></span></span><button type="button" class="yard-open" hidden></button></div><button type="button" class="quit-btn" data-close="unit" hidden></button><span class="ticks" aria-hidden="true"></span></div><div class="subs"></div></div>`);
+export const unitEl = () => html(`<div class="unit"><div class="card"><a class="hit"></a>${PLATE}<div class="meta"><span class="name"></span><span class="line"><em class="role"></em><span class="note"></span><span class="age"></span></span><span class="todo" hidden><b></b><span></span></span><button type="button" class="yard-open" hidden></button></div><button type="button" class="quit-btn" data-close="unit" hidden></button><span class="ticks" aria-hidden="true"></span></div><div class="subs"></div></div>`);
 /** A card draws what the chat's live line and the dossier draw: a unit that is not live (an ended subagent) keeps no working mark and no tool (liveMark, liveNote). */
 export function fillUnit(el: HTMLElement, u: Omit<Unit, "id" | "key" | "control" | "role" | "subs"> & { key?: string; control?: boolean; role: Unit["role"] | "outpost"; subs?: Unit[] }) {
 	const ws = el.closest<HTMLElement>(".base")?.dataset.key, hit = el.querySelector(".hit")!, mk = liveMark(u, undefined, u.mark), note = closed(u) ? undefined : u.note;
@@ -156,7 +154,6 @@ export function fillUnit(el: HTMLElement, u: Omit<Unit, "id" | "key" | "control"
 	fillPlate(el.querySelector(".plate")!, u.role, mk, u.docs);
 	text(el, ".name", u.name);
 	text(el, ".role", roleName(u.role));
-	text(el, ".agent", u.agent ? AGENT[u.agent] : "");
 	const line = (u.key && !closed(u) && trainNote.get(u.key)) || undefined, noteEl = el.querySelector<HTMLElement>(".note")!;
 	say(el, ".note", note, mk, line);
 	// A train's note is the step and what it waits for: clipped to its card (two lines, style.css), so the whole line is its tooltip too; a train that waits says so whatever its pane's mark.

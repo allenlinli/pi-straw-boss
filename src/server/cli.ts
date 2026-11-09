@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { stateDirOf } from "../agent/paths.ts";
+import { stateDirOf } from "./paths.ts";
 import { herdrRun, type HerdrRun, workspaces } from "../herdr.ts";
 import { answers as pageAnswers } from "../handover.ts";
 import { newer } from "../semver.ts";

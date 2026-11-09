@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createHeadlessKit } from "../src/agent/kit.ts";
+import { createHeadlessKit } from "../src/server/kit.ts";
 import { type Channel, type Config, REGISTER } from "../src/state.ts";
-import { StubClient } from "./agent-fakes.ts";
+import { StubClient } from "./intercom-fakes.ts";
 import { until } from "./fakes.ts";
 
 const OUTBOX = "intercom:outbox-request", RESULT = "intercom:outbox-result";
 const NS = "straw-boss/tab/7762";
 const setup = () => {
-	const client = new StubClient(), kit = createHeadlessKit({ client, env: { PI_INTERCOM_SESSION_ID: "claude-aaaa" }, cfg: {} as Config });
+	const client = new StubClient(), kit = createHeadlessKit({ client, env: { PI_INTERCOM_SESSION_ID: "server-aaaa" }, cfg: {} as Config });
 	kit.attach(client);
 	const events: Record<string, unknown>[] = [];
 	let channel!: Channel;
@@ -21,8 +21,8 @@ const setup = () => {
 
 test("the kit is the session's id and the event bus, and any other member of pi throws", () => {
 	const { kit } = setup();
-	assert.equal(kit.me(), "claude-aaaa");
-	assert.throws(() => kit.pi.registerTool({} as never), /not available in a net sidecar/);
+	assert.equal(kit.me(), "server-aaaa");
+	assert.throws(() => kit.pi.registerTool({} as never), /not available in the sb server/);
 	assert.throws(() => kit.pi.on("session_start", () => {}), /not available/);
 });
 
@@ -38,17 +38,17 @@ test("registering a namespace tells the broker the capability, hands over a chan
 test("owner, state, claims, and the roster's changes reach the namespace as they do in pi-intercom, and the snapshot follows", () => {
 	const { client, events, channel } = setup();
 	events.length = 0;
-	client.broker({ type: "extension_owner", namespace: NS, ownerId: "claude-aaaa", ownerEpoch: "e1" });
+	client.broker({ type: "extension_owner", namespace: NS, ownerId: "server-aaaa", ownerEpoch: "e1" });
 	client.broker({ type: "extension_state", namespace: NS, revision: 3, payload: { v: 1, main: "pi-b" } });
-	client.broker({ type: "extension_message", namespace: NS, fromSessionId: "pi-b", ownerId: "claude-aaaa", ownerEpoch: "e1", payload: { type: "claim", force: false } });
+	client.broker({ type: "extension_message", namespace: NS, fromSessionId: "pi-b", ownerId: "server-aaaa", ownerEpoch: "e1", payload: { type: "claim", force: false } });
 	client.broker({ type: "extension_state_result", namespace: NS, committed: false, revision: 3, reason: "stale" });
 	client.broker({ type: "session_left", sessionId: "pi-b" });
 	client.broker({ type: "extension_owner", namespace: "other/ns", ownerId: "x", ownerEpoch: "e" });
-	assert.deepEqual(channel.snapshot(), { connected: true, supported: true, owner: { sessionId: "claude-aaaa", epoch: "e1" }, state: { revision: 3, payload: { v: 1, main: "pi-b" } } });
+	assert.deepEqual(channel.snapshot(), { connected: true, supported: true, owner: { sessionId: "server-aaaa", epoch: "e1" }, state: { revision: 3, payload: { v: 1, main: "pi-b" } } });
 	assert.deepEqual(events, [
-		{ type: "owner", owner: { sessionId: "claude-aaaa", epoch: "e1" } },
+		{ type: "owner", owner: { sessionId: "server-aaaa", epoch: "e1" } },
 		{ type: "state", state: { revision: 3, payload: { v: 1, main: "pi-b" } } },
-		{ type: "message", fromSessionId: "pi-b", owner: { sessionId: "claude-aaaa", epoch: "e1" }, payload: { type: "claim", force: false } },
+		{ type: "message", fromSessionId: "pi-b", owner: { sessionId: "server-aaaa", epoch: "e1" }, payload: { type: "claim", force: false } },
 		{ type: "state_result", committed: false, revision: 3, reason: "stale" },
 		{ type: "session_left", sessionId: "pi-b" },
 	]);
@@ -61,14 +61,14 @@ test("publish goes to the owner by default, commitState carries the owner's epoc
 	channel.publish({ type: "claim", force: true });
 	channel.publish({ n: 1 }, { audience: "capable" });
 	assert.throws(() => channel.commitState({ v: 1 }), /not the owner of/);
-	client.broker({ type: "extension_owner", namespace: NS, ownerId: "claude-aaaa", ownerEpoch: "e9" });
+	client.broker({ type: "extension_owner", namespace: NS, ownerId: "server-aaaa", ownerEpoch: "e9" });
 	client.broker({ type: "extension_state", namespace: NS, revision: 4, payload: {} });
-	channel.commitState({ v: 1, main: "claude-aaaa" });
+	channel.commitState({ v: 1, main: "server-aaaa" });
 	channel.commitState({ v: 1 }, 7);
 	assert.deepEqual(client.frames, [
 		{ type: "extension_publish", namespace: NS, audience: "owner", payload: { type: "claim", force: true } },
 		{ type: "extension_publish", namespace: NS, audience: "capable", payload: { n: 1 } },
-		{ type: "extension_state_commit", namespace: NS, ownerEpoch: "e9", expectedRevision: 4, payload: { v: 1, main: "claude-aaaa" } },
+		{ type: "extension_state_commit", namespace: NS, ownerEpoch: "e9", expectedRevision: 4, payload: { v: 1, main: "server-aaaa" } },
 		{ type: "extension_state_commit", namespace: NS, ownerEpoch: "e9", expectedRevision: 7, payload: { v: 1 } },
 	]);
 	client.connected = false;
@@ -78,7 +78,7 @@ test("publish goes to the owner by default, commitState carries the owner's epoc
 
 test("an outbox request resolves the target by id, name, or id prefix, sends it with the request id, and answers sent", async () => {
 	const { client, results, request } = setup();
-	client.sessions = [{ id: "claude-aaaa", name: "me" }, { id: "tower-1234", name: "Tower" }, { id: "pi-5678", name: "Worker" }];
+	client.sessions = [{ id: "server-aaaa", name: "me" }, { id: "tower-1234", name: "Tower" }, { id: "pi-5678", name: "Worker" }];
 	request({ requestId: "by-name", to: "tower" });
 	request({ requestId: "by-prefix", to: "pi-56", message: "second" });
 	await until(() => results.length === 2, "two results");
@@ -88,7 +88,7 @@ test("an outbox request resolves the target by id, name, or id prefix, sends it 
 
 test("an outbox request that cannot go says why: no such session, several, itself, a refusal, a closed socket, a repeated or malformed request", async () => {
 	const { client, kit, results, request } = setup();
-	client.sessions = [{ id: "claude-aaaa", name: "me" }, { id: "a-1", name: "dup" }, { id: "a-2", name: "dup" }, { id: "b-1", name: "ok" }];
+	client.sessions = [{ id: "server-aaaa", name: "me" }, { id: "a-1", name: "dup" }, { id: "a-2", name: "dup" }, { id: "b-1", name: "ok" }];
 	request({ requestId: "none", to: "nobody" });
 	request({ requestId: "many", to: "dup" });
 	request({ requestId: "self", to: "me" });
@@ -114,7 +114,7 @@ test("an outbox request that cannot go says why: no such session, several, itsel
 
 test("a dropped connection tells every namespace it is gone and fails what was in flight; the reconnection registers the capabilities again", async () => {
 	const { client, kit, events, results, request } = setup();
-	client.sessions = [{ id: "claude-aaaa" }, { id: "tower-1", name: "t" }];
+	client.sessions = [{ id: "server-aaaa" }, { id: "tower-1", name: "t" }];
 	client.listSessions = () => new Promise(() => {}); // never answers
 	request({ requestId: "inflight", to: "t" });
 	events.length = 0;
@@ -125,7 +125,7 @@ test("a dropped connection tells every namespace it is gone and fails what was i
 	const next = new StubClient();
 	kit.attach(next);
 	events.length = 0;
-	await next.connect({} as never, "claude-aaaa");
+	await next.connect({} as never, "server-aaaa");
 	assert.deepEqual(next.capabilities, [[{ namespace: NS, ownerEligible: true }]]);
 	assert.deepEqual(events, [{ type: "connection", connected: true, supported: true }]);
 	client.broker({ type: "session_left", sessionId: "x" });

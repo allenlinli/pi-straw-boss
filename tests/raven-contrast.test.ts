@@ -169,6 +169,22 @@ test("the glass fill keeps --text, --dim, and every state colour at 4.5 : 1 over
 	const supports = /@supports \(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\) \{((?:[^{}]|\{[^{}]*\})*)\}/.exec(ravenCss)?.[1] ?? "";
 	assert.match(supports, /:is\(\.base, \.comms-in, \.panel, \.set-group\) \{ background: var\(--rk-glass\); -webkit-backdrop-filter: blur\(var\(--rk-blur\)\); backdrop-filter: blur\(var\(--rk-blur\)\); \}/);
 	assert.match(supports, /dialog\.sheet:not\(\.yard\) \{ background-color: var\(--rk-glass-sheet\)/);
-	assert.ok(!/backdrop-filter/.test(ravenCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@supports[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/, "")), "no backdrop-filter outside the @supports block (the fallback keeps the opaque fills)");
+	assert.ok(!/backdrop-filter/.test(ravenCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@supports[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g, "")), "no backdrop-filter outside the @supports block (the fallback keeps the opaque fills)");
 	for (const small of [".card", ".d-doc", ".tx-body", ".head-node"]) assert.ok(!new RegExp(`${small.replace(".", "\\.")}[^{]*\\{[^}]*backdrop-filter`).test(ravenCss), `${small} does not blur`);
+});
+
+// The head page's thin glass (--rk-glass 0.18, blur 2 px, raven.css "The head page's glass is thinner") shows the castle, so no text may stand on it bare: every text-bearing row carries --rk-backing (an rgba with no blur) or --panel. A backing is unblurred, so the worst case under it is the brightest unblurred pixel the map's test sampled, rgb(179 154 129), a wall lit by a window at the peak of the strike; the head page paints the same layers (the strike's wash and veils, the lights' peak 0.7125), which that test pins.
+// The tints a row lays over the backing (a bubble's 8 percent gold, a notice's 7 percent violet) are on it too. In a browser the same was checked by walking every text element of the head page's comms and requiring the ground below it to be --panel or --rk-backing (r2 notes in the report); this is the arithmetic.
+test("text on the head page's backing keeps 4.5 : 1 over the brightest unblurred pixel, with a bubble's and a notice's tint on it too", () => {
+	const m = /--rk-backing:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(ravenCss);
+	assert.ok(m, "--rk-backing is set");
+	const hex = (n: string) => Number(n).toString(16).padStart(2, "0");
+	const backing = mix(`#${hex(m[1]!)}${hex(m[2]!)}${hex(m[3]!)}`, Number(m[4]), "#b39a81");
+	assert.ok(Number(m[4]) >= 0.8, `--rk-backing is ${m[4]}`);
+	for (const text of TEXT) assert.ok(contrast(raven[text]!, backing) >= MIN, `--${text} on the backing over the brightest pixel (${backing}): ${contrast(raven[text]!, backing).toFixed(2)}`);
+	for (const [tint, share] of [["gold", 8], ["violet", 7]] as const) {
+		assert.match(ravenCss, new RegExp(`color-mix\\(in srgb, var\\(--${tint}\\) ${share}%, transparent\\) 0 0\\), var\\(--rk-backing\\)`), `the ${tint} tint is ${share} percent over the backing`);
+		const under = mix(raven[tint]!, share / 100, backing);
+		for (const text of ["text", "dim"]) assert.ok(contrast(raven[text]!, under) >= MIN, `--${text} on ${share}% ${tint} over the backing (${under}): ${contrast(raven[text]!, under).toFixed(2)}`);
+	}
 });

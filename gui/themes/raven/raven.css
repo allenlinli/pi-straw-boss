@@ -127,7 +127,10 @@ html[data-view="raven"] .perch::before, html[data-view="raven"] .perch::after { 
 html[data-view="raven"] .perch::before { filter: brightness(0.85); }
 html[data-view="raven"] .perch::after { filter: brightness(0.34); }
 html[data-view="raven"] .perch-turn::before, html[data-view="raven"] .perch-turn::after { background-position: 100% 0; }
-html[data-view="raven"] .perch-turn { opacity: 0; }
+html[data-view="raven"] .perch-turn { opacity: 0; filter: drop-shadow(0 0 1px rgb(205 222 255 / 0.95)) drop-shadow(0 0 calc(var(--rk-pw) * 0.06) rgb(120 150 255 / 0.55)); }
+/* The head turn is a thing to see (boss, 2026-11-09: 「我其實也沒看過渡鴉轉頭的動畫耶？」; the first round's turned frame was the profile's twin at its resting dark). While the turned frame shows, the raven is lit by the moon: the frame is lifted from the 0.34 the profile rests at to its own colours (brightness 1.05, 1.2 under a strike), a cool moonlight rim (two drop-shadows on the element: a 1 px hairline and a soft halo) outlines head and body, and a glint sits in its eye (a 5 percent radial dot of the strip, at 27.2 and 10 percent of the frame where the eye is). All of it is static on an element whose only animation is its opacity, so it stays on the compositor. */
+html[data-view="raven"] .perch-turn::before { filter: brightness(1.2); }
+html[data-view="raven"] .perch-turn::after { filter: brightness(1.05); background-image: radial-gradient(circle calc(var(--rk-pw) * 0.05) at 27.2% 10%, #fff 0, rgb(214 230 255 / 0.95) 22%, rgb(150 180 255 / 0.4) 58%, transparent), url("./perch.webp"); background-size: 100% 100%, 200% 100%; background-position: 0 0, 100% 0; }
 @media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="head"]) body::after, html[data-view="raven"]:has(#stage[data-view="head"])::after, html[data-view="raven"] .stage[data-view="head"] > .perch { display: none; } }
 
 /* The same backdrop on the map (boss, 2026-11-08: 「可能不該只放在主塔台耶，主塔台很少進去」; he picked map + head page). The head page keeps the layers above, whose lights and lightning animate registered numbers (--rk-a, --rk-b, --rk-bolt) and so repaint their whole layer every frame. The map stays open for hours, so its picture is built from layers that only
@@ -169,15 +172,15 @@ html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="rav
 html[data-view="raven"]:has(#stage[data-view="map"])::after { opacity: 1; } /* the map's flyer is two layers, one per wing frame, that trade places by opacity (the head page shifts one layer's background, which repaints it): this one is the wings-up frame, the .work's the wings-down frame, and the raven is unseen at rest because it waits off the left edge */
 html[data-view="raven"] .stage[data-view="map"] > .work::after { background-position: 100% 0; opacity: 0; }
 /* The perched raven on the map sits on the head band's top edge (the strip of the head page: perch.webp, two frames; claws at 43.5 percent across and 0.806 of its width down); the band's top margin makes room for it inside the map's padding, so it never stands over the crumbs or the legend. It scrolls with the band, takes the strike's light and the head turn from the head page's keyframes, and is not drawn while the head is not open (the band is faint and dashed then), on a phone, or under forced colours. */
-html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { --rk-pw: clamp(52px, calc(var(--rk-w) * 0.05), 70px); margin-top: calc(var(--rk-pw) * 0.806 - 13px); }
+html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { --rk-pw: clamp(52px, calc(var(--rk-w) * 0.07), 100px); margin-top: calc(var(--rk-pw) * 0.806 - 13px); }
 html[data-view="raven"]:has(#stage[data-view="map"]) .head-node > .perch {
 	display: block; position: absolute; pointer-events: none; width: var(--rk-pw); aspect-ratio: 260 / 239;
 	left: calc(16% - var(--rk-pw) * 0.435); top: calc(var(--rk-pw) * -0.806 - 3px);
 }
 /* The band exists while the head is not open (absent) too: the perch stays in it, unseen, so its clock runs with the strike's from the moment the band is shown. */
 html[data-view="raven"] .head-node.absent > .perch { visibility: hidden; }
-/* A phone keeps the perched raven on the band (boss, 2026-11-09), at 44 px wide: its top lies inside the map's 14 px padding and the 27 px the band's margin makes, and it takes no tap (pointer-events: none). The bats and the flyer stay off. */
-@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after { display: none; } html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { --rk-pw: 44px; margin-top: calc(var(--rk-pw) * 0.806 - 8px); } }
+/* A phone keeps the perched raven on the band (boss, 2026-11-09), at 56 px wide: its top lies inside the map's 14 px padding and the 37 px the band's margin makes, and it takes no tap (pointer-events: none). The bats and the flyer stay off. */
+@media (max-width: 600px) { html[data-view="raven"]:has(#stage[data-view="map"]) body::after, html[data-view="raven"]:has(#stage[data-view="map"])::after, html[data-view="raven"] .stage[data-view="map"] > .work::after { display: none; } html[data-view="raven"]:has(#stage[data-view="map"]) .head-node { --rk-pw: 56px; margin-top: calc(var(--rk-pw) * 0.806 - 8px); } }
 /* The map and the legend take the keep's ground over the picture, so their text holds its contrast in the lit state. */
 html[data-view="raven"] .stage[data-view="map"] .map { background: var(--rk-well); }
 html[data-view="raven"] .legend { padding: 4px 10px; background: var(--rk-well); }
@@ -388,11 +391,24 @@ html[data-view="raven"] .dialog, html[data-view="raven"] .tcard { background-ima
    Each blurred panel is one more layer for the GPU, and a blur cannot sit in another (a backdrop-filter box is the backdrop root of its children, which would see nothing behind them), so only the panels above blur and the rows and cards inside them (`.card`, `.d-doc`, `.tx-body`) take a translucent fill of their own and no blur. A typical map has one blurred layer per base on screen (a phone shows two or three at once, a desktop up to six; the browser leaves
    off-screen layers unpainted), plus the header's blur that Standard already has; the comms, the head page, and the settings page are one blurred panel each, and a sheet one while it is open. The squares and the gold rule of round 2 stay (they are borders and radii, which the fill does not touch).
    Contrast: the fill is #0a080e at 72 percent (sheets at 88, where the page behind them is text, not a picture), and --text, --dim, and every state colour keep 4.5 : 1 on it over the brightest pixel of the picture at the lightning's peak after the 8 px blur, rgb(165 121 72) (tests/raven-contrast.test.ts, sampled from the shipped picture). A wider blur turns the castle into mush on the large panels (the head page's comms is one panel over the whole picture), a narrower one keeps its silhouette and the lit windows. The map's own ground lightens to a faint veil, since the bases carry their text on their own glass; what stands on it bare (the band, the crumbs, the legend) keeps its own ground. */
-html[data-view="raven"] { --rk-glass: rgba(10, 8, 14, 0.72); --rk-glass-sheet: rgba(10, 8, 14, 0.88); --rk-blur: 8px; --rk-map-veil: rgba(9, 7, 12, 0.18); }
+html[data-view="raven"] { --rk-glass: rgba(10, 8, 14, 0.72); --rk-glass-sheet: rgba(10, 8, 14, 0.88); --rk-blur: 8px; --rk-map-veil: rgba(9, 7, 12, 0.18); --rk-backing: rgba(10, 8, 14, 0.8); }
+/* The head page's comms glass is thinner (boss, round 2, 2026-11-09: the castle was not to be seen behind it); the timeline under it and the other panels keep the full glass. Its comms is one panel over the whole picture, so at 0.72 and 8 px the castle was mush; here the fill is 0.18 and the blur 2 px (a silhouette and the lit windows read). What stands bare on it takes its own darker backing instead (--rk-backing, 0.8, no blur: the divider and the times, a bubble, a notice, a tool card, the notes and the queue under the log); a message's block (--panel) and the header, the composer and the action row (--panel, 0.94) already had theirs. The 4.5 : 1 of the text on the backing and on the thin glass is in tests/raven-contrast.test.ts. */
+html[data-view="raven"]:has(#stage[data-view="head"]) .comms-in { --rk-glass: rgba(10, 8, 14, 0.18); --rk-blur: 2px; }
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
 	html[data-view="raven"] :is(.base, .comms-in, .panel, .set-group) { background: var(--rk-glass); -webkit-backdrop-filter: blur(var(--rk-blur)); backdrop-filter: blur(var(--rk-blur)); }
 	html[data-view="raven"]:has(#stage[data-view="session"] #session-view[data-role]) .comms-in { background: var(--rk-glass); }
 	html[data-view="raven"] .base.ally { background-image: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 42%); }
 	html[data-view="raven"] dialog.sheet:not(.yard) { background-color: var(--rk-glass-sheet); -webkit-backdrop-filter: blur(var(--rk-blur)); backdrop-filter: blur(var(--rk-blur)); }
 	html[data-view="raven"] .stage[data-view="map"] .map { background: var(--rk-map-veil); }
+	html[data-view="raven"]:has(#stage[data-view="head"]) :is(.tx.rule > p, .tx.rule > details, .tx.rule > div, .tx.you > header, .tx.note, .act, .tower-notes, .queue-bar, .queue-list, .queue-act) { background: var(--rk-backing); }
+	html[data-view="raven"]:has(#stage[data-view="head"]) .tx.note { width: fit-content; }
+	html[data-view="raven"]:has(#stage[data-view="head"]) .bubble { background: linear-gradient(color-mix(in srgb, var(--gold) 8%, transparent) 0 0), var(--rk-backing); }
+	html[data-view="raven"]:has(#stage[data-view="head"]) .notice { background: linear-gradient(color-mix(in srgb, var(--violet) 7%, transparent) 0 0), var(--rk-backing); }
+}
+/* A phone's head page (style.css: the comms are a fixed full-screen layer under 640 px) has the page's header, crumbs, and footer behind it, which the thin glass would show through as ghost text: they are hidden there (the comms cover them anyway). In their place, a strip of the picture sits between the comms' header and the log (boss, round 2: the castle on the head page too): up to 120 px tall while the screen has room for it (nothing under 520 px of height, as with the keyboard open), glass only, no text on it. */
+@media (max-width: 640px) {
+	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+		html[data-view="raven"]:has(#stage[data-view="head"]) :is(.hud, .bar, .foot) { visibility: hidden; }
+		html[data-view="raven"]:has(#stage[data-view="head"]) .comms-head { margin-bottom: clamp(0px, calc(var(--vvh, 100dvh) - 520px), 120px); }
+	}
 }

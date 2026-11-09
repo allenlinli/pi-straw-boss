@@ -298,6 +298,7 @@ test("on the map the perched raven stands on the head band's top edge: the head 
 	assert.match(base, /left:\s*calc\(16% - var\(--rk-pw\) \* 0\.435\)/, "claws 43.5 percent across the frame");
 	assert.match(base, /top:\s*calc\(var\(--rk-pw\) \* -0\.806 - 3px\)/, "claws on the band's top edge");
 	assert.match(body("html[data-view=\"raven\"] .perch-turn"), /opacity:\s*0/, "the turned frame dissolves in over the profile");
+	assert.match(body(`${MAP} .head-node`), /--rk-pw:\s*clamp\(52px, calc\(var\(--rk-w\) \* 0\.07\), 100px\)/, "100 px wide on a desktop (round 2: the head turn was too small to read at 70)");
 	assert.match(body(`${MAP} .head-node`), /margin-top:\s*calc\(var\(--rk-pw\) \* 0\.806 - 13px\)/, "the band's top margin gives it room inside the map's padding, clear of the crumbs and the legend");
 	const inMotion = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{((?:[^{}]|\{[^{}]*\})*)\}/g)].map((m) => m[1]).join("\n");
 	assert.match(inMotion, /\.head-node:not\(\[hidden\]\)\) \.head-node > \.perch::after\s*\{\s*animation: rk-perch-dark 61s/);
@@ -307,7 +308,7 @@ test("on the map the perched raven stands on the head band's top edge: the head 
 	assert.ok(css.some((r) => r.parts.includes("html[data-view=\"raven\"] .head-node.absent > .perch") && /visibility:\s*hidden/.test(r.body)), "unseen while the head is not open, its clock still running");
 	const phone = /@media \(max-width: 600px\) \{ html\[data-view="raven"\]:has\(#stage\[data-view="map"\]\) body::after([^\n]*)\}\s*$/m.exec(raw)?.[0] ?? "";
 	assert.ok(phone.includes(`${MAP} body::after`) && phone.includes(`${MAP}::after`) && !phone.includes(`${band}, `) && !/\.head-node > \.perch \{ display: none/.test(phone), "a phone draws neither the bats nor the flyer, but keeps the perch on the band (2026-11-09)");
-	assert.match(phone, /\.head-node \{ --rk-pw: 44px; margin-top: calc\(var\(--rk-pw\) \* 0\.806 - 8px\); \}/, "at 44 px, with room for it in the band's margin");
+	assert.match(phone, /\.head-node \{ --rk-pw: 56px; margin-top: calc\(var\(--rk-pw\) \* 0\.806 - 8px\); \}/, "at 56 px, with room for it in the band's margin");
 	assert.match(base, /pointer-events:\s*none/, "and it takes no tap");
 	const forced = [...raw.matchAll(/@media \(forced-colors: active\) \{([^\n]*)\}/g)].map((m) => m[1]).join("\n");
 	for (const layer of [`${MAP}::before`, `${MAP}::after`, `${MAP} body::before`, `${MAP} body::after`, `${STAGE}::before`, `${STAGE}::after`, `${STAGE} > .work::before`, 'html[data-view="raven"] .head-node > .perch']) assert.ok(forced.includes(layer), `forced colours hide ${layer}`);

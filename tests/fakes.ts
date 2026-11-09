@@ -573,7 +573,10 @@ export class Agent {
 			getFlag: (name: string) => this.flags.get(name),
 			registerCommand: (name: string, command: { handler(args: string, ctx: unknown): Promise<void>; getArgumentCompletions?(prefix: string): { value: string }[] | null }) => this.commands.set(name, command),
 			appendEntry: (customType: string, data: unknown) => this.entries.push({ customType, data }),
-			setSessionName: (name: string) => void (this.name = name), // pi-intercom reports the new name to the broker
+			setSessionName: (name: string) => {
+				this.name = name; // pi-intercom reports the new name to the broker
+				void this.fire("session_info_changed", { name }); // pi emits it to the extensions at once, the first handler synchronously (agent-session.js setSessionName)
+			},
 			getSessionName: () => this.name,
 			sendMessage: (message: { customType: string; content: string }, options?: { deliverAs?: string; triggerTurn?: boolean }) => void this.sent.push({ ...message, deliverAs: options?.deliverAs, triggerTurn: options?.triggerTurn }),
 		} as unknown as ExtensionAPI;

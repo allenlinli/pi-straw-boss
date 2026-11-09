@@ -234,3 +234,78 @@ test("an integrator and a standing main always carry dispatch.md and never a gra
 	t = await text(i);
 	assert.doesNotMatch(t, /## Graph:/);
 });
+
+test("AKP1-F002: a main named `integ FE2` that the subagent call itself promotes is migrated before the gate and never asked for a plan; any other promoted main is gated", async () => {
+	world = new World();
+	const a = world.agent({ id: "ledger", name: "integ FE2", pane: "wA:p1", tab: "wA:t1" });
+	await a.start();
+	assert.equal(await call(a, { agent: "worker" }), undefined);
+	await world.quiet();
+	assert.equal(token(), "integrator");
+	assert.deepEqual(duties(a).map((d) => d.dutyWhy), ["migrated: name"]);
+	world = new World();
+	const b = world.agent({ id: "plain", name: "Docs", pane: "wA:p1", tab: "wA:t1" });
+	await b.start();
+	assert.match((await call(b, { agent: "worker" }))?.reason ?? "", /plan first/, "a member promoted by the same call is blocked as the main it now is");
+});
+
+test("the plan-first refusal names both ways out: a plan, or boss_duty for a main whose job is trains or a watch", async () => {
+	world = new World();
+	const a = await main("Docs");
+	const reason = (await call(a, { agent: "worker" }))?.reason ?? "";
+	assert.match(reason, /Write the plan's todos/);
+	assert.match(reason, /boss_duty with integrator or standing/);
+});
+
+test("AKP1-F004 (AK3-F003): a guard that was off at load keeps an integrator a coordinator even when the prompts load with integration on", async () => {
+	world = new World();
+	const env: Record<string, string> = { STRAW_BOSS_INTEGRATION: "off" };
+	const a = world.agent({ id: "race", name: "Docs", pane: "wA:p1", tab: "wA:t1", env, entries: [{ customType: "straw-boss", data: { duty: "integrator", dutyFrom: null, dutyWhy: "x", dutyAt: 1 } }] });
+	await a.start();
+	await a.promote();
+	a.env!.STRAW_BOSS_INTEGRATION = "on"; // a config edit lands between the two reads: prompts load on at the next start, the guard stayed off
+	await a.fire("session_start", { reason: "reload" });
+	await world.quiet();
+	const t = await text(a);
+	await world.quiet();
+	assert.doesNotMatch(t, /# Integrator/);
+	assert.equal(token(), "coordinator");
+});
+
+test("integration back on: the next load migrates a name that matched while integration was off", async () => {
+	world = new World();
+	const a = await main("integ FE2", [], { STRAW_BOSS_INTEGRATION: "off" });
+	await text(a);
+	assert.equal(duties(a).length, 0);
+	world = new World();
+	const b = await main("integ FE2");
+	await text(b);
+	assert.equal(duties(b).length, 1);
+});
+
+test("boss_duty: a tower has no such tool", async () => {
+	world = new World();
+	const tower = world.tower("tw", "wA:t9", "wA:p9");
+	await tower.start();
+	assert.equal(tower.tools.has("boss_duty"), false);
+});
+
+test("only a main publishes sb_duty: a member publishes none", async () => {
+	world = new World();
+	const m1 = world.agent({ id: "mem", name: "Docs", pane: "wA:p1", tab: "wA:t1" });
+	await m1.start();
+	await world.quiet();
+	assert.equal(world.herdr.pane("wA:p1").tokens.sb_role, "member");
+	assert.equal(world.herdr.pane("wA:p1").tokens.sb_duty, undefined);
+});
+
+test("the addenda repeat no sentence of boss_duty's description", async () => {
+	world = new World();
+	const a = await main("Docs");
+	const description = a.tools.get("boss_duty")!.description;
+	const norm = (t: string) => t.split(/(?<=[.!?:;])\s+|\n+/).map((x) => x.replace(/^[-#\s]+/, "").replace(/\s+/g, " ").trim().toLowerCase()).filter((x) => x.length > 24);
+	const { readFileSync } = await import("node:fs");
+	const { PROMPT_DIR } = await import("./fakes.ts");
+	const mine = new Set(norm(description));
+	for (const name of ["duty-standing", "dispatch", "graph-fan-out", "graph-orchestrator-worker"]) assert.deepEqual(norm(readFileSync(`${PROMPT_DIR}/${name}.md`, "utf8")).filter((x) => mine.has(x)), [], name);
+});

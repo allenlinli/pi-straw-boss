@@ -37,11 +37,8 @@ export function createPresence(kit: Kit, mainDuty: MainDuty) {
 			soon ??= setTimeout(() => ((soon = undefined), void detect()), detectMs).unref();
 		});
 	};
-	// Whether this session is the integrator, and a train's code, project and step, come from the trainboard files and the session's own record (trainsign.ts), never from a pane token. A member's place beside its
-	// tab's integrator comes from the intercom's list of where the sessions the live yards name sit, asked only when a yard names one; only a member waits for it, so the other roles publish as they always did.
+	// Whether this session is an integrator is its own duty (mainduty.ts); a train's code, project and step come from its record and board (trainsign.ts). A member's place beside its tab's integrator comes from the `sb_duty` token of its tab's main (order.ts): display only, any session can write a token (docs/specs/2026-11-09-agent-kinds.md §2).
 	const whoAmI = (sbRole: string): Who & { step?: string } => (sbRole === "train" && s.train ? { code: s.train.code, project: s.train.project, step: stepOf(guiDir, s.train) } : sbRole === "main" ? { integrator: mainDuty.now() === "integrator" } : {});
-	// A member sorts beside the main of its tab when that main publishes `sb_duty=integrator` (order.ts reads the pane tokens; display only, docs/specs/2026-11-09-agent-kinds.md §2).
-	const whoMember = async (_known?: Session[]): Promise<Who> => ({});
 	let stepSoon: ReturnType<typeof setTimeout> | undefined;
 	/** A train's current step changed: its token is written 5 s after the first of a burst of changes (the 4 minute refresh stays as the safety net). */
 	const stepChanged = () => {
@@ -69,7 +66,7 @@ export function createPresence(kit: Kit, mainDuty: MainDuty) {
 		if (sbRole) {
 			s.ownName = nameOf((known ?? (await s.c.listSessions().catch(() => []))).find((x) => x.id === me())) || s.ownName;
 			// A failed read of Herdr leaves the subagents' tokens as they are; their TTL still runs.
-			const net = await netTokens(run, s.at, sbRole, s.ownName || me().slice(0, 8), Date.now(), world, sbRole === "member" ? await whoMember(known) : whoAmI(sbRole)).catch(() => undefined);
+			const net = await netTokens(run, s.at, sbRole, s.ownName || me().slice(0, 8), Date.now(), world, whoAmI(sbRole)).catch(() => undefined);
 			await report(run, "pane", s.at.paneId, { sb_role: sbRole, sb_duty: sbRole === "main" ? mainDuty.now() : null, ...net?.own, ...(s.openedBy ? { sb_opened_by: s.openedBy } : {}), ...(s.isTrain && s.train ? { sb_train: trainToken(s.train) } : {}) }).catch(() => {});
 			watchBoard();
 			if (net) {
@@ -83,7 +80,7 @@ export function createPresence(kit: Kit, mainDuty: MainDuty) {
 	// One reading of the subagents' panes; their tokens are written when they differ from the last ones written, the session's own tokens are left to the refresh.
 	const detectOnce = async () => {
 		if (s.stopped || !role()) return;
-		const net = await netTokens(run, s.at, role()!, s.ownName || me().slice(0, 8), Date.now(), world, role() === "member" ? await whoMember() : whoAmI(role()!)).catch(() => undefined);
+		const net = await netTokens(run, s.at, role()!, s.ownName || me().slice(0, 8), Date.now(), world, whoAmI(role()!)).catch(() => undefined);
 		if (!net || s.stopped) return;
 		watchDetect(net.waiting);
 		if (JSON.stringify(net.kids) === written) return;

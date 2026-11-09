@@ -138,8 +138,10 @@ export function createTools({ pi, cfg, s, guiDir, me, role }: Kit, { mainDuty, p
 					if (!phrase) throw new Error("The name is empty");
 					if (Array.from(phrase).length > 40) throw new Error(`The name has ${Array.from(phrase).length} characters; keep it a short phrase (at most 16 fit the tab)`);
 					const was = pi.getSessionName() || s.ownName || me().slice(0, 8);
+					const before = s.duty;
 					pi.setSessionName(phrase);
-					const migrated = role() === "main" ? mainDuty.migrate(phrase) : undefined;
+					// pi's `session_info_changed` may reach sb's handler inside the call above (load order), which migrates first: the reply tells either way.
+					const migrated = role() !== "main" ? undefined : before === undefined && s.duty === "integrator" ? "name" : mainDuty.migrate(phrase);
 					boardFill.refresh(); // the board's line starts with the name
 					const label = tabLabel(phrase);
 					const failed = role() !== "main" ? undefined : await cfg.run(["tab", "rename", s.at.tabId, label]).then(() => "", (err: unknown) => String(err)); // "" when relabelled

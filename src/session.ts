@@ -9,8 +9,9 @@ import { isHead, isSub, type Place, panes, place, report, waitFor, workspaces } 
 import type { createHost } from "./host.ts";
 import type { IntegrationWatch } from "./integration.ts";
 import { CONNECT_MS, type Membership } from "./membership.ts";
-import { dutyOfAgent, graphOf, isCoordinatorDuty } from "./duty.ts";
+import { dutyOfAgent, isCoordinatorDuty } from "./duty.ts";
 import type { MainDuty } from "./mainduty.ts";
+import { plannedInMessage } from "./planmsg.ts";
 import { orphans } from "./orphan.ts";
 import { restored } from "./restored.ts";
 import type { RunMode } from "./runmode.ts";
@@ -269,26 +270,13 @@ export function registerSession(kit: Kit, { mainDuty, runMode, briefing, roles, 
 		} catch (error) {
 			tell(`Straw Boss: ${(error as Error).message}`, "warning");
 		}
+		mainDuty.migrate(pi.getSessionName()); // the promotion above may have just made this an `integ <project>` main whose migration had not run: it is never asked for a plan
 		// A coordinator's worker waits for a plan that names a graph (§2a); scouts, planners and reviewers, a resume, an integrator, and a standing main never wait.
-		if (event.toolName !== "subagent" || role() !== "main" || mainDuty.now() !== "coordinator" || mainDuty.graph() || plannedInMessage(event, ctx)) return;
+		if (event.toolName !== "subagent" || role() !== "main" || mainDuty.now() !== "coordinator" || mainDuty.graph() || plannedInMessage(ctx.sessionManager.getBranch(), event.toolCallId, (event as { parentToolCallId?: string }).parentToolCallId)) return;
 		const agent = (event.input as { agent?: unknown } | undefined)?.agent;
 		if (typeof agent === "string" && ["scout", "planner", "reviewer"].includes(dutyOfAgent(agent) ?? "") ) return;
-		return { block: true, reason: `sb: plan first: a worker needs a plan whose todos name a graph (${briefing.dir()}/planning.md). Write the plan's todos, then dispatch; a scout, a planner, or a reviewer may run now.` };
+		return { block: true, reason: `sb: plan first: a worker needs a plan whose todos name a graph (${briefing.dir()}/planning.md). Write the plan's todos, then dispatch; a scout, a planner, or a reviewer may run now. If your job is a project's merge trains or minding one system, call boss_duty with integrator or standing instead.` };
 	});
-	/** Whether a `todo` call before this `subagent` call in the same assistant message names a graph: pi prepares every call of a message before any runs, so the state does not hold it yet (§2a). */
-	const plannedInMessage = (event: { toolCallId?: string; parentToolCallId?: string }, ctx: ExtensionContext): boolean => {
-		if ((event as { parentToolCallId?: string }).parentToolCallId) return false; // a codemode call is in no message: state alone judges it
-		const last = ctx.sessionManager.getBranch().findLast((e) => e.type === "message" && (e as { message?: { role?: string } }).message?.role === "assistant") as { message?: { content?: unknown } } | undefined;
-		const content = Array.isArray(last?.message?.content) ? (last!.message!.content as { type?: string; id?: string; name?: string; arguments?: Record<string, unknown> }[]) : [];
-		const meta = (m: unknown) => graphOf((m as { graph?: unknown } | undefined)?.graph) !== undefined;
-		for (const block of content) {
-			if (block.type !== "toolCall") continue;
-			if (block.id === event.toolCallId) return false; // reached this call: a todo after it does not count
-			const a = block.arguments ?? {};
-			if (block.name === "todo" && (meta(a.metadata) || (Array.isArray(a.tasks) && a.tasks.some((t) => meta((t as { metadata?: unknown })?.metadata))))) return true;
-		}
-		return false;
-	};
 
 	// A launched subagent is marked within seconds, once its pane shows its session file, instead of at the next 4 minute refresh.
 	pi.on("tool_result", (event) => {

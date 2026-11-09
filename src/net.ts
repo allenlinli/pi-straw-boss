@@ -182,7 +182,7 @@ export async function collectNet({ run, world = worldOf(run), sessions, now = Da
  * another session) stays findable for ten minutes, the window finished subagents already use, with the pane's new session as its successor.
  */
 /** The trains the page draws: the units of the net that are trains (by their panes' tokens) and the keys of the mains, which is all the reader needs of the net to name the unit that runs a train or wrote a yard. */
-function joinOf(net: Net): YardJoin {
+export function joinOf(net: Net): YardJoin {
 	const units = net.bases.flatMap((b) => b.tabs.flatMap((t) => t.units));
 	return { trains: units.flatMap((u) => (u.role === "train" && u.train ? [{ key: u.key, project: u.train.project, code: u.train.code }] : [])), mains: new Set(units.filter((u) => u.role === "main").map((u) => u.key)), integrators: new Set(units.filter((u) => u.role === "main" && (u.duty === "integrator" || u.duty === undefined)).map((u) => u.key)) };
 }

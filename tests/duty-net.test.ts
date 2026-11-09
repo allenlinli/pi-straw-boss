@@ -93,7 +93,11 @@ test("the yard card: a live writer that publishes integrator, or no kind at all,
 	}
 });
 
-test("a live main with no sb_duty (an older sb) counts as an integrator for the yard card's key (the net's join)", () => {
-	const n = net({});
-	assert.equal(unit(n).duty, undefined);
+test("the older-sb window: the yard join counts a live main that publishes no sb_duty as an integrator, and a main of another kind as not", async () => {
+	const { joinOf } = await import("../src/net.ts");
+	const join = (tokens: Record<string, string>) => joinOf(net(tokens));
+	assert.deepEqual([...join({}).integrators], ["m"], "no token: an older sb");
+	assert.deepEqual([...join({ sb_duty: "integrator" }).integrators], ["m"]);
+	assert.deepEqual([...join({ sb_duty: "standing" }).integrators], []);
+	assert.deepEqual([...join({ sb_duty: "standing" }).mains], ["m"]);
 });

@@ -1139,3 +1139,17 @@ test("the sidebar's step token: the current step's glyph and kind, at most 24 ch
 	assert.equal(stepToken([] as never), undefined);
 	assert.ok(stepToken([row(1, "deploy-verify", "in_progress")] as never)!.length <= 24);
 });
+
+test("agent kinds §2: only the integrator duty writes the yard; after a switch away a turn_end writes none, and a train todo needs the duty", async () => {
+	const o = { main: true, train: false, duty: "integrator" };
+	const r = rig(o);
+	await r.create(trainTodo());
+	assert.equal(existsSync(r.yardFile), true);
+	rmSync(r.yardFile);
+	o.duty = "standing";
+	await r.handlers.get("turn_end")![0]!({ type: "turn_end" }, { cwd: r.cwd, sessionManager: { getBranch: () => r.entries, getEntries: () => r.entries } });
+	assert.equal(existsSync(r.yardFile), false, "a former integrator stops writing");
+	const refused = await r.create(trainTodo({ train: "2026-11-06-n" }, { tickets: ["T-20"], head: SHA_B }));
+	assert.equal(refused.ok, false);
+	assert.match(refused.reason ?? "", /a train todo is the integrator's: call boss_duty with duty "integrator" first/);
+});

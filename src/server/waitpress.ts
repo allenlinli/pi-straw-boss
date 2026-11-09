@@ -30,6 +30,8 @@ export interface PressDeps {
 	/** The tower's event: the boss's text, marked as a press. */
 	boss(text: string): void;
 	waitMs?: number;
+	/** Whether auto mode is on: a secret card's start button is refused then (the boss is not at the keyboard; docs/specs/2026-11-09-auto-mode.md §6, AM-F013). */
+	autoOn?(): boolean;
 }
 
 /** What a press decided: the notice for the raiser and how the event reads once the delivery is known. */
@@ -133,6 +135,7 @@ const failure = (cause: unknown): { status: number; body: Record<string, unknown
  */
 export async function pressRequest(d: PressDeps, workspace: string, json: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
 	if (typeof json.id !== "string") return { status: 400, body: { error: "bad_request", reason: "A press names the wait (id)" } };
+	if (json.act === "secret" && d.autoOn?.()) return { status: 409, body: { error: "refused", reason: "end auto mode first (/boss auto off): a secret is entered at the keyboard" } };
 	if (json.value !== undefined) return { status: 400, body: { error: "bad_request", reason: "A press carries no value: a secret is entered in the terminal, never here" } };
 	let plan: Plan;
 	const now = d.now();

@@ -120,10 +120,12 @@ test("a board line or a press in a boss-started turn never counts, nor does a tu
 	assert.equal((await state(s)).on, true);
 	// a wait-card press whose card text holds the boss's words: a boss event with `press`
 	const press = world.expose!.runs.boss(ws, "[W3] 我起床了", "the boss (wait card)", { press: true });
-	const got = (await ask(s, { cmd: "run-poll", token: first.token, idle: true })).event as { id: string };
-	assert.equal(got.id, press.id);
-	await ask(s, { cmd: "run-taken", token: first.token, id: got.id });
-	const r = await bossAuto(s, first.token, false, { turn: got.id });
+	// The first poll after the switch may carry the refreshed brief (it names auto mode), the next the event.
+	let got: { id: string } | undefined;
+	await until(async () => ((got = (await ask(s, { cmd: "run-poll", token: first.token, idle: true })).event as { id: string } | undefined), got !== undefined), "the press event");
+	assert.equal(got!.id, press.id);
+	await ask(s, { cmd: "run-taken", token: first.token, id: got!.id });
+	const r = await bossAuto(s, first.token, false, { turn: got!.id });
 	assert.equal(r.ok, false);
 	assert.equal((await state(s)).on, true);
 	assert.equal((await bossAuto(s, first.token, false, { turn: "made-up-id" })).ok, false);

@@ -266,6 +266,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 				to: Type.String({ description: "The session's intercom name or session id." }),
 				message: Type.String({ description: "The answer, terse: what the session needs to know or do." }),
 				reply: Type.Optional(Type.Boolean({ description: "Whether you wait for an answer. Default false." })),
+				basis: Type.Optional(Type.String({ description: "Auto mode: when this answers a blocked call_tower, the memory id (S<n>, D<n>) or the boss event id you answer from; without a valid one the return list shows basis none." })),
 				forward: Type.Optional(Type.String({ description: "Tower run only, for a car slip: the id of the call_tower event (why=shared) the slip came in, as the event header shows it. The code then writes the slip's sender into the header (fwd and fwd-from), which the integrator checks against the slip's coordinator; you cannot write either yourself. Send the slip as it came." })),
 			}),
 			execute: async (id, params) => {

@@ -130,9 +130,21 @@ export function matchBoss(line: string, direction: "on" | "off"): string | undef
 
 /** The time of day a state began, for the boss's eyes (`23:10`). */
 export const clock = (iso: string | undefined): string => { const d = iso ? new Date(iso) : undefined; return d && !Number.isNaN(d.getTime()) ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "?"; };
+/** The summary of the last return list (`auto-report.json`, written by the server when auto mode ends): what a waking boss, or the head, reads in `boss_status`. */
+export interface ReportSummary { since: string; until: string; off: string; parked: number; towers: number; cancels: number; decided: number; stillWaiting: number }
+export const REPORT_FILE = "auto-report.json";
+export function reportSummary(dir: string): ReportSummary | undefined {
+	try {
+		const r = JSON.parse(readFileSync(join(dir, REPORT_FILE), "utf8")) as { v?: number; since?: string; until?: string; off?: string; parked?: { workspace?: string }[]; lines?: { count?: number; kind?: string }[]; decided?: unknown[]; stillWaiting?: unknown[] };
+		if (r.v !== 1 || typeof r.since !== "string" || typeof r.until !== "string" || !Array.isArray(r.parked) || !Array.isArray(r.lines)) return undefined;
+		return { since: r.since, until: r.until, off: String(r.off ?? ""), parked: r.parked.length, towers: new Set(r.parked.map((p) => p.workspace)).size, cancels: r.lines.filter((l) => l.kind !== "re-asked").reduce((n, l) => n + (l.count ?? 1), 0), decided: r.decided?.length ?? 0, stillWaiting: r.stillWaiting?.length ?? 0 };
+	} catch {
+		return undefined;
+	}
+}
 /** `boss_status` and `/boss auto` read it from the files: the state, and a staged request that is still alive. */
-export function autoSummary(dir: string, now = Date.now()): { on: boolean; since?: string; by?: string; pending?: { said: string; expiresInS: number } } {
+export function autoSummary(dir: string, now = Date.now()): { on: boolean; since?: string; by?: string; pending?: { said: string; expiresInS: number }; report?: ReportSummary } {
 	const seen = readAuto(dir), own = readOwn(dir);
 	const state = seen.kind === "ok" && isOwn(seen.state, own) ? seen.state : undefined, pending = own?.pending && own.pending.expires > now ? own.pending : undefined;
-	return { on: Boolean(state?.on), ...(state?.on && state.since ? { since: state.since } : {}), ...(state?.on ? { by: `${state.by.via}: ${state.by.name}` } : {}), ...(pending ? { pending: { said: pending.said, expiresInS: Math.round((pending.expires - now) / 1000) } } : {}) };
+	return { on: Boolean(state?.on), ...(state?.on && state.since ? { since: state.since } : {}), ...(state?.on ? { by: `${state.by.via}: ${state.by.name}` } : {}), ...(pending ? { pending: { said: pending.said, expiresInS: Math.round((pending.expires - now) / 1000) } } : {}), ...((r) => (r ? { report: r } : {}))(reportSummary(dir)) };
 }

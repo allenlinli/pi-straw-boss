@@ -14,7 +14,7 @@ export function createBossAuto({ pi, cfg, s, guiDir, me, tell }: Kit, server: Se
 	const who = () => ({ name: pi.getSessionName() || s.ownName || me().slice(0, 8) || "a session", session: me(), pane: cfg.env.HERDR_PANE_ID, pid: process.pid });
 	const show = (): void => {
 		const now = autoSummary(guiDir);
-		tell(`${now.on ? `Auto mode is on since ${clock(now.since)} (${now.by ?? "?"}). /boss auto off ends it.` : "Auto mode is off."}${now.pending ? ` A request waits for your confirm (${Math.ceil(now.pending.expiresInS / 60)} min left): "${now.pending.said}". /boss auto confirm.` : ""}`);
+		tell(`${now.on ? `Auto mode is on since ${clock(now.since)} (${now.by ?? "?"}). /boss auto off ends it.` : "Auto mode is off."}${now.pending ? ` A request waits for your confirm (${Math.ceil(now.pending.expiresInS / 60)} min left): "${now.pending.said}". /boss auto confirm.` : ""}${!now.on && now.report ? ` Last time it ended at ${clock(now.report.until)}: ${now.report.parked} parked waits on ${now.report.towers} towers, ${now.report.cancels} cancels or refusals.` : ""}`);
 	};
 	/** The terminal confirm of a staged request; a yes sends the confirm with its id. */
 	async function confirmHere(ctx: ExtensionCommandContext, pending: { id: string; said: string }): Promise<void> {

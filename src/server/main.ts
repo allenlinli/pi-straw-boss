@@ -174,7 +174,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 	let link: LinkService | undefined, linkFirst: Promise<void> | undefined;
 	let procs: ReturnType<typeof startProcs> | undefined; // the owner registry (procsops.ts), assigned before the first request is taken
 	// Auto mode (docs/specs/2026-11-09-auto-mode.md): the primary server alone writes `auto.json` at the state root, so every Herdr slot of this computer reads one file; the head's notices go through the tower service once it exists.
-	const auto = slot.primary ? createAutoMode({ dir: slot.stateDir, now, log: (event, facts) => log.line(event, facts), tellHead: (text) => { const workspace = towers?.head.status()?.workspace; if (workspace) towers!.runs.notice(workspace, text, `auto:${now()}`); } }) : undefined;
+	const auto = slot.primary ? createAutoMode({ dir: slot.stateDir, now, log: (event, facts) => log.line(event, facts), parked: () => towers?.parked() ?? [], unpark: () => towers?.unpark(), tellHead: (text) => { const workspace = towers?.head.status()?.workspace; if (workspace) towers!.runs.notice(workspace, text, `auto:${now()}`); } }) : undefined;
 	// An unattended device has no boss at it (autoops.ts): the link holder says which this computer is.
 	const unattended = () => Boolean(link?.holder) && !link!.attended();
 	let cars: Cars | undefined; // the book of cars and the notice sender (carops.ts), assigned before the first request is taken

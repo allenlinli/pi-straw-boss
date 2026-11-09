@@ -28,6 +28,8 @@ export interface HeadBriefInput {
 	/** The ids of the open waits that are lapsed (towermemory.ts `lapsed`): the page no longer shows them to the boss, so the run closes or renews them. */
 	lapsed?: string[];
 	note?: { text: string; age: string };
+	/** The auto mode line (autotower.ts `briefLine`), present only while it is on; never cut. */
+	auto?: string;
 	/** The tools the run has, one line each. */
 	tools: string[];
 	flags: string[];
@@ -61,6 +63,7 @@ export function buildHeadBrief(i: HeadBriefInput): string {
 	const who = [
 		`You are the head tower: the boss's own tower, in no workspace. This session is your one conversation with the boss (chapter ${chapter.n}, since ${day(chapter.since)}, ${chapter.turns} boss turn${chapter.turns === 1 ? "" : "s"}). ${i.boss ? "The boss is at this pane now." : "The boss is away: a tower's answer woke you."} Woken ${i.woken}. Your identity is ${i.identity}; everything you send leaves under it.`,
 		...(!chapter.resumed && chapter.n > 1 ? [`New chapter ${chapter.n}: ${chapter.why ?? "the last conversation could not be resumed"}.`] : []),
+		...(i.auto ? [i.auto] : []),
 	].join("\n");
 	const recap = !chapter.resumed && chapter.recap?.length ? ["The last lines between you and the boss, oldest first:", ...chapter.recap.map((l) => `- ${cut(one(l), 400)}`)].join("\n") : "";
 	const mains = (rows: MainRow[]) => rows.map((m) => {

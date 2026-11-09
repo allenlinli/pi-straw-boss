@@ -22,6 +22,7 @@ import { asked, checkSupersedes, closeAsk, isAct, noteToolCall, openAsk, openAsk
 import { headBrief, headIntake, relayOnlyFromHead, stateWord } from "./headside.ts";
 import type { Requester } from "../autostate.ts";
 import type { AutoMode } from "./automode.ts";
+import { basisOf, briefLine, type ParkedRow, parkedRows, parkedText, parkOpen, type Target, unpark } from "./autotower.ts";
 import { autoAnswer, headHost, headTool, type HeadPort } from "./headtools.ts";
 import type { Allows } from "./allows.ts";
 import type { Asks } from "./asks.ts";
@@ -38,7 +39,7 @@ import { addExpect, clearExpect, lastNote, listRuns, readExpects, readNotes, rea
 import { runTool, type ServerTools } from "./runtools.ts";
 import { localeOf } from "../towerprompt/messages.ts";
 import { pressRequest } from "./waitpress.ts";
-import { hasWaitOn, markShown, memoryRequest, memorySection, memorySummary, memoryTool, noteMessage, readMemory } from "./towermemory.ts";
+import { type Entry, hasWaitOn, markShown, memoryRequest, memorySection, memorySummary, memoryTool, noteMessage, readMemory } from "./towermemory.ts";
 import { openSeen, type Seen } from "./towerseen.ts";
 import { readTowerRuns } from "./towerruns.ts";
 import type { CarBook } from "./carbook.ts";
@@ -144,6 +145,9 @@ export interface Towers {
 	owns(id: string): boolean; // the session id is the identity of one of the services: it has no pi and no bridge, so it is ended, not asked to quit
 	/** The runs of the services (runs.ts): claims, the run's requests, the boss's events. */
 	runs: Runs;
+	/** Auto mode (autotower.ts): the open boss waits that are parked, for the return list; and the end of the period, which makes them ordinary waits again. */
+	parked(): ParkedRow[];
+	unpark(): void;
 	/** The head tower (head.ts): a service of kind `head` in a workspace of its own, made on first use and kept after; the same machinery as a workspace tower's service. */
 	head: {
 		ensure(): Promise<HeadEnsured>;
@@ -213,6 +217,8 @@ export function createTowers(o: TowersOptions): Towers {
 	const noteHead = (text: string) => void workspaces(run).then((all) => Promise.all(all.filter((w) => !isSub(w) && !isHead(w) && w.tokens?.tower).map((w) => digest.note(w.workspace_id, text).catch(() => {})))).catch(() => {});
 	let looking: Promise<void> = Promise.resolve();
 	/** What the tower brief says of the head tower, and what the head's brief says of a workspace's tower. */
+	/** The auto mode line of a brief: present only while it is on (autotower.ts). */
+	const autoLine = (): string | undefined => ((v) => (v?.on ? briefLine(v.since) : undefined))(o.auto?.view());
 	const headState = (): string => ((h) => (h ? stateWord(runs.status(h.record.workspace)?.state, "open") : "not opened"))(headLive());
 	const towerState = (workspace: string, tokens: Record<string, string> | undefined): string => ((l) => stateWord(l && !l.stopped && !isHeadL(l) ? runs.status(workspace)?.state : undefined, tokens?.tower ? "an older tower" : "none"))(services.get(workspace));
 
@@ -238,7 +244,7 @@ export function createTowers(o: TowersOptions): Towers {
 			return { ...memorySummary(memory, isHeadL(l) ? now() : undefined), ...(problem ? { problem } : {}) };
 		},
 		// A live run is given a new brief when the memory moved or a run left a note (runs.ts `refreshed`): what a conversation of an hour would otherwise not see.
-		briefVersion: () => `${readMemory(slot, l.record.workspace, now()).memory.rev}:${lastNote(slot, l.record.workspace, "local")?.at ?? ""}${isHeadL(l) ? `:${openAsks(slot, now()).map((a) => `${a.id}.${a.answers.length}`).join(",")}` : ""}`,
+		briefVersion: () => `${readMemory(slot, l.record.workspace, now()).memory.rev}:${o.auto?.view().on ? `auto${o.auto.view().since}:` : ""}${lastNote(slot, l.record.workspace, "local")?.at ?? ""}${isHeadL(l) ? `:${openAsks(slot, now()).map((a) => `${a.id}.${a.answers.length}`).join(",")}` : ""}`,
 		liveSessions: async () => (await panes(run).catch(() => [])).flatMap((p) => (p.agent_session?.value ? [p.agent_session.value] : [])),
 		allyLine: (item) => {
 			const mine = { name: allyLabel(l.record.name), id: l.record.id, role: "tower" as const, workspace: allyLabel(l.record.label) };
@@ -268,7 +274,7 @@ export function createTowers(o: TowersOptions): Towers {
 		async brief({ events, woken, run: rec, refresh }) {
 			const ws = l.record.workspace, all = await workspaces(run), target = all.find((w) => w.workspace_id === ws);
 			if (!target || !l.client) throw new Error("the tower's workspace or its intercom connection is gone");
-			if (isHeadL(l)) return headBrief({ slot, run, now, record: () => l.record, sessions: () => l.client!.listSessions(), towerState, locale: localeOf(o.env) }, { woken, run: rec });
+			if (isHeadL(l)) return headBrief({ slot, run, now, auto: autoLine, record: () => l.record, sessions: () => l.client!.listSessions(), towerState, locale: localeOf(o.env) }, { woken, run: rec });
 			const mains = await gatherMains({ run, now, sessions: () => l.client!.listSessions(), boardDir: join(slot.stateDir, "board"), workspace: target, ledger: readLedger(slot, ws, now()) });
 			const lines = await digest.peek(ws).catch(() => []), note = lastNote(slot, ws, "local"), timer = readTimer(slot, ws);
 			const counts: Record<string, number> = {};
@@ -283,7 +289,7 @@ export function createTowers(o: TowersOptions): Towers {
 				expired: section.expired,
 				text: buildBrief({
 					label: l.record.label, workspace: ws, head: headState(), woken: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`, counts, identity: l.record.id,
-					...(refresh ? { refreshed: true as const } : {}), ...(talk ? { conversation: talk.line, since: talk.since } : {}),
+					...(autoLine() ? { auto: autoLine()! } : {}), ...(refresh ? { refreshed: true as const } : {}), ...(talk ? { conversation: talk.line, since: talk.since } : {}),
 					memory: section.text, mains: mains.rows, obligations: [...mains.opened, ...(o.asks?.openOf(ws) ?? []).map((a) => `an ask for the main ${a.forName} is open (sent ${ageOf(now() - a.at)} ago): its answer goes to that main, not to you`), ...readExpects(slot, ws, now()).map((e) => `waiting for a reply from ${e.name} (asked ${ageOf(now() - e.at)} ago): ${e.first}`), ...(timer && timer.at <= now() ? ["your wakeAfter follow-up is due"] : [])], digest: lines.map((x) => x.line),
 					...(note ? { note: { text: note.note, age: ageOf(now() - Date.parse(note.at)) } } : {}),
 					flags: [
@@ -1108,6 +1114,12 @@ export function createTowers(o: TowersOptions): Towers {
 				const fields = event && fieldsOf(event.text);
 				return event && fields?.kind === "call_tower" && fields.why === "shared" ? { id: event.id, from: event.from!.id } : undefined;
 			},
+			// A reply that settles a blocked call_tower this run took, while auto mode is on, is listed for the return list with the basis it names (autotower.ts `basisOf`) or `none`.
+			decided: (to: string, gist: string, basis: unknown) => {
+				if (!o.auto?.view().on) return;
+				const blocked = readQueue(slot, ws).some((e) => e.taken?.run === who.id && e.kind === "intercom" && e.from?.id === to && ((f) => f?.kind === "call_tower" && f.why === "blocked")(fieldsOf(e.text)));
+				if (blocked) o.auto.decided({ run: who.id.slice(0, 8), to, gist, basis: basisOf(basis, readMemory(slot, ws, now()).memory, runs.bossEvents(request.token)) });
+			},
 			noteForward: (f: { fwd: string; from: string; to: string[]; text: string }) => { try { o.cars?.noteForward(f); } catch (cause) { error("cars", (cause as Error).message); } },
 			headAsked: (id: string) => asked(slot, now(), ws, id), openedFor: (session: string) => openedFor(slot, ws, session, now()),
 			...(who.team && o.ally?.project(who.team) ? { project: o.ally.project(who.team)! } : {}),
@@ -1118,7 +1130,7 @@ export function createTowers(o: TowersOptions): Towers {
 				return named.some((x) => /^sb-tower-/.test(x.id) || net.ps.find((p) => p.pane_id === x.herdrLocation?.paneId)?.tokens?.sb_role === "tower");
 			},
 			memory: (margs: Record<string, unknown>) => memoryTool({
-				slot, workspace: ws, run: who.id, now, log, bossEvents: () => runs.bossEvents(request.token), intercomEvents: () => runs.intercomEvents(request.token), locale: () => localeOf(o.env),
+				slot, workspace: ws, run: who.id, now, log, bossEvents: () => runs.bossEvents(request.token), intercomEvents: () => runs.intercomEvents(request.token), locale: () => localeOf(o.env), ...(o.auto ? { auto: { on: () => o.auto!.view().on, told: (e: Entry) => tellParked(ws, e) } } : {}),
 				// The session with this id in the net now: never found by name, since a subagent shows on intercom as `subagent-chat-<id>` (todo #49).
 				raiser: async (id: string) => {
 					const net = await l.reach!.read(), x = net.sessions.find((s) => s.id === id);
@@ -1171,7 +1183,22 @@ export function createTowers(o: TowersOptions): Towers {
 		}
 	};
 
+	// Auto mode and the towers (§6): the waits open when it turns on are parked, and a raiser is told once under `wait_parked`.
+	const targets = (): Target[] => [...services.values()].map((l) => ({ workspace: l.record.workspace, label: l.record.label }));
+	const tellParked = async (workspace: string, entry: Entry): Promise<void> => {
+		const raiser = entry.card?.from?.id, reach = services.get(workspace)?.reach;
+		if (raiser && reach) await reach.post(raiser, parkedText(entry.id), "wait_parked", "session", false, undefined, undefined, { wait: entry.id });
+	};
+	const offAuto = o.auto?.onSwitch((change) => {
+		if (!change.to.on || change.from.on) return;
+		try {
+			for (const { target, entry } of parkOpen(slot, now(), targets())) if (entry.parkedTold) void tellParked(target.workspace, entry).catch((cause: Error) => error("wait-parked", cause.message));
+		} catch (cause) { error("wait-parked", (cause as Error).message); }
+	});
+
 	const api: Towers = {
+		parked: () => parkedRows(slot, now(), targets()),
+		unpark: () => unpark(slot, now(), targets()),
 		runTool: runToolFor,
 		memory: (workspace, json) => {
 			// The head's constant key reaches head/ whether or not a head service stands (towerstore.ts `HEAD_KEY`).
@@ -1180,7 +1207,7 @@ export function createTowers(o: TowersOptions): Towers {
 				const l = workspace === HEAD_KEY ? headLive() : services.get(workspace);
 				if (!l) return Promise.resolve({ status: 409, body: { error: "refused", reason: "The tower service is not running, so nothing can be pressed" } });
 				return pressRequest({
-					slot, now, log, locale: localeOf(o.env),
+					slot, now, log, locale: localeOf(o.env), autoOn: () => o.auto?.view().on === true,
 					live: async (id) => (await l.reach!.read()).sessions.some((x) => x.id === id),
 					send: (to, text, wait) => l.reach!.post(to, text, "wait_card", "session", false, undefined, undefined, { wait }),
 					boss: (text) => void runs.boss(l.record.workspace, text, "the boss (wait card)", { press: true }),
@@ -1257,6 +1284,7 @@ export function createTowers(o: TowersOptions): Towers {
 		},
 		async stop(opts) {
 			stopped = true;
+			offAuto?.();
 			await standing.stop();
 			await runs.stop(opts);
 			timers.forEach(clearInterval);

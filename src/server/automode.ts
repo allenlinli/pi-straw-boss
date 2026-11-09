@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { AUTO_FILE, type AutoState, type By, isOwn, matchBoss, OWN_FILE, type Own, type Pending, readAuto, readOwn, seal } from "../autostate.ts";
+import { secretShaped } from "./waitcard.ts";
+import { type BoxAsk, buildReport, endEvent, type ParkedRow, type Report, reportText } from "./autotower.ts";
+import { REPORT_FILE, AUTO_FILE, type AutoState, type By, isOwn, matchBoss, OWN_FILE, type Own, type Pending, readAuto, readOwn, seal } from "../autostate.ts";
 
 // The server's auto mode (docs/specs/2026-11-09-auto-mode.md, §1 and §2). The server alone writes `auto.json` (what every session reads) and `auto-own.json` (what it wrote last, a pending `on`, and the words it has used), the
 // own record first. A write that is not its own is put back as a new rev. Turning it on is never one step outside the GUI's two taps: every `on` request stages a pending record that the boss confirms (D9).
@@ -19,8 +21,13 @@ export interface AutoDeps {
 	log(event: string, facts: Record<string, string | number | boolean | undefined>): void;
 	/** A pending id; a test fixes it. */
 	id?(): string;
-	/** One event to the head tower (a staged request that expired). */
+	/** One event to the head tower (a staged request that expired; the end of auto mode). */
 	tellHead?(text: string): void;
+	/** The parked boss waits now open across the towers and the head (towers.ts), for the return list; and the end of the period, which makes them ordinary again. */
+	parked?(): ParkedRow[];
+	unpark?(): void;
+	/** The asks of the boxes this computer controls that were left waiting (D6). */
+	boxes?(): BoxAsk[];
 }
 /** What the boss's own words in a head turn came from: the event that started it (never a press), or the typed line the head pane's extension reported. */
 export interface Words { event?: { id: string; text: string; press?: true }; typed?: { text: string; run: string; seq: number } }
@@ -39,19 +46,29 @@ export interface Period { since: string; notes: Note[]; foreign: { at: string; w
 export interface Decided { at: string; run: string; to: string; gist: string; basis: string }
 export const PERIOD_FILE = "auto-period.json", NOTES_MAX = 500;
 const phrase = (v: string, max: number) => v.replace(/\s+/g, " ").trim().slice(0, max);
+/** A gist of the return list: at most 120 characters, and `(withheld)` when it looks like a secret (§5). */
+const gistOf = (v: unknown) => { const g = phrase(String(v ?? ""), 120); return g && secretShaped(g) ? "(withheld)" : g; };
 
 export function createAutoMode(d: AutoDeps) {
 	const iso = () => new Date(d.now()).toISOString();
 	const boot: By = { via: "pi", name: "server" };
 	let own: Own = { v: 1, rev: 0, hash: "", state: seal({ v: 1, rev: 0, on: false, by: boot }), used: { events: [], typed: [] } };
 	own.hash = own.state.hash;
-	let foreign = 0, period: Period | undefined;
+	let foreign = 0, period: Period | undefined, last: Report | undefined;
 	const listeners = new Set<(change: Change) => void>();
 
 	const readPeriod = (): Period | undefined => {
 		try {
 			const j = JSON.parse(readFileSync(join(d.dir, PERIOD_FILE), "utf8")) as Partial<Period>;
 			return typeof j.since === "string" && Array.isArray(j.notes) ? { since: j.since, notes: j.notes.slice(-NOTES_MAX), foreign: Array.isArray(j.foreign) ? j.foreign : [], decided: Array.isArray(j.decided) ? j.decided : [] } : undefined;
+		} catch {
+			return undefined;
+		}
+	};
+	const readReport = (): Report | undefined => {
+		try {
+			const j = JSON.parse(readFileSync(join(d.dir, REPORT_FILE), "utf8")) as Partial<Report>;
+			return j.v === 1 && typeof j.since === "string" && Array.isArray(j.parked) && Array.isArray(j.lines) ? (j as Report) : undefined;
 		} catch {
 			return undefined;
 		}
@@ -92,6 +109,7 @@ export function createAutoMode(d: AutoDeps) {
 		const record = readOwn(d.dir);
 		if (record) own = record;
 		period = own.state.on ? readPeriod() : undefined;
+		last = readReport();
 		reconcile();
 	}
 	function reconcile() {
@@ -145,8 +163,20 @@ export function createAutoMode(d: AutoDeps) {
 		}
 		const change = move({ on: false, by }, { pending: undefined });
 		d.log("auto-off", whoFacts(by));
+		// The return list of the period just ended (§8): written before anyone is told, so every door reads the same one.
+		let text: string | undefined;
+		try {
+			const p = period ?? { since: change.from.since ?? iso(), notes: [], foreign: [], decided: [] };
+			last = buildReport(p, change.from.by, by, iso(), d.parked?.() ?? [], d.boxes?.() ?? []);
+			write(REPORT_FILE, last);
+			text = reportText(last);
+			d.unpark?.();
+			d.tellHead?.(endEvent(last));
+		} catch (error) {
+			d.log("auto-report", { text: (error as Error).message });
+		}
 		tell(change);
-		return { ok: true, changed: true };
+		return { ok: true, changed: true, ...(text ? { report: text } : {}) };
 	}
 	/** The confirm of a staged `on`. A stale, replaced, or cleared id is refused. */
 	function confirm(id: unknown, by: By): Outcome {
@@ -179,7 +209,7 @@ export function createAutoMode(d: AutoDeps) {
 		if (!own.state.on || !period) return { ok: false, error: "auto mode is off" };
 		const kind = NOTE_KINDS.find((k) => k === raw.kind);
 		if (!kind) return { ok: false, error: "unknown kind" };
-		period.notes.push({ session: phrase(String(raw.session ?? ""), 80), tool: phrase(String(raw.tool ?? ""), 60), kind, gist: phrase(String(raw.gist ?? ""), 120), at: typeof raw.at === "string" && !Number.isNaN(Date.parse(raw.at)) ? raw.at : iso() });
+		period.notes.push({ session: phrase(String(raw.session ?? ""), 80), tool: phrase(String(raw.tool ?? ""), 60), kind, gist: gistOf(raw.gist), at: typeof raw.at === "string" && !Number.isNaN(Date.parse(raw.at)) ? raw.at : iso() });
 		if (period.notes.length > NOTES_MAX) period.notes.splice(0, period.notes.length - NOTES_MAX);
 		savePeriod();
 		return { ok: true };
@@ -187,10 +217,10 @@ export function createAutoMode(d: AutoDeps) {
 	/** A reply of a run that decided a blocked call itself (§6). */
 	function decided(entry: Omit<Decided, "at">): void {
 		if (!own.state.on || !period) return;
-		period.decided.push({ at: iso(), ...entry, gist: phrase(entry.gist, 120) });
+		period.decided.push({ at: iso(), ...entry, gist: gistOf(entry.gist) });
 		if (period.decided.length > NOTES_MAX) period.decided.splice(0, period.decided.length - NOTES_MAX);
 		savePeriod();
 	}
-	return { note, decided, period: () => period, start, tick, view, state, stage, confirm, switchOn, switchOff, bossAuto, check, onSwitch: (l: (change: Change) => void) => (listeners.add(l), () => void listeners.delete(l)), foreignCount: () => foreign };
+	return { note, decided, report: () => last, period: () => period, start, tick, view, state, stage, confirm, switchOn, switchOff, bossAuto, check, onSwitch: (l: (change: Change) => void) => (listeners.add(l), () => void listeners.delete(l)), foreignCount: () => foreign };
 }
 export type AutoMode = ReturnType<typeof createAutoMode>;

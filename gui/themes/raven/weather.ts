@@ -4,7 +4,9 @@ import { prefs } from "../../prefs.ts";
 // The keep's weather (boss, 2026-11-08: 「背景的雨聲和閃電的雷聲（兩個都不要太大聲），雷聲要比閃電慢一兩秒」): a quiet rain loop under the backdrop (the map and the head page) and a low thunder 1 to 2 s after each lightning flash.
 // Both are synthesized on the page's one audio core (audio.ts, so Volume and the Sound switch govern them), no files: rain is a looped noise through a band-pass, thunder a low-passed brown noise that falls in pitch and rolls twice.
 // The flash is the stylesheet's own clock: raven.css runs a no-op `rk-clap` animation beside the strike on the same layer, 61 s long and delayed to the strike's instant (94.4 % of the cycle), so its `animationstart` / `animationiteration` is the flash itself, whichever page shows it.
-// Nothing sounds with Sound off, on a hidden tab, before the browser let the page play (the first press), or off the backdrop; neither under calm (a page nobody touches stops working); no thunder under prefers-reduced-motion either, where the lightning is off.
+// Nothing sounds with Sound off, on a hidden tab, before the browser let the page play (the first press), or off the backdrop; no thunder under prefers-reduced-motion either, where the lightning is off.
+// Calm (a page nobody touched for 30 s) stops the rain, and stops the lightning and its thunder on a coarse pointer (a phone: battery). On a fine pointer (boss, 2026-11-09: a boss who watches without touching never saw a flash) the stylesheet keeps the strike running under calm, and so the thunder sounds: the strike is
+// one animation of the strike's own layer, whose first flash is a few seconds after the backdrop shows and then every 61 s (raven.css), so under calm nothing else moves.
 type Ctx = ReturnType<Audio["out"]>["c"];
 
 /** Rain: seconds of noise in the loop, the band-pass edges (Hz), the level at the master gain (the noise's RMS is about a quarter of it), and the fades in seconds. */
@@ -19,8 +21,10 @@ export interface WeatherEnv {
 	backdrop(): boolean;
 	sound(): boolean;
 	hidden(): boolean;
-	/** The page is calm (no input for a while): the lightning is off. */
+	/** The page is calm (no input for a while): the rain rests, and so does the lightning unless the pointer is fine. */
 	calm(): boolean;
+	/** The primary pointer is fine (a mouse or a trackpad): calm leaves the lightning running there. */
+	fine(): boolean;
 	/** prefers-reduced-motion: no-preference. */
 	motion(): boolean;
 	random(): number;
@@ -109,7 +113,7 @@ export function createWeather(env: WeatherEnv) {
 		src.start();
 		rain = { src, gain };
 	};
-	const thunderDue = () => heard() && !env.calm() && env.motion();
+	const thunderDue = () => heard() && (!env.calm() || env.fine()) && env.motion();
 	return {
 		refresh() {
 			if (rainDue()) rain || startRain();
@@ -146,6 +150,7 @@ export function mountWeather(root: HTMLElement = document.documentElement, a: Au
 		sound: () => prefs.get("sound"),
 		hidden: () => document.hidden,
 		calm: () => root.hasAttribute("data-calm"),
+		fine: () => matchMedia("(pointer: fine)").matches,
 		motion: () => matchMedia("(prefers-reduced-motion: no-preference)").matches,
 		random: Math.random,
 		set: (fn, ms) => setTimeout(fn, ms),

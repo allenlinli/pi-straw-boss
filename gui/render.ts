@@ -388,8 +388,8 @@ export function mountPage(): Page {
 	const pack = new ResizeObserver((all) => (all.forEach(({ target, borderBoxSize }) => ((target as HTMLElement).style.gridRowEnd = `span ${Math.ceil((borderBoxSize[0]!.blockSize + GAP) / ROW)}`)), later()));
 	setInterval(() => document.querySelectorAll<HTMLElement>(".age[data-since]").forEach((el) => age(el, Number(el.dataset.since))), 15_000); // the cards' clocks
 	addEventListener("resize", later);
-	// The header's height, for what sits under it (the side column, the tiles, the dialogs, the comms' height): it wraps on a narrow window.
-	new ResizeObserver(([e]) => document.documentElement.style.setProperty("--hud", `${Math.ceil(e!.borderBoxSize[0]!.blockSize)}px`)).observe(document.querySelector(".hud")!);
+	// The header's height, for what sits under it (the side column, the tiles, the dialogs, the comms' height): it wraps on a narrow window, and a theme's border or padding changes it (the border box is the one watched, as it is the one read).
+	new ResizeObserver(([e]) => document.documentElement.style.setProperty("--hud", `${Math.ceil(e!.borderBoxSize[0]!.blockSize)}px`)).observe(document.querySelector(".hud")!, { box: "border-box" });
 	mountCalm();
 	let shown: Net | undefined;
 	const api: Page = {

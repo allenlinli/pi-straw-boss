@@ -79,6 +79,8 @@ test("the head band's text holds 4.5 : 1 on the band as Raven Keep paints it: th
 	assert.ok(contrast(raven.amber!, pill) >= MIN, `the chip's --amber on ${share}% of itself over the band (${pill}): ${contrast(raven.amber!, pill).toFixed(2)}`);
 });
 
+/** The map's picture layers that both samples below (the brightest lit pixel, and the same after the glass's blur) took, as CSS writes them. */
+const SAMPLED_LAYERS = ["radial-gradient(ellipse calc(var(--rk-w) * 0.17) calc(var(--rk-w) * 0.1) at 16.4% 17%, rgb(13 10 16 / 0.62) 55%, transparent)", "linear-gradient(rgb(190 170 255 / 0.16), transparent 60%)", "linear-gradient(transparent 40%, rgb(3 2 5 / 0.3))", "linear-gradient(rgb(13 10 16 / 0.68), rgb(13 10 16 / 0.3) 45%, rgb(13 10 16 / 0.3))", "mask-image: linear-gradient(#000 62%, transparent)"];
 // The map's backdrop (spec §1.5 "On the map"): the map has the picture behind a translucent ground, and the legend sits in the bar above it. At the brightest lightning frame the rest veil is gone and the picture shows through its plain veil, the strike's wash and foot veil, and the lit windows at their peak.
 // The brightest pixel of that composite below the header strip (y from 80 of 721) was sampled with PIL at the picture's full 1280 x 721, the layers as CSS paints them (the mask included): rgb(179 154 129), a wall lit by a window at the peak of its glow. The layer values that sampling used are asserted first;
 // a change to any of them (or to the picture) makes this test ask for a new sample instead of passing on old arithmetic.
@@ -87,7 +89,7 @@ test("under the brightest lightning frame the map's ground and the legend's keep
 	const sheet = rulesOf(raw), body = (selector: string) => sheet.filter((r) => r.parts.includes(selector)).map((r) => r.body).join(";");
 	const MAP = 'html[data-view="raven"]:has(#stage[data-view="map"])', STAGE = 'html[data-view="raven"] .stage[data-view="map"]';
 	const picture = body(`${MAP}::before`);
-	for (const layer of ["radial-gradient(ellipse calc(var(--rk-w) * 0.17) calc(var(--rk-w) * 0.1) at 16.4% 17%, rgb(13 10 16 / 0.62) 55%, transparent)", "linear-gradient(rgb(190 170 255 / 0.16), transparent 60%)", "linear-gradient(transparent 40%, rgb(3 2 5 / 0.3))", "linear-gradient(rgb(13 10 16 / 0.68), rgb(13 10 16 / 0.3) 45%, rgb(13 10 16 / 0.3))", "mask-image: linear-gradient(#000 62%, transparent)"]) assert.ok(picture.includes(layer), `the sampled layer is still there: ${layer}`);
+	for (const layer of SAMPLED_LAYERS) assert.ok(picture.includes(layer), `the sampled layer is still there: ${layer}`);
 	const alphas = [...body(`${STAGE}::after`).matchAll(/rgb\(255 190 92 \/ ([\d.]+)\)/g)].map((m) => Number(m[1]));
 	assert.equal(alphas.length, 11, "eleven lit windows and lanterns");
 	assert.ok(Math.max(...alphas) <= 0.7125 + 1e-9, `the lights' peak alpha is ${Math.max(...alphas)}; the sample took 0.7125`);
@@ -143,4 +145,65 @@ test("under the lightest veil, the candle light at its peak, and the comms' or c
 			for (const text of ["text", "dim"]) assert.ok(contrast(token(text), ground) >= MIN, `${role}: --${text} on --${name} over ${file}'s brightest pixel (${ground}): ${contrast(token(text), ground).toFixed(2)}`);
 		}
 	}
+});
+
+// Frosted glass (gui/themes/raven/raven.css, "Frosted glass"): a large panel is --rk-glass over the picture blurred by --rk-blur. The brightest pixel of the picture at the lightning's peak, as the map's layers paint it (the sampled layers above, the lights at their peak 0.7125, rest veil gone, the mask included),
+// then blurred with a Gaussian of the blur's standard deviation (CSS blur(8px) is a sigma of 8 px) at the widest frame (1600 px, a desktop; a phone's cover frame is 1498 px), below the header strip: rgb(165 121 72), sampled with PIL on the shipped picture (the blur only lowers the peak of a small lit window; a large light region stays as bright).
+// Round 3 (todo #138): the fill went from 0.72 to 0.6 so the castle reads through the bases, and the strike drew a bolt, whose layer is in the picture. So the sample is now taken from the page itself: Chrome's render of the picture's layers alone (every panel hidden, the bolt layer shown) at the first peak of the strike (the lights at their brightest candle, the rest veil gone), blurred by 8 px, and the largest value of each channel over everything from 30 percent of the frame's height down, which is where a base can be (the strike runs only while the head band is shown, and the bases start under it: 295 px of 811 at 1440, 255 of 844 on a phone;
+// the bolt's layer fades out between 16 and 42 percent of the frame for this reason: above the line a bolt may be as bright as it likes, since only the bar's text stands bare there and its ground is --rk-well, below the pure white of the bolt's core, see the next test). At 1600 x 901 it is rgb(100 82 105) and on a 390 x 844 phone rgb(99 81 103); the larger is pinned.
+// A change to the layers, the bolt's layer (its CSS is hashed below), the picture, or the blur makes this test ask for a new sample instead of passing on old arithmetic. The hashes and the blur are asserted; the fill's alpha is then checked on the sample.
+const GLASS_SAMPLE = { sha: "65a27813b776dc77", blur: 8, worst: "#645269", bolt: "cfc02f8ce57dfa67" }; // rgb(100 82 105)
+test("the glass fill keeps --text, --dim, and every state colour at 4.5 : 1 over the brightest blurred pixel of the picture at the lightning's peak, for a panel and for a sheet; the blur is no narrower than the one sampled", () => {
+	const sheet = rulesOf(ravenCss), body = (selector: string) => sheet.filter((r) => r.parts.includes(selector)).map((r) => r.body).join(";");
+	const picture = body('html[data-view="raven"]:has(#stage[data-view="map"])::before');
+	for (const layer of SAMPLED_LAYERS) assert.ok(picture.includes(layer), `the sampled layer is still there: ${layer}`);
+	assert.equal(createHash("sha256").update(readFileSync(new URL("../gui/themes/raven/backdrop.webp", import.meta.url))).digest("hex").slice(0, 16), GLASS_SAMPLE.sha, "the backdrop changed: sample its blurred brightest pixel again");
+	const boltRule = sheet.find((r) => r.parts.includes('html[data-view="raven"] .map::before') && /data:image\/svg/.test(r.body));
+	assert.ok(boltRule, "the bolt's layer is in the sheet");
+	assert.equal(createHash("sha256").update(boltRule.body).digest("hex").slice(0, 16), GLASS_SAMPLE.bolt, "the bolt's layer changed: sample the picture's layers at the strike's peak again");
+	const blur = Number(/--rk-blur:\s*([\d.]+)px/.exec(ravenCss)?.[1]);
+	assert.ok(blur >= GLASS_SAMPLE.blur, `the blur is ${blur} px; the sample took ${GLASS_SAMPLE.blur} (a narrower blur leaves a brighter peak)`);
+	const hex = (n: string) => Number(n).toString(16).padStart(2, "0");
+	assert.ok(Number(/--rk-glass:\s*rgba\([^)]*,\s*([\d.]+)\)/.exec(ravenCss)?.[1]) <= 0.6, "the glass fill is 0.6 or lighter, so the castle reads through the bases (RGV-F003)");
+	for (const token of ["rk-glass", "rk-glass-sheet"]) {
+		const m = new RegExp(`--${token}:\\s*rgba\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([\\d.]+)\\)`).exec(ravenCss);
+		assert.ok(m, `--${token} is set`);
+		const ground = mix(`#${hex(m[1]!)}${hex(m[2]!)}${hex(m[3]!)}`, Number(m[4]), GLASS_SAMPLE.worst);
+		for (const text of [...TEXT]) assert.ok(contrast(raven[text]!, ground) >= MIN, `--${text} on --${token} over the brightest blurred pixel (${ground}): ${contrast(raven[text]!, ground).toFixed(2)}`);
+	}
+	// who takes the glass: the large panels, inside @supports, with a blur; the rows inside them take no blur (a backdrop-filter box is its children's backdrop root)
+	const supports = /@supports \(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\) \{((?:[^{}]|\{[^{}]*\})*)\}/.exec(ravenCss)?.[1] ?? "";
+	assert.match(supports, /:is\(\.base, \.comms-in, \.panel, \.set-group\) \{ background: var\(--rk-glass\); -webkit-backdrop-filter: blur\(var\(--rk-blur\)\); backdrop-filter: blur\(var\(--rk-blur\)\); \}/);
+	assert.match(supports, /dialog\.sheet:not\(\.yard\) \{ background-color: var\(--rk-glass-sheet\)/);
+	assert.ok(!/backdrop-filter/.test(ravenCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@supports[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g, "")), "no backdrop-filter outside the @supports block (the fallback keeps the opaque fills)");
+	for (const small of [".card", ".d-doc", ".tx-body", ".head-node"]) assert.ok(!new RegExp(`${small.replace(".", "\\.")}[^{]*\\{[^}]*backdrop-filter`).test(ravenCss), `${small} does not blur`);
+});
+
+// The head page's thin glass (--rk-glass 0.18, blur 2 px, raven.css "The head page's glass is thinner") shows the castle, so no text may stand on it bare: every text-bearing row carries --rk-backing (an rgba with no blur) or --panel. A backing is unblurred, so the worst case under it is the brightest unblurred pixel the map's test sampled, rgb(179 154 129), a wall lit by a window at the peak of the strike; the head page paints the same layers (the strike's wash and veils, the lights' peak 0.7125), which that test pins.
+// The tints a row lays over the backing (a bubble's 8 percent gold, a notice's 7 percent violet) are on it too. In a browser the same was checked by walking every text element of the head page's comms and requiring the ground below it to be --panel or --rk-backing (r2 notes in the report); this is the arithmetic.
+test("text on the head page's backing keeps 4.5 : 1 over the brightest unblurred pixel, with a bubble's and a notice's tint on it too", () => {
+	const m = /--rk-backing:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(ravenCss);
+	assert.ok(m, "--rk-backing is set");
+	const hex = (n: string) => Number(n).toString(16).padStart(2, "0");
+	const backing = mix(`#${hex(m[1]!)}${hex(m[2]!)}${hex(m[3]!)}`, Number(m[4]), "#b39a81");
+	assert.ok(Number(m[4]) >= 0.8, `--rk-backing is ${m[4]}`);
+	for (const text of TEXT) assert.ok(contrast(raven[text]!, backing) >= MIN, `--${text} on the backing over the brightest pixel (${backing}): ${contrast(raven[text]!, backing).toFixed(2)}`);
+	for (const [tint, share] of [["gold", 8], ["violet", 7]] as const) {
+		assert.match(ravenCss, new RegExp(`color-mix\\(in srgb, var\\(--${tint}\\) ${share}%, transparent\\) 0 0\\), var\\(--rk-backing\\)`), `the ${tint} tint is ${share} percent over the backing`);
+		const under = mix(raven[tint]!, share / 100, backing);
+		for (const text of ["text", "dim"]) assert.ok(contrast(raven[text]!, under) >= MIN, `--${text} on ${share}% ${tint} over the backing (${under}): ${contrast(raven[text]!, under).toFixed(2)}`);
+	}
+});
+
+// What stands bare on the picture (the crumbs, the bar's buttons, the legend, the new-base button, and the head page's rows over the thin glass) has an unblurred ground, and the bolt's core is pure white: nothing about it is sampled, the arithmetic is the bound. Every text colour keeps 4.5 : 1 on each ground over a pure white pixel, and the bare rows were walked in a browser at the strike's peak
+// (desktop 1440, 1024, phone 390, map, scrolled map and head page: 4.99 : 1 at the lowest, r3 notes). This is why --rk-well is 0.86 and not the 0.66 it was, and --rk-backing 0.86 and not 0.8.
+test("under a bolt's pure white core, the unblurred grounds (--rk-well and --rk-backing) keep every text colour at 4.5 : 1", () => {
+	const hex = (n: string) => Number(n).toString(16).padStart(2, "0");
+	for (const token of ["rk-well", "rk-backing"]) {
+		const m = new RegExp(`--${token}:\\s*rgba\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([\\d.]+)\\)`).exec(ravenCss);
+		assert.ok(m, `--${token} is set`);
+		const ground = mix(`#${hex(m[1]!)}${hex(m[2]!)}${hex(m[3]!)}`, Number(m[4]), "#ffffff");
+		for (const text of TEXT) assert.ok(contrast(raven[text]!, ground) >= MIN, `--${text} on --${token} over pure white (${ground}): ${contrast(raven[text]!, ground).toFixed(2)}`);
+	}
+	for (const bare of [".bar .crumbs", ".bar-acts .pair-btn", ".new-base", ".legend"]) assert.ok(rules.some((r) => r.parts.some((p) => p.includes(bare)) && /background:\s*var\(--rk-well\)/.test(r.body)), `${bare} takes --rk-well`);
 });

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { NOUN_KEYS } from "../gui/nouns.ts";
 import { NOUNS } from "../gui/themes/raven/nouns.ts";
-import { rulesOf, split } from "./css-rules.ts";
+import { declarations, rulesOf, split } from "./css-rules.ts";
 
 // Raven Keep's own assets (gui/themes/raven/, docs/specs/2026-11-07-raven-view/spec.md §1.4, §1.5): the sprite, the nouns, the favicons, the backdrop, the sounds, and the motion rules.
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -115,15 +115,41 @@ test("shipped text and sources name no trademark: no Strahd, Barovia, or Ravenlo
 
 const css = rulesOf(at("gui/themes/raven/raven.css"));
 const raw = at("gui/themes/raven/raven.css");
+/** The block that keeps the strike (and the perched raven's light and head turn) running under calm on a fine pointer (boss, 2026-11-09). */
+const FINE_BLOCK = /@media \(prefers-reduced-motion: no-preference\) and \(pointer: fine\) \{((?:[^{}]|\{[^{}]*\})*)\}/.exec(raw)?.[1] ?? "";
 
 test("every motion rule of the theme sits under prefers-reduced-motion: no-preference and outside data-calm, and forced-colors turns the backdrop's motion off", () => {
 	// every `animation:` declaration is inside the no-preference media block
 	const blocks = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{/g)];
 	assert.ok(blocks.length >= 1, "a no-preference block exists");
-	const outside = raw.replace(/@media \(prefers-reduced-motion: no-preference\) \{(?:[^{}]|\{[^{}]*\})*\}/g, "");
+	const outside = raw.replace(/@media \(prefers-reduced-motion: no-preference\)(?: and \(pointer: fine\))? \{(?:[^{}]|\{[^{}]*\})*\}/g, "");
 	assert.ok(![...outside.matchAll(/animation(?:-name)?\s*:\s*([^;}]*)/g)].some((m) => !/^none\b/.test(m[1]!.trim())), "no animation declared outside the no-preference block (forced colours only stop one with `animation: none`)");
-	for (const rule of css.filter((r) => /animation\s*:/.test(r.body) && !/animation\s*:\s*none/.test(r.body))) assert.ok(/:not\(\[data-calm\]\)/.test(rule.selector), `${rule.selector} stops at data-calm`);
+	const fine = rulesOf(FINE_BLOCK).map((r) => r.selector);
+	for (const rule of css.filter((r) => /animation\s*:/.test(r.body) && !/animation\s*:\s*none/.test(r.body) && !fine.includes(r.selector))) assert.ok(/:not\(\[data-calm\]\)/.test(rule.selector), `${rule.selector} stops at data-calm`);
 	assert.match(raw, /@media \(forced-colors: active\)/);
+});
+
+test("calm on a fine pointer keeps the strike and the perched raven only: the block is inside no-preference and (pointer: fine), is scoped to data-calm, and names no other animation (a phone's calm stops everything)", () => {
+	assert.ok(FINE_BLOCK.length > 0, "the fine-pointer block exists");
+	const rules = rulesOf(FINE_BLOCK);
+	assert.equal(rules.length, 8, "the head page's strike, bolt, raven light and turn, then the map's");
+	const allowed = new Set(["rk-bolt", "rk-rest", "rk-clap", "rk-strike", "rk-perch-dark", "rk-perch-turn"]);
+	for (const rule of rules) {
+		assert.match(rule.selector, /^html\[data-view="raven"\]\[data-calm\]/, `${rule.selector} applies under calm only`);
+		for (const [prop, value] of declarations(rule.body)) {
+			assert.equal(prop, "animation", `${rule.selector} sets only an animation`);
+			for (const one of split(value, ",")) assert.ok(allowed.has(one.trim().split(/\s+/)[0]!), `${rule.selector}: ${one.trim()} is a strike animation`);
+		}
+	}
+	// the same animation, name for name and delay for delay, as the calm-free rules: a calm that starts or ends neither restarts nor shifts the strike
+	const full = rulesOf(raw).filter((r) => r.selector.includes(":not([data-calm])"));
+	for (const rule of rules) {
+		const mine = declarations(rule.body)[0]![1].split(",").map((x) => x.trim());
+		const twin = full.find((r) => r.selector.replace(":not([data-calm])", "[data-calm]") === rule.selector);
+		assert.ok(twin, `${rule.selector} has its calm-free twin`);
+		const theirs = declarations(twin.body).find(([p]) => p === "animation")![1].split(",").map((x) => x.trim());
+		for (const one of mine) assert.ok(theirs.includes(one), `${rule.selector}: ${one} is in the calm-free animation`);
+	}
 });
 
 test("the lightning comes at most once a minute and never washes the screen: its cycle is 60 s or longer and its peak alpha is low", () => {
@@ -272,16 +298,18 @@ test("on the map the perched raven stands on the head band's top edge: the head 
 	assert.match(base, /left:\s*calc\(16% - var\(--rk-pw\) \* 0\.435\)/, "claws 43.5 percent across the frame");
 	assert.match(base, /top:\s*calc\(var\(--rk-pw\) \* -0\.806 - 3px\)/, "claws on the band's top edge");
 	assert.match(body("html[data-view=\"raven\"] .perch-turn"), /opacity:\s*0/, "the turned frame dissolves in over the profile");
+	assert.match(body(`${MAP} .head-node`), /--rk-pw:\s*clamp\(52px, calc\(var\(--rk-w\) \* 0\.07\), 100px\)/, "100 px wide on a desktop (round 2: the head turn was too small to read at 70)");
 	assert.match(body(`${MAP} .head-node`), /margin-top:\s*calc\(var\(--rk-pw\) \* 0\.806 - 13px\)/, "the band's top margin gives it room inside the map's padding, clear of the crumbs and the legend");
 	const inMotion = [...raw.matchAll(/@media \(prefers-reduced-motion: no-preference\) \{((?:[^{}]|\{[^{}]*\})*)\}/g)].map((m) => m[1]).join("\n");
 	assert.match(inMotion, /\.head-node:not\(\[hidden\]\)\) \.head-node > \.perch::after\s*\{\s*animation: rk-perch-dark 61s/);
-	assert.match(inMotion, /\.head-node > \.perch-turn\s*\{\s*animation: rk-perch-turn 17s linear infinite/);
+	assert.match(inMotion, /\.head-node > \.perch-turn\s*\{\s*animation: rk-perch-turn 17s linear -7\.5s infinite/);
 	// the strike layer and the perch's light start together: both wait for the band to be shown
-	assert.match(inMotion, /:has\(#stage\[data-view="map"\] \.head-node:not\(\[hidden\]\)\) \.stage\[data-view="map"\]::before\s*\{\s*animation: rk-rest 61s/);
+	assert.match(inMotion, /:has\(#stage\[data-view="map"\] \.head-node:not\(\[hidden\]\)\) \.stage\[data-view="map"\]::before\s*\{\s*animation: rk-rest 61s linear -50\.584s/);
 	assert.ok(css.some((r) => r.parts.includes("html[data-view=\"raven\"] .head-node.absent > .perch") && /visibility:\s*hidden/.test(r.body)), "unseen while the head is not open, its clock still running");
 	const phone = /@media \(max-width: 600px\) \{ html\[data-view="raven"\]:has\(#stage\[data-view="map"\]\) body::after([^\n]*)\}\s*$/m.exec(raw)?.[0] ?? "";
-	assert.ok(phone.includes(band) && phone.includes(`${MAP} body::after`) && phone.includes(`${MAP}::after`), "a phone draws neither the perch, the bats, nor the flyer");
-	assert.match(phone, /\.head-node \{ margin-top: 0; \}/, "and keeps no room for it");
+	assert.ok(phone.includes(`${MAP} body::after`) && phone.includes(`${MAP}::after`) && !phone.includes(`${band}, `) && !/\.head-node > \.perch \{ display: none/.test(phone), "a phone draws neither the bats nor the flyer, but keeps the perch on the band (2026-11-09)");
+	assert.match(phone, /\.head-node \{ --rk-pw: 56px; margin-top: calc\(var\(--rk-pw\) \* 0\.806 - 8px\); \}/, "at 56 px, with room for it in the band's margin");
+	assert.match(base, /pointer-events:\s*none/, "and it takes no tap");
 	const forced = [...raw.matchAll(/@media \(forced-colors: active\) \{([^\n]*)\}/g)].map((m) => m[1]).join("\n");
 	for (const layer of [`${MAP}::before`, `${MAP}::after`, `${MAP} body::before`, `${MAP} body::after`, `${STAGE}::before`, `${STAGE}::after`, `${STAGE} > .work::before`, 'html[data-view="raven"] .head-node > .perch']) assert.ok(forced.includes(layer), `forced colours hide ${layer}`);
 	assert.match(forced, /display: none/);
@@ -292,7 +320,8 @@ test("the map's motion stops under calm and reduced motion: every animated map r
 	const mapMotion = rulesOf(inMotion).filter((r) => r.parts.some((p) => /data-view="map"/.test(p)));
 	assert.ok(mapMotion.length >= 8, `${mapMotion.length} map motion rules`);
 	for (const r of mapMotion) for (const p of r.parts) assert.match(p, /:not\(\[data-calm\]\)/, `${p} stops at data-calm`);
-	for (const r of mapRules) assert.ok(!/animation\s*:\s*(?!none)/.test(r.body) || mapMotion.some((m) => m.selector === r.selector), `${r.selector} animates only in the no-preference block`);
+	const fineSelectors = rulesOf(FINE_BLOCK).map((r) => r.selector); // calm on a fine pointer keeps the strike and the raven only (the calm test above)
+	for (const r of mapRules) assert.ok(!/animation\s*:\s*(?!none)/.test(r.body) || mapMotion.some((m) => m.selector === r.selector) || fineSelectors.includes(r.selector), `${r.selector} animates only in the no-preference block`);
 	// the still state: the rest veil whole, the lights at a middle opacity, the bats off the left edge, the flyer unseen
 	assert.match(body(`${STAGE}::after`), /opacity:\s*0\.75/);
 	assert.match(body(`${MAP} body::after`), /transform:\s*translate\(calc\(var\(--rk-w\) \* -0\.251\)/);

@@ -1148,7 +1148,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// 0.66.0 merge with the board's compact rows (measured after a fresh `npm run gui:build` of merge/066, node 24): gzipped 46,868 to 46,870 with the same raw size (the shared chunks' content hashes moved). Cap = measured.
 	// Agent kinds phase 1 (todo #137; measured after a fresh `npm run gui:build`, node 24): 129,285 / 46,870 to 130,473 / 47,279 (+1,188 / +409: roleWord and the kind and graph words, the duty event line, the comms header part). Cap = measured.
 	// 0.69.0 merges (#137 agent kinds, #139 sound split, #142 pi-better-show 0.5.0; measured after a fresh `npm run gui:build`, node 24): 130,473 / 47,279 to 131,479 / 47,658 (+1,006 / +379). Cap = measured.
-	assert.ok(eagerBytes <= 131_479 && eagerGz <= 47_658, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
+	// 0.70.0 merge (todo #140 auto mode + #141 + /boss link on; measured after a fresh `npm run gui:build`, node 24): 131,479 / 47,658 to 131,479 / 47,659 (+0 / +1, gzip noise of the merged tree). Cap = measured.
+	assert.ok(eagerBytes <= 131_479 && eagerGz <= 47_659, `the map chunk and the files it loads at start are ${eagerBytes} bytes (${eagerGz} gzipped)`);
 	// The lazy chunks' gzip figure was 12 KB; 0.5.0 raised it to 14 KB for the composer (about 2.2 KB gzipped) and the phone pairing tile with its POST helper (about 1.1 KB).
 	// The question panel (0.5.0, read-only, about 0.7 KB gzipped) and its place in the dialogs and the session view raised the gzip figure to 15.5 KB;
 	// 0.5.1 to 36.5 KB / 16.2 KB for the composer's note and the dialogs of units that left the net (about 0.7 KB gzipped together).
@@ -1527,7 +1528,8 @@ test("the built page is small, self-contained (no remote URLs, fonts, or imports
 	// The work board on the head page (todo #135; measured after a fresh `npm run gui:build` of merge/066, node 24): the entry stylesheet 134,310 / 27,812 to 136,691 / 28,112 (+2,381 / +300: `.head-board`, its fold, groups, rows, the Ask and Clear buttons at 44 px, the result line). Cap = measured.
 	// Board review VR-F002, F003 (measured after a fresh `npm run gui:build` of merge/066, node 24): 136,691 / 28,112 to 136,915 / 28,131 (+224 / +19: the row's two tracks, buttons on the name line, the taller list). Cap = measured.
 	// Auto mode phase 1 (todo #140; measured after a fresh `npm run gui:build`, node 24): 136,915 / 28,131 to 137,259 / 28,196 (+344 / +65: the confirm box's rules in gui/style.css). Cap = measured.
-	assert.ok(total(css, (n) => size(n).length) <= 137_259 && total(css, gz) <= 28_196, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
+	// 0.70.0 merge (#140 confirm box + #141 tap slop together; measured after a fresh `npm run gui:build`, node 24): 137,457 / 28,233. Cap = measured.
+	assert.ok(total(css, (n) => size(n).length) <= 137_457 && total(css, gz) <= 28_233, `the stylesheet is ${total(css, (n) => size(n).length)} bytes (${total(css, gz)} gzipped)`);
 });
 
 // The Zen rows of the keymap exist only because the Zen theme's entry imports zenrows.ts for its side effect: nothing else loads them in the page, so dropping that "unused" import leaves Enter, H, [, ], and the palette key dead while every other test stays green.

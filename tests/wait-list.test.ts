@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { callControl } from "../src/server/socket.ts";
+import { towerPanel } from "../src/server/towerpanel.ts";
 import { HEAD_KEY } from "../src/server/towerstore.ts";
 import { type Entry, iso, updateMemory } from "../src/server/towermemory.ts";
 import { digestOf, waitRows } from "../src/server/waitlist.ts";
@@ -178,4 +179,16 @@ test("the tower of the pane that asks (`own`, a workspace id; the head's own Her
 	assert.deepEqual(await order(), [HEAD_KEY, "wA", "wB"]);
 	assert.deepEqual(await order("wB"), ["wB*", HEAD_KEY, "wA"]);
 	assert.deepEqual(await order(head.workspace), [`${HEAD_KEY}*`, "wA", "wB"], "a pane in the head's workspace is the head's own");
+});
+
+test("the log of a press names the door, never the text: the control socket's via (pi when it says none or anything else), the prompt's, a run pane's, and the GUI's route", async () => {
+	const s = await setup("wA");
+	for (const id of ["W1", "W2", "W3", "W4", "W5", "W6"]) plant("wA", { id, card: card({ do: `SECRETTEXT ${id}` }) as never });
+	const asks: [string, string | undefined][] = [["W1", undefined], ["W2", "prompt"], ["W3", "run-pane"], ["W4", "gui"], ["W5", "bogus"]];
+	for (const [id, via] of asks) assert.equal((await ask(s, { cmd: "tower-memory", workspace: "wA", json: { op: "press", id, act: "done" }, ...(via ? { via } : {}) })).status, 200, id);
+	assert.equal((await towerPanel(() => world.expose).memory!("wA", { op: "press", id: "W6", act: "done" })).status, 200);
+	const log = readFileSync(world.record()!.log, "utf8");
+	const doors = Object.fromEntries([...log.matchAll(/op=press.* id=(W\d)\b.* via=(\S+)/g)].map((m) => [m[1], m[2]]));
+	assert.deepEqual(doors, { W1: "pi", W2: "prompt", W3: "run-pane", W4: "pi", W5: "pi", W6: "gui" }, "a client cannot name the GUI's door");
+	assert.equal(log.includes("SECRETTEXT"), false, "never the text");
 });

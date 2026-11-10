@@ -284,3 +284,7 @@ Choices the record left open:
 ## Amendment: auto mode (2026-11-09)
 
 The Out section left the alert queue as it was. Under auto mode (`2026-11-09-auto-mode.md` §6, §7; D8) a card recorded while it is on, and every boss wait open when it turns on, carries `parked: true`. A parked card is silent in the GUI (no system notification, sound, or Zen cue; out of the dock queue; phase 2), its raiser is told once under the `wait_parked` header (not `wait_card`, which means the boss's answer), and a secret card's start press is refused while it is on. The flag lives for the period: when auto mode ends the cards are ordinary open waits again, listed on the return list.
+
+## Amendment: the terminal (2026-11-10)
+
+Cards are also pressed in a terminal, with typed keys under the here mark: `/boss wait` in any pi, in a tower run's own pane, and the stand-in prompt's `/wait`, with the open cards shown as a block and a widget. The presses are this spec's `press` op unchanged, the secret's first step stays at this computer's keyboard and off under auto mode, and the log of a press records its door. See `2026-11-10-wait-cards-tui.md`.

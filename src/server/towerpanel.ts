@@ -45,7 +45,8 @@ export function towerPanel(towers: () => Towers | undefined): { view(workspace: 
 		// The composer is the boss at a keyboard: the same boss event as the tower prompt's (`present`), so a conversation starts or goes on (docs/how-it-works.md, The boss conversation).
 		event: (workspace, text) => asked(async (t) => (workspace === HEAD_KEY ? await t.head.event(text) : t.runs.boss(workspace, text, "the boss (GUI)", { present: true }), {})),
 		conversation: (workspace, what) => asked((t) => (what === "leave" ? t.runs.leave(at(t, workspace)) : t.runs.fresh(at(t, workspace)))),
-		memory: (workspace, json) => towers()!.memory(workspace, json),
+		// The GUI's route is the one door that is the page; the control socket's `tower-memory` says which of pi's, the prompt's, or a run pane's it is (main.ts).
+		memory: (workspace, json) => towers()!.memory(workspace, json, "gui"),
 		act: (workspace, what, id) => asked((t) => ((ws) => (what === "retry" ? t.runs.retry(ws) : what === "deliver" ? t.runs.deliverAgain(ws, id!) : t.runs.dropParked(ws, id!), {}))(at(t, workspace))),
 	};
 }

@@ -39,7 +39,7 @@ import { type ConversationInfo, sessionsRoot } from "./bossconv.ts";
 import { addExpect, clearExpect, lastNote, listRuns, readExpects, readNotes, readTimer } from "./towerrunstore.ts";
 import { runTool, type ServerTools } from "./runtools.ts";
 import { localeOf } from "../towerprompt/messages.ts";
-import { pressRequest } from "./waitpress.ts";
+import { type PressDoor, pressRequest } from "./waitpress.ts";
 import { type Entry, hasWaitOn, markShown, memoryRequest, memorySection, memorySummary, memoryTool, noteMessage, readMemory } from "./towermemory.ts";
 import { openSeen, type Seen } from "./towerseen.ts";
 import { readTowerRuns } from "./towerruns.ts";
@@ -163,7 +163,7 @@ export interface Towers {
 	allyWaiting(identity: string): void;
 	/** The GUI panel's request on a workspace's memory (`POST tower/<workspace>/memory`, towermemory.ts `memoryRequest`). */
 	/** The boss's request on a tower's memory; a `press` waits for the raiser's notice (waitpress.ts), the rest answer at once. */
-	memory(workspace: string, json: Record<string, unknown>): { status: number; body: Record<string, unknown> } | Promise<{ status: number; body: Record<string, unknown> }>;
+	memory(workspace: string, json: Record<string, unknown>, via?: PressDoor): { status: number; body: Record<string, unknown> } | Promise<{ status: number; body: Record<string, unknown> }>;
 	/** The boss's open waits of every tower and the head, or of one workspace (or `head`): the read behind `boss-waits` (waitlist.ts). Throws for a workspace nobody serves. */
 	waitList(only?: string, own?: string): WaitList;
 	/** The digest of one workspace's own waits that its standing prompt's and its runs' polls carry; undefined when the server stands in for no tower there. */
@@ -1216,7 +1216,7 @@ export function createTowers(o: TowersOptions): Towers {
 		parked: () => parkedRows(slot, now(), targets()),
 		unpark: () => unpark(slot, now(), targets()),
 		runTool: runToolFor,
-		memory: (workspace, json) => {
+		memory: (workspace, json, via) => {
 			// The head's constant key reaches head/ whether or not a head service stands (towerstore.ts `HEAD_KEY`).
 			if (workspace !== HEAD_KEY && !services.has(workspace)) throw new Error(`The sb server stands in for no tower of workspace ${workspace}`);
 			if (json.op === "press") {
@@ -1227,7 +1227,7 @@ export function createTowers(o: TowersOptions): Towers {
 					live: async (id) => (await l.reach!.read()).sessions.some((x) => x.id === id),
 					send: (to, text, wait) => l.reach!.post(to, text, "wait_card", "session", false, undefined, undefined, { wait }),
 					boss: (text) => void runs.boss(l.record.workspace, text, "the boss (wait card)", { press: true }),
-				}, workspace, json);
+				}, workspace, json, via);
 			}
 			return memoryRequest(slot, workspace, now(), json, log);
 		},

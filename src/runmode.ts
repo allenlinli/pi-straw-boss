@@ -243,7 +243,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 			lang: memoryLang(env), interactive: context.hasUI, own: claim.workspace, tell, ui: context.ui, here: bossHere, now: cfg.now, workspaces: () => workspaces(cfg.run), tabs: (workspace) => tabs(cfg.run, workspace),
 			ask: (request) => ask(request.cmd === "tower-event" || request.cmd === "head-event" ? { ...request, ...who } : request),
 			memory: async (workspace, json) => {
-				const r = await ask({ cmd: "tower-memory", workspace, json });
+				const r = await ask({ cmd: "tower-memory", workspace, json, via: "run-pane" });
 				return { ok: r.ok, ...(typeof r.error === "string" ? { error: r.error } : {}), ...(typeof r.status === "number" ? { status: r.status } : {}), ...(typeof r.body === "object" && r.body !== null ? { body: Object.fromEntries(Object.entries(r.body)) } : {}) };
 			},
 			focus: async (tab) => void (await cfg.run(["tab", "focus", tab])),

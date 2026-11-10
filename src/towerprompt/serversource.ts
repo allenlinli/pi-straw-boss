@@ -56,7 +56,7 @@ export function serverSource(ctx: Ctx, workspace: string, pid: number = process.
 			return { auto: (reply.auto as { on?: boolean } | undefined)?.on === true, towers: (reply.towers as never[] | undefined) ?? [] };
 		},
 		press: async (target, json) => {
-			const reply = await sure({ cmd: "tower-memory", workspace: target, json });
+			const reply = await sure({ cmd: "tower-memory", workspace: target, json, via: "prompt" });
 			return { ...(typeof reply.status === "number" ? { status: reply.status } : {}), ...(typeof reply.body === "object" && reply.body !== null ? { body: reply.body as Record<string, unknown> } : {}) };
 		},
 		reply: async (tower, text, answers) => {

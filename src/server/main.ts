@@ -506,7 +506,7 @@ export async function runServer(o: ServerOptions): Promise<ServerHandle> {
 				return towers.prompt(request.cmd, workspace, pid);
 			}
 			// The boss's memory (towermemory.ts `memoryRequest`): `/boss memory` in a pi session is the GUI panel's request on the same function. A run's token never gets here (rungate.ts refuses it).
-			case "tower-memory": return workspace && typeof request.json === "object" && request.json !== null ? answer(async (t) => ({ ...(await t.memory(workspace, request.json as Record<string, unknown>)) })) : Promise.resolve({ ok: false, error: "tower-memory needs a workspace and a request" });
+			case "tower-memory": return workspace && typeof request.json === "object" && request.json !== null ? answer(async (t) => ({ ...(await t.memory(workspace, request.json as Record<string, unknown>, request.via === "prompt" || request.via === "run-pane" ? request.via : "pi")) })) : Promise.resolve({ ok: false, error: "tower-memory needs a workspace and a request" });
 			// The boss's open wait cards, every tower's and the head's or one's (waitlist.ts): `/boss wait` and the tower prompt's picker. A run's token never gets here (rungate.ts).
 			case "boss-waits": return answer(async (t) => ({ ...t.waitList(workspace, text(request.own)) }));
 			case "tower-retry": return workspace ? answer(async (t) => (t.runs.retry(workspace), {})) : Promise.resolve({ ok: false, error: "tower-retry needs a workspace" });

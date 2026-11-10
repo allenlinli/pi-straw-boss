@@ -171,9 +171,9 @@ Red first: each task writes its tests, sees them fail on f807db69 or its prerequ
 
 Workspaces: tasks 1 to 4 run in sequence on one branch (they share `waitlist.ts` and `waitcmd.ts`). Task 5 runs in its own worktree from the `main` commit that merged 5b, since it touches only `gui/` and its tests.
 
-## Open questions (recommendations)
+## Decisions (boss, 2026-11-10: every recommendation taken)
 
-| # | Question | Recommendation |
+| # | Question | Decision (the recommendation) |
 |---|---|---|
 | Q1 | In the GUI, every press becomes pick, then Send. An action card goes from one tap to two, and a folded row loses its inline button (a tap unfolds it). | **Yes.** It is exactly the alert confirm card's behavior, it carries WC-D1's two-tap skip with no special confirm, and no stray tap on a phone presses. |
 | Q2 | Which cards a standing pane shows and lists. | **The block and the widget show the pane's own tower** (the head pane: the head's own). **`/wait` and `/boss wait` list all, own tower first.** The always-on lines stay short, and the picker is the same everywhere. |

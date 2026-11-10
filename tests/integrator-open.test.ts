@@ -34,11 +34,15 @@ const pis = () => {
 	world.herdr.onAgentStart = (pane, args) => void world.agent({ id: `opened-${pane.pane_id}`, name: args[args.indexOf("--name") + 1]!, pane: pane.pane_id, env: { STRAW_BOSS_ROLE: pane.env?.find((e) => e.startsWith("STRAW_BOSS_ROLE="))?.slice(16) ?? "" } }).start();
 };
 const handed: { to: string; message: string }[] = [];
+/** The waits the opener asked for, and what happens during its second look for an integrator (2 s). */
+const naps: number[] = [];
+let onReread: (() => void) | undefined;
 /** The opener of workspace wA's tower, over the world's Herdr and broker; `off` turns the merge train off. */
 const towerOpener = (workspaceId = "wA", off = false) => {
 	handed.length = 0;
+	(naps.length = 0), (onReread = undefined);
 	return opener({
-		run: world.herdr.runFor(`${workspaceId}:p7`), sleep: (ms) => sleep(Math.min(ms, 2)), workspaceId, cwd: dir, sessions: () => world.broker.sessionList() as never,
+		run: world.herdr.runFor(`${workspaceId}:p7`), sleep: (ms) => (naps.push(ms), ms === 2000 && onReread?.(), sleep(Math.min(ms, 2))), workspaceId, cwd: dir, sessions: () => world.broker.sessionList() as never,
 		send: async (to, message) => (handed.push({ to, message }), { status: "sent" }), tower: () => ({ id: `tower-${workspaceId}`, name: `tower · ${workspaceId}` }), integrationOff: () => off, stateDir: world.stateDir,
 	});
 };
@@ -455,6 +459,37 @@ test("which mains are a project's own integrators: one in another workspace coun
 		Object.assign(paneOf("wB:p31"), { cwd: join(dir, "apps", "web") });
 		await assert.rejects(open(car({ head: SHA_C })), /Project acme already runs an integrator of its own, opened before this door and not by it: integ theirs \(session their-integ\)\. Nothing opens beside it and the door picks none/);
 		assert.equal(tabs().length, 1);
+	} finally {
+		rmSync(other, { recursive: true, force: true });
+	}
+});
+
+test("a ledger of the project and no integrator seen: the door looks once more, and opens one only when no unmarked integrator main is alive on the computer; otherwise it refuses and names it (RR151-F003)", async () => {
+	pis();
+	await net();
+	const other = realpathSync(mkdtempSync(join(tmpdir(), "psb-integ-unseen-")));
+	try {
+		mkdirSync(join(other, ".git"));
+		mkdirSync(join(world.stateDir, "trains", "acme"), { recursive: true });
+		writeFileSync(join(world.stateDir, "trains", "acme", "web.json"), JSON.stringify({ index: [] }));
+		// The project's kept integrator sits outside the tower's workspace and outside the checkout (a train's worktree elsewhere): the door does not see it as the project's.
+		const kept = await bossIntegrator("integ-fe2", "integ FE2", "wB:p31", other);
+		const open = towerOpener();
+		await assert.rejects(open(car()), /^Error: No integrator of project acme is seen in this workspace or its checkout, and its ledger \(trains\/acme in the state folder\) says one has run its trains; integ FE2 \(session integ-fe2\) is a main of kind integrator elsewhere on this computer, so nothing opens beside it\. Try again, or ask the boss: an integrator the project keeps sits in the tower's workspace or works in the checkout\.$/);
+		assert.deepEqual([tabs(), naps.filter((ms) => ms === 2000)], [[], [2000]], "nothing opened, after one second look");
+		// It is back in the checkout by the second look (a restart, a takeover): the slip is forwarded to it as before.
+		onReread = () => void Object.assign(paneOf("wB:p31"), { cwd: dir });
+		await assert.rejects(open(car()), /Project acme already runs an integrator of its own, opened before this door and not by it: integ FE2 \(session integ-fe2\)/);
+		assert.deepEqual(tabs(), []);
+		// No main of kind integrator is alive anywhere: the dead one is replaced.
+		onReread = undefined;
+		Object.assign(paneOf("wB:p31"), { cwd: other });
+		await kept.tool("boss_duty", { duty: "coordinator", reason: "testing" });
+		await world.quiet();
+		naps.length = 0;
+		const first = await open(car());
+		assert.equal(first.repeated, undefined);
+		assert.deepEqual([tabs().length, naps.filter((ms) => ms === 2000)], [1, [2000]]);
 	} finally {
 		rmSync(other, { recursive: true, force: true });
 	}

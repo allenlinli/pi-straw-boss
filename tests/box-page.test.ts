@@ -198,6 +198,31 @@ test("Earlier runs: a page of 50 offers More, which asks with the cursor the box
 	assert.equal(more.hidden, true, "no cursor, no More");
 });
 
+test("a box tower's finished runs (an ally run, an event run) are the tower's own fold, never rows among the agents' Earlier runs; the fold is closed, counts them, and a row says whose run it was", async () => {
+	const mixed = { rows: [
+		{ key: "x0000000000000a01", name: "Mei's Mac", role: "ally", workspace: "Work", first: Date.now() - 40_000, last: Date.now() - 20_000, size: 1024 },
+		{ key: "x0000000000000a02", name: "export-main", role: "main", workspace: "Work", first: Date.now() - 3_600_000, last: Date.now() - 600_000, size: 1024 },
+		{ key: "x0000000000000a03", name: "e3a1b2c4", role: "run", workspace: "Work", first: Date.now() - 90_000, last: Date.now() - 60_000, size: 1024 },
+		{ key: "x0000000000000a04", name: "Work", role: "tower", workspace: "Work", first: Date.now() - 90_000, last: Date.now() - 60_000, size: 1024 },
+	] };
+	useRuns(async () => mixed);
+	const el = draw(remote({ id: "x0000000000000011" }));
+	await until(() => !one(el, ".box-truns").hidden, "the tower's fold");
+	assert.deepEqual(el.querySelectorAll(".box-runs li a .name").map((n) => n.textContent), ["export-main"], "the agents' fold holds the agent only");
+	assert.equal(one(el, ".box-runs summary").textContent, m.box_runs({ count: 1 }));
+	assert.equal(one(el, ".box-truns summary").textContent, m.box_tower_runs({ count: 3 }));
+	assert.equal(one(el, ".box-truns").hasAttribute("open"), false, "folded until the boss opens it");
+	assert.deepEqual(el.querySelectorAll(".box-truns li a .name").map((n) => n.textContent), ["Mei's Mac", "e3a1b2c4", "Work"]);
+	assert.deepEqual(el.querySelectorAll(".box-truns li a .role").map((n) => n.textContent), [m.role_ally(), m.role_run(), m.role_tower()], "each row names what kind of run it was");
+	assert.equal(el.querySelectorAll(".box-truns li a")[0]!.getAttribute("data-route"), "w/x0000000000000011/s/x0000000000000a01", "a run still opens its read-only comms");
+	// Only tower runs: no agents' fold, and the tower's fold stands alone, with Show more still reachable.
+	useRuns(async () => ({ rows: mixed.rows.filter((r) => r.role !== "main"), before: "1:x0000000000000a04" }));
+	const only = draw(remote({ id: "x0000000000000012" }));
+	await until(() => !one(only, ".box-truns").hidden, "the tower's fold alone");
+	assert.equal(one(only, ".box-runs").hidden, true, "no agent finished: no agents' fold");
+	assert.equal(one(only, ".box-more").hidden, false);
+});
+
 test("a live base takes its box's ally card in a fold; the card is the same ally card", () => {
 	const card = { id: "dev1/Work", team: "t", teamName: "moldplan", teams: [{ team: "t", teamName: "moldplan" }], device: "dev1", short: "a1b2c3", label: "agent-tower-01", online: true, unattended: true, workspace: "Work", tower: "idle", tabs: [] } as unknown as AllyCard;
 	const el = draw(remote(), [card]);

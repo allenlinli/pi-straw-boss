@@ -1,13 +1,15 @@
-import { reportPeek, type MainCard, type UnitCard } from "./linkmodel.ts";
+import { MAIN_KINDS, reportPeek, type MainCard, type UnitCard } from "./linkmodel.ts";
 import { requested, stopMain } from "./mainstop.ts";
 import { m } from "./sentences.ts";
-import { ago, html, sync, text } from "./render.ts";
+import { ago, html, roleWord, sync, text } from "./render.ts";
 
 // What an unattended device says about its units, as the card of its ally base draws it (docs/how-it-works.md, Unattended devices; the holder's `unit-status`): per unit a state word with how long ago the box said it, its monitors on one
 // line, the last report folded to its first line (a tap opens it as Markdown), and, when a notice told of a crash lately, "crashed" with the notice behind a fold. Every word of a unit is a teammate's, so it only becomes text (the report goes
 // through the page's Markdown, which parses no HTML). The report's Markdown is made when the fold first opens, in a chunk of its own, and again while it is open when the report changes.
 
 type Row = UnitCard & { id: string; named: boolean };
+/** The tower service's states that go with a run's coming and going (src/server/runs.ts `ServiceState`; `held` and `closing` are trouble and an end, not between runs): a unit in one of them is a tower, whose runs come and go while it stays. */
+const TOWER_STATES = ["standing", "waking", "running"];
 const make = () => html(`<li class="ally-unit"><div class="au-head"><i class="au-dot"></i><b class="au-word"></b><span class="au-name"></span><span class="au-time" hidden><span class="au-pre"></span><span class="age"></span><span class="au-ago"></span></span><em class="au-stale" hidden></em></div><p class="au-mons" hidden><b></b><span></span></p><details class="au-mains" hidden><summary><b class="au-mains-label"></b></summary><ul class="au-main-list"></ul></details><details class="au-crash" hidden><summary><b></b><span class="au-time"><span class="age"></span><span class="au-ago"></span></span></summary><pre></pre><p class="au-hint" hidden></p></details><details class="au-report" hidden><summary><b class="au-label"></b><span class="au-peek"></span></summary><div class="md au-md"></div></details></li>`);
 
 type Markdown = typeof import("./markdown.ts");
@@ -33,8 +35,10 @@ function clock(box: HTMLElement, since: number, pre = "", post = m.link_unit_ago
 }
 
 type MainRow = MainCard & { id: string };
-const makeMain = () => html(`<li class="au-main"><span class="au-mdot"></span><b class="au-mname"></b><span class="au-mstate"></span><span class="au-mby" hidden></span><button type="button" class="au-stop" hidden></button></li>`);
-/** The mains of a unit, in a fold of their own: name, state word, the dispatcher for a main another device dispatched, and Stop where the box takes one (a pending stop reads "stopping…" in its place). */
+const makeMain = () => html(`<li class="au-main"><span class="au-mdot"></span><b class="au-mname"></b><em class="role au-mkind" hidden></em><span class="au-mstate"></span><span class="au-mby" hidden></span><button type="button" class="au-stop" hidden></button></li>`);
+/** The kind word of a main as the local page draws it (docs/specs/2026-11-09-agent-kinds.md §11, `roleWord`): the box's word for a coordinator, integrator or standing main, `train` for a train; none for a main whose box named no kind or one this page does not draw. */
+const kindWord = (kind: string | undefined) => (kind === undefined || !MAIN_KINDS.includes(kind) ? "" : kind === "train" ? roleWord("train") : roleWord("main", kind));
+/** The mains of a unit, in a fold of their own: name, kind word, state word, the dispatcher for a main another device dispatched, and Stop where the box takes one (a pending stop reads "stopping…" in its place). */
 function fillMains(li: HTMLElement, u: UnitCard, box: string) {
 	const fold = li.querySelector<HTMLDetailsElement>(".au-mains")!;
 	fold.hidden = !u.mains.length;
@@ -44,6 +48,11 @@ function fillMains(li: HTMLElement, u: UnitCard, box: string) {
 		const pending = c.stopping || requested(u, c), word = pending ? m.link_main_stopping() : c.word;
 		row.dataset.tone = pending ? "other" : c.tone;
 		text(row, ".au-mname", c.name);
+		const kind = kindWord(c.kind), kindEl = row.querySelector<HTMLElement>(".au-mkind")!;
+		kindEl.hidden = !kind;
+		kindEl.textContent = kind;
+		if (kind) row.dataset.kind = c.kind!;
+		else delete row.dataset.kind;
 		text(row, ".au-mstate", word);
 		const by = row.querySelector<HTMLElement>(".au-mby")!;
 		by.hidden = c.byLabel === undefined;
@@ -72,6 +81,8 @@ export function fillAllyUnits(list: Element, cards: UnitCard[], named: boolean, 
 		li.dataset.tone = u.tone;
 		li.classList.toggle("stale", u.stale);
 		text(li, ".au-word", u.word);
+		const word = li.querySelector<HTMLElement>(".au-word")!;
+		word.title = TOWER_STATES.includes(u.state) ? m.link_unit_run_hint() : ""; // a tower's runs are short: the word says why the unit stands by after one
 		text(li, ".au-name", u.named ? u.unit : "");
 		const time = li.querySelector<HTMLElement>(".au-head > .au-time")!;
 		time.hidden = false;

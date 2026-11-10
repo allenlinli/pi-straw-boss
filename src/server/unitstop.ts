@@ -1,4 +1,5 @@
 import { allyLabel } from "../boardauto.ts";
+import { isCoordinatorDuty } from "../duty.ts";
 import { wireId } from "../board.ts";
 import type { UnitStopInput } from "../link/holder.ts";
 import type { MainStatus, Notice } from "../link/kinds.ts";
@@ -40,8 +41,16 @@ export interface UnitStopDeps {
 /** A main's handle: the board's wire id, so no session id leaves the box. */
 export const handleOf = (box: string, main: string): string => wireId(box, main);
 
-/** One opened main as the box knows it right now: its row, its own name and its pane's state. */
-export interface MainFact { row: OpenedMain; name: string; state: string }
+/** One opened main as the box knows it right now: its row, its own name and its pane's state, and its kind word when its pane names one (`kindOfPane`). */
+export interface MainFact { row: OpenedMain; name: string; state: string; kind?: string }
+/**
+ * The kind word a `unit-status` entry carries for a main (docs/specs/2026-11-09-agent-kinds.md §12), from its pane's tokens: `train` for a train, else the duty a main published as `sb_duty` when it is a coordinator duty
+ * (`coordinator`, `integrator`, `standing`), as the net's `Unit.duty` reads it; none otherwise, so a main that publishes nothing is drawn as before.
+ */
+export function kindOfPane(tokens: Record<string, unknown> | undefined): string | undefined {
+	if (tokens?.sb_role === "train") return "train";
+	return tokens?.sb_role === "main" && isCoordinatorDuty(tokens.sb_duty) ? tokens.sb_duty : undefined;
+}
 const MAINS_MAX = 20;
 /**
  * The mains `controller` may stop, for the `mains` field of its `unit-status` (docs/specs/2026-11-07-link-remote-stop.md, 3.2): its own, or every main of the team when it is an admin of that team. Mains with a pending stop come first, so the cut
@@ -53,7 +62,7 @@ export function mainsFor(facts: MainFact[], controller: { team: string; device: 
 		.filter((f) => f.row.team === controller.team && (all || f.row.device === controller.device))
 		.sort((a, b) => Number(b.row.stop !== undefined) - Number(a.row.stop !== undefined))
 		.slice(0, MAINS_MAX)
-		.map((f): MainStatus => ({ handle: handleOf(d.box, f.row.main), unit: allyLabel(f.row.label), name: allyLabel(f.name, 40), state: f.state || "unknown", by: f.row.device, stopping: f.row.stop !== undefined }));
+		.map((f): MainStatus => ({ handle: handleOf(d.box, f.row.main), unit: allyLabel(f.row.label), name: allyLabel(f.name, 40), state: f.state || "unknown", by: f.row.device, stopping: f.row.stop !== undefined, ...(f.kind !== undefined ? { kind: f.kind } : {}) }));
 }
 
 /** What `controller` is told in `mains`: nothing until the holder runs and the tower service stands, and nothing where the team's units are not shared as `status`. */

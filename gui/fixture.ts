@@ -51,7 +51,7 @@ const demo = (): Net => ({
 		alerts: [{ id: "notice/1", kind: "notice", level: "warning", team: "t", teamName: "moldplan", data: { device: "d1", label: "ci-box", short: "9f3a1c", what: "run-crashed", unit: "Harbor API", text: "An ally run crashed: pi exited without tower_done" } },
 			{ id: "dialog/d1/D1", kind: "dialog", level: "info", team: "t", teamName: "moldplan", data: { device: "d1", dialogId: "D1", digest: "0".repeat(64), owner: "rpiv", dialog: JSON.stringify({ select: { title: "Deploy to staging?", choices: [{ label: "Yes" }, { label: "No" }] } }), label: "ci-box", short: "9f3a1c", answered: 1, closed: "remote" } }],
 		confirms: [],
-		units: [{ team: "t", device: "d1", at: 0, units: [{ unit: "Harbor API", state: "working", monitors: ["tail -f deploy.log", "npm run watch"], report: "Deployed v1.2 to staging.\nMigration 0042 applied; smoke tests green.\nNext: waiting for the review of the ledger fix." }] }],
+		units: [{ team: "t", device: "d1", at: 0, units: [{ unit: "Harbor API", state: "running", monitors: ["tail -f deploy.log", "npm run watch"], report: "Deployed v1.2 to staging.\nMigration 0042 applied; smoke tests green.\nNext: waiting for the review of the ledger fix." }] }],
 	},
 	stashed: [{ name: "Juniper Lab", label: "Juniper Lab", at: "2026-10-22T09:00:00.000Z" }, { name: "night run", label: "Harbor API", at: "2026-10-22T08:00:00.000Z" }],
 });

@@ -31,6 +31,12 @@ test("a unit says its state in a word and when it was updated, with its tone for
 	assert.equal(draw([card({ unit: "Quarry Tools" })], true).querySelector(".au-name")!.textContent, "Quarry Tools", "a whole device (no workspace of its own) says each unit's name");
 });
 
+test("a tower's state word says in its tooltip that its runs are short and it stands by between them; a unit mark that is no tower state has none", () => {
+	for (const state of ["standing", "running", "waking"]) assert.equal(one(draw([card({ state })]), ".au-word").title, m.link_unit_run_hint(), state);
+	assert.equal(one(draw([card({ state: "working" })]), ".au-word").title, "");
+	assert.equal(one(draw([card({ state: "held" })]), ".au-word").title, "", "a held tower is in trouble, not between runs");
+});
+
 test("monitors are one compact line with their count, and none draws nothing", () => {
 	const list = draw([card({ monitors: ["tail -f deploy.log", "npm run watch"] })]);
 	assert.equal(one(list, ".au-mons").hidden, false);
@@ -255,6 +261,22 @@ test("a unit with no mains has no fold; with mains the fold counts them and each
 	assert.equal(rows[1]!.dataset.tone, "working");
 	assert.ok(rows.every((r) => r.querySelector(".au-stop")!.hidden === false && r.querySelector(".au-stop")!.textContent === m.link_main_stop()));
 	assert.equal(rows[0]!.querySelector(".au-stop")!.getAttribute("aria-label"), m.link_main_stop_aria({ name: "docs" }));
+});
+
+test("a main's row says its kind in the word the local page uses, between its name and its state; a train says train; no kind, or one the page does not know, draws no word; the word is text", () => {
+	const list = draw([mains(
+		mainCard({ kind: "coordinator" }), mainCard({ handle: "1111111111111111", name: "ship", kind: "integrator" }), mainCard({ handle: "2222222222222222", name: "keep", kind: "standing" }),
+		mainCard({ handle: "3333333333333333", name: "car", kind: "train" }), mainCard({ handle: "4444444444444444", name: "old" }), mainCard({ handle: "5555555555555555", name: "odd", kind: "<img src=x>" }),
+	)]);
+	const words = list.querySelectorAll(".au-main").map((r) => [r.querySelector(".au-mname")!.textContent, r.querySelector(".au-mkind")!.hidden, r.querySelector(".au-mkind")!.textContent]);
+	assert.deepEqual(words, [
+		["docs", false, m.kind_coordinator()], ["ship", false, m.kind_integrator()], ["keep", false, m.kind_standing()],
+		["car", false, m.role_train()], ["old", true, ""], ["odd", true, ""],
+	]);
+	assert.equal(list.all((x) => x.tag === "img").length, 0);
+	assert.equal(list.querySelectorAll(".au-main")[0]!.dataset.kind, "coordinator", "a hook for the theme's colour and the tests");
+	assert.equal(list.querySelectorAll(".au-main")[3]!.dataset.kind, "train");
+	assert.equal(list.querySelectorAll(".au-main")[5]!.dataset.kind, undefined);
 });
 
 test("a main whose stop is pending reads 'stopping…' with no Stop; a box that takes no stop shows the same rows with no button; a teammate's words are text", () => {

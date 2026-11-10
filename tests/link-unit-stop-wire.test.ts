@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { CanonError, dec, enc, list, str } from "../src/link/canon.ts";
+import { CanonError, bool, dec, enc, list, readList, str } from "../src/link/canon.ts";
 import { CAPS_FEATURES, LinkHolder } from "../src/link/holder.ts";
 import { decodePlaintext, encodePlaintext, KINDS, LIMITS, type MainStatus } from "../src/link/kinds.ts";
 import { addEntry, createEntry, type RosterEntry } from "../src/link/roster.ts";
@@ -63,9 +63,24 @@ test("a unit-status takes 1 or 2 fields; the second is the mains, cut to 20 entr
 	assert.equal(decodePlaintext("unit-status", enc(body, enc(str("x")))), null, "a mains field that is not a list of mains");
 });
 
-test("this build lists unit-stop and unit-status.mains in its caps", () => {
-	assert.ok(CAPS_FEATURES.includes("unit-stop") && CAPS_FEATURES.includes("unit-status.mains"));
+test("this build lists unit-stop, unit-status.mains and unit-status.kind in its caps", () => {
+	assert.ok(CAPS_FEATURES.includes("unit-stop") && CAPS_FEATURES.includes("unit-status.mains") && CAPS_FEATURES.includes("unit-status.kind"));
 	assert.ok(CAPS_FEATURES.length <= LIMITS.capsFeatures);
+});
+
+test("a main's kind is an optional seventh field of its entry: the word of a coordinator, integrator, standing main or a train, cut to 16 bytes; a six-field entry has none", () => {
+	const units = [{ unit: "build", state: "working", monitors: [], report: "r" }];
+	assert.equal(LIMITS.mainKind, 16);
+	const six = encodePlaintext("unit-status", { units, mains: [main()] }), seven = encodePlaintext("unit-status", { units, mains: [main({ kind: "integrator" })] });
+	const entry = (b: Buffer) => readList(dec(b)[1]!)[0]!;
+	assert.equal(dec(entry(six)).length, 6, "no kind: the field is not written, so a box of before wrote the same bytes");
+	assert.equal(dec(entry(seven)).length, 7);
+	assert.deepEqual(decodePlaintext("unit-status", seven), { units, mains: [main({ kind: "integrator" })] });
+	assert.equal(decodePlaintext("unit-status", six)!.mains![0]!.kind, undefined, "an entry of six fields has no kind key at all");
+	for (const kind of ["coordinator", "integrator", "standing", "train"]) assert.equal(decodePlaintext("unit-status", encodePlaintext("unit-status", { units, mains: [main({ kind })] }))!.mains![0]!.kind, kind);
+	assert.equal(decodePlaintext("unit-status", encodePlaintext("unit-status", { units, mains: [main({ kind: "k".repeat(40) })] }))!.mains![0]!.kind!.length, LIMITS.mainKind);
+	const eight = enc(str(HANDLE), str("build"), str("docs"), str("idle"), str(alice.id), bool(false), str("train"), str("x"));
+	assert.equal(decodePlaintext("unit-status", enc(dec(six)[0]!, list([eight]))), null, "eight fields");
 });
 
 // ---- the holder: caps gate both ways ------------------------------------------------------------------------------------------------------------------------
@@ -172,4 +187,28 @@ test("a box writes mains only to a controller whose caps list unit-status.mains;
 	await until(() => a.holder.summary().units.length === 1, 3000, "the new status on alice (the earlier one has aged out)");
 	assert.equal(a.holder.summary().units[0]?.mains, undefined, "alice's caps are stale at dave: one field again");
 	assert.ok(!log(d).some((x) => x.reason === "bad-plaintext"));
+});
+
+test("a box writes a main's kind only to a controller whose caps list unit-status.kind; a controller that lists unit-status.mains alone gets the six-field entries of before", async () => {
+	relay.addTeam(TEAM, [alice.id, bob.id, dave.id, eve.id], entries);
+	relay.rejectKinds.add("caps");
+	const a = rig("alice"), d = rig("dave");
+	await Promise.all([a.holder.start(), d.holder.start()]);
+	await until(() => log(a).some((x) => x.event === "caps-unsupported") && log(d).some((x) => x.event === "caps-unsupported"), 3000, "no caps on either side");
+	await d.holder.sendUnitStatus(TEAM_HEX, alice.id, UNITS, [main({ kind: "integrator" })]);
+	await until(() => a.holder.summary().units.length === 1, 3000, "the status on alice");
+	assert.equal(a.holder.summary().units[0]!.mains, undefined, "no caps seen: no mains, so no kind");
+	relay.rejectKinds.clear();
+	skew += 90 * 60_000;
+	await until(() => caps(d, alice.id).includes("unit-status.kind"), 3000, "alice's caps on dave");
+	await d.holder.sendUnitStatus(TEAM_HEX, alice.id, UNITS, [main({ kind: "integrator" }), main({ handle: "fedcba9876543210", name: "api", kind: "train" })]);
+	await until(() => a.holder.summary().units[0]!.mains?.length === 2, 3000, "the mains on alice");
+	assert.deepEqual(a.holder.summary().units[0]!.mains!.map((x) => x.kind), ["integrator", "train"]);
+	// A peer that lists mains but not kind (a build before this one): the box strips the kind, so its decoder, which takes six fields, still reads the entry.
+	const old = (d.holder as unknown as { runs: Map<string, { caps: Map<string, { at: number; features: string[] }> }> }).runs.get(TEAM_HEX)!.caps;
+	old.set(alice.id, { at: Date.now() + skew, features: ["unit-status.mains"] });
+	await d.holder.sendUnitStatus(TEAM_HEX, alice.id, UNITS, [main({ kind: "standing" })]);
+	await until(() => a.holder.summary().units[0]!.mains?.length === 1, 3000, "the six-field entry on alice");
+	assert.equal(a.holder.summary().units[0]!.mains![0]!.kind, undefined);
+	assert.ok(!log(a).some((x) => x.reason === "bad-plaintext"));
 });

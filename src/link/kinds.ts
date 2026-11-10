@@ -58,6 +58,8 @@ export const LIMITS = {
 	/** The spec's: a `unit-status` names at most this many mains, each by a name of at most `boardLabel` characters; a stop's reason is at most this many bytes. */
 	mains: 20,
 	stopReason: 200,
+	/** A main's kind word in a `unit-status` entry (docs/specs/2026-11-09-agent-kinds.md §12): `coordinator`, `integrator`, `standing` or `train`; the longest is 11 bytes, so 16 leaves room for a word added later. */
+	mainKind: 16,
 	/** operate: a `frame`'s ciphertext (a part is at most 160 KB, so 200 KB leaves room), and the teams a session may name. */
 	operateFrame: 200 * 1024,
 	operateTeams: 8,
@@ -82,7 +84,11 @@ export interface DialogOpen { dialogId: string; digest: string; owner: string; d
 export interface DialogAnswer { dialogId: string; digest: string; answer: string; answerId: string }
 export interface DialogClose { dialogId: string; by: string }
 /** One main of a box a controller may stop: `handle` is the first 8 bytes of sha256(box device id ‖ main session id), hex, so no session id leaves the box. `by` is the dispatcher's device id. */
-export interface MainStatus { handle: string; unit: string; name: string; state: string; by: string; stopping: boolean }
+export interface MainStatus {
+	handle: string; unit: string; name: string; state: string; by: string; stopping: boolean;
+	/** The optional seventh field of the entry: the main's kind word (`coordinator`, `integrator`, `standing`, or `train`), written only to a controller whose `caps` list `unit-status.kind`; the reader draws only the words it knows. Absent when the box knows none. */
+	kind?: string;
+}
 /** `mode` is read as sent: a value the box does not take is refused there, not at decoding. */
 export interface UnitStop { stopId: string; handle: string; mode: string; reason: string }
 /** A main's handle as it travels. */
@@ -116,7 +122,7 @@ export interface Plaintexts {
 	"dialog-open": DialogOpen;
 	"dialog-answer": DialogAnswer;
 	"dialog-close": DialogClose;
-	/** `mains` is the optional second field, written only to a controller whose `caps` list `unit-status.mains`. */
+	/** `mains` is the optional second field, written only to a controller whose `caps` list `unit-status.mains`; each entry's `kind` only to one whose `caps` list `unit-status.kind` too. */
 	"unit-status": { units: UnitStatus[]; mains?: MainStatus[] };
 	notice: Notice;
 	caps: Caps;
@@ -167,7 +173,7 @@ const encoders: { [K in Kind]: (p: Plaintexts[K]) => Buffer } = {
 	"unit-status": (p) => {
 		const units = list(p.units.map((u) => enc(str(short(u.unit)), str(short(u.state)), list(u.monitors.map((m) => str(short(m)))), str(cutBytes(u.report, LIMITS.report)))));
 		if (p.mains === undefined) return enc(units);
-		return enc(units, list(p.mains.slice(0, LIMITS.mains).map((m) => enc(str(short(m.handle)), str(short(m.unit)), str(cutChars(m.name, LIMITS.boardLabel)), str(short(m.state)), str(short(m.by)), bool(m.stopping)))));
+		return enc(units, list(p.mains.slice(0, LIMITS.mains).map((m) => enc(str(short(m.handle)), str(short(m.unit)), str(cutChars(m.name, LIMITS.boardLabel)), str(short(m.state)), str(short(m.by)), bool(m.stopping), ...(m.kind !== undefined ? [str(cutBytes(m.kind, LIMITS.mainKind))] : [])))));
 	},
 	notice: (p) => enc(str(short(p.kind)), str(short(p.unit)), str(cutBytes(p.text, LIMITS.noticeText))),
 	caps: (p) => enc(list(p.features.slice(0, LIMITS.capsFeatures).map((f) => str(short(f))))),
@@ -253,8 +259,10 @@ const decoders: { [K in Kind]: (b: Buffer) => Plaintexts[K] } = {
 		}) };
 		if (mains) {
 			out.mains = readList(mains).slice(0, LIMITS.mains).map((m) => {
-				const [handle, unit, name, state, by, stopping] = dec(m, 6) as [Buffer, Buffer, Buffer, Buffer, Buffer, Buffer];
-				return { handle: s(handle), unit: s(unit), name: cutChars(readStr(name), LIMITS.boardLabel), state: s(state), by: s(by), stopping: readBool(stopping) };
+				const fields = dec(m);
+				if (fields.length !== 6 && fields.length !== 7) throw new CanonError(`a main has 6 or 7 fields, got ${fields.length}`);
+				const [handle, unit, name, state, by, stopping, kind] = fields as [Buffer, Buffer, Buffer, Buffer, Buffer, Buffer, Buffer | undefined];
+				return { handle: s(handle), unit: s(unit), name: cutChars(readStr(name), LIMITS.boardLabel), state: s(state), by: s(by), stopping: readBool(stopping), ...(kind ? { kind: s(kind, LIMITS.mainKind) } : {}) };
 			});
 		}
 		return out;

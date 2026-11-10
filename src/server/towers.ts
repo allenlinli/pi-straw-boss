@@ -32,7 +32,7 @@ import { digestOf, type WaitDigest, type WaitList, waitList, waitRows } from "./
 import { claimGate, proofGate, seatGate, type SeatVerdict } from "./typegate.ts";
 import { addAnswer, addRoute, answeredAsks, ALLY_LEDGER, dropAsk, dropOpened, type Peer, readAnswers, readRoutes, removeAnswer, openedFor, routeOf, setStop, spendRoute } from "./allyroute.ts";
 import { createRevoker, type OpenedMain } from "./revoke.ts";
-import { createUnitStop, type MainFact } from "./unitstop.ts";
+import { createUnitStop, kindOfPane, type MainFact } from "./unitstop.ts";
 import type { UnitStopInput } from "../link/holder.ts";
 import { type AllyItem, type AllyPort, createRuns, type Runs, type RunsOptions, type ServiceRef, type ServiceStatus } from "./runs.ts";
 import { type ConversationInfo, sessionsRoot } from "./bossconv.ts";
@@ -1065,7 +1065,8 @@ export function createTowers(o: TowersOptions): Towers {
 		for (const row of rows) {
 			const session = net?.sessions.find((x) => x.id === row.main);
 			const pane = net?.ps.find((p) => p.pane_id === (session?.herdrLocation?.paneId ?? row.pane));
-			out.push({ row, name: session ? nameOf(session) : row.name, state: pane?.agent_status ?? "unknown" });
+			const kind = kindOfPane(pane?.tokens);
+			out.push({ row, name: session ? nameOf(session) : row.name, state: pane?.agent_status ?? "unknown", ...(kind !== undefined ? { kind } : {}) });
 		}
 		return out;
 	};

@@ -70,7 +70,7 @@ Each device picks its view on the settings page: Auto, Standard, Geek, Zen, or R
 
 When something waits for you, Zen shows that one thing alone: no map.
 A card never takes the screen by itself: one quiet line says how many wait, and **Enter**, or a tap on the line, takes the next, blocking questions first.
-Enter then presses the card's main button (Allow, Trust, Handle, the first choice, Run), but never inside a text field.
+Enter then presses the card's main button (Allow, Trust, the first choice, Run), but never inside a text field. On a card that waits for you the focus lands on its first row, and Enter picks it and moves on to **Send**.
 A card you are on is never replaced or pulled away; if its question is answered elsewhere, it stays and says so.
 
 <p align="center"><img src="/pi-straw-boss/docs/img/gui-zen-item.png" width="49%" alt="The Zen view with one item: a robot_hand question on an ink-dark page, its choices as lines of text"> <img src="/pi-straw-boss/docs/img/gui-zen-alone.png" width="49%" alt="The Zen view with nothing waiting: a breathing circle and a line on mindfulness"></p>

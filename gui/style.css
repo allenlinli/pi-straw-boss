@@ -627,6 +627,7 @@ a.tower:hover::before { border-color: var(--c); }
 .head-back { display: none; } .modes + .chan { margin-left: 12px; } .head-main, .head-quit { margin-left: 4px; } .head-quit { padding: 6px 10px; border-radius: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
 .chat-root { position: relative; display: grid; min-height: 0; }
 .comms-in .ask { max-height: calc((var(--vvh, 100vh) - var(--hud, 64px) - 64px) * 0.55); overflow-y: auto; overscroll-behavior: contain; } /* the comms stay in view under a long dialog */
+.comms-in .wait-card { max-height: none; overflow: visible; } /* a wait card is not a dialog over the log: it keeps its whole height, so its Send is never below the edge of a box of its own (wg-F002) */
 .chat-scroll { overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px; overflow-anchor: none; font-size: 15px; }
 .chat-list { display: grid; gap: 8px; max-width: 1040px; margin-inline: auto; } /* a line a reader can follow, centred in a wide view */
 /* A run of messages from the same side shows its avatar and name once, closer together. */
@@ -1018,6 +1019,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.au-stop { min-height: 44px; min-width: 44px; } .au-main { min-height: 44px; } /* a main's Stop and its row (the Mains fold of a unit) */
 	.composer textarea { min-height: 56px; } .cmp-row { gap: 8px 10px; }
 	.comms-in .ask-acts { position: sticky; bottom: -12px; margin: 0 -14px -12px; padding: 8px 14px 12px; background: color-mix(in srgb, var(--amber) 6%, var(--bg)); } /* Send answer stays in view while a long question scrolls */
+	.comms-in .wait-card .ask-acts { position: static; margin: 0; padding: 0; background: none; } /* a wait card scrolls with the page, so its Send row needs no sticky bar */
 	.comms-in .ask-acts + .ask-note { margin-top: 4px; } /* the status note (Copied, Sending…) starts below the sticky send row, whose -12px margin and opaque fill would cover its top */
 	.composer :is(.cmp-alt, .cmp-send) { min-height: 48px; } .composer .cmp-alt { min-width: 48px; } .composer .cmp-send { min-width: 64px; }
 	/* A wait card (waitcard.ts): parts stack, every row, Send, and link is 44 px with 8 px between, a long URL wraps anywhere, a command wraps whole. */
@@ -1223,6 +1225,7 @@ html.paused *, html.paused *::before, html.paused *::after { animation-play-stat
 	.base .card > .quit-btn:not([hidden]) { flex: 1 1 100%; margin: 0; } .base .card > .quit-btn:not([hidden]) ~ .ticks { bottom: 3px; }
 	/* A question to answer (Robot Hand, ask_user): the card is the one scroller, so no option is cut inside a list of its own, and the Send answer row is sticky under it with a fade over what scrolls beneath. */
 	.comms-in .ask-opts { max-height: none; overflow: visible; } .comms-in .ask-ctx, .comms-in .ask-why { max-height: 5em; }
+	.comms-in .wait-card :is(.ask-ctx, .ask-why) { max-height: none; } /* a wait card's parts are its whole text, never capped at 5em with the rows drawn over the rest (wg-F001) */
 	.comms-in .ask-acts { z-index: 1; } .comms-in .ask[data-more] .ask-acts::before { content: attr(data-cue); flex: 1 1 100%; order: -1; text-align: center; padding: 0; line-height: 18px; color: var(--gold); font-size: 12px; white-space: nowrap; pointer-events: none; } /* in the row, above Send: no option text ever sits under the cue */ .comms-in .ask[data-more] .ask-acts::after { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 24px; background: linear-gradient(transparent, color-mix(in srgb, var(--amber) 6%, var(--bg))); pointer-events: none; z-index: -1; }
 	.composer textarea::placeholder { font-size: 13px; } /* a placeholder does not make the phone zoom in, and the longest ones then fit one line */
 }

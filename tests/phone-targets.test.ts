@@ -236,3 +236,59 @@ test("a wait card's rows, Send and links are 44 px each way on a phone, 8 px apa
 	assert.match(zen, /\[data-view="zen"\] \.wait-card :is\(\.ask-opts, \.ask-acts\) \{ gap: 8px; \}/, "and its rows and Send are 8 px apart");
 	assert.ok(zen.indexOf('[data-view="zen"] .wait-card :is(.ask-opts, .ask-acts)') > zen.indexOf('[data-view="zen"] .zen-card .ask-opts { gap: 2px'), "after the panel's own 2px gap, which it must win by order");
 });
+
+// wg-F001 / wg-F002 (review wait-gui): a wait card unfolded in a tower's comms or on the head page sits in `.comms-in`, whose question rules cap `.ask-ctx` and `.ask-why` at 5em and `.ask` at 55% of the room with its own scroll. The card's parts are its whole text and its Send must stay in view,
+// so a card is not clamped there. No browser runs here: this resolves the cascade at phone width for the card's elements (descendant and child selectors, classes, `:not`, `:is`, attributes), the heaviest selector first, the later one among equals.
+interface Node { classes: string[]; attrs?: Record<string, string> }
+const compound = (text: string, el: Node): boolean => {
+	let rest = text.trim().replace(/^[a-z][\w-]*|^\*/, "");
+	while (rest) {
+		let hit: RegExpExecArray | null;
+		if ((hit = /^\.([\w-]+)/.exec(rest))) { if (!el.classes.includes(hit[1]!)) return false; }
+		else if ((hit = /^:not\(((?:[^()]|\([^()]*\))*)\)/.exec(rest))) { if (members(hit[1]!).some((s) => compound(s, el))) return false; }
+		else if ((hit = /^:(?:is|where)\(((?:[^()]|\([^()]*\))*)\)/.exec(rest))) { if (!members(hit[1]!).some((s) => compound(s, el))) return false; }
+		else if ((hit = /^\[([\w-]+)(?:="([^"]*)")?\]/.exec(rest))) { const v = el.attrs?.[hit[1]!]; if (v === undefined || (hit[2] !== undefined && v !== hit[2])) return false; }
+		else return false; // a pseudo-class this reader does not know (`:has`, `:hover`): not matched
+		rest = rest.slice(hit[0].length);
+	}
+	return true;
+};
+/** `chain` is the element's ancestors from the root, the element itself last. */
+const selects = (selector: string, chain: Node[]): boolean => {
+	if (selector.includes("::") || /[+~]/.test(selector.replace(/\[[^\]]*\]|\([^)]*\)/g, ""))) return false;
+	const parts = selector.replace(/\s*>\s*/g, " > ").split(/\s+(?![^(]*\))/).filter(Boolean);
+	const up = (at: number, from: number): boolean => {
+		if (at < 0) return true;
+		if (parts[at] === ">") return from >= 0 && compound(parts[at - 1]!, chain[from]!) && up(at - 2, from - 1);
+		for (let i = from; i >= 0; i--) if (compound(parts[at]!, chain[i]!) && up(at - 1, i - 1)) return true;
+		return false;
+	};
+	return compound(parts[parts.length - 1]!, chain[chain.length - 1]!) && up(parts.length - 2, chain.length - 2);
+};
+function phoneComputed(chain: Node[], property: string): string | undefined {
+	let best: { w: number; value: string } | undefined;
+	for (const [list, decls] of phoneRules()) {
+		const value = new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(decls)?.[1]?.trim();
+		if (!value) continue;
+		for (const sel of list.split(/,(?![^(]*\))/).map((x) => x.trim())) if (selects(sel, chain)) { const w = weight(sel); if (!best || w >= best.w) best = { w, value }; }
+	}
+	return best?.value;
+}
+const askCard: Node = { classes: ["ask", "wait-card"], attrs: { "data-host": "row" } };
+const inComms: Node[] = [{ classes: ["comms-in"] }, { classes: ["tower-notices"] }, { classes: ["tnote"] }, askCard];
+
+test("wg-F001: in the comms (a tower's, the head page's) a wait card's parts and its why line are not height-capped on a phone, so the rows never draw over its text", () => {
+	for (const cls of ["ask-ctx", "ask-why"]) assert.equal(phoneComputed([...inComms, { classes: [cls, "wc-parts"] }], "max-height"), "none", `${cls} of a wait card in .comms-in`);
+	// The same reader sees the cap where it belongs: a question card in the comms keeps its 5em.
+	assert.equal(phoneComputed([{ classes: ["comms-in"] }, { classes: ["ask"] }, { classes: ["ask-ctx"] }], "max-height"), "5em");
+});
+
+test("wg-F002: in the comms a wait card is no scroll box of its own (its Send is never below its edge), and its Send row is not the question's sticky bar on a phone", () => {
+	const card = [{ classes: ["comms-in"] }, { classes: ["tower-notices"] }, askCard];
+	assert.equal(phoneComputed(card, "max-height"), "none");
+	assert.equal(phoneComputed(card, "overflow"), "visible");
+	assert.ok(css.indexOf(".comms-in .wait-card {") > css.indexOf(".comms-in .ask {"), "after the question's own cap, which it ties on weight and so must win by order");
+	const acts = [...card, { classes: ["ask-acts"] }];
+	assert.equal(phoneComputed(acts, "position"), "static");
+	assert.equal(phoneComputed([{ classes: ["comms-in"] }, { classes: ["ask"] }, { classes: ["ask-acts"] }], "position"), "sticky", "a question card keeps its sticky Send");
+});

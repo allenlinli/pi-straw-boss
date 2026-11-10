@@ -115,7 +115,7 @@ test("the words the boss named: the map card says 管家 and a base with no towe
 });
 
 test("a wait card names the tower it is about (Q3): a head card says 主塔台 in Standard and 鴉閣 in Raven, a workspace's says 塔台 and 管家, and no Raven wait word says 塔台", () => {
-	const TWINS = ["wc_tag_legacy", "wc_raised_self", "wc_p_words", "wc_b_restate", "wc_b_reply", "wc_skip_tells", "wc_skip_tells_tower", "wc_pressed_restate", "wc_told_both", "wc_told_tower", "wc_told_gone", "wc_told_failed", "wc_ended", "wc_ended_plain", "zen_wait_placeholder"] as const;
+	const TWINS = ["wc_tag_legacy", "wc_raised_self", "wc_p_words", "wc_b_restate", "wc_b_reply", "wc_skip_tells", "wc_skip_tells_tower", "wc_pressed_restate", "wc_told_both", "wc_told_tower", "wc_told_gone", "wc_told_failed", "wc_ended", "wc_ended_plain", "zen_wait_placeholder", "wait_sent"] as const;
 	for (const id of TWINS) assert.ok(`${id}_head` in zh, `${id} has its head twin`);
 	assert.equal(zh["wc_b_reply_head" as SentenceId], "回覆主塔台");
 	standard();

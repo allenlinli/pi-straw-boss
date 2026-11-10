@@ -116,6 +116,7 @@ test("STRAW_BOSS_ASCII: nothing outside ASCII is drawn (apart from the escapes),
 	assert.match(text, /# tower - Alpha/);
 	assert.match(text, /o standing by/);
 	assert.match(text, /Enter +wake the tower/);
+	assert.match(text, /\/wait +press a wait card/);
 	assert.match(text, /\/quit, Ctrl\+D +leave this pane to your shell/);
 	p.input.end();
 	await p.done;

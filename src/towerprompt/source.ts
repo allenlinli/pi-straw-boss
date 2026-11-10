@@ -1,4 +1,6 @@
 import type { ServiceState } from "../server/runs.ts";
+import type { DigestRow } from "../server/waitlist.ts";
+import type { Tower } from "../waitview.ts";
 
 // What the tower prompt's screen asks of the server (docs/how-it-works.md, The standing pane). The screen (prompt.ts) knows only this seam, so the state it shows can grow (the net's rows, the board's `now`
 // lines) without a change to how a line is read or how the prompt leaves; serversource.ts is the one that talks to the sb server over its control socket.
@@ -12,11 +14,28 @@ export interface PollAnswer {
 	leave: boolean;
 	/** The service is the head tower's: its title carries the crown and says `head tower`, not the label of a workspace. */
 	head?: true;
+	/** The open wait cards of this tower (waitlist.ts `DigestRow`, at most 12), and whether auto mode is on: what the block under the state line shows. A server that sends none is an older one. */
+	waits?: DigestRow[];
+	auto?: boolean;
 }
 /** The answer of one poll: the state; the server stands in for no tower here any more (the prompt ends for good); or no usable answer yet (the server is down, restarting, or still loading). */
 export type Polled = { kind: "state"; answer: PollAnswer } | { kind: "gone"; error?: string } | { kind: "wait"; why: string };
 
+/** What the picker (pick.ts) presses with: the server's own reads and presses, asked with the state folder's secret and never with a run's token. Each rejects with the server's own words. */
+export interface PickSource {
+	/** `boss-waits`: every open card, this tower's first. */
+	waits(): Promise<{ auto: boolean; towers: Tower[] }>;
+	/** `tower-memory { op: "press" }` on a workspace (the head's is its constant key): the memory route's `status` and `body`. */
+	press(workspace: string, json: Record<string, unknown>): Promise<{ status?: number; body?: Record<string, unknown> }>;
+	/** The boss's words to a card's tower with `answers` (the GUI composer's route; the head's own for the head); which wait it marked answered. */
+	reply(tower: { workspace: string; head?: true }, text: string, answers: string): Promise<{ answered?: string }>;
+	/** Runs `fn` with this pane marked for this computer's keys only (heremark.ts); rejects, without running `fn`, when the pane cannot be marked. */
+	here<T>(fn: () => Promise<T>): Promise<T>;
+}
+
 export interface PromptSource {
+	/** The picker's source; a source with none cannot press cards. */
+	pick?: PickSource;
 	poll(): Promise<Polled>;
 	/** Posts the boss's words to the tower as a `boss` event; rejects with the server's own words when it does not take them. */
 	post(text: string): Promise<void>;

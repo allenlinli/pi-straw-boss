@@ -4,6 +4,7 @@ import { PassThrough } from "node:stream";
 import { parseArgs, run, UsageError } from "../src/server/cli.ts";
 import { serverSource } from "../src/towerprompt/serversource.ts";
 import { callControl } from "../src/server/socket.ts";
+import { type Entry, iso, updateMemory } from "../src/server/towermemory.ts";
 import { type Running, until } from "./server-world.ts";
 import { TowerWorld } from "./tower-world.ts";
 
@@ -31,7 +32,7 @@ test("poll answers the tower's state; a workspace the server stands in for no to
 	const source = serverSource(world.ctx(), "wA", 4100);
 	const polled = await source.poll();
 	assert.equal(polled.kind, "state");
-	if (polled.kind === "state") assert.deepEqual(polled.answer, { label: polled.answer.label, state: "standing", queued: 0, leave: false });
+	if (polled.kind === "state") assert.deepEqual(polled.answer, { label: polled.answer.label, state: "standing", queued: 0, leave: false, waits: [], auto: false });
 	assert.deepEqual(await serverSource(world.ctx(), "wZ", 4100).poll(), { kind: "gone", error: "The sb server stands in for no tower of workspace wZ" });
 	await world.close();
 	const none = await serverSource(world.ctx(), "wA", 4100).poll();
@@ -147,4 +148,30 @@ test("prompt ends with exit 0 when the process is told to end (its pane closes),
 	await until(() => r.text().includes("tower> "), "the prompt");
 	abort.abort();
 	assert.equal(await r.done, 0);
+});
+
+// The picker's own asks (docs/specs/2026-11-10-wait-cards-tui.md, §3a): token-less requests with the state folder's secret, as the posts are.
+test("the picker's source reads every open card (its own tower first), presses with tower-memory, replies with `answers`, and holds the here mark; with no server each rejects instead of starting one", async () => {
+	const { s } = await setup();
+	const now = Date.now();
+	updateMemory(world.slot, "wA", now, (m) => void m.entries.push({ id: "W1", kind: "wait", text: "Re-authorize", by: "run", via: "run", at: iso(now), run: "r1", for: "boss", state: "open", card: { type: "action", lang: "en", happened: "h", do: "Re-authorize" } } as Entry));
+	const source = serverSource(world.ctx(), "wA", 4100, "wA:p1");
+	const listed = await source.pick!.waits();
+	assert.equal(listed.auto, false);
+	assert.deepEqual(listed.towers.map((t) => [t.workspace, t.own === true, t.waits.map((w) => w.id)]), [["wA", true, ["W1"]]]);
+	const reply = await source.pick!.reply({ workspace: "wA" }, "do it", "W1");
+	assert.equal(reply.answered, "W1");
+	await assert.rejects(source.pick!.reply({ workspace: "wZ" }, "x", "W1"), /no tower|not take|workspace/);
+	const pressed = await source.pick!.press("wA", { op: "press", id: "W1", act: "done" });
+	assert.equal(pressed.status, 200, JSON.stringify(pressed));
+	const again = await source.pick!.press("wA", { op: "press", id: "W1", act: "done" });
+	assert.equal(again.status, 409, "the server's refusal comes back as the memory route's status");
+	assert.match(String(again.body?.reason), /pressed already/);
+	assert.equal(await source.pick!.here(async () => "held"), "held");
+	await world.close();
+	const gone = serverSource(world.ctx(), "wA", 4100);
+	await assert.rejects(gone.pick!.waits(), /sb server/);
+	await assert.rejects(gone.pick!.press("wA", { op: "press", id: "W1", act: "done" }), /sb server/);
+	assert.equal(world.record(), undefined, "the picker starts no server");
+	void s;
 });

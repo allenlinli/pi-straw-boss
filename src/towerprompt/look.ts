@@ -95,5 +95,7 @@ export function draw(look: Look) {
 		},
 		/** The string readline writes before the line the boss types. */
 		prompt: () => (look.ascii ? "tower> " : paint(["accent", "bold"], `${TOWER} ❯ `)),
+		/** The prompt string of the pick mode (`wait ❯`; `wait> ` in ASCII, whatever the language: nothing outside ASCII is drawn). */
+		pickPrompt: (word: string) => (look.ascii ? "wait> " : paint(["accent", "bold"], `${word} ❯ `)),
 	};
 }

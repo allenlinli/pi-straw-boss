@@ -37,6 +37,12 @@ export interface Texts {
 	refused(error: string): string;
 	/** A first line that starts with `/` and is none of the prompt's commands: said on the spot, and not posted. `word` is the first word as typed. */
 	unknownCommand(word: string): string;
+	/** The word before the pick mode's prompt mark (`wait ❯`). */
+	pickWord: string;
+	/** A run starts while the boss is picking: pick mode is dropped, the line is discarded, and the pane's own pi has the cards. */
+	pickWoke: string;
+	/** The block of cards that wait for the boss emptied: its last print is out of date. */
+	waitsNone: string;
 }
 
 const EN: Texts = {
@@ -46,6 +52,7 @@ const EN: Texts = {
 	hints: [
 		{ keys: "⏎", plain: "Enter", text: "wake the tower with your message; alone, without one" },
 		{ keys: "/new", plain: "/new", text: "the next conversation is a new session" },
+		{ keys: "/wait", plain: "/wait", text: "press a wait card" },
 		{ keys: "/quit ⌃D", plain: "/quit, Ctrl+D", text: "leave this pane to your shell" },
 		{ keys: "/boss tower <message>", plain: "/boss tower <message>", text: "wake the tower from any pi session" },
 	],
@@ -56,7 +63,10 @@ const EN: Texts = {
 	silent: (why) => `the sb server does not answer (${why}); waiting for it.`,
 	back: "the sb server answers again.",
 	refused: (error) => `the tower did not take it: ${error}`,
-	unknownCommand: (word) => `${word} is not a command here; this prompt takes /new (the next conversation is a new session), /quit (leave this pane to your shell) and messages; start a message that begins with / with a space.`,
+	unknownCommand: (word) => `${word} is not a command here; this prompt takes /new (the next conversation is a new session), /quit (leave this pane to your shell), /wait (press a wait card) and messages; start a message that begins with / with a space.`,
+	pickWord: "wait",
+	pickWoke: "the tower woke: press the cards in the pane's running pi with /boss wait.",
+	waitsNone: "no wait card is open for you now.",
 };
 const ZH: Texts = {
 	title: (label) => `塔台 · ${label}`,
@@ -65,6 +75,7 @@ const ZH: Texts = {
 	hints: [
 		{ keys: "⏎", plain: "Enter", text: "連同你輸入的訊息喚醒塔台；單按則不帶訊息" },
 		{ keys: "/new", plain: "/new", text: "下一次對話成為新的工作階段" },
+		{ keys: "/wait", plain: "/wait", text: "處理等你的卡片" },
 		{ keys: "/quit ⌃D", plain: "/quit, Ctrl+D", text: "把這個窗格還給你的 shell" },
 		{ keys: "/boss tower <訊息>", plain: "/boss tower <訊息>", text: "在任何 pi 工作階段喚醒塔台" },
 	],
@@ -75,7 +86,10 @@ const ZH: Texts = {
 	silent: (why) => `sb 伺服器沒有回應（${why}），等它回來。`,
 	back: "sb 伺服器又回應了。",
 	refused: (error) => `塔台沒有收下：${error}`,
-	unknownCommand: (word) => `${word} 不是這裡的指令；這個提示只接受 /new（下一次對話成為新的工作階段）、/quit（把這個窗格還給你的 shell）和訊息；以 / 開頭的訊息請先打一個空格。`,
+	unknownCommand: (word) => `${word} 不是這裡的指令；這個提示只接受 /new（下一次對話成為新的工作階段）、/quit（把這個窗格還給你的 shell）、/wait（處理等你的卡片）和訊息；以 / 開頭的訊息請先打一個空格。`,
+	pickWord: "等待",
+	pickWoke: "塔台醒了，到執行中的窗格用 /boss wait 處理。",
+	waitsNone: "目前沒有等你處理的卡片。",
 };
 
 /** The state in words: what stands alone says it; a tower that waits with events says how many, and a running one adds them. A word this build does not know is shown as the server sent it. */

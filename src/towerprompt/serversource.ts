@@ -1,7 +1,8 @@
+import { createHereMark, type Here } from "../heremark.ts";
 import { type Ctx, trusted } from "../server/client.ts";
 import type { ServiceState } from "../server/runs.ts";
 import { callControl, ControlError } from "../server/socket.ts";
-import type { Polled, PromptSource } from "./source.ts";
+import type { PickSource, Polled, PromptSource } from "./source.ts";
 
 // The tower prompt's source over the sb server's control socket (docs/how-it-works.md, The standing pane). It authenticates as the CLI does: the record in the state folder (read once the folder's owner is
 // judged, client.ts `trusted`) gives the socket and the secret. It starts no server and holds no run token; a server that is down, restarting, or still loading is a wait, because the prompt belongs to a
@@ -10,7 +11,14 @@ import type { Polled, PromptSource } from "./source.ts";
 const POLL_MS = 3000, POST_MS = 15_000, TELL_MS = 2000;
 class Unreachable extends Error {}
 
-export function serverSource(ctx: Ctx, workspace: string, pid: number = process.pid): PromptSource {
+/** Runs `fn` every `ms` until the returned function is called (the here mark's renewal). */
+const every = (fn: () => void, ms: number) => {
+	const timer = setInterval(fn, ms);
+	timer.unref?.();
+	return () => clearInterval(timer);
+};
+
+export function serverSource(ctx: Ctx, workspace: string, pid: number = process.pid, pane: string | null = process.env.HERDR_PANE_ID ?? null): PromptSource {
 	/** One command to the server; rejects `Unreachable` when there is no server to ask, or it does not answer. */
 	const ask = async (request: Record<string, unknown>, ms: number): Promise<Record<string, unknown>> => {
 		let record;
@@ -28,7 +36,37 @@ export function serverSource(ctx: Ctx, workspace: string, pid: number = process.
 		}
 	};
 	const tell = (cmd: "prompt-leave" | "prompt-gone") => ask({ cmd, workspace, pid }, TELL_MS).then(() => undefined, () => undefined);
+	/** One request that rejects with the server's own words, or the word that it did not answer. */
+	const sure = async (request: Record<string, unknown>): Promise<Record<string, unknown>> => {
+		let reply;
+		try {
+			reply = await ask(request, POST_MS);
+		} catch (cause) {
+			throw new Error(cause instanceof Unreachable ? `the sb server did not answer: ${cause.message}` : (cause as Error).message);
+		}
+		if (reply.ok !== true) throw new Error(String(reply.error ?? "the sb server gave no reason"));
+		return reply;
+	};
+	// The picker's own asks: token-less requests with the state folder's secret, as the posts are. The here mark is asked as a session asks it (the pane's own id); a server that is not there marks nothing, as no page can type then.
+	const here: Here = createHereMark({ ask: (request) => ask(request, TELL_MS).then((reply) => ({ ok: reply.ok === true, ...reply }), () => ({ ok: false, error: "no server" })), pane, every });
+	const pick: PickSource = {
+		waits: async () => {
+			const reply = await sure({ cmd: "boss-waits", own: workspace });
+			// SAFETY: a `boss-waits` answer carries `auto` and `towers` as waitlist.ts writes them; waitview.ts `rowsOf` cleans every row once more.
+			return { auto: (reply.auto as { on?: boolean } | undefined)?.on === true, towers: (reply.towers as never[] | undefined) ?? [] };
+		},
+		press: async (target, json) => {
+			const reply = await sure({ cmd: "tower-memory", workspace: target, json });
+			return { ...(typeof reply.status === "number" ? { status: reply.status } : {}), ...(typeof reply.body === "object" && reply.body !== null ? { body: reply.body as Record<string, unknown> } : {}) };
+		},
+		reply: async (tower, text, answers) => {
+			const reply = await sure(tower.head ? { cmd: "head-event", text, answers } : { cmd: "tower-event", workspace: tower.workspace, text, present: true, answers });
+			return typeof reply.answered === "string" ? { answered: reply.answered } : {};
+		},
+		here,
+	};
 	return {
+		pick,
 		async poll(): Promise<Polled> {
 			let reply;
 			try {
@@ -38,7 +76,7 @@ export function serverSource(ctx: Ctx, workspace: string, pid: number = process.
 			}
 			if (reply.ok === true && typeof reply.label === "string" && typeof reply.state === "string" && typeof reply.queued === "number" && typeof reply.leave === "boolean") {
 				// SAFETY: a state word this build does not know is shown as the server sent it (prompt.ts cleans it of control characters), not made into one it does.
-				return { kind: "state", answer: { label: reply.label, state: reply.state as ServiceState, queued: reply.queued, leave: reply.leave, ...(reply.head === true ? { head: true as const } : {}) } };
+				return { kind: "state", answer: { label: reply.label, state: reply.state as ServiceState, queued: reply.queued, leave: reply.leave, ...(reply.head === true ? { head: true as const } : {}), ...(Array.isArray(reply.waits) ? { waits: reply.waits as never[] } : {}), ...(typeof reply.auto === "boolean" ? { auto: reply.auto } : {}) } };
 			}
 			const error = String(reply.error ?? "no usable answer");
 			return reply.gone === true ? { kind: "gone", error } : { kind: "wait", why: error };

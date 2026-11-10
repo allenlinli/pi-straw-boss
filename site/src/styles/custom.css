@@ -1,0 +1,18 @@
+/* The hero's screenshot is a wide capture of the GUI: keep it beside the title, not over it. */
+.hero {
+	grid-template-columns: minmax(0, 1fr);
+}
+.hero img {
+	width: 100%;
+	max-width: 44rem;
+	border-radius: 0.5rem;
+	box-shadow: var(--sl-shadow-lg);
+}
+@media (min-width: 50rem) {
+	.hero {
+		grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+	}
+}
+.hero > .hero-html {
+	width: 100%;
+}

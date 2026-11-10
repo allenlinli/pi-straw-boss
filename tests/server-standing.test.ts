@@ -126,7 +126,7 @@ test("the prompt's poll answers the state; a workspace without a tower is refuse
 	const { s, pane } = await setup();
 	const prompt = new FakePrompt(s, pane);
 	await until(() => prompt.last?.ok, "the first poll");
-	assert.deepEqual({ ...prompt.last }, { ok: true, label: "Alpha", state: "standing", queued: 0, leave: false });
+	assert.deepEqual({ ...prompt.last }, { ok: true, label: "Alpha", state: "standing", queued: 0, leave: false, waits: [], auto: false });
 	const none = await ask(s, { cmd: "prompt-poll", workspace: "wB", pid: 1 });
 	assert.equal(none.ok, false);
 	assert.equal(none.gone, true, "the prompt leaves for good only on this answer");

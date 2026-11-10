@@ -107,9 +107,10 @@ test("#132: the launch script makes the process through WMI, leaves the ACL chec
 	assert.ok(answer.pid > 0, stdout);
 	assert.match(answer.starterStarted ?? "", ISO, stdout);
 	near(answer.starterStarted!);
-	assert.match(answer.started ?? "", ISO);
-	const marker = JSON.parse(readFileSync(aclMarkerPath(dir, token), "utf8")) as { pid: number; error?: string; sid?: string; started?: string; dir?: string };
-	assert.equal(marker.error, undefined);
+	const raw = readFileSync(aclMarkerPath(dir, token), "utf8");
+	const marker = JSON.parse(raw) as { pid: number; error?: string; sid?: string; started?: string; dir?: string };
+	assert.equal(marker.error, undefined, raw);
+	assert.match(answer.started ?? "", ISO, `${stdout}\n${raw}`);
 	assert.equal(marker.pid, answer.pid);
 	assert.match(marker.sid ?? "", /^S-1-/);
 	assert.equal(marker.started, answer.started);

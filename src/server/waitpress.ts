@@ -17,6 +17,8 @@ export function deliveryOf(status: string | undefined): Delivery {
 	return status === "queued" ? "queued" : "failed";
 }
 
+/** The door a press came in by, as the log records it (never the text): pi's `/boss wait` or `/boss memory`, the tower prompt's picker, the pane of a tower run, or the GUI. */
+export type PressDoor = "pi" | "prompt" | "run-pane" | "gui";
 export interface PressDeps {
 	slot: Slot;
 	now(): number;
@@ -133,7 +135,7 @@ const failure = (cause: unknown): { status: number; body: Record<string, unknown
 /**
  * `{ op: "press", id, act, option?, reason? }` of the boss's route. The raiser is told by its session id: a card whose raiser is not live now is `gone` and nothing is sent. The tower's event is queued last, with the delivery in its text.
  */
-export async function pressRequest(d: PressDeps, workspace: string, json: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
+export async function pressRequest(d: PressDeps, workspace: string, json: Record<string, unknown>, via: PressDoor = "pi"): Promise<{ status: number; body: Record<string, unknown> }> {
 	if (typeof json.id !== "string") return { status: 400, body: { error: "bad_request", reason: "A press names the wait (id)" } };
 	if (json.act === "secret" && d.autoOn?.()) return { status: 409, body: { error: "refused", reason: "end auto mode first (/boss auto off): a secret is entered at the keyboard" } };
 	if (json.value !== undefined) return { status: 400, body: { error: "bad_request", reason: "A press carries no value: a secret is entered in the terminal, never here" } };
@@ -170,7 +172,7 @@ export async function pressRequest(d: PressDeps, workspace: string, json: Record
 	}
 	const text = plan.event(status ?? "");
 	d.boss(text);
-	d.log.line("tower-memory", { workspace, op: "press", act: plan.act, id: plan.entry.id, by: "boss", ...(status ? { delivery: status } : {}) });
+	d.log.line("tower-memory", { workspace, op: "press", act: plan.act, id: plan.entry.id, by: "boss", via, ...(status ? { delivery: status } : {}) });
 	const kept = updateMemory(d.slot, workspace, d.now(), () => undefined).memory;
 	return { status: 200, body: { ...memoryView(kept), id: plan.entry.id, ...(kept.entries.find((x) => x.id === plan.entry.id)?.press ? { press: kept.entries.find((x) => x.id === plan.entry.id)!.press } : {}) } };
 }

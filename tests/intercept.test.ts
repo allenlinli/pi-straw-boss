@@ -8,6 +8,7 @@ import { createEventBus, discoverAndLoadExtensions, ExtensionRunner } from "@ear
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBossPaths, type Post } from "../src/bosspaths.ts";
 import { hereOnlyOpts, interceptUi } from "../src/intercept.ts";
+import { runWaitCommand } from "../src/waitcmd.ts";
 import { selectDigest, selectOf, UI_PREFIX } from "../src/owners.ts";
 import { createHost } from "../src/host.ts";
 import { createServerLook } from "../src/server-look.ts";
@@ -356,6 +357,29 @@ test("a confirm marked as already relayed by its owner (the Straw Link gate) ope
 	assert.equal(r.sent("pending").length, 0, "no second dialog on the page");
 	r.dialogs[0]!.settle(true);
 	assert.equal(await asked, true);
+});
+
+test("the picker of /boss wait is relayed nowhere: with a tool call in flight its select, input, and confirm open in the terminal only, and the page is never offered one", async () => {
+	const r = rig();
+	await r.start("c1", "bash");
+	const card = { type: "action", lang: "en", happened: "h", do: "Re-authorize", from: { id: "m1", name: "main" } };
+	const wait = (id: string) => ({ id, text: "Re-authorize", at: new Date().toISOString(), state: "open", card });
+	const done = runWaitCommand("", {
+		lang: "en", interactive: true, own: "wA", now: Date.now, tell() {}, ui: r.ui as never, here: (fn) => fn(), workspaces: async () => [], tabs: async () => [], focus: async () => {}, memory: async () => ({ ok: true, status: 200, body: {} }),
+		ask: async () => ({ ok: true, auto: { on: false }, towers: [{ workspace: "wA", label: "Alpha", waits: [wait("W1"), wait("W2")] }] }),
+	});
+	const next = async (n: number, choose: (options: string[]) => unknown) => {
+		await settle();
+		assert.equal(r.dialogs.length, n, `dialog ${n} is open in the terminal`);
+		r.dialogs[n - 1]!.settle(choose(r.dialogs[n - 1]!.second as string[]));
+		assert.equal(r.sent("pending").length, 0, "the page was offered nothing");
+	};
+	await next(1, (options) => options[0]); // the list
+	await next(2, (options) => options.find((o) => o === "Skip")); // the card
+	await next(3, () => true); // the confirm after the reason (the input answers at once in this rig)
+	await next(4, () => undefined); // the list again: Escape
+	await done;
+	assert.equal(r.sent("pending").length, 0);
 });
 
 test("hereOnlyOpts marks every choice of a relayed select and confirm hereOnly, which the owner's adapter keeps and the digest ignores; a plain dialog is unmarked", async () => {

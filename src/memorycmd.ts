@@ -42,10 +42,13 @@ export function parseMemoryArgs(input: string): ({ workspace?: string } & Memory
 	return usage;
 }
 
-interface ViewCard { type: string; do: string; url?: string; command?: string; after?: string; options?: { label: string; then: string }[]; secret?: { name: string }; from?: { name: string } }
-interface View {
+/** A raiser as a card names it: `tab` and `workspace` are what `/boss wait`'s switch-to row focuses. */
+export interface ViewFrom { name: string; id?: string; role?: string; workspace?: string; tab?: string; gone?: true }
+export interface ViewCard { type: string; lang?: string; happened?: string; do: string; url?: string; command?: string; after?: string; options?: { label: string; then: string }[]; secret?: { name: string }; from?: ViewFrom }
+export interface ViewEntry { id: string; kind: "standing" | "decision" | "wait"; text: string; at?: string; for?: "boss" | "agent"; on?: string; state?: string; answered?: string; outcome?: string; card?: ViewCard; press?: { act: string; option?: number; reason?: string; at?: string; secretAsked?: string }; parked?: true }
+export interface View {
 	rev: number;
-	entries: { id: string; kind: "standing" | "decision" | "wait"; text: string; for?: "boss" | "agent"; on?: string; state?: string; outcome?: string; card?: ViewCard; press?: { act: string; secretAsked?: string } }[];
+	entries: ViewEntry[];
 	proposals: { id: string; op: "add" | "retire"; kind: "standing" | "decision"; text: string; target?: string; cites?: string }[];
 }
 const KIND = { en: { standing: "standing", decision: "decision" }, "zh-TW": { standing: "常駐指示", decision: "決定" } } as const;
@@ -100,14 +103,20 @@ const WORDS = {
 	},
 };
 
-const tidyCard = (c: ViewCard): ViewCard => ({
-	type: clean(c.type, 20), do: clean(c.do, 1_000_000),
+/** The words of `/boss memory` in a language, for the commands that press a card the same way (waitcmd.ts): the result line of a press, and who was told. */
+export const memoryWords = (lang: Lang) => WORDS[lang];
+const tidyFrom = (f: ViewFrom): ViewFrom => ({
+	name: clean(f.name, 200), ...(f.id !== undefined ? { id: clean(f.id, 400) } : {}), ...(f.role !== undefined ? { role: clean(f.role, 40) } : {}),
+	...(f.workspace !== undefined ? { workspace: clean(f.workspace, 100) } : {}), ...(f.tab !== undefined ? { tab: clean(f.tab, 100) } : {}), ...(f.gone ? { gone: true as const } : {}),
+});
+export const tidyCard = (c: ViewCard): ViewCard => ({
+	type: clean(c.type, 20), ...(c.lang !== undefined ? { lang: clean(c.lang, 10) } : {}), ...(c.happened !== undefined ? { happened: clean(c.happened, 1_000_000) } : {}), do: clean(c.do, 1_000_000),
 	...(c.url !== undefined ? { url: clean(c.url, 1_000) } : {}), ...(c.command !== undefined ? { command: c.command.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028-\u202e\u2060-\u206f\ufeff]/gu, " ") } : {}), ...(c.after !== undefined ? { after: clean(c.after, 1_000_000) } : {}),
-	...(c.options ? { options: c.options.map((o) => ({ label: clean(o.label, 200), then: clean(o.then, 1_000_000) })) } : {}), ...(c.secret ? { secret: { name: clean(c.secret.name, 400) } } : {}), ...(c.from ? { from: { name: clean(c.from.name, 200) } } : {}),
+	...(c.options ? { options: c.options.map((o) => ({ label: clean(o.label, 200), then: clean(o.then, 1_000_000) })) } : {}), ...(c.secret ? { secret: { name: clean(c.secret.name, 400) } } : {}), ...(c.from ? { from: tidyFrom(c.from) } : {}),
 });
 
 /** Everything the file holds is cleaned again before it is shown, as the brief does (a writer of memory.json could put escapes or line breaks there to disguise what a confirm applies). */
-const tidy = (v: View): View => ({
+export const tidy = (v: View): View => ({
 	...v,
 	entries: v.entries.map((e) => ({ ...e, id: clean(e.id, 20), text: clean(e.text, 1_000_000), ...(e.on !== undefined ? { on: clean(e.on, 100) } : {}), ...(e.outcome !== undefined ? { outcome: clean(e.outcome, 1_000) } : {}), ...(e.card ? { card: tidyCard(e.card) } : {}) })),
 	proposals: v.proposals.map((p) => ({ ...p, id: clean(p.id, 20), text: clean(p.text, 1_000_000), ...(p.target !== undefined ? { target: clean(p.target, 20) } : {}), ...(p.cites !== undefined ? { cites: clean(p.cites, 1_000_000) } : {}) })),

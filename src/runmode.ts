@@ -4,7 +4,13 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { BOSS_MARK, CRASH_FLAG, cleanLabel } from "./eventmarks.ts";
-import { panes, type Place, TOWER_LABEL, tabs } from "./herdr.ts";
+import { panes, type Place, TOWER_LABEL, tabs, workspaces } from "./herdr.ts";
+import { createHereMark } from "./heremark.ts";
+import { every } from "./lanface.ts";
+import { memoryLang } from "./memorycmd.ts";
+import { runWaitCommand } from "./waitcmd.ts";
+import type { DigestRow } from "./server/waitlist.ts";
+import { waitBlock, waitHint } from "./towerprompt/waitblock.ts";
 import { createApproval } from "./link/approval.ts";
 import type { Level } from "./link/config.ts";
 import type { Link } from "./link/runtime.ts";
@@ -227,6 +233,35 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		draw: (title, body, opts) => asBoss(() => context.ui.confirm(title, body, drawOpts(opts))),
 		ask, now: () => cfg.now(), who: { session: env.PI_INTERCOM_SESSION_ID, pane: env.HERDR_PANE_ID, pid: process.pid },
 	});
+	// `/boss wait` in the run's own pane (waitcmd.ts): the one /boss command a run takes, typed by the boss. It makes the requests a session makes (the hello secret, never this run's token: `tower-memory` and `boss-waits` stay refused to a run
+	// token) and draws its dialogs terminal-only, under the here mark. The run's model is given no tool that presses, and an event reaches it as a message, never as typed input, so nothing a model or a peer writes can run the command.
+	const bossHere = createHereMark({ ask: (request) => ask(request), pane: env.HERDR_PANE_ID ?? null, every: cfg.face?.every ?? every });
+	async function waits(args: string, context: ExtensionContext): Promise<void> {
+		if (mode !== "run" || !claim || claim.kind === "ally") return tell("An ally run takes no /boss command: the boss is not its sender, and it ends with its message.", "warning");
+		const who = { session: env.PI_INTERCOM_SESSION_ID, pane: env.HERDR_PANE_ID, pid: process.pid };
+		await runWaitCommand(args, {
+			lang: memoryLang(env), interactive: context.hasUI, own: claim.workspace, tell, ui: context.ui, here: bossHere, now: cfg.now, workspaces: () => workspaces(cfg.run), tabs: (workspace) => tabs(cfg.run, workspace),
+			ask: (request) => ask(request.cmd === "tower-event" || request.cmd === "head-event" ? { ...request, ...who } : request),
+			memory: async (workspace, json) => {
+				const r = await ask({ cmd: "tower-memory", workspace, json, via: "run-pane" });
+				return { ok: r.ok, ...(typeof r.error === "string" ? { error: r.error } : {}), ...(typeof r.status === "number" ? { status: r.status } : {}), ...(typeof r.body === "object" && r.body !== null ? { body: Object.fromEntries(Object.entries(r.body)) } : {}) };
+			},
+			focus: async (tab) => void (await cfg.run(["tab", "focus", tab])),
+		});
+	}
+	// The cards that wait for the boss, from the digest every poll of a local or head run carries: a widget above the editor, which is screen only and never in the model's context. Redrawn when the lines change, gone when none are left.
+	let waitsShown = "";
+	function showWaits(answer: Answer) {
+		if (!ctx || claim?.kind === "ally") return;
+		const rows = Array.isArray(answer.waits) ? (answer.waits as DigestRow[]) : [], lang = memoryLang(env);
+		const lines = rows.length ? [...waitBlock(rows, lang, "/boss wait"), `  ${waitHint(lang, "/boss wait")}`] : [];
+		const key = JSON.stringify(lines);
+		if (key === waitsShown) return;
+		waitsShown = key;
+		try {
+			ctx.ui.setWidget("straw-waits", lines.length ? () => ({ render: () => lines, invalidate() {} }) : undefined);
+		} catch { /* the session is already gone (a stale ctx after a reload or dispose) */ }
+	}
 	function registerTools() {
 		if (registered) return;
 		registered = true;
@@ -360,6 +395,7 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 				return unreachable(String(answer.error ?? "no answer"));
 			}
 			outOfReach = undefined;
+			showWaits(answer);
 			await apply(answer);
 		} catch (error) {
 			unreachable((error as Error).message);
@@ -555,6 +591,8 @@ export function createRunMode(kit: Kit, look: ServerLook | undefined, deps: RunS
 		/** The kind of the claim this run holds (local, ally, or head); undefined for a session that is no run. */
 		get kind() { return claim?.kind; },
 		active: () => mode === "run",
+		/** `/boss wait` in this run's pane (boss.ts routes the typed command here); an ally run refuses it. */
+		waits,
 		/** Whether the pane-role answer is still awaited: the session start (session.ts) waits for it (`afterNormal`). */
 		get deciding() { return deciding !== undefined; },
 		/** Runs `start` once the late answer makes this a normal session; never when it becomes a run or stays plain. */

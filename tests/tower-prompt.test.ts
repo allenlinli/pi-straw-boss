@@ -167,6 +167,7 @@ test("the prompt shows the tower's state and a hint, and waits at `tower>`", asy
 	assert.match(p.text(), /Enter/);
 	assert.match(p.text(), /Ctrl\+D/);
 	assert.match(p.text(), /\/boss tower <message>/);
+	assert.match(p.text(), /\/wait +press a wait card/, "the row for the wait cards");
 	assert.equal(source.posted.length, 0);
 	p.input.end();
 	await p.done;
@@ -472,6 +473,7 @@ test("a line that starts with / and is not a command of the prompt's (a `/reload
 	await until(() => p.text().includes("tower> "), "the prompt");
 	p.input.write("/reload\n");
 	await until(() => /\/reload is not a command here/.test(p.text()), "the refusal");
+	assert.match(p.text(), /\/wait \(press a wait card\)/, "the refusal names /wait among what the prompt takes");
 	await sleep(80); // longer than the paste window: a post would be in by now
 	assert.deepEqual(source.posted, [], "it did not reach the tower");
 	assert.equal(source.freshed, 0);
@@ -774,6 +776,7 @@ test("the prompt's words for the refusal exist in Traditional Chinese too", () =
 	assert.match(text, /\/reload/);
 	assert.match(text, /\/new/);
 	assert.match(text, /\/quit/);
+	assert.match(text, /\/wait/);
 	assert.match(text, /空格/);
 	assert.ok(!text.includes("\n"));
 });

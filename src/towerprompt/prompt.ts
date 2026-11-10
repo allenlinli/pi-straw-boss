@@ -2,6 +2,8 @@ import { clearLine, createInterface, cursorTo, type Interface } from "node:readl
 import type { Readable, Writable } from "node:stream";
 import { CLEAR, draw, type Look, lookOf, PLAIN } from "./look.ts";
 import { type Locale, textsFor } from "./messages.ts";
+import { createPick } from "./pick.ts";
+import { waitBlock } from "./waitblock.ts";
 import type { PollAnswer, PromptSource } from "./source.ts";
 
 // The screen of the tower prompt (docs/how-it-works.md, The standing pane): a title, the tower's state on one line, key rows as the hint, and a line to write at the styled prompt (`tower> ` in ASCII; look.ts draws them). It polls its source for the state and for the order to
@@ -86,6 +88,8 @@ export async function runPrompt(o: PromptOptions): Promise<number> {
 	const terminal = (o.output as Partial<NodeJS.WriteStream>).isTTY === true;
 	const look = o.look ?? (o.env ? lookOf(o.env, terminal) : PLAIN), d = draw({ ...look, color: look.color && terminal, clear: look.clear && terminal });
 	let begun = false;
+	// The block of cards that wait for the boss (waitblock.ts): printed when the digest of a poll changes, and a bracketed paste seen since the last flush (a paste is no pick).
+	let shownWaits: string | undefined, sawPaste = false;
 	let rl: Interface | undefined, closed = false, finished = false, posting = false, silent = false, shown: string | undefined, shownLabel: string | undefined, wokeAt: number | undefined;
 	let timer: object | undefined, batch: string[] = [], batchTimer: ReturnType<typeof setTimeout> | undefined, pasteTimer: ReturnType<typeof setTimeout> | undefined, pasting = false;
 	// Input chunks grouped, and the group the last line came in: a paste is one group however many reads carry it, typed keys are groups of their own (RV16-F003, RV17-F001, RV17-F002).
@@ -93,6 +97,15 @@ export async function runPrompt(o: PromptOptions): Promise<number> {
 	const pasteCapMs = o.pasteCapMs ?? PASTE_CAP_MS;
 	let finish!: (code: number) => void;
 	const done = new Promise<number>((resolve) => (finish = resolve));
+	// The picker of the wait cards (pick.ts): `/wait` takes the keyboard until it ends; its lines are never the boss's words.
+	const pick = createPick({
+		source: source.pick, locale: o.locale, now: () => clock.now(),
+		say: (line, kind = "plain") => say(kind === "plain" ? line : d.note(kind, line)),
+		mode: (on) => {
+			rl?.setPrompt(on ? d.pickPrompt(text.pickWord) : d.prompt());
+			if (terminal && rl && !closed && !finished) rl.prompt(true);
+		},
+	});
 
 	/**
 	 * A line of its own. On a terminal it replaces the line the cursor is on (the prompt and what the boss typed, which `again` draws back below it); a line that ends the prompt asks for no prompt again,
@@ -121,6 +134,7 @@ export async function runPrompt(o: PromptOptions): Promise<number> {
 		clearTimeout(pasteTimer);
 		rl?.close();
 		try {
+			await pick.stop();
 			await after();
 		} catch {
 			// The server may be gone: the prompt ends all the same.
@@ -149,13 +163,18 @@ export async function runPrompt(o: PromptOptions): Promise<number> {
 		if (polled.answer.leave) {
 			// The boss's line is on its way (the post ends the prompt, or refuses and the prompt goes on).
 			if (posting) return true;
+			// A press the boss already sent is answered first: its result is printed before the pane is given up (the press queues the wake, and the order to leave waits a second).
+			const picking = pick.active();
+			if (picking) await pick.whenIdle();
 			// A run is starting in this pane while the boss is typing: their words are for the tower, and the pane is a shell in a moment, where they must not land. What they entered (the paste window) and what is on the line go first.
 			const entered = [...batch, rl?.line ?? ""];
 			if (entered.at(-1) === "" && entered.length > 1) entered.pop();
 			// The batch rule of `flush` holds here too: a lone `/` line (`/quit`, `/new`, `/reload` typed a moment before the order came) is a command or refused, never the boss's words (RV11-F002). The pane is leaving, so there is nothing to start over or quit.
-			const words = commandOf(entered) !== undefined ? "" : entered.join("\n").trim();
+			// Digits typed to pick a card are never the boss's words: in pick mode what is on the line is dropped, and the prompt says where the cards are now.
+			const words = picking || commandOf(entered) !== undefined ? "" : entered.join("\n").trim();
 			// The boss wrote a while ago and the prompt said so then: the line is only cleared.
-			if (wokeAt === undefined) say(d.note("info", text.waking), false);
+			if (picking) say(d.note("info", text.pickWoke), false);
+			else if (wokeAt === undefined) say(d.note("info", text.waking), false);
 			else if (terminal) {
 				cursorTo(o.output, 0);
 				clearLine(o.output, 0);
@@ -187,6 +206,14 @@ export async function runPrompt(o: PromptOptions): Promise<number> {
 			shown = line;
 			say(d.state(now.state, now.words));
 		}
+		// The block of waiting cards, printed again only when its digest changes (and never over the picker); it makes no bell.
+		const waits = Array.isArray(polled.answer.waits) ? polled.answer.waits : [], key = JSON.stringify(waits);
+		if (key !== shownWaits && !pick.active()) {
+			const first = shownWaits === undefined;
+			shownWaits = key;
+			if (waits.length) waitBlock(waits, o.locale, "/wait").forEach((l, i) => say(i === 0 ? d.note("ask", l) : l));
+			else if (!first) say(d.note("info", text.waitsNone));
+		}
 		return true;
 	};
 	const poll = async () => {
@@ -202,6 +229,10 @@ export async function runPrompt(o: PromptOptions): Promise<number> {
 	const flush = async () => {
 		const lines = batch;
 		batch = [];
+		// In pick mode the lines are the picker's, and never the tower's. A paste (a bracketed one, or more than one line together) is no pick: the mode ends with nothing pressed or posted.
+		const pasted = sawPaste || lines.length > 1;
+		sawPaste = false;
+		if (pick.active()) return void (pasted ? await pick.paste() : await pick.line(lines[0] ?? ""));
 		// A batch of one line that starts with `/` is for the prompt, never the tower (a `/reload` typed from habit is no message): `/new` alone starts a new boss session, `/quit` alone leaves the pane to the shell
 		// as Ctrl+D does, and any other is refused with what the prompt takes. `//` at the start, or a space before the `/`, keeps the line a message (posted as typed; the space is trimmed with the rest of the message's
 		// edges). A paste of several lines is one message whatever its first line is, and its `/` lines are never obeyed (a log that starts with a path, a file list with `/quit` in it).
@@ -209,6 +240,7 @@ export async function runPrompt(o: PromptOptions): Promise<number> {
 		if (word !== undefined) {
 			if (word === "/new") return void (await startOver());
 			if (word === "/quit") return leave();
+			if (/^\/(?:boss )?wait$/.test(word.replace(/\s+/g, " "))) return void (await pick.start());
 			return void say(d.note("ask", text.unknownCommand(clean(word.split(/\s+/)[0], 40))));
 		}
 		const message = lines.join("\n").trim() || NO_MESSAGE;
@@ -307,6 +339,7 @@ export async function runPrompt(o: PromptOptions): Promise<number> {
 		if (finished || posting) return;
 		if (key?.name === PASTE_START) {
 			pasting = true;
+			sawPaste = true;
 			clearTimeout(batchTimer);
 			armPasteCap();
 		} else if (key?.name === PASTE_END) endPaste();

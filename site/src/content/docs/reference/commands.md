@@ -60,6 +60,7 @@ The full table, with every argument, is in [Tools](/pi-straw-boss/docs/reference
 | `/boss memory confirm P1`, `reject P1` | Confirm or reject a tower's proposal. |
 | `/boss memory add standing\|decision <text>`, `edit S1 <text>`, `delete D1`, `resolve W1` | Change the memory yourself. |
 | `/boss memory done\|choose\|decline W<n>` | Act on a wait, such as one parked by auto mode. |
+| `/boss wait [-w workspace \| label \| head]` | List the wait cards open for you in every tower and the head (this tower's first), and press one from dialogs: done, an option, skip (a reason, then a confirm), reply to the tower, or start entering a secret. It sends the page's own press, so nothing is pressed that the page could not press. The tower's standing pane takes the same as `/wait`, typed with numbers and `y/N`. |
 | `/boss auto` | Show the auto mode state and the last return list. |
 | `/boss auto on`, `/boss auto confirm`, `/boss auto off` | Ask for auto mode and confirm it in the terminal; confirm a request the head tower staged; end it and print the return list. |
 

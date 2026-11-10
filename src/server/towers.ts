@@ -28,6 +28,7 @@ import type { Allows } from "./allows.ts";
 import type { Asks } from "./asks.ts";
 import { ageOf, allyTools, buildAllyBrief, buildBrief, gatherMains, localTools } from "./towerbrief.ts";
 import { createStanding, type PromptReply, type StandingTimers } from "./standing.ts";
+import { digestOf, type WaitDigest, type WaitList, waitList, waitRows } from "./waitlist.ts";
 import { claimGate, proofGate, seatGate, type SeatVerdict } from "./typegate.ts";
 import { addAnswer, addRoute, answeredAsks, ALLY_LEDGER, dropAsk, dropOpened, type Peer, readAnswers, readRoutes, removeAnswer, openedFor, routeOf, setStop, spendRoute } from "./allyroute.ts";
 import { createRevoker, type OpenedMain } from "./revoke.ts";
@@ -38,7 +39,7 @@ import { type ConversationInfo, sessionsRoot } from "./bossconv.ts";
 import { addExpect, clearExpect, lastNote, listRuns, readExpects, readNotes, readTimer } from "./towerrunstore.ts";
 import { runTool, type ServerTools } from "./runtools.ts";
 import { localeOf } from "../towerprompt/messages.ts";
-import { pressRequest } from "./waitpress.ts";
+import { type PressDoor, pressRequest } from "./waitpress.ts";
 import { type Entry, hasWaitOn, markShown, memoryRequest, memorySection, memorySummary, memoryTool, noteMessage, readMemory } from "./towermemory.ts";
 import { openSeen, type Seen } from "./towerseen.ts";
 import { readTowerRuns } from "./towerruns.ts";
@@ -162,7 +163,11 @@ export interface Towers {
 	allyWaiting(identity: string): void;
 	/** The GUI panel's request on a workspace's memory (`POST tower/<workspace>/memory`, towermemory.ts `memoryRequest`). */
 	/** The boss's request on a tower's memory; a `press` waits for the raiser's notice (waitpress.ts), the rest answer at once. */
-	memory(workspace: string, json: Record<string, unknown>): { status: number; body: Record<string, unknown> } | Promise<{ status: number; body: Record<string, unknown> }>;
+	memory(workspace: string, json: Record<string, unknown>, via?: PressDoor): { status: number; body: Record<string, unknown> } | Promise<{ status: number; body: Record<string, unknown> }>;
+	/** The boss's open waits of every tower and the head, or of one workspace (or `head`): the read behind `boss-waits` (waitlist.ts). Throws for a workspace nobody serves. */
+	waitList(only?: string, own?: string): WaitList;
+	/** The digest of one workspace's own waits that its standing prompt's and its runs' polls carry; undefined when the server stands in for no tower there. */
+	waitDigest(workspace: string): WaitDigest | undefined;
 	/** A tool a run calls (`run-tool`): checked against the token's kind, done as the tower identity. */
 	runTool(request: Record<string, unknown>): Promise<{ text: string; details?: unknown }>;
 	/** The identities leave the broker; tokens and files stay. */
@@ -1196,11 +1201,22 @@ export function createTowers(o: TowersOptions): Towers {
 		} catch (cause) { error("wait-parked", (cause as Error).message); }
 	});
 
+	// The boss's waits for the list and the polls' digests (waitlist.ts): the head's memory is read under its constant key, a workspace's under its id.
+	const autoView = () => ((v) => ({ on: v?.on === true, ...(v?.since ? { since: v.since } : {}) }))(o.auto?.view());
+	const listed = (): Target[] => [...services.values()].filter((l) => !l.stopped && !isHeadL(l)).map((l) => ({ workspace: l.record.workspace, label: l.record.label }));
 	const api: Towers = {
+		waitList: (only, own) => {
+			const h = headLive();
+			return waitList({ slot, now, locale: localeOf(o.env), auto: autoView }, listed(), h ? { at: h.record.workspace } : waitRows(slot, HEAD_KEY, now(), true).rows.length ? {} : undefined, only, own);
+		},
+		waitDigest: (workspace) => {
+			const l = services.get(workspace);
+			return l && !l.stopped ? digestOf(waitRows(slot, isHeadL(l) ? HEAD_KEY : workspace, now(), isHeadL(l)).rows, o.auto?.view().on === true) : undefined;
+		},
 		parked: () => parkedRows(slot, now(), targets()),
 		unpark: () => unpark(slot, now(), targets()),
 		runTool: runToolFor,
-		memory: (workspace, json) => {
+		memory: (workspace, json, via) => {
 			// The head's constant key reaches head/ whether or not a head service stands (towerstore.ts `HEAD_KEY`).
 			if (workspace !== HEAD_KEY && !services.has(workspace)) throw new Error(`The sb server stands in for no tower of workspace ${workspace}`);
 			if (json.op === "press") {
@@ -1211,7 +1227,7 @@ export function createTowers(o: TowersOptions): Towers {
 					live: async (id) => (await l.reach!.read()).sessions.some((x) => x.id === id),
 					send: (to, text, wait) => l.reach!.post(to, text, "wait_card", "session", false, undefined, undefined, { wait }),
 					boss: (text) => void runs.boss(l.record.workspace, text, "the boss (wait card)", { press: true }),
-				}, workspace, json);
+				}, workspace, json, via);
 			}
 			return memoryRequest(slot, workspace, now(), json, log);
 		},
@@ -1279,7 +1295,10 @@ export function createTowers(o: TowersOptions): Towers {
 		},
 		runs,
 		async prompt(cmd, workspace, pid) {
-			if (cmd === "prompt-poll") return standing.poll(workspace, pid);
+			if (cmd === "prompt-poll") {
+				const polled = standing.poll(workspace, pid);
+				return polled.ok ? { ...polled, ...api.waitDigest(workspace) } : polled;
+			}
 			return cmd === "prompt-leave" ? standing.leave(workspace, pid) : standing.gone(workspace, pid);
 		},
 		async stop(opts) {

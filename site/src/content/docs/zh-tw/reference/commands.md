@@ -60,6 +60,7 @@ description: pi-straw-boss 給智慧體的每個工具，以及每個 /boss 指�
 | `/boss memory confirm P1`、`reject P1` | 確認或拒絕塔台的提案。 |
 | `/boss memory add standing\|decision <text>`、`edit S1 <text>`、`delete D1`、`resolve W1` | 自己修改記憶。 |
 | `/boss memory done\|choose\|decline W<n>` | 處理一個等待事項，例如被自動模式擱置的那種。 |
+| `/boss wait [-w workspace \| label \| head]` | 列出每座塔台與 head 上等你處理的等待卡片（這座塔台的排第一），用對話框按下其中一張：完成、選一個選項、略過（先問理由，再確認）、回覆塔台，或開始輸入機密。它送出頁面本身的 press，所以頁面按不了的，這裡也按不了。塔台的常駐 pane 用 `/wait` 做同樣的事，改用數字與 `y/N` 輸入。 |
 | `/boss auto` | 顯示自動模式的狀態與上一份回來清單。 |
 | `/boss auto on`、`/boss auto confirm`、`/boss auto off` | 請求自動模式並在終端機確認；確認主塔台擬好的請求；結束它並印出回來清單。 |
 

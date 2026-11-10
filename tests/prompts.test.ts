@@ -283,7 +283,10 @@ test("train workers: planning, apps-config, main and the tower prompts say the n
 	const run = read("tower-run.md");
 	assert.ok(run.includes("Send it there with `boss_open_main` and `role: \"integrator\"`: the slip as it came as the request, and its sender, in the run that took it"), "tower-run.md sends a slip through the integrator's door");
 	assert.ok(run.includes("opens it as your own main (kind integrator, outside the two opened mains and the sender's one; a project never has two)"), "the integrator is the tower's own main, and a project has one");
-	assert.ok(run.includes("nothing you send yourself reaches the integrator as a slip") && !/`forward: <event id>`|boss_duty/.test(run), "tower-run.md names no event id and leaves the kind to the code");
+	assert.ok(run.includes("nothing you send without that stamp reaches one as a slip") && !/`forward: <event id>`|boss_duty/.test(run), "tower-run.md leaves the kind to the code and names no event id of its own");
+	// A project that already runs integrators of its own (0.73: the boss's, one per app) keeps the forward of 0.73: the door opens nothing and gives the event id, and the run forwards with tower_reply to the one that runs the app's trains.
+	assert.ok(run.includes("Where the project already runs integrators of its own (the boss's, one per app, such as `integ FE2` and `integ v3`), the door opens nothing and answers with their names and the slip's event id"), "tower-run.md keeps the boss's own integrators");
+	assert.ok(run.includes("forward the slip to the one that runs that app's trains with `tower_reply` (`to`: that integrator, `message`: the slip as it came, `forward`: that event id), in the same run") && run.includes("open no main for it. `tower_send` cannot reach an integrator"), "tower-run.md forwards with tower_reply and the door's event id, never with tower_send");
 	// An ally run has the same door for a slip of a main it opened, and no other way to an integrator.
 	const ally = read("ally-run.md");
 	assert.ok(ally.includes("A car slip from a main you opened") && ally.includes("`role: \"integrator\"`") && ally.includes("A request to open an integrator gets none"), "ally-run.md sends a slip of its main through the door and opens no integrator otherwise");

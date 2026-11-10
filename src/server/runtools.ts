@@ -1,6 +1,6 @@
 import { readBoard } from "../boardread.ts";
 import type { Control } from "../closemain.ts";
-import { INTEGRATOR } from "../integrator.ts";
+import { ForwardAsBefore, INTEGRATOR } from "../integrator.ts";
 import type { Opened, OpenRequest, PeerSender } from "../opener.ts";
 import { bodyOf } from "../header.ts";
 import { headsIn, slipsInText } from "../train/cars.ts";
@@ -282,7 +282,14 @@ async function openIntegrator(host: ToolHost, args: Record<string, unknown>, all
 	if (!host.openIntegrator) throw new Error("This tower opens no integrator");
 	const body = bodyOf(event.text), stamped = { fwd: event.fwd, fwdFrom: event.from.id };
 	// The project is the checkout's, read by the opener; the run's word, when it gives one, only has to agree. An ally run's open stays inside the project its team binds here.
-	const opened = await host.openIntegrator({ request: body, sender: event.from.id, role: INTEGRATOR, ...(project !== undefined ? { project } : {}), ...(ally ? { within: host.project ?? "" } : {}) }), named = opened.integrator ?? project ?? "";
+	const opened = await host.openIntegrator({ request: body, sender: event.from.id, role: INTEGRATOR, ...(project !== undefined ? { project } : {}), ...(ally ? { within: host.project ?? "" } : {}) }).catch((error: Error) => {
+		// The project runs integrators of its own (0.73: the boss's, one per app): the door opened nothing, and a local run forwards the slip as it did then. It is told here the event id it is shown nowhere else, so `forward` can name it.
+		if (!(error instanceof ForwardAsBefore)) throw error;
+		// The route tables are the second witness here too: a peer's main that answers as an integrator (its pane token cleared) is no target of a forward.
+		const peers = error.mains.filter((m) => (host.openedAnywhere ?? host.openedFor)?.(m.id) !== undefined);
+		if (peers.length) throw new Error(`${peers.map((m) => `${m.name} (session ${m.id})`).join(", ")} answers as an integrator of this project and was opened for a teammate's device, so no slip goes to it and nothing opens beside it. The boss closes it or renames it.`);
+		throw new Error(`${error.message} ${ally ? "An ally run forwards no slip: tell the sender that its car waits for the boss of this computer, whose integrators take slips from this computer's own tower runs." : `Forward it in this run with tower_reply: to (that integrator's session id), message (the slip exactly as it came), forward: "${event.fwd}" (the id of the event this slip came in; the code stamps its sender from it).`}`);
+	}), named = opened.integrator ?? project ?? "";
 	// The route tables are the second witness that the main found is no device's (the first is its pane token, integrator.ts): a peer's main takes no project's slips, whatever name and kind it carries, in whichever workspace it was opened.
 	if ((host.openedAnywhere ?? host.openedFor)?.(opened.main) !== undefined) throw new Error(`The main that answers as the integrator of project ${named} (session ${opened.main}) was opened for a teammate's device, so no slip goes to it; a project's integrator is this computer's own. The boss closes it or renames it.`);
 	const result = await host.reach.post(opened.main, body, "tower_reply", "session", false, ally && host.who.device ? `remote:${host.who.device}` : undefined, undefined, stamped);

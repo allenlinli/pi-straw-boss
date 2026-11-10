@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { alive } from "./remote.ts";
 import { boardState, readTrainboards, trainboardDir } from "./train/board.ts";
 import { createTab, report, panes, startPi, type HerdrRun, type Session, type Sleep, workspaces } from "./herdr.ts";
-import { INTEGRATOR, integMark, integratorHandoff, integratorOf, ledgerProjects, liveIntegrator, MAX_OPENED_INTEGRATORS } from "./integrator.ts";
+import { ForwardAsBefore, INTEGRATOR, integMark, integratorHandoff, integratorOf, keptIntegrators, ledgerProjects, liveIntegrator, MAX_OPENED_INTEGRATORS } from "./integrator.ts";
 import { assertSettingsSafe, SettingsRefused } from "./trust/settings.ts";
 import { inside } from "./link/routing.ts";
 import { checkoutProject, noTrainRefusal, openRefusal, repoRoot } from "./train/appsconfig.ts";
@@ -185,8 +185,13 @@ export function opener(env: OpenerEnv) {
 		if (integ && found) {
 			// An app whose trains another project's integrator already keeps is that project's, whatever this checkout calls itself: the boss says in apps.json which project it is.
 			for (const [app, kept] of found.apps.map((a) => [a, env.stateDir ? ledgerProjects(env.stateDir, a) : []] as const)) if (kept.length && !kept.includes(integ)) throw new OpenLimitError(`The trains of app ${app} are kept under project ${kept.join(", ")} (trains/${kept[0]}/${app}.json in the state folder), and this checkout's project reads ${integ} (${found.from}): its cars go to one integrator, so set integration.project in ${found.file} to the project that keeps them.`);
+			// A project that already runs integrators under names of their own (0.73: the boss's, one per app, such as integ FE2 and integ v3) keeps them: the door opens none beside them, counts none of them, and picks none, so the tower
+			// forwards the slip as before. They are the unmarked mains of kind integrator in this workspace or in this checkout (an app's own repository below it counts); one named integ <project> alone is the project's one, below.
+			const everywhere = await panes(run), sessions = await env.sessions(), root = repoRoot(dir);
+			const kept = keptIntegrators(everywhere, sessions, (p) => here.some((h) => h.pane_id === p.pane_id) || Boolean(p.cwd && (repoRoot(p.cwd) === root || inside(p.cwd, root))));
+			if (kept.some((k) => k.session.name !== `integ ${integ}`)) throw new ForwardAsBefore(integ, found.apps, kept.map((k) => ({ id: k.session.id, name: k.session.name ?? k.session.id })));
 			// The project's one integrator, wherever on this computer it runs: the slip goes to it, and nothing opens.
-			const running = liveIntegrator(await panes(run), await env.sessions(), integ);
+			const running = liveIntegrator(everywhere, sessions, integ);
 			if (running && "refusal" in running) throw new OpenLimitError(running.refusal);
 			// It works in this checkout's repository (a worktree of it counts), or it is another repository's integrator under the same name: no slip of this one goes to it.
 			if (running && !(running.pane.cwd && repoRoot(running.pane.cwd) === repoRoot(dir))) throw new OpenLimitError(`The integrator of project ${integ} (${running.session.name ?? running.session.id}, session ${running.session.id}) works in ${running.pane.cwd ? `another repository (${running.pane.cwd})` : "a folder Herdr does not name"}, not in this workspace's (${repoRoot(dir)}): a project's integrator works in its project's checkout, so no slip goes to it. Give this checkout a name of its own (integration.project in ${found.file}), or the boss closes that one.`);

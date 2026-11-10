@@ -148,7 +148,8 @@ test("never two for one project: a main the boss opened as integ <project> of ki
 	paneOf("wA:p8").tokens.sb_opened_by = `link:${"a".repeat(26)}`;
 	assert.equal(paneOf("wA:p8").tokens.sb_duty, "integrator");
 	assert.equal((await towerOpener()(car())).main, "boss-integ");
-	// Another project's integrator is no one's stand-in.
+	// Another project's integrator is no one's stand-in: it works in its own repository, in another workspace.
+	Object.assign(paneOf("wB:p9"), { cwd: tmpdir() });
 	named("beta");
 	const other = await towerOpener()({ ...car(), project: "beta" });
 	assert.equal(other.repeated, undefined);
@@ -390,4 +391,71 @@ test("one integrator per project across workspaces: two towers' openers that tak
 	assert.deepEqual(failed.map((f) => f.status), ["rejected", "rejected"]);
 	pis();
 	assert.equal((await b(car())).repeated, undefined);
+});
+
+// --- a project that already runs integrators of its own (0.73: the boss's, one per app) ---------------------------------------------------------------------------------------
+
+/** A live main of kind integrator under `name`, in `pane`: the boss opened it, so no tower marked its pane. */
+async function bossIntegrator(id: string, name: string, pane: string, cwd?: string) {
+	world.herdr.addTab(`${pane.split(":")[0]}:t${pane.split(":p")[1]}`, name, pane);
+	const a = world.agent({ id, name, pane });
+	await a.start();
+	await a.promote();
+	await a.tool("boss_duty", { duty: "integrator", reason: "the boss's own" });
+	await world.quiet();
+	assert.equal(paneOf(pane).tokens.sb_duty, "integrator");
+	if (cwd !== undefined) Object.assign(paneOf(pane), { cwd });
+	return a;
+}
+
+test("a project that already runs integrators under names of their own keeps them: the door opens nothing and names each, wherever in the workspace or the checkout it works; they are never two of one project and take none of the tower's two places", async () => {
+	pis();
+	await net();
+	// Like the boss's MP Center: one integrator per app, in the tower's workspace; one works in its app's own repository below the checkout.
+	mkdirSync(join(dir, "apps", "web", ".git"), { recursive: true });
+	await bossIntegrator("integ-fe2", "integ FE2", "wA:p31", dir);
+	await bossIntegrator("integ-v3", "integ v3", "wA:p32", join(dir, "apps", "web"));
+	const open = towerOpener();
+	await assert.rejects(open(car()), (error: Error) => {
+		assert.equal(error.constructor.name, "ForwardAsBefore");
+		assert.deepEqual((error as unknown as { mains: unknown }).mains, [{ id: "integ-fe2", name: "integ FE2" }, { id: "integ-v3", name: "integ v3" }]);
+		assert.match(error.message, /Project acme already runs 2 integrators of its own, opened before this door and not by it: integ FE2 \(session integ-fe2\), integ v3 \(session integ-v3\)\. Nothing opens beside them and the door picks none: the slip of app web goes to the one that runs that app's trains, forwarded as before\./);
+		return true;
+	});
+	await assert.rejects(open({ ...car(), project: undefined }), /already runs 2 integrators of its own/);
+	assert.deepEqual(tabs(), []);
+	assert.deepEqual(handed, []);
+	// One of them is named after the project as well: still the boss's set, and the door picks none of the three.
+	await bossIntegrator("integ-acme", "integ acme", "wA:p33", dir);
+	await assert.rejects(open(car()), /already runs 3 integrators of its own.*integ acme \(session integ-acme\)/);
+	assert.deepEqual(tabs(), []);
+});
+
+test("which mains are a project's own integrators: one in another workspace counts only when it works in this checkout; a coordinator, a peer's main, and a tower-marked integrator are none, and the door opens beside them", async () => {
+	pis();
+	await net();
+	const other = realpathSync(mkdtempSync(join(tmpdir(), "psb-integ-kept-")));
+	try {
+		mkdirSync(join(other, ".git"));
+		// Another repository's integrator in another workspace, a coordinator in this one, and a main opened for a teammate's device that declared the kind: none of them is this project's.
+		await bossIntegrator("their-integ", "integ theirs", "wB:p31", other);
+		const coordinator = await bossIntegrator("was-integ", "integ old", "wA:p32", dir);
+		await coordinator.tool("boss_duty", { duty: "coordinator", reason: "testing" });
+		await bossIntegrator("peer-integ", "integ peer", "wA:p33", dir);
+		paneOf("wA:p33").tokens.sb_opened_by = `link:${"a".repeat(26)}`;
+		await world.quiet();
+		const open = towerOpener(), first = await open(car());
+		assert.equal(first.repeated, undefined);
+		assert.equal(paneOf(first.pane).tokens.sb_opened_by, "integ:acme");
+		// The tower's own (marked) integrator is the door's: the next slip goes to it.
+		assert.deepEqual(await open(car({ head: SHA_B })), { ...first, repeated: true });
+		assert.equal(tabs().length, 1);
+		// The other workspace's integrator moves into this checkout: now the project runs one of its own, and the door forwards to neither.
+		mkdirSync(join(dir, "apps", "web", ".git"), { recursive: true }); // an app's own repository below the checkout
+		Object.assign(paneOf("wB:p31"), { cwd: join(dir, "apps", "web") });
+		await assert.rejects(open(car({ head: SHA_C })), /Project acme already runs an integrator of its own, opened before this door and not by it: integ theirs \(session their-integ\)\. Nothing opens beside it and the door picks none/);
+		assert.equal(tabs().length, 1);
+	} finally {
+		rmSync(other, { recursive: true, force: true });
+	}
 });

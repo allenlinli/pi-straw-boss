@@ -59,3 +59,24 @@ export function liveIntegrator(everywhere: readonly Pane[], sessions: readonly S
 	if (live.size > 1) return { refusal: `Project ${project} has ${live.size} integrators (${[...live.keys()].map((id) => `session ${id}`).join(", ")}); a project has one, so the slip goes to neither. The boss closes one.` };
 	return [...live.values()][0];
 }
+
+/**
+ * The integrators a project already runs under names of their own, which the door leaves alone (0.73 and before: the boss, or a tower on a request, opened a main of kind integrator per app, such as `integ FE2` and `integ v3`
+ * in one checkout). They are the live mains of kind integrator that `mine` places in the project (the tower's workspace, or its checkout), which no tower marked as a project's integrator and which were not opened for a teammate's device.
+ */
+export function keptIntegrators(everywhere: readonly Pane[], sessions: readonly Session[], mine: (pane: Pane) => boolean): { session: Session; pane: Pane }[] {
+	return sessions.flatMap((session) => {
+		const pane = everywhere.find((p) => p.pane_id === session.herdrLocation?.paneId), by = pane?.tokens?.sb_opened_by;
+		return pane && pane.tokens?.sb_role === "main" && pane.tokens.sb_duty === INTEGRATOR && !by?.startsWith("link:") && !by?.startsWith(MARK) && mine(pane) ? [{ session, pane }] : [];
+	});
+}
+
+/** The door's refusal where a project runs such integrators: nothing opens beside them and the door picks none, so the tower forwards the slip as it did before the door (`tower_reply` with `forward`; server/runtools.ts adds the event id). */
+export class ForwardAsBefore extends Error {
+	readonly mains: readonly { id: string; name: string }[];
+	constructor(project: string, apps: readonly string[], mains: readonly { id: string; name: string }[]) {
+		const one = mains.length === 1;
+		super(`Project ${project} already runs ${one ? "an integrator" : `${mains.length} integrators`} of its own, opened before this door and not by it: ${mains.map((m) => `${m.name} (session ${m.id})`).join(", ")}. Nothing opens beside ${one ? "it" : "them"} and the door picks none: the slip of app${apps.length === 1 ? "" : "s"} ${apps.join(", ")} goes to the one that runs ${apps.length === 1 ? "that app's" : "those apps'"} trains, forwarded as before.`);
+		this.mains = mains;
+	}
+}

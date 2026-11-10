@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { checkStages, parseAppAccept } from "./accept.ts";
-import { isObject } from "./spec.ts";
+import { isName, isObject } from "./spec.ts";
 
 // What the code reads of an app in `.straw-boss/apps.json` before it lets a car depart (docs/specs/2026-11-07-train-workers.md §14, TB-F001, TB-F002): the kinds of acceptance the app requires (`integration.accept`) and its `stages`, which may no longer list
 // `uat`. The integrator's guard, the train's manifest check, the train open and `train check` all read it here, so the requirement is the file's and not a flag a model passes. A file or an app that cannot be read is a refusal naming the file, never an empty list.
@@ -83,4 +83,31 @@ export function openRefusal(dir: string, app: string | undefined): string | unde
 	const named = app === undefined ? read.apps : read.apps.filter((a) => a.name === app);
 	const out = named.flatMap((a) => (isObject(a.integration) ? integrationRefusals(read.file, String(a.name), a.integration) : []));
 	return out.length ? `sb: ${out.join("; ")}` : undefined;
+}
+
+/** The repository `dir` is a checkout of, as its main checkout's real folder: a linked worktree's `.git` is a file naming its git dir, whose `commondir` leads to the repository's own `.git`. Two worktrees of one repository answer the same; anything else answers its git root. */
+export function repoRoot(dir: string): string {
+	const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
+	const root = gitRoot(dir), dot = join(root, ".git");
+	try {
+		if (!statSync(dot).isFile()) return real(root);
+		const gitdir = resolve(root, /^gitdir:\s*(.+)$/m.exec(readFileSync(dot, "utf8"))![1]!.trim()), common = resolve(gitdir, readFileSync(join(gitdir, "commondir"), "utf8").trim());
+		return real(basename(common) === ".git" ? dirname(common) : common);
+	} catch { return real(root); }
+}
+
+export type CheckoutProject = { ok: true; project: string; /** Where the name is from, in words. */ from: string; file: string } | { ok: false; refusal: string };
+
+/**
+ * The project of the checkout at `dir`, as its integrator is named (`integ <project>`): the top-level `integration.project` of its apps.json, else the folder name of its repository (R151-F002). The code reads it, so a checkout
+ * has one project whatever a caller words, and a slip of its apps reaches no other project's integrator. Fails closed: a file that cannot be read, a `project` that is no path-safe name, and a folder name that is none are refusals.
+ */
+export function checkoutProject(dir: string): CheckoutProject {
+	const { file } = appsFile(dir);
+	let config: unknown;
+	try { config = JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, "")); } catch (error) { return { ok: false, refusal: `sb: ${file} cannot be read (${(error as Error).message}), so the project of this checkout is unknown` }; }
+	const integration = isObject(config) ? config.integration : undefined, named: unknown = isObject(integration) ? integration.project : undefined, shown = String(JSON.stringify(named)).slice(0, 80);
+	if (named !== undefined) return isName(named) ? { ok: true, project: named, from: `integration.project in ${file}`, file } : { ok: false, refusal: `sb: ${file}: integration.project must be a path-safe name, not ${shown}` };
+	const folder = basename(repoRoot(dir)), odd = folder.slice(0, 80);
+	return isName(folder) ? { ok: true, project: folder, from: `the folder name of its repository; ${file} names no integration.project`, file } : { ok: false, refusal: `sb: ${file} names no integration.project, and the folder name of its repository (${odd}) is not a path-safe name: set integration.project` };
 }

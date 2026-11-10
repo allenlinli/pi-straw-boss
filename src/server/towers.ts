@@ -1138,6 +1138,7 @@ export function createTowers(o: TowersOptions): Towers {
 			...(l.open ? { openIntegrator: l.open } : {}),
 			noteForward: (f: { fwd: string; from: string; to: string[]; text: string }) => { try { o.cars?.noteForward(f); } catch (cause) { error("cars", (cause as Error).message); } },
 			headAsked: (id: string) => asked(slot, now(), ws, id), openedFor: (session: string) => openedFor(slot, ws, session, now()),
+			openedAnywhere: (session: string) => [ws, ...[...services.values()].map((x) => x.record.workspace)].map((w) => openedFor(slot, w, session, now())).find((d) => d !== undefined),
 			...(who.team && o.ally?.project(who.team) ? { project: o.ally.project(who.team)! } : {}),
 			isTower: async (query: string) => {
 				// A tower identity of this server by its id or name, whether or not the broker lists it just now; or any session whose pane is a tower's (a resident tower of the previous build).
